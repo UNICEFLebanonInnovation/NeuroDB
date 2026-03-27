@@ -1,0 +1,1230 @@
+{% extends "baseV2.html" %}
+
+{% load static humanize i18n %}
+{% block extra_style %}
+
+<link rel="stylesheet" type="text/css" href="{% static 'vendors/pivottable/dist/pivot.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/bootstrap-slider/css/bootstrap-slider.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/select2-bootstrap4-theme/select2-bootstrap4.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/bs-stepper/css/bs-stepper.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-bs4/css/dataTables.bootstrap4.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-responsive/css/responsive.bootstrap4.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-buttons/css/buttons.bootstrap4.min.css' %}"/>
+
+<link rel="stylesheet" href="{% static 'adminlte/dist/css/adminlte.min.css' %}"/>
+<!-- <script src="https://maps.googleapis.com/maps/api/js?sensor=false&libraries=geometry,drawing&ext=.js"></script> -->
+<script
+  src="https://maps.googleapis.com/maps/api/js?libraries=geometry,drawing&key=AIzaSyAWqoVFOb_f1lsy3tfKmmpv-ESuU-gSZNA"></script>
+
+<script src="https://polyfill.io/v3/polyfill.js?features=default"></script>
+<style>
+  #map {
+    height: 100%;
+  }
+
+  /* active (faded) */
+  .nav-pills .nav-link:is(.active) {
+    background-color: slateblue;
+  }
+</style>
+
+{% endblock extra_style %}
+
+{% block project_title %} {% endblock project_title %}
+{% block content %}
+<section class="content-header">
+  <div class="container-fluid">
+    <div class="row">
+      <div class="d-flex col-12">
+        <div class="p-1 align-middle">
+          <a href="javascript:history.back()" class="btn btn-light">
+            <i class="fa fa-angle-double-left" aria-hidden="true"></i>
+          </a>
+        </div>
+        <div>
+          <h1> Donor Mapping and Analysis</h1>
+          <p>
+            <!-- <i class="far fa-arrow-alt-circle-down"> -->
+            <i>
+              Last Update: {{last_update}}
+            </i>
+          </p>
+        </div>
+        <div class="ml-auto">
+
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="content" style="display: none;">
+  <div class="container-fluid">
+    <div id="filters" class="card bg-gradient-info">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fa fa-filter mr-1"> </i> Filters <span></span> </h3>
+        <div class="card-tools">
+          <button type="button" class="btn btn-tool" data-card-widget="collapse">
+            <i class="fas fa-minus"></i>
+          </button>
+
+        </div>
+      </div>
+      <div class="card-body p-1">
+        <form id="filterForm" action="{% url 'pivoting:donor-dashboard' %}" method="get">
+          <div class="row">
+            <div class="col-lg-3 col-6">
+              <label for="filter_donors" class="">Donors</label>
+              <select id="filter_donors" name="filter_donors" class="select2" multiple="multiple"
+                data-placeholder="All Donors" data-dropdown-css-class="select2-purple" style="width:100%;">
+                {% for donor in donors %}
+                <option value="{{ donor }}">
+                  {{ donor }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-lg-3 col-6">
+              <label for="filter_partners" class="">Partners</label>
+              <select id="filter_partners" class="select2" multiple="multiple" data-dropdown-css-class="select2-purple"
+                style="width: 100%" data-placeholder="All Partners" name="filter_partners">
+                {% for partner in partners %} <option value="{{ partner }}">
+                  {{ partner }}
+                </option> {% endfor %} </select>
+            </div>
+            <div class="col-lg-3 col-6">
+              <label for="filter_sections" class="">Sections</label>
+              <select id="filter_sections" class="select2" multiple="multiple" data-dropdown-css-class="select2-purple"
+                style="width: 100%;" data-placeholder="All Sections" name="filter_sections">
+                {%for section in sections%} <option value="{{section}}">
+                  {{section}}
+                </option> {% endfor %} </select>
+              </div>
+              <div class="col-lg-3 col-6">
+              <label for="filter_offices" class="">Offices</label>
+              <select multiple="multiple" id="filter_offices" class="select2" data-dropdown-css-class="select2-purple"
+                style="width: 100%;" data-placeholder="All Offices" name="filter_offices"> {% for office in offices %}
+                <option value="{{ office }}">
+                  {{ office }}
+                </option> {% endfor %}
+              </select>
+            </div>
+            <div class="col-lg-3 col-6">
+              <label for="filter_statuses" class="">Program Status</label>
+              <select multiple="multiple" id="filter_statuses" class="select2" data-dropdown-css-class="select2-purple"
+                style="width: 100%;" data-placeholder="Any Status" name="filter_statuses">
+                {% for status in statuses %}
+                <option value="{{ status }}">
+                  {{ status }}
+                </option> {% endfor %}
+              </select>
+            </div>
+            <div class="col-lg-3 col-6">
+              <label for="filter_pca" class="">PD Numbers</label>
+              <select multiple="multiple" id="filter_pca" class="select2" data-dropdown-css-class="select2-purple"
+                style="width: 100%;" data-placeholder="All PDs" name="filter_pca"> {% for pca in pca_numbers %}
+                <option value="{{ pca }}">
+                  {{ pca }}
+                </option> {% endfor %}
+              </select>
+            </div>
+            <div class="col-lg-3 col-6">
+              <label for="filter_pca" class="">Grants</label>
+              <select multiple="multiple" id="filter_grants" class="select2" data-dropdown-css-class="select2-purple"
+                style="width: 100%;" data-placeholder="All Grants" name="filter_grants"> {% for grant in grants %}
+                <option value="{{ grant }}">
+                  {{ grant }}
+                </option> {% endfor %}
+              </select>
+            </div>
+            <div class="col-lg-3 col-6">
+              <label for="years" class="">Period</label>
+              <div class="pl-3 pr-3">
+                <input name="years" id="years" type="text" value="" class="slider form-control"
+                  data-slider-min={{start_year}} data-slider-max={{current_year}} data-slider-step="1"
+                  data-slider-value="[{{start_year}},{{current_year}}]" data-slider-orientation="horizontal"
+                  data-slider-selection="before" data-slider-tooltip="show">
+              </div>
+            </div>
+            <div class="col-lg-3 col-6">
+              <br>
+              <button type="button" class="btn btn-outline-light btn-block" onClick="GetAllData();"><i
+                  class="fa fa-filter"></i> Apply filters</button>
+            </div>
+            <div class="col-lg-3 col-6">
+              <br>
+              <button type="button" class="btn btn-outline-default btn-block js-programmatic-multi-clear">Clear all
+                filters</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+    <hr />
+    <div id="loading"></div>
+    
+    <div id="funded_programs" class="card card-info datacard">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-th mr-1"> </i> Funded Programs</h3>
+        <div class="card-tools">
+          <button type="button" class="btn btn-tool" data-card-widget="collapse">
+            <i class="fas fa-minus"></i>
+          </button>
+        </div>
+      </div>
+      <div class="card-body p-1">
+        <div class="row">
+          <div class="col-lg-9 d-flex justify-content-center text-sm">
+            <table id="tableFundedPrograms" class="display table table-bordered table-striped table-responsive"
+              style="width: 100%; height: 550px;"></table>
+          </div>
+          <div class="col-lg-3 align-self-center">
+            <div class="info-box mb-3 bg-info">
+              <span class="info-box-icon"><i class="fas fa-tag"></i></span>
+              <div class="info-box-content">
+                <span class="info-box-text">Number of PDs</span>
+                <span class="info-box-number" id="funded_programs_count"></span>
+              </div>
+            </div>
+            <div class="info-box mb-3 bg-info">
+              <span class="info-box-icon"><i class="far fa-heart"></i></span>
+              <div class="info-box-content">
+                <span class="info-box-text">Total Funds Received in USD</span>
+                <span class="info-box-number" id="total_donations"></span>
+              </div>
+            </div>
+
+            <div class="info-box mb-3 bg-info">
+              <span class="info-box-icon"><i class="fas fa-thumbtack"></i></span>
+              <div class="info-box-content">
+                <span class="info-box-text">Planned Locations/Cadasters (Etools)</span>
+                <span class="info-box-number" id="planned_locations_count"></span>
+                <span class="info-box-number" id="planned_locations_count_unique"> </span>
+              </div>
+
+            </div>
+
+            <!-- <div class="info-box mb-3 bg-info">
+              <span class="info-box-icon"><i class="far fa-comment"></i></span>
+              <div class="info-box-content">
+                <span class="info-box-text"># Interventions</span>
+                <span class="info-box-number" id="total_interventions"></span>
+              </div>
+            </div> -->
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="distribution" class="card card-info datacard">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-chart-pie mr-1"> </i> Distribution of Funds Since 2014</h3>
+        <div class="card-tools">
+          <button type="button" class="btn btn-tool" data-card-widget="collapse">
+            <i class="fas fa-minus"></i>
+          </button>
+        </div>
+      </div>
+      <div class="card-body p-1">
+        <div class="row">
+          <div class="col-lg-4 col-6">
+            <div class="card">
+              <div class="card-header">
+                <h3 class="card-title">Donors</h3>
+                <div class="card-tools">
+                  <ul class="nav nav-pills ml-auto">
+                    <li class="nav-item">
+                      <a class="nav-link" href="#donors-table" data-toggle="tab"><i class="fa fa-th"></i></a>
+                    </li>
+                    <li class="nav-item">
+                      <a class="nav-link active" href="#donors-chart" data-toggle="tab"><i
+                          class="fas fa-chart-pie"></i></a>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="tab-content p-0">
+                  <div class="chart tab-pane" id="donors-table" style="position: relative; height: 300px;">
+                    <table id="tableDonors" class="display table table-responsive table-sm"
+                      style="width: 100%; height: 400px; overflow:scroll" width="100%"></table>
+                  </div>
+                  <div class="chart tab-pane active" id="donors-chart" style="position: relative; height: 300px;">
+                    <canvas id="donorsChart"
+                      style="min-height: 250px; height: 250px; max-height: 250px; max-width: 100%;"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-lg-4 col-6">
+            <div class="card">
+              <div class="card-header">
+                <h3 class="card-title">Partners</h3>
+                <div class="card-tools">
+                  <ul class="nav nav-pills ml-auto">
+                    <li class="nav-item">
+                      <a class="nav-link active" href="#partners-table" data-toggle="tab"><i class="fa fa-th"></i></a>
+                    </li>
+                    <li class="nav-item">
+                      <a class="nav-link" href="#partners-chart" data-toggle="tab"><i class="fas fa-chart-pie"></i></a>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="tab-content p-0">
+                  <div class="chart tab-pane active" id="partners-table" style="position: relative; height: 300px;">
+                    <table id="tablePartners" class="display table table-responsive table-sm"
+                      style="width: 100%; height: 400px; overflow:scroll" width="100%"></table>
+                  </div>
+                  <div class="chart tab-pane" id="partners-chart" style="position: relative; height: 300px;">
+                    <canvas id="partnersChart"
+                      style="min-height: 250px; height: 250px; max-height: 250px; max-width: 100%;"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+          <div class="col-lg-4 col-6">
+            <div class="card">
+              <div class="card-header">
+                <h3 class="card-title">Sections</h3>
+                <div class="card-tools">
+                  <ul class="nav nav-pills ml-auto">
+                    <li class="nav-item">
+                      <a class="nav-link" href="#sections-table" data-toggle="tab"><i class="fa fa-th"></i></a>
+                    </li>
+                    <li class="nav-item">
+                      <a class="nav-link active" href="#sections-chart" data-toggle="tab"><i
+                          class="fas fa-chart-pie"></i></a>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="tab-content p-0">
+                  <div class="chart tab-pane" id="sections-table" style="position: relative; height: 300px;">
+                    <table id="tableSections" class="display table table-responsive table-sm"
+                      style="width: 100%; height: 400px; overflow:scroll" width="100%"></table>
+                  </div>
+                  <div class="chart tab-pane active" id="sections-chart" style="position: relative; height: 300px;">
+                    <canvas id="sectionsChart"
+                      style="min-height: 250px; height: 250px; max-height: 250px; max-width: 100%;"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="reported_indicators" class="card card-info datacard">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-th mr-1"> </i> Reported Indicators in ActivityInfo 
+          <!-- <span title=""  class="badge badge-info text-xs">[defined for current year databases]</span>  -->
+        </h3>
+        <div class="card-tools">
+          
+          <button type="button" class="btn btn-tool" data-card-widget="collapse">
+            <i class="fas fa-minus"></i>
+          </button>
+
+        </div>
+      </div>
+      <div class="card-body p-1">
+        <div id="reported_indicators_loading"></div>
+        <div class="row" id="reported_indicators_body">
+          <div class="col-lg-9  d-flex justify-content-center text-sm">
+            <table id="tableReportedIndicators" class="display table table-bordered table-striped table-responsive"
+              style="width: 100%; height: 550px;"></table>
+          </div>
+          <div class="col-lg-3 align-self-center">
+            <!-- <div class="btn-group btn-group-toggle float-right mr-5 mt-5 mb-5" data-toggle="buttons">
+              {% for ry in reporting_years %}
+              <label class="btn bg-info {% if ry.current %} active {% endif %}" data-toggle="tooltip" data-placement="top"
+              title="" >
+                <input type="radio" name="reporting_year" value="{{ ry.id }}" onChange="getReportedIndicators()"
+                  autocomplete="off" {% if ry.current %} checked {% endif %}> {{ ry.name }}
+              </label>
+              {% endfor %}
+            </div> -->
+            <div class="info-box mb-3 bg-warning">
+              <span class="info-box-icon"><i class="fas fa-tag"></i></span>
+              <div class="info-box-content">
+                <span class="info-box-text"># Indicators</span>
+                <span class="info-box-number" id="reported_indicators_count"></span>
+              </div>
+            </div>
+
+            <div class="info-box mb-3 bg-warning">
+              <span class="info-box-icon"><i class="far fa-heart"></i></span>
+              <div class="info-box-content">
+                <span class="info-box-text"># Interventions</span>
+                <span class="info-box-number" id="total_interventions"></span>
+              </div>
+            </div>
+
+            <div class="info-box mb-3 bg-warning">
+              <span class="info-box-icon"><i class="fas fa-thumbtack"></i></span>
+              <div class="info-box-content">
+                <span class="info-box-text"># Unique Locations:</span>
+                <span class="info-box-number" id="unique_locations_count"></span>
+                <!-- <span class="info-box-number" id="reached_locations_count_unique"> </span> -->
+              </div>
+
+            </div>
+        </div>
+        </div>
+      </div>
+    </div>
+    <div id="location" class="card card-info datacard">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-thumbtack"></i> Planned Vs. Exact Locations of Interventions</h3>
+        <div class="card-tools">
+          <button type="button" class="btn btn-tool" data-card-widget="collapse">
+            <i class="fas fa-minus"></i>
+          </button>
+        </div>
+      </div>
+      <div class="card-body p-1">
+        <div class="row">
+          <div class="col-md-3 col-3 align-self-center">
+            <div class="form-group">
+              
+              <button type="button" class="btn xbtn-tool btn-primary mb-5" id="reset_state">
+                <i class="fas fa-home"></i>Reset </button>
+              <div class="custom-control custom-switch  custom-switch-on-danger">
+                <input type="checkbox" class="custom-control-input" id="pSwitch" checked
+                  onclick="drawMapInterventions();"/>
+                <label class="custom-control-label text-nowrap" for="pSwitch">Planned Locations/Cadasters (Etools)</label>
+              </div>
+              <div class="custom-control custom-switch  custom-switch-on-primary">
+                <input type="checkbox" class="custom-control-input" id="dSwitch" 
+                  onclick="drawMapInterventions();"/>
+                <label class="custom-control-label text-nowrap" for="dSwitch">Intervention Locations (AI)</label>
+              </div>
+              <div class="custom-control custom-switch  custom-switch-on-primary">
+                <input type="checkbox" class="custom-control-input" id="zSwitch" checked
+                  onclick="drawMapInterventions();"/>
+                <label class="custom-control-label" for="zSwitch">Districts</label>
+              </div>
+              <div class="custom-control custom-switch  custom-switch-on-primary">
+                <input type="checkbox" class="custom-control-input" id="gSwitch" checked
+                  onclick="drawMapInterventions();"/>
+                <label class="custom-control-label" for="gSwitch">Governorates</label>
+              </div>
+            </div>
+
+
+          </div>
+          <div class="col-md-9 col-9">
+            <div id="map" style="width: 100%; height: 700px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="history" class="card card-info datacard">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fa fa-calendar" aria-hidden="true"></i> Donors Funding History in USD </h3>
+        <div class="card-tools">
+          <button type="button" class="btn btn-tool" data-card-widget="collapse">
+            <i class="fas fa-minus"></i>
+          </button>
+
+        </div>
+      </div>
+      <div class="card-body p-1">
+        <div id="card1" style="width: 100%; height: 600px;" class="d-flex justify-content-center"></div>
+      </div>
+    </div>
+    <div id="pivoting" class="card card-info datacard" style="position: relative;">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fa fa-eye" aria-hidden="true"></i> Donor Funding Highlights </h3>
+        <div class="card-tools">
+          <button type="button" class="btn btn-tool" data-card-widget="collapse">
+            <i class="fas fa-minus"></i>
+          </button>
+        </div>
+      </div>
+      <div class="card-body p-1">
+        <div id="insights" class="d-flex "></div>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock content %}
+
+{% block extra_js %}
+
+<script src="https://cdn.plot.ly/plotly-basic-latest.min.js"></script>
+<script src="{% static 'vendors/pivottable/dist/pivot.js' %}"></script>
+<script src="{% static 'vendors/pivottable/dist/plotly_renderers.js' %}"></script>
+
+<script src="{% static 'adminlte/plugins/datatables/jquery.dataTables.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-bs4/js/dataTables.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-responsive/js/dataTables.responsive.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-responsive/js/responsive.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/dataTables.buttons.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/jszip/jszip.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/pdfmake.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/vfs_fonts.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.html5.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.print.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.colVis.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/select2/js/select2.full.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/chart.js/Chart.min.js' %}"></script>
+<script type="text/javascript" src="https://cdn.datatables.net/plug-ins/1.10.24/dataRender/ellipsis.js"></script>
+
+<script src="{% static 'adminlte/dist/js/adminlte.js' %}"></script>
+<script src="{% static 'adminlte/plugins/bootstrap-slider/bootstrap-slider.min.js' %}"></script>
+
+
+{% comment %} global variables {% endcomment %}
+<script>
+  var udata = []
+  var reported_indicators = []
+  var funded_programs = []
+  var planned_locations = []
+  var master_indicators = []
+  var planned_locations_cadasters = []
+  var interventions_per_governorates_codes = []
+  var interventions_per_cazas_codes = []
+  var interventions_per_cadastrals_codes = []
+  var spinner = `
+  <div class="hold-transition lockscreen">
+      <div class="spinner-border text-primary" role="status">
+      <span class="visually-hidden">Loading...</span>
+    </div>
+    </div>    
+  `
+
+  $(function () {
+    $('[data-toggle="tooltip"]').tooltip()
+  })
+
+  var nodata = `
+  <div class="hold-transition lockscreen">
+    <div class="lockscreen-wrapper">
+    <div class="lockscreen-logo">
+    </div>
+    <div class="help-block text-center">
+    No Data was found for the current selection criteria.
+    </div>
+    <div class="text-center">
+    <p> Please adjust the filters and try again.</p>
+    </div>
+    </div>
+    </div>    
+  `
+
+  const table_options = {
+    searching: false,
+    paging: false,
+    bInfo: false,
+    order: [[1, 'desc']],
+    "responsive": true,
+    "lengthChange": false,
+    "autoWidth": false,
+    columns: [{ title: 'Name' }, { title: 'Funds in USD', className: "text-right" },],
+    columnDefs: [{ targets: 1, render: $.fn.dataTable.render.number(',', '.', 0, '') },],
+  }
+
+  var derivers = $.pivotUtilities.derivers;
+  var renderers = $.extend($.pivotUtilities.renderers, $.pivotUtilities.plotly_renderers);
+  var sum = $.pivotUtilities.aggregatorTemplates.sum;
+  var numberFormat = $.pivotUtilities.numberFormat;
+  var intFormat = numberFormat({ digitsAfterDecimal: 0 });
+
+  const hiddenFromDragDrop = ["Actual_Amount", "All_Currencies_Are_Consistent", "Budget_Currency", "Country_Programme", "Cso_Contribution", "Document_Type", "Fr_Currencies_Are_Consistent", "Fr_Currency", "Fr_Number", "Frs_Total_Frs_Amt", "Frs_Total_Intervention_Amt", "Frs_Total_Outstanding_Amt", "Id", "Location_P_Codes", "Multi_Curr_Flag", "Number", "Planned_Budget", "Project_Type", "Running", "Title", "Total_Budget", "Total_Unicef_Budget", "Unicef_Cash",];
+
+  const hiddenAttributes = ["Actual_Amount", "All_Currencies_Are_Consistent", "Budget_Currency", "Country_Programme", "Cso_Contribution", "Document_Type", "Fr_Currencies_Are_Consistent", "Fr_Currency", "Fr_Number", "Frs_Total_Frs_Amt", "Frs_Total_Intervention_Amt", "Frs_Total_Outstanding_Amt", "Id", "Location_P_Codes", "Multi_Curr_Flag", "Number", "Planned_Budget", "Project_Type", "Running", "Title", "Total_Budget", "Total_Unicef_Budget", "Unicef_Cash",];
+
+  var tpl = $.pivotUtilities.aggregatorTemplates;
+
+  var mapping_subject = ""
+  var mapping_style = ""
+
+  var geocoder;
+  var map;
+  var polygons = [];
+  var map_options = {
+    zoom: 9,
+    center: new google.maps.LatLng(33.8463, 35.9020),
+    mapTypeId: google.maps.MapTypeId.ROADMAP, //ro
+    options: {gestureHandling: 'greedy'}
+  }
+
+  function groupByArray(xs, key) {
+    return xs.reduce(function (rv, x) { let v = key instanceof Function ? key(x) : x[key]; let el = rv.find((r) => r && r.key === v); if (el) { el.values.push(x); } else { rv.push({ key: v, values: [x] }); } return rv; }, []);
+  }
+
+  function getTopN(dict, top) {
+    // Create donors array for pie chart
+    var as_array = Object.keys(dict).map(function (key) {
+      return [key, dict[key]];
+    });
+    // Sort the array based on the second element to get top donors
+    as_array.sort(function (first, second) {
+      return second[1] - first[1];
+    });
+    top_array = as_array.slice(0, top)
+    let others = as_array.slice(top + 1)
+    let others_value = 0
+    for (var i = 0; i < others.length; i++) {
+      others_value += others[i][1]
+      // console.log(others_value)
+    }
+    top_array.push(['Others', others_value])
+    
+    return top_array
+  }
+
+  function pinSymbol(color, pcount) {
+    return {
+      path: 'M 0,0 C -2,-20 -10,-22 -10,-30 A 10,10 0 1,1 10,-30 C 10,-22 2,-20 0,0 z',
+      fillColor: color,
+      fillOpacity: 1 - (1 / pcount),
+      strokeColor: '#000',
+      strokeWeight: 0,
+      scale: 0.5
+    };
+  }
+
+  function circleSymbol(item) {
+    return {
+      path: "M-10,0a10,10 0 1,0 20,0a10,10 0 1,0 -20,0",
+      fillColor: '#ff0000',
+      fillOpacity: 0.8, // - (0.6/Math.sqrt(Math.sqrt(item['interventions']))),
+      anchor: new google.maps.Point(0, 0),
+      strokeWeight: 0,
+      scale: 1 - (1 / Math.sqrt(Math.sqrt(item['pcount'])))
+    }
+  }
+
+  function circleSymbolI(item) {
+    return {
+      path: "M-10,0a10,10 0 1,0 20,0a10,10 0 1,0 -20,0",
+      fillColor: '#0000FF',
+      fillOpacity: 0.8, // - (0.6/Math.sqrt(Math.sqrt(item['interventions']))),
+      anchor: new google.maps.Point(0, 0),
+      strokeWeight: 0,
+      scale: 1 - (1 / Math.sqrt(Math.sqrt(item['locations'])))
+    }
+  }
+
+  function drawMapInterventions() {
+
+    map = new google.maps.Map(document.getElementById('map'), map_options);
+
+    let plocations = []
+
+    var infowindow = new google.maps.InfoWindow();
+    var marker, i, myPolygon
+
+    let ilocations = []
+    let clocations = []
+    let paths = []
+    let jpaths = []
+    if (document.getElementById("gSwitch").checked) {
+      clocations.push(...interventions_per_governorates_codes)
+    }
+    if (document.getElementById("zSwitch").checked) {
+      clocations.push(...interventions_per_cazas_codes)
+    }
+    if (document.getElementById("dSwitch").checked) {
+      clocations.push(...interventions_per_cadastrals_codes)
+    }
+
+    {% comment %} if (document.getElementById("pSwitch").checked) {
+      plocations = planned_locations
+      for (i = 0; i < plocations.length; i++) {
+        marker = new google.maps.Marker({
+          position: new google.maps.LatLng(plocations[i]['latitude'], plocations[i]['longitude']),
+          map: map,
+          icon: circleSymbol(plocations[i]),
+        });
+        google.maps.event.addListener(marker, 'click', (function (marker, i) {
+          return function () {
+            infowindow.setContent(plocations[i]['name'] + ', programs#: ' + plocations[i]['pcount']);
+            infowindow.open(map, marker);
+          }
+        })(marker, i));
+      }
+    } {% endcomment %}
+
+    var editedPolygons = []
+    if (document.getElementById("pSwitch").checked) {
+    for (i = 0; i < planned_locations_cadasters.length; i++) {
+      paths = planned_locations_cadasters[i]['paths']
+      jpaths = []
+      for (k = 0; k < paths.length; k++) {
+        let point = JSON.parse(paths[k])
+        jpaths.push({ "lat": point[1], "lng": point[0] })
+      }
+      const contentString =
+        '<div class="info-box-content bg-info p-1" id="content" style="width:250px;">' +
+        '<p class="info-box-text font-weight-bold mb-0">Cadaster - ' + planned_locations_cadasters[i]['location_name'] + '</p>' +
+        '<p class="info-box-number mb-0" >Programs: ' + planned_locations_cadasters[i]['pcount'] + '</p>' +
+      '</div>';
+
+      editedPolygons.push([jpaths, { "color": "red", "title": contentString }])
+    }
+    }
+    for (i = 0; i < clocations.length; i++) {
+      paths = clocations[i]['paths']
+      jpaths = []
+      for (var k = 0; k < paths.length; k++) {
+        let point = JSON.parse(paths[k])
+        jpaths.push({ "lat": point[1], "lng": point[0] })
+      }
+      let prefix = ''
+      if (clocations[i]['type'] == 'cadaster'){
+        prefix = 'Cadaster - '
+      }
+      const contentString =
+        '<div class="info-box-content bg-info p-1" id="content" style="width:250px;">' +
+        '<p class="info-box-text font-weight-bold mb-0">'+ prefix + clocations[i]['location_name'] + '</p>' +
+        '<p class="info-box-number mb-0" >Locations: ' + clocations[i]['locations'] + '</p>' +
+        '<p class="info-box-number mb-0" >Interventions: ' + clocations[i]['interventions'] + '</p>' +
+        '<p class="info-box-number mb-0" >Values: ' + clocations[i]['indicator_values'] + '</p>'
+      '</div>';
+      if (clocations[i]['type'] == 'cadaster'){
+        editedPolygons.push([jpaths, { "color": "blue", "title": contentString }])
+      } else {
+        editedPolygons.push([jpaths, { "color": "white", "title": contentString }])
+      }
+    }
+
+    var bounds = new google.maps.LatLngBounds();
+    for (var ei = 0; ei < editedPolygons.length; ei++) {
+      var poly = new google.maps.Polygon({
+        fillColor: editedPolygons[ei][1].color,
+        strokeWeight: 0.5,
+        path: editedPolygons[ei][0],
+        map: map
+      });
+      for (var pathidx = 0; pathidx < poly.getPath().getLength(); pathidx++) {
+        bounds.extend(poly.getPath().getAt(pathidx));
+      }
+      // store the computed center as a property of the polygon for easy access
+      poly.center = bounds.getCenter();
+      var infowindow = new google.maps.InfoWindow();
+      var title = editedPolygons[ei][1].title;
+      // use function closure to associate the infowindow with the polygon
+      poly.addListener('click', (function (content) {
+        return function () {
+          // set the content
+          infowindow.setContent(content);
+          // set the position
+          infowindow.setPosition(this.center);
+          // open it
+          infowindow.open(map);
+        }
+      })(editedPolygons[ei][1].title));
+    }
+  }
+
+  function xxdrawMapInterventions() {
+
+    map = new google.maps.Map(document.getElementById('map'), {
+      zoom: 9,
+      center: new google.maps.LatLng(33.8463, 35.9020),
+      mapTypeId: google.maps.MapTypeId.ROADMAP //ro
+    });
+
+    let plocations = []
+
+    var infowindow = new google.maps.InfoWindow();
+    var marker, i, myPolygon
+
+    let ilocations = []
+    let clocations = []
+    let paths = []
+    let jpaths = []
+    if (document.getElementById("gSwitch").checked) {
+      // ilocations.push(...interventions_per_governorates)
+    }
+    if (document.getElementById("zSwitch").checked) {
+      // ilocations.push(...interventions_per_cazas)
+    }
+    if (document.getElementById("dSwitch").checked) {
+      // ilocations.push(...interventions_per_cadastrals)
+      clocations.push(...interventions_per_cadastrals_codes)
+    }
+
+    for (i = 0; i < ilocations.length; i++) {
+      marker = new google.maps.Marker({
+        position: new google.maps.LatLng(ilocations[i]['latitude'], ilocations[i]['longitude']),
+        map: map,
+        icon: circleSymbolI(ilocations[i]),
+      });
+      const contentString =
+        '<div id="content" style="width:400px; background-color:light;">' +
+        '<p>' + ilocations[i]['location_name'] + '</p>' +
+        '<p>Locations: ' + ilocations[i]['locations'] + '</p>' +
+        '<p>Interventions:' + ilocations[i]['interventions'] + '</p>'
+
+      '</div>';
+      google.maps.event.addListener(marker, 'click', (function (marker, i) {
+        return function () {
+          infowindow.setContent(contentString);
+          infowindow.open(map, marker);
+        }
+      })(marker, i + planned_locations.length));
+    }
+
+    if (document.getElementById("pSwitch").checked) {
+      plocations = planned_locations
+      for (i = 0; i < plocations.length; i++) {
+        marker = new google.maps.Marker({
+          position: new google.maps.LatLng(plocations[i]['latitude'], plocations[i]['longitude']),
+          map: map,
+          icon: circleSymbol(plocations[i]),
+        });
+        google.maps.event.addListener(marker, 'click', (function (marker, i) {
+          return function () {
+            infowindow.setContent(plocations[i]['name'] + ', programs#: ' + plocations[i]['pcount']);
+            infowindow.open(map, marker);
+          }
+        })(marker, i));
+      }
+    }
+
+    var editedPolygons = []
+    for (i = 0; i < clocations.length; i++) {
+      paths = clocations[i]['paths']
+      jpaths = []
+      for (var k = 0; k < paths.length; k++) {
+        let point = JSON.parse(paths[k])
+        jpaths.push({ "lat": point[1], "lng": point[0] })
+      }
+      editedPolygons.push([jpaths, { "color": "red", "title": "-----------------------------info content red" }])
+    }
+    var bounds = new google.maps.LatLngBounds();
+    for (var ei = 0; ei < editedPolygons.length; ei++) {
+      var poly = new google.maps.Polygon({
+        fillColor: editedPolygons[ei][1].color,
+        strokeWeight: 2,
+        path: editedPolygons[ei][0],
+        map: map
+      });
+      for (var pathidx = 0; pathidx < poly.getPath().getLength(); pathidx++) {
+        bounds.extend(poly.getPath().getAt(pathidx));
+      }
+      // store the computed center as a property of the polygon for easy access
+      poly.center = bounds.getCenter();
+      var infowindow = new google.maps.InfoWindow();
+      var title = editedPolygons[ei][1].title;
+      // use function closure to associate the infowindow with the polygon
+      poly.addListener('click', (function (content) {
+        return function () {
+          // set the content
+          infowindow.setContent(content);
+          // set the position
+          infowindow.setPosition(this.center);
+          // open it
+          infowindow.open(map);
+        }
+      })(editedPolygons[ei][1].title));
+    }
+  }
+  
+  function GetAllData() {
+    getDonations();
+    // getReportedIndicators();  
+    getLocations();
+  }
+  
+  function getDonations() {
+    Chart.defaults.global.tooltips.callbacks.label = function(tooltipItem, data) {
+      var dataset = data.datasets[tooltipItem.datasetIndex];
+      var datasetLabel = dataset.label || '';
+      return datasetLabel + ": $" + dataset.data[tooltipItem.index].toLocaleString();
+    };
+    
+
+    $('.datacard').hide()
+    $('#loading').html(spinner)
+
+    let filters_values = {
+      "years": $('#years').val(),
+      "donors": $('#filter_donors').val(),
+      "pcas": $('#filter_pca').val(),
+      "partners": $('#filter_partners').val(),
+      "sections": $('#filter_sections').val(),
+      "offices": $('#filter_offices').val(),
+      "statuses": $('#filter_statuses').val(),
+      "grants": $('#filter_grants').val(),
+      /* "governorates": $('#filter_governorates').val(),
+      "months": $('#filter_months').val(), */
+    }
+    $.ajax({
+      url: '{% url "pivoting:load_donors_mapping_data" %}',
+      type: 'get',
+      dataType: "json",
+      data: filters_values,
+      success: function (data) {
+        udata = JSON.parse(data.unnseted_programs);
+        master_indicators = JSON.parse(data.master_indicators);
+        console.log(master_indicators)
+        funded_programs = JSON.parse(data.programs);
+        // plocations = JSON.parse(data.locations);
+        $('#total_programs').html(JSON.parse(data.total_programs))
+        $('#planned_locations_count').html("All: " + JSON.parse(data.planned_locations_count))
+        $('#planned_locations_count_unique').html("Unique: " + JSON.parse(data.planned_locations_count_unique))
+        $('#total_interventions').html(JSON.parse(data.total_interventions).toLocaleString())
+        $('#unique_locations_count').html(JSON.parse(data.unique_locations_count).toLocaleString())
+        $('#total_donations').html(JSON.parse(data.total_donations).toLocaleString())
+        $('#reported_indicators_count').html(reported_indicators.length.toLocaleString())
+        $('#funded_programs_count').html(funded_programs.length.toLocaleString())
+
+        if (funded_programs.length == 0) {
+          $('#loading').html(nodata);
+          return;
+        }
+
+        $("#card1").pivotUI(udata, {
+          renderers: renderers,
+          cols: ["Period"],
+          rows: ["Donor"],
+          showUI: false,
+          vals: ["Funds"],
+          aggregators: { "Total": function () { return tpl.sum(intFormat)(["Funds"]) }, },
+          rendererName: "Line Chart",
+          title: 'dsfsfs'
+        }, true);
+
+        $("#insights").pivotUI(udata, {
+          renderers: renderers,
+          hiddenFromDragDrop: hiddenFromDragDrop,
+          hiddenAttributes: hiddenAttributes,
+          cols: ["Period"],
+          rows: ["Donor"],
+          showUI: true,
+          vals: ["Funds"],
+          aggregators: { "Total": function () { return tpl.sum(intFormat)(["Funds"]) }, },
+          rendererName: "Table",
+          // rendererName: "Horizontal Stacked Bar Chart",
+        }, true);
+
+        // funded programs table
+        let table_fp_options = {
+          searching: true,
+          paging: true,
+          bInfo: true,
+          pageLength: 7,
+          order: [[1, 'desc']],
+          buttons: ["copy", "csv", "excel", "pdf", "print", "colvis"],
+          responsive: true,
+          lengthChange: false,
+          autoWidth: false,
+          columns: [
+            { "data": "number", title: 'PD Reference #' },
+            { "data": "title", title: 'Title' },
+            { "data": "sections", title: 'Section' },
+            { "data": "start", title: 'Start', },
+            { "data": "status", title: 'Status', },
+            { "data": "partner_name", title: 'Partner', },
+            { "data": "donations", title: 'Fund Reservation', className: "text-right" },
+            { "data": "interventions", title: 'Interventions', className: "text-right" },
+          ],
+          columnDefs: [
+            { targets: [6, 7], render: $.fn.dataTable.render.number(',', '.', 0, '') },
+            // { "visible": false, "targets": 1 }
+            {targets: [1], render: $.fn.dataTable.render.ellipsis( 50 )},
+            // { targets: 1, render: function ( data, type, row ) {return type === 'display' && data.length > 50 ? data.substr( 0, 50 ) +'…' : data;;}}
+          ],
+
+        }
+
+        table_fp_options['data'] = funded_programs;
+        if ($.fn.DataTable.isDataTable('#tableFundedPrograms')) {
+          $('#tableFundedPrograms').DataTable().destroy();
+        } 
+        $("#tableFundedPrograms").DataTable(table_fp_options).buttons().container().appendTo('#tableFundedPrograms_wrapper .col-md-6:eq(0)');
+
+        var donors_totals = udata.reduce((a, { Donor, Funds }) =>
+          (a[Donor] = (a[Donor] || 0) + parseInt(Funds), a), {});
+
+        var top_donors = getTopN(donors_totals, 5)
+
+        var partner_totals = udata.reduce((a, { Partner_Name, Funds }) =>
+          (a[Partner_Name] = (a[Partner_Name] || 0) + parseInt(Funds), a), {});
+
+        var top_partners = getTopN(partner_totals, 5)
+
+        var sections_totals = udata.reduce((a, { Section, Funds }) =>
+          (a[Section] = (a[Section] || 0) + parseInt(Funds), a), {});
+
+        var top_sections = getTopN(sections_totals, 5)
+
+        var result = [];
+
+        result = [];
+        for (var i in donors_totals)
+          result.push([i, donors_totals[i]]);
+        table_options['data'] = result;
+        if ($.fn.DataTable.isDataTable('#tableDonors')) {
+          $('#tableDonors').DataTable().destroy();
+        }
+        $("#tableDonors").DataTable(table_options)
+
+        result = [];
+        for (var i in sections_totals)
+          result.push([i, sections_totals[i]]);
+        table_options['data'] = result;
+        if ($.fn.DataTable.isDataTable('#tableSections')) {
+          $('#tableSections').DataTable().destroy();
+        }
+        $("#tableSections").DataTable(table_options)
+
+        result = [];
+        for (var i in partner_totals)
+          result.push([i, partner_totals[i]]);
+        table_options['data'] = result;
+        if ($.fn.DataTable.isDataTable('#tablePartners')) {
+          $('#tablePartners').DataTable().destroy();
+        }
+        $("#tablePartners").DataTable(table_options)
+
+        //-------------
+        //- PIE CHART -
+        //-------------
+        var pieOptions = {
+          maintainAspectRatio: false,
+          responsive: true,
+          tooltips: {
+            callbacks: {
+              label: function(tooltipItem, data) {
+                var value = data.datasets[0].data[tooltipItem.index];
+                value = value.toString();
+                value = value.split(/(?=(?:...)*$)/);
+                value = value.join(',');
+                return value + ' $';
+              }
+            } // end callb
+          }
+        }
+        // Get context with jQuery - using jQuery's .get() method.
+        var pieData = {
+          labels: top_donors.map(function (item) { return item[0]; }),
+          datasets: [
+            {
+              data: top_donors.map(function (item) { return item[1]; }),
+              backgroundColor: ['#f56954', '#00a65a', '#f39c12', '#00c0ef', '#3c8dbc', '#d2d6de'],
+            }
+          ]
+        }
+        // You can switch between pie and douhnut using the method below.
+        new Chart($('#donorsChart').get(0).getContext('2d'), {
+          type: 'pie',
+          data: pieData,
+          options: pieOptions,
+          
+        })
+        
+        pieData = {
+          labels: top_sections.map(function (item) { return item[0]; }),
+          datasets: [
+            {
+              data: top_sections.map(function (item) { return item[1]; }),
+              backgroundColor: ['#f56954', '#00a65a', '#f39c12', '#00c0ef', '#3c8dbc', '#d2d6de'],
+            }
+          ]
+        }
+        // You can switch between pie and douhnut using the method below.
+        new Chart($('#sectionsChart').get(0).getContext('2d'), {
+          type: 'pie',
+          data: pieData,
+          options: pieOptions
+        })
+
+        pieData = {
+          labels: top_partners.map(function (item) { return item[0]; }),
+          datasets: [
+            {
+              data: top_partners.map(function (item) { return item[1]; }),
+              backgroundColor: ['#f56954', '#00a65a', '#f39c12', '#00c0ef', '#3c8dbc', '#d2d6de'],
+            }
+          ]
+        }
+        // You can switch between pie and douhnut using the method below.
+        new Chart($('#partnersChart').get(0).getContext('2d'), {
+          type: 'pie',
+          data: pieData,
+          options: pieOptions
+        })
+
+        $('#loading').html('')
+        $('.datacard').show()
+        getReportedIndicators();  
+
+      }
+    });
+  }
+
+  function getLocations() {
+    let filters_values = {
+      "years": $('#years').val(),
+      "donors": $('#filter_donors').val(),
+      "pcas": $('#filter_pca').val(),
+      "partners": $('#filter_partners').val(),
+      "sections": $('#filter_sections').val(),
+      "offices": $('#filter_offices').val(),
+      "statuses": $('#filter_statuses').val(),
+      /* "governorates": $('#filter_governorates').val(),
+      "months": $('#filter_months').val(), */
+    }
+
+    $.ajax({
+      url: '{% url "pivoting:load_donors_mapping_locations" %}',
+      type: 'get',
+      dataType: "json",
+      data: filters_values,
+      success: function (data) {
+        planned_locations = JSON.parse(data.planned_locations);
+        planned_locations_cadasters = JSON.parse(data.planned_locations_cadasters);
+        interventions_per_governorates_codes = JSON.parse(data.interventions_per_governorates_codes);
+        interventions_per_cazas_codes = JSON.parse(data.interventions_per_cazas_codes);
+        interventions_per_cadastrals_codes = JSON.parse(data.interventions_per_cadastrals_codes);
+        drawMapInterventions()
+      }
+    });
+  }
+
+  function xxgetReportedIndicators() {
+    $('#reported_indicators_loading').html(spinner)
+    $('#reported_indicators_body').hide()
+    let filters_values = {
+      "years": $('#years').val(),
+      "donors": $('#filter_donors').val(),
+      "pcas": $('#filter_pca').val(),
+      "partners": $('#filter_partners').val(),
+      "sections": $('#filter_sections').val(),
+      "offices": $('#filter_offices').val(),
+      "statuses": $('#filter_statuses').val(),
+      /* "governorates": $('#filter_governorates').val(),
+      "months": $('#filter_months').val(), */
+    }
+    var ryid = 0
+    var ele = document.getElementsByName('reporting_year');
+		for (i = 0; i < ele.length; i++) { if (ele[i].checked) ryid = ele[i].value }
+    filters_values['ryid'] = ryid
+
+    $.ajax({
+      url: '{% url "pivoting:load_ry_master_indicators" %}',
+      type: 'get',
+      dataType: "json",
+      data: filters_values,
+      success: function (data) {
+        reported_indicators = JSON.parse(data.reported_indicators);
+        $('#total_interventions').html(JSON.parse(data.total_interventions).toLocaleString())
+        $('#unique_locations_count').html(JSON.parse(data.unique_locations_count).toLocaleString())
+        $('#reported_indicators_count').html(reported_indicators.length.toLocaleString())
+        // reported indicators table
+        let table_ri_options = {
+          searching: true,
+          paging: true,
+          pageLength: 7,
+          bInfo: true,
+          order: [[1, 'desc']],
+          buttons: ["copy", "csv", "excel", "pdf", "print",],
+          responsive: true,
+          lengthChange: false,
+          autoWidth: false,
+          "columns": [
+            { "data": "name", title: 'Indicator Name' },
+            { "data": "awp_code", title: 'AWP Code' },
+            { "data": "awp_target", title: 'AWP Target', className: "text-right" },
+            // { "data": "ram_result", title: 'RAM Results', className: "text-right" },
+            { "data": "value", title: 'Value', className: "text-right" },
+            { "data": "achieved", title: '% Achieved', className: "text-right" },
+            { "data": "reports_count", title: '# Interventions', className: "text-right" },
+          ],
+          columnDefs: [{ targets: [2, 3, 4, 5], render: $.fn.dataTable.render.number(',', '.', 0, '') },],
+        }
+        table_ri_options['data'] = reported_indicators;
+        
+        if ($.fn.DataTable.isDataTable('#tableReportedIndicators')) {
+          $('#tableReportedIndicators').DataTable().destroy();
+        }
+
+        $("#tableReportedIndicators").DataTable(table_ri_options).buttons().container().appendTo('#tableReportedIndicators_wrapper .col-md-6:eq(0)');
+        
+        $('#reported_indicators_loading').html('')
+        $('#reported_indicators_body').show()
+    
+      }
+    });
+  }
+
+  function getReportedIndicators() {
+    $('#reported_indicators_loading').html(spinner)
+    $('#reported_indicators_body').hide()
+    
+    reported_indicators = master_indicators;
+        // $('#total_interventions').html(JSON.parse(data.total_interventions).toLocaleString())
+        // $('#unique_locations_count').html(JSON.parse(data.unique_locations_count).toLocaleString())
+        // $('#reported_indicators_count').html(reported_indicators.length.toLocaleString())
+        // reported indicators table
+        console.log(reported_indicators[1])
+        let table_ri_options = {
+          searching: true,
+          paging: true,
+          pageLength: 7,
+          bInfo: true,
+          order: [[1, 'desc']],
+          buttons: ["copy", "csv", "excel", "pdf", "print",],
+          responsive: true,
+          lengthChange: false,
+          autoWidth: false,
+          "columns": [
+            { "data": "Project_Label", title: 'PD Reference #' },
+            { "data": "Name", title: 'Indicator Name' },
+            { "data": "Awp_Code", title: 'AWP Code' },
+            { "data": "Awp_Target", title: 'AWP Target', className: "text-right" },
+            // { "data": "ram_result", title: 'RAM Results', className: "text-right" },
+            { "data": "Value", title: 'Value', className: "text-right" },
+            { "data": "Achieved", title: '% Achieved', className: "text-right" },
+            { "data": "Reports_Count", title: '# Interventions', className: "text-right" },
+          ],
+          columnDefs: [{ targets: [ 3, 4, 5, 6], render: $.fn.dataTable.render.number(',', '.', 0, '') },],
+        }
+        table_ri_options['data'] = reported_indicators;
+        
+        if ($.fn.DataTable.isDataTable('#tableReportedIndicators')) {
+          $('#tableReportedIndicators').DataTable().destroy();
+        }
+
+        $("#tableReportedIndicators").DataTable(table_ri_options).buttons().container().appendTo('#tableReportedIndicators_wrapper .col-md-6:eq(0)');
+        
+        $('#reported_indicators_loading').html('')
+        $('#reported_indicators_body').show()
+  }
+
+  $("#reset_state").click(function() {
+    map.setMapTypeId(map_options['mapTypeId']);
+    map.setCenter(map_options['center']);
+    map.setZoom(map_options['zoom']);
+  })
+</script>
+
+<script>
+  $(document).ready(function () {
+    $('.select2').select2({ closeOnSelect: true });
+    $('.slider').bootstrapSlider()
+    $('.datacard').hide()
+    $('.content').attr('style','display: visible');
+  });
+  $(".js-programmatic-multi-clear").on("click", function () {
+    $('.select2').val(null).trigger("change");
+    $('.slider').val("{{ start_year }},{{ current_year }}").trigger("change");
+    $('.datacard').hide()
+  });
+</script>
+
+{% endblock %}

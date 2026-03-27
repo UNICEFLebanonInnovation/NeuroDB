@@ -1,0 +1,709 @@
+{% extends "baseV2.html" %}
+{% load static i18n %}
+{% load humanize %}
+
+{% block project_title %}{% endblock %}
+{% block extra_style %}
+<title>Population Figures</title>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/fontawesome-free/css/all.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/overlayScrollbars/css/OverlayScrollbars.min.css' %}" />
+<link rel="stylesheet"
+   href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;700&family=PT+Serif:wght@400;700&display=swap" />
+<link rel="stylesheet" type="text/css" href="{% static 'vendors/pivottable/dist/pivot.css' %}" />
+<!-- <style>
+   body {font-family: Verdana;}
+   .c3-line, .c3-focused {stroke-width: 3px !important;}
+   .c3-bar {stroke: white !important; stroke-width: 1;}
+   .c3 text { font-size: 12px; color: grey;}
+   .tick line {stroke: white;}
+   .c3-axis path {stroke: grey;}
+   .c3-circle { opacity: 1 !important; }
+   .c3-xgrid-focus {visibility: hidden !important;}
+</style> -->
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+   <div class="container-fluid">
+      <div class="row">
+         <div class="d-flex col-12">
+            <div class="p-1 align-middle">
+               <a href="javascript:history.back()" class="btn btn-light">
+                  <i class="fa fa-angle-double-left" aria-hidden="true"></i>
+               </a>
+            </div>
+            <div>
+               <h1> Population Package - 2026</h1>
+
+            </div>
+            <div class="ml-auto">
+               <!-- <button type="button" class="btn btn-sm btn-light shadow" data-toggle="modal" data-target="#myModal"
+                  title="Full Report"><i class="fa fa-eye"></i>Full Report
+               </button> -->
+               <button type="button" class="btn btn-sm btn-light shadow" data-toggle="modal"
+                  data-target="#exampleModal">View Source </button>
+            </div>
+
+         </div>
+      </div>
+   </div>
+</section>
+
+<section class="content">
+   <div class="container-fluid">
+      <div class="row">
+         <ul class="nav nav-tabs col-md-12" id="custom-tabs" role="tablist">
+            <li class="nav-item col-md-4 col-sm-6 col-12">
+               <a role="tab" xclass="active" id="tab-0" data-toggle="tab" href="#tab-content-0">
+                  <div class="info-box shadow">
+                     <span class="info-box-icon bg-light">
+                        <img src="{% static 'images/multiple-users-silhouette.svg' %}"  height="80px"/>
+                     </span>
+                     <div class="info-box-content">
+                        <span class="info-box-number text-muted text-lg">Total Population</span>
+                        <span class="info-box-number text-info text-md font-weight-bold">{{data.total_population|intcomma}} </span>
+                     </div>
+                  </div>
+               </a>
+            </li>
+            <li class="nav-item col-md-4 col-sm-6 col-12">
+               <a role="tab" class=" " id="tab-1" data-toggle="tab" href="#tab-content-1">
+                  <div class="info-box shadow">
+                     <span class="info-box-icon bg-light">
+                        <img src="{% static 'images/kids-couple.svg' %}"  height="80px"/>
+                     </span>
+                     <div class="info-box-content">
+                        <span class="info-box-number text-muted text-lg">Children (0-19)</span>
+                        <span class="info-box-number text-info text-md font-weight-bold">{{data.total_children|intcomma}} </span>
+                     </div>
+                  </div>
+               </a>
+            </li>
+            <li class="nav-item col-md-4 col-sm-6 col-12">
+               <a role="tab" class=" " id="tab-2" data-toggle="tab" href="#tab-content-2">
+                  <div class="info-box shadow">
+                     <span class="info-box-icon bg-light">
+                        <img src="{% static 'images/big-store.svg' %}" height="80px"/>
+                     </span>
+                     <div class="info-box-content">
+                        <span class="info-box-number text-muted text-lg">332 Most Vulnerable Locations</span>
+                        <span class="info-box-number text-info"> </span>
+                     </div>
+                  </div>
+               </a>
+            </li>
+         </ul>
+      </div>
+
+      <div class="tab-content m-0 p-0">
+         <div
+            class="tab-pane tabs-animation {% if 'total_population' in request.GET %} active show {% else %} fade {% endif %}  "
+            id="tab-content-0" role="tabpanel">
+
+            <div class="main-card mx-0 card">
+               <div class="p-2 bg-light"></div>
+               <div class="no-gutters row lead">
+                  <div class="col-md-2">
+                     <div class="pt-0 pb-0 card-body">
+                        <ul class="list-group list-group-flush">
+                           <li class="list-group-item ">
+                              <div class="widget-content p-0">
+                                 <div class="widget-content-outer">
+                                    <div class="widget-content-wrapper">
+                                       <div class="widget-content-left">
+                                          <div class="widget-heading text-primary font-weight-bold" >LEBANESE</div>
+                                          <div class="widget-subheading">Citizens</div>
+                                       </div>
+                                       <div class="widget-content-right">
+                                          <div class="widget-numbers font-weight-bold">
+                                             {{data.leb_all|intcomma}} </div>
+                                       </div>
+                                    </div>
+                                 </div>
+                              </div>
+                           </li>
+                           <li class="list-group-item">
+                              <div class="widget-content p-0">
+                                 <div class="widget-content-outer">
+                                    <div class="widget-content-wrapper">
+                                       <div class="widget-content-left">
+                                          <div class="widget-heading"></div>
+                                          <div class="widget-subheading"></div>
+                                       </div>
+                                       <div class="widget-content-right">
+                                          <div class="widget-numbers font-weight-bold">
+                                             {{data.leb_all_perc|floatformat|intcomma }}%</div>
+                                       </div>
+                                    </div>
+                                 </div>
+                              </div>
+                           </li>
+                        </ul>
+                     </div>
+                  </div>
+                  <div class="col-md-2">
+                     <div class="pt-0 pb-0 card-body">
+                        <ul class="list-group list-group-flush">
+                           <li class="list-group-item">
+                              <div class="widget-content p-0">
+                                 <div class="widget-content-outer">
+                                    <div class="widget-content-wrapper">
+                                       <div class="widget-content-left">
+                                          <div class="widget-heading text-orange font-weight-bold">MIGRANTS</div>
+                                          <div class="widget-subheading text-nowrap">Different Nationalities</div>
+                                       </div>
+                                       <div class="widget-content-right">
+                                          <div class="widget-numbers font-weight-bold">
+                                             {{data.mig_all|intcomma}}</div>
+                                       </div>
+                                    </div>
+                                 </div>
+                              </div>
+                           </li>
+                           <li class="list-group-item">
+                              <div class="widget-content p-0">
+                                 <div class="widget-content-outer">
+                                    <div class="widget-content-wrapper">
+                                       <div class="widget-content-left">
+                                          <div class="widget-heading"></div>
+                                          <div class="widget-subheading"></div>
+                                       </div>
+                                       <div class="widget-content-right">
+                                          <div class="widget-numbers font-weight-bold">
+                                             {{data.mig_all_perc|floatformat|intcomma}}%</div>
+                                       </div>
+                                    </div>
+                                 </div>
+                              </div>
+                           </li>
+                        </ul>
+                     </div>
+                  </div>
+                  <div class="col-md-3">
+                     <div class="pt-0 pb-0 card-body">
+                        <ul class="list-group list-group-flush">
+                           <li class="list-group-item">
+                              <div class="widget-content p-0">
+                                 <div class="widget-content-outer">
+                                    <div class="widget-content-wrapper">
+                                       <div class="widget-content-left">
+                                          <div class="widget-heading text-success font-weight-bold">PALESTINIAN (PRL)</div>
+                                          <div class="widget-subheading">Refugees from Lebanon</div>
+                                       </div>
+                                       <div class="widget-content-right">
+                                          <div class="widget-numbers font-weight-bold">
+                                             {{data.prl_all|intcomma}}</div>
+                                       </div>
+                                    </div>
+                                 </div>
+                              </div>
+                           </li>
+                           <li class="list-group-item">
+                              <div class="widget-content p-0">
+                                 <div class="widget-content-outer">
+                                    <div class="widget-content-wrapper">
+                                       <div class="widget-content-left">
+                                          <div class="widget-heading"></div>
+                                          <div class="widget-subheading"></div>
+                                       </div>
+                                       <div class="widget-content-right">
+                                          <div class="widget-numbers font-weight-bold">
+                                             {{data.prl_all_perc|floatformat|intcomma}}%</div>
+                                       </div>
+                                    </div>
+                                 </div>
+                              </div>
+                           </li>
+                        </ul>
+                     </div>
+                  </div>
+                  <div class="col-md-3">
+                     <div class="pt-0 pb-0 card-body">
+                        <ul class="list-group list-group-flush">
+                           <li class="list-group-item">
+                              <div class="widget-content p-0">
+                                 <div class="widget-content-outer">
+                                    <div class="widget-content-wrapper">
+                                       <div class="widget-content-left">
+                                          <div class="widget-heading text-success font-weight-bold">PALESTINIAN (PRS)</div>
+                                          <div class="widget-subheading">Refugees from Syria</div>
+                                       </div>
+                                       <div class="widget-content-right">
+                                          <div class="widget-numbers font-weight-bold">
+                                             {{data.prs_all|intcomma}}</div>
+                                       </div>
+                                    </div>
+                                 </div>
+                              </div>
+                           </li>
+                           <li class="list-group-item">
+                              <div class="widget-content p-0">
+                                 <div class="widget-content-outer">
+                                    <div class="widget-content-wrapper">
+                                       <div class="widget-content-left">
+                                          <div class="widget-heading"></div>
+                                          <div class="widget-subheading"></div>
+                                       </div>
+                                       <div class="widget-content-right">
+                                          <div class="widget-numbers font-weight-bold">
+                                             {{data.prs_all_perc|floatformat|intcomma}}%</div>
+                                       </div>
+                                    </div>
+                                 </div>
+                              </div>
+                           </li>
+                        </ul>
+                     </div>
+                  </div>
+                  <div class="col-md-2">
+                     <div class="pt-0 pb-0 card-body">
+                        <ul class="list-group list-group-flush">
+                           <li class="list-group-item">
+                              <div class="widget-content p-0">
+                                 <div class="widget-content-outer">
+                                    <div class="widget-content-wrapper">
+                                       <div class="widget-content-left">
+                                          <div class="widget-heading text-danger font-weight-bold">SYRIANS</div>
+                                          <div class="widget-subheading">Displaced</div>
+                                       </div>
+                                       <div class="widget-content-right">
+                                          <div class="widget-numbers font-weight-bold">
+                                             {{data.syr_all|intcomma}}</div>
+                                       </div>
+                                    </div>
+                                 </div>
+                              </div>
+                           </li>
+                           <li class="list-group-item">
+                              <div class="widget-content p-0">
+                                 <div class="widget-content-outer">
+                                    <div class="widget-content-wrapper">
+                                       <div class="widget-content-left">
+                                          <div class="widget-heading"></div>
+                                          <div class="widget-subheading"></div>
+                                       </div>
+                                       <div class="widget-content-right">
+                                          <div class="widget-numbers font-weight-bold">
+                                             {{data.syr_all_perc|floatformat|intcomma}}%</div>
+                                       </div>
+                                    </div>
+                                 </div>
+                              </div>
+                           </li>
+                        </ul>
+                     </div>
+                  </div>
+
+               </div>
+            </div>
+            <div class="row p-2 mr-30 d-flex justify-content-around">
+               <div id="populations_per_governorate"></div>
+            </div>
+            <div class="row p-2 mr-30 d-flex justify-content-around">
+               <div id="populations_per_district"></div>
+            </div>
+            <div class="row p-2 mr-30 d-flex justify-content-around">
+               <div id="populations_per_age"></div>
+            </div>
+            <div class="row p-2 mr-30 d-flex justify-content-around">
+               <div id="gov_populations_per_age"></div>
+            </div>
+            <div class="row p-2 mr-30 d-flex justify-content-around">
+               <p class="text-md">Total Population vs Age Group by District</p>
+            </div>
+            <div class="row p-2 mr-30 d-flex justify-content-around">
+               <div id="dis_populations_per_age"></div>
+            </div>
+         </div>
+         <div
+            class="tab-pane tabs-animation {% if 'children' in request.GET %} active show {% else %} fade {% endif %} "
+            id="tab-content-1" role="tabpanel">
+            <div class="main-card  mx-3 card">
+               <div class="p-2 bg-light"></div>
+               <div class="no-gutters row lead">
+                  <div class="col-md-4">
+                     <div class="pt-0 pb-0 card-body">
+                        <ul class="list-group list-group-flush">
+                           <li class="list-group-item">
+                              <div class="widget-content p-0">
+                                 <div class="widget-content-outer">
+                                    <div class="widget-content-wrapper">
+                                       <div class="widget-content-left">
+                                          <div class="widget-heading text-primary font-weight-bold">LEBANESE CHILDREN</div>
+                                       </div>
+                                       <div class="widget-content-right">
+                                          <div class="widget-numbers font-weight-bold">
+                                             {{data.leb_children|intcomma}}</div>
+                                       </div>
+                                    </div>
+                                 </div>
+                              </div>
+                           </li>
+                           <li class="list-group-item">
+                              <div class="widget-content p-0">
+                                 <div class="widget-content-outer">
+                                    <div class="widget-content-wrapper">
+                                       <div class="widget-content-left">
+                                          <div class="widget-heading"></div>
+                                          <div class="widget-subheading">% of total children</div>
+                                       </div>
+                                       <div class="widget-content-right">
+                                          <div class="widget-numbers font-weight-bold">
+                                             {{data.leb_children_perc|floatformat}}%</div>
+                                       </div>
+                                    </div>
+                                 </div>
+                              </div>
+                           </li>
+                        </ul>
+                     </div>
+                  </div>
+                  <div class="col-md-4">
+                     <div class="pt-0 pb-0 card-body">
+                        <ul class="list-group list-group-flush">
+                           <li class="list-group-item">
+                              <div class="widget-content p-0">
+                                 <div class="widget-content-outer">
+                                    <div class="widget-content-wrapper">
+                                       <div class="widget-content-left">
+                                          <div class="widget-heading text-orange font-weight-bold">PALESTINIAN CHILDREN</div>
+                                       </div>
+                                       <div class="widget-content-right">
+                                          <div class="widget-numbers font-weight-bold">
+                                             {{data.pal_children|intcomma}}</div>
+                                       </div>
+                                    </div>
+                                 </div>
+                              </div>
+                           </li>
+                           <li class="list-group-item">
+                              <div class="widget-content p-0">
+                                 <div class="widget-content-outer">
+                                    <div class="widget-content-wrapper">
+                                       <div class="widget-content-left">
+                                          <div class="widget-heading"></div>
+                                          <div class="widget-subheading">% of total children</div>
+                                       </div>
+                                       <div class="widget-content-right">
+                                          <div class="widget-numbers font-weight-bold"" >
+                                             {{data.pal_children_perc|floatformat}}</div>
+                                       </div>
+                                    </div>
+                                 </div>
+                              </div>
+                           </li>
+                        </ul>
+                     </div>
+                  </div>
+
+                  <div class=" col-md-4">
+                                             <div class="pt-0 pb-0 card-body">
+                                                <ul class="list-group list-group-flush">
+                                                   <li class="list-group-item">
+                                                      <div class="widget-content p-0">
+                                                         <div class="widget-content-outer">
+                                                            <div class="widget-content-wrapper">
+                                                               <div class="widget-content-left">
+                                                                  <div class="widget-heading text-success font-weight-bold">SYRIANS CHILDREN</div>
+                                                               </div>
+                                                               <div class="widget-content-right">
+                                                                  <div
+                                                                     class="widget-numbers font-weight-bold">
+                                                                     {{data.syr_children|intcomma}}</div>
+                                                               </div>
+                                                            </div>
+                                                         </div>
+                                                      </div>
+                                                   </li>
+                                                   <li class="list-group-item">
+                                                      <div class="widget-content p-0">
+                                                         <div class="widget-content-outer">
+                                                            <div class="widget-content-wrapper">
+                                                               <div class="widget-content-left">
+                                                                  <div class="widget-heading"></div>
+                                                                  <div class="widget-subheading">% of total children
+                                                                  </div>
+                                                               </div>
+                                                               <div class="widget-content-right">
+                                                                  <div
+                                                                     class="widget-numbers font-weight-bold">
+                                                                     {{data.syr_children_perc|floatformat}}</div>
+                                                               </div>
+                                                            </div>
+                                                         </div>
+                                                      </div>
+                                                   </li>
+                                                </ul>
+                                             </div>
+                                          </div>
+                                       </div>
+                                    </div>
+                                    <div class="row p-2 mr-30 d-flex justify-content-around">
+                                       <div id="children_per_governorate"></div>
+                                    </div>
+                                    <div class="row p-2 mr-30 d-flex justify-content-around">
+                                       <div id="children_per_district"></div>
+                                    </div>
+
+                                 </div>
+                                 <div
+                                    class="tab-pane tabs-animation {% if 'vulnerable' in request.GET%} active show {% else %} fade {% endif %}"
+                                    id="tab-content-2" role="tabpanel">
+
+                                    <div class="main-card ">
+                                       <p class="p-2 bg-light">
+                                       </p>
+                                       <p class="p-2 bg-light"></p>
+                                    </div>
+                                    <div class="row p-2 mr-30 d-flex justify-content-around">
+                                       <div id="most_vulnerable_per_governorate"></div>
+                                    </div>
+                                    <div class="row p-2 mr-30 d-flex justify-content-around">
+                                       <div id="most_vulnerable_per_district"></div>
+                                    </div>
+                                    <div class="row p-2 mr-30 d-flex justify-content-around">
+                                       <div id="most_vulnerable_per_pressure"></div>
+                                    </div>
+
+                                    <div class="row p-2 mr-30 d-flex justify-content-around">
+                                       <p>Most Vulnerable vs Vulnerability Level by Cadaster</p>
+                                    </div>
+                                    <div class="row p-2 mr-30 d-flex justify-content-around">
+                                       <div id="most_vulnerable_per_pressure2"></div>
+                                    </div>
+                                 </div>
+                              </div>
+                     </div>
+</section>
+
+<div class="modal fade" id="exampleModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+   aria-hidden="true">
+   <div class="modal-dialog modal-lg" role="document">
+      <div class="modal-content">
+         <div class="modal-header">
+            <h2 class="modal-title" id="exampleModalLabel">Data Sources</h2>
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+               <span aria-hidden="true">&times;</span>
+            </button>
+         </div>
+         <div class="modal-body">
+            <!-- <h4>Lebanese</h4>
+            {% for src in data.source_leb %}
+            <p class="mb-0">{{src}}</p>
+            {% endfor %}
+            <h4 class="mt-1">Syrians</h4>
+            {% for src in data.source_syr %}
+            <p class="mb-0">{{src}}</p>
+            {% endfor %}
+            <h4 class="mt-1">Palestinians</h4>
+            {% for src in data.source_pal %}
+            <p class="mb-0">{{src}}</p>
+            {% endfor %} -->
+
+            <h4>LRP 2026 Population Package</h4>
+            <p><strong>Source for Lebanese:</strong></p>
+            <ul>
+               <li>Labour Force and Household Living Conditions Survey (LFHLCS) 2018–2019 (CAS, ILO).</li>
+            <li> IOM/DTM Round 87, As of 31 May 2025</li>
+            </ul>
+            
+            <p><strong>Source for Syrians:</strong></p>
+            <ul>
+               <li>UNHCR Registration and Assistance Databases (as of 30 July 2025)</li>
+               <li>The updated number of Syrians in Lebanon reflects a change based on four factors:</li>
+               <ul>
+               <li>(1) Individuals who have been inactivated from UNHCR’s registration records due to verified or presumed spontaneous\/unassisted return in 2025.</li>
+               <li>(2) Those who returned in 2025 through UNHCR’s facilitated return programme.</li>
+               <li>(3) Those expected to return and inactivated by mid-2026.</li>
+               <li>(4) New arrivals who entered Lebanon after December 2024.</li>
+               </ul>
+               <li>The total number of displaced Syrians in Lebanon for 2026 is calculated after taking into account the number of Syrians who have returned to Syria, the number of Syrians estimated to return by mid-2026, the number of Syrians who were inactivated from UNHCR’s database, and the number of Syrians who newly arrived in Lebanon after December 8, 2024. The resulting total 1.12 million displaced Syrians includes 1 million displaced Syrians who have not yet returned to Syria and 120,000 newly arrived after December 8, 2024.</li>
+            </ul>
+            
+            <p><strong>Source for Palestinians:</strong></p>
+            <ul>
+               <li>PRS data: UNRWA 2024 Digital Individual Verification Data</li>
+               <li>PRL data: UNRWA annual average service delivery reports (all services)</li>
+            </ul>
+
+            <p class="lead font-weight-bold">Notes:</p>
+            <ul>
+            <li>Camps boundaries are defined according to the official administrative parcels which may slightly differs from UNRWA's operational areas. Adjacent Gatherings population (including those served by the agency)  are categorized under gatherings. </li>
+            <li>Camp population mentioned here includes all nationalities and refugee status: PRL, PRS, Syrian, Lebanese and others.</li>
+            <li>A small number of Palestinian Households were found in  areas of (koura, Rachaya, Hasbaya, Marjaayoun) . They were  added to the closest gathering s for confidentiality. </li>
+            <li>The figures in this table are different from previously published counts as they  are weighted to adjust for the estimated  under-coverage rates found during the post enumeration exercise. Kindly note that the totals might slightly differ due to the rounding during the weighting operation.</li>
+            <li>The data reference date is July 2017. Population projection for the coming 10 years should be calculated, based on fertility and mortality rates as well as migration data.</li>
+            <li>Data aggregation, used here, according to Governerates geography  do not match  the Census key-findings and final reports aggregtion. (census data classifies for example Burj Barjneh in Beirut not Mount Lebanon)</li>
+            <li>*Migrants Data is not included in this sheet as it has different Sex and Age disaggregation</li>
+            </ul>
+            
+            <h4>332 Most Vulnerable Locations</h4>
+            <p>Displaced Syrians data is based on UNHCR database as of March 2022 and Palestinian Refugees data is based on UNRWA and the LPDC. Population and Housing Census in Plaestinian Camps and Gatherins 2017, Central Administration of Statistics (CAS) and Palestinian Bureau of Statistics</p>
+            
+            The Data was prepared by Inter-Agency where:
+            <ul>
+            <li>Cadaster Distribution: Lebanese population data is based on Council for Development and Reconstruction (2002)</li>
+            <li>Population by district: Labour Force and Household Living Conditions Survey in Lebanon 2018-2019</li>
+            <li>Household Depriviation Score - 2022 which is a measure of non-monetary poverty based on WFP's mV AM 2022 across 5 dimenstions (Education, Health, Food Housing and Income)</li>
+            </ul>
+                  </div>
+         <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+         </div>
+      </div>
+   </div>
+</div>
+
+{% endblock content %}
+
+{% block extra_js %}
+<script src="{% static 'adminlte/plugins/jquery/jquery.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/jquery-ui/jquery-ui.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/bootstrap/js/bootstrap.bundle.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/bootstrap-switch/js/bootstrap-switch.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/overlayScrollbars/js/jquery.overlayScrollbars.min.js' %}"></script>
+<script src="https://cdn.plot.ly/plotly-basic-latest.min.js"></script>
+<script src="{% static 'vendors/pivottable/dist/pivot.js' %}"></script>
+<script src="{% static 'vendors/pivottable/dist/plotly_renderers.js' %}"></script>
+<script src="{% static 'adminlte/plugins/jszip/jszip.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/pdfmake.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/vfs_fonts.js' %}"></script>
+<script src="{% static 'adminlte/plugins/chart.js/Chart.min.js' %}"></script>
+<script src="{% static 'adminlte/dist/js/adminlte.js' %}"></script>
+
+<script type="text/javascript">
+
+</script>
+<script>
+   var sumOverSum = $.pivotUtilities.aggregatorTemplates.sumOverSum;
+   var numberFormat = $.pivotUtilities.numberFormat;
+   var usFormat = numberFormat({ thousandsSep: ",", decimalSep: " ", digitsAfterDecimal: 0 });
+   var renderers = {}; $.extend(renderers, $.pivotUtilities.renderers, $.pivotUtilities.plotly_renderers, $.pivotUtilities.export_renderers);
+   $(document).ready(function () {
+      $.ajax({
+         url: '{% url "pivoting:load_population_figures" %}',
+         type: 'get',
+         dataType: "json",
+         data: {},
+         success: function (data) {
+            // console.log(data.population_figures)
+            population_figures = JSON.parse(data.population_figures);
+
+            $("#populations_per_governorate").pivotUI(population_figures, {
+               rows: ["Nationality",],
+               cols: ["Governorate",],
+               showUI: false,
+               aggregators: { 'Total Population': function () { return $.pivotUtilities.aggregatorTemplates.sum()(["Value"]) } },
+               renderers: renderers,
+               rendererName: "Bar Chart",
+            }, true);
+
+            $("#populations_per_district").pivotUI(population_figures, {
+               rows: ["Nationality",],
+               cols: ["District",],
+               showUI: false,
+               aggregators: { 'Total Population': function () { return $.pivotUtilities.aggregatorTemplates.sum(usFormat)(["Value"]) } },
+               renderers: renderers,
+               rendererName: "Stacked Bar Chart",
+            }, true);
+
+            $("#populations_per_age").pivotUI(population_figures, {
+               rows: ["Nationality"],
+               cols: ["Age Group"],
+               showUI: false,
+               aggregators: { 'Total Population': function () { return $.pivotUtilities.aggregatorTemplates.sum(usFormat)(["Value"]) } },
+               renderers: renderers,
+               rendererName: "Stacked Bar Chart",
+            }, true);
+
+            $("#gov_populations_per_age").pivotUI(population_figures, {
+               rows: ["Governorate"],
+               cols: ["Age Group"],
+               showUI: false,
+               aggregators: { 'Total Population': function () { return $.pivotUtilities.aggregatorTemplates.sum(usFormat)(["Value"]) } },
+               renderers: renderers,
+               rendererName: "Stacked Bar Chart",
+            }, true);
+
+            $("#dis_populations_per_age").pivotUI(population_figures, {
+               cols: ["Age Group"],
+               rows: ["District"],
+               showUI: false,
+               aggregators: { 'Total Population': function () { return $.pivotUtilities.aggregatorTemplates.sum(usFormat)(["Value"]) } },
+               rendererName: "Heatmap",
+               renderers: renderers,
+               // rendererName: "Bar Chart",
+            }, true);
+
+            // var filterBy={filterCol:"Age Group",filterValue:["0 - 4", "5 - 9","10 - 14","15 - 19",]}; optObject['filter']=function(rowObj){ if(filterBy.filterValue.indexOf(rowObj[filterBy.filterCol])>-1) return true; else return false; };
+
+            $("#children_per_governorate").pivotUI(population_figures, {
+               rows: ["Nationality",],
+               cols: ["Governorate",],
+               showUI: false,
+               aggregators: { 'Children (0-19 years)': function () { return $.pivotUtilities.aggregatorTemplates.sum()(["Value"]) } },
+               renderers: renderers,
+               rendererName: "Bar Chart",
+               filter: function (rowObj) { if (["0 - 4", "5 - 9", "10 - 14", "15 - 19",].indexOf(rowObj['Age Group']) >= 0) return true; else return false; }
+            }, true);
+
+            $("#children_per_district").pivotUI(population_figures, {
+               rows: ["Nationality",],
+               cols: ["District",],
+               showUI: false,
+               aggregators: { 'Children (0-19 years)': function () { return $.pivotUtilities.aggregatorTemplates.sum(usFormat)(["Value"]) } },
+               renderers: renderers,
+               rendererName: "Stacked Bar Chart",
+               filter: function (rowObj) { if (["0 - 4", "5 - 9", "10 - 14", "15 - 19",].indexOf(rowObj['Age Group']) >= 0) return true; else return false; }
+            }, true);
+         }
+      });
+
+      $.ajax({
+         url: '{% url "pivoting:load_most_vulnerable" %}',
+         type: 'get',
+         dataType: "json",
+         data: {},
+         success: function (data) {
+            most_vulnerable = JSON.parse(data.most_vulnerable);
+
+            $("#most_vulnerable_per_governorate").pivotUI(most_vulnerable, {
+               rows: ["Nationality",],
+               cols: ["Governorate",],
+               showUI: false,
+               aggregators: { 'Most Vulnerable': function () { return $.pivotUtilities.aggregatorTemplates.sum()(["Value"]) } },
+               renderers: renderers,
+               rendererName: "Bar Chart",
+               sorters: { "Nationality": $.pivotUtilities.sortAs(["LEB", "PRL", "SYR", "PRS",]), },
+            }, true);
+            $("#most_vulnerable_per_district").pivotUI(most_vulnerable, {
+               rows: ["Nationality",],
+               cols: ["District",],
+               showUI: false,
+               aggregators: { 'Most Vulnerable': function () { return $.pivotUtilities.aggregatorTemplates.sum()(["Value"]) } },
+               renderers: renderers,
+               rendererName: "Stacked Bar Chart",
+               sorters: { "Nationality": $.pivotUtilities.sortAs(["LEB", "PRL", "SYR", "PRS",]), },
+            }, true);
+            $("#most_vulnerable_per_pressure").pivotUI(most_vulnerable, {
+               rows: ["Vulnerability Level",],
+               cols: ["District",],
+               showUI: false,
+               aggregators: { 'Most Vulnerable': function () { return $.pivotUtilities.aggregatorTemplates.sum()(["Value"]) } },
+               renderers: renderers,
+               rendererName: "Stacked Bar Chart",
+            }, true);
+            $("#most_vulnerable_per_pressure2").pivotUI(most_vulnerable, {
+               cols: ["Vulnerability Level",],
+               rows: ["Cadaster",],
+               showUI: false,
+               aggregators: { 'Most Vulnerable': function () { return $.pivotUtilities.aggregatorTemplates.sum()(["Value"]) } },
+               renderers: renderers,
+               rendererName: "Heatmap",
+            }, true);
+         }
+      });
+   });
+</script>
+
+{% endblock %}

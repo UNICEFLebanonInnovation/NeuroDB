@@ -1,0 +1,953 @@
+{% extends "base2.html" %} {% load static i18n %} {% block extra_style %}
+<link href="{% static 'css/tail.select-default.css' %}" rel="stylesheet">
+<link href="{% static 'css/donor_mapping.css' %}" rel="stylesheet">
+<style>
+    @media print {
+        div {
+            break-inside: avoid;
+        }
+        .break-before {
+            page-break-before: always;
+        }
+        pre,
+        blockquote,
+        li,
+        tr {
+            page-break-inside: avoid;
+        }
+        .break-after {
+            page-break-after: always;
+        }
+        .break-avoid {
+            page-break-inside: avoid;
+        }
+        .fullpage {
+            height: 792pt;
+        }
+    }
+</style>
+{% endblock extra_style %} {% block project_title %}{% endblock %} {% block content %}
+
+<div class="app-main__inner">
+    <div class="app-page-title">
+        <div class="page-title-wrapper">
+            <div class="page-title-heading">
+                <div class="page-title-icon">
+                  <a href="javascript:history.back()">
+                    <i class="unicef-icon icon-Return ml-0 mr-2 back-btn"></i>
+                </a>
+              </div>
+                    <div>
+                      Donor Mapping
+                      <div class="page-title-subheading">
+                        <i class="fa fa-fw" title=""></i>
+                        Last Updated: {{ last_update }}
+                       </div>
+                    </div>
+                    
+               </div>
+      
+            <div class="page-title-actions">
+                <form id="filterForm" action="{% url 'etools:donor_mapping' %}" method="get">
+                    <input type="hidden" id="ai_id" name="ai_id" value="{{ database.ai_id }}" />
+                    <div class="row">
+                        <div class="col-lg-12 col-sm-12">
+
+                            <!-- <select id="filter_statuses" class="btn btn-outline-primary" multiple="multiple" name="programs">
+                <option value="current">On Going Programs</option>
+                <option value="previous">Old/Ended Programs</option>
+                <option value="future">Future Programs</option>
+              </select> -->
+                            <!-- <select id="filter_statuses" class="btn btn-outline-primary" multiple="multiple" name="statuses">
+                                {% for status in statuses %}
+                                <option value="{{ status }}">{{ status }}</option>
+                                {% endfor %}
+                            </select> -->
+                            <select id="filter_sections" class="btn btn-outline-primary" multiple="multiple" name="sections">
+                                {% for section in sections %}
+                                <option value="{{ section }}" {% if section in selected_sections %} selected {% endif %}>{{ section }}</option>
+                                {% endfor %}
+                            </select>
+                            <select id="filter_partners" class="btn btn-outline-primary" multiple="multiple" name="partners">
+                                {% for partner in partners %}
+                                <option value="{{ partner }}" {% if partner in selected_partners %} selected {% endif %}>{{ partner }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <select class="btn btn-outline-primary" multiple="multiple" id="filter_offices" name="offices">
+                                {% for office in offices %}
+                                <option class="dropdown-item" value="{{ office }}" {% if office in selected_offices %} selected {% endif %}>{{ office }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <button type="submit" class="btn btn-md shadow btn-light mr-left-5" title="Search">
+                                <i style="font-weight:bolder" class="pe-7s-search"></i>
+                            </button>
+                            <button type="button" class="btn btn-md shadow btn-light mr-left-5" title="Reset" onclick="resetfilters()">
+                                <i style="font-weight:bolder" class="pe-7s-refresh-2"></i>
+                            </button>
+                        </div>
+
+                    </div>
+                        <div class="d-flex justify-content-end mt-3">
+                            <div class="mb-2 mr-2 btn-group">
+                                <p class="font-weight-bold mr-3">Select Donor for mapping</p>
+                                <select class="form-control" onchange='load_blocks_data(donor=this.value)'>
+                                    <option value="">-- {{ donors|length }} Donors --</option>
+                                    {% for donor in donors %}
+                                    <option class="dropdown-item" value="{{ donor }}" >{{ donor }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="mb-2 mr- 2 btn-group">
+                                <select class="form-control">
+                                    <option value="">-- {{ programmes|length }} programmes --</option>
+                                    {% for programme in programmes %}
+                                    <option class="dropdown-item" value="{{ programme }}" disabled >{{ programme }} </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+
+                        </div>
+                </form>
+            </div>
+
+        </div>
+    </div>
+    <div id="donor_control" >
+        <div class="pl-3 d-flex justify-content-between">
+            <div role="group" class="btn-group-sm nav btn-group">
+                <button type="button" class="btn-shadow mr-2 btn btn-primary" id="planned_locations">Planned locations</button>
+                <button type="button" class="btn-shadow mr-2 btn btn-primary" id="interventions_locations">Interventions' locations</button>
+            </div>       
+            <div class="btn-actions-pane-right ">
+                <div class="d-inline-block dashboard_icons mr-3 ">
+    
+                    <div class=" d-inline-block" data-toggle="tooltip" data-placement="top" title="Download" data-intro="Download Dashboard report and Raw Data">
+                        <button type="button" aria-haspopup="true" aria-expanded="false" id="drop5" title="Download report" data-toggle="dropdown" class=" p-1 mb-1 mr-2 btn btn-link">
+                            <img src="{% static 'images/import.svg' %}" />
+    
+                        </button>
+                        <div tabindex="-1" id="menu2" role="menu" aria-hidden="true" class="dropdown-menu" data-step="7">
+                            {% comment %}
+                            <a type="button" tabindex="0" id="export1" class="dropdown-item" style="text-transform: none;">Current Dashboard</a>
+                            <div tabindex="-1" class="dropdown-divider"></div>
+                            {% endcomment %}
+                            <a type="button" tabindex="0" id="export_to_pdf" class="dropdown-item" style="text-transform: none;">PDF</a>
+    
+                        </div>
+                    </div>
+                </div>
+            </div>
+    
+        </div>
+    
+    </div>
+    <div class="row">
+        <table id="exportheader" style="display:none">
+            <thead style="background-color:#1CABE2">
+                <tr>
+                    <th>Title</th>
+                    <th>Location</th>
+                    <th>Type</th>
+                    <th>Partner</th>
+                    <th>Status</th>
+                    <th>Start Date</th>
+                    <th>End Date</th>
+                    <th>Budget</th>
+                    <th>Sections</th>
+                    <th>Offices</th>
+                </tr>
+            </thead>
+            <tbody>
+            </tbody>
+        </table>
+    </div>
+    <div class="tab-content" style="padding: 10px;">
+
+        <div class="tab-pane tabs-animation fade active show " id="loaded-content" role="tabpanel">
+            <div class="card mb-5">
+                <div class="row ">
+
+                    <div class="col-md-6 p-0 item-block" style="margin: 0 auto;">
+                        <div class="main-card mb-3 card" style="height: 100%;min-height:450px">
+
+                            <div class="card-body">
+                                <div id="mapView" style="height: 100%;"></div>
+                                <div class="legend gov btn btn-primary"> GOV</div>
+                                <div class="legend dist btn btn-primary">DIST</div>
+                                <div class="legend cad btn btn-primary">CAD</div>
+                                <div class="legend cas btn btn-primary">CADs</div>
+                            </div>
+                            <div id="loader-box-2" class="loader-box" style="display: none;">
+                                <div class="loader"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6  " style="margin: 0 auto;">
+                        <div class="main-card mb-3 " id="interventions_list" style="min-height: 200px;">
+                            <div class="card-header">
+                                Funded programmes
+                            </div>
+                            <div class="card-body">
+                                <div style="height: 300px;"></div>
+                            </div>
+                            <div id="loader-box-1" class="loader-box" style="display: none;">
+                                <div class="loader"></div>
+                            </div>
+                        </div>
+
+                        <div class="main-card mb-3 " id="results_list" style="min-height: 200px;">
+                            <div class="card-header">Reported Indicators</div>
+                            <div class="card-body">
+                                <div style="height: 300px;"></div>
+                            </div>
+                            <div id="loader-box-3" class="loader-box" style="display: none;">
+                                <div class="loader"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row ">
+
+                <div class="col-md-12 item-block" style="margin: 0 auto;">
+                    <div class="main-card mb-3 card" style="min-height: 200px;">
+                        <div class="card-header">Funding History</div>
+                        <div class="card-body">
+                            <div id="funding_chart" style="height: 300px;">
+
+                            </div>
+                        </div>
+                        <div id="loader-box-4" class="loader-box" style="display: none;">
+                            <div class="loader"></div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+</div>
+<div id="topdf" xstyle="display: none;"></div>
+{% endblock content %} {% block extra_js %}
+
+<script src="https://code.highcharts.com/highcharts.js"></script>
+<script src="https://code.highcharts.com/modules/series-label.js"></script>
+<script src="https://code.highcharts.com/modules/exporting.js"></script>
+<script src="https://code.highcharts.com/modules/export-data.js"></script>
+<script src="https://code.highcharts.com/modules/accessibility.js"></script>
+
+<script src="{% static 'js/bootstrap-multiselect.min.js' %}"></script>
+<script src="{% static 'vendors/bootstrap/dist/js/bootstrap.min.js' %}"></script>
+<!--<script type="text/javascript" src="{% static 'js/Highcharts.chart.js' %}"></script>-->
+<!--<script src="{% static 'vendors/jquery-quicksearch/jquery.quicksearch.js' %}"></script>-->
+<!--<script src="{% static 'js/bootstrap-multiselect.min.js' %}"></script>-->
+<script src="{% static 'js/tail.select.min.js' %}"></script>
+<script src="{% static 'js/canvg.js' %}"></script>
+
+<link rel="stylesheet" href="https://js.arcgis.com/4.21/esri/themes/light/main.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/1.5.3/jspdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.6/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/0.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+<script src="https://js.arcgis.com/4.21/"></script>
+
+<script type="text/javascript">
+    var interventions_url = '{% url "etools:donor_interventions" %}';
+    var locations_url = '{% url "etools:load_donor_locations" %}';
+    var results_url = '{% url "etools:donor_programme_results" %}';
+    var funding_url = '{% url "etools:donor_funding" %}';
+    var symbol = {
+        style: "square",
+        color: "blue",
+        size: "8px", // pixels
+        outline: { // autocasts as new SimpleLineSymbol()
+            color: [255, 255, 0],
+            width: 3 // points
+        }
+    };
+    var symbol_icon = {
+        url: "{% static 'images/blue-pin.png' %}",
+        height: 34,
+        width: 24,
+    };
+    var markerSymbol = {
+        type: "picture-marker", // autocasts as new SimpleMarkerSymbol()
+        url: "{% static 'images/blue-pin.png' %}",
+        height: 34,
+        width: 24,
+    };
+    var simpleMarkerSymbol = {
+        type: "simple-marker",
+        size: 7,
+        color: [226, 119, 40], // Orange
+        outline: {
+            color: [255, 255, 255], // White
+            width: 0.4
+        },
+    };
+    var view = null;
+    var map = null;
+    var pointGraphic = null;
+    var govLayer = null;
+    var distLayer = null;
+    var cadLayerI = null;
+    var cadLayerP = null;
+    var plannedLocLayer = null;
+    var servedLocLayer = null;
+    var donor = null;
+    var opacity = 1
+        
+    $(document).ready(function() {
+        initialize_map();
+        $('#donor_control').hide();
+    });
+
+    function initialize_map(){
+        require([
+            "esri/Map",
+            "esri/views/MapView",
+            "esri/layers/Layer",
+            "esri/symbols/SimpleMarkerSymbol",
+            "esri/symbols/PictureMarkerSymbol",
+            "esri/geometry/Point",
+            "esri/Graphic",
+            "esri/widgets/Home",
+        ], function(Map, MapView, Layer, SimpleMarkerSymbol, PictureMarkerSymbol, Point, Graphic, Home) {
+            map = new Map({
+                basemap: "topo-vector"
+            });
+            view = new MapView({
+                container: "mapView",
+                map: map,
+                center: [35.8623, 33.8547],
+                zoom: 9
+            });
+            Layer.fromPortalItem({
+                portalItem: {
+                    id: "0f345bba66814a6ab3c7e350b54e2336"
+                }
+            }).then(function(layer) {
+                govLayer = layer;
+                map.add(layer);
+                layer.opacity = 0.2;
+            });
+            Layer.fromPortalItem({
+                portalItem: {
+                    id: "7bd1b9b473a24e30b65eea171d1fc487"
+                }
+            }).then(function(layer) {
+                map.add(layer);
+                distLayer = layer;
+                layer.opacity = 0.2;
+            });
+            const homeBtn = new Home({
+                view: view
+            });
+            // Add the home button to the top left corner of the view
+            view.ui.add(homeBtn, "top-left");
+        });
+
+    }
+    
+    function add_points(map, locations) {
+        var points = JSON.parse(locations);
+        var marker, i;
+        var filteredCadastrials = points;
+        filteredCadastrials.map(item => item.CAS_CODE).filter((value, index, self) => self.indexOf(value) === index);
+        var flags = [],
+            output = [],
+            l = filteredCadastrials.length,
+            i;
+        for (i = 0; i < l; i++) {
+            if (Number.isInteger(+filteredCadastrials[i].CAS_CODE) && filteredCadastrials[i].CAS_CODE != "") {
+                if (flags[filteredCadastrials[i].CAS_CODE]) continue;
+                flags[filteredCadastrials[i].CAS_CODE] = true;
+                output.push(filteredCadastrials[i].CAS_CODE);
+            }
+        }
+        require([
+            "esri/Map",
+            "esri/views/MapView",
+            "esri/layers/Layer",
+            "esri/layers/GraphicsLayer",
+            "esri/symbols/SimpleMarkerSymbol",
+            "esri/symbols/PictureMarkerSymbol",
+            "esri/geometry/Point",
+            "esri/Graphic",
+        ], function(Map, MapView, Layer, GraphicsLayer, SimpleMarkerSymbol, PictureMarkerSymbol, Point, Graphic) {
+            Layer.fromPortalItem({
+                portalItem: { // CADSASTERS
+                    id: "d4a01b7d5bab4f5e8e86514eeb5dc515"
+                }
+            }).then(function(layer) {
+                //map.remove(layer);
+                cadLayerI = layer;
+                layer.definitionExpression = "CAS_CODE IN (" + output + ")";
+                map.add(layer);
+                layer.opacity = 1;
+            });
+            plannedLocLayer = new GraphicsLayer({
+                id: 'plannedLocLayer',
+                graphics: [pointGraphic]
+            });
+            setTimeout(function() {
+                var table = '';
+                $(points).each(function(i, item) {
+                    var url = '<a href="' + item.url + '" target="_blank"><i class="fa fa-external-link" style="font-size: 16px; color: #0089d2;">' + item.number + '</i></a>';
+                    table += `<tr><td>${item.title}</td><td>${item.name}</td><td>${item.document_type}</td><td>${item.partner_name}</td><td>${item.status}</td><td>${item.start}</td><td>${item.end}</td><td>${item.total_budget}</td><td>${item.section_names}</td><td>${item.offices_names}</td></tr>`;
+                    var lineAtt = {
+                        Number: url,
+                        Title: item.title,
+                        Site: item.name,
+                        Type: item.document_type,
+                        Partner: item.partner_name,
+                        Status: item.status,
+                        Start: item.start,
+                        End: item.end,
+                        Budget: item.total_budget,
+                        Sections: item.section_names,
+                        Offices: item.offices_names,
+                    };
+                    var pointGraphic = new Graphic({
+                        geometry: {
+                            type: "point",
+                            longitude: item.longitude,
+                            latitude: item.latitude
+                        },
+                        symbol: simpleMarkerSymbol,
+                        attributes: lineAtt,
+                        popupTemplate: {
+                            title: "{Type} {Number}",
+                            content: [{
+                                type: "fields",
+                                fieldInfos: [{
+                                    fieldName: "Site"
+                                }, {
+                                    fieldName: "Title"
+                                }, {
+                                    fieldName: "Partner"
+                                }, {
+                                    fieldName: "Status"
+                                }, {
+                                    fieldName: "Start Date"
+                                }, {
+                                    fieldName: "End Date"
+                                }, {
+                                    fieldName: "Budget"
+                                }, {
+                                    fieldName: "Sections"
+                                }, {
+                                    fieldName: "Offices"
+                                }, ]
+                            }]
+                        }
+                    });
+                    plannedLocLayer.graphics.add(pointGraphic);
+                    // view.graphics.add(pointGraphic);
+                });
+                map.add(plannedLocLayer);
+                $('#exportheader tbody').html(table)
+                $('#loader-box-2').hide();
+            }, 3000);
+        });
+    }
+
+    function add_served_points(map, locations) {
+        // var s_points = locations;
+        var s_points = JSON.parse(locations);
+        var s_marker, s_i;
+        var s_filteredCadastrials = s_points;
+        var simpleMarkerSymbol = {
+            type: "simple-marker",
+            size: 8,
+            color: [100, 100, 40], // Orange
+            outline: {
+                color: [255, 255, 255], // White
+                width: 0.25
+            },
+        };
+        s_filteredCadastrials.map(item => item.location_adminlevel_cadastral_area_code).filter((value, index, self) => self.indexOf(value) === index);
+        //console.log(filteredCadastrials);
+        var s_flags = [],
+            s_output = [],
+            s_l = s_filteredCadastrials.length,
+            s_i;
+        for (s_i = 0; s_i < s_l; s_i++) {
+            if (Number.isInteger(+s_filteredCadastrials[s_i].location_adminlevel_cadastral_area_code) && s_filteredCadastrials[s_i].location_adminlevel_cadastral_area_code != "") {
+                if (s_flags[s_filteredCadastrials[s_i].location_adminlevel_cadastral_area_code]) continue;
+                s_flags[s_filteredCadastrials[s_i].location_adminlevel_cadastral_area_code] = true;
+                s_output.push(s_filteredCadastrials[s_i].location_adminlevel_cadastral_area_code);
+            }
+        }
+        require([
+            "esri/Map",
+            "esri/views/MapView",
+            "esri/layers/Layer",
+            "esri/layers/GraphicsLayer",
+            "esri/symbols/SimpleMarkerSymbol",
+            "esri/symbols/PictureMarkerSymbol",
+            "esri/geometry/Point",
+            "esri/Graphic",
+        ], function(Map, MapView, Layer, GraphicsLayer, SimpleMarkerSymbol, PictureMarkerSymbol, Point, Graphic) {
+            // view.graphics.removeAll();
+            Layer.fromPortalItem({
+                portalItem: { // CADSASTERS
+                    id: "d4a01b7d5bab4f5e8e86514eeb5dc515"
+                }
+            }).then(function(layer) {
+                cadLayerP = layer;
+                layer.definitionExpression = "CAS_CODE IN (" + s_output + ")";
+                map.add(layer);
+                layer.opacity = 0.5;
+            });
+            servedLocLayer = new GraphicsLayer({
+                graphics: [pointGraphic]
+            });
+            $(s_points).each(function(s_i, item) {
+                // console.log(item.id);
+                if (item.location_latitude) {
+                    pointGraphic = new Graphic({
+                        geometry: {
+                            type: "point",
+                            longitude: item.location_longitude,
+                            latitude: item.location_latitude
+                        },
+                        symbol: simpleMarkerSymbol,
+                        // attributes: lineAtt,
+                        popupTemplate: {
+                            title: "{Type} {Number}",
+                            content: [{
+                                type: "fields",
+                                fieldInfos: [{
+                                    fieldName: "Site"
+                                }, {
+                                    fieldName: "Title"
+                                }, {
+                                    fieldName: "Partner"
+                                }, {
+                                    fieldName: "Status"
+                                }, {
+                                    fieldName: "Start"
+                                }, {
+                                    fieldName: "End"
+                                }, {
+                                    fieldName: "Budget"
+                                }, {
+                                    fieldName: "Sections"
+                                }, {
+                                    fieldName: "Offices"
+                                }, ]
+                            }]
+                        }
+                    });
+                    pointGraphic.setAttribute('Number', item.project_label);
+                    pointGraphic.setAttribute('Title', item.title);
+                    pointGraphic.setAttribute('Site', item.location_name);
+                    pointGraphic.setAttribute('Type', item.project_description);
+                    pointGraphic.setAttribute('Partner', item.partner_description);
+                    pointGraphic.setAttribute('Status', item.status);
+                    pointGraphic.setAttribute('Start', item.start);
+                    pointGraphic.setAttribute('End', item.end_date);
+                    pointGraphic.setAttribute('Site', item.location_name);
+                    pointGraphic.setAttribute('Budget', item.total_budget);
+                    pointGraphic.setAttribute('Sections', item.section_names);
+                    pointGraphic.setAttribute('Offices', item.offices_names);
+                    // view.graphics.add(pointGraphic);
+                    servedLocLayer.graphics.add(pointGraphic);
+                    // console.log('pointGraphic');
+                }
+            });
+            map.add(servedLocLayer);
+        });
+    }
+
+</script>
+<script>
+    function downloadPDF(elements, pdfOptions) {
+        let worker = html2pdf()
+            .set(pdfOptions)
+            .from(elements[0])
+        if (elements.length > 1) {
+            worker = worker.toPdf() // worker is now a jsPDF instance
+            // add each element/page individually to the PDF render process
+            elements.slice(1).forEach((element, index) => {
+                worker = worker
+                    .get('pdf')
+                    .then(pdf => {
+                        pdf.addPage()
+                    })
+                    .from(element)
+                    .toContainer()
+                    .toCanvas()
+                    .toPdf()
+            })
+        }
+        worker = worker.save()
+    }
+
+    function export_to_pdf() {
+        var htmlstring = `
+        <div aria-label="pdf-page-1">
+        <div class="d-flex justify-content-between align-content-center p-10" >
+          <div>
+            <img src="/static/img/unicef_for_every_child.jpg" width="300" height="50" alt="UNICEF-logo" />
+          </div>
+          <div>
+            <h4 class="text-secondary head pt-2"><strong>Donor Mapping - DONOR_NAME</strong></h4>
+          </div>
+          <div> 
+            <h4 class="text-secondary head pt-2"><strong>Date: CURRENT_DATE</strong></h4>
+          </div>
+        </div>
+        <hr>
+        <div class="row p-10">
+          <div class="d-flex">
+            <div style="width: 45%; height: 400pt">
+              DIV_MAP
+            </div>
+            <div style="width: 55%; height: 400pt">
+              DIV_FUNDING_CHART
+            </div>
+          </div>
+        </div> 
+      </div> 
+
+      <div aria-label="pdf-page-2">     
+        <h5 class="text-secondary"><strong>FUNDED PROGRAMS</strong></h5>
+          DIV_FUNDED_PROGRAMS
+      </div>
+      
+      <div aria-label="pdf-page-2">
+        <h5 class="text-secondary"><strong>PLANNED LOCATIONS</strong></h5>
+        <table> DIV_PLANNED_LOCATIONS </table>
+      </div>
+      <div aria-label="pdf-page-3">
+          <h5 class="text-secondary head"><strong>REPORTED INDICATORS</strong></h5>
+          DIV_REPORTED_IND
+          <p class="pull-center">Enf of Report</p>
+      </div>
+      `;
+        donor_name = donor
+        current_date = new Date().toISOString().slice(0, 10)
+        filename = 'Donor-mapping-' + donor.replace(/[^a-z0-9\s]/gi, '').replace(/[_\s]/g, '-') + "-" + new Date().toISOString().slice(0, 10);
+        var opt = {
+            margin: [5, 10, 5, 5],
+            filename: filename + '.pdf',
+            image: {
+                type: 'jpeg',
+                quality: 0.98
+            },
+            html2canvas: {
+                dpi: 180,
+                scale: 1,
+                letterRendering: true,
+                useCORS: true
+            },
+            jsPDF: {
+                unit: 'pt',
+                format: 'a4',
+                orientation: 'landscape',
+                putOnlyUsedFonts: true,
+            },
+            pagebreak: {
+                mode: '',
+                before: '.break-before',
+                after: '.break-after',
+                avoid: '.break-avoid'
+            }
+        };
+        view.takeScreenshot().then(function(screenshot) {
+            let mapImageElement = document.getElementById("mapView");
+            mapImageElement.src = screenshot.dataUrl;
+            map_image = '<img src="' + mapImageElement.src + '"' + 'alt="" style="height: 100%; width: 100%; object-fit: contain">'
+            var rowCount = $('#exportheader tr').length;
+            if (rowCount > 1) {
+                exportheader_content = document.getElementById('exportheader').innerHTML;
+            } else {
+                exportheader_content = ' No Reported Locations';
+            }
+            const pdfElement = htmlstring
+                .replace('DIV_MAP', map_image)
+                .replace('DIV_FUNDING_CHART', $("#chart1").highcharts().getSVG())
+                .replace('DONOR_NAME', donor_name)
+                .replace('CURRENT_DATE', current_date)
+                .replace('DIV_FUNDED_PROGRAMS', document.getElementById('interventions_list_ul').innerHTML)
+                .replace('DIV_REPORTED_IND', document.getElementById('results_list_ul').innerHTML)
+                .replace('DIV_PLANNED_LOCATIONS', exportheader_content);
+            document.getElementById('topdf').innerHTML = pdfElement;
+            const pages = Array.from(document.querySelectorAll('div[aria-label^="pdf-page-"]'))
+            downloadPDF(pages, opt)
+        });
+    }
+
+    function export_table_to_csv(html, filename) {
+        var csv = [];
+        $("tr:hidden,td:hidden", "#exportheader").remove();
+        var rows_header = document.querySelectorAll("table#exportheader thead tr");
+        var rows = document.querySelectorAll("table#exportheader tbody tr");
+        for (var i = 0; i < rows_header.length; i++) {
+            var row = [],
+                cols = rows_header[i].querySelectorAll("th");
+            for (var j = 0; j < cols.length; j++)
+                row.push($(cols[j]).attr('content'));
+            csv.push(row.join(","));
+        }
+        for (var i = 0; i < rows.length; i++) {
+            var row = [],
+                cols = rows[i].querySelectorAll("td, th");
+            for (var j = 0; j < cols.length; j++) {
+                if ($(cols[j]).attr('colspan') == '2') {
+                    row.push('');
+                }
+                row.push(cols[j].innerText);
+            }
+            csv.push(row.join(","));
+        }
+        // Download CSV
+        download_csv(csv.join("\n"), filename);
+    }
+
+    function download_csv(csv, filename) {
+        var csvFile;
+        var downloadLink;
+        csvFile = new Blob([csv], {
+            type: "text/csv"
+        });
+        downloadLink = document.createElement("a");
+        downloadLink.download = filename;
+        downloadLink.href = window.URL.createObjectURL(csvFile);
+        downloadLink.style.display = "none";
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+    }
+    document.querySelector("#export1").addEventListener("click", function() {
+        var html = document.querySelector("table").outerHTML;
+        var file_name = $("#exportheader").attr("content");
+        $('table').show();
+        export_table_to_csv(html, 'donor_map_export');
+        $('table').hide();
+    });
+    document.querySelector("#export_to_pdf").addEventListener("click", function() {
+        $('table').show();
+        export_to_pdf();
+        $('table').hide();
+    });
+</script>
+
+<!-- data loaders -->
+
+<script>
+    var fdata = {}
+
+    function load_blocks_data(doner) {
+        fdata = {
+            selected_partners: $("#filter_partners").val(),
+            selected_offices: $("#filter_offices").val(),
+            selected_sections: $('#filter_sections').val(),
+            donor: donor,
+            ai_id: $('#ai_id').val(),
+        }
+        if (fdata.donor) {
+            load_interventions_block(fdata);
+            load_locations(fdata);
+            load_results_block(fdata);
+            load_funding_block(fdata);
+            $('#donor_control').show();
+
+        }
+    }
+
+    function load_interventions_block(fdata) {
+        $('#loader-box-1').show();
+        $('#interventions_list').empty();
+        $.ajax({
+            url: interventions_url,
+            dataType: "html",
+            data: fdata,
+            success: function(data) {
+                $('#loader-box-1').hide();
+                $('#interventions_list').html(data);
+                $('[data-toggle="tooltip"]').tooltip();
+            }
+        });
+    }
+
+    function load_results_block(fdata) {
+        $('#loader-box-3').show();
+        $('#results_list').empty();
+        $.ajax({
+            url: results_url,
+            dataType: "html",
+            data: fdata,
+            success: function(data) {
+                $('#loader-box-3').hide();
+                $('#results_list').html(data);
+            }
+        });
+    }
+
+    function load_locations(fdata) {
+        $.ajax({
+            url: locations_url,
+            dataType: "json",
+            data: fdata,
+            success: function(data) {
+                //$('#loader-box-2').hide();
+                initialize_map(map);
+                add_points(map, data.planned_locations);
+                add_served_points(map, data.served_locations);
+            }
+        });
+    }
+
+    function load_funding_block(fdata) {
+        $('#loader-box-4').show();
+        $('#funding_chart').empty();
+        $.ajax({
+            url: funding_url,
+            dataType: "html",
+            data: fdata,
+            success: function(data) {
+                $('#loader-box-4').hide();
+                $('#funding_chart').html(data);
+            }
+        });
+    }
+</script>
+
+<!-- map toggling and filtering events -->
+<script>
+    $(document).on('click', '.dist', function() {
+        distLayer.visible = !distLayer.visible;
+        if (distLayer.visible) {
+            $(this).removeClass('btn-light');
+            $(this).addClass('btn-primary');
+        } else {
+            $(this).addClass('btn-light');
+            $(this).removeClass('btn-primary');
+        }
+    });
+    $(document).on('click', '.gov', function() {
+        govLayer.visible = !govLayer.visible;
+        if (govLayer.visible) {
+            $(this).removeClass('btn-light');
+            $(this).addClass('btn-primary');
+        } else {
+            $(this).addClass('btn-light');
+            $(this).removeClass('btn-primary');
+        }
+    });
+    $(document).on('click', '.cad', function() {
+        cadLayerI.visible = !cadLayerI.visible;
+        if (cadLayerI.visible) {
+            $(this).removeClass('btn-light');
+            $(this).addClass('btn-primary');
+        } else {
+            $(this).addClass('btn-light');
+            $(this).removeClass('btn-primary');
+        }
+    });
+    $('#planned_locations').click(function() {
+        plannedLocLayer.visible = !plannedLocLayer.visible;
+        cadLayerP.visible = !cadLayerP.visible;
+        if (plannedLocLayer.visible) {
+            $(this).removeClass('btn-light');
+            $(this).addClass('btn-primary');
+        } else {
+            $(this).addClass('btn-light');
+            $(this).removeClass('btn-primary');
+        }
+    });
+    $('#interventions_locations').click(function() {
+        servedLocLayer.visible = !servedLocLayer.visible;
+        cadLayerI.visible = !cadLayerI.visible;
+        if (servedLocLayer.visible) {
+            $(this).removeClass('btn-light');
+            $(this).addClass('btn-primary');
+        } else {
+            $(this).addClass('btn-light');
+            $(this).removeClass('btn-primary');
+        }
+
+    });
+
+    $(document).on('click', '.level3-filter', function() {
+        $('#loaded-content .list-group-item').removeClass('active');
+        $(this).addClass('active');
+        load_sub_data($(this).attr('data-data'), $('#level1').find('a.active').attr('data-fgColor'));
+    });
+
+    function resetfilters() {
+        $("#filter_partners option:selected").prop("selected", false);
+        $("#filter_offices option:selected").prop("selected", false);
+        $("#filter_sections option:selected").prop("selected", false);
+        $("#filter_programmes option:selected").prop("selected", false);
+        $('#filterForm').submit();
+    }
+
+    $('#filter_partners').multiselect({
+        includeSelectAllOption: true,
+        nonSelectedText: 'Partners',
+        nSelectedText: 'selected partners',
+        maxHeight: 350,
+        buttonClass: 'btn btn-outline',
+    });
+    $('#filter_offices').multiselect({
+        includeSelectAllOption: true,
+        nonSelectedText: 'Offices',
+        nSelectedText: 'selected offices',
+        maxHeight: 350,
+        buttonClass: 'btn btn-outline',
+    });
+    $('#filter_years').multiselect({
+        includeSelectAllOption: true,
+        nonSelectedText: 'Years',
+        nSelectedText: 'selected years',
+        maxHeight: 350,
+        buttonClass: 'btn btn-outline',
+    });
+    $('#filter_programmes').multiselect({
+        includeSelectAllOption: true,
+        // nonSelectedText: 'Programmes',
+        nSelectedText: 'selected programmes',
+        maxHeight: 350,
+        buttonClass: 'btn btn-outline',
+    });
+    $('#filter_sections').multiselect({
+        includeSelectAllOption: true,
+        nonSelectedText: 'Sections',
+        nSelectedText: 'selected sections',
+        maxHeight: 350,
+        buttonClass: 'btn btn-outline',
+    });
+    $('#filter_statuses').multiselect({
+        includeSelectAllOption: true,
+        nonSelectedText: 'Programme Status',
+        nSelectedText: 'selected status',
+        maxHeight: 350,
+        buttonClass: 'btn btn-outline',
+    });
+    $('#filter_months').multiselect({
+        buttonClass: 'btn btn-outline',
+        includeSelectAllOption: true,
+        nonSelectedText: 'Months',
+        nSelectedText: 'selected months',
+        numberDisplayed: 1,
+        maxHeight: 350
+    });
+    $('#filter_governorates').multiselect({
+        buttonClass: 'btn btn-outline',
+        includeSelectAllOption: true,
+        nonSelectedText: 'Governorates',
+        nSelectedText: 'selected governorates',
+        numberDisplayed: 1,
+        maxHeight: 350
+    });
+</script>
+{% endblock %}

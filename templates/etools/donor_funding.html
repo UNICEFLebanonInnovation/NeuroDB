@@ -1,0 +1,68 @@
+<figure class="highcharts-figure">
+    <div id="chart1" style="height: 300px;"></div>
+    <p class="highcharts-description"></p>
+</figure>
+
+<script type="text/javascript">
+
+var data_set1 = '{{ data_set1|safe }}';
+data_set1 = JSON.parse(data_set1);
+
+var new_series = [];
+$(data_set1).each(function(i, item){
+    new_data = []
+    $(item.data).each(function(j, item1){
+        new_data[j] = item1[1]
+    });
+
+    new_series[i] = {
+      name: item.name,
+      data: new_data
+    }
+});
+
+Highcharts.chart('chart1', {
+
+    title: {text: 'Funding History in USD since 2013'},
+    subtitle: {text: ''},
+    yAxis: {title: {text: 'USD'}},
+    xAxis: {accessibility: {rangeDescription: 'Range: {{pointStart}} to {{currentYear}}'}},
+
+    plotOptions: {
+        series: {
+            label: {connectorAllowed: false},
+            pointStart: {{pointStart}}
+        }
+    },
+
+    series: new_series,
+    exporting: {
+      allowHTML: true,
+      chartOptions: { // specific options for the exported image
+        plotOptions: {
+          series: {
+            dataLabels: {
+              enabled: true
+            }
+          }
+        }
+      },
+      scale: 3,
+      fallbackToExportServer: false
+    },
+    responsive: {
+        rules: [{
+            condition: {
+                maxWidth: 500
+            },
+            chartOptions: {
+                legend: {
+                    layout: 'horizontal',
+                    align: 'center',
+                    verticalAlign: 'bottom'
+                }
+            }
+        }]
+    }
+});
+</script>

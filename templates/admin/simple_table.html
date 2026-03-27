@@ -1,0 +1,22 @@
+{% load i18n static jazzmin admin_urls %}
+
+<table class="table table-bordered">
+    <thead>
+    <tr>
+        <th>#</th>
+        {% for th in header %}
+         <th>{{th}}</th>
+      {% endfor %}
+    </tr>
+    </thead>
+  <tbody>
+    {% for pl in values %}
+    <tr>
+        <td>{{ forloop.counter }}</td>
+      {% for l in pl%}
+         <td>{{l}}</td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

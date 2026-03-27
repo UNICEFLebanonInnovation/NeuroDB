@@ -1,0 +1,858 @@
+{% extends "base2.html" %}
+{% load static i18n %}
+
+{% block extra_style %}
+<link href="{% static 'css/tail.select-default.css' %}" rel="stylesheet">
+<link href="{% static 'css/donor_mapping.css' %}" rel="stylesheet">
+<style>
+@media print {
+  div {
+    break-inside: avoid;
+  }
+  .break-before {
+    page-break-before: always;
+    
+}
+pre, blockquote, li, tr {page-break-inside: avoid;}
+.break-after {
+    page-break-after: always;
+}
+
+.break-avoid {
+    page-break-inside: avoid;
+}
+
+.fullpage {
+    height: 792pt;
+}
+}
+</style>
+{% endblock extra_style %}
+
+{% block project_title %}{% endblock %}
+
+{% block content %}
+
+
+<div class="app-main__inner">
+  <div class="app-page-title">
+    <div class="page-title-wrapper">
+
+      <div class="page-title-heading">
+        <!-- <a href="javascript:history.back()">
+          <i class="unicef-icon icon-Return ml-0 mr-2 back-btn"></i>
+        </a> -->
+        <div>
+          Donor Mapping
+        </div>
+      </div>
+      <div class="page-title-actions">
+        <form id="filterForm" action="{% url 'activityinfo:live_report' %}" method="get">
+          <input type="hidden" id="ai_id" name="ai_id" value="{{ database.ai_id }}" />
+          <div class="col-lg-12 col-sm-12">
+                  <select class="btn btn-outline-primary" id="filter_donors" name="donors">
+                    <option class="dropdown-item" value="">Select a Donor</option>
+                    {% for donor in donors %}
+                    <option class="dropdown-item" value="{{ donor.code }}">
+                      {{ donor.name }}
+                    </option>
+                    {% endfor %}
+                  </select>
+                  <select id="filter_programs" class="btn btn-outline-primary" multiple="multiple" name="programs">
+                    <option value="current">On Going Programs</option>
+                    <option value="previous">Old/Ended Programs</option>
+                    <option value="future">Future Programs</option>
+                  </select>
+                  <select id="filter_sections" class="btn btn-outline-primary" multiple="multiple" name="sections">
+                    {% for reporting_section in sections %}
+                    <option value="{{ reporting_section.id }}">{{ reporting_section.name }}</option>
+                    {% endfor %}
+                  </select>
+                  <select class="btn btn-outline-primary" multiple="multiple" id="filter_partners" name="partners">
+                    {% for partner in partners %}
+                    <option class="dropdown-item" value="{{ partner.partner_label }}">{{ partner.partner_label }}
+                    </option>
+                    {% endfor %}
+                  </select>
+                  <!-- <select class="btn btn-outline-primary" multiple="multiple" id="filter_projects" name="projects">
+                    {% for project in projects %}
+                    <option class="dropdown-item" value="{{ project.project_label }}" >{{ project.project_label }}
+                    </option>
+                    {% endfor %}
+                  </select> -->
+                  <select class="btn btn-outline-primary" multiple="multiple" id="filter_years" name="years">
+                    {% for year in reporting_years %}
+                    <option class="dropdown-item" value="{{ year.id }}" >{{ year.name }}
+                    </option>
+                    {% endfor %}
+                  </select>
+                  <select class="btn btn-outline-primary" multiple="multiple" id="filter_months" name="months">
+                    {% for month, month_name in months %}
+                    <option class="dropdown-item" value="{{ month }}" {% if month in selected_months %} selected {% endif %}>
+                      {{ month_name }}
+                    </option>
+                    {% endfor %}
+                  </select>
+                  <select class="btn btn-outline-primary" multiple="multiple" id="filter_governorates" name="governorates">
+                    {% for governorate in governorates %}
+                    <option class="dropdown-item" value="{{ governorate.location_adminlevel_governorate_code }}" >{{ governorate.location_adminlevel_governorate }}
+                    </option>
+                    {% endfor %}
+                  </select>
+                  
+                  <a href="{% url 'etools:donor_mapping' %}" title="Cancel"
+                             class="btn btn-md btn-light d-inline-block"><i class="fa fa-fw" aria-hidden="true"></i></a>
+                  <!--          <button type="submit" class="btn btn-light mr-left-5">Search</button>-->
+                  <!--          <a href="{% url 'activityinfo:report' %}?ai_id={{ database.ai_id }}"-->
+                  <!--             class="btn btn-light d-inline-block">Cancel</a>-->
+
+
+
+                </div>
+        </form>
+      </div>
+
+
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-lg-12">
+      <div class="pl-3">
+      </div>
+      <ul class="body-tabs body-tabs-layout tabs-animated body-tabs-animated nav">
+        <li class="nav-item">
+          <a role="tab" class="nav-link active" id="tab-0" data-toggle="tab" href="#tab-content-0">
+            <span class="donor"></span>
+          </a>
+        </li>
+        <div class="btn-actions-pane-right ">
+          <div class="d-inline-block dashboard_icons mr-3 ">
+
+            <div class=" d-inline-block" data-toggle="tooltip" data-placement="top" title="Download"
+              data-intro="Download Dashboard report and Raw Data">
+              <button type="button" aria-haspopup="true" aria-expanded="false" id="drop5" title="Download report"
+                data-toggle="dropdown" class=" p-1 mb-1 mr-2 btn btn-link">
+                <img src="{% static 'images/import.svg' %}" />
+
+              </button>
+              <div tabindex="-1" id="menu2" role="menu" aria-hidden="true" class="dropdown-menu" data-step="7">
+                <a type="button" tabindex="0" id="export1" class="dropdown-item" style="text-transform: none;">Current
+                  Dashboard</a>
+                <div tabindex="-1" class="dropdown-divider"></div>
+                <a type="button" tabindex="0" id="export_to_pdf" class="dropdown-item"
+                  style="text-transform: none;">PDF</a>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      </ul>
+
+      <table id="exportheader" style="display:none">
+        <thead style="background-color:#1CABE2">
+          <tr>
+            <th>Title</th>
+            <th>Location</th>
+            <th>Type</th>
+            <th>Partner</th>
+            <th>Status</th>
+            <th>Start Date</th>
+            <th>End Date</th>
+            <th>Budget</th>
+            <th>Sections</th>
+            <th>Offices</th>
+          </tr>
+        </thead>
+        <tbody> 
+        </tbody>
+      </table>
+    </div>
+  </div>
+    <div class="tab-content" style="padding: 10px;">
+
+      <div class="tab-pane tabs-animation fade active show " id="loaded-content" role="tabpanel">
+        <div class="card mb-5">
+          <div class="row ">
+
+
+            <div class="col-md-6 p-0 item-block" style="margin: 0 auto;">
+              <div class="main-card mb-3 card" style="height: 100%;min-height:450px">
+
+                <div class="card-body">
+                  <div id="mapView" style="height: 100%;"></div>
+                  <div class="legend gov btn btn-primary"> GOV</div>
+                  <div class="legend dist btn btn-primary">DIST</div>
+                  <div class="legend cad btn btn-primary">CAD</div>
+                </div>
+                <div id="loader-box-2" class="loader-box" style="display: none;">
+                  <div class="loader"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-md-6  " style="margin: 0 auto;">
+              <div class="main-card mb-3 " id="interventions_list" style="min-height: 200px;">
+                <div class="card-header">
+                  Funded programmes
+                </div>
+                <div class="card-body">
+                  <div style="height: 300px;"></div>
+                </div>
+                <div id="loader-box-1" class="loader-box" style="display: none;">
+                  <div class="loader"></div>
+                </div>
+              </div>
+
+              <div class="main-card mb-3 " id="results_list" style="min-height: 200px;">
+                <div class="card-header">Reported Indicators</div>
+                <div class="card-body">
+                  <div style="height: 300px;"></div>
+                </div>
+                <div id="loader-box-3" class="loader-box" style="display: none;">
+                  <div class="loader"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="row ">
+
+
+
+          <div class="col-md-12 item-block" style="margin: 0 auto;">
+            <div class="main-card mb-3 card" style="min-height: 200px;">
+              <div class="card-header">Funding History</div>
+              <div class="card-body">
+                <div id="funding_chart" style="height: 300px;">
+                  
+                </div>
+              </div>
+              <div id="loader-box-4" class="loader-box" style="display: none;">
+                <div class="loader"></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+  <div id="topdf" style="display: none;"></div>
+  {% endblock content %}
+
+  {% block extra_js %}
+
+  <script src="https://code.highcharts.com/highcharts.js"></script>
+  <script src="https://code.highcharts.com/modules/series-label.js"></script>
+  <script src="https://code.highcharts.com/modules/exporting.js"></script>
+  <script src="https://code.highcharts.com/modules/export-data.js"></script>
+  <script src="https://code.highcharts.com/modules/accessibility.js"></script>
+
+  <script src="{% static 'js/bootstrap-multiselect.min.js' %}"></script>
+  <script src="{% static 'vendors/bootstrap/dist/js/bootstrap.min.js' %}"></script>
+  <!--<script type="text/javascript" src="{% static 'js/Highcharts.chart.js' %}"></script>-->
+  <!--<script src="{% static 'vendors/jquery-quicksearch/jquery.quicksearch.js' %}"></script>-->
+  <!--<script src="{% static 'js/bootstrap-multiselect.min.js' %}"></script>-->
+  <script src="{% static 'js/tail.select.min.js' %}"></script>
+  <script src="{% static 'js/canvg.js' %}"></script>
+
+  <link rel="stylesheet" href="https://js.arcgis.com/4.21/esri/themes/light/main.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/1.5.3/jspdf.min.js"></script>  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.6/jspdf.plugin.autotable.min.js"></script> 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/0.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+  <script src="https://js.arcgis.com/4.21/"></script>
+
+
+  <script type="text/javascript">
+
+  var interventions_url = '{% url "etools:donor_interventions" %}';
+  var locations_url = '{% url "etools:load_donor_locations" %}';
+  var results_url = '{% url "etools:donor_programme_results" %}';
+  var funding_url = '{% url "etools:donor_funding" %}';
+  var symbol = {
+    style: "square",
+    color: "blue",
+    size: "8px",  // pixels
+    outline: {  // autocasts as new SimpleLineSymbol()
+      color: [255, 255, 0],
+      width: 3  // points
+    }
+  };
+  var symbol_icon = {
+    url: "{% static 'images/blue-pin.png' %}",
+    height: 34,
+    width: 24,
+  };
+  var markerSymbol = {
+    type: "picture-marker", // autocasts as new SimpleMarkerSymbol()
+    url: "{% static 'images/blue-pin.png' %}",
+    height: 34,
+    width: 24,
+  };
+  var simpleMarkerSymbol = {
+    type: "simple-marker",
+    color: [226, 119, 40],  // Orange
+    outline: {
+      color: [255, 255, 255], // White
+      width: 0.5
+    },
+  };
+  var view = null;
+  var map = null;
+  var pointGraphic = null;
+  var govLayer = null;
+  var distLayer = null;
+  var cadLayer = null;
+  var donor = null;
+  var opacity = 1
+  $(document).ready(function () {
+    
+
+    require([
+          "esri/Map",
+          "esri/views/MapView",
+          "esri/layers/Layer",
+          "esri/symbols/SimpleMarkerSymbol",
+          "esri/symbols/PictureMarkerSymbol",
+          "esri/geometry/Point",
+          "esri/Graphic",
+           "esri/widgets/Home",
+        ], function(Map, MapView,Layer, SimpleMarkerSymbol, PictureMarkerSymbol, Point, Graphic, Home) {
+            map = new Map({basemap: "topo-vector"});
+            view = new MapView({container: "mapView", map: map, center: [35.8623, 33.8547], zoom: 9 });
+
+            Layer.fromPortalItem({ 
+              portalItem: { id: "0f345bba66814a6ab3c7e350b54e2336" }
+            }).then(function(layer){ govLayer = layer; map.add(layer); layer.opacity = 0.3; });
+
+            Layer.fromPortalItem({
+              portalItem: {  id: "7bd1b9b473a24e30b65eea171d1fc487"  }
+            }).then(function(layer){ map.add(layer); distLayer = layer; layer.opacity = 0.5; });
+
+            const homeBtn = new Home({view: view });
+
+            // Add the home button to the top left corner of the view
+            view.ui.add(homeBtn,"top-left");
+          });
+  });
+
+function add_points(map, locations) {
+
+var points = JSON.parse(locations);
+//Added by souheil
+var marker, i;
+var filteredCadastrials = points;
+filteredCadastrials.map(item => item.CAS_CODE).filter((value, index, self) => self.indexOf(value) === index);
+
+var flags = [], output = [], l = filteredCadastrials.length, i;
+for( i=0; i<l; i++) {
+    if(Number.isInteger(+filteredCadastrials[i].CAS_CODE) && filteredCadastrials[i].CAS_CODE != ""){
+      if( flags[filteredCadastrials[i].CAS_CODE]) continue;
+      flags[filteredCadastrials[i].CAS_CODE] = true;
+      output.push(filteredCadastrials[i].CAS_CODE);
+    }
+}
+
+require([
+    "esri/Map",
+    "esri/views/MapView",
+    "esri/layers/Layer",
+    "esri/symbols/SimpleMarkerSymbol",
+    "esri/symbols/PictureMarkerSymbol",
+    "esri/geometry/Point",
+    "esri/Graphic",
+  ], function(Map, MapView,Layer, SimpleMarkerSymbol, PictureMarkerSymbol, Point, Graphic) {
+    Layer.fromPortalItem({
+      portalItem: {  // CADSASTERS
+        id: "d4a01b7d5bab4f5e8e86514eeb5dc515"
+      }
+    }).then(function(layer){
+      //map.remove(layer);
+      casLayer = layer;
+      layer.definitionExpression = "CAS_CODE IN ("+output+")";
+      map.add(layer);
+      layer.opacity =1;
+    });
+
+  view.graphics.removeAll();
+
+  setTimeout(function () {
+    var table ='';
+    $(points).each(function (i, item) {
+      console.log(item.latitude);
+        var url = '<a href="' + item.url + '" target="_blank"><i class="fa fa-external-link" style="font-size: 16px; color: #0089d2;">' + item.number + '</i></a>';
+        table+=`<tr><td>${item.title}</td><td>${item.name}</td><td>${item.document_type}</td><td>${item.partner_name}</td><td>${item.status}</td><td>${item.start}</td><td>${item.end}</td><td>${item.total_budget}</td><td>${item.section_names}</td><td>${item.offices_names}</td></tr>`;
+      var lineAtt = {
+        Number: url,
+        Title: item.title,
+        Site: item.name,
+        Type: item.document_type,
+        Partner: item.partner_name,
+        Status: item.status,
+        Start: item.start,
+        End: item.end,
+        Budget: item.total_budget,
+        Sections: item.section_names,
+        Offices: item.offices_names,
+      };
+
+      var pointGraphic = new Graphic({
+        geometry: {
+          type: "point",
+          longitude: item.longitude,
+          latitude: item.latitude
+        },
+        symbol: simpleMarkerSymbol,
+        attributes: lineAtt,
+        popupTemplate: {
+          title: "{Type} {Number}",
+          content: [
+            {
+              type: "fields",
+              fieldInfos: [
+                {
+                  fieldName: "Site"
+                },
+                {
+                  fieldName: "Title"
+                },
+                {
+                  fieldName: "Partner"
+                },
+                {
+                  fieldName: "Status"
+                },
+                {
+                  fieldName: "Start Date"
+                },
+                {
+                  fieldName: "End Date"
+                },
+                {
+                  fieldName: "Budget"
+                },
+                {
+                  fieldName: "Sections"
+                },
+                {
+                  fieldName: "Offices"
+                },
+              ]
+            }
+          ]
+        }
+      });
+      view.graphics.add(pointGraphic);
+    });
+
+    $('#exportheader tbody').html(table)
+
+    $('#loader-box-2').hide();
+
+  }, 2000);
+
+});
+
+}
+
+
+</script>
+
+  
+<!-- export functions and events -->
+<style>
+ 
+</style>
+<script>
+  
+function downloadPDF(elements, pdfOptions){
+  let worker = html2pdf()
+    .set(pdfOptions)
+    .from(elements[0])
+
+  if (elements.length > 1) {
+    worker = worker.toPdf() // worker is now a jsPDF instance
+
+    // add each element/page individually to the PDF render process
+    elements.slice(1).forEach((element, index) => {
+      worker = worker
+        .get('pdf')
+        .then(pdf => {
+          pdf.addPage()
+        })
+        .from(element)
+        .toContainer()
+        .toCanvas()
+        .toPdf()
+    })
+  }
+
+  worker = worker.save()
+}
+
+
+function export_to_pdf() {
+  var htmlstring = `
+      <div class="xcontainer" class="m-10">
+        <div aria-label="pdf-page-1">
+        <div class="row d-flex justify-content-between align-content-center" >
+          <div>
+            <img src="/static/img/unicef_for_every_child.jpg" width="300" height="50" alt="UNICEF-logo" />
+          </div>
+          <div>
+            <h4 class="text-secondary head pt-2"><strong>Donor Mapping - DONOR_NAME</strong></h4>
+          </div>
+          <div> 
+            <h4 class="text-secondary head pt-2"><strong>Date: CURRENT_DATE</strong></h4>
+          </div>
+        </div>
+        <hr>
+        <div class="row">
+          <div class="d-flex">
+            <div style="width: 45%; height: 400pt">
+              DIV_MAP
+            </div>
+            <div style="width: 55%; height: 400pt">
+              DIV_FUNDING_CHART
+            </div>
+          </div>
+        </div> 
+      </div> 
+
+      <div aria-label="pdf-page-2">     
+        <h5 class="text-secondary"><strong>FUNDED PROGRAMS</strong></h5>
+          DIV_FUNDED_PROGRAMS
+      </div>
+      
+      <div aria-label="pdf-page-2">
+        <h5 class="text-secondary"><strong>PLANNED LOCATIONS</strong></h5>
+        <table> DIV_PLANNED_LOCATIONS </table>
+      </div>
+      <div aria-label="pdf-page-3">
+          <h5 class="text-secondary head"><strong>REPORTED INDICATORS</strong></h5>
+          DIV_REPORTED_IND
+          <p class="pull-center">Enf of Report</p>
+      </div>
+      </div>
+      `;
+  donor_name =  $.trim($('.dropdown-item:selected').text())
+  current_date = new Date().toISOString().slice(0, 10)
+  filename = 'Donor mapping - ' + $.trim($('.dropdown-item:selected').text()).replace(/[^a-z0-9\s]/gi, '').replace(/[_\s]/g, '_') + "_" + new Date().toISOString().slice(0, 10);
+  var opt = {
+        margin:       [5, 10, 5, 5],
+        filename:     filename + '.pdf',
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { dpi: 180, scale:1, letterRendering: true, useCORS: true },
+        jsPDF:        { unit: 'pt', format: 'a4', orientation: 'landscape', putOnlyUsedFonts:true, },
+        pagebreak:    { mode: '', before: '.break-before', after: '.break-after', avoid: '.break-avoid' }
+  };
+    
+    view.takeScreenshot().then(function(screenshot) {
+      let mapImageElement = document.getElementById("mapView");
+      mapImageElement.src = screenshot.dataUrl;
+      map_image = '<img src="' + mapImageElement.src +'"' + 'alt="" style="height: 100%; width: 100%; object-fit: contain">'
+      
+      var rowCount = $('#exportheader tr').length;
+      if (rowCount > 1 ){
+        exportheader_content = document.getElementById('exportheader').innerHTML;
+      } else {
+        exportheader_content = ' No Reported Locations';
+      }
+      
+      const pdfElement = htmlstring
+      .replace('DIV_MAP',map_image)
+      .replace('DIV_FUNDING_CHART',$("#chart1").highcharts().getSVG())
+      .replace('DONOR_NAME', donor_name)
+      .replace('CURRENT_DATE', current_date)
+      .replace('DIV_FUNDED_PROGRAMS',document.getElementById('interventions_list_ul').innerHTML)
+      .replace('DIV_REPORTED_IND',document.getElementById('results_list_ul').innerHTML)
+      .replace('DIV_PLANNED_LOCATIONS', exportheader_content);
+
+      document.getElementById('topdf').innerHTML = pdfElement;
+
+      
+      const pages = Array.from(document.querySelectorAll('div[aria-label^="pdf-page-"]'))
+
+      downloadPDF(pages, opt)
+
+
+      // html2pdf().set(opt).from(document.getElementById('topdf').innerHTML).save();
+
+
+      // setTimeout(() => { html2pdf().from(pdfElement).set(opt).save().catch((err) => this.errorHandlerService.handleError(err))}, 10000);
+
+    });
+
+}
+
+function export_table_to_csv(html, filename) {
+  var csv = [];
+  $("tr:hidden,td:hidden", "#exportheader").remove();
+  var rows_header = document.querySelectorAll("table#exportheader thead tr");
+  var rows = document.querySelectorAll("table#exportheader tbody tr");
+  for (var i = 0; i < rows_header.length; i++) {
+    var row = [],
+      cols = rows_header[i].querySelectorAll("th");
+    for (var j = 0; j < cols.length; j++)
+      row.push($(cols[j]).attr('content'));
+    csv.push(row.join(","));
+  }
+  for (var i = 0; i < rows.length; i++) {
+    var row = [],
+      cols = rows[i].querySelectorAll("td, th");
+    for (var j = 0; j < cols.length; j++) {
+      if ($(cols[j]).attr('colspan') == '2') {
+        row.push('');
+      }
+      row.push(cols[j].innerText);
+    }
+    csv.push(row.join(","));
+  }
+  // Download CSV
+  download_csv(csv.join("\n"), filename);
+}
+
+function download_csv(csv, filename) {
+  var csvFile;
+  var downloadLink;
+  csvFile = new Blob([csv], {
+    type: "text/csv"
+  });
+  downloadLink = document.createElement("a");
+  downloadLink.download = filename;
+  downloadLink.href = window.URL.createObjectURL(csvFile);
+  downloadLink.style.display = "none";
+  document.body.appendChild(downloadLink);
+  downloadLink.click();
+}
+
+document.querySelector("#export1").addEventListener("click", function() {
+  var html = document.querySelector("table").outerHTML;
+  var file_name = $("#exportheader").attr("content");
+  $('table').show();
+  export_table_to_csv(html, 'donor_map_export');
+  $('table').hide();
+});
+
+document.querySelector("#export_to_pdf").addEventListener("click", function() {
+  $('table').show();
+  export_to_pdf();
+  $('table').hide();
+});
+
+</script>
+
+<!-- data loaders -->
+
+<script>
+  var fdata = {}
+  function get_selections() {
+    fdata = {
+        selected_partners : $("#filter_partners").val(),
+        selected_sections : $('#filter_sections').val(),
+        selected_programs : $('#filter_programs').val(),
+        selected_governorates : $('#filter_governorates').val(),
+        selected_projects : $('#filter_projects').val(),
+        selected_years : $('#filter_years').val(),
+        selected_months : $('#filter_months').val(),
+        donor : $('#filter_donors').val(),
+        ai_id : $('#ai_id').val(),
+      }
+      return fdata
+  }
+
+  function load_changed_blocks(){
+    // called when any filter other than the donor is changed
+    fdata = get_selections();
+     
+      if (fdata.donor){
+        load_locations(fdata);
+        load_results_block(fdata);
+        load_interventions_block(fdata);
+
+      }
+  }
+
+  function load_blocks_data() {
+    // called when the donor changes
+    fdata = get_selections();
+   
+    if (fdata.donor){
+      load_interventions_block(fdata);
+      load_locations(fdata);
+      load_results_block(fdata);
+      load_funding_block(fdata);
+    }
+  }
+
+  function load_interventions_block(fdata) {
+    $('#loader-box-1').show();
+    $('#interventions_list').empty();
+    $.ajax({
+      url: interventions_url,
+      dataType: "html",
+      data: fdata,
+      success: function(data) {
+        $('#loader-box-1').hide();
+        $('#interventions_list').html(data);
+        $('[data-toggle="tooltip"]').tooltip();
+      }
+    });
+  }
+
+  function load_results_block(fdata) {
+    $('#loader-box-3').show();
+    $('#results_list').empty();
+    $.ajax({
+      url: results_url,
+      dataType: "html",
+      data: fdata,
+      success: function(data) {
+        $('#loader-box-3').hide();
+        $('#results_list').html(data);
+      }
+    });
+  }
+
+  function load_locations(fdata) {
+    $.ajax({
+      url: locations_url,
+      dataType: "json",
+      data: fdata,
+      success: function(data) {
+        //$('#loader-box-2').hide();
+        opacity = 0.5
+        add_points(map, data.planned_locations);
+      }
+    });
+  }
+
+  function load_funding_block(fdata) {
+    $('#loader-box-4').show();
+    $('#funding_chart').empty();
+    $.ajax({
+      url: funding_url,
+      dataType: "html",
+      data: fdata,
+      success: function(data) {
+        $('#loader-box-4').hide();
+        $('#funding_chart').html(data);
+      }
+    });
+  }
+
+</script>
+
+<!-- map toggling and filtering events -->
+<script>
+
+$(document).on('click', '.dist', function() {
+  distLayer.visible = !distLayer.visible;
+  if (distLayer.visible) {
+    $(this).removeClass('btn-light');
+    $(this).addClass('btn-primary');
+  } else {
+    $(this).addClass('btn-light');
+    $(this).removeClass('btn-primary');
+  }
+});
+
+$(document).on('click', '.gov', function() {
+  govLayer.visible = !govLayer.visible;
+  if (govLayer.visible) {
+    $(this).removeClass('btn-light');
+    $(this).addClass('btn-primary');
+  } else {
+    $(this).addClass('btn-light');
+    $(this).removeClass('btn-primary');
+  }
+});
+
+$(document).on('click', '.cad', function() {
+  cadLayer.visible = !cadLayer.visible;
+  if (cadLayer.visible) {
+    $(this).removeClass('btn-light');
+    $(this).addClass('btn-primary');
+  } else {
+    $(this).addClass('btn-light');
+    $(this).removeClass('btn-primary');
+  }
+});
+
+$(document).on('click', '.level3-filter', function() {
+  $('#loaded-content .list-group-item').removeClass('active');
+  $(this).addClass('active');
+  load_sub_data($(this).attr('data-data'), $('#level1').find('a.active').attr('data-fgColor'));
+});
+
+$('#filter_partners').on('change', function() { load_changed_blocks()});
+$('#filter_sections').on('change', function() { load_changed_blocks()});
+$('#filter_programs').on('change', function() { load_interventions_block(get_selections())});
+$('#filter_years').on('change', function() { load_changed_blocks()});
+$('#filter_projects').on('change', function() { load_changed_blocks()});
+$('#filter_months').on('change', function() { load_changed_blocks()});
+$('#filter_governorates').on('change', function() { load_changed_blocks()});
+
+$('#filter_partners').multiselect({
+  includeSelectAllOption: true,
+  nonSelectedText: 'Partners',
+  nSelectedText: 'selected partners',
+  maxHeight: 350,
+  buttonClass: 'btn btn-outline',
+});
+$('#filter_years').multiselect({
+  includeSelectAllOption: true,
+  nonSelectedText: 'Years',
+  nSelectedText: 'selected years',
+  maxHeight: 350,
+  buttonClass: 'btn btn-outline',
+});
+$('#filter_projects').multiselect({
+  includeSelectAllOption: true,
+  nonSelectedText: 'Projects',
+  nSelectedText: 'selected projects',
+  maxHeight: 350,
+  buttonClass: 'btn btn-outline',
+});
+$('#filter_sections').multiselect({
+  includeSelectAllOption: true,
+  nonSelectedText: 'Sections',
+  nSelectedText: 'selected sections',
+  maxHeight: 350,
+  buttonClass: 'btn btn-outline',
+});
+$('#filter_programs').multiselect({
+  includeSelectAllOption: true,
+  nonSelectedText: 'Programs',
+  nSelectedText: 'selected programs',
+  maxHeight: 350,
+  buttonClass: 'btn btn-outline',
+});
+$('#filter_months').multiselect({
+  buttonClass: 'btn btn-outline',
+  includeSelectAllOption: true,
+  nonSelectedText: 'Months',
+  nSelectedText: 'selected months',
+  numberDisplayed: 1,
+  maxHeight: 350
+});
+$('#filter_governorates').multiselect({
+  buttonClass: 'btn btn-outline',
+  includeSelectAllOption: true,
+  nonSelectedText: 'Governorates',
+  nSelectedText: 'selected governorates',
+  numberDisplayed: 1,
+  maxHeight: 350
+});
+
+tail.select("#filter_donors", { search: true, placeholder: "Donors",}).on("change", function (item, state) {
+        $('#loader-box-2').show();
+        $('.donor').html(item.value);
+        load_blocks_data();
+});
+</script>
+  {% endblock %}

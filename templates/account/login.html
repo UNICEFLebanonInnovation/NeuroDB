@@ -1,0 +1,42 @@
+{% extends "account/base.html" %}
+
+{% load static i18n %}
+{% load account socialaccount %}
+{% load crispy_forms_tags %}
+
+{% block project_title %}Sign In{% endblock %}
+
+{% block inner %}
+<div class="hold-transition login-page">
+  <div class="login-box">
+    <div class="login-logo">
+      <a href="#"><b>Neuro</b>DB</a>
+    </div>
+
+    <div class="card">
+      <div class="card-body login-card-body">
+        <p class="login-box-msg">Sign in to start your session</p>
+        <form action="{% url 'account_login' %}" method="post">{% csrf_token %}
+          {{ form|crispy }}
+      {% if redirect_field_value %}
+      <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}"/>
+      {% endif %}
+          <div class="row">
+            <div class="col-12 text-center">
+              <button type="submit" class="btn btn-primary btn-block">Sign In</button>
+            </div>
+            
+          </div>
+        </form>
+        <!--p class="mb-1">
+          <a href="{% url 'account_reset_password' %}">I forgot my password</a>
+        </p -->
+        <p class="mt-2 lead text-black text-center"> OR </p>
+        <p class="mt-0 lead text-center text-primary">
+          <a href="{% url 'sso_login' %}">Use my Microsoft account</a>
+        </p> 
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

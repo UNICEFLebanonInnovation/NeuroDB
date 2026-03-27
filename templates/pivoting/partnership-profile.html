@@ -1,0 +1,297 @@
+{% extends "baseV2.html" %}
+{% load static humanize i18n %}
+
+{% block extra_style %}
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-bs4/css/dataTables.bootstrap4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-responsive/css/responsive.bootstrap4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-buttons/css/buttons.bootstrap4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/sweetalert2-theme-bootstrap-4/bootstrap-4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/toastr/toastr.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/select2-bootstrap4-theme/select2-bootstrap4.min.css' %}" />
+{% endblock extra_style %}
+
+{% block content %}
+
+<section class="content-header">
+    <div class="container-fluid">
+        <div class="row">
+            <div class="d-flex col-12">
+                <div class="p-1 align-middle">
+                    <a href="javascript:history.back()" class="btn btn-light">
+                        <i class="fa fa-angle-double-left" aria-hidden="true"></i>
+                    </a>
+                </div>
+                <div>
+                    <p class="text-lg text-black mb-0"> {{partnership.name}} [{{partnership.short_name}}]</p>
+                    <p class="text-sm text-black">
+                        {{partnership.partner_type}}
+                    <p>
+                </div>
+                <div class="ml-auto">
+                    <p class="text-lg text-black">Vendor number: {{partnership.vendor_number}}</h1>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="content">
+    <div class="card card-primary card-outline card-outline-tabs">
+        <div class="card-header p-0 border-bottom-0">
+            <ul class="nav nav-tabs" id="custom-tabs-four-tab" role="tablist">
+                <li class="nav-item">
+                    <a class="nav-link active" id="tab-1-tab" data-toggle="pill" href="#tab-1" role="tab"
+                        aria-controls="tab-1" aria-selected="true">Programmatic Visits
+                        [{{partnership.travelactivity_set.all|length}}]</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="tab-2-tab" data-toggle="pill" href="#tab-2" role="tab" aria-controls="tab-2"
+                        aria-selected="false">Micro Assessments [{{ma_count}}]</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="tab-3-tab" data-toggle="pill" href="#tab-3" role="tab" aria-controls="tab-3"
+                        aria-selected="false">Spot Checks [{{sc_count}}]</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="tab-4-tab" data-toggle="pill" href="#tab-4" role="tab" aria-controls="tab-4"
+                        aria-selected="false">Audits [{{audit_count}}]</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="tab-5-tab" data-toggle="pill" href="#tab-5" role="tab" aria-controls="tab-5"
+                        aria-selected="false">Special Audits [{{sa_count}}]</a>
+                </li>
+            </ul>
+        </div>
+        <div class="card-body">
+            <div class="tab-content" id="custom-tabs-four-tabContent">
+                <div class="tab-pane fade show active" id="tab-1" role="tabpanel" aria-labelledby="tab-1-tab">
+                    <table class="table table-sm">
+                        <thead>
+                            <th>Date</th>
+                            <th>Status</th>
+                            <th>Section</th>
+                            <th>Type</th>
+                            <th>Purpose</th>
+                            <th>Supervisor</th>
+                            <th>Traveler</th>
+                            <th>Attachments</th>
+                        </thead>
+                        <tbody>
+                            {% for travel in partnership.travelactivity_set.all|dictsortreversed:"date" %}
+                            <tr>
+                                <td class="text-nowrap">{{travel.date|date:"Y-m-d"}}</td>
+                                <td>{{travel.travel.status}}</td>
+                                <td>{{travel.travel.section}}</td>
+                                <td>{{travel.travel.travel_type}}</td>
+                                <td>{{travel.travel.purpose}}</td>
+                                <td>{{travel.travel.supervisor_name}}</td>
+                                <td>{{travel.travel.traveler_name}}</td>
+                                <td>
+                                    {% for attachment in travel.travel.attachments_sets %}
+                                    <a href="{{ attachment.url}}" title="{{attachment.url}}">{{attachment.name}}</a>
+                                    {% endfor %}
+                                </td>
+
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+
+                </div>
+                <div class="tab-pane fade" id="tab-2" role="tabpanel" aria-labelledby="tab-2-tab">
+                    <div id="accordion-ma">
+                        {% for engagement in partnership.engagement_set.all %}
+                        {% if engagement.engagement_type == "ma" %}
+                        <p class="w-100">
+                            <a class="d-block w-100" data-toggle="collapse" href="#ma{{engagement.id}}">
+                                {{engagement.displayed_name}}
+                            </a>
+                        </p>
+                        <div id="ma{{engagement.id}}" class="collapse" data-parent="#accordion-ma">
+                            <div>
+                                <span class="font-weight-bold">Internal Controls: </span>
+                                {{engagement.internal_controls}}
+                                {% for finding in engagement.findings_sets %}
+                                <blockquote class="quote-secondary">
+                                    <p>
+                                        <span class="font-weight-bold"> Finding: </span> {{finding.id}}
+                                        <span class="font-weight-bold"> Category:
+                                        </span>{{finding.category_of_observation}}
+                                        <span class="font-weight-bold"> Priority: </span>{{finding.priority}}
+                                        <span class="font-weight-bold"> Deadline: </span>{{finding.deadline_of_action}}
+                                    </p>
+                                    <p><span class="font-weight-bold">Recommentation: </span>{{finding.recommendation}}
+                                    </p>
+                                    <p><span class="font-weight-bold">Agreed Action:
+                                        </span>{{finding.agreed_action_by_ip}}</p>
+                                </blockquote>
+                                {% endfor %}
+                                {% for ap in engagement.action_points.all %}
+                                <blockquote class="quote-tertiary">
+                                    <p>
+                                        <span class="font-weight-bold"> Action Point: </span> {{ap.id}}
+                                        <span class="font-weight-bold"> Category: </span>{{ap.category_name}}
+                                        <span class="font-weight-bold"> Status: </span>{{ap.status}}
+                                        <span class="font-weight-bold"> Due Date: </span>{{ap.due_date}}
+                                    </p>
+                                    <p><span class="font-weight-bold">Description: </span>{{ap.description}}</p>
+                                </blockquote>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="tab-pane fade" id="tab-3" role="tabpanel" aria-labelledby="tab-3-tab">
+                    <div id="accordion-sc">
+                        {% for engagement in partnership.engagement_set.all %}
+                        {% if engagement.engagement_type == "sc" %}
+                        <p class="w-100">
+                            <a class="d-block w-100" data-toggle="collapse" href="#sc{{engagement.id}}">
+                                {{engagement.displayed_name}}
+                            </a>
+                        </p>
+                        <div id="sc{{engagement.id}}" class="collapse" data-parent="#accordion-sc">
+                            <div>
+                                <span class="font-weight-bold">Internal Controls: </span>
+                                {{engagement.internal_controls}}
+                                {% for finding in engagement.findings_sets %}
+                                <blockquote class="quote-secondary">
+                                    <p>
+                                        <span class="font-weight-bold"> Finding: </span> {{finding.id}}
+                                        <span class="font-weight-bold"> Category:
+                                        </span>{{finding.category_of_observation}}
+                                        <span class="font-weight-bold"> Priority: </span>{{finding.priority}}
+                                        <span class="font-weight-bold"> Deadline: </span>{{finding.deadline_of_action}}
+                                    </p>
+                                    <p><span class="font-weight-bold">Recommentation: </span>{{finding.recommendation}}
+                                    </p>
+                                    <p><span class="font-weight-bold">Agreed Action:
+                                        </span>{{finding.agreed_action_by_ip}}</p>
+                                </blockquote>
+                                {% endfor %}
+                                {% for ap in engagement.action_points.all %}
+                                <blockquote class="quote-tertiary">
+                                    <p>
+                                        <span class="font-weight-bold"> Action Point: </span> {{ap.id}}
+                                        <span class="font-weight-bold"> Category: </span>{{ap.category_name}}
+                                        <span class="font-weight-bold"> Status: </span>{{ap.status}}
+                                        <span class="font-weight-bold"> Due Date: </span>{{ap.due_date}}
+                                    </p>
+                                    <p><span class="font-weight-bold">Description: </span>{{ap.description}}</p>
+                                </blockquote>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="tab-pane fade" id="tab-4" role="tabpanel" aria-labelledby="tab-4-tab">
+                    <div id="accordion-audit">
+                        {% for engagement in partnership.engagement_set.all %}
+                        {% if engagement.engagement_type == "audit" %}
+                        <p class="w-100">
+                            <a class="d-block w-100" data-toggle="collapse" href="#audit{{engagement.id}}">
+                                {{engagement.displayed_name}}
+                            </a>
+                        </p>
+                        <div id="audit{{engagement.id}}" class="collapse" data-parent="#accordion-audit">
+                            <div class="card-body">
+                                <span class="font-weight-bold">Internal Controls: </span>
+                                {{engagement.internal_controls}}
+                                {% for finding in engagement.findings_sets %}
+                                <blockquote class="quote-secondary">
+                                    <p>
+                                        <span class="font-weight-bold"> Finding: </span> {{finding.id}}
+                                        <span class="font-weight-bold"> Category:
+                                        </span>{{finding.category_of_observation}}
+                                        <span class="font-weight-bold"> Priority: </span>{{finding.priority}}
+                                        <span class="font-weight-bold"> Deadline: </span>{{finding.deadline_of_action}}
+                                    </p>
+                                    <p><span class="font-weight-bold">Recommentation: </span>{{finding.recommendation}}
+                                    </p>
+                                    <p><span class="font-weight-bold">Agreed Action:
+                                        </span>{{finding.agreed_action_by_ip}}</p>
+                                </blockquote>
+                                {% endfor %}
+                                {% for ap in engagement.action_points.all %}
+                                <blockquote class="quote-tertiary">
+                                    <p>
+                                        <span class="font-weight-bold"> Action Point: </span> {{ap.id}}
+                                        <span class="font-weight-bold"> Category: </span>{{ap.category_name}}
+                                        <span class="font-weight-bold"> Status: </span>{{ap.status}}
+                                        <span class="font-weight-bold"> Due Date: </span>{{ap.due_date}}
+                                    </p>
+                                    <p><span class="font-weight-bold">Description: </span>{{ap.description}}</p>
+                                </blockquote>
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="tab-pane fade" id="tab-5" role="tabpanel" aria-labelledby="tab-5-tab">
+                    <div id="accordion-audit">
+                        {% for engagement in partnership.engagement_set.all %}
+                        {% if engagement.engagement_type == "sa" %}
+
+                        <p class="w-100">
+                            <a class="d-block w-100" data-toggle="collapse" href="#sa{{engagement.id}}">
+                                {{engagement.displayed_name}}
+                            </a>
+                        </p>
+                        <div id="sa{{engagement.id}}" class="collapse" data-parent="#accordion-sa">
+                            <div>
+                                <span class="font-weight-bold">Internal Controls: </span>
+                                {{engagement.internal_controls}}
+                                {% for finding in engagement.findings_sets %}
+                                <blockquote class="quote-secondary">
+                                    <p>
+                                        <span class="font-weight-bold"> Finding: </span> {{finding.id}}
+                                        <span class="font-weight-bold"> Category:
+                                        </span>{{finding.category_of_observation}}
+                                        <span class="font-weight-bold"> Priority: </span>{{finding.priority}}
+                                        <span class="font-weight-bold"> Deadline:
+                                        </span>{{finding.deadline_of_action}}
+                                    </p>
+                                    <p><span class="font-weight-bold">Recommentation:
+                                        </span>{{finding.recommendation}}</p>
+                                    <p><span class="font-weight-bold">Agreed Action:
+                                        </span>{{finding.agreed_action_by_ip}}</p>
+                                </blockquote>
+                                {% endfor %}
+                                {% for ap in engagement.action_points.all %}
+                                <blockquote class="quote-tertiary">
+                                    <p>
+                                        <span class="font-weight-bold"> Action Point: </span> {{ap.id}}
+                                        <span class="font-weight-bold"> Category: </span>{{ap.category_name}}
+                                        <span class="font-weight-bold"> Status: </span>{{ap.status}}
+                                        <span class="font-weight-bold"> Due Date: </span>{{ap.due_date}}
+                                    </p>
+                                    <p><span class="font-weight-bold">Description: </span>{{ap.description}}</p>
+                                </blockquote>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</section>
+
+{% endblock content %}
+
+{% block extra_js %}
+<script src="{% static 'adminlte/plugins/sweetalert2/sweetalert2.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/toastr/toastr.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/bootstrap/js/bootstrap.bundle.min.js' %}"></script>
+<script src="{% static 'adminlte/dist/js/adminlte.js' %}"></script>
+{% endblock %}

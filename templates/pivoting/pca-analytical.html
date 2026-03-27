@@ -1,0 +1,223 @@
+{% extends "baseV2.html" %}
+{% load static i18n %}
+
+{% block project_title %}Neuro-DB{% endblock %}
+{% block extra_style %}
+<link rel="stylesheet" type="text/css" href="{% static 'vendors/pivottable/dist/pivot.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/bootstrap-slider/css/bootstrap-slider.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/select2-bootstrap4-theme/select2-bootstrap4.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/bs-stepper/css/bs-stepper.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-bs4/css/dataTables.bootstrap4.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-responsive/css/responsive.bootstrap4.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-buttons/css/buttons.bootstrap4.min.css' %}"/>
+<style>
+    tbody>tr>th.pvtTotalLabel,
+    .colTotal,
+    .pvtGrandTotal {
+        display: none;
+    }
+</style>
+{% endblock %}
+{% block content %}
+<section class="content-header">
+    <div class="container-fluid">
+        <div class="row">
+            <div class="d-flex col-12">
+                <div class="p-1 align-middle">
+                    <a href="javascript:history.back()" class="btn btn-light">
+                        <i class="fa fa-angle-double-left" aria-hidden="true"></i>
+                    </a>
+                </div>
+                <div>
+                    <h1>{{pca.number}} </h1>
+                    <p>
+                        <i>
+                            Last Update: {{pca.updated_at}}
+                        </i>
+                    <p>
+                </div>
+                <div class="ml-auto">
+                    <div class="btn-group">
+                        <button type="button" aria-haspopup="true" aria-expanded="false" class="btn btn-sm btn-light shadow mr-1"
+                            onclick="switchview(currentView)">Clear Filters</button>
+                        <button type="button" onclick="TableToCSV();" aria-haspopup="true" aria-expanded="false"
+                            class="btn btn-sm btn-light shadow mr-1">Download</button>
+                        
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+<section class="content">
+    <div class="container-fluid">
+        <div class="card">
+            <div class="card-body p-2">
+                <div class="table-responsive">
+                    <div id="output" style="margin: 10px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+{% endblock content %}
+
+{% block extra_js %}
+<script src="https://cdn.plot.ly/plotly-basic-latest.min.js"></script>
+<!-- PivotTable.js libs from ../dist -->
+<script src="{% static 'vendors/pivottable/dist/pivot.js' %}"></script>
+<script src="{% static 'vendors/pivottable/dist/plotly_renderers.js' %}"></script>
+<script src="{% static 'vendors/pivottable/dist/export_renderers.js' %}"></script>
+
+
+<script src="{% static 'adminlte/plugins/jszip/jszip.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/pdfmake.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/vfs_fonts.js' %}"></script>
+<script src="{% static 'adminlte/dist/js/adminlte.js' %}"></script>
+
+<script>
+    function formatDate(date) {
+        var d = new Date(date),
+            month = '' + (d.getMonth() + 1),
+            day = '' + d.getDate(),
+            year = d.getFullYear();
+
+        if (month.length < 2)
+            month = '0' + month;
+        if (day.length < 2)
+            day = '0' + day;
+
+        return [year, month, day].join('-');
+    }
+    function delay(time) {
+        return new Promise(resolve => setTimeout(resolve, time));
+    }
+    async function TableToCSV() {
+        //$('.pvtRenderer option[value="TSV Export"]').prop('selected', true);
+        $(".pvtRenderer").val("TSV Export").change();
+        await delay(5000).then(() => console.log('ran after 1 second1 passed'));
+        filename = "PD_" + "{{pca.number}}" + "_Indicators_" + formatDate(Date())
+        var downloadLink;
+        var dataType = 'application/csv';
+        var data = $("textarea").val().replaceAll('#', ' ')
+
+        filename = filename ? filename + '.csv' : 'csv_data.csv';
+        downloadLink = document.createElement("a");
+        document.body.appendChild(downloadLink);
+
+        if (navigator.msSaveOrOpenBlob) {
+            var blob = new Blob(['\ufeff', data], {
+                type: dataType
+            });
+            navigator.msSaveOrOpenBlob(blob, filename);
+        } else {
+            downloadLink.href = 'data:' + dataType + ', ' + data;
+            downloadLink.download = filename;
+            downloadLink.click();
+        }
+    }
+</script>
+
+<script>
+    var pivot_data = null
+    var getUrlParameter = function getUrlParameter(sParam) {
+        var sPageURL = window.location.search.substring(1),
+            sURLVariables = sPageURL.split('&'),
+            sParameterName,
+            i;
+
+        for (i = 0; i < sURLVariables.length; i++) {
+            sParameterName = sURLVariables[i].split('=');
+
+            if (sParameterName[0] === sParam) {
+                return sParameterName[1] === undefined ? true : decodeURIComponent(sParameterName[1]);
+            }
+        }
+        return false;
+    };
+    $(document).ready(function () {
+        var id = getUrlParameter('id');
+        $.ajax({
+            url: '{% url "pivoting:load_pca_activityinfo" %}',
+            dataType: "json",
+            data: {
+                'id': getUrlParameter('id')
+            },
+            success: function (data) {
+                // pivot_data = JSON.stringify(JSON.parse(data.items))
+                pivot_data = data.items
+                switchview('month')
+            }
+        });
+    })
+
+</script>
+
+<script>
+    const hiddenAttributes = ["Form", "Reporting_Id", "Activity", "Indicator_Awp_Code", "Reporting_Section", "Report_Id", "Partner", "PDs"]
+    const hiddenFromDragDrop = ['Indicator_Value']
+    var currentView = ""
+    var numberFormat = $.pivotUtilities.numberFormat;
+    var tpl = $.pivotUtilities.aggregatorTemplates;
+
+    var intFormat = numberFormat({ digitsAfterDecimal: 0, });
+    var usFmt = numberFormat({ digitsAfterDecimal: 1, });
+    var prcFormat = numberFormat({ digitsAfterDecimal: 0, suffix: '%' });
+
+    var amendedAggregators = {
+        'Count': function () { return tpl.count(intFormat)(["Report_Id"]) },
+        'Cumulative': function () { return tpl.sum(intFormat)(["Indicator_Value"]) },
+        'Average': function () { return tpl.average(intFormat)(["Indicator_Value"]) },
+        'Median': function () { return tpl.median(usFmt)(["Indicator_Value"]) },
+        'Variance': function () { return tpl.var(usFmt)(["Indicator_Value"]) },
+        'St. Deviation': function () { return tpl.stdev(usFmt)(["Indicator_Value"]) },
+        'Minimum': function () { return tpl.min(usFmt)(["Indicator_Value"]) },
+        'Maximum': function () { return tpl.max(usFmt)(["Indicator_Value"]) },
+    }
+
+    var filterByUnicef = { filterCol: "Funded_By", filterValue: ["UNICEF",] };
+    var excludeNullMonth = { filterCol: "Month", filterValue: [null,] };
+    var excludeNullDisability = { filterCol: "Disability", filterValue: [null,] };
+    var viewFilter = function (rowObj) { return true }
+
+    var achievedDeriver = function (record) {
+        return record.indicator_value / record.target;
+    }
+
+
+    function switchview(view) {
+        let renderers = {}; $.extend(renderers, $.pivotUtilities.renderers, $.pivotUtilities.plotly_renderers, $.pivotUtilities.export_renderers);
+
+        currentView = view
+        let cols = ["Month"]
+        let rows = ["Activityinfo_Indicator"]
+
+        if (view == 'month') {
+            rows = ["Activityinfo_Indicator"]
+            cols = ["Month"]
+        }
+
+        // if (view == 'project') {
+        //     rows = ["Project"]
+        //     cols = ["Month"]
+        // }
+
+        $("#output").pivotUI(JSON.parse(pivot_data), {
+            hiddenAttributes: hiddenAttributes,
+            renderers: renderers,
+            aggregators: amendedAggregators,
+            hiddenFromDragDrop: hiddenFromDragDrop,
+            unusedAttrsVertical: false,
+            filter: viewFilter,
+            showUI: true,
+            rows: rows,
+            cols: cols,
+            sorters: {
+                "Month": $.pivotUtilities.sortAs(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]),
+            },
+        }, true);
+    }
+</script>
+
+{% endblock extra_js %}

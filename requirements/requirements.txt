@@ -1,0 +1,102 @@
+# Django
+# psycopg2-binary
+python-dotenv
+# whitenoise
+pytz  #==2022.7.1  # https://github.com/stub42/pytz
+python-slugify  #==7.0.0  # https://github.com/un33k/python-slugify
+Pillow  #==9.4.0  # https://github.com/python-pillow/Pillow
+# rcssmin==1.1.0 --install-option="--without-c-extensions"  # https://github.com/ndparker/rcssmin
+rcssmin  #==1.1.1 --install-option="--without-c-extensions"  # https://github.com/ndparker/rcssmin
+# argon2-cffi==21.3.0  # https://github.com/hynek/argon2_cffi
+whitenoise  #==6.3.0  # https://github.com/evansd/whitenoise
+
+# redis  #==4.4.1  # https://github.com/redis/redis-py
+# celery  #==5.2.7  # pyup: < 6.0  # https://github.com/celery/celery
+# django-celery-beat  #==2.4.0  # https://github.com/celery/django-celery-beat
+
+# Django
+# ------------------------------------------------------------------------------
+django  #==3.2  #==4.0.8  # pyup: < 4.1  # https://www.djangoproject.com/
+django-environ  #==0.9.0  # https://github.com/joke2k/django-environ
+django-model-utils  #==4.3.1  # https://github.com/jazzband/django-model-utils
+django-allauth  #==0.52.0  # https://github.com/pennersr/django-allauth
+django-crispy-forms  #==1.14.0  # https://github.com/django-crispy-forms/django-crispy-forms
+crispy-bootstrap5  #==0.7  # https://github.com/django-crispy-forms/crispy-bootstrap5
+django-compressor  #==4.3  # https://github.com/django-compressor/django-compressor
+django-redis  #==5.2.0  # https://github.com/jazzband/django-redis
+django-extensions  #==3.2.1  # https://github.com/django-extensions/django-extensions
+
+djangorestframework
+# django-rest-swagger is depricated and is better replaced
+django-rest-swagger
+drf-nested-routers
+django-environ
+django-braces
+django-crispy-forms
+django-ordered-model
+django-allauth
+django-redis
+django-mptt
+django-money
+django-smart-selects
+django-nested-admin
+django-autocomplete-light
+django-leaflet
+django_db_logger
+django-json-widget
+django-import-export
+django-sslserver
+django_fsm
+django-jazzmin
+django-google-tag-manager
+django-anymail
+django-taggit
+awesome-slugify
+unicodecsv
+python-docx
+
+Werkzeug[watchdog]==2.2.2 # https://github.com/pallets/werkzeug
+ipdb  #==0.13.11  # https://github.com/gotcha/ipdb
+psycopg2-binary  #==2.9.5  # https://github.com/psycopg/psycopg2
+# watchfiles==0.18.1  # https://github.com/samuelcolvin/watchfiles
+
+# Testing
+# ------------------------------------------------------------------------------
+# mypy==0.982  # https://github.com/python/mypy
+# django-stubs==1.13.1  # https://github.com/typeddjango/django-stubs
+# pytest==7.2.1  # https://github.com/pytest-dev/pytest
+# pytest-sugar==0.9.6  # https://github.com/Frozenball/pytest-sugar
+
+# Documentation
+# ------------------------------------------------------------------------------
+sphinx  #==5.3.0  # https://github.com/sphinx-doc/sphinx
+sphinx-autobuild  #==2021.3.14 # https://github.com/GaretJax/sphinx-autobuild
+
+# Code quality
+# ------------------------------------------------------------------------------
+flake8  #==6.0.0  # https://github.com/PyCQA/flake8
+flake8-isort  #==6.0.0  # https://github.com/gforcada/flake8-isort
+coverage  #==7.0.4  # https://github.com/nedbat/coveragepy
+black  #==22.12.0  # https://github.com/psf/black
+pylint-django  #==2.5.3  # https://github.com/PyCQA/pylint-django
+# pylint-celery  #==0.3  # https://github.com/PyCQA/pylint-celery
+pre-commit  #==2.21.0  # https://github.com/pre-commit/pre-commit
+
+# Django
+# ------------------------------------------------------------------------------
+factory-boy  #==3.2.1  # https://github.com/FactoryBoy/factory_boy
+django-debug-toolbar  #==3.8.1  # https://github.com/jazzband/django-debug-toolbar
+django-extensions  #==3.2.1  # https://github.com/django-extensions/django-extensions
+django-coverage-plugin  #==3.0.0  # https://github.com/nedbat/django_coverage_plugin
+pytest-django  #==4.5.2  # https://github.com/pytest-dev/pytest-django
+# 
+
+
+gunicorn==20.1.0  # https://github.com/benoitc/gunicorn
+# psycopg2==2.9.5  # https://github.com/psycopg/psycopg2
+hiredis==2.1.1  # https://github.com/redis/hiredis-py
+
+# Django
+# ------------------------------------------------------------------------------
+django-storages[azure]==1.13.2  # https://github.com/jschneier/django-storages
+django-anymail[sendgrid]==9.0  # https://github.com/anymail/django-anymail

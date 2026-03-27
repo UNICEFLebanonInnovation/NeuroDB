@@ -1,0 +1,568 @@
+{% load static jazzmin i18n %} {% load util_tagsv2 %}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+      <!-- Google Tag Manager -->
+      <script>
+         (function(w, d, s, l, i) {
+         	w[l] = w[l] || [];
+         	w[l].push({
+         		'gtm.start': new Date().getTime(),
+         		event: 'gtm.js'
+         	});
+         	var f = d.getElementsByTagName(s)[0],
+         		j = d.createElement(s),
+         		dl = l != 'dataLayer' ? '&l=' + l : '';
+         	j.async = true;
+         	j.src = 'https://www.googletagmanager.com/gtm.js?id=' + i + dl;
+         	f.parentNode.insertBefore(j, f);
+         })(window, document, 'script', 'dataLayer', 'GTM-T8ZLMTW');
+      </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NeuroDB V 2.0</title>
+  <link rel="stylesheet" href="{% static 'adminlte/dist/css/adminlte.min.css' %}" />
+
+  <link rel="stylesheet" href="{% static 'adminlte/plugins/fontawesome-free/css/all.min.css' %}" />
+  <link rel="stylesheet" href="{% static 'adminlte/plugins/fontawesome-free/css/fontawesome.min.css' %}" />
+  <link rel="stylesheet" href="{% static 'adminlte/plugins/fontawesome-free/css/brands.css' %}" />
+  <link rel="stylesheet" href="{% static 'adminlte/plugins/overlayScrollbars/css/OverlayScrollbars.min.css' %}" />
+  <link rel="icon" type="image/png" sizes="32x32" href="{% static 'images/favicon-16x16.png' %}">
+  <link
+    href='https://fonts.googleapis.com/css?family=Roboto:400,100,100italic,300,300italic,400italic,500,500italic,700,700italic,900italic,900'
+    rel='stylesheet' type='text/css'>
+  <link rel="stylesheet" href="{% static 'adminlte/plugins/select2/css/select2.min.css' %}" />
+
+
+  {% block extra_style %} {% endblock extra_style %}
+
+  <style>
+    body {
+      zoom: 100%;
+      font-family: 'Roboto', sans-serif !important;
+      font-size: 0.75rem !important;
+      background: #FFF;
+      fill: #FFF;
+      margin: 0 auto;
+      min-height: 100%;
+      
+    }
+
+    .content {
+      min-height: 800px;
+      
+    }
+
+    .bg-legacy {
+      background-color: #00AEEF !important;
+      color: #FFF !important;
+    }
+
+    .content-header {
+      background-color: #fff !important;
+
+    }
+
+    .content {
+      background-color: #fff !important;
+
+    }
+
+    .bg-real_white {
+      background-color: #FFF !important;
+    }
+
+    .select2-container--default .select2-selection--multiple .select2-selection__choice {
+      background-color: #683cb8;
+      border: 0px solid #aaa;
+      border-radius: 4px;
+      cursor: default;
+      float: left;
+      margin-right: 5px;
+      margin-top: 5px;
+      padding: 0 5px
+    }
+
+    div.modal-content {
+      -webkit-box-shadow: none;
+      -moz-box-shadow: none;
+      -o-box-shadow: none;
+      box-shadow: none;
+    }
+
+    .modal-backdrop.fade.show {
+      display: none;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      margin: 0;
+    }
+
+    .card {
+      border-radius: 4px;
+      background: #fff;
+      border-width: 3px;
+      border-color: #FFF;
+      box-shadow: 0 6px 10px rgba(0, 0, 0, .08), 0 0 6px rgba(0, 0, 0, .05);
+      transition: .3s transform cubic-bezier(.155, 1.105, .295, 1.12), .3s box-shadow, .3s -webkit-transform cubic-bezier(.155, 1.105, .295, 1.12);
+      cursor: pointer;
+    }
+
+    .card:hover {
+      /* transform: scale(1.01); */
+      box-shadow: 0 5px 5px 2px 5px rgba(0, 0, 0, .12), 0 4px 8px rgba(0, 0, 0, .06);
+      /* border-radius: 5px; */
+      border-width: 3px;
+      /* border-color: #00AEEF; */
+      border-color: lightgray;
+    }
+
+    .info-box:hover {
+      box-shadow: 0 10px 20px rgba(0, 0, 0, .12), 0 4px 8px rgba(0, 0, 0, .06);
+      border-radius: 5px;
+      border-width: 1px;
+      border-color: lightgray;
+    }
+ 
+    .dataTables_filter {
+        position: relative;
+    }
+ 
+    .dataTables_filter input {
+        width: 250px;
+        height: 32px;
+        background: #fcfcfc;
+        border: 2px solid #aaa;
+        border-radius: 5px;
+        box-shadow: 0 0 3px #d2e6fc, 0 10px 15px #eff4fc inset;
+        text-indent: 10px;
+    }
+ 
+    .dataTables_filter .fa-search {
+        position: absolute;
+        top: 10px;
+        left: auto;
+        right: 10px;
+    }
+    /* Target the sidebar */
+.sidebar2 {
+    height: 80vh; /* Full height */
+    overflow-y: scroll; /* Enable vertical scrolling */
+    background-color: #fff; /* Color of the scrollbar handle */
+    border-radius: 2px; /* Rounded corners */
+    border: 2px solid transparent; /* Space around the handle */
+    background-clip: content-box; /* To have a transparent border */
+    scrollbar-width: thin; 
+
+}
+
+  </style>
+
+</head>
+
+<body class="skin-blue hold-transition xsidebar-mini layout-fixed ">
+  <div class="wrapper">
+    <div class="preloader flex-column justify-content-center align-items-center">
+      <img class="animation__shake" src="{% static 'images/apple-icon-57x57.png' %}" alt="NeuroDB" height="60" width="60">
+    </div>
+    <nav class="main-header navbar navbar-expand navbar-white navbar-light bg-legacy">
+      <ul class="navbar-nav">
+        <li class="nav-item">
+          <a class="nav-link" data-widget="pushmenu" href="#" role="button"><i class="fas fa-bars"></i></a>
+        </li>
+        <li class="nav-item">
+          <div class="site-header__top">
+            <div class="logo">
+              <div class="logo__inner">
+                <div class="logo__image">
+                  <div class="logo__image__large">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 386.5 49.8" role="img" aria-hidden="true"
+                      width="279.5" height="36">
+                      <path
+                        d="M129.4 11.5c.5-.3 1-.6 1.5-1-.9-.7-1.9-1.3-3-1.7-.2.3-.4.5-.6.7.7.5 1.4 1.2 2.1 2Zm-7.8-3.6c-1 .1-1.9.3-2.9.6l.6.6c.8-.5 1.6-.9 2.3-1.2Zm1.2 2.6V8.4c-.5.6-.9 1.2-1.4 1.9.4.1.9.1 1.4.2Zm-1.9-.5c.4-.6.8-1.2 1.3-1.8-.8.3-1.6.8-2.3 1.2.2.3.6.5 1 .6Zm10.4 4.4c.8-.4 1.5-.8 2.1-1.3-.6-.9-1.4-1.7-2.2-2.4-.5.4-1 .8-1.5 1.1.6.9 1.2 1.7 1.6 2.6Zm-4-5.9c-.9-.3-1.9-.5-2.9-.6.8.4 1.5.8 2.2 1.3l.7-.7Zm-.6 1.3c-.4.3-.8.5-1.2.7.4.7.8 1.4 1.1 2.2.8-.2 1.5-.5 2.2-.9-.6-.8-1.3-1.4-2.1-2Zm-3.4-1.5v2.1c.5 0 1-.1 1.4-.3-.4-.6-.9-1.2-1.4-1.8Zm1.7 2.4c-.5.2-1.1.3-1.7.3v2.2c1 0 1.9-.1 2.8-.4-.3-.7-.7-1.4-1.1-2.1Zm1.2-1.2c-.7-.5-1.5-.9-2.3-1.2.5.6.9 1.2 1.3 1.8.4-.2.7-.4 1-.6Z"
+                        fill="none"></path>
+                      <path
+                        d="M136.4 20.6c0-7.4-6-13.3-13.3-13.3-7.3 0-13.3 6-13.3 13.3 0 7.4 6 13.3 13.3 13.3 7.3 0 13.3-6 13.3-13.3Zm-3-7.5c-.7.5-1.4.9-2.1 1.3-.4-.9-1-1.7-1.6-2.5.5-.3 1.1-.7 1.5-1.1.9.7 1.6 1.5 2.2 2.3Zm-2.6-2.7c-.5.4-1 .7-1.5 1-.6-.8-1.4-1.4-2.2-2 .2-.2.4-.5.6-.7 1.2.4 2.2 1 3.1 1.7Zm-1.9 1.4c-.7.4-1.5.7-2.2.9-.3-.8-.7-1.5-1.1-2.2.4-.2.8-.4 1.2-.7.7.6 1.4 1.2 2.1 2Zm-1.6-3.3-.6.6c-.7-.5-1.5-.9-2.2-1.3.9.2 1.9.4 2.8.7Zm-1.1 1c-.3.2-.7.4-1 .6-.4-.6-.8-1.2-1.3-1.8.9.3 1.6.7 2.3 1.2Zm-2.9-1.2c.5.6 1 1.2 1.4 1.9-.4.1-.9.2-1.4.3V8.3Zm0 2.7c.6 0 1.1-.1 1.7-.3.4.7.8 1.4 1.1 2.1-.9.3-1.8.4-2.8.4V11Zm-.5-2.6v2.1c-.5 0-.9-.1-1.4-.3.4-.6.9-1.2 1.4-1.8Zm-1.9 1.6c-.4-.1-.7-.4-1-.6.7-.5 1.5-.9 2.3-1.2-.5.6-.9 1.2-1.3 1.8Zm.7-2.1c-.8.4-1.5.8-2.3 1.3l-.6-.6c1-.4 2-.6 2.9-.7Zm-3.1 23c-.8.3-1.9.4-2.7.2-.5-.3-.9-.7-1.3-1.1-.2-.6.1-1.2.4-1.6.5.5 1.2.5 1.6.5.4 0 2.4-.3 2.7-.4.3-.1.4-.1.6 0 .8.3 1.8.4 2.2-1.1.4-1.5-.6-1.1-.7-1-.1.1-.3 0-.3-.1.2-.4-.1-.3-.3-.4-.4 0-.9.4-1.1.5-.2.1-.4.1-.4.1-.5-.3-2.1.1-2.6-.8 0-.3-.4-3.8-.6-4.4 0-.1-.1-.4.1-.6.4-.6 1.5 0 2.1 0 .8 0 .9-.3 1.1-.6.2-.3.3-.1.4-.2.1-.1 0-.3.1-.4 0-.1.1 0 .2-.1s0-.4 0-.4c.2-.3.7-.1.4-.8-.2-.4.1-.8.3-1.1.4-.5 1.7-2.4-.7-4.4-2.3-1.9-4.6-1.8-6.2-.1-1.5 1.6-.8 4-.6 4.6.1.6-.3 1.2-.8 1.5-.4.2-1.4.8-2.1 1.4.1-5.1 3.2-9.6 8-11.6.2.3.4.5.7.7-.5.4-1.7 1.4-1.7 1.4s.1 0 .3.1c.1 0 .3.1.3.1s1-.9 1.5-1.2c.4.3.8.5 1.2.7-.3.4-.8 1.5-.8 1.5s.1.1.3.2c.1.1.2.1.2.1s.6-1.2.9-1.6c.5.2 1.1.3 1.6.3V13c-.3 0-1.1 0-1.4-.1h-.2l.1.2c.1.1.1.3.2.4h1.4v4h.6v-.9c.8 0 1.5-.1 2.3-.2l.7-.6h-.4c-.9.1-1.6.2-2.3.2h-.4v-2.5c1 0 2-.2 3-.4.3.6.8 2.3.8 2.3l.5-.2s-.5-1.6-.8-2.3c.8-.3 1.6-.6 2.4-1 .6.8 1.1 1.6 1.6 2.5-.4.2-1.1.4-1.1.4.6.1 1 .2 1 .2s.2-.1.3-.1c0 .1.1.4.1.4l.7.3-.1-.2s-.2-.6-.3-.7c.8-.4 1.5-.8 2.2-1.3 1.4 2.1 2.1 4.5 2.1 7-.1 4.2-2.1 7.9-5.1 10.3-1.8-1-1.8-2.3-1.7-2.8.1-.5.4-.3.7-.3 1.2 0 2.4-.4 3.9-1.9 1.7-1.8 2.3-5.6-.4-8.1-2.8-2.7-5.8-2.3-7.7.2-.4.5-1.4.9-2.2.8-1.3 0-.5.9-.5 1.1 0 .2-.2.4-.3.3-.4-.1-.3.5-.3.7 0 .2-.2.3-.3.3-.5 0-.4.5-.4.6 0 .1 0 .4-.2.4-.2.1-.4.5-.4.8 0 .6.5 1 1.4 1.6.9.6 1 1.3 1 1.7 0 .4.1 1.1.3 1.6.3.6.2 1.6-1 1.6-1.3.3-3.9 1.5-4.1 1.6Z"
+                        fill="#FFF" fill-rule="evenodd"></path>
+                      <path
+                        d="m106.1 16 .3-.2c1.1-1 1.9-2.7 2.2-4.6l.1-.5-.3.1-.2.2c-.8.7-2.6 2.5-2.3 4.5v.1l.2.4Zm-.5 5.4.2-.9c.2-1.5-.1-4.6-.6-6.1l-.2-.4-.1.2-.1.3c-.1.3-.4 1-.5 2-.2 1.3-.1 3.2 1 4.6l.1.2.2.1Zm.9 5.2v-.4c0-1.3-1.5-5-2.6-6.4l-.3-.4-.1.3v.3c-.1 1.4 0 4.7 2.7 6.4l.3.2Zm2.5 5.1.4.1-.1-.4c-.5-1.4-3.2-4.8-5-5.9l-.4-.3.1.3v.2c.4 2 2.3 5.1 5 6Zm.7-17.7.1-.5-.2.1-.2.1c-2.1 1.3-3.1 2.8-3 4.7v.4l.3-.3c1.2-.7 2.6-3.1 3-4.5Zm-3 9.7c.8-1.1 1.9-4.2 1.9-5.6v-.4l-.1.2-.1.1c-.5.5-2.3 2.4-2.1 4.6 0 .4.1.7.3 1.1l.1.4v-.4Zm1.6 4.7c.4-.7.7-3 .6-4.8 0-.6-.1-1.2-.2-1.5l-.1-.4-.1.1-.1.2c-.9 1.3-1.3 2.6-1.3 3.9 0 .9.3 1.8.9 2.6l.2.3.1-.4Zm3.3 4.4.1-.4v-.3c0-1.4-1.1-5-1.9-6.1l-.2-.3-.1.2-.1.2c-.3.8-.4 1.6-.4 2.4 0 1.8.8 3.1 2.3 4.1l.3.2Zm1.7 2.6h.3l-.2-.3c-.7-1-5-3.4-6.5-3.7l-.4-.1.1.2.1.2c1.1 1.9 3 4.4 6.6 3.7Zm5.2 2c.6-.2 1-.5 1.5-1 2.9.3 5.6 2.7 7.2 4.7l.1.1h.1c.2-.1.5-.3.6-.4l.1-.1-.1-.1c-1.6-2.1-4.2-3.5-4.4-3.5-2.3-1.1-6.4-2-11.7-.6l-.6.1.5.2c2.2.8 5.1 1.1 6.7.6Zm-1.7-2.3h.2l-.1-.2c-.3-1-3.5-3.8-4.7-4.6l-.4-.2.1.2v.2c.4 2.1 1.3 4.9 4.9 4.6ZM140 16l.1-.4v-.1c.3-2-1.5-3.8-2.3-4.5l-.2-.2-.2-.1.1.5c.3 2 1.1 3.6 2.2 4.6l.3.2Zm.7 5.2.1-.2c1.1-1.4 1.2-3.3 1-4.6-.1-.9-.4-1.6-.5-2l-.1-.3-.1-.2-.2.5c-.5 1.4-.8 4.6-.6 6.1l.2.9.2-.2Zm1.9-1.2v-.6l-.3.4c-1.1 1.4-2.6 5.1-2.6 6.4v.4l.3-.2c2.6-1.8 2.7-5.1 2.6-6.4Zm-.6 5.9v-.2l.1-.3-.4.3c-1.7 1.1-4.4 4.4-5 5.9l-.1.4.4-.1c2.8-1 4.6-4.1 5-6Zm-2.6-7.2.3.3v-.4c.1-1.9-.8-3.5-2.9-4.8l-.2-.1-.2-.1.1.5c.4 1.2 1.8 3.7 2.9 4.6Zm.3 5c.1-.4.2-.8.3-1.1.1-2.3-1.6-4.1-2.1-4.6l-.1-.1-.2-.2v.4c-.1 1.4 1 4.5 1.9 5.6l.2.3v-.3Zm-1.5 4.7c.5-.8.8-1.7.9-2.6 0-1.2-.4-2.5-1.3-3.9l-.1-.2-.1-.1-.1.4c-.1.4-.2.9-.2 1.5 0 1.8.3 4.1.6 4.8l.1.3.2-.2Zm-3.4 4.3c1.5-1 2.3-2.3 2.3-4.1 0-.8-.1-1.6-.4-2.4l-.1-.2-.1-.2-.2.3c-.8 1.1-1.9 4.7-1.9 6.1v.3l.1.4.3-.2Zm4.6-.9.1-.2.1-.2-.4.1c-1.5.3-5.9 2.7-6.5 3.7l-.2.3h.3c3.6.5 5.5-1.9 6.6-3.7Z"
+                        fill="#FFF"></path>
+                      <path
+                        d="m118.8 41.1.1-.1c1.6-2 4.3-4.4 7.2-4.7.5.5.8.8 1.5 1 1.6.6 4.5.3 6.7-.6l.5-.2-.6-.1c-5.3-1.4-9.4-.5-11.7.6-.1.1-2.7 1.4-4.4 3.5l-.1.1.1.1c.1.1.4.3.6.4h.1Zm15.3-10.6v-.2l.1-.2-.4.2c-1.1.8-4.5 3.6-4.7 4.6l-.1.2h.2c3.7.4 4.5-2.5 4.9-4.6Zm-92-22.3h4.5v4.1h-4.5V8.2Zm.4 8.8h3.8v20.2h-3.8V17ZM17.4 37.3V17.1h-3.8v10.4c0 .5 0 2.9-.7 4.8-.8 2.1-2.9 2.9-4.5 2.9-3.6 0-4.5-2.6-4.5-6.1v-12H0v13.5c0 4.1 2.4 7.3 6.6 7.3 2.8 0 5.4-1 6.9-3.6h.1v3h3.8Zm3.9-20.2v20.3h3.8v-11c0-3.9 1-4.8 1.6-5.4 1.6-1.6 3.7-1.5 3.7-1.5 3.2 0 4.6 1.8 4.6 5.1v12.7h3.8v-14c0-6.5-6.2-6.9-7.6-6.9-2 0-4.8 1-6.1 3.6H25v-3h-3.7v.1Zm36.9 2.2c2.7 0 3.9 1.8 4.1 4.3h3.8c-.2-4.4-3.4-7-7.6-7-6.4 0-9.3 4.9-9.3 10.8s2.6 10.5 9 10.5c4.5 0 7.8-2.8 8.1-7.3h-3.8c-.2 2.9-1.8 4.5-4.3 4.5-3.6 0-5-3.2-5-7.9 0-4.8 1.4-7.9 5-7.9Z"
+                        fill="#FFF"></path>
+                      <path
+                        d="M86.2 27.9V26c0-5.6-2.9-9.4-8.9-9.5-6.4 0-9.3 4.9-9.3 10.8s2.6 10.5 9 10.5c4.8 0 8.3-2.3 8.9-6.9h-4C81.4 33.8 80 35 77 35c-3.9 0-5.3-3.6-5-7.2h14.2v.1Zm-14.3-2.6c0-3.3 1.9-6 5-6 3.7 0 5.2 2.6 5.1 6H71.9Z"
+                        fill="#FFF" fill-rule="evenodd"></path>
+                      <path
+                        d="M97.5 10.7c.6 0 1.3.1 1.9.1V7.6c-.9-.1-1.8-.4-2.7-.4-2.9 0-6.2 1.2-6.3 5.6v4.3H87v2.6h3.5v17.5h3.8V19.8h4.6v-2.6h-4.6v-3.7c-.2-2.2 1.1-2.8 3.2-2.8Zm76-.7c.5 0 1 .1 1.5.1v-2c-.7-.1-1.5-.4-2.3-.4-3.5 0-4.9 1.6-4.9 5V17h-4v2.2h4v18h2.4V19.4h4.6v-2.2h-4.6v-2.6c0-2.9 0-4.6 3.3-4.6Z"
+                        fill="#FFF"></path>
+                      <path
+                        d="M194.4 27.1c0-5.3-3-10.6-9.4-10.6s-9.4 5.4-9.4 10.6c0 5.3 3 10.6 9.4 10.6s9.4-5.3 9.4-10.6Zm-16.1 0c0-3.7 1.9-8.4 6.7-8.4 4.8 0 6.7 4.8 6.7 8.4 0 3.7-1.9 8.4-6.7 8.4-4.8 0-6.7-4.7-6.7-8.4Z"
+                        fill="#FFF" fill-rule="evenodd"></path>
+                      <path
+                        d="M205.8 18.7c.5 0 1 .1 1.5.1v-2.3c-.8 0-1.6-.1-2.4 0-2 .1-3.8 1.5-4.5 3.6h-.1l-.1-3h-2.5c.1 1.4.2 3 .2 4.5v15.6h2.4V25.1c.1-3.8 1.9-6.4 5.5-6.4Z"
+                        fill="#FFF"></path>
+                      <path
+                        d="M225.3 16.5c-6 0-9 5.2-9 10.6 0 5.5 2.8 10.6 8.8 10.6 4.8 0 7.8-2.2 9.1-7h-2.5c-.6 2.8-2.9 4.8-5.8 4.8-4.9 0-6.9-3.6-7-7.9h15.5c.1-6.2-2.4-11.1-9.1-11.1Zm-6.3 9c.3-3.5 2.4-6.8 6.3-6.8 4.2 0 6.2 2.9 6.5 6.8H219Zm34.9-8.4h-2.6l-6.7 16.8-6.9-16.8H235l8.3 20.1h2.7l7.9-20.1Zm9.5-.6c-6 0-9 5.2-9 10.6 0 5.5 2.8 10.6 8.8 10.6 4.8 0 7.8-2.2 9.1-7h-2.5c-.6 2.8-2.9 4.8-5.8 4.8-4.9 0-6.9-3.6-7-7.9h15.5c0-6.2-2.4-11.1-9.1-11.1Zm0 2.2c4.2 0 6.2 2.9 6.5 6.8H257c.4-3.5 2.5-6.8 6.4-6.8Z"
+                        fill="#FFF" fill-rule="evenodd"></path>
+                      <path
+                        d="M284.1 18.7c.5 0 1 .1 1.5.1v-2.3c-.8 0-1.6-.1-2.4 0-2 .1-3.8 1.5-4.5 3.6h-.1l-.1-3H276c.1 1.4.2 3 .2 4.5v15.6h2.4V25.1c.1-3.8 2-6.4 5.5-6.4Z"
+                        fill="#FFF"></path>
+                      <path d="m295.8 44.9 11-27.8h-2.6l-6.7 16.8-6.7-16.8h-3l8.4 20.1-3.1 7.7h2.7Z" fill="#FFF"
+                        fill-rule="evenodd"></path>
+                      <path
+                        d="M324.3 18.7c3.3 0 5.2 1.5 5.5 4.6h2.6c-.2-4.3-3.6-6.8-7.7-6.8-6 0-9 5.2-9 10.6 0 5.5 2.8 10.6 8.8 10.6 4.6 0 7.2-2.3 7.9-6.9h-2.6c-.2 2.8-2.4 4.7-5.5 4.7-3.7 0-6-3.9-6-8.5 0-4.5 2.3-8.3 6-8.3Zm11.4-10.4v28.9h2.4V25.6c0-3.6 1.8-6.9 5.7-6.9 3.3 0 5.3 2.1 5.3 5.5v13h2.4V24.6c0-2.3-.5-8.1-7.1-8.1-2.6 0-4.9 1.2-6.3 3.6h-.1V8.3h-2.3Zm19.7 0h2.8v3h-2.8v-3Zm.2 8.8h2.4v20.1h-2.4V17.1Z"
+                        fill="#FFF"></path>
+                      <path
+                        d="M362.7 8.3h2.4v28.9h-2.4V8.3Zm21.2 0v11.8l-.1.1c-1.4-2.4-4.2-3.6-6.9-3.6-6 0-8.2 5.4-8.2 10.6 0 5 2.3 10.7 8.2 10.7 2.8 0 5.3-1.3 6.9-3.7l.1.1.1 3h2.5c-.1-1.4-.2-3-.2-4.5V8.3h-2.4ZM377 35.5c-4.6 0-5.7-5.1-5.7-8.8 0-3.8 1.5-8.1 6-8.1 4.7 0 6.5 3.9 6.5 7.9.1 4.7-1.5 9-6.8 9ZM153.2 0h.8v49.8h-.8V0Z"
+                        fill="#FFF" fill-rule="evenodd"></path>
+                    </svg>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          </div>
+        </li>
+      </ul>
+      <ul class="navbar-nav ml-auto">
+        <li>
+          <div class="btn-group">
+            <button type="button" class="btn btn-sm btn-light shadow dropdown-toggle dropdown-icon" data-toggle="dropdown"><i
+                class="fas fa-link"></i> Resources
+            </button>
+            <div class="dropdown-menu">
+              <a class="dropdown-item" href="https://data.unicef.org/country/lbn/" target="_blank">Lebanon Country
+                Profile</a>
+              <a class="dropdown-item" href="https://data.unicef.org/resources/resource-type/datasets/" target="_blank">
+                Global UNICEF Data Sets</a>
+              <a class="dropdown-item" href="http://mics.unicef.org/" target="_blank"> UNICEF MICS</a>
+              <a class="dropdown-item" href="https://data.unicef.org/open-data/" target="_blank"> UNICEF Open Data</a>
+              <a class="dropdown-item" href="https://data.unicef.org/" target="_blank"> Data.UNICEF</a>
+              <a class="dropdown-item" href="http://ialebanon.unhcr.org/vasyr/#/" target="_blank"> VASYR</a>
+              <a class="dropdown-item" href="https://www.unicef.org/appeals/lebanon/situation-reports" target="_blank">
+                UNICEF Situation Reports</a>
+              <a class="dropdown-item" href="https://data.unicef.org/" target="_blank"> Data.UNICEF</a>
+              <a class="dropdown-item" href="https://www.dropbox.com/sh/htj0ijgn0031xq4/AAC5OuoeQnAy3Urrph1WJBawa?dl=0"
+                target="_blank"> IM Dropbox</a>
+              <a class="dropdown-item" href="https://insight.unicef.org/apps01/biforall/Pages/BI_for_All.aspx"
+                target="_blank">PowerBI for all</a>
+              <a class="dropdown-item" href="http://ialebanon.unhcr.org/#home" target="_blank">Information Hub</a>
+              <a class="dropdown-item"
+                href="https://docs.google.com/spreadsheets/d/1LtsbDl68elfFAFsP-8NJn3932ayF3LevWqH8ZlDkxO0/edit#gid=1074123344"
+                target="_blank">IM Sector Contacts</a>
+              <a class="dropdown-item" href="https://lebanonportal.unhabitat.org/" target="_blank">Neighborhood
+                Profiles</a>
+              <a class="dropdown-item"
+                href="https://unicef.sharepoint.com/teams/DAPM-ResultsReporting/SitePages/Results-Reporting-Home.aspx"
+                target="_blank">Results Reporting</a>
+              <a class="dropdown-item" href="https://drp.unicef.org/donors" target="_blank">Donor Reporting Portal</a>
+              <a class="dropdown-item"
+                href="https://app.powerbi.com/view?r=eyJrIjoiOWVmN2IzMjItYzdmOC00ODllLTk2OTUtZTM3MjU2OTAyODk2IiwidCI6ImU1YzM3OTgxLTY2NjQtNDEzNC04YTBjLTY1NDNkMmFmODBiZSIsImMiOjh9&pageName=ReportSection8ebd818e091ba6141ee9"
+                target="_blank">Inter-Agency Service Mapping</a>
+
+            </div>
+          </div>
+        </li>
+        <li>
+          <div class="btn-group ml-2">
+            <button type="button" class="btn btn-sm btn-light shadow dropdown-toggle dropdown-icon" data-toggle="dropdown"><i
+                class="fas fa-link"></i> Tools
+            </button>
+            <div class="dropdown-menu">
+              <a class="dropdown-item" href="https://ram.unicef.org/en" target="_blank">RAM</a>
+              <a class="dropdown-item" href="https://etools.unicef.org/landing/" target="_blank">eTools</a>
+              <a class="dropdown-item" href="https://insight.unicef.org/apps01/Pages/inSight.aspx"
+                target="_blank">Insight.UNICEF</a>
+              <a class="dropdown-item"
+                href="https://unicef.us5.list-manage.com/track/click?u=7088c711be3d9d4f8b0897886&id=5e679f1efb&e=da73996cba"
+                target="_blank">How Manys</a>
+              <a class="dropdown-item"
+                href="https://app.powerbi.com/view?r=eyJrIjoiNmE0YjZiNzUtZjk2OS00ZTg4LThlMzMtNTRhNzE0NzA4YmZlIiwidCI6Ijc3NDEwMTk1LTE0ZTEtNGZiOC05MDRiLWFiMTg5MjAyMzY2NyIsImMiOjh9&pageName=ReportSectiona329b3eafd86059a947b"
+                target="_blank">Power Bi</a>
+              <a class="dropdown-item"
+                href="https://www.arcgis.com/sharing/rest/oauth2/authorize?client_id=arcgisonline&display=default&response_type=token&state=%7B%22useLandingPage%22%3Atrue%7D&expiration=20160&locale=en-us&redirect_uri=https%3A%2F%2Fwww.arcgis.com%2Fhome%2Faccountswitcher-callback.html&force_login=true&hideCancel=true&showSignupOption=true&signuptype=esri"
+                target="_blank">ArcGIS (Online)</a>
+              <a class="dropdown-item" href="https://kobo.humanitarianresponse.info/#/forms" target="_blank">KoBo
+                Toolbox</a>
+              <a class="dropdown-item" href="https://infogram.com/" target="_blank">Infogram</a>
+              <a class="dropdown-item" href="https://unicef.sharepoint.com/sites/DOC-DigitalLabs"
+                target="_blank">Digital Labs</a>
+              <a class="dropdown-item" href="https://unicef.sharepoint.com/sites/ICON/SitePages/Tools-by-Category.aspx"
+                target="_blank">Other Tools</a>
+
+            </div>
+          </div>
+        </li>
+
+        {% if request.user.is_authenticated %}
+        <li>
+          <div class="btn-group ml-2">
+            <button type="button" class="btn btn-sm btn-light shadow dropdown-toggle dropdown-icon" data-toggle="dropdown"><i
+                class="fa fa-user"> </i> {{request.user.email}}
+            </button>
+            <div class="dropdown-menu">
+              <a class="dropdown-item" href="{% url 'admin:password_change' %}"><i class="fas fa-key mr-2"></i>
+                {% trans 'Change password' %}
+              </a>
+              <a class="dropdown-item" href="{% url 'account_logout' %}"><i class="fa fa-sign-out-alt"></i>
+                {% trans 'Log out' %}
+              </a>
+            </div>
+          </div>
+        </li>
+        <li>
+          <button type="button" class="btn btn-sm btn-light shadow ml-2" data-widget="fullscreen"><i
+              class="fas fa-expand-arrows-alt"></i></button>
+        </li>
+
+        {% else %}
+        <li class="nav-item">
+          <a class="nav-link btn btn-sm btn-light shadow ml-2" href="{% url 'account_login' %}" role="button">
+            <i class="fa fa-sign-in-alt"></i> Log in
+          </a>
+        </li>
+        {% endif %}
+      </ul>
+    </nav>
+    <aside class="main-sidebar xsidebar-light-primary xelevation-1" >
+      <a href="/" class="brand-link  bg-legacy mb-4">
+        <img src="{% static 'images/apple-icon-57x57.png' %}" alt="NeuroDb Logo"
+          class="brand-image img-circle elevation-3" style="opacity: .8">
+        <span class="brand-text font-weight-bold text-lg">Neuro DB</span>
+      </a>
+      <div class="sidebar2">
+
+      <nav class="mt-2 bg-white">
+        <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu" data-accordion="false">
+          <li class="nav-header font-weight-bold text-dark">CRISIS RESPONSE</li>
+          <li class="nav-item">
+            <a href="/activityinfo/report-crisis?ai_id=202220" class="nav-link" target="_blank">
+              <i class="nav-icon fa fa-virus"></i>
+              <p>COVID-19 Response</p>
+            </a>
+          </li>
+          
+          <li class="nav-header font-weight-bold text-dark">REPORTING</li>
+          <li class="nav-item">
+            <a href="#" class="nav-link">
+              <i class="nav-icon fas fa-folder-open"></i>
+              <p> NeuroDB Reports <i class="right fas fa-angle-left"></i>
+              </p>
+            </a>
+            <ul class="nav nav-treeview"> {% get_neuroreports as neuroreports %}{% for report in neuroreports %}
+              <li class="nav-item" id="{{report.id }}">
+                <a href="{% url 'pivoting:neuroreport-dashboard' %}?id={{ report.id }}" class="nav-link">
+                  <i class="fa fa-receipt nav-icon"></i>
+                  <p>{{ report.name }} </p>
+                </a>
+              </li> {% endfor %}
+            </ul>
+          </li>
+          <li class="nav-item">
+            <a href="#" class="nav-link">
+              <i class="nav-icon fas fa-folder-open"></i>
+              <p> HPM Reports <i class="right fas fa-angle-left"></i>
+              </p>
+            </a>
+            <ul class="nav nav-treeview"> {% get_hpm_neuroreports as neuroreports %}{% for report in neuroreports %}
+              <li class="nav-item" id="{{report.id }}">
+                <a href="{% url 'pivoting:hpm-neuroreport' %}?id={{ report.id }}" class="nav-link">
+                  <i class="fa fa-receipt nav-icon"></i>
+                  <p>{{ report.name }} </p>
+                </a>
+              </li> {% endfor %}
+            </ul>
+          </li>
+          <li class="nav-item">
+            <a href="#" class="nav-link">
+              <i class="nav-icon fa fa-tachometer-alt"></i>
+              <p> AI Databases <i class="right fas fa-angle-left"></i>
+              </p>
+            </a>
+            <ul class="nav nav-treeview"> {% get_databasesv2 as databases %} {% for db in databases %} <li
+                class="nav-item" id="{{db.ai_id}}">
+                {% if db.id != cholera_db.id %}
+                <a href="{% url 'pivoting:database-dashboard' %}?id={{ db.id }}" class="nav-link">
+                  {%if db.section.code == 'SP'%}<i class="fa fa-hands-helping nav-icon"></i>{%endif%}
+                  {%if db.section.code == 'CP'%}<i class="fa fa-child nav-icon"></i>{%endif%}
+                  {%if db.section.code == 'C4D'%}<i class="fa fa-broadcast-tower nav-icon"></i>{%endif%}
+                  {%if db.section.code == 'Comms'%}<i class="fa fa-broadcast-tower nav-icon"></i>{%endif%}
+                  {%if db.section.code == 'EDU'%}<i class="fa fa-graduation-cap nav-icon"></i>{%endif%}
+                  {%if db.section.code == 'Field'%}<i class="fa fa-map-pin nav-icon"></i>{%endif%}
+                  {%if db.section.code == 'H&N'%}<i class="fa fa-heartbeat nav-icon"></i>{%endif%}
+                  {%if db.section.code == 'Health'%}<i class="fa fa-heartbeat nav-icon"></i>{%endif%}
+                  {%if db.section.code == 'Nutrition'%}<i class="fa fa-heartbeat nav-icon"></i>{%endif%}
+                  {%if db.section.code == 'PPL'%}<i class="fa fa-peace nav-icon"></i>{%endif%}
+                  {%if db.section.code == 'SGBV'%}<i class="fa fa-venus-mars nav-icon"></i>{%endif%}
+                  {%if db.section.code == 'SBC'%}<i class="fa fa-person-booth nav-icon"></i>{%endif%}
+                  {%if db.section.code == 'WASH'%}<i class="fa fa-water nav-icon"></i>{%endif%}
+                  {%if db.section.code == 'Y&A'%}<i class="fa fa-people-arrows nav-icon"></i>{%endif%}
+                  <p>{{ db.label }}</p>
+                </a>
+                {%endif%}
+              </li> {% endfor %} </ul>
+          </li>
+          <li class="nav-header  font-weight-bold text-dark">KNOWLEDGE BASE</li>
+          <li class="nav-item">
+            <a href="{% url 'pivoting:pca-dashboard' %}" class="nav-link">
+              <i class="nav-icon fa fa-search-dollar"></i>
+              <p> Funded Programs</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="{% url 'pivoting:partnerships' %}" class="nav-link">
+              <i class="nav-icon fa fa-handshake"></i>
+              <p>Partners Information
+              </p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="{% url 'pivoting:donor-dashboard' %}" class="nav-link">
+              <i class="nav-icon fa fa-atlas"></i>
+              <p> Donors Mapping</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="{% url 'pivoting:maps' %}" class="nav-link">
+              <i class="nav-icon fa fa-map"></i>
+              <p> UNICEF Maps</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a target="_blank" href="https://neuro-db.org/admin/survey/datavisualization/" class="nav-link">
+
+              <i class="nav-icon fa fa-globe"></i>
+
+              <p> Data Visuals</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="{% url 'pivoting:resources' %}" class="nav-link">
+
+              <i class="nav-icon fas fa-folder"></i>
+              <i class="fa fa-files-o" aria-hidden="true"></i>
+
+              <p> The Library</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a target="_blank" href="https://unicef.sharepoint.com/:x:/r/teams/LBN-PRIME/DocumentLibrary3/3-DATA/0-ATLAS%20OF%20INDICATORS/UNICEF_ATLAS_OF_INDICATORS.xlsm?d=wf8034ccb1a9a4f26b40934b190d73a54&csf=1&web=1&e=XcJpbf" class="nav-link">
+
+              <i class="nav-icon fa fa-globe"></i>
+
+              <p> Atlas of Indicators</p>
+            </a>
+          </li>
+          <li class="nav-header  font-weight-bold text-dark">POPULATION FIGURES</li>
+          <li class="nav-item">
+            <a href="{% url 'pivoting:population-figures' %}?total_population" class="nav-link">
+              <i class="nav-icon fa fa-users"></i>
+              <p> LRP Population Package</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a target="_blank" href="https://unicef.sharepoint.com/teams/LBN-PRIME/DocumentLibrary3/Forms/AllItems.aspx?id=%2Fteams%2FLBN%2DPRIME%2FDocumentLibrary3%2F3%2DDATA%2F1%2DPOPULATION%2F1%2DTABLES%20AND%20DASHBOARDS%2DPOPULATION%20TO%20USE%20BY%20OFFICE&viewid=f9094ee1%2Da97b%2D4f48%2Db436%2D9ffa2c3ebfc9" class="nav-link">
+
+              <i class="nav-icon fa fa-globe"></i>
+
+              <p> Tables And Dashboards</p>
+            </a>
+          </li>
+
+          <li class="nav-header  font-weight-bold text-dark">FACTS & STATISTICS</li>
+
+          <li class="nav-item">
+            <a target="_blank" href="https://unicef.sharepoint.com/:x:/r/teams/LBN-PRIME/DocumentLibrary3/3-DATA/5-FACTS%20AND%20STATISTICS/FACTS%20AND%20STATISTICS%20-%20CHILD%20PROTECTION.xlsx?d=w6116ae321494437697f76b123c6a884a&csf=1&web=1&e=nALyFu" class="nav-link">
+
+              <i class="nav-icon fa fa-globe"></i>
+
+              <p> Child Protection</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a target="_blank" href="https://unicef.sharepoint.com/:x:/r/teams/LBN-PRIME/DocumentLibrary3/3-DATA/5-FACTS%20AND%20STATISTICS/FACTS%20AND%20STATISTICS%20-%20EDUCATION.xlsx?d=wfe14fc7b7c9c42729e8ed2c581836d9f&csf=1&web=1&e=Td6P4M" class="nav-link">
+
+              <i class="nav-icon fa fa-globe"></i>
+
+              <p> Education</p>
+            </a>
+          </li>
+        </ul>
+      </nav>
+      </div>
+    </aside>
+
+    <div class="content-wrapper">
+      {% block content %} {% endblock content %}
+    </div>
+    <aside class="control-sidebar control-sidebar-dark" style="display: none;">
+    </div>
+  
+  <footer class="main-footer bg-legacy text-white p-2  d-print-none mt-4">
+    <div class="d-flex p-1">
+      <div>
+        <p></p>
+      </div>
+      <div class="text-lg font-weight-bold ml-4">2025 Copyrights © <strong> Neuro-DB v2.0</strong></div>
+
+      <div class="ml-auto align-items-center">
+        <a href="https://www.instagram.com/uniceflebanon/" target="_blank"><i class="fab fa-instagram ml-2"
+            style='font-size:24px; color: #FFF;'></i>
+        </a>
+        <a href="https://www.facebook.com/UNICEFLebanon/" target="_blank"> <i class="fab fa-facebook ml-2"
+            style='font-size:24px; color: #FFF;'></i></a>
+        <a href="https://twitter.com/uniceflebanon" target="_blank">
+          <img src="{% static 'images/X-Logo.png' %}" height="24px" width="24px" style="vertical-align: top;" class="ml-2 mt-0"></a>
+        
+        <a href="https://www.youtube.com/user/UnicefLebanonChannel" target="_blank"> <i class="fab fa-youtube  ml-2"
+            style='font-size:24px; color: #FFF;'></i></a>
+        <a href="https://www.tiktok.com/@uniceflebanon" target="_blank"> <i class="fab fa-tiktok ml-2"
+            style='font-size:24px; color: #FFF;'></i></a>
+        <a href="https://www.linkedin.com/company/uniceflebanon" target="_blank"> <i class="fab fa-linkedin ml-2"
+            style='font-size:24px; color: #FFF;'></i></a>
+        <a href="https://www.unicef.org/lebanon/" target="_blank"> <i class="fa fa-globe ml-2 mr-4"
+            style='font-size:24px; color: #FFF;'></i></a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="{% static 'adminlte/plugins/jquery/jquery.min.js' %}"></script>
+  <script src="{% static 'adminlte/plugins/jquery-ui/jquery-ui.min.js' %}"></script>
+  <script src="{% static 'adminlte/plugins/bootstrap/js/bootstrap.bundle.min.js' %}"></script>
+  <script src="{% static 'adminlte/plugins/bootstrap-switch/js/bootstrap-switch.min.js' %}"></script>
+  <script src="{% static 'adminlte/plugins/overlayScrollbars/js/jquery.overlayScrollbars.min.js' %}"></script>
+
+  <script>
+      function getExportFileName(prefix='') {
+    var d = new Date();
+    const formattedDate = d.toLocaleDateString('en-GB', {
+      day: 'numeric', month: 'short', year: 'numeric'
+    }).replace(/ /g, '-');
+    return prefix + formattedDate;
+  }
+
+  $(document).ready(function () {
+        $('[data-widget="pushmenu"]').PushMenu('collapse')
+
+            //custom format of Search boxes
+            $.extend(true, $.fn.dataTable.defaults, {
+        language: {
+            search: "",
+            searchPlaceholder: "Search records",
+        }
+    });
+
+
+    });
+
+    //remove the default 'Search' text for all DataTable search boxes
+    
+  </script>
+
+  {% block extra_js %} {% endblock extra_js %}
+</body>
+
+</html>

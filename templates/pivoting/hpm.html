@@ -1,0 +1,210 @@
+{% extends "baseV2.html" %}
+{% load static humanize i18n %}
+
+{% block project_title %}{{ db.name }}{% endblock %}
+
+{% block extra_style %}
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-bs4/css/dataTables.bootstrap4.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-responsive/css/responsive.bootstrap4.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-buttons/css/buttons.bootstrap4.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/sweetalert2-theme-bootstrap-4/bootstrap-4.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/toastr/toastr.min.css' %}"/>
+<title> {{ database.name }} ({% now "M d, Y" %})</title>
+
+{% endblock %}
+{% block content %}
+<section class="content-header">
+  <div class="container-fluid">
+    <div class="row">
+      <div class="d-flex col-12">
+        <div class="p-1 align-middle">
+          <a href="javascript:history.back()" class="btn btn-light">
+            <i class="fa fa-angle-double-left" aria-hidden="true"></i>
+          </a>
+        </div>
+        <div>
+          <h1>{{title}}</h1>
+          
+        </div>
+        <div class="ml-auto">
+          <div class="btn-group">
+            <button type="button" aria-haspopup="true" aria-expanded="false" data-toggle="dropdown"
+              class="dropdown-toggle btn btn-sm btn-light shadow">Uploaded Files
+            </button>
+            <div tabindex="-1" role="menu" aria-hidden="true" class="dropdown-menu">
+              {% for hpm in hpm_files %}
+              <a href="{% static '/hpm_files/' %}{{hpm}}" type="application/pdf" width="100%"
+                style="height:100vh"><button type="button" tabindex="0" class="dropdown-item">{{hpm}}</button>
+              </a>
+              {% endfor %}
+              
+            </div>
+            <form action="{% url 'pivoting:hpm-neuroreport' %}" method="get" class="d-inline" id="month_form">
+              <input type="hidden" name="id" value="{{ neuro_report.id }}" />
+              <input type="hidden" name="month" value="" id="monthinput" />
+              <input type="hidden" name="rep_year" value="{{ reporting_year }}" />
+
+
+              <button type="button" aria-haspopup="true" aria-expanded="false" data-toggle="dropdown" name="months"
+                id="filter_month" style="min-width:150px;" class="dropdown-toggle btn btn-sm btn-light shadow">
+                {{selected_month}}
+              </button>
+              <div tabindex="-1" role="menu" aria-hidden="true" class="dropdown-menu">
+                <h6 class="dropdown-header">Monthly Report</h6>
+                <div tabindex="-1" class="dropdown-divider"></div>
+                <p class="dropdown-item"> </p>
+                {% for m,month_name in months %}
+                {% if type == '1' or type == '2' or type == '3' or type == '4' %}
+                <a value="{{ m }}" onclick="selectmonth('{{m}}')" class="dropdown-item">
+                  {{ month_name }}
+                </a>
+                {% else %}
+                <a value="{{ m }}" onclick="selectmonth('{{m}}')" {%if m == month %} class="dropdown-item active" {%else%} class="dropdown-item" {%endif%}>
+                  {{ month_name }}
+                </a>
+                {% endif %}
+                {% endfor %}
+                {% if current_month > 3 or not is_current_year %}
+                <div tabindex="-1" class="dropdown-divider"></div>
+                <h6 class="dropdown-header">Periodic Report</h6>
+                <div tabindex="-1" class="dropdown-divider"></div>
+                <a value="" onclick="select_periodic_quarter('1')"
+                  class="test dropdown-item {% if type == '1'%} active {% endif %}">
+                  Quarter 1
+                </a>
+                {% if current_month > 6 or not is_current_year %}
+                <a value="" onclick="select_periodic_quarter('2')"
+                  class="dropdown-item {% if type == '2'%} active {% endif %}">
+                  Quarter 2
+                </a>
+                {% endif %}
+                {% if current_month > 9 or not is_current_year %}
+                <a value="" onclick="select_periodic_quarter('3')"
+                  class="dropdown-item {% if type == '3'%} active {% endif %}">
+                  Quarter 3
+                </a>
+                {% endif %}
+                {% if current_month > 12 or not is_current_year %}
+                <a value="" onclick="select_periodic_quarter('4')"
+                  class="dropdown-item {% if type == '4'%} active {% endif %}">
+                  Quarter 4
+                </a>
+                {% endif %}
+                {% endif %}
+
+                <div tabindex="-1" class="dropdown-divider"></div>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="content">
+  <div class="container-fluid">
+    <div class="card card-outline">
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="mb-0 table table-striped " id="example">
+            <thead>
+              <tr>
+                <th class="w-50">
+                  {{ table_title }}
+                </th>
+                <th class="w-10 text-right">UNICEF Target ({{ reporting_year }})</th>
+                <th class="w-10 text-right">UNICEF Result</th>
+                <th class="w-10 text-right">Males(%)</th>
+                <th class="w-10 text-right">Females(%)</th>
+                <th class="w-10 text-right">Change since last report</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for db in dbs.all %}
+              <tr>
+                <td colspan="6" class="w-100" style="background-color: lightblue ; color: darkslategray; ">{{ db.name }}
+                </td>
+              </tr>
+              {% for item in items %}
+              {% if db.id == item.database_id %}
+              <tr>
+                <td>{{ item.label }}</td>
+                <td align="right">{{ item.target|floatformat:"0"|intcomma }}</td>
+                <td align="right">{{ item.value|floatformat:"0"|intcomma|default:"-" }}</td>
+                <td align="right">{{ item.males_percentage|default:"-" }}</td>
+                <td align="right">{{ item.females_percentage|default:"-" }}</td>
+                <td align="right">{{ item.change|floatformat:"0"|intcomma|default:"0" }}</td>
+              </tr>
+              {% for comment in comments %}
+              {% if item.master_id == comment.master.master.id %}
+              <tr>
+                <td colspan="6" class="pl-5 pr-5" style="color: darkolivegreen; font-size: small;">{{ comment.comment }}
+                </td>
+              </tr>
+              {% endif %}
+              {% endfor %}
+              {% endif %}
+              {% endfor %}
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+    
+      </div>
+    
+      <div id="dialog" title="Sub Indicators"></div>
+    </div>
+    
+</div>
+
+</section>
+
+{% endblock content %}
+
+{% block extra_js %}
+<script src="{% static 'adminlte/plugins/datatables/jquery.dataTables.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-bs4/js/dataTables.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-responsive/js/dataTables.responsive.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-responsive/js/responsive.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/dataTables.buttons.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/jszip/jszip.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/pdfmake.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/vfs_fonts.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.html5.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.print.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/sweetalert2/sweetalert2.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/toastr/toastr.min.js' %}"></script>
+<script src="{% static 'adminlte/dist/js/adminlte.js' %}"></script>
+
+<script>
+  function selectmonth(month) {
+    $("#month_form #monthinput").val(month);
+    $("#month_form").submit();
+  }
+
+  function select_periodic_quarter(quarter) {
+
+    url = window.location.href;
+    var field = 'quarter';
+    if (url.indexOf('&' + field + '=') != -1) {
+      var queryParams = new URLSearchParams(window.location.search);
+      queryParams.set(field, quarter);
+      queryParams.delete('month');
+      history.replaceState(null, null, "?" + queryParams.toString());
+      location.reload();
+    }
+    else {
+      var queryParams = new URLSearchParams(window.location.search);
+      queryParams.delete('month');
+      queryParams.set(field, quarter);
+      history.replaceState(null, null, "?" + queryParams.toString());
+      location.reload();
+    }
+
+  }
+</script>
+
+{% endblock extra_js %}

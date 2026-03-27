@@ -1,0 +1,217 @@
+{% extends "baseV2.html" %}
+{% load static humanize util_tagsv2 i18n %}
+{% block extra_style %}
+    <link rel="stylesheet"
+          type="text/css"
+          href="{% static 'vendors/pivottable/dist/pivot.css' %}">
+    <link rel="stylesheet"
+          href="{% static 'adminlte/plugins/bootstrap-slider/css/bootstrap-slider.min.css' %}">
+    <link rel="stylesheet"
+          href="{% static 'adminlte/plugins/select2/css/select2.min.css' %}">
+    <link rel="stylesheet"
+          href="{% static 'adminlte/plugins/select2-bootstrap4-theme/select2-bootstrap4.min.css' %}">
+    <link rel="stylesheet"
+          href="{% static 'adminlte/plugins/bs-stepper/css/bs-stepper.min.css' %}">
+    <link rel="stylesheet"
+          href="{% static 'adminlte/plugins/datatables-bs4/css/dataTables.bootstrap4.min.css' %}">
+    <link rel="stylesheet"
+          href="{% static 'adminlte/plugins/datatables-responsive/css/responsive.bootstrap4.min.css' %}">
+    <link rel="stylesheet"
+          href="{% static 'adminlte/plugins/datatables-buttons/css/buttons.bootstrap4.min.css' %}">
+    <link rel="stylesheet"
+          href="{% static 'adminlte/dist/css/adminlte.min.css' %}">
+{% endblock extra_style %}
+{% block project_title %}{% endblock %}
+{% block content %}
+    <section class="content-header">
+        <div class="container-fluid">
+            <div class="row">
+                <div class="d-flex col-12">
+                    <div class="p-1 align-middle">
+                        <a href="javascript:history.back()" class="btn btn-light">
+                            <i class="fa fa-angle-double-left" aria-hidden="true"></i>
+                        </a>
+                    </div>
+                    <div>
+                        <h1>Research Center</h1>
+                    </div>
+                    <div class="ml-auto"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+    <section class="content">
+        <div class="container-fluid">
+            <div id="filters" class="card bg-gradient-info">
+                <div class="card-header">
+                    <h3 class="card-title">
+                        <i class="fa fa-filter mr-1"> </i> Filters <span></span>
+                    </h3>
+                    <div class="card-tools">
+                        <button type="button" class="btn btn-tool" data-card-widget="collapse">
+                            <i class="fas fa-minus"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body p-1">
+                    <form id="filterForm" action="{% url 'survey:research' %}" method="get">
+                        <div class="row">
+                            <div class="col-lg-3 col-6">
+                                <label for="filter_publication_years">Publication year</label>
+                                <select id="filter_publication_years"
+                                        class="select2"
+                                        name="publication_years"
+                                        multiple="multiple"
+                                        data-dropdown-css-class="select2-purple"
+                                        style="width: 100%"
+                                        data-placeholder="All years">
+                                    {% for item in publication_years %}
+                                        <option value="{{ item }}"
+                                                {% if item in selected_publication_years %} selected{% endif %}>
+                                            {{ item }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-lg-3 col-6">
+                                <label for="filter_main_sectors">Sector</label>
+                                <select id="filter_main_sectors"
+                                        class="select2"
+                                        name="main_sectors"
+                                        multiple="multiple"
+                                        data-dropdown-css-class="select2-purple"
+                                        style="width: 100%"
+                                        data-placeholder="All sectors">
+                                    {% for item in main_sectors %}
+                                        <option value="{{ item }}"
+                                                {% if item in selected_main_sectors %}selected{% endif %}>
+                                            {{ item }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-lg-3 col-6">
+                                <label for="filter_types">Type</label>
+                                <select id="filter_types"
+                                        class="select2"
+                                        name="types"
+                                        multiple="multiple"
+                                        data-dropdown-css-class="select2-purple"
+                                        style="width: 100%"
+                                        data-placeholder="All types">
+                                    {% for item in types %}
+                                        <option value="{{ item }}"
+                                                {% if item in selected_types %} selected{% endif %}>
+                                            {{ item }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-lg-3 col-6">
+                                <label for="filter_geographical_coverages">Coverage</label>
+                                <select id="filter_geographical_coverages"
+                                        class="select2"
+                                        name="geographical_coverages"
+                                        multiple="multiple"
+                                        data-dropdown-css-class="select2-purple"
+                                        style="width: 100%"
+                                        data-placeholder="All coverages">
+                                    {% for item in geographical_coverages %}
+                                        <option value="{{ item }}"
+                                                {% if item in selected_geographical_coverages %}selected{% endif %}>
+                                            {{ item }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-lg-2 col-3 mt-2">
+                                <button type="submit" class="btn btn-outline-light btn-block" title="Search">
+                                    <i class="fa fa-filter"></i> Apply filters
+                                </button>
+                            </div>
+                            <div class="col-lg-2 col-3 mt-2">
+                                <button type="button"
+                                        class="btn btn-outline-default btn-block js-programmatic-multi-clear">Clear filters</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <div class="row">
+            {% for item in items %}
+                <div class="col-lg-4 col-6 card p-2">
+                    <div class="card-header p-1">
+                        <div class="card-title text-muted">
+                            <span class="badge">{{ item.research_id }}</span>
+                            <span class="badge">{{ item.main_sector }}</span>
+                            <span class="badge">{{ item.type }}</span>
+                            <span class="badge">{{ item.geographical_coverage }}</span>
+                            
+                        </div>
+                        <div class="card-tools mr-2">
+                            {% if item.db_file_name %} <a href="{% url 'survey:research_file' pk=item.pk %}"><i class="fas fa-download"></i></a> {% endif %}
+                        </div>
+                    </div>
+                    <div class="card-body p-1">
+                        <p  class="font-weight-bold mb-0">{{ item.title }}</p>
+                        
+                        {{ item.description }}
+                    </div>
+                    <div class="card-footer p-1">
+                        <p class="font-weight-bold mb-0  text-muted">
+                            Organization:
+                            <span class="font-weight-normal">{{ item.organizations }}</span>
+                            <br>
+                            <span class="font-weight-bold  text-muted">Researchers:</span>
+                            <span class="font-weight-normal">{{ item.researchers }}</span>
+                        </p>
+                    </div>
+                </div>
+            {% endfor %}
+            </div>
+        </div>
+    </section>
+{% endblock content %}
+{% block extra_js %}
+    <script src="{% static 'adminlte/plugins/datatables/jquery.dataTables.min.js' %}"></script>
+    <script src="{% static 'adminlte/plugins/datatables-bs4/js/dataTables.bootstrap4.min.js' %}"></script>
+    <script src="{% static 'adminlte/plugins/datatables-responsive/js/dataTables.responsive.min.js' %}"></script>
+    <script src="{% static 'adminlte/plugins/datatables-responsive/js/responsive.bootstrap4.min.js' %}"></script>
+    <script src="{% static 'adminlte/plugins/datatables-buttons/js/dataTables.buttons.min.js' %}"></script>
+    <script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.bootstrap4.min.js' %}"></script>
+    <script src="{% static 'adminlte/plugins/jszip/jszip.min.js' %}"></script>
+    <script src="{% static 'adminlte/plugins/pdfmake/pdfmake.min.js' %}"></script>
+    <script src="{% static 'adminlte/plugins/pdfmake/vfs_fonts.js' %}"></script>
+    <script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.html5.min.js' %}"></script>
+    <script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.print.min.js' %}"></script>
+    <script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.colVis.min.js' %}"></script>
+    <script src="{% static 'adminlte/plugins/select2/js/select2.full.min.js' %}"></script>
+    <script src="{% static 'adminlte/plugins/chart.js/Chart.min.js' %}"></script>
+    <script src="{% static 'adminlte/dist/js/adminlte.js' %}"></script>
+    <script src="{% static 'adminlte/plugins/bootstrap-slider/bootstrap-slider.min.js' %}"></script>
+    <script type="text/javascript">
+    $.holdReady(true);
+    setTimeout(function () {
+
+        // Setting a variable until
+        // document.ready is called
+
+        $.holdReady(false);
+    }, 1000);
+    $(document).ready(function () {
+
+    });
+
+   
+    </script>
+    <script>
+    $(document).ready(function () {
+        $('.select2').select2({ closeOnSelect: true });
+        
+    })
+    $(".js-programmatic-multi-clear").on("click", function () {
+        $('.select2').val(null).trigger("change");
+        $('form#filterForm').submit();
+    });
+    </script>
+{% endblock %}

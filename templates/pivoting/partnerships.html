@@ -1,0 +1,296 @@
+{% extends "baseV2.html" %}
+{% load static humanize i18n %}
+{% block project_title %} Partnerships{% endblock %}
+
+{% block extra_style %}
+<title>- Partnerships </title>
+
+<link rel="stylesheet" type="text/css" href="{% static 'vendors/pivottable/dist/pivot.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/bootstrap-slider/css/bootstrap-slider.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/select2-bootstrap4-theme/select2-bootstrap4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/bs-stepper/css/bs-stepper.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-bs4/css/dataTables.bootstrap4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-responsive/css/responsive.bootstrap4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-buttons/css/buttons.bootstrap4.min.css' %}" />
+
+{% endblock extra_style %}
+
+{% block content %}
+
+<section class="content-header">
+  <div class="container-fluid">
+    <div class="row">
+      <div class="d-flex col-12">
+        <div class="p-1 align-middle">
+          <a href="javascript:history.back()" class="btn btn-light">
+            <i class="fa fa-angle-double-left" aria-hidden="true"></i>
+          </a>
+        </div>
+        <div>
+          <h1> Partners Information</h1>
+          <p>
+            <!-- <i class="far fa-arrow-alt-circle-down"> -->
+            <i>
+              Last Update: {{last_update}}
+            </i>
+          </p>
+        </div>
+        <div class="ml-auto">
+          <div class="btn-group">
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section class="content" style="min-height: 110vh; display: none;">
+  <div class="container-fluid">
+    <div id="filters" class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fa fa-filter mr-1"> </i> Filters </h3>
+        <div class="card-tools">
+          <button type="button" class="btn btn-tool" data-card-widget="collapse">
+            <i class="fas fa-minus"></i>
+          </button>
+        </div>
+      </div>
+      <div class="card-body p-4">
+        <form id="filterForm" action="{% url 'pivoting:partnerships' %}" method="get">
+          <div class="row">
+            <div class="col-lg-3 col-6 p-2">
+              <label for="filter_ptypes">Partner Type</label>
+              <select id="filter_ptypes" class="select2" name="ptypes" multiple="multiple"
+                data-dropdown-css-class="select2-purple" style="width: 100%;" data-placeholder="All Types">
+                {% for ptype in ptypes %}
+                <option value="{{ ptype }}" {% if ptype in selected_ptypes %} selected {%endif%}>
+                  {{ ptype }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-lg-3 col-6 p-2">
+              <label for="filter_csotypes">CSO Type</label>
+              <select id="filter_csotypes" class="select2" name="csotypes" multiple="multiple"
+                data-dropdown-css-class="select2-purple" style="width: 100%;" data-placeholder="All Types">
+                {% for csotype in csotypes %}
+                <option value="{{ csotype }}" {% if csotype in selected_csotypes %} selected {%endif%}>
+                  {{ csotype }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-lg-2 col-2">
+              <label for="filterbutton">&nbsp; </label>
+              <button name="filterbutton" type="submit" class="btn btn-sm btn-light shadow btn-block" title="Search">
+                <i class="fa fa-filter"></i> Apply filters
+              </button>
+            </div>
+            <div class="col-lg-2 col-2">
+              <label for="clearbutton">&nbsp; </label>
+              <button name="clearbutton" type="button"
+                class="btn btn-sm btn-light shadow btn-block js-programmatic-multi-clear"><i class="fa fa-times"></i> Clear all
+                filters
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+    <hr />
+
+    <div id="partners_list" class="card card-info datacard">
+      <div class="card-body p-1 mt-2">
+        <table class="mb-0 table table-striped table-hover " id="example" style="width: 100%; height: 500px;">
+          <thead>
+            <tr>
+              <th>Partner Type</th>
+              <th>CSO Type</th>
+              <th>Partner Name</th>
+              <th>Vendor #</th>
+              <th>Contact</th>
+              <!-- <th class="text-right">Programs</th>
+                  <th class="text-right">Active</th>
+                  <th class="">Last Vist</th>
+                  <th class="">Last Engagement</th> -->
+              <!-- <th>Staff</th> -->
+              <th>Profiling</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in items %}
+            <tr>
+              <td>{{ item.partner_type }}</td>
+              <td>{{ item.cso_type }}</td>
+              <td>{{ item.short_name }} - {{ item.name }}</td>
+              <td>
+                {{ item.vendor_number }}
+              </td>
+              <td>{{ item.email }} <br /> {{ item.phone_number }}</td>
+              <!-- <td class="text-right">
+                    <a href="{% url 'pivoting:pca-dashboard' %}?partners={{ item.short_name }}" target="_blank"
+                      title="Programs">
+                      <button class="btn border-0 badge badge-primary text-sm">{{ item.programs }}</button>
+                    </a>
+                  </td>
+                  <td class="text-right">{{ item.aprograms }}</td>
+                  <td>{{ item.last_pvisit_ts|date:"Y-m-d" }}</td>
+                  <td>{{ item.last_engagement_ts|date:"Y-m-d" }}</td> -->
+              <!-- <td>
+
+                    <button class="btn border-0 badge badge-primary text-sm" onclick="get_details({{item.id}})">
+                      {{item.staff_members|length}}
+                    </button>
+                  </td> -->
+              <td>
+                <a href="{% url 'pivoting:partnership-profile' %}?id={{ item.id }}" target="_blank">
+                  <button class="btn border-0 badge badge-primary text-sm"><i class="fa fa-eye"></i></button>
+                </a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<div class="modal fade" id="modal-lg"></div>
+<button id="subind" style="display:none;" type="button" class="btn btn-default" data-toggle="modal"
+  data-target="#modal-lg"></button>
+
+{% endblock content %} {% block extra_js %}
+<script src="https://cdn.plot.ly/plotly-basic-latest.min.js"></script>
+<script src="{% static 'vendors/pivottable/dist/pivot.js' %}"></script>
+<script src="{% static 'vendors/pivottable/dist/plotly_renderers.js' %}"></script>
+
+<script src="{% static 'adminlte/plugins/datatables/jquery.dataTables.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-bs4/js/dataTables.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-responsive/js/dataTables.responsive.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-responsive/js/responsive.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/dataTables.buttons.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/jszip/jszip.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/pdfmake.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/vfs_fonts.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.html5.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.print.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.colVis.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/select2/js/select2.full.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/chart.js/Chart.min.js' %}"></script>
+
+<script src="{% static 'adminlte/dist/js/adminlte.js' %}"></script>
+<script src="{% static 'adminlte/plugins/bootstrap-slider/bootstrap-slider.min.js' %}"></script>
+
+
+<script>
+
+  $(document).ready(function () {
+    const downloadPrefix = 'NeuroDB_Partners-Information_'
+    var table = $('#example').DataTable({
+      dom: 'Bfrtip',
+      // paging: true,
+      // searching: true,
+      bInfo: true,
+
+      buttons: ["copy",
+        {
+          extend: 'csv',
+          text: 'CSV',
+          filename: function () { return getExportFileName(downloadPrefix); }
+        },
+        {
+          extend: 'excel',
+          text: 'Excel',
+          filename: function () { return getExportFileName(downloadPrefix); }
+        },
+        {
+          extend: 'print',
+          text: 'Print',
+          filename: function () { return getExportFileName(downloadPrefix); }
+        },
+        {
+          extend: 'pdf',
+          text: 'PDF',
+          filename: function () { return getExportFileName(downloadPrefix); }
+        }],
+      
+        responsive: true,
+      lengthChange: false,
+      autoWidth: false,
+      // dom: '<lfb<t>ip>',
+      columnDefs: [
+        // { orderable: true, className: 'reorder', targets: [6, 7, 8] },
+        { orderable: true, targets: '_all' },
+        // { "visible": false, "targets": 3 }
+      ]
+    });
+  })
+</script>
+<script>
+  function get_details(partnership_id) {
+    $.ajax({
+      url: '{% url "pivoting:load_partner_staff" %}',
+      dataType: "json",
+      data: {
+        'id': partnership_id
+      },
+      success: function (data) {
+        var html = format(JSON.parse(data.items))
+        document.getElementById('modal-lg').innerHTML = html;
+        $('#subind').click()
+      }
+    });
+  }
+</script>
+
+<script>
+  function format(d) {
+    // `d` is the original data object for the row
+    let html = `
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+          <div class="modal-header">
+  <h4 class="modal-title">Staff members</h4>
+  <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+  <span aria-hidden="true">&times;</span>
+  </button>
+  </div>
+      <div class="modal-body">
+      <table class="mb-0 table table-striped table-hover table-tags">
+         <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>Title</th>
+            </tr>
+         </thead>
+         <tbody>    
+    `
+    for (var i = 0; i < d.length; i++) {
+      r = d[i]
+      var row = '<tr>' + '<td>' + r.first_name + ' ' + r.last_name + '</td>' + '<td>' + r.email + '</td>' + '<td>' + r.phone + '</td>' + '<td>' + r.title + '</td>' + '</tr>'
+      html += row
+    }
+    html += '</tbody></table></div></div></div>'
+    return html
+
+  }
+</script>
+
+<!-- map toggling and filtering events -->
+<script>
+  $(document).ready(function () {
+    $('.select2').select2({ closeOnSelect: true });
+    $('.content').attr('style', 'display: visible');
+  })
+  $(".js-programmatic-multi-clear").on("click", function () {
+    $('.select2').val(null).trigger("change");
+    $('form#filterForm').submit();
+  });
+</script>
+
+{% endblock %}

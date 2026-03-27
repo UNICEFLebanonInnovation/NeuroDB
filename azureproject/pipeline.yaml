@@ -1,0 +1,53 @@
+trigger:
+- main  # or your branch name
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  pythonVersion: '3.10'
+  azureServiceConnection: 'unilebepics'
+  appName: 'uni-leb-neourodb'
+  packagePath: '$(System.DefaultWorkingDirectory)/**/*.zip'
+
+steps:
+# 1. Set up Python
+- task: UsePythonVersion@0
+  inputs:
+    versionSpec: '$(pythonVersion)'
+
+# 2. Install dependencies
+- script: |
+    python -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+  displayName: 'Install dependencies'
+
+# 3. Collect static files
+- script: |
+    source venv/bin/activate
+    python manage.py collectstatic --noinput
+  displayName: 'Collect static files'
+
+# 4. Archive the app
+- task: ArchiveFiles@2
+  inputs:
+    rootFolderOrFile: '$(System.DefaultWorkingDirectory)'
+    includeRootFolder: false
+    archiveType: zip
+    archiveFile: '$(Build.ArtifactStagingDirectory)/app.zip'
+    replaceExistingArchive: true
+
+# 5. Publish the artifact
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: 'drop'
+    publishLocation: 'Container'
+
+# 6. Deploy to Azure App Service
+- task: AzureWebApp@1
+  inputs:
+    azureSubscription: '$(azureServiceConnection)'
+    appName: '$(appName)'
+    package: '$(packagePath)'

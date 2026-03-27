@@ -1,0 +1,622 @@
+{% extends "base2.html" %}
+{% load static i18n %}
+{% load util_tagsv2 %}
+{% load static %}
+
+{% block project_title %}Neuro-DB{% endblock %}
+
+{% block extra_style %}
+  <!-- Bootstrap -->
+  <!-- <link href="{% static 'vendors/bootstrap/dist/css/bootstrap.min.css' %}" rel="stylesheet"> -->
+  <!-- Font Awesome -->
+  <link href="{% static 'vendors/font-awesome/css/font-awesome.min.css' %}" rel="stylesheet">
+  <link href="{% static 'vendors/font-awesome/css/font-awesome-animation.min.css' %}" rel="stylesheet">
+{% endblock extra_style %}
+
+{% block content %}
+
+  <form id="pform">
+    <input type="hidden" id="partners_info" name="partners_info" value="{{ partners_info }}">
+    <input type="hidden" id="partners_ids_and_names" name="partners_ids_and_names" value="{{ partners_ids_and_names }}">
+    <input type="hidden" id="partners_ids" name="partners_ids" value="{{ partners_ids }}">
+  </form>
+  <div class="app-main__inner">
+  <div class="app-page-title">
+    <div class="page-title-wrapper" >
+      <div class="page-title-heading">
+        <div class="page-title-icon">
+          <a href="javascript:history.back()">
+            <i class="unicef-icon icon-Return ml-0 mr-2 back-btn"></i>
+        </a>
+      </div>
+            <div>
+              Partnership Profile
+              <div class="page-title-subheading">
+                <i class="fa fa-fw" title=""></i>
+                This data is updated once per day.
+               </div>
+            </div>
+            
+       </div>
+  </div>
+
+  </div>
+  <div class="page-title-actions">
+    <div class="d-flex justify-content-end bd-highlight m-1">
+      <div class="bd-highlight mr-1">
+        <select id='sections'>
+          <option value=''>Sections</option>
+          {% for section in sections %}
+           <option value="{{ section }}">{{ section }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="bd-highlight mr-1">
+        <select id='donors'>
+          <option value=''>Donors</option>
+          {% for donor in donors %}
+           <option value="{{ donor }}">{{ donor }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      
+      <div class="bd-highlight mr-1">
+        <select id='interventions' class="bg-secondary">
+          <option value=''>Interventions [{{ nbr_interventions }}]</option>
+          <option value='interventions'>All Interventions [{{ nbr_interventions }}]</option>
+          <option value='interventions_active'>Active Interventions [{{ nbr_active_interventions }}]</option>
+          <option value='pds'>PDs [{{ nbr_pds }}]</option>
+          <option value='pds_active'>Active PDs [{{ nbr_active_pds }}]</option>
+          <option value='sffas'>SFFAs [{{ nbr_sffas }}]</option>
+          <option value='sffas_active'>Active SFFAs {{ nbr_active_sffas }}</option>
+        </select>
+      </div>
+      <div class="bd-highlight mr-1">
+        <select id='programmatic_visits'>
+      <option value=''>Programmatic Visits [{{ programmatic_visits }}]</option>
+      <option value='programmatic_visits'>All Programmatic Visits [{{ programmatic_visits }}]</option>
+      <option value='programmatic_visits_planned'>Planned Programmatic Visits [{{ programmatic_visits_planned }}]</option>
+      <option value='programmatic_visits_submitted'>Submitted Programmatic Visits [{{ programmatic_visits_submitted }}]</option>
+      <option value='programmatic_visits_approved'>Approved Programmatic Visits [{{ programmatic_visits_approved }}]</option>
+      <option value='programmatic_visits_completed'>SFFAs [{{ programmatic_visits_completed }}]</option>
+        </select>
+      </div>
+      <div class="bd-highligh mr-1">
+        <select id='engagements'>
+      <option value=''>Engagements [{{ nbr_other_filters }}]</option>
+      <option value='micro_assessments'>Micro Assessments [{{ nbr_micro_assessments }}]</option>
+      <option value='spot_checks'>Spot Checks [{{ nbr_spot_checks }}]</option>
+      <option value='audits'>Audits [{{ nbr_audits }}]</option>
+      <option value='special_visits'>Special Audits [{{ nbr_special_audits }}]</option>
+        </select>
+      </div>
+
+    
+    </div>    
+    </div>    
+    <div class="d-flex justify-content-end bd-highlight m-1">
+      <div class="bd-highlight mr-1">
+        <select class="form-control" name="select_partner_name" id="select_partner_name" style='width: 200px;'>
+          <!-- <option value=''></option> -->
+          </select>           
+        </div>
+      <div class="bd-highlight mr-1">
+        <a href="{% url 'etools:partner_profile' %}" class="btn btn-md shadow btn-light mr-left-5" data-toggle="tooltip" title="Clear Filters"><i style="font-weight:bolder" class="pe-7s-refresh-2"></i></a>
+      </div>
+    
+    </div>    
+
+  <div id='partner-info' style="min-height: 300px;"></div>
+
+  
+  
+{% endblock content %}
+
+{% block extra_js %}
+<script src="{% static 'js/bootstrap-multiselect.min.js' %}"></script>
+<script  src="{% static 'js/table-fixed.js' %}"></script>
+<script src="{% static 'js/select2.min.js' %}"></script>
+<script src="{% static 'js/tmpl.min.js' %}"></script>
+
+
+<script>
+  function get_partners_ao(){
+    // var partners_info_as = JSON.stringify($('#partners_info').val());
+    // return JSON.parse(partners_info_as);
+    return JSON.parse($('#partners_info').val());
+  }
+
+  var user_token = '{{ user_token }}';
+  var href_full_path = '{{ request.build_absolute_uri }}';
+  var csrftoken = $('input[name=csrfmiddlewaretoken]').val();
+
+  $(document).ready(function(){
+    var select_options = JSON.parse($('#partners_ids_and_names').val());
+    var partners_ids = JSON.parse($('#partners_ids').val());
+
+    var dp = partners_ids
+
+    $('#select_partner_name').select2({
+      placeholder: "Select a Partner",
+      allowClear: false,
+      minimumInputLength: 0,
+      data: select_options,
+    });
+
+    $('#donors').select2({
+      placeholder: "Select a Donor",
+      allowClear: true,
+    });
+
+    $('#sections').select2({
+      placeholder: "Select a Section",
+      allowClear: true,
+      initSelection: function(element, callback) { }
+    });
+
+    $('#interventions').select2({
+      placeholder: "Interventions",
+      allowClear: true,
+    });
+
+    $('#programmatic_visits').select2({
+      placeholder: "Programmatic Visits",
+      allowClear: true,
+    });
+
+    $('#engagements').select2({
+      placeholder: "Engagements",
+      allowClear: true,
+    });
+    
+    function filterpartners(){
+      section = $('#sections').val();
+      donor = $('#donors').val();
+      intervention = $('#interventions').val();
+      programmatic_visits = $('#programmatic_visits').val();
+      engagements = $('#engagements').val();
+      var partners_info = get_partners_ao();
+      var targets = ['interventions','interventions_active','pds','pds_active','sffas','sffas_active'];
+      var data = []
+      for (var i = 0; i < partners_ids.length; i++) {
+        var partner = partners_info[partners_ids[i]];
+        
+        if (intervention) {
+          if (partners_info[partners_ids[i]][intervention].length == 0) {
+            continue;
+          }
+        }
+        if (programmatic_visits) {
+          if (partners_info[partners_ids[i]][programmatic_visits].length == 0) {
+            continue;
+          }
+        }
+        if (engagements) {
+          if (partners_info[partners_ids[i]][engagements].length == 0) {
+            continue;
+          }
+        }
+        if (donor) {
+          found = false;
+          for (var j = 0; j < targets.length; j++) {
+            target = targets[j];
+            try {
+              if (partner[target].length > 0){
+                for (var k = 0; k < partner[target].length; k++) {
+                  var obj = partner[target][k];
+                  try {
+                    if (obj['donors'].includes(donor)){
+
+                      found = true;
+                      break;
+                    } 
+                  } catch (error){}
+                }
+              }
+            } catch (error){}
+            if (found==true){ break; }
+          }
+          if (found == false){
+            continue;
+          }
+        }
+        if (section) {
+          found = false;
+          for (var j = 0; j < targets.length; j++) {
+            target = targets[j];
+            try {
+              if (partner[target].length > 0){
+                for (var k = 0; k < partner[target].length; k++) {
+                  var obj = partner[target][k];
+                  try {
+                    if (obj['section_names'].includes(section)){
+                      found = true;
+                      break;
+                    } 
+                  } catch (error){}
+                }
+              }
+            } catch (error){}
+            if (found==true){ break; }
+          }
+          if (found == false){
+            continue;
+          }
+        }
+        data.push({'id': partners_ids[i], 'text': partner.short_name});
+      }
+      found = data.length
+      // data.unshift({'id': 1.1, 'text': found + ' partners found'})
+      data.unshift({'id': 1.1, 'text': '---------'})
+      $("#select_partner_name").select2().empty();
+      $("#select_partner_name").select2({data: data,});
+    }            
+    
+    $('#sections').on('change', function() {
+      filterpartners();
+    });
+    $('#donors').on('change', function() {
+      filterpartners();
+    });
+    $('#interventions').on('change', function() {
+      filterpartners();
+    });
+    $('#programmatic_visits').on('change', function() {
+      filterpartners();
+    });
+    $('#engagements').on('change', function() {
+      filterpartners();
+    });
+
+    $('.btn-filter-no').click(function(){
+      $('#sections').val('').trigger('change');
+      $('#donors').val('').trigger('change');
+      $('#interventions').val('').trigger('change');
+      $('#programmatic_visits').val('').trigger('change');
+      $('#engagements').val('').trigger('change');
+    });
+
+    $('#select_partner_name').on('change', function() {
+      var partners_info = get_partners_ao();
+      var partner = partners_info[this.value];
+      var data = {partner: partner,}
+      document.getElementById('partner-info').innerHTML = tmpl('tmpl-demo', data);
+    });
+    // $('#select_partner_name').val(10).change();
+    $("#select_partner_name").prop('selectedIndex',0);
+    $("#select_partner_name").trigger('change');
+
+});
+
+
+function getHeader()
+{
+    var header = {
+        'Authorization': 'Token '+user_token,
+        'HTTP_REFERER': href_full_path,
+        'Cookie': 'token=Token '+user_token,
+        'X-CSRFToken': csrftoken
+    };
+    return header;
+}
+
+function update_data_server(url, data)
+{
+    $.ajax({
+        type: "PUT",
+        url: url,
+        data: data,
+        cache: false,
+        headers: getHeader(),
+        dataType: 'json',
+        success: function (response, result, jqXHR) {
+            if(jqXHR.status == 200){
+            }
+        },
+        error: function (response) {
+            console.log(response);
+        }
+    });
+}
+
+</script>
+
+{% verbatim %}
+<script type="text/x-tmpl" id="tmpl-demo">
+  <div class="card mb-3 widget-content bg-midnight-bloom" >
+    <div class="widget-content-wrapper text-white">
+      <div class="widget-content-left">
+        <div class="widget-heading" style="font-size:150%;">{%= o.partner.name %}</div>
+        <div class="widget-subheading" style="font-size:130%;">{%= o.partner.partner_type %}</div>
+      </div>
+      <div class="widget-content-right">
+        <div class="widget-numbers text-white"style="font-size:150%;"><span>Vendor number: {%= o.partner.vendor_number %}</span></div>
+      </div>
+    </div>
+  </div>
+ <div class="mb-3 card">
+    <div class="card-header">
+       <ul class="nav nav-justified">
+          <li class="nav-item"><a data-toggle="tab" href="#tab-eg7-0" class="active nav-link">Activities & Interventions ({%= o.partner.interventions.length %})</a></li>
+          <li class="nav-item"><a data-toggle="tab" href="#tab-eg7-1" class="nav-link">Micro Assessments ({%= o.partner.micro_assessments.length %})</a></li>
+          <li class="nav-item"><a data-toggle="tab" href="#tab-eg7-2" class="nav-link">Programmatic Visits ({%= o.partner.programmatic_visits.length %})</a></li>
+          <li class="nav-item"><a data-toggle="tab" href="#tab-eg7-3" class="nav-link">Spot Checks ({%= o.partner.spot_checks.length %}) </a></li>
+          <li class="nav-item"><a data-toggle="tab" href="#tab-eg7-4" class="nav-link">Audits ({%= o.partner.audits.length %})</a></li>
+          <li class="nav-item"><a data-toggle="tab" href="#tab-eg7-5" class="nav-link">Special Adudits ({%= o.partner.special_audits.length %})</a></li>
+       </ul>
+    </div>
+    <div class="card-body">
+       <div class="tab-content">
+          <div class="tab-pane active p-3" id="tab-eg7-0" role="tabpanel">
+             {% if ( o.partner.interventions.length > 0 ) { %}
+             <table class="mb-0 table table-striped table-hover table-tags">
+                <thead>
+                   <tr>
+                      <th></th>
+                      <th>PD</th>
+                      <th>Status</th>
+                      <th>Start</th>
+                      <th>End</th>
+                      <th>Location</th>
+                      <th>Budget</th>
+                      <th>Program</th>
+                      <th>Fund</th>
+                   </tr>
+                </thead>
+                <tbody>
+                   {% for (var i = 0; i < o.partner.interventions.length; i++) {
+                   var inter = o.partner.interventions[i]; %}
+                   <tr>
+                      <td class="badge-item w-4">
+                         {% if (inter.end_date_count < 0) { %}
+                         <div class='badge badge-danger height-auto ' style="font-size:70%; height:64px;">
+                            Expired
+                         </div>
+                         {% } else { %}
+                         <div class='badge badge-info height-auto' style="font-size:70%; height:64px;">
+                            OnGoing
+                         </div>
+                         {% } %}
+                      </td>
+                      <td class="align-middle">
+                         <a href="https://etools.unicef.org/pmp/interventions/{%= inter.etl_id %}/details" target="_blank">
+                         {%= inter.document_type %} - {%= inter.status %} - {%= inter.number %}
+                         <i class="fa fa-external-link" style="font-size: 10px; color: #4D4D4D;"></i>
+                         </a>
+                      </td>
+                      <td class="align-middle"> {%= inter.status %} </td>
+                      <td class="align-middle text-nowrap"> {%= inter.start %}</td>
+                      <td class="align-middle text-nowrap"> {%= inter.end_date %} {% if (inter.end_date_count > 0) { %} {%= inter.end_date_count %} - days {% } %}</td>
+                      <!-- <td class="align-middle"> {%= inter.offices_names.replace("[","").replace("']","").replace("u'","") %}</td> -->
+                      <td class="align-middle"> {%= inter.offices_names.replace("[","").replace("]","").replaceAll("u'","").replaceAll('"','').replaceAll("'","") %}</td>
+                      <td class="align-middle text-nowrap"> {%= inter.total_budget.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") %} {%= inter.budget_currency %} </td>
+                      <td class="align-middle"> {%= inter.section_names %} </td>
+                      <td class="align-middle"> {%= inter.donors %} </td>
+                   </tr>
+                   {% } %}
+                </tbody>
+             </table>
+             {% } %}
+          </div>
+          <div class="tab-pane p-3" id="tab-eg7-1" role="tabpanel">
+             {% if ( o.partner.micro_assessments.length > 0 ) { %}
+             <div id="accordion" class="accordion-wrapper mb-3">
+              {% for (var i = 0; i < o.partner.micro_assessments.length; i++) {
+                var assessment = o.partner.micro_assessments[i]; %}
+              <div class="card">
+                <div id="headingOne" class="card-header">
+                  <button type="button" data-toggle="collapse" data-target="#collapse_ma_{%= i %}" aria-expanded="true" aria-controls="collapseOne" class="text-left m-0 p-0 btn btn-link btn-block">
+                    <h5 class="m-0 p-0">{%= i + 1 %}-{%= assessment.displayed_name %}</h5> </button>
+                </div>
+                <div data-parent="#accordion" id="collapse_ma_{%= i %}" aria-labelledby="headingOne" class="collapse  {% if (i == 0) { %}show{% } %} p-3">
+                  <h6 class="card-title">Internal Controls:</h6>
+                  <p>{%= assessment.internal_controls %}</p>
+                  <h6 class="card-title">Findings & Recommendations:</h6>
+                  {% if ( assessment.findings_sets.length > 0 ) { jassessments_findings = JSON.parse(assessment.findings_sets); %}
+                    {% for (var j = 0; j < jassessments_findings.length; j++) {
+                      assessment_findings = jassessments_findings[j]; %}
+                        <table class="table-sm table-bordered">
+                            <tr><th width="40px"> Finding ID</th> <td> {%= assessment_findings.id %}</td></tr>
+                            <tr><th width="40px"> Finding</th> <td> {%= assessment_findings.finding %}</td></tr>
+                            <tr><th width="40px"> Recommendations </th> <td> {%= assessment_findings.recommendation %}</td></tr>
+                        </table>
+                      </br>
+                    {% } %}
+                  {% } %}
+  
+                </div>
+              </div>
+              {% } %}
+            </div>
+            {% } %}
+            
+          </div>
+          <div class="tab-pane p-3" id="tab-eg7-2" role="tabpanel">
+            <table class="table table-sm">
+              <thead>
+                <th>#</th>
+                <th>Visit</th>
+                <th>Status</th>
+                <th>Document(s)</th>
+              </thead>
+              <tbody>
+             {% if ( o.partner.programmatic_visits.length > 0 ) { %}
+             {% for (var i = 0; i < o.partner.programmatic_visits.length; i++) {
+               var visit = o.partner.programmatic_visits[i]; %}
+               <tr>
+               <td>{%= i + 1 %}</td>
+               <td>{%= visit.number %}</td>
+               <td>{%= visit.status %}</td>
+              <td>
+              {% jattachments_sets = JSON.parse(visit.attachments_sets); 
+                if ( jattachments_sets.length > 0 ) { %}
+                {% for (var j = 0; j < jattachments_sets.length; j++) {
+                  apx = jattachments_sets[j]; %}
+                    <p><a href="{%= apx.url %}">{%= apx.name %}</a></p>
+                {% } %}
+              {% } %}
+                </td>
+            {% } %}
+              </tr>
+            </tbody>
+          </table>
+            {% } %}
+          </div>
+          <div class="tab-pane p-3" id="tab-eg7-3" role="tabpanel">
+            {%         
+              if ( o.partner.spot_checks.length > 0 ) { %}
+
+              <div id="accordion" class="accordion-wrapper mb-3">
+
+                {% for (var i = 0; i < o.partner.spot_checks.length; i++) {
+                  var audit_sc = o.partner.spot_checks[i]; %}
+
+                <div class="card">
+                  <div id="headingOne" class="b-radius-0 card-header">
+                    <button type="button" data-toggle="collapse" data-target="#collapse_sc_{%= i %}" aria-expanded="true" aria-controls="collapseOne" class="text-left m-0 p-0 btn btn-link btn-block">
+                      <h5 class="m-0 p-0">{%= i + 1 %}-  {%=  audit_sc.displayed_name %}</h5> </button>
+                  </div>
+                  <div data-parent="#accordion" id="collapse_sc_{%= i %}" aria-labelledby="headingOne" class="collapse {% if (i == 0) { %}show{% } %}  p-3">
+                    <div class="card-body">
+                      <h6 class="card-title">Internal Controls:</h6>
+                      <p>{%= audit_sc.internal_controls %}</p>
+              
+                      <h6 class="card-title">Findings:</h6>
+                {% jaudit_sc_findings_sets = JSON.parse(audit_sc.findings_sets); 
+                  for (var j = 0; j < jaudit_sc_findings_sets.length; j++) { 
+                    var finding = jaudit_sc_findings_sets[j]; %}
+                    <table class="table-bordered">
+                      <tr>
+                        <th style="width:10%">Finding ID</th><td style="width:10%">{%=finding.id%}</td>
+                        <td  style="width:80%" rowspan="4">
+                          <p class="mt-1"><span class="text-dark"><b>Recommendations: </b></span> {%= finding.recommendation %}
+                            <p class="mt-1"><span class="text-dark"><b>Agreed Action: </b></span> {%= finding.agreed_action_by_ip %}
+                        </td>
+                      </tr>
+                      <tr>
+                        <th style="width:10%">Category</th><td style="width:10%">{%= finding.category_of_observation.replaceAll('_', ' ') %}</td>
+                      </tr>
+                      <tr>
+                        <th style="width:10%">Priority</th><td style="width:10%">{%=finding.priority%}</td>
+                      </tr>
+                      <tr>
+                        <th style="width:10%">Deadline</th><td style="width:10%" class="text-nowrap">{%=finding.deadline_of_action %}</td>
+                      </tr>
+                    </table>
+                  </br>
+                    {% } %}
+                    <hr>
+
+                <h6 class="card-title">Action Points:</h6>
+                {% jaudit_sc_action_points = JSON.parse(audit_sc.action_points); 
+                  for (var j = 0; j < jaudit_sc_action_points.length; j++) { 
+                    var action = jaudit_sc_action_points[j];  %}
+                    <div class="row">
+                      <div class="col-md-4">
+                        <table>
+                          <tr><th>ID</th><td> {%= action.id %}</td></tr> <td> 
+                          <tr><th>Author</th><td> {%= action.author_name %}</td></tr>
+                          <tr><th>Assigned By</th><td> {%= action.assigned_by_name %}</td></tr>
+                          <tr> <th>Assigned To</th><td> {%= action.assigned_to_name %}</td></tr>
+                          
+                        </table>
+                      </div>
+                      <div class="col-md-4">
+                        <table>
+                        <tr><th>Category</th><td> {%= action.category_name %}</td></tr>
+                        <tr><th>Due Date</th><td> {%= action.due_date %}</td></tr>
+                          <tr><th>High Priority</th><td> {%= action.high_priority %}</td></tr>
+                          <tr><th>Reference</th><td> {%= action.reference_number %}</td></tr>
+                        </table>
+                        </div>
+                        <div class="col-md-4">
+                          <table>
+                          <tr><th>Office</th><td> {%= action.office_name %}</td></tr>
+                          <tr> <th>Section</th><td> {%= action.section_name %}</td></tr>
+                          <tr><th>Status</th><td> {%= action.status %}</td></tr>
+                          <tr><th>Status Date</th><td> {%= action.status_date.substring(0,10) %}</td></tr>
+                          </table>
+                      </div>
+                    </div>
+                    <p class="mt-1"><span class="text-dark"><u>Description: </u></span> {%= action.description %}
+                      <hr>
+                  
+                {% } %}
+ 
+                    
+                    </div>
+                  </div>
+                </div>
+                
+                
+                {% } %}
+
+              </div>
+              
+
+            {% } %}
+          </div>
+
+
+          <div class="tab-pane p-3" id="tab-eg7-4" role="tabpanel">
+             {% if ( o.partner.audits.length > 0 ) { %}
+             <table class="mb-0 table table-striped table-hover table-tags">
+                <tbody>
+                   {% for (var i = 0; i < o.partner.audits.length; i++) {
+                   var audit = o.partner.audits[i]; %}
+                   <tr><th>Name</th><td class="align-middle"> {%= audit.displayed_name %} </td></tr>
+                   <tr><th>Internal Controls</th><td class="align-middle"> {%= audit.internal_controls %} </td></tr>
+                   <tr><th>Findings</th>
+                       <td class="align-middle"> 
+                       {% if ( audit.findings_sets && audit.findings_sets.length > 0 ) { jaudit_findings_sets = JSON.parse(audit.findings_sets); %}
+                        {% for (var j = 0; j < jaudit_findings_sets.length; j++) {
+                          audit_findings = jaudit_findings_sets[j]; %}
+                          <table class="table table-sm table-striped">
+                            {% for (const [key, value] of Object.entries(audit_findings)) { %}
+                              <tr><td width="40px"> {%= key %}</td> <td> {%= value %}</td></tr>
+                            {% } %}
+                          </table>
+                      {% } %}
+                      {% } %}
+                      </td>
+                   </tr>
+                   {% } %}
+                </tbody>
+             </table>
+             {% } %}
+          </div>
+          <div class="tab-pane p-3" id="tab-eg7-5" role="tabpanel">
+             {% if ( o.partner.special_audits.length > 0 ) { %}
+             <table class="mb-0 table table-striped table-hover table-tags">
+              <tbody>
+                 {% for (var i = 0; i < o.partner.special_audits.length; i++) {
+                 var special_audit = o.partner.special_audits[i]; %}
+                 <tr><th>Name</th><td class="align-middle"> {%= special_audit.displayed_name %} </td></tr>
+                 <tr><th>Internal Controls</th><td class="align-middle"> {%= special_audit.internal_controls %} </td></tr>
+                 <tr><th>Findings</th>
+                     <td class="align-middle"> 
+                     {% if ( special_audit.findings_sets && special_audit.findings_sets.length > 0 ) { jaudit_findings_sets = JSON.parse(special_audit.findings_sets); %}
+                      {% for (var j = 0; j < jaudit_findings_sets.length; j++) {
+                        audit_findings = jaudit_findings_sets[j]; %}
+                        
+                        <table class="table table-sm table-striped">
+                          {% for (const [key, value] of Object.entries(audit_findings)) { %}
+                            <tr><td width="40px"> {%= key %}</td> <td> {%= value %}</td></tr>
+                          {% } %}
+                        </table>
+                    {% } %}
+                    {% } %}
+                    </td>
+                 </tr>
+                 {% } %}
+              </tbody>
+           </table>
+             {% } %}
+          </div>
+       </div>
+    </div>
+ </div>
+   </script>
+  {% endverbatim %}
+
+{% endblock %}

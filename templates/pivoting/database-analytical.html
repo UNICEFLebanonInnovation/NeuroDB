@@ -1,0 +1,355 @@
+{% extends "baseV2.html" %}
+{% load static i18n %}
+
+{% block project_title %}Neuro-DB{% endblock %}
+
+{% block extra_style %}
+<link rel="stylesheet" type="text/css" href="{% static 'vendors/pivottable/dist/pivot.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/bootstrap-slider/css/bootstrap-slider.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/select2-bootstrap4-theme/select2-bootstrap4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/bs-stepper/css/bs-stepper.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-bs4/css/dataTables.bootstrap4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-responsive/css/responsive.bootstrap4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-buttons/css/buttons.bootstrap4.min.css' %}" />
+<style>
+    body {
+        zoom: 100% !important;
+        font-family: 'Roboto', sans-serif !important;
+        background: #FFF;
+        fill: #FFF;
+        margin: 0 auto;
+        min-height: 100%;
+    }
+
+    tbody>tr>th.pvtTotalLabel,
+    .colTotal,
+    .pvtGrandTotal {
+        display: none;
+    }
+
+    /* Hides the UI when printing*/
+    @media print {
+        .pvtUiCell {
+            display: none;
+        }
+    }
+
+    .pvtAxisContainer li {
+        padding: 1px 1px;
+        list-style-type: none;
+        cursor: move;
+    }
+</style>
+{% endblock %}
+{% block content %}
+<section class="content-header mb-0">
+    <div class="container-fluid">
+        <div class="row mb-0">
+            <div class="d-flex col-12">
+                <div class="p-1 align-middle">
+                    <a href="javascript:history.back()" class="btn btn-light">
+                        <i class="fa fa-angle-double-left" aria-hidden="true"></i>
+                    </a>
+                </div>
+                <div>
+                    <h1>{{database.name}} | {{database.reporting_year}}</h1>
+                    <p>
+                        <i>
+                            Last Update: {{database.last_monthly_update_date}}
+                        </i>
+                    </p>
+                </div>
+                <div class="ml-auto">
+                    <!-- <p class="font-weight-bold text-danger mb-0 text-sm">Results in this page may differ from what is in
+                        the Main dashboard,</p>
+                    <p class="text-danger font-weight-bold mb-1 text-sm">please rely on the main dashboard for the total
+                        of Master Indicators.</p> -->
+                    <div class="btn-group">
+                        <button type="button" aria-haspopup="true" aria-expanded="false"
+                            class="btn btn-sm btn-light shadow mr-1" onclick="switchview(currentView)">Clear Filters</button>
+
+                        <div class="input-group-prepend">
+                            <button type="button" class="btn btn-sm btn-light shadow btn-sm mr-1 dropdown-toggle"
+                                data-toggle="dropdown">
+                                Quick Switch </button>
+                            <div class="dropdown-menu">
+                                <button type="button" class="dropdown-item"
+                                    onclick="switchview('month');">Month</button>
+                                <div class="dropdown-divider"></div>
+                                <button type="button" class="dropdown-item"
+                                    onclick="switchview('nationality');">Nationality</button>
+                                <button type="button" class="dropdown-item"
+                                    onclick="switchview('disability');">Disability</button>
+                                <button type="button" class="dropdown-item"
+                                    onclick="switchview('gender');">Gender</button>
+                                <div tabindex="-1" class="dropdown-divider"></div>
+                                <div class="dropdown-divider"></div>
+                                <button type="button" class="dropdown-item"
+                                    onclick="switchview('governorate');">Governorates</button>
+                                <button type="button" class="dropdown-item"
+                                    onclick="switchview('district');">Districts</button>
+                                <div class="dropdown-divider"></div>
+                                <button type="button" class="dropdown-item"
+                                    onclick="switchview('partner');">Partners</button>
+                                <button type="button" class="dropdown-item" onclick="switchview('project');">PD
+                                    Reference</button>
+                            </div>
+                        </div>
+
+                        <div class="input-group-prepend">
+                            <button type="button" onclick="TableToCSV();" aria-haspopup="true" aria-expanded="false"
+                                class="btn btn-sm btn-light shadow mr-1">TSV Export</button>
+                        </div>
+
+                        <div class="input-group-prepend">
+                            <button type="button" class="btn btn-sm btn-light shadow mr-1 dropdown-toggle"
+                                data-toggle="dropdown">
+                                Reporting Year
+                            </button>
+                            <div class="dropdown-menu">
+                                {% for db in section_databases %}
+                                <a class="dropdown-header p-1"
+                                    href="{% url 'pivoting:database-analytical' %}?id={{db.id}}">
+                                    <button type="button" class="dropdown-item">
+                                        {{ db.reporting_year }}
+                                    </button>
+                                </a>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <p class="text-xs text-red mb-0">Results in this page may differ from what is in the Main dashboard, please rely on the main dashboard for the total of Master Indicators.</p>
+        <p class="text-xs text-muted mb-0">Value Cal.: This option is used to add values that might affect the total value of the master indicator. For example: disability indicators</p>
+
+    </div>
+</section>
+
+<section class="content mt-0" style="min-height: 110vh;">
+    <div class="container-fluid">
+        <div class="card">
+            <div class="card-body p-2">
+                <div class="table-responsive">
+                    <div id="output" style="margin: 10px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+{% endblock content %}
+
+{% block extra_js %}
+<script src="{% static 'adminlte/dist/js/adminlte.js' %}"></script>
+
+<script src="https://cdn.plot.ly/plotly-basic-latest.min.js"></script>
+<script src="{% static 'vendors/pivottable/dist/pivot.js' %}"></script>
+<script src="{% static 'vendors/pivottable/dist/plotly_renderers.js' %}"></script>
+<script src="{% static 'vendors/pivottable/dist/export_renderers.js' %}"></script>
+<script src="{% static 'adminlte/plugins/jszip/jszip.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/pdfmake.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/vfs_fonts.js' %}"></script>
+
+<script>
+    function formatDate(date) {
+        var d = new Date(date),
+            month = '' + (d.getMonth() + 1),
+            day = '' + d.getDate(),
+            year = d.getFullYear();
+
+        if (month.length < 2)
+            month = '0' + month;
+        if (day.length < 2)
+            day = '0' + day;
+
+        return [year, month, day].join('-');
+    }
+    function delay(time) {
+        return new Promise(resolve => setTimeout(resolve, time));
+    }
+    async function TableToCSV() {
+        $(".pvtRenderer").val("TSV Export").change();
+    }
+    async function xxTableToCSV() {
+        // changed cause auto download not showing proper excell
+        $(".pvtRenderer").val("TSV Export").change();
+        await delay(5000).then(() => console.log('ran after 1 second1 passed'));
+        filename = "Database" + "{{database.name}}" + "_Indicators_" + formatDate(Date())
+        var downloadLink;
+        var dataType = 'application/csv';
+        var data = $("textarea").val().replaceAll('#', ' ')
+
+        filename = filename ? filename + '.csv' : 'csv_data.csv';
+        downloadLink = document.createElement("a");
+        document.body.appendChild(downloadLink);
+
+        if (navigator.msSaveOrOpenBlob) {
+            var blob = new Blob(['\ufeff', data], {
+                type: dataType
+            });
+            navigator.msSaveOrOpenBlob(blob, filename);
+        } else {
+            downloadLink.href = 'data:' + dataType + ', ' + data;
+            downloadLink.download = filename;
+            downloadLink.click();
+        }
+    }
+</script>
+
+<script>
+    var pivotData = null
+    var getUrlParameter = function getUrlParameter(sParam) {
+        var sPageURL = window.location.search.substring(1),
+            sURLVariables = sPageURL.split('&'),
+            sParameterName,
+            i;
+
+        for (i = 0; i < sURLVariables.length; i++) {
+            sParameterName = sURLVariables[i].split('=');
+
+            if (sParameterName[0] === sParam) {
+                return sParameterName[1] === undefined ? true : decodeURIComponent(sParameterName[1]);
+            }
+        }
+        return false;
+    };
+    $(document).ready(function () {
+        var id = getUrlParameter('id');
+        $.ajax({
+            url: load_database_activityinfo,
+            dataType: "json",
+            data: {
+                'id': getUrlParameter('id')
+            },
+            success: function (data) {
+                // pivotData = JSON.stringify(JSON.parse(data.items))
+                pivotData = data.items
+                parsedData = JSON.parse(data.items)
+                let db_id = parsedData[0]['Databaseid']
+                if (db_id.length !== 6 || isNaN(db_id)) {
+                    switchview('month'); // Ensure it's a 6-digit numeric string
+                } else {
+                    let year = parseInt(db_id.slice(0, 4), 10); // Extract first 4 characters as an integer
+                    let lastTwo = db_id.slice(-2); // Extract last 2 characters as a string
+                    if (year >= 2025 && lastTwo === "18"){
+                        switchview('nutrition')
+                    } else {
+                        switchview('month')
+                    }
+                }
+            }
+        });
+    })
+
+</script>
+
+<script>
+    var load_database_activityinfo = '{% url "pivoting:load_database_activityinfo" %}';
+    const hiddenAttributes = [
+        "Category", "Activity", "Unit", "Activity_Id", "Awp Code", "Databaseid", 
+        "Database", "Form", "Indicator_Awp_Code", "Sequence",
+        "Location_Adminlevel_Cadastral_Area", "Target", "Project_Description", 
+        "Reporting_Id", "Reporting_Section", "Type", "Units", "Achieved", 'Programme']
+    const hiddenFromDragDrop = ['Indicator_Value']
+    var currentView = ""
+    var numberFormat = $.pivotUtilities.numberFormat;
+    var tpl = $.pivotUtilities.aggregatorTemplates;
+
+    var intFormat = numberFormat({ digitsAfterDecimal: 0, });
+    var usFmt = numberFormat({ digitsAfterDecimal: 1, });
+    var prcFormat = numberFormat({ digitsAfterDecimal: 0, suffix: '%' });
+
+    var amendedAggregators = {
+        'Cumulative': function () { return tpl.sum(intFormat)(["Indicator_Value"]) },
+        'Count': function () { return tpl.count(intFormat)() },
+        'Percentage': function () { return $.pivotUtilities.aggregators['Sum as Fraction of Rows'](["Indicator_Value"]) },
+        'Average': function () { return tpl.average(intFormat)(["Indicator_Value"]) },
+        'Median': function () { return tpl.median(usFmt)(["Indicator_Value"]) },
+        'Variance': function () { return tpl.var(usFmt)(["Indicator_Value"]) },
+        'St. Deviation': function () { return tpl.stdev(usFmt)(["Indicator_Value"]) },
+        'Minimum': function () { return tpl.min(usFmt)(["Indicator_Value"]) },
+        'Maximum': function () { return tpl.max(usFmt)(["Indicator_Value"]) },
+    }
+
+    var viewFilter = function (rowObj) { return true }
+    var renderers = $.extend(renderers, $.pivotUtilities.renderers, $.pivotUtilities.plotly_renderers, $.pivotUtilities.export_renderers);
+
+    amendedAggregators['Indicator Values'] = function () { return tpl.sum(intFormat)(["Indicator_Value"]) }
+
+        //const arr = JSON.parse(renderers);
+    function renameKey(obj, oldKey, newKey) {
+        obj[newKey] = obj[oldKey];
+        delete obj[oldKey];
+    }
+    renameKey(renderers, 'Horizontal Stacked Bar Chart', 'Stacked Bar ChartH')
+    renameKey(renderers, 'Horizontal Bar Chart', 'Bar ChartH')
+
+    var achievedDeriver = function (record) {
+        return record.indicator_value / record.target;
+    }
+
+    function switchview(view) {
+
+        currentView = view
+        let cols = []
+        let rows = []
+        if (view == 'nutrition') {
+            rows = ["Awp Code", "Indicator Name", "Ai Indicators"]
+            cols = ["Month"]
+        }
+        if (view == 'governorate') {
+            rows = ["Master Indicator"]
+            cols = ["Gov."]
+        }
+        if (view == 'district') {
+            rows = ["Master Indicator"]
+            cols = ["District"]
+        }
+        if (view == 'month') {
+            rows = ["Master Indicator", "Sub Indicator"]
+            cols = ["Month"]
+        }
+        if (view == 'nationality') {
+            rows = ["Master Indicator"]
+            cols = ["Nationality"]
+        }
+        if (view == 'disability') {
+            rows = ["Master Indicator"]
+            cols = ["Disability"]
+        }
+        if (view == 'gender') {
+            rows = ["Master Indicator"]
+            cols = ["Gender"]
+        }
+        if (view == 'partner') {
+            rows = ["Master Indicator", "Partner"]
+            cols = ["Month"]
+        }
+        if (view == 'project') {
+            rows = ["Pd"]
+            cols = ["Month"]
+        }
+
+        $("#output").pivotUI(JSON.parse(pivotData), {
+            hiddenAttributes: hiddenAttributes,
+            renderers: renderers,
+            aggregators: amendedAggregators,
+            hiddenFromDragDrop: hiddenFromDragDrop,
+            unusedAttrsVertical: false,
+            filter: viewFilter,
+            showUI: true,
+            rows: rows,
+            vals: ["Indicator_Value"],
+            cols: cols,
+            inclusions: { 'Value Cal.': ["Include values that affect master indicators"] },
+            sorters: {
+                "Month": $.pivotUtilities.sortAs(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]),
+                "Nationality": $.pivotUtilities.sortAs(["LEB", "PRL", "PRS", "SYR", "OTH",]),
+            },
+        }, true);
+    }
+
+</script>
+{% endblock extra_js %}

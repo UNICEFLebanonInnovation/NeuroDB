@@ -1,0 +1,362 @@
+{% extends "baseV2.html" %}
+{% load static humanize util_tagsv2 i18n %}
+{% block extra_style %}
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-bs4/css/dataTables.bootstrap4.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-responsive/css/responsive.bootstrap4.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-buttons/css/buttons.bootstrap4.min.css' %}"/>
+<style>
+    thead input {
+        width: 100%;
+    }
+</style>
+{% endblock extra_style %}
+
+{% block project_title %}
+
+{% endblock %}
+
+{% block content %}
+
+<section class="content-header">
+    <div class="container-fluid">
+        <div class="row">
+            <div class="d-flex col-12">
+                <div class="p-1 align-middle">
+                    <a href="javascript:history.back()" class="btn btn-light">
+                        <i class="fa fa-angle-double-left" aria-hidden="true"></i>
+                    </a>
+                </div>
+                <div>
+                    <h1> Funded Programs Summary (Active PDs)</h1>
+                    <p>
+                        <i>
+                            Last Update: {{last_update}}
+                        </i>
+                    </p>
+                </div>
+                <div class="ml-auto">
+                    
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="content" style="min-height: 110vh;display: none;">
+    <div class="container-fluid">
+        <div id="funded_programs" class="card w-100 p-2">
+            <div class="card-header">
+                <h3 class="card-title font-weight-bold"><i class="fa fa-eye mr-1 "></i>PDs ending within 1 month</h3>
+                <div class="card-tools">
+                    <button type="button" class="btn btn-tool" data-card-widget="collapse">
+                        <i class="fas fa-minus"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-1">
+                <table lass="display" class="table w-100 table-sm table-striped table-bordered"
+                id="example">
+                <thead>
+                    <tr>
+                        <th>PD Reference #</th>
+                        <th>Section</th>
+                        <th>Start</th>
+                        <th>End</th>
+                        <th>Days to End</th>
+                        <th>Partner</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in ending_soon %}
+                    {% get_array_as item.section_names as section_names %}
+                    <tr>
+                        <td className="program_code">{{ item.number }}</td>
+                        <td>{{ section_names }}</td>
+                        <td>{{ item.start|date:"Y-m-d" }}</td>
+                        <td>{{ item.end|date:"Y-m-d" }}</td>
+                        <td>{{ item.days_to_end }}</td>
+                        
+                        <td>
+                            <a href="{% url 'pivoting:partnership-profile' %}?id={{ item.partnerid }}"
+                                title="Profiling">
+                                <button class="btn border-0 btn-outline text-sm text-primary text-left">{{item.partner_name}}</button>
+                            </a>
+                        </td>
+                        <td align="right">
+                            <button type="button" title="Show details..." onclick="get_details({{item.id}})"
+                                class="btn-transition btn btn-outline-info btn-sm"><i class="fa fa-eye"></i>
+                            </button>
+                            <!-- <a href="{% url 'pivoting:pca-analytical' %}?id={{ item.id }}"
+                            class="btn btn-outline-success btn-sm" title="Analytical view">
+                            <i class="fa fa-cogs"></i>
+                        </a> -->
+
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            </div>
+        </div>
+        <div id="sections" class="card w-100 p-2">
+            <div class="card-header">
+                <h3 class="card-title font-weight-bold"><i class="fa fa-eye mr-1"></i>PDs summary for sections</h3>
+                <div class="card-tools">
+                    <button type="button" class="btn btn-tool" data-card-widget="collapse">
+                        <i class="fas fa-minus"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-1">
+                <table lass="display" class="table w-100 table-sm table-striped table-bordered"
+                id="sections-table">
+                <thead>
+                    <tr>
+                        <th>Section</th>
+                        <th class="text-right">Number of PDs</th>
+                        <!-- <th>Currency</th> -->
+                        <th class="text-right" title="Supply + UNICEF Cash">UNICEF Planned Budget</th>
+                        <th class="text-right" title="UNICEF Cash + Supply + CSO Cash Contribution">Total PD Budget</th>
+                        <th class="text-right">Fund Reservation</th>
+                        <th class="text-right" title="Actual Amounts Transferred for Partners">Actual Disburs</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in summary_sections %}
+                    <tr>
+                        <td>{{ item.section_names }}</td>
+                        <td class="text-right">{{ item.pds }}</td>
+                        <!-- <td>{{ item.budget_currency }}</td> -->
+                        <td class="text-right">{{ item.total_unicef_budget|floatformat|intcomma }}</td>
+                        <td class="text-right">{{ item.total_budget|floatformat|intcomma }}</td>
+                        <td class="text-right">{{ item.donations|floatformat|intcomma }}</td>
+                        <td class="text-right">{{ item.actual_amount|floatformat|intcomma }}</td>
+                        
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            </div>
+        </div>
+        <div id="sections" class="card w-100 p-2">
+            <div class="card-header">
+                <h3 class="card-title font-weight-bold"><i class="fa fa-eye mr-1"></i>PDs summary for partners</h3>
+                <div class="card-tools">
+                    <button type="button" class="btn btn-tool" data-card-widget="collapse">
+                        <i class="fas fa-minus"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-1">
+                <table lass="display" class="table w-100 table-sm table-striped table-bordered"
+                id="partners-table">
+                <thead>
+                    <tr>
+                        <th>Partner</th>
+                        <th class="text-right">Number of PDs</th>
+                        <!-- <th>Currency</th> -->
+                        <th class="text-right" title="Supply + UNICEF Cash">UNICEF Planned Budget</th>
+                        <th class="text-right" title="UNICEF Cash + Supply + CSO Cash Contribution">Total PD Budget</th>
+                        <th class="text-right">Fund Reservation</th>
+                        <th class="text-right" title="Actual Amounts Transferred for Partners">Actual Disburs</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in summary_partners %}
+                    <tr>
+                        <td>{{ item.partner_name }}</td>
+                        <td  class="text-right">{{ item.pds }}</td>
+                        <!-- <td>{{ item.budget_currency }}</td> -->
+                        <td class="text-right">{{ item.total_unicef_budget|floatformat|intcomma }}</td>
+                        <td class="text-right">{{ item.total_budget|floatformat|intcomma }}</td>
+                        <td class="text-right">{{ item.donations|floatformat|intcomma }}</td>
+                        <td class="text-right">{{ item.actual_amount|floatformat|intcomma }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            </div>
+        </div>
+    </div>
+</section>
+<div class="modal fade" id="modal-lg"></div>
+<button id="subind" type="button" class="btn btn-default" data-toggle="modal" data-target="#modal-lg"
+    style="display: none;"></button>
+
+{% endblock content %} {% block extra_js %}
+
+<script src="{% static 'adminlte/plugins/datatables/jquery.dataTables.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-bs4/js/dataTables.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-responsive/js/dataTables.responsive.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-responsive/js/responsive.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/dataTables.buttons.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/jszip/jszip.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/pdfmake.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/vfs_fonts.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.html5.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.print.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.colVis.min.js' %}"></script>
+
+<script src="{% static 'adminlte/dist/js/adminlte.js' %}"></script>
+
+
+<script>
+    $(document).ready(function () {
+        const downloadPrefix = 'NeuroDB_PDs ending within 1 month_'
+        const downloadPrefix2 = 'NeuroDB_Active PDs summary for sections_'
+        const downloadPrefix3 = 'NeuroDB_Active PDs summary for partners_'
+        var table = $('#example').DataTable({
+            "dom": '<f<t>piB>',
+            searching: true,
+            paging: true,
+            bInfo: true,
+            pageLength: 10,
+            buttons: ["copy",
+                {
+                    extend: 'csv',
+                    text: 'CSV',
+                    filename: function () { return getExportFileName(downloadPrefix); }
+                },
+                {
+                    extend: 'excel',
+                    text: 'Excel',
+                    filename: function () { return getExportFileName(downloadPrefix); }
+                },],
+
+            responsive: true,
+            lengthChange: true,
+            autoWidth: true,
+            orderCellsTop: true,
+            order: [4, 'asc'],
+        });
+
+        var table = $('#sections-table').DataTable({
+            "dom": '<f<t>piB>',
+            searching: true,
+            paging: true,
+            bInfo: true,
+            pageLength: 20,
+            buttons: ["copy",
+                {
+                    extend: 'csv',
+                    text: 'CSV',
+                    filename: function () { return getExportFileName(downloadPrefix2); }
+                },
+                {
+                    extend: 'excel',
+                    text: 'Excel',
+                    filename: function () { return getExportFileName(downloadPrefix2); }
+                },],
+
+            responsive: true,
+            lengthChange: true,
+            autoWidth: true,
+            orderCellsTop: true,
+            order: [1, 'desc'],
+        });
+        var table = $('#partners-table').DataTable({
+            "dom": '<f<t>piB>',
+            searching: true,
+            paging: true,
+            bInfo: true,
+            pageLength: 20,
+            buttons: ["copy",
+                {
+                    extend: 'csv',
+                    text: 'CSV',
+                    filename: function () { return getExportFileName(downloadPrefix3); }
+                },
+                {
+                    extend: 'excel',
+                    text: 'Excel',
+                    filename: function () { return getExportFileName(downloadPrefix3); }
+                },
+                {
+                    extend: 'print',
+                    text: 'Print',
+                    filename: function () { return getExportFileName(downloadPrefix3); }
+                },
+                {
+                    extend: 'pdf',
+                    text: 'PDF',
+                    filename: function () { return getExportFileName(downloadPrefix3); }
+                }],
+
+            responsive: true,
+            lengthChange: true,
+            autoWidth: true,
+            orderCellsTop: true,
+            order: [1, 'desc'],
+        });
+    })
+</script>
+<script>
+    function get_details(pca_number) {
+        $.ajax({
+            url: '{% url "pivoting:load_pca_details" %}',
+            dataType: "json",
+            data: {
+                'id': pca_number
+            },
+            success: function (data) {
+                console.log(data)
+                var html = format(JSON.parse(JSON.stringify(data)))
+                document.getElementById('modal-lg').innerHTML = html;
+                $('#subind').click()
+            }
+        });
+    }
+</script>
+<script>
+    function format(d) {
+        // `d` is the original data object for the row
+        let html = `
+        <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+<h4 class="modal-title">Funded Program Details</h4>
+<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+<span aria-hidden="true">&times;</span>
+</button>
+</div>
+        <div class="modal-body">
+        `
+        html += '<p><strong>Title: </strong>' + d.title + '</p>'
+        html += '<p><strong>Sections: </strong>' + d.sections + '</p>'
+        html += '<p><strong>Offices: </strong>' + d.offices + '</p>'
+        html += '<p><strong>Donors: </strong>' + d.donors + '</p>'
+
+        html += `
+        <table class="mb-0 table table-striped table-hover table-tags">
+           <thead>
+              <tr>
+                 <th>WBS</th>
+                 <th>Fund</th>
+                 <th>Donor</th>
+                 <th>Code</th>
+                 <th>Value</th>
+                 <th>Grant Number</th>
+              </tr>
+           </thead>
+           <tbody>
+    `
+        for (var i = 0; i < d.donors_set.length; i++) {
+            r = d.donors_set[i]
+            var row = '<tr>' + '<td>' + r.wbs + '</td>' + '<td>' + r.fund + '</td>' + '<td>' + r.donor + '</td>' + '<td>' + r.donor_code + '</td>' + '<td align="right">' + d.budget_currency + ' ' + parseInt(r.value).toLocaleString() + '</td>' + '<td>' + r.grant_number + '</td>' + '</tr>'
+            html += row
+        }
+        html += '</tbody></table></div></div></div>'
+        return html
+
+    }
+</script>
+
+<script>
+   $(document).ready(function () {
+    $('.content').attr('style','display: visible');
+   });
+</script>
+
+{% endblock %}

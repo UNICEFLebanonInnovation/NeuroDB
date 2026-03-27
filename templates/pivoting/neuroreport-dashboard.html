@@ -1,0 +1,203 @@
+{% extends "baseV2.html" %}
+{% load static humanize i18n %}
+
+{% block project_title %}{{ db.name }}{% endblock %}
+
+{% block extra_style %}
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-bs4/css/dataTables.bootstrap4.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-responsive/css/responsive.bootstrap4.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-buttons/css/buttons.bootstrap4.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/sweetalert2-theme-bootstrap-4/bootstrap-4.min.css' %}"/>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/toastr/toastr.min.css' %}"/>
+<title> {{ database.name }} ({% now "M d, Y" %})</title>
+
+{% endblock %}
+{% block content %}
+<section class="content-header">
+    <div class="container-fluid">
+        <div class="row">
+            <div class="d-flex col-12">
+                <div class="p-1 align-middle">
+                    <a href="javascript:history.back()" class="btn btn-light">
+                        <i class="fa fa-angle-double-left" aria-hidden="true"></i>
+                    </a>
+                </div>
+                <div>
+                    <h1> {{neuro_report.name}} | {{neuro_report.ryear}}</h1>
+                    <p>
+                        <!-- <i class="far fa-arrow-alt-circle-down"> -->
+                        <i>
+                            Last Update: {{last_monthly_update_date}}
+                        </i>
+                    <p>
+                </div>
+                <div class="ml-auto">
+                    <div class="btn-group">
+                        <a href="{% url 'pivoting:neuroreport-analytical' %}?id={{ neuro_report.id }}"><button
+                                class="btn btn-sm btn-light shadow" title="Analytical View"><i class="fa fa-cogs"></i>
+                                Analytical View</button>
+                        </a>
+
+                        <button type="button" aria-haspopup="true" aria-expanded="false" data-toggle="dropdown"
+                            class="btn btn-sm btn-light shadow ml-2 dropdown-toggle ">Reporting Year </button>
+                        <div tabindex="-1" role="menu" aria-hidden="true" class="dropdown-menu dropdown-menu-right">
+                            {% for neuroreport in all_definitions %}
+                            <a class="dropdown-header"
+                                href="{% url 'pivoting:neuroreport-dashboard' %}?id={{neuroreport.id}}">
+                                <button type="button" tabindex="0" class="dropdown-item">{{neuroreport.ryear}}
+                                </button>
+                            </a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="content" style="min-height: 110vh;">
+    <div class="card card-outline">
+        <div class="card-body ">
+
+            <div class="row">
+                <span class="badge">Status: </span>
+            <span class="badge badge-success border-0 ml-1 p-1">On Track</span>
+            <span class="badge badge-warning border-0 ml-1 p-1">Over Target</span>
+            <span class="badge badge-danger border-0 ml-1 p-1">Off Track</span>
+            </div>
+            <table id="example" class="table-sm table  table-hover" style="width:100%">
+                <thead>
+                    <tr>
+                        <th style="display: none;"></th>
+                        <th></th>
+                        <th> Indicator Name</th>
+                        <th>AWP Code</th>
+                        <th>AWP Target</th>
+                        <th>Value</th>
+                        <th>% Achieved</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    <tr>
+                        <td style="display: none;">{{ item.id }}</td>
+                        <td align="center">
+                            {% if item.tracking == 'over target'  %}
+                            <p class='badge badge-warning'>&nbsp;&nbsp;&nbsp;&nbsp;</p>
+                            {% endif %}
+                            {% if item.tracking == 'on track'  %}
+                            <p class='badge badge-success'>&nbsp;&nbsp;&nbsp;&nbsp;</p>
+                            {% endif %}
+                            {% if item.tracking == 'off track'  %}
+                            <p class='badge badge-danger'>&nbsp;&nbsp;&nbsp;&nbsp;</p>
+                            {% endif %}
+                        </td>
+                        <td>{{ item.label }}</td>
+                        <td>{{ item.awp_code }}</td>
+                        <td>{{ item.target|intcomma }}</td>
+                        <td>{{ item.value|floatformat:"0"|intcomma|default:"-" }}</td>
+                        {% if item.achieved > 0 %}
+                        <td>{{ item.achieved|floatformat:"0"|intcomma}} %</td>
+                        {% else %}
+                        <td> - </td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+</div>
+<div class="modal fade" id="modal-lg"></div>
+
+<button id="subind" type="button" class="btn btn-default" data-toggle="modal" data-target="#modal-lg"></button>
+{% endblock content %}
+
+{% block extra_js %}
+
+<script src="{% static 'adminlte/plugins/datatables/jquery.dataTables.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-bs4/js/dataTables.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-responsive/js/dataTables.responsive.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-responsive/js/responsive.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/dataTables.buttons.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/jszip/jszip.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/pdfmake.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/vfs_fonts.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.html5.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.print.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/sweetalert2/sweetalert2.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/toastr/toastr.min.js' %}"></script>
+<script src="{% static 'adminlte/dist/js/adminlte.js' %}"></script>
+<script>
+    $(document).ready(function () {
+        var table = $('#example').DataTable({
+            dom: 'frtBip',
+            paging: false,
+            searching: false,
+            buttons: ['copy', 'excel', 'pdf'],
+            rowReorder: true,
+            responsive: true,
+            order: [[3, 'asc']],
+            columnDefs: [
+                { orderable: true, className: 'reorder', targets: [3, 4, 5, 6] },
+                { orderable: false, targets: '_all' }
+            ]
+        });
+
+        // Add event listener for opening and closing details
+        $('#example tbody').on('click', 'tr', function () {
+            var tr = $(this).closest('tr');
+            var row = table.row(tr);
+
+            $.ajax({
+                url: '{% url "pivoting:load_sub_indicators" %}',
+                dataType: "json",
+                data: {
+                    'id': row.data()[0]
+                },
+                success: function (data) {
+                    var html = format(JSON.parse(data.items))
+                    document.getElementById('modal-lg').innerHTML = html;
+                    $('#subind').click()
+                }
+            });
+        });
+    })
+</script>
+<script>
+    function format(d) {
+        // `d` is the original data object for the row
+        let html = `
+        <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+        <div class="modal-body">
+        <button type="button" class="close float-right btn-small" data-dismiss="modal" aria-label="Close">
+        <span aria-hidden="true">&times; </span>
+        </button>
+            <table class="mb-0 table table-sm table-striped">
+                <thead>
+                   <tr>
+                      <th>AWP Code</th>
+                      <th>Sub-indicator Name</th>
+                      <th>Target</th>
+                      <th>Value</th>
+                   </tr>
+                </thead>
+                <tbody>
+    `
+        for (var i = 0; i < d.length; i++) {
+            r = d[i]
+            var row = '<tr>' + '<td>' + r.awp_code + '</td>' + '<td>' + r.name + '</td>' + '<td class="text-right">' + r.target.toLocaleString() + '</td>' + '<td class="text-right">' + r.total_sub.toLocaleString() + '</td>' + '</tr>'
+            html += row
+        }
+        html += '</div></div>'
+
+        return html
+
+    }
+</script>
+{% endblock extra_js %}

@@ -1,0 +1,639 @@
+{% extends "baseV2.html" %}
+{% load static i18n humanize %}
+{% load util_tagsv2 %}
+{% block extra_style %}
+<script src="https://maps.google.com/maps/api/js?key=AIzaSyAWqoVFOb_f1lsy3tfKmmpv-ESuU-gSZNA&region=LB&language=ennctio"	type="text/javascript"></script>
+
+<link rel="stylesheet" type="text/css" href="{% static 'vendors/pivottable/dist/pivot.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/bootstrap-slider/css/bootstrap-slider.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/select2-bootstrap4-theme/select2-bootstrap4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/bs-stepper/css/bs-stepper.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-bs4/css/dataTables.bootstrap4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-responsive/css/responsive.bootstrap4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-buttons/css/buttons.bootstrap4.min.css' %}" />
+<style>
+	#map {
+		height: 100%;
+	}
+</style>
+{% endblock extra_style %}
+{% block content %}
+
+
+<section class="content-header">
+	<div class="container-fluid">
+		<div class="row">
+			<div class="d-flex col-12">
+				<div class="p-1 align-middle">
+					<a href="javascript:history.back()" class="btn btn-light">
+						<i class="fa fa-angle-double-left" aria-hidden="true"></i>
+					</a>
+				</div>
+				<div>
+					<h1>{{database.label}} {{reporting_year}} | Intervention Map</h1>
+					<p>
+						<i>
+							Last Update: {{database.last_monthly_update_date}}
+						</i>
+					</p>
+				</div>
+
+				<div class="ml-auto">
+					<!-- <div class="btn-group">
+						<button type="button" aria-haspopup="true" aria-expanded="false" class="btn btn-sm btn-light shadow"
+							onclick="switchview(currentView)">Clear Filters</button>
+
+						<div class="input-group-prepend">
+							<button type="button" class="btn btn-sm btn-light shadow dropdown-toggle" data-toggle="dropdown">
+								Download
+							</button>
+							<div class="dropdown-menu">
+								<button type="button" tabindex="0" class="dropdown-item"
+									onclick="TableToExcel('TablaDinamica');">Excel</button>
+								<button type="button" tabindex="0" class="dropdown-item"
+									onclick="window.print();">SavePDF /
+									Print</button>
+							</div>
+						</div>
+					</div> -->
+				</div>
+			</div>
+		</div>
+	</div>
+</section>
+
+<section class="content" style="display: none;">
+	<div class="container-fluid">
+		<div class="row">
+			<div class="col-sm-3">
+				<div class="card card-outline">
+					<div class="card-header">
+						<h3 class="card-title">Refine your search</h3>
+					</div>
+					<div class="card-body">
+						<form id="filterForm" action="{% url 'pivoting:database_intervention_map' %}" method="get">
+							<input type="hidden" id="id" name="id" value="{{ database.id }}" />
+							<div class="mb-2">
+								<label for="partners" class="mb-0">Partners</label>
+								<select id="partners" name="partners" class="select2" multiple="multiple"
+									data-dropdown-css-class="select2-purple" style="width: 100%"
+									data-placeholder="All Partners">
+									{% for partner in partners %}
+									<option value="{{partner}}">
+										{{partner}}
+									</option>
+									{% endfor %}
+								</select>
+							</div>
+							<div class="mb-2"><label for="programs" class="mb-0">Programs</label>
+								<select id="programs" name="programs" multiple="multiple" class="select2"
+									data-dropdown-css-class="select2-purple" style="width: 100%;"
+									data-placeholder="All Programs">
+									{% for pca in programs %}
+									<option value="{{pca}}">
+										{{pca}}
+									</option>
+									{% endfor %}
+								</select>
+							</div>
+							<div class="mb-2"> <label for="governorates"  class="mb-0">Governorates</label>
+								<select id="governorates" name="governorates" class="select2" multiple="multiple"
+									data-placeholder="All Governorates" data-dropdown-css-class="select2-purple"
+									style="width: 100%;">
+									{% for governorate in governorates %}
+									<option value="{{governorate}}">
+										{{governorate}}
+									</option>
+									{% endfor %}
+								</select>
+							</div>
+							<div class="mb-2"> <label for="cazas" class="mb-0">Cazas</label>
+								<select id="cazas" name="cazas" class="select2" multiple="multiple"
+									data-dropdown-css-class="select2-purple" style="width: 100%;"
+									data-placeholder="All Cazas">
+									{% for caza in cazas %}
+									<option value="{{caza}}">
+										{{caza}}
+									</option>
+									{% endfor %}
+								</select>
+							</div>
+							<div class="mb-2"> <label for="months" class="mb-0">Months</label>
+								<select id="months" name="months" multiple="multiple" class="select2"
+									data-dropdown-css-class="select2-purple" style="width: 100%;"
+									data-placeholder="All Months">
+									{% for month in months %}
+									<option value="{{month}}">
+										{{month}}
+									</option>
+									{% endfor %}
+								</select>
+							</div>
+							<div class="mb-2">
+								<div class="btn-group col-12 ">
+									<button type="button" class="btn btn-md shadow btn-light"
+										onClick="GetAllData();"><i
+										class="fa fa-filter"></i> Apply filters
+									</button>
+									<button type="button"
+										class="btn btn-md shadow btn-light js-programmatic-multi-clear"
+										title="Reset"><i class="fa fa-times" aria-hidden="true"> </i> Clear filters</button>
+									
+								</div>							</div>
+							<div class="mb-2"></div>
+
+						</form>
+					</div>
+				</div>
+			</div>
+			<div class="col-sm-9">
+
+				<div class="card card-outline ml-2">
+
+					<div class="card-header">
+						<div class="d-flex justify-content-between">
+							<div class="btn-group btn-group-toggle" data-toggle="buttons">
+								<label class="btn btn-sm btn-light shadow  mr-1" data-toggle="tooltip" data-placement="top"
+									title="Map View">
+									<input type="radio" name="mapping_style" value="Map" onChange="Refresh()" checked>
+									<i class="fa fa-map"></i>
+								</label>
+								<label class="btn btn-sm btn-light shadow  mr-1" data-toggle="tooltip" data-placement="top"
+									title="BarChart View">
+									<input type="radio" name="mapping_style" value="Chart" onChange="Refresh()">
+									<i class="fa fa-chart-bar"></i>
+								</label>
+								<label class="btn btn-sm btn-light shadow mr-1" data-toggle="tooltip" data-placement="top"
+									title="Table View">
+									<input type="radio" name="mapping_style" value="Table" onChange="Refresh()">
+									<i class="fa fa-table"></i>
+								</label>
+
+							</div>
+							<div class="d-flex justify-content-end">
+								<div class="btn-group btn-group-toggle" data-toggle="buttons">
+
+									<label class="btn btn-sm btn-light shadow mr-1" data-toggle="tooltip" data-placement="top"
+										title="Governorates">
+										<input type="radio" name="mapping_subject" value="GOV" onChange="Refresh()"
+											autocomplete="off"> Governorates
+									</label>
+									<label class="btn btn-sm btn-light shadow mr-1" data-toggle="tooltip" data-placement="top"
+										title="Distrticts">
+										<input type="radio" name="mapping_subject" value="CAZ" onChange="Refresh()"
+											autocomplete="off">
+											Distrticts
+									</label>
+									<label class="btn btn-sm btn-light shadow mr-1" data-toggle="tooltip" data-placement="top"
+										title="Cadasters">
+										<input type="radio" name="mapping_subject" value="CAD" onChange="Refresh()"
+											autocomplete="off" >
+											Cadasters
+									</label>
+									<label class="btn btn-sm btn-light shadow mr-1" data-toggle="tooltip" data-placement="top"
+										title="Sites">
+										<input type="radio" name="mapping_subject" value="LOC" onChange="Refresh()"
+											autocomplete="off" checked>
+											Sites
+									</label>
+								</div>
+								<button type="button" class="btn btn-sm btn-light shadow ml-2" title="Reset" id="reset_state">
+									<i class="fa fa-home"> </i> Reset Map
+								</button>
+							</div>
+						</div>
+
+					</div>
+					<div class="card-body p-1" id="mapcard" style="width: 100%; height:700px;"></div>
+					<div class="card-body p-1" id="chartcard">
+						<canvas id="barChart"
+							style="min-height: 250px; height: 900px; max-height: 900px; max-width: 100%;"></canvas>
+					</div>
+					<div class="card-body p-1" id="tablecard">
+						<div class="card-body">
+							<table id="example1" class="display table"
+								style="width: 100%; height: 400px; overflow:scroll"></table>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+
+</section>
+
+<div id="topdf" style="display: none;"></div>
+{% endblock content %}
+{% block extra_js %}
+<script src="https://cdn.plot.ly/plotly-basic-latest.min.js"></script>
+<script src="{% static 'vendors/pivottable/dist/pivot.js' %}"></script>
+<script src="{% static 'vendors/pivottable/dist/plotly_renderers.js' %}"></script>
+
+<script src="{% static 'adminlte/plugins/datatables/jquery.dataTables.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-bs4/js/dataTables.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-responsive/js/dataTables.responsive.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-responsive/js/responsive.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/dataTables.buttons.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/jszip/jszip.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/pdfmake.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/vfs_fonts.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.html5.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.print.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.colVis.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/select2/js/select2.full.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/chart.js/Chart.min.js' %}"></script>
+<script src="{% static 'adminlte/dist/js/adminlte.js' %}"></script>
+<script src="{% static 'adminlte/plugins/bootstrap-slider/bootstrap-slider.min.js' %}"></script>
+
+
+{% comment %} global variables {% endcomment %}
+<script>
+	var interventions_per_governorates = []
+	var interventions_per_cazas = []
+	var interventions_per_site = []
+	var interventions_per_cadastrals = []
+	$(function () {
+		$('[data-toggle="tooltip"]').tooltip()
+	})
+	var nodata = `
+  <div class="hold-transition lockscreen">
+    <div class="lockscreen-wrapper">
+    <div class="lockscreen-logo">
+    </div>
+    <div class="help-block text-center">
+    No Data was found for the current selection criteria.
+    </div>
+    <div class="text-center">
+    <p> Please adjust the filters and try again.</p>
+    </div>
+    </div>
+    </div>    
+  `
+</script>
+{% comment %} GetAllData {% endcomment %}
+<script>
+	var getUrlParameter = function getUrlParameter(sParam) {
+		var sPageURL = window.location.search.substring(1),
+			sURLVariables = sPageURL.split('&'),
+			sParameterName,
+			i;
+
+		for (i = 0; i < sURLVariables.length; i++) {
+			sParameterName = sURLVariables[i].split('=');
+
+			if (sParameterName[0] === sParam) {
+				return sParameterName[1] === undefined ? true : decodeURIComponent(sParameterName[1]);
+			}
+		}
+		return false;
+	};
+
+	function GetAllData(getLocations = "NO") {
+
+		// $('#mapcard').html(spinner)
+		data = {
+			'id': getUrlParameter('id'),
+			"getLocations": getLocations,
+			"cazas": $('#cazas').val(),
+			"governorates": $('#governorates').val(),
+			"months": $('#months').val(),
+			"programs": $('#programs').val(),
+			"partners": $('#partners').val(),
+			"sections": $('#sections').val(),
+			//   "offices": $('#offices').val(),
+		}
+		// alert(JSON.stringify(data))
+		$.ajax({
+			url: '{% url "pivoting:load_database_intervention_locations" %}',
+			type: 'get',
+			dataType: "json",
+			data: data,
+			success: function (data) {
+				interventions_per_governorates = JSON.parse(data.interventions_per_governorates_codes);
+				interventions_per_cazas = JSON.parse(data.interventions_per_cazas_codes);
+				interventions_per_cadastrals = JSON.parse(data.interventions_per_cadastrals_codes);
+				interventions_per_site = JSON.parse(data.interventions_per_site);
+				Refresh()
+			}
+		});
+	}
+</script>
+
+<script>
+	var map;
+	var geocoder;
+	var polygons = [];
+	var map_options = {
+		zoom: 9,
+		center: new google.maps.LatLng(33.8463, 35.9020),
+		mapTypeId: google.maps.MapTypeId.ROADMAP, //ro
+		options: { gestureHandling: 'greedy' }
+	}
+	var chartarea;
+	function drawMapInterventions(mapping_subject) {
+
+		map = new google.maps.Map(document.getElementById('mapcard'), map_options);
+
+		let plocations = []
+
+		var infowindow = new google.maps.InfoWindow();
+		var marker, i, myPolygon
+
+		let ilocations = []
+		let clocations = []
+		let paths = []
+		let jpaths = []
+		if (mapping_subject === "GOV") {
+			clocations.push(...interventions_per_governorates)
+		} else if (mapping_subject === "CAZ") {
+			clocations.push(...interventions_per_cazas)
+		} else if (mapping_subject === "CAD") {
+			clocations.push(...interventions_per_cadastrals)
+		} else if (mapping_subject === "LOC") {
+			clocations.push(...interventions_per_cadastrals)
+			plocations = interventions_per_site
+		}
+
+		for (i = 0; i < plocations.length; i++) {
+			marker = new google.maps.Marker({
+				position: new google.maps.LatLng(plocations[i]['location_latitude'], plocations[i]['location_longitude']),
+				map: map,
+				icon: circleSymbol(plocations[i]),
+			});
+			const contentString =
+				'<div class="info-box-content bg-info p-1" id="content" style="width:250px;">' +
+				'<p class="info-box-text font-weight-bold mb-0">' + plocations[i]['location_name'] + '</p>' +
+				'<p class="info-box-number mb-0">Interventions:' + plocations[i]['interventions'] + '</p>' +
+				'<p class="info-box-number mb-0" >Values: ' + plocations[i]['indicator_values'].toLocaleString() + '</p>'
+
+
+			'</div>';
+			google.maps.event.addListener(marker, 'click', (function (marker, i) {
+				return function () {
+					infowindow.setContent(contentString);
+					infowindow.open(map, marker);
+				}
+			})(marker, i));
+		}
+
+		var editedPolygons = []
+
+		for (i = 0; i < clocations.length; i++) {
+			paths = clocations[i]['paths']
+			jpaths = []
+			for (var k = 0; k < paths.length; k++) {
+				let point = JSON.parse(paths[k])
+				jpaths.push({ "lat": point[1], "lng": point[0] })
+			}
+			let prefix = ''
+			if (clocations[i]['type'] == 'cadaster') {
+				prefix = 'Cadaster - '
+			}
+			const contentString =
+				'<div class="info-box-content bg-info p-1" id="content" style="width:250px;">' +
+				'<p class="info-box-text font-weight-bold mb-0">' + prefix + clocations[i]['location_name'] + '</p>' +
+				'<p class="info-box-number mb-0" >Locations: ' + clocations[i]['locations'] + '</p>' +
+				'<p class="info-box-number mb-0" >Interventions: ' + clocations[i]['interventions'] + '</p>' +
+				'<p class="info-box-number mb-0" >Values: ' + clocations[i]['indicator_values'].toLocaleString() + '</p>'
+			'</div>';
+			if (clocations[i]['type'] == 'cadaster') {
+				editedPolygons.push([jpaths, { "color": "blue", "title": contentString }])
+			} else {
+				editedPolygons.push([jpaths, { "color": "white", "title": contentString }])
+			}
+		}
+
+		var bounds = new google.maps.LatLngBounds();
+		for (var ei = 0; ei < editedPolygons.length; ei++) {
+			var poly = new google.maps.Polygon({
+				fillColor: editedPolygons[ei][1].color,
+				strokeWeight: 0.5,
+				path: editedPolygons[ei][0],
+				map: map
+			});
+			for (var pathidx = 0; pathidx < poly.getPath().getLength(); pathidx++) {
+				bounds.extend(poly.getPath().getAt(pathidx));
+			}
+			// store the computed center as a property of the polygon for easy access
+			poly.center = bounds.getCenter();
+			var infowindow = new google.maps.InfoWindow();
+			var title = editedPolygons[ei][1].title;
+			// use function closure to associate the infowindow with the polygon
+			poly.addListener('click', (function (content) {
+				return function () {
+					// set the content
+					infowindow.setContent(content);
+					// set the position
+					infowindow.setPosition(this.center);
+					// open it
+					infowindow.open(map);
+				}
+			})(editedPolygons[ei][1].title));
+		}
+	}
+
+	function pinSymbol(color, pcount) {
+		return {
+			path: 'M 0,0 C -2,-20 -10,-22 -10,-30 A 10,10 0 1,1 10,-30 C 10,-22 2,-20 0,0 z',
+			fillColor: color,
+			fillOpacity: 1 - (1 / pcount),
+			strokeColor: '#000',
+			strokeWeight: 0,
+			scale: 0.5
+		};
+	}
+
+	function circleSymbol(item) {
+		return {
+			path: "M-10,0a10,10 0 1,0 20,0a10,10 0 1,0 -20,0",
+			fillColor: '#FF0000',
+			fillOpacity: 0.8, // - (0.6/Math.sqrt(Math.sqrt(item['interventions']))),
+			anchor: new google.maps.Point(0, 0),
+			strokeWeight: 0,
+			scale: 1 - (1 / Math.sqrt(Math.sqrt(item['interventions'])))
+		}
+	}
+
+	$("#reset_state").click(function () {
+		map.setMapTypeId(google.maps.MapTypeId.ROADMAP);
+		map.setCenter(new google.maps.LatLng(33.8463, 35.9020),);
+		map.setZoom(9);
+	})
+
+	function drawChart(mapping_subject) {
+		let plocations = []
+		var labels = []
+		var interventions_counts = []
+		var locations_counts = []
+
+		if (mapping_subject === "GOV") {
+			plocations = interventions_per_governorates
+		} else if (mapping_subject === "CAZ") {
+			plocations = interventions_per_cazas
+		} else if (mapping_subject === "CAD") {
+			plocations = interventions_per_cadastrals
+		} else if (mapping_subject === "LOC") {
+			plocations = interventions_per_site
+		} else {
+			plocations = interventions_per_governorates
+		}
+
+		labels = plocations.map((item) => { return item['location_name'] })
+		interventions_counts = plocations.map((item) => { return item['interventions'] })
+		locations_counts = plocations.map((item) => { return item['locations'] })
+		indicator_values = plocations.map((item) => { return item['indicator_values'] })
+
+		var areaChartData = {
+			labels: labels,
+			datasets: [
+				{
+					label: 'Locations Reached',
+					data: locations_counts,
+					pointRadius: false,
+					backgroundColor: 'rgba(60,141,188,0.9)',
+				},
+				{
+					label: 'Interventions Made',
+					data: interventions_counts,
+					pointRadius: false,
+					backgroundColor: 'rgba(210, 214, 222, 1)',
+				},
+				{
+					label: 'Values',
+					data: indicator_values,
+					pointRadius: false,
+					backgroundColor: 'rgba(210, 114, 222, 1)',
+					hidden: true
+				},
+			]
+		}
+		//-------------
+		//- BAR CHART -
+		//-------------
+
+		var barChartCanvas = $('#barChart').get(0).getContext('2d')
+		if (chartarea) {
+			chartarea.destroy()
+		}
+
+		var barChartData = $.extend(true, {}, areaChartData)
+		var temp0 = areaChartData.datasets[0]
+		var temp1 = areaChartData.datasets[1]
+		barChartData.datasets[0] = temp1
+		barChartData.datasets[1] = temp0
+
+		var barChartOptions = {
+			responsive: true,
+			maintainAspectRatio: false,
+			datasetFill: false,
+
+		}
+
+		chartarea = new Chart(barChartCanvas, {
+			type: 'horizontalBar',
+			data: barChartData,
+			options: barChartOptions
+		})
+	}
+
+	function drawTable(mapping_subject) {
+		const table_options = {
+			searching: true,
+			paging: true,
+			bInfo: true,
+			order: [[0, 'asc']],
+			"responsive": true,
+			"lengthChange": true,
+			"autoWidth": true,
+			"buttons": ["copy", "csv", "excel", "pdf", "print"],
+			columns: [
+				{ title: 'Location' },
+				{ title: 'Sites', className: "text-right" },
+				{ title: 'Interventions', className: "text-right" },
+				{ title: 'Indicator Values', className: "text-right" },
+			],
+			columnDefs: [{ targets: [1, 2, 3], render: $.fn.dataTable.render.number(',', '.', 0, '') },],
+		}
+
+		let plocations = []
+
+		if (mapping_subject === "GOV") {
+			plocations = interventions_per_governorates
+		} else if (mapping_subject === "CAZ") {
+			plocations = interventions_per_cazas
+		} else if (mapping_subject === "CAD") {
+			plocations = interventions_per_cadastrals
+		} else if (mapping_subject === "LOC") {
+			plocations = interventions_per_site
+		} else {
+			plocations = interventions_per_governorates
+		}
+		let data = []
+		data = plocations.map((item) => {
+			return [item['location_name'], item['locations'], item['interventions'], item['indicator_values']]
+		})
+
+		table_options['data'] = data;
+
+		if ($.fn.DataTable.isDataTable('#example1')) {
+			$('#example1').DataTable().destroy();
+		}
+		$("#example1").DataTable(table_options).buttons().container().appendTo('#example1_wrapper .col-md-6:eq(0)');
+
+
+	}
+	var spinner = `<div class="hold-transition lockscreen">
+      <div class="spinner-border text-primary" role="status">
+      <span class="visually-hidden">.....</span>
+    </div>
+    </div>`
+
+	var mapping_subject = ""
+	var mapping_style = ""
+
+	function Refresh() {
+		$('#chartcard').hide()
+		$('#mapcard').hide()
+		$('#tablecard').hide()
+
+		var ele = document.getElementsByName('mapping_subject');
+		for (i = 0; i < ele.length; i++) { if (ele[i].checked) mapping_subject = ele[i].value }
+		ele = document.getElementsByName('mapping_style');
+		for (i = 0; i < ele.length; i++) { if (ele[i].checked) mapping_style = ele[i].value }
+
+
+		if (mapping_style == "Map") {
+			$('#mapcard').show()
+			drawMapInterventions(mapping_subject)
+		}
+		if (mapping_style == "Chart") {
+			$('#chartcard').show()
+			drawChart(mapping_subject)
+		}
+		if (mapping_style == "Table") {
+			$('#tablecard').show()
+			drawTable(mapping_subject)
+		}
+
+	}
+
+</script>
+<script>
+
+	$(document).ready(function () {
+		GetAllData();
+		$('.select2').select2({ closeOnSelect: false });
+		$('.content').attr('style','display: visible');
+	});
+
+	$(".js-programmatic-multi-clear").on("click", function () {
+		$('.select2').val([]).trigger("change");
+		GetAllData();
+	});
+
+</script>
+
+<script>
+</script>
+{% endblock %}

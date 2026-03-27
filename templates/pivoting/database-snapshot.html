@@ -1,0 +1,660 @@
+{% load static i18n humanize %}
+{% load util_tagsv2 %}
+{% block extra_style %}
+<script src="https://maps.google.com/maps/api/js?key=AIzaSyAWqoVFOb_f1lsy3tfKmmpv-ESuU-gSZNA&region=LB&language=ennctio"	type="text/javascript"></script>
+<title>NeuroDB {{database.label}} {{reporting_year}} Database Snapshot
+	{{database.last_monthly_update_date|date:"Y-m-d"}}</title>
+<link rel="stylesheet" href="{% static 'adminlte/plugins/fontawesome-free/css/all.min.css' %}" />
+<link rel="stylesheet"
+	href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;700&family=PT+Serif:wght@400;700&display=swap" />
+
+<link rel="stylesheet" type="text/css" href="{% static 'vendors/pivottable/dist/pivot.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-bs4/css/dataTables.bootstrap4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-responsive/css/responsive.bootstrap4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-buttons/css/buttons.bootstrap4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/dist/css/adminlte.min.css' %}" />
+
+<style>
+	#mapdiv {
+		xheight: 100%;
+		page-break-inside: avoid;
+	}
+
+	datacard {
+		page-break-inside: avoid;
+		margin-top: 16px;
+	}
+
+	table tr td,
+	table tr th {
+		page-break-inside: avoid;
+	}
+/* 
+	.hidetotal tbody>tr>th.pvtTotalLabel,
+	.hidetotal .colTotal,
+	.hidetotal .pvtGrandTotal {
+		display: none;
+	} */
+	tbody>tr>th.pvtTotalLabel,
+    .colTotal,
+    .pvtGrandTotal {
+        display: none;
+    }
+	/* Hides the UI when printing*/
+	@media print {
+		.pvtUiCell {
+			display: none;
+		}
+
+		#xmapdiv {
+			display: none;
+		}
+	}
+</style>
+{% endblock extra_style %}
+{% block content %}
+<section class="content-header">
+	<div class="container-fluid">
+		<div class="row">
+			<div class="d-flex col-12">
+				<div class="p-1 align-middle">
+					<a href="javascript:history.back()" class="btn btn-light">
+						<i class="fa fa-angle-double-left" aria-hidden="true"></i>
+					</a>
+				</div>
+				<div>
+					<h1> {{database.name}} | {{database.reporting_year}}</h1>
+					<p>
+						<!-- <i class="far fa-arrow-alt-circle-down"> -->
+						<i>
+							Last Update: {{database.last_monthly_update_date}}
+						</i>
+					</p>
+				</div>
+				<div class="ml-auto">
+					<div class="btn-group">
+						<button class="btn shadow btn-light mr-1" onclick="window.print();return false;">
+							Print or Save
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</section>
+<section class="p-3">
+
+	<p class="text-center mb-0 text-muted font-weight-bold">NEURO-DB DATABASE SNAPSHOT</p>
+	<h2 class="text-center mb-0">{{database.label}} {{reporting_year}}</h2>
+	<p class="text-center">Last Update: {{database.last_monthly_update_date}}</p>
+	<div id="loading"></div>
+
+	<div class="datacard">
+		<div class="card-header m-0 p-1">
+			<p class="font-weight-bold text-lg text-muted mb-1">Reported Indicators</p>
+			<p class="mb-0">Out of {{items|length}} Indicators, only {{reported}} indicators were reported on
+				ActivityInfo – Reporting Progress status: <span class="badge {{percentage_color}}"
+					style="border: 0cm;">{{ percentage }}%</span></p>
+		</div>
+		<div class="card-body m-0 p-1">
+			<div">
+				<span class="badge border-0">Status: </span>
+				<span class="badge badge-success border-0">On Track</span>
+				<span class="badge badge-warning  border-0">Over Target</span>
+				<span class="badge badge-danger border-0">Off Track</span>
+			</div>
+		<table class="m-0 table table-striped table-sm print-friendly" id="example">
+			<thead>
+				<tr>
+					<th></th>
+					<th> Indicator Name</th>
+					<th>AWP Code</th>
+					<th>AWP Target</th>
+					<th>Value</th>
+					<th>% Achieved</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for item in items|dictsort:"awp_code" %}
+				{% if item.value > 0%}
+				<tr>
+					<td>
+						{% if item.tracking == 'over target'  %}
+						<p class='badge badge-warning'>&nbsp;&nbsp;&nbsp;&nbsp;</p>
+						{% endif %}
+						{% if item.tracking == 'on track'  %}
+						<p class='badge badge-success'>&nbsp;&nbsp;&nbsp;&nbsp;</p>
+						{% endif %}
+						{% if item.tracking == 'off track'  %}
+						<p class='badge badge-danger'>&nbsp;&nbsp;&nbsp;&nbsp;</p>
+						{% endif %}
+
+					</td>
+					<td>
+						{{ item.name }}
+					</td>
+					<td>{{ item.awp_code }}</td>
+					<td>{{ item.awp_target|intcomma }}</td>
+					<td>{{ item.value|floatformat:"0"|intcomma|default:"-" }}</td>
+					{% if item.achieved > 0 %}
+					<td>{{ item.achieved|floatformat:"0"|intcomma}} %</td>
+					{% else %}
+					<td> - </td>
+					{% endif %}
+
+				</tr>
+				{% endif %}
+				{% endfor %}
+			</tbody>
+		</table>
+		</div>
+	</div>
+	<div class="datacard">
+		<div class="card-header m-0 p-1">
+			<p class="font-weight-bold text-lg text-muted mb-1 text-center">Indicator Values per Month</p>
+		</div>
+		<div class="card-body m-0 p-1 d-flex justify-content-center">
+			<div id="pivot1"></div>
+		</div>
+	</div>
+	<div class="datacard">
+		<div class="card-header m-0 p-1">
+			<p class="font-weight-bold text-lg text-muted mb-1 text-center">Indicator Values per Governorate</p>
+		</div>
+		<div class="card-body m-0 p-1 d-flex justify-content-center">
+			<div id="pivot2"></div>
+		</div>
+	</div>
+	<div class="datacard">
+		<div class="card-header m-0 p-1">
+			<p class="font-weight-bold text-lg text-muted mb-1 text-center">Partners Figures per Indicator and Month</p>
+		</div>
+		<div class="card-body m-0 p-1 d-flex justify-content-center">
+			<div id="pivot3"></div>
+		</div>
+	</div>
+	<div class="datacard">
+		<div class="card-header m-0 p-1">
+			<p class="font-weight-bold text-lg text-muted mb-1 text-center">Partners Figures per Indicator and Governorate</p>
+		</div>
+		<div class="card-body m-0 p-1 d-flex justify-content-center">
+			<div id="pivot4"></div>
+		</div>
+	</div>
+	<div class="datacard">
+		<div class="card-header m-0 p-1">
+			<p class="font-weight-bold text-lg text-muted mb-1 text-center">Indicators Values per Nationality and Gender
+			</p>
+		</div>
+		<div class="card-body m-0 p-1 d-flex justify-content-center ">
+			<div id="pivot5" class="hidetotal"></div>
+		</div>
+	</div>
+	<div class="datacard" id="mapdiv">
+		<div class="card-header m-0 p-1">
+			<div class="d-flex justify-content-between">
+				<p class="font-weight-bold text-lg text-muted ">
+					Interventions Map &nbsp;&nbsp;
+					<span class="fas fa-circle text-red"></span> Sites&nbsp;&nbsp;
+					<span class="fa fa-map text-purple"></span> Cadasters&nbsp;&nbsp;
+				</p>
+				
+				<button type="button" class="btn btn-sm btn-outline-light " id="reset_state">
+					<i class="fas fa-home"></i> Reset map</button>
+			</div>
+			
+		</div>
+		<div class="card-body m-0 p-1 d-flex justify-content-center ">
+			<div class="card-body p-1" id="mapcard" style="width: 100%; height:700px;"></div>
+			
+		</div>
+	</div>
+
+</section>
+{% endblock content %}
+{% block extra_js %}
+<script src="{% static 'adminlte/plugins/jquery/jquery.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/jquery-ui/jquery-ui.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/bootstrap/js/bootstrap.bundle.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/bootstrap-switch/js/bootstrap-switch.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/overlayScrollbars/js/jquery.overlayScrollbars.min.js' %}"></script>
+
+
+<script src="https://cdn.plot.ly/plotly-basic-latest.min.js"></script>
+<script src="{% static 'vendors/pivottable/dist/pivot.js' %}"></script>
+<script src="{% static 'vendors/pivottable/dist/plotly_renderers.js' %}"></script>
+
+<script src="{% static 'adminlte/plugins/datatables/jquery.dataTables.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-bs4/js/dataTables.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-responsive/js/dataTables.responsive.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-responsive/js/responsive.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/dataTables.buttons.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/jszip/jszip.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/pdfmake.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/vfs_fonts.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.html5.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.print.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.colVis.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/select2/js/select2.full.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/chart.js/Chart.min.js' %}"></script>
+<script src="{% static 'adminlte/dist/js/adminlte.js' %}"></script>
+
+
+{% comment %} global variables {% endcomment %}
+<script>
+	var interventions_per_governorates = []
+	var interventions_per_cazas = []
+	var interventions_per_site = []
+	var interventions_per_cadastrals = []
+	var interventions_per_partner = []
+	var udata = []
+
+	$(function () {
+		$('[data-toggle="tooltip"]').tooltip()
+	})
+
+
+</script>
+{% comment %} GetAllData {% endcomment %}
+<script>
+	var getUrlParameter = function getUrlParameter(sParam) {
+		var sPageURL = window.location.search.substring(1),
+			sURLVariables = sPageURL.split('&'),
+			sParameterName,
+			i;
+
+		for (i = 0; i < sURLVariables.length; i++) {
+			sParameterName = sURLVariables[i].split('=');
+
+			if (sParameterName[0] === sParam) {
+				return sParameterName[1] === undefined ? true : decodeURIComponent(sParameterName[1]);
+			}
+		}
+		return false;
+	};
+
+	function GetAllData(getLocations = "NO") {
+
+		data = {
+			'id': getUrlParameter('id'),
+		}
+		$.ajax({
+			url: '{% url "pivoting:load_database_snapshot" %}',
+			type: 'get',
+			dataType: "json",
+			data: data,
+			success: function (data) {
+				interventions_per_governorates = JSON.parse(data.interventions_per_governorates_codes);
+				interventions_per_cazas = JSON.parse(data.interventions_per_cazas_codes);
+				interventions_per_cadastrals = JSON.parse(data.interventions_per_cadastrals_codes);
+				interventions_per_site = JSON.parse(data.interventions_per_site);
+				interventions_per_partner = JSON.parse(data.interventions_per_partner);
+				udata = JSON.parse(data.items);
+				Refresh()
+			}
+		});
+	}
+</script>
+
+<script>
+	var map;
+	var geocoder;
+	var polygons = [];
+	var map_options = {
+		zoom: 9,
+		center: new google.maps.LatLng(33.8463, 35.9020),
+		mapTypeId: google.maps.MapTypeId.ROADMAP, //ro
+		options: { gestureHandling: 'greedy' }
+	}
+	var chartarea;
+	function drawMapInterventions() {
+
+		map = new google.maps.Map(document.getElementById('mapcard'), map_options);
+
+		let plocations = []
+
+		var infowindow = new google.maps.InfoWindow();
+		var marker, i, myPolygon
+
+		let ilocations = []
+		let clocations = []
+		let paths = []
+		let jpaths = []
+
+		clocations.push(...interventions_per_governorates)
+		clocations.push(...interventions_per_cazas)
+		clocations.push(...interventions_per_cadastrals)
+		clocations.push(...interventions_per_cadastrals)
+		plocations = interventions_per_site
+
+		for (i = 0; i < plocations.length; i++) {
+			marker = new google.maps.Marker({
+				position: new google.maps.LatLng(plocations[i]['location_latitude'], plocations[i]['location_longitude']),
+				map: map,
+				icon: circleSymbol(plocations[i]),
+			});
+			const contentString =
+				'<div class="info-box-content bg-info p-1" id="content" style="width:250px;">' +
+				'<p class="info-box-text font-weight-bold mb-0">' + plocations[i]['location_name'] + '</p>' +
+				'<p class="info-box-number mb-0">Interventions:' + plocations[i]['interventions'] + '</p>' +
+				'<p class="info-box-number mb-0" >Values: ' + plocations[i]['indicator_values'].toLocaleString() + '</p>'
+
+
+			'</div>';
+			google.maps.event.addListener(marker, 'click', (function (marker, i) {
+				return function () {
+					infowindow.setContent(contentString);
+					infowindow.open(map, marker);
+				}
+			})(marker, i));
+		}
+
+		var editedPolygons = []
+
+		for (i = 0; i < clocations.length; i++) {
+			paths = clocations[i]['paths']
+			jpaths = []
+			for (var k = 0; k < paths.length; k++) {
+				let point = JSON.parse(paths[k])
+				jpaths.push({ "lat": point[1], "lng": point[0] })
+			}
+			let prefix = ''
+			if (clocations[i]['type'] == 'cadaster') {
+				prefix = 'Cadaster - '
+			}
+			const contentString =
+				'<div class="info-box-content bg-info p-1" id="content" style="width:250px;">' +
+				'<p class="info-box-text font-weight-bold mb-0">' + prefix + clocations[i]['location_name'] + '</p>' +
+				'<p class="info-box-number mb-0" >Locations: ' + clocations[i]['locations'] + '</p>' +
+				'<p class="info-box-number mb-0" >Interventions: ' + clocations[i]['interventions'] + '</p>' +
+				'<p class="info-box-number mb-0" >Values: ' + clocations[i]['indicator_values'].toLocaleString() + '</p>'
+			'</div>';
+			if (clocations[i]['type'] == 'cadaster') {
+				editedPolygons.push([jpaths, { "color": "blue", "title": contentString }])
+			} else {
+				editedPolygons.push([jpaths, { "color": "white", "title": contentString }])
+			}
+		}
+
+		var bounds = new google.maps.LatLngBounds();
+		for (var ei = 0; ei < editedPolygons.length; ei++) {
+			var poly = new google.maps.Polygon({
+				fillColor: editedPolygons[ei][1].color,
+				strokeWeight: 0.5,
+				path: editedPolygons[ei][0],
+				map: map
+			});
+			for (var pathidx = 0; pathidx < poly.getPath().getLength(); pathidx++) {
+				bounds.extend(poly.getPath().getAt(pathidx));
+			}
+			// store the computed center as a property of the polygon for easy access
+			poly.center = bounds.getCenter();
+			var infowindow = new google.maps.InfoWindow();
+			var title = editedPolygons[ei][1].title;
+			// use function closure to associate the infowindow with the polygon
+			poly.addListener('click', (function (content) {
+				return function () {
+					// set the content
+					infowindow.setContent(content);
+					// set the position
+					infowindow.setPosition(this.center);
+					// open it
+					infowindow.open(map);
+				}
+			})(editedPolygons[ei][1].title));
+		}
+	}
+
+	function pinSymbol(color, pcount) {
+		return {
+			path: 'M 0,0 C -2,-20 -10,-22 -10,-30 A 10,10 0 1,1 10,-30 C 10,-22 2,-20 0,0 z',
+			fillColor: color,
+			fillOpacity: 1 - (1 / pcount),
+			strokeColor: '#000',
+			strokeWeight: 0,
+			scale: 0.5
+		};
+	}
+
+	function circleSymbol(item) {
+		return {
+			path: "M-10,0a10,10 0 1,0 20,0a10,10 0 1,0 -20,0",
+			fillColor: '#FF0000',
+			fillOpacity: 0.8, // - (0.6/Math.sqrt(Math.sqrt(item['interventions']))),
+			anchor: new google.maps.Point(0, 0),
+			strokeWeight: 0,
+			scale: 1 - (1 / Math.sqrt(Math.sqrt(item['interventions'])))
+		}
+	}
+
+	$("#reset_state").click(function () {
+		map.setMapTypeId(google.maps.MapTypeId.ROADMAP);
+		map.setCenter(new google.maps.LatLng(33.8463, 35.9020),);
+		map.setZoom(9);
+	})
+
+	function drawChart() {
+		let plocations = []
+		var labels = []
+		var interventions_counts = []
+		var locations_counts = []
+
+		plocations = interventions_per_partner
+
+		labels = plocations.map((item) => { return item['partner_label'] })
+		interventions_counts = plocations.map((item) => { return item['interventions'] })
+		locations_counts = plocations.map((item) => { return item['locations'] })
+		indicator_values = plocations.map((item) => { return item['indicator_values'] })
+
+		var areaChartData = {
+			labels: labels,
+			datasets: [
+				// {
+				// 	label: 'Locations',
+				// 	data: locations_counts,
+				// 	pointRadius: false,
+				// 	backgroundColor: 'rgba(210, 214, 222, 1)',
+				// },
+				// {
+				// 	label: 'Values',
+				// 	data: indicator_values,
+				// 	pointRadius: false,
+				// 	backgroundColor: 'rgba(210, 114, 222, 1)',
+				// 	// hidden:true
+				// },
+				{
+					label: 'Interventions',
+					data: interventions_counts,
+					pointRadius: false,
+					backgroundColor: 'rgba(60,141,188,0.9)',
+				},
+			]
+		}
+		//-------------
+		//- BAR CHART -
+		//-------------
+
+		var barChartCanvas = $('#barChart').get(0).getContext('2d')
+		if (chartarea) {
+			chartarea.destroy()
+		}
+
+		var barChartData = $.extend(true, {}, areaChartData)
+		var temp0 = areaChartData.datasets[0]
+		// var temp1 = areaChartData.datasets[1]
+		// var temp2 = areaChartData.datasets[2]
+		barChartData.datasets[0] = temp0
+		// barChartData.datasets[1] = temp1
+		// barChartData.datasets[2] = temp2
+
+		var barChartOptions = {
+			responsive: true,
+			maintainAspectRatio: false,
+			datasetFill: false,
+
+		}
+
+		chartarea = new Chart(barChartCanvas, {
+			type: 'horizontalBar',
+			data: barChartData,
+			options: barChartOptions
+		})
+	}
+
+	function drawTable(mapping_subject) {
+
+		const table_options = {
+			searching: true,
+			paging: true,
+			bInfo: true,
+			order: [[0, 'asc']],
+			"responsive": true,
+			"lengthChange": true,
+			"autoWidth": true,
+			"buttons": ["copy", "csv", "excel", "pdf", "print"],
+			columns: [
+				{ title: 'Location' },
+				{ title: 'Sites', className: "text-right" },
+				{ title: 'Interventions', className: "text-right" },
+				{ title: 'Indicator Values', className: "text-right" },
+			],
+			columnDefs: [{ targets: [1, 2, 3], render: $.fn.dataTable.render.number(',', '.', 0, '') },],
+		}
+
+		let plocations = []
+
+		if (mapping_subject === "GOV") {
+			plocations = interventions_per_governorates
+		} else if (mapping_subject === "CAZ") {
+			plocations = interventions_per_cazas
+		} else if (mapping_subject === "CAD") {
+			plocations = interventions_per_cadastrals
+		} else if (mapping_subject === "LOC") {
+			plocations = interventions_per_site
+		} else {
+			plocations = interventions_per_governorates
+		}
+		let data = []
+		data = plocations.map((item) => {
+			return [item['location_name'], item['locations'], item['interventions'], item['indicator_values']]
+		})
+
+		table_options['data'] = data;
+
+		if ($.fn.DataTable.isDataTable('#example1')) {
+			$('#example1').DataTable().destroy();
+		}
+		$("#example1").DataTable(table_options).buttons().container().appendTo('#example1_wrapper .col-md-6:eq(0)');
+
+
+	}
+	var spinner = `<div class="hold-transition lockscreen">
+      <div class="spinner-border text-primary" role="status">
+      <span class="visually-hidden"></span>
+    </div>
+    </div>`
+
+	async function Refresh() {
+		drawMapInterventions()
+		// drawChart()
+		// drawTable(mapping_subject)
+		var count = $.pivotUtilities.aggregatorTemplates.count;
+		var numberFormat = $.pivotUtilities.numberFormat;
+		var intFormat = numberFormat({ digitsAfterDecimal: 0 });
+		//var sum = $.pivotUtilities.aggregatorTemplates.sum(intFormat)(["Indicator_Value"]);
+		var sum = $.pivotUtilities.aggregatorTemplates.sum;
+		$("#pivot1").pivotUI(udata, {
+			rows: ["Master Indicator",],
+			cols: ["Month"],
+			showUI: false,
+			aggregatorName: "Integer Sum",
+			vals: ["Indicator_Value"],
+			inclusions: { 'Value Cal.': ["Include values that affect master indicators"] },
+			rendererName: "Heatmap",
+			sorters: {
+                "Month": $.pivotUtilities.sortAs(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]),
+                "Nationality": $.pivotUtilities.sortAs(["LEB", "PRL", "PRS", "SYR", "OTH",]),
+            },
+
+			// rendererName: "Horizontal Stacked Bar Chart",
+		}, true);
+
+		$("#pivot2").pivotUI(udata, {
+			rows: ["Master Indicator",],
+			cols: ["Gov.",],
+			showUI: false,
+			aggregatorName: "Integer Sum",
+			vals: ["Indicator_Value"],
+			inclusions: { 'Value Cal.': ["Include values that affect master indicators"] },
+			rendererName: "Heatmap",
+			sorters: {
+                "Month": $.pivotUtilities.sortAs(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]),
+                "Nationality": $.pivotUtilities.sortAs(["LEB", "PRL", "PRS", "SYR", "OTH",]),
+            },
+
+			// rendererName: "Horizontal Stacked Bar Chart",
+		}, true);
+
+		$("#pivot3").pivotUI(udata, {
+			rows: ["Partner","Master Indicator"],
+			cols: ["Month"],
+			showUI: false,
+			aggregatorName: "Integer Sum",
+			vals: ["Indicator_Value"],
+			inclusions: { 'Value Cal.': ["Include values that affect master indicators"] },
+			rendererName: "Heatmap",
+			sorters: {
+                "Month": $.pivotUtilities.sortAs(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]),
+                "Nationality": $.pivotUtilities.sortAs(["LEB", "PRL", "PRS", "SYR", "OTH",]),
+            },
+
+			// rendererName: "Horizontal Stacked Bar Chart",
+		}, true);
+
+		$("#pivot4").pivotUI(udata, {
+			rows: ["Partner","Master Indicator"],
+			cols: ["Gov."],
+			showUI: false,
+			aggregatorName: "Integer Sum",
+			vals: ["Indicator_Value"],
+			inclusions: { 'Value Cal.': ["Include values that affect master indicators"] },
+			rendererName: "Heatmap",
+			sorters: {
+                "Month": $.pivotUtilities.sortAs(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]),
+                "Nationality": $.pivotUtilities.sortAs(["LEB", "PRL", "PRS", "SYR", "OTH",]),
+            },
+
+			// rendererName: "Horizontal Stacked Bar Chart",
+		}, true);
+
+		$("#pivot5").pivotUI(udata, {
+			rows: ["Master Indicator",],
+			cols: ["Nationality", "Gender"],
+			showUI: false,
+			aggregatorName: "Integer Sum",
+			vals: ["Indicator_Value"],
+			inclusions: { 'Value Cal.': ["Include values that affect master indicators"] },
+			rendererName: "Heatmap",
+			sorters: {
+                "Month": $.pivotUtilities.sortAs(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]),
+                "Nationality": $.pivotUtilities.sortAs(["LEB", "PRL", "PRS", "SYR", "OTH",]),
+            },
+
+			// rendererName: "Horizontal Stacked Bar Chart",
+		}, true);
+
+
+		await new Promise(resolve => setTimeout(resolve, 8000));
+		$('#loading').html('');
+		// window.print();
+	}	
+</script>
+<script>
+	$(document).ready(function () {
+		$('#loading').html(spinner)
+		GetAllData();
+	});
+</script>
+
+{% endblock %}

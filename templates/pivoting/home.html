@@ -1,0 +1,160 @@
+{% extends "baseV2.html" %}
+{% load static humanize i18n %}
+{% load util_tagsv2 %}
+
+{% block project_title %}{{ db.name }}{% endblock %}
+
+{% block extra_style %}
+<link rel="stylesheet" href="{% static 'adminlte/plugins/sweetalert2-theme-bootstrap-4/bootstrap-4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/toastr/toastr.min.css' %}" />
+<title> {{ database.name }} ({% now "M d, Y" %})</title>
+
+{% endblock %}
+
+{% block content %}
+<section class="content">
+    <br />
+    <div class="row m-4 " style="min-height: 100vh;">
+        <div class="col-6 container-fluid w-100 h-auto m-0 p-0  align-self-center">
+            <img class="img-fluid w-100 h-auto p-0 m-0" src="{% static 'landing_images/' %}{{image1}}.jpg"
+                alt="First slide" />
+        </div>
+        <div class="col-6  align-self-center">
+            <p style="font-size: 72px; text-align: center;">NEURO-DB</p>
+            <p style="font-size: 48px; text-align: center;"> Gather, organize,
+                manage, map and analyze data from
+                different sources of UNICEF Programs</p>
+        </div>
+
+    </div>
+    <br /><br /><br />
+    <section class="ml-1 pl-1 mt-4 bg-white">
+        <div class="p-4">
+            <h2 class="text-center font-weight-bold">ESSENTIAL LINKS</h2>
+        </div>
+
+        <div class="row d-flex justify-content-center p-2">
+            <div class="col-md-4 card card-outline m-0">
+                <a href="https://ialebanon.unhcr.org/vasyr/#/" target="_blank">
+                    <div class="card-body box-profile">
+                        <div class="text-center" style="height: 80px;">
+                            <img class="navbar-dark bg-legacy" height="56px" src="{% static 'images/TheVASyRHub.png' %}"
+                                alt="The VASyr Hub" />
+                        </div>
+                        <h3 class="text-center text-secondary text-muted p-2">The VASyR Hub</h3>
+                        <p class="text-muted text-center">The Vulnerability Assessment of Syrian Refugees in Lebanon
+                            (VASyR) analyzes a representative sample of Syrian refugee households in Lebanon to provide
+                            a multi-sectoral update of the situation of this population.</p>
+                    </div>
+                </a>
+            </div>
+
+            <div class="col-md-4 card card-outline m-0">
+                <a href="https://mics.unicef.org/" target="_blank">
+                    <div class="card-body box-profile">
+                        <div class="text-center" style="height: 80px;">
+                            <img xclass="navbar-dark" height="56px" width="100%"
+                                src="{% static 'images/unicef_mics_logo.png' %}" alt="MICS Link" />
+                        </div>
+                        <h3 class="text-center text-secondary text-muted p-2">MICS</h3>
+                        <p class="text-muted text-center">The Multiple Indicator Cluster Surveys programme, known as
+                            MICS, has become the largest source of statistically sound and internationally comparable
+                            data on children and women worldwide</p>
+                    </div>
+                </a>
+            </div>
+            <div class="col-md-4 card card-outline m-0">
+                <a href="https://lebanonportal.unhabitat.org/" target="_blank">
+                    <div class="card-body box-profile">
+                        <div class="text-center" style="height: 80px;">
+                            <img xclass="navbar-dark" height="56px"
+                                src="{% static 'images/UNH-UNICEF-Logos-Combined-Black.png' %}" alt="The VASyr Hub" />
+                        </div>
+                        <h3 class="text-center text-secondary text-muted p-2">Lebanon Neighborhood Profile</h3>
+                        <p class="text-muted text-center">Assessments of disadvantaged neighborhoods in Lebanon
+                            containing original multisectoral, multicohort, spatialized data that is analysed within an
+                            area-based framework.</p>
+                    </div>
+                </a>
+            </div>
+        </div>
+    </section>
+    <br /><br />
+    <section class="ml-1 pl-1 mt-4 bg-white">
+        <div class="p-4">
+            <h2 class="text-center font-weight-bold">UNICEF PROGRAMS</h2>
+            <h4 class="text-center text-muted"></h4>
+        </div>
+        <div class="row p-2">
+            {% get_databasesv2 as databases %} {% for db in databases %}
+            <div class="col-md-3 col-sm-6 col-12">
+                <a href="{% url 'pivoting:database-dashboard' %}?id={{ db.id }}">
+                    <div class="info-box">
+                        <span class="info-box-icon bg-light">{% if db.section.logo %}
+                            <img alt="100%x200" src="{% static db.section.logo %}" data-holder-rendered="true"
+                                style="height: 64px; width: 64px; display: block; font-weight: bold;" />
+                            {% else %}
+                            <img alt="100%x200" src="{% static 'images/unicef.png' %}" data-holder-rendered="true"
+                                style="height: 64px; width: 64px; display: block;" />
+                            {% endif %}</span>
+                        <div class="info-box-content">
+                            <span class="info-box-number text-muted text-md">{{ db.label }}</span>
+
+                        </div>
+                    </div>
+                </a>
+            </div>
+
+            {% endfor %}
+        </div>
+
+    </section>
+    <br /><br />
+    <section class="ml-1 pl-1 mt-4 bg-white">
+
+    <div class="p-4">
+        <h2 class="text-center font-weight-bold">POPULATION FIGURES</h2>
+        <h4 class="text-center text-muted">View the total updated charts of Lebanon's population figures</h4>
+    </div>
+    <div class="row d-flex justify-content-center">
+        <div class="col-md-3 card card-outline m-4 p-2">
+            <a href="{% url 'pivoting:population-figures' %}?total_population">
+                <div class="card-body box-profile">
+                    <div class="text-center"">
+                        <i class=" fa fa-users fa-3x text-primary"> </i>
+                    </div>
+                    <h4 class="text-center text-dark">Total Population</h3>
+                </div>
+            </a>
+        </div>
+
+        <div class="col-md-3 card card-outline m-4 p-2">
+            <a href="{% url 'pivoting:population-figures' %}?children">
+                <div class="card-body box-profile">
+                    <div class="text-center">
+                        <i class="fa fa-child fa-3x text-primary"> </i>
+                    </div>
+                    <h3 class="text-center text-dark">Children Population</h3>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-3 card card-outline m-4 p-2">
+            <a href="{% url 'pivoting:population-figures' %}?vulnerable">
+                <div class="card-body box-profile align-self-center">
+                    <div class="text-center align-middle">
+                        <i class="fa fa-map-marker fa-3x text-primary"></i>
+                    </div>
+                    <h3 class="text-center text-dark ">Most Vulnerable Locations</h3>
+                </div>
+            </a>
+        </div>
+    </div>
+    </section>
+
+    <br /><br /><br />
+</section>
+{% endblock content %}
+
+{% block extra_js %}
+<script src="{% static 'adminlte/dist/js/adminlte.js' %}"></script>
+{% endblock extra_js %}

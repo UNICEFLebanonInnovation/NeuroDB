@@ -1,0 +1,425 @@
+{% extends "baseV2.html" %}
+{% load static humanize util_tagsv2 i18n %}
+{% block extra_style %}
+<link rel="stylesheet" type="text/css" href="{% static 'vendors/pivottable/dist/pivot.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/bootstrap-slider/css/bootstrap-slider.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/select2-bootstrap4-theme/select2-bootstrap4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/bs-stepper/css/bs-stepper.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-bs4/css/dataTables.bootstrap4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-responsive/css/responsive.bootstrap4.min.css' %}" />
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-buttons/css/buttons.bootstrap4.min.css' %}" />
+<style>
+    thead input {
+        width: 100%;
+    }
+</style>
+{% endblock extra_style %}
+
+{% block project_title %}
+
+{% endblock %}
+
+{% block content %}
+
+<section class="content-header">
+    <div class="container-fluid">
+        <div class="row">
+            <div class="d-flex col-12">
+                <div class="p-1 align-middle">
+                    <a href="javascript:history.back()" class="btn btn-light">
+                        <i class="fa fa-angle-double-left" aria-hidden="true"></i>
+                    </a>
+                </div>
+                <div>
+                    <h1> Funded Programs</h1>
+                    <p>
+                        <i>
+                            Last Update: {{last_update}}
+                        </i>
+                    </p>
+                </div>
+                <div class="ml-auto">
+                    <a href="{% url 'pivoting:pca-summary-active' %}"><button class="btn btn-sm btn-light shadow mr-1"
+                            title="Active PDs Summary"><i class="fa fa-list"></i>
+                            Summary Info <strong>(Active PDs)</strong></button></a>
+
+                    <a href="{% url 'pivoting:pca-summary-all' %}"><button class="btn btn-sm btn-light shadow mr-1"
+                            title="All PDs Summary"> <i class="fa fa-list-ul"></i>
+                            Summary Info <strong>(All PDs)</strong></button></a>
+
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="content" style="min-height: 110vh;display: none;">
+    <div class="container-fluid">
+        <div id="filters" class="card shadow p-2">
+            <div class="card-header">
+                <h3 class="card-title"><i class="fa fa-filter mr-1"> </i> Filters</h3>
+                <div class="card-tools">
+                    <button type="button" class="btn btn-tool" data-card-widget="collapse">
+                        <i class="fas fa-minus"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-1">
+                <form id="filterForm" action="{% url 'pivoting:pca-dashboard' %}" method="get">
+                    <div class="row d-flex">
+                        <div class="col-lg-3 col-6 p-1">
+                            <label for="filter_donors">Donors</label>
+                            <select id="filter_donors" class="select2" name="donors" multiple="multiple"
+                                data-dropdown-css-class="select2-purple" style="width: 100%;"
+                                data-placeholder="All Donors">
+                                {% for donor in donors %}
+                                <option value="{{ donor }}" {% if donor in selected_donors %} selected {% endif %}>
+                                    {{ donor }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-lg-3 col-6 p-1">
+                            <label for="filter_partners">Partners</label>
+                            <select id="filter_partners" class="select2" name="partners" multiple="multiple"
+                                data-dropdown-css-class="select2-purple" style="width: 100%;"
+                                data-placeholder="All Partners">
+                                {% for partner in partners %}
+                                <option value="{{ partner }}" {% if partner in selected_partners %} selected {%endif%}>
+                                    {{ partner }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-lg-3 col-6 p-1">
+                            <label for="filter_ptypes">Partner Type</label>
+                            <select id="filter_ptypes" class="select2" name="ptypes" multiple="multiple"
+                                data-dropdown-css-class="select2-purple" style="width: 100%;"
+                                data-placeholder="All Types">
+                                {% for ptype in ptypes %}
+                                <option value="{{ ptype }}" {% if ptype in selected_ptypes %} selected {%endif%}>
+                                    {{ ptype }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-lg-3 col-6 p-1">
+                            <label for="filter_csotypes">Partner CSO Type</label>
+                            <select id="filter_csotypes" class="select2" multiple="multiple"
+                                data-dropdown-css-class="select2-purple" style="width: 100%"
+                                data-placeholder="All Types" name="csotypes">
+                                {% for csotype in csotypes %}
+                                <option value="{{ csotype }}" {% if csotype in selected_csotypes %} selected {%endif%}>
+                                    {{ csotype }}
+                                </option>
+                                {%endfor%}
+                            </select>
+                        </div>
+                        <div class="col-lg-3 col-6 p-1">
+                            <label for="filter_sections">Sections</label>
+                            <select id="filter_sections" class="select2" name="sections" multiple="multiple"
+                                data-dropdown-css-class="select2-purple" style="width: 100%;"
+                                data-placeholder="All Sections">
+                                {% for section in sections %}
+                                <option value="{{ section }}" {% if section in selected_sections %}selected {% endif %}>
+                                    {{ section }} </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-lg-3 col-6 p-1">
+                            <label for="filter_offices">Offices</label>
+                            <select id="filter_offices" class="select2" name="offices" multiple="multiple"
+                                data-dropdown-css-class="select2-purple" style="width: 100%;"
+                                data-placeholder="All Offices">
+                                {% for office in offices %}
+                                <option value="{{ office }}" {% if office in selected_offices %}selected {% endif %}>
+                                    {{ office }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-lg-3 col-6 p-1">
+                            <label for="filter_statuses">PD Status</label>
+                            <select id="filter_statuses" class="select2" name="statuses" multiple="multiple"
+                                data-dropdown-css-class="select2-purple" style="width: 100%;"
+                                data-placeholder="All Programs">
+                                {% for status in statuses %}
+                                <option value="{{ status }}" {% if status in selected_statuses %}selected {% endif %}>
+                                    {{ status }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-lg-3 col-6 p-1">
+                            <label for="filter_grants" >Grants</label>
+                            <select multiple="multiple" id="filter_grants" class="select2" data-dropdown-css-class="select2-purple"
+                              style="width: 100%;" data-placeholder="All Grants" name="grants"> {% for grant in grants %}
+                              <option value="{{ grant }}" {% if grant in selected_grants %}selected {% endif %}">
+                                {{ grant }}
+                              </option> {% endfor %}
+                            </select>
+                          </div>
+              
+                        <div class="col-lg-3 col-6 p-1">
+                            <label for="years">Start year</label>
+                            <div class="pl-3 pr-3">
+                                <input name="years" id="years" type="text" value="" class="slider form-control"
+                                    data-slider-min={{start_year}} data-slider-max={{current_year}} data-slider-step="1"
+                                    data-slider-value="[{{start_year}},{{current_year}}]"
+                                    data-slider-orientation="horizontal" data-slider-selection="before"
+                                    data-slider-tooltip="show">
+                            </div>
+
+                        </div>
+                        <div class="col-lg-2 col-2">
+                            <br />
+                            <button type="submit" class="btn btn-sm btn-light shadow btn-block" title="Search"><i
+                                    class="fa fa-filter"></i> Apply filters</button>
+                        </div>
+                        <div class="col-lg-2 col-2">
+                            <br />
+                            <button type="button" class="btn btn-sm btn-light shadow btn-block js-programmatic-multi-clear"><i
+                                    class="fa fa-times" aria-hidden="true"> </i> Clear filters</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div id="funded_programs" class="card w-100 p-1">
+            <div class="row">
+                <span class="badge" style="border: 0cm;">Status: </span>
+                <span class="badge badge-success ml-1 border-0 p-1">Active</span>
+                <span class="badge badge-info ml-1 border-0 p-1">Signed</span>
+                <span class="badge badge-warning ml-1 border-0 p-1">Closed, Ended, Terminated</span>
+            </div>
+            <table lass="display" class="table w-100 table-sm table-bordered  table-hover" id="example">
+                <thead>
+                    <tr>
+                        <th content="Status"></th>
+                        <th>PD Reference #</th>
+                        <th>Section</th>
+                        <th>Start</th>
+                        <th>End</th>
+                        <th>Days to End</th>
+                        <th>Partner</th>
+                        <th>Currency</th>
+                        <th title="Supply + UNICEF Cash">UNICEF Planned Budget</th>
+                        <th title="UNICEF Cash + Supply + CSO Cash Contribution">Total PD Budget</th>
+                        <th>Fund Reservation</th>
+                        <th title="Actual Amounts Transferred for Partners">Actual Disburs</th>
+                        <th></th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    {% get_array_as item.section_names as section_names %}
+                    <tr>
+                        <td class="align-middle text-center">
+                            {% if item.status == "active" %}
+                            <p class='badge badge-success m-0'> &nbsp;&nbsp;&nbsp;&nbsp;</p>
+                            {% endif %}
+                            {% if item.status == "signed" %}
+                            <p class='badge badge-info'> &nbsp;&nbsp;&nbsp;&nbsp;</p>
+                            {% endif %}
+                            {% if item.status != "active" and item.status != "signed" %}
+                            <p class='badge badge-warning'> &nbsp;&nbsp;&nbsp;&nbsp;</p>
+                            {% endif %}
+                        </td>
+                        <td className="program_code">{{ item.number }}</td>
+                        <td>{{ section_names }}</td>
+                        <td>{{ item.start|date:"Y-m-d" }}</td>
+                        <td>{{ item.end|date:"Y-m-d" }}</td>
+                        <td>
+                            {% if item.status == "active" %}
+                            {% if item.days_to_end > 120 %}
+                            <p class='badge badge-success'> {{ item.days_to_end }}</p>
+                            {% elif item.days_to_end > 60 %}
+                            <p class='badge badge-warning'> {{ item.days_to_end }}</p>
+                            {% else %}
+                            <p class='badge badge-danger'> {{ item.days_to_end }}</p>
+                            {% endif %}
+                            {% else %}
+
+                            {{ item.days_to_end }}
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{% url 'pivoting:partnership-profile' %}?id={{ item.partnerid }}"
+                                title="Profiling">
+                                <button
+                                    class="btn border-0 btn-outline text-xs btn-sm text-primary text-left">{{item.partner_name}}</button>
+                            </a>
+                        </td>
+                        <td>{{ item.budget_currency }}</td>
+                        <td align="right">{{ item.total_unicef_budget|floatformat|intcomma }}</td>
+                        <td align="right">{{ item.total_budget|floatformat|intcomma }}</td>
+                        <td align="right">{{ item.donations|floatformat|intcomma }}</td>
+                        <td align="right">{{ item.actual_amount|floatformat|intcomma }}</td>
+                        <!-- <td>{{ item.interventions|floatformat|intcomma }}</td> -->
+                        <td class="align-middle text-center">
+                            <button type="button" title="Show details..." onclick="get_details({{item.id}})"
+                                class="btn-transition btn btn-outline-info btn-sm"><i class="fa fa-eye"></i>
+                            </button>
+                        </td>
+                        <td class="align-middle text-center">
+                            <a href="{% url 'pivoting:pca-analytical' %}?id={{ item.id }}"
+                                class="btn btn-outline-success btn-sm" title="Analytical view">
+                                <i class="fa fa-cogs"></i>
+                            </a>
+
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <div class="card-body p-1">
+                <div class="row d-flex justify-content-center text-sm">
+
+                </div>
+
+            </div>
+        </div>
+    </div>
+</section>
+<div class="modal fade" id="modal-lg"></div>
+<button id="subind" type="button" class="btn btn-default" data-toggle="modal" data-target="#modal-lg"
+    style="display: none;"></button>
+
+{% endblock content %} {% block extra_js %}
+
+<script src="{% static 'adminlte/plugins/datatables/jquery.dataTables.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-bs4/js/dataTables.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-responsive/js/dataTables.responsive.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-responsive/js/responsive.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/dataTables.buttons.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.bootstrap4.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/jszip/jszip.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/pdfmake.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/pdfmake/vfs_fonts.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.html5.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.print.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/datatables-buttons/js/buttons.colVis.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/select2/js/select2.full.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/chart.js/Chart.min.js' %}"></script>
+
+<script src="{% static 'adminlte/dist/js/adminlte.js' %}"></script>
+<script src="{% static 'adminlte/plugins/bootstrap-slider/bootstrap-slider.min.js' %}"></script>
+
+
+<script>
+
+    $(document).ready(function () {
+        const downloadPrefix = 'NeuroDB_Funded-Programs_'
+        var table = $('#example').DataTable({
+            "dom": '<f<t>piB>',
+            searching: true,
+            paging: true,
+            bInfo: true,
+            pageLength: 10,
+            buttons: ["copy",
+                {
+                    extend: 'csv',
+                    text: 'CSV',
+                    filename: function () { return getExportFileName(downloadPrefix); }
+                },
+                {
+                    extend: 'excel',
+                    text: 'Excel',
+                    filename: function () { return getExportFileName(downloadPrefix); }
+                },
+                {
+                    extend: 'print',
+                    text: 'Print',
+                    filename: function () { return getExportFileName(downloadPrefix); }
+                },
+                {
+                    extend: 'pdf',
+                    text: 'PDF',
+                    filename: function () { return getExportFileName(downloadPrefix); }
+                }],
+
+            responsive: true,
+            lengthChange: true,
+            autoWidth: true,
+            orderCellsTop: true,
+            columnDefs: [
+                { orderable: true, className: 'reorder', targets: [3, 4, 5, 8, 9, 10, 11] },
+                { orderable: false, targets: '_all' }
+            ]
+        });
+    })
+</script>
+<script>
+    function get_details(pca_number) {
+        $.ajax({
+            url: '{% url "pivoting:load_pca_details" %}',
+            dataType: "json",
+            data: {
+                'id': pca_number
+            },
+            success: function (data) {
+                console.log(data)
+                var html = format(JSON.parse(JSON.stringify(data)))
+                document.getElementById('modal-lg').innerHTML = html;
+                $('#subind').click()
+            }
+        });
+    }
+</script>
+<script>
+    function format(d) {
+        // `d` is the original data object for the row
+        let html = `
+        <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+<h4 class="modal-title">Funded Program Details</h4>
+<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+<span aria-hidden="true">&times;</span>
+</button>
+</div>
+        <div class="modal-body">
+        `
+        html += '<p><strong>Title: </strong>' + d.title + '</p>'
+        html += '<p><strong>Sections: </strong>' + d.sections + '</p>'
+        html += '<p><strong>Offices: </strong>' + d.offices + '</p>'
+        html += '<p><strong>Donors: </strong>' + d.donors + '</p>'
+
+        html += `
+        <table class="mb-0 table table-striped table-hover table-tags">
+           <thead>
+              <tr>
+                 <th>WBS</th>
+                 <th>Fund</th>
+                 <th>Donor</th>
+                 <th>Code</th>
+                 <th>Value</th>
+                 <th>Grant Number</th>
+              </tr>
+           </thead>
+           <tbody>
+    `
+        for (var i = 0; i < d.donors_set.length; i++) {
+            r = d.donors_set[i]
+            var row = '<tr>' + '<td>' + r.wbs + '</td>' + '<td>' + r.fund + '</td>' + '<td>' + r.donor + '</td>' + '<td>' + r.donor_code + '</td>' + '<td align="right">' + d.budget_currency + ' ' + parseInt(r.value).toLocaleString() + '</td>' + '<td>' + r.grant_number + '</td>' + '</tr>'
+            html += row
+        }
+        html += '</tbody></table></div></div></div>'
+        return html
+
+    }
+</script>
+
+<script>
+    $(document).ready(function () {
+        $('.select2').select2({ closeOnSelect: true });
+        $('.slider').bootstrapSlider()
+        $('.content').attr('style', 'display: visible');
+    });
+    $(".js-programmatic-multi-clear").on("click", function () {
+        $('.slider').val("{{ start_year }},{{ current_year }}").trigger("change");
+        $('.select2').val(null).trigger("change");
+        $('form#filterForm').submit();
+    });
+</script>
+
+{% endblock %}
