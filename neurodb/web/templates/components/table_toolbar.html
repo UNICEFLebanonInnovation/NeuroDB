@@ -1,0 +1,12 @@
+{% load i18n %}
+<div class="table-toolbar">
+  <div class="table-toolbar__title">
+    {% if title %}<h2 class="h6 mb-0">{{ title }}</h2>{% endif %}
+    {% if count is not None %}<span class="text-muted small">{% blocktrans count counter=count %}{{ counter }} row{% plural %}{{ counter }} rows{% endblocktrans %}</span>{% endif %}
+  </div>
+  <div class="table-toolbar__actions">
+    <button type="button" class="btn btn-outline-secondary btn-sm" data-table-copy data-table-target="#{{ table_id }}">{% include "components/icon.html" with name="copy" %}<span>{% trans "Copy" %}</span></button>
+    <button type="button" class="btn btn-outline-secondary btn-sm" data-table-csv data-table-target="#{{ table_id }}" data-filename="{{ filename|default:table_id }}">{% include "components/icon.html" with name="download" %}<span>{% trans "CSV" %}</span></button>
+    {% for d in downloads %}<a class="btn btn-outline-secondary btn-sm" href="{{ d.url }}">{% include "components/icon.html" with name="download" %}<span>{{ d.label }}</span></a>{% endfor %}
+  </div>
+</div>

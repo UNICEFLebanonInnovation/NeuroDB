@@ -1,0 +1,30 @@
+{% load i18n %}
+{# Sticky GET form. `filters` is a list of {name, label, type: select|multiselect|search|number, options, value|values, placeholder}. #}
+<form method="get" action="{{ action|default:'' }}" class="filter-bar" data-filter-bar {% if hx_target %}data-hx-target="{{ hx_target }}"{% endif %} {% if filter_event %}data-filter-event="{{ filter_event }}"{% endif %} role="search" aria-label="{{ aria_label|default:_('Filters') }}">
+  {% for f in filters %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="filter-{{ f.name }}">{{ f.label }}</label>
+    {% if f.type == "select" %}
+    <select class="form-select form-select-sm" id="filter-{{ f.name }}" name="{{ f.name }}">
+      {% if f.placeholder %}<option value="">{{ f.placeholder }}</option>{% endif %}
+      {% for opt in f.options %}
+      {% if opt.value is not None %}<option value="{{ opt.value }}" {% if opt.value|stringformat:"s" == f.value|stringformat:"s" %}selected{% endif %}>{{ opt.label }}</option>{% else %}<option value="{{ opt }}" {% if opt|stringformat:"s" == f.value|stringformat:"s" %}selected{% endif %}>{{ opt }}</option>{% endif %}
+      {% endfor %}
+    </select>
+    {% elif f.type == "multiselect" %}
+    <select class="form-select form-select-sm" id="filter-{{ f.name }}" name="{{ f.name }}" multiple data-tom placeholder="{{ f.placeholder|default:_('All') }}">
+      {% for opt in f.options %}<option value="{{ opt }}" {% if opt|stringformat:"s" in f.values %}selected{% endif %}>{{ opt }}</option>{% endfor %}
+    </select>
+    {% elif f.type == "number" %}
+    <input class="form-control form-control-sm" type="number" id="filter-{{ f.name }}" name="{{ f.name }}" value="{{ f.value|default:'' }}" placeholder="{{ f.placeholder|default:'' }}">
+    {% else %}
+    <input class="form-control form-control-sm" type="search" id="filter-{{ f.name }}" name="{{ f.name }}" value="{{ f.value|default:'' }}" placeholder="{{ f.placeholder|default:_('Search') }}">
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% for key, value in hidden.items %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
+    <a class="btn btn-link btn-sm" href="{{ reset_url|default:request.path }}">{% trans "Reset" %}</a>
+  </div>
+</form>

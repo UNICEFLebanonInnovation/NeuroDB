@@ -1,0 +1,7 @@
+{% load i18n %}
+<div class="state state--empty" role="status">
+  {% include "components/icon.html" with name=icon|default:"inbox" class="state__icon" %}
+  <p class="state__title">{{ title|default:_("Nothing to show") }}</p>
+  {% if message %}<p class="state__message">{{ message }}</p>{% endif %}
+  {% if action_url %}<a class="btn btn-outline-primary btn-sm" href="{{ action_url }}">{{ action_label|default:_("Clear filters") }}</a>{% endif %}
+</div>

@@ -1,0 +1,40 @@
+{% load i18n %}
+<div class="page-header">
+  {% if breadcrumbs %}
+  <nav aria-label="{% trans 'Breadcrumb' %}">
+    <ol class="breadcrumb">
+      {% for crumb in breadcrumbs %}
+      <li class="breadcrumb-item{% if forloop.last %} active{% endif %}"{% if forloop.last %} aria-current="page"{% endif %}>
+        {% if crumb.url and not forloop.last %}<a href="{{ crumb.url }}">{{ crumb.label }}</a>{% else %}{{ crumb.label }}{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+  </nav>
+  {% endif %}
+  <div class="page-header__row">
+    <div class="page-header__titles">
+      <h1 class="page-title">{{ page_title }}</h1>
+      {% if page_subtitle %}<p class="page-subtitle">{{ page_subtitle }}</p>{% endif %}
+    </div>
+    {% if actions %}
+    <div class="page-actions" role="group" aria-label="{% trans 'Page actions' %}">
+      {% for action in actions %}
+        {% if action.menu %}
+        <div class="dropdown d-inline-block">
+          <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+            {% if action.icon %}{% include "components/icon.html" with name=action.icon %}{% endif %}<span>{{ action.label }}</span>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            {% for item in action.menu %}<li><a class="dropdown-item" href="{{ item.url }}">{{ item.label }}</a></li>{% endfor %}
+          </ul>
+        </div>
+        {% else %}
+        <a class="btn btn-sm {% if action.current %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="{{ action.url }}"{% if action.current %} aria-current="page"{% endif %}>
+          {% if action.icon %}{% include "components/icon.html" with name=action.icon %}{% endif %}<span>{{ action.label }}</span>
+        </a>
+        {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>

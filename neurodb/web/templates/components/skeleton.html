@@ -1,0 +1,11 @@
+{% load i18n %}
+<div class="skeleton" aria-busy="true" aria-live="polite" role="status">
+  <span class="visually-hidden">{% trans "Loading" %}</span>
+  {% if kind == "tiles" %}
+  <div class="kpi-grid">{% for _ in "1234" %}<div class="skeleton__block skeleton__block--tile"></div>{% endfor %}</div>
+  {% elif kind == "chart" %}
+  <div class="skeleton__block skeleton__block--chart"></div>
+  {% else %}
+  {% for _ in "123456" %}<div class="skeleton__block skeleton__block--row"></div>{% endfor %}
+  {% endif %}
+</div>

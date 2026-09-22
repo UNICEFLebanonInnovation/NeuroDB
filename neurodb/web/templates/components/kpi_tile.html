@@ -1,0 +1,11 @@
+{% load i18n ui %}
+<div class="kpi{% if status %} kpi--{{ status }}{% endif %}">
+  <div class="kpi__label">{{ label }}</div>
+  <div class="kpi__value">{% if href %}<a href="{{ href }}">{{ value }}</a>{% else %}{{ value }}{% endif %}{% if unit %} <span class="kpi__unit">{{ unit }}</span>{% endif %}</div>
+  {% if status_label or hint %}
+  <div class="kpi__meta">
+    {% if status_label %}{% status_pill status status_label %}{% endif %}
+    {% if hint %}<span class="kpi__hint">{{ hint }}</span>{% endif %}
+  </div>
+  {% endif %}
+</div>

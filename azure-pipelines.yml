@@ -1,0 +1,85 @@
+trigger:
+  branches:
+    include: [main]
+pr:
+  branches:
+    include: [main]
+
+variables:
+  imageRepository: neurodb/web
+  containerRegistry: unilebepics
+  tag: $(Build.SourceVersion)
+
+stages:
+- stage: Verify
+  jobs:
+  - job: Test
+    pool: { vmImage: ubuntu-latest }
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_USER: neurodb, POSTGRES_PASSWORD: neurodb, POSTGRES_DB: neurodb_test }
+        ports: ["5432:5432"]
+    steps:
+    - task: UsePythonVersion@0
+      inputs: { versionSpec: "3.12" }
+    - script: pip install -r requirements.lock -e ".[dev]"
+      displayName: Install
+    - script: ruff check . && ruff format --check .
+      displayName: Lint
+    - script: |
+        export DJANGO_ENV=test DJANGO_SECRET_KEY=ci DATABASE_URL=postgres://neurodb:neurodb@localhost:5432/neurodb_test
+        python manage.py check --deploy --fail-level WARNING
+        python manage.py makemigrations --check --dry-run
+        pytest --junitxml=test-results.xml
+      displayName: Checks and tests
+    - script: pip-audit -r requirements.lock
+      displayName: Dependency audit
+    - task: PublishTestResults@2
+      condition: always()
+      inputs: { testResultsFiles: test-results.xml }
+
+- stage: Build
+  dependsOn: Verify
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  jobs:
+  - job: Image
+    pool: { vmImage: ubuntu-latest }
+    steps:
+    - task: Docker@2
+      inputs:
+        command: buildAndPush
+        repository: $(imageRepository)
+        containerRegistry: $(containerRegistry)
+        dockerfile: Dockerfile
+        tags: |
+          $(tag)
+          latest
+
+- stage: Deploy
+  dependsOn: Build
+  jobs:
+  - deployment: Staging
+    environment: neurodb-staging
+    pool: { vmImage: ubuntu-latest }
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureWebAppContainer@1
+            inputs:
+              azureSubscription: UNI_APPS RS-UNI-LEB
+              appName: uni-leb-neurodb
+              deployToSlotOrASE: true
+              resourceGroupName: rs-uni-leb
+              slotName: staging
+              imageName: unilebepics.azurecr.io/$(imageRepository):$(tag)
+          - script: curl --fail --retry 10 --retry-delay 6 https://uni-leb-neurodb-staging.azurewebsites.net/healthz/
+            displayName: Smoke test staging
+          - task: AzureAppServiceManage@0
+            inputs:
+              azureSubscription: UNI_APPS RS-UNI-LEB
+              Action: Swap Slots
+              WebAppName: uni-leb-neurodb
+              ResourceGroupName: rs-uni-leb
+              SourceSlot: staging

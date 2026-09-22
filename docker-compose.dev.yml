@@ -1,0 +1,23 @@
+# Local development: `docker compose -f docker-compose.dev.yml up`
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: neurodb
+      POSTGRES_PASSWORD: neurodb
+      POSTGRES_DB: neurodb_v3
+    ports: ["5433:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+  web:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://neurodb:neurodb@db:5432/neurodb_v3
+      DJANGO_ENV: local
+      DJANGO_DEBUG: "on"
+    volumes: [".:/app"]
+    ports: ["8000:8000"]
+    depends_on: [db]
+volumes:
+  pgdata:

@@ -1,0 +1,56 @@
+[project]
+name = "neurodb"
+version = "3.0.0a1"
+description = "NeuroDB v3: UNICEF Lebanon programme analytics portal (ActivityInfo + eTools)"
+requires-python = ">=3.12"
+dependencies = [
+  "django~=5.2.0",
+  "psycopg[binary]~=3.2",
+  "django-environ~=0.12",
+  "django-allauth[socialaccount]~=65.0",
+  "djangorestframework~=3.16",
+  "django-htmx~=1.19",
+  "whitenoise~=6.9",
+  "gunicorn~=23.0",
+  "requests~=2.32",
+  "openpyxl~=3.1",
+  "django-storages[azure]~=1.14",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest~=8.3",
+  "pytest-django~=4.11",
+  "factory-boy~=3.3",
+  "responses~=0.25",
+  "ruff~=0.12",
+  "pip-audit~=2.9",
+  "django-debug-toolbar~=5.0",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+extend-exclude = ["neurodb/*/models/legacy.py", "neurodb/*/migrations/*"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "DJ", "S", "T20"]
+ignore = ["S101", "S308", "DJ001"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "T20"]
+"scripts/*" = ["T20", "S"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+python_files = ["test_*.py"]
+testpaths = ["tests"]
+addopts = "-q --reuse-db"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["neurodb*", "config*"]

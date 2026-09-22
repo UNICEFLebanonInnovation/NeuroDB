@@ -1,0 +1,7 @@
+{% load i18n %}
+<div class="state state--error" role="alert">
+  {% include "components/icon.html" with name="alert" class="state__icon" %}
+  <p class="state__title">{{ title|default:_("Something went wrong") }}</p>
+  {% if message %}<p class="state__message">{{ message }}</p>{% endif %}
+  {% if retry_url %}<a class="btn btn-outline-secondary btn-sm" href="{{ retry_url }}">{% include "components/icon.html" with name="refresh" %}<span>{% trans "Try again" %}</span></a>{% endif %}
+</div>

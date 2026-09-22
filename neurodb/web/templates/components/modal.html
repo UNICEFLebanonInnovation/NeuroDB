@@ -1,0 +1,13 @@
+{% load i18n %}
+{# Shared modal shell: HTMX partials target #modal-content and app.js opens it. #}
+<div class="modal fade" id="modal" tabindex="-1" aria-hidden="true" aria-labelledby="modal-title">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content" id="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title h5" id="modal-title">{% trans "Loading" %}</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+      </div>
+      <div class="modal-body">{% include "components/skeleton.html" %}</div>
+    </div>
+  </div>
+</div>

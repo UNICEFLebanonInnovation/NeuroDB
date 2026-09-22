@@ -1,0 +1,164 @@
+{% load i18n static ui %}<!DOCTYPE html>
+<html lang="{{ LANGUAGE_CODE|default:'en' }}" data-bs-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <meta name="htmx-config" content='{"inlineScriptNonce":"{{ request.csp_nonce }}","allowEval":false,"scrollBehavior":"instant","defaultSwapStyle":"innerHTML"}'>
+  <meta name="color-scheme" content="light dark">
+  <title>{% block title %}{{ page_title|default:SITE_NAME }}{% endblock %} · {{ SITE_NAME }}</title>
+  <link rel="icon" href="{% static 'img/favicon.svg' %}" type="image/svg+xml">
+  <link rel="stylesheet" href="{% static 'vendor/bootstrap/bootstrap.min.css' %}">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  {% block head_extra %}{% endblock %}
+  <script nonce="{{ request.csp_nonce }}">
+    /* Apply the saved theme before first paint to avoid a flash. */
+    (function () {
+      try {
+        var t = localStorage.getItem("neurodb-theme");
+        if (!t) { t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"; }
+        document.documentElement.setAttribute("data-bs-theme", t);
+      } catch (e) { /* storage unavailable */ }
+    })();
+  </script>
+</head>
+<body class="{% block body_class %}{% endblock %}">
+<a class="skip-link" href="#main">{% trans "Skip to main content" %}</a>
+{% include "components/icons.html" %}
+
+<header class="topbar" role="banner">
+  <button class="btn btn-icon d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#sidebar" aria-controls="sidebar" aria-label="{% trans 'Open navigation' %}">
+    {% include "components/icon.html" with name="menu" %}
+  </button>
+  <a class="brand" href="{% url 'reports:overview' %}">
+    <span class="brand-mark" aria-hidden="true">N</span>
+    <span class="brand-name">{{ SITE_NAME }}</span>
+  </a>
+  <button type="button" class="search-trigger" id="search-trigger" aria-haspopup="dialog" aria-controls="search-modal">
+    {% include "components/icon.html" with name="search" %}
+    <span class="search-trigger__label">{% trans "Search indicators, databases, reports" %}</span>
+    <kbd class="d-none d-md-inline">Ctrl K</kbd>
+  </button>
+  <div class="topbar__spacer"></div>
+  {% if nav.years %}
+  <div class="dropdown">
+    <button class="btn btn-ghost dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="year-menu">
+      {% include "components/icon.html" with name="calendar" %}
+      <span>{% if year %}{{ year.name }}{% elif nav.year %}{{ nav.year.name }}{% endif %}</span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="year-menu">
+      <li><h6 class="dropdown-header">{% trans "Reporting year" %}</h6></li>
+      {% for y in nav.years %}
+      <li><a class="dropdown-item {% if year and y.id == year.id %}active{% endif %}" href="{% url 'reports:overview' %}?year={{ y.name|urlencode }}">{{ y.name }}{% if y.current %} <span class="text-muted small">({% trans "current" %})</span>{% endif %}</a></li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  <button class="btn btn-icon" type="button" id="theme-toggle" aria-pressed="false" aria-label="{% trans 'Toggle dark mode' %}" title="{% trans 'Toggle dark mode' %}">
+    <span class="theme-toggle__light">{% include "components/icon.html" with name="sun" %}</span>
+    <span class="theme-toggle__dark">{% include "components/icon.html" with name="moon" %}</span>
+  </button>
+  {% if user.is_authenticated %}
+  <div class="dropdown">
+    <button class="btn btn-ghost dropdown-toggle user-menu" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="user-menu">
+      <span class="avatar" aria-hidden="true">{{ user.get_username|first|upper }}</span>
+      <span class="d-none d-md-inline">{{ user.get_full_name|default:user.get_username }}</span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="user-menu">
+      <li><span class="dropdown-item-text small text-muted">{{ user.email }}</span></li>
+      <li><span class="dropdown-item-text"><span class="badge text-bg-secondary">{{ user_role }}</span>{% if user.section %} <span class="small text-muted">{{ user.section.name }}</span>{% endif %}</span></li>
+      <li><hr class="dropdown-divider"></li>
+      {% if user.is_staff %}<li><a class="dropdown-item" href="{% url 'admin:index' %}">{% trans "Administration" %}</a></li>{% endif %}
+      <li><a class="dropdown-item" href="{% url 'reports:data_health' %}">{% trans "Data health" %}</a></li>
+      <li><hr class="dropdown-divider"></li>
+      <li>
+        <form method="post" action="{% url 'account_logout' %}">{% csrf_token %}
+          <button type="submit" class="dropdown-item">{% trans "Sign out" %}</button>
+        </form>
+      </li>
+    </ul>
+  </div>
+  {% endif %}
+</header>
+
+<div class="app">
+  <nav id="sidebar" class="sidebar offcanvas-lg offcanvas-start" tabindex="-1" aria-label="{% trans 'Main navigation' %}">
+    <div class="offcanvas-header d-lg-none">
+      <span class="offcanvas-title fw-semibold">{% trans "Navigation" %}</span>
+      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#sidebar" aria-label="{% trans 'Close' %}"></button>
+    </div>
+    <div class="sidebar__body">
+      <a class="nav-item-link {% active_if 'reports:overview' %}" href="{% url 'reports:overview' %}" {% aria_current 'reports:overview' %}>
+        {% include "components/icon.html" with name="home" %}<span>{% trans "Overview" %}</span>
+      </a>
+      {% if nav.sections %}
+      <div class="sidebar__section-title">{% trans "Databases" %}{% if nav.year %} <span class="text-muted">{{ nav.year.name }}</span>{% endif %}</div>
+      {% for s in nav.sections %}
+      <details class="sidebar__group" {% if s.section.id == request.resolver_match.kwargs.section_id or forloop.first %}open{% endif %}>
+        <summary>
+          <span class="section-dot" {% if s.section.color %}style="--section-color: {{ s.section.color }}"{% endif %} aria-hidden="true"></span>
+          <span>{% if s.section %}{{ s.section.name }}{% else %}{% trans "Other" %}{% endif %}</span>
+          <span class="count">{{ s.databases|length }}</span>
+        </summary>
+        <ul class="list-unstyled">
+          {% for db in s.databases %}
+          <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:database_dashboard' 'reports:database_analytical' 'reports:database_map' 'reports:database_snapshot' 'reports:indicator_detail' pk=db.id %}" href="{% url 'reports:database_dashboard' db.id %}" {% aria_current 'reports:database_dashboard' pk=db.id %}>{{ db.label|default:db.name }}</a></li>
+          {% endfor %}
+        </ul>
+      </details>
+      {% endfor %}
+      {% endif %}
+      {% if nav.neuro_reports %}
+      <div class="sidebar__section-title">{% trans "Neuro reports" %}</div>
+      <ul class="list-unstyled">
+        {% for r in nav.neuro_reports %}
+        <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:report_dashboard' 'reports:report_analytical' pk=r.id %}" href="{% url 'reports:report_dashboard' r.id %}" {% aria_current 'reports:report_dashboard' pk=r.id %}>{{ r.name }}</a></li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      {% if nav.hpm_reports %}
+      <div class="sidebar__section-title">{% trans "HPM" %}</div>
+      <ul class="list-unstyled">
+        {% for r in nav.hpm_reports %}
+        <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:report_hpm' pk=r.id %}" href="{% url 'reports:report_hpm' r.id %}" {% aria_current 'reports:report_hpm' pk=r.id %}>{{ r.name }}</a></li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      <div class="sidebar__section-title">{% trans "Partnerships" %}</div>
+      <a class="nav-item-link {% active_if 'reports:programmes' 'reports:programme_summary' 'reports:programme_detail' %}" href="{% url 'reports:programmes' %}" {% aria_current 'reports:programmes' %}>{% include "components/icon.html" with name="file" %}<span>{% trans "Programmes" %}</span></a>
+      <a class="nav-item-link {% active_if 'reports:donors' %}" href="{% url 'reports:donors' %}" {% aria_current 'reports:donors' %}>{% include "components/icon.html" with name="gift" %}<span>{% trans "Donors" %}</span></a>
+      <a class="nav-item-link {% active_if 'reports:partners' 'reports:partner_profile' %}" href="{% url 'reports:partners' %}" {% aria_current 'reports:partners' %}>{% include "components/icon.html" with name="users" %}<span>{% trans "Partners" %}</span></a>
+      <div class="sidebar__section-title">{% trans "Resources" %}</div>
+      <a class="nav-item-link {% active_if 'reports:population' %}" href="{% url 'reports:population' %}" {% aria_current 'reports:population' %}>{% include "components/icon.html" with name="chart" %}<span>{% trans "Population" %}</span></a>
+      <a class="nav-item-link {% active_if 'reports:library' %}" href="{% url 'reports:library' %}" {% aria_current 'reports:library' %}>{% include "components/icon.html" with name="book" %}<span>{% trans "Library" %}</span></a>
+      <a class="nav-item-link {% active_if 'reports:maps' %}" href="{% url 'reports:maps' %}" {% aria_current 'reports:maps' %}>{% include "components/icon.html" with name="map" %}<span>{% trans "Maps" %}</span></a>
+      <a class="nav-item-link {% active_if 'reports:data_health' %}" href="{% url 'reports:data_health' %}" {% aria_current 'reports:data_health' %}>{% include "components/icon.html" with name="pulse" %}<span>{% trans "Data health" %}</span></a>
+    </div>
+  </nav>
+
+  <main id="main" class="main" tabindex="-1">
+    {% if messages %}
+    <div class="messages" role="status">
+      {% for message in messages %}
+      <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags|default:'info' }}{% endif %} alert-dismissible" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{% trans 'Close' %}"></button>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% block page_header %}{% include "components/page_header.html" %}{% endblock %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+
+<div class="toast-region" id="toasts" aria-live="polite" aria-atomic="false"></div>
+{% include "components/modal.html" %}
+{% include "components/search_modal.html" %}
+
+<script src="{% static 'vendor/bootstrap/bootstrap.bundle.min.js' %}" nonce="{{ request.csp_nonce }}"></script>
+<script src="{% static 'vendor/htmx/htmx.min.js' %}" nonce="{{ request.csp_nonce }}"></script>
+<script type="module" src="{% static 'js/app.js' %}" nonce="{{ request.csp_nonce }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
