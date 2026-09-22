@@ -15,14 +15,16 @@ CACHES = {
 }
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'neurodbv4',
-        'HOST': 'localhost',
-        'USER': 'postgres',
-        'PASSWORD': 'LCgiTMLPY5jD3pdi' 
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": "neurodb",
+        "USER": "lebclmprod",
+        "PASSWORD": "clmp!0ck3din",
+        "HOST": "leb-clm-prod-flex-14.postgres.database.azure.com",
+        "PORT": "5432",
     }
 }
+
 # DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
 # STATICFILES_STORAGE = "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
 
