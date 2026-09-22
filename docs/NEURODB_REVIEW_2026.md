@@ -8,35 +8,36 @@
 
 ## 1. Executive summary
 
-**Recommendation: rebuild from scratch (Option B), keeping the PostgreSQL data, the indicator domain model, and the Django framework. Before the rebuild starts, spend two weeks closing the live security holes in the current system, because it must keep running for another five to six months.**
+**Recommendation: enhance in place (Option A), as a disciplined modernisation programme with hard phase gates, not as incremental patching. Ship the security fixes to production within two weeks, then rebuild the foundation, delete the dead 70 percent, put a test harness around the business rules, and only then restructure the view layer and the frontend.**
 
-NeuroDB does its job for users today, and the concept behind it is sound: a small analytics portal that mirrors ActivityInfo and eTools data into PostgreSQL and lets programme staff pivot, map, and export it. The problem is everything around that concept. The codebase is not a 2019 project but a 2016 project (the first migration is dated September 2016) that has been forked, half-rewritten, and patched on the production server by a single vendor engineer with no tests, no history, and no build that can be reproduced from the repository.
+NeuroDB does its job for users today, and the concept behind it is sound: a small analytics portal that mirrors ActivityInfo and eTools data into PostgreSQL and lets programme staff pivot, map, and export it. The problem is everything around that concept. The codebase is not a 2019 project but a 2016 one (the first migration is dated September 2016) that has been forked, half-rewritten, and patched on the production server, with no tests, no history, and no build that can be reproduced from the repository. Ten independent review passes rated every dimension between 2 and 4 out of 10.
 
-Ten independent review passes rated every dimension between 2 and 4 out of 10. The findings that decide the question are:
+The choice between the two options is closer than the state of the code suggests, and the review process itself changed the answer. The first synthesis of the findings leaned towards a rebuild. An independent decision panel (two advocates arguing each option as strongly as possible, three judges scoring through engineering-risk, cost, and security lenses, each spot-checking the code) then scored enhancement ahead on all three lenses. The arguments that carried it:
 
-| What we found | Why it decides enhance vs rebuild |
+| Fact | Why it favours enhancing |
 |---|---|
-| **Exploitable, unauthenticated SQL injection** on a live JSON endpoint, a second injection reachable by any logged-in user, and **25 data endpoints that answer anonymous requests** with the full ActivityInfo dataset, eTools budgets, partner staff contacts, and raw Excel exports. | Cheap to patch (days), but they are symptoms of an architecture with no data-access layer: SQL is assembled by string replacement inside a 1,841-line views module with the lowest possible maintainability index. Patching leaves the pattern that produced them. |
-| **Every credential is in the repository**: the Django secret key, the database password (three places), the eTools API token (13 occurrences), the ActivityInfo token (two copies of the same client), an Azure Redis key, a staff username and password in a comment, and a cPanel password inside the design document. | Must be rotated regardless of the option. Under a rebuild, the new repository starts clean; under enhancement, the single squashed commit still carries them until a history rewrite. |
-| **The build cannot be reproduced.** The production requirements file fails to install with a current pip, omits a package the main views module imports at load time, pins two libraries with 11 published CVEs (including the production HTTP server), and leaves Django itself unpinned. Five contradictory deployment paths coexist and none of them works as committed. | Under either option this layer is rebuilt, not repaired. There is no operational asset to preserve. |
-| **The frontend has no upgrade path.** All page behaviour is 2,930 lines of inline jQuery inside templates on an end-of-life stack (AdminLTE 3, Bootstrap 4, Chart.js 2, jQuery UI with a known XSS). One live page still loads a script from `polyfill.io`, a domain that was hijacked to serve malware in 2024. Four base templates and 18 copy/old/orig templates coexist; four of five legacy `/etools/` pages crash before touching the database. | Moving to Bootstrap 5 or any modern stack means rewriting every template anyway. |
-| **Zero tests for the business apps**, no linter has ever run (a stray `from this import d` prints the Zen of Python on every process start), 13 bare `except:` blocks, and the nightly syncs swallow every error while stamping "last updated" before they run. | A safety net for in-place refactoring costs an estimated 2.5 to 3 months of test-seam work, which is the same order of effort as reimplementing the two core modules cleanly. |
-| **The good parts are portable.** The code already boots on Django 5.2 with zero errors. The indicator hierarchy (Reporting Year, Database, Master, Sub, Leaf indicators, Neuro Reports) matches the design document and is worth keeping as-is. The eTools replica tables have clean unique keys and idempotent syncs. The SDD is an accurate functional specification of about 25 pages, 14 JSON feeds, 6 exports, 2 integrations, and 9 admin-managed models. | The rebuild is bounded and well specified: the data, the domain model, and the SQL business rules transfer as a spec. This is what makes a rebuild the lower-risk option rather than the higher-risk one. |
+| **The code already boots on Django 5.2 with zero errors.** The most expensive part of any modernisation, the framework upgrade, has already happened. A rebuild would throw away a working Django 5 codebase to build another Django 5 codebase. | Verified by running Django's deployment check during this review. |
+| **The live surface is small and the rest is deletion, not porting.** Only 18 page templates plus one base layout are live (about 7,600 of 29,000 template lines); 4 of 6 base templates, the whole legacy `/etools/` page family, the `activityinfo` app, and 18 copy/old/orig files are residue of an earlier, unfinished v1-to-v2 rewrite. | Deleting is cheap and safe behind smoke tests; a rebuild pays to re-derive scope from a design document that omits 40 percent of routes. |
+| **The business rules exist only as code.** The aggregation semantics live in 22 SQL constants with commented-out filters and zero-target guards, the indicator tag parsing in model methods, and the import special cases in a 207-line function. The running system is the only oracle for what "achieved" means. | Enhancement keeps the rules executing while golden tests are written around them; a rebuild must reverse-engineer the same code and then prove equivalence against the same data. |
+| **The failure mode is asymmetric.** Enhancement is ordered so that stopping after any phase leaves one system that is strictly safer than today. A rebuild that stalls mid-way leaves two half-systems, which is precisely what this repository already is and how it got that way. | For a small new team with a finite country-office budget, resilience to a funding cut dominates. |
+| **Cost and time to value.** Realistic enhancement cost is 11 to 15 person-months over 8 to 10 months, shipping to production every two weeks from week one. A rebuild is 13 to 18 person-months once parallel running, dual syncs, path routing, and a second login are priced in, with the first user-visible page at month four or five. | Similar spend; enhancement delivers earlier, continuously, and without a parallel-run bill. |
+| **Knowledge is more in-house than assumed.** The ActivityInfo and eTools import commands and the HTTP helper carry the UNICEF committer's authorship; the vendor-only areas are the v2 pivot SQL, the templates, and the Azure wiring. | The archaeology a rebuild would need is largely the same archaeology enhancement does in Phase 2, except enhancement ships fixes while doing it. |
 
-**Why not enhance in place?** Because the honest enhancement plan is a rewrite conducted inside a hostile repository: 92 percent of tracked files are generated or vendored junk, a dead 2019 app with 193 migrations cannot be deleted without migration surgery, the schema stores dates, money, and codes as free text, and the views, sync, and template layers would each be replaced rather than edited. The enhance option costs about the same, takes longer to become safe, and ends with a worse asset.
+**The rebuild case was not wrong about the code.** It is right that the presentation layer, the raw-SQL value layer, and the physical schema would all be replaced under either option, that a typed schema with tests from day one is the cleaner end state, and that enhancement's later phases are in substance a rewrite of the view and presentation layers in place. That is why this recommendation adopts the rebuild's disciplines as conditions (section 8): a frozen scope checklist, golden tests captured before any refactor, a written divergence register for ambiguous rules, measurable phase-gate exit criteria, and no feature work before the safety net exists. If the team cannot commit to those gates, the enhancement path degrades into a slow rewrite in the old repository's shape, which is the outcome to avoid.
 
-**What must happen this week, regardless of the decision:** rotate every credential listed in section 4.1; add a login requirement to every data endpoint; fix the two SQL injection sites; remove the `polyfill.io` script; restrict `ALLOWED_HOSTS`. This is roughly two developer-weeks and is the first phase of the roadmap in section 8.
+**What must happen in the first two weeks, regardless of the decision:** rotate every credential listed in section 4.1; add a login requirement to every data endpoint; fix the two SQL injection sites; remove the `polyfill.io` script; restrict `ALLOWED_HOSTS`; and record from the Azure portal how neuro-db.org is actually deployed, because the repository does not describe it. Roughly half a person-month, and the first phase of the roadmap in section 8.
 
 ---
 
 ## 2. How this review was done
 
 - **Static review** of every Python module (15,802 lines outside migrations), all 153 templates, the settings and deployment files, and both design documents, by ten specialised review passes (pivoting app, etools app, supporting apps, security, dependencies, UI/UX, data model, deployment and operations, tests and quality, documentation versus reality).
-- **Executed checks** in an isolated environment: installing the production requirements on Python 3.11, `pip-audit`, Django's `check --deploy` and `makemigrations --check`, template compilation of every routed page, `pyflakes`, `radon` complexity and maintainability, `vulture`, and running the existing test suite.
-- **Verification.** Every critical finding cited in this report was re-read at the cited line by the review lead. A second, adversarial verification pass over the high and critical findings was run; its results are recorded in Appendix B. Severity uses the usual scale: critical means exploitable today or blocks the project; high means a real defect with user or security impact; medium is a maintainability or correctness risk; low is hygiene.
-- **Not done.** No live system was accessed. Production configuration, the real database schema, the Azure resources, and the cPanel host could not be inspected, so claims about "what runs today" are inferred from the repository and the design document and are flagged as such.
+- **Executed checks** in an isolated environment: installing the production requirements on Python 3.11, `pip-audit`, Django's `check --deploy` and `makemigrations --check`, template compilation of every routed page, `pyflakes`, `radon` complexity and maintainability, `vulture`, and the existing test suite.
+- **Adversarial verification.** The 59 high and critical findings were each handed to a separate verifier instructed to refute them by re-reading the code: 23 were confirmed as written, 36 confirmed in substance with severity or framing corrected, none refuted. A completeness critic then looked for gaps, contradictions between reviewers, and overstated findings; its corrections are folded into this report and listed in Appendix B.
+- **Decision panel.** Two advocates built the strongest case for each option; three judges scored both through engineering-risk, cost-and-time-to-value, and security-and-compliance lenses, spot-checking claims against the repository. Section 7 summarises their reasoning.
+- **Not done.** No live system was accessed. Production configuration, the real database schema and contents, the Azure resources, and the cPanel host could not be inspected, so claims about "what runs today" are inferred from the repository and the design document and are flagged as such. Section 10 lists what must be checked in the portal and the production database before Phase 1.
 
-Secret values (keys, passwords, tokens) are deliberately not reproduced in this document. They are identified by file and line only.
+Severity uses the usual scale: critical means exploitable today or blocks the project; high means a real defect with user or security impact; medium is a maintainability or correctness risk; low is hygiene. Secret values (keys, passwords, tokens) are deliberately not reproduced in this document; they are identified by file and line only.
 
 ---
 
@@ -44,16 +45,16 @@ Secret values (keys, passwords, tokens) are deliberately not reproduced in this 
 
 | Dimension | Health (1-10) | Headline numbers |
 |---|---|---|
-| Security | **3** | 2 SQL injection sites (1 anonymous); 25 endpoints without login; 8 distinct committed secrets; 0 CSRF exemptions (good); 24 CDN scripts without integrity hashes |
-| Source code: `pivoting` (main app) | **3** | 8,448 lines; `views.py` 1,841 lines with maintainability index 0.00; `queries.py` 1,702 lines of raw SQL, 25% dead; 57% of `utils.py` references models that no longer exist; 7 functions over 100 lines |
-| Source code: `etools` | **3** | 4 of 9 routed pages crash on a removed model field or a Python 2 idiom; sync starts at page 45 of the travel API; 1 index in 1,373 model lines; 28 cascade deletes reachable from admin |
-| Supporting apps and settings | **3** | Settings chosen by operating system; two half-configured auth systems; dead `activityinfo` app locked in by migration dependencies; admin permission checks overridden to always return True |
-| Libraries and dependencies | **3** | Production requirements do not install; Django unpinned; 11 CVEs in the two pinned runtime packages; 7 abandoned packages; ~26 unused packages; frontend stack end-of-life |
-| UI/UX | **4** | Consistent live theme and a genuinely useful pivot tool; but 2,930 lines of inline JS, 0 AJAX error handlers, 4 base templates, 18 junk templates, colour-only status badges, 12px forced body text, no i18n |
+| Security | **3** | 2 SQL injection sites (1 anonymous); 23 reachable data endpoints without login; 8 distinct committed secrets; 0 CSRF exemptions (good); 24 CDN scripts without integrity hashes |
+| Source code: `pivoting` (main app) | **3** | 8,448 lines; `views.py` 1,841 lines with maintainability index 0.00 and 30 raw SQL executions; `queries.py` 1,702 lines of raw SQL, 25% dead; 57% of `utils.py` references models that no longer exist; 7 functions over 100 lines |
+| Source code: `etools` | **3** | 4 of 9 routed pages crash on a removed model field or a Python 2 idiom; 1 index in 1,373 model lines; 28 cascade deletes reachable from admin; token literal at 10 sites |
+| Supporting apps and settings | **3** | Settings chosen by operating system; two half-configured auth systems; dead `activityinfo` app kept in the migration graph; admin permission checks overridden to always return True |
+| Libraries and dependencies | **3** | Production requirements fail with any current pip; Django unpinned; 11 CVEs in the two pinned runtime packages; 7 abandoned packages; ~26 unused packages; frontend stack end-of-life |
+| UI/UX | **4** | Consistent live theme and a genuinely useful pivot tool; but 2,900 lines of inline JS, 0 AJAX error handlers, 4 base templates, 18 junk templates, colour-only status badges, 12px forced body text, no i18n |
 | Data model and migrations | **4** | Sound indicator hierarchy and fact table; but dates, money, and codes as strings, fact-to-indicator join on an unindexed nullable text column, 345 migrations from 9 Django versions, models already drift from migrations |
-| Deployment and operations | **2** | 5 deployment paths, none runnable; image runs as root with SSH; cron inside the web container; no health endpoint, no error tracking; database platform named in the SDD retired by Microsoft |
+| Deployment and operations | **2** | 5 deployment paths, none runnable as committed; image runs as root with SSH; cron inside the web container; no health endpoint, no error tracking; production configuration not represented in the repository |
 | Tests and quality gates | **2** | 0 tests in business apps; 2 of 16 boilerplate tests pass; 0 of 9 quality-gate config files; CI has no test or lint step; 184 pyflakes findings including 2 latent NameErrors |
-| Documentation versus reality | **3** | The SDD is a good functional spec; the 2026 handover doc is wrong on 21 of 31 material claims a new team would rely on; bus factor of one; one squashed commit |
+| Documentation versus reality | **3** | The SDD is a good functional spec; the 2026 handover doc is wrong on 21 of 31 material claims a new team would rely on; one squashed commit |
 
 ---
 
@@ -61,57 +62,62 @@ Secret values (keys, passwords, tokens) are deliberately not reproduced in this 
 
 ### 4.1 Security
 
-Findings marked **[verified]** were reproduced by reading the cited code during this review.
+Findings marked **[verified]** were reproduced by reading the cited code during this review and confirmed by the adversarial pass.
 
 | # | Severity | Finding | Where |
 |---|---|---|---|
-| S1 | Critical **[verified]** | **Unauthenticated SQL injection.** The `emergency` query parameter is spliced into the NeuroReport SQL by string replacement; `.title()` does not neutralise quotes. The view has no login check. An anonymous visitor can read any table, including user password hashes and eTools partner data. | `pivoting/views.py:70-81`, placeholder at `pivoting/queries.py:668` |
-| S2 | Critical **[verified]** | **25 data endpoints answer anonymous requests.** All 14 `load_*` JSON feeds, the raw-data Excel export, the library file download, three CSV/Excel table dumps, and the "wrong PCA numbers" list in `pivoting`; the interventions CSV export and donor-locations feed in `etools`; and the locations REST API. Page views are protected with `LoginRequiredMixin`; the data behind them is not. | `pivoting/urls.py:5-18, 41-45`, `pivoting/views.py:59-760, 1190, 1706-1841`, `etools/views.py:145, 441` |
-| S3 | Critical **[verified]** | **Live credentials committed.** eTools API token (13 occurrences across `etools/tasks.py`, `locations/tasks.py`, `pivoting/tasks.py`), ActivityInfo token as a default argument in two client copies, Django `SECRET_KEY` and database password in `azureproject/production.py` and `local.py`, a third database password in `compose/production/django/entrypoint-copy`, an Azure Redis access key in a settings comment, and a staff username and password in a comment in `pivoting/utils.py:798`. The SDD v0.5 prints a cPanel login URL with password and the Azure database admin username. | See file references; values withheld |
+| S1 | Critical **[verified]** | **Unauthenticated SQL injection.** The `emergency` query parameter is spliced into the NeuroReport SQL by string replacement; `.title()` does not neutralise quotes (SQL keywords are case-insensitive). The view has no login check. An anonymous visitor can read any table, including user password hashes and eTools partner data. The app connects as the `postgres` superuser, which escalates this to host-level access. | `pivoting/views.py:70-81`, placeholder at `pivoting/queries.py:668`, `azureproject/production.py:22` |
+| S2 | Critical **[verified]** | **23 reachable data endpoints answer anonymous requests** (25 routes, 2 of which are syntactically dead). All 14 `load_*` JSON feeds, the raw-data Excel export, the library file download, three CSV/Excel table dumps, and the "wrong PCA numbers" list in `pivoting`; the interventions CSV export and donor-locations feed in `etools`; and the locations REST API. Page views are protected with `LoginRequiredMixin`; the data behind them is not. | `pivoting/urls.py:5-18, 41-45`, `pivoting/views.py:59-760, 1190, 1706-1841`, `etools/views.py:145, 441` |
+| S3 | Critical **[verified]** | **Live credentials committed.** eTools API token at 13 sites across `etools/tasks.py`, `locations/tasks.py`, and `pivoting/tasks.py`; two distinct ActivityInfo tokens at 6 sites in 4 files (as default arguments in both client copies, and in `pivoting/utilities.py` and `pivoting/utils.py`); Django `SECRET_KEY` and database password in `azureproject/production.py` and `local.py`; a third database password in `compose/production/django/entrypoint-copy`; an Azure Redis access key in a settings comment; a staff username and password in a comment in `pivoting/utils.py:798`. The SDD v0.5 prints a cPanel login URL with password and the Azure database admin username. Rotating the ActivityInfo tokens today requires code changes in three files and a redeploy. | See file references; values withheld |
 | S4 | High **[verified]** | **Authenticated SQL injection** through `.extra(where=...)` built from the `donor` query parameter. | `etools/views.py:106` |
-| S5 | High **[verified]** | **Unauthenticated write access to locations.** The Django REST Framework viewset includes create and update mixins, and `REST_FRAMEWORK` is never configured, so permissions default to AllowAny. | `locations/views.py:17-24`, no `REST_FRAMEWORK` in `azureproject/` |
-| S6 | High | **Partner PII committed and served.** `output.txt` at the repo root is an eTools partner dump (240 organisations, 190 email addresses, 215 phone numbers). `pivoting/AIReports/` holds 49 MB of raw ActivityInfo records served anonymously via `/v2/database-download/`. | `output.txt`, `pivoting/views.py:1190-1222` |
+| S5 | High **[verified]** | **Unauthenticated write access to locations.** The Django REST Framework viewset includes create and update mixins, and `REST_FRAMEWORK` is never configured, so permissions default to AllowAny. Writes currently fail later with a 500, so the practical exposure is the anonymous list. | `locations/views.py:17-24`, no `REST_FRAMEWORK` in `azureproject/` |
+| S6 | High **[verified]** | **Personal data committed and served.** `output.txt` at the repo root is an eTools partner dump (240 organisations, 190 email addresses, 215 phone numbers). Partner staff names, emails, and phones are synced into `PartnerOrganization.staff_members` and served anonymously by `load_partner_staff`. `pivoting/AIReports/` holds 49 MB of raw ActivityInfo records served anonymously via `/v2/database-download/`. The applicable frame is UNICEF's Policy on Personal Data Protection; no record of a data-protection assessment exists in the repository. | `output.txt`, `pivoting/views.py:97-103, 1190-1222`, `etools/tasks.py:92` |
 | S7 | High **[verified]** | **Hand-rolled Microsoft SSO** ships with placeholder client id, tenant `common` (any Microsoft account, personal included), auto-creates active users keyed on a mutable email claim, validates no id token or nonce, and ends in `redirect('dashboard')`, a URL name that does not exist. It is routed and linked from the login page. Not exploitable today only because the placeholder id makes Microsoft reject the request. | `azureproject/sso_views.py:9-11, 81-91`, `templates/account/login.html:36` |
-| S8 | High | **Compromised CDN.** The donor dashboard loads `https://polyfill.io/v3/polyfill.js`. | `templates/pivoting/donor-dashboard.html:18` |
-| S9 | Medium **[verified]** | Settings hardening gaps: `ALLOWED_HOSTS` starts with `"*"`, `SECURE_SSL_REDIRECT=False`, HSTS 60 seconds with preload, no Content Security Policy, `USE_TZ=False`. `production.py`'s star import silently overwrites `CSRF_TRUSTED_ORIGINS`, dropping the Azure slot hostnames the pipeline deploys to. | `azureproject/settings.py:19-21, 146`, `production.py:29-36` |
-| S10 | Medium | 24 CDN scripts without Subresource Integrity, Plotly pinned to `latest` on 9 pages, jsPDF 1.5.3 with 15 published advisories, two Google Maps browser keys in 5 templates, three Power BI "publish to web" links (anonymous by design) and Google Tag Manager on every authenticated page. | `templates/pivoting/*.html`, `templates/base*.html` |
+| S8 | High | **Compromised CDN.** The donor dashboard loads `https://polyfill.io/v3/polyfill.js`, a domain hijacked to serve malware in 2024. | `templates/pivoting/donor-dashboard.html:18` |
+| S9 | Medium **[verified]** | Settings hardening gaps: `ALLOWED_HOSTS` starts with `"*"`, `SECURE_SSL_REDIRECT=False`, HSTS 60 seconds with preload, no Content Security Policy, `USE_TZ=False`. Behind Azure App Service with HTTPS-only enforced these are hygiene items; the wildcard host also disables host-header validation for absolute URLs. `production.py`'s star import silently overwrites `CSRF_TRUSTED_ORIGINS`, dropping the Azure slot hostnames the pipeline deploys to. | `azureproject/settings.py:19-21, 146`, `production.py:29-36` |
+| S10 | Medium | 24 CDN scripts without Subresource Integrity, Plotly pinned to `latest` on 9 pages, jsPDF 1.5.3 with 15 published advisories, two Google Maps browser keys in 5 templates (referrer restriction unverifiable from the repo), and Google Tag Manager on every authenticated page. | `templates/pivoting/*.html`, `templates/base*.html` |
 | S11 | Medium | 16 template lines render server JSON with `|safe` inside `<script>`, and API data is injected via string concatenation and `innerHTML` on the dashboards. Stored XSS surface from upstream-controlled names and labels. | `templates/etools/interventions.html:173`, `templates/pivoting/database-dashboard.html:164, 194` |
 | S12 | Medium | `django.views.static.serve` mounted unconditionally for `/media/` and `/static/`; image runs as root with an SSH daemon config allowing root password login; nginx configs allow TLS 1.0/1.1. | `azureproject/urls.py:25-27`, `compose/production/django/sshd_config`, `compose/production/nginx/*.conf` |
 | S13 | Medium | `utils.CustomModelAdmin` overrides `has_change_permission`, `has_delete_permission`, and `has_view_permission` to return True, so any staff account can edit or delete indicators, databases, partners, and sections regardless of assigned permissions. | `utils/custom_model_admin.py:35-45` |
+| S14 | Medium | **Production database identity is unknowable from the repository.** Three different database names appear in `production.py`, the container entrypoint, and the SDD; the SDD's migration recipe shows the production host exposed to the internet as the `postgres` superuser. | `azureproject/production.py:20-22`, `compose/production/django/entrypoint-copy:9`, SDD "Connecting to Azure Database" |
+
+Not defects, but noted: the three Power BI "publish to web" links in the sidebar are anonymous by Microsoft's design and are a publishing decision outside this codebase.
 
 ### 4.2 Source code
 
 **`pivoting` (the business-critical app, 8,448 lines).**
 
 - **Architecture.** Business logic lives in 1,702 lines of hand-written SQL constants and 1,841 lines of views. Models are anemic; views compute tracking status, month arithmetic, report titles, and even Bootstrap CSS class names (`views.py:877-881`). The four-query dashboard block is copy-pasted between `DatabaseDashboardView` and `DatabaseSnapshotView`.
-- **Raw SQL.** 31 execute sites in `views.py`. Most bind parameters correctly; 11 assemble SQL with `str.replace()` or f-strings, one from user input (S1), three from database-sourced PCA numbers (second-order risk, and an empty filter produces an `IN ()` syntax error and a 500).
-- **Dead code.** 434 lines (25%) of `queries.py` are unused constants, one containing invalid `==` SQL that proves it never ran. About 57% of `utils.py` references models that no longer exist (`Indicator`, `ActivityReport`, `LiveActivityReport`, `AdminLevelEntities`) yet is still wired to admin actions that will crash. `gistfile.py` is a Python 2 CSV writer that emits `b'...'` byte representations into downloads (verified) and is still used by two export views. A 71-line view named `load_intervention_mapping_dataxxx` is referenced nowhere.
-- **Import pipeline.** The nightly ActivityInfo import deletes a database's roughly 52,000 fact rows and re-inserts them one `INSERT` at a time with no transaction; failures are counted and printed, never raised. Admin actions start the same work in daemon threads inside the gunicorn worker. The export-job poll loop has no attempt limit. The "last updated" timestamp is written before the import runs.
+- **Raw SQL.** 30 execute sites in `views.py`. Most bind parameters correctly; eight assemble SQL with `str.replace()`, one from user input (S1), three from database-sourced PCA numbers (second-order risk, and an empty filter produces an `IN ()` syntax error and a 500).
+- **A live crash path.** The NeuroReport query divides by `awp_target` without a zero guard (`queries.py:141`) while the model default for that field is 0 (`models.py:619`); any master indicator attached to a Neuro Report with the default target and at least one reported value makes the HPM and NeuroReport pages return 500. The sibling query at `queries.py:1274` has the guard.
+- **Dead code.** 434 lines (25%) of `queries.py` are unused constants, one containing invalid `==` SQL that proves it never ran. About 57% of `utils.py` references models that no longer exist (`Indicator`, `ActivityReport`, `LiveActivityReport`, `AdminLevelEntities`) yet is still wired to admin actions that will crash; the imports are function-local, so the dead code is inert rather than load-bearing. `gistfile.py` is a Python 2 CSV writer that emits `b'...'` byte representations into downloads (verified) and is still used by two export views. A 71-line view named `load_intervention_mapping_dataxxx` is referenced nowhere.
+- **Import pipeline.** The nightly ActivityInfo import deletes a database's roughly 52,000 fact rows and re-inserts them one `INSERT` at a time with no transaction; failures are counted and printed, never raised. Admin actions start the same work in daemon threads inside the gunicorn worker. The export-job poll loop has no attempt limit. The "last updated" timestamp is written before the import runs. The extract is written into the package directory of the container, so the Raw Data download returns a file-not-found error on any fresh instance until that instance has run the import.
+- **A data-correctness question that must be checked on the live database.** In the committed 2025 extract the `month` column is empty on all 51,967 rows while `month_of_reporting` is populated; the import stores `month_name` from `month` (`utils.py:342`) and the switch to `month_of_reporting` is commented out (`utils.py:348`). Every HPM, NeuroReport, and analytical query filters on `month_name`. If production imported this shape, the 2025 database's month-based reports are empty or wrong. Sixteen rows also carry a year of 2925 that passes through unvalidated.
 - **Robustness.** 9 bare `except:` blocks, 19 `print()` calls, 13 `Model.objects.get(id=id)` calls that return HTTP 500 on any bad id, an unguarded division by `len(items)`, and `.first().attribute` on possibly-empty querysets.
-- **Performance.** N+1 loops (one `COUNT` per PCA in the donor feed; one polygon lookup per location), the same queryset evaluated four times, and the analytical feed returns an estimated 60 MB of pretty-printed JSON for the largest database.
+- **Performance.** N+1 loops (one `COUNT` per PCA in the donor feed; one polygon lookup per location), the same queryset evaluated four times, and the analytical feed returns pretty-printed JSON estimated at tens of megabytes for the largest database. For a once-per-session load by a handful of analysts this is a nit rather than a blocker; real timings should be measured before any caching work.
 - **Hygiene.** Star imports in `urls.py`, `views.py`, and `admin.py`; 87 pyflakes findings; 16 of 17 files with CRLF line endings; zero tests.
 
 **`etools` (3,918 lines).**
 
-- Four of nine routed pages are provably broken: three query a `Location.point` field that was commented out of the model (FieldError), and the trips monitoring page calls `json.dumps(dict.values())`, a Python 2 idiom that raises TypeError on Python 3. The pages that render do so through 20 copy-pasted raw SQL blocks with N+1 loops inside. Three of the pages extend `base2.html`, which fails to compile because it uses unregistered template tags.
-- The sync layer uses `http.client` with no timeout, no retry, no pagination handling; the travel sync starts at a hard-coded page 45 and discards a whole 1,000-item page on any bad row; one missing partner aborts every later step of the nightly run; a funding-reservation loop keeps only the last reservation's line items, under-reporting donor funding; `TravelActivity.date` is set from the trip's start date instead of the activity's own date, mis-attributing visits by year.
-- The schema mirrors the eTools JSON verbatim: money, dates, and booleans stored as `CharField`, duplicated columns (`end`/`end_date`), one index in 1,373 lines, remote ids reused as local primary keys for three models, 28 cascade deletes reachable from admin delete links. `admin copy.py` (376 lines) is a stale snapshot; seven cloned eTools models are unused; one references a django-tenants attribute that does not exist.
+- Four of nine routed pages are provably broken: three query a `Location.point` field that was commented out of the model (FieldError), and the trips monitoring page calls `json.dumps(dict.values())`, a Python 2 idiom that raises TypeError on Python 3. Three of the pages extend `base2.html`, which fails to compile because it uses unregistered template tags, so they die before reaching the database. The pages that render do so through 20 copy-pasted raw SQL blocks with N+1 loops inside. This whole page family is superseded by the `/v2/` pages and linked only from the dead base template.
+- The sync layer uses `http.client` with no timeout, no retry, no pagination handling; the travel sync starts at a hard-coded page 45 and discards a whole 1,000-item page on any bad row (partly mitigated: trips from the last 365 days are re-fetched individually, so only older trips go stale); one missing partner aborts every later step of the nightly run; a funding-reservation loop keeps only the last reservation's line items, under-reporting donor funding; `TravelActivity.date` is set from the trip's start date instead of the activity's own date, mis-attributing visits by year.
+- The schema mirrors the eTools JSON verbatim: money, dates, and booleans stored as `CharField`, duplicated columns (`end`/`end_date`), one index in 1,373 lines, remote ids reused as local primary keys for three models, 28 cascade deletes reachable from admin delete links. The dashboards that sum money do so in Python from JSON fields, so the text-typed money columns are a nice-to-have fix rather than a blocker. `admin copy.py` (376 lines) is a stale snapshot; seven cloned eTools models are unused; one references a django-tenants attribute that does not exist.
 - `etools/admin.py:3` contains `from this import d`, which prints the Zen of Python to stdout on every process start.
 
 **Supporting apps and configuration.**
 
 - Settings are selected by `os.name == 'nt'`, so every Linux developer, CI runner, and container silently gets `production.py`. Only three environment variables are ever read. `asgi.py` points at a different settings module than `manage.py` and `wsgi.py`.
-- The `activityinfo` app is confirmed dead at runtime (no imports, empty admin, `urls.py` cannot even import) but cannot be removed by deleting the directory: `etools/migrations/0052` depends on `activityinfo/0097`, and `activityinfo` migrations depend on `etools` and `users`. `pivoting.Database` is a field-for-field copy of `activityinfo.Database`; `pivoting/client.py` is a copy of `activityinfo/client.py` with cosmetic drift and the same embedded token.
-- The `users` app is unadapted cookiecutter boilerplate with a duplicate admin form set and tests that cannot run. The `locations` app has two routes that use regex syntax inside `path()` and have been unreachable since the Django 2 migration, and two DRF views that raise `FieldDoesNotExist` on removed GIS fields.
+- The `activityinfo` app is confirmed dead at runtime (no imports, empty admin, `urls.py` cannot even import, its only raw-SQL consumer is an unrouted view). It stays in the migration graph through a single dependency line (`etools/migrations/0052` on `activityinfo/0097`), which is a contained piece of migration surgery, not a blocker. `pivoting.Database` is a field-for-field copy of `activityinfo.Database`; `pivoting/client.py` is a copy of `activityinfo/client.py` with cosmetic drift and the same embedded token.
+- The `users` app is unadapted cookiecutter boilerplate with a duplicate admin form set and tests that cannot run. The `locations` app has two routes that use regex syntax inside `path()` and have been unreachable since the Django 2 migration, and two DRF views that raise `FieldDoesNotExist` on removed GIS fields. The nightly locations sync swallows a NameError on every iteration and never populates the location tree.
 - Celery is pinned but dead (its module is never imported; all settings are commented out); the production cache points at a Docker hostname that does not exist on App Service with exceptions silenced; email goes through SendGrid with an empty API key, and error emails are addressed to the vendor's engineer.
-- Django's own deployment check, run during this review on Django 5.2.17, passes with 13 warnings and 0 errors once the missing `openpyxl` package is added. This is the strongest positive signal in the codebase: the Python code is already on modern Django idioms.
+- Django's own deployment check, run during this review on Django 5.2.17, passes with 13 warnings and 0 errors once the missing `openpyxl` package is added. No removed Django API appears outside historical migrations. This is the strongest positive signal in the codebase.
 
 ### 4.3 Data model and migrations
 
 - **Worth keeping.** The indicator hierarchy (`ReportingYear` -> `Database` -> `Activity` -> `IndicatorNew` -> `SubIndicator` -> `MasterSubIndicator` with effect -> `MasterIndicator` -> `NeuroReportMasterIndicator` -> `NeuroReport`) matches the SDD exactly and is generic; `ActivityReportNew` is a single denormalised fact table, which is the right shape; eTools replica tables carry unique external ids and idempotent syncs; `Location` uses a proper tree model. Zero `RunPython` or `RunSQL` migrations exist, so a fresh migrate has no data-migration landmines.
-- **Not worth keeping.** The fact table is "stringly typed": month, location codes, latitude, longitude, partner id, and years are `CharField`, so time series need substring arithmetic in SQL. The fact-to-indicator join runs on an unindexed, nullable `CharField(30)` with no foreign key. Polygons are stored as `ArrayField(CharField(max_length=64500))` loaded from 39 MB of committed CSVs. Library documents are `BinaryField` rows base64-encoded on every request. Per-database ActivityInfo username and password are stored in plaintext columns that the code no longer uses. Money is text; `djmoney` is installed and never used.
-- **Migrations.** 345 files generated by nine Django versions between 2016 and 2024; no squashes; `pivoting`'s initial migration created the whole legacy tree and then deleted it (23 `DeleteModel`, 90 `RemoveField`); one `etools` migration was neutered by hand (`operations = []` next to `operationsx`) and re-applied in the next file, which is evidence that a migration failed in production and was patched on the server. `makemigrations --check` already reports drift in `pivoting` and `users`, while `startup.sh` runs `makemigrations` at every boot for an app named `survey` that does not exist. The production schema is effectively unknowable from the repository.
-- **Runtime data in the package.** Population figures and the vulnerability list are read from year-stamped files under `pivoting/uploads/` on every request; ActivityInfo extracts are written into the package directory of an ephemeral container.
+- **Needs re-typing in place.** The fact table is "stringly typed": month, location codes, latitude, longitude, partner id, and years are `CharField`, so time series need substring arithmetic in SQL. The fact-to-indicator join runs on an unindexed, nullable `CharField(30)` with no foreign key. Both are fixable with small migrations (a nullable FK populated on import, a backfilled period date column, a composite index) without a schema rewrite. Polygons are stored as `ArrayField(CharField(max_length=64500))` loaded from 39 MB of committed CSVs. Library documents are `BinaryField` rows base64-encoded on every request. Per-database ActivityInfo username and password are stored in plaintext columns that the code no longer uses. Money is text; `djmoney` is installed and never used.
+- **Migrations.** 345 files generated by nine Django versions between 2016 and 2024; no squashes; `pivoting`'s initial migration created the whole legacy tree and then deleted it (23 `DeleteModel`, 90 `RemoveField`); one `etools` migration was neutered by hand (`operations = []` next to `operationsx`) and re-applied in the next file, which is evidence that a migration failed in production and was patched on the server. `makemigrations --check` already reports drift in `pivoting` and `users`, while `startup.sh` runs `makemigrations` at every boot for an app named `survey` that does not exist. The production schema must be dumped and compared with the migrations before any schema work; the squash is the single riskiest step of the programme and must be rehearsed on a restored copy.
+- **Runtime data in the package.** Population figures and the vulnerability list are read from year-stamped files under `pivoting/uploads/` on every request (the data itself is healthy: all district names map correctly); ActivityInfo extracts are written into the package directory of an ephemeral container.
 
 ### 4.4 Libraries and dependencies
 
@@ -119,11 +125,11 @@ Findings marked **[verified]** were reproduced by reading the cited code during 
 
 | Issue | Evidence |
 |---|---|
-| `requirements/production.txt` does not install with pip 24.1 or later: `celery==4.2.0` (2018) has invalid metadata. Django is never downloaded. | Reproduced: `pip install -r requirements/production.txt` exits 1 |
+| `requirements/production.txt` fails to install with pip 24.1 or later, the default in any fresh environment: `celery==4.2.0` (2018) has invalid metadata and Django is never downloaded. The official `python:3.10-slim` base image may still resolve it with its bundled older pip, so the image build is fragile rather than certainly broken; the image's start command is broken regardless (section 4.6). | Reproduced: `pip install -r requirements/production.txt` exits 1 |
 | Removing the four dead pins (celery, beat, results, pathlib backport), everything else resolves to Django 5.2.17, DRF 3.18.1, allauth 65.19.4, pandas 3.0.6. On Python 3.12 the same file would resolve to Django 6.1. Nothing is locked. | Reproduced |
 | `openpyxl` (imported at load time by `pivoting/views.py:34`) and `requests` are missing from the production file; only the orphan `_requirements.txt` lists `openpyxl`. A container built from the documented file returns HTTP 500 on every request. | Reproduced: `manage.py check` fails with `ModuleNotFoundError: openpyxl` |
-| The only pinned runtime packages are the vulnerable ones: `gunicorn==20.1.0` (2 CVEs, request smuggling, fix 22.0.0) and `Werkzeug==2.2.2` (9 CVEs, never imported by the app). | `pip-audit`: 22 advisories, 11 distinct |
-| Abandoned packages still listed: `django-rest-swagger` (2018, now ImportErrors against current DRF, in `INSTALLED_APPS`), `awesome-slugify` (2015, file-collides with `python-slugify`), `unicodecsv` (2015), `django-google-tag-manager` (2019), `django-sslserver` (2019), `pathlib` backport, `django-fsm` (self-declared unmaintained, warns at startup). | PyPI release dates |
+| The only pinned runtime packages are the vulnerable ones: `gunicorn==20.1.0` (2 CVEs, request smuggling, fix 22.0.0) and `Werkzeug==2.2.2` (9 CVEs, never imported by the app). | `pip-audit`: 22 advisories, 11 distinct CVEs |
+| Abandoned packages still listed: `django-rest-swagger` (2018, ImportErrors against current DRF, in `INSTALLED_APPS` but unrouted), `awesome-slugify` (2015, file-collides with `python-slugify`), `unicodecsv` (2015), `django-google-tag-manager` (2019), `django-sslserver` (2019), `pathlib` backport, `django-fsm` (self-declared unmaintained, warns at startup). | PyPI release dates |
 | About 26 listed packages are never imported or configured; development tooling (ipdb, sphinx, black, flake8, debug-toolbar, pytest) is installed into the production image. | Import grep |
 | Five near-identical requirements files; the root `requirements.txt` that the README and the zip-deploy pipeline reference does not exist. | Repo listing |
 
@@ -133,16 +139,16 @@ Findings marked **[verified]** were reproduced by reading the cited code during 
 |---|---|---|
 | AdminLTE | 3.2.0 | Current is 4.x, rebuilt on Bootstrap 5; no in-place upgrade |
 | Bootstrap | 4.6.1 (plus 4.2.1 in admin builder) | End of life since 2023; 4.2.1 has a known XSS |
-| jQuery / jQuery UI | 3.6.0 / 1.13.0 (vendored, on every page) | jQuery UI 1.13.0 has CVE-2022-31160 (XSS) |
+| jQuery / jQuery UI | 3.6.0 / 1.13.0 (vendored, on every page) | jQuery UI 1.13.0 has CVE-2022-31160 (XSS); point fix to 1.13.2 |
 | Chart.js | 2.9.4 | Current 4.x, incompatible API |
 | DataTables / Select2 / pivottable.js | 1.11.4 / 4.0.13 / 2.23.0 (2018) | Majors behind |
 | Plotly | `plotly-basic-latest` from CDN on 9 pages | Floating major version; has shipped two breaking majors and a critical prototype-pollution fix since the templates were written |
-| Highcharts | unversioned CDN on 6 pages (+34 module tags) | Commercial licence required for non-personal use; UNICEF may qualify for a non-profit licence, but no licence is recorded |
-| jsPDF / html2pdf.js / html2canvas | 1.5.3 / 0.10.1 / 0.4.1 (2013) | 15 advisories on jsPDF including two critical |
+| jsPDF / html2pdf.js / html2canvas | 1.5.3 / 0.10.1 / 0.4.1 (2013) | 15 advisories on jsPDF including two critical; only on the dead donor-mapping page |
 | polyfill.io | loaded on the donor dashboard | Domain hijacked in 2024; must be removed |
-| Leaflet, ArcGIS 4.11/4.21, d3 v3 and v5, OwlCarousel, bootstrap-select, moment, SheetJS, jszip, summernote, canvg | assorted | Duplicated: jQuery vendored 7 times, Select2 9 times, FontAwesome twice |
+| Highcharts | unversioned CDN | Loaded only by dead templates (`survey/`, `etools/donor_mapping*`); no live page uses it, so the licence question disappears once those are deleted |
+| Duplicates | jQuery vendored 7 times, Select2 9 times, FontAwesome twice | 129 MB `static/` plus 358 MB committed `staticfiles/` |
 
-Base templates also reference 12 static files that exist nowhere in the repository (`css/main.css`, `vendors/intro.js/*`, and others); under the manifest static storage used in production those lookups raise `ValueError` and return HTTP 500.
+The exploitable frontend items are point fixes that take days (upgrade jQuery UI, drop `polyfill.io`, pin Plotly, add integrity hashes). The end-of-life framework versions are not an operational emergency for an internal tool with 18 live pages; the real cost driver is the inline-JavaScript architecture (section 4.5). Base templates that reference 12 static files that exist nowhere in the repository are all dead pages; every static reference in the 46 live templates resolves under the production manifest storage (verified).
 
 ### 4.5 UI/UX
 
@@ -150,7 +156,7 @@ Base templates also reference 12 static files that exist nowhere in the reposito
 
 **What does not.**
 
-- **Architecture.** 2,930 lines of inline `<script>` across the 18 live pivoting templates (the donor dashboard is 60% JavaScript); no project JavaScript module is loaded by any live page; helpers are re-declared per template. Four base templates coexist; `base.html` is a stale fork still serving the 403 page and user pages with a dead COVID-19 sidebar link. 18 templates carry ` copy`, `_old`, `.orig`, `_new` names; 11 belong to `survey` and `tellme` apps that are not installed; `pca-summary-active` and `pca-summary-all` are 98% identical files.
+- **Architecture.** About 2,900 lines of inline `<script>` across the 18 live pivoting templates (the donor dashboard is 60% JavaScript); no shared module; helpers are re-declared per template. Four base templates coexist; `base.html` is a stale fork still serving the 403 page and user pages with a dead COVID-19 sidebar link. 18 templates carry ` copy`, `_old`, `.orig`, `_new` names; 11 belong to `survey` and `tellme` apps that are not installed; `pca-summary-active` and `pca-summary-all` are 98% identical files.
 - **Robustness.** 20 `$.ajax` calls, 20 success handlers, 0 error handlers. An empty dataset leaves the analytical page blank and throws a TypeError. The base template's document-ready block references DataTables unconditionally and throws on six live pages, including the landing page, whenever DataTables is not loaded.
 - **Accessibility.** Indicator status is an empty coloured badge (colour-only encoding); rows open modals on click with no button, tab index, or key handler; placeholder alt text; zero `scope=` attributes on table headers; body text forced to 0.75rem with `!important`; `cursor: pointer` on every card.
 - **Responsiveness.** The landing page uses `col-6` at every breakpoint with a 72px title and a random 1-of-67 JPEG (largest 968 KB, not lazy-loaded); `min-height: 800px` on all content; 34 of 41 tables lack responsive wrappers.
@@ -158,15 +164,15 @@ Base templates also reference 12 static files that exist nowhere in the reposito
 - **Internationalisation.** `USE_I18N=True` but zero translatable strings in any live page, `lang="en"` hard-coded, no RTL provision, in a context where partners work in Arabic and French.
 - **Consistency.** Two different filter patterns (GET forms versus AJAX without URL state) across sibling pages, so the Donors Mapping and Intervention Map views cannot be bookmarked or shared.
 
-**Modernisability verdict.** The live surface is small and pattern-based (a table dashboard, a pivot page, a filter-plus-AJAX dashboard, a map, static link lists) and can be rebuilt on a modern stack in weeks, not months. Incremental improvement of the current templates is only worthwhile for the quick wins in Phase 0.
+**Modernisability verdict.** The live surface is small and pattern-based (a table dashboard, a pivot page, a filter-plus-AJAX dashboard, a map, static link lists). It can be modernised page by page inside the existing app: extract inline scripts into built modules, pass data through `json_script`, share one fetch-and-error helper, fix the accessibility basics, and leave the Bootstrap 5 step last and optional.
 
 ### 4.6 Deployment, operations, and repository hygiene
 
-- **Five deployment shapes, none runnable as committed:** (1) the production Dockerfile, whose `CMD` runs `service ssh start` with no SSH server installed and then `honcho start` with no Procfile (exits 1, gunicorn never starts); (2) `azure-pipelines.yml`, which triggers on `master` while the branch is `main`, tags the image `latest` (no rollback), and deploys only to slot `tst`; (3) `azureproject/pipeline.yaml`, a zip deploy that installs a `requirements.txt` that does not exist and archives the whole 600 MB tree; (4) `startup.sh` for App Service code deploy, which runs `apt-get` and installs crontab at every boot, runs `makemigrations` in production for a non-existent app, and has CRLF line endings; (5) `passenger_wsgi.py`, a cPanel remnant that is not valid Python. The SDD (2024) says cPanel; the handover document (2026) says containers.
-- **Configuration.** The live configuration is not represented anywhere in the repository: `production.py` points the database at `localhost` with a committed password, so the deployed settings must be edited on the server.
-- **Scheduling.** The three nightly syncs run from cron inside the web container: lost on restart until `startup.sh` re-adds them, duplicated on scale-out, competing with request handling, with output going to `print()` and therefore nowhere. Errors are swallowed and the "last updated" timestamp is set before the import runs, so a silently failing sync is indistinguishable from a successful one.
+- **Five deployment shapes, none runnable as committed:** (1) the production Dockerfile, whose `CMD` runs `service ssh start` with no SSH server installed and then `honcho start` with no Procfile (exits 1, gunicorn never starts; reproduced); (2) `azure-pipelines.yml`, which triggers on `master` while the branch is `main`, tags the image `latest` (no rollback), and deploys only to slot `tst`; (3) `azureproject/pipeline.yaml`, a zip deploy that installs a `requirements.txt` that does not exist and archives the whole 600 MB tree; (4) `startup.sh` for App Service code deploy, which runs `apt-get` and installs crontab at every boot, runs `makemigrations` in production for a non-existent app, relies on an `APP_PATH` variable it never sets, and has CRLF line endings; (5) `passenger_wsgi.py`, a cPanel remnant that is not valid Python. The SDD (2024) says cPanel; the handover document (2026) says containers.
+- **Configuration.** The live configuration is not represented anywhere in the repository: `production.py` points the database at `localhost` with a committed password, so the deployed settings must be edited on the server. Whether the live path is App Service code deploy, a container, or cPanel cannot be determined from the repository.
+- **Scheduling.** The three nightly syncs run from cron inside the web container: lost on restart until `startup.sh` re-adds them, duplicated on scale-out, competing with request handling, with output going to `print()` and therefore nowhere. Errors are swallowed and the "last updated" timestamp is set before the import runs, so a silently failing sync is indistinguishable from a successful one. Schedules and the mid-month reporting cut-off run in UTC, not Beirut time.
 - **Observability.** No health endpoint, no Sentry or Application Insights, console-only logging, 404 and 500 emails routed to the vendor through an email backend with an empty API key.
-- **Platform.** The SDD names Azure Database for PostgreSQL Single Server v11, which Microsoft retired on 28 March 2025, and Python 3.9 (end of life October 2025). The Dockerfiles use 3.10 and 3.11-on-buster (Debian buster is end of life). No backup or restore plan beyond cookiecutter scripts.
+- **Platform.** The SDD names Azure Database for PostgreSQL Single Server v11, which Microsoft retired on 28 March 2025, and Python 3.9 (end of life October 2025). The Dockerfiles use 3.10 and 3.11-on-buster (Debian buster is end of life). Nothing in the repository backs up the live database; the committed backup scripts target a Docker Postgres that is never deployed. Whether platform point-in-time restore is enabled is unknown.
 - **Repository.** 15,956 tracked files, of which 12,845 (80.5%) are collected static output or vendored AdminLTE, and 14,642 (91.8%) once `.pyc`, `media/`, and `AIReports/` are included. 1,771 committed bytecode files are rewritten by any `manage.py` invocation (409 showed as modified during this review). No `.gitignore`, `.dockerignore`, or `.env.example`. `README.md`, `CONTRIBUTING.md`, and `CHANGELOG.md` are the untouched Microsoft sample templates; `screenshot_website.png` is the sample's "Azure Restaurant Review" screenshot.
 
 ### 4.7 Tests and quality gates
@@ -184,31 +190,32 @@ Base templates also reference 12 static files that exist nowhere in the reposito
 | Duplication | `pivoting/client.py` vs `activityinfo/client.py` 91% identical; two partner-profile templates 99%; two PCA summary templates 98%; 24 copy/old/bak/new files outside static |
 | Commented-out code | 237 lines, including the staff credential |
 
-As structured, the code is not unit-testable without refactoring: views open database cursors directly, SQL is built by string mutation, sync tasks call a hard-coded HTTP helper with no injection seam, and business logic lives inside 100-to-500-line `get_context_data` methods. A characterisation safety net for the four critical paths (eTools sync, pivot queries, exports, auth) is roughly three to five person-weeks of integration tests; genuinely safe unit-level coverage requires extracting a data-access seam first, roughly 2.5 to 3 months, which is the same order of effort as reimplementing those modules cleanly.
+As structured, the code is not unit-testable without refactoring: views open database cursors directly, SQL is built by string mutation, sync tasks call a hard-coded HTTP helper with no injection seam, and business logic lives inside 100-to-500-line `get_context_data` methods. A characterisation safety net for the four critical paths (eTools sync, pivot queries, exports, auth) is roughly three to five person-weeks of integration tests against a seeded PostgreSQL; genuinely safe unit-level coverage requires extracting a data-access seam first, roughly 2.5 to 3 months in total. This is the cost the enhancement roadmap pays in Phases 2 and 3, and it is the reason the two options cost about the same.
 
 ### 4.8 Documentation versus reality
 
-- **The SDD v0.5 is a good functional specification.** Its data model, admin wizards, page-by-page feature descriptions, ActivityInfo and eTools endpoint list, and cron schedule all check out against the code. Its "Back-End Restructuring" section explains why the `activityinfo` app, `base2.html`, and the `/etools/` pages still exist: they are residue of an unfinished v1-to-v2 rewrite. It is, however, an unsigned draft with a TODO, an empty sign-off table, and plaintext credentials.
-- **The 2026 handover document is not reliable.** It says the `activityinfo` integration is unused (ActivityInfo is the only source of dashboard data; the *app* is dead but the integration lives in `pivoting`), that Celery, Azure Blob storage, allauth-based SSO, and environment-variable secrets are in place (none are), that Django is 3.x (migrations are 5.0.7), and that the app deploys as a container (the image cannot start). It omits about 40% of the routed surface.
-- **Both documents claim all internal pages require authentication and that NeuroDB hosts no APIs.** 25 data endpoints are open.
-- **Knowledge-transfer risk is extreme.** One squashed commit; one named vendor engineer who is still the recipient of production error mail; authorship markers from three generations of developers; no runbook, no architecture decision records, no data dictionary.
+- **The SDD v0.5 is a good functional specification.** Its data model, admin wizards, page-by-page feature descriptions, ActivityInfo and eTools endpoint list, and cron schedule all check out against the code. Its "Back-End Restructuring" section explains why the `activityinfo` app, `base2.html`, and the `/etools/` pages still exist: they are residue of an unfinished v1-to-v2 rewrite. It is, however, an unsigned draft with a TODO, an empty sign-off table, and plaintext credentials, and it omits about 40% of the routed surface.
+- **The 2026 handover document is not reliable.** It says the `activityinfo` integration is unused (ActivityInfo is the only source of dashboard data; the *app* is dead but the integration lives in `pivoting`), that all data access goes through the ORM (1,702 lines of raw SQL do not), that sections drive authorisation (no section-scoped permission exists), that Celery, Azure Blob storage, allauth-based SSO, and environment-variable secrets are in place (none are), that Django is 3.x (migrations are 5.0.7), and that the app deploys as a container (the image cannot start). A team that estimated an enhancement from this document would budget zero for the raw-SQL layer.
+- **Both documents claim all internal pages require authentication and that NeuroDB hosts no APIs.** 23 data endpoints are open.
+- **Knowledge-transfer risk is high but narrower than "bus factor of one".** One squashed commit; no runbook, no architecture decision records, no data dictionary; production error mail still routed to the vendor's engineer. But the ActivityInfo and eTools import commands and the HTTP helper carry the UNICEF committer's authorship, so first-line knowledge of the data pipeline is in-house. The genuinely vendor-only areas are the v2 pivot SQL, the templates, and the Azure deployment wiring. The two upstream tokens are very likely personal tokens of current staff, which is why service accounts are the first thing to request.
 
 ---
 
 ## 5. What is worth keeping
 
-These are the assets any path should preserve, and they are what makes a rebuild bounded:
+These are the assets the programme builds on:
 
-1. **The PostgreSQL data**: the `pivoting_*` configuration and fact tables, the `etools_*` replica tables, `locations_*`, and `users_*`. All rows are migratable; the eTools tables need type fixes (money, ids).
-2. **The indicator domain model** and its admin wizards (Add Sub Indicators, Add Master Indicators), the single-current-year invariant, and the name-based tag parsing for gender, nationality, disability, and age group.
-3. **The 22 SQL constants in `pivoting/queries.py`** as the executable specification of the aggregation rules (effect TOTAL/NUMERATOR/DENOMINATOR, SUM_OVER_SUM, the HPM cut-off logic), to be re-expressed once as database views or a nightly aggregate table.
-4. **The SDD's functional inventory** (section 4.8 and Appendix A), which is complete enough to serve as the acceptance checklist for a rebuild.
-5. **The Django framework itself.** The code already runs on Django 5.2; the team's existing knowledge and the SQL transfer directly. A rebuild on Django 5.2 LTS is a rebuild of the application, not a change of platform.
-6. **A few good patterns**: the container entrypoint that gates migrate/collectstatic on environment flags, WhiteNoise with manifest storage, the security-middleware baseline, and the per-entity management commands for syncs.
+1. **The PostgreSQL data and the Django migration graph** (after the pending migrations are committed and the schema is reconciled with production): no data migration project is needed.
+2. **The indicator domain model** and its admin wizards, the single-current-year invariant, and the name-based tag parsing for gender, nationality, disability, and age group.
+3. **The 18 live SQL constants in `pivoting/queries.py`** as the executable specification of the aggregation rules, to be moved behind parameterised query objects and re-expressed once as PostgreSQL views.
+4. **The ActivityInfo import chain and the eTools sync commands**, hardened rather than replaced: they encode the partner-name normalisation, emergency and COVID keyword rules, the nutrition special case, and the June/July cut-off that nobody has written down.
+5. **The 18 live page templates and `baseV2.html`**, the account templates, the error pages, and the AdminLTE assets they actually reference.
+6. **The SDD's functional inventory** (Appendix A) as the frozen scope checklist and acceptance list.
+7. **A few good patterns**: the container entrypoint that gates migrate/collectstatic on environment flags, WhiteNoise with manifest storage, the security-middleware baseline, the eTools replica keys, and the per-entity management commands for syncs.
 
 ---
 
-## 6. Functional scope that a rebuild must reproduce
+## 6. Functional scope (the frozen checklist)
 
 Derived from the SDD and the routing tables (full source-of-truth mapping in Appendix A).
 
@@ -227,77 +234,91 @@ Derived from the SDD and the routing tables (full source-of-truth mapping in App
 | Integrations | ActivityInfo structure import and monthly data import via export jobs; eTools partners, agreements, interventions, travels, audits, action points; eTools locations; three scheduled jobs |
 | Cross-cutting | Login (username/password now, Microsoft SSO intended), CSV/Excel/PDF exports, Power BI links |
 
-Roughly 25 pages, 14 data feeds, 6 exports, 2 upstream integrations, 9 admin model families. The legacy `/etools/` page generation is superseded by the `/v2/` pages and should be retired, not rebuilt.
+Roughly 25 pages, 14 data feeds, 6 exports, 2 upstream integrations, 9 admin model families. The legacy `/etools/` page generation is superseded by the `/v2/` pages and is deleted, not migrated; anything else not on this list needs a written decision before it is kept.
 
 ---
 
 ## 7. The two options compared
 
+The panel's scores (0 to 10, higher is better for the option):
+
+| Lens | Enhance | Rebuild | Verdict |
+|---|---|---|---|
+| Engineering risk (probability of landing with a small new team while production keeps running) | 6 | 4 | Enhance |
+| Cost and time to value (total cost, when users see improvements, cost of parallel running, resilience to a budget cut) | 7 | 5 | Enhance |
+| Security and compliance (speed and durability of closing exposures; auditable end state) | 7 | 6 | Enhance |
+
 | Criterion | A. Enhance in place | B. Rebuild from scratch (data, domain model, and Django kept) |
 |---|---|---|
-| Time until the live security exposures are closed | ~2 weeks (Phase 0) | ~2 weeks (same Phase 0 applied to the live system) |
-| What is reused | Everything, including 92% junk in the repo, 345 migrations, dead app coupling, stringly-typed schema, inline-JS templates | Data, domain model, SQL rules as spec, SDD, Django skills |
-| What must be rewritten anyway | Settings and secrets, dependency lock, deployment path, sync layer, views/query layer (no test seam), every template (frontend stack has no upgrade path), test suite from zero | Everything except the items above, but on a clean foundation |
-| Risk of unknown behaviour | Lower per change, but there are no tests, so every refactor is unverified; the raw SQL business rules must still be reverse-engineered to add tests | Higher at the start; mitigated by the SDD, the SQL constants as spec, a parallel run against the old site, and the small scope |
-| Risk of never finishing | High: incremental work inside this codebase tends to stall because each layer depends on the next (cannot delete `activityinfo` without squashing migrations; cannot test views without extracting SQL; cannot upgrade Bootstrap without touching every page) | Medium: bounded scope with a clear acceptance checklist; the main risk is scope creep during the rebuild |
-| End state | A cleaner version of the same architecture; schema and migration history still carry 2016 decisions; frontend still template-bound unless also rebuilt | A typed schema, a data-access layer, a tested integration layer, one deployment path, a modern frontend, a repository the new team owns |
-| Estimated effort (person-months, excluding Phase 0) | 8 to 11, with a worse end state; realistically converges on a rewrite of 80% of the code | 9 to 12 |
-| Elapsed time with a two-person team | 6 to 8 months, with the site partially modernised throughout | 5 to 6 months, with the old site untouched (after Phase 0) until cutover |
-| Long-run maintenance cost | Higher: the new team inherits code it did not write and cannot test | Lower: the new team owns a codebase built with tests and a lockfile from day one |
-| Security posture | Patches close the known holes; the copy-paste pattern that produced them remains | Structural: authentication and parameterisation enforced by the data-access layer and middleware |
+| Time until the live exposures are closed | ~2 weeks (Phase 0) | ~2 weeks (same Phase 0 on the live site) |
+| Time until users see improvements | Every two weeks from week one | Month 4 or 5, then a split product (two looks, two logins) for about four months |
+| What is reused | Data, models, admin, SQL rules as running code, import and sync chains, 18 live templates, deployment continuity | Data, domain model, SQL rules as a spec, SDD, Django skills |
+| What is rewritten anyway | Settings, dependency lock, deployment, sync hardening, view/query layer (Phase 3), presentation layer page by page (Phase 4) | Everything except the kept items |
+| Framework risk | Already retired: boots on Django 5.2 with zero errors | None, but no gain either: Django 5 to Django 5 |
+| Risk of unknown behaviour | Bounded: the running system stays the oracle while golden tests are captured; no rule has to be decided before a safe change can be made | Every golden divergence forces a product decision before a page can go live, on one part-time product owner |
+| Parallel running | None | Two databases, dual syncs, path routing, shared login for 4 to 6 months, operated by a three-person team |
+| Failure mode if funding stops | One system, strictly safer than today, at every phase gate | Two half-systems: the outcome the last rewrite produced |
+| Riskiest single step | The migration squash and `activityinfo` table drop on a live database with server-generated migrations (rehearsed on a restored copy) | Cutover and reconciliation |
+| End state | One settings module, one Dockerfile, lockfile, jobs off the web worker, parameterised SQL, aggregation as views, tests on every route, one layout; fact table re-typed by backfill rather than redesign | Typed schema, one migration per app, tests by construction; cleaner, by perhaps 10 to 20 percent lower yearly maintenance |
+| Estimated effort (person-months, after Phase 0) | 11 to 15 | 13 to 18 once parallel running and shared login are priced in |
+| Elapsed time | 8 to 10 months, two senior developers plus part-time devops and frontend | 7 to 8 months, three people, with the old site frozen after Phase 0 |
 
-**Verdict: Option B.** The costs are comparable; the risks are comparable but differently shaped; the end states are not comparable. The enhancement path only wins if the organisation cannot fund five to six months of focused work at all, in which case the right answer is Phase 0 alone and a frozen system, not a partial modernisation.
+**Verdict: Option A.** The costs are comparable, the end state of a rebuild is cleaner but not by a multiple, and the risk shapes are decisive: enhancement is incremental, reversible on a slot swap, and stoppable at every gate; the rebuild depends on funding continuity and product-owner bandwidth that a country office is least able to guarantee. Enhancement only loses if UNICEF also wants to change the product (a new UX, a new data model, a Power-BI-first reporting strategy) rather than make the current one maintainable.
+
+**What the rebuild case got right, adopted as conditions:** freeze the scope checklist as the parity contract; capture golden fixtures from the 18 live SQL constants against a production copy before any refactor; keep a written divergence register signed by the product owner for every ambiguous rule; record sync runs with staleness alerts; fix decommission dates for the dead page families up front; start the new repository from a tree with no secret in it and treat the old history as compromised.
 
 ---
 
 ## 8. Recommended roadmap
 
-### Phase 0: stabilise the live system (weeks 1-2, one senior developer, applies under either option)
+Realistic budget: 11 to 15 person-months over 8 to 10 elapsed months, at a steady two-week release cadence. Phases 3 and 4 are severable; the minimum commitment that leaves a durable result is through Phase 2 (about 4 person-months, 3 months elapsed).
 
-1. **Rotate** the eTools token, the ActivityInfo token, the Django secret key, the database password, the Azure Redis key, the staff account password in the comment, the cPanel credential in the SDD, and review the Google Maps key's referrer restriction. Request service accounts from eTools and ActivityInfo instead of personal tokens.
-2. **Close the data endpoints**: add `@login_required` to every function view in `pivoting/views.py` and `etools/views.py`, `LoginRequiredMixin` to the two `ListView` exports, and set `REST_FRAMEWORK` default permissions to `IsAuthenticated` with the create/update mixins removed from the locations viewset. Add a test that iterates every URL pattern and asserts anonymous requests are redirected.
-3. **Fix the two SQL injection sites** (`pivoting/views.py:75-81`, `etools/views.py:106`) with bound parameters and a whitelist; convert the other `str.replace()` sites to `= ANY(%s)`.
-4. **Remove** the `polyfill.io` script tag, the placeholder SSO link on the login page, `output.txt`, and the `/media/` and `/static/` serve routes.
-5. **Make the build reproducible**: delete the four dead pins, add `openpyxl` and `requests`, pin `django~=5.2`, upgrade `gunicorn` to 23 or later, drop `Werkzeug` from production, generate a lockfile, add a `.gitignore`, and un-track `staticfiles/`, `*.pyc`, `media/`, and `AIReports/`.
-6. **Tighten settings**: remove `"*"` from `ALLOWED_HOSTS`, set `SECURE_SSL_REDIRECT=True`, one-year HSTS, and move `SECRET_KEY` and `DATABASE_URL` to environment variables.
-7. **Record ground truth**: confirm in the Azure portal how neuro-db.org is actually deployed, which database server it uses, and whether the cPanel host still serves anything; write it down as the first page of a runbook.
+### Phase 0: stop the bleeding (weeks 1-2, about 0.5 person-months, ships to production)
 
-### Phase 1: foundation for the rebuild (weeks 3-6)
+1. **Rotate** the eTools token, both ActivityInfo tokens, the Django secret key, the database password, the Azure Redis key, the SendGrid key, the staff account password in the comment, and the cPanel credential in the SDD. Request service accounts from eTools and ActivityInfo instead of personal tokens. Read every secret from the environment through the `django-environ` object already in `settings.py`, with no defaults in production.
+2. **Close the data endpoints**: `@login_required` on every function view in `pivoting/views.py` and `etools/views.py`, `LoginRequiredMixin` on the two `ListView` exports, `published=True` enforced on the library download, `REST_FRAMEWORK` default permissions set to `IsAuthenticated` with the create/update mixins removed from the locations viewset. Add a test that iterates every URL pattern and asserts anonymous requests are redirected, and never remove it.
+3. **Fix the two SQL injection sites** (`pivoting/views.py:75-81`, `etools/views.py:106`) with bound parameters and a whitelist; convert the other `str.replace()` sites to `= ANY(%s)` and return early on empty lists.
+4. **Remove** the `polyfill.io` script tag, the placeholder SSO link and the three `/sso/` routes, `output.txt`, the commented credentials, and the `/media/` and `/static/` serve routes; upgrade jQuery UI to 1.13.2.
+5. **Make the build install**: delete the four dead pins, add `openpyxl` and `requests`, pin `django~=5.2`, upgrade `gunicorn` to 23 or later, drop `Werkzeug` from production.
+6. **Tighten settings**: remove `"*"` from `ALLOWED_HOSTS`; connect the application as a least-privilege database role instead of `postgres`.
+7. **Record ground truth** in `docs/OPERATIONS.md`: from the Azure portal, how neuro-db.org is deployed (startup command, app settings, container or code), which database server and name, whether point-in-time restore is on, and whether the cPanel host still serves anything. Dump the production schema and `showmigrations` output into the repository. Run the month-column check from section 10 on the production database.
 
-- New repository; Django 5.2 LTS; single settings module driven by environment variables; `pyproject.toml` with locked dependencies; pre-commit with ruff; CI running lint, `check --deploy`, `makemigrations --check`, and pytest against a PostgreSQL service container on every pull request.
-- One multi-stage Dockerfile (non-root, no SSH), one pipeline building an immutable image tag on `main`, deploying to a staging slot, and swapping to production; Azure Database for PostgreSQL Flexible Server 16 with point-in-time restore; Application Insights and a health endpoint.
-- Authentication through django-allauth's Microsoft provider pinned to the UNICEF tenant, no auto-provisioning, admin behind SSO; `REST_FRAMEWORK` defaults to authenticated.
-- Typed schema: the indicator hierarchy as-is; a fact table with a real period date, foreign keys to indicator and admin-area tables, and composite indexes; eTools replicas with decimal money, real dates, and consistent surrogate keys; population figures and vulnerability lists as tables loaded by a command; documents in Azure Blob via django-storages.
-- One-off ETL script copying rows from the current database, run repeatedly during the project so cutover is a rehearsed operation.
-- Integration clients for ActivityInfo and eTools with timeouts, retries, pagination, structured logging, per-run records, and recorded-HTTP tests; scheduled jobs as Azure Container Apps Jobs (or WebJobs) outside the web container, with alerts on failure or staleness.
-- The aggregation rules from `queries.py` expressed once as PostgreSQL views (or a nightly aggregate table) that both Django and Power BI can read, with snapshot tests comparing results against the old queries on the same data.
+### Phase 1: reproducible build and one deployment path (weeks 3-6, about 1.5 person-months)
 
-### Phase 2: core reports (weeks 7-14)
+- New clean repository (the history is one commit anyway) with `.gitignore`, `.gitattributes`, `.dockerignore`; `pyproject.toml` with locked dependencies pinned to Django 5.2 LTS; the ~26 unused packages, `django-rest-swagger`, `awesome-slugify`, and the celery scaffolding removed.
+- One multi-stage Dockerfile (Python 3.12, non-root, no SSH daemon, gunicorn as the command, the existing entrypoint retained); `azure-pipelines.yml` triggering on `main`, tagging by git SHA, with a CI stage before the build (ruff, `check --deploy`, `makemigrations --check`, smoke tests), deploying to a staging slot and swapping. Delete `startup.sh`, `pipeline.yaml`, `passenger_wsgi.py`, and the nginx/traefik fragments.
+- Commit the two pending migrations; add `/healthz` and Application Insights; point `ADMINS` at a UNICEF alias and remove the broken-link email middleware.
+- Move the three cron jobs to Azure Container Apps Jobs or WebJobs running the same management commands, with a sync-run record table, per-run logging, and a staleness alert; set the "last updated" timestamp only on success.
+- Verify the database platform and migrate off the retired Single Server to Flexible Server 16 with point-in-time restore, rehearsed with one restore to a throwaway server.
 
-- Database Dashboard, Analytical View, Snapshot, Intervention Map, Raw Data export, reporting-year switch; Neuro Reports and the HPM report; the admin model families and both wizards.
-- Frontend: server-rendered Django templates with HTMX for partial updates, one JavaScript bundle built with Vite (pivottable.js and a single current charting library kept, since users like them), Bootstrap 5, data passed through `json_script`, shared error and empty states, keyboard-accessible tables with visible status text, responsive layouts, and strings wrapped for translation from the start.
-- Acceptance: each page compared against the old site on the same data with the product owner.
+### Phase 2: safety net and demolition (weeks 7-12, about 2 person-months)
 
-### Phase 3: remaining pages (weeks 15-20)
+- pytest-django against a PostgreSQL service container; fixtures seeded from a sample of the committed extract and the population JSON; recorded HTTP for eTools and ActivityInfo.
+- Tests: one smoke test per routed URL (302 anonymous, 200 logged in); one golden test per live SQL constant captured against a frozen copy of production; characterisation tests for the sync functions and the import row parser on sample rows. Divergences found while capturing goldens (the zero-target division, the 26 commented-out `funded_by` filters, the nutrition rule, the month column) go into a written divergence register with a product decision each.
+- Then delete, with the tests as guard: the `activityinfo` runtime code (migrations kept as a stub until the squash), the legacy `/etools/` routes and templates, `base.html`, `base2.html`, `base_empty.html`, the `survey` and `tellme` templates, every copy/old/orig file, the dead 470 lines of `utils.py` and the admin actions that call them, the four dead SQL constants, `gistfile.py`, the unreferenced AdminLTE plugins and JavaScript bundles.
+- Fix the two NameErrors, the Zen-of-Python import, the star imports, the admin permission overrides, and the trip-sync page range.
+- **Gate:** every route exercised in CI, ~40 to 50 percent line coverage on `pivoting` and `etools` via integration tests, one base template, roughly a third less Python and two thirds fewer templates.
 
-- Funded programmes (dashboard, analytical, both summaries), Donor Mapping, Partnerships and partner profile, Population Figures, Library, Maps, landing page and navigation model.
-- Retire the legacy `/etools/` generation explicitly; keep only the two pages (interventions, programmatic visits) if the product owner confirms they are still used.
+### Phase 3: backend restructuring (weeks 13-22, about 3 person-months)
 
-### Phase 4: parallel run and cutover (weeks 21-24)
+- Introduce a service layer: `queries.py` as parameterised query objects; the copy-pasted dashboard blocks, the polygon lookups (cached), and the four filter parsers extracted; views become thin adapters with `get_object_or_404`. Every moved query is diffed old-versus-new per database, indicator, and month against the production copy before the old path is deleted.
+- Extract the shared aggregation subquery (repeated five times in the NeuroReport query) into PostgreSQL views so "achieved", the zero-target rule, and the `funded_by` rule exist once; expose them to Power BI.
+- Sync hardening: `transaction.atomic` and `bulk_create` around the delete-and-insert import, a bounded export poll, per-step error isolation and non-zero exit in the eTools command, trip pagination from page one, the activity date taken from the activity, timeouts and retries in a single integrations client.
+- Fact-table typing in small migrations: a composite index on database, indicator, and month; a nullable foreign key to the indicator populated on import; a backfilled period date column; float coordinates. Then squash the `etools` and `pivoting` migrations and drop the `activityinfo` tables, rehearsed end-to-end on a restored copy and executed in a maintenance window.
+- Replace the hand-rolled SSO with allauth's Microsoft provider pinned to the UNICEF tenant with no auto-provisioning; design a section-level authorisation model and restrict partner staff data to roles that need it.
+- **Gate:** `views.py` reduced to thin adapters, zero string-built SQL sites (enforced by a test), nightly import atomic and observable, aggregation semantics in one place.
 
-- Run both sites against the same database for two sync cycles; verify sync run records and report values match; user acceptance; DNS cutover with the old App Service kept warm for a two-week rollback window; then decommission the old App Service, the cPanel host, and the old repository (archived, not deleted).
-- Hand over: runbook (deploy, secrets rotation, yearly population-figures update, HPM PDF drop, sync failure triage), data dictionary generated from the models, and architecture decision records.
+### Phase 4: frontend cleanup (weeks 23-32, about 3 person-months, severable)
 
-### Team and budget
+- Page by page across the 18 live templates: inline scripts into modules built with Vite, server data through `json_script`, one shared fetch-with-error-and-empty-state helper, a Content Security Policy with nonces, pinned and vendored chart and map libraries, Maps key from settings with referrer restriction, the sidebar from a context processor with active state and breadcrumbs, one filter pattern with URL state, visible status text beside badges, keyboard-reachable rows, alt text, header scopes, responsive grids, the 12px body override and the global card cursor removed, landing images resized and lazy-loaded.
+- Bootstrap 5 and AdminLTE 4 last, one page per pull request behind the smoke tests, with Lighthouse and axe in CI. Decide Arabic/French support as an explicit product question.
+- **Gate:** one layout, one vendor bundle, no unpinned third-party script, AJAX failures visible to users, accessibility basics met.
 
-- Two developers (one senior Django full-stack lead, one mid-level), a part-time product owner from UNICEF who knows the reports, and access to the original vendor engineer for two or three structured interviews against the scope checklist early in Phase 1.
-- Estimated 9 to 12 person-months of development plus Phase 0. Elapsed 5 to 6 months. The estimate assumes no new features are added during the rebuild; feature requests are queued for Phase 5.
+### Team, budget, and gates
 
-### Decision gates
-
-- **End of Phase 0:** all critical findings closed on the live site; secrets rotated; the build reproduces in CI. If this cannot be achieved in two weeks, the team is not yet ready for Phase 1.
-- **End of Phase 1:** the ETL copies the full database into the new schema, and the aggregate views reproduce the old dashboard numbers for at least three databases. This is the go/no-go for the rebuild; failure here means the SQL rules were not fully understood and the vendor interview must be repeated.
-- **End of Phase 2:** the product owner signs off the Database Dashboard and Analytical View as equivalent or better.
+- Two senior Django/PostgreSQL developers (at least one comfortable with raw SQL and views, since the business rules live in `queries.py`), a part-time Azure engineer for Phase 1, a part-time frontend engineer from Phase 4, and the UNICEF innovation lead as product owner for 2 to 4 hours a week of acceptance and rule decisions. Interview the former vendor engineer against the scope checklist in the first 30 days if reachable.
+- No new feature lands before the Phase 2 gate. If budget tightens, the programme stops at a gate; by construction that leaves a hardened, pinned, single-path, monitored system.
+- Decision gates: **Phase 0** all critical findings closed in production and the build reproduces in CI; **Phase 1** any team member can build, test, and deploy from the repository, syncs run outside the web container with alerts, database on a supported platform; **Phase 2** every route under test, golden fixtures captured, dead code gone; **Phase 3** old and new query results match on the production copy, migrations squashed; **Phase 4** page-by-page product-owner acceptance.
 
 ---
 
@@ -305,12 +326,29 @@ Roughly 25 pages, 14 data feeds, 6 exports, 2 upstream integrations, 9 admin mod
 
 | Risk | Mitigation |
 |---|---|
-| Undocumented business rules hidden in the raw SQL (commented-out filters, HPM cut-off dates, "funded by UNICEF" toggles) are lost | Treat `queries.py` as the spec; snapshot-test the new views against the old queries on the same database in Phase 1; interview the vendor engineer against the scope checklist |
-| The live site is compromised during the rebuild | Phase 0 closes the exploitable holes first; secrets rotated; the old code is frozen afterwards |
-| Scope creep during the rebuild | Feature freeze; the SDD-derived checklist is the only acceptance list; requests queued for after cutover |
-| Team capacity or funding is interrupted mid-rebuild | Phases are ordered so that Phase 1 alone leaves a usable asset (secure foundation, typed schema, tested integrations, working ETL) that a later team can pick up; the old site keeps running throughout |
-| The production database schema differs from the repository's migrations | Phase 0 item 7 and the Phase 1 ETL both start from a schema dump of the live database, not from the migrations |
-| Highcharts licensing | Replace with the single charting library chosen in Phase 2 (Chart.js 4 or Plotly pinned), or record a non-profit licence |
+| The programme drifts into "a slow rewrite in the old repository's shape" | Phase gates with measurable exit criteria; a feature freeze until Phase 2; the product owner reviews the gate checklist |
+| Refactoring the view layer and the import function without production-shaped data changes dashboard numbers silently | Golden tests captured before any refactor; old and new query paths diffed per database, indicator, and month on a production copy; the old constant stays callable behind a flag until the diff is clean |
+| The migration squash and `activityinfo` table drop fail on a live database whose schema contains server-generated migrations | Schema dump and `showmigrations` captured in Phase 0; full rehearsal on a restored copy; maintenance window with point-in-time restore verified first |
+| Production ground truth turns out to be cPanel or a hand-edited App Service | Phase 0 item 7 establishes it before any engineering; if it is cPanel, Phase 1 grows by two to three weeks rather than being absorbed silently |
+| Service-account tokens from eTools and ActivityInfo take longer than the code | Requested in week 1; the integrations client accepts whatever token exists; escalated as an open compliance item, not absorbed |
+| The two people who understand the SQL semantics are unavailable | Golden tests freeze current outputs first; the vendor engineer is interviewed early; the divergence register records every decision |
+| The Bootstrap 5 migration has no automated path and slips | Deliberately last and severable; the security and maintainability gains land before it |
+| Data-quality surprises in the fact table (empty month column, text coordinates, text partner ids) | Section 10 checks run in Phase 0; the period backfill in Phase 3 reports coercion failures per row instead of guessing |
+
+---
+
+## 10. Open questions to answer before Phase 1
+
+None of these can be settled from the repository; each is a one-hour check that changes the plan if the answer is bad.
+
+1. **Is the 2025 fact data missing its month?** On the production database: count rows per database where `month_name` is empty. If the unified 2025 database has empty months, the HPM and NeuroReport pages have been wrong since the import format changed, and fixing the import (`utils.py:342-348`) plus a re-import moves into Phase 0.
+2. **What actually runs?** App Service configuration (startup command, app settings, deployment centre source), `crontab -l` and `pip freeze` on the instance, and whether the cPanel host is still live.
+3. **Is the database backed up?** The Azure Postgres backup settings, one rehearsed point-in-time restore, and recorded recovery objectives. The database is the only irreplaceable asset.
+4. **What does the platform cost?** The SDD's figures (about 160 USD per month for the app plan and the retired database tier) predate the Single Server retirement; price Flexible Server plus a small job runner from Cost Management.
+5. **Is there a data-protection record?** Whether a UNICEF Personal Data Protection assessment exists for NeuroDB, whether partner staff contact details are needed at all (they are shown only in a modal), and what the retention rule is for eTools replica rows flagged deleted upstream.
+6. **How fast are the pages today?** Row counts of the largest tables and timings of the HPM report and the analytical feed on the live system, so that caching and materialisation work is sized from measurements rather than assumptions.
+7. **Who owns the landing images?** 67 photographs on the public landing page have no provenance or consent record.
+8. **What does the yearly rollover involve?** Walk the January procedure with the current committer (new reporting year, new database rows, structure import, wizards, the year-stamped population file, the HPM PDFs) and write it into the runbook; missing a step today yields blank dashboards with no error.
 
 ---
 
@@ -348,7 +386,7 @@ Format: route : view : template : data source.
 - `/v2/database-analytical?id` : pivottable.js + Plotly + Select2 over `load_database_activityinfo`; quick switch; TSV export
 - `/v2/database-snapshot?id` : print layout combining dashboard, preset pivots, and map
 - `/v2/database-intervention-map/?id` : Google Maps + Plotly + DataTables; filters PD, partner, governorate, caza, month
-- `/v2/database-download/?id` : streams `pivoting/AIReports/<ai_id>_ai_data.xlsx` (no auth)
+- `/v2/database-download/?id` : streams `pivoting/AIReports/<ai_id>_ai_data.xlsx` (no auth; file exists only on instances that ran the import)
 - `/v2/neuroreport-dashboard/?id`, `/v2/neuroreport-analytical?id` : non-HPM Neuro Reports
 - `/v2/hpm-neuroreport/?id&month&quarter` : HPM values to period, delta versus previous period, inline comments, PDFs from `static/hpm_files`
 - `/v2/pca-dashboard/`, `/v2/pca-analytical?id`, `/v2/pca-summary-active`, `/v2/pca-summary-all` : eTools PCA list with filters, popup, pivot, summaries via `PCA_*` SQL
@@ -372,28 +410,48 @@ Format: route : view : template : data source.
 - Locations: `manage.py sync_locations_data` (cron 05:00), `sync_locationtype_data`, `sync_simple_locations_data`, `import_polygons` (CSV to polygon text)
 - Email: SendGrid via anymail (empty key); analytics: Google Tag Manager; embeds: Power BI links on sections and databases
 
-## Appendix B: verification status of the decision-driving findings
+## Appendix B: verification record
 
-| Finding | How it was verified |
+**Adversarial verification.** 59 high and critical findings were each re-examined by a separate verifier instructed to refute them: 23 confirmed as written, 36 confirmed in substance with severity or framing adjusted, 0 refuted. The notable adjustments, all reflected in this report:
+
+| Finding | Adjustment |
+|---|---|
+| "The production Docker image cannot build" | True with any pip 24.1 or newer; the official base image's bundled pip may still resolve the file. Downgraded to medium; the image's start command is broken regardless (confirmed high). |
+| "Dead `activityinfo` app is critical and forces a rewrite" | Runtime impact is zero and the migration coupling is a single dependency line; downgraded to low, fix is contained. |
+| "Frontend stack cannot be patched incrementally" | Exploitable items are point fixes; framework end-of-life is not an emergency for 18 internal pages; the real driver is inline JavaScript. |
+| "Missing static files cause HTTP 500 on live pages" | Affects only dead pages; every static reference in the 46 live templates resolves under manifest storage. |
+| Highcharts licence and unpinned CDN | Loaded only by dead templates; moot after deletion. |
+| "50 raw cursor sites" in `views.py` | 30 executions (20 cursor creations); the file is live and routed. |
+| "Eight SQL sites take request parameters" | One takes user input directly; three take database-sourced values; the rest are constants. |
+| eTools token occurrences | 13 sites in three apps (some reviewers counted 7 or 10). |
+| ActivityInfo tokens | Two distinct tokens at six sites in four files, not one token in two files. |
+| Unauthenticated endpoint counts (20, 22, 25) | Scope differences: 20 in `pivoting`, 2 in `etools`, 3 DRF routes of which 2 are syntactically dead. |
+| "Bus factor of one, knowledge with the vendor" | The import and sync commands carry the UNICEF committer's authorship; vendor-only areas are the pivot SQL, templates, and Azure wiring. |
+| Power BI publish-to-web links | Not a NeuroDB defect; a publishing decision. |
+| Money stored as text | Real, but the dashboards sum money in Python; nice-to-have rather than a rewrite driver. |
+| Trip sync starting at page 45 | Partly mitigated by the 365-day detail re-fetch. |
+| Personal-data framing | UNICEF's Policy on Personal Data Protection applies, not GDPR. |
+
+**Findings added by the completeness critic** (all verified in the code, none against the live system): the empty month column in the committed 2025 extract; the unguarded division by the default-zero target in the NeuroReport query; the Raw Data download depending on files present only on instances that ran the import; three different production database names and an internet-exposed superuser connection in the SDD; `startup.sh` relying on an unset `APP_PATH` and UTC schedules; token rotation requiring code changes in three files; two further false architectural claims in the handover document (ORM-only access, section-scoped authorisation).
+
+**Directly reproduced by the review lead:**
+
+| Finding | How |
 |---|---|
 | Unauthenticated SQL injection via `emergency` | Code read at `pivoting/views.py:70-81` and `queries.py:668`; no auth decorator; string building reproduced |
-| 25 unauthenticated data endpoints | Every route in the five `urls.py` files mapped to its view; absence of `login_required`, `LoginRequiredMixin`, `is_authenticated`, and `REST_FRAMEWORK` confirmed by grep and read |
+| 23 unauthenticated data endpoints | Every route in the five `urls.py` files mapped to its view; absence of `login_required`, `LoginRequiredMixin`, `is_authenticated`, and `REST_FRAMEWORK` confirmed |
 | Authenticated SQL injection via `.extra(where=)` | Code read at `etools/views.py:76, 106` |
 | Locations API create/update open | `locations/views.py:17-24` read; `REST_FRAMEWORK` absent from settings |
 | Committed secrets | Each cited file and line read; values not recorded |
 | SSO placeholders, tenant `common`, auto-provisioning, dead redirect | `azureproject/sso_views.py` read in full; `dashboard` URL name absent |
-| Production requirements do not install | `pip install -r requirements/production.txt` run on Python 3.11 with pip 25: exit 1 at `celery==4.2.0` |
-| Missing `openpyxl` breaks every request | `manage.py check` run after installing the remaining requirements: `ModuleNotFoundError` from `pivoting/views.py:34` |
+| Production requirements do not install | `pip install -r requirements/production.txt` on Python 3.11 with pip 25: exit 1 at `celery==4.2.0` |
+| Missing `openpyxl` breaks every request | `manage.py check` after installing the remaining requirements: `ModuleNotFoundError` from `pivoting/views.py:34` |
 | Code boots on Django 5.2 | `manage.py check --deploy` after adding `openpyxl` and `requests`: exit 0, 13 warnings |
 | Migration drift | `makemigrations --check --dry-run`: pending migrations in `pivoting` and `users` |
 | 11 CVEs in pinned packages | `pip-audit` on the resolved set |
 | Django version history 2016 to 2024 | `Generated by Django` headers in all migration files |
 | `from this import d` | `etools/admin.py:3` read; Zen of Python observed on `manage.py check` output |
-| Docker image cannot start | `honcho start` with no Procfile exits 1 (reproduced by the deployment reviewer); no `Procfile` in the repository |
-| Template compile failures on `/etools/` pages | Rendered through the Django template engine by the UI reviewer: `TemplateSyntaxError` for unregistered tags |
-| Committed bytecode rewritten by any Python run | 409 tracked `.pyc` files showed as modified after `manage.py check` during this review |
-
-A second adversarial verification pass over the high and critical findings of each dimension confirmed the findings it completed; its full output is retained with the review working files.
+| Committed bytecode rewritten by any Python run | 409 tracked `.pyc` files showed as modified after `manage.py check` |
 
 ## Appendix C: commands used for the executed checks
 
@@ -408,4 +466,14 @@ venv/bin/radon cc -s -a -e '*/migrations/*' pivoting etools locations users azur
 venv/bin/radon mi -s -e '*/migrations/*' pivoting etools locations users azureproject
 grep -rhoE 'Generated by Django [0-9.]+' */migrations | sort | uniq -c
 git ls-files | wc -l; git ls-files | grep -cE '^(staticfiles|static/adminlte|static/admin)/'
+```
+
+Suggested first check on the production database (section 10, item 1):
+
+```
+SELECT database_ai_id,
+       count(*) FILTER (WHERE month_name = '' OR month_name IS NULL) AS empty_month,
+       count(*)                                                     AS total
+FROM pivoting_activityreportnew
+GROUP BY 1 ORDER BY 3 DESC;
 ```
