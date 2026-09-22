@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+<div class="toolbar">
+  <div class="segmented" role="group" aria-label="{% trans 'Map level' %}">
+    {% for l in levels %}<a href="?{% qs_replace level=l %}" {% if l == level %}aria-current="page"{% endif %}>{% if l == "governorate" %}{% trans "Governorates" %}{% elif l == "district" %}{% trans "Districts" %}{% elif l == "cadaster" %}{% trans "Cadasters" %}{% else %}{% trans "Sites" %}{% endif %}</a>{% endfor %}
+  </div>
+  <span class="small text-muted ms-auto" data-map-totals aria-live="polite"></span>
+</div>
+<form method="get" class="filter-bar" role="search" aria-label="{% trans 'Map filters' %}">
+  <input type="hidden" name="level" value="{{ level }}">
+  {% for key, label in filter_fields %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="map-{{ key }}">{{ label }}</label>
+    <select class="form-select form-select-sm" id="map-{{ key }}" name="{{ key }}">
+      <option value="">{% trans "All" %}</option>
+      {% for opt in options|get_item:key %}<option value="{{ opt }}" {% if filters|get_item:key == opt|stringformat:"s" %}selected{% endif %}>{% if key == "month" %}{{ opt|month_name }}{% else %}{{ opt }}{% endif %}</option>{% endfor %}
+    </select>
+  </div>
+  {% endfor %}
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
+    <a class="btn btn-link btn-sm" href="?level={{ level }}">{% trans "Reset" %}</a>
+  </div>
+</form>
+<div class="grid grid--2">
+  <section class="map-shell" data-module="map" data-config="map-config" aria-label="{% trans 'Intervention map' %}">
+    <div class="map" data-map-canvas></div>
+    <div class="map-legend" data-map-legend hidden>
+      <strong>{% trans "Records" %}</strong>
+      <div class="map-legend__ramp"></div>
+      <div class="map-legend__scale"><span>1</span><span data-legend-max></span></div>
+    </div>
+  </section>
+  <section class="panel p-0">
+    {% include "components/table_toolbar.html" with title=_("Areas") table_id="map-table" filename="interventions-"|add:level %}
+    <div class="table-wrap" style="max-height: min(70vh, 640px)">
+      <table class="table table-hover" id="map-table" data-sortable>
+        <thead><tr><th>{% if level == "site" %}{% trans "Site" %}{% else %}{% trans "Area" %}{% endif %}</th><th class="num">{% trans "Records" %}</th><th class="num">{% trans "Value" %}</th>{% if level != "site" %}<th class="num">{% trans "Partners" %}</th>{% endif %}</tr></thead>
+        <tbody data-map-table><tr><td colspan="4">{% include "components/skeleton.html" %}</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{{ map_config|json_script:"map-config" }}
+{% endblock %}

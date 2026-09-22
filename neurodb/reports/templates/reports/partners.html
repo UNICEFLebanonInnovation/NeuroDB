@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+<form method="get" class="filter-bar" data-filter-bar data-hx-target="#partner-table" role="search" aria-label="{% trans 'Partner filters' %}">
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-q">{% trans "Search" %}</label>
+    <input class="form-control form-control-sm" type="search" id="f-q" name="q" value="{{ q }}" placeholder="{% trans 'Name or vendor number' %}">
+  </div>
+  {% trans "Partner type" as l %}{% include "reports/_multiselect.html" with name="partner_type" label=l options=options.partner_types values=selected.partner_type %}
+  {% trans "CSO type" as l %}{% include "reports/_multiselect.html" with name="cso_type" label=l options=options.cso_types values=selected.cso_type %}
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
+  </div>
+</form>
+<section class="panel p-0" id="partner-table" aria-live="polite">{% include "reports/partials/partner_table.html" %}</section>
+{% endblock %}

@@ -1,0 +1,33 @@
+{% load i18n static %}<!DOCTYPE html>
+<html lang="{{ LANGUAGE_CODE|default:'en' }}" data-bs-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{% block head_title %}{% endblock head_title %} · {{ SITE_NAME|default:"NeuroDB" }}</title>
+  <link rel="icon" href="{% static 'img/favicon.svg' %}" type="image/svg+xml">
+  <link rel="stylesheet" href="{% static 'vendor/bootstrap/bootstrap.min.css' %}">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <script nonce="{{ request.csp_nonce }}">
+    (function () {
+      try {
+        var t = localStorage.getItem("neurodb-theme") || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.setAttribute("data-bs-theme", t);
+      } catch (e) {}
+    })();
+  </script>
+  {% block extra_head %}{% endblock extra_head %}
+</head>
+<body class="auth-body">
+{% block body %}
+  <main class="panel auth-card">
+    <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">N</span><span class="brand-name">{{ SITE_NAME|default:"NeuroDB" }}</span></a>
+    {% if messages %}
+    <div role="status">{% for message in messages %}<div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags|default:'info' }}{% endif %} py-2 small">{{ message }}</div>{% endfor %}</div>
+    {% endif %}
+    {% block content %}{% endblock content %}
+  </main>
+{% endblock body %}
+{% block extra_body %}{% endblock extra_body %}
+</body>
+</html>

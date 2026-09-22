@@ -17,7 +17,14 @@ from django.utils.translation import gettext_lazy as _
 
 from neurodb.accounts.roles import ADMIN, role_of
 from neurodb.core.models import SavedView, SyncRun
-from neurodb.indicators.models import Database, IndicatorNew, MasterIndicator, NeuroReport, ReportingYear, SubIndicator
+from neurodb.indicators.models import (
+    Database,
+    IndicatorNew,
+    MasterIndicator,
+    NeuroReport,
+    ReportingYear,
+    SubIndicator,
+)
 from neurodb.indicators.services.navigation import current_year
 from neurodb.partnerships.models import PCA
 
@@ -88,7 +95,9 @@ def search(q: str, year: ReportingYear | None, limit: int = 8) -> list[dict[str,
             ],
         }
     )
-    reports = NeuroReport.objects.filter(ryear=year, is_active=True, name__icontains=q)[:limit] if year else []
+    reports = (
+        NeuroReport.objects.filter(ryear=year, is_active=True, name__icontains=q)[:limit] if year else []
+    )
     groups.append(
         {
             "key": "reports",
@@ -97,7 +106,9 @@ def search(q: str, year: ReportingYear | None, limit: int = 8) -> list[dict[str,
                 {
                     "label": r.name,
                     "hint": _("HPM report") if r.is_hpm else _("Neuro report"),
-                    "url": reverse("reports:report_hpm" if r.is_hpm else "reports:report_dashboard", args=[r.id]),
+                    "url": reverse(
+                        "reports:report_hpm" if r.is_hpm else "reports:report_dashboard", args=[r.id]
+                    ),
                 }
                 for r in reports
             ],
@@ -123,7 +134,11 @@ def search(q: str, year: ReportingYear | None, limit: int = 8) -> list[dict[str,
             ],
         }
     )
-    subs = SubIndicator.objects.filter(database_id__in=db_ids).filter(name_or_code).select_related("database")[:limit]
+    subs = (
+        SubIndicator.objects.filter(database_id__in=db_ids)
+        .filter(name_or_code)
+        .select_related("database")[:limit]
+    )
     groups.append(
         {
             "key": "subs",
@@ -138,7 +153,11 @@ def search(q: str, year: ReportingYear | None, limit: int = 8) -> list[dict[str,
             ],
         }
     )
-    leaves = IndicatorNew.objects.filter(database_id__in=db_ids).filter(name_or_code).select_related("database")[:limit]
+    leaves = (
+        IndicatorNew.objects.filter(database_id__in=db_ids)
+        .filter(name_or_code)
+        .select_related("database")[:limit]
+    )
     groups.append(
         {
             "key": "indicators",
@@ -187,7 +206,11 @@ def data_health() -> dict[str, Any]:
         )
     year = current_year()
     databases = []
-    for db in Database.objects.filter(reporting_year=year, display=True).select_related("section").order_by("section__name", "name"):
+    for db in (
+        Database.objects.filter(reporting_year=year, display=True)
+        .select_related("section")
+        .order_by("section__name", "name")
+    ):
         last = db.last_monthly_update_date
         stale = bool(last and (now - last).days > STALE_DATABASE_DAYS)
         databases.append(

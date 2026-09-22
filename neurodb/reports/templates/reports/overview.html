@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% load i18n ui humanize %}
+{% block content %}
+{% if not year %}
+  <div class="panel">{% include "components/empty_state.html" with icon="calendar" title=_("No reporting year is configured") message=_("An administrator must mark one reporting year as current in the administration pages.") %}</div>
+{% else %}
+<div class="kpi-grid">
+  {% trans "Databases" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=data.totals.databases|intcomma %}
+  {% trans "Master indicators" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.totals.indicators|intcomma %}
+  {% trans "On track" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.status_counts.on_track|intcomma status="on_track" %}
+  {% trans "Off track" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.status_counts.off_track|intcomma status="off_track" %}
+  {% trans "ActivityInfo records" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=data.totals.reports|intcomma %}
+</div>
+
+<div class="grid grid--2">
+  <section class="panel" aria-labelledby="status-title">
+    <div class="panel__header">
+      <h2 class="panel__title" id="status-title">{% trans "Indicator tracking across all databases" %}</h2>
+      <span class="panel__hint">{% trans "±10 points of the year elapsed" %}</span>
+    </div>
+    <div class="chart chart--sm" data-module="charts" data-chart="status-donut" data-key="status_counts" data-height="220" aria-label="{% trans 'Indicator status distribution' %}"></div>
+    <div class="legend">
+      {% for key, label in labels.items %}<span class="legend__item">{% status_pill key label "sm" %} {{ data.status_counts|get_item:key }}</span>{% endfor %}
+    </div>
+  </section>
+  <section class="panel" aria-labelledby="fresh-title">
+    <div class="panel__header">
+      <h2 class="panel__title" id="fresh-title">{% trans "Data freshness" %}</h2>
+      <a class="panel__hint" href="{% url 'reports:data_health' %}">{% trans "Data health" %} →</a>
+    </div>
+    <ul class="list-unstyled mb-0">
+      {% for item in data.last_runs %}
+      <li class="d-flex justify-content-between align-items-center py-1 border-bottom">
+        <span>{{ item.label }}</span>
+        {% if item.run %}<span class="small text-muted" title="{{ item.run.finished_at }}">{{ item.run.finished_at|naturaltime }}</span>{% else %}{% trans "Never" as never %}{% status_pill "unknown" never "sm" %}{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+</div>
+
+<h2 class="section-heading">{% trans "Databases" %} <span class="small text-muted fw-normal">{{ data.cards|length }}</span></h2>
+{% if data.cards %}
+<div class="grid grid--cards">
+  {% for card in data.cards %}
+  <a class="panel db-card" href="{% url 'reports:database_dashboard' card.database.id %}">
+    <div class="d-flex justify-content-between align-items-start gap-2">
+      <div>
+        <div class="db-card__meta mb-1"><span class="d-inline-flex align-items-center gap-1"><span class="section-dot" {% if card.database.section.color %}style="--section-color: {{ card.database.section.color }}"{% endif %} aria-hidden="true"></span>{{ card.database.section.name|default:_("Other") }}</span></div>
+        <h3 class="db-card__title h6">{{ card.database.label|default:card.database.name }}</h3>
+      </div>
+      {% if card.stale %}{% trans "Stale" as stale %}{% status_pill "stale" stale "sm" %}{% endif %}
+    </div>
+    <div class="status-bar" role="img" aria-label="{% blocktrans with on=card.status_counts.on_track off=card.status_counts.off_track %}{{ on }} on track, {{ off }} off track{% endblocktrans %}">
+      {% for key in labels %}{% with n=card.status_counts|get_item:key %}{% if n %}<span class="{{ key }}" style="flex: {{ n }}"></span>{% endif %}{% endwith %}{% endfor %}
+    </div>
+    <div class="db-card__stats">
+      <div class="db-card__stat"><strong>{{ card.indicators }}</strong><span>{% trans "indicators" %}</span></div>
+      <div class="db-card__stat"><strong>{{ card.status_counts.on_track }}</strong><span>{% trans "on track" %}</span></div>
+      <div class="db-card__stat"><strong>{{ card.reports|intcomma }}</strong><span>{% trans "records" %}</span></div>
+      <div class="db-card__stat"><strong>{{ card.partners }}</strong><span>{% trans "partners" %}</span></div>
+    </div>
+    <div class="db-card__meta">
+      <span>AI {{ card.database.ai_id }}</span>
+      <span>{% if card.last_import %}{% blocktrans with when=card.last_import|naturaltime %}Imported {{ when }}{% endblocktrans %}{% else %}{% trans "Never imported" %}{% endif %}</span>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="panel mt-3">{% include "components/empty_state.html" with icon="grid" title=_("No databases for this year") message=_("Databases marked for display in this reporting year appear here.") %}</div>
+{% endif %}
+{% endif %}
+{{ chart_data|json_script:"chart-data" }}
+{% endblock %}

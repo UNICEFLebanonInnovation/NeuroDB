@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block content %}
+{% include "reports/_pivot.html" with show_emergency=True %}
+<p class="small text-muted mt-2">{% blocktrans %}Drag fields between rows and columns, click a field to filter its values, and switch the renderer to a chart. Save a layout to reuse it; shared views are visible to every user of this page.{% endblocktrans %}</p>
+{% endblock %}

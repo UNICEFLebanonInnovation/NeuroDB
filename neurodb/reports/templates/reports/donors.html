@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+<form method="get" class="filter-bar" data-filter-bar data-hx-target="#donor-results" role="search" aria-label="{% trans 'Donor filters' %}">
+  {% trans "Donor" as l %}{% include "reports/_multiselect.html" with name="donor" label=l options=options.donors values=selected.donor %}
+  {% trans "Grant" as l %}{% include "reports/_multiselect.html" with name="grant" label=l options=options.grants values=selected.grant %}
+  {% trans "Partner" as l %}{% include "reports/_multiselect.html" with name="partner" label=l options=options.partners values=selected.partner %}
+  {% trans "Section" as l %}{% include "reports/_multiselect.html" with name="section" label=l options=options.sections values=selected.section %}
+  {% trans "Status" as l %}{% include "reports/_multiselect.html" with name="status" label=l options=options.statuses values=selected.status %}
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
+  </div>
+</form>
+<div id="donor-results" aria-live="polite">{% include "reports/partials/donor_results.html" %}</div>
+{% endblock %}

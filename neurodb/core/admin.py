@@ -5,7 +5,17 @@ from .models import PopulationFigure, SavedView, SyncRun
 
 @admin.register(SyncRun)
 class SyncRunAdmin(admin.ModelAdmin):
-    list_display = ("job", "target", "status", "started_at", "finished_at", "rows_in", "rows_written", "rows_failed", "triggered_by")
+    list_display = (
+        "job",
+        "target",
+        "status",
+        "started_at",
+        "finished_at",
+        "rows_in",
+        "rows_written",
+        "rows_failed",
+        "triggered_by",
+    )
     list_filter = ("job", "status")
     search_fields = ("target", "error")
     readonly_fields = [f.name for f in SyncRun._meta.fields]

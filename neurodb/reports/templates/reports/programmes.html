@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+<form method="get" class="filter-bar" data-filter-bar data-hx-target="#pd-table" role="search" aria-label="{% trans 'Programme filters' %}">
+  <div class="filter-bar__field" style="flex: 0 0 auto; min-width: 0">
+    <span class="form-label">{% trans "Scope" %}</span>
+    <div class="segmented" role="radiogroup" aria-label="{% trans 'Scope' %}">
+      <label><input class="visually-hidden" type="radio" name="scope" value="all" {% if scope == "all" %}checked{% endif %}><span>{% trans "All" %}</span></label>
+      <label><input class="visually-hidden" type="radio" name="scope" value="active" {% if scope == "active" %}checked{% endif %}><span>{% trans "Active" %}</span></label>
+    </div>
+  </div>
+  {% trans "Partner" as l %}{% include "reports/_multiselect.html" with name="partner" label=l options=options.partners values=selected.partner %}
+  {% trans "Section" as l %}{% include "reports/_multiselect.html" with name="section" label=l options=options.sections values=selected.section %}
+  {% trans "Office" as l %}{% include "reports/_multiselect.html" with name="office" label=l options=options.offices values=selected.office %}
+  {% trans "Status" as l %}{% include "reports/_multiselect.html" with name="status" label=l options=options.statuses values=selected.status %}
+  {% trans "Donor" as l %}{% include "reports/_multiselect.html" with name="donor" label=l options=options.donors values=selected.donor %}
+  {% trans "Grant" as l %}{% include "reports/_multiselect.html" with name="grant" label=l options=options.grants values=selected.grant %}
+  {% trans "Document type" as l %}{% include "reports/_multiselect.html" with name="document_type" label=l options=options.document_types values=selected.document_type %}
+  {% trans "CSO type" as l %}{% include "reports/_multiselect.html" with name="cso_type" label=l options=options.cso_types values=selected.cso_type %}
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
+  </div>
+</form>
+<section class="panel p-0" id="pd-table" aria-live="polite">{% include "reports/partials/programme_table.html" %}</section>
+{% endblock %}

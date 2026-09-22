@@ -20,7 +20,9 @@ class Command(BaseCommand):
         group.add_argument(
             "--current-year", action="store_true", help="every database whose reporting year is current"
         )
-        parser.add_argument("--no-copy", action="store_true", help="do not keep a copy of the extract in storage")
+        parser.add_argument(
+            "--no-copy", action="store_true", help="do not keep a copy of the extract in storage"
+        )
         add_triggered_by(parser)
 
     def handle(self, *args, **options):

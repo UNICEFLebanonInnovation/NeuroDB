@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+<form method="get" class="filter-bar" data-filter-bar data-hx-target="#library-results" role="search" aria-label="{% trans 'Library filters' %}">
+  <div class="filter-bar__field" style="flex-grow: 2">
+    <label class="form-label" for="lib-q">{% trans "Search" %}</label>
+    <input class="form-control form-control-sm" type="search" id="lib-q" name="q" value="{{ q }}" placeholder="{% trans 'Title or abstract' %}">
+  </div>
+  {% trans "Year" as l %}{% include "reports/_multiselect.html" with name="year" label=l options=filters.years values=selected.year %}
+  {% trans "Programme" as l %}{% include "reports/_multiselect.html" with name="section" label=l options=filters.sections values=selected.section %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="lib-type">{% trans "Type" %}</label>
+    <select class="form-select form-select-sm" id="lib-type" name="type" multiple data-tom placeholder="{% trans 'All' %}">{% for t in filters.types %}<option value="{{ t.id }}" {% if t.id|stringformat:"s" in selected.type %}selected{% endif %}>{{ t.name }}</option>{% endfor %}</select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="lib-topic">{% trans "Topic" %}</label>
+    <select class="form-select form-select-sm" id="lib-topic" name="topic" multiple data-tom placeholder="{% trans 'All' %}">{% for t in filters.topics %}<option value="{{ t.id }}" {% if t.id|stringformat:"s" in selected.topic %}selected{% endif %}>{{ t.name }}</option>{% endfor %}</select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="lib-tag">{% trans "Tags" %}</label>
+    <select class="form-select form-select-sm" id="lib-tag" name="tag" multiple data-tom placeholder="{% trans 'All' %}">{% for t in filters.tags %}<option value="{{ t.id }}" {% if t.id|stringformat:"s" in selected.tag %}selected{% endif %}>{{ t.name }}</option>{% endfor %}</select>
+  </div>
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
+  </div>
+</form>
+<div id="library-results" aria-live="polite">{% include "reports/partials/library_results.html" %}</div>
+{% endblock %}

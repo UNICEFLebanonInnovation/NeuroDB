@@ -10,10 +10,19 @@ maps every v2 table through unmanaged Django models generated from the v2 schema
   field names are the v2 ones; `db_table` and the many-to-many `db_table` are set explicitly, so the
   auto-generated through tables (`pivoting_subindicator_indicators`, `users_user_groups`, ...) keep
   their names.
+- The models keep the **v2 app labels** through `Meta.app_label` and the app configs:
+  `neurodb.accounts` is `users`, `neurodb.indicators` (plus the `facts`, `library` and polygon models)
+  is `pivoting`, `neurodb.partnerships` is `etools`, `neurodb.geo` is `locations`. Existing content
+  types, permissions, group assignments, admin log entries and `AUTH_USER_MODEL = "users.User"` keep
+  working without any data change.
 - `Meta.managed = LEGACY_MANAGED`, driven by `LEGACY_TABLES_MANAGED` (default `False`): Django never
-  creates, alters or drops a v2 table. Migrations for these apps contain `managed=False` and are
-  no-ops on the schema. Tests set `DJANGO_ENV=test`, which flips the flag and disables the legacy
-  migrations so the test database is built from the model definitions.
+  creates, alters or drops a v2 table. The legacy migrations pass the same flag to every
+  `CreateModel`, so on the production database they are no-ops on the schema. Tests set
+  `DJANGO_ENV=test`, which turns the flag on so the same migrations build the test database.
+- Migration history lines up with v2: the v2 database already records `users.0001_initial`,
+  `pivoting.0001_initial`, `etools.0001_initial` and `locations.0001_initial`, so v3 treats its own
+  `0001_initial` files as applied. The later v2 rows (`pivoting.0067_...` and so on) are ignored because
+  v3 has no files with those names. v3's `0002_initial` migrations then run as schema no-ops.
 - New v3 tables (`core_syncrun`, `core_savedview`, `core_populationfigure`) are ordinary managed
   models with migrations.
 - Tables v3 does not use (`activityinfo_*`, `pivoting_cadasters`, the wizard tables, unused eTools
@@ -22,7 +31,10 @@ maps every v2 table through unmanaged Django models generated from the v2 schema
 ## First connection to a copy of production
 
 1. Restore a copy of the production database (never point a development checkout at production).
-2. `DATABASE_URL=postgres://.../neurodb_copy python manage.py migrate` creates only the v3 tables.
+2. `DATABASE_URL=postgres://.../neurodb_copy python manage.py migrate` creates only the v3 tables
+   (`core_syncrun`, `core_savedview`, `core_populationfigure`). This was rehearsed on a v2-shaped
+   database: the column signature of every `users_`, `pivoting_`, `etools_` and `locations_` table was
+   identical before and after the migration.
 3. `python manage.py bootstrap_roles` and assign existing users to Viewer / Section editor /
    Administrator groups in the admin (superusers are administrators automatically).
 4. Compare `python manage.py inspectdb --database default pivoting_activityreportnew` with the

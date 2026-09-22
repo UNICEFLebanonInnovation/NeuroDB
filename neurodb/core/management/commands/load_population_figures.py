@@ -18,7 +18,12 @@ from neurodb.core.models import PopulationFigure, SyncRun
 AGE_BAND = re.compile(r"^(\d+) - (\d+)$|^(\d+) and above$")
 CHILD_BANDS = {"0 - 4", "5 - 9", "10 - 14", "15 - 19"}
 TOTAL_COLUMNS = {
-    "ALL": {"ALL": "TOTAL POPULATION", "LEB": "TOTAL LEBANESE", "SYR": "TOTAL SYRIANS", "OTH": "TOTAL MIGRANTS"},
+    "ALL": {
+        "ALL": "TOTAL POPULATION",
+        "LEB": "TOTAL LEBANESE",
+        "SYR": "TOTAL SYRIANS",
+        "OTH": "TOTAL MIGRANTS",
+    },
     "LEB": {"LEB": "TOTAL LEBANESE"},
     "SYR": {"SYR": "Syrian_Est"},
     "PAL": {"PRL": "Total PRL", "PRS": "Total PRS"},
@@ -29,7 +34,12 @@ SEX_COLUMNS = {
     "PAL": ("All Palestinian Female", "All Palestinian Male"),
     "ALL": (None, None),
 }
-NAT_OF_KEY = {"ALL": "ALL", "LEB": "LEB", "SYR": "SYR", "PAL": "PRL"}  # age bands of PAL rows are stored under PRL+PRS = PAL; keep PRL
+NAT_OF_KEY = {
+    "ALL": "ALL",
+    "LEB": "LEB",
+    "SYR": "SYR",
+    "PAL": "PRL",
+}  # age bands of PAL rows are stored under PRL+PRS = PAL; keep PRL
 
 
 class Command(BaseCommand):
@@ -48,7 +58,9 @@ class Command(BaseCommand):
         year = options["year"]
         run = SyncRun.objects.create(job=SyncRun.Job.POPULATION, target=str(year), triggered_by="command")
         rows: list[PopulationFigure] = []
-        sources = "; ".join(str(list(x.values())[0]) for k, v in data.items() if k.endswith("_SOURCES") for x in v)[:200]
+        sources = "; ".join(
+            str(list(x.values())[0]) for k, v in data.items() if k.endswith("_SOURCES") for x in v
+        )[:200]
         for key, items in data.items():
             if not key.endswith(("_BY_GOVERNORATE", "_BY_DISTRICT")):
                 continue
@@ -61,20 +73,42 @@ class Command(BaseCommand):
                 base = dict(year=year, level=level, area_code="", area_name=area, source=sources)
                 for nat, column in TOTAL_COLUMNS.get(nat_key, {}).items():
                     if item.get(column) is not None:
-                        rows.append(PopulationFigure(**base, nationality=nat, category="total", value=int(item[column])))
+                        rows.append(
+                            PopulationFigure(
+                                **base, nationality=nat, category="total", value=int(item[column])
+                            )
+                        )
                 female, male = SEX_COLUMNS.get(nat_key, (None, None))
                 nat = NAT_OF_KEY[nat_key]
                 if female and item.get(female) is not None:
-                    rows.append(PopulationFigure(**base, nationality=nat, category="total", sex="female", value=int(item[female])))
-                    rows.append(PopulationFigure(**base, nationality=nat, category="total", sex="male", value=int(item[male] or 0)))
+                    rows.append(
+                        PopulationFigure(
+                            **base, nationality=nat, category="total", sex="female", value=int(item[female])
+                        )
+                    )
+                    rows.append(
+                        PopulationFigure(
+                            **base, nationality=nat, category="total", sex="male", value=int(item[male] or 0)
+                        )
+                    )
                 children = 0
                 for column, value in item.items():
                     if AGE_BAND.match(column) and value is not None:
-                        rows.append(PopulationFigure(**base, nationality=nat, category="total", age_group=column.replace(" ", ""), value=int(value)))
+                        rows.append(
+                            PopulationFigure(
+                                **base,
+                                nationality=nat,
+                                category="total",
+                                age_group=column.replace(" ", ""),
+                                value=int(value),
+                            )
+                        )
                         if column in CHILD_BANDS:
                             children += int(value)
                 if children:
-                    rows.append(PopulationFigure(**base, nationality=nat, category="children", value=children))
+                    rows.append(
+                        PopulationFigure(**base, nationality=nat, category="children", value=children)
+                    )
         # national totals = sum over governorates
         national = {}
         for r in rows:
@@ -82,7 +116,20 @@ class Command(BaseCommand):
                 k = (r.nationality, r.category, r.age_group, r.sex)
                 national[k] = national.get(k, 0) + r.value
         for (nat, cat, age, sex), value in national.items():
-            rows.append(PopulationFigure(year=year, level="national", area_code="", area_name="Lebanon", nationality=nat, category=cat, age_group=age, sex=sex, value=value, source=sources))
+            rows.append(
+                PopulationFigure(
+                    year=year,
+                    level="national",
+                    area_code="",
+                    area_name="Lebanon",
+                    nationality=nat,
+                    category=cat,
+                    age_group=age,
+                    sex=sex,
+                    value=value,
+                    source=sources,
+                )
+            )
         run.rows_in = len(rows)
         with transaction.atomic():
             if options["replace"]:

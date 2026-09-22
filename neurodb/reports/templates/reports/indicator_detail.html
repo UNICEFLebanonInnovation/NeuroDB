@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+<div class="kpi-grid">
+  {% trans "Aggregation" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=master.aggregation_method|default:"SUM" %}
+  {% trans "Target" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=master.awp_target|number %}
+  {% trans "Sub-indicators" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=rows|length %}
+</div>
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Sub-indicators") count=rows|length table_id="subs" filename=master.awp_code|slugify %}
+  {% include "reports/partials/_sub_table.html" %}
+</section>
+<p class="mt-3"><a class="btn btn-primary btn-sm" href="{{ analytical_url }}">{% include "components/icon.html" with name="table" %}<span>{% trans "Explore in analytical view" %}</span></a></p>
+{% endblock %}

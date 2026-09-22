@@ -1,0 +1,39 @@
+{% load i18n ui %}
+{% for s in data.sections %}
+<section class="panel p-0 mb-3" aria-labelledby="hs-{{ s.database.id }}">
+  <div class="table-toolbar">
+    <div class="table-toolbar__title">
+      <span class="section-dot" {% if s.database.section.color %}style="--section-color: {{ s.database.section.color }}"{% endif %} aria-hidden="true"></span>
+      <h2 class="h6 mb-0" id="hs-{{ s.database.id }}">{{ s.database.hpm_label|default:s.database.label|default:s.database.name }}</h2>
+    </div>
+    <div class="table-toolbar__actions">
+      <button type="button" class="btn btn-outline-secondary btn-sm" data-table-copy data-table-target="#ht-{{ s.database.id }}">{% include "components/icon.html" with name="copy" %}<span>{% trans "Copy" %}</span></button>
+      <button type="button" class="btn btn-outline-secondary btn-sm" data-table-csv data-table-target="#ht-{{ s.database.id }}" data-filename="hpm-{{ s.database.id }}-{{ data.month }}">{% include "components/icon.html" with name="download" %}<span>CSV</span></button>
+    </div>
+  </div>
+  <div class="table-wrap"><table class="table" id="ht-{{ s.database.id }}">
+    <thead><tr>
+      <th>{% trans "Indicator" %}</th><th class="num">{% trans "Target" %}</th>
+      <th class="num">{% blocktrans with m=data.quarter|default:data.month_label %}Total to {{ m }}{% endblocktrans %}</th>
+      <th class="num">{% trans "Previous" %}</th><th class="num">{% trans "Change" %}</th><th class="num">%</th><th>{% trans "Comments" %}</th>
+    </tr></thead>
+    <tbody>{% for i in s.items %}
+      <tr>
+        <td><span class="cell-title">{{ i.label }}</span><span class="cell-sub mono">{{ i.awp_code }}</span></td>
+        <td class="num">{{ i.target|number }}</td>
+        <td class="num fw-semibold">{{ i.value|number }}</td>
+        <td class="num text-muted">{{ i.previous|number }}</td>
+        <td class="num {% if i.delta > 0 %}delta--up{% elif i.delta < 0 %}delta--down{% endif %}">{% if i.delta > 0 %}+{% endif %}{{ i.delta|number }}</td>
+        <td class="num">{{ i.achieved|percent:0 }}</td>
+        <td style="min-width: 260px">
+          {% for c in data.comments %}{% if c.master.master_id == i.id %}
+          <div class="comment"><div class="comment__meta">{{ c.related_month|month_name }} · {{ c.entry_date|date:"j M Y" }}</div>{{ c.comment|linebreaksbr }}</div>
+          {% endif %}{% endfor %}
+        </td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+</section>
+{% empty %}
+<div class="panel">{% include "components/empty_state.html" with icon="file" title=_("This HPM report has no indicators yet") message=_("Add master indicators to the report in the administration pages.") %}</div>
+{% endfor %}

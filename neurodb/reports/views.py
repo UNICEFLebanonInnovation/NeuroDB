@@ -20,7 +20,7 @@ from django.utils.translation import gettext as _
 from django.views.decorators.http import require_GET, require_POST
 
 from neurodb.accounts.roles import can_edit_section
-from neurodb.core.models import SavedView
+from neurodb.core.models import PopulationFigure, SavedView
 from neurodb.core.services import population as population_service
 from neurodb.facts.services import dashboard as facts
 from neurodb.indicators.models import Database, MasterIndicator, NeuroReport
@@ -55,7 +55,9 @@ def _database_crumbs(database: Database, *extra: dict[str, str | None]) -> list[
     crumbs = [_crumb(_("Overview"), reverse("reports:overview"))]
     if database.section:
         crumbs.append(_crumb(database.section.name))
-    crumbs.append(_crumb(database.label or database.name, reverse("reports:database_dashboard", args=[database.id])))
+    crumbs.append(
+        _crumb(database.label or database.name, reverse("reports:database_dashboard", args=[database.id]))
+    )
     crumbs.extend(extra)
     return crumbs
 
@@ -69,7 +71,12 @@ def _database_actions(database: Database, current: str) -> list[dict[str, Any]]:
         ("database_snapshot", _("Snapshot"), "printer"),
     ]
     actions = [
-        {"label": label, "url": reverse(f"reports:{name}", args=[database.id]), "icon": icon, "current": name == current}
+        {
+            "label": label,
+            "url": reverse(f"reports:{name}", args=[database.id]),
+            "icon": icon,
+            "current": name == current,
+        }
         for name, label, icon in items
     ]
     actions.append(
@@ -96,16 +103,12 @@ def _paginate(request: HttpRequest, queryset, per_page: int = PAGE_SIZE):
 def overview(request: HttpRequest) -> HttpResponse:
     year = services.resolve_year(request.GET.get("year"))
     data = facts.overview(year)
-    sections: dict[str, list[dict[str, Any]]] = {}
-    for card in data["cards"]:
-        sections.setdefault(card["database"].section.name if card["database"].section else _("Other"), []).append(card)
     context = {
         "page_title": _("Programme overview"),
         "page_subtitle": _("Reporting year %(year)s") % {"year": year.name} if year else "",
         "breadcrumbs": [_crumb(_("Overview"))],
         "year": year,
         "data": data,
-        "sections": sections,
         "labels": LABELS,
         "chart_data": {"status_counts": data["status_counts"], "labels": LABELS},
     }
@@ -136,7 +139,7 @@ def database_dashboard(request: HttpRequest, pk: int) -> HttpResponse:
         "dashboard": dash,
         "indicators": indicators,
         "reported": reported,
-        "reporting_progress": round(reported * 100 / len(dash.indicators), 0) if dash.indicators else 0,
+        "reporting_progress": round(reported * 100 / len(dash.indicators)) if dash.indicators else 0,
         "labels": LABELS,
         "status": status,
         "q": q,
@@ -160,9 +163,13 @@ def database_analytical(request: HttpRequest, pk: int) -> HttpResponse:
         "actions": _database_actions(database, "database_analytical"),
         "database": database,
         "emergency": emergency,
-        "saved_views": [services.saved_view_as_dict(v, request.user) for v in services.saved_views_for(request.user, page, database.id)],
+        "saved_views": [
+            services.saved_view_as_dict(v, request.user)
+            for v in services.saved_views_for(request.user, page, database.id)
+        ],
         "pivot_config": {
-            "api": reverse("api:analytical", args=[database.id]) + (f"?emergency={emergency}" if emergency else ""),
+            "api": reverse("api:analytical", args=[database.id])
+            + (f"?emergency={emergency}" if emergency else ""),
             "savedViewsApi": reverse("api:saved_views"),
             "page": page,
             "objectId": database.id,
@@ -213,6 +220,13 @@ def database_map(request: HttpRequest, pk: int) -> HttpResponse:
         "levels": services.MAP_LEVELS,
         "filters": filters,
         "options": facts.analytical_filters(database),
+        "filter_fields": [
+            ("partner", _("Partner")),
+            ("pd", _("Programme document")),
+            ("governorate", _("Governorate")),
+            ("district", _("District")),
+            ("month", _("Month")),
+        ],
         "map_config": {"api": reverse("api:map", args=[database.id]), "level": level, "filters": filters},
     }
     return render(request, "reports/database_map.html", context)
@@ -266,11 +280,19 @@ def _report_context(request: HttpRequest, report: NeuroReport) -> dict[str, Any]
 
 
 def _report_actions(report: NeuroReport, current: str) -> list[dict[str, Any]]:
-    items = [("report_dashboard", _("Dashboard"), "grid"), ("report_analytical", _("Analytical view"), "table")]
+    items = [
+        ("report_dashboard", _("Dashboard"), "grid"),
+        ("report_analytical", _("Analytical view"), "table"),
+    ]
     if report.is_hpm:
         items.insert(1, ("report_hpm", _("HPM view"), "list"))
     return [
-        {"label": label, "url": reverse(f"reports:{name}", args=[report.id]), "icon": icon, "current": name == current}
+        {
+            "label": label,
+            "url": reverse(f"reports:{name}", args=[report.id]),
+            "icon": icon,
+            "current": name == current,
+        }
         for name, label, icon in items
     ]
 
@@ -282,7 +304,8 @@ def report_dashboard(request: HttpRequest, pk: int) -> HttpResponse:
     context.update(
         {
             "page_title": report.name,
-            "page_subtitle": _("Values to the end of %(month)s %(year)s") % {"month": context["data"]["month_label"], "year": context["data"]["year"]},
+            "page_subtitle": _("Values to the end of %(month)s %(year)s")
+            % {"month": context["data"]["month_label"], "year": context["data"]["year"]},
             "actions": _report_actions(report, "report_dashboard"),
         }
     )
@@ -297,10 +320,17 @@ def report_analytical(request: HttpRequest, pk: int) -> HttpResponse:
     context = {
         "page_title": _("%(name)s · Analytical view") % {"name": report.name},
         "page_subtitle": _("Pivot table over the ActivityInfo records behind this report"),
-        "breadcrumbs": [_crumb(_("Overview"), reverse("reports:overview")), _crumb(report.name, reverse("reports:report_dashboard", args=[report.id])), _crumb(_("Analytical view"))],
+        "breadcrumbs": [
+            _crumb(_("Overview"), reverse("reports:overview")),
+            _crumb(report.name, reverse("reports:report_dashboard", args=[report.id])),
+            _crumb(_("Analytical view")),
+        ],
         "actions": _report_actions(report, "report_analytical"),
         "report": report,
-        "saved_views": [services.saved_view_as_dict(v, request.user) for v in services.saved_views_for(request.user, page, report.id)],
+        "saved_views": [
+            services.saved_view_as_dict(v, request.user)
+            for v in services.saved_views_for(request.user, page, report.id)
+        ],
         "pivot_config": {
             "api": reverse("api:report_analytical", args=[report.id]),
             "savedViewsApi": reverse("api:saved_views"),
@@ -318,7 +348,9 @@ def report_hpm(request: HttpRequest, pk: int) -> HttpResponse:
     if request.method == "POST":
         form = HPMCommentForm(report, request.POST)
         if not form.is_valid():
-            messages.error(request, _("The comment could not be saved: %(errors)s") % {"errors": form.errors.as_text()})
+            messages.error(
+                request, _("The comment could not be saved: %(errors)s") % {"errors": form.errors.as_text()}
+            )
         else:
             link = form.cleaned_data["master"]
             section_id = link.master.database.section_id if link.master and link.master.database else None
@@ -332,12 +364,15 @@ def report_hpm(request: HttpRequest, pk: int) -> HttpResponse:
         return HttpResponse(status=405)
     context = _report_context(request, report)
     editable_sections = {
-        s["database"].section_id for s in context["data"]["sections"] if can_edit_section(request.user, s["database"].section_id)
+        s["database"].section_id
+        for s in context["data"]["sections"]
+        if can_edit_section(request.user, s["database"].section_id)
     }
     context.update(
         {
             "page_title": _("%(name)s · HPM") % {"name": report.name},
-            "page_subtitle": _("Cut-off %(cutoff)s · values to the end of %(month)s") % {"cutoff": context["data"]["cutoff"].isoformat(), "month": context["data"]["month_label"]},
+            "page_subtitle": _("Cut-off %(cutoff)s · values to the end of %(month)s")
+            % {"cutoff": context["data"]["cutoff"].isoformat(), "month": context["data"]["month_label"]},
             "actions": _report_actions(report, "report_hpm"),
             "can_comment": bool(editable_sections),
             "editable_sections": editable_sections,
@@ -366,13 +401,29 @@ def programmes(request: HttpRequest) -> HttpResponse:
         "breadcrumbs": [_crumb(_("Programmes"))],
         "actions": [
             {"label": _("Summary"), "url": reverse("reports:programme_summary"), "icon": "chart"},
-            {"label": _("Planned locations (Excel)"), "url": reverse("reports:export_etools_locations"), "icon": "download"},
+            {
+                "label": _("Planned locations (Excel)"),
+                "url": reverse("reports:export_etools_locations"),
+                "icon": "download",
+            },
         ],
         "scope": scope,
         "page_obj": page_obj,
         "rows": rows,
         "options": partnerships.pd_filter_options(),
-        "selected": {key: request.GET.getlist(key) for key in ("partner", "section", "office", "status", "donor", "grant", "document_type", "cso_type")},
+        "selected": {
+            key: request.GET.getlist(key)
+            for key in (
+                "partner",
+                "section",
+                "office",
+                "status",
+                "donor",
+                "grant",
+                "document_type",
+                "cso_type",
+            )
+        },
     }
     template = "reports/partials/programme_table.html" if request.htmx else "reports/programmes.html"
     return render(request, template, context)
@@ -402,7 +453,10 @@ def programme_detail(request: HttpRequest, pk: int) -> HttpResponse:
     context = {
         "page_title": pd.number or pd.title,
         "page_subtitle": pd.title,
-        "breadcrumbs": [_crumb(_("Programmes"), reverse("reports:programmes")), _crumb(pd.number or pd.title)],
+        "breadcrumbs": [
+            _crumb(_("Programmes"), reverse("reports:programmes")),
+            _crumb(pd.number or pd.title),
+        ],
         "detail": detail,
         "pd": pd,
     }
@@ -420,7 +474,9 @@ def donors(request: HttpRequest) -> HttpResponse:
         "breadcrumbs": [_crumb(_("Donors"))],
         "data": data,
         "options": partnerships.pd_filter_options(),
-        "selected": {key: request.GET.getlist(key) for key in ("donor", "grant", "partner", "section", "status")},
+        "selected": {
+            key: request.GET.getlist(key) for key in ("donor", "grant", "partner", "section", "status")
+        },
         "chart_data": {
             "funds_by_donor": data["funds_by_donor"],
             "funds_by_year": data["funds_by_year"],
@@ -454,10 +510,16 @@ def partner_profile(request: HttpRequest, pk: int) -> HttpResponse:
     context = {
         "page_title": partner.name,
         "page_subtitle": " · ".join(x for x in (partner.partner_type, partner.cso_type) if x),
-        "breadcrumbs": [_crumb(_("Partners"), reverse("reports:partners")), _crumb(partner.short_name or partner.name)],
+        "breadcrumbs": [
+            _crumb(_("Partners"), reverse("reports:partners")),
+            _crumb(partner.short_name or partner.name),
+        ],
         "partner": partner,
         "profile": profile,
-        "chart_data": {"visits_by_year": profile["visits_by_year"], "engagement_counts": profile["engagement_counts"]},
+        "chart_data": {
+            "visits_by_year": profile["visits_by_year"],
+            "engagement_counts": profile["engagement_counts"],
+        },
     }
     return render(request, "reports/partner_profile.html", context)
 
@@ -474,16 +536,31 @@ def population(request: HttpRequest) -> HttpResponse:
     if view not in services.POPULATION_VIEWS:
         return HttpResponse(_("Invalid population view."), status=400)
     data = population_service.population_view(year, view) if year else None
+    nationality_labels = dict(PopulationFigure.Nationality.choices)
     context = {
         "page_title": _("Population figures"),
+        "nationality_labels": nationality_labels,
+        "national": [
+            (nationality_labels.get(code, code), value)
+            for code, value in (data["totals_by_nationality"].items() if data else [])
+        ],
         "page_subtitle": _("Estimates by nationality, governorate, district and age group"),
         "breadcrumbs": [_crumb(_("Population"))],
         "years": years,
-        "year": year,
+        "population_year": year,
         "view": view,
-        "views": [("total", _("Total population")), ("children", _("Children")), ("vulnerable", _("Vulnerable population"))],
+        "views": [
+            ("total", _("Total population")),
+            ("children", _("Children")),
+            ("vulnerable", _("Vulnerable population")),
+        ],
         "data": data,
-        "chart_data": {"totals_by_nationality": data["totals_by_nationality"], "by_governorate": data["by_governorate"]} if data else None,
+        "chart_data": {
+            "totals_by_nationality": data["totals_by_nationality"],
+            "by_governorate": data["by_governorate"],
+        }
+        if data
+        else None,
     }
     return render(request, "reports/population.html", context)
 
@@ -511,7 +588,12 @@ def library_download(request: HttpRequest, pk: int) -> HttpResponse:
         raise Http404
     filename = resource.resource_file_name or f"resource-{resource.pk}"
     content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-    return FileResponse(io.BytesIO(bytes(resource.resource_file)), as_attachment=True, filename=filename, content_type=content_type)
+    return FileResponse(
+        io.BytesIO(bytes(resource.resource_file)),
+        as_attachment=True,
+        filename=filename,
+        content_type=content_type,
+    )
 
 
 @require_GET
@@ -547,7 +629,9 @@ def search(request: HttpRequest) -> HttpResponse:
     groups = services.search(q, year) if q else []
     context = {
         "page_title": _("Search"),
-        "page_subtitle": _("Indicators, databases and reports of %(year)s") % {"year": year.name} if year else "",
+        "page_subtitle": _("Indicators, databases and reports of %(year)s") % {"year": year.name}
+        if year
+        else "",
         "breadcrumbs": [_crumb(_("Search"))],
         "q": q,
         "groups": groups,

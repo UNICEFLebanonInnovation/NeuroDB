@@ -8,7 +8,12 @@ BASE = "https://ai.test"
 
 
 def make_client(sleeps: list | None = None) -> ActivityInfoClient:
-    return ActivityInfoClient(BASE, "ai-token", session=make_session("ai-token", backoff=0), sleep=(sleeps if sleeps is not None else []).append)
+    return ActivityInfoClient(
+        BASE,
+        "ai-token",
+        session=make_session("ai-token", backoff=0),
+        sleep=(sleeps if sleeps is not None else []).append,
+    )
 
 
 def test_auth_header_is_bare_token_like_v2_token_auth():
@@ -28,7 +33,9 @@ def test_settings_are_the_default_source(settings):
 def test_export_flow(database):
     responses.post(f"{BASE}/resources/jobs", json={"id": "job9"})
     responses.get(f"{BASE}/resources/jobs/job9", json={"state": "STARTED"})
-    responses.get(f"{BASE}/resources/jobs/job9", json={"state": "COMPLETED", "result": {"downloadUrl": "/dl/x.txt"}})
+    responses.get(
+        f"{BASE}/resources/jobs/job9", json={"state": "COMPLETED", "result": {"downloadUrl": "/dl/x.txt"}}
+    )
     responses.get(f"{BASE}/dl/x.txt", body=b"Database\x1fValue\nx\x1f1\n")
     sleeps: list = []
     assert make_client(sleeps).export_database(database) == b"Database\x1fValue\nx\x1f1\n"

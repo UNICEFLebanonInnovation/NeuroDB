@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block content %}
+{% if maps %}
+<div class="grid grid--3">
+  {% for m in maps %}
+  <article class="panel resource-card">
+    <div class="resource-card__type">{% trans "Map" %}</div>
+    <h2 class="resource-card__title h6">{{ m.name }}</h2>
+    {% if m.description %}<p class="resource-card__desc">{{ m.description }}</p>{% endif %}
+    <div class="resource-card__footer">
+      <span class="small text-muted">{% blocktrans with when=m.modified|date:"j M Y" %}Updated {{ when }}{% endblocktrans %}</span>
+      {% if m.link %}<a class="btn btn-primary btn-sm" href="{{ m.link }}" target="_blank" rel="noopener noreferrer">{% include "components/icon.html" with name="external" %}<span>{% trans "Open map" %}</span></a>{% endif %}
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<div class="panel">{% include "components/empty_state.html" with icon="map" title=_("No completed maps yet") message=_("Maps marked as completed in the administration pages appear here.") %}</div>
+{% endif %}
+{% endblock %}

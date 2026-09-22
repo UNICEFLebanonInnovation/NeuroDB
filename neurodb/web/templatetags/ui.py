@@ -109,8 +109,51 @@ def get_item(mapping: Any, key: Any) -> Any:
 
 @register.filter
 def month_name(value: Any) -> str:
-    names = [_("January"), _("February"), _("March"), _("April"), _("May"), _("June"), _("July"), _("August"), _("September"), _("October"), _("November"), _("December")]
+    names = [
+        _("January"),
+        _("February"),
+        _("March"),
+        _("April"),
+        _("May"),
+        _("June"),
+        _("July"),
+        _("August"),
+        _("September"),
+        _("October"),
+        _("November"),
+        _("December"),
+    ]
     try:
         return str(names[int(value) - 1])
     except (TypeError, ValueError, IndexError):
         return str(value)
+
+
+# Vendor scripts and page modules loaded on demand by static/js/app.js. Hashed URLs come from the
+# staticfiles manifest, so a deploy never serves a stale library from a browser cache.
+ASSETS = {
+    "plotly": "vendor/plotly/plotly-basic.min.js",
+    "jquery": "vendor/jquery/jquery.min.js",
+    "jqueryui": "vendor/jquery-ui/jquery-ui.min.js",
+    "pivot": "vendor/pivottable/pivot.min.js",
+    "pivotCss": "vendor/pivottable/pivot.min.css",
+    "pivotPlotly": "vendor/pivottable/plotly_renderers.min.js",
+    "pivotExport": "vendor/pivottable/export_renderers.min.js",
+    "maplibre": "vendor/maplibre-gl/maplibre-gl-csp.js",
+    "maplibreWorker": "vendor/maplibre-gl/maplibre-gl-csp-worker.js",
+    "maplibreCss": "vendor/maplibre-gl/maplibre-gl.css",
+    "tomSelect": "vendor/tom-select/tom-select.complete.min.js",
+    "tomSelectCss": "vendor/tom-select/tom-select.bootstrap5.min.css",
+    "lib": "js/lib.js",
+    "charts": "js/charts.js",
+    "pivotModule": "js/pivot.js",
+    "mapModule": "js/map.js",
+}
+
+
+@register.simple_tag
+def asset_urls() -> str:
+    from django.templatetags.static import static
+    from django.utils.html import json_script
+
+    return json_script({key: static(path) for key, path in ASSETS.items()}, "asset-urls")

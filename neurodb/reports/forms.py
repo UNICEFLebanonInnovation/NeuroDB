@@ -20,7 +20,9 @@ class HPMCommentForm(forms.ModelForm):
     def __init__(self, report: NeuroReport, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.report = report
-        self.fields["master"].queryset = NeuroReportMasterIndicator.objects.filter(report=report).select_related("master__database")
+        self.fields["master"].queryset = NeuroReportMasterIndicator.objects.filter(
+            report=report
+        ).select_related("master__database")
         self.fields["master"].label = _("Indicator")
         self.fields["comment"].label = _("Comment")
         self.fields["comment"].required = True

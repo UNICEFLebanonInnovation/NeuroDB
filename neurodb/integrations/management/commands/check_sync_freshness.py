@@ -36,11 +36,17 @@ class Command(BaseCommand):
     help = "Fail (exit 1) when the last successful run of a scheduled job is older than SYNC_STALENESS_HOURS"
 
     def add_arguments(self, parser):
-        parser.add_argument("--jobs", help="comma-separated job codes to check (default: ai_data,etools,locations)")
+        parser.add_argument(
+            "--jobs", help="comma-separated job codes to check (default: ai_data,etools,locations)"
+        )
         parser.add_argument("--max-age-hours", type=int, default=None, help="override SYNC_STALENESS_HOURS")
 
     def handle(self, *args, **options):
-        jobs = [j.strip() for j in options["jobs"].split(",") if j.strip()] if options["jobs"] else SCHEDULED_JOBS
+        jobs = (
+            [j.strip() for j in options["jobs"].split(",") if j.strip()]
+            if options["jobs"]
+            else SCHEDULED_JOBS
+        )
         unknown = [j for j in jobs if j not in SyncRun.Job.values]
         if unknown:
             raise CommandError(f"unknown job(s): {', '.join(unknown)}")

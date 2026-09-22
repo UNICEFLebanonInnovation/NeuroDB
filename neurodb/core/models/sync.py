@@ -52,7 +52,17 @@ class SyncRun(models.Model):
         self.error = error[:10000]
         self.details.update(details)
         self.finished_at = timezone.now()
-        self.save(update_fields=["status", "error", "details", "finished_at", "rows_in", "rows_written", "rows_failed"])
+        self.save(
+            update_fields=[
+                "status",
+                "error",
+                "details",
+                "finished_at",
+                "rows_in",
+                "rows_written",
+                "rows_failed",
+            ]
+        )
 
     @classmethod
     def last_success(cls, job, target=""):

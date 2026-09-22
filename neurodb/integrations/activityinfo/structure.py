@@ -85,7 +85,9 @@ def sub_form_ids(schema: dict[str, Any]) -> list[str]:
     return ids
 
 
-def upsert_indicator(database: Database, activity: Activity, field: dict[str, Any]) -> tuple[IndicatorNew, bool]:
+def upsert_indicator(
+    database: Database, activity: Activity, field: dict[str, Any]
+) -> tuple[IndicatorNew, bool]:
     label = field.get("label", "")
     indicator, created = IndicatorNew.objects.get_or_create(
         ai_indicator=field["id"], database=database, activity=activity, defaults={"name": label}
@@ -143,7 +145,9 @@ def import_structure(
         except Exception as exc:
             run.rows_failed += 1
             stats["forms_failed"] += 1
-            logger.warning("structure %s: form %s failed: %s", database.ai_id, form.get("id"), describe_error(exc))
+            logger.warning(
+                "structure %s: form %s failed: %s", database.ai_id, form.get("id"), describe_error(exc)
+            )
             continue
         run.rows_written += 1
         stats["forms"] += 1

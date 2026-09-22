@@ -1,0 +1,27 @@
+{% load i18n ui %}
+{% if rows %}
+<div class="table-wrap">
+<table class="table" id="subs" data-sortable>
+  <thead><tr>
+    <th scope="col">{% trans "Sub-indicator" %}</th>
+    <th scope="col">{% trans "Effect" %}</th>
+    <th scope="col">{% trans "Method" %}</th>
+    <th scope="col" class="num">{% trans "Target" %}</th>
+    <th scope="col" class="num">{% trans "Value" %}</th>
+  </tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td><span class="cell-title">{{ r.label|default:r.name }}</span><span class="cell-sub mono">{{ r.awp_code|default:"" }}</span></td>
+      <td><span class="chip">{{ r.effect|default:"TOTAL" }}</span>{% if not r.listed %} <span class="small text-muted">{% trans "hidden" %}</span>{% endif %}</td>
+      <td>{{ r.aggregation_method|default:"SUM" }}</td>
+      <td class="num">{{ r.link_target|default:r.target|number }}</td>
+      <td class="num">{{ r.value|number }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+{% include "components/empty_state.html" with icon="list" title=_("No sub-indicators linked") message=_("Link sub-indicators to this master indicator in the administration pages.") %}
+{% endif %}

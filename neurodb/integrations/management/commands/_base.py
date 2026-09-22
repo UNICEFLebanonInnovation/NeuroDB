@@ -35,4 +35,6 @@ def exit_on_failure(runs: Iterable[SyncRun]) -> None:
 
 
 def add_triggered_by(parser) -> None:
-    parser.add_argument("--triggered-by", dest="triggered_by", default="command", help="recorded on the SyncRun")
+    parser.add_argument(
+        "--triggered-by", dest="triggered_by", default="command", help="recorded on the SyncRun"
+    )

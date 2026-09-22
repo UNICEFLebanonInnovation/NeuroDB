@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block content %}
+{% include "reports/_period_picker.html" with target="#report-body" %}
+<div id="report-body" class="htmx-hide-on-request">{% include "reports/partials/report_sections.html" %}</div>
+{% endblock %}

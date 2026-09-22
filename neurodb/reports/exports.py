@@ -21,7 +21,16 @@ ANALYTICAL_COLUMNS: Sequence[str] = (
     "nationality", "disability", "programme", "age", "indicator_name", "awp_code", "emergency", "governorate",
     "district", "cadaster", "partner", "pd", "plan", "project", "database_ai_id", "month", "indicator_value",
 )  # fmt: skip
-ETOOLS_LOCATION_COLUMNS: Sequence[str] = ("pd_number", "title", "partner_name", "status", "start", "end", "section_names", "p_code")
+ETOOLS_LOCATION_COLUMNS: Sequence[str] = (
+    "pd_number",
+    "title",
+    "partner_name",
+    "status",
+    "start",
+    "end",
+    "section_names",
+    "p_code",
+)
 XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 FORMATS = ("csv", "xlsx")
 
@@ -46,7 +55,9 @@ class _Echo:
         return value
 
 
-def stream_csv(filename: str, columns: Sequence[str], rows: Iterable[dict[str, Any]]) -> StreamingHttpResponse:
+def stream_csv(
+    filename: str, columns: Sequence[str], rows: Iterable[dict[str, Any]]
+) -> StreamingHttpResponse:
     writer = csv.writer(_Echo())
 
     def lines() -> Iterator[str]:
@@ -60,7 +71,9 @@ def stream_csv(filename: str, columns: Sequence[str], rows: Iterable[dict[str, A
     return response
 
 
-def xlsx_response(filename: str, sheets: Sequence[tuple[str, Sequence[str], Iterable[dict[str, Any]]]]) -> HttpResponse:
+def xlsx_response(
+    filename: str, sheets: Sequence[tuple[str, Sequence[str], Iterable[dict[str, Any]]]]
+) -> HttpResponse:
     book = Workbook(write_only=True)
     for title, columns, rows in sheets:
         sheet = book.create_sheet(title=title[:31])
@@ -74,7 +87,9 @@ def xlsx_response(filename: str, sheets: Sequence[tuple[str, Sequence[str], Iter
     return response
 
 
-def analytical_export(database: Database, fmt: str, emergency: str | None = None) -> HttpResponse | StreamingHttpResponse:
+def analytical_export(
+    database: Database, fmt: str, emergency: str | None = None
+) -> HttpResponse | StreamingHttpResponse:
     label = f"{database.label or database.name}_raw_data"
     rows = analytical_rows(database, emergency=emergency)
     if fmt == "csv":
@@ -84,4 +99,6 @@ def analytical_export(database: Database, fmt: str, emergency: str | None = None
 
 def etools_locations_export(statuses: list[str]) -> HttpResponse:
     rows = queries.etools_planned_locations(statuses)
-    return xlsx_response(export_filename("etools_planned_locations", "xlsx"), [("Locations", ETOOLS_LOCATION_COLUMNS, rows)])
+    return xlsx_response(
+        export_filename("etools_planned_locations", "xlsx"), [("Locations", ETOOLS_LOCATION_COLUMNS, rows)]
+    )

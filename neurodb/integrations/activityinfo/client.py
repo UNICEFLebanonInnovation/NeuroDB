@@ -119,7 +119,9 @@ class ActivityInfoClient:
         year = getattr(database.reporting_year, "year", None)
         record_filter = f"LEFT(Month,4) == '{year}'" if year else None
         if database.parent_id:
-            job_id = self.start_export(database.parent_id, folder_id=database.db_id, record_filter=record_filter)
+            job_id = self.start_export(
+                database.parent_id, folder_id=database.db_id, record_filter=record_filter
+            )
         else:
             job_id = self.start_export(database.db_id, record_filter=record_filter)
         result = self.poll_export(job_id)

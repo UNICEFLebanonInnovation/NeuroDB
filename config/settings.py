@@ -97,12 +97,19 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # The v2 tables are owned by the database, not by Django, until the team decides to take
 # ownership (docs/DATA_MIGRATION.md). Tests flip this so the test database can be created.
 LEGACY_TABLES_MANAGED = env.bool("LEGACY_TABLES_MANAGED", default=False)
-LEGACY_APPS = ["users", "pivoting", "etools", "locations"]  # v2 labels; packages are accounts/indicators/facts/geo/library/partnerships
+LEGACY_APPS = [
+    "users",
+    "pivoting",
+    "etools",
+    "locations",
+]  # v2 labels; packages are accounts/indicators/facts/geo/library/partnerships
 if ENV == "test":
     LEGACY_TABLES_MANAGED = True  # the legacy migrations read this flag, so tests create the v2 tables
 
 # ---------------------------------------------------------------------------- auth
-AUTH_USER_MODEL = "users.User"  # the v2 app label, so existing content types, permissions and migration rows stay valid
+AUTH_USER_MODEL = (
+    "users.User"  # the v2 app label, so existing content types, permissions and migration rows stay valid
+)
 AUTHENTICATION_BACKENDS = [
     "django.contrib.auth.backends.ModelBackend",
     "allauth.account.auth_backends.AuthenticationBackend",
@@ -184,6 +191,8 @@ if env("AZURE_STORAGE_ACCOUNT", default=""):
             "expiration_secs": 600,
         },
     }
+if ENV == "test":  # tests run without collectstatic, so no manifest exists
+    STORAGES["staticfiles"] = {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}
 WHITENOISE_MANIFEST_STRICT = False
 DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
 
@@ -224,7 +233,7 @@ LOGGING = {
     },
 }
 
-if DEBUG and ENV == "local":
+if DEBUG and ENV == "local" and env.bool("DEBUG_TOOLBAR", default=True):
     try:
         import debug_toolbar  # noqa: F401
 

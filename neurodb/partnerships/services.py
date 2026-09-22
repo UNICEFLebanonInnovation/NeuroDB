@@ -74,7 +74,12 @@ class PDFilters:
             qs = qs.filter(number__in=self.numbers)
         if self.document_types:
             qs = qs.filter(document_type__in=self.document_types)
-        for values, fieldname in ((self.sections, "section_names"), (self.offices, "offices_set"), (self.donors, "donors"), (self.grants, "grants")):
+        for values, fieldname in (
+            (self.sections, "section_names"),
+            (self.offices, "offices_set"),
+            (self.donors, "donors"),
+            (self.grants, "grants"),
+        ):
             if values:
                 q = Q()
                 for v in values:
@@ -105,8 +110,12 @@ def pd_filter_options() -> dict[str, list[str]]:
         donors.update(row[2] or [])
         grants.update(row[3] or [])
     return {
-        "partners": sorted(base.exclude(partner_name__isnull=True).values_list("partner_name", flat=True).distinct()),
-        "cso_types": sorted(x for x in PartnerOrganization.objects.values_list("cso_type", flat=True).distinct() if x),
+        "partners": sorted(
+            base.exclude(partner_name__isnull=True).values_list("partner_name", flat=True).distinct()
+        ),
+        "cso_types": sorted(
+            x for x in PartnerOrganization.objects.values_list("cso_type", flat=True).distinct() if x
+        ),
         "sections": sorted(sections),
         "offices": sorted(offices),
         "statuses": sorted(x for x in base.values_list("status", flat=True).distinct() if x),
@@ -121,17 +130,39 @@ def pd_filter_options() -> dict[str, list[str]]:
 def pd_intervention_counts(numbers: list[str]) -> dict[str, int]:
     """ActivityInfo records per PD number prefix (v2 matched project_label to the number before '-')."""
     prefixes = {n.split("-")[0] for n in numbers}
-    rows = ActivityReportNew.objects.filter(project_label__in=prefixes).values("project_label").annotate(n=Count("id"))
+    rows = (
+        ActivityReportNew.objects.filter(project_label__in=prefixes)
+        .values("project_label")
+        .annotate(n=Count("id"))
+    )
     return {r["project_label"]: r["n"] for r in rows}
 
 
+def _donor_rows(donors_set: Any) -> list[dict[str, Any]]:
+    """eTools donor entries used several key spellings over the years; normalise them once here."""
+    rows = []
+    for d in donors_set or []:
+        if not isinstance(d, dict):
+            continue
+        rows.append(
+            {
+                "donor": str(d.get("donor") or d.get("donor_name") or d.get("name") or "Unknown"),
+                "grant": str(d.get("grant") or d.get("grant_number") or ""),
+                "value": _to_float(d.get("value")),
+            }
+        )
+    return rows
+
+
 def pd_detail(pd: PCA) -> dict[str, Any]:
-    donors = pd.donors_set or []
+    donors = _donor_rows(pd.donors_set)
     return {
         "pd": pd,
-        "donations": sum(_to_float(d.get("value")) for d in donors if isinstance(d, dict)),
+        "donations": sum(d["value"] for d in donors),
         "donors": donors,
-        "interventions": ActivityReportNew.objects.filter(project_label=(pd.number or "").split("-")[0]).count(),
+        "interventions": ActivityReportNew.objects.filter(
+            project_label=(pd.number or "").split("-")[0]
+        ).count(),
         "sections": pd.section_names or [],
         "offices": pd.offices_set or [],
     }
@@ -152,7 +183,9 @@ def pd_summary(scope: str = "active") -> dict[str, Any]:
         by_type[pd.document_type or "Unknown"] += 1
         budget_total += _to_float(pd.total_budget)
     today = datetime.date.today()
-    ending_soon = PCA.objects.filter(status__in=ACTIVE_STATUSES, end__gte=today, end__lte=today + datetime.timedelta(days=90)).order_by("end")
+    ending_soon = PCA.objects.filter(
+        status__in=ACTIVE_STATUSES, end__gte=today, end__lte=today + datetime.timedelta(days=90)
+    ).order_by("end")
     return {
         "scope": scope,
         "count": qs.count(),
@@ -167,21 +200,36 @@ def pd_summary(scope: str = "active") -> dict[str, Any]:
 
 def donor_mapping(filters: PDFilters) -> dict[str, Any]:
     """Donor page: programmes, funds per donor, interventions, planned vs actual locations."""
-    qs = filters.apply(PCA.objects.exclude(status__in=EXCLUDED_STATUSES).select_related("partner"))
-    pds = list(qs.only("id", "number", "title", "partner_name", "status", "start", "end", "donors", "donors_set", "section_names", "offices_set", "location_p_codes", "document_type", "total_budget"))
+    qs = filters.apply(PCA.objects.exclude(status__in=EXCLUDED_STATUSES))
+    pds = list(
+        qs.only(
+            "id",
+            "number",
+            "title",
+            "partner_name",
+            "status",
+            "start",
+            "end",
+            "donors",
+            "donors_set",
+            "section_names",
+            "offices_set",
+            "location_p_codes",
+            "document_type",
+            "total_budget",
+        )
+    )
     funds_by_donor: Counter[str] = Counter()
     funds_by_year: Counter[int] = Counter()
     programmes = []
     planned_codes: Counter[str] = Counter()
     for pd in pds:
         donations = 0.0
-        for d in pd.donors_set or []:
-            if isinstance(d, dict):
-                amount = _to_float(d.get("value"))
-                donations += amount
-                funds_by_donor[str(d.get("donor") or d.get("donor_name") or d.get("name") or "Unknown")] += amount
-                if pd.start:
-                    funds_by_year[pd.start.year] += amount
+        for d in _donor_rows(pd.donors_set):
+            donations += d["value"]
+            funds_by_donor[d["donor"]] += d["value"]
+            if pd.start:
+                funds_by_year[pd.start.year] += d["value"]
         for code in pd.location_p_codes or []:
             planned_codes[code] += 1
         programmes.append({"pd": pd, "donations": donations})
@@ -189,7 +237,10 @@ def donor_mapping(filters: PDFilters) -> dict[str, Any]:
     prefixes = list({n.split("-")[0] for n in numbers})
     interventions = ActivityReportNew.objects.filter(project_label__in=prefixes)
     interventions_by_gov = list(
-        interventions.exclude(location_adminlevel_governorate__isnull=True).values("location_adminlevel_governorate").annotate(n=Count("id")).order_by("-n")
+        interventions.exclude(location_adminlevel_governorate__isnull=True)
+        .values("location_adminlevel_governorate")
+        .annotate(n=Count("id"))
+        .order_by("-n")
     )
     return {
         "programmes": programmes,
@@ -199,7 +250,10 @@ def donor_mapping(filters: PDFilters) -> dict[str, Any]:
         "funds_by_year": sorted(funds_by_year.items()),
         "interventions_total": interventions.count(),
         "interventions_by_governorate": interventions_by_gov,
-        "unique_actual_locations": interventions.exclude(location_name__isnull=True).values("location_name").distinct().count(),
+        "unique_actual_locations": interventions.exclude(location_name__isnull=True)
+        .values("location_name")
+        .distinct()
+        .count(),
         "planned_locations": sum(planned_codes.values()),
         "planned_locations_unique": len(planned_codes),
     }
@@ -220,8 +274,10 @@ def partners(params) -> QuerySet[PartnerOrganization]:
     if q:
         qs = qs.filter(Q(name__icontains=q) | Q(short_name__icontains=q) | Q(vendor_number__icontains=q))
     return qs.annotate(
-        pd_count=Count("pca", distinct=True, filter=Q(pca__status__in=CLOSED_STATUSES)),
-        active_pd_count=Count("pca", distinct=True, filter=Q(pca__status__in=ACTIVE_STATUSES)),
+        pd_count=Count("interventions", distinct=True, filter=Q(interventions__status__in=CLOSED_STATUSES)),
+        active_pd_count=Count(
+            "interventions", distinct=True, filter=Q(interventions__status__in=ACTIVE_STATUSES)
+        ),
     ).order_by("name")
 
 
@@ -249,7 +305,9 @@ def partner_profile(partner: PartnerOrganization) -> dict[str, Any]:
         "engagements": list(engagements[:50]),
         "engagement_counts": dict(eng_counts),
         "visits_by_year": sorted(visits_by_year.items()),
-        "interventions": ActivityReportNew.objects.filter(project_label__in=numbers).count() if numbers else 0,
+        "interventions": ActivityReportNew.objects.filter(project_label__in=numbers).count()
+        if numbers
+        else 0,
         "hact": partner.hact_values or {},
         "risk_rating": partner.rating,
     }

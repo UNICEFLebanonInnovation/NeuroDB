@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterable
-from typing import Any, TypeVar
+from typing import Any
 
 from django.db import transaction
 
@@ -12,7 +12,6 @@ from neurodb.core.models import SyncRun
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T")
 ERROR_CHARS = 2000
 
 
@@ -38,7 +37,7 @@ def fail(run: SyncRun, exc: BaseException, **details: Any) -> SyncRun:
     return run
 
 
-def process_items(
+def process_items[T](
     run: SyncRun,
     items: Iterable[T],
     handler: Callable[[T], None],

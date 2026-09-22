@@ -35,7 +35,9 @@ def test_list_follows_drf_next_links():
         f"{BASE}/api/audit/engagements/?page_size=1000",
         json={"results": [{"id": 1}], "next": f"{BASE}/api/audit/engagements/?page=2&page_size=1000"},
     )
-    responses.get(f"{BASE}/api/audit/engagements/?page=2&page_size=1000", json={"results": [{"id": 2}], "next": None})
+    responses.get(
+        f"{BASE}/api/audit/engagements/?page=2&page_size=1000", json={"results": [{"id": 2}], "next": None}
+    )
     assert [i["id"] for i in make_client().list("/api/audit/engagements/")] == [1, 2]
 
 

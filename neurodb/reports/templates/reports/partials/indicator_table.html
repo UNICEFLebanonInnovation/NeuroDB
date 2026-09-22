@@ -1,0 +1,42 @@
+{% load i18n ui %}
+{% include "components/table_toolbar.html" with title=_("Master indicators") count=indicators|length table_id="indicators" filename=database.label|default:database.name|slugify %}
+{% if indicators %}
+<div class="table-wrap">
+<table class="table table-hover" id="indicators" data-sortable>
+  <thead>
+    <tr>
+      <th scope="col">{% trans "Indicator" %}</th>
+      <th scope="col">{% trans "Method" %}</th>
+      <th scope="col" class="num">{% trans "Target" %}</th>
+      <th scope="col" class="num">{% trans "Achieved" %}</th>
+      <th scope="col">{% trans "Progress" %}</th>
+      <th scope="col">{% trans "Status" %}</th>
+      <th scope="col" class="num">{% trans "Records" %}</th>
+      <th scope="col" data-nosort><span class="visually-hidden">{% trans "Details" %}</span></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for i in indicators %}
+    <tr id="indicator-{{ i.id }}">
+      <td><span class="cell-title">{{ i.label }}</span><span class="cell-sub mono">{{ i.awp_code }}{% if i.reporting_level %} · {{ i.reporting_level }}{% endif %}</span></td>
+      <td><span class="chip">{{ i.aggregation_method|default:"SUM" }}</span></td>
+      <td class="num" data-value="{{ i.target|default:'' }}">{{ i.target|number }}</td>
+      <td class="num" data-value="{{ i.value|default:'' }}">{{ i.value|number }}{% if i.unit %} <span class="text-muted small">{{ i.unit }}</span>{% endif %}</td>
+      <td data-value="{{ i.achieved|default:'' }}">
+        {% if i.achieved is not None %}
+        <div class="meter"><div class="meter__track"><span class="meter__fill meter__fill--{{ i.tracking }}" style="width: {% if i.achieved > 100 %}100{% else %}{{ i.achieved|floatformat:0 }}{% endif %}%"></span></div><span class="meter__value">{{ i.achieved|percent:0 }}</span></div>
+        {% else %}<span class="text-muted small">—</span>{% endif %}
+      </td>
+      <td data-value="{{ i.tracking }}">{% status_pill i.tracking i.tracking_label "sm" %}</td>
+      <td class="num">{{ i.reports|number }}</td>
+      <td class="text-end">
+        <a class="btn btn-sm btn-outline-secondary" href="{% url 'reports:indicator_detail' database.id i.id %}" hx-get="{% url 'reports:indicator_detail' database.id i.id %}" hx-target="#modal-content" hx-push-url="false" aria-label="{% blocktrans with name=i.label %}Sub-indicators of {{ name }}{% endblocktrans %}">{% trans "Details" %}</a>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+{% include "components/empty_state.html" with icon="filter" title=_("No indicators match") message=_("Change the status filter or the search text.") action_url=request.path %}
+{% endif %}

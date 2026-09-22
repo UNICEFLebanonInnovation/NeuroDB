@@ -18,7 +18,16 @@ class ReadOnlyAdmin(admin.ModelAdmin):
 
 @admin.register(PartnerOrganization)
 class PartnerAdmin(ReadOnlyAdmin):
-    list_display = ("name", "short_name", "vendor_number", "partner_type", "cso_type", "rating", "hidden", "deleted_flag")
+    list_display = (
+        "name",
+        "short_name",
+        "vendor_number",
+        "partner_type",
+        "cso_type",
+        "rating",
+        "hidden",
+        "deleted_flag",
+    )
     list_filter = ("partner_type", "cso_type", "rating", "hidden", "deleted_flag")
     search_fields = ("name", "short_name", "vendor_number")
     exclude = ("staff_members",)
@@ -46,7 +55,15 @@ class EngagementAdmin(ReadOnlyAdmin):
 
 @admin.register(Travel)
 class TravelAdmin(ReadOnlyAdmin):
-    list_display = ("reference_number", "status", "section", "office", "start_date", "end_date", "travel_type")
+    list_display = (
+        "reference_number",
+        "status",
+        "section",
+        "office",
+        "start_date",
+        "end_date",
+        "travel_type",
+    )
     list_filter = ("status", "travel_type", "section")
     search_fields = ("reference_number",)
     exclude = ("traveler_name", "supervisor_name")

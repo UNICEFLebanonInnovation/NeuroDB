@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% load i18n ui humanize %}
+{% block content %}
+<div class="kpi-grid">
+  {% blocktrans asvar h1 with n=dashboard.totals.with_target %}{{ n }} with a target{% endblocktrans %}{% blocktrans asvar h4 with n=reported %}{{ n }} indicators with data{% endblocktrans %}{% blocktrans asvar h5 with n=dashboard.totals.partners %}{{ n }} partners{% endblocktrans %}
+  {% trans "Master indicators" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=dashboard.totals.indicators hint=h1 %}
+  {% trans "On track" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=dashboard.status_counts.on_track status="on_track" %}
+  {% trans "Off track" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=dashboard.status_counts.off_track status="off_track" %}
+  {% trans "Reporting" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=reporting_progress unit="%" hint=h4 %}
+  {% trans "Records" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=dashboard.totals.reports|intcomma hint=h5 %}
+</div>
+
+<div class="grid grid--2 mb-3">
+  <section class="panel">
+    <div class="panel__header"><h2 class="panel__title">{% trans "Tracking status" %}</h2><span class="panel__hint">{% trans "Achievement vs share of the year elapsed" %}</span></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="status-donut" data-key="status_counts" data-height="220" aria-label="{% trans 'Indicator status distribution' %}"></div>
+  </section>
+  <section class="panel">
+    <div class="panel__header"><h2 class="panel__title">{% trans "Monthly reporting" %}</h2>
+      <span class="panel__hint">{% if dashboard.last_import %}{% blocktrans with when=dashboard.last_import|naturaltime %}Last import {{ when }}{% endblocktrans %}{% else %}{% trans "Never imported" %}{% endif %}</span></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="monthly" data-key="monthly" data-height="220" aria-label="{% trans 'Reported value and records per month' %}"></div>
+  </section>
+</div>
+
+<section class="panel p-0">
+  <form class="toolbar px-3 pt-3 mb-2" method="get" hx-get="{% url 'reports:database_dashboard' database.id %}" hx-target="#indicator-table" hx-trigger="change, input from:#indicator-q delay:300ms, submit" hx-push-url="true" role="search">
+    <div class="segmented" role="radiogroup" aria-label="{% trans 'Filter by status' %}">
+      <label class="m-0"><input class="visually-hidden" type="radio" name="status" value="" {% if not status %}checked{% endif %}><span>{% trans "All" %}</span></label>
+      {% for key, label in labels.items %}
+      <label class="m-0"><input class="visually-hidden" type="radio" name="status" value="{{ key }}" {% if status == key %}checked{% endif %}><span>{{ label }}</span></label>
+      {% endfor %}
+    </div>
+    <input id="indicator-q" class="form-control form-control-sm w-auto" type="search" name="q" value="{{ q }}" placeholder="{% trans 'Filter indicators or AWP codes' %}" aria-label="{% trans 'Filter indicators' %}">
+    {% if dashboard.sibling_years %}
+    <div class="dropdown ms-auto">
+      <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">{% trans "Other years" %}</button>
+      <ul class="dropdown-menu dropdown-menu-end">{% for s in dashboard.sibling_years %}<li><a class="dropdown-item" href="{% url 'reports:database_dashboard' s.id %}">{{ s.year }} · {{ s.label }}</a></li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+  </form>
+  <div id="indicator-table">{% include "reports/partials/indicator_table.html" %}</div>
+</section>
+{{ chart_data|json_script:"chart-data" }}
+{% endblock %}

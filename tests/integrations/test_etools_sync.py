@@ -68,8 +68,15 @@ def test_sync_partners_upserts_and_isolates_bad_items():
 @responses.activate
 def test_sync_partners_counts_failures_and_continues():
     good = partner_payload(1)
-    broken = {"id": 2, "name": "x" * 300, "partner_type": "Government", "vendor_number": "V2"}  # truncated to 255
-    unique_clash = partner_payload(3, name="Partner 1", vendor_number="V1")  # (name, vendor_number) unique in v2
+    broken = {
+        "id": 2,
+        "name": "x" * 300,
+        "partner_type": "Government",
+        "vendor_number": "V2",
+    }  # truncated to 255
+    unique_clash = partner_payload(
+        3, name="Partner 1", vendor_number="V1"
+    )  # (name, vendor_number) unique in v2
     responses.get(f"{BASE}/api/v2/partners/", json=[good, broken, unique_clash])
     run = sync.sync_partners(make_run("partners"), client=make_client())
     assert run.rows_in == 3
@@ -94,13 +101,20 @@ def test_sync_agreements_with_missing_partner_still_writes():
     assert run.status == SyncRun.Status.SUCCEEDED
     assert run.details["missing_refs"] == {"partnerorganization": 1}
     a10 = Agreement.objects.get(etl_id="10")
-    assert (a10.partner.etl_id, a10.start, a10.end, a10.signed_by_unicef_date) == ("1", dt.date(2024, 1, 1), None, None)
+    assert (a10.partner.etl_id, a10.start, a10.end, a10.signed_by_unicef_date) == (
+        "1",
+        dt.date(2024, 1, 1),
+        None,
+        None,
+    )
     assert Agreement.objects.get(etl_id="11").partner is None
 
 
 @responses.activate
 def test_sync_intervention_details_accumulates_all_frs():
-    partner = PartnerOrganization.objects.create(etl_id="1", name="P1", partner_type="Government", vendor_number="V1")
+    partner = PartnerOrganization.objects.create(
+        etl_id="1", name="P1", partner_type="Government", vendor_number="V1"
+    )
     agreement = Agreement.objects.create(etl_id="10", agreement_type="PCA")
     PCA.objects.create(etl_id="100", title="t", donors=["D1"])
     PCA.objects.create(etl_id="101", title="no donors", donors=[])
@@ -123,7 +137,9 @@ def test_sync_intervention_details_accumulates_all_frs():
 @responses.activate
 def test_sync_travels_paginates_from_page_one_and_uses_activity_date():
     Section.objects.create(id=5, name="CP")
-    partner = PartnerOrganization.objects.create(etl_id="1", name="P1", partner_type="Government", vendor_number="V1")
+    partner = PartnerOrganization.objects.create(
+        etl_id="1", name="P1", partner_type="Government", vendor_number="V1"
+    )
     recent = (timezone.now().date() - dt.timedelta(days=10)).isoformat()
     responses.get(
         f"{BASE}/api/t2f/travels/?page_size=1000",
@@ -162,7 +178,12 @@ def test_sync_travels_paginates_from_page_one_and_uses_activity_date():
     assert run.details["missing_refs"] == {"office": 1}
     t1 = Travel.objects.get(id=1)
     assert (t1.status, t1.end_date, t1.section_id, t1.office_id) == ("completed", None, 5, None)
-    assert (t1.have_hact, t1.report_note, t1.travel_type, t1.itinerary_set) == (1, "done", "Programmatic Visit", ['{"a": 1}'])
+    assert (t1.have_hact, t1.report_note, t1.travel_type, t1.itinerary_set) == (
+        1,
+        "done",
+        "Programmatic Visit",
+        ['{"a": 1}'],
+    )
     activity = TravelActivity.objects.get(id=50)
     assert (activity.date, activity.partner, activity.travel_id) == (dt.date(2025, 5, 5), partner, 1)
     assert not TravelActivity.objects.filter(id=51).exists()  # no partner/partnership -> skipped like v2

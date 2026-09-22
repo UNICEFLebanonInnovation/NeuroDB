@@ -1,0 +1,13 @@
+{% load i18n ui %}
+<form class="toolbar" method="get" hx-get="{{ request.path }}" hx-target="{{ target }}" hx-trigger="change" hx-push-url="true" aria-label="{% trans 'Reporting period' %}">
+  <label class="small text-muted fw-semibold" for="period-month">{% trans "Values to the end of" %}</label>
+  <select id="period-month" name="month" class="form-select form-select-sm w-auto">
+    {% for m in months %}<option value="{{ m.value }}" {% if not data.quarter and m.value == data.month %}selected{% endif %}>{{ m.value|month_name }}</option>{% endfor %}
+  </select>
+  <div class="segmented" role="radiogroup" aria-label="{% trans 'Quarter' %}">
+    <label><input class="visually-hidden" type="radio" name="quarter" value="" {% if not data.quarter %}checked{% endif %}><span>{% trans "Month" %}</span></label>
+    {% for q in quarters %}<label><input class="visually-hidden" type="radio" name="quarter" value="{{ q }}" {% if data.quarter == q %}checked{% endif %}><span>{{ q }}</span></label>{% endfor %}
+  </div>
+  <span class="small text-muted ms-auto">{% blocktrans with cutoff=data.cutoff|date:"j M Y" %}Edits after {{ cutoff }} are excluded{% endblocktrans %}</span>
+  <noscript><button class="btn btn-primary btn-sm" type="submit">{% trans "Apply" %}</button></noscript>
+</form>

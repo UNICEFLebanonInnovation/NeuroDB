@@ -1,0 +1,7 @@
+{% load i18n ui %}
+{% if matrix.rows %}<div class="table-wrap" style="max-height: 520px"><table class="table" id="{{ table_id }}" data-sortable>
+  <thead><tr><th>{{ first_label }}</th>{% for c in matrix.columns %}<th class="num" title="{{ nationality_labels|get_item:c|default:c }}">{{ c }}</th>{% endfor %}<th class="num">{% trans "Total" %}</th></tr></thead>
+  <tbody>{% for r in matrix.rows %}<tr><td>{{ r.label }}</td>{% for v in r.values %}<td class="num">{{ v|number }}</td>{% endfor %}<td class="num fw-semibold">{{ r.total|number }}</td></tr>{% endfor %}</tbody>
+  <tfoot><tr><td>{% trans "Total" %}</td>{% for v in matrix.column_totals %}<td class="num">{{ v|number }}</td>{% endfor %}<td></td></tr></tfoot>
+</table></div>
+{% else %}<p class="text-muted small p-3 mb-0">{% trans "No figures loaded for this breakdown." %}</p>{% endif %}

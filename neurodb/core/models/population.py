@@ -28,7 +28,9 @@ class PopulationFigure(models.Model):
     area_code = models.CharField(max_length=20, blank=True, db_index=True)
     area_name = models.CharField(max_length=120, blank=True)
     parent_name = models.CharField(max_length=120, blank=True, help_text="governorate of a district, etc.")
-    age_group = models.CharField(max_length=20, blank=True, help_text="e.g. 0-4, 5-17, 18-59, 60+ ; empty = all ages")
+    age_group = models.CharField(
+        max_length=20, blank=True, help_text="e.g. 0-4, 5-17, 18-59, 60+ ; empty = all ages"
+    )
     sex = models.CharField(max_length=6, blank=True, help_text="male/female; empty = both")
     category = models.CharField(max_length=24, default="total", help_text="total | children | vulnerable")
     vulnerability_level = models.CharField(max_length=24, blank=True)
@@ -37,7 +39,19 @@ class PopulationFigure(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["year", "category", "level"])]
-        unique_together = (("year", "category", "nationality", "level", "area_code", "age_group", "sex", "vulnerability_level"),)
+        unique_together = (
+            (
+                "year",
+                "category",
+                "nationality",
+                "level",
+                "area_code",
+                "age_group",
+                "sex",
+                "vulnerability_level",
+            ),
+        )
 
     def __str__(self):
-        return f"{self.year} {self.category} {self.nationality} {self.area_name or self.level} {self.age_group}: {self.value}"
+        area = self.area_name or self.level
+        return f"{self.year} {self.category} {self.nationality} {area} {self.age_group}: {self.value}"

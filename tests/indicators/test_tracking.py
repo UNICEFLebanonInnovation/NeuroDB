@@ -1,6 +1,13 @@
 import datetime
 
-from neurodb.indicators.services.tracking import NO_TARGET, OFF_TRACK, ON_TRACK, OVER_TARGET, percentage_of_year_elapsed, tracking
+from neurodb.indicators.services.tracking import (
+    NO_TARGET,
+    OFF_TRACK,
+    ON_TRACK,
+    OVER_TARGET,
+    percentage_of_year_elapsed,
+    tracking,
+)
 
 MID_YEAR = datetime.date(2026, 7, 2)  # ~50% elapsed
 

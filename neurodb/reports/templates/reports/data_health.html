@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% load i18n ui humanize %}
+{% block content %}
+<h2 class="section-heading mt-0">{% trans "Sync jobs" %} <span class="small text-muted fw-normal">{% blocktrans with h=health.staleness_hours %}Stale after {{ h }} hours{% endblocktrans %}</span></h2>
+<div class="grid grid--cards mb-3">
+  {% for j in health.jobs %}
+  <div class="panel">
+    <div class="d-flex justify-content-between align-items-start gap-2"><h3 class="panel__title">{{ j.label }}</h3>{% status_pill j.state j.state_label "sm" %}</div>
+    <p class="small text-muted mb-1 mt-2">{% if j.last_success %}{% blocktrans with when=j.last_success.finished_at|naturaltime %}Last success {{ when }}{% endblocktrans %}{% else %}{% trans "No successful run recorded." %}{% endif %}</p>
+    {% if j.last_run and j.last_run != j.last_success %}<p class="small mb-0">{% trans "Latest run" %}: {% status_pill j.last_run.status j.last_run.get_status_display "sm" %} {{ j.last_run.started_at|naturaltime }}</p>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+<div class="grid grid--2">
+  <section class="panel p-0">
+    {% include "components/table_toolbar.html" with title=_("Database imports") count=health.databases|length table_id="db-health" %}
+    <div class="table-wrap" style="max-height: 560px"><table class="table table-hover" id="db-health" data-sortable>
+      <thead><tr><th>{% trans "Database" %}</th><th>{% trans "Last import" %}</th><th>{% trans "State" %}</th></tr></thead>
+      <tbody>{% for d in health.databases %}<tr data-href="{% url 'reports:database_dashboard' d.database.id %}"><td><a href="{% url 'reports:database_dashboard' d.database.id %}">{{ d.database.label|default:d.database.name }}</a><span class="cell-sub">{{ d.database.section.name|default:"" }} · AI {{ d.database.ai_id }}</span></td>
+      <td class="small" data-value="{{ d.last_import|date:'c' }}">{{ d.last_import|naturaltime|default:"—" }}</td><td>{% status_pill d.state d.state_label "sm" %}</td></tr>
+      {% empty %}<tr><td colspan="3" class="text-muted">{% trans "No databases in the current year." %}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+  <section class="panel p-0">
+    {% include "components/table_toolbar.html" with title=_("Recent runs") count=health.runs|length table_id="runs" %}
+    <div class="table-wrap" style="max-height: 560px"><table class="table" id="runs">
+      <thead><tr><th>{% trans "Job" %}</th><th>{% trans "Status" %}</th><th>{% trans "Started" %}</th><th class="num">{% trans "Rows" %}</th></tr></thead>
+      <tbody>{% for r in health.runs %}<tr>
+        <td>{{ r.get_job_display }}{% if r.target %}<span class="cell-sub mono">{{ r.target }}</span>{% endif %}{% if r.error %}<span class="cell-sub text-danger">{{ r.error|truncatechars:140 }}</span>{% endif %}</td>
+        <td>{% status_pill r.status r.get_status_display "sm" %}</td>
+        <td class="small text-nowrap" title="{{ r.started_at }}">{{ r.started_at|naturaltime }}{% if r.finished_at %}<span class="cell-sub">{{ r.finished_at|timeuntil:r.started_at|default:"" }}</span>{% endif %}</td>
+        <td class="num small">{{ r.rows_written|number }}/{{ r.rows_in|number }}{% if r.rows_failed %}<span class="cell-sub text-danger">{% blocktrans with n=r.rows_failed %}{{ n }} failed{% endblocktrans %}</span>{% endif %}</td>
+      </tr>{% empty %}<tr><td colspan="4">{% include "components/empty_state.html" with icon="pulse" title=_("No sync runs yet") message=_("Runs appear here after the first scheduled or manual import.") %}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+</div>
+{% endblock %}

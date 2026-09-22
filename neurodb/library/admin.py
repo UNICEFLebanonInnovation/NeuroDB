@@ -12,7 +12,17 @@ class ResourceForm(forms.ModelForm):
 
     class Meta:
         model = Resource
-        exclude = ("resource_file", "resource_image", "resource_file_name", "resource_image_name")
+        fields = (
+            "title",
+            "description",
+            "publication_year",
+            "type",
+            "topic",
+            "section",
+            "resource_link",
+            "published",
+            "tags",
+        )
 
     def save(self, commit=True):
         obj = super().save(commit=False)

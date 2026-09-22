@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block page_header %}{% endblock %}
+{% block title %}{% trans "Page not found" %}{% endblock %}
+{% block content %}
+<div class="error-page">
+  <div class="error-page__code">404</div>
+  <h1 class="h4 mt-2">{% trans "This page does not exist" %}</h1>
+  <p class="text-muted">{% trans "The link may be outdated, or the database may belong to another reporting year. Try the search." %}</p>
+  <a class="btn btn-primary btn-sm" href="{% url 'reports:overview' %}">{% trans "Back to the overview" %}</a>
+</div>
+{% endblock %}

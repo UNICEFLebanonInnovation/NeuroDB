@@ -198,7 +198,14 @@ TRAVEL_DETAIL_FIELDS = {
     "misc_expenses": "misc_expenses",
     "first_submission_date": "first_submission_date",
 }
-ACTION_POINT_FIELDS = ("reference_number", "description", "due_date", "high_priority", "status", "status_date")
+ACTION_POINT_FIELDS = (
+    "reference_number",
+    "description",
+    "due_date",
+    "high_priority",
+    "status",
+    "status_date",
+)
 
 
 # --------------------------------------------------------------------------------- reference lookups
@@ -264,7 +271,9 @@ def sync_partners(run: SyncRun, *, client: EToolsClient | None = None) -> SyncRu
 
     def handle(item: dict[str, Any]) -> None:
         etl_id = str(item["id"])
-        partner = PartnerOrganization.objects.filter(etl_id=etl_id).first() or PartnerOrganization(etl_id=etl_id)
+        partner = PartnerOrganization.objects.filter(etl_id=etl_id).first() or PartnerOrganization(
+            etl_id=etl_id
+        )
         # name and partner_type go through the same coercion as every other field (NOT NULL, max_length).
         assign(partner, item, ("name", "partner_type", *PARTNER_FIELDS))
         partner.save()
@@ -299,7 +308,9 @@ def sync_agreements(run: SyncRun, *, client: EToolsClient | None = None) -> Sync
     refs = References()
 
     def handle(item: dict[str, Any]) -> None:
-        agreement, _ = Agreement.objects.get_or_create(etl_id=str(item["id"]), defaults={"agreement_type": ""})
+        agreement, _ = Agreement.objects.get_or_create(
+            etl_id=str(item["id"]), defaults={"agreement_type": ""}
+        )
         agreement.partner = refs.by_etl_id(PartnerOrganization, item.get("partner"))
         assign(agreement, item, AGREEMENT_FIELDS)
         agreement.save()
@@ -386,7 +397,9 @@ def _travel_activity(travel: Travel, activity: dict[str, Any], refs: References)
 def _travel_detail(travel: Travel, item: dict[str, Any], refs: References) -> None:
     assign(travel, item, TRAVEL_DETAIL_FIELDS)
     attachments = item.get("attachments") or []
-    travel.have_hact = sum(1 for a in attachments if "HACT" in str(a.get("name", "")) and ".docx" in str(a.get("name", "")))
+    travel.have_hact = sum(
+        1 for a in attachments if "HACT" in str(a.get("name", "")) and ".docx" in str(a.get("name", ""))
+    )
     for activity in item.get("activities") or []:
         if not (activity.get("partner") or activity.get("partnership")):
             continue
@@ -454,7 +467,9 @@ def sync_engagements(run: SyncRun, *, client: EToolsClient | None = None) -> Syn
         assign(engagement, item, ENGAGEMENT_FIELDS)
         assign(engagement, item, ENGAGEMENT_LIST_FIELDS)
         partner = item.get("partner") or {}
-        engagement.partner = refs.by_etl_id(PartnerOrganization, partner.get("id") if isinstance(partner, dict) else partner)
+        engagement.partner = refs.by_etl_id(
+            PartnerOrganization, partner.get("id") if isinstance(partner, dict) else partner
+        )
         engagement.save()
         _engagement_detail(engagement, client, refs)
 
@@ -478,7 +493,9 @@ def sync_action_points(run: SyncRun, *, client: EToolsClient | None = None) -> S
         point.related_module = f"{item.get('related_module', '')}_{engagement.engagement_type}"
         category = item.get("category") or {}
         point.category_id = refs.existing_id(Category, category.get("id"))
-        point.category_name = coerce(ActionPoint._meta.get_field("category_name"), category.get("description"))
+        point.category_name = coerce(
+            ActionPoint._meta.get_field("category_name"), category.get("description")
+        )
         point.author_name = _nested_name(item, "author")
         point.assigned_by_name = _nested_name(item, "assigned_by")
         point.assigned_to_name = _nested_name(item, "assigned_to")

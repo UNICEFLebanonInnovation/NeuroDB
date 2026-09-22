@@ -15,15 +15,21 @@ TODAY = dt.date(2025, 6, 15)
 
 
 def make_run(database) -> SyncRun:
-    return SyncRun.objects.create(job=SyncRun.Job.ACTIVITYINFO_DATA, target=str(database.ai_id), triggered_by="test")
+    return SyncRun.objects.create(
+        job=SyncRun.Job.ACTIVITYINFO_DATA, target=str(database.ai_id), triggered_by="test"
+    )
 
 
 def seed_existing(database, other_database) -> None:
     ActivityReportNew.objects.create(dbase=database, database_ai_id=str(database.ai_id), indicator_id="old")
-    ActivityReportNew.objects.create(dbase=other_database, database_ai_id=str(other_database.ai_id), indicator_id="keep")
+    ActivityReportNew.objects.create(
+        dbase=other_database, database_ai_id=str(other_database.ai_id), indicator_id="keep"
+    )
 
 
-def test_import_data_replaces_rows_in_batches_and_records_counts(database, nutrition_database, monkeypatch, tmp_path):
+def test_import_data_replaces_rows_in_batches_and_records_counts(
+    database, nutrition_database, monkeypatch, tmp_path
+):
     seed_existing(database, nutrition_database)
     monkeypatch.setattr(data_module, "BATCH_SIZE", 2)
     calls: list[int | None] = []

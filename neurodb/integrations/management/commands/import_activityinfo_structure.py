@@ -12,7 +12,9 @@ from neurodb.integrations.runs import new_run
 
 
 class Command(BaseCommand):
-    help = "Import ActivityInfo forms and indicators into Activity/IndicatorNew for one or all current databases"
+    help = (
+        "Import ActivityInfo forms and indicators into Activity/IndicatorNew for one or all current databases"
+    )
 
     def add_arguments(self, parser):
         group = parser.add_mutually_exclusive_group(required=True)

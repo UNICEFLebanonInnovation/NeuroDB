@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block content %}
+{% include "reports/_period_picker.html" with target="#hpm-body" %}
+<div id="hpm-body" class="htmx-hide-on-request">{% include "reports/partials/hpm_sections.html" %}</div>
+{% if can_comment %}
+<section class="panel mt-3" aria-labelledby="comment-title">
+  <details>
+    <summary class="panel__title" id="comment-title">{% trans "Add a comment to an indicator" %}</summary>
+    <form method="post" class="row g-3 mt-1">
+      {% csrf_token %}
+      <div class="col-md-6">
+        <label class="form-label" for="{{ form.master.id_for_label }}">{{ form.master.label }}</label>
+        <select class="form-select form-select-sm" name="{{ form.master.html_name }}" id="{{ form.master.id_for_label }}" required>
+          {% for choice in form.master.field.queryset %}<option value="{{ choice.pk }}">{{ choice.master.awp_code }} · {{ choice.label|default:choice.master.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="{{ form.related_month.id_for_label }}">{{ form.related_month.label }}</label>
+        <select class="form-select form-select-sm" name="{{ form.related_month.html_name }}" id="{{ form.related_month.id_for_label }}">
+          {% for m in months %}<option value="{{ m.label }}" {% if m.value == data.month %}selected{% endif %}>{{ m.label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-12">
+        <label class="form-label" for="{{ form.comment.id_for_label }}">{{ form.comment.label }}</label>
+        <textarea class="form-control" name="{{ form.comment.html_name }}" id="{{ form.comment.id_for_label }}" rows="3" maxlength="5000" required></textarea>
+        <div class="form-text">{% trans "Comments are visible to everyone who opens this report. You can comment on indicators of your own section." %}</div>
+      </div>
+      <div class="col-12"><button type="submit" class="btn btn-primary btn-sm">{% trans "Save comment" %}</button></div>
+    </form>
+  </details>
+</section>
+{% endif %}
+{% endblock %}

@@ -156,6 +156,7 @@
 {% include "components/modal.html" %}
 {% include "components/search_modal.html" %}
 
+{% asset_urls %}
 <script src="{% static 'vendor/bootstrap/bootstrap.bundle.min.js' %}" nonce="{{ request.csp_nonce }}"></script>
 <script src="{% static 'vendor/htmx/htmx.min.js' %}" nonce="{{ request.csp_nonce }}"></script>
 <script type="module" src="{% static 'js/app.js' %}" nonce="{{ request.csp_nonce }}"></script>

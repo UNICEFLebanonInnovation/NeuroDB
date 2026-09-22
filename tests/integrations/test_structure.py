@@ -32,7 +32,12 @@ def schema_with_subform(sub_id: str) -> dict:
         "elements": [
             {"id": "partner", "type": "reference"},
             {"id": "sub", "type": "subform", "typeParameters": {"formId": sub_id}},
-            {"id": "visible", "type": "subform", "tableVisible": True, "typeParameters": {"formId": "ignored"}},
+            {
+                "id": "visible",
+                "type": "subform",
+                "tableVisible": True,
+                "typeParameters": {"formId": "ignored"},
+            },
         ]
     }
 
@@ -40,7 +45,12 @@ def schema_with_subform(sub_id: str) -> dict:
 def schema_with_quantities() -> dict:
     return {
         "elements": [
-            {"id": "q1", "type": "quantity", "label": "1.1_SYR_Female_Under 5: # of girls", "description": "d"},
+            {
+                "id": "q1",
+                "type": "quantity",
+                "label": "1.1_SYR_Female_Under 5: # of girls",
+                "description": "d",
+            },
             {"id": "q2", "type": "calculated", "label": "1.2_LEB_Male_visual: # of boys"},
             {"id": "t1", "type": "text", "label": "comment"},
         ]
@@ -56,7 +66,10 @@ def mock_api(db_id: str) -> None:
 
 def test_group_resources_orders_folder_forms_first():
     pairs = group_resources(tree("db")["resources"], "db")
-    assert [(f["id"] if f else None, form["id"]) for f, form in pairs] == [("folderA", "formA1"), (None, "formRoot")]
+    assert [(f["id"] if f else None, form["id"]) for f, form in pairs] == [
+        ("folderA", "formA1"),
+        (None, "formRoot"),
+    ]
 
 
 @responses.activate
@@ -70,10 +83,20 @@ def test_import_structure_upserts_activities_and_indicators(database):
     assert (run.rows_in, run.rows_written, run.rows_failed) == (2, 2, 0)
     assert stats["indicators"] == 2 and stats["indicators_created"] == 2
     activity = Activity.objects.get(ai_form_id="formA1", database=database)
-    assert (activity.name, activity.category, activity.ai_category_id) == ("Monthly Reporting", "Folder A", "folderA")
+    assert (activity.name, activity.category, activity.ai_category_id) == (
+        "Monthly Reporting",
+        "Folder A",
+        "folderA",
+    )
     assert Activity.objects.filter(database=database).count() == 2
     q1 = IndicatorNew.objects.get(ai_indicator="q1", database=database)
-    assert (q1.awp_code, q1.nationality, q1.gender, q1.age_group, q1.type) == ("1.1", "SYR", "Female", "<5", "quantity")
+    assert (q1.awp_code, q1.nationality, q1.gender, q1.age_group, q1.type) == (
+        "1.1",
+        "SYR",
+        "Female",
+        "<5",
+        "quantity",
+    )
     q2 = IndicatorNew.objects.get(ai_indicator="q2")
     assert (q2.disability, q2.activity_id) == ("Visual", activity.id)
 

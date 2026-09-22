@@ -1,0 +1,14 @@
+{% load i18n %}
+{% if groups %}
+<div role="listbox" aria-label="{% trans 'Search results' %}">
+{% for g in groups %}
+  <div class="search-group__title">{{ g.label }}</div>
+  {% for item in g.items %}<a class="search-item" role="option" aria-selected="false" href="{{ item.url }}"><span>{{ item.label }}</span>{% if item.hint %}<span class="search-item__hint">{{ item.hint }}</span>{% endif %}</a>{% endfor %}
+{% endfor %}
+</div>
+{% elif q|length >= 2 %}
+{% blocktrans asvar msg %}Nothing matches “{{ q }}” in the current reporting year.{% endblocktrans %}
+{% include "components/empty_state.html" with icon="search" title=_("No results") message=msg %}
+{% else %}
+<p class="text-muted small p-3 mb-0">{% trans "Type at least two characters. Use ↑ ↓ to move and Enter to open." %}</p>
+{% endif %}

@@ -56,7 +56,8 @@ def test_gender(name, gender):
 
 
 @pytest.mark.parametrize(
-    ("name", "programme"), [("3.1_BLN_x", "BLN"), ("3.1_ALP_x", "ALP"), ("3.1_CBECE_x", "CBECE"), ("3.1_bln_x", None)]
+    ("name", "programme"),
+    [("3.1_BLN_x", "BLN"), ("3.1_ALP_x", "ALP"), ("3.1_CBECE_x", "CBECE"), ("3.1_bln_x", None)],
 )
 def test_programme_is_case_sensitive_like_v2(name, programme):
     assert parse_tags(name)["programme"] == programme

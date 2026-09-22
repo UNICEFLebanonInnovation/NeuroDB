@@ -52,13 +52,17 @@ def sync_location_types(run: SyncRun, *, client: EToolsClient | None = None) -> 
     client = client or EToolsClient()
 
     def handle(item: dict[str, Any]) -> None:
-        location_type, _ = LocationType.objects.get_or_create(id=int(item["id"]), defaults={"name": item["name"]})
+        location_type, _ = LocationType.objects.get_or_create(
+            id=int(item["id"]), defaults={"name": item["name"]}
+        )
         location_type.name = item["name"]
         location_type.admin_level = item.get("admin_level")
         location_type.save()
 
     try:
-        process_items(run, client.list("/api/locations-types/", page_size=None), handle, lambda i: str(i.get("id")))
+        process_items(
+            run, client.list("/api/locations-types/", page_size=None), handle, lambda i: str(i.get("id"))
+        )
     except Exception as exc:
         fail(run, exc)
         raise
@@ -107,7 +111,9 @@ def sync_locations(run: SyncRun, *, client: EToolsClient | None = None) -> SyncR
     return finish_by_counts(run, parents_linked=linked)
 
 
-def sync_all_locations(*, triggered_by: str = "schedule", client: EToolsClient | None = None) -> list[SyncRun]:
+def sync_all_locations(
+    *, triggered_by: str = "schedule", client: EToolsClient | None = None
+) -> list[SyncRun]:
     """Types first (locations reference them), then locations; each with its own run."""
     client = client or EToolsClient()
     runs: list[SyncRun] = []

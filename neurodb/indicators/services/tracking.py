@@ -34,7 +34,9 @@ class Tracking:
         return LABELS[self.status]
 
 
-def tracking(value: float | None, target: float | None, year: int, today: datetime.date | None = None) -> Tracking:
+def tracking(
+    value: float | None, target: float | None, year: int, today: datetime.date | None = None
+) -> Tracking:
     if not target or target <= 0:
         return Tracking(NO_TARGET, None)
     achieved = (value or 0) * 100 / target

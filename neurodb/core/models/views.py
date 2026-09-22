@@ -8,7 +8,9 @@ class SavedView(models.Model):
 
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="saved_views")
     name = models.CharField(max_length=120)
-    page = models.CharField(max_length=64, db_index=True, help_text="route name, e.g. reports:database_analytical")
+    page = models.CharField(
+        max_length=64, db_index=True, help_text="route name, e.g. reports:database_analytical"
+    )
     object_id = models.PositiveIntegerField(null=True, blank=True, help_text="e.g. the database id")
     query = models.JSONField(default=dict, blank=True, help_text="query-string parameters")
     layout = models.JSONField(default=dict, blank=True, help_text="pivot rows/cols/aggregator/renderer")

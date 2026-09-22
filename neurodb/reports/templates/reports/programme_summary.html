@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% load i18n ui humanize %}
+{% block content %}
+<div class="toolbar">
+  <div class="segmented" role="group" aria-label="{% trans 'Scope' %}">
+    <a href="?scope=active" {% if scope == "active" %}aria-current="page"{% endif %}>{% trans "Active" %}</a>
+    <a href="?scope=all" {% if scope == "all" %}aria-current="page"{% endif %}>{% trans "All signed" %}</a>
+  </div>
+  {% if summary.last_sync %}<span class="small text-muted ms-auto">{% blocktrans with when=summary.last_sync|naturaltime %}eTools data updated {{ when }}{% endblocktrans %}</span>{% endif %}
+</div>
+<div class="kpi-grid">
+  {% trans "Programme documents" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=summary.count|intcomma %}
+  {% trans "Partners" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=summary.by_partner|length %}
+  {% trans "Total budget" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=summary.budget_total|number:0 %}
+  {% trans "Ending in 90 days" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=summary.ending_soon|length status="over_target" %}
+</div>
+<div class="grid grid--2 mb-3">
+  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Documents by section" %}</h2></div>
+    <div class="chart" data-module="charts" data-chart="bars" data-key="by_section"></div></section>
+  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Documents by type" %}</h2></div>
+    <div class="chart" data-module="charts" data-chart="pie" data-key="by_type"></div></section>
+</div>
+<div class="grid grid--2">
+  <section class="panel p-0">
+    {% include "components/table_toolbar.html" with title=_("Ending within 90 days") count=summary.ending_soon|length table_id="ending" %}
+    <div class="table-wrap"><table class="table table-hover" id="ending"><thead><tr><th>{% trans "Document" %}</th><th>{% trans "Partner" %}</th><th>{% trans "Ends" %}</th></tr></thead>
+    <tbody>{% for pd in summary.ending_soon %}<tr data-href="{% url 'reports:programme_detail' pd.id %}"><td><a href="{% url 'reports:programme_detail' pd.id %}">{{ pd.number }}</a><span class="cell-sub">{{ pd.title|truncatechars:70 }}</span></td><td>{{ pd.partner_name }}</td><td class="text-nowrap">{{ pd.end|date:"j M Y" }}<span class="cell-sub">{{ pd.end|timeuntil }}</span></td></tr>
+    {% empty %}<tr><td colspan="3" class="text-muted">{% trans "Nothing ends in the next 90 days." %}</td></tr>{% endfor %}</tbody></table></div>
+  </section>
+  <section class="panel p-0">
+    {% include "components/table_toolbar.html" with title=_("Documents by partner") count=summary.by_partner|length table_id="by-partner" %}
+    <div class="table-wrap" style="max-height: 480px"><table class="table" id="by-partner" data-sortable><thead><tr><th>{% trans "Partner" %}</th><th class="num">{% trans "Documents" %}</th></tr></thead>
+    <tbody>{% for name, n in summary.by_partner %}<tr><td>{{ name }}</td><td class="num">{{ n }}</td></tr>{% endfor %}</tbody></table></div>
+  </section>
+</div>
+{{ chart_data|json_script:"chart-data" }}
+{% endblock %}

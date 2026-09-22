@@ -1,0 +1,38 @@
+{% load i18n ui %}
+<div class="kpi-grid">
+  {% trans "Databases" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=data.totals.databases %}
+  {% trans "Indicators" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.totals.indicators %}
+  {% trans "Period" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.quarter|default:data.month_label hint=data.year %}
+</div>
+{% for s in data.sections %}
+<section class="panel p-0 mb-3" aria-labelledby="rs-{{ s.database.id }}">
+  <div class="table-toolbar">
+    <div class="table-toolbar__title">
+      <span class="section-dot" {% if s.database.section.color %}style="--section-color: {{ s.database.section.color }}"{% endif %} aria-hidden="true"></span>
+      <h2 class="h6 mb-0" id="rs-{{ s.database.id }}"><a href="{% url 'reports:database_dashboard' s.database.id %}">{{ s.database.label|default:s.database.name }}</a></h2>
+      <span class="small text-muted">{{ s.database.section.name }}</span>
+    </div>
+    <div class="table-toolbar__actions">
+      <button type="button" class="btn btn-outline-secondary btn-sm" data-table-copy data-table-target="#rt-{{ s.database.id }}">{% include "components/icon.html" with name="copy" %}<span>{% trans "Copy" %}</span></button>
+    </div>
+  </div>
+  <div class="table-wrap"><table class="table table-hover" id="rt-{{ s.database.id }}" data-sortable>
+    <thead><tr>
+      <th>{% trans "Indicator" %}</th><th class="num">{% trans "Target" %}</th><th class="num">{% trans "Achieved" %}</th>
+      <th class="num">{% trans "Change" %}</th><th>{% trans "Progress" %}</th><th>{% trans "Status" %}</th>
+    </tr></thead>
+    <tbody>{% for i in s.items %}
+      <tr>
+        <td><span class="cell-title">{{ i.label }}</span><span class="cell-sub mono">{{ i.awp_code }}</span></td>
+        <td class="num">{{ i.target|number }}</td>
+        <td class="num">{{ i.value|number }}</td>
+        <td class="num {% if i.delta > 0 %}delta--up{% elif i.delta < 0 %}delta--down{% endif %}" data-value="{{ i.delta }}">{% if i.delta > 0 %}+{% endif %}{{ i.delta|number }}</td>
+        <td data-value="{{ i.achieved|default:'' }}">{% if i.achieved is not None %}<div class="meter"><div class="meter__track"><span class="meter__fill meter__fill--{{ i.tracking }}" style="width: {% if i.achieved > 100 %}100{% else %}{{ i.achieved|floatformat:0 }}{% endif %}%"></span></div><span class="meter__value">{{ i.achieved|percent:0 }}</span></div>{% else %}<span class="text-muted small">—</span>{% endif %}</td>
+        <td>{% status_pill i.tracking i.tracking_label "sm" %}</td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+</section>
+{% empty %}
+<div class="panel">{% include "components/empty_state.html" with icon="file" title=_("This report has no indicators yet") message=_("Add master indicators to the report in the administration pages.") %}</div>
+{% endfor %}

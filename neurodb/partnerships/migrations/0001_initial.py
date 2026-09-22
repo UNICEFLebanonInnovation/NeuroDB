@@ -49,7 +49,7 @@ class Migration(migrations.Migration):
                 (
                     "status",
                     models.CharField(
-                        choices="[('open', 'Open'), ('completed', 'Completed')]",
+                        choices=[('open', 'Open'), ('completed', 'Completed')],
                         default="open",
                         max_length=10,
                         verbose_name="Status",
@@ -166,7 +166,7 @@ class Migration(migrations.Migration):
                 (
                     "module",
                     models.CharField(
-                        choices="[('apd', 'Action Points'), ('t2f', 'Trip Management'), ('tpm', 'Third Party Monitoring'), ('audit', 'Financial Assurance')]",
+                        choices=[('apd', 'Action Points'), ('t2f', 'Trip Management'), ('tpm', 'Third Party Monitoring'), ('audit', 'Financial Assurance')],
                         max_length=10,
                         verbose_name="Module",
                     ),
@@ -221,7 +221,7 @@ class Migration(migrations.Migration):
                 (
                     "status",
                     models.CharField(
-                        choices="[('partner_contacted', 'IP Contacted'), ('report_submitted', 'Report Submitted'), ('final', 'Final Report'), ('cancelled', 'Cancelled')]",
+                        choices=[('partner_contacted', 'IP Contacted'), ('report_submitted', 'Report Submitted'), ('final', 'Final Report'), ('cancelled', 'Cancelled')],
                         default="partner_contacted",
                         max_length=30,
                         verbose_name="Status",
@@ -238,7 +238,7 @@ class Migration(migrations.Migration):
                 (
                     "engagement_type",
                     models.CharField(
-                        choices="[('audit', 'Audit'), ('ma', 'Micro Assessment'), ('sc', 'Spot Check'), ('sa', 'Special Audit')]",
+                        choices=[('audit', 'Audit'), ('ma', 'Micro Assessment'), ('sc', 'Spot Check'), ('sa', 'Special Audit')],
                         max_length=10,
                         verbose_name="Engagement Type",
                     ),
@@ -504,7 +504,7 @@ class Migration(migrations.Migration):
                     "audit_opinion",
                     models.CharField(
                         blank=True,
-                        choices="[('unqualified', 'Unqualified'), ('qualified', 'Qualified'), ('disclaimer_opinion', 'Disclaimer opinion'), ('adverse_opinion', 'Adverse opinion')]",
+                        choices=[('unqualified', 'Unqualified'), ('qualified', 'Qualified'), ('disclaimer_opinion', 'Disclaimer opinion'), ('adverse_opinion', 'Adverse opinion')],
                         default="",
                         max_length=20,
                         verbose_name="Audit Opinion",

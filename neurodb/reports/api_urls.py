@@ -8,7 +8,11 @@ urlpatterns = [
     path("databases/<int:pk>/dashboard/", api.DashboardAPI.as_view(), name="dashboard"),
     path("databases/<int:pk>/analytical/", api.AnalyticalAPI.as_view(), name="analytical"),
     path("databases/<int:pk>/map/", api.MapAPI.as_view(), name="map"),
-    path("databases/<int:pk>/indicators/<int:master_id>/", api.IndicatorDetailAPI.as_view(), name="indicator_detail"),
+    path(
+        "databases/<int:pk>/indicators/<int:master_id>/",
+        api.IndicatorDetailAPI.as_view(),
+        name="indicator_detail",
+    ),
     path("reports/<int:pk>/hpm/", api.HPMAPI.as_view(), name="hpm"),
     path("reports/<int:pk>/analytical/", api.ReportAnalyticalAPI.as_view(), name="report_analytical"),
     path("programmes/", api.ProgrammesAPI.as_view(), name="programmes"),

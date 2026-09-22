@@ -1,0 +1,15 @@
+{% load i18n ui %}
+<dl class="row small mb-3">
+  <dt class="col-sm-4 text-muted">{% trans "Partner" %}</dt><dd class="col-sm-8">{% if pd.partner %}<a href="{% url 'reports:partner_profile' pd.partner.id %}">{{ pd.partner_name|default:pd.partner.name }}</a>{% else %}{{ pd.partner_name|default:"—" }}{% endif %}</dd>
+  <dt class="col-sm-4 text-muted">{% trans "Type" %}</dt><dd class="col-sm-8">{{ pd.document_type|default:"—" }}</dd>
+  <dt class="col-sm-4 text-muted">{% trans "Status" %}</dt><dd class="col-sm-8">{% status_pill pd.status|default:"unknown" pd.status|default:_("Unknown")|capfirst "sm" %}</dd>
+  <dt class="col-sm-4 text-muted">{% trans "Period" %}</dt><dd class="col-sm-8">{{ pd.start|date:"j M Y"|default:"—" }} – {{ pd.end|date:"j M Y"|default:"—" }}</dd>
+  <dt class="col-sm-4 text-muted">{% trans "Total budget" %}</dt><dd class="col-sm-8">{{ pd.total_budget|number }} {{ pd.budget_currency|default:"" }}</dd>
+  <dt class="col-sm-4 text-muted">{% trans "UNICEF cash" %}</dt><dd class="col-sm-8">{{ pd.unicef_cash|number }}</dd>
+  <dt class="col-sm-4 text-muted">{% trans "Sections" %}</dt><dd class="col-sm-8"><div class="chips">{% for s in detail.sections %}<span class="chip">{{ s }}</span>{% empty %}—{% endfor %}</div></dd>
+  <dt class="col-sm-4 text-muted">{% trans "Offices" %}</dt><dd class="col-sm-8"><div class="chips">{% for o in detail.offices %}<span class="chip">{{ o }}</span>{% empty %}—{% endfor %}</div></dd>
+  <dt class="col-sm-4 text-muted">{% trans "ActivityInfo records" %}</dt><dd class="col-sm-8">{{ detail.interventions|number }}</dd>
+</dl>
+<h3 class="h6">{% trans "Donors" %} <span class="text-muted small">{{ detail.donations|number }}</span></h3>
+<div class="table-wrap"><table class="table table-sm"><thead><tr><th>{% trans "Donor" %}</th><th>{% trans "Grant" %}</th><th class="num">{% trans "Amount" %}</th></tr></thead>
+<tbody>{% for d in detail.donors %}<tr><td>{{ d.donor }}</td><td class="mono">{{ d.grant }}</td><td class="num">{{ d.value|number }}</td></tr>{% empty %}<tr><td colspan="3" class="text-muted">{% trans "No donor information." %}</td></tr>{% endfor %}</tbody></table></div>

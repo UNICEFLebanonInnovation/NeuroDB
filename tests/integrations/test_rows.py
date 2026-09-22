@@ -154,7 +154,9 @@ def test_office_databases_use_reporting_office(database):
 
 
 def test_2025_header_round_trip(nutrition_database):
-    data = make_extract([make_row(month="", month_of_reporting="2025-03", indicator_id="2.1", indicator_name="n")],
-                        header=HEADER_2025)
+    data = make_extract(
+        [make_row(month="", month_of_reporting="2025-03", indicator_id="2.1", indicator_name="n")],
+        header=HEADER_2025,
+    )
     (row,) = rows.iter_extract(data)
     assert parse_row(row, nutrition_database, today=TODAY)["month_name"] == "2025-03"

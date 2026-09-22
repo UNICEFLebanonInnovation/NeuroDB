@@ -1,0 +1,39 @@
+{% load i18n %}
+{# Shared analytical view. Context: pivot_config, saved_views, optional emergency + emergency_url. #}
+<section class="panel" data-module="pivot" data-config="pivot-config" data-views="saved-views" aria-label="{% trans 'Pivot table' %}">
+  <div class="toolbar">
+    <div class="segmented" role="group" aria-label="{% trans 'Layout presets' %}">
+      <button type="button" data-preset="month" aria-pressed="false">{% trans "By month" %}</button>
+      <button type="button" data-preset="governorate" aria-pressed="false">{% trans "By governorate" %}</button>
+      <button type="button" data-preset="partner" aria-pressed="false">{% trans "By partner" %}</button>
+      <button type="button" data-preset="sub" aria-pressed="false">{% trans "Sub-indicators" %}</button>
+      <button type="button" data-preset="demographics" aria-pressed="false">{% trans "Demographics" %}</button>
+    </div>
+    {% if show_emergency %}
+    <div class="segmented" role="group" aria-label="{% trans 'Emergency filter' %}">
+      <a href="?" {% if not emergency %}aria-current="page"{% endif %}>{% trans "All records" %}</a>
+      <a href="?emergency=yes" {% if emergency == "yes" %}aria-current="page"{% endif %}>{% trans "Emergency" %}</a>
+      <a href="?emergency=no" {% if emergency == "no" %}aria-current="page"{% endif %}>{% trans "Regular" %}</a>
+    </div>
+    {% endif %}
+    <span class="text-muted small ms-auto" data-pivot-count aria-live="polite"></span>
+    <button type="button" class="btn btn-outline-secondary btn-sm" data-pivot-csv>{% include "components/icon.html" with name="download" %}<span>{% trans "Export table" %}</span></button>
+  </div>
+  <div class="toolbar">
+    <label class="visually-hidden" for="saved-select">{% trans "Saved views" %}</label>
+    <select id="saved-select" class="form-select form-select-sm w-auto" data-saved-select></select>
+    <button type="button" class="btn btn-outline-danger btn-sm" data-saved-delete disabled>{% trans "Delete" %}</button>
+    <form class="d-flex flex-wrap align-items-center gap-2 ms-auto" data-saved-form>
+      <label class="visually-hidden" for="saved-name">{% trans "View name" %}</label>
+      <input id="saved-name" class="form-control form-control-sm w-auto" name="name" maxlength="120" required placeholder="{% trans 'Name this layout' %}">
+      <div class="form-check form-check-inline m-0">
+        <input class="form-check-input" type="checkbox" id="saved-shared" name="is_shared">
+        <label class="form-check-label small" for="saved-shared">{% trans "Share with everyone" %}</label>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">{% include "components/icon.html" with name="save" %}<span>{% trans "Save view" %}</span></button>
+    </form>
+  </div>
+  <div class="pivot-shell" data-pivot-output>{% include "components/skeleton.html" with kind="chart" %}</div>
+</section>
+{{ pivot_config|json_script:"pivot-config" }}
+{{ saved_views|json_script:"saved-views" }}

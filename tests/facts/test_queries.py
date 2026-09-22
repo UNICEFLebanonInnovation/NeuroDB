@@ -22,7 +22,9 @@ def test_month_and_cutoff_filters(hierarchy):
     db = hierarchy["database"]
     jan = queries.master_indicator_values(FactFilter(database_id=db.id, month_to=1))
     assert float(next(r for r in jan if r["id"] == hierarchy["master"].id)["value"]) == 150.0
-    cut = queries.master_indicator_values(FactFilter(database_id=db.id, edited_before=datetime.date(2026, 2, 1)))
+    cut = queries.master_indicator_values(
+        FactFilter(database_id=db.id, edited_before=datetime.date(2026, 2, 1))
+    )
     assert next(r for r in cut if r["id"] == hierarchy["master"].id)["value"] is None
 
 

@@ -133,7 +133,8 @@ SELECT m.id, m.name, m.awp_code, m.aggregation_method, m.reporting_level, m.indi
             WHEN 'MAXIMUM'      THEN mm.max_value
             WHEN 'MINIMUM'      THEN mm.max_value
             WHEN 'COUNT'        THEN mt.reports
-            WHEN 'SUM_OVER_SUM' THEN CASE WHEN rt.denominator > 0 THEN rt.numerator * 100.0 / rt.denominator END
+            WHEN 'SUM_OVER_SUM' THEN
+                CASE WHEN rt.denominator > 0 THEN rt.numerator * 100.0 / rt.denominator END
        END AS value,
        mt.reports AS reports,
        rt.numerator, rt.denominator

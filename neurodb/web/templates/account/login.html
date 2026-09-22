@@ -1,0 +1,35 @@
+{% extends "allauth/layouts/base.html" %}
+{% load i18n socialaccount %}
+{% block head_title %}{% trans "Sign in" %}{% endblock head_title %}
+{% block content %}
+<h1 class="h4 text-center mb-1">{% trans "Sign in" %}</h1>
+<p class="text-center text-muted small mb-4">{% trans "Programme monitoring for UNICEF Lebanon" %}</p>
+{% if SSO_ENABLED %}
+<a class="btn btn-primary w-100 justify-content-center py-2" href="{% provider_login_url 'microsoft' process='login' %}{% if redirect_field_value %}?{{ redirect_field_name }}={{ redirect_field_value|urlencode }}{% endif %}">
+  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="8" fill="currentColor" stroke="none"/><rect x="13" y="3" width="8" height="8" fill="currentColor" stroke="none"/><rect x="3" y="13" width="8" height="8" fill="currentColor" stroke="none"/><rect x="13" y="13" width="8" height="8" fill="currentColor" stroke="none"/></svg>
+  <span>{% trans "Continue with Microsoft" %}</span>
+</a>
+<p class="small text-muted text-center mt-2 mb-0">{% trans "Use your UNICEF account. Access is limited to registered users." %}</p>
+<div class="auth-divider">{% trans "or with a NeuroDB password" %}</div>
+{% endif %}
+<form method="post" action="{% url 'account_login' %}" novalidate>
+  {% csrf_token %}
+  {% if form.non_field_errors %}<div class="alert alert-danger py-2 small" role="alert">{% for e in form.non_field_errors %}{{ e }}{% endfor %}</div>{% endif %}
+  <div class="mb-3">
+    <label class="form-label" for="id_login">{% trans "Username or email" %}</label>
+    <input class="form-control{% if form.login.errors %} is-invalid{% endif %}" type="text" name="login" id="id_login" autocomplete="username" required value="{{ form.login.value|default:'' }}" {% if not SSO_ENABLED %}autofocus{% endif %}>
+    {% for e in form.login.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+  <div class="mb-3">
+    <label class="form-label" for="id_password">{% trans "Password" %}</label>
+    <input class="form-control{% if form.password.errors %} is-invalid{% endif %}" type="password" name="password" id="id_password" autocomplete="current-password" required>
+    {% for e in form.password.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="form-check"><input class="form-check-input" type="checkbox" name="remember" id="id_remember"><label class="form-check-label small" for="id_remember">{% trans "Keep me signed in" %}</label></div>
+    <a class="small" href="{% url 'account_reset_password' %}">{% trans "Forgot password?" %}</a>
+  </div>
+  {{ redirect_field }}
+  <button class="btn {% if SSO_ENABLED %}btn-outline-primary{% else %}btn-primary{% endif %} w-100 justify-content-center" type="submit">{% trans "Sign in" %}</button>
+</form>
+{% endblock content %}

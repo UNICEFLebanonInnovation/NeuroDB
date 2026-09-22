@@ -1,0 +1,15 @@
+{% load i18n ui %}
+<div class="modal-header">
+  <div>
+    <h2 class="modal-title h5" id="modal-title">{{ master.name }}</h2>
+    <div class="small text-muted mono">{{ master.awp_code }} · {{ master.aggregation_method|default:"SUM" }}{% if master.awp_target %} · {% trans "target" %} {{ master.awp_target|number }}{% endif %}</div>
+  </div>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+</div>
+<div class="modal-body p-0">
+  {% include "reports/partials/_sub_table.html" %}
+</div>
+<div class="modal-footer">
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'reports:indicator_detail' database.id master.id %}">{% include "components/icon.html" with name="external" %}<span>{% trans "Open as page" %}</span></a>
+  <a class="btn btn-primary btn-sm" href="{{ analytical_url }}">{% include "components/icon.html" with name="table" %}<span>{% trans "Explore in analytical view" %}</span></a>
+</div>

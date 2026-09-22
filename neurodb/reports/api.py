@@ -68,11 +68,17 @@ class ReportAnalyticalAPI(APIView):
             return _bad_request("emergency must be 'yes' or 'no'.", allowed=list(services.EMERGENCY_VALUES))
         wanted = {
             f"{m.awp_code}_{m.name}"
-            for m in MasterIndicator.objects.filter(neuroreportmasterindicator__report=report).only("awp_code", "name")
+            for m in MasterIndicator.objects.filter(neuroreportmasterindicator__report=report).only(
+                "awp_code", "name"
+            )
         }
         rows: list[dict[str, Any]] = []
         for database in services.report_databases(report):
-            rows.extend(r for r in facts.analytical_rows(database, emergency=emergency or None) if r["master_indicator"] in wanted)
+            rows.extend(
+                r
+                for r in facts.analytical_rows(database, emergency=emergency or None)
+                if r["master_indicator"] in wanted
+            )
         return Response(rows)
 
 
@@ -83,7 +89,9 @@ class MapAPI(APIView):
         level = request.query_params.get("level", "governorate")
         if level not in services.MAP_LEVELS:
             return _bad_request("Unknown level.", allowed=list(services.MAP_LEVELS))
-        return Response(facts.map_data(_database(pk), level=level, **services.map_filters(request.query_params)))
+        return Response(
+            facts.map_data(_database(pk), level=level, **services.map_filters(request.query_params))
+        )
 
 
 class IndicatorDetailAPI(APIView):
@@ -92,7 +100,12 @@ class IndicatorDetailAPI(APIView):
     def get(self, request: Request, pk: int, master_id: int) -> Response:
         database = _database(pk)
         master = get_object_or_404(MasterIndicator, pk=master_id, database=database)
-        return Response({"master": {"id": master.id, "name": master.name, "awp_code": master.awp_code}, "rows": facts.master_detail(database, master.id)})
+        return Response(
+            {
+                "master": {"id": master.id, "name": master.name, "awp_code": master.awp_code},
+                "rows": facts.master_detail(database, master.id),
+            }
+        )
 
 
 class HPMAPI(APIView):
@@ -118,11 +131,23 @@ class HPMAPI(APIView):
                 "quarter": data["quarter"],
                 "cutoff": data["cutoff"].isoformat(),
                 "sections": [
-                    {"database": {"id": s["database"].id, "name": s["database"].label or s["database"].name}, "items": s["items"]}
+                    {
+                        "database": {
+                            "id": s["database"].id,
+                            "name": s["database"].label or s["database"].name,
+                        },
+                        "items": s["items"],
+                    }
                     for s in data["sections"]
                 ],
                 "comments": [
-                    {"id": c.id, "master_id": c.master_id, "comment": c.comment, "month": c.related_month, "entry_date": c.entry_date.isoformat()}
+                    {
+                        "id": c.id,
+                        "master_id": c.master_id,
+                        "comment": c.comment,
+                        "month": c.related_month,
+                        "entry_date": c.entry_date.isoformat(),
+                    }
                     for c in data["comments"]
                 ],
                 "totals": data["totals"],
@@ -139,7 +164,9 @@ class ProgrammesAPI(APIView):
             return _bad_request("scope must be 'active' or 'all'.")
         filters = partnerships.PDFilters.from_params(request.query_params)
         paginator = PageNumberPagination()
-        page = paginator.paginate_queryset(partnerships.programme_documents(filters, scope=scope), request, view=self)
+        page = paginator.paginate_queryset(
+            partnerships.programme_documents(filters, scope=scope), request, view=self
+        )
         counts = partnerships.pd_intervention_counts([pd.number for pd in page if pd.number])
         return paginator.get_paginated_response([services.pd_as_dict(pd, counts) for pd in page])
 
@@ -149,7 +176,9 @@ class DonorsAPI(APIView):
 
     def get(self, request: Request) -> Response:
         data = partnerships.donor_mapping(partnerships.PDFilters.from_params(request.query_params))
-        data["programmes"] = [{**services.pd_as_dict(p["pd"]), "donations": p["donations"]} for p in data["programmes"]]
+        data["programmes"] = [
+            {**services.pd_as_dict(p["pd"]), "donations": p["donations"]} for p in data["programmes"]
+        ]
         return Response(data)
 
 
@@ -177,7 +206,10 @@ class SavedViewsAPI(APIView):
             name=data["name"],
             defaults={"query": data["query"], "layout": data["layout"], "is_shared": data["is_shared"]},
         )
-        return Response(services.saved_view_as_dict(view, request.user), status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+        return Response(
+            services.saved_view_as_dict(view, request.user),
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 
 
 class SavedViewDetailAPI(APIView):

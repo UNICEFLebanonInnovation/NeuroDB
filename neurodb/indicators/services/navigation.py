@@ -29,7 +29,10 @@ class Navigation:
 
 
 def current_year() -> ReportingYear | None:
-    return ReportingYear.objects.filter(current=True).order_by("-name").first() or ReportingYear.objects.order_by("-name").first()
+    return (
+        ReportingYear.objects.filter(current=True).order_by("-name").first()
+        or ReportingYear.objects.order_by("-name").first()
+    )
 
 
 def build_navigation(year: ReportingYear | None = None) -> Navigation:
@@ -38,7 +41,9 @@ def build_navigation(year: ReportingYear | None = None) -> Navigation:
     if cached:
         return cached
     databases = (
-        Database.objects.filter(reporting_year=year, display=True).select_related("section").order_by("section__name", "label", "name")
+        Database.objects.filter(reporting_year=year, display=True)
+        .select_related("section")
+        .order_by("section__name", "label", "name")
         if year
         else Database.objects.none()
     )
@@ -46,10 +51,14 @@ def build_navigation(year: ReportingYear | None = None) -> Navigation:
     for db in databases:
         key = db.section_id
         by_section.setdefault(key, SectionNav(section=db.section)).databases.append(db)
-    reports = NeuroReport.objects.filter(ryear=year, is_active=True).order_by("name") if year else NeuroReport.objects.none()
+    reports = (
+        NeuroReport.objects.filter(ryear=year, is_active=True).order_by("name")
+        if year
+        else NeuroReport.objects.none()
+    )
     nav = Navigation(
         year=year,
-        sections=sorted(by_section.values(), key=lambda s: (s.section.name if s.section else "zzz")),
+        sections=sorted(by_section.values(), key=lambda s: s.section.name if s.section else "zzz"),
         neuro_reports=[r for r in reports if not r.is_hpm],
         hpm_reports=[r for r in reports if r.is_hpm],
         years=list(ReportingYear.objects.order_by("-name")),

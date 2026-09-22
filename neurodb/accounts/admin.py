@@ -9,7 +9,9 @@ class UserAdmin(DjangoUserAdmin):
     list_display = ("username", "email", "first_name", "last_name", "section", "is_active", "is_staff")
     list_filter = ("is_active", "is_staff", "groups", "section")
     search_fields = ("username", "email", "first_name", "last_name")
-    fieldsets = DjangoUserAdmin.fieldsets + (("NeuroDB", {"fields": ("section", "backup_user", "skype_account")}),)
+    fieldsets = DjangoUserAdmin.fieldsets + (
+        ("NeuroDB", {"fields": ("section", "backup_user", "skype_account")}),
+    )
 
 
 @admin.register(Section)

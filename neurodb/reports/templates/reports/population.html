@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+{% if not years %}
+<div class="panel">{% include "components/empty_state.html" with icon="chart" title=_("No population figures loaded") message=_("An administrator loads a year of figures with the load_population_figures command.") %}</div>
+{% else %}
+<div class="toolbar">
+  <div class="segmented" role="group" aria-label="{% trans 'Population group' %}">
+    {% for key, label in views %}<a href="?{% qs_replace view=key %}" {% if key == view %}aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
+  </div>
+  <div class="segmented ms-auto" role="group" aria-label="{% trans 'Year' %}">
+    {% for y in years %}<a href="?{% qs_replace year=y %}" {% if y == population_year %}aria-current="page"{% endif %}>{{ y }}</a>{% endfor %}
+  </div>
+</div>
+<div class="kpi-grid">
+  {% for label, value in national %}
+  {% include "components/kpi_tile.html" with label=label value=value|number %}
+  {% endfor %}
+</div>
+<div class="grid grid--2 mb-3">
+  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "By nationality" %}</h2></div>
+    <div class="chart" data-module="charts" data-chart="pie" data-labels="nationality" data-key="totals_by_nationality"></div></section>
+  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "By governorate" %}</h2></div>
+    <div class="chart" data-module="charts" data-chart="matrix" data-labels="nationality" data-key="by_governorate"></div></section>
+</div>
+<section class="panel p-0 mb-3">
+  {% include "components/table_toolbar.html" with title=_("Governorates") table_id="pop-gov" filename="population-governorates" %}
+  {% trans "Governorate" as fl %}{% include "reports/_matrix_table.html" with matrix=data.by_governorate table_id="pop-gov" first_label=fl %}
+</section>
+<section class="panel p-0 mb-3">
+  {% include "components/table_toolbar.html" with title=_("Districts") table_id="pop-dist" filename="population-districts" %}
+  {% trans "District" as fl %}{% include "reports/_matrix_table.html" with matrix=data.by_district table_id="pop-dist" first_label=fl %}
+</section>
+{% if data.by_age_group.rows %}
+<section class="panel p-0 mb-3">
+  {% include "components/table_toolbar.html" with title=_("Age groups") table_id="pop-age" filename="population-age" %}
+  {% trans "Age group" as fl %}{% include "reports/_matrix_table.html" with matrix=data.by_age_group table_id="pop-age" first_label=fl %}
+</section>
+{% endif %}
+{% if data.by_vulnerability %}
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Vulnerability by district") table_id="pop-vul" filename="population-vulnerability" %}
+  {% trans "District" as fl %}{% include "reports/_matrix_table.html" with matrix=data.by_vulnerability table_id="pop-vul" first_label=fl %}
+</section>
+{% endif %}
+{{ chart_data|json_script:"chart-data" }}
+{% endif %}
+{% endblock %}

@@ -19,7 +19,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "pytest~=8.3",
+  "pytest~=9.0",
   "pytest-django~=4.11",
   "factory-boy~=3.3",
   "responses~=0.25",
@@ -38,8 +38,8 @@ select = ["E", "F", "I", "B", "UP", "DJ", "S", "T20"]
 ignore = ["S101", "S308", "DJ001"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S", "T20"]
-"scripts/*" = ["T20", "S"]
+"tests/*" = ["S", "T20", "E501"]
+"scripts/*" = ["T20", "S", "E501"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"

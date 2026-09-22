@@ -16,9 +16,10 @@ class ContentSecurityPolicyMiddleware:
                 "default-src 'self'; "
                 f"script-src 'self' {nonce}; "
                 "style-src 'self' 'unsafe-inline'; "
-                "img-src 'self' data: blob: https://*.tile.openstreetmap.org; "
+                "img-src 'self' data: blob: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; "
                 "font-src 'self' data:; "
-                "connect-src 'self' https://*.tile.openstreetmap.org; "
+                "connect-src 'self' https://tile.openstreetmap.org https://*.tile.openstreetmap.org; "
+                "worker-src 'self' blob:; "
                 "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
             )
             response["Content-Security-Policy"] = policy

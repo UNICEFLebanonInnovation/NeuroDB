@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+<div class="kpi-grid">
+  {% trans "Active documents" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=profile.active_count %}
+  {% trans "All documents" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=profile.programme_documents|length %}
+  {% trans "ActivityInfo records" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=profile.interventions|number %}
+  {% trans "Risk rating" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=profile.risk_rating|default:"—" %}
+  {% trans "Cash transfers this year" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=partner.total_ct_cy|number:0 %}
+</div>
+<div class="grid grid--2 mb-3">
+  <section class="panel">
+    <div class="panel__header"><h2 class="panel__title">{% trans "Profile" %}</h2></div>
+    <dl class="row small mb-0">
+      <dt class="col-sm-4 text-muted">{% trans "Vendor number" %}</dt><dd class="col-sm-8 mono">{{ partner.vendor_number|default:"—" }}</dd>
+      <dt class="col-sm-4 text-muted">{% trans "Type" %}</dt><dd class="col-sm-8">{{ partner.partner_type }}{% if partner.cso_type %} · {{ partner.cso_type }}{% endif %}</dd>
+      <dt class="col-sm-4 text-muted">{% trans "Last assessment" %}</dt><dd class="col-sm-8">{{ partner.last_assessment_date|date:"j M Y"|default:"—" }}{% if partner.type_of_assessment %} · {{ partner.type_of_assessment }}{% endif %}</dd>
+      <dt class="col-sm-4 text-muted">{% trans "Core values assessment" %}</dt><dd class="col-sm-8">{{ partner.core_values_assessment_date|date:"j M Y"|default:"—" }}</dd>
+      <dt class="col-sm-4 text-muted">{% trans "Address" %}</dt><dd class="col-sm-8">{{ partner.address|default:"—" }}</dd>
+      <dt class="col-sm-4 text-muted">{% trans "Shared with" %}</dt><dd class="col-sm-8"><div class="chips">{% for s in partner.shared_with %}<span class="chip">{{ s }}</span>{% empty %}—{% endfor %}</div></dd>
+    </dl>
+  </section>
+  <section class="panel">
+    <div class="panel__header"><h2 class="panel__title">{% trans "Programmatic visits by year" %}</h2></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="bars" data-orientation="v" data-key="visits_by_year" data-empty-title="{% trans 'No visits recorded' %}"></div>
+    <h3 class="panel__title mt-3">{% trans "Assurance activities" %}</h3>
+    <div class="chips mt-2">{% for kind, n in profile.engagement_counts.items %}<span class="chip">{{ kind|default:"—" }} · {{ n }}</span>{% empty %}<span class="text-muted small">{% trans "No audits, spot checks or micro-assessments." %}</span>{% endfor %}</div>
+  </section>
+</div>
+<section class="panel p-0 mb-3">
+  {% include "components/table_toolbar.html" with title=_("Programme documents") count=profile.programme_documents|length table_id="partner-pds" %}
+  <div class="table-wrap"><table class="table table-hover" id="partner-pds" data-sortable>
+    <thead><tr><th>{% trans "Document" %}</th><th>{% trans "Status" %}</th><th>{% trans "Period" %}</th><th class="num">{% trans "Budget" %}</th></tr></thead>
+    <tbody>{% for pd in profile.programme_documents %}<tr data-href="{% url 'reports:programme_detail' pd.id %}"><td><a href="{% url 'reports:programme_detail' pd.id %}">{{ pd.number }}</a><span class="cell-sub">{{ pd.title|truncatechars:90 }}</span></td><td>{% status_pill pd.status pd.status|capfirst "sm" %}</td><td class="small text-nowrap">{{ pd.start|date:"M Y" }} – {{ pd.end|date:"M Y" }}</td><td class="num">{{ pd.total_budget|number }}</td></tr>
+    {% empty %}<tr><td colspan="4" class="text-muted">{% trans "No programme documents." %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Assurance engagements") count=profile.engagements|length table_id="partner-eng" %}
+  <div class="table-wrap"><table class="table" id="partner-eng"><thead><tr><th>{% trans "Engagement" %}</th><th>{% trans "Type" %}</th><th>{% trans "Status" %}</th><th>{% trans "Period" %}</th></tr></thead>
+  <tbody>{% for e in profile.engagements %}<tr><td>{{ e.displayed_name|default:e.unique_id }}</td><td>{{ e.engagement_type }}</td><td>{{ e.status|capfirst }}</td><td class="small text-nowrap">{{ e.start_date|date:"j M Y" }} – {{ e.end_date|date:"j M Y" }}</td></tr>
+  {% empty %}<tr><td colspan="4" class="text-muted">{% trans "No engagements." %}</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{{ chart_data|json_script:"chart-data" }}
+{% endblock %}

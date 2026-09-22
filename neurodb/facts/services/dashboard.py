@@ -23,7 +23,9 @@ QUARTERS = {"Q1": 3, "Q2": 6, "Q3": 9, "Q4": 12}
 
 def fact_filter(database: Database, **kwargs: Any) -> FactFilter:
     """Funded-by filter defaults to the database flag (v2 commented the filter out everywhere)."""
-    return FactFilter(database_id=database.id, funded_by_unicef_only=bool(database.is_funded_by_unicef), **kwargs)
+    return FactFilter(
+        database_id=database.id, funded_by_unicef_only=bool(database.is_funded_by_unicef), **kwargs
+    )
 
 
 @dataclass
@@ -58,7 +60,11 @@ class Dashboard:
 
     def as_dict(self) -> dict[str, Any]:
         return {
-            "database": {"id": self.database.id, "name": self.database.label or self.database.name, "ai_id": self.database.ai_id},
+            "database": {
+                "id": self.database.id,
+                "name": self.database.label or self.database.name,
+                "ai_id": self.database.ai_id,
+            },
             "year": self.year,
             "indicators": [asdict(i) for i in self.indicators],
             "status_counts": self.status_counts,
@@ -77,10 +83,18 @@ def _rows_to_indicators(rows: list[dict[str, Any]], year: int) -> list[Indicator
         t = tracking(value, target, year)
         out.append(
             IndicatorRow(
-                id=r["id"], label=r["label"], awp_code=r["awp_code"] or "", aggregation_method=r["aggregation_method"] or "SUM",
-                reporting_level=r["reporting_level"], unit=r.get("unit"), target=target,
+                id=r["id"],
+                label=r["label"],
+                awp_code=r["awp_code"] or "",
+                aggregation_method=r["aggregation_method"] or "SUM",
+                reporting_level=r["reporting_level"],
+                unit=r.get("unit"),
+                target=target,
                 ram_result=float(r["ram_result"]) if r.get("ram_result") else None,
-                value=value, reports=int(r["reports"] or 0), tracking=t.status, tracking_label=t.label,
+                value=value,
+                reports=int(r["reports"] or 0),
+                tracking=t.status,
+                tracking_label=t.label,
                 achieved=round(t.achieved, 1) if t.achieved is not None else None,
                 numerator=float(r["numerator"]) if r.get("numerator") is not None else None,
                 denominator=float(r["denominator"]) if r.get("denominator") is not None else None,
@@ -95,10 +109,21 @@ def database_dashboard(database: Database) -> Dashboard:
     indicators = _rows_to_indicators(queries.master_indicator_values(f), year)
     counts = Counter(i.tracking for i in indicators)
     summary = queries.database_summaries([database.id]).get(database.id, {})
-    siblings = [
-        {"id": d.id, "year": d.reporting_year.name if d.reporting_year else "", "label": d.label or d.name}
-        for d in Database.objects.filter(db_id=database.db_id).exclude(id=database.id).select_related("reporting_year").order_by("-reporting_year__name")
-    ] if database.db_id else []
+    siblings = (
+        [
+            {
+                "id": d.id,
+                "year": d.reporting_year.name if d.reporting_year else "",
+                "label": d.label or d.name,
+            }
+            for d in Database.objects.filter(db_id=database.db_id)
+            .exclude(id=database.id)
+            .select_related("reporting_year")
+            .order_by("-reporting_year__name")
+        ]
+        if database.db_id
+        else []
+    )
     return Dashboard(
         database=database,
         year=year,
@@ -133,7 +158,10 @@ def analytical_rows(database: Database, emergency: str | None = None) -> list[di
 
 
 def analytical_filters(database: Database) -> dict[str, list[str]]:
-    return {dim: queries.distinct_values(database.id, dim) for dim in ("partner", "pd", "governorate", "district", "month")}
+    return {
+        dim: queries.distinct_values(database.id, dim)
+        for dim in ("partner", "pd", "governorate", "district", "month")
+    }
 
 
 def map_data(database: Database, level: str = "governorate", **filters: str) -> dict[str, Any]:
@@ -152,7 +180,9 @@ def map_data(database: Database, level: str = "governorate", **filters: str) -> 
         "sites": site_rows,
         "geojson": geojson_for_level(level, {a["code"]: a for a in areas}) if level != "site" else None,
         "totals": {
-            "interventions": sum(a["interventions"] for a in areas) if areas else sum(s["interventions"] for s in site_rows),
+            "interventions": sum(a["interventions"] for a in areas)
+            if areas
+            else sum(s["interventions"] for s in site_rows),
             "areas": len(areas),
             "sites": len(site_rows),
         },
@@ -171,16 +201,20 @@ def snapshot(database: Database) -> dict[str, Any]:
     }
 
 
+_TOP_PARTNERS_SQL = """
+SELECT r.partner_label AS partner, COUNT(*) AS interventions, SUM(r.indicator_value) AS value,
+       COUNT(DISTINCT r.location_name) AS sites
+FROM pivoting_activityreportnew r
+WHERE r.dbase_id = %(database_id)s AND COALESCE(r.partner_label, '') <> ''
+  AND (NOT %(unicef_only)s OR r.funded_by = 'UNICEF')
+GROUP BY r.partner_label ORDER BY interventions DESC LIMIT %(limit)s
+"""
+
+
 def _top_partners(f: FactFilter, limit: int) -> list[dict[str, Any]]:
     rows = queries._rows(  # noqa: SLF001 - module-private helper shared with this package
-        """
-        SELECT r.partner_label AS partner, COUNT(*) AS interventions, SUM(r.indicator_value) AS value,
-               COUNT(DISTINCT r.location_name) AS sites
-        FROM pivoting_activityreportnew r
-        WHERE r.dbase_id = %(database_id)s AND COALESCE(r.partner_label, '') <> '' {extra}
-        GROUP BY r.partner_label ORDER BY interventions DESC LIMIT %(limit)s
-        """.format(extra=" AND r.funded_by = 'UNICEF'" if f.funded_by_unicef_only else ""),
-        {"database_id": f.database_id, "limit": limit},
+        _TOP_PARTNERS_SQL,
+        {"database_id": f.database_id, "limit": limit, "unicef_only": bool(f.funded_by_unicef_only)},
     )
     for r in rows:
         r["value"] = float(r["value"]) if r["value"] is not None else 0.0
@@ -190,7 +224,9 @@ def _top_partners(f: FactFilter, limit: int) -> list[dict[str, Any]]:
 # ------------------------------------------------------------------------- Neuro Reports / HPM
 
 
-def resolve_period(month: int | None, quarter: str | None, today: datetime.date | None = None) -> tuple[int, str | None]:
+def resolve_period(
+    month: int | None, quarter: str | None, today: datetime.date | None = None
+) -> tuple[int, str | None]:
     """v2 rule: default month is the previous month; a quarter maps to its last month."""
     today = today or datetime.date.today()
     if quarter in QUARTERS:
@@ -211,7 +247,7 @@ def neuroreport(report: NeuroReport, month: int | None = None, quarter: str | No
     cutoff_month = month + 1
     cutoff = datetime.date(year + (1 if cutoff_month > 12 else 0), (cutoff_month - 1) % 12 + 1, 17)
     databases = Database.objects.filter(masterindicator__neuroreportmasterindicator__report=report).distinct()
-    prev_month = (month - (3 if quarter else 1))
+    prev_month = month - (3 if quarter else 1)
     sections = []
     for db in databases.select_related("section").order_by("section__name", "name"):
         f_now = fact_filter(db, month_to=month, edited_before=cutoff)
@@ -252,9 +288,15 @@ def overview(year: ReportingYear | None) -> dict[str, Any]:
     """Cross-database KPIs for the landing page: status distribution, freshness, top movers."""
     from neurodb.core.models import SyncRun
 
-    databases = list(
-        Database.objects.filter(reporting_year=year, display=True).select_related("section").order_by("section__name", "name")
-    ) if year else []
+    databases = (
+        list(
+            Database.objects.filter(reporting_year=year, display=True)
+            .select_related("section")
+            .order_by("section__name", "name")
+        )
+        if year
+        else []
+    )
     yr = year_of(year) if year else timezone.now().year
     summaries = queries.database_summaries([d.id for d in databases])
     cards = []
@@ -273,7 +315,9 @@ def overview(year: ReportingYear | None) -> dict[str, Any]:
                 "reports": int(s.get("reports") or 0),
                 "partners": int(s.get("partners") or 0),
                 "last_import": db.last_monthly_update_date,
-                "stale": bool(db.last_monthly_update_date and (timezone.now() - db.last_monthly_update_date).days > 40),
+                "stale": bool(
+                    db.last_monthly_update_date and (timezone.now() - db.last_monthly_update_date).days > 40
+                ),
             }
         )
     return {
@@ -286,5 +330,8 @@ def overview(year: ReportingYear | None) -> dict[str, Any]:
             "reports": sum(c["reports"] for c in cards),
             "partners": len({p for c in cards for p in [c["partners"]]}),
         },
-        "last_runs": {job: SyncRun.last_success(job) for job, _ in SyncRun.Job.choices},
+        "last_runs": [
+            {"job": job, "label": label, "run": SyncRun.last_success(job)}
+            for job, label in SyncRun.Job.choices
+        ],
     }

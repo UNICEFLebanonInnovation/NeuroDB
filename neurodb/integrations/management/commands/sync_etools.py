@@ -9,7 +9,9 @@ from neurodb.integrations.management.commands._base import add_triggered_by, exi
 
 
 class Command(BaseCommand):
-    help = "Synchronise partners, agreements, interventions, travels, engagements and action points from eTools"
+    help = (
+        "Synchronise partners, agreements, interventions, travels, engagements and action points from eTools"
+    )
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -19,7 +21,9 @@ class Command(BaseCommand):
         add_triggered_by(parser)
 
     def handle(self, *args, **options):
-        only = [name.strip() for name in options["only"].split(",") if name.strip()] if options["only"] else None
+        only = (
+            [name.strip() for name in options["only"].split(",") if name.strip()] if options["only"] else None
+        )
         try:
             runs = sync_all(only=only, triggered_by=options["triggered_by"])
         except ValueError as exc:

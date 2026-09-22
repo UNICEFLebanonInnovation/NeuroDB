@@ -1,0 +1,7 @@
+{% load i18n %}
+<div class="filter-bar__field">
+  <label class="form-label" for="f-{{ name }}">{{ label }}</label>
+  <select class="form-select form-select-sm" id="f-{{ name }}" name="{{ name }}" multiple data-tom placeholder="{% trans 'All' %}">
+    {% for opt in options %}<option value="{{ opt }}" {% if opt|stringformat:"s" in values %}selected{% endif %}>{{ opt }}</option>{% endfor %}
+  </select>
+</div>
