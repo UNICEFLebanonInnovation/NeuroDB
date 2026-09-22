@@ -12,11 +12,12 @@ EMAIL_PORT = 1025
 INTERNAL_IPS = ["127.0.0.1", "10.0.2.2"]
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'neurodbv4',
-        'HOST': 'localhost',
-        'USER': 'postgres',
-        'PASSWORD': 'LCgiTMLPY5jD3pdi' 
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": "neurodb",
+        "USER": "lebclmprod",
+        "PASSWORD": "clmp!0ck3din",
+        "HOST": "leb-clm-prod-flex-14.postgres.database.azure.com",
+        "PORT": "5432",
     }
 }
