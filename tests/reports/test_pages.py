@@ -246,3 +246,28 @@ def test_csp_header_and_nonce(client_viewer, hierarchy):
     assert "script-src 'self' 'nonce-" in policy
     nonce = policy.split("'nonce-")[1].split("'")[0]
     assert f'nonce="{nonce}"'.encode() in response.content
+
+
+def test_list_pages_with_several_pages(client_viewer, db):
+    """Page 1, a middle page and the last page render (real data spans many pages)."""
+    PartnerOrganization.objects.bulk_create(
+        PartnerOrganization(etl_id=str(1000 + i), name=f"Partner {i:03d}", partner_type="Government")
+        for i in range(120)
+    )
+    partner = PartnerOrganization.objects.first()
+    PCA.objects.bulk_create(
+        PCA(
+            etl_id=str(2000 + i),
+            partner=partner,
+            partner_name=partner.name,
+            number=f"LEB/PCA{i:04d}",
+            status="active",
+        )
+        for i in range(120)
+    )
+    for name in ("reports:partners", "reports:programmes"):
+        for page in ("", "?page=2", "?page=3", "?page=99"):
+            html = _get(client_viewer, reverse(name) + page).content.decode()
+            assert 'class="pagination-bar"' in html
+        partial = _get(client_viewer, reverse(name) + "?page=2", HTTP_HX_REQUEST="true").content.decode()
+        assert "page=1" in partial and "page=3" in partial
