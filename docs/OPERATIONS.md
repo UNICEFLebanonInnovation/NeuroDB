@@ -53,7 +53,10 @@ failed item ids in `details`.
 3. Select the databases → action *Import structure from ActivityInfo*.
 4. Wire master indicators (Add sub-indicators wizard) and Neuro Reports (Add master indicators
    wizard), or copy last year's configuration in the admin.
-5. `manage.py load_population_figures --year YYYY <file.json>` with the year's UNICEF figures.
+5. Population figures: add the year's UNICEF file as
+   `neurodb/core/data/population/Population_figures_YYYY_NeuroDB.json` (the v2 JSON layout) and deploy;
+   the container loads any bundled year that is missing when it starts. To load or reload a file by
+   hand: `manage.py load_population_figures <file.json> --year YYYY --replace`.
 6. Upload the year's HPM PDF tables to the library.
 7. Select the databases → action *Import data from ActivityInfo*; check `/data/health/`.
 

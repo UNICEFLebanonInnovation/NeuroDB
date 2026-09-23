@@ -552,10 +552,13 @@ def population(request: HttpRequest) -> HttpResponse:
     context = {
         "page_title": _("Population figures"),
         "nationality_labels": nationality_labels,
-        "national": [
-            (nationality_labels.get(code, code), value)
-            for code, value in (data["totals_by_nationality"].items() if data else [])
-        ],
+        "national": (
+            ([(_("All nationalities"), data["grand_total"])] if data and data["grand_total"] else [])
+            + [
+                (nationality_labels.get(code, code), value)
+                for code, value in (data["totals_by_nationality"].items() if data else [])
+            ]
+        ),
         "page_subtitle": _("Estimates by nationality, governorate, district and age group"),
         "breadcrumbs": [_crumb(_("Population"))],
         "years": years,

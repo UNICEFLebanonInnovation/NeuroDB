@@ -19,20 +19,34 @@ def _natural(item: tuple[str, Any]) -> tuple[int, str]:
     return (int(digits.group()) if digits else 10**6, str(item[0]))
 
 
+ALL = PopulationFigure.Nationality.ALL
+NATIONALITY_ORDER = [c for c in PopulationFigure.Nationality.values if c != ALL]
+
+
 def _matrix(qs, row_field: str, col_field: str) -> dict[str, Any]:
+    """Rows x columns of summed values. An "ALL" nationality column is the published all-nationality
+    figure, so it becomes the row total instead of a column (adding it to the others would count
+    everyone twice)."""
     rows: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     cols: set[str] = set()
     for r in qs.values(row_field, col_field, "value"):
         rows[r[row_field] or "All"][r[col_field] or "All"] += r["value"]
         cols.add(r[col_field] or "All")
-    col_list = sorted(cols)
+    has_all = ALL in cols
+    cols.discard(ALL)
+    col_list = [c for c in NATIONALITY_ORDER if c in cols] + sorted(cols - set(NATIONALITY_ORDER))
+
+    def total(values):
+        return values[ALL] if has_all and ALL in values else sum(values.get(c, 0) for c in col_list)
+
     return {
         "columns": col_list,
         "rows": [
-            {"label": k, "values": [v.get(c, 0) for c in col_list], "total": sum(v.values())}
+            {"label": k, "values": [v.get(c, 0) for c in col_list], "total": total(v)}
             for k, v in sorted(rows.items(), key=_natural)
         ],
         "column_totals": [sum(v.get(c, 0) for v in rows.values()) for c in col_list],
+        "grand_total": sum(total(v) for v in rows.values()),
     }
 
 
@@ -43,9 +57,14 @@ def population_view(year: int, category: str = "total") -> dict[str, Any]:
     return {
         "year": year,
         "category": category,
-        "totals_by_nationality": {
-            r["nationality"]: r["value"] for r in national.values("nationality", "value")
-        },
+        "grand_total": national.filter(nationality=ALL).values_list("value", flat=True).first(),
+        # nationalities only: "ALL" is their sum and would take half of the pie chart
+        "totals_by_nationality": dict(
+            sorted(
+                ((r["nationality"], r["value"]) for r in national.exclude(nationality=ALL).values()),
+                key=lambda kv: NATIONALITY_ORDER.index(kv[0]) if kv[0] in NATIONALITY_ORDER else 99,
+            )
+        ),
         "by_governorate": _matrix(
             base.filter(level="governorate", age_group="", sex="", vulnerability_level=""),
             "area_name",
