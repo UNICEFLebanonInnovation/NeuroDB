@@ -271,3 +271,44 @@ def test_list_pages_with_several_pages(client_viewer, db):
             assert 'class="pagination-bar"' in html
         partial = _get(client_viewer, reverse(name) + "?page=2", HTTP_HX_REQUEST="true").content.decode()
         assert "page=1" in partial and "page=3" in partial
+
+
+def test_sidebar_blocks_collapse_and_open_on_the_current_page(
+    client_viewer, hierarchy, section, reporting_year
+):
+    import re
+
+    from neurodb.indicators.models import Database
+
+    db = hierarchy["database"]
+    second = Database.objects.create(
+        ai_id=202619, db_id="other", name="CP second", label="CP second", username="", password="",
+        section=section, reporting_year=reporting_year, display=True,
+    )  # fmt: skip
+    from neurodb.indicators.services.navigation import invalidate
+
+    invalidate()
+
+    def block(html, key):
+        return re.search(rf'<details class="sidebar__block" data-nav-key="{key}"([^>]*)>', html).group(1)
+
+    overview = _get(client_viewer, reverse("reports:overview")).content.decode()
+    assert "open" not in block(overview, "databases")  # collapsed away from database pages
+    assert "sidebar__group" in overview  # two databases in the section: a nested group
+    assert not re.search(r'<details class="sidebar__block"[^>]*data-nav-active', overview)
+
+    page = _get(client_viewer, reverse("reports:database_dashboard", args=[second.id])).content.decode()
+    assert "open data-nav-active" in block(page, "databases")
+    assert re.search(r'<details class="sidebar__group" open>', page)  # the section holding the database
+
+    hpm = _get(client_viewer, reverse("reports:report_hpm", args=[hierarchy["report"].id])).content.decode()
+    assert "open data-nav-active" in block(hpm, "hpm")
+    assert "open" not in block(hpm, "databases")
+    assert db.id != second.id
+
+
+def test_single_database_sections_link_directly(client_viewer, hierarchy):
+    html = _get(client_viewer, reverse("reports:overview")).content.decode()
+    url = reverse("reports:database_dashboard", args=[hierarchy["database"].id])
+    assert f'href="{url}" title="Child Protection"' in html
+    assert "sidebar__group" not in html  # one database per section: no nested group

@@ -21,6 +21,16 @@ from neurodb.indicators.models import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _clear_cache():
+    """Navigation and landing figures are cached; every test starts from an empty cache."""
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()
+
+
 @pytest.fixture
 def roles(db):
     return ensure_groups()

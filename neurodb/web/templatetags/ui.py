@@ -108,6 +108,12 @@ def get_item(mapping: Any, key: Any) -> Any:
 
 
 @register.filter
+def has_id(items, value) -> bool:
+    """True when one of ``items`` has ``id == value`` (opens the sidebar group of the current database)."""
+    return value is not None and any(getattr(item, "id", None) == value for item in items or [])
+
+
+@register.filter
 def month_name(value: Any) -> str:
     names = [
         _("January"),

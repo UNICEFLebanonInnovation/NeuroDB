@@ -104,37 +104,55 @@
         {% include "components/icon.html" with name="home" %}<span>{% trans "Overview" %}</span>
       </a>
       {% if nav.sections %}
-      <div class="sidebar__section-title">{% trans "Databases" %}{% if nav.year %} <span class="text-muted">{{ nav.year.name }}</span>{% endif %}</div>
-      {% for s in nav.sections %}
-      <details class="sidebar__group" {% if s.section.id == request.resolver_match.kwargs.section_id or forloop.first %}open{% endif %}>
-        <summary>
-          <span class="section-dot" {% if s.section.color %}style="--section-color: {{ s.section.color }}"{% endif %} aria-hidden="true"></span>
-          <span>{% if s.section %}{{ s.section.name }}{% else %}{% trans "Other" %}{% endif %}</span>
-          <span class="count">{{ s.databases|length }}</span>
+      <details class="sidebar__block" data-nav-key="databases" {% if nav_active.block == "databases" %}open data-nav-active{% endif %}>
+        <summary class="sidebar__block-title">
+          <span>{% trans "Databases" %}{% if nav.year %} {{ nav.year.name }}{% endif %}</span>
+          <span class="count">{{ nav.sections|length }}</span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg>
         </summary>
+        {% for s in nav.sections %}
+        {% if s.databases|length == 1 %}
+        {% with db=s.databases.0 %}
+        <a class="nav-item-link {% active_if 'reports:database_dashboard' 'reports:database_analytical' 'reports:database_map' 'reports:database_snapshot' 'reports:indicator_detail' pk=db.id %}" href="{% url 'reports:database_dashboard' db.id %}" title="{{ db.label|default:db.name }}" {% aria_current 'reports:database_dashboard' pk=db.id %}>
+          <span class="section-dot" {% if s.section.color %}style="--section-color: {{ s.section.color }}"{% endif %} aria-hidden="true"></span>
+          <span>{% if s.section %}{{ s.section.name }}{% else %}{{ db.label|default:db.name }}{% endif %}</span>
+        </a>
+        {% endwith %}
+        {% else %}
+        <details class="sidebar__group" {% if s.databases|has_id:nav_active.db %}open{% endif %}>
+          <summary>
+            <span class="section-dot" {% if s.section.color %}style="--section-color: {{ s.section.color }}"{% endif %} aria-hidden="true"></span>
+            <span>{% if s.section %}{{ s.section.name }}{% else %}{% trans "Other" %}{% endif %}</span>
+            <span class="count">{{ s.databases|length }}</span>
+          </summary>
+          <ul class="list-unstyled">
+            {% for db in s.databases %}
+            <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:database_dashboard' 'reports:database_analytical' 'reports:database_map' 'reports:database_snapshot' 'reports:indicator_detail' pk=db.id %}" href="{% url 'reports:database_dashboard' db.id %}" {% aria_current 'reports:database_dashboard' pk=db.id %}>{{ db.label|default:db.name }}</a></li>
+            {% endfor %}
+          </ul>
+        </details>
+        {% endif %}
+        {% endfor %}
+      </details>
+      {% endif %}
+      {% if nav.neuro_reports %}
+      <details class="sidebar__block" data-nav-key="reports" {% if nav_active.block == "reports" %}open data-nav-active{% endif %}>
+        <summary class="sidebar__block-title"><span>{% trans "Neuro reports" %}</span><span class="count">{{ nav.neuro_reports|length }}</span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg></summary>
         <ul class="list-unstyled">
-          {% for db in s.databases %}
-          <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:database_dashboard' 'reports:database_analytical' 'reports:database_map' 'reports:database_snapshot' 'reports:indicator_detail' pk=db.id %}" href="{% url 'reports:database_dashboard' db.id %}" {% aria_current 'reports:database_dashboard' pk=db.id %}>{{ db.label|default:db.name }}</a></li>
+          {% for r in nav.neuro_reports %}
+          <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:report_dashboard' 'reports:report_analytical' pk=r.id %}" href="{% url 'reports:report_dashboard' r.id %}" {% aria_current 'reports:report_dashboard' pk=r.id %}>{{ r.name }}</a></li>
           {% endfor %}
         </ul>
       </details>
-      {% endfor %}
-      {% endif %}
-      {% if nav.neuro_reports %}
-      <div class="sidebar__section-title">{% trans "Neuro reports" %}</div>
-      <ul class="list-unstyled">
-        {% for r in nav.neuro_reports %}
-        <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:report_dashboard' 'reports:report_analytical' pk=r.id %}" href="{% url 'reports:report_dashboard' r.id %}" {% aria_current 'reports:report_dashboard' pk=r.id %}>{{ r.name }}</a></li>
-        {% endfor %}
-      </ul>
       {% endif %}
       {% if nav.hpm_reports %}
-      <div class="sidebar__section-title">{% trans "HPM" %}</div>
-      <ul class="list-unstyled">
-        {% for r in nav.hpm_reports %}
-        <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:report_hpm' pk=r.id %}" href="{% url 'reports:report_hpm' r.id %}" {% aria_current 'reports:report_hpm' pk=r.id %}>{{ r.name }}</a></li>
-        {% endfor %}
-      </ul>
+      <details class="sidebar__block" data-nav-key="hpm" {% if nav_active.block == "hpm" %}open data-nav-active{% endif %}>
+        <summary class="sidebar__block-title"><span>{% trans "HPM" %}</span><span class="count">{{ nav.hpm_reports|length }}</span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg></summary>
+        <ul class="list-unstyled">
+          {% for r in nav.hpm_reports %}
+          <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:report_hpm' pk=r.id %}" href="{% url 'reports:report_hpm' r.id %}" {% aria_current 'reports:report_hpm' pk=r.id %}>{{ r.name }}</a></li>
+          {% endfor %}
+        </ul>
+      </details>
       {% endif %}
       <div class="sidebar__section-title">{% trans "Partnerships" %}</div>
       <a class="nav-item-link {% active_if 'reports:programmes' 'reports:programme_summary' 'reports:programme_detail' %}" href="{% url 'reports:programmes' %}" {% aria_current 'reports:programmes' %}>{% include "components/icon.html" with name="file" %}<span>{% trans "Programmes" %}</span></a>
@@ -148,6 +166,21 @@
       {% endif %}
     </div>
   </nav>
+  <script nonce="{{ request.csp_nonce }}">
+    /* Sidebar blocks remember whether the user opened or closed them; the block of the current page always opens. */
+    (function () {
+      var blocks = document.querySelectorAll("#sidebar details[data-nav-key]");
+      blocks.forEach(function (el) {
+        var key = "neurodb-nav:" + el.getAttribute("data-nav-key");
+        try {
+          if (!el.hasAttribute("data-nav-active") && localStorage.getItem(key) === "open") el.open = true;
+        } catch (e) {}
+        el.addEventListener("toggle", function () {
+          try { localStorage.setItem(key, el.open ? "open" : "closed"); } catch (e) {}
+        });
+      });
+    })();
+  </script>
 
   <main id="main" class="main" tabindex="-1">
     {% if messages %}
