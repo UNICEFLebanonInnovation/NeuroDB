@@ -1,0 +1,17 @@
+{% load i18n %}
+<dl class="quickview__meta quickview__meta--inline">
+  <div><dt>{% trans "Status" %}</dt><dd>{{ item.get_status_display }}</dd></div>
+  <div><dt>{% trans "Updated" %}</dt><dd>{{ item.modified|date:"j M Y" }}</dd></div>
+  {% if host %}<div><dt>{% trans "Hosted on" %}</dt><dd>{{ host }}</dd></div>{% endif %}
+</dl>
+<h3 class="quickview__heading">{% trans "Summary" %}</h3>
+{% if item.description %}
+  <p class="quickview__abstract">{{ item.description|linebreaksbr }}</p>
+{% else %}
+  <p class="text-muted small">{% trans "No summary was provided for this map." %}</p>
+{% endif %}
+{% if embed %}
+  <h3 class="quickview__heading">{% trans "Preview" %}</h3>
+  <iframe class="quickview__frame" src="{{ item.link }}" title="{% blocktrans with name=item.name %}Preview of {{ name }}{% endblocktrans %}" loading="lazy" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-popups allow-forms"></iframe>
+  <p class="small text-muted mt-2 mb-0">{% trans "Some map sites do not allow previews. If the map stays blank, open it in a new tab." %}</p>
+{% endif %}

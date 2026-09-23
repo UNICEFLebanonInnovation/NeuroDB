@@ -4,8 +4,21 @@ from __future__ import annotations
 
 from django.core.paginator import Paginator
 from django.db.models import Q
+from django.shortcuts import get_object_or_404
 
 from .models import Map, Resource, ResourceTag, ResourceTopic, ResourceType
+
+# The document and cover bytes live in the row (v2 layout); lists and quick views never need them.
+FILE_FIELDS = ("resource_file", "resource_image")
+
+
+def published_resource(pk: int) -> Resource:
+    """One published resource for the quick view, without its file bytes (404 if unpublished)."""
+    return get_object_or_404(
+        Resource.objects.defer(*FILE_FIELDS).select_related("type", "topic").prefetch_related("tags"),
+        pk=pk,
+        published=True,
+    )
 
 
 def resource_filters():
@@ -33,6 +46,7 @@ def resource_filters():
 def search_resources(params, page=1, per_page=12):
     qs = (
         Resource.objects.filter(published=True)
+        .defer(*FILE_FIELDS)
         .select_related("type", "topic")
         .prefetch_related("tags")
         .order_by("-publication_year", "title")

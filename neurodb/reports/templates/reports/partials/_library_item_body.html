@@ -1,0 +1,22 @@
+{% load i18n %}
+<div class="quickview">
+  {% if has_cover %}<img class="quickview__cover" src="{% url 'reports:library_cover' resource.id %}" alt="" loading="lazy">{% endif %}
+  <dl class="quickview__meta">
+    {% if resource.publication_year %}<div><dt>{% trans "Year" %}</dt><dd>{{ resource.publication_year }}</dd></div>{% endif %}
+    {% if resource.section %}<div><dt>{% trans "Programme" %}</dt><dd>{{ resource.section }}</dd></div>{% endif %}
+    {% if resource.type %}<div><dt>{% trans "Type" %}</dt><dd>{{ resource.type.name }}</dd></div>{% endif %}
+    {% if resource.topic %}<div><dt>{% trans "Topic" %}</dt><dd>{{ resource.topic.name }}</dd></div>{% endif %}
+    {% if resource.resource_file_name %}<div><dt>{% trans "File" %}</dt><dd class="text-break">{{ resource.resource_file_name }}</dd></div>{% endif %}
+  </dl>
+</div>
+{% if tags %}<div class="chips mb-3">{% for t in tags %}<span class="chip">{{ t.name }}</span>{% endfor %}</div>{% endif %}
+<h3 class="quickview__heading">{% trans "Summary" %}</h3>
+{% if resource.description %}
+  <p class="quickview__abstract">{{ resource.description|linebreaksbr }}</p>
+{% else %}
+  <p class="text-muted small">{% trans "No summary was provided for this resource." %}</p>
+{% endif %}
+{% if pdf_preview %}
+  <h3 class="quickview__heading">{% trans "Preview" %}</h3>
+  <iframe class="quickview__frame" src="{% url 'reports:library_file' resource.id %}#view=FitH" title="{% blocktrans with title=resource.title %}Preview of {{ title }}{% endblocktrans %}" loading="lazy"></iframe>
+{% endif %}

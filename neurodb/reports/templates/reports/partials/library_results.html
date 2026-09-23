@@ -5,12 +5,14 @@
   {% for r in page_obj %}
   <article class="panel resource-card">
     <div class="resource-card__type">{{ r.type.name|default:_("Resource") }}{% if r.topic %} · {{ r.topic.name }}{% endif %}</div>
-    <h2 class="resource-card__title h6">{{ r.title }}</h2>
+    {% url 'reports:library_item' r.id as item_url %}
+    <h2 class="resource-card__title h6"><a class="resource-card__link" href="{{ item_url }}" hx-get="{{ item_url }}" hx-target="#modal-content" hx-push-url="false">{{ r.title }}</a></h2>
     {% if r.description %}<p class="resource-card__desc">{{ r.description }}</p>{% endif %}
     <div class="chips">{% for t in r.tags.all|slice:":4" %}<span class="chip">{{ t.name }}</span>{% endfor %}</div>
     <div class="resource-card__footer">
       <span class="small text-muted">{{ r.publication_year }}{% if r.section %} · {{ r.section }}{% endif %}</span>
       <span class="d-flex gap-1">
+        <a class="btn btn-outline-secondary btn-sm" href="{{ item_url }}" hx-get="{{ item_url }}" hx-target="#modal-content" hx-push-url="false" aria-label="{% blocktrans with title=r.title %}Quick view of {{ title }}{% endblocktrans %}">{% include "components/icon.html" with name="eye" %}<span>{% trans "Quick view" %}</span></a>
         {% if r.resource_link %}<a class="btn btn-outline-secondary btn-sm" href="{{ r.resource_link }}" target="_blank" rel="noopener noreferrer">{% include "components/icon.html" with name="external" %}<span>{% trans "Open" %}</span></a>{% endif %}
         {% if r.resource_file_name %}<a class="btn btn-primary btn-sm" href="{% url 'reports:library_download' r.id %}">{% include "components/icon.html" with name="download" %}<span>{% trans "Download" %}</span></a>{% endif %}
       </span>

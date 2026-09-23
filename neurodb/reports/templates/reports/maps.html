@@ -6,11 +6,15 @@
   {% for m in maps %}
   <article class="panel resource-card">
     <div class="resource-card__type">{% trans "Map" %}</div>
-    <h2 class="resource-card__title h6">{{ m.name }}</h2>
+    {% url 'reports:map_item' m.id as item_url %}
+    <h2 class="resource-card__title h6"><a class="resource-card__link" href="{{ item_url }}" hx-get="{{ item_url }}" hx-target="#modal-content" hx-push-url="false">{{ m.name }}</a></h2>
     {% if m.description %}<p class="resource-card__desc">{{ m.description }}</p>{% endif %}
     <div class="resource-card__footer">
       <span class="small text-muted">{% blocktrans with when=m.modified|date:"j M Y" %}Updated {{ when }}{% endblocktrans %}</span>
+      <span class="d-flex gap-1">
+      <a class="btn btn-outline-secondary btn-sm" href="{{ item_url }}" hx-get="{{ item_url }}" hx-target="#modal-content" hx-push-url="false" aria-label="{% blocktrans with name=m.name %}Quick view of {{ name }}{% endblocktrans %}">{% include "components/icon.html" with name="eye" %}<span>{% trans "Quick view" %}</span></a>
       {% if m.link %}<a class="btn btn-primary btn-sm" href="{{ m.link }}" target="_blank" rel="noopener noreferrer">{% include "components/icon.html" with name="external" %}<span>{% trans "Open map" %}</span></a>{% endif %}
+      </span>
     </div>
   </article>
   {% endfor %}

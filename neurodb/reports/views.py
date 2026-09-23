@@ -9,6 +9,7 @@ from __future__ import annotations
 import io
 import mimetypes
 from typing import Any
+from urllib.parse import urlsplit
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_not_required
@@ -18,6 +19,7 @@ from django.http import FileResponse, Http404, HttpRequest, HttpResponse, JsonRe
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext as _
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_GET, require_POST
 
 from neurodb.accounts.roles import can_edit_section
@@ -27,7 +29,7 @@ from neurodb.facts.services import dashboard as facts
 from neurodb.indicators.models import Database, MasterIndicator, NeuroReport
 from neurodb.indicators.services.tracking import LABELS
 from neurodb.library.models import Resource
-from neurodb.library.services import completed_maps, resource_filters, search_resources
+from neurodb.library.services import completed_maps, published_resource, resource_filters, search_resources
 from neurodb.partnerships import services as partnerships
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
@@ -611,8 +613,82 @@ def library_download(request: HttpRequest, pk: int) -> HttpResponse:
     )
 
 
+# Files shown inside the quick view. Anything else is offered as a download only: serving an
+# uploaded HTML or SVG file inline would let it run script on this site.
+INLINE_DOCUMENT_TYPES = {"application/pdf"}
+INLINE_IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+
+def _guess_type(filename: str | None) -> str:
+    return mimetypes.guess_type(filename or "")[0] or "application/octet-stream"
+
+
+@require_GET
+def library_item(request: HttpRequest, pk: int) -> HttpResponse:
+    """Quick view of a resource: cover, full abstract, details and an inline PDF preview."""
+    resource = published_resource(pk)
+    kind = " · ".join(str(x.name) for x in (resource.type, resource.topic) if x)
+    context = {
+        "page_title": resource.title,
+        "page_subtitle": kind,
+        "breadcrumbs": [_crumb(_("Library"), reverse("reports:library")), _crumb(resource.title)],
+        "resource": resource,
+        "kind": kind or _("Resource"),
+        "tags": list(resource.tags.all()),
+        "pdf_preview": _guess_type(resource.resource_file_name) in INLINE_DOCUMENT_TYPES,
+        "has_cover": _guess_type(resource.resource_image_name) in INLINE_IMAGE_TYPES,
+    }
+    template = "reports/partials/library_item.html" if request.htmx else "reports/library_item.html"
+    return render(request, template, context)
+
+
+def _resource_bytes(pk: int, field: str) -> tuple[Resource, bytes]:
+    resource = get_object_or_404(Resource.objects.only("id", f"{field}_name", field), pk=pk, published=True)
+    data = getattr(resource, field)
+    if not data:
+        raise Http404
+    return resource, bytes(data)
+
+
+@require_GET
+@xframe_options_sameorigin
+def library_file(request: HttpRequest, pk: int) -> HttpResponse:
+    """The document inline, for the quick view's preview frame (PDF only)."""
+    resource, data = _resource_bytes(pk, "resource_file")
+    content_type = _guess_type(resource.resource_file_name)
+    if content_type not in INLINE_DOCUMENT_TYPES:
+        raise Http404
+    response = FileResponse(
+        io.BytesIO(data),
+        as_attachment=False,
+        filename=resource.resource_file_name or f"resource-{resource.pk}.pdf",
+        content_type=content_type,
+    )
+    # Framed by our own pages only; the document itself may load nothing else.
+    response["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'self'"
+    response["Cache-Control"] = "private, max-age=3600"
+    return response
+
+
+@require_GET
+def library_cover(request: HttpRequest, pk: int) -> HttpResponse:
+    resource, data = _resource_bytes(pk, "resource_image")
+    content_type = _guess_type(resource.resource_image_name)
+    if content_type not in INLINE_IMAGE_TYPES:
+        raise Http404
+    response = HttpResponse(data, content_type=content_type)
+    response["Cache-Control"] = "public, max-age=86400"
+    return response
+
+
+def _allow_map_frames(request: HttpRequest) -> None:
+    # Map products live on other sites (ArcGIS, Power BI, ...); let this page frame https pages.
+    request.csp_frame_src = " https:"
+
+
 @require_GET
 def maps(request: HttpRequest) -> HttpResponse:
+    _allow_map_frames(request)  # the quick view opens inside this page
     context = {
         "page_title": _("Maps"),
         "page_subtitle": _("Completed map products"),
@@ -620,6 +696,23 @@ def maps(request: HttpRequest) -> HttpResponse:
         "maps": list(completed_maps()),
     }
     return render(request, "reports/maps.html", context)
+
+
+@require_GET
+def map_item(request: HttpRequest, pk: int) -> HttpResponse:
+    """Quick view of a map product: description, status and the map itself when its site allows it."""
+    item = get_object_or_404(completed_maps(), pk=pk)
+    _allow_map_frames(request)
+    context = {
+        "page_title": item.name,
+        "page_subtitle": _("Map"),
+        "breadcrumbs": [_crumb(_("Maps"), reverse("reports:maps")), _crumb(item.name)],
+        "item": item,
+        "host": urlsplit(item.link).hostname if item.link else "",
+        "embed": bool(item.link and item.link.startswith("https://")),
+    }
+    template = "reports/partials/map_item.html" if request.htmx else "reports/map_item.html"
+    return render(request, template, context)
 
 
 # ------------------------------------------------------------------------- data health / search

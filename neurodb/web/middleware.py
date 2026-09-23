@@ -26,6 +26,7 @@ class ContentSecurityPolicyMiddleware:
                 "font-src 'self' data:; "
                 "connect-src 'self' https://tile.openstreetmap.org https://*.tile.openstreetmap.org; "
                 "worker-src 'self' blob:; "
+                f"frame-src 'self'{getattr(request, 'csp_frame_src', '')}; "
                 "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
             )
             response["Content-Security-Policy"] = policy

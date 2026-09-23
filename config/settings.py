@@ -298,8 +298,14 @@ if _unknown_public:
     raise ImproperlyConfigured(
         f"PUBLIC_PAGES may only contain {PUBLICABLE_PAGES}; got {sorted(_unknown_public)}"
     )
-if "reports:library" in PUBLIC_PAGES and "reports:library_download" not in PUBLIC_PAGES:
-    PUBLIC_PAGES.append("reports:library_download")
+# A public list page makes its quick views (and the library's files) public too.
+_FOLLOWERS = {
+    "reports:library": ("library_download", "library_item", "library_file", "library_cover"),
+    "reports:maps": ("map_item",),
+}
+for _page, _names in _FOLLOWERS.items():
+    if _page in PUBLIC_PAGES:
+        PUBLIC_PAGES += [f"reports:{n}" for n in _names if f"reports:{n}" not in PUBLIC_PAGES]
 PUBLIC_LANDING_STATS = env.bool("PUBLIC_LANDING_STATS", default=True)  # aggregate counts only
 SUPPORT_EMAIL = env("SUPPORT_EMAIL", default="")
 USER_GUIDE_URL = env("USER_GUIDE_URL", default="")

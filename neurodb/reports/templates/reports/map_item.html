@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block content %}
+<article class="panel p-4 quickview-page">
+  {% include "reports/partials/_map_item_body.html" %}
+  {% if item.link %}<div class="d-flex justify-content-end mt-3"><a class="btn btn-primary btn-sm" href="{{ item.link }}" target="_blank" rel="noopener noreferrer">{% include "components/icon.html" with name="external" %}<span>{% trans "Open map" %}</span></a></div>{% endif %}
+</article>
+{% endblock %}

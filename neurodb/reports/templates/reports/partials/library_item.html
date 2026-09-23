@@ -1,0 +1,15 @@
+{% load i18n %}
+<div class="modal-header">
+  <div>
+    <div class="resource-card__type">{{ kind }}</div>
+    <h2 class="modal-title h5" id="modal-title">{{ resource.title }}</h2>
+  </div>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+</div>
+<div class="modal-body">
+  {% include "reports/partials/_library_item_body.html" %}
+</div>
+<div class="modal-footer">
+  <a class="btn btn-link btn-sm me-auto" href="{% url 'reports:library_item' resource.id %}">{% trans "Open as page" %}</a>
+  {% include "reports/partials/_library_item_actions.html" %}
+</div>

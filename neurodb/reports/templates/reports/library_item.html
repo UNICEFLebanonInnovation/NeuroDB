@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block content %}
+<article class="panel p-4 quickview-page">
+  {% include "reports/partials/_library_item_body.html" %}
+  <div class="d-flex flex-wrap gap-2 justify-content-end mt-3">{% include "reports/partials/_library_item_actions.html" %}</div>
+</article>
+{% endblock %}
