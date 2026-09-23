@@ -2,6 +2,7 @@
 {% load static %}
 {% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | NeuroDB administration{% endblock %}
 {% block extrahead %}{{ block.super }}{% include "components/favicons.html" %}
+<link rel="stylesheet" href="{% static 'css/admin.css' %}">
 <style>
   :root { --primary: #446ab3; --secondary: #34548f; --breadcrumbs-bg: #446ab3; --link-fg: #34548f; --link-selected-fg: #2b4679; }
   #header { background: #fff; color: #34548f; border-bottom: 1px solid #e2e7ee; }

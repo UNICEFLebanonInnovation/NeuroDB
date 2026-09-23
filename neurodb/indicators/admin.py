@@ -1,11 +1,19 @@
 """Indicator configuration admin: the v2 wizards re-implemented without mutating ModelAdmin state."""
 
+import datetime
+
 from django import forms
 from django.contrib import admin, messages
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import path, reverse
+from django.utils import timezone
+from django.utils.html import format_html
+from django.utils.translation import gettext_lazy as _
 
 from neurodb.indicators.services.navigation import invalidate
+from neurodb.web.admin_helpers import badge
+from neurodb.web.admin_site import STALE_DATABASE_DAYS
 
 from .models import (
     Activity,
@@ -34,19 +42,44 @@ class ReportingYearAdmin(admin.ModelAdmin):
         invalidate()
 
 
+class FreshnessFilter(admin.SimpleListFilter):
+    """When the monthly ActivityInfo import last ran (the dashboard's warnings link here)."""
+
+    title = _("data freshness")
+    parameter_name = "freshness"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("fresh", _("Imported in the last %(d)s days") % {"d": STALE_DATABASE_DAYS}),
+            ("stale", _("Older than %(d)s days") % {"d": STALE_DATABASE_DAYS}),
+            ("never", _("Never imported")),
+        )
+
+    def queryset(self, request, queryset):
+        cutoff = timezone.now() - datetime.timedelta(days=STALE_DATABASE_DAYS)
+        if self.value() == "fresh":
+            return queryset.filter(last_monthly_update_date__gte=cutoff)
+        if self.value() == "stale":
+            return queryset.filter(last_monthly_update_date__lt=cutoff)
+        if self.value() == "never":
+            return queryset.filter(last_monthly_update_date__isnull=True)
+        return queryset
+
+
 @admin.register(Database)
 class DatabaseAdmin(admin.ModelAdmin):
     list_display = (
         "label",
-        "name",
         "ai_id",
         "section",
         "reporting_year",
         "display",
-        "is_funded_by_unicef",
-        "last_monthly_update_date",
+        "master_count",
+        "freshness",
+        "open_dashboard",
     )
-    list_filter = ("reporting_year", "section", "display", "is_funded_by_unicef")
+    list_filter = (FreshnessFilter, "reporting_year", "section", "display", "is_funded_by_unicef")
+    list_select_related = ("section", "reporting_year")
     search_fields = ("name", "label", "ai_id", "db_id")
     exclude = ("username", "password", "mapping_extraction1", "mapping_extraction2", "mapping_extraction3")
     readonly_fields = (
@@ -56,6 +89,33 @@ class DatabaseAdmin(admin.ModelAdmin):
         "last_weekly_update_date",
     )
     actions = ("queue_structure_import", "queue_data_import")
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .annotate(active_masters=Count("masterindicator", filter=Q(masterindicator__is_active=True)))
+        )
+
+    def view_on_site(self, obj):
+        return reverse("reports:database_dashboard", args=[obj.pk])
+
+    @admin.display(description=_("Active masters"), ordering="active_masters")
+    def master_count(self, obj):
+        return obj.active_masters
+
+    @admin.display(description=_("Last import"), ordering="last_monthly_update_date")
+    def freshness(self, obj):
+        last = obj.last_monthly_update_date
+        if not last:
+            return badge(_("Never"), "muted")
+        days = (timezone.now() - last).days
+        tone = "ok" if days <= STALE_DATABASE_DAYS else "warn"
+        return badge(_("%(d)s days ago") % {"d": days} if days else _("Today"), tone)
+
+    @admin.display(description=_("Dashboard"))
+    def open_dashboard(self, obj):
+        return format_html('<a href="{}">{}</a>', self.view_on_site(obj), _("Open"))
 
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
@@ -145,6 +205,22 @@ class SubIndicatorAdmin(admin.ModelAdmin):
     filter_horizontal = ("indicators",)
 
 
+class HasTargetFilter(admin.SimpleListFilter):
+    title = _("AWP target")
+    parameter_name = "has_target"
+
+    def lookups(self, request, model_admin):
+        return (("yes", _("Has a target")), ("no", _("No target")))
+
+    def queryset(self, request, queryset):
+        missing = Q(awp_target__isnull=True) | Q(awp_target=0)
+        if self.value() == "yes":
+            return queryset.exclude(missing)
+        if self.value() == "no":
+            return queryset.filter(missing)
+        return queryset
+
+
 @admin.register(MasterIndicator)
 class MasterIndicatorAdmin(admin.ModelAdmin):
     list_display = (
@@ -157,7 +233,8 @@ class MasterIndicatorAdmin(admin.ModelAdmin):
         "is_active",
         "sequence",
     )
-    list_filter = ("database", "aggregation_method", "reporting_level", "is_active", "tags")
+    list_filter = (HasTargetFilter, "is_active", "database", "aggregation_method", "reporting_level", "tags")
+    list_select_related = ("database",)
     search_fields = ("name", "awp_code")
     filter_horizontal = ("tags",)
     inlines = (MasterSubInline,)

@@ -1,0 +1,103 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static log %}
+
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static "admin/css/dashboard.css" %}">{% endblock %}
+{% block coltype %}colMS{% endblock %}
+{% block bodyclass %}{{ block.super }} dashboard nd-dashboard{% endblock %}
+{% block nav-breadcrumbs %}{% endblock %}
+{% block nav-sidebar %}{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  {% if dashboard.error %}
+    <p class="errornote">{% translate "The dashboard figures could not be loaded. The database may be unavailable; the lists below still work once it is back." %}</p>
+  {% else %}
+    <section class="nd-tiles" aria-label="{% translate 'Key figures' %}">
+      {% for tile in dashboard.tiles %}
+        {% if tile.url %}<a class="nd-tile" href="{{ tile.url }}">{% else %}<div class="nd-tile">{% endif %}
+          <span class="nd-tile__value">{{ tile.value }}</span>
+          <span class="nd-tile__label">{{ tile.label }}</span>
+        {% if tile.url %}</a>{% else %}</div>{% endif %}
+      {% endfor %}
+    </section>
+
+    <div class="module nd-panel">
+      <h2>{% translate "Needs attention" %}</h2>
+      {% if dashboard.warnings %}
+        <ul class="nd-warnings">
+          {% for w in dashboard.warnings %}
+            <li>{% if w.url %}<a href="{{ w.url }}">{{ w.text }}</a>{% else %}{{ w.text }}{% endif %}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="nd-allgood">{% translate "Nothing needs attention. Imports are current and the configuration is complete." %}</p>
+      {% endif %}
+    </div>
+
+    <div class="module nd-panel">
+      <h2>{% translate "Data jobs" %}</h2>
+      <div class="nd-scroll"><table class="nd-jobs">
+        <thead>
+          <tr>
+            <th scope="col">{% translate "Job" %}</th>
+            <th scope="col">{% translate "Last run" %}</th>
+            <th scope="col">{% translate "Status" %}</th>
+            <th scope="col">{% translate "Last success" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for j in dashboard.jobs %}
+            <tr>
+              <th scope="row"><a href="{% url 'admin:core_syncrun_changelist' %}?job__exact={{ j.job }}">{{ j.label }}</a></th>
+              <td>{% if j.last %}{{ j.last.started_at|timesince }} {% translate "ago" %}{% else %}—{% endif %}</td>
+              <td>{% if j.last %}<span class="nd-badge nd-badge--{% if j.last.status == 'succeeded' %}ok{% elif j.last.status == 'partial' %}warn{% elif j.last.status == 'failed' %}bad{% else %}info{% endif %}">{{ j.last.get_status_display }}</span>{% else %}<span class="nd-badge nd-badge--muted">{% translate "Never run" %}</span>{% endif %}</td>
+              <td>{% if j.last_success %}{{ j.last_success.finished_at|date:"j M Y, H:i" }}{% else %}—{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+  {% endif %}
+
+  <div class="nd-groups">
+    {% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
+  </div>
+</div>
+{% endblock %}
+
+{% block sidebar %}
+<div id="content-related">
+  <div class="module nd-quick">
+    <h2>{% translate "Quick actions" %}</h2>
+    <ul>
+      {% if perms.users.add_user %}<li><a href="{% url 'admin:users_user_add' %}">{% translate "Add a user" %}</a></li>{% endif %}
+      {% if perms.users.view_user %}<li><a href="{% url 'admin:users_user_changelist' %}?role=none&amp;is_active__exact=1">{% translate "Give roles to new users" %}</a></li>{% endif %}
+      {% if perms.pivoting.change_database %}<li><a href="{% url 'admin:pivoting_database_changelist' %}">{% translate "Run an ActivityInfo import" %}</a></li>{% endif %}
+      {% if perms.pivoting.add_neuroreport %}<li><a href="{% url 'admin:pivoting_neuroreport_add' %}">{% translate "Create a Neuro report" %}</a></li>{% endif %}
+      {% if perms.pivoting.add_resource %}<li><a href="{% url 'admin:pivoting_resource_add' %}">{% translate "Publish a library resource" %}</a></li>{% endif %}
+      <li><a href="{% url 'reports:data_health' %}">{% translate "Open the data health page" %}</a></li>
+      {% if user.is_superuser %}<li><a href="{% url 'admin:admin_logentry_changelist' %}">{% translate "Audit trail" %}</a></li>{% endif %}
+    </ul>
+  </div>
+
+  <div class="module" id="recent-actions-module">
+    <h2>{% translate "Recent actions" %}</h2>
+    <h3>{% translate "My actions" %}</h3>
+    {% get_admin_log 10 as admin_log for_user user %}
+    {% if not admin_log %}
+      <p>{% translate "None available" %}</p>
+    {% else %}
+      <ul class="actionlist">
+        {% for entry in admin_log %}
+          <li class="{% if entry.is_addition %}addlink{% endif %}{% if entry.is_change %}changelink{% endif %}{% if entry.is_deletion %}deletelink{% endif %}">
+            <span class="visually-hidden">{% if entry.is_addition %}{% translate "Added:" %}{% elif entry.is_change %}{% translate "Changed:" %}{% elif entry.is_deletion %}{% translate "Deleted:" %}{% endif %}</span>
+            {% if entry.is_deletion or not entry.get_admin_url %}{{ entry.object_repr }}{% else %}<a href="{{ entry.get_admin_url }}">{{ entry.object_repr }}</a>{% endif %}
+            <br><span class="mini quiet">{% if entry.content_type %}{% filter capfirst %}{{ entry.content_type.name }}{% endfilter %}{% else %}{% translate "Unknown content" %}{% endif %} · {{ entry.action_time|timesince }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+    {% if user.is_superuser %}<p class="nd-more"><a href="{% url 'admin:admin_logentry_changelist' %}">{% translate "Everyone's changes" %} →</a></p>{% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -36,7 +36,7 @@ SITE_NAME = "NeuroDB"
 
 # ---------------------------------------------------------------------------- apps
 INSTALLED_APPS = [
-    "django.contrib.admin",
+    "neurodb.web.apps.NeuroDBAdminConfig",  # django.contrib.admin with the NeuroDB admin site
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
