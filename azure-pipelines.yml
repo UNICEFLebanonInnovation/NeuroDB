@@ -1,3 +1,9 @@
+# NeuroDB v3: test -> image -> staging -> production (Azure Container Apps).
+#
+# One-time setup in Azure DevOps (docs/DEPLOYMENT_AZURE.md, section "Pipeline"):
+#   * service connection (Azure Resource Manager, workload identity) named in `azureServiceConnection`
+#   * Docker registry service connection to the ACR named in `registryServiceConnection`
+#   * environments `neurodb-staging` and `neurodb-production` (add an approval check on production)
 trigger:
   branches:
     include: [main]
@@ -6,9 +12,12 @@ pr:
     include: [main]
 
 variables:
-  imageRepository: neurodb/web
-  containerRegistry: unilebepics
+  azureServiceConnection: neurodb-azure            # rename to your ARM service connection
+  registryServiceConnection: neurodb-acr           # rename to your ACR service connection
+  registryLoginServer: neurodbacr.azurecr.io
+  imageRepository: neurodb
   tag: $(Build.SourceVersion)
+  isMain: $[eq(variables['Build.SourceBranch'], 'refs/heads/main')]
 
 stages:
 - stage: Verify
@@ -16,70 +25,114 @@ stages:
   - job: Test
     pool: { vmImage: ubuntu-latest }
     services:
-      postgres:
-        image: postgres:16
-        env: { POSTGRES_USER: neurodb, POSTGRES_PASSWORD: neurodb, POSTGRES_DB: neurodb_test }
-        ports: ["5432:5432"]
+      postgres: postgres
     steps:
     - task: UsePythonVersion@0
       inputs: { versionSpec: "3.12" }
-    - script: pip install -r requirements.lock -e ".[dev]"
+    - script: pip install -r requirements-dev.lock
       displayName: Install
     - script: ruff check . && ruff format --check .
       displayName: Lint
     - script: |
+        set -e
         export DJANGO_ENV=test DJANGO_SECRET_KEY=ci DATABASE_URL=postgres://neurodb:neurodb@localhost:5432/neurodb_test
-        python manage.py check --deploy --fail-level WARNING
         python manage.py makemigrations --check --dry-run
-        pytest --junitxml=test-results.xml
-      displayName: Checks and tests
-    - script: pip-audit -r requirements.lock
+        pytest --junitxml=test-results.xml -o addopts="" -p no:cacheprovider
+      displayName: Tests
+    - script: |
+        DJANGO_ENV=production DJANGO_SECRET_KEY=$(openssl rand -base64 48) ALLOWED_HOSTS=neurodb.example.org \
+        DATABASE_URL=postgres://ci@localhost/ci python manage.py check --deploy --fail-level WARNING
+      displayName: Deployment checks
+    - script: pip-audit -r requirements.lock && pip-audit -r requirements-dev.lock
       displayName: Dependency audit
     - task: PublishTestResults@2
       condition: always()
       inputs: { testResultsFiles: test-results.xml }
+  - job: ContainerBuild
+    displayName: Container builds and starts
+    pool: { vmImage: ubuntu-latest }
+    steps:
+    - script: |
+        set -e
+        docker build --build-arg APP_VERSION=$(tag) -t neurodb:ci .
+        KEY=$(openssl rand -base64 48)
+        docker run --rm -e DJANGO_SECRET_KEY="$KEY" -e DATABASE_URL=postgres://ci@localhost/ci \
+          -e ALLOWED_HOSTS=neurodb.example.org neurodb:ci check
+        docker run -d --name web -p 8000:8000 -e DJANGO_SECRET_KEY="$KEY" -e DATABASE_URL=postgres://ci@localhost/ci neurodb:ci
+        for i in $(seq 1 20); do curl -fsS http://127.0.0.1:8000/healthz/live/ && exit 0; sleep 2; done
+        docker logs web; exit 1
+      displayName: Build, check and start the image
 
-- stage: Build
+- stage: Image
   dependsOn: Verify
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  condition: and(succeeded(), eq(variables.isMain, true))
   jobs:
-  - job: Image
+  - job: Push
     pool: { vmImage: ubuntu-latest }
     steps:
     - task: Docker@2
+      displayName: Build and push
       inputs:
         command: buildAndPush
+        containerRegistry: $(registryServiceConnection)
         repository: $(imageRepository)
-        containerRegistry: $(containerRegistry)
-        dockerfile: Dockerfile
-        tags: |
-          $(tag)
-          latest
+        Dockerfile: Dockerfile
+        arguments: --build-arg APP_VERSION=$(tag)
+        tags: $(tag)
 
-- stage: Deploy
-  dependsOn: Build
+- stage: Staging
+  dependsOn: Image
   jobs:
-  - deployment: Staging
+  - deployment: Deploy
     environment: neurodb-staging
     pool: { vmImage: ubuntu-latest }
+    variables:
+      resourceGroup: rg-neurodb-staging
+      prefix: neurodb-stg
     strategy:
       runOnce:
         deploy:
           steps:
-          - task: AzureWebAppContainer@1
+          - checkout: self
+          - task: AzureCLI@2
+            displayName: Migrate, roll out, smoke test
             inputs:
-              azureSubscription: UNI_APPS RS-UNI-LEB
-              appName: uni-leb-neurodb
-              deployToSlotOrASE: true
-              resourceGroupName: rs-uni-leb
-              slotName: staging
-              imageName: unilebepics.azurecr.io/$(imageRepository):$(tag)
-          - script: curl --fail --retry 10 --retry-delay 6 https://uni-leb-neurodb-staging.azurewebsites.net/healthz/
-            displayName: Smoke test staging
-          - task: AzureAppServiceManage@0
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az extension add --name containerapp --upgrade --only-show-errors
+                RESOURCE_GROUP=$(resourceGroup) PREFIX=$(prefix) \
+                IMAGE=$(registryLoginServer)/$(imageRepository):$(tag) infra/scripts/deploy.sh
+
+- stage: Production
+  dependsOn: Staging
+  jobs:
+  - deployment: Deploy
+    environment: neurodb-production     # approval check configured on the environment
+    pool: { vmImage: ubuntu-latest }
+    variables:
+      resourceGroup: rg-neurodb-prod
+      prefix: neurodb-prod
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+          - task: AzureCLI@2
+            displayName: Migrate, roll out, smoke test
             inputs:
-              azureSubscription: UNI_APPS RS-UNI-LEB
-              Action: Swap Slots
-              WebAppName: uni-leb-neurodb
-              ResourceGroupName: rs-uni-leb
-              SourceSlot: staging
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az extension add --name containerapp --upgrade --only-show-errors
+                RESOURCE_GROUP=$(resourceGroup) PREFIX=$(prefix) \
+                IMAGE=$(registryLoginServer)/$(imageRepository):$(tag) infra/scripts/deploy.sh
+
+resources:
+  containers:
+  - container: postgres
+    image: postgres:16
+    env: { POSTGRES_USER: neurodb, POSTGRES_PASSWORD: neurodb, POSTGRES_DB: neurodb_test }
+    ports: ["5432:5432"]

@@ -33,6 +33,7 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
 - `docs/NEURODB_REVIEW_2026.md`: the technical review of v2 that motivated this rebuild.
 - `docs/NEURODB_V3_TECHNICAL_DESIGN.md`: the target design.
 - `docs/DATA_MIGRATION.md`: how v3 attaches to the v2 database and how to take schema ownership later.
+- `docs/DEPLOYMENT_AZURE.md`: running the Docker image on Azure Container Apps (infrastructure, secrets, pipeline).
 - `docs/OPERATIONS.md`: runbook (deploy, secrets, yearly rollover, sync triage).
 
 ## Public landing page and public access
@@ -54,7 +55,7 @@ Dashboards, reports, partnerships, data health and the internal API always requi
 
 ```bash
 cp .env.example .env                     # edit DATABASE_URL to point at a copy of the v2 database
-python -m venv .venv && .venv/bin/pip install -e ".[dev]"
+python -m venv .venv && .venv/bin/pip install -r requirements-dev.lock
 .venv/bin/python manage.py migrate       # creates only the new v3 tables; v2 tables are untouched
 .venv/bin/python manage.py bootstrap_roles
 .venv/bin/python manage.py runserver
@@ -75,6 +76,11 @@ export DJANGO_ENV=local DJANGO_DEBUG=on LEGACY_TABLES_MANAGED=on DATABASE_URL=po
 `seed_demo` refuses to run outside `DJANGO_ENV=local`/`test` or on a database that already holds data.
 Set `DEBUG_TOOLBAR=off` to hide the Django debug toolbar.
 
+Dependencies: `requirements.lock` pins what the production image installs; `requirements-dev.lock`
+adds the test and lint tools. Regenerate both with
+`uv pip compile pyproject.toml -o requirements.lock` and
+`uv pip compile pyproject.toml --extra dev -c requirements.lock -o requirements-dev.lock`.
+
 ## Quality gates (run before every pull request)
 
 ```bash
@@ -82,7 +88,8 @@ ruff check . && ruff format --check .
 DJANGO_ENV=test pytest
 python manage.py check --deploy
 python manage.py makemigrations --check --dry-run
-pip-audit -r requirements.lock
+pip-audit -r requirements.lock -r requirements-dev.lock
+docker build -t neurodb .                # the production image
 ```
 
 ## Layout
@@ -98,6 +105,8 @@ neurodb/library    Resources, maps (v2 tables)
 neurodb/partnerships  eTools replicas (v2 tables) and partner/PD/donor services
 neurodb/integrations  ActivityInfo and eTools clients, sync commands
 neurodb/reports    Page views, internal JSON API, exports
+infra/             Azure Bicep template, deploy and rollback scripts
+docker/            Container entrypoint and health check
 neurodb/web        Base layout, components, static assets (vendored, no CDN), CSP middleware
 ```
 

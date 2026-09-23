@@ -18,6 +18,20 @@ DEBUG = env.bool("DJANGO_DEBUG", default=False)
 SECRET_KEY = env("DJANGO_SECRET_KEY")
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[] if not DEBUG else ["localhost", "127.0.0.1"])
 CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
+# Azure injects the platform host name: Container Apps (name + environment DNS suffix) and App Service
+# (WEBSITE_HOSTNAME). Trust it automatically so a new environment works before a custom domain exists.
+_platform_hosts = [
+    f"{env('CONTAINER_APP_NAME')}.{env('CONTAINER_APP_ENV_DNS_SUFFIX')}"
+    if env("CONTAINER_APP_NAME", default="") and env("CONTAINER_APP_ENV_DNS_SUFFIX", default="")
+    else "",
+    env("WEBSITE_HOSTNAME", default=""),
+]
+for _host in filter(None, _platform_hosts):
+    if _host not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(_host)
+    if f"https://{_host}" not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(f"https://{_host}")
+APP_VERSION = env("APP_VERSION", default="dev")  # set by the Docker build (git SHA)
 SITE_NAME = "NeuroDB"
 
 # ---------------------------------------------------------------------------- apps
@@ -50,6 +64,7 @@ INSTALLED_APPS = [
 SITE_ID = 1
 
 MIDDLEWARE = [
+    "neurodb.web.middleware.HealthCheckMiddleware",  # first: probes skip host checks and HTTPS redirects
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -92,6 +107,9 @@ DATABASES = {
 }
 DATABASES["default"]["CONN_MAX_AGE"] = env.int("DB_CONN_MAX_AGE", default=60)
 DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
+if ENV in ("staging", "production"):
+    # Azure Database for PostgreSQL requires TLS; a sslmode in DATABASE_URL still wins.
+    DATABASES["default"].setdefault("OPTIONS", {}).setdefault("sslmode", env("DB_SSLMODE", default="require"))
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # The v2 tables are owned by the database, not by Django, until the team decides to take
@@ -182,15 +200,19 @@ STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
 }
 if env("AZURE_STORAGE_ACCOUNT", default=""):
-    STORAGES["default"] = {
-        "BACKEND": "storages.backends.azure_storage.AzureStorage",
-        "OPTIONS": {
-            "account_name": env("AZURE_STORAGE_ACCOUNT"),
-            "account_key": env("AZURE_STORAGE_KEY"),
-            "azure_container": env("AZURE_CONTAINER_MEDIA", default="media"),
-            "expiration_secs": 600,
-        },
+    _blob = {
+        "account_name": env("AZURE_STORAGE_ACCOUNT"),
+        "azure_container": env("AZURE_CONTAINER_MEDIA", default="media"),
+        "expiration_secs": 600,
     }
+    if env("AZURE_STORAGE_KEY", default=""):
+        _blob["account_key"] = env("AZURE_STORAGE_KEY")
+    else:
+        # Managed identity in Azure (AZURE_CLIENT_ID picks a user-assigned identity); az login locally.
+        from azure.identity import DefaultAzureCredential
+
+        _blob["token_credential"] = DefaultAzureCredential()
+    STORAGES["default"] = {"BACKEND": "storages.backends.azure_storage.AzureStorage", "OPTIONS": _blob}
 if ENV == "test":  # tests run without collectstatic, so no manifest exists
     STORAGES["staticfiles"] = {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}
 WHITENOISE_MANIFEST_STRICT = False
@@ -238,13 +260,15 @@ INTEGRATION_TIMEOUT_SECONDS = (10, 120)
 SYNC_STALENESS_HOURS = env.int("SYNC_STALENESS_HOURS", default=30)
 
 # ---------------------------------------------------------------------------- logging
+LOG_FORMAT = env("LOG_FORMAT", default="plain")  # "json" in Azure so Log Analytics can parse fields
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
         "plain": {"format": "%(asctime)s %(levelname)s %(name)s %(message)s"},
+        "json": {"()": "config.logging.JsonFormatter"},
     },
-    "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "plain"}},
+    "handlers": {"console": {"class": "logging.StreamHandler", "formatter": LOG_FORMAT}},
     "root": {"handlers": ["console"], "level": env("LOG_LEVEL", default="INFO")},
     "loggers": {
         "django.request": {"level": "WARNING"},

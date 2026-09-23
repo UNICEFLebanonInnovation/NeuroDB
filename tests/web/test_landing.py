@@ -80,3 +80,27 @@ def test_logo_and_favicon_are_the_neurodb_brand(client, hierarchy):
     assert response.status_code == 302 and response["Location"].endswith("img/favicon.ico")
     login = client.get(reverse("account_login")).content.decode()
     assert "img/logo.png" in login
+
+
+def test_probes_bypass_host_check_and_https_redirect(client, db, settings):
+    settings.ALLOWED_HOSTS = ["neurodb.example.org"]
+    settings.SECURE_SSL_REDIRECT = True
+    live = client.get("/healthz/live/", HTTP_HOST="10.0.0.12:8000")
+    assert live.status_code == 200 and live.json()["status"] == "ok"
+    ready = client.get("/healthz/", HTTP_HOST="10.0.0.12:8000")
+    assert ready.status_code == 200 and ready.json()["database"] == "ok"
+    # Any other path still gets the normal protections.
+    assert client.get("/", HTTP_HOST="10.0.0.12:8000").status_code == 400
+
+
+def test_readiness_is_503_when_the_database_is_down(client, db, monkeypatch):
+    from django.db import connection
+
+    def broken_cursor(*args, **kwargs):
+        raise RuntimeError("database unreachable")
+
+    monkeypatch.setattr(connection, "cursor", broken_cursor)
+    response = client.get("/healthz/")
+    assert response.status_code == 503
+    assert response.json()["database"] == "error: RuntimeError"
+    assert client.get("/healthz/live/").status_code == 200

@@ -15,6 +15,8 @@ dependencies = [
   "requests~=2.32",
   "openpyxl~=3.1",
   "django-storages[azure]~=1.14",
+  "azure-identity~=1.19",                # managed identity for Blob storage
+  "azure-monitor-opentelemetry~=1.6",    # Application Insights (enabled by APPLICATIONINSIGHTS_CONNECTION_STRING)
 ]
 
 [project.optional-dependencies]

@@ -22,19 +22,23 @@ def favicon(request):
 
 @login_not_required
 def healthz(request):
-    """Liveness + freshness probe for App Service / Container Apps."""
-    status = {"database": "ok", "syncs": {}, "time": timezone.now().isoformat()}
-    code = 200
+    """Readiness probe: database reachable (503 if not) plus the last successful run of each sync job."""
+    status = {
+        "database": "ok",
+        "version": settings.APP_VERSION,
+        "syncs": {},
+        "time": timezone.now().isoformat(),
+    }
     try:
         with connection.cursor() as cur:
             cur.execute("SELECT 1")
-    except Exception as exc:  # pragma: no cover
+        for job, _label in SyncRun.Job.choices:
+            last = SyncRun.last_success(job)
+            status["syncs"][job] = last.finished_at.isoformat() if last else None
+    except Exception as exc:  # any database failure means "not ready", never a 500
         status["database"] = f"error: {exc.__class__.__name__}"
-        code = 503
-    for job, _label in SyncRun.Job.choices:
-        last = SyncRun.last_success(job)
-        status["syncs"][job] = last.finished_at.isoformat() if last else None
-    return JsonResponse(status, status=code)
+        return JsonResponse(status, status=503)
+    return JsonResponse(status)
 
 
 WHATS_NEW = [

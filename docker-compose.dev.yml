@@ -1,4 +1,7 @@
-# Local development: `docker compose -f docker-compose.dev.yml up`
+# Local development with Docker: `docker compose -f docker-compose.dev.yml up`
+# `web` runs the production image with the source mounted and Django's development server.
+# First run: docker compose -f docker-compose.dev.yml run --rm web manage migrate
+#            docker compose -f docker-compose.dev.yml run --rm web manage seed_demo --password <choose-one>
 services:
   db:
     image: postgres:16
@@ -10,13 +13,15 @@ services:
     volumes: ["pgdata:/var/lib/postgresql/data"]
   web:
     build: .
-    command: python manage.py runserver 0.0.0.0:8000
-    env_file: .env
+    command: ["manage", "runserver", "0.0.0.0:8000"]
     environment:
-      DATABASE_URL: postgres://neurodb:neurodb@db:5432/neurodb_v3
       DJANGO_ENV: local
       DJANGO_DEBUG: "on"
-    volumes: [".:/app"]
+      DJANGO_SECRET_KEY: local-development-only-not-a-secret
+      DATABASE_URL: postgres://neurodb:neurodb@db:5432/neurodb_v3
+      LEGACY_TABLES_MANAGED: "on"   # an empty local database gets the v2 tables too
+      ALLOWED_HOSTS: localhost,127.0.0.1
+    volumes: [".:/app:ro"]
     ports: ["8000:8000"]
     depends_on: [db]
 volumes:

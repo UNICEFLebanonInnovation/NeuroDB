@@ -1,12 +1,23 @@
+# Only config/, neurodb/, manage.py, pyproject.toml, requirements.lock and docker/ are needed.
+**/__pycache__
+**/*.py[cod]
+*.egg-info
 .git
+.github
 .venv
 venv
 node_modules
 staticfiles
 media
 .env
+.env.*
+!.env.example
 tests
 docs
+infra
+scripts
 *.md
 .pytest_cache
 .ruff_cache
+requirements-dev.lock
+docker-compose*.yml

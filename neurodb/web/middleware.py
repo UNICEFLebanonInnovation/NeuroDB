@@ -41,3 +41,30 @@ class PublicPagesLoginRequiredMiddleware(LoginRequiredMiddleware):
         ):
             return None
         return super().process_view(request, view_func, view_args, view_kwargs)
+
+
+class HealthCheckMiddleware:
+    """Answer the container probes before host validation, HTTPS redirects and sessions.
+
+    Azure Container Apps and App Service probe the container over plain HTTP with an internal IP as
+    the Host header. Behind ALLOWED_HOSTS and SECURE_SSL_REDIRECT those probes would get 400 or 301
+    and the platform would restart a healthy container. Only these two read-only paths are handled.
+    """
+
+    LIVE = "/healthz/live/"
+    READY = "/healthz/"
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if request.method in ("GET", "HEAD"):
+            if request.path == self.LIVE:
+                from django.http import JsonResponse
+
+                return JsonResponse({"status": "ok", "version": settings.APP_VERSION})
+            if request.path == self.READY:
+                from neurodb.web.views import healthz
+
+                return healthz(request)
+        return self.get_response(request)
