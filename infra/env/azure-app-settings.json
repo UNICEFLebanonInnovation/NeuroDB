@@ -125,6 +125,11 @@
     "slotSetting": false
   },
   {
+    "name": "RUN_MIGRATIONS",
+    "value": "true",
+    "slotSetting": false
+  },
+  {
     "name": "PORT",
     "value": "8000",
     "slotSetting": false

@@ -1,8 +1,8 @@
 # NeuroDB v3 - one image for the web app and the scheduled jobs (Azure Container Apps).
 #
 #   docker build --build-arg APP_VERSION=$(git rev-parse --short HEAD) -t neurodb:local .
-#   docker run --env-file .env -p 8000:8000 neurodb:local            # web
-#   docker run --env-file .env neurodb:local migrate                  # migrations
+#   docker run --env-file .env -p 8000:8000 neurodb:local            # migrations, then the website
+#   docker run --env-file .env neurodb:local migrate                  # migrations only
 #   docker run --env-file .env neurodb:local manage sync_etools       # any command
 #
 # BASE_IMAGE can point at a mirror (for example an ACR import of the same tag) when Docker Hub is
@@ -39,6 +39,7 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/venv/bin:${PATH}" \
     DJANGO_ENV=production \
     PORT=8000 \
+    RUN_MIGRATIONS=true \
     APP_VERSION=${APP_VERSION}
 RUN groupadd --system --gid 10001 neurodb \
  && useradd --system --uid 10001 --gid neurodb --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin neurodb
@@ -51,5 +52,7 @@ COPY docker/healthcheck.py /usr/local/bin/neurodb-healthcheck
 USER 10001:10001
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["python", "/usr/local/bin/neurodb-healthcheck"]
+# `web` applies pending migrations (under a database lock) before gunicorn starts, so every deployment
+# of a new image migrates the database. Set RUN_MIGRATIONS=false to skip.
 ENTRYPOINT ["neurodb"]
 CMD ["web"]

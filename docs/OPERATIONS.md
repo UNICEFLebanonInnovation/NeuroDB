@@ -8,7 +8,9 @@ architecture: `docs/DEPLOYMENT_AZURE.md`.
 CI builds `<acr>/neurodb:<commit sha>` on `main` and runs `infra/scripts/deploy.sh` for staging and
 then, after approval, production. The script runs migrations as a job first and stops if they fail.
 It then rolls out a new web revision, which only takes traffic when `/healthz/` is ready, and
-switches the jobs to the new image. Migrations never run at container start.
+switches the jobs to the new image. In addition, every web container applies pending migrations
+before it starts (`RUN_MIGRATIONS=true`, the default), under a database lock so only one container
+migrates at a time. On App Service this is what migrates the database on each deployment.
 
 Rollback: `infra/scripts/rollback.sh` with the previous image tag. Migrations are not reversed, so
 every migration must stay compatible with the previous release for one deployment.

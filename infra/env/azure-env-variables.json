@@ -237,6 +237,15 @@
       "description": "Application log level."
     },
     {
+      "name": "RUN_MIGRATIONS",
+      "group": "Container",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "true",
+      "description": "Apply pending database migrations (under a lock) every time the website container starts. false to skip."
+    },
+    {
       "name": "PORT",
       "group": "Container",
       "required": false,

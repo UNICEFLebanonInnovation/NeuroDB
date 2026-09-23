@@ -25,7 +25,7 @@ the existing NeuroDB database and only adds three tables (`docs/DATA_MIGRATION.m
 | Command | What it runs |
 |---|---|
 | `docker build --build-arg APP_VERSION=$(git rev-parse --short HEAD) -t neurodb .` | Build (about 40 s) |
-| `docker run --env-file .env -p 8000:8000 neurodb` | Website (gunicorn, port `$PORT`, default 8000) |
+| `docker run --env-file .env -p 8000:8000 neurodb` | Pending migrations, then the website (gunicorn, port `$PORT`, default 8000) |
 | `docker run --env-file .env neurodb migrate` | Migrations, then default roles |
 | `docker run --env-file .env neurodb manage sync_etools` | Any management command |
 | `docker run --env-file .env neurodb check` | Django deployment checks |
@@ -40,6 +40,9 @@ Properties that matter in Azure:
   the database and reports the last successful run of each sync (readiness). It returns 503 when the
   database is unreachable, so traffic stays on the previous revision. Both answer before host
   validation and the HTTPS redirect, so the platform's internal probes work.
+- Every start of the website applies pending migrations first, under a PostgreSQL advisory lock so
+  that parallel containers never migrate at the same time. A failed migration stops the container
+  instead of serving a half-migrated schema. `RUN_MIGRATIONS=false` turns this off.
 - `SIGTERM` stops it in about a second. Logs go to stdout as JSON (`LOG_FORMAT=json`).
 - No test tools inside: the image installs `requirements.lock` only; `requirements-dev.lock` is for
   developers and CI.
