@@ -88,6 +88,7 @@ files or generated so they never appear in shell history.
 | `activityinfo-token` | ActivityInfo service-account API token |
 | `etools-token` | eTools service-account token |
 | `entra-client-secret` | only when single sign-on is enabled (step 8) |
+| `openai-api-key` | only when the AI assistant is enabled (`enableAiAssistant = true`): the OpenAI project API key (see `docs/OPERATIONS.md`) |
 
 ```bash
 KV=neurodb-prod-kv

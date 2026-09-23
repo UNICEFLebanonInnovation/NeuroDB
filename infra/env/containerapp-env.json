@@ -26,8 +26,8 @@
       "identity": "<managed-identity-resource-id>"
     },
     {
-      "name": "anthropic-api-key",
-      "keyVaultUrl": "https://neurodb-prod-kv.vault.azure.net/secrets/anthropic-api-key",
+      "name": "openai-api-key",
+      "keyVaultUrl": "https://neurodb-prod-kv.vault.azure.net/secrets/openai-api-key",
       "identity": "<managed-identity-resource-id>"
     }
   ],
@@ -93,12 +93,12 @@
       "secretRef": "etools-token"
     },
     {
-      "name": "ANTHROPIC_API_KEY",
-      "secretRef": "anthropic-api-key"
+      "name": "OPENAI_API_KEY",
+      "secretRef": "openai-api-key"
     },
     {
       "name": "AI_ASSISTANT_MODEL",
-      "value": "claude-opus-5"
+      "value": "gpt-5.5"
     },
     {
       "name": "AI_ASSISTANT_EFFORT",

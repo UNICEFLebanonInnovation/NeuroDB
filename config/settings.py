@@ -313,27 +313,40 @@ USER_GUIDE_URL = env("USER_GUIDE_URL", default="")
 
 # ---------------------------------------------------------------------------- upstream systems
 ACTIVITYINFO_BASE_URL = env("ACTIVITYINFO_BASE_URL", default="https://www.activityinfo.org")
-ACTIVITYINFO_TOKEN = env("ACTIVITYINFO_TOKEN", default="")
+ACTIVITYINFO_TOKEN = env("ACTIVITYINFO_TOKEN", default="").strip()  # a stray newline breaks the header
 ETOOLS_BASE_URL = env("ETOOLS_BASE_URL", default="https://etools.unicef.org")
-ETOOLS_TOKEN = env("ETOOLS_TOKEN", default="")
+ETOOLS_TOKEN = env("ETOOLS_TOKEN", default="").strip()
 INTEGRATION_TIMEOUT_SECONDS = (10, 120)
 SYNC_STALENESS_HOURS = env.int("SYNC_STALENESS_HOURS", default=30)
 
-# ---------------------------------------------------------------------------- AI assistant (Claude API)
-# Natural-language questions answered by Claude over NeuroDB's own data through read-only tools.
-# The key comes from the environment or Key Vault only. An App Service Key Vault reference that
-# did not resolve arrives as the literal "@Microsoft.KeyVault(...)" text: treat that as unset.
-ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY", default="")
-if ANTHROPIC_API_KEY.startswith("@Microsoft.KeyVault("):
-    ANTHROPIC_API_KEY = ""
-AI_ASSISTANT_ENABLED = env.bool("AI_ASSISTANT_ENABLED", default=True) and bool(ANTHROPIC_API_KEY)
-AI_ASSISTANT_MODEL = env("AI_ASSISTANT_MODEL", default="claude-opus-5")
-AI_ASSISTANT_EFFORT = env("AI_ASSISTANT_EFFORT", default="medium")  # low | medium | high | xhigh | max
+# ---------------------------------------------------------------------------- AI assistant (OpenAI API)
+# Natural-language questions answered by an OpenAI GPT model (ChatGPT) over NeuroDB's own data through
+# read-only tools, using the OpenAI Responses API (platform.openai.com). The key comes from the
+# environment or Key Vault only. Surrounding whitespace (a secret saved from a file with a trailing
+# newline) is removed: the key would otherwise make every request fail. An App Service Key Vault
+# reference that did not resolve arrives as the literal "@Microsoft.KeyVault(...)" text: treat that
+# as unset.
+OPENAI_API_KEY = env("OPENAI_API_KEY", default="").strip()
+if OPENAI_API_KEY.startswith("@Microsoft.KeyVault("):
+    OPENAI_API_KEY = ""
+AI_ASSISTANT_ENABLED = env.bool("AI_ASSISTANT_ENABLED", default=True) and bool(OPENAI_API_KEY)
+AI_ASSISTANT_MODEL = env("AI_ASSISTANT_MODEL", default="gpt-5.5")
+# Reasoning effort; which values a model accepts depends on the model (gpt-5.5 takes none, low,
+# medium, high and xhigh). The list is the openai SDK's ReasoningEffort values, written out so that
+# settings do not import the SDK (a test checks the two agree); a wrong value stops the start-up.
+AI_ASSISTANT_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+AI_ASSISTANT_EFFORT = env("AI_ASSISTANT_EFFORT", default="medium")
 AI_ASSISTANT_HOURLY_LIMIT = env.int("AI_ASSISTANT_HOURLY_LIMIT", default=30)  # questions per user per hour
 AI_ASSISTANT_MAX_TOOL_ROUNDS = env.int("AI_ASSISTANT_MAX_TOOL_ROUNDS", default=8)
 AI_ASSISTANT_TIME_LIMIT_SECONDS = env.int(
     "AI_ASSISTANT_TIME_LIMIT_SECONDS", default=180
-)  # App Service cuts at 230 s
+)  # Container Apps ingress cuts a request at 240 s, App Service at 230 s
+if AI_ASSISTANT_EFFORT not in AI_ASSISTANT_EFFORTS:
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(
+        f"AI_ASSISTANT_EFFORT must be one of {AI_ASSISTANT_EFFORTS}; got {AI_ASSISTANT_EFFORT!r}"
+    )
 
 # ---------------------------------------------------------------------------- logging
 LOG_FORMAT = env("LOG_FORMAT", default="plain")  # "json" in Azure so Log Analytics can parse fields

@@ -3,7 +3,7 @@
 {% block content %}
 {% if not enabled %}
 <div class="panel">
-  {% include "components/empty_state.html" with icon="sparkle" title=_("The AI assistant is not set up yet") message=_("An administrator needs to add the Claude API key (ANTHROPIC_API_KEY) to the application settings.") %}
+  {% include "components/empty_state.html" with icon="sparkle" title=_("The AI assistant is not set up yet") message=_("An administrator needs to add the OpenAI API key (OPENAI_API_KEY) to the application settings.") %}
 </div>
 {% else %}
 <div class="ask" data-ask data-stream-url="{% url 'assistant:stream' %}" data-initial-question="{{ initial_question }}">
@@ -34,7 +34,7 @@
     </div>
   </form>
   <p class="ask__note small text-muted">
-    {% blocktrans with limit=hourly_limit %}Answers are written by Claude (Anthropic) from NeuroDB's data and can contain mistakes — check important figures on the linked pages. Your question and the figures looked up are sent to the Claude API. Up to {{ limit }} questions per hour.{% endblocktrans %}
+    {% blocktrans with limit=hourly_limit %}Answers are written by ChatGPT (OpenAI's GPT model) from NeuroDB's data and can contain mistakes — check important figures on the linked pages. Your questions in this conversation, the earlier answers and the data looked up are sent to the OpenAI API, so do not enter personal data. Up to {{ limit }} questions per hour.{% endblocktrans %}
   </p>
 </div>
 

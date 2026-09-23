@@ -52,10 +52,11 @@ param enableSso bool = false
 param entraTenantId string = ''
 param entraClientId string = ''
 
-@description('AI assistant (Ask NeuroDB, Claude API). When true the secret anthropic-api-key must exist.')
+@description('AI assistant (Ask NeuroDB, OpenAI API). When true the secret openai-api-key must exist.')
 param enableAiAssistant bool = false
-@description('Claude model and effort for the AI assistant.')
-param aiAssistantModel string = 'claude-opus-5'
+@description('OpenAI model for the AI assistant.')
+param aiAssistantModel string = 'gpt-5.5'
+@description('Reasoning effort for the AI assistant: none, minimal, low, medium, high, xhigh or max (support varies by model).')
 param aiAssistantEffort string = 'medium'
 
 @description('Pages opened to the public without sign-in: any of library, maps, population.')
@@ -241,7 +242,7 @@ var kvSecretUri = 'https://${keyVaultName}${environment().suffixes.keyvaultDns}/
 var secretNames = concat(
   ['django-secret-key', 'database-url', 'activityinfo-token', 'etools-token'],
   enableSso ? ['entra-client-secret'] : [],
-  enableAiAssistant ? ['anthropic-api-key'] : []
+  enableAiAssistant ? ['openai-api-key'] : []
 )
 var appSecrets = [for s in secretNames: {
   name: s
@@ -284,7 +285,7 @@ var commonEnv = concat(
     : [],
   enableAiAssistant
     ? [
-        { name: 'ANTHROPIC_API_KEY', secretRef: 'anthropic-api-key' }
+        { name: 'OPENAI_API_KEY', secretRef: 'openai-api-key' }
         { name: 'AI_ASSISTANT_MODEL', value: aiAssistantModel }
         { name: 'AI_ASSISTANT_EFFORT', value: aiAssistantEffort }
       ]

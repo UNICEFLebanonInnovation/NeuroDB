@@ -1,4 +1,4 @@
-// Ask NeuroDB: streams Claude's answer (Server-Sent Events over a POST) into a conversation thread.
+// Ask NeuroDB: streams the assistant's answer (Server-Sent Events over a POST) into a conversation thread.
 import { csrfToken, toast } from "./lib.js";
 
 const root = document.querySelector("[data-ask]");

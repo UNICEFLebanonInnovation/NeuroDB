@@ -298,7 +298,7 @@ def activity_breakdown(
 
 
 def neuro_report(report_id: int, month: int | None = None, quarter: str | None = None) -> dict[str, Any]:
-    report = NeuroReport.objects.select_related("ryear").filter(pk=report_id).first()
+    report = NeuroReport.objects.select_related("ryear").filter(pk=report_id, is_active=True).first()
     if not report:
         raise ToolInputError(f"No Neuro report with id {report_id}. Use list_databases to find report ids.")
     data = facts.neuroreport(report, month=month, quarter=quarter)
@@ -329,7 +329,11 @@ def neuro_report(report_id: int, month: int | None = None, quarter: str | None =
         "cutoff_rule": f"records edited after {data['cutoff'].isoformat()} are excluded",
         "sections": sections,
         "comments": [
-            {"month": c.related_month, "indicator": str(c.master) if c.master_id else None, "text": str(c)}
+            {
+                "month": c.related_month,
+                "indicator": str(c.master) if c.master_id else None,
+                "text": (c.comment or "")[:1000],  # staff free text, up to 5,000 characters each
+            }
             for c in data["comments"][:20]
         ],
         "url": reverse(
@@ -474,7 +478,7 @@ def search_partners(text: str | None = None, partner_type: str | None = None) ->
 
 
 def partner_details(partner_id: int) -> dict[str, Any]:
-    partner = PartnerOrganization.objects.filter(pk=partner_id).first()
+    partner = PartnerOrganization.objects.filter(pk=partner_id, deleted_flag=False).first()
     if not partner:
         raise ToolInputError(f"No partner with id {partner_id}. Use search_partners first.")
     profile = partnerships.partner_profile(partner)
@@ -579,7 +583,7 @@ class _Params(dict):
         return value if isinstance(value, list) else ([value] if value else [])
 
 
-# ------------------------------------------------------------------------- definitions for Claude
+# ------------------------------------------------------------------------- definitions for the model
 
 _YEAR = {"type": "string", "description": 'Reporting year name, e.g. "2026". Omit for the current year.'}
 _DB = {"type": "integer", "description": "Database id from list_databases."}
@@ -654,7 +658,7 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
     "neuro_report": (
         neuro_report,
         "Values of a Neuro report or HPM report for a month or quarter, with the previous period and the "
-        "change, applying the HPM cut-off rule. Defaults to the previous month.",
+        "change, applying the HPM cut-off rule, and the report's comments. Defaults to the previous month.",
         _schema(
             {
                 "report_id": {"type": "integer"},
@@ -757,15 +761,16 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
 
 
 def definitions() -> list[dict[str, Any]]:
-    """Tool definitions for the Messages API, in a fixed order (keeps the prompt cache stable)."""
+    """Function tools for the OpenAI Responses API, in a fixed order (an identical prefix on every
+    request keeps the prompt cache warm).
+
+    ``strict`` is False on purpose: strict mode would need every property required (optional ones
+    nullable), its schema adherence is not guaranteed with parallel tool calls, and the SDK then
+    parses the arguments itself mid-stream, where bad JSON could not be answered to the model.
+    The arguments are checked here instead (validate()) and problems go back to the model.
+    """
     return [
-        {
-            "name": name,
-            "description": description,
-            "input_schema": schema,
-            # Answers stream to the browser; stream tool inputs too, and validate them (validate()).
-            "eager_input_streaming": True,
-        }
+        {"type": "function", "name": name, "description": description, "parameters": schema, "strict": False}
         for name, (_, description, schema, _) in TOOLS.items()
     ]
 
@@ -774,7 +779,7 @@ _TYPES = {"string": str, "integer": int, "boolean": bool}
 
 
 def validate(name: str, args: Any) -> dict[str, Any]:
-    """Check arguments against the tool schema (eager input streaming skips the server-side check)."""
+    """Check arguments against the tool schema (non-strict function calling: the API does not)."""
     if name not in TOOLS:
         raise ToolInputError(f"Unknown tool {name}.")
     if not isinstance(args, dict):
@@ -782,7 +787,7 @@ def validate(name: str, args: Any) -> dict[str, Any]:
     schema = TOOLS[name][2]
     props = schema["properties"]
     for key in schema["required"]:
-        if key not in args:
+        if args.get(key) is None:  # null counts as missing: optional nulls are dropped below
             raise ToolInputError(f"Missing required argument '{key}'.")
     clean = {}
     for key, value in args.items():
@@ -805,7 +810,7 @@ def validate(name: str, args: Any) -> dict[str, Any]:
 
 
 def run(name: str, args: dict[str, Any]) -> dict[str, Any]:
-    """Validate and run one tool. Input problems raise ToolInputError (sent back to Claude)."""
+    """Validate and run one tool. Input problems raise ToolInputError (sent back to the model)."""
     clean = validate(name, args)
     return _clean(TOOLS[name][0](**clean))
 

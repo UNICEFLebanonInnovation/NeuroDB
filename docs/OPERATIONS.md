@@ -23,36 +23,82 @@ and re-running the deployment.
 
 ## Secrets rotation
 Key Vault secrets: `django-secret-key`, `database-url`, `activityinfo-token`, `etools-token`,
-(with SSO) `entra-client-secret` and (with the AI assistant) `anthropic-api-key`. To rotate, set a new version in Key Vault, then restart the active
-web revision (`az containerapp revision restart`). Jobs pick the new value up on their next run.
-No code change is needed. Rotating the Django secret key signs everyone out.
+(with SSO) `entra-client-secret` and (with the AI assistant) `openai-api-key`. To rotate, set a
+new version in Key Vault, then restart the active web revision (`az containerapp revision
+restart`). Jobs pick the new value up on their next run.
+No code change is needed. Rotating the Django secret key signs everyone out and changes the
+per-user identifier sent to OpenAI (`safety_identifier`, below), so OpenAI's misuse history for
+each user starts afresh.
 
 ## AI assistant (Ask NeuroDB)
-Signed-in users ask questions in plain language on `/ask/` or from the search box (Ctrl K). Claude
-(Anthropic's API) answers by calling read-only lookups over NeuroDB's own services (indicator
-results, activity reports, Neuro reports, programme documents, donors, partners, population,
-library, data freshness) and links each answer to the pages its figures come from.
+Signed-in users ask questions in plain language on `/ask/` or from the search box (Ctrl K).
+ChatGPT answers them: an OpenAI GPT model called through the OpenAI API (platform.openai.com,
+Responses API), not the consumer ChatGPT app. The model calls read-only lookups over NeuroDB's own
+services (indicator results, activity reports, Neuro reports, programme documents, donors,
+partners, population, library, data freshness) and links each answer to the pages its figures
+come from.
 
-- **Switch on**: create an API key in the Anthropic Console (an organisation account, not a personal
-  one), store it in Key Vault as `anthropic-api-key`, and reference it as `ANTHROPIC_API_KEY`
-  (App Service: `@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=anthropic-api-key)`;
-  Container Apps: `enableAiAssistant = true` in `main.bicepparam`). Restart the app. Without a key
-  the assistant is off and the search box works as before.
-- **Settings**: `AI_ASSISTANT_MODEL` (default `claude-opus-5`), `AI_ASSISTANT_EFFORT` (default
-  `medium`; `low` is cheaper and faster, `high` reasons longer), `AI_ASSISTANT_HOURLY_LIMIT`
-  (questions per user per hour, default 30), `AI_ASSISTANT_ENABLED=false` to switch it off with the
-  key still set.
-- **Data leaves Azure**: each question and the figures looked up to answer it are sent to the
-  Claude API (api.anthropic.com over HTTPS). Only signed-in users can ask, and the lookups can only
-  read what any signed-in user can already see. Nothing is written back. Clear this with the data
-  protection focal point before switching it on; outbound HTTPS to api.anthropic.com must be allowed.
+- **API key and billing** (platform.openai.com, with an organisation account, not a personal one):
+  in the organisation, create a project named `NeuroDB` (only organisation owners can create
+  projects), then create an API key owned by that project on the API keys page
+  (`https://platform.openai.com/settings/organization/api-keys`). API usage is prepaid: buy credits
+  under Billing. It is billed separately from any ChatGPT subscription, which includes no API
+  credit. Set a budget and usage alerts on the `NeuroDB` project's limits page.
+- **Switch on**: store the key in Key Vault as `openai-api-key` and reference it as
+  `OPENAI_API_KEY` (App Service:
+  `@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=openai-api-key)`; Container Apps:
+  `enableAiAssistant = true` in `main.bicepparam`). Restart the app. Without a key the assistant is
+  off and the search box works as before. Never put the key in a committed file or a Bicep
+  parameter.
+- **Settings**: `AI_ASSISTANT_MODEL` (default `gpt-5.5`; it can be switched to a newer model such
+  as `gpt-6-sol`, released on 2026-09-22, after checking its price on OpenAI's pricing page and
+  trying it on staging), `AI_ASSISTANT_EFFORT` (reasoning effort, default `medium`; the API's
+  values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max`, but not every model
+  accepts every value: gpt-5.5 takes `none`, `low`, `medium`, `high` and `xhigh`. Lower is cheaper
+  and faster, higher reasons longer. Any other value stops the app at start-up: the website and
+  the jobs do not start until it is corrected), `AI_ASSISTANT_HOURLY_LIMIT` (questions per user per
+  hour, default 30), `AI_ASSISTANT_MAX_TOOL_ROUNDS` (rounds of lookups per question, default 8),
+  `AI_ASSISTANT_TIME_LIMIT_SECONDS` (default 180) and `AI_ASSISTANT_ENABLED=false` to switch it
+  off with the key still set. A question counts towards the hourly limit from the moment it is
+  asked, and a user can have at most two questions being answered at the same time.
+- **Data leaves Azure**: each question, up to six earlier questions and answers of the same
+  conversation, and the data looked up to answer it are sent to the OpenAI API (api.openai.com
+  over HTTPS). That data is the figures plus partner, programme-document, donor and library
+  details, such as partner names, vendor numbers, risk ratings, HACT and assurance results,
+  programme document titles, library summaries and the free-text comments staff write on Neuro
+  and HPM reports. When a filter matches nothing, the list of known partner, donor or office names
+  is sent too. It is organisational data: field visits are sent as counts, and no traveller names
+  or partner staff contacts are sent. Only signed-in users can ask, and the lookups can only read
+  what any signed-in user can already see. Nothing is written back. Requests are sent with
+  `store=false`, so OpenAI does not keep the responses for later retrieval through the API;
+  NeuroDB keeps its own question log. Each request carries a keyed hash (HMAC-SHA-256 with the
+  app's Django secret key) of the signed-in user's internal id (`safety_identifier`), never a name
+  or email address, so OpenAI can flag misuse per user. OpenAI's published API data terms say
+  that API data is not used to train models unless the organisation opts in, that abuse-monitoring
+  logs may be kept for up to 30 days, and that Zero Data Retention is available only to approved,
+  eligible customers; check the current terms on openai.com before switching on. Clear this with the
+  data protection focal point before switching it on; outbound HTTPS to api.openai.com must be
+  allowed.
 - **Cost and review**: every question is logged in Admin → Data and sync → AI questions with the
-  lookups made, tokens used and time taken. A typical question makes 2-4 lookups. The stable
-  instructions are prompt-cached, so repeated questions are cheaper. Set a monthly spend limit on
-  the Anthropic Console as well.
-- **Refusals**: the model's safety filters can occasionally decline a legitimate question; requests
-  use Anthropic's server-side fallback (`fallbacks: "default"`), which retries such a question on
-  Anthropic's recommended fallback model before giving up.
+  lookups made, tokens used and time taken. Output tokens include the model's reasoning tokens,
+  which are billed as output. A typical question makes 2-4 lookups. The instructions and tool
+  definitions are sent first and unchanged on every request, so OpenAI's automatic prompt caching
+  (prompts of 1,024 tokens or more, no setup) bills that repeated part at the cheaper cached-input
+  rate. Prices per model are on OpenAI's pricing page.
+- **Refusals and failures**: when the model declines a question, it is logged as "Declined by the
+  model" and the user is asked to rephrase; there is no automatic retry on another model. A
+  question blocked by OpenAI's safety checks (error codes `invalid_prompt`, `bio_policy`,
+  `cyber_policy`, `misalignment_policy_violation`) is logged the same way, with the code in the
+  Error field; asking the same question again will not help. If every question fails, open a
+  failed question in the log: its Error field (and the app logs) shows the cause, for example an
+  invalid or revoked key (401), used-up credits (429 `insufficient_quota`: buy credits, retrying
+  does not help), rate limits (429) or an unknown model id (404). A question still being answered
+  shows as Failed with the Error "in progress" until it ends.
+- **Azure OpenAI is a different service**: Microsoft's Azure OpenAI hosts OpenAI models inside an
+  Azure subscription, with its own endpoint (`https://<resource>.openai.azure.com`), its own keys
+  or Entra ID sign-in, and deployment names instead of model ids. A platform.openai.com key does
+  not work there. Moving the assistant to Azure OpenAI (for example to keep the traffic in the
+  Azure tenant) needs a small code change (the SDK's `AzureOpenAI` client) and different settings.
 
 ## Scheduled jobs
 Container Apps cron is **UTC**; Beirut is UTC+3 in summer and UTC+2 in winter.
