@@ -5,13 +5,13 @@
       <div class="search-input">
         {% include "components/icon.html" with name="search" %}
         <label class="visually-hidden" for="search-input">{% trans "Search" %}</label>
-        <input type="search" id="search-input" class="form-control form-control-lg" name="q" autocomplete="off" placeholder="{% trans 'Indicators, databases, reports…' %}"
+        <input type="search" id="search-input" class="form-control form-control-lg" name="q" autocomplete="off" placeholder="{% if AI_ASSISTANT_ENABLED %}{% trans 'Search, or ask a question…' %}{% else %}{% trans 'Indicators, databases, reports…' %}{% endif %}"
                hx-get="{% url 'reports:search' %}" hx-trigger="input changed delay:250ms, search" hx-target="#search-results" hx-indicator="#search-modal .htmx-indicator" aria-controls="search-results" aria-describedby="search-help">
         <span class="htmx-indicator spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
         <kbd>Esc</kbd>
       </div>
       <div class="modal-body p-0" id="search-results" aria-live="polite">
-        <p class="text-muted small p-3 mb-0" id="search-help">{% trans "Type at least two characters. Use ↑ ↓ to move and Enter to open." %}</p>
+        <p class="text-muted small p-3 mb-0" id="search-help">{% if AI_ASSISTANT_ENABLED %}{% trans "Type a name to jump to it, or ask a question in plain language. Use ↑ ↓ to move and Enter to open." %}{% else %}{% trans "Type at least two characters. Use ↑ ↓ to move and Enter to open." %}{% endif %}</p>
       </div>
     </div>
   </div>

@@ -36,7 +36,7 @@
   {% if user.is_authenticated %}
   <button type="button" class="search-trigger" id="search-trigger" aria-haspopup="dialog" aria-controls="search-modal">
     {% include "components/icon.html" with name="search" %}
-    <span class="search-trigger__label">{% trans "Search indicators, databases, reports" %}</span>
+    <span class="search-trigger__label">{% if AI_ASSISTANT_ENABLED %}{% trans "Search or ask a question" %}{% else %}{% trans "Search indicators, databases, reports" %}{% endif %}</span>
     <kbd class="d-none d-md-inline">Ctrl K</kbd>
   </button>
   {% endif %}
@@ -103,6 +103,11 @@
       <a class="nav-item-link {% active_if 'reports:overview' %}" href="{% url 'reports:overview' %}" {% aria_current 'reports:overview' %}>
         {% include "components/icon.html" with name="home" %}<span>{% trans "Overview" %}</span>
       </a>
+      {% if AI_ASSISTANT_ENABLED or user.is_staff %}
+      <a class="nav-item-link {% active_if 'assistant:ask' %}" href="{% url 'assistant:ask' %}" {% aria_current 'assistant:ask' %}>
+        {% include "components/icon.html" with name="sparkle" %}<span>{% trans "Ask NeuroDB" %}</span><span class="nav-badge">{% trans "AI" %}</span>
+      </a>
+      {% endif %}
       {% if nav.sections %}
       <details class="sidebar__block" data-nav-key="databases" {% if nav_active.block == "databases" %}open data-nav-active{% endif %}>
         <summary class="sidebar__block-title">

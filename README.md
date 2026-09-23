@@ -25,6 +25,10 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
 - **Resources**: population figures by nationality, area and age; library with search and filters;
   completed map products.
 - **Data health**: freshness of every sync job and database import, with recent run history.
+- **Ask NeuroDB (AI assistant)**: questions in plain language ("which Child Protection indicators
+  are off track?", "total budget of EU-funded PDs?") answered by Claude from NeuroDB's own data
+  through read-only lookups, streamed live with links to the source pages; also from the search box.
+  Needs `ANTHROPIC_API_KEY`; see `docs/OPERATIONS.md`.
 - **Everywhere**: command palette (Ctrl K or /) across databases, reports and indicators; dark mode;
   copy or CSV on every table; keyboard-sortable tables; mobile layout; strict Content Security Policy.
 
@@ -105,6 +109,7 @@ neurodb/library    Resources, maps (v2 tables)
 neurodb/partnerships  eTools replicas (v2 tables) and partner/PD/donor services
 neurodb/integrations  ActivityInfo and eTools clients, sync commands
 neurodb/reports    Page views, internal JSON API, exports
+neurodb/assistant  AI assistant: Claude API agent, read-only data tools, question log
 infra/             Azure Bicep template, deploy and rollback scripts
 docker/            Container entrypoint and health check
 neurodb/web        Base layout, components, static assets (vendored, no CDN), CSP middleware

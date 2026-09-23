@@ -75,6 +75,26 @@
     "slotSetting": false
   },
   {
+    "name": "ANTHROPIC_API_KEY",
+    "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=anthropic-api-key)",
+    "slotSetting": false
+  },
+  {
+    "name": "AI_ASSISTANT_MODEL",
+    "value": "claude-opus-5",
+    "slotSetting": false
+  },
+  {
+    "name": "AI_ASSISTANT_EFFORT",
+    "value": "medium",
+    "slotSetting": false
+  },
+  {
+    "name": "AI_ASSISTANT_HOURLY_LIMIT",
+    "value": "30",
+    "slotSetting": false
+  },
+  {
     "name": "SYNC_STALENESS_HOURS",
     "value": "30",
     "slotSetting": false

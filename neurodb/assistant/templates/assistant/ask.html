@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% load i18n static %}
+{% block content %}
+{% if not enabled %}
+<div class="panel">
+  {% include "components/empty_state.html" with icon="sparkle" title=_("The AI assistant is not set up yet") message=_("An administrator needs to add the Claude API key (ANTHROPIC_API_KEY) to the application settings.") %}
+</div>
+{% else %}
+<div class="ask" data-ask data-stream-url="{% url 'assistant:stream' %}" data-initial-question="{{ initial_question }}">
+  <div class="ask__thread" id="ask-thread" aria-live="polite">
+    <div class="ask__intro" id="ask-intro">
+      <div class="ask__intro-icon" aria-hidden="true">{% include "components/icon.html" with name="sparkle" %}</div>
+      <h2 class="h5 mb-1">{% trans "Ask anything about NeuroDB's data" %}</h2>
+      <p class="text-muted mb-3">{% trans "Indicators and targets, partners and programme documents, donors, population figures, the library and data freshness. The assistant looks the figures up and links to the pages they come from." %}</p>
+      <div class="ask__examples" role="list" aria-label="{% trans 'Example questions' %}">
+        {% for e in examples %}<button type="button" class="chip chip--action" role="listitem" data-ask-example>{{ e }}</button>{% endfor %}
+      </div>
+      {% if recent %}
+      <div class="ask__recent">
+        <div class="small text-muted mb-1">{% trans "Your recent questions" %}</div>
+        {% for q in recent %}<button type="button" class="ask__recent-item" data-ask-example>{% include "components/icon.html" with name="clock" %}<span>{{ q }}</span></button>{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <form class="ask__form panel" id="ask-form" autocomplete="off">
+    <label class="visually-hidden" for="ask-input">{% trans "Your question" %}</label>
+    <textarea id="ask-input" name="question" rows="1" maxlength="1000" class="form-control ask__input" placeholder="{% trans 'Ask a question, e.g. which partners reported the most in Akkar this year?' %}" required></textarea>
+    <div class="ask__actions">
+      <button type="button" class="btn btn-link btn-sm" id="ask-new" hidden>{% trans "New conversation" %}</button>
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="ask-stop" hidden>{% trans "Stop" %}</button>
+      <button type="submit" class="btn btn-primary btn-sm" id="ask-submit">{% include "components/icon.html" with name="sparkle" %}<span>{% trans "Ask" %}</span></button>
+    </div>
+  </form>
+  <p class="ask__note small text-muted">
+    {% blocktrans with limit=hourly_limit %}Answers are written by Claude (Anthropic) from NeuroDB's data and can contain mistakes — check important figures on the linked pages. Your question and the figures looked up are sent to the Claude API. Up to {{ limit }} questions per hour.{% endblocktrans %}
+  </p>
+</div>
+
+<template id="ask-turn-template">
+  <article class="ask-turn">
+    <div class="ask-turn__question"></div>
+    <div class="ask-turn__answer panel">
+      <ol class="ask-turn__steps" aria-label="{% trans 'Data looked up' %}"></ol>
+      <div class="ask-turn__body"><span class="ask-turn__thinking">{% trans "Thinking…" %}</span></div>
+      <div class="ask-turn__footer" hidden>
+        <span class="small text-muted ask-turn__meta"></span>
+        <button type="button" class="btn btn-link btn-sm ask-turn__copy">{% include "components/icon.html" with name="copy" %}<span>{% trans "Copy" %}</span></button>
+      </div>
+    </div>
+  </article>
+</template>
+{% endif %}
+{% endblock %}
+{% block scripts %}{% if enabled %}<script type="module" src="{% static 'js/ask.js' %}" nonce="{{ request.csp_nonce }}"></script>{% endif %}{% endblock %}

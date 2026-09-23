@@ -11,6 +11,7 @@ def site(request):
         "PUBLIC_PAGES": settings.PUBLIC_PAGES,
         "SUPPORT_EMAIL": settings.SUPPORT_EMAIL,
         "USER_GUIDE_URL": settings.USER_GUIDE_URL,
+        "AI_ASSISTANT_ENABLED": settings.AI_ASSISTANT_ENABLED,
     }
 
 

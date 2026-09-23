@@ -1,0 +1,2 @@
+{% load i18n %}<div class="search-group__title">{% trans "Ask the AI assistant" %}</div>
+<a class="search-item search-item--ask" role="option" aria-selected="false" href="{% url 'assistant:ask' %}?q={{ q|urlencode }}"><span>{% include "components/icon.html" with name="sparkle" %} {% blocktrans %}Ask NeuroDB AI: “{{ q }}”{% endblocktrans %}</span><span class="search-item__hint">{% trans "Answer from all of NeuroDB's data" %}</span></a>

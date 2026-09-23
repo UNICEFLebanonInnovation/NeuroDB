@@ -76,8 +76,14 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
     ),
     (
         _("Data and sync"),
-        _("Import history, population figures, saved views and the audit trail."),
-        ["core.SyncRun", "core.PopulationFigure", "core.SavedView", "admin.LogEntry"],
+        _("Import history, population figures, saved views, AI questions and the audit trail."),
+        [
+            "core.SyncRun",
+            "core.PopulationFigure",
+            "core.SavedView",
+            "assistant.AssistantQuestion",
+            "admin.LogEntry",
+        ],
     ),
     (
         _("Partnerships (eTools, read-only)"),
@@ -137,6 +143,7 @@ ICONS = {
     "core.PopulationFigure": "groups",
     "core.SavedView": "bookmark",
     "admin.LogEntry": "history",
+    "assistant.AssistantQuestion": "smart_toy",
     "etools.PartnerOrganization": "handshake",
     "etools.Agreement": "contract",
     "etools.PCA": "description",

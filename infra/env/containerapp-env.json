@@ -24,6 +24,11 @@
       "name": "entra-client-secret",
       "keyVaultUrl": "https://neurodb-prod-kv.vault.azure.net/secrets/entra-client-secret",
       "identity": "<managed-identity-resource-id>"
+    },
+    {
+      "name": "anthropic-api-key",
+      "keyVaultUrl": "https://neurodb-prod-kv.vault.azure.net/secrets/anthropic-api-key",
+      "identity": "<managed-identity-resource-id>"
     }
   ],
   "env": [
@@ -86,6 +91,22 @@
     {
       "name": "ETOOLS_TOKEN",
       "secretRef": "etools-token"
+    },
+    {
+      "name": "ANTHROPIC_API_KEY",
+      "secretRef": "anthropic-api-key"
+    },
+    {
+      "name": "AI_ASSISTANT_MODEL",
+      "value": "claude-opus-5"
+    },
+    {
+      "name": "AI_ASSISTANT_EFFORT",
+      "value": "medium"
+    },
+    {
+      "name": "AI_ASSISTANT_HOURLY_LIMIT",
+      "value": "30"
     },
     {
       "name": "SYNC_STALENESS_HOURS",

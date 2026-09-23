@@ -9,6 +9,7 @@ param deployApps = false                    // pass 1; set true (or --parameters
 param image = ''                            // e.g. neurodbacr.azurecr.io/neurodb:<git sha>
 param customDomain = ''                     // e.g. neuro-db.org once DNS is ready
 param enableSso = false
+param enableAiAssistant = false  // true once the Key Vault secret anthropic-api-key exists
 param entraTenantId = ''
 param entraClientId = ''
 param publicPages = []                      // e.g. ['library', 'maps']

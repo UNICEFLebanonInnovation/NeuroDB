@@ -156,6 +156,42 @@
       "description": "A source is reported stale after this many hours without a successful sync."
     },
     {
+      "name": "ANTHROPIC_API_KEY",
+      "group": "AI assistant",
+      "required": false,
+      "secret": true,
+      "keyVaultSecret": "anthropic-api-key",
+      "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=anthropic-api-key)",
+      "description": "Claude API key for the AI assistant (Ask NeuroDB). Leave unset to switch the assistant off."
+    },
+    {
+      "name": "AI_ASSISTANT_MODEL",
+      "group": "AI assistant",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "claude-opus-5",
+      "description": "Claude model that answers questions."
+    },
+    {
+      "name": "AI_ASSISTANT_EFFORT",
+      "group": "AI assistant",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "medium",
+      "description": "low | medium | high | xhigh | max: depth of reasoning vs cost and speed."
+    },
+    {
+      "name": "AI_ASSISTANT_HOURLY_LIMIT",
+      "group": "AI assistant",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "30",
+      "description": "Questions per user per hour."
+    },
+    {
       "name": "ENTRA_TENANT_ID",
       "group": "Single sign-on",
       "required": false,

@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "neurodb.partnerships",
     "neurodb.integrations",
     "neurodb.reports",
+    "neurodb.assistant",
     "neurodb.web",
 ]
 SITE_ID = 1
@@ -317,6 +318,22 @@ ETOOLS_BASE_URL = env("ETOOLS_BASE_URL", default="https://etools.unicef.org")
 ETOOLS_TOKEN = env("ETOOLS_TOKEN", default="")
 INTEGRATION_TIMEOUT_SECONDS = (10, 120)
 SYNC_STALENESS_HOURS = env.int("SYNC_STALENESS_HOURS", default=30)
+
+# ---------------------------------------------------------------------------- AI assistant (Claude API)
+# Natural-language questions answered by Claude over NeuroDB's own data through read-only tools.
+# The key comes from the environment or Key Vault only. An App Service Key Vault reference that
+# did not resolve arrives as the literal "@Microsoft.KeyVault(...)" text: treat that as unset.
+ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY", default="")
+if ANTHROPIC_API_KEY.startswith("@Microsoft.KeyVault("):
+    ANTHROPIC_API_KEY = ""
+AI_ASSISTANT_ENABLED = env.bool("AI_ASSISTANT_ENABLED", default=True) and bool(ANTHROPIC_API_KEY)
+AI_ASSISTANT_MODEL = env("AI_ASSISTANT_MODEL", default="claude-opus-5")
+AI_ASSISTANT_EFFORT = env("AI_ASSISTANT_EFFORT", default="medium")  # low | medium | high | xhigh | max
+AI_ASSISTANT_HOURLY_LIMIT = env.int("AI_ASSISTANT_HOURLY_LIMIT", default=30)  # questions per user per hour
+AI_ASSISTANT_MAX_TOOL_ROUNDS = env.int("AI_ASSISTANT_MAX_TOOL_ROUNDS", default=8)
+AI_ASSISTANT_TIME_LIMIT_SECONDS = env.int(
+    "AI_ASSISTANT_TIME_LIMIT_SECONDS", default=180
+)  # App Service cuts at 230 s
 
 # ---------------------------------------------------------------------------- logging
 LOG_FORMAT = env("LOG_FORMAT", default="plain")  # "json" in Azure so Log Analytics can parse fields

@@ -11,6 +11,7 @@ urlpatterns = [
     path("favicon.ico", favicon),
     path("welcome/", landing, name="landing"),
     path("api/internal/", include("neurodb.reports.api_urls")),
+    path("ask/", include("neurodb.assistant.urls")),
     path("", include("neurodb.reports.urls")),
 ]
 

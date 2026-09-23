@@ -11,6 +11,7 @@ import mimetypes
 from typing import Any
 from urllib.parse import urlsplit
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_not_required
 from django.core.exceptions import PermissionDenied
@@ -730,6 +731,18 @@ def data_health(request: HttpRequest) -> HttpResponse:
     return render(request, "reports/data_health.html", context)
 
 
+QUESTION_WORDS = {
+    "how", "what", "which", "who", "where", "when", "why", "is", "are", "do", "does", "did", "can",
+    "list", "show", "compare", "give", "tell", "total", "top",
+}  # fmt: skip
+
+
+def _looks_like_question(q: str) -> bool:
+    """Put "Ask NeuroDB AI" first for questions and longer phrases, last for short keyword searches."""
+    words = q.lower().split()
+    return q.endswith("?") or len(words) >= 4 or bool(words and words[0] in QUESTION_WORDS)
+
+
 @require_GET
 def search(request: HttpRequest) -> HttpResponse:
     q = request.GET.get("q", "").strip()
@@ -744,6 +757,8 @@ def search(request: HttpRequest) -> HttpResponse:
         "q": q,
         "groups": groups,
         "total": sum(len(g["items"]) for g in groups),
+        "ai_enabled": settings.AI_ASSISTANT_ENABLED,
+        "ask_first": _looks_like_question(q),
     }
     template = "reports/partials/search_results.html" if request.htmx else "reports/search.html"
     return render(request, template, context)

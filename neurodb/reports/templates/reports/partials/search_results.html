@@ -1,14 +1,21 @@
 {% load i18n %}
-{% if groups %}
+{% if groups or ai_enabled and q|length >= 2 %}
 <div role="listbox" aria-label="{% trans 'Search results' %}">
+{% if ai_enabled and q|length >= 2 and ask_first or ai_enabled and q|length >= 2 and not groups %}
+  {% include "reports/partials/_search_ask_item.html" %}
+{% endif %}
 {% for g in groups %}
   <div class="search-group__title">{{ g.label }}</div>
   {% for item in g.items %}<a class="search-item" role="option" aria-selected="false" href="{{ item.url }}"><span>{{ item.label }}</span>{% if item.hint %}<span class="search-item__hint">{{ item.hint }}</span>{% endif %}</a>{% endfor %}
 {% endfor %}
+{% if ai_enabled and q|length >= 2 and groups and not ask_first %}
+  {% include "reports/partials/_search_ask_item.html" %}
+{% endif %}
 </div>
+{% if not groups %}<p class="text-muted small px-3 pb-3 mb-0">{% blocktrans %}Nothing matches “{{ q }}” by name in the current reporting year.{% endblocktrans %}</p>{% endif %}
 {% elif q|length >= 2 %}
 {% blocktrans asvar msg %}Nothing matches “{{ q }}” in the current reporting year.{% endblocktrans %}
 {% include "components/empty_state.html" with icon="search" title=_("No results") message=msg %}
 {% else %}
-<p class="text-muted small p-3 mb-0">{% trans "Type at least two characters. Use ↑ ↓ to move and Enter to open." %}</p>
+<p class="text-muted small p-3 mb-0">{% if ai_enabled %}{% trans "Type a name to jump to it, or ask a question in plain language. Use ↑ ↓ to move and Enter to open." %}{% else %}{% trans "Type at least two characters. Use ↑ ↓ to move and Enter to open." %}{% endif %}</p>
 {% endif %}

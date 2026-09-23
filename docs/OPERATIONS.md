@@ -22,10 +22,37 @@ is no configuration file in the image. Change a non-secret setting by editing th
 and re-running the deployment.
 
 ## Secrets rotation
-Key Vault secrets: `django-secret-key`, `database-url`, `activityinfo-token`, `etools-token` and
-(with SSO) `entra-client-secret`. To rotate, set a new version in Key Vault, then restart the active
+Key Vault secrets: `django-secret-key`, `database-url`, `activityinfo-token`, `etools-token`,
+(with SSO) `entra-client-secret` and (with the AI assistant) `anthropic-api-key`. To rotate, set a new version in Key Vault, then restart the active
 web revision (`az containerapp revision restart`). Jobs pick the new value up on their next run.
 No code change is needed. Rotating the Django secret key signs everyone out.
+
+## AI assistant (Ask NeuroDB)
+Signed-in users ask questions in plain language on `/ask/` or from the search box (Ctrl K). Claude
+(Anthropic's API) answers by calling read-only lookups over NeuroDB's own services (indicator
+results, activity reports, Neuro reports, programme documents, donors, partners, population,
+library, data freshness) and links each answer to the pages its figures come from.
+
+- **Switch on**: create an API key in the Anthropic Console (an organisation account, not a personal
+  one), store it in Key Vault as `anthropic-api-key`, and reference it as `ANTHROPIC_API_KEY`
+  (App Service: `@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=anthropic-api-key)`;
+  Container Apps: `enableAiAssistant = true` in `main.bicepparam`). Restart the app. Without a key
+  the assistant is off and the search box works as before.
+- **Settings**: `AI_ASSISTANT_MODEL` (default `claude-opus-5`), `AI_ASSISTANT_EFFORT` (default
+  `medium`; `low` is cheaper and faster, `high` reasons longer), `AI_ASSISTANT_HOURLY_LIMIT`
+  (questions per user per hour, default 30), `AI_ASSISTANT_ENABLED=false` to switch it off with the
+  key still set.
+- **Data leaves Azure**: each question and the figures looked up to answer it are sent to the
+  Claude API (api.anthropic.com over HTTPS). Only signed-in users can ask, and the lookups can only
+  read what any signed-in user can already see. Nothing is written back. Clear this with the data
+  protection focal point before switching it on; outbound HTTPS to api.anthropic.com must be allowed.
+- **Cost and review**: every question is logged in Admin → Data and sync → AI questions with the
+  lookups made, tokens used and time taken. A typical question makes 2-4 lookups. The stable
+  instructions are prompt-cached, so repeated questions are cheaper. Set a monthly spend limit on
+  the Anthropic Console as well.
+- **Refusals**: the model's safety filters can occasionally decline a legitimate question; requests
+  use Anthropic's server-side fallback (`fallbacks: "default"`), which retries such a question on
+  Anthropic's recommended fallback model before giving up.
 
 ## Scheduled jobs
 Container Apps cron is **UTC**; Beirut is UTC+3 in summer and UTC+2 in winter.
