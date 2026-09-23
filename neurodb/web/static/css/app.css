@@ -171,7 +171,7 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 }
 .panel { padding: 1rem 1.1rem; }
 .panel + .panel, .stack > * + * { margin-top: 1rem; }
-.grid > * + * { margin-top: 0; }
+.grid > * + *, .grid > .panel + .panel { margin-top: 0; }
 .panel__header { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.75rem; }
 .panel__title { font-size: 0.95rem; font-weight: 650; margin: 0; }
 .panel__hint { color: var(--nd-muted); font-size: 0.8rem; }

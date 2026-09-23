@@ -2,6 +2,9 @@
 
 import secrets
 
+from django.conf import settings
+from django.contrib.auth.middleware import LoginRequiredMiddleware
+
 
 class ContentSecurityPolicyMiddleware:
     def __init__(self, get_response):
@@ -24,3 +27,17 @@ class ContentSecurityPolicyMiddleware:
             )
             response["Content-Security-Policy"] = policy
         return response
+
+
+class PublicPagesLoginRequiredMiddleware(LoginRequiredMiddleware):
+    """Django's LoginRequiredMiddleware, plus read-only access to the pages in settings.PUBLIC_PAGES."""
+
+    def process_view(self, request, view_func, view_args, view_kwargs):
+        match = getattr(request, "resolver_match", None)
+        if (
+            match is not None
+            and request.method in ("GET", "HEAD")
+            and match.view_name in settings.PUBLIC_PAGES
+        ):
+            return None
+        return super().process_view(request, view_func, view_args, view_kwargs)

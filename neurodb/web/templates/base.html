@@ -34,13 +34,15 @@
     <span class="brand-mark" aria-hidden="true">N</span>
     <span class="brand-name">{{ SITE_NAME }}</span>
   </a>
+  {% if user.is_authenticated %}
   <button type="button" class="search-trigger" id="search-trigger" aria-haspopup="dialog" aria-controls="search-modal">
     {% include "components/icon.html" with name="search" %}
     <span class="search-trigger__label">{% trans "Search indicators, databases, reports" %}</span>
     <kbd class="d-none d-md-inline">Ctrl K</kbd>
   </button>
+  {% endif %}
   <div class="topbar__spacer"></div>
-  {% if nav.years %}
+  {% if user.is_authenticated and nav.years %}
   <div class="dropdown">
     <button class="btn btn-ghost dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="year-menu">
       {% include "components/icon.html" with name="calendar" %}
@@ -58,7 +60,9 @@
     <span class="theme-toggle__light">{% include "components/icon.html" with name="sun" %}</span>
     <span class="theme-toggle__dark">{% include "components/icon.html" with name="moon" %}</span>
   </button>
-  {% if user.is_authenticated %}
+  {% if not user.is_authenticated %}
+  <a class="btn btn-primary btn-sm" href="{% url 'account_login' %}?next={{ request.path|urlencode }}">{% trans "Sign in" %}</a>
+  {% else %}
   <div class="dropdown">
     <button class="btn btn-ghost dropdown-toggle user-menu" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="user-menu">
       <span class="avatar" aria-hidden="true">{{ user.get_username|first|upper }}</span>
@@ -88,6 +92,15 @@
       <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#sidebar" aria-label="{% trans 'Close' %}"></button>
     </div>
     <div class="sidebar__body">
+      {% if not user.is_authenticated %}
+      <a class="nav-item-link" href="{% url 'landing' %}">{% include "components/icon.html" with name="home" %}<span>{% trans "About NeuroDB" %}</span></a>
+      <div class="sidebar__section-title">{% trans "Open resources" %}</div>
+      {% if "reports:population" in PUBLIC_PAGES %}<a class="nav-item-link {% active_if 'reports:population' %}" href="{% url 'reports:population' %}">{% include "components/icon.html" with name="chart" %}<span>{% trans "Population" %}</span></a>{% endif %}
+      {% if "reports:library" in PUBLIC_PAGES %}<a class="nav-item-link {% active_if 'reports:library' %}" href="{% url 'reports:library' %}">{% include "components/icon.html" with name="book" %}<span>{% trans "Library" %}</span></a>{% endif %}
+      {% if "reports:maps" in PUBLIC_PAGES %}<a class="nav-item-link {% active_if 'reports:maps' %}" href="{% url 'reports:maps' %}">{% include "components/icon.html" with name="map" %}<span>{% trans "Maps" %}</span></a>{% endif %}
+      <div class="sidebar__section-title">{% trans "Staff" %}</div>
+      <a class="nav-item-link" href="{% url 'account_login' %}">{% include "components/icon.html" with name="lock" %}<span>{% trans "Sign in for dashboards" %}</span></a>
+      {% else %}
       <a class="nav-item-link {% active_if 'reports:overview' %}" href="{% url 'reports:overview' %}" {% aria_current 'reports:overview' %}>
         {% include "components/icon.html" with name="home" %}<span>{% trans "Overview" %}</span>
       </a>
@@ -133,6 +146,7 @@
       <a class="nav-item-link {% active_if 'reports:library' %}" href="{% url 'reports:library' %}" {% aria_current 'reports:library' %}>{% include "components/icon.html" with name="book" %}<span>{% trans "Library" %}</span></a>
       <a class="nav-item-link {% active_if 'reports:maps' %}" href="{% url 'reports:maps' %}" {% aria_current 'reports:maps' %}>{% include "components/icon.html" with name="map" %}<span>{% trans "Maps" %}</span></a>
       <a class="nav-item-link {% active_if 'reports:data_health' %}" href="{% url 'reports:data_health' %}" {% aria_current 'reports:data_health' %}>{% include "components/icon.html" with name="pulse" %}<span>{% trans "Data health" %}</span></a>
+      {% endif %}
     </div>
   </nav>
 

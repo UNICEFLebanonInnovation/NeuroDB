@@ -1,0 +1,308 @@
+{% load i18n static humanize %}<!DOCTYPE html>
+<html lang="{{ LANGUAGE_CODE|default:'en' }}" data-bs-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{{ SITE_NAME }} · {% trans "Results for children in Lebanon, in one place" %}</title>
+  <meta name="description" content="{% trans 'NeuroDB is UNICEF Lebanon’s programme monitoring platform: progress against targets, maps, partnerships and reports built from ActivityInfo and eTools data.' %}">
+  <meta property="og:title" content="{{ SITE_NAME }} · UNICEF Lebanon">
+  <meta property="og:description" content="{% trans 'Progress against targets, where support reaches, and what needs attention — in one place.' %}">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="{% static 'img/favicon.svg' %}" type="image/svg+xml">
+  <link rel="stylesheet" href="{% static 'vendor/bootstrap/bootstrap.min.css' %}">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <link rel="stylesheet" href="{% static 'css/landing.css' %}">
+  <script nonce="{{ request.csp_nonce }}">
+    (function () {
+      var d = document.documentElement;
+      try {
+        var t = localStorage.getItem("neurodb-theme") || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        d.setAttribute("data-bs-theme", t);
+      } catch (e) {}
+      d.classList.add("lp-js");
+    })();
+  </script>
+</head>
+<body class="lp">
+<a class="skip-link" href="#main">{% trans "Skip to main content" %}</a>
+{% include "components/icons.html" %}
+
+<header class="lp-nav" id="lp-nav">
+  <div class="lp-container lp-nav__inner">
+    <a class="brand" href="{% url 'landing' %}"><span class="brand-mark" aria-hidden="true">N</span><span class="brand-name">{{ SITE_NAME }}</span></a>
+    <nav class="lp-nav__links" aria-label="{% trans 'Page sections' %}">
+      <a href="#why">{% trans "Why NeuroDB" %}</a>
+      <a href="#how">{% trans "How it works" %}</a>
+      <a href="#new">{% trans "What’s new" %}</a>
+      <a href="#explore">{% trans "Resources" %}</a>
+      <a href="#faq">{% trans "FAQ" %}</a>
+    </nav>
+    <div class="lp-nav__spacer"></div>
+    <button class="btn btn-icon" type="button" id="theme-toggle" aria-pressed="false" aria-label="{% trans 'Toggle dark mode' %}">
+      <span class="theme-toggle__light">{% include "components/icon.html" with name="sun" %}</span>
+      <span class="theme-toggle__dark">{% include "components/icon.html" with name="moon" %}</span>
+    </button>
+    {% if user.is_authenticated %}
+    <a class="btn btn-primary btn-sm" href="{% url 'reports:overview' %}">{% trans "Open NeuroDB" %}{% include "components/icon.html" with name="arrow" %}</a>
+    {% else %}
+    <a class="btn btn-primary btn-sm" href="{% url 'account_login' %}">{% trans "Sign in" %}</a>
+    {% endif %}
+  </div>
+</header>
+
+<main id="main">
+  <!-- ------------------------------------------------------------ hero -->
+  <section class="lp-hero" aria-labelledby="hero-title">
+    <div class="lp-container lp-hero__grid">
+      <div>
+        <span class="lp-pill"><b>{% trans "New" %}</b>{% trans "NeuroDB 3 — rebuilt for speed, clarity and security" %}</span>
+        <h1 id="hero-title">{% blocktrans %}Every result for children in Lebanon, <span class="lp-grad">in one place.</span>{% endblocktrans %}</h1>
+        <p class="lp-lead">{% blocktrans %}NeuroDB brings together partner reporting from ActivityInfo and partnerships from eTools, so teams see progress against targets, where support reaches, and what needs attention — refreshed automatically every day.{% endblocktrans %}</p>
+        <div class="lp-cta">
+          {% if user.is_authenticated %}
+          <a class="btn btn-primary btn-lg" href="{% url 'reports:overview' %}">{% trans "Open your overview" %}{% include "components/icon.html" with name="arrow" %}</a>
+          {% else %}
+          <a class="btn btn-primary btn-lg" href="{% url 'account_login' %}">{% if SSO_ENABLED %}{% trans "Sign in with your UNICEF account" %}{% else %}{% trans "Sign in" %}{% endif %}{% include "components/icon.html" with name="arrow" %}</a>
+          {% endif %}
+          <a class="btn btn-outline-secondary btn-lg" href="#explore">{% trans "Explore resources" %}</a>
+        </div>
+        <div class="lp-trust">
+          <span>{% include "components/icon.html" with name="check" %}{% trans "Official UNICEF Lebanon data" %}</span>
+          <span>{% include "components/icon.html" with name="check" %}{% trans "Updated every night" %}</span>
+          <span>{% include "components/icon.html" with name="check" %}{% trans "Single sign-on and role-based access" %}</span>
+        </div>
+      </div>
+
+      <div class="position-relative" aria-hidden="true">
+        <div class="lp-mock">
+          <div class="lp-mock__bar"><i></i><i></i><i></i></div>
+          <div class="lp-mock__kpis">
+            <div class="lp-mock__kpi"><small>{% trans "On track" %}</small><strong>68%</strong> <em>▲ 6</em></div>
+            <div class="lp-mock__kpi"><small>{% trans "Reporting" %}</small><strong>92%</strong> <em>▲ 3</em></div>
+            <div class="lp-mock__kpi"><small>{% trans "Partners" %}</small><strong>57</strong></div>
+          </div>
+          <div class="lp-mock__row">
+            <div class="lp-mock__card"><div class="lp-mock__donut"></div></div>
+            <div class="lp-mock__card">
+              <div class="lp-mock__bars">
+                {% for h in "4657687989"|make_list %}<span style="height: {{ h }}0%; animation-delay: {{ forloop.counter0 }}00ms"></span>{% endfor %}
+              </div>
+            </div>
+          </div>
+          <div class="lp-mock__card lp-mock__list">
+            {% for w in "8,6,9,4"|cut:","|make_list %}
+            <div class="lp-mock__item"><span class="lp-line" style="width: {{ w }}0%"></span><div class="meter__track"><span class="meter__fill {% cycle 'meter__fill--on_track' 'meter__fill--over_target' 'meter__fill--on_track' 'meter__fill--off_track' %}" style="width: {{ w }}0%"></span></div><span class="lp-line"></span></div>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="lp-float lp-float--a">{% include "components/icon.html" with name="target" %}{% trans "Target reached: vaccination" %}</div>
+        <div class="lp-float lp-float--b">{% include "components/icon.html" with name="refresh" %}{% trans "Synced 6 hours ago" %}</div>
+      </div>
+    </div>
+
+    {% if stats and stats.databases %}
+    <div class="lp-container mt-5 lp-reveal">
+      <div class="lp-stats" role="list" aria-label="{% blocktrans with year=stats.year %}NeuroDB in {{ year }}{% endblocktrans %}">
+        <div class="lp-stat" role="listitem"><strong data-count="{{ stats.indicators }}">{{ stats.indicators|intcomma }}</strong><span>{% trans "results tracked against targets" %}</span></div>
+        <div class="lp-stat" role="listitem"><strong data-count="{{ stats.records }}">{{ stats.records|intcomma }}</strong><span>{% trans "activity records this year" %}</span></div>
+        <div class="lp-stat" role="listitem"><strong data-count="{{ stats.partners }}">{{ stats.partners|intcomma }}</strong><span>{% trans "implementing partners" %}</span></div>
+        <div class="lp-stat" role="listitem"><strong data-count="{{ stats.governorates }}">{{ stats.governorates|intcomma }}</strong><span>{% trans "governorates reached" %}</span></div>
+        <div class="lp-stat" role="listitem"><strong data-count="{{ stats.sections }}">{{ stats.sections|intcomma }}</strong><span>{% trans "programme sections" %}</span></div>
+      </div>
+      <p class="lp-stats-note">{% include "components/icon.html" with name="clock" %}{% blocktrans with year=stats.year %}Reporting year {{ year }}{% endblocktrans %}{% if stats.last_update %} · {% blocktrans with when=stats.last_update|naturaltime %}latest import {{ when }}{% endblocktrans %}{% endif %} · {% trans "aggregate counts only" %}</p>
+    </div>
+    {% endif %}
+  </section>
+
+  <!-- ------------------------------------------------------------ why -->
+  <section class="lp-section lp-section--alt" id="why" aria-labelledby="why-title">
+    <div class="lp-container">
+      <div class="lp-head lp-head--center lp-reveal">
+        <span class="lp-eyebrow">{% include "components/icon.html" with name="sparkle" %}{% trans "Why NeuroDB" %}</span>
+        <h2 class="lp-h2" id="why-title">{% trans "From scattered spreadsheets to decisions you can defend" %}</h2>
+        <p class="lp-lead">{% trans "Monitoring data used to live in exports, e-mails and one-off files. NeuroDB turns it into one trusted, always-current picture of the country programme." %}</p>
+      </div>
+      <div class="lp-features">
+        <article class="lp-card lp-reveal">
+          <span class="lp-icon">{% include "components/icon.html" with name="layers" %}</span>
+          <h3>{% trans "One source of truth" %}</h3>
+          <p>{% trans "ActivityInfo reports, eTools programme documents, population estimates and research in a single place — the same numbers for every team and every meeting." %}</p>
+        </article>
+        <article class="lp-card lp-reveal">
+          <span class="lp-icon lp-tint-green">{% include "components/icon.html" with name="target" %}</span>
+          <h3>{% trans "Progress you can trust" %}</h3>
+          <p>{% trans "Every result is compared with its target and with how much of the year has passed, so on-track and off-track indicators stand out at a glance." %}</p>
+        </article>
+        <article class="lp-card lp-reveal">
+          <span class="lp-icon lp-tint-amber">{% include "components/icon.html" with name="zap" %}</span>
+          <h3>{% trans "Answers in seconds" %}</h3>
+          <p>{% trans "Slice any result by month, area, partner, sex, age or nationality. Save a view, share it with colleagues and export it to Excel." %}</p>
+        </article>
+        <article class="lp-card lp-reveal">
+          <span class="lp-icon lp-tint-blue">{% include "components/icon.html" with name="map" %}</span>
+          <h3>{% trans "See where support reaches" %}</h3>
+          <p>{% trans "Interactive maps down to cadaster and site level show coverage and gaps, filtered by partner, programme document or month." %}</p>
+        </article>
+        <article class="lp-card lp-reveal">
+          <span class="lp-icon lp-tint-red">{% include "components/icon.html" with name="file" %}</span>
+          <h3>{% trans "Reporting on time" %}</h3>
+          <p>{% trans "Humanitarian performance and programme reports assemble themselves for any month or quarter, with change since last period and section comments." %}</p>
+        </article>
+        <article class="lp-card lp-reveal">
+          <span class="lp-icon">{% include "components/icon.html" with name="shield" %}</span>
+          <h3>{% trans "Secure by design" %}</h3>
+          <p>{% trans "UNICEF single sign-on, roles per section, no public access to partner-level data, and modern web security on every page." %}</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ how -->
+  <section class="lp-section" id="how" aria-labelledby="how-title">
+    <div class="lp-container">
+      <div class="lp-head lp-reveal">
+        <span class="lp-eyebrow">{% include "components/icon.html" with name="database" %}{% trans "How it works" %}</span>
+        <h2 class="lp-h2" id="how-title">{% trans "Partners report once. Everyone benefits." %}</h2>
+        <p class="lp-lead">{% trans "No double entry: NeuroDB reads the systems partners and staff already use, applies the agreed indicator rules, and tells you when anything is out of date." %}</p>
+      </div>
+      <div class="lp-steps">
+        <div class="lp-step lp-reveal">
+          <h3>{% trans "Collect" %}</h3>
+          <p>{% trans "Partners submit monthly results in ActivityInfo. Programme documents, budgets and assurance activities are managed in eTools." %}</p>
+          <div class="chips"><span class="chip">ActivityInfo</span><span class="chip">eTools</span></div>
+        </div>
+        <div class="lp-step lp-reveal">
+          <h3>{% trans "Consolidate" %}</h3>
+          <p>{% trans "Every night NeuroDB synchronises both sources, rolls activity data up into sub- and master indicators, and records how each sync went." %}</p>
+          <div class="chips"><span class="chip">{% trans "Indicator rules" %}</span><span class="chip">{% trans "Freshness checks" %}</span></div>
+        </div>
+        <div class="lp-step lp-reveal">
+          <h3>{% trans "Act" %}</h3>
+          <p>{% trans "Teams open dashboards, maps and reports, spot what is off track, and share exports with management, partners and donors." %}</p>
+          <div class="chips"><span class="chip">{% trans "Dashboards" %}</span><span class="chip">{% trans "Maps" %}</span><span class="chip">{% trans "Reports" %}</span></div>
+        </div>
+      </div>
+
+      <div class="lp-features mt-5">
+        <article class="lp-card lp-reveal">
+          <span class="lp-icon">{% include "components/icon.html" with name="users" %}</span>
+          <h3>{% trans "For programme sections" %}</h3>
+          <ul>
+            <li>{% include "components/icon.html" with name="check" %}{% trans "Your section’s results and targets on one dashboard" %}</li>
+            <li>{% include "components/icon.html" with name="check" %}{% trans "Drill from a master indicator to every activity behind it" %}</li>
+            <li>{% include "components/icon.html" with name="check" %}{% trans "Comment on your indicators in the monthly HPM" %}</li>
+          </ul>
+        </article>
+        <article class="lp-card lp-reveal">
+          <span class="lp-icon lp-tint-green">{% include "components/icon.html" with name="chart" %}</span>
+          <h3>{% trans "For planning, monitoring and reporting" %}</h3>
+          <ul>
+            <li>{% include "components/icon.html" with name="check" %}{% trans "Consistent aggregation rules for every report" %}</li>
+            <li>{% include "components/icon.html" with name="check" %}{% trans "Saved pivot views instead of rebuilt spreadsheets" %}</li>
+            <li>{% include "components/icon.html" with name="check" %}{% trans "A data health page that shows failed or late syncs" %}</li>
+          </ul>
+        </article>
+        <article class="lp-card lp-reveal">
+          <span class="lp-icon lp-tint-amber">{% include "components/icon.html" with name="gift" %}</span>
+          <h3>{% trans "For management and partnerships" %}</h3>
+          <ul>
+            <li>{% include "components/icon.html" with name="check" %}{% trans "The whole country programme on one overview" %}</li>
+            <li>{% include "components/icon.html" with name="check" %}{% trans "Funds by donor and year, planned versus actual locations" %}</li>
+            <li>{% include "components/icon.html" with name="check" %}{% trans "Partner profiles with programme documents and assurance" %}</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ new -->
+  <section class="lp-section lp-section--alt" id="new" aria-labelledby="new-title">
+    <div class="lp-container">
+      <div class="lp-head lp-reveal">
+        <span class="lp-eyebrow">{% include "components/icon.html" with name="sparkle" %}{% trans "What’s new in NeuroDB 3" %}</span>
+        <h2 class="lp-h2" id="new-title">{% trans "Same trusted data. A much better experience." %}</h2>
+        <p class="lp-lead">{% trans "NeuroDB 3 keeps every year of history from the previous version and adds the tools teams asked for." %}</p>
+      </div>
+      <div class="lp-new">
+        {% for icon, tint, title, text in whats_new %}
+        <div class="lp-new__item lp-reveal"><span class="lp-icon {{ tint }}">{% include "components/icon.html" with name=icon %}</span><div><strong>{{ title }}</strong><span>{{ text }}</span></div></div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ quick links -->
+  <section class="lp-section" id="explore" aria-labelledby="explore-title">
+    <div class="lp-container">
+      <div class="lp-head lp-reveal">
+        <span class="lp-eyebrow">{% include "components/icon.html" with name="book" %}{% trans "Helpful information" %}</span>
+        <h2 class="lp-h2" id="explore-title">{% trans "Quick links" %}</h2>
+        <p class="lp-lead">{% if public_pages %}{% trans "Some resources are open to everyone; the others open after you sign in." %}{% else %}{% trans "Resources marked with a lock open after you sign in." %}{% endif %}</p>
+      </div>
+      <div class="lp-links">
+        {% for link in quick_links %}
+        <a class="lp-link lp-reveal" href="{{ link.url }}"{% if link.external %} target="_blank" rel="noopener noreferrer"{% endif %}>
+          <div class="lp-link__top">
+            <span class="lp-icon">{% include "components/icon.html" with name=link.icon %}</span>
+            {% if link.locked %}<span class="lp-lock">{% include "components/icon.html" with name="lock" %}{% trans "Sign-in" %}</span>{% endif %}
+          </div>
+          <strong>{{ link.title }}</strong>
+          <p>{{ link.text }}</p>
+          <span class="lp-link__go">{% if link.external %}{% trans "Visit" %}{% elif link.locked %}{% trans "Sign in to open" %}{% else %}{% trans "Open" %}{% endif %}{% include "components/icon.html" with name="arrow" %}</span>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ faq -->
+  <section class="lp-section lp-section--alt" id="faq" aria-labelledby="faq-title">
+    <div class="lp-container">
+      <div class="lp-head lp-head--center lp-reveal">
+        <span class="lp-eyebrow">{% include "components/icon.html" with name="info" %}{% trans "FAQ" %}</span>
+        <h2 class="lp-h2" id="faq-title">{% trans "Questions we hear often" %}</h2>
+      </div>
+      <div class="lp-faq">
+        <details><summary>{% trans "Who can use NeuroDB?" %}</summary><p>{% trans "UNICEF Lebanon staff with a registered account. Viewers see all dashboards and reports, section editors can also comment on their section’s indicators, and administrators manage configuration. Selected resources can be opened to the public by the NeuroDB team." %}</p></details>
+        <details><summary>{% trans "How do I get access?" %}</summary><p>{% if SUPPORT_EMAIL %}{% blocktrans %}Write to <a href="mailto:{{ SUPPORT_EMAIL }}">{{ SUPPORT_EMAIL }}</a> with your section and the role you need. Once registered, sign in with your UNICEF Microsoft account — no extra password.{% endblocktrans %}{% else %}{% trans "Ask the NeuroDB administrators in the Planning, Monitoring and Evaluation section. Once registered, sign in with your UNICEF Microsoft account — no extra password." %}{% endif %}</p></details>
+        <details><summary>{% trans "Where does the data come from?" %}</summary><p>{% trans "Results come from partner reports in ActivityInfo; programme documents, donors and assurance from eTools; population estimates from the official planning figures loaded each year. NeuroDB never asks partners to report twice." %}</p></details>
+        <details><summary>{% trans "How current is it?" %}</summary><p>{% trans "Sources synchronise every night. The data health page shows when each source was last updated, and pages warn you when a database has not been imported recently." %}</p></details>
+        <details><summary>{% trans "What does “on track” mean?" %}</summary><p>{% trans "An indicator is on track when its achievement is within ten percentage points of the share of the year that has passed. Well above is “over target”, well below is “off track”, and indicators without a target are shown separately." %}</p></details>
+        <details><summary>{% trans "Can I export the data?" %}</summary><p>{% trans "Yes. Every table can be copied or downloaded as CSV, raw data is available in Excel, and dashboards have a printable snapshot you can save as PDF." %}</p></details>
+        <details><summary>{% trans "Is the data secure?" %}</summary><p>{% trans "Access requires UNICEF single sign-on and a registered account. Partner-level data, dashboards and reports are never public; the only public figures are the aggregate counts on this page." %}</p></details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ final call to action -->
+  <section class="lp-section">
+    <div class="lp-container">
+      <div class="lp-final lp-reveal">
+        <h2 class="lp-h2">{% trans "Ready to see the whole picture?" %}</h2>
+        <p>{% trans "Sign in to open your section’s dashboard, or explore the resources that are available to everyone." %}</p>
+        <div class="lp-cta justify-content-center">
+          <a class="btn btn-light btn-lg" href="{% if user.is_authenticated %}{% url 'reports:overview' %}{% else %}{% url 'account_login' %}{% endif %}">{% if user.is_authenticated %}{% trans "Open NeuroDB" %}{% else %}{% trans "Sign in" %}{% endif %}</a>
+          <a class="btn btn-outline-light btn-lg" href="#explore">{% trans "Quick links" %}</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="lp-footer">
+  <div class="lp-container lp-footer__inner">
+    <div class="d-flex align-items-center gap-2"><span class="brand-mark" aria-hidden="true">N</span><span>{% now "Y" as this_year %}© {{ this_year }} UNICEF Lebanon · {{ SITE_NAME }} 3</span></div>
+    <nav aria-label="{% trans 'Footer' %}">
+      <a href="#why">{% trans "Why NeuroDB" %}</a>
+      <a href="#explore">{% trans "Resources" %}</a>
+      <a href="#faq">{% trans "FAQ" %}</a>
+      {% if SUPPORT_EMAIL %}<a href="mailto:{{ SUPPORT_EMAIL }}">{% trans "Contact" %}</a>{% endif %}
+      <a href="https://www.unicef.org/lebanon" target="_blank" rel="noopener noreferrer">unicef.org/lebanon</a>
+    </nav>
+  </div>
+</footer>
+
+<script type="module" src="{% static 'js/landing.js' %}" nonce="{{ request.csp_nonce }}"></script>
+</body>
+</html>

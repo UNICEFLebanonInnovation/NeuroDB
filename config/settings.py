@@ -57,7 +57,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "django.contrib.auth.middleware.LoginRequiredMiddleware",
+    "neurodb.web.middleware.PublicPagesLoginRequiredMiddleware",  # login required except PUBLIC_PAGES
     "allauth.account.middleware.AccountMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -209,6 +209,25 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 X_FRAME_OPTIONS = "DENY"
 ADMIN_URL_PATH = env("ADMIN_URL_PATH", default="manage/")
+
+# ---------------------------------------------------------------------------- public access
+# The landing page (/ for anonymous visitors, /welcome/ for everyone) is always public. Other pages
+# stay behind sign-in unless listed in PUBLIC_PAGES. Only pages without partner-level or
+# unpublished data can be opened; dashboards, reports and the internal API are never public.
+PUBLICABLE_PAGES = ("library", "library_download", "maps", "population")
+PUBLIC_PAGES = [f"reports:{name}" for name in env.list("PUBLIC_PAGES", default=[])]
+_unknown_public = {p.split(":", 1)[1] for p in PUBLIC_PAGES} - set(PUBLICABLE_PAGES)
+if _unknown_public:
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(
+        f"PUBLIC_PAGES may only contain {PUBLICABLE_PAGES}; got {sorted(_unknown_public)}"
+    )
+if "reports:library" in PUBLIC_PAGES and "reports:library_download" not in PUBLIC_PAGES:
+    PUBLIC_PAGES.append("reports:library_download")
+PUBLIC_LANDING_STATS = env.bool("PUBLIC_LANDING_STATS", default=True)  # aggregate counts only
+SUPPORT_EMAIL = env("SUPPORT_EMAIL", default="")
+USER_GUIDE_URL = env("USER_GUIDE_URL", default="")
 
 # ---------------------------------------------------------------------------- upstream systems
 ACTIVITYINFO_BASE_URL = env("ACTIVITYINFO_BASE_URL", default="https://www.activityinfo.org")

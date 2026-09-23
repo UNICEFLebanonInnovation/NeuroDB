@@ -35,6 +35,21 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
 - `docs/DATA_MIGRATION.md`: how v3 attaches to the v2 database and how to take schema ownership later.
 - `docs/OPERATIONS.md`: runbook (deploy, secrets, yearly rollover, sync triage).
 
+## Public landing page and public access
+
+Visitors who are not signed in see a public landing page at `/` (also at `/welcome/` for everyone):
+the value of the platform, how it works, what is new in v3, quick links and an FAQ. Signed-in users
+land on the programme overview as before.
+
+| Setting | Default | Effect |
+|---|---|---|
+| `PUBLIC_LANDING_STATS` | `on` | Shows aggregate counts for the current year (indicators, records, partners, governorates, sections). No names or values. |
+| `PUBLIC_PAGES` | empty | Comma-separated pages opened without sign-in, read-only. Allowed: `library`, `maps`, `population`. Any other value stops the app at startup. |
+| `SUPPORT_EMAIL` | empty | Adds a "Request access" link and a contact address. |
+| `USER_GUIDE_URL` | empty | Adds a "User guide" quick link. |
+
+Dashboards, reports, partnerships, data health and the internal API always require sign-in.
+
 ## Local development
 
 ```bash

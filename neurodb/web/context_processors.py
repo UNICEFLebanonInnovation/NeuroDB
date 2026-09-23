@@ -8,6 +8,9 @@ def site(request):
         "SITE_NAME": settings.SITE_NAME,
         "SSO_ENABLED": settings.SSO_ENABLED,
         "user_role": role_of(request.user) if hasattr(request, "user") else None,
+        "PUBLIC_PAGES": settings.PUBLIC_PAGES,
+        "SUPPORT_EMAIL": settings.SUPPORT_EMAIL,
+        "USER_GUIDE_URL": settings.USER_GUIDE_URL,
     }
 
 

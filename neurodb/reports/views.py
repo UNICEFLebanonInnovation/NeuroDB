@@ -11,6 +11,7 @@ import mimetypes
 from typing import Any
 
 from django.contrib import messages
+from django.contrib.auth.decorators import login_not_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.http import FileResponse, Http404, HttpRequest, HttpResponse, JsonResponse
@@ -97,6 +98,17 @@ def _paginate(request: HttpRequest, queryset, per_page: int = PAGE_SIZE):
 
 
 # ------------------------------------------------------------------------- overview
+
+
+@login_not_required
+@require_GET
+def home(request: HttpRequest) -> HttpResponse:
+    """Site root: the public landing page for visitors, the programme overview once signed in."""
+    if not request.user.is_authenticated:
+        from neurodb.web.views import landing
+
+        return landing(request)
+    return overview(request)
 
 
 @require_GET

@@ -77,7 +77,7 @@ def _get(client, url, **headers):
 
 
 def test_anonymous_users_are_sent_to_login(client, hierarchy):
-    response = client.get(reverse("reports:overview"))
+    response = client.get(reverse("reports:database_dashboard", args=[hierarchy["database"].id]))
     assert response.status_code == 302
     assert reverse("account_login") in response["Location"]
 
