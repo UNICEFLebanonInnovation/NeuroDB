@@ -105,6 +105,10 @@ The legacy models keep the **v2 Django app labels** (`users`, `pivoting`, `etool
 though the Python packages are named by domain. Content types, permissions, admin URLs and the
 `django_migrations` history of the existing database therefore stay valid; see `docs/DATA_MIGRATION.md`.
 
+Branding: the v2 NeuroDB logo (molecule mark and "NEURO-DB" wordmark, `static/images/logo3.png` and
+`logo_inverse.png` in v2) is reused as `neurodb/web/static/img/logo.png` and `logo-mark.png`; the
+favicons and social preview are generated from it, and the interface colour is its blue `#446ab3`.
+
 Front end: server-rendered Django templates with Bootstrap 5.3 and HTMX 2 for partial updates, plus
 small ES modules loaded on demand (Plotly charts, PivotTable.js, MapLibre, Tom Select). Libraries are
 vendored under `neurodb/web/static/vendor` with their versions in `VERSIONS.md`.

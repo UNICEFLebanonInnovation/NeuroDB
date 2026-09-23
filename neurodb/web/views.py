@@ -2,7 +2,8 @@ from django.conf import settings
 from django.contrib.auth.decorators import login_not_required
 from django.db import connection
 from django.http import JsonResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
+from django.templatetags.static import static
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext as _
@@ -11,6 +12,12 @@ from django.utils.translation import gettext_lazy as _lazy
 from neurodb.core.models import SyncRun
 
 from .services import public_highlights
+
+
+@login_not_required
+def favicon(request):
+    """Browsers ask for /favicon.ico directly; send them to the hashed static file."""
+    return redirect(static("img/favicon.ico"))
 
 
 @login_not_required

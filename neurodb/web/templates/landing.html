@@ -9,7 +9,8 @@
   <meta property="og:title" content="{{ SITE_NAME }} · UNICEF Lebanon">
   <meta property="og:description" content="{% trans 'Progress against targets, where support reaches, and what needs attention — in one place.' %}">
   <meta property="og:type" content="website">
-  <link rel="icon" href="{% static 'img/favicon.svg' %}" type="image/svg+xml">
+  {% include "components/favicons.html" %}
+  <meta property="og:image" content="{{ request.scheme }}://{{ request.get_host }}{% static 'img/og-image.png' %}">
   <link rel="stylesheet" href="{% static 'vendor/bootstrap/bootstrap.min.css' %}">
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
   <link rel="stylesheet" href="{% static 'css/landing.css' %}">
@@ -30,7 +31,7 @@
 
 <header class="lp-nav" id="lp-nav">
   <div class="lp-container lp-nav__inner">
-    <a class="brand" href="{% url 'landing' %}"><span class="brand-mark" aria-hidden="true">N</span><span class="brand-name">{{ SITE_NAME }}</span></a>
+    <a class="brand" href="{% url 'landing' %}">{% include "components/logo.html" with height=34 %}</a>
     <nav class="lp-nav__links" aria-label="{% trans 'Page sections' %}">
       <a href="#why">{% trans "Why NeuroDB" %}</a>
       <a href="#how">{% trans "How it works" %}</a>
@@ -279,6 +280,7 @@
   <section class="lp-section">
     <div class="lp-container">
       <div class="lp-final lp-reveal">
+        <img class="lp-final__mark" src="{% static 'img/logo-mark.png' %}" alt="" aria-hidden="true">
         <h2 class="lp-h2">{% trans "Ready to see the whole picture?" %}</h2>
         <p>{% trans "Sign in to open your section’s dashboard, or explore the resources that are available to everyone." %}</p>
         <div class="lp-cta justify-content-center">
@@ -292,7 +294,7 @@
 
 <footer class="lp-footer">
   <div class="lp-container lp-footer__inner">
-    <div class="d-flex align-items-center gap-2"><span class="brand-mark" aria-hidden="true">N</span><span>{% now "Y" as this_year %}© {{ this_year }} UNICEF Lebanon · {{ SITE_NAME }} 3</span></div>
+    <div class="d-flex align-items-center gap-3">{% include "components/logo.html" with height=26 %}<span>{% now "Y" as this_year %}© {{ this_year }} UNICEF Lebanon · {{ SITE_NAME }} 3</span></div>
     <nav aria-label="{% trans 'Footer' %}">
       <a href="#why">{% trans "Why NeuroDB" %}</a>
       <a href="#explore">{% trans "Resources" %}</a>

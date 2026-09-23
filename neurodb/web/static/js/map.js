@@ -90,7 +90,7 @@ export async function init(el) {
         source: "sites",
         paint: {
           "circle-radius": ["interpolate", ["linear"], ["get", "interventions"], 1, 4, max, 16],
-          "circle-color": cssVar("--nd-primary") || "#1a73c7",
+          "circle-color": cssVar("--nd-primary") || "#446ab3",
           "circle-opacity": 0.75,
           "circle-stroke-color": "#fff",
           "circle-stroke-width": 1,

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>{% block head_title %}{% endblock head_title %} · {{ SITE_NAME|default:"NeuroDB" }}</title>
-  <link rel="icon" href="{% static 'img/favicon.svg' %}" type="image/svg+xml">
+  {% include "components/favicons.html" %}
   <link rel="stylesheet" href="{% static 'vendor/bootstrap/bootstrap.min.css' %}">
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
   <script nonce="{{ request.csp_nonce }}">
@@ -21,7 +21,7 @@
 <body class="auth-body">
 {% block body %}
   <main class="panel auth-card">
-    <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">N</span><span class="brand-name">{{ SITE_NAME|default:"NeuroDB" }}</span></a>
+    <a class="brand" href="/">{% include "components/logo.html" with height=44 %}</a>
     {% if messages %}
     <div role="status">{% for message in messages %}<div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags|default:'info' }}{% endif %} py-2 small">{{ message }}</div>{% endfor %}</div>
     {% endif %}

@@ -7,7 +7,7 @@
   <meta name="htmx-config" content='{"inlineScriptNonce":"{{ request.csp_nonce }}","allowEval":false,"scrollBehavior":"instant","defaultSwapStyle":"innerHTML"}'>
   <meta name="color-scheme" content="light dark">
   <title>{% block title %}{{ page_title|default:SITE_NAME }}{% endblock %} · {{ SITE_NAME }}</title>
-  <link rel="icon" href="{% static 'img/favicon.svg' %}" type="image/svg+xml">
+  {% include "components/favicons.html" %}
   <link rel="stylesheet" href="{% static 'vendor/bootstrap/bootstrap.min.css' %}">
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
   {% block head_extra %}{% endblock %}
@@ -31,8 +31,7 @@
     {% include "components/icon.html" with name="menu" %}
   </button>
   <a class="brand" href="{% url 'reports:overview' %}">
-    <span class="brand-mark" aria-hidden="true">N</span>
-    <span class="brand-name">{{ SITE_NAME }}</span>
+    {% include "components/logo.html" with height=30 compact=True %}
   </a>
   {% if user.is_authenticated %}
   <button type="button" class="search-trigger" id="search-trigger" aria-haspopup="dialog" aria-controls="search-modal">

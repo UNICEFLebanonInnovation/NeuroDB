@@ -71,3 +71,12 @@ def test_public_pages_open_only_what_is_listed(client, hierarchy, settings):
     assert client.post(reverse("reports:library")).status_code == 302
     html = client.get(reverse("landing")).content.decode()
     assert f'href="{reverse("reports:library")}"' in html
+
+
+def test_logo_and_favicon_are_the_neurodb_brand(client, hierarchy):
+    html = client.get(reverse("landing")).content.decode()
+    assert "img/logo.png" in html and "img/favicon.ico" in html and "og-image.png" in html
+    response = client.get("/favicon.ico")
+    assert response.status_code == 302 and response["Location"].endswith("img/favicon.ico")
+    login = client.get(reverse("account_login")).content.decode()
+    assert "img/logo.png" in login

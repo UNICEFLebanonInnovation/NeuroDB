@@ -1,0 +1,18 @@
+{% extends "admin/base.html" %}
+{% load static %}
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | NeuroDB administration{% endblock %}
+{% block extrahead %}{{ block.super }}{% include "components/favicons.html" %}
+<style>
+  :root { --primary: #446ab3; --secondary: #34548f; --breadcrumbs-bg: #446ab3; --link-fg: #34548f; --link-selected-fg: #2b4679; }
+  #header { background: #fff; color: #34548f; border-bottom: 1px solid #e2e7ee; }
+  #header a:link, #header a:visited, #logout-form button, #user-tools .theme-toggle svg { color: #34548f; }
+  #user-tools a, #logout-form button { border-bottom-color: rgba(52, 84, 143, .3); }
+  #site-name a { display: flex; align-items: center; gap: .75rem; }
+  #site-name span { color: #5b6778; font-weight: 400; }
+</style>
+{% endblock %}
+{% block branding %}
+<div id="site-name"><a href="{% url 'admin:index' %}"><img src="{% static 'img/logo.png' %}" alt="NeuroDB" height="32"> <span>Administration</span></a></div>
+{% if user.is_anonymous %}{% include "admin/color_theme_toggle.html" %}{% endif %}
+{% endblock %}
+{% block nav-global %}{% endblock %}

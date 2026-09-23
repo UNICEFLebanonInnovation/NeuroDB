@@ -5,7 +5,7 @@ import { cssVar, isDark, loadScript, readJSON } from "./lib.js";
 
 const STATUS_ORDER = ["on_track", "over_target", "off_track", "no_target"];
 const STATUS_VARS = { on_track: "--nd-success", over_target: "--nd-warning", off_track: "--nd-danger", no_target: "--nd-neutral" };
-const PALETTE = ["#1a73c7", "#34b1e6", "#16865a", "#f0b04a", "#c63b3b", "#7c5cc4", "#00a3a3", "#e27d27", "#5b6778", "#9bc53d"];
+const PALETTE = ["#446ab3", "#5ba4d9", "#16865a", "#f0b04a", "#c63b3b", "#7c5cc4", "#00a3a3", "#e27d27", "#5b6778", "#9bc53d"];
 const NATIONALITY = { LEB: "Lebanese", SYR: "Syrian", PRS: "Palestinian (Syria)", PRL: "Palestinian (Lebanon)", OTH: "Other", ALL: "All" };
 
 const num = (v) => (v === null || v === undefined || v === "" ? 0 : Number(v));
