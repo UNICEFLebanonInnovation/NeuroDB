@@ -1,0 +1,163 @@
+{
+  "secrets": [
+    {
+      "name": "django-secret-key",
+      "keyVaultUrl": "https://neurodb-prod-kv.vault.azure.net/secrets/django-secret-key",
+      "identity": "<managed-identity-resource-id>"
+    },
+    {
+      "name": "database-url",
+      "keyVaultUrl": "https://neurodb-prod-kv.vault.azure.net/secrets/database-url",
+      "identity": "<managed-identity-resource-id>"
+    },
+    {
+      "name": "activityinfo-token",
+      "keyVaultUrl": "https://neurodb-prod-kv.vault.azure.net/secrets/activityinfo-token",
+      "identity": "<managed-identity-resource-id>"
+    },
+    {
+      "name": "etools-token",
+      "keyVaultUrl": "https://neurodb-prod-kv.vault.azure.net/secrets/etools-token",
+      "identity": "<managed-identity-resource-id>"
+    },
+    {
+      "name": "entra-client-secret",
+      "keyVaultUrl": "https://neurodb-prod-kv.vault.azure.net/secrets/entra-client-secret",
+      "identity": "<managed-identity-resource-id>"
+    }
+  ],
+  "env": [
+    {
+      "name": "DJANGO_ENV",
+      "value": "production"
+    },
+    {
+      "name": "DJANGO_DEBUG",
+      "value": "off"
+    },
+    {
+      "name": "DJANGO_SECRET_KEY",
+      "secretRef": "django-secret-key"
+    },
+    {
+      "name": "ALLOWED_HOSTS",
+      "value": "neuro-db.org"
+    },
+    {
+      "name": "CSRF_TRUSTED_ORIGINS",
+      "value": "https://neuro-db.org"
+    },
+    {
+      "name": "ADMIN_URL_PATH",
+      "value": "manage/"
+    },
+    {
+      "name": "TIME_ZONE",
+      "value": "Asia/Beirut"
+    },
+    {
+      "name": "LEGACY_TABLES_MANAGED",
+      "value": "off"
+    },
+    {
+      "name": "DATABASE_URL",
+      "secretRef": "database-url"
+    },
+    {
+      "name": "DB_SSLMODE",
+      "value": "require"
+    },
+    {
+      "name": "DB_CONN_MAX_AGE",
+      "value": "60"
+    },
+    {
+      "name": "ACTIVITYINFO_BASE_URL",
+      "value": "https://www.activityinfo.org"
+    },
+    {
+      "name": "ACTIVITYINFO_TOKEN",
+      "secretRef": "activityinfo-token"
+    },
+    {
+      "name": "ETOOLS_BASE_URL",
+      "value": "https://etools.unicef.org"
+    },
+    {
+      "name": "ETOOLS_TOKEN",
+      "secretRef": "etools-token"
+    },
+    {
+      "name": "SYNC_STALENESS_HOURS",
+      "value": "30"
+    },
+    {
+      "name": "ENTRA_TENANT_ID",
+      "value": "<entra-tenant-id>"
+    },
+    {
+      "name": "ENTRA_CLIENT_ID",
+      "value": "<entra-app-client-id>"
+    },
+    {
+      "name": "ENTRA_CLIENT_SECRET",
+      "secretRef": "entra-client-secret"
+    },
+    {
+      "name": "AZURE_STORAGE_ACCOUNT",
+      "value": "<storage-account-name>"
+    },
+    {
+      "name": "AZURE_CONTAINER_MEDIA",
+      "value": "media"
+    },
+    {
+      "name": "AZURE_CLIENT_ID",
+      "value": "<managed-identity-client-id>"
+    },
+    {
+      "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+      "value": "<application-insights-connection-string>"
+    },
+    {
+      "name": "LOG_FORMAT",
+      "value": "json"
+    },
+    {
+      "name": "LOG_LEVEL",
+      "value": "INFO"
+    },
+    {
+      "name": "PORT",
+      "value": "8000"
+    },
+    {
+      "name": "WEB_CONCURRENCY",
+      "value": "3"
+    },
+    {
+      "name": "GUNICORN_THREADS",
+      "value": "4"
+    },
+    {
+      "name": "GUNICORN_TIMEOUT",
+      "value": "120"
+    },
+    {
+      "name": "PUBLIC_PAGES",
+      "value": ""
+    },
+    {
+      "name": "PUBLIC_LANDING_STATS",
+      "value": "on"
+    },
+    {
+      "name": "SUPPORT_EMAIL",
+      "value": "<neurodb-support-email>"
+    },
+    {
+      "name": "USER_GUIDE_URL",
+      "value": ""
+    }
+  ]
+}

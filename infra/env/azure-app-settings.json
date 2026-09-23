@@ -1,0 +1,177 @@
+[
+  {
+    "name": "DJANGO_ENV",
+    "value": "production",
+    "slotSetting": false
+  },
+  {
+    "name": "DJANGO_DEBUG",
+    "value": "off",
+    "slotSetting": false
+  },
+  {
+    "name": "DJANGO_SECRET_KEY",
+    "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=django-secret-key)",
+    "slotSetting": false
+  },
+  {
+    "name": "ALLOWED_HOSTS",
+    "value": "neuro-db.org",
+    "slotSetting": false
+  },
+  {
+    "name": "CSRF_TRUSTED_ORIGINS",
+    "value": "https://neuro-db.org",
+    "slotSetting": false
+  },
+  {
+    "name": "ADMIN_URL_PATH",
+    "value": "manage/",
+    "slotSetting": false
+  },
+  {
+    "name": "TIME_ZONE",
+    "value": "Asia/Beirut",
+    "slotSetting": false
+  },
+  {
+    "name": "LEGACY_TABLES_MANAGED",
+    "value": "off",
+    "slotSetting": false
+  },
+  {
+    "name": "DATABASE_URL",
+    "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=database-url)",
+    "slotSetting": false
+  },
+  {
+    "name": "DB_SSLMODE",
+    "value": "require",
+    "slotSetting": false
+  },
+  {
+    "name": "DB_CONN_MAX_AGE",
+    "value": "60",
+    "slotSetting": false
+  },
+  {
+    "name": "ACTIVITYINFO_BASE_URL",
+    "value": "https://www.activityinfo.org",
+    "slotSetting": false
+  },
+  {
+    "name": "ACTIVITYINFO_TOKEN",
+    "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=activityinfo-token)",
+    "slotSetting": false
+  },
+  {
+    "name": "ETOOLS_BASE_URL",
+    "value": "https://etools.unicef.org",
+    "slotSetting": false
+  },
+  {
+    "name": "ETOOLS_TOKEN",
+    "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=etools-token)",
+    "slotSetting": false
+  },
+  {
+    "name": "SYNC_STALENESS_HOURS",
+    "value": "30",
+    "slotSetting": false
+  },
+  {
+    "name": "ENTRA_TENANT_ID",
+    "value": "<entra-tenant-id>",
+    "slotSetting": false
+  },
+  {
+    "name": "ENTRA_CLIENT_ID",
+    "value": "<entra-app-client-id>",
+    "slotSetting": false
+  },
+  {
+    "name": "ENTRA_CLIENT_SECRET",
+    "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=entra-client-secret)",
+    "slotSetting": false
+  },
+  {
+    "name": "AZURE_STORAGE_ACCOUNT",
+    "value": "<storage-account-name>",
+    "slotSetting": false
+  },
+  {
+    "name": "AZURE_CONTAINER_MEDIA",
+    "value": "media",
+    "slotSetting": false
+  },
+  {
+    "name": "AZURE_CLIENT_ID",
+    "value": "<managed-identity-client-id>",
+    "slotSetting": false
+  },
+  {
+    "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+    "value": "<application-insights-connection-string>",
+    "slotSetting": false
+  },
+  {
+    "name": "LOG_FORMAT",
+    "value": "json",
+    "slotSetting": false
+  },
+  {
+    "name": "LOG_LEVEL",
+    "value": "INFO",
+    "slotSetting": false
+  },
+  {
+    "name": "PORT",
+    "value": "8000",
+    "slotSetting": false
+  },
+  {
+    "name": "WEB_CONCURRENCY",
+    "value": "3",
+    "slotSetting": false
+  },
+  {
+    "name": "GUNICORN_THREADS",
+    "value": "4",
+    "slotSetting": false
+  },
+  {
+    "name": "GUNICORN_TIMEOUT",
+    "value": "120",
+    "slotSetting": false
+  },
+  {
+    "name": "PUBLIC_PAGES",
+    "value": "",
+    "slotSetting": false
+  },
+  {
+    "name": "PUBLIC_LANDING_STATS",
+    "value": "on",
+    "slotSetting": false
+  },
+  {
+    "name": "SUPPORT_EMAIL",
+    "value": "<neurodb-support-email>",
+    "slotSetting": false
+  },
+  {
+    "name": "USER_GUIDE_URL",
+    "value": "",
+    "slotSetting": false
+  },
+  {
+    "name": "WEBSITES_PORT",
+    "value": "8000",
+    "slotSetting": false
+  },
+  {
+    "name": "WEBSITES_ENABLE_APP_SERVICE_STORAGE",
+    "value": "false",
+    "slotSetting": false
+  }
+]

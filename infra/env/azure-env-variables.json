@@ -1,0 +1,330 @@
+{
+  "keyVault": "neurodb-prod-kv",
+  "setAutomaticallyDoNotAdd": [
+    "CONTAINER_APP_NAME",
+    "CONTAINER_APP_ENV_DNS_SUFFIX",
+    "WEBSITE_HOSTNAME",
+    "APP_VERSION"
+  ],
+  "neverSetInAzure": {
+    "AZURE_STORAGE_KEY": "access uses the managed identity",
+    "DEBUG_TOOLBAR": "local development only"
+  },
+  "variables": [
+    {
+      "name": "DJANGO_ENV",
+      "group": "Core",
+      "required": true,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "production",
+      "description": "Environment: production (or staging). Turns on HTTPS redirect, secure cookies, HSTS and TLS to PostgreSQL."
+    },
+    {
+      "name": "DJANGO_DEBUG",
+      "group": "Core",
+      "required": true,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "off",
+      "description": "Must stay off in Azure."
+    },
+    {
+      "name": "DJANGO_SECRET_KEY",
+      "group": "Core",
+      "required": true,
+      "secret": true,
+      "keyVaultSecret": "django-secret-key",
+      "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=django-secret-key)",
+      "description": "Random value of at least 50 characters. Changing it signs everyone out."
+    },
+    {
+      "name": "ALLOWED_HOSTS",
+      "group": "Core",
+      "required": true,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "neuro-db.org",
+      "description": "Comma-separated public host names. The Azure default host (*.azurecontainerapps.io or *.azurewebsites.net) is added automatically."
+    },
+    {
+      "name": "CSRF_TRUSTED_ORIGINS",
+      "group": "Core",
+      "required": true,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "https://neuro-db.org",
+      "description": "Comma-separated https:// origins matching ALLOWED_HOSTS."
+    },
+    {
+      "name": "ADMIN_URL_PATH",
+      "group": "Core",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "manage/",
+      "description": "Path of the administration site; change it to make the admin harder to find."
+    },
+    {
+      "name": "TIME_ZONE",
+      "group": "Core",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "Asia/Beirut",
+      "description": "Time zone for dates shown in the application."
+    },
+    {
+      "name": "LEGACY_TABLES_MANAGED",
+      "group": "Database",
+      "required": true,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "off",
+      "description": "Must stay off: Django never creates or alters the existing v2 tables."
+    },
+    {
+      "name": "DATABASE_URL",
+      "group": "Database",
+      "required": true,
+      "secret": true,
+      "keyVaultSecret": "database-url",
+      "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=database-url)",
+      "description": "postgres://<user>:<password>@<server>.postgres.database.azure.com:5432/<database>?sslmode=require"
+    },
+    {
+      "name": "DB_SSLMODE",
+      "group": "Database",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "require",
+      "description": "TLS mode for PostgreSQL when DATABASE_URL does not set sslmode."
+    },
+    {
+      "name": "DB_CONN_MAX_AGE",
+      "group": "Database",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "60",
+      "description": "Seconds a database connection is reused."
+    },
+    {
+      "name": "ACTIVITYINFO_BASE_URL",
+      "group": "Integrations",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "https://www.activityinfo.org",
+      "description": "ActivityInfo API root."
+    },
+    {
+      "name": "ACTIVITYINFO_TOKEN",
+      "group": "Integrations",
+      "required": true,
+      "secret": true,
+      "keyVaultSecret": "activityinfo-token",
+      "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=activityinfo-token)",
+      "description": "ActivityInfo service-account API token."
+    },
+    {
+      "name": "ETOOLS_BASE_URL",
+      "group": "Integrations",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "https://etools.unicef.org",
+      "description": "eTools API root."
+    },
+    {
+      "name": "ETOOLS_TOKEN",
+      "group": "Integrations",
+      "required": true,
+      "secret": true,
+      "keyVaultSecret": "etools-token",
+      "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=etools-token)",
+      "description": "eTools service-account token."
+    },
+    {
+      "name": "SYNC_STALENESS_HOURS",
+      "group": "Integrations",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "30",
+      "description": "A source is reported stale after this many hours without a successful sync."
+    },
+    {
+      "name": "ENTRA_TENANT_ID",
+      "group": "Single sign-on",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "<entra-tenant-id>",
+      "description": "Microsoft Entra tenant id. Leave the three ENTRA_* variables out to use password sign-in only."
+    },
+    {
+      "name": "ENTRA_CLIENT_ID",
+      "group": "Single sign-on",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "<entra-app-client-id>",
+      "description": "Client id of the NeuroDB app registration; redirect URI https://<host>/accounts/microsoft/login/callback/."
+    },
+    {
+      "name": "ENTRA_CLIENT_SECRET",
+      "group": "Single sign-on",
+      "required": false,
+      "secret": true,
+      "keyVaultSecret": "entra-client-secret",
+      "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=entra-client-secret)",
+      "description": "Client secret of the app registration."
+    },
+    {
+      "name": "AZURE_STORAGE_ACCOUNT",
+      "group": "Files",
+      "required": true,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "<storage-account-name>",
+      "description": "Blob storage account for uploaded files and import copies. Access uses the managed identity, no key."
+    },
+    {
+      "name": "AZURE_CONTAINER_MEDIA",
+      "group": "Files",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "media",
+      "description": "Blob container name."
+    },
+    {
+      "name": "AZURE_CLIENT_ID",
+      "group": "Files",
+      "required": true,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "<managed-identity-client-id>",
+      "description": "Client id of the user-assigned managed identity (roles: Storage Blob Data Contributor, Key Vault Secrets User, AcrPull)."
+    },
+    {
+      "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+      "group": "Monitoring",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "<application-insights-connection-string>",
+      "description": "Enables Application Insights tracing; leave out to disable."
+    },
+    {
+      "name": "LOG_FORMAT",
+      "group": "Monitoring",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "json",
+      "description": "json for Log Analytics, plain for local reading."
+    },
+    {
+      "name": "LOG_LEVEL",
+      "group": "Monitoring",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "INFO",
+      "description": "Application log level."
+    },
+    {
+      "name": "PORT",
+      "group": "Container",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "8000",
+      "description": "Port gunicorn listens on inside the container."
+    },
+    {
+      "name": "WEB_CONCURRENCY",
+      "group": "Container",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "3",
+      "description": "Gunicorn worker processes (2-3 per vCPU)."
+    },
+    {
+      "name": "GUNICORN_THREADS",
+      "group": "Container",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "4",
+      "description": "Threads per worker."
+    },
+    {
+      "name": "GUNICORN_TIMEOUT",
+      "group": "Container",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "120",
+      "description": "Request timeout in seconds (large Excel exports)."
+    },
+    {
+      "name": "PUBLIC_PAGES",
+      "group": "Public access",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "",
+      "description": "Pages opened without sign-in: comma-separated from library, maps, population. Empty keeps everything except the landing page private."
+    },
+    {
+      "name": "PUBLIC_LANDING_STATS",
+      "group": "Public access",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "on",
+      "description": "Show aggregate counts on the public landing page."
+    },
+    {
+      "name": "SUPPORT_EMAIL",
+      "group": "Public access",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "<neurodb-support-email>",
+      "description": "Contact shown on the landing page and FAQ; empty hides it."
+    },
+    {
+      "name": "USER_GUIDE_URL",
+      "group": "Public access",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "",
+      "description": "Link to a user guide; empty hides it."
+    },
+    {
+      "name": "WEBSITES_PORT",
+      "group": "App Service only",
+      "required": true,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "8000",
+      "description": "Tells App Service which container port to route to. Not used on Container Apps."
+    },
+    {
+      "name": "WEBSITES_ENABLE_APP_SERVICE_STORAGE",
+      "group": "App Service only",
+      "required": true,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "false",
+      "description": "The container needs no shared /home storage. Not used on Container Apps."
+    }
+  ]
+}
