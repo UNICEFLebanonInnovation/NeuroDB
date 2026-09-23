@@ -1,0 +1,23 @@
+{% load i18n unfold %}
+{% comment %}Shared body of the "add sub-indicators" and "add master indicators" wizards, in the Unfold style.{% endcomment %}
+<form method="post" class="max-w-4xl">
+  {% csrf_token %}
+  {% include "unfold/helpers/form_errors.html" with errors=form.non_field_errors %}
+  {% component "unfold/components/card.html" with title=title %}
+    <div class="flex flex-col gap-6">
+      {% for field in form %}
+        <div class="flex flex-col gap-2">
+          <label class="font-semibold text-important" for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {% if field.errors %}<div class="text-red-600 dark:text-red-500">{{ field.errors }}</div>{% endif %}
+          <div class="nd-wizard-field">{{ field }}</div>
+          {% if field.help_text %}<p class="text-subtle">{{ field.help_text }}</p>{% endif %}
+        </div>
+      {% empty %}
+        <p>{% trans "Nothing to add." %}</p>
+      {% endfor %}
+    </div>
+  {% endcomponent %}
+  <div class="flex justify-end mt-6">
+    {% component "unfold/components/button.html" with submit=1 %}{{ submit_label }}{% endcomponent %}
+  </div>
+</form>

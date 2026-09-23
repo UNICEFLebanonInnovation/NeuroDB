@@ -1,103 +1,133 @@
-{% extends "admin/base_site.html" %}
-{% load i18n static log %}
+{% extends "admin/base.html" %}
+{% load i18n unfold %}
 
-{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static "admin/css/dashboard.css" %}">{% endblock %}
-{% block coltype %}colMS{% endblock %}
-{% block bodyclass %}{{ block.super }} dashboard nd-dashboard{% endblock %}
-{% block nav-breadcrumbs %}{% endblock %}
-{% block nav-sidebar %}{% endblock %}
+{% block title %}{{ title }} | {{ site_title|default:_("Django site admin") }}{% endblock %}
 
-{% block content %}
-<div id="content-main">
-  {% if dashboard.error %}
-    <p class="errornote">{% translate "The dashboard figures could not be loaded. The database may be unavailable; the lists below still work once it is back." %}</p>
-  {% else %}
-    <section class="nd-tiles" aria-label="{% translate 'Key figures' %}">
-      {% for tile in dashboard.tiles %}
-        {% if tile.url %}<a class="nd-tile" href="{{ tile.url }}">{% else %}<div class="nd-tile">{% endif %}
-          <span class="nd-tile__value">{{ tile.value }}</span>
-          <span class="nd-tile__label">{{ tile.label }}</span>
-        {% if tile.url %}</a>{% else %}</div>{% endif %}
-      {% endfor %}
-    </section>
-
-    <div class="module nd-panel">
-      <h2>{% translate "Needs attention" %}</h2>
-      {% if dashboard.warnings %}
-        <ul class="nd-warnings">
-          {% for w in dashboard.warnings %}
-            <li>{% if w.url %}<a href="{{ w.url }}">{{ w.text }}</a>{% else %}{{ w.text }}{% endif %}</li>
-          {% endfor %}
-        </ul>
-      {% else %}
-        <p class="nd-allgood">{% translate "Nothing needs attention. Imports are current and the configuration is complete." %}</p>
-      {% endif %}
-    </div>
-
-    <div class="module nd-panel">
-      <h2>{% translate "Data jobs" %}</h2>
-      <div class="nd-scroll"><table class="nd-jobs">
-        <thead>
-          <tr>
-            <th scope="col">{% translate "Job" %}</th>
-            <th scope="col">{% translate "Last run" %}</th>
-            <th scope="col">{% translate "Status" %}</th>
-            <th scope="col">{% translate "Last success" %}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for j in dashboard.jobs %}
-            <tr>
-              <th scope="row"><a href="{% url 'admin:core_syncrun_changelist' %}?job__exact={{ j.job }}">{{ j.label }}</a></th>
-              <td>{% if j.last %}{{ j.last.started_at|timesince }} {% translate "ago" %}{% else %}—{% endif %}</td>
-              <td>{% if j.last %}<span class="nd-badge nd-badge--{% if j.last.status == 'succeeded' %}ok{% elif j.last.status == 'partial' %}warn{% elif j.last.status == 'failed' %}bad{% else %}info{% endif %}">{{ j.last.get_status_display }}</span>{% else %}<span class="nd-badge nd-badge--muted">{% translate "Never run" %}</span>{% endif %}</td>
-              <td>{% if j.last_success %}{{ j.last_success.finished_at|date:"j M Y, H:i" }}{% else %}—{% endif %}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table></div>
-    </div>
-  {% endif %}
-
-  <div class="nd-groups">
-    {% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
-  </div>
-</div>
+{% block branding %}
+  {% include "unfold/helpers/site_branding.html" %}
 {% endblock %}
 
-{% block sidebar %}
-<div id="content-related">
-  <div class="module nd-quick">
-    <h2>{% translate "Quick actions" %}</h2>
-    <ul>
-      {% if perms.users.add_user %}<li><a href="{% url 'admin:users_user_add' %}">{% translate "Add a user" %}</a></li>{% endif %}
-      {% if perms.users.view_user %}<li><a href="{% url 'admin:users_user_changelist' %}?role=none&amp;is_active__exact=1">{% translate "Give roles to new users" %}</a></li>{% endif %}
-      {% if perms.pivoting.change_database %}<li><a href="{% url 'admin:pivoting_database_changelist' %}">{% translate "Run an ActivityInfo import" %}</a></li>{% endif %}
-      {% if perms.pivoting.add_neuroreport %}<li><a href="{% url 'admin:pivoting_neuroreport_add' %}">{% translate "Create a Neuro report" %}</a></li>{% endif %}
-      {% if perms.pivoting.add_resource %}<li><a href="{% url 'admin:pivoting_resource_add' %}">{% translate "Publish a library resource" %}</a></li>{% endif %}
-      <li><a href="{% url 'reports:data_health' %}">{% translate "Open the data health page" %}</a></li>
-      {% if user.is_superuser %}<li><a href="{% url 'admin:admin_logentry_changelist' %}">{% translate "Audit trail" %}</a></li>{% endif %}
-    </ul>
+{% block content %}
+<div class="flex flex-col lg:flex-row gap-6">
+  <div class="flex flex-col gap-6 grow min-w-0">
+    {% if dashboard.error %}
+      {% trans "The dashboard figures could not be loaded. The database may be unavailable; the lists below still work once it is back." as error_message %}
+      {% include "unfold/helpers/messages/error.html" with error=error_message %}
+    {% else %}
+      <section class="nd-tiles" aria-label="{% trans 'Key figures' %}">
+        {% for tile in dashboard.tiles %}
+          {% component "unfold/components/card.html" with href=tile.url size="md" %}
+            <div class="font-semibold text-2xl text-font-important-light tracking-tight dark:text-font-important-dark">{{ tile.value }}</div>
+            <p class="text-subtle mb-0">{{ tile.label }}</p>
+          {% endcomponent %}
+        {% endfor %}
+      </section>
+
+      <div class="nd-panels">
+        {% trans "Needs attention" as attention_title %}
+        {% component "unfold/components/card.html" with title=attention_title title_icon="notification_important" %}
+          {% if dashboard.warnings %}
+            <ul class="nd-warnings">
+              {% for w in dashboard.warnings %}
+                <li>
+                  <span class="material-symbols-outlined nd-warnings__icon">warning</span>
+                  {% if w.url %}<a class="nd-link" href="{{ w.url }}">{{ w.text }}</a>{% else %}{{ w.text }}{% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="nd-allgood mb-0">
+              <span class="material-symbols-outlined">check_circle</span>
+              {% trans "Nothing needs attention. Imports are current and the configuration is complete." %}
+            </p>
+          {% endif %}
+        {% endcomponent %}
+
+        {% trans "Quick actions" as quick_title %}
+        {% component "unfold/components/card.html" with title=quick_title title_icon="bolt" %}
+          <ul class="nd-quick">
+            {% if perms.users.add_user %}<li><a href="{% url 'admin:users_user_add' %}"><span class="material-symbols-outlined">person_add</span>{% trans "Add a user" %}</a></li>{% endif %}
+            {% if perms.users.view_user %}<li><a href="{% url 'admin:users_user_changelist' %}?role=none&amp;is_active__exact=1"><span class="material-symbols-outlined">badge</span>{% trans "Give roles to new users" %}</a></li>{% endif %}
+            {% if perms.pivoting.change_database %}<li><a href="{% url 'admin:pivoting_database_changelist' %}"><span class="material-symbols-outlined">sync</span>{% trans "Run an ActivityInfo import" %}</a></li>{% endif %}
+            {% if perms.pivoting.add_neuroreport %}<li><a href="{% url 'admin:pivoting_neuroreport_add' %}"><span class="material-symbols-outlined">summarize</span>{% trans "Create a Neuro report" %}</a></li>{% endif %}
+            {% if perms.pivoting.add_resource %}<li><a href="{% url 'admin:pivoting_resource_add' %}"><span class="material-symbols-outlined">menu_book</span>{% trans "Publish a library resource" %}</a></li>{% endif %}
+            <li><a href="{% url 'reports:data_health' %}"><span class="material-symbols-outlined">monitor_heart</span>{% trans "Open the data health page" %}</a></li>
+            {% if user.is_superuser %}<li><a href="{% url 'admin:admin_logentry_changelist' %}"><span class="material-symbols-outlined">history</span>{% trans "Audit trail" %}</a></li>{% endif %}
+          </ul>
+        {% endcomponent %}
+      </div>
+
+      {% trans "Data jobs" as jobs_title %}
+      {% component "unfold/components/card.html" with title=jobs_title title_icon="sync" %}
+        <div class="nd-scroll">
+          <table class="nd-jobs">
+            <thead>
+              <tr>
+                <th scope="col">{% trans "Job" %}</th>
+                <th scope="col">{% trans "Last run" %}</th>
+                <th scope="col">{% trans "Status" %}</th>
+                <th scope="col">{% trans "Last success" %}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for j in dashboard.jobs %}
+                <tr>
+                  <th scope="row"><a class="nd-link" href="{% url 'admin:core_syncrun_changelist' %}?job__exact={{ j.job }}">{{ j.label }}</a></th>
+                  <td>{% if j.last %}{% blocktrans with since=j.last.started_at|timesince %}{{ since }} ago{% endblocktrans %}{% else %}—{% endif %}</td>
+                  <td>
+                    {% if j.last %}
+                      {% if j.last.status == "succeeded" %}{% include "unfold/helpers/label.html" with text=j.last.get_status_display variant="success" size="md" class="nd-badge" %}
+                      {% elif j.last.status == "partial" %}{% include "unfold/helpers/label.html" with text=j.last.get_status_display variant="warning" size="md" class="nd-badge" %}
+                      {% elif j.last.status == "failed" %}{% include "unfold/helpers/label.html" with text=j.last.get_status_display variant="danger" size="md" class="nd-badge" %}
+                      {% else %}{% include "unfold/helpers/label.html" with text=j.last.get_status_display variant="info" size="md" class="nd-badge" %}{% endif %}
+                    {% else %}
+                      {% trans "Never run" as never_run %}{% include "unfold/helpers/label.html" with text=never_run size="md" class="nd-badge" %}
+                    {% endif %}
+                  </td>
+                  <td>{% if j.last_success %}{{ j.last_success.finished_at|date:"j M Y, H:i" }}{% else %}—{% endif %}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endcomponent %}
+    {% endif %}
+
+    <div class="nd-groups">
+      {% for app in app_list %}
+        <section id="group-{{ app.app_label }}" class="nd-group">
+          <h2 class="bg-base-100 flex flex-col font-semibold justify-center min-h-[38px] px-3 py-2 rounded-default text-important dark:bg-white/[.02]">
+            {{ app.name }}
+            {% if app.description %}<span class="nd-group__desc font-normal text-subtle">{{ app.description }}</span>{% endif %}
+          </h2>
+          <table class="border border-base-200 border-spacing-none border-separate rounded-default overflow-hidden shadow-xs w-full dark:border-base-800">
+            {% for model in app.models %}
+              <tr class="*:border-b *:border-base-200 dark:*:border-base-800 last:*:border-b-0 hover:bg-base-50 dark:hover:bg-white/[.02]">
+                <th scope="row" class="font-normal px-3 py-2.5 text-left text-important">
+                  <a href="{{ model.admin_url }}" class="flex items-center gap-2">
+                    <span class="material-symbols-outlined md-18 text-subtle">{{ model.icon }}</span>{{ model.name }}
+                  </a>
+                </th>
+                <td class="pl-3 text-right w-px">
+                  <div class="flex flex-row items-center ml-auto justify-end text-icon *:border-l *:flex *:items-center *:justify-center *:h-[22px] *:w-[40px] *:hover:text-primary-600 *:dark:border-base-700 *:dark:hover:text-primary-500 *:first:border-l-0">
+                    {% if model.view_only %}
+                      <a href="{{ model.admin_url }}" title="{% trans 'View' %}"><span class="material-symbols-outlined">visibility</span></a>
+                    {% else %}
+                      <a href="{{ model.admin_url }}" title="{% trans 'Change' %}"><span class="material-symbols-outlined">edit</span></a>
+                    {% endif %}
+                    {% if model.add_url %}
+                      <a href="{{ model.add_url }}" title="{% trans 'Add' %}"><span class="material-symbols-outlined">add</span></a>
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </table>
+        </section>
+      {% endfor %}
+    </div>
   </div>
 
-  <div class="module" id="recent-actions-module">
-    <h2>{% translate "Recent actions" %}</h2>
-    <h3>{% translate "My actions" %}</h3>
-    {% get_admin_log 10 as admin_log for_user user %}
-    {% if not admin_log %}
-      <p>{% translate "None available" %}</p>
-    {% else %}
-      <ul class="actionlist">
-        {% for entry in admin_log %}
-          <li class="{% if entry.is_addition %}addlink{% endif %}{% if entry.is_change %}changelink{% endif %}{% if entry.is_deletion %}deletelink{% endif %}">
-            <span class="visually-hidden">{% if entry.is_addition %}{% translate "Added:" %}{% elif entry.is_change %}{% translate "Changed:" %}{% elif entry.is_deletion %}{% translate "Deleted:" %}{% endif %}</span>
-            {% if entry.is_deletion or not entry.get_admin_url %}{{ entry.object_repr }}{% else %}<a href="{{ entry.get_admin_url }}">{{ entry.object_repr }}</a>{% endif %}
-            <br><span class="mini quiet">{% if entry.content_type %}{% filter capfirst %}{{ entry.content_type.name }}{% endfilter %}{% else %}{% translate "Unknown content" %}{% endif %} · {{ entry.action_time|timesince }}</span>
-          </li>
-        {% endfor %}
-      </ul>
-    {% endif %}
-    {% if user.is_superuser %}<p class="nd-more"><a href="{% url 'admin:admin_logentry_changelist' %}">{% translate "Everyone's changes" %} →</a></p>{% endif %}
-  </div>
+  {% include "unfold/helpers/history.html" %}
 </div>
 {% endblock %}

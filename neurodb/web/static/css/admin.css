@@ -1,79 +1,50 @@
-/* NeuroDB admin additions: badges, dashboard tiles and panels. Uses Django admin's CSS variables so
-   light and dark themes both work. */
-
-.nd-badge {
-  display: inline-block;
-  padding: .1rem .5rem;
-  border-radius: 999px;
-  font-size: .75rem;
-  font-weight: 600;
-  line-height: 1.5;
-  white-space: nowrap;
-  border: 1px solid transparent;
-}
-.nd-badge--ok { background: #e3f4e8; color: #1c6b37; border-color: #b9e2c6; }
-.nd-badge--warn { background: #fff4d6; color: #7a5300; border-color: #f2d98c; }
-.nd-badge--bad { background: #fde5e4; color: #a12622; border-color: #f4bcb9; }
-.nd-badge--info { background: #e4ecfa; color: #2b4679; border-color: #bccdef; }
-.nd-badge--muted { background: var(--darkened-bg); color: var(--body-quiet-color); border-color: var(--hairline-color); }
+/* NeuroDB additions to the Unfold admin theme: dashboard layout pieces that Unfold's prebuilt
+   stylesheet has no utility classes for. Colours come from Unfold's variables, so the light and
+   dark themes (Unfold toggles a .dark class on <html>) both follow. */
 
 .nd-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 12px;
-  margin-bottom: 20px;
 }
-.nd-tile {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 14px 16px;
-  border: 1px solid var(--hairline-color);
-  border-radius: 8px;
-  background: var(--body-bg);
-  color: var(--body-fg);
-  text-decoration: none;
+
+.nd-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 24px;
 }
-a.nd-tile:link, a.nd-tile:visited { color: var(--body-fg); }
-a.nd-tile:hover, a.nd-tile:focus-visible { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); text-decoration: none; }
-.nd-tile__value { font-size: 1.6rem; font-weight: 700; color: var(--secondary); font-variant-numeric: tabular-nums; }
-.nd-tile__label { font-size: .8rem; color: var(--body-quiet-color); }
-
-.nd-panel { margin-bottom: 20px; }
-.nd-warnings { margin: 0; padding: 8px 12px 8px 30px; }
-.nd-warnings li { list-style: disc; padding: 4px 0; }
-.nd-allgood { padding: 10px 12px; margin: 0; color: #1c6b37; }
-.nd-jobs { width: 100%; }
-.nd-scroll { overflow-x: auto; }
-.nd-jobs th, .nd-jobs td { vertical-align: middle; }
-.nd-jobs th[scope="row"] { min-width: 11rem; }
-.nd-jobs td { white-space: nowrap; }
-
-.nd-group-desc { display: block; font-size: .75rem; font-weight: 400; text-transform: none; letter-spacing: 0; opacity: .85; margin-top: 2px; }
-/* Django's dashboard is a fixed 600px column; use the width available instead. */
-.nd-dashboard #content { width: auto; max-width: 1280px; }
-.nd-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 0 20px; align-items: start; }
-.nd-groups .module { margin-bottom: 20px; }
-.nd-groups .module table { width: 100%; }
-[id^="group-"] { scroll-margin-top: 16px; }
-
-.nd-quick ul { margin: 0; padding: 8px 12px 8px 28px; }
-.nd-quick li { list-style: disc; padding: 3px 0; }
-.nd-more { padding: 0 10px 10px; margin: 0; font-size: .8rem; }
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --link-fg: #8fb0ea; --link-hover-color: #b9cff5; --link-selected-fg: #b9cff5; }
-  :root:not([data-theme="light"]) .nd-badge--ok { background: #143821; color: #9fe0b4; border-color: #25603a; }
-  :root:not([data-theme="light"]) .nd-badge--warn { background: #3b2e0a; color: #f3d27a; border-color: #6b5415; }
-  :root:not([data-theme="light"]) .nd-badge--bad { background: #431716; color: #f6aaa6; border-color: #7a2926; }
-  :root:not([data-theme="light"]) .nd-badge--info { background: #1b2a47; color: #a9c1ef; border-color: #34548f; }
-  :root:not([data-theme="light"]) .nd-allgood { color: #9fe0b4; }
-  :root:not([data-theme="light"]) .nd-tile__value { color: #a9c1ef; }
+@media (max-width: 1100px) {
+  .nd-panels { grid-template-columns: minmax(0, 1fr); }
 }
-:root[data-theme="dark"] { --link-fg: #8fb0ea; --link-hover-color: #b9cff5; --link-selected-fg: #b9cff5; }
-:root[data-theme="dark"] .nd-badge--ok { background: #143821; color: #9fe0b4; border-color: #25603a; }
-:root[data-theme="dark"] .nd-badge--warn { background: #3b2e0a; color: #f3d27a; border-color: #6b5415; }
-:root[data-theme="dark"] .nd-badge--bad { background: #431716; color: #f6aaa6; border-color: #7a2926; }
-:root[data-theme="dark"] .nd-badge--info { background: #1b2a47; color: #a9c1ef; border-color: #34548f; }
-:root[data-theme="dark"] .nd-allgood { color: #9fe0b4; }
-:root[data-theme="dark"] .nd-tile__value { color: #a9c1ef; }
+
+.nd-warnings, .nd-quick { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.nd-warnings li { display: flex; align-items: flex-start; gap: 8px; }
+.nd-warnings__icon { color: var(--color-orange-500, #f97316); font-size: 18px; }
+.nd-allgood { display: flex; align-items: center; gap: 8px; color: var(--color-green-700, #15803d); }
+.dark .nd-allgood { color: var(--color-green-400, #4ade80); }
+
+.nd-quick a { display: flex; align-items: center; gap: 10px; color: var(--color-primary-600); }
+.nd-quick a:hover { text-decoration: underline; }
+.dark .nd-quick a { color: var(--color-primary-400); }
+.nd-quick .material-symbols-outlined { font-size: 18px; }
+
+.nd-scroll { overflow-x: auto; margin: -8px 0; }
+.nd-jobs { width: 100%; border-collapse: collapse; }
+.nd-jobs th, .nd-jobs td { padding: 10px 12px 10px 0; text-align: left; vertical-align: middle; white-space: nowrap; }
+.nd-jobs thead th { font-weight: 600; color: var(--color-base-500); font-size: 12px; }
+.nd-jobs tbody tr + tr > * { border-top: 1px solid var(--color-base-200); }
+.dark .nd-jobs tbody tr + tr > * { border-top-color: var(--color-base-800); }
+.nd-jobs th[scope="row"] { font-weight: 500; min-width: 12rem; white-space: normal; }
+
+.nd-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 24px;
+  align-items: start;
+}
+.nd-group { display: flex; flex-direction: column; gap: 12px; scroll-margin-top: 80px; }
+.nd-group__desc { font-size: 12px; line-height: 1.4; }
+
+.nd-link { color: var(--color-primary-600); }
+.nd-link:hover { text-decoration: underline; }
+.dark .nd-link { color: var(--color-primary-400); }

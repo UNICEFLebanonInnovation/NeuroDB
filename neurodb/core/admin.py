@@ -3,6 +3,7 @@ from django.contrib.admin.models import ADDITION, CHANGE, DELETION, LogEntry
 from django.urls import NoReverseMatch
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
+from unfold.admin import ModelAdmin
 
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
@@ -50,7 +51,7 @@ class SyncRunAdmin(ReadOnlyModelAdmin):
 
 
 @admin.register(SavedView)
-class SavedViewAdmin(admin.ModelAdmin):
+class SavedViewAdmin(ModelAdmin):
     list_display = ("name", "owner", "page", "object_id", "is_shared", "updated_at")
     list_filter = ("page", "is_shared")
     search_fields = ("name", "owner__username")
@@ -59,7 +60,7 @@ class SavedViewAdmin(admin.ModelAdmin):
 
 
 @admin.register(PopulationFigure)
-class PopulationFigureAdmin(admin.ModelAdmin):
+class PopulationFigureAdmin(ModelAdmin):
     list_display = ("year", "category", "nationality", "level", "area_name", "age_group", "sex", "value")
     list_filter = ("year", "category", "nationality", "level")
     search_fields = ("area_name", "area_code")

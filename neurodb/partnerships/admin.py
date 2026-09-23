@@ -1,11 +1,12 @@
 """Read-only admin over the eTools replica tables (synced data is never edited by hand)."""
 
 from django.contrib import admin
+from unfold.admin import ModelAdmin
 
 from .models import PCA, ActionPoint, Agreement, Engagement, PartnerOrganization, Travel, TravelActivity
 
 
-class ReadOnlyAdmin(admin.ModelAdmin):
+class ReadOnlyAdmin(ModelAdmin):
     def has_add_permission(self, request):
         return False
 

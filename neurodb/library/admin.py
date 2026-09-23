@@ -1,5 +1,6 @@
 from django import forms
 from django.contrib import admin
+from unfold.admin import ModelAdmin
 
 from .models import Map, Resource, ResourceTag, ResourceTopic, ResourceType
 
@@ -39,7 +40,7 @@ class ResourceForm(forms.ModelForm):
 
 
 @admin.register(Resource)
-class ResourceAdmin(admin.ModelAdmin):
+class ResourceAdmin(ModelAdmin):
     form = ResourceForm
     list_display = ("title", "publication_year", "type", "topic", "section", "published")
     list_filter = ("published", "publication_year", "type", "topic")
@@ -48,10 +49,10 @@ class ResourceAdmin(admin.ModelAdmin):
 
 
 for model in (ResourceType, ResourceTopic, ResourceTag):
-    admin.site.register(model)
+    admin.site.register(model, ModelAdmin)
 
 
 @admin.register(Map)
-class MapAdmin(admin.ModelAdmin):
+class MapAdmin(ModelAdmin):
     list_display = ("name", "status", "link", "modified")
     list_filter = ("status",)

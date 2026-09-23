@@ -36,6 +36,7 @@ SITE_NAME = "NeuroDB"
 
 # ---------------------------------------------------------------------------- apps
 INSTALLED_APPS = [
+    "unfold.apps.BasicAppConfig",  # admin theme (templates only; the site is NeuroDBAdminSite below)
     "neurodb.web.apps.NeuroDBAdminConfig",  # django.contrib.admin with the NeuroDB admin site
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -231,6 +232,58 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 X_FRAME_OPTIONS = "DENY"
 ADMIN_URL_PATH = env("ADMIN_URL_PATH", default="manage/")
+
+# ---------------------------------------------------------------------------- admin theme (django-unfold)
+# Callables are resolved per request, so static() runs after the storage is configured.
+UNFOLD = {
+    "SITE_TITLE": "NeuroDB admin",
+    "SITE_HEADER": "NeuroDB",
+    "SITE_SUBHEADER": "Administration",
+    "SITE_URL": "/",
+    "SITE_ICON": lambda request: _static("img/logo-mark.png"),
+    "SITE_FAVICONS": [
+        {
+            "rel": "icon",
+            "type": "image/png",
+            "sizes": "64x64",
+            "href": lambda request: _static("img/favicon.png"),
+        },
+    ],
+    "SHOW_HISTORY": True,
+    "SHOW_VIEW_ON_SITE": True,
+    "ENVIRONMENT": "neurodb.web.admin_site.environment_badge",
+    "DASHBOARD_CALLBACK": None,  # the dashboard is built in NeuroDBAdminSite.index
+    "STYLES": [lambda request: _static("css/admin.css")],
+    "BORDER_RADIUS": "8px",
+    "COLORS": {
+        # NeuroDB blue (#446ab3 at 600), matching the public site.
+        "primary": {
+            "50": "#f1f5fb",
+            "100": "#e1e9f6",
+            "200": "#c8d6ee",
+            "300": "#a1b9e1",
+            "400": "#7596d0",
+            "500": "#5579c0",
+            "600": "#446ab3",
+            "700": "#385892",
+            "800": "#2f4a7a",
+            "900": "#283e64",
+            "950": "#1a2842",
+        },
+    },
+    "SIDEBAR": {
+        "show_search": True,
+        "show_all_applications": False,
+        "navigation": "neurodb.web.admin_site.sidebar_navigation",
+    },
+}
+
+
+def _static(path):
+    from django.templatetags.static import static
+
+    return static(path)
+
 
 # ---------------------------------------------------------------------------- public access
 # The landing page (/ for anonymous visitors, /welcome/ for everyone) is always public. Other pages

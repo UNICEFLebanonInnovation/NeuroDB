@@ -1,11 +1,5 @@
 {% extends "admin/base_site.html" %}
+{% load i18n %}
 {% block content %}
-<h2>{{ title }}</h2>
-<form method="post">{% csrf_token %}
-  <fieldset class="module aligned">
-    <div class="form-row"><label>Effect</label>{{ form.effect }}</div>
-    <div class="form-row"><label>Sub-indicators of {{ master.database }}</label>{{ form.subs }}</div>
-  </fieldset>
-  <div class="submit-row"><input type="submit" class="default" value="Link selected"></div>
-</form>
+{% include "admin/pivoting/wizard_form.html" with submit_label=_("Link selected") %}
 {% endblock %}

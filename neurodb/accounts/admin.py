@@ -2,6 +2,8 @@ from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.db.models import Count, Q
 from django.utils.translation import gettext_lazy as _
+from unfold.admin import ModelAdmin
+from unfold.forms import AdminPasswordChangeForm, UserChangeForm, UserCreationForm
 
 from neurodb.web.admin_helpers import badge
 
@@ -39,7 +41,11 @@ class RoleFilter(admin.SimpleListFilter):
 
 
 @admin.register(User)
-class UserAdmin(DjangoUserAdmin):
+class UserAdmin(DjangoUserAdmin, ModelAdmin):
+    # Unfold's versions of the user forms, so the password fields match the theme.
+    form = UserChangeForm
+    add_form = UserCreationForm
+    change_password_form = AdminPasswordChangeForm
     list_display = ("username", "email", "full_name", "section", "role", "is_active", "last_login")
     list_filter = (RoleFilter, "is_active", "section", "is_staff", "is_superuser")
     list_select_related = ("section",)
@@ -131,7 +137,7 @@ class UserAdmin(DjangoUserAdmin):
 
 
 @admin.register(Section)
-class SectionAdmin(admin.ModelAdmin):
+class SectionAdmin(ModelAdmin):
     list_display = ("name", "code", "user_count", "have_hpm_indicator", "powerbi_url")
     search_fields = ("name", "code")
 
@@ -144,6 +150,6 @@ class SectionAdmin(admin.ModelAdmin):
 
 
 @admin.register(Office)
-class OfficeAdmin(admin.ModelAdmin):
+class OfficeAdmin(ModelAdmin):
     list_display = ("name",)
     search_fields = ("name",)

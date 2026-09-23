@@ -181,3 +181,17 @@ def test_sync_runs_and_audit_trail_are_read_only(client_super, superuser, viewer
     assert "Changed email." in audit.content.decode()
     assert client_super.get(reverse("admin:core_syncrun_change", args=[run.pk])).status_code == 200
     assert client_super.get(reverse("admin:core_syncrun_add")).status_code == 403
+
+
+def test_unsafe_eval_is_allowed_on_admin_pages_only(client_super):
+    admin_csp = client_super.get(reverse("admin:index"))["Content-Security-Policy"]
+    site_csp = client_super.get(reverse("landing"))["Content-Security-Policy"]
+    assert "'unsafe-eval'" in admin_csp
+    assert "'unsafe-eval'" not in site_csp
+
+
+def test_admin_login_always_returns_to_the_admin(client, db):
+    response = client.get(reverse("admin:login"))
+    assert response.status_code == 302
+    assert response["Location"].endswith("?next=" + reverse("admin:index").replace("/", "%2F"))
+    assert client.get(response["Location"]).status_code == 200

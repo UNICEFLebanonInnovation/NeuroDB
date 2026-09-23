@@ -1,5 +1,10 @@
 {% extends "admin/change_form.html" %}
+{% load i18n %}
 {% block object-tools-items %}
-  {% if original %}<li><a href="{% url 'admin:pivoting_neuroreport_add_masters' original.pk %}" class="addlink">Add master indicators</a></li>{% endif %}
+  {% if original %}
+    {% url 'admin:pivoting_neuroreport_add_masters' original.pk as add_masters_url %}
+    {% trans "Add master indicators" as add_masters_title %}
+    {% include "unfold/helpers/tab_action.html" with title=add_masters_title link=add_masters_url icon="playlist_add" %}
+  {% endif %}
   {{ block.super }}
 {% endblock %}

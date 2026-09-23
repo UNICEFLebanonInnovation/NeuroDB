@@ -10,6 +10,7 @@ dependencies = [
   "django-allauth[socialaccount]~=65.0",
   "djangorestframework~=3.16",
   "django-htmx~=1.19",
+  "django-unfold~=0.107.0",              # admin theme; minor releases can change templates, so pin the minor
   "whitenoise~=6.9",
   "gunicorn~=23.0",
   "requests~=2.32",

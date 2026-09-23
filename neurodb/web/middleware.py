@@ -15,9 +15,12 @@ class ContentSecurityPolicyMiddleware:
         response = self.get_response(request)
         if "Content-Security-Policy" not in response:
             nonce = f"'nonce-{request.csp_nonce}'"
+            # The admin theme (Unfold) runs Alpine.js, which evaluates its x-* expressions. Only
+            # staff reach these pages, and every script is still served from this origin.
+            admin_eval = " 'unsafe-eval'" if request.path.startswith(f"/{settings.ADMIN_URL_PATH}") else ""
             policy = (
                 "default-src 'self'; "
-                f"script-src 'self' {nonce}; "
+                f"script-src 'self' {nonce}{admin_eval}; "
                 "style-src 'self' 'unsafe-inline'; "
                 "img-src 'self' data: blob: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; "
                 "font-src 'self' data:; "

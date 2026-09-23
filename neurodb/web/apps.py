@@ -14,3 +14,11 @@ class NeuroDBAdminConfig(admin_apps.AdminConfig):
 
     default = False
     default_site = "neurodb.web.admin_site.NeuroDBAdminSite"
+
+    def ready(self):
+        super().ready()  # autodiscovers every admin.py
+        from django.contrib import admin
+
+        from neurodb.web.admin_site import adopt_unfold
+
+        adopt_unfold(admin.site)

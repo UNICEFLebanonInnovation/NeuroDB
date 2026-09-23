@@ -10,6 +10,12 @@ from django.urls import path, reverse
 from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
+from unfold.admin import ModelAdmin, TabularInline
+from unfold.widgets import (
+    UnfoldAdminCheckboxSelectMultipleWidget,
+    UnfoldAdminSelectMultipleWidget,
+    UnfoldAdminSelectWidget,
+)
 
 from neurodb.indicators.services.navigation import invalidate
 from neurodb.web.admin_helpers import badge
@@ -31,7 +37,7 @@ from .models import (
 
 
 @admin.register(ReportingYear)
-class ReportingYearAdmin(admin.ModelAdmin):
+class ReportingYearAdmin(ModelAdmin):
     list_display = ("name", "year", "current")
     list_editable = ("current",)
 
@@ -67,7 +73,7 @@ class FreshnessFilter(admin.SimpleListFilter):
 
 
 @admin.register(Database)
-class DatabaseAdmin(admin.ModelAdmin):
+class DatabaseAdmin(ModelAdmin):
     list_display = (
         "label",
         "ai_id",
@@ -115,7 +121,7 @@ class DatabaseAdmin(admin.ModelAdmin):
 
     @admin.display(description=_("Dashboard"))
     def open_dashboard(self, obj):
-        return format_html('<a href="{}">{}</a>', self.view_on_site(obj), _("Open"))
+        return format_html('<a class="nd-link" href="{}">{}</a>', self.view_on_site(obj), _("Open"))
 
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
@@ -145,14 +151,14 @@ class DatabaseAdmin(admin.ModelAdmin):
 
 
 @admin.register(Activity)
-class ActivityAdmin(admin.ModelAdmin):
+class ActivityAdmin(ModelAdmin):
     list_display = ("name", "database", "ai_form_id", "category")
     list_filter = ("database",)
     search_fields = ("name", "label", "ai_form_id")
 
 
 @admin.register(IndicatorNew)
-class IndicatorAdmin(admin.ModelAdmin):
+class IndicatorAdmin(ModelAdmin):
     list_display = (
         "name",
         "awp_code",
@@ -169,7 +175,7 @@ class IndicatorAdmin(admin.ModelAdmin):
     autocomplete_fields = ("activity",)
 
 
-class MasterSubInline(admin.TabularInline):
+class MasterSubInline(TabularInline):
     model = MasterSubIndicator
     extra = 0
     autocomplete_fields = ("sub",)
@@ -177,20 +183,22 @@ class MasterSubInline(admin.TabularInline):
 
 
 class AddSubIndicatorsForm(forms.Form):
-    subs = forms.ModelMultipleChoiceField(
-        queryset=SubIndicator.objects.none(), widget=forms.CheckboxSelectMultiple
-    )
     effect = forms.ChoiceField(
+        widget=UnfoldAdminSelectWidget,
         choices=[
             ("TOTAL", "TOTAL"),
             ("NO_EFFECT", "NO_EFFECT"),
             ("NUMERATOR", "NUMERATOR"),
             ("DENOMINATOR", "DENOMINATOR"),
-        ]
+        ],
+    )
+    subs = forms.ModelMultipleChoiceField(
+        queryset=SubIndicator.objects.none(), widget=UnfoldAdminCheckboxSelectMultipleWidget
     )
 
     def __init__(self, master, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["subs"].label = _("Sub-indicators of %(db)s") % {"db": master.database}
         linked = master.subindicators.values_list("sub_id", flat=True)
         self.fields["subs"].queryset = (
             SubIndicator.objects.filter(database=master.database).exclude(id__in=linked).order_by("awp_code")
@@ -198,7 +206,7 @@ class AddSubIndicatorsForm(forms.Form):
 
 
 @admin.register(SubIndicator)
-class SubIndicatorAdmin(admin.ModelAdmin):
+class SubIndicatorAdmin(ModelAdmin):
     list_display = ("name", "awp_code", "database", "aggregation_method", "target")
     list_filter = ("database", "aggregation_method")
     search_fields = ("name", "awp_code")
@@ -222,7 +230,7 @@ class HasTargetFilter(admin.SimpleListFilter):
 
 
 @admin.register(MasterIndicator)
-class MasterIndicatorAdmin(admin.ModelAdmin):
+class MasterIndicatorAdmin(ModelAdmin):
     list_display = (
         "name",
         "awp_code",
@@ -277,11 +285,11 @@ class MasterIndicatorAdmin(admin.ModelAdmin):
 
 
 @admin.register(MasterIndicatorTag)
-class MasterIndicatorTagAdmin(admin.ModelAdmin):
+class MasterIndicatorTagAdmin(ModelAdmin):
     search_fields = ("name",)
 
 
-class ReportMasterInline(admin.TabularInline):
+class ReportMasterInline(TabularInline):
     model = NeuroReportMasterIndicator
     extra = 0
     autocomplete_fields = ("master",)
@@ -289,9 +297,17 @@ class ReportMasterInline(admin.TabularInline):
 
 
 class AddMasterIndicatorsForm(forms.Form):
-    tags = forms.ModelMultipleChoiceField(queryset=MasterIndicatorTag.objects.all(), required=False)
+    tags = forms.ModelMultipleChoiceField(
+        queryset=MasterIndicatorTag.objects.all(),
+        required=False,
+        label=_("By tag"),
+        widget=UnfoldAdminSelectMultipleWidget,
+    )
     masters = forms.ModelMultipleChoiceField(
-        queryset=MasterIndicator.objects.none(), required=False, widget=forms.CheckboxSelectMultiple
+        queryset=MasterIndicator.objects.none(),
+        required=False,
+        label=_("Or select master indicators"),
+        widget=UnfoldAdminCheckboxSelectMultipleWidget,
     )
 
     def __init__(self, report, *args, **kwargs):
@@ -304,7 +320,7 @@ class AddMasterIndicatorsForm(forms.Form):
 
 
 @admin.register(NeuroReport)
-class NeuroReportAdmin(admin.ModelAdmin):
+class NeuroReportAdmin(ModelAdmin):
     list_display = ("name", "report_code", "ryear", "is_hpm", "is_active")
     list_filter = ("ryear", "is_hpm", "is_active")
     search_fields = ("name", "report_code")
@@ -349,6 +365,6 @@ class NeuroReportAdmin(admin.ModelAdmin):
 
 
 @admin.register(NeuroReportComment)
-class NeuroReportCommentAdmin(admin.ModelAdmin):
+class NeuroReportCommentAdmin(ModelAdmin):
     list_display = ("report", "master", "related_month", "entry_date", "is_active")
     list_filter = ("report", "related_month", "is_active")

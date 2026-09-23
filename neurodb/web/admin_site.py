@@ -1,7 +1,8 @@
 """NeuroDB admin site: models grouped by task instead of by internal app label, and a dashboard home.
 
 Every ``@admin.register`` in the project registers on this site (it is the default site through
-``NeuroDBAdminConfig``), so no ModelAdmin needs to change to benefit from it.
+``NeuroDBAdminConfig``). The look comes from django-unfold; the sidebar is built from the same
+task groups as the dashboard (``sidebar_navigation``, wired in ``settings.UNFOLD``).
 """
 
 from __future__ import annotations
@@ -9,14 +10,21 @@ from __future__ import annotations
 import datetime
 import logging
 from typing import Any
+from urllib.parse import urlencode
 
-from django.contrib import admin
+from django.conf import settings
+from django.contrib.auth import REDIRECT_FIELD_NAME
+from django.contrib.auth.decorators import login_not_required
 from django.db import DatabaseError
+from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.decorators import method_decorator
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
+from django.views.decorators.cache import never_cache
+from unfold.sites import UnfoldAdminSite
 
 logger = logging.getLogger(__name__)
 
@@ -100,13 +108,55 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
 STALE_DATABASE_DAYS = 40
 # Clearer menu names for models whose verbose name is technical.
 RENAMES = {"admin.LogEntry": _("Audit trail"), "core.SyncRun": _("Import and sync runs")}
+# Material Symbols names for the sidebar (https://fonts.google.com/icons); unlisted models get a dot.
+ICONS = {
+    "pivoting.ReportingYear": "calendar_month",
+    "pivoting.Database": "database",
+    "pivoting.MasterIndicator": "flag",
+    "pivoting.SubIndicator": "account_tree",
+    "pivoting.IndicatorNew": "list_alt",
+    "pivoting.Activity": "assignment",
+    "pivoting.MasterIndicatorTag": "sell",
+    "pivoting.NeuroReport": "summarize",
+    "pivoting.NeuroReportComment": "comment",
+    "pivoting.Resource": "menu_book",
+    "pivoting.ResourceType": "category",
+    "pivoting.ResourceTopic": "topic",
+    "pivoting.ResourceTag": "sell",
+    "pivoting.Map": "map",
+    "users.User": "person",
+    "auth.Group": "badge",
+    "users.Section": "workspaces",
+    "users.Office": "apartment",
+    "account.EmailAddress": "mail",
+    "socialaccount.SocialAccount": "link",
+    "socialaccount.SocialApp": "key",
+    "socialaccount.SocialToken": "token",
+    "sites.Site": "language",
+    "core.SyncRun": "sync",
+    "core.PopulationFigure": "groups",
+    "core.SavedView": "bookmark",
+    "admin.LogEntry": "history",
+    "etools.PartnerOrganization": "handshake",
+    "etools.Agreement": "contract",
+    "etools.PCA": "description",
+    "etools.Engagement": "fact_check",
+    "etools.Travel": "flight",
+    "etools.TravelActivity": "route",
+    "etools.ActionPoint": "task_alt",
+    "locations.Location": "location_on",
+    "locations.LocationType": "layers",
+    "pivoting.GovernorateLocation": "location_city",
+    "pivoting.DistrictLocation": "holiday_village",
+    "pivoting.CadasterLocation": "grid_on",
+    "pivoting.SimpleLocation": "place",
+}
 
 
-class NeuroDBAdminSite(admin.AdminSite):
+class NeuroDBAdminSite(UnfoldAdminSite):
     site_header = _("NeuroDB administration")
     site_title = _("NeuroDB admin")
     index_title = _("Dashboard")
-    enable_nav_sidebar = True
     site_url = "/"
 
     def get_app_list(self, request, app_label=None):
@@ -117,6 +167,8 @@ class NeuroDBAdminSite(admin.AdminSite):
         for key, label in RENAMES.items():
             if key in by_key:
                 by_key[key]["name"] = label
+        for key, model in by_key.items():
+            model["icon"] = ICONS.get(key, "circle")
         used: set[str] = set()
         index_url = reverse(f"{self.name}:index")
         grouped = []
@@ -149,9 +201,66 @@ class NeuroDBAdminSite(admin.AdminSite):
             )
         return grouped
 
+    @method_decorator(never_cache)
+    @login_not_required
+    def login(self, request, extra_context=None):
+        # Unfold's login form has no hidden "next" field, so without ?next= in the URL a sign-in
+        # would land on the public site (LOGIN_REDIRECT_URL) instead of the admin.
+        if request.method == "GET" and REDIRECT_FIELD_NAME not in request.GET:
+            index_url = reverse(f"{self.name}:index")
+            return redirect(f"{request.path}?{urlencode({REDIRECT_FIELD_NAME: index_url})}")
+        return super().login(request, extra_context)
+
     def index(self, request, extra_context=None):
         extra_context = {**(extra_context or {}), "dashboard": dashboard(request)}
         return super().index(request, extra_context)
+
+
+def adopt_unfold(site) -> None:
+    """Give the admins registered by Django and allauth (groups, sites, e-mail, social accounts)
+    Unfold's ModelAdmin, so their pages match the theme. Their own options are kept."""
+    from unfold.admin import ModelAdmin
+
+    for model, model_admin in list(site._registry.items()):
+        if isinstance(model_admin, ModelAdmin):
+            continue
+        cls = type(model_admin)
+        site.unregister(model)
+        site.register(model, type(cls.__name__, (cls, ModelAdmin), {"__module__": cls.__module__}))
+
+
+def sidebar_navigation(request) -> list[dict[str, Any]]:
+    """Unfold sidebar: the dashboard link, then one collapsible section per task group."""
+    from django.contrib import admin
+
+    groups = [
+        {
+            "title": None,
+            "items": [{"title": _("Dashboard"), "icon": "dashboard", "link": reverse("admin:index")}],
+        }
+    ]
+    for app in admin.site.get_app_list(request):
+        groups.append(
+            {
+                "title": app["name"],
+                "collapsible": True,
+                "items": [
+                    {"title": m["name"], "icon": m["icon"], "link": m["admin_url"]}
+                    for m in app["models"]
+                    if m.get("admin_url")
+                ],
+            }
+        )
+    return groups
+
+
+def environment_badge(request) -> list[str] | None:
+    """The coloured label next to the user menu, so nobody edits production thinking it is a test."""
+    return {
+        "production": [_("Production"), "danger"],
+        "staging": [_("Staging"), "warning"],
+        "local": [_("Local"), "info"],
+    }.get(settings.ENV)
 
 
 def dashboard(request) -> dict[str, Any]:

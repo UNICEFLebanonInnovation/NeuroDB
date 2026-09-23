@@ -1,5 +1,10 @@
 {% extends "admin/change_form.html" %}
+{% load i18n %}
 {% block object-tools-items %}
-  {% if original %}<li><a href="{% url 'admin:pivoting_masterindicator_add_subs' original.pk %}" class="addlink">Add sub-indicators</a></li>{% endif %}
+  {% if original %}
+    {% url 'admin:pivoting_masterindicator_add_subs' original.pk as add_subs_url %}
+    {% trans "Add sub-indicators" as add_subs_title %}
+    {% include "unfold/helpers/tab_action.html" with title=add_subs_title link=add_subs_url icon="playlist_add" %}
+  {% endif %}
   {{ block.super }}
 {% endblock %}
