@@ -52,11 +52,15 @@ class HealthCheckMiddleware:
 
     Azure Container Apps and App Service probe the container over plain HTTP with an internal IP as
     the Host header. Behind ALLOWED_HOSTS and SECURE_SSL_REDIRECT those probes would get 400 or 301
-    and the platform would restart a healthy container. Only these two read-only paths are handled.
+    and the platform would restart a healthy container. Only these read-only paths are handled:
+    the two health checks, and the path App Service requests once when a container starts (its
+    warm-up probe, sent to the container's internal 169.254.x.x address, which is not an allowed
+    host; any answer tells App Service the container is up).
     """
 
     LIVE = "/healthz/live/"
     READY = "/healthz/"
+    APP_SERVICE_WARMUP = "/robots933456.txt"
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -71,4 +75,8 @@ class HealthCheckMiddleware:
                 from neurodb.web.views import healthz
 
                 return healthz(request)
+            if request.path == self.APP_SERVICE_WARMUP:
+                from django.http import HttpResponse
+
+                return HttpResponse(b"", content_type="text/plain")
         return self.get_response(request)

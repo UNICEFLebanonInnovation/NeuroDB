@@ -89,6 +89,9 @@ def test_probes_bypass_host_check_and_https_redirect(client, db, settings):
     assert live.status_code == 200 and live.json()["status"] == "ok"
     ready = client.get("/healthz/", HTTP_HOST="10.0.0.12:8000")
     assert ready.status_code == 200 and ready.json()["database"] == "ok"
+    # App Service's warm-up request on container start, sent to the internal address.
+    warmup = client.get("/robots933456.txt", HTTP_HOST="169.254.137.2:8000")
+    assert warmup.status_code == 200 and warmup.content == b""
     # Any other path still gets the normal protections.
     assert client.get("/", HTTP_HOST="10.0.0.12:8000").status_code == 400
 
