@@ -30,7 +30,7 @@ from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
-from django.db import models, transaction
+from django.db import connection, models, transaction
 from django.utils import timezone
 
 from neurodb.core.models import SyncRun
@@ -209,6 +209,48 @@ PARTNER_FIELDS = (
 )
 
 
+# The v2 tables the Datamart sync inserts into. Their id sequences can lag behind the data after a
+# database restore (pg_dump without sequence values, a copy between servers): every INSERT then
+# fails with a duplicate key while UPDATEs of existing rows succeed. Raising the sequence to max(id)
+# is harmless when it is already ahead.
+LEGACY_INSERT_TABLES = (PartnerOrganization, Agreement, PCA, PCA.locations.through)
+
+
+def align_sequences() -> dict[str, Any]:
+    """Move each legacy table's id sequence past max(id) when it is behind; returns what was done."""
+    if connection.vendor != "postgresql":
+        return {}
+    done: dict[str, Any] = {}
+    for model in LEGACY_INSERT_TABLES:
+        table = model._meta.db_table
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_get_serial_sequence(%s, 'id')", [table])
+                sequence = (cursor.fetchone() or [None])[0]
+                if not sequence:
+                    continue
+                cursor.execute(  # the table name comes from the model, quoted by the backend
+                    f"SELECT COALESCE(MAX(id), 0) FROM {connection.ops.quote_name(table)}"  # noqa: S608
+                )
+                max_id = cursor.fetchone()[0]
+                cursor.execute(
+                    "SELECT last_value FROM pg_sequences WHERE schemaname || '.' || sequencename = %s "
+                    "OR sequencename = %s",
+                    [sequence, sequence.split(".")[-1]],
+                )
+                row = cursor.fetchone()
+                last = row[0] if row else None
+                if max_id and (last is None or last < max_id):
+                    cursor.execute("SELECT setval(%s, %s)", [sequence, max_id])
+                    done[table] = {"was": last, "now": max_id}
+        except Exception as exc:  # no privilege on the sequence: the INSERTs will say so per record
+            logger.warning("etools datamart: could not check the id sequence of %s: %s", table, exc)
+            done[table] = {"error": f"{type(exc).__name__}: {exc}"[:200]}
+    if done:
+        logger.warning("etools datamart: id sequences aligned: %s", done)
+    return done
+
+
 def upsert_partner(item: dict[str, Any], links: Links) -> None:
     source_id = item.get("source_id")
     if source_id in (None, ""):
@@ -275,7 +317,13 @@ def upsert_intervention(item: dict[str, Any], links: Links) -> None:
     assign(pca, item, INTERVENTION_FIELDS)
     partner_id = links.partner(item.get("partner_source_id"), item.get("partner_vendor_number"))
     pca.partner_id = partner_id or pca.partner_id
-    agreement = _agreement(item, pca.partner_id)
+    try:
+        with transaction.atomic():  # an agreement that cannot be written must not lose the PD
+            agreement = _agreement(item, pca.partner_id)
+    except Exception as exc:
+        logger.warning("etools datamart: agreement of PD %s not written: %s", source_id, exc)
+        links.missing["agreement"] += 1
+        agreement = None
     if agreement is not None:
         pca.agreement = agreement
     sections = names(item.get("sections_data")) or names(item.get("sections"))
@@ -295,7 +343,12 @@ def upsert_intervention(item: dict[str, Any], links: Links) -> None:
     _set_array(pca, "location_names", names(locations))
     pca.save()
     if p_codes:
-        pca.locations.set(Location.objects.filter(p_code__in=p_codes))
+        try:
+            with transaction.atomic():  # the location links are not worth losing the PD over
+                pca.locations.set(Location.objects.filter(p_code__in=p_codes))
+        except Exception as exc:
+            logger.warning("etools datamart: locations of PD %s not linked: %s", source_id, exc)
+            links.missing["locations"] += 1
 
 
 def update_budget(item: dict[str, Any], links: Links) -> None:
@@ -1008,11 +1061,14 @@ def sync_legacy(
     def sync(run: SyncRun, *, client: DatamartClient, links: Links) -> SyncRun:
         def body() -> dict[str, Any]:
             links.missing.clear()
+            aligned = align_sequences()
             items = list(client.list(dataset))
             process_items(run, items, lambda item: handler(item, links), _label)
             links.refresh()  # new partners and programme documents are linkable from here on
             details = links.details()
             links.missing.clear()
+            if aligned:
+                details["sequences_aligned"] = aligned
             return {**details, **_write_documents(name, items, links)}
 
         return _run(run, body)

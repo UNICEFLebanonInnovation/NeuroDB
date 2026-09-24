@@ -178,6 +178,21 @@ replaced by a complete read (rows the Datamart no longer returns are deleted), e
 Datamart returns nothing at all (`details.empty_response`), which usually means a wrong country name.
 The admin shows these tables read-only under *eTools Datamart*.
 
+### When a run says "Succeeded with errors"
+Open the run: **Why rows failed** lists each error message with the number of records it hit and a
+few of their ids (every record is also in the container log). Two causes to know:
+
+* **New rows cannot be inserted into the v2 tables** (`duplicate key value violates unique
+  constraint "etools_pca_pkey"` or a permission error), while existing rows update fine. A database
+  restored without its sequence values leaves the `id` sequences behind the data; the sync now
+  raises them to `max(id)` before writing (`details.sequences_aligned` shows when it did). If it
+  reports an error instead, the application login lacks rights on the sequences: as the database
+  owner run `GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO <app login>;` and
+  `SELECT setval(pg_get_serial_sequence('etools_pca','id'), (SELECT max(id) FROM etools_pca));` for
+  `etools_pca`, `etools_agreement`, `etools_partnerorganization` and `etools_pca_locations`.
+* **A record's agreement or locations cannot be written**: the programme document is still saved
+  and `details.not_linked` counts the agreement or locations left out.
+
 ### Every other endpoint: kept whole for the AI assistant
 All the other country-level endpoints are stored record by record in `datamart.DatamartDocument`
 (admin: *eTools Datamart → Datamart records*), one `SyncRun` per dataset, each linked to its NeuroDB

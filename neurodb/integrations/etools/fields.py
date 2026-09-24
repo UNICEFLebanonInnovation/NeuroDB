@@ -67,7 +67,9 @@ def coerce(field: models.Field, value: Any) -> Any:
             return None if field.null else []
         if isinstance(value, str):
             value = [value]
-        return [_array_element(item) for item in value]
+        # PostgreSQL enforces varchar(n) on each element of a varchar(n)[] column: cut like the CharField.
+        limit = getattr(field.base_field, "max_length", None)
+        return [_array_element(item)[:limit] if limit else _array_element(item) for item in value]
     if isinstance(field, models.JSONField):
         return value
     if isinstance(field, models.DateTimeField):

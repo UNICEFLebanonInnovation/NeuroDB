@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable, Iterable
 from typing import Any
 
@@ -13,6 +14,9 @@ from neurodb.core.models import SyncRun
 logger = logging.getLogger(__name__)
 
 ERROR_CHARS = 2000
+ERROR_SAMPLES = 10  # distinct error messages kept per run, with a few example item ids each
+ERROR_EXAMPLES = 5
+_VARIABLE = re.compile(r"'[^']*'|\"[^\"]*\"|\d+")
 
 
 def new_run(job: str, target: str = "", triggered_by: str = "schedule") -> SyncRun:
@@ -22,6 +26,29 @@ def new_run(job: str, target: str = "", triggered_by: str = "schedule") -> SyncR
 def describe_error(exc: BaseException) -> str:
     """``"TypeName: message"`` capped for the ``error`` column (never a token: clients strip them)."""
     return f"{type(exc).__name__}: {exc}"[:ERROR_CHARS]
+
+
+def _error_key(message: str) -> str:
+    """The message without its values, so that the same failure on many items counts as one."""
+    return _VARIABLE.sub("…", message)[:200]
+
+
+def note_error(run: SyncRun, label: str, exc: BaseException) -> None:
+    """Keep the error in ``run.details["errors"]``: the message, how many items hit it and a few of
+    their ids, so the admin shows why a PARTIAL run lost rows (the log has every one)."""
+    message = describe_error(exc)[:500]
+    key = _error_key(message)
+    errors = run.details.setdefault("errors", [])
+    for entry in errors:
+        if _error_key(entry["error"]) == key:
+            entry["count"] += 1
+            if len(entry["examples"]) < ERROR_EXAMPLES:
+                entry["examples"].append(label)
+            return
+    if len(errors) < ERROR_SAMPLES:
+        errors.append({"error": message, "count": 1, "examples": [label]})
+    else:
+        run.details["other_errors"] = run.details.get("other_errors", 0) + 1
 
 
 def finish_by_counts(run: SyncRun, **details: Any) -> SyncRun:
@@ -56,6 +83,7 @@ def process_items[T](
                 handler(item)
         except Exception as exc:
             run.rows_failed += 1
+            note_error(run, label(item), exc)
             logger.warning("%s %s: item %s failed: %s", run.job, run.target, label(item), describe_error(exc))
         else:
             run.rows_written += 1

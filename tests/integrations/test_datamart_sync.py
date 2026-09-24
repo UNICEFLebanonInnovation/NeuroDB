@@ -609,3 +609,61 @@ def test_audit_details_enrich_engagements_and_findings_link_to_them(linked):
     assert engagement.details["audit_results"]["risk_rating"] == "High"
     finding = dm.AuditFinding.objects.get()
     assert (finding.engagement, finding.partner, finding.amount) == (engagement, p, Decimal("250.75"))
+
+
+def test_array_elements_are_cut_to_the_column_width():
+    from neurodb.integrations.etools.fields import coerce
+
+    field = PCA._meta.get_field("cp_outputs")  # varchar(200)[]
+    long = "x" * 250
+    assert coerce(field, [long, "ok", {"name": "y"}]) == [long[:200], "ok", '{"name": "y"}']
+
+
+@responses.activate
+def test_failed_records_are_explained_in_the_run_details(linked):
+    p, pd = linked
+    page(
+        "interventions",
+        [
+            intervention(11, cp_outputs_data=[{"name": "o" * 300}]),  # would have failed before the array fix
+            {"id": 700, "number": "no-source-id"},
+            {"id": 701, "number": "no-source-id-either"},
+            intervention(12, planned_programmatic_visits="four"),
+        ],
+    )
+    (run,) = run_all("interventions")
+    assert run.status == SyncRun.Status.PARTIAL and (run.rows_written, run.rows_failed) == (1, 3)
+    errors = sorted(run.details["errors"], key=lambda e: -e["count"])
+    assert errors[0]["count"] == 2 and errors[0]["error"].startswith(
+        "ValueError: intervention without source_id"
+    )
+    assert errors[0]["examples"] == ["700", "701"]
+    assert errors[1]["count"] == 1 and "four" in errors[1]["error"] and errors[1]["examples"] == ["12"]
+    assert PCA.objects.get(etl_id="11").cp_outputs == ["o" * 200]
+
+
+def test_a_lagging_id_sequence_is_raised_before_inserting():
+    from django.db import connection
+
+    PCA.objects.create(id=5000, etl_id="x", title="old row restored with its id")
+    with connection.cursor() as cursor:  # the restore left the sequence behind the data
+        cursor.execute("SELECT setval(pg_get_serial_sequence('etools_pca', 'id'), 1)")
+    done = sync.align_sequences()
+    assert done["etools_pca"] == {"was": 1, "now": 5000}
+    PCA.objects.create(etl_id="y", title="a new row inserts again")
+    assert sync.align_sequences() == {}  # nothing to do once the sequences are ahead
+
+
+@responses.activate
+def test_an_agreement_or_location_failure_does_not_lose_the_programme_document(linked, monkeypatch):
+    page("interventions", [intervention(11)])
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("cannot write agreements")
+
+    monkeypatch.setattr(sync, "_agreement", boom)
+    monkeypatch.setattr(sync.Location.objects, "filter", boom)
+    (run,) = run_all("interventions")
+    assert run.status == SyncRun.Status.SUCCEEDED and run.rows_written == 1
+    assert run.details["not_linked"] == {"agreement": 1, "locations": 1}
+    assert PCA.objects.get(etl_id="11").title == "Programme 11"

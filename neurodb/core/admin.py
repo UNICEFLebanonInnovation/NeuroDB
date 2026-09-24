@@ -4,7 +4,7 @@ from django.contrib.admin.models import ADDITION, CHANGE, DELETION, LogEntry
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import NoReverseMatch, reverse
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
 from unfold.decorators import action
@@ -49,7 +49,7 @@ class SyncRunAdmin(ReadOnlyModelAdmin):
     search_fields = ("target", "error", "triggered_by")
     date_hierarchy = "started_at"
     ordering = ("-started_at",)
-    readonly_fields = tuple(f.name for f in SyncRun._meta.fields) + ("duration",)
+    readonly_fields = tuple(f.name for f in SyncRun._meta.fields) + ("duration", "errors_display")
     list_per_page = 50
 
     @admin.display(description=_("Status"), ordering="status")
@@ -66,6 +66,23 @@ class SyncRunAdmin(ReadOnlyModelAdmin):
             return "—"
         seconds = int(d.total_seconds())
         return f"{seconds // 60} min {seconds % 60} s" if seconds >= 60 else f"{seconds} s"
+
+    @admin.display(description=_("Why rows failed"))
+    def errors_display(self, obj):
+        errors = (obj.details or {}).get("errors") or []
+        if not errors:
+            return "—"
+        items = format_html_join(
+            "",
+            "<li><strong>{} ×</strong> {}<br><small>{}: {}</small></li>",
+            (
+                (e["count"], e["error"], _("examples"), ", ".join(str(x) for x in e["examples"]))
+                for e in sorted(errors, key=lambda e: -e["count"])
+            ),
+        )
+        other = obj.details.get("other_errors")
+        tail = format_html("<li>{}</li>", _("%(n)s more with other messages") % {"n": other}) if other else ""
+        return format_html('<ul class="nd-error-list">{}{}</ul>', items, tail)
 
     @admin.display(description=_("Error"))
     def error_short(self, obj):
