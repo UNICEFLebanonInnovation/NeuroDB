@@ -76,9 +76,16 @@ class DatamartClient:
         self.session = session or make_session("")
         self.session.auth = _HostBoundBasicAuth(username, password, self.origin)
 
+    # API roots beside ``datamart/``: the Partner Reporting Portal views, its source tables, the ETL log.
+    OTHER_ROOTS = ("prp/", "sources/", "system/", "rapidpro/")
+
     def url(self, dataset: str) -> str:
-        """``partners/assessment`` -> ``<base>/api/<version>/datamart/partners/assessment/``."""
-        return f"{self.base_url}/api/{self.version}/datamart/{dataset.strip('/')}/"
+        """``partners/assessment`` -> ``<base>/api/<version>/datamart/partners/assessment/``;
+        ``prp/datareport`` -> ``<base>/api/<version>/prp/datareport/``."""
+        path = dataset.strip("/")
+        if not path.startswith(self.OTHER_ROOTS):
+            path = f"datamart/{path}"
+        return f"{self.base_url}/api/{self.version}/{path}/"
 
     def _same_origin(self, link: str) -> str:
         """The ``next`` link on the Datamart host (a proxy may report it as http://), or raise."""
@@ -87,10 +94,13 @@ class DatamartClient:
             raise IntegrationError(f"refusing to follow a next link to another host ({parts.netloc})")
         return urlunsplit((self.origin[0], *parts[1:]))
 
-    def list(self, dataset: str, params: dict[str, Any] | None = None) -> Iterator[dict[str, Any]]:
-        """Yield every record of a dataset for the configured country, across all pages."""
+    def list(
+        self, dataset: str, params: dict[str, Any] | None = None, *, country: bool = True
+    ) -> Iterator[dict[str, Any]]:
+        """Yield every record of a dataset across all pages, for the configured country unless
+        ``country`` is False (datasets without a ``country_name`` field get their own filter)."""
         query: dict[str, Any] = {"page_size": self.page_size, **(params or {})}
-        if self.country:
+        if self.country and country:
             query.setdefault("country_name", self.country)
         url = self.url(dataset)
         while True:

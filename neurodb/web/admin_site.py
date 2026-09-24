@@ -120,6 +120,7 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
             "datamart.PlannedVisits",
             "datamart.PartnerHACTYear",
             "datamart.PDActivity",
+            "datamart.DatamartDocument",
         ],
     ),
     (
@@ -186,6 +187,7 @@ ICONS = {
     "datamart.PlannedVisits": "event",
     "datamart.PartnerHACTYear": "verified",
     "datamart.PDActivity": "checklist",
+    "datamart.DatamartDocument": "dataset",
     "etools.PartnerOrganization": "handshake",
     "etools.Agreement": "contract",
     "etools.PCA": "description",

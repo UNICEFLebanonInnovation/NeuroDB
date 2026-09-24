@@ -20,6 +20,8 @@ counted, the rest are written and the run ends PARTIAL. Every request is limited
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import json
 import logging
 from collections import defaultdict
 from collections.abc import Callable, Iterable
@@ -28,14 +30,16 @@ from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 from neurodb.core.models import SyncRun
+from neurodb.datamart import catalogue
 from neurodb.datamart import models as dm
 from neurodb.geo.models import Location
 from neurodb.integrations.etools.datamart import DatamartClient
-from neurodb.integrations.etools.fields import assign, coerce
+from neurodb.integrations.etools.fields import assign, coerce, parse_iso_date
+from neurodb.integrations.http import IntegrationError
 from neurodb.integrations.runs import fail, finish_by_counts, new_run, process_items
 from neurodb.partnerships.models import PCA, Agreement, PartnerOrganization
 
@@ -110,6 +114,7 @@ class Links:
         self._pcas_by_etl: dict[str, int] | None = None
         self._pcas_by_number: dict[str, int] | None = None
         self._engagements: dict[str, int] | None = None
+        self.scope: Any = None  # the CountryScope of the run, once a catalogue dataset needs it
         self.missing: dict[str, int] = defaultdict(int)
 
     def refresh(self) -> None:
@@ -725,7 +730,7 @@ DATASETS: dict[str, tuple[str, Dataset]] = {
         ),
     ),
     "audit_findings": (
-        "audit/financial-findings",
+        "audit/financial-findings-all",  # every engagement type; audit/financial-findings is audits only
         Dataset(
             dm.AuditFinding,
             {
@@ -921,15 +926,94 @@ def _label(item: dict[str, Any]) -> str:
     return str(item.get("source_id") or item.get("id") or "?")
 
 
+# ------------------------------------------------------------------------ whole records (documents)
+scrub = catalogue.scrub  # contact details are never stored in documents
+
+
+def record_key(item: dict[str, Any]) -> str:
+    """The Datamart id, or a hash of the record for the datasets without one."""
+    if item.get("id") not in (None, ""):
+        return str(item["id"])
+    return hashlib.sha256(json.dumps(item, sort_keys=True, default=str).encode()).hexdigest()
+
+
+class DocumentWriter:
+    """Upserts the records of one catalogue dataset into ``DatamartDocument`` and, once the dataset
+    was read to the end, removes the records the Datamart no longer returns."""
+
+    def __init__(self, name: str, links: Links) -> None:
+        self.name, self.spec, self.links = name, catalogue.DOCUMENTS[name], links
+        self.seen: set[str] = set()
+
+    def write(self, item: dict[str, Any]) -> None:
+        spec, key = self.spec, record_key(item)
+        self.seen.add(key)
+        partner_key, vendor_key = spec.partner
+        pd_key, number_key = spec.intervention
+        partner_id = (
+            self.links.partner(
+                item.get(partner_key) if partner_key else None, item.get(vendor_key) if vendor_key else None
+            )
+            if partner_key or vendor_key
+            else None
+        )
+        intervention_id = (
+            self.links.intervention(
+                item.get(pd_key) if pd_key else None, item.get(number_key) if number_key else None
+            )
+            if pd_key or number_key
+            else None
+        )
+        if partner_id is None and intervention_id is not None:
+            partner_id = PCA.objects.filter(pk=intervention_id).values_list("partner_id", flat=True).first()
+        title = " · ".join(str(item[k]) for k in spec.title if item.get(k) not in (None, ""))
+        dm.DatamartDocument.objects.update_or_create(
+            dataset=self.name,
+            record_key=key,
+            defaults={
+                "source_id": _int(item.get("source_id")),
+                "partner_id": partner_id,
+                "intervention_id": intervention_id,
+                "title": title[:500],
+                "date": parse_iso_date(item.get(spec.date)) if spec.date else None,
+                "data": scrub(item),
+            },
+        )
+
+    def finish(self) -> dict[str, Any]:
+        if not self.seen:  # an empty answer never empties the dataset
+            return {"documents": 0}
+        stale = dm.DatamartDocument.objects.filter(dataset=self.name).exclude(record_key__in=self.seen)
+        removed, _ = stale.delete()
+        return {"documents": len(self.seen), "documents_removed": removed}
+
+
+def _write_documents(name: str, items: list[dict[str, Any]], links: Links) -> dict[str, Any]:
+    """Raw copies of a dataset whose records were just applied elsewhere (one failure never stops them)."""
+    writer, failed = DocumentWriter(name, links), 0
+    for item in items:
+        try:
+            with transaction.atomic():
+                writer.write(item)
+        except Exception as exc:
+            failed += 1
+            logger.warning("etools datamart %s: document %s failed: %s", name, _label(item), exc)
+    details = writer.finish()
+    return {**details, "documents_failed": failed} if failed else details
+
+
 def sync_legacy(
     name: str, dataset: str, handler: Callable[[dict[str, Any], Links], None]
 ) -> Callable[..., SyncRun]:
     def sync(run: SyncRun, *, client: DatamartClient, links: Links) -> SyncRun:
         def body() -> dict[str, Any]:
             links.missing.clear()
-            process_items(run, client.list(dataset), lambda item: handler(item, links), _label)
-            links.refresh()  # new partners and programme documents are linkable from the next dataset
-            return links.details()
+            items = list(client.list(dataset))
+            process_items(run, items, lambda item: handler(item, links), _label)
+            links.refresh()  # new partners and programme documents are linkable from here on
+            details = links.details()
+            links.missing.clear()
+            return {**details, **_write_documents(name, items, links)}
 
         return _run(run, body)
 
@@ -1026,10 +1110,11 @@ def sync_enrichment(name: str) -> Callable[..., SyncRun]:
         def body() -> dict[str, Any]:
             links.missing.clear()
             links.refresh()  # the engagements were just synced
-            process_items(
-                run, client.list(dataset), lambda item: enrich_engagement(name, fields, item, links), _label
-            )
-            return links.details()
+            items = list(client.list(dataset))
+            process_items(run, items, lambda item: enrich_engagement(name, fields, item, links), _label)
+            details = links.details()
+            links.missing.clear()
+            return {**details, **_write_documents(name, items, links)}
 
         return _run(run, body)
 
@@ -1056,6 +1141,83 @@ def _refresh_donor_sets(linked_before: set[int]) -> int:
 
 # Dependency order: partners before programme documents, programme documents before everything
 # that links to them.
+# ------------------------------------------------------------------ catalogue datasets (documents)
+class CountryScope:
+    """The country filter of the non-``country_name`` datasets, resolved once per run."""
+
+    def __init__(self, client: DatamartClient) -> None:
+        self.client = client
+        self._business_area: str | None = None
+
+    @property
+    def country(self) -> str:
+        return (settings.ETOOLS_DATAMART_COUNTRY or "").strip()
+
+    def business_area(self) -> str:
+        """The country's business area code: the setting, else the Datamart workspace of that name."""
+        if self._business_area is None:
+            code = settings.ETOOLS_DATAMART_BUSINESS_AREA
+            if not code:
+                for workspace in self.client.list("workspaces", country=False):
+                    if str(workspace.get("name", "")).strip().lower() == self.country.lower():
+                        code = str(workspace.get("business_area_code") or "")
+                        break
+            if not code:
+                raise IntegrationError(
+                    f"no business area code for {self.country!r}; set ETOOLS_DATAMART_BUSINESS_AREA"
+                )
+            self._business_area = code
+        return self._business_area
+
+    def request(self, spec: catalogue.Source) -> tuple[dict[str, Any], bool]:
+        """(query parameters, whether to add the country_name filter) for a dataset."""
+        if spec.scope == "business_area":
+            return {spec.filter_key: self.business_area()}, False
+        if spec.scope == "lookup":
+            return {}, False
+        return {}, True
+
+    def keeps(self, spec: catalogue.Source, item: dict[str, Any]) -> bool:
+        """Whether a record belongs to the country: a filter the API ignored must never let another
+        country's records in."""
+        if spec.scope == "business_area":
+            value = item.get(spec.filter_key)
+            return value in (None, "") or str(value) == self.business_area()
+        if spec.scope == "lookup":
+            return not spec.keep or str(item.get(spec.keep, "")).strip().lower() == self.country.lower()
+        value = item.get("country_name")
+        return value in (None, "") or str(value).strip().lower() == self.country.lower()
+
+
+def sync_documents(name: str) -> Callable[..., SyncRun]:
+    spec = catalogue.DOCUMENTS[name]
+
+    def sync(run: SyncRun, *, client: DatamartClient, links: Links) -> SyncRun:
+        def body() -> dict[str, Any]:
+            links.missing.clear()
+            scope = links.scope or CountryScope(client)
+            links.scope = scope
+            params, by_country = scope.request(spec)
+            writer, other = DocumentWriter(name, links), 0
+
+            def items():
+                nonlocal other
+                for item in client.list(spec.path, params, country=by_country):
+                    if scope.keeps(spec, item):
+                        yield item
+                    else:
+                        other += 1
+
+            process_items(run, items(), writer.write, _label)
+            details = {**links.details(), **writer.finish()}
+            return {**details, "other_country_skipped": other} if other else details
+
+        return _run(run, body)
+
+    sync.__name__ = f"sync_{name}"
+    return sync
+
+
 ENTITY_SYNCS: dict[str, Callable[..., SyncRun]] = {
     "partners": sync_legacy("partners", "partners", upsert_partner),
     "interventions": sync_legacy("interventions", "interventions", upsert_intervention),
@@ -1064,6 +1226,9 @@ ENTITY_SYNCS: dict[str, Callable[..., SyncRun]] = {
     **{name: sync_dataset(name) for name in DATASETS if name != "audit_findings"},
     **{name: sync_enrichment(name) for name in ENRICHMENTS},
     "audit_findings": sync_dataset("audit_findings"),  # after the engagements they belong to
+    **{
+        name: sync_documents(name) for name, spec in catalogue.DOCUMENTS.items() if spec.scope != "written_by"
+    },
 }
 
 

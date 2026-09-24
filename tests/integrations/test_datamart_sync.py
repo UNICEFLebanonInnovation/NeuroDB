@@ -492,7 +492,7 @@ def test_partner_reports_are_read_for_a_window_and_only_that_window_is_replaced(
     gone = dm.ReportedIndicator.objects.create(datamart_id=91, period_start="2099-01-01", indicator="gone")
     start = f"{__import__('datetime').date.today().year - 1}-01-01"
     responses.get(
-        f"{API}/prp/datareport/",
+        f"{BASE}/api/latest/prp/datareport/",
         match=[
             responses.matchers.query_param_matcher(
                 {"page_size": "500", "country_name": "Lebanon", "reporting_period_start_date__gte": start}
@@ -584,7 +584,7 @@ def test_audit_details_enrich_engagements_and_findings_link_to_them(linked):
     page("audit/micro-assessment", [])
     page("audit/special-audit", [])
     page(
-        "audit/financial-findings",
+        "audit/financial-findings-all",
         [
             {
                 "id": 7,
@@ -598,7 +598,7 @@ def test_audit_details_enrich_engagements_and_findings_link_to_them(linked):
     )
     runs = run_all("audit_results,audits,spot_checks,micro_assessments,special_audits,audit_findings")
     assert [r.target for r in runs][-1] == "audit_findings"
-    assert runs[0].details == {"not_linked": {"engagement": 1}}
+    assert runs[0].details["not_linked"] == {"engagement": 1} and runs[0].details["documents"] == 2
     engagement.refresh_from_db()
     assert (engagement.risk_rating, engagement.high_priority_findings, engagement.key_control_weaknesses) == (
         "High",

@@ -221,3 +221,13 @@ class PDActivityAdmin(DatamartAdmin):
     list_display = ("pd_reference_number", "code", "name", "unicef_cash", "cso_cash")
     search_fields = ("pd_reference_number", "name", "code")
     raw_id_fields = ("intervention",)
+
+
+@admin.register(dm.DatamartDocument)
+class DatamartDocumentAdmin(ReadOnlyModelAdmin):
+    list_display = ("dataset", "title", "date", "partner", "intervention", "synced_at")
+    list_filter = ("dataset",)
+    search_fields = ("title", "record_key")
+    raw_id_fields = ("partner", "intervention")
+    readonly_fields = ("data",)
+    list_per_page = 50

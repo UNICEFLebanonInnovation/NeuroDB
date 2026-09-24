@@ -330,6 +330,8 @@ ETOOLS_DATAMART_PAGE_SIZE = env.int("ETOOLS_DATAMART_PAGE_SIZE", default=500)
 ETOOLS_DATAMART_REPORTING_YEARS = env.int(
     "ETOOLS_DATAMART_REPORTING_YEARS", default=3
 )  # partner reports kept
+# Business area code for the PRP datasets (found from the Datamart workspaces when empty)
+ETOOLS_DATAMART_BUSINESS_AREA = env("ETOOLS_DATAMART_BUSINESS_AREA", default="").strip()
 ETOOLS_USERNAME = env("ETOOLS_USERNAME", default="").strip()
 ETOOLS_PASSWORD = env.ENVIRON.get("ETOOLS_PASSWORD", "").strip("\r\n")
 if ETOOLS_USERNAME.startswith("@Microsoft.KeyVault(") or ETOOLS_PASSWORD.startswith("@Microsoft.KeyVault("):

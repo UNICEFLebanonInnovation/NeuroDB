@@ -36,7 +36,8 @@ Signed-in users ask questions in plain language on `/ask/` or from the search bo
 ChatGPT answers them: an OpenAI GPT model called through the OpenAI API (platform.openai.com,
 Responses API), not the consumer ChatGPT app. The model calls read-only lookups over NeuroDB's own
 services (indicator results, activity reports, Neuro reports, programme documents, donors,
-partners, eTools Datamart funds, indicators, assurance, action points and field monitoring,
+partners, every eTools Datamart dataset NeuroDB holds (funds, indicators, assurance, reporting,
+monitoring, PD narratives and reviews..., without e-mail addresses or phone numbers),
 population, library, data freshness) and links each answer to the pages its figures
 come from.
 
@@ -167,6 +168,39 @@ NeuroDB. The partner and programme tables are updated, never emptied. Each `data
 replaced by a complete read (rows the Datamart no longer returns are deleted), except when the
 Datamart returns nothing at all (`details.empty_response`), which usually means a wrong country name.
 The admin shows these tables read-only under *eTools Datamart*.
+
+### Every other endpoint: kept whole for the AI assistant
+All the other country-level endpoints are stored record by record in `datamart.DatamartDocument`
+(admin: *eTools Datamart → Datamart records*), one `SyncRun` per dataset, each linked to its NeuroDB
+partner and programme document where the record names one. The list, with a description of each, is
+`neurodb/datamart/catalogue.py`: PD locations, ePD narratives, PRC reviews, management budgets,
+country programmes, PMP figures, CP indicators, attachments, planned engagements, PSEA answers, FAM
+status, FM questions, options and programme activities, staff trips, PRP indicator reports, PRP
+programme documents and progress reports (with partner satisfaction), locations, sites, offices,
+sections, eTools usage, the workspace and the Datamart ETL status. The raw records behind the
+partner, programme document, budget, agreement and audit-detail tables are kept there too, so the
+assistant sees every field.
+
+The PRP views have no `country_name`: they are filtered by the country office's business area code,
+found from `datamart/workspaces` (or set `ETOOLS_DATAMART_BUSINESS_AREA`). A record from another
+country that an API filter let through is dropped (`details.other_country_skipped`). E-mail
+addresses and phone numbers are removed from every stored record and every assistant answer.
+
+Not read, and why:
+
+| Endpoint | Reason |
+|---|---|
+| `datamart/users`, `datamart/partners/contacts`, `sources/prp/unicefperson`, the PRP focal point and officer tables | personal data |
+| `rapidpro/*` | RapidPro messaging; contacts are personal data; no country filter |
+| `datamart/reports/outcomes`, `outputs`, `activities`; the other `sources/prp/*` tables | global tables with no country filter |
+| `prp/indicator-report` | superseded by `prp/indicator-report-v2` |
+| `datamart/audit/financial-findings`, `audit/engagement-details`, `partners_hact_active` | subsets or summaries of endpoints that are read |
+
+The assistant reaches all of it through four lookups: `etools_datasets` (what exists, with fields
+and example values), `etools_query` (filter by partner, PD, text, field values and dates; group,
+count and add up), `etools_search` (which datasets mention a name or reference) and
+`etools_record` (one record in full). The programme and partner lookups also count the linked
+records in every dataset.
 
 The older eTools REST sync (`manage sync_etools`, token `ETOOLS_TOKEN`) is still available on
 demand, for trips (`--only travels`) and the legacy engagement tables; locations still come from

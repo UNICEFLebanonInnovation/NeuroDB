@@ -18,6 +18,7 @@ from django.db.models import Count, Q, Sum
 from django.urls import reverse
 
 from neurodb.core.services import population as population_service
+from neurodb.datamart import query as dmq
 from neurodb.datamart import services as datamart
 from neurodb.datamart.models import FundsReservation
 from neurodb.facts.models import ActivityReportNew
@@ -454,6 +455,7 @@ def programme_details(number: str) -> dict[str, Any]:
             for r in extra["reports"]
         ],
         "latest_indicator_progress": extra["latest_progress"],
+        "linked_etools_records": dmq.linked_counts(pd=pd),
         "workplan_outputs": [
             {
                 "output": o["output"],
@@ -562,6 +564,7 @@ def partner_details(partner_id: int) -> dict[str, Any]:
             for h in extra["hact_years"]
         ],
         "partner_reporting": extra["reporting"],
+        "linked_etools_records": dmq.linked_counts(partner=partner),
         "financial_findings": [
             {"engagement": f.reference_number, "title": f.title, "amount": f.amount}
             for f in extra["audit_findings"][:10]
@@ -770,6 +773,56 @@ def partner_reporting(
     }
 
 
+def _etools(call, *args, **kwargs) -> dict[str, Any]:
+    try:
+        return call(*args, **kwargs)
+    except dmq.QueryError as exc:
+        raise ToolInputError(str(exc)) from exc
+
+
+def etools_datasets(dataset: str | None = None) -> dict[str, Any]:
+    return _etools(dmq.describe, dataset)
+
+
+def etools_query(
+    dataset: str,
+    partner: str | None = None,
+    programme_document: str | None = None,
+    search: str | None = None,
+    filters: dict[str, Any] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    fields: list[str] | None = None,
+    group_by: str | None = None,
+    sum: str | None = None,  # noqa: A002 (the argument name the model sees)
+    order_by: str | None = None,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    return _etools(
+        dmq.query,
+        dataset,
+        partner=partner,
+        programme_document=programme_document,
+        search=search,
+        filters=filters,
+        date_from=date_from,
+        date_to=date_to,
+        fields=fields,
+        group_by=group_by,
+        sum_field=sum,
+        order_by=order_by,
+        limit=limit or 20,
+    )
+
+
+def etools_search(text: str) -> dict[str, Any]:
+    return _etools(dmq.search_all, text)
+
+
+def etools_record(dataset: str, record: str) -> dict[str, Any]:
+    return _etools(dmq.record, dataset, record)
+
+
 class _Params(dict):
     """The QueryDict-like object the page services expect (``get`` and ``getlist``)."""
 
@@ -960,6 +1013,60 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         ),
         "Reading partner reporting",
     ),
+    "etools_datasets": (
+        etools_datasets,
+        "The eTools Datamart datasets NeuroDB holds (programme documents and their budgets, workplans, "
+        "ePD narratives, reviews and locations; partners; funds, grants; audits, spot checks, "
+        "micro-assessments, findings, action points; HACT; field and third-party monitoring; staff trips; "
+        "partner reporting and satisfaction (PRP); attachments; locations, offices, sections) with their "
+        "size and links. Give a dataset name to see its fields with example values before querying it.",
+        _schema({"dataset": {"type": "string"}}),
+        "Listing eTools datasets",
+    ),
+    "etools_query": (
+        etools_query,
+        "Query one eTools Datamart dataset. Filter by partner (name or vendor number), programme_document "
+        "(PD number), search (any text in the record), filters on record fields ({field: value}; add "
+        "__contains, __ne, __gt, __gte, __lt, __lte or __isnull to the field name; numbers compare as "
+        "numbers, ISO dates as text) and date_from/date_to on the dataset's main date. Returns records "
+        "(choose fields to keep answers short) or, with group_by (a field, or partner, programme_document, "
+        "year, month), counts per group, with sum to add up a numeric field. Records carry links to the "
+        "NeuroDB partner and programme document pages.",
+        _schema(
+            {
+                "dataset": {"type": "string", "description": "A name from etools_datasets."},
+                "partner": {"type": "string"},
+                "programme_document": {"type": "string"},
+                "search": {"type": "string"},
+                "filters": {
+                    "type": "object",
+                    "description": 'e.g. {"status": "active", "total_amt__gte": 50000}',
+                },
+                "date_from": {"type": "string", "description": "YYYY-MM-DD"},
+                "date_to": {"type": "string", "description": "YYYY-MM-DD"},
+                "fields": {"type": "array", "items": {"type": "string"}},
+                "group_by": {"type": "string"},
+                "sum": {"type": "string", "description": "A numeric field to add up."},
+                "order_by": {"type": "string", "description": "A field or date, '-' first for descending."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+            },
+            ["dataset"],
+        ),
+        "Querying eTools data",
+    ),
+    "etools_search": (
+        etools_search,
+        "Find which eTools datasets mention a word, name, place or reference number, with a few examples "
+        "each. Use it when unsure where information lives.",
+        _schema({"text": {"type": "string"}}, ["text"]),
+        "Searching eTools data",
+    ),
+    "etools_record": (
+        etools_record,
+        "One eTools record in full, by dataset and the record value returned by etools_query.",
+        _schema({"dataset": {"type": "string"}, "record": {"type": "string"}}, ["dataset", "record"]),
+        "Opening an eTools record",
+    ),
     "population": (
         population,
         "Population figures of Lebanon by nationality, governorate, district and age group (category "
@@ -1010,7 +1117,8 @@ def definitions() -> list[dict[str, Any]]:
     ]
 
 
-_TYPES = {"string": str, "integer": int, "boolean": bool}
+_TYPES = {"string": str, "integer": int, "boolean": bool, "object": dict, "array": list}
+_SCALARS = (str, int, float, bool)
 
 
 def validate(name: str, args: Any) -> dict[str, Any]:
@@ -1040,6 +1148,15 @@ def validate(name: str, args: Any) -> dict[str, Any]:
             raise ToolInputError(f"Argument '{key}' is out of range.")
         if expected is str:
             value = value.strip()[:200]
+        if expected is dict:  # filters: a few field -> scalar pairs
+            if len(value) > 12 or not all(
+                isinstance(k, str) and len(k) <= 80 and isinstance(v, _SCALARS) for k, v in value.items()
+            ):
+                raise ToolInputError(f"Argument '{key}' must map up to 12 field names to single values.")
+            value = {k: v.strip()[:200] if isinstance(v, str) else v for k, v in value.items()}
+        if expected is list:
+            if len(value) > 30 or not all(isinstance(v, str) and len(v) <= 80 for v in value):
+                raise ToolInputError(f"Argument '{key}' must be a list of up to 30 field names.")
         clean[key] = value
     return clean
 

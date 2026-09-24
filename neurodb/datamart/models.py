@@ -538,3 +538,39 @@ class PDActivity(DatamartRecord):
 
     def __str__(self):
         return f"{self.code} {self.name[:60]}"
+
+
+class DatamartDocument(models.Model):
+    """Any eTools Datamart record, kept whole for the AI assistant and linked to NeuroDB.
+
+    Every dataset of ``neurodb.datamart.catalogue`` that has no table of its own lands here (the
+    PD ePD narratives, reviews, locations of PDs, attachments, FM questions, PRP reports...), plus a
+    raw copy of the records that update the eTools tables (partners, programme documents, budgets,
+    agreements) and of the per-type audit records. ``record_key`` is the Datamart id, or a hash of the
+    record for the few datasets without one. Contact details (e-mail addresses, phone numbers) are
+    removed before storing.
+    """
+
+    dataset = models.CharField(max_length=64, db_index=True)
+    record_key = models.CharField(max_length=64)
+    source_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+    partner = _partner("datamart_documents")
+    intervention = _intervention("datamart_documents")
+    title = models.CharField(max_length=500, blank=True)
+    date = models.DateField(null=True, blank=True, db_index=True, help_text="the record's main date")
+    data = models.JSONField(default=dict, blank=True)
+    synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("dataset", "-date")
+        constraints = [
+            models.UniqueConstraint(fields=["dataset", "record_key"], name="datamart_document_key")
+        ]
+        indexes = [
+            models.Index(fields=["dataset", "partner"]),
+            models.Index(fields=["dataset", "intervention"]),
+        ]
+        verbose_name = "Datamart record"
+
+    def __str__(self):
+        return f"{self.dataset}: {self.title or self.record_key}"

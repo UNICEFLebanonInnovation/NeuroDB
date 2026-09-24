@@ -801,13 +801,15 @@ def test_every_tool_definition_is_a_well_formed_function_tool():
 def _sample(spec):
     if "enum" in spec:
         return spec["enum"][0]
-    return {"string": "x", "integer": spec.get("minimum", 1), "boolean": True}[spec["type"]]
+    return {"string": "x", "integer": spec.get("minimum", 1), "boolean": True, "object": {}, "array": []}[
+        spec["type"]
+    ]
 
 
 def test_validate_enforces_every_schema_keyword():
     """Strict mode is off, so the API does not hold the model to the schemas: validate() is the
     guard, and it must understand and enforce every keyword the schemas use."""
-    wrong_type = {"string": 7, "integer": "7", "boolean": "yes"}
+    wrong_type = {"string": 7, "integer": "7", "boolean": "yes", "object": "x", "array": "x"}
     for name, (_, _, schema, _) in tools.TOOLS.items():
         props = schema["properties"]
         valid = {key: _sample(props[key]) for key in schema["required"]}
@@ -818,7 +820,9 @@ def test_validate_enforces_every_schema_keyword():
         with pytest.raises(tools.ToolInputError):
             tools.validate(name, {**valid, "not_a_parameter": 1})
         for key, spec in props.items():
-            assert set(spec) <= {"type", "description", "enum", "minimum", "maximum"}, (name, key)
+            assert set(spec) <= {"type", "description", "enum", "minimum", "maximum", "items"}, (name, key)
+            if spec["type"] == "array":
+                assert spec["items"] == {"type": "string"}, (name, key)  # validate() allows strings only
             with pytest.raises(tools.ToolInputError):
                 tools.validate(name, {**valid, key: wrong_type[spec["type"]]})
             if spec["type"] == "integer":  # booleans are not integers here, unlike in Python
