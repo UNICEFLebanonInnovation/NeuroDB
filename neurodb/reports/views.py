@@ -26,6 +26,7 @@ from django.views.decorators.http import require_GET, require_POST
 from neurodb.accounts.roles import can_edit_section
 from neurodb.core.models import PopulationFigure, SavedView
 from neurodb.core.services import population as population_service
+from neurodb.datamart import services as datamart
 from neurodb.facts.services import dashboard as facts
 from neurodb.indicators.models import Database, MasterIndicator, NeuroReport
 from neurodb.indicators.services.tracking import LABELS
@@ -474,6 +475,7 @@ def programme_detail(request: HttpRequest, pk: int) -> HttpResponse:
         ],
         "detail": detail,
         "pd": pd,
+        "datamart": datamart.programme_datamart(pd),
     }
     template = "reports/partials/programme_detail.html" if request.htmx else "reports/programme_detail.html"
     return render(request, template, context)
@@ -488,6 +490,7 @@ def donors(request: HttpRequest) -> HttpResponse:
         "page_subtitle": _("Funds by donor and year, planned versus actual locations"),
         "breadcrumbs": [_crumb(_("Donors"))],
         "data": data,
+        "grants": datamart.grants_for_donors(filters.donors),
         "options": partnerships.pd_filter_options(),
         "selected": {
             key: request.GET.getlist(key) for key in ("donor", "grant", "partner", "section", "status")
@@ -531,12 +534,80 @@ def partner_profile(request: HttpRequest, pk: int) -> HttpResponse:
         ],
         "partner": partner,
         "profile": profile,
+        "datamart": datamart.partner_datamart(partner),
         "chart_data": {
             "visits_by_year": profile["visits_by_year"],
             "engagement_counts": profile["engagement_counts"],
         },
     }
     return render(request, "reports/partner_profile.html", context)
+
+
+# ------------------------------------------------------------------------- eTools Datamart pages
+
+
+@require_GET
+def assurance(request: HttpRequest) -> HttpResponse:
+    data = datamart.assurance(request.GET)
+    page_obj = _paginate(request, data["engagements"])
+    context = {
+        "page_title": _("Assurance"),
+        "page_subtitle": _(
+            "HACT audits, spot checks, micro-assessments and PSEA assessments from the eTools Datamart"
+        ),
+        "breadcrumbs": [_crumb(_("Assurance"))],
+        "data": data,
+        "page_obj": page_obj,
+        "selected": {key: request.GET.getlist(key) for key in ("type", "status")},
+        "year": request.GET.get("year", ""),
+        "q": request.GET.get("q", ""),
+        "type_labels": datamart.ENGAGEMENT_TYPES,
+        "chart_data": {"by_type": data["by_type"]},
+    }
+    template = "reports/partials/assurance_table.html" if request.htmx else "reports/assurance.html"
+    return render(request, template, context)
+
+
+@require_GET
+def monitoring(request: HttpRequest) -> HttpResponse:
+    data = datamart.monitoring(request.GET)
+    page_obj = _paginate(request, data["findings"])
+    context = {
+        "page_title": _("Field monitoring"),
+        "page_subtitle": _(
+            "Field monitoring findings and third-party monitoring visits from the eTools Datamart"
+        ),
+        "breadcrumbs": [_crumb(_("Field monitoring"))],
+        "data": data,
+        "page_obj": page_obj,
+        "selected": {"rating": request.GET.getlist("rating")},
+        "year": request.GET.get("year", ""),
+        "q": request.GET.get("q", ""),
+        "chart_data": {"by_rating": data["by_rating"], "by_month": data["by_month"]},
+    }
+    template = "reports/partials/monitoring_table.html" if request.htmx else "reports/monitoring.html"
+    return render(request, template, context)
+
+
+@require_GET
+def action_points(request: HttpRequest) -> HttpResponse:
+    data = datamart.action_points(request.GET)
+    page_obj = _paginate(request, data["points"])
+    context = {
+        "page_title": _("Action points"),
+        "page_subtitle": _(
+            "Follow-up actions from audits, spot checks, visits and monitoring, from the eTools Datamart"
+        ),
+        "breadcrumbs": [_crumb(_("Action points"))],
+        "data": data,
+        "page_obj": page_obj,
+        "selected": {key: request.GET.getlist(key) for key in ("status", "module")},
+        "q": request.GET.get("q", ""),
+        "overdue": request.GET.get("overdue") == "1",
+        "priority": request.GET.get("priority") == "1",
+    }
+    template = "reports/partials/action_point_table.html" if request.htmx else "reports/action_points.html"
+    return render(request, template, context)
 
 
 # ------------------------------------------------------------------------- population / library / maps

@@ -1,0 +1,34 @@
+{% load i18n ui %}
+<div class="kpi-grid">
+  {% trans "Engagements" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=page_obj.paginator.count|number %}
+  {% trans "Value covered (USD)" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.totals.value|number:0 %}
+  {% trans "Amount tested (USD)" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.totals.tested|number:0 %}
+  {% trans "Financial findings (USD)" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.totals.findings|number:0 %}
+</div>
+<div class="grid grid--2 mb-3">
+  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Engagements by type" %}</h2></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="bars" data-source="assurance-chart-data" data-key="by_type" data-empty-title="{% trans 'No engagements' %}"></div></section>
+  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "About these figures" %}</h2></div>
+    <p class="small text-muted mb-0">{% blocktrans %}Audits, special audits, spot checks and micro-assessments of implementing partners under the harmonised approach to cash transfers (HACT), as recorded in eTools. Amounts are in US dollars. Open a partner to see its assessments, open action points and monitoring visits.{% endblocktrans %}</p></section>
+</div>
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Engagements") count=page_obj.paginator.count table_id="engagements" filename="assurance-engagements" %}
+  {% if page_obj.object_list %}
+  <div class="table-wrap"><table class="table table-hover" id="engagements" data-sortable>
+    <thead><tr><th>{% trans "Engagement" %}</th><th>{% trans "Partner" %}</th><th>{% trans "Type" %}</th><th>{% trans "Status" %}</th><th>{% trans "Period" %}</th><th class="num">{% trans "Value" %}</th><th class="num">{% trans "Findings" %}</th></tr></thead>
+    <tbody>{% for e in page_obj %}<tr>
+      <td class="mono small">{{ e.reference_number|default:"—" }}{% if e.auditor %}<span class="cell-sub">{{ e.auditor }}</span>{% endif %}</td>
+      <td>{% if e.partner %}<a href="{% url 'reports:partner_profile' e.partner.id %}">{{ e.partner_name|default:e.partner.name }}</a>{% else %}{{ e.partner_name|default:"—" }}{% endif %}{% if e.vendor_number %}<span class="cell-sub mono">{{ e.vendor_number }}</span>{% endif %}</td>
+      <td>{{ type_labels|get_item:e.engagement_type|default:e.engagement_type }}</td>
+      <td>{% status_pill e.status e.status|code_label "sm" %}</td>
+      <td class="small text-nowrap">{{ e.start_date|date:"j M Y"|default:"—" }} – {{ e.end_date|date:"j M Y"|default:"—" }}</td>
+      <td class="num" data-value="{{ e.total_value|default:0 }}">{{ e.total_value|number:0 }}</td>
+      <td class="num" data-value="{{ e.financial_findings|default:0 }}">{{ e.financial_findings|number:0 }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% include "components/pagination.html" with hx_target="#assurance-results" %}
+  {% else %}
+  {% include "components/empty_state.html" with icon="shield" title=_("No engagements match") message=_("Change the filters, or run the eTools Datamart sync if the list is empty.") action_url=request.path %}
+  {% endif %}
+</section>
+{{ chart_data|json_script:"assurance-chart-data" }}

@@ -13,6 +13,7 @@ class SyncRun(models.Model):
         ACTIVITYINFO_STRUCTURE = "ai_structure", "ActivityInfo structure import"
         ACTIVITYINFO_DATA = "ai_data", "ActivityInfo data import"
         ETOOLS = "etools", "eTools sync"
+        ETOOLS_DATAMART = "etools_datamart", "eTools Datamart sync"
         LOCATIONS = "locations", "Locations sync"
         POPULATION = "population", "Population figures load"
 

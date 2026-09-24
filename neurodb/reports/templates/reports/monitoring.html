@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+<form method="get" class="filter-bar" data-filter-bar data-hx-target="#monitoring-results" role="search" aria-label="{% trans 'Field monitoring filters' %}">
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-q">{% trans "Search" %}</label>
+    <input class="form-control form-control-sm" type="search" id="f-q" name="q" value="{{ q }}" placeholder="{% trans 'Partner, vendor or activity' %}">
+  </div>
+  {% trans "Finding" as l %}{% include "reports/_multiselect.html" with name="rating" label=l options=data.options.ratings values=selected.rating %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-year">{% trans "Year" %}</label>
+    <select class="form-select form-select-sm" id="f-year" name="year">
+      <option value="">{% trans "All years" %}</option>
+      {% for y in data.options.years %}<option value="{{ y }}" {% if y|stringformat:"s" == year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
+  </div>
+</form>
+<div id="monitoring-results" aria-live="polite">{% include "reports/partials/monitoring_table.html" %}</div>
+{% endblock %}

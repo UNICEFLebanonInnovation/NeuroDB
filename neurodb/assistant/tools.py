@@ -9,6 +9,7 @@ read restrictions), so the tools apply no extra filtering; the assistant itself 
 from __future__ import annotations
 
 import datetime
+from collections import Counter
 from collections.abc import Callable
 from decimal import Decimal
 from typing import Any
@@ -17,6 +18,7 @@ from django.db.models import Count, Q, Sum
 from django.urls import reverse
 
 from neurodb.core.services import population as population_service
+from neurodb.datamart import services as datamart
 from neurodb.facts.models import ActivityReportNew
 from neurodb.facts.services import dashboard as facts
 from neurodb.indicators.models import Database, MasterIndicator, NeuroReport, ReportingYear
@@ -421,6 +423,11 @@ def programme_details(number: str) -> dict[str, Any]:
     if not pd:
         raise ToolInputError(f"No programme document numbered '{number}'.")
     detail = partnerships.pd_detail(pd)
+    extra = datamart.programme_datamart(pd)
+    indicators = [
+        {k: i[k] for k in ("title", "output", "section", "baseline", "target", "locations")}
+        for i in extra["indicators"]
+    ]
     return {
         **_pd_row(pd),
         "offices": detail["offices"],
@@ -428,6 +435,18 @@ def programme_details(number: str) -> dict[str, Any]:
         "donors_detail": _clean(detail["donors"]),
         "activity_reports_linked": detail["interventions"],
         "planned_locations": len(pd.location_p_codes or []),
+        "funds_reservations": {
+            "count": extra["fr_count"],
+            "reserved": _num(extra["fr_total"]),
+            "disbursed": _num(extra["fr_actual"]),
+            "outstanding": _num(extra["fr_outstanding"]),
+        },
+        "open_action_points": extra["open_action_points"],
+        "assurance_engagements": [
+            {"reference": e.reference_number, "type": e.engagement_type, "status": e.status}
+            for e in extra["engagements"]
+        ],
+        **_cut(indicators, "indicators"),
     }
 
 
@@ -482,6 +501,7 @@ def partner_details(partner_id: int) -> dict[str, Any]:
     if not partner:
         raise ToolInputError(f"No partner with id {partner_id}. Use search_partners first.")
     profile = partnerships.partner_profile(partner)
+    extra = datamart.partner_datamart(partner)
     return {
         "name": partner.name,
         "short_name": partner.short_name,
@@ -492,9 +512,25 @@ def partner_details(partner_id: int) -> dict[str, Any]:
         "hact": _clean(profile["hact"]),
         "active_programme_documents": profile["active_count"],
         "programme_documents": [_pd_row(pd) for pd in profile["programme_documents"][:30]],
-        "assurance_engagements": profile["engagement_counts"],
+        "assurance_engagements": extra["engagement_counts"] or profile["engagement_counts"],
         "field_visits_by_year": _clean(profile["visits_by_year"]),
         "activity_reports": profile["interventions"],
+        "hact_assessments": [
+            {"type": a.type, "rating": a.rating, "completed": a.completed_date}
+            for a in extra["assessments"][:10]
+        ],
+        "psea_assessment": (
+            {
+                "status": extra["psea"].status,
+                "date": extra["psea"].assessment_date,
+                "overall_rating": extra["psea"].overall_rating,
+            }
+            if extra["psea"]
+            else None
+        ),
+        "open_action_points": extra["open_action_points"],
+        "field_monitoring_findings_by_rating": extra["finding_ratings"],
+        "tpm_visits_recent": len(extra["tpm_visits"]),
         "url": reverse("reports:partner_profile", args=[partner.id]),
     }
 
@@ -572,6 +608,51 @@ def data_freshness() -> dict[str, Any]:
             for d in health["databases"]
         ],
         "url": reverse("reports:data_health"),
+    }
+
+
+def assurance_overview(year: int | None = None, partner: str | None = None) -> dict[str, Any]:
+    """HACT assurance, action points and field monitoring from the eTools Datamart."""
+    params = _Params({"year": str(year) if year else "", "q": partner or ""})
+    assurance = datamart.assurance(params)
+    points = datamart.action_points(_Params({"q": partner or ""}))
+    monitoring = datamart.monitoring(params)
+    engagements = assurance["engagements"]
+    return {
+        "filters": {"year": year, "partner_text": partner},
+        "engagements": engagements.count(),
+        "engagements_by_type": dict(assurance["by_type"]),
+        "engagements_by_status": dict(Counter(engagements.values_list("status", flat=True))),
+        "engagement_value_usd": _num(assurance["totals"]["value"]),
+        "financial_findings_usd": _num(assurance["totals"]["findings"]),
+        "hact_by_year": [
+            {
+                "year": h.year,
+                "micro_assessments": h.microassessments_total,
+                "programmatic_visits": h.programmaticvisits_total,
+                "spot_checks": h.completed_spotcheck,
+                "audits": h.completed_hact_audits,
+                "special_audits": h.completed_special_audits,
+            }
+            for h in assurance["hact"]
+        ],
+        "action_points": {
+            "open": points["open"],
+            "overdue": points["overdue"],
+            "open_high_priority": points["high_priority"],
+            "by_module": dict(points["by_module"]),
+        },
+        "field_monitoring": {
+            "findings": monitoring["findings"].count(),
+            "by_rating": dict(monitoring["by_rating"]),
+            "monitoring_activities": monitoring["activities"],
+            "tpm_visits": monitoring["tpm_count"],
+        },
+        "urls": {
+            "assurance": reverse("reports:assurance"),
+            "action_points": reverse("reports:action_points"),
+            "field_monitoring": reverse("reports:monitoring"),
+        },
     }
 
 
@@ -692,7 +773,8 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
     "programme_details": (
         programme_details,
         "Details of one programme document by its number: dates, budget, donors and grants, sections, "
-        "offices, linked activity reports and planned locations.",
+        "offices, linked activity reports, planned locations, funds reservations (reserved, disbursed, "
+        "outstanding), PD indicators with baseline and target, assurance engagements and open action points.",
         _schema({"number": {"type": "string"}}, ["number"]),
         "Opening the programme document",
     ),
@@ -720,10 +802,20 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
     ),
     "partner_details": (
         partner_details,
-        "Profile of one partner: programme documents, HACT and risk rating, assurance engagements, field "
-        "visits per year and linked activity reports.",
+        "Profile of one partner: programme documents, HACT and risk rating, assurance engagements, HACT "
+        "and PSEA assessments, open action points, field monitoring findings, field visits per year and "
+        "linked activity reports.",
         _schema({"partner_id": {"type": "integer"}}, ["partner_id"]),
         "Opening the partner profile",
+    ),
+    "assurance_overview": (
+        assurance_overview,
+        "eTools HACT assurance for the whole country office or one partner: audits, special audits, spot "
+        "checks and micro-assessments (counts by type and status, value, financial findings), HACT totals "
+        "per year, action points (open, overdue, high priority, by module) and field monitoring findings "
+        "(by on/off-track rating) and TPM visits. partner filters by name or vendor number.",
+        _schema({"year": {"type": "integer"}, "partner": {"type": "string"}}),
+        "Reading assurance and monitoring",
     ),
     "population": (
         population,

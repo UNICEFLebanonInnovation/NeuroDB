@@ -107,7 +107,8 @@ neurodb/facts      ActivityReportNew fact table (v2), parameterised query layer,
 neurodb/geo        Admin areas, locations (v2 tables)
 neurodb/library    Resources, maps (v2 tables)
 neurodb/partnerships  eTools replicas (v2 tables) and partner/PD/donor services
-neurodb/integrations  ActivityInfo and eTools clients, sync commands
+neurodb/datamart   eTools Datamart tables (funds, indicators, assurance, monitoring) and their page services
+neurodb/integrations  ActivityInfo, eTools and eTools Datamart clients, sync commands
 neurodb/reports    Page views, internal JSON API, exports
 neurodb/assistant  AI assistant: OpenAI API agent (Responses API), read-only data tools, question log
 infra/             Azure Bicep template, deploy and rollback scripts

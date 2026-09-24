@@ -24,3 +24,14 @@
   </table></div>
 </section>
 {{ chart_data|json_script:"donor-chart-data" }}
+{% if grants %}
+<section class="panel p-0 mt-3">
+  {% include "components/table_toolbar.html" with title=_("Grants") count=grants|length table_id="donor-grants" filename="donor-grants" %}
+  <div class="table-wrap" style="max-height: 480px"><table class="table table-sm" id="donor-grants" data-sortable>
+    <thead><tr><th>{% trans "Grant" %}</th><th>{% trans "Donor" %}</th><th>{% trans "Expiry" %}</th><th class="num">{% trans "Programme documents" %}</th><th class="num">{% trans "Reserved (USD)" %}</th></tr></thead>
+    <tbody>{% for g in grants %}<tr><td class="mono small">{{ g.grant.name }}{% if g.grant.description %}<span class="cell-sub">{{ g.grant.description|truncatechars:80 }}</span>{% endif %}</td><td>{{ g.grant.donor|default:"—" }}</td>
+      <td class="small text-nowrap" data-value="{{ g.grant.expiry|date:'Y-m-d' }}">{{ g.grant.expiry|date:"j M Y"|default:"—" }}{% if g.expired %} {% status_pill "failed" _("Expired") "sm" %}{% elif g.expiring %} {% status_pill "stale" _("Expires within 6 months") "sm" %}{% endif %}</td>
+      <td class="num">{{ g.pds }}</td><td class="num" data-value="{{ g.reserved }}">{{ g.reserved|number:0 }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}

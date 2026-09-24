@@ -1,0 +1,26 @@
+{% load i18n ui %}
+<div class="kpi-grid">
+  {% trans "Action points" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=page_obj.paginator.count|number %}
+  {% trans "Open" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.open|number %}
+  {% trans "Overdue" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.overdue|number status=data.overdue|yesno:"off_track," %}
+  {% trans "Open, high priority" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.high_priority|number %}
+</div>
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Action points") count=page_obj.paginator.count table_id="action-points" filename="action-points" %}
+  {% if page_obj.object_list %}
+  <div class="table-wrap"><table class="table table-hover" id="action-points" data-sortable>
+    <thead><tr><th>{% trans "Action point" %}</th><th>{% trans "Partner / PD" %}</th><th>{% trans "Raised from" %}</th><th>{% trans "Assigned to" %}</th><th>{% trans "Status" %}</th><th>{% trans "Due" %}</th></tr></thead>
+    <tbody>{% for a in page_obj %}<tr>
+      <td><span class="mono small">{{ a.reference_number|default:"—" }}</span>{% if a.high_priority %} <span class="chip">{% trans "High priority" %}</span>{% endif %}<span class="cell-sub">{{ a.description|truncatechars:160 }}</span></td>
+      <td>{% if a.partner %}<a href="{% url 'reports:partner_profile' a.partner.id %}">{{ a.partner_name|default:a.partner.name }}</a>{% else %}{{ a.partner_name|default:"—" }}{% endif %}{% if a.intervention %}<span class="cell-sub"><a href="{% url 'reports:programme_detail' a.intervention.id %}">{{ a.intervention.number }}</a></span>{% elif a.intervention_number %}<span class="cell-sub mono">{{ a.intervention_number }}</span>{% endif %}</td>
+      <td>{{ a.related_module|default:"—" }}{% if a.module_reference_number %}<span class="cell-sub mono">{{ a.module_reference_number }}</span>{% endif %}</td>
+      <td>{{ a.assigned_to_name|default:"—" }}{% if a.office %}<span class="cell-sub">{{ a.office }}</span>{% endif %}</td>
+      <td>{% status_pill a.status|status_key a.status|code_label "sm" %}</td>
+      <td class="small text-nowrap" data-value="{{ a.due_date|date:'Y-m-d' }}">{{ a.due_date|date:"j M Y"|default:"—" }}{% if a.status == "open" and a.due_date and a.due_date < data.today %}<span class="cell-sub text-danger">{% trans "Overdue" %}</span>{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% include "components/pagination.html" with hx_target="#action-point-results" %}
+  {% else %}
+  {% include "components/empty_state.html" with icon="check" title=_("No action points match") message=_("Change the filters, or run the eTools Datamart sync if the list is empty.") action_url=request.path %}
+  {% endif %}
+</section>

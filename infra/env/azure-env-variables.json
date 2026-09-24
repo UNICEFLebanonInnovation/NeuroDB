@@ -140,11 +140,47 @@
     {
       "name": "ETOOLS_TOKEN",
       "group": "Integrations",
-      "required": true,
+      "required": false,
       "secret": true,
       "keyVaultSecret": "etools-token",
       "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=etools-token)",
-      "description": "eTools service-account token."
+      "description": "eTools REST API token for the on-demand sync_etools command (travels, locations). The scheduled sync uses the eTools Datamart."
+    },
+    {
+      "name": "ETOOLS_DATAMART_URL",
+      "group": "Integrations",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "https://datamart.unicef.io",
+      "description": "eTools Datamart root (the new eTools APIs)."
+    },
+    {
+      "name": "ETOOLS_DATAMART_COUNTRY",
+      "group": "Integrations",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "Lebanon",
+      "description": "Country whose records the Datamart sync reads (country_name filter)."
+    },
+    {
+      "name": "ETOOLS_USERNAME",
+      "group": "Integrations",
+      "required": true,
+      "secret": true,
+      "keyVaultSecret": "etools-username",
+      "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=etools-username)",
+      "description": "eTools Datamart service account (basic authentication user name)."
+    },
+    {
+      "name": "ETOOLS_PASSWORD",
+      "group": "Integrations",
+      "required": true,
+      "secret": true,
+      "keyVaultSecret": "etools-password",
+      "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=etools-password)",
+      "description": "eTools Datamart service account password (basic authentication)."
     },
     {
       "name": "SYNC_STALENESS_HOURS",

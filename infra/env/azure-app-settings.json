@@ -75,6 +75,26 @@
     "slotSetting": false
   },
   {
+    "name": "ETOOLS_DATAMART_URL",
+    "value": "https://datamart.unicef.io",
+    "slotSetting": false
+  },
+  {
+    "name": "ETOOLS_DATAMART_COUNTRY",
+    "value": "Lebanon",
+    "slotSetting": false
+  },
+  {
+    "name": "ETOOLS_USERNAME",
+    "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=etools-username)",
+    "slotSetting": false
+  },
+  {
+    "name": "ETOOLS_PASSWORD",
+    "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=etools-password)",
+    "slotSetting": false
+  },
+  {
     "name": "OPENAI_API_KEY",
     "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=openai-api-key)",
     "slotSetting": false

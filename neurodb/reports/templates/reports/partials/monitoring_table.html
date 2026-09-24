@@ -1,0 +1,44 @@
+{% load i18n ui %}
+<div class="kpi-grid">
+  {% trans "Findings" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=page_obj.paginator.count|number %}
+  {% trans "Monitoring activities" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.activities|number %}
+  {% trans "TPM visits" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.tpm_count|number %}
+</div>
+<div class="grid grid--2 mb-3">
+  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Findings by rating" %}</h2></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="bars" data-source="monitoring-chart-data" data-key="by_rating" data-empty-title="{% trans 'No findings' %}"></div></section>
+  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Findings by month" %}</h2><span class="panel__hint">{% trans "Last 24 months with findings" %}</span></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="bars" data-orientation="v" data-source="monitoring-chart-data" data-key="by_month" data-empty-title="{% trans 'No findings' %}"></div></section>
+</div>
+<section class="panel p-0 mb-3">
+  {% include "components/table_toolbar.html" with title=_("Monitoring findings") count=page_obj.paginator.count table_id="findings" filename="field-monitoring-findings" %}
+  {% if page_obj.object_list %}
+  <div class="table-wrap"><table class="table table-hover" id="findings" data-sortable>
+    <thead><tr><th>{% trans "Activity" %}</th><th>{% trans "Monitored" %}</th><th>{% trans "Finding" %}</th><th>{% trans "Location" %}</th><th>{% trans "Dates" %}</th></tr></thead>
+    <tbody>{% for f in page_obj %}<tr>
+      <td class="mono small">{{ f.monitoring_activity|default:"—" }}{% if f.is_programmatic_visit %}<span class="cell-sub">{% trans "Programmatic visit" %}</span>{% endif %}{% if f.is_remote_monitoring %}<span class="cell-sub">{% trans "Remote" %}</span>{% endif %}</td>
+      <td>{% if f.partner %}<a href="{% url 'reports:partner_profile' f.partner.id %}">{{ f.entity|default:f.partner.name }}</a>{% else %}{{ f.entity|default:"—" }}{% endif %}<span class="cell-sub">{{ f.entity_type|capfirst }}</span></td>
+      <td>{% status_pill f.overall_finding_rating|status_key f.overall_finding_rating|default:"—" "sm" %}{% if f.narrative_finding %}<span class="cell-sub">{{ f.narrative_finding|truncatechars:140 }}</span>{% endif %}</td>
+      <td>{{ f.location_name|default:"—" }}{% if f.site %}<span class="cell-sub">{{ f.site }}</span>{% endif %}</td>
+      <td class="small text-nowrap">{{ f.start_date|date:"j M Y"|default:"—" }} – {{ f.end_date|date:"j M Y"|default:"—" }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% include "components/pagination.html" with hx_target="#monitoring-results" %}
+  {% else %}
+  {% include "components/empty_state.html" with icon="eye" title=_("No findings match") message=_("Change the filters, or run the eTools Datamart sync if the list is empty.") action_url=request.path %}
+  {% endif %}
+</section>
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Third-party monitoring visits") count=data.tpm_visits|length table_id="tpm-visits" filename="tpm-visits" %}
+  <div class="table-wrap"><table class="table table-sm" id="tpm-visits" data-sortable>
+    <thead><tr><th>{% trans "Visit" %}</th><th>{% trans "Partner" %}</th><th>{% trans "TPM partner" %}</th><th>{% trans "Status" %}</th><th>{% trans "Dates" %}</th></tr></thead>
+    <tbody>{% for v in data.tpm_visits %}<tr>
+      <td class="mono small">{{ v.reference_number|default:"—" }}</td>
+      <td>{% if v.partner %}<a href="{% url 'reports:partner_profile' v.partner.id %}">{{ v.partner_name|default:v.partner.name }}</a>{% else %}{{ v.partner_name|default:"—" }}{% endif %}</td>
+      <td>{{ v.tpm_name|default:"—" }}</td>
+      <td>{% status_pill v.status|status_key v.status|code_label "sm" %}</td>
+      <td class="small text-nowrap">{{ v.start_date|date:"j M Y"|default:"—" }} – {{ v.end_date|date:"j M Y"|default:"—" }}</td>
+    </tr>{% empty %}<tr><td colspan="5" class="text-muted">{% trans "No TPM visits." %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{{ chart_data|json_script:"monitoring-chart-data" }}

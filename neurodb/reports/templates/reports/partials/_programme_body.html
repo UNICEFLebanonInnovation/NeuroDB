@@ -13,3 +13,20 @@
 <h3 class="h6">{% trans "Donors" %} <span class="text-muted small">{{ detail.donations|number }}</span></h3>
 <div class="table-wrap"><table class="table table-sm"><thead><tr><th>{% trans "Donor" %}</th><th>{% trans "Grant" %}</th><th class="num">{% trans "Amount" %}</th></tr></thead>
 <tbody>{% for d in detail.donors %}<tr><td>{{ d.donor }}</td><td class="mono">{{ d.grant }}</td><td class="num">{{ d.value|number }}</td></tr>{% empty %}<tr><td colspan="3" class="text-muted">{% trans "No donor information." %}</td></tr>{% endfor %}</tbody></table></div>
+{% if datamart.fr_lines %}
+<h3 class="h6 mt-3">{% trans "Funds reservations" %} <span class="text-muted small">{% blocktrans count counter=datamart.fr_count %}{{ counter }} FR{% plural %}{{ counter }} FRs{% endblocktrans %} · {% trans "reserved" %} {{ datamart.fr_total|number:0 }} · {% trans "disbursed" %} {{ datamart.fr_actual|number:0 }} · {% trans "outstanding" %} {{ datamart.fr_outstanding|number:0 }}</span></h3>
+<div class="table-wrap"><table class="table table-sm"><thead><tr><th>{% trans "FR / line" %}</th><th>{% trans "Donor" %}</th><th>{% trans "Grant" %}</th><th>{% trans "Period" %}</th><th class="num">{% trans "Amount (USD)" %}</th></tr></thead>
+<tbody>{% for l in datamart.fr_lines %}<tr><td class="mono small">{{ l.fr_number }}{% if l.line_item %} / {{ l.line_item }}{% endif %}</td><td>{{ l.donor|default:"—" }}</td><td class="mono small">{{ l.grant_number|default:"—" }}</td><td class="small text-nowrap">{{ l.start_date|date:"M Y"|default:"—" }} – {{ l.end_date|date:"M Y"|default:"—" }}</td><td class="num">{{ l.overall_amount|number:0 }}</td></tr>{% endfor %}</tbody></table></div>
+{% endif %}
+{% if datamart.indicators %}
+<h3 class="h6 mt-3">{% trans "Indicators" %} <span class="text-muted small">{{ datamart.indicators|length }}</span></h3>
+<div class="table-wrap"><table class="table table-sm"><thead><tr><th>{% trans "Indicator" %}</th><th>{% trans "Section" %}</th><th class="num">{% trans "Baseline" %}</th><th class="num">{% trans "Target" %}</th><th>{% trans "Locations" %}</th></tr></thead>
+<tbody>{% for i in datamart.indicators %}<tr><td>{{ i.title }}{% if i.output %}<span class="cell-sub">{{ i.output|truncatechars:120 }}</span>{% endif %}{% if i.high_frequency %}<span class="cell-sub">{% trans "High frequency" %}</span>{% endif %}</td><td>{{ i.section|default:"—" }}</td><td class="num">{{ i.baseline|default:"—" }}</td><td class="num">{{ i.target|default:"—" }}</td><td class="small">{{ i.locations|slice:":4"|join:", "|default:"—" }}{% if i.locations|length > 4 %} +{{ i.locations|length|add:"-4" }}{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+{% endif %}
+{% if datamart.engagements or datamart.action_points %}
+<h3 class="h6 mt-3">{% trans "Assurance and follow-up" %}{% if datamart.open_action_points %} <span class="text-muted small">{% blocktrans count counter=datamart.open_action_points %}{{ counter }} open action point{% plural %}{{ counter }} open action points{% endblocktrans %}</span>{% endif %}</h3>
+<ul class="list-unstyled small mb-0">
+  {% for e in datamart.engagements %}<li class="mb-1"><span class="chip">{{ e.type_label }}</span> <span class="mono">{{ e.reference_number }}</span> · {{ e.status|code_label }} · {{ e.start_date|date:"M Y"|default:"—" }}</li>{% endfor %}
+  {% for a in datamart.action_points %}<li class="mb-1">{% status_pill a.status|status_key a.status|code_label "sm" %} <span class="mono">{{ a.reference_number }}</span> {{ a.description|truncatechars:110 }}{% if a.due_date %} · {% trans "due" %} {{ a.due_date|date:"j M Y" }}{% endif %}</li>{% endfor %}
+</ul>
+{% endif %}

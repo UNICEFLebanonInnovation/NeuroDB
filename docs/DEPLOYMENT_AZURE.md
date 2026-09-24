@@ -86,7 +86,9 @@ files or generated so they never appear in shell history.
 | `django-secret-key` | 64 random characters |
 | `database-url` | `postgres://<user>:<password>@<server>.postgres.database.azure.com:5432/<database>?sslmode=require` |
 | `activityinfo-token` | ActivityInfo service-account API token |
-| `etools-token` | eTools service-account token |
+| `etools-token` | eTools REST token, only for the on-demand `sync_etools` (can stay empty) |
+| `etools-username` | eTools Datamart service account (basic authentication user name) |
+| `etools-password` | eTools Datamart password; required while `enableEtoolsDatamart = true` (the default) |
 | `entra-client-secret` | only when single sign-on is enabled (step 8) |
 | `openai-api-key` | only when the AI assistant is enabled (`enableAiAssistant = true`): the OpenAI project API key (see `docs/OPERATIONS.md`) |
 
@@ -97,7 +99,9 @@ az keyvault secret set --vault-name $KV --name django-secret-key \
 az keyvault secret set --vault-name $KV --name database-url --file ./database-url.txt --output none
 az keyvault secret set --vault-name $KV --name activityinfo-token --file ./activityinfo-token.txt --output none
 az keyvault secret set --vault-name $KV --name etools-token --file ./etools-token.txt --output none
-shred -u ./database-url.txt ./activityinfo-token.txt ./etools-token.txt
+az keyvault secret set --vault-name $KV --name etools-username --file ./etools-username.txt --output none
+az keyvault secret set --vault-name $KV --name etools-password --file ./etools-password.txt --output none
+shred -u ./database-url.txt ./activityinfo-token.txt ./etools-token.txt ./etools-username.txt ./etools-password.txt
 ```
 
 Use a dedicated database login for the application, with rights on the existing tables and

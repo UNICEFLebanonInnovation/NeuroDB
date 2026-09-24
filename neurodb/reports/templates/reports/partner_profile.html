@@ -7,6 +7,7 @@
   {% trans "ActivityInfo records" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=profile.interventions|number %}
   {% trans "Risk rating" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=profile.risk_rating|default:"—" %}
   {% trans "Cash transfers this year" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=partner.total_ct_cy|number:0 %}
+  {% if datamart.open_action_points %}{% url 'reports:action_points' as ap_url %}{% trans "Open action points" as l6 %}{% include "components/kpi_tile.html" with label=l6 value=datamart.open_action_points|number status="off_track" href=ap_url %}{% endif %}
 </div>
 <div class="grid grid--2 mb-3">
   <section class="panel">
@@ -24,7 +25,7 @@
     <div class="panel__header"><h2 class="panel__title">{% trans "Programmatic visits by year" %}</h2></div>
     <div class="chart chart--sm" data-module="charts" data-chart="bars" data-orientation="v" data-key="visits_by_year" data-empty-title="{% trans 'No visits recorded' %}"></div>
     <h3 class="panel__title mt-3">{% trans "Assurance activities" %}</h3>
-    <div class="chips mt-2">{% for kind, n in profile.engagement_counts.items %}<span class="chip">{{ kind|default:"—" }} · {{ n }}</span>{% empty %}<span class="text-muted small">{% trans "No audits, spot checks or micro-assessments." %}</span>{% endfor %}</div>
+    <div class="chips mt-2">{% for kind, n in datamart.engagement_counts.items|default:profile.engagement_counts.items %}<span class="chip">{{ kind|default:"—" }} · {{ n }}</span>{% empty %}<span class="text-muted small">{% trans "No audits, spot checks or micro-assessments." %}</span>{% endfor %}</div>
   </section>
 </div>
 <section class="panel p-0 mb-3">
@@ -35,11 +36,44 @@
     {% empty %}<tr><td colspan="4" class="text-muted">{% trans "No programme documents." %}</td></tr>{% endfor %}</tbody>
   </table></div>
 </section>
-<section class="panel p-0">
+<section class="panel p-0 mb-3">
+  {% if datamart.engagements %}
+  {% include "components/table_toolbar.html" with title=_("Assurance engagements") count=datamart.engagements|length table_id="partner-eng" %}
+  <div class="table-wrap"><table class="table" id="partner-eng"><thead><tr><th>{% trans "Engagement" %}</th><th>{% trans "Type" %}</th><th>{% trans "Status" %}</th><th>{% trans "Period" %}</th><th class="num">{% trans "Findings (USD)" %}</th></tr></thead>
+  <tbody>{% for e in datamart.engagements %}<tr><td class="mono small">{{ e.reference_number|default:"—" }}{% if e.auditor %}<span class="cell-sub">{{ e.auditor }}</span>{% endif %}</td><td>{{ e.type_label }}</td><td>{% status_pill e.status e.status|code_label "sm" %}</td><td class="small text-nowrap">{{ e.start_date|date:"j M Y"|default:"—" }} – {{ e.end_date|date:"j M Y"|default:"—" }}</td><td class="num">{{ e.financial_findings|number:0 }}</td></tr>{% endfor %}</tbody></table></div>
+  {% else %}
   {% include "components/table_toolbar.html" with title=_("Assurance engagements") count=profile.engagements|length table_id="partner-eng" %}
   <div class="table-wrap"><table class="table" id="partner-eng"><thead><tr><th>{% trans "Engagement" %}</th><th>{% trans "Type" %}</th><th>{% trans "Status" %}</th><th>{% trans "Period" %}</th></tr></thead>
-  <tbody>{% for e in profile.engagements %}<tr><td>{{ e.displayed_name|default:e.unique_id }}</td><td>{{ e.engagement_type }}</td><td>{{ e.status|capfirst }}</td><td class="small text-nowrap">{{ e.start_date|date:"j M Y" }} – {{ e.end_date|date:"j M Y" }}</td></tr>
+  <tbody>{% for e in profile.engagements %}<tr><td>{{ e.displayed_name|default:e.unique_id }}</td><td>{{ e.engagement_type }}</td><td>{{ e.status|code_label }}</td><td class="small text-nowrap">{{ e.start_date|date:"j M Y" }} – {{ e.end_date|date:"j M Y" }}</td></tr>
   {% empty %}<tr><td colspan="4" class="text-muted">{% trans "No engagements." %}</td></tr>{% endfor %}</tbody></table></div>
+  {% endif %}
 </section>
+{% if datamart.assessments or datamart.psea %}
+<section class="panel p-0 mb-3">
+  {% include "components/table_toolbar.html" with title=_("Assessments") count=datamart.assessments|length table_id="partner-assessments" %}
+  {% if datamart.psea %}<p class="small px-3 mb-2">{% trans "PSEA assessment" %}: <span class="mono">{{ datamart.psea.reference_number|default:"—" }}</span> · {{ datamart.psea.status|code_label|default:"—" }} · {{ datamart.psea.assessment_date|date:"j M Y"|default:"—" }}{% if datamart.psea.overall_rating is not None %} · {% trans "score" %} {{ datamart.psea.overall_rating }}{% endif %}</p>{% endif %}
+  <div class="table-wrap"><table class="table table-sm" id="partner-assessments"><thead><tr><th>{% trans "Assessment" %}</th><th>{% trans "Rating" %}</th><th>{% trans "Planned" %}</th><th>{% trans "Completed" %}</th></tr></thead>
+  <tbody>{% for a in datamart.assessments %}<tr><td>{{ a.type|default:"—" }}{% if a.current %} <span class="chip">{% trans "Current" %}</span>{% endif %}</td><td>{{ a.rating|default:"—" }}</td><td class="small">{{ a.planned_date|date:"j M Y"|default:"—" }}</td><td class="small">{{ a.completed_date|date:"j M Y"|default:"—" }}</td></tr>
+  {% empty %}<tr><td colspan="4" class="text-muted">{% trans "No HACT assessments." %}</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endif %}
+{% if datamart.action_points %}
+<section class="panel p-0 mb-3">
+  {% include "components/table_toolbar.html" with title=_("Open action points") count=datamart.open_action_points table_id="partner-aps" %}
+  <div class="table-wrap"><table class="table table-sm" id="partner-aps"><thead><tr><th>{% trans "Action point" %}</th><th>{% trans "Assigned to" %}</th><th>{% trans "Due" %}</th></tr></thead>
+  <tbody>{% for a in datamart.action_points %}<tr><td><span class="mono small">{{ a.reference_number }}</span>{% if a.high_priority %} <span class="chip">{% trans "High priority" %}</span>{% endif %}<span class="cell-sub">{{ a.description|truncatechars:140 }}</span></td><td>{{ a.assigned_to_name|default:"—" }}</td><td class="small text-nowrap">{{ a.due_date|date:"j M Y"|default:"—" }}</td></tr>{% endfor %}</tbody></table></div>
+  <div class="p-2 px-3 small"><a href="{% url 'reports:action_points' %}?q={{ partner.vendor_number|default:partner.name|urlencode }}">{% trans "All action points of this partner" %}</a></div>
+</section>
+{% endif %}
+{% if datamart.findings or datamart.tpm_visits %}
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Monitoring visits") count=datamart.monitoring_count table_id="partner-monitoring" %}
+  <div class="table-wrap"><table class="table table-sm" id="partner-monitoring"><thead><tr><th>{% trans "Visit" %}</th><th>{% trans "Kind" %}</th><th>{% trans "Result" %}</th><th>{% trans "Dates" %}</th></tr></thead>
+  <tbody>
+    {% for f in datamart.findings %}<tr><td class="mono small">{{ f.monitoring_activity|default:"—" }}{% if f.location_name %}<span class="cell-sub">{{ f.location_name }}</span>{% endif %}</td><td>{% trans "Field monitoring" %}</td><td>{% status_pill f.overall_finding_rating|status_key f.overall_finding_rating|default:"—" "sm" %}</td><td class="small text-nowrap">{{ f.end_date|date:"j M Y"|default:"—" }}</td></tr>{% endfor %}
+    {% for v in datamart.tpm_visits %}<tr><td class="mono small">{{ v.reference_number|default:"—" }}{% if v.tpm_name %}<span class="cell-sub">{{ v.tpm_name }}</span>{% endif %}</td><td>{% trans "Third-party monitoring" %}</td><td>{% status_pill v.status|status_key v.status|code_label "sm" %}</td><td class="small text-nowrap">{{ v.start_date|date:"j M Y"|default:"—" }}</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+{% endif %}
 {{ chart_data|json_script:"chart-data" }}
 {% endblock %}

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+<form method="get" class="filter-bar" data-filter-bar data-hx-target="#assurance-results" role="search" aria-label="{% trans 'Assurance filters' %}">
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-q">{% trans "Search" %}</label>
+    <input class="form-control form-control-sm" type="search" id="f-q" name="q" value="{{ q }}" placeholder="{% trans 'Partner, vendor or reference' %}">
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-type">{% trans "Type" %}</label>
+    <select class="form-select form-select-sm" id="f-type" name="type" multiple data-tom placeholder="{% trans 'All' %}">
+      {% for code, label in data.options.types %}<option value="{{ code }}" {% if code in selected.type %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  {% trans "Status" as l %}{% include "reports/_multiselect.html" with name="status" label=l options=data.options.statuses values=selected.status %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-year">{% trans "Year" %}</label>
+    <select class="form-select form-select-sm" id="f-year" name="year">
+      <option value="">{% trans "All years" %}</option>
+      {% for y in data.options.years %}<option value="{{ y }}" {% if y|stringformat:"s" == year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
+  </div>
+</form>
+<div id="assurance-results" aria-live="polite">{% include "reports/partials/assurance_table.html" %}</div>
+<div class="grid grid--2 mt-3">
+  <section class="panel p-0">
+    {% include "components/table_toolbar.html" with title=_("HACT assurance by year") count=data.hact|length table_id="hact-years" %}
+    <div class="table-wrap"><table class="table table-sm" id="hact-years">
+      <thead><tr><th>{% trans "Year" %}</th><th class="num">{% trans "Micro-assessments" %}</th><th class="num">{% trans "Programmatic visits" %}</th><th class="num">{% trans "Spot checks" %}</th><th class="num">{% trans "Follow-up spot checks" %}</th><th class="num">{% trans "Audits" %}</th><th class="num">{% trans "Special audits" %}</th></tr></thead>
+      <tbody>{% for h in data.hact %}<tr><td>{{ h.year }}</td><td class="num">{{ h.microassessments_total|number }}</td><td class="num">{{ h.programmaticvisits_total|number }}</td><td class="num">{{ h.completed_spotcheck|number }}</td><td class="num">{{ h.followup_spotcheck|number }}</td><td class="num">{{ h.completed_hact_audits|number }}</td><td class="num">{{ h.completed_special_audits|number }}</td></tr>
+      {% empty %}<tr><td colspan="7" class="text-muted">{% trans "No HACT totals yet. They arrive with the eTools Datamart sync." %}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+  <section class="panel p-0">
+    {% include "components/table_toolbar.html" with title=_("Latest partner assessments") count=data.assessments|length table_id="assessments" %}
+    <div class="table-wrap"><table class="table table-sm" id="assessments">
+      <thead><tr><th>{% trans "Partner" %}</th><th>{% trans "Assessment" %}</th><th>{% trans "Rating" %}</th><th>{% trans "Completed" %}</th></tr></thead>
+      <tbody>{% for a in data.assessments %}<tr><td>{% if a.partner %}<a href="{% url 'reports:partner_profile' a.partner.id %}">{{ a.partner_name }}</a>{% else %}{{ a.partner_name }}{% endif %}</td><td>{{ a.type }}</td><td>{% if a.rating %}<span class="chip">{{ a.rating }}</span>{% else %}—{% endif %}</td><td class="small text-nowrap">{{ a.completed_date|date:"j M Y"|default:"—" }}</td></tr>
+      {% empty %}<tr><td colspan="4" class="text-muted">{% trans "No assessments." %}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    <div class="p-3 small text-muted">
+      {% blocktrans count counter=data.psea_count %}{{ counter }} PSEA assessment{% plural %}{{ counter }} PSEA assessments{% endblocktrans %}{% for status, n in data.psea_by_status %} · {{ status|code_label }} {{ n }}{% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

@@ -27,7 +27,7 @@ def test_check_sync_freshness_fails_when_nothing_ran():
 def test_check_sync_freshness_passes_with_recent_runs(settings, caplog):
     settings.SYNC_STALENESS_HOURS = 30
     finished_run(SyncRun.Job.ACTIVITYINFO_DATA, 1)
-    finished_run(SyncRun.Job.ETOOLS, 2, SyncRun.Status.PARTIAL)
+    finished_run(SyncRun.Job.ETOOLS_DATAMART, 2, SyncRun.Status.PARTIAL)
     finished_run(SyncRun.Job.LOCATIONS, 3)
     out = StringIO()
     call_command("check_sync_freshness", stdout=out)
@@ -37,11 +37,11 @@ def test_check_sync_freshness_passes_with_recent_runs(settings, caplog):
 def test_check_sync_freshness_flags_old_and_failed_runs(settings, caplog):
     settings.SYNC_STALENESS_HOURS = 30
     finished_run(SyncRun.Job.ACTIVITYINFO_DATA, 40)
-    finished_run(SyncRun.Job.ETOOLS, 1, SyncRun.Status.FAILED)
+    finished_run(SyncRun.Job.ETOOLS_DATAMART, 1, SyncRun.Status.FAILED)
     finished_run(SyncRun.Job.LOCATIONS, 1)
     with (
         caplog.at_level("ERROR", logger="neurodb.integrations"),
-        pytest.raises(CommandError, match="ai_data, etools"),
+        pytest.raises(CommandError, match="ai_data, etools_datamart"),
     ):
         call_command("check_sync_freshness", stdout=StringIO())
     assert any("ai_data is stale" in record.message for record in caplog.records)

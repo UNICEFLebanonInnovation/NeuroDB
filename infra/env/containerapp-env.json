@@ -21,6 +21,16 @@
       "identity": "<managed-identity-resource-id>"
     },
     {
+      "name": "etools-username",
+      "keyVaultUrl": "https://neurodb-prod-kv.vault.azure.net/secrets/etools-username",
+      "identity": "<managed-identity-resource-id>"
+    },
+    {
+      "name": "etools-password",
+      "keyVaultUrl": "https://neurodb-prod-kv.vault.azure.net/secrets/etools-password",
+      "identity": "<managed-identity-resource-id>"
+    },
+    {
       "name": "entra-client-secret",
       "keyVaultUrl": "https://neurodb-prod-kv.vault.azure.net/secrets/entra-client-secret",
       "identity": "<managed-identity-resource-id>"
@@ -91,6 +101,22 @@
     {
       "name": "ETOOLS_TOKEN",
       "secretRef": "etools-token"
+    },
+    {
+      "name": "ETOOLS_DATAMART_URL",
+      "value": "https://datamart.unicef.io"
+    },
+    {
+      "name": "ETOOLS_DATAMART_COUNTRY",
+      "value": "Lebanon"
+    },
+    {
+      "name": "ETOOLS_USERNAME",
+      "secretRef": "etools-username"
+    },
+    {
+      "name": "ETOOLS_PASSWORD",
+      "secretRef": "etools-password"
     },
     {
       "name": "OPENAI_API_KEY",

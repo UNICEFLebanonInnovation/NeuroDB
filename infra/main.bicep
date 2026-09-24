@@ -52,6 +52,12 @@ param enableSso bool = false
 param entraTenantId string = ''
 param entraClientId string = ''
 
+@description('eTools Datamart sync (basic auth). When true the secrets etools-username and etools-password must exist.')
+param enableEtoolsDatamart bool = true
+
+@description('Country filter of the eTools Datamart sync.')
+param etoolsDatamartCountry string = 'Lebanon'
+
 @description('AI assistant (Ask NeuroDB, OpenAI API). When true the secret openai-api-key must exist.')
 param enableAiAssistant bool = false
 @description('OpenAI model for the AI assistant.')
@@ -76,7 +82,7 @@ param jobs array = [
   { name: 'migrate', cron: '', args: ['migrate'], cpu: '0.5', memory: '1Gi', timeout: 1800 }
   { name: 'ai-structure', cron: '', args: ['manage', 'import_activityinfo_structure', '--all', '--triggered-by', 'job'], cpu: '0.5', memory: '1Gi', timeout: 3600 }
   { name: 'ai-data', cron: '0 15 1-22 * *', args: ['manage', 'import_activityinfo_data', '--current-year', '--triggered-by', 'job'], cpu: '1.0', memory: '2Gi', timeout: 7200 }
-  { name: 'etools', cron: '30 17 * * *', args: ['manage', 'sync_etools', '--triggered-by', 'job'], cpu: '0.5', memory: '1Gi', timeout: 3600 }
+  { name: 'etools', cron: '30 17 * * *', args: ['manage', 'sync_etools_datamart', '--triggered-by', 'job'], cpu: '0.5', memory: '1Gi', timeout: 3600 }
   { name: 'locations', cron: '0 2 * * *', args: ['manage', 'sync_locations', '--triggered-by', 'job'], cpu: '0.5', memory: '1Gi', timeout: 1800 }
   { name: 'freshness', cron: '15 * * * *', args: ['manage', 'check_sync_freshness'], cpu: '0.25', memory: '0.5Gi', timeout: 300 }
 ]
@@ -242,6 +248,7 @@ var kvSecretUri = 'https://${keyVaultName}${environment().suffixes.keyvaultDns}/
 var secretNames = concat(
   ['django-secret-key', 'database-url', 'activityinfo-token', 'etools-token'],
   enableSso ? ['entra-client-secret'] : [],
+  enableEtoolsDatamart ? ['etools-username', 'etools-password'] : [],
   enableAiAssistant ? ['openai-api-key'] : []
 )
 var appSecrets = [for s in secretNames: {
@@ -281,6 +288,13 @@ var commonEnv = concat(
         { name: 'ENTRA_TENANT_ID', value: entraTenantId }
         { name: 'ENTRA_CLIENT_ID', value: entraClientId }
         { name: 'ENTRA_CLIENT_SECRET', secretRef: 'entra-client-secret' }
+      ]
+    : [],
+  enableEtoolsDatamart
+    ? [
+        { name: 'ETOOLS_USERNAME', secretRef: 'etools-username' }
+        { name: 'ETOOLS_PASSWORD', secretRef: 'etools-password' }
+        { name: 'ETOOLS_DATAMART_COUNTRY', value: etoolsDatamartCountry }
       ]
     : [],
   enableAiAssistant

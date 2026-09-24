@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     "neurodb.geo",
     "neurodb.library",
     "neurodb.partnerships",
+    "neurodb.datamart",
     "neurodb.integrations",
     "neurodb.reports",
     "neurodb.assistant",
@@ -316,6 +317,20 @@ ACTIVITYINFO_BASE_URL = env("ACTIVITYINFO_BASE_URL", default="https://www.activi
 ACTIVITYINFO_TOKEN = env("ACTIVITYINFO_TOKEN", default="").strip()  # a stray newline breaks the header
 ETOOLS_BASE_URL = env("ETOOLS_BASE_URL", default="https://etools.unicef.org")
 ETOOLS_TOKEN = env("ETOOLS_TOKEN", default="").strip()
+# eTools Datamart (datamart.unicef.io): the eTools data of every country office, read with HTTP basic
+# authentication. The username and password come from the environment or Key Vault only (secrets
+# etools-username / etools-password); never put them in a file that is committed. A Key Vault
+# reference that did not resolve arrives as the literal "@Microsoft.KeyVault(...)" text: treat it as
+# unset. Only line breaks are removed from the password (a secret saved from a file ends with one),
+# and it is read as-is: django-environ would treat a value starting with "$" as another variable's name.
+ETOOLS_DATAMART_URL = env("ETOOLS_DATAMART_URL", default="https://datamart.unicef.io")
+ETOOLS_DATAMART_API_VERSION = env("ETOOLS_DATAMART_API_VERSION", default="latest")
+ETOOLS_DATAMART_COUNTRY = env("ETOOLS_DATAMART_COUNTRY", default="Lebanon")  # the country_name filter
+ETOOLS_DATAMART_PAGE_SIZE = env.int("ETOOLS_DATAMART_PAGE_SIZE", default=500)
+ETOOLS_USERNAME = env("ETOOLS_USERNAME", default="").strip()
+ETOOLS_PASSWORD = env.ENVIRON.get("ETOOLS_PASSWORD", "").strip("\r\n")
+if ETOOLS_USERNAME.startswith("@Microsoft.KeyVault(") or ETOOLS_PASSWORD.startswith("@Microsoft.KeyVault("):
+    ETOOLS_USERNAME = ETOOLS_PASSWORD = ""
 INTEGRATION_TIMEOUT_SECONDS = (10, 120)
 SYNC_STALENESS_HOURS = env.int("SYNC_STALENESS_HOURS", default=30)
 

@@ -1,7 +1,8 @@
 """``check_sync_freshness``: exit 1 when a scheduled job has not succeeded within the staleness window.
 
-Used by the scheduler alert. The structure import and the population load are on demand and
-are not checked unless named with ``--jobs``.
+Used by the scheduler alert. The structure import, the population load and the
+eTools REST sync (``sync_etools``, replaced on the schedule by the eTools Datamart sync) are on
+demand and are not checked unless named with ``--jobs``.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from neurodb.core.models import SyncRun
 
 logger = logging.getLogger(__name__)
 
-SCHEDULED_JOBS = (SyncRun.Job.ACTIVITYINFO_DATA, SyncRun.Job.ETOOLS, SyncRun.Job.LOCATIONS)
+SCHEDULED_JOBS = (SyncRun.Job.ACTIVITYINFO_DATA, SyncRun.Job.ETOOLS_DATAMART, SyncRun.Job.LOCATIONS)
 
 
 def stale_jobs(jobs, max_age_hours: int) -> list[tuple[str, str]]:
@@ -37,7 +38,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--jobs", help="comma-separated job codes to check (default: ai_data,etools,locations)"
+            "--jobs", help="comma-separated job codes to check (default: ai_data,etools_datamart,locations)"
         )
         parser.add_argument("--max-age-hours", type=int, default=None, help="override SYNC_STALENESS_HOURS")
 

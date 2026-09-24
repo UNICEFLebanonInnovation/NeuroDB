@@ -24,6 +24,12 @@ STATUS_VARIANTS = {
     "failed": "danger",
     "running": "info",
     "active": "success",
+    "open": "warning",
+    "completed": "success",
+    "final": "success",
+    "approved": "success",
+    "report_submitted": "info",
+    "cancelled": "neutral",
 }
 
 
@@ -97,6 +103,19 @@ def active_if(context: dict[str, Any], *view_names: str, pk: int | None = None, 
 @register.simple_tag(takes_context=True)
 def aria_current(context: dict[str, Any], *view_names: str, pk: int | None = None) -> str:
     return 'aria-current="page"' if active_if(context, *view_names, pk=pk) else ""
+
+
+@register.filter
+def code_label(value: Any) -> str:
+    """``"report_submitted"`` -> ``"Report submitted"``: an eTools status code as text."""
+    text = str(value or "").strip().replace("_", " ")
+    return text[:1].upper() + text[1:] if text else "—"
+
+
+@register.filter
+def status_key(value: Any) -> str:
+    """``"On Track"`` -> ``"on_track"``: an eTools label as a status pill key."""
+    return str(value or "unknown").strip().lower().replace(" ", "_").replace("-", "_")
 
 
 @register.filter
