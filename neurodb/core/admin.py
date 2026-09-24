@@ -1,17 +1,39 @@
-from django.contrib import admin
+from django import forms
+from django.contrib import admin, messages
 from django.contrib.admin.models import ADDITION, CHANGE, DELETION, LogEntry
-from django.urls import NoReverseMatch
+from django.http import HttpResponse
+from django.shortcuts import redirect
+from django.urls import NoReverseMatch, reverse
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
+from unfold.decorators import action
+from unfold.forms import BaseDialogForm
 
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
 from .models import PopulationFigure, SavedView, SyncRun
 
 
+class DatamartSyncForm(BaseDialogForm):
+    scope = forms.ChoiceField(
+        label=_("What to sync"),
+        choices=(
+            ("core", _("Partners and programme documents (a few minutes)")),
+            (
+                "all",
+                _("Everything: funds, audits, reporting, monitoring and every other dataset (up to 2 hours)"),
+            ),
+        ),
+        initial="core",
+        widget=forms.RadioSelect,
+    )
+
+
 @admin.register(SyncRun)
 class SyncRunAdmin(ReadOnlyModelAdmin):
+    actions_list = ["sync_etools_datamart"]
+
     list_display = (
         "job",
         "target",
@@ -48,6 +70,54 @@ class SyncRunAdmin(ReadOnlyModelAdmin):
     @admin.display(description=_("Error"))
     def error_short(self, obj):
         return (obj.error[:90] + "…") if len(obj.error) > 90 else (obj.error or "")
+
+    def has_run_sync_permission(self, request):
+        from neurodb.accounts.roles import ADMIN, role_of
+
+        return request.user.is_superuser or role_of(request.user) == ADMIN
+
+    @action(
+        description=_("Sync eTools now"),
+        url_path="sync-etools-datamart",
+        permissions=["run_sync"],
+        icon="sync",
+        dialog={
+            "title": _("Sync from the eTools Datamart"),
+            "description": _(
+                "Reads the eTools Datamart in the background. Each dataset appears in this list as it "
+                "runs; refresh the page to follow it."
+            ),
+            "form_class": DatamartSyncForm,
+            "form_submit_text": _("Start"),
+        },
+    )
+    def sync_etools_datamart(self, request, form):
+        from neurodb.integrations import background
+        from neurodb.integrations.etools.datamart import configured
+        from neurodb.integrations.management.commands.sync_etools_datamart import CORE
+
+        if not configured():
+            messages.error(
+                request,
+                _(
+                    "The eTools Datamart credentials are not set: add ETOOLS_USERNAME and ETOOLS_PASSWORD "
+                    "to the application settings (Key Vault secrets etools-username and etools-password)."
+                ),
+            )
+        elif background.is_running(SyncRun.Job.ETOOLS_DATAMART):
+            messages.warning(request, _("An eTools Datamart sync is already running."))
+        else:
+            args = ["sync_etools_datamart", "--triggered-by", request.user.get_username()]
+            if form.cleaned_data["scope"] == "core":
+                args += ["--only", ",".join(CORE)]
+            background.start_command(*args)
+            messages.success(request, _("eTools Datamart sync started. Refresh this page to follow it."))
+        url = reverse("admin:core_syncrun_changelist")
+        if request.headers.get("HX-Request"):  # the dialog posts with HTMX: redirect the whole page
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = url
+            return response
+        return redirect(url)
 
 
 @admin.register(SavedView)

@@ -123,6 +123,15 @@ Triage a failure: open the run, read `error`, re-run the command with `--databas
 failed item ids in `details`.
 
 ## eTools Datamart
+
+**Running the sync now.** Admin → *Data and sync* → *Import and sync runs* → **Sync eTools now**
+(administrators): choose *Partners and programme documents* (minutes) or *Everything* (up to two
+hours). It runs in the background in the web container; each dataset appears in that list as it
+finishes. Only one Datamart sync runs at a time (a database lock), whoever starts it. On Container
+Apps the `etools` job also runs it every night; **App Service has no scheduler**, so there the data
+only changes when someone starts it (or through a Container Apps job pointed at the same database).
+From a shell with the same settings: `python manage.py sync_etools_datamart [--only a,b]`.
+
 The nightly eTools sync reads the **eTools Datamart** (`https://datamart.unicef.io`, the new eTools
 APIs) with HTTP basic authentication: `ETOOLS_USERNAME` / `ETOOLS_PASSWORD`, from the Key Vault
 secrets `etools-username` / `etools-password`. Nothing else holds the credentials: they are not in
