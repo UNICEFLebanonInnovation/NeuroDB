@@ -6,6 +6,7 @@ template (``request.htmx``), plain requests the full page.
 
 from __future__ import annotations
 
+import datetime
 import io
 import mimetypes
 from typing import Any
@@ -26,6 +27,7 @@ from django.views.decorators.http import require_GET, require_POST
 from neurodb.accounts.roles import can_edit_section
 from neurodb.core.models import PopulationFigure, SavedView
 from neurodb.core.services import population as population_service
+from neurodb.datamart import monitoring as pd_monitoring_service
 from neurodb.datamart import services as datamart
 from neurodb.datamart.models import AuditEngagement, AuditFinding
 from neurodb.facts.services import dashboard as facts
@@ -698,6 +700,68 @@ def action_points(request: HttpRequest) -> HttpResponse:
         "priority": request.GET.get("priority") == "1",
     }
     template = "reports/partials/action_point_table.html" if request.htmx else "reports/action_points.html"
+    return render(request, template, context)
+
+
+# ------------------------------------------------------------------------- partner monitoring (eTools)
+
+
+@require_GET
+def pd_monitoring(request: HttpRequest) -> HttpResponse:
+    filters = pd_monitoring_service.Filters.from_params(request.GET)
+    rows = pd_monitoring_service.indicators(filters)
+    data = pd_monitoring_service.summary(rows, filters)
+    context = {
+        "page_title": _("Partner monitoring"),
+        "page_subtitle": _(
+            "What partners reported on each programme document indicator, by reporting period and location, "
+            "against the target in the PD"
+        ),
+        "breadcrumbs": [_crumb(_("Partner monitoring"))],
+        "filters": filters,
+        "rows": rows,
+        "groups": pd_monitoring_service.grouped(rows),
+        "data": data,
+        "months": pd_monitoring_service.MONTHS,
+        "labels": LABELS,
+        "options": pd_monitoring_service.filter_options(filters),
+        "selected": {
+            key: request.GET.getlist(key)
+            for key in ("section", "partner", "pd", "location", *pd_monitoring_service.TAG_FIELDS)
+        },
+        "chart_data": {"status_counts": data["status_counts"], "by_section": data["by_section"]},
+        "truncated": len(rows) >= pd_monitoring_service.MAX_INDICATORS,
+    }
+    template = "reports/partials/monitoring_grid.html" if request.htmx else "reports/pd_monitoring.html"
+    return render(request, template, context)
+
+
+@require_GET
+def pd_indicator(request: HttpRequest, pk: int, key: str) -> HttpResponse:
+    pd = get_object_or_404(PCA.objects.select_related("partner"), pk=pk)
+    raw_year = request.GET.get("year", "")
+    year = int(raw_year) if raw_year.isdigit() else datetime.date.today().year
+    detail = pd_monitoring_service.indicator_detail(
+        pd, key, (request.GET.get("report_type") or "").upper(), year
+    )
+    if detail is None:
+        raise Http404
+    title = detail["definition"].title
+    context = {
+        "page_title": title,
+        "page_subtitle": " · ".join(
+            x for x in (pd.number, pd.partner_name, detail["definition"].section_name) if x
+        ),
+        "breadcrumbs": [
+            _crumb(_("Partner monitoring"), reverse("reports:pd_monitoring")),
+            _crumb(pd.number or pd.title),
+            _crumb(title),
+        ],
+        "labels": LABELS,
+        "report_types": pd_monitoring_service.REPORT_TYPES,
+        **detail,
+    }
+    template = "reports/partials/pd_indicator.html" if request.htmx else "reports/pd_indicator.html"
     return render(request, template, context)
 
 

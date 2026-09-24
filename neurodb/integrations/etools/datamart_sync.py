@@ -34,7 +34,7 @@ from django.db import connection, models, transaction
 from django.utils import timezone
 
 from neurodb.core.models import SyncRun
-from neurodb.datamart import catalogue
+from neurodb.datamart import catalogue, tags
 from neurodb.datamart import models as dm
 from neurodb.geo.models import Location
 from neurodb.integrations.etools.datamart import DatamartClient
@@ -418,6 +418,11 @@ def _link_intervention(key: str = "source_intervention_id", number_key: str = "p
     return link
 
 
+def _tag(row, title: Any) -> None:
+    for name, value in tags.tags_of(str(title or "")).as_dict().items():
+        setattr(row, f"tag_{name}", value)
+
+
 def _link_indicator(row, item, links):
     """By the PD reference number first: ``result_link_intervention`` is not documented as the
     eTools id, so it is only the fallback."""
@@ -426,6 +431,7 @@ def _link_indicator(row, item, links):
     if pk is None:
         pk = links.intervention(item.get("result_link_intervention"))
     row.intervention_id = pk
+    _tag(row, item.get("title"))
 
 
 def _link_partner(source_key: str | None, vendor_key: str):
@@ -501,6 +507,9 @@ def _link_report(row, item, links):
     row.due_date = coerce(
         row._meta.get_field("due_date"), item.get("due_date") or item.get("reporting_period_due_date")
     )
+    row.high_frequency = str(item.get("high_frequency") or "").strip().lower() in ("true", "yes", "1", "t")
+    row.disaggregation = item.get("disaggregation") if isinstance(item.get("disaggregation"), dict) else {}
+    _tag(row, item.get("performance_indicator"))
 
 
 def _link_tpm_activity(row, item, links):
@@ -602,6 +611,12 @@ DATASETS: dict[str, tuple[str, Dataset]] = {
                     "disaggregation_name",
                     "is_active",
                     "is_high_frequency",
+                    "location_source_id",
+                    "location_level",
+                    "location_levelname",
+                    "numerator_label",
+                    "denominator_label",
+                    "means_of_verification",
                 )
             },
             link=_link_indicator,
@@ -835,6 +850,13 @@ DATASETS: dict[str, tuple[str, Dataset]] = {
                 "achievement_in_period": "achievement_in_reporting_period",
                 "total_cumulative_progress": "total_cumulative_progress",
                 "total_cumulative_progress_in_location": "total_cumulative_progress_in_location",
+                "previous_location_progress": "previous_location_progress",
+                "admin_level": "admin_level",
+                "calculation_across_locations": "calculation_method_across_location",
+                "calculation_across_periods": "calculation_method_across_reporting_periods",
+                "etools_indicator_id": "etools_cp_output_indicators_id",
+                "etools_pd_result_id": "etools_pd_result_id",
+                "narrative_assessment": "pd_output_narrative_assessment",
             },
             link=_link_report,
             params=_reporting_window,

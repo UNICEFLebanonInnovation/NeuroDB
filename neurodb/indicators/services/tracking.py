@@ -48,6 +48,44 @@ def tracking(
     return Tracking(ON_TRACK, achieved)
 
 
+def percentage_elapsed(
+    start: datetime.date | None, end: datetime.date | None, today: datetime.date | None = None
+) -> float:
+    """Share of the period ``start``..``end`` elapsed at ``today``: 0 before it starts, 100 once it
+    has ended; without dates, the share of the current calendar year (the ActivityInfo rule)."""
+    today = today or datetime.date.today()
+    if not start or not end or end <= start:
+        return percentage_of_year_elapsed(today.year, today)
+    if today <= start:
+        return 0.0
+    if today >= end:
+        return 100.0
+    return (today - start).days / (end - start).days * 100
+
+
+def _status(achieved: float, elapsed: float) -> str:
+    if achieved - elapsed >= TOLERANCE:
+        return OVER_TARGET
+    if elapsed - achieved >= TOLERANCE:
+        return OFF_TRACK
+    return ON_TRACK
+
+
+def tracking_between(
+    value: float | None,
+    target: float | None,
+    start: datetime.date | None,
+    end: datetime.date | None,
+    today: datetime.date | None = None,
+) -> Tracking:
+    """The same rule as ``tracking`` with the expected share taken from a programme document's own
+    period (eTools PD indicators run from the PD start to its end, not by calendar year)."""
+    if not target or target <= 0:
+        return Tracking(NO_TARGET, None)
+    achieved = (value or 0) * 100 / target
+    return Tracking(_status(achieved, percentage_elapsed(start, end, today)), achieved)
+
+
 def year_of(reporting_year) -> int:
     """v2 stores the year as text; fall back to the current year if it does not parse."""
     try:

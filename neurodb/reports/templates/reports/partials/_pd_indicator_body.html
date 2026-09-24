@@ -1,0 +1,39 @@
+{% load i18n ui %}
+{% if indicator %}
+<div class="kpi-grid">
+  {% trans "Target" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=indicator.target|number:0 %}
+  {% trans "Cumulative" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=indicator.cumulative|number:0 hint=indicator.cumulative_as_of|date:"M Y" %}
+  {% trans "Achieved" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=indicator.achieved|percent:0 status=indicator.tracking status_label=indicator.tracking_label %}
+  {% trans "Baseline" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=indicator.baseline|number:0 %}
+</div>
+{% endif %}
+<dl class="row small mb-3">
+  <dt class="col-sm-3 text-muted">{% trans "Programme document" %}</dt><dd class="col-sm-9"><a href="{% url 'reports:programme_detail' pd.id %}">{{ pd.number }}</a> · {{ pd.title }} <span class="text-muted">({{ pd.start|date:"M Y" }} – {{ pd.end|date:"M Y" }})</span></dd>
+  <dt class="col-sm-3 text-muted">{% trans "Partner" %}</dt><dd class="col-sm-9">{% if pd.partner %}<a href="{% url 'reports:partner_profile' pd.partner.id %}">{{ pd.partner.name }}</a>{% else %}{{ pd.partner_name|default:"—" }}{% endif %}</dd>
+  <dt class="col-sm-3 text-muted">{% trans "Output" %}</dt><dd class="col-sm-9">{{ definition.lower_result_name|default:"—" }}</dd>
+  <dt class="col-sm-3 text-muted">{% trans "Section / unit" %}</dt><dd class="col-sm-9">{{ definition.section_name|default:"—" }} · {{ definition.unit|default:"number" }}{% if definition.display_type and definition.display_type != definition.unit %} · {{ definition.display_type }}{% endif %}{% if definition.is_high_frequency %} · {% trans "high frequency (monthly)" %}{% endif %}{% if definition.cluster_name %} · {{ definition.cluster_name }}{% endif %}</dd>
+  <dt class="col-sm-3 text-muted">{% trans "Tags" %}</dt><dd class="col-sm-9"><div class="chips">{% if definition.tag_gender %}<span class="chip">{{ definition.tag_gender }}</span>{% endif %}{% if definition.tag_age_group %}<span class="chip">{{ definition.tag_age_group }}</span>{% endif %}{% if definition.tag_nationality %}<span class="chip">{{ definition.tag_nationality }}</span>{% endif %}{% if definition.tag_disability %}<span class="chip">{% trans "Disability" %}</span>{% endif %}{% for d in disaggregations %}<span class="chip">{% trans "Disaggregated by" %} {{ d }}</span>{% endfor %}</div></dd>
+  <dt class="col-sm-3 text-muted">{% trans "Means of verification" %}</dt><dd class="col-sm-9">{{ definition.means_of_verification|default:"—" }}</dd>
+  <dt class="col-sm-3 text-muted">{% trans "Planned locations" %}</dt><dd class="col-sm-9">{{ planned_locations|join:", "|default:"—" }}</dd>
+</dl>
+<div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+  <div class="segmented" role="group" aria-label="{% trans 'Report type' %}">
+    {% for code, label in report_types.items %}<a href="?report_type={{ code }}&amp;year={{ year }}" hx-get="?report_type={{ code }}&amp;year={{ year }}" hx-target="#modal-content" hx-push-url="false" class="{% if code == report_type %}active{% endif %}">{{ code }}</a>{% endfor %}
+  </div>
+  <span class="small text-muted">{{ report_types|get_item:report_type }}</span>
+</div>
+{% if by_location %}
+<div class="table-wrap"><table class="table table-sm monitoring-grid">
+  <thead><tr><th>{% trans "Location" %}</th>{% for p in periods %}<th class="num" title="{{ p.start|date:'j M Y' }} – {{ p.end|date:'j M Y' }} · {{ p.status|code_label }}">{{ p.report }}<span class="cell-sub">{{ p.end|date:"M Y" }}</span></th>{% endfor %}<th class="num">{% trans "Cumulative" %}</th></tr></thead>
+  <tbody>
+    {% for loc in by_location %}<tr><td>{{ loc.location }}</td>{% for p in periods %}<td class="num">{% include "reports/partials/_pd_indicator_cell.html" with cells=loc.cells report=p %}</td>{% endfor %}<td class="num fw-semibold">{{ loc.cumulative|number:0 }}</td></tr>{% endfor %}
+    <tr class="table-light"><th scope="row">{% trans "All locations" %}</th>{% for p in periods %}<th class="num">{{ p.total|number:0 }}</th>{% endfor %}<th class="num">{{ indicator.cumulative|number:0 }}</th></tr>
+  </tbody>
+</table></div>
+{% else %}
+<p class="small text-muted">{% trans "No values reported for this report type yet." %}</p>
+{% endif %}
+<h3 class="h6 mt-3">{% trans "Reports" %}</h3>
+<div class="table-wrap"><table class="table table-sm"><thead><tr><th>{% trans "Report" %}</th><th>{% trans "Period" %}</th><th>{% trans "Due" %}</th><th>{% trans "Submitted" %}</th><th>{% trans "Status" %}</th><th>{% trans "Partner's assessment" %}</th><th class="num">{% trans "Cumulative" %}</th></tr></thead>
+<tbody>{% for r in reports %}<tr><td class="mono small">{{ r.report_number|default:r.progress_report }}<span class="cell-sub">{{ r.report_type }}</span></td><td class="small text-nowrap">{{ r.period_start|date:"j M Y"|default:"—" }} – {{ r.period_end|date:"j M Y"|default:"—" }}</td><td class="small">{{ r.due_date|date:"j M Y"|default:"—" }}</td><td class="small">{{ r.submission_date|date:"j M Y"|default:"—" }}</td><td>{% status_pill r.report_status|status_key r.report_status|code_label "sm" %}</td><td class="small">{{ r.pd_output_progress_status|code_label }}{% if r.narrative_assessment %}<span class="cell-sub">{{ r.narrative_assessment|truncatechars:160 }}</span>{% endif %}</td><td class="num">{{ r.total_cumulative_progress|default:"—" }}</td></tr>
+{% empty %}<tr><td colspan="7" class="text-muted">{% trans "No reports yet." %}</td></tr>{% endfor %}</tbody></table></div>

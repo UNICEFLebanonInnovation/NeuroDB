@@ -440,3 +440,10 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .auth-card form input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]) { display: block; width: 100%; padding: 0.45rem 0.7rem; border: 1px solid var(--nd-border); border-radius: var(--nd-radius-sm); background: var(--nd-surface); color: var(--nd-text); }
 .auth-card form button[type="submit"]:not(.btn) { width: 100%; padding: 0.5rem; border: 0; border-radius: var(--nd-radius-sm); background: var(--nd-primary); color: #fff; font-weight: 600; }
 .auth-card h1 { font-size: 1.3rem; }
+
+/* Partner monitoring grid (eTools PD indicators by month) */
+.monitoring-grid__month { min-width: 3.4em; font-size: 0.8rem; }
+.monitoring-grid__indicator { min-width: 18rem; }
+.monitoring-grid__section th { background: var(--nd-surface-2); font-size: 0.82rem; text-transform: none; letter-spacing: 0; position: static; }
+.monitoring-grid__pd th { background: var(--nd-surface); font-weight: 600; font-size: 0.82rem; text-transform: none; letter-spacing: 0; position: static; border-top: 2px solid var(--nd-border); }
+.monitoring-grid__output td { padding-top: 0.15rem; padding-bottom: 0.15rem; }

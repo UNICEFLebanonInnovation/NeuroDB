@@ -18,6 +18,8 @@ from django.db.models import Count, Q, Sum
 from django.urls import reverse
 
 from neurodb.core.services import population as population_service
+from neurodb.datamart import models as dm
+from neurodb.datamart import monitoring
 from neurodb.datamart import query as dmq
 from neurodb.datamart import services as datamart
 from neurodb.datamart.models import FundsReservation
@@ -773,6 +775,71 @@ def partner_reporting(
     }
 
 
+def pd_indicator_progress(
+    partner: str | None = None,
+    programme_document: str | None = None,
+    section: str | None = None,
+    status: str | None = None,
+    report_type: str | None = None,
+    year: int | None = None,
+    include_closed: bool = False,
+) -> dict[str, Any]:
+    """Partner implementation monitoring: PD indicators with what partners reported (PRP) against the
+    PD target, month by month, with the on/off-track status."""
+    params: dict[str, Any] = {
+        "report_type": report_type or monitoring.DEFAULT_REPORT_TYPE,
+        "year": str(year) if year else "",
+        "status": status or "",
+        "scope": "all" if include_closed else "active",
+    }
+    if partner:
+        ids = [
+            str(pk)
+            for pk in PartnerOrganization.objects.filter(
+                Q(name__icontains=partner)
+                | Q(short_name__icontains=partner)
+                | Q(vendor_number__iexact=partner)
+            ).values_list("pk", flat=True)[:20]
+        ]
+        if not ids:
+            raise ToolInputError(f"No partner matches '{partner}'.")
+        params["partner"] = ids
+    if programme_document:
+        numbers = list(
+            PCA.objects.filter(number__icontains=programme_document).values_list("number", flat=True)[:20]
+        )
+        if not numbers:
+            raise ToolInputError(f"No programme document numbered like '{programme_document}'.")
+        params["pd"] = numbers
+    if section:
+        params["section"] = _match_options(
+            section,
+            sorted(x for x in dm.PDIndicator.objects.values_list("section_name", flat=True).distinct() if x),
+        )
+        if not params["section"]:
+            raise ToolInputError(f"No section matches '{section}'.")
+    filters = monitoring.Filters.from_params(_Params(params))
+    rows = monitoring.indicators(filters)
+    data = monitoring.summary(rows, filters)
+    return {
+        "filters": {
+            "report_type": filters.report_type,
+            "year": filters.year,
+            "status": filters.status or None,
+        },
+        "indicators": data["indicators"],
+        "programme_documents": data["programme_documents"],
+        "partners": data["partners"],
+        "status_counts": data["status_counts"],
+        "overdue_reports": data["overdue_reports"],
+        "rule": (
+            "achieved % of the PD target compared with the % of the PD period elapsed; ±10 points is on track"
+        ),
+        **_cut([r.as_dict() for r in rows], "indicators_detail"),
+        "url": reverse("reports:pd_monitoring"),
+    }
+
+
 def _etools(call, *args, **kwargs) -> dict[str, Any]:
     try:
         return call(*args, **kwargs)
@@ -1012,6 +1079,27 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
             }
         ),
         "Reading partner reporting",
+    ),
+    "pd_indicator_progress": (
+        pd_indicator_progress,
+        "Partner implementation monitoring from eTools/PRP: each programme document indicator with its "
+        "target, cumulative achievement, % achieved, on/off-track status (achievement vs share of the PD "
+        "period elapsed), the partner's own assessment, and the value reported per month of the year "
+        "(quarterly QPR by default, or monthly humanitarian HR reports). Filter by partner, PD number, "
+        "section, status (on_track, off_track, over_target, no_target), report type and year. Use it for "
+        "'is partner X on track', 'which indicators are off track', 'what did the partner report in March'.",
+        _schema(
+            {
+                "partner": {"type": "string"},
+                "programme_document": {"type": "string"},
+                "section": {"type": "string"},
+                "status": {"type": "string", "enum": ["on_track", "off_track", "over_target", "no_target"]},
+                "report_type": {"type": "string", "enum": ["QPR", "HR"]},
+                "year": {"type": "integer"},
+                "include_closed": {"type": "boolean"},
+            }
+        ),
+        "Reading partner monitoring",
     ),
     "etools_datasets": (
         etools_datasets,

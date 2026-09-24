@@ -667,3 +667,68 @@ def test_an_agreement_or_location_failure_does_not_lose_the_programme_document(l
     assert run.status == SyncRun.Status.SUCCEEDED and run.rows_written == 1
     assert run.details["not_linked"] == {"agreement": 1, "locations": 1}
     assert PCA.objects.get(etl_id="11").title == "Programme 11"
+
+
+@responses.activate
+def test_pd_indicators_and_reports_carry_tags_and_reporting_fields(linked):
+    p, pd = linked
+    page(
+        "pd-indicators",
+        [
+            {
+                "id": 1,
+                "source_id": 77,
+                "title": "# of Syrian girls with disabilities reached",
+                "pd_reference_number": "LEB/PD1",
+                "location_name": "Akkar",
+                "location_level": 1,
+                "means_of_verification": "Attendance sheets",
+            }
+        ],
+    )
+    responses.get(
+        f"{BASE}/api/latest/prp/datareport/",
+        json={
+            "results": [
+                {
+                    "id": 5,
+                    "partner_vendor_number": "V1",
+                    "intervention_reference_number": "LEB/PD1",
+                    "progress_report": "PR-1",
+                    "report_type": "HR",
+                    "performance_indicator": "# of Syrian girls with disabilities reached",
+                    "reporting_period_start_date": f"{__import__('datetime').date.today().year}-01-01",
+                    "high_frequency": "True",
+                    "calculation_method_across_location": "max",
+                    "etools_pd_result_id": "88",
+                    "etools_cp_output_indicators_id": "77",
+                    "disaggregation": {"()": {"v": 10, "d": 1, "c": 10}},
+                    "pd_output_narrative_assessment": "Going well",
+                    "previous_location_progress": "5",
+                    "admin_level": 1,
+                }
+            ],
+            "next": None,
+        },
+    )
+    runs = run_all("pd_indicators,partner_reports")
+    assert {r.status for r in runs} == {SyncRun.Status.SUCCEEDED}
+    indicator = dm.PDIndicator.objects.get()
+    assert (indicator.tag_gender, indicator.tag_nationality, indicator.tag_disability) == (
+        "Girls",
+        "Syrian",
+        "Yes",
+    )
+    assert (indicator.location_level, indicator.means_of_verification) == (1, "Attendance sheets")
+    report = dm.ReportedIndicator.objects.get()
+    assert report.high_frequency is True and report.calculation_across_locations == "max"
+    assert (report.etools_indicator_id, report.etools_pd_result_id, report.previous_location_progress) == (
+        "77",
+        "88",
+        "5",
+    )
+    assert (
+        report.disaggregation == {"()": {"v": 10, "d": 1, "c": 10}}
+        and report.narrative_assessment == "Going well"
+    )
+    assert (report.tag_gender, report.tag_disability, report.admin_level) == ("Girls", "Yes", 1)

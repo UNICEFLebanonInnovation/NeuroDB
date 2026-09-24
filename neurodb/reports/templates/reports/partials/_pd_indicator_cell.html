@@ -1,0 +1,1 @@
+{% load ui %}{% with v=cells|get_item:report.key %}{% if v is not None %}{{ v|number:0 }}{% else %}<span class="text-muted">·</span>{% endif %}{% endwith %}

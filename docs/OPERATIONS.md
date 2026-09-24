@@ -193,6 +193,22 @@ few of their ids (every record is also in the container log). Two causes to know
 * **A record's agreement or locations cannot be written**: the programme document is still saved
   and `details.not_linked` counts the agreement or locations left out.
 
+### Partner monitoring (PD indicators by month and location)
+*Partner monitoring* replaces the ActivityInfo indicator dashboards for partners reporting in
+eTools/PRP. It joins the PD indicators (`pd_indicators`: target, baseline, section, output,
+planned locations, disaggregations) with the partners' data reports (`partner_reports`: one row per
+report, indicator and location) on the programme document and the indicator title. Quarterly (QPR)
+and monthly humanitarian (HR) reports describe the same achievements, so the page shows one report
+type at a time (QPR by default; HR exists only for high-frequency and cluster indicators) and never
+adds them. Each report's value is the sum of its location rows (or their maximum / average when the
+indicator's calculation method says so) and is shown in the month its reporting period ends; the
+cumulative is the one the latest report carries. The status compares the cumulative's share of the
+PD target with the share of the PD period (start to end) elapsed, ±10 points, the same rule the
+ActivityInfo pages use with the calendar year. Gender, age group, nationality and disability tags
+are read from the indicator titles (`neurodb/datamart/tags.py`). The programme and partner pages
+summarise it; the assistant answers with `pd_indicator_progress`. Per-location targets are not in
+any country-filterable Datamart endpoint, so locations are compared on reported values only.
+
 ### Every other endpoint: kept whole for the AI assistant
 All the other country-level endpoints are stored record by record in `datamart.DatamartDocument`
 (admin: *eTools Datamart → Datamart records*), one `SyncRun` per dataset, each linked to its NeuroDB

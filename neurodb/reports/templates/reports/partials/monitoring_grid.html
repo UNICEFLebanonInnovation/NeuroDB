@@ -1,0 +1,66 @@
+{% load i18n ui humanize %}
+<div class="kpi-grid">
+  {% blocktrans asvar h1 with n=data.with_target %}{{ n }} with a target{% endblocktrans %}
+  {% trans "Indicators" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=data.indicators|intcomma hint=h1 %}
+  {% trans "On track" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.status_counts.on_track status="on_track" %}
+  {% trans "Off track" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.status_counts.off_track status="off_track" %}
+  {% blocktrans asvar h4 with n=data.reported %}{{ n }} indicators reported on{% endblocktrans %}
+  {% trans "Programme documents" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.programme_documents hint=h4 %}
+  {% trans "Partners" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=data.partners %}
+  {% trans "Overdue reports" as l6 %}{% include "components/kpi_tile.html" with label=l6 value=data.overdue_reports status=data.overdue_reports|yesno:"off_track," %}
+</div>
+<div class="grid grid--2 mb-3">
+  <section class="panel">
+    <div class="panel__header"><h2 class="panel__title">{% trans "Tracking status" %}</h2><span class="panel__hint">{% trans "Cumulative achievement vs share of the PD period elapsed" %}</span></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="status-donut" data-source="monitoring-chart-data" data-key="status_counts" data-height="220" aria-label="{% trans 'Indicator status distribution' %}"></div>
+    <div class="legend">{% for key, label in labels.items %}<span class="legend__item">{% status_pill key label "sm" %} {{ data.status_counts|get_item:key }}</span>{% endfor %}</div>
+  </section>
+  <section class="panel">
+    <div class="panel__header"><h2 class="panel__title">{% trans "Indicators by section" %}</h2></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="bars" data-source="monitoring-chart-data" data-key="by_section" data-height="220" data-empty-title="{% trans 'No indicators' %}"></div>
+  </section>
+</div>
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Indicators") count=rows|length table_id="pd-indicators" filename="partner-monitoring" %}
+  {% if rows %}
+  {% if truncated %}<p class="small text-warning px-3 mb-2">{% trans "Only the first 400 indicators are shown: narrow the filters." %}</p>{% endif %}
+  <div class="table-wrap"><table class="table table-hover table-sm monitoring-grid" id="pd-indicators">
+    <thead><tr>
+      <th scope="col" class="monitoring-grid__indicator">{% trans "Indicator" %}</th>
+      <th scope="col" class="num">{% trans "Target" %}</th>
+      <th scope="col" class="num">{% trans "Cumulative" %}</th>
+      <th scope="col">{% trans "Progress" %}</th>
+      <th scope="col">{% trans "Status" %}</th>
+      <th scope="col">{% trans "Partner's view" %}</th>
+      {% for m in months %}<th scope="col" class="num monitoring-grid__month">{{ m|month_name|slice:":3" }}</th>{% endfor %}
+    </tr></thead>
+    <tbody>
+    {% for group in groups %}
+      <tr class="monitoring-grid__section"><th colspan="18" scope="rowgroup">{{ group.section }} <span class="text-muted fw-normal">· {% blocktrans count counter=group.count %}{{ counter }} indicator{% plural %}{{ counter }} indicators{% endblocktrans %}</span></th></tr>
+      {% for p in group.pds %}
+      <tr class="monitoring-grid__pd"><th colspan="18" scope="rowgroup"><a href="{% url 'reports:programme_detail' p.pd.id %}">{{ p.pd.number }}</a> · {% if p.pd.partner %}<a href="{% url 'reports:partner_profile' p.pd.partner.id %}">{{ p.pd.partner.name }}</a>{% else %}{{ p.pd.partner_name }}{% endif %} <span class="text-muted fw-normal small">{{ p.pd.start|date:"M Y" }} – {{ p.pd.end|date:"M Y" }} · {{ p.pd.status|code_label }}</span></th></tr>
+        {% for o in p.outputs %}
+        {% if o.output != "—" %}<tr class="monitoring-grid__output"><td colspan="18" class="small text-muted">{{ o.output }}</td></tr>{% endif %}
+        {% for i in o.indicators %}
+        <tr>
+          <td><a class="cell-title" href="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year }}" hx-get="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year }}" hx-target="#modal-content" hx-push-url="false">{{ i.title }}</a>
+            <span class="cell-sub"><span class="chips">{% for k, v in i.tags.items %}{% if v %}<span class="chip">{% if k == "disability" %}{% trans "Disability" %}{% else %}{{ v }}{% endif %}</span>{% endif %}{% endfor %}{% if i.high_frequency %}<span class="chip">{% trans "Monthly (HF)" %}</span>{% endif %}{% if i.cluster %}<span class="chip">{% trans "Cluster" %}</span>{% endif %}</span></span></td>
+          <td class="num" data-value="{{ i.target|default:'' }}">{{ i.target|number:0 }}{% if i.display_type == "percentage" %}%{% endif %}</td>
+          <td class="num" data-value="{{ i.cumulative|default:'' }}">{{ i.cumulative|number:0 }}{% if i.cumulative_as_of %}<span class="cell-sub">{{ i.cumulative_as_of|date:"M Y" }}</span>{% endif %}</td>
+          <td data-value="{{ i.achieved|default:'' }}">{% if i.achieved is not None %}<div class="meter"><div class="meter__track"><span class="meter__fill meter__fill--{{ i.tracking }}" style="width: {% if i.achieved > 100 %}100{% else %}{{ i.achieved|floatformat:0 }}{% endif %}%"></span></div><span class="meter__value">{{ i.achieved|percent:0 }}</span></div>{% else %}<span class="text-muted small">—</span>{% endif %}</td>
+          <td>{% status_pill i.tracking i.tracking_label "sm" %}</td>
+          <td class="small">{{ i.partner_status|code_label }}{% if i.report_status %}<span class="cell-sub">{{ i.report_status|code_label }}</span>{% endif %}</td>
+          {% for m in months %}<td class="num monitoring-grid__month">{% with v=i.months|get_item:m %}{% if v is not None %}{{ v|number:0 }}{% else %}<span class="text-muted">·</span>{% endif %}{% endwith %}</td>{% endfor %}
+        </tr>
+        {% endfor %}
+        {% endfor %}
+      {% endfor %}
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans with kind=options.report_types|get_item:filters.report_type year=filters.year %}Monthly columns show each report's total for its reporting period, in the month the period ends ({{ kind }}, {{ year }}). Cumulative is the value carried by the latest report; the status compares its share of the target with the share of the PD period elapsed (±10 points).{% endblocktrans %}</p>
+  {% else %}
+  {% include "components/empty_state.html" with icon="target" title=_("No indicators match") message=_("Change the filters, or run the eTools Datamart sync if the list is empty.") action_url=request.path %}
+  {% endif %}
+</section>
+{{ chart_data|json_script:"monitoring-chart-data" }}

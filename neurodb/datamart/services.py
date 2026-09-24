@@ -13,6 +13,7 @@ from django.db.models.functions import ExtractYear
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
 from . import models as dm
+from . import monitoring as pd_monitoring
 
 ENGAGEMENT_TYPES = {
     "audit": "Audit",
@@ -214,6 +215,19 @@ def programme_datamart(pd: PCA) -> dict[str, Any]:
         "tpm_activities": list(pd.tpm_activities.order_by("-date")[:20]),
         "reports": list(progress_reports(pd.reported_indicators.all())[:12]),
         "latest_progress": latest_progress(pd),
+        "monitoring": _monitoring_summary(pd_monitoring.Filters(pds=[pd.number or ""], scope="all")),
+    }
+
+
+def _monitoring_summary(filters: pd_monitoring.Filters) -> dict[str, Any]:
+    """On/off-track counts of the PD indicators the partner monitoring page shows for ``filters``."""
+    rows = pd_monitoring.indicators(filters)
+    counts = Counter(r.tracking for r in rows)
+    return {
+        "rows": rows,
+        "indicators": len(rows),
+        "status_counts": {key: counts.get(key, 0) for key in pd_monitoring.LABELS},
+        "reported": sum(1 for r in rows if r.reports),
     }
 
 
@@ -265,6 +279,7 @@ def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
         "monitoring_count": len(tpm_visits) + len(recent_findings),
         "finding_ratings": dict(Counter(f.overall_finding_rating or "—" for f in findings)),
         "hact_years": list(partner.hact_years.order_by("-year")[:4]),
+        "monitoring": _monitoring_summary(pd_monitoring.Filters(partners=[str(partner.pk)])),
         "reporting": reporting_summary(partner.reported_indicators.all()),
         "reports": list(progress_reports(partner.reported_indicators.all())[:10]),
         "staff_visits_by_year": sorted(visits.items()),

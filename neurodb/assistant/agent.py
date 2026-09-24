@@ -64,6 +64,8 @@ lookups can run in parallel.
 - Indicator progress and achievement come from database_results (the official aggregation). \
 activity_breakdown counts raw activity reports; its summed_value is only a total for one indicator.
 - Reporting years are named like "2026". The current reporting year is used when none is given.
+- Partner implementation monitoring (is a partner or PD on track, what was reported per month and \
+location on a PD indicator) comes from pd_indicator_progress.
 - eTools data (partners, programme documents, funds, audits, monitoring, partner reporting) is all \
 linked by partner and programme document. The page tools (programme_details, partner_details, \
 funds_overview, partner_reporting, assurance_overview) summarise it; for anything else use \

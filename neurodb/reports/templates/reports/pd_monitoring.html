@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+<form method="get" class="filter-bar" data-filter-bar data-hx-target="#monitoring-grid" role="search" aria-label="{% trans 'Partner monitoring filters' %}">
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-q">{% trans "Search" %}</label>
+    <input class="form-control form-control-sm" type="search" id="f-q" name="q" value="{{ filters.q }}" placeholder="{% trans 'Indicator or output' %}">
+  </div>
+  {% trans "Section" as l %}{% include "reports/_multiselect.html" with name="section" label=l options=options.sections values=selected.section %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-partner">{% trans "Partner" %}</label>
+    <select class="form-select form-select-sm" id="f-partner" name="partner" multiple data-tom placeholder="{% trans 'All' %}">
+      {% for p in options.partners %}<option value="{{ p.value }}" {% if p.value in selected.partner %}selected{% endif %}>{{ p.label }}</option>{% endfor %}
+    </select>
+  </div>
+  {% trans "Programme document" as l %}{% include "reports/_multiselect.html" with name="pd" label=l options=options.pds values=selected.pd %}
+  {% trans "Location" as l %}{% include "reports/_multiselect.html" with name="location" label=l options=options.locations values=selected.location %}
+  {% trans "Gender" as l %}{% include "reports/_multiselect.html" with name="gender" label=l options=options.gender values=selected.gender %}
+  {% trans "Age group" as l %}{% include "reports/_multiselect.html" with name="age_group" label=l options=options.age_group values=selected.age_group %}
+  {% trans "Nationality" as l %}{% include "reports/_multiselect.html" with name="nationality" label=l options=options.nationality values=selected.nationality %}
+  {% trans "Disability" as l %}{% include "reports/_multiselect.html" with name="disability" label=l options=options.disability values=selected.disability %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-report-type">{% trans "Reports" %}</label>
+    <select class="form-select form-select-sm" id="f-report-type" name="report_type">
+      {% for code, label in options.report_types.items %}<option value="{{ code }}" {% if code == filters.report_type %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-year">{% trans "Year" %}</label>
+    <select class="form-select form-select-sm" id="f-year" name="year">
+      {% for y in options.years %}<option value="{{ y }}" {% if y == filters.year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+      {% if filters.year not in options.years %}<option value="{{ filters.year }}" selected>{{ filters.year }}</option>{% endif %}
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-status">{% trans "Status" %}</label>
+    <select class="form-select form-select-sm" id="f-status" name="status">
+      <option value="">{% trans "All" %}</option>
+      {% for key, label in labels.items %}<option value="{{ key }}" {% if key == filters.status %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <span class="form-label">{% trans "Programme documents" %}</span>
+    <label class="form-check mb-0 small"><input class="form-check-input" type="checkbox" name="scope" value="all" {% if filters.scope == "all" %}checked{% endif %}> {% trans "Include closed and ended" %}</label>
+  </div>
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
+  </div>
+</form>
+<div id="monitoring-grid" aria-live="polite">{% include "reports/partials/monitoring_grid.html" %}</div>
+{% endblock %}

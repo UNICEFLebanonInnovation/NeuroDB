@@ -12,6 +12,7 @@ a partner or programme document removed upstream leaves the link empty instead o
 from django.db import models
 
 MONEY = {"max_digits": 20, "decimal_places": 2, "null": True, "blank": True}
+TAG = {"max_length": 30, "blank": True, "db_index": True}
 
 
 def _partner(related_name):
@@ -120,10 +121,22 @@ class PDIndicator(DatamartRecord):
     disaggregation_name = models.CharField(max_length=255, blank=True)
     is_active = models.BooleanField(default=True)
     is_high_frequency = models.BooleanField(default=False)
+    location_source_id = models.BigIntegerField(null=True, blank=True)
+    location_level = models.IntegerField(null=True, blank=True)
+    location_levelname = models.CharField(max_length=80, blank=True)
+    numerator_label = models.CharField(max_length=256, blank=True)
+    denominator_label = models.CharField(max_length=256, blank=True)
+    means_of_verification = models.CharField(max_length=255, blank=True)
+    # Whom the indicator counts, read from its title (neurodb.datamart.tags)
+    tag_gender = models.CharField(**TAG)
+    tag_age_group = models.CharField(**TAG)
+    tag_nationality = models.CharField(**TAG)
+    tag_disability = models.CharField(**TAG)
 
     class Meta:
         ordering = ("pd_reference_number", "title")
         verbose_name = "PD indicator"
+        indexes = [models.Index(fields=["intervention", "title"])]
 
     def __str__(self):
         return self.title[:80]
@@ -405,10 +418,27 @@ class ReportedIndicator(DatamartRecord):
     achievement_in_period = models.CharField(max_length=100, blank=True)
     total_cumulative_progress = models.CharField(max_length=100, blank=True)
     total_cumulative_progress_in_location = models.CharField(max_length=100, blank=True)
+    previous_location_progress = models.CharField(max_length=100, blank=True)
+    admin_level = models.IntegerField(null=True, blank=True)
+    high_frequency = models.BooleanField(default=False)
+    calculation_across_locations = models.CharField(max_length=20, blank=True)
+    calculation_across_periods = models.CharField(max_length=20, blank=True)
+    etools_indicator_id = models.CharField(max_length=64, blank=True, db_index=True)
+    etools_pd_result_id = models.CharField(max_length=64, blank=True)
+    narrative_assessment = models.TextField(blank=True)
+    disaggregation = models.JSONField(default=dict, blank=True)
+    tag_gender = models.CharField(**TAG)
+    tag_age_group = models.CharField(**TAG)
+    tag_nationality = models.CharField(**TAG)
+    tag_disability = models.CharField(**TAG)
 
     class Meta:
         ordering = ("-period_end", "pd_reference_number", "indicator")
         verbose_name = "reported indicator"
+        indexes = [
+            models.Index(fields=["intervention", "indicator"]),
+            models.Index(fields=["report_type", "period_end"]),
+        ]
 
     def __str__(self):
         return f"{self.pd_reference_number} {self.report_number} {self.indicator[:60]}"
