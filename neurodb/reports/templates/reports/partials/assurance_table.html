@@ -15,15 +15,16 @@
   {% include "components/table_toolbar.html" with title=_("Engagements") count=page_obj.paginator.count table_id="engagements" filename="assurance-engagements" %}
   {% if page_obj.object_list %}
   <div class="table-wrap"><table class="table table-hover" id="engagements" data-sortable>
-    <thead><tr><th>{% trans "Engagement" %}</th><th>{% trans "Partner" %}</th><th>{% trans "Type" %}</th><th>{% trans "Status" %}</th><th>{% trans "Period" %}</th><th class="num">{% trans "Value" %}</th><th class="num">{% trans "Findings" %}</th></tr></thead>
+    <thead><tr><th>{% trans "Engagement" %}</th><th>{% trans "Partner" %}</th><th>{% trans "Type" %}</th><th>{% trans "Status" %}</th><th>{% trans "Period" %}</th><th class="num">{% trans "Value" %}</th><th class="num">{% trans "Findings" %}</th><th>{% trans "Risk" %}</th></tr></thead>
     <tbody>{% for e in page_obj %}<tr>
-      <td class="mono small">{{ e.reference_number|default:"—" }}{% if e.auditor %}<span class="cell-sub">{{ e.auditor }}</span>{% endif %}</td>
+      <td class="small"><a class="mono" href="{% url 'reports:engagement_detail' e.id %}">{{ e.reference_number|default:_("Open") }}</a>{% if e.auditor %}<span class="cell-sub">{{ e.auditor }}</span>{% endif %}</td>
       <td>{% if e.partner %}<a href="{% url 'reports:partner_profile' e.partner.id %}">{{ e.partner_name|default:e.partner.name }}</a>{% else %}{{ e.partner_name|default:"—" }}{% endif %}{% if e.vendor_number %}<span class="cell-sub mono">{{ e.vendor_number }}</span>{% endif %}</td>
       <td>{{ type_labels|get_item:e.engagement_type|default:e.engagement_type }}</td>
       <td>{% status_pill e.status e.status|code_label "sm" %}</td>
       <td class="small text-nowrap">{{ e.start_date|date:"j M Y"|default:"—" }} – {{ e.end_date|date:"j M Y"|default:"—" }}</td>
       <td class="num" data-value="{{ e.total_value|default:0 }}">{{ e.total_value|number:0 }}</td>
-      <td class="num" data-value="{{ e.financial_findings|default:0 }}">{{ e.financial_findings|number:0 }}</td>
+      <td class="num" data-value="{{ e.financial_findings|default:0 }}">{{ e.financial_findings|number:0 }}{% if e.high_priority_findings %}<span class="cell-sub text-danger">{% blocktrans count counter=e.high_priority_findings %}{{ counter }} high priority{% plural %}{{ counter }} high priority{% endblocktrans %}</span>{% endif %}</td>
+      <td>{% if e.risk_rating or e.rating %}<span class="chip">{{ e.risk_rating|default:e.rating }}</span>{% else %}—{% endif %}</td>
     </tr>{% endfor %}</tbody>
   </table></div>
   {% include "components/pagination.html" with hx_target="#assurance-results" %}

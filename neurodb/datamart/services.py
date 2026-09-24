@@ -97,36 +97,145 @@ def _ratio(numerator: Decimal | None, denominator: Decimal | None, display_type:
     return f"{numerator.normalize():f}"
 
 
-def programme_datamart(pd: PCA) -> dict[str, Any]:
-    lines = list(dm.FundsReservation.objects.filter(intervention=pd))
-    frs: dict[str, dict[str, Any]] = {}
-    for line in lines:  # FR totals repeat on each of their lines: count each FR once
-        frs.setdefault(
-            line.fr_number,
+def _fr_totals(pd: PCA, lines: list[dm.FundsReservation]) -> dict[str, Any]:
+    """FR amounts of a PD: from the FR headers when synced, else from the lines (whose FR totals
+    repeat on each line, so each FR counts once)."""
+    headers = list(pd.fr_headers.order_by("-start_date"))
+    if headers:
+        frs = {h.fr_number: (h.total_amt, h.actual_amt, h.outstanding_amt) for h in headers}
+    else:
+        frs = {}
+        for line in lines:
+            frs.setdefault(line.fr_number, (line.total_amt, line.actual_amt, line.outstanding_amt))
+    return {
+        "fr_headers": headers,
+        "fr_count": len(frs),
+        "fr_total": sum((t or 0) for t, _, _ in frs.values()),
+        "fr_actual": sum((a or 0) for _, a, _ in frs.values()),
+        "fr_outstanding": sum((o or 0) for _, _, o in frs.values()),
+    }
+
+
+def workplan(queryset: QuerySet[dm.PDActivity]) -> list[dict[str, Any]]:
+    """Workplan activities grouped by PD output; an activity repeats once per budget line."""
+    outputs: dict[str, dict[str, Any]] = {}
+    seen: set[tuple[str, str]] = set()
+    for row in queryset.order_by("result_code", "code", "datamart_id"):
+        if (row.code, row.name) in seen:
+            continue
+        seen.add((row.code, row.name))
+        output = outputs.setdefault(
+            row.result or "—", {"output": row.result or "—", "activities": [], "unicef": 0, "partner": 0}
+        )
+        output["activities"].append(row)
+        output["unicef"] += row.unicef_cash or 0
+        output["partner"] += row.cso_cash or 0
+    return list(outputs.values())
+
+
+def visits_by_year(pd: PCA) -> list[dict[str, Any]]:
+    """Programmatic visits planned (eTools PD plan) and done (staff trips, TPM visits) per year."""
+    years: dict[int, dict[str, int]] = defaultdict(lambda: {"planned": 0, "staff": 0, "tpm": 0})
+    for plan in pd.planned_visits_by_year.exclude(year=None):
+        years[plan.year]["planned"] += plan.total
+    for day in (
+        pd.programmatic_visits.filter(travel_type__icontains="programmatic")
+        .exclude(date=None)
+        .values_list("date", flat=True)
+    ):
+        years[day.year]["staff"] += 1
+    for _visit, day in (
+        pd.tpm_activities.exclude(date=None).values_list("visit_reference_number", "date").distinct()
+    ):
+        years[day.year]["tpm"] += 1
+    return [{"year": y, **v} for y, v in sorted(years.items(), reverse=True)]
+
+
+def progress_reports(queryset: QuerySet[dm.ReportedIndicator]) -> QuerySet:
+    """One row per progress report (the Datamart has one row per indicator and location)."""
+    return (
+        queryset.values(
+            "progress_report",
+            "pd_reference_number",
+            "intervention_id",
+            "partner_id",
+            "partner_name",
+            "report_number",
+            "report_type",
+            "report_status",
+            "report_accepted_status",
+            "period_start",
+            "period_end",
+            "due_date",
+            "submission_date",
+            "acceptance_date",
+        )
+        .annotate(indicators=Count("indicator", distinct=True))
+        .order_by("-period_end", "pd_reference_number", "report_number")
+    )
+
+
+def latest_progress(pd: PCA) -> list[dict[str, Any]]:
+    """Cumulative progress per indicator from the PD's latest progress report."""
+    latest = pd.reported_indicators.exclude(period_end=None).order_by("-period_end").first()
+    if latest is None:
+        return []
+    rows = {}
+    for row in pd.reported_indicators.filter(progress_report=latest.progress_report).order_by(
+        "pd_output", "indicator"
+    ):
+        rows.setdefault(
+            row.indicator,
             {
-                "total": line.total_amt or 0,
-                "actual": line.actual_amt or 0,
-                "outstanding": line.outstanding_amt or 0,
-                "currency": line.currency,
-                "start": line.start_date,
-                "end": line.end_date,
+                "indicator": row.indicator,
+                "output": row.pd_output,
+                "target": row.target,
+                "progress": row.total_cumulative_progress,
+                "status": row.pd_output_progress_status,
+                "report": row.report_number,
+                "period_end": row.period_end,
             },
         )
+    return list(rows.values())
+
+
+def programme_datamart(pd: PCA) -> dict[str, Any]:
+    lines = list(dm.FundsReservation.objects.filter(intervention=pd))
     action_points = dm.ActionPoint.objects.filter(intervention=pd)
     return {
         "fr_lines": lines,
-        "fr_count": len(frs),
-        "fr_total": sum(f["total"] for f in frs.values()),
-        "fr_actual": sum(f["actual"] for f in frs.values()),
-        "fr_outstanding": sum(f["outstanding"] for f in frs.values()),
+        **_fr_totals(pd, lines),
         "indicators": indicators_for(dm.PDIndicator.objects.filter(intervention=pd)),
+        "workplan": workplan(pd.workplan_activities.all()),
         "action_points": list(action_points.order_by("status", "due_date")[:50]),
         "open_action_points": action_points.filter(status__in=dm.ActionPoint.OPEN_STATUSES).count(),
         "engagements": _with_type_labels(list(pd.datamart_engagements.order_by("-start_date"))),
+        "visits": visits_by_year(pd),
+        "tpm_activities": list(pd.tpm_activities.order_by("-date")[:20]),
+        "reports": list(progress_reports(pd.reported_indicators.all())[:12]),
+        "latest_progress": latest_progress(pd),
     }
 
 
 # ---------------------------------------------------------------------------------------- partners
+def reporting_summary(queryset: QuerySet[dm.ReportedIndicator]) -> dict[str, int]:
+    today = datetime.date.today()
+    reports = list(progress_reports(queryset))
+    return {
+        "reports": len(reports),
+        "submitted": sum(1 for r in reports if r["submission_date"]),
+        "late": sum(
+            1
+            for r in reports
+            if r["submission_date"] and r["due_date"] and r["submission_date"] > r["due_date"]
+        ),
+        "overdue": sum(
+            1 for r in reports if not r["submission_date"] and r["due_date"] and r["due_date"] < today
+        ),
+        "accepted": sum(1 for r in reports if "accept" in (r["report_status"] or "").lower()),
+    }
+
+
 def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
     engagements = _with_type_labels(
         list(dm.AuditEngagement.objects.filter(partner=partner).order_by("-start_date")[:50])
@@ -135,6 +244,10 @@ def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
     findings = dm.MonitoringFinding.objects.filter(partner=partner)
     tpm_visits = list(dm.TPMVisit.objects.filter(partner=partner).order_by("-start_date")[:20])
     recent_findings = list(findings.order_by("-end_date")[:20])
+    staff_visits = partner.programmatic_visits.exclude(date=None)
+    visits: dict[int, int] = defaultdict(int)
+    for day in staff_visits.filter(travel_type__icontains="programmatic").values_list("date", flat=True):
+        visits[day.year] += 1
     return {
         "assessments": list(
             dm.PartnerAssessment.objects.filter(partner=partner).order_by("-completed_date")[:20]
@@ -142,6 +255,7 @@ def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
         "psea": dm.PSEAAssessment.objects.filter(partner=partner).order_by("-assessment_date").first(),
         "engagements": engagements,
         "engagement_counts": dict(Counter(engagement_type_label(e.engagement_type) for e in engagements)),
+        "audit_findings": list(partner.audit_findings.order_by("-created")[:20]),
         "action_points": list(
             action_points.filter(status__in=dm.ActionPoint.OPEN_STATUSES).order_by("due_date")[:20]
         ),
@@ -150,6 +264,10 @@ def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
         "findings": recent_findings,
         "monitoring_count": len(tpm_visits) + len(recent_findings),
         "finding_ratings": dict(Counter(f.overall_finding_rating or "—" for f in findings)),
+        "hact_years": list(partner.hact_years.order_by("-year")[:4]),
+        "reporting": reporting_summary(partner.reported_indicators.all()),
+        "reports": list(progress_reports(partner.reported_indicators.all())[:10]),
+        "staff_visits_by_year": sorted(visits.items()),
     }
 
 
@@ -274,7 +392,26 @@ def monitoring(params) -> dict[str, Any]:
     by_month: dict[str, int] = defaultdict(int)
     for day in findings.exclude(end_date=None).values_list("end_date", flat=True):
         by_month[day.strftime("%Y-%m")] += 1
+    activities = dm.TPMActivity.objects.select_related("partner", "intervention")
+    staff = dm.ProgrammaticVisit.objects.all()
+    if year:
+        activities = activities.filter(date__year=year)
+        staff = staff.filter(date__year=year)
+    if q:
+        activities = activities.filter(
+            Q(partner_name__icontains=q)
+            | Q(vendor_number__icontains=q)
+            | Q(tpm_name__icontains=q)
+            | Q(pd_reference_number__icontains=q)
+            | _partner_q(q)
+        )
+        staff = staff.filter(
+            Q(partner_name__icontains=q) | Q(partnership_number__icontains=q) | _partner_q(q)
+        )
     return {
+        "tpm_activities": list(activities.order_by("-date")[:50]),
+        "staff_visits": staff.count(),
+        "staff_by_type": Counter(staff.values_list("travel_type", flat=True)).most_common(),
         "findings": findings.order_by("-end_date", "-datamart_id"),
         "by_rating": [(r or "—", n) for r, n in by_rating.most_common()],
         "by_month": sorted(by_month.items())[-24:],
@@ -340,3 +477,176 @@ def action_points(params) -> dict[str, Any]:
             ),
         },
     }
+
+
+def engagement_detail(engagement: dm.AuditEngagement) -> dict[str, Any]:
+    engagement.type_label = engagement_type_label(engagement.engagement_type)
+    points = (
+        dm.ActionPoint.objects.filter(
+            Q(module_reference_number=engagement.reference_number)
+            | Q(source_id__in=_action_point_ids(engagement))
+        )
+        if engagement.reference_number
+        else dm.ActionPoint.objects.none()
+    )
+    return {
+        "engagement": engagement,
+        "findings": list(engagement.findings.order_by("finding_number")),
+        "action_points": list(points.order_by("status", "due_date")),
+        "interventions": list(engagement.interventions.all()),
+        "details": engagement.details or {},
+    }
+
+
+def _action_point_ids(engagement: dm.AuditEngagement) -> list[int]:
+    ids = []
+    for point in (engagement.data or {}).get("action_points") or []:
+        if isinstance(point, dict) and str(point.get("id", "")).isdigit():
+            ids.append(int(point["id"]))
+    return ids
+
+
+def hact_compliance(year: int | None = None) -> dict[str, Any]:
+    """Assurance done against assurance required, per partner, for one HACT year (latest by default)."""
+    years = sorted({y for y in dm.PartnerHACTYear.objects.values_list("year", flat=True) if y}, reverse=True)
+    year = year if year in years else (years[0] if years else None)
+    rows = list(
+        dm.PartnerHACTYear.objects.filter(year=year).select_related("partner").order_by("-cash_transfers")
+    )
+    for row in rows:
+        row.pv_gap = max((row.pv_required or 0) - (row.pv_completed or 0), 0)
+        row.sc_gap = max((row.sc_required or 0) - (row.sc_completed or 0), 0)
+    return {
+        "year": year,
+        "years": years,
+        "rows": rows,
+        "partners_behind": sum(1 for r in rows if r.pv_gap or r.sc_gap),
+        "cash_transfers": sum((r.cash_transfers or 0) for r in rows),
+    }
+
+
+# ------------------------------------------------------------------------------------------- funds
+def funds(params) -> dict[str, Any]:
+    donors = _getlist(params, "donor")
+    grants = _getlist(params, "grant")
+    year = _year(params)
+    q = (params.get("q") or "").strip()
+    lines = dm.FundsReservation.objects.all()
+    headers = dm.FundsReservationHeader.objects.select_related("intervention", "intervention__partner")
+    if donors:
+        lines = lines.filter(donor__in=donors)
+    if grants:
+        lines = lines.filter(grant_number__in=grants)
+    if year:
+        lines = lines.filter(start_date__year=year)
+        headers = headers.filter(start_date__year=year)
+    if q:
+        match = (
+            Q(intervention__number__icontains=q)
+            | Q(intervention__partner_name__icontains=q)
+            | Q(intervention__partner__vendor_number__icontains=q)
+            | Q(fr_number__icontains=q)
+        )
+        lines = lines.filter(match)
+        headers = headers.filter(match | Q(pd_reference_number__icontains=q))
+    if donors or grants:
+        headers = headers.filter(fr_number__in=lines.values("fr_number"))
+    totals = headers.aggregate(
+        reserved=Sum("total_amt"), disbursed=Sum("actual_amt"), outstanding=Sum("outstanding_amt")
+    )
+    by_donor = list(lines.values("donor").annotate(amount=Sum("overall_amount")).order_by("-amount")[:25])
+    expiry = dict(dm.Grant.objects.values_list("name", "expiry"))
+    today = datetime.date.today()
+    by_grant = []
+    for row in (
+        lines.exclude(grant_number="")
+        .values("grant_number", "donor")
+        .annotate(amount=Sum("overall_amount"), pds=Count("intervention", distinct=True))
+        .order_by("-amount")[:50]
+    ):
+        ends = expiry.get(row["grant_number"])
+        row["expiry"] = ends
+        row["expired"] = bool(ends and ends < today)
+        row["expiring"] = bool(ends and today <= ends <= today + datetime.timedelta(days=180))
+        by_grant.append(row)
+    by_year: dict[int, dict[str, Decimal]] = defaultdict(
+        lambda: {"reserved": Decimal(0), "disbursed": Decimal(0)}
+    )
+    for start, total, actual in headers.exclude(start_date=None).values_list(
+        "start_date", "total_amt", "actual_amt"
+    ):
+        by_year[start.year]["reserved"] += total or 0
+        by_year[start.year]["disbursed"] += actual or 0
+    return {
+        "headers": headers.order_by("-start_date", "fr_number"),
+        "totals": totals,
+        "fr_count": headers.count(),
+        "pds": headers.exclude(intervention=None).values("intervention").distinct().count(),
+        "by_donor": [(r["donor"] or "Unknown", float(r["amount"] or 0)) for r in by_donor],
+        "by_grant": by_grant,
+        "by_year": [(y, float(v["reserved"])) for y, v in sorted(by_year.items())],
+        "disbursed_by_year": [(y, float(v["disbursed"])) for y, v in sorted(by_year.items())],
+        "options": {
+            "donors": sorted(
+                x for x in dm.FundsReservation.objects.values_list("donor", flat=True).distinct() if x
+            ),
+            "grants": sorted(
+                x for x in dm.FundsReservation.objects.values_list("grant_number", flat=True).distinct() if x
+            ),
+            "years": _years(dm.FundsReservationHeader.objects.exclude(start_date=None), "start_date"),
+        },
+    }
+
+
+# -------------------------------------------------------------------------------- partner reporting
+def partner_reporting(params) -> dict[str, Any]:
+    statuses = _getlist(params, "status")
+    types = _getlist(params, "report_type")
+    year = _year(params)
+    q = (params.get("q") or "").strip()
+    only_overdue = params.get("overdue") == "1"
+    today = datetime.date.today()
+    rows = dm.ReportedIndicator.objects.all()
+    if statuses:
+        rows = rows.filter(report_status__in=statuses)
+    if types:
+        rows = rows.filter(report_type__in=types)
+    if year:
+        rows = rows.filter(period_end__year=year)
+    if q:
+        rows = rows.filter(
+            Q(partner_name__icontains=q)
+            | Q(vendor_number__icontains=q)
+            | Q(pd_reference_number__icontains=q)
+            | Q(indicator__icontains=q)
+            | _partner_q(q)
+        )
+    if only_overdue:
+        rows = rows.filter(submission_date=None, due_date__lt=today)
+    summary = reporting_summary(rows)
+    by_status = Counter(r["report_status"] or "—" for r in progress_reports(rows))
+    return {
+        "reports": progress_reports(rows),
+        "summary": summary,
+        "by_status": by_status.most_common(),
+        "today": today,
+        "options": {
+            "statuses": sorted(
+                x
+                for x in dm.ReportedIndicator.objects.values_list("report_status", flat=True).distinct()
+                if x
+            ),
+            "types": sorted(
+                x for x in dm.ReportedIndicator.objects.values_list("report_type", flat=True).distinct() if x
+            ),
+            "years": _years(dm.ReportedIndicator.objects.exclude(period_end=None), "period_end"),
+        },
+    }
+
+
+def report_indicators(progress_report: str) -> list[dm.ReportedIndicator]:
+    return list(
+        dm.ReportedIndicator.objects.filter(progress_report=progress_report).order_by(
+            "pd_output", "indicator", "location"
+        )
+    )

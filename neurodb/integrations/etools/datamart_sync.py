@@ -19,6 +19,7 @@ counted, the rest are written and the run ends PARTIAL. Every request is limited
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 from collections import defaultdict
 from collections.abc import Callable, Iterable
@@ -26,7 +27,9 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
+from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 from neurodb.core.models import SyncRun
 from neurodb.datamart import models as dm
@@ -82,6 +85,14 @@ def _int(value: Any) -> int | None:
         return None
 
 
+def _count(value: Any) -> int | None:
+    """``"3"``, ``"3.0"``, ``3`` -> 3; empty or not a number -> None (HACT history sends strings)."""
+    try:
+        return int(float(value)) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _money(value: Any) -> Decimal:
     try:
         return Decimal(str(value)) if value not in (None, "") else Decimal(0)
@@ -98,11 +109,13 @@ class Links:
         self._partners_by_vendor: dict[str, int] | None = None
         self._pcas_by_etl: dict[str, int] | None = None
         self._pcas_by_number: dict[str, int] | None = None
+        self._engagements: dict[str, int] | None = None
         self.missing: dict[str, int] = defaultdict(int)
 
     def refresh(self) -> None:
         self._partners_by_etl = self._partners_by_vendor = None
         self._pcas_by_etl = self._pcas_by_number = None
+        self._engagements = None
 
     def _load_partners(self) -> None:
         self._partners_by_etl, self._partners_by_vendor = {}, {}
@@ -140,6 +153,20 @@ class Links:
             pk = self._pcas_by_number.get(str(number).strip())
         if pk is None and (source_id or number):
             self.missing["programme_document"] += 1
+        return pk
+
+    def engagement(self, reference_number: Any) -> int | None:
+        """An assurance engagement by its reference number (the detail datasets have no other key)."""
+        if self._engagements is None:
+            self._engagements = {
+                ref.strip(): pk
+                for pk, ref in dm.AuditEngagement.objects.exclude(reference_number="").values_list(
+                    "pk", "reference_number"
+                )
+            }
+        pk = self._engagements.get(str(reference_number or "").strip())
+        if pk is None and reference_number:
+            self.missing["engagement"] += 1
         return pk
 
     def details(self) -> dict[str, Any]:
@@ -321,6 +348,9 @@ class Dataset:
     fields: dict[str, str] = field(default_factory=dict)  # model field -> record key
     link: Callable[[models.Model, dict[str, Any], Links], None] | None = None
     after: Callable[[dm.DatamartRecord, dict[str, Any], Links], None] | None = None
+    # Extra query parameters (e.g. a date window) and, with them, the rows a complete read replaces.
+    params: Callable[[], dict[str, Any]] | None = None
+    scope: Callable[[models.QuerySet], models.QuerySet] | None = None
 
 
 def _link_intervention(key: str = "source_intervention_id", number_key: str = "pd_reference_number"):
@@ -385,6 +415,71 @@ def _link_monitoring(row, item, links):
         row._meta.get_field("location_name"),
         (location.get("name") if isinstance(location, dict) else location) or "",
     )
+
+
+def _link_finding(row, item, links):
+    row.partner_id = links.partner(None, item.get("partner_vendor_number"))
+    row.engagement_id = links.engagement(item.get("reference_number"))
+
+
+def _reporting_window() -> dict[str, Any]:
+    """Partner reports of the last ``ETOOLS_DATAMART_REPORTING_YEARS`` years (the table is large)."""
+    return {"reporting_period_start_date__gte": _reporting_since().isoformat()}
+
+
+def _reporting_since() -> dt.date:
+    return dt.date(timezone.localdate().year - settings.ETOOLS_DATAMART_REPORTING_YEARS + 1, 1, 1)
+
+
+def _in_reporting_window(queryset: models.QuerySet) -> models.QuerySet:
+    return queryset.filter(models.Q(period_start__gte=_reporting_since()) | models.Q(period_start=None))
+
+
+def _link_report(row, item, links):
+    row.partner_id = links.partner(None, item.get("partner_vendor_number"))
+    row.intervention_id = links.intervention(
+        item.get("etools_intervention_id"), item.get("intervention_reference_number")
+    )
+    row.due_date = coerce(
+        row._meta.get_field("due_date"), item.get("due_date") or item.get("reporting_period_due_date")
+    )
+
+
+def _link_tpm_activity(row, item, links):
+    row.partner_id = links.partner(None, item.get("partner_vendor_number"))
+    row.intervention_id = links.intervention(None, item.get("pd_ssfa_reference_number"))
+    row.locations = coerce(row._meta.get_field("locations"), ", ".join(names(item.get("locations_data"))))
+
+
+def _link_staff_visit(row, item, links):
+    row.partner_id = links.partner(item.get("source_partner_id"))
+    row.intervention_id = links.intervention(
+        item.get("source_partnership_id"), item.get("partnership_number")
+    )
+
+
+def _link_planned_visits(row, item, links):
+    row.intervention_id = links.intervention(None, item.get("pd_reference_number"))
+    row.partner_id = links.partner(None, item.get("partner_vendor_number"))
+
+
+HACT_COUNTS = {
+    "pv_required": "pv_mr",
+    "pv_planned": "pv_planned_year",
+    "pv_completed": "pv_completed_year",
+    "sc_required": "sc_mr",
+    "sc_planned": "sc_planned_year",
+    "sc_completed": "sc_completed_year",
+    "audits_required": "audits_mr",
+    "audits_completed": "audits_completed",
+    "outstanding_findings": "audits_outstanding_findings",
+}
+
+
+def _link_hact_year(row, item, links):
+    row.partner_id = links.partner(item.get("partner_source_id"), item.get("vendor_number"))
+    for name, key in HACT_COUNTS.items():
+        setattr(row, name, _count(item.get(key)))
 
 
 DATASETS: dict[str, tuple[str, Dataset]] = {
@@ -603,6 +698,180 @@ DATASETS: dict[str, tuple[str, Dataset]] = {
             },
         ),
     ),
+    "funds_reservation_headers": (
+        "funds/fundsreservationheader",
+        Dataset(
+            dm.FundsReservationHeader,
+            {
+                k: k
+                for k in (
+                    "pd_reference_number",
+                    "fr_number",
+                    "fr_type",
+                    "vendor_code",
+                    "document_text",
+                    "currency",
+                    "total_amt",
+                    "intervention_amt",
+                    "actual_amt",
+                    "outstanding_amt",
+                    "document_date",
+                    "start_date",
+                    "end_date",
+                    "completed_flag",
+                )
+            },
+            link=_link_intervention(),
+        ),
+    ),
+    "audit_findings": (
+        "audit/financial-findings",
+        Dataset(
+            dm.AuditFinding,
+            {
+                "reference_number": "reference_number",
+                "engagement_type": "engagement_type",
+                "engagement_status": "engagement_status",
+                "partner_name": "partner_name",
+                "vendor_number": "partner_vendor_number",
+                "finding_number": "finding_number",
+                "title": "title",
+                "amount": "amount",
+                "local_amount": "local_amount",
+                "description": "description",
+                "recommendation": "recommendation",
+                "ip_comments": "ip_comments",
+                "created": "created",
+            },
+            link=_link_finding,
+        ),
+    ),
+    "partner_reports": (
+        "prp/datareport",
+        Dataset(
+            dm.ReportedIndicator,
+            {
+                "partner_name": "partner_name",
+                "vendor_number": "partner_vendor_number",
+                "pd_reference_number": "intervention_reference_number",
+                "progress_report": "progress_report",
+                "report_number": "report_number",
+                "report_type": "report_type",
+                "report_status": "report_status",
+                "report_accepted_status": "report_accepted_status",
+                "is_report_final": "is_report_final",
+                "period_start": "reporting_period_start_date",
+                "period_end": "reporting_period_end_date",
+                "submission_date": "report_submission_date",
+                "acceptance_date": "report_acceptance_date",
+                "submitted_by": "submitted_by",
+                "narrative": "narrative",
+                "section": "section",
+                "pd_output": "pd_output_title",
+                "pd_output_progress_status": "pd_output_progress_status",
+                "indicator": "performance_indicator",
+                "baseline": "baseline",
+                "target": "target",
+                "location": "current_location",
+                "p_code": "p_code",
+                "achievement_in_period": "achievement_in_reporting_period",
+                "total_cumulative_progress": "total_cumulative_progress",
+                "total_cumulative_progress_in_location": "total_cumulative_progress_in_location",
+            },
+            link=_link_report,
+            params=_reporting_window,
+            scope=_in_reporting_window,
+        ),
+    ),
+    "tpm_activities": (
+        "tpm-activities",
+        Dataset(
+            dm.TPMActivity,
+            {
+                "visit_reference_number": "visit_reference_number",
+                "task_reference_number": "task_reference_number",
+                "visit_status": "visit_status",
+                "status": "status",
+                "tpm_name": "tpm_name",
+                "partner_name": "partner_name",
+                "vendor_number": "partner_vendor_number",
+                "pd_reference_number": "pd_ssfa_reference_number",
+                "section": "section",
+                "date": "date",
+                "is_programmatic_visit": "is_pv",
+            },
+            link=_link_tpm_activity,
+        ),
+    ),
+    "staff_visits": (
+        "travel-activities",
+        Dataset(
+            dm.ProgrammaticVisit,
+            {
+                k: k
+                for k in (
+                    "travel_reference_number",
+                    "travel_type",
+                    "date",
+                    "partner_name",
+                    "partnership_number",
+                    "primary_traveler",
+                    "location_name",
+                    "location_pcode",
+                )
+            },
+            link=_link_staff_visit,
+        ),
+    ),
+    "planned_visits": (
+        "interventions-planned-visits",
+        Dataset(
+            dm.PlannedVisits,
+            {
+                "pd_reference_number": "pd_reference_number",
+                "year": "year",
+                "q1": "programmatic_q1",
+                "q2": "programmatic_q2",
+                "q3": "programmatic_q3",
+                "q4": "programmatic_q4",
+            },
+            link=_link_planned_visits,
+        ),
+    ),
+    "hact_history": (
+        "hact/history",
+        Dataset(
+            dm.PartnerHACTYear,
+            {
+                "partner_name": "partner_name",
+                "vendor_number": "vendor_number",
+                "year": "year",
+                "risk_rating": "risk_rating",
+                "assessment_type": "assessment_type",
+                "cash_transfers": "ct_jan_dec",
+                "liquidations": "liqu_1oct_30sep",
+                "expiring_threshold": "expiring_threshold",
+                "approaching_threshold": "approach_threshold",
+            },
+            link=_link_hact_year,
+        ),
+    ),
+    "pd_activities": (
+        "interventions-activities",
+        Dataset(
+            dm.PDActivity,
+            {
+                "pd_reference_number": "pd_number",
+                "result": "ll_name",
+                "result_code": "ll_code",
+                "code": "activity_code",
+                "name": "activity",
+                "unicef_cash": "activity_unicef_cash",
+                "cso_cash": "activity_cso_cash",
+            },
+            link=_link_intervention(key="", number_key="pd_number"),
+        ),
+    ),
 }
 
 
@@ -676,17 +945,91 @@ def sync_dataset(name: str) -> Callable[..., SyncRun]:
             links.missing.clear()
             seen: set[int] = set()
             linked_before = _funded_pcas() if spec.model is dm.FundsReservation else set()
+            params = spec.params() if spec.params else None
             process_items(
-                run, client.list(dataset), lambda item: upsert_record(spec, item, links, seen), _label
+                run, client.list(dataset, params), lambda item: upsert_record(spec, item, links, seen), _label
             )
             if seen:
-                _, deleted = spec.model.objects.exclude(datamart_id__in=seen).delete()
+                replaced = spec.scope(spec.model.objects.all()) if spec.scope else spec.model.objects.all()
+                _, deleted = replaced.exclude(datamart_id__in=seen).delete()
                 details = {"removed": deleted.get(spec.model._meta.label, 0), **links.details()}
             else:  # an empty answer (a wrong country name?) never empties the table
                 details = {"removed": 0, "empty_response": True, **links.details()}
             if spec.model is dm.FundsReservation:
                 details["donor_sets"] = _refresh_donor_sets(linked_before)
             return details
+
+        return _run(run, body)
+
+    sync.__name__ = f"sync_{name}"
+    return sync
+
+
+# Per-type engagement datasets: they add detail to the engagements read from audit/engagements and have
+# no id of their own that the engagements carry, so they are matched by reference number.
+ENRICHMENTS: dict[str, tuple[str, dict[str, str]]] = {
+    "audit_results": (
+        "audit/results",
+        {
+            "risk_rating": "risk_rating",
+            "audit_opinion": "audit_opinion",
+            "audited_expenditure": "audited_expenditure",
+            "amount_refunded": "amount_refunded",
+            "pending_unsupported_amount": "pending_unsupported_amount",
+            "financial_findings_count": "count_financial_findings",
+            "high_priority_findings": "count_high_risk_findings",
+            "key_control_weaknesses": "count_key_control_weaknesses",
+        },
+    ),
+    "audits": (
+        "audit/audit",
+        {
+            "audited_expenditure": "audited_expenditure",
+            "audit_opinion": "audit_opinion",
+            "amount_refunded": "amount_refunded",
+            "pending_unsupported_amount": "pending_unsupported_amount",
+            "financial_findings_count": "financial_findings_count",
+            "key_control_weaknesses": "key_internal_control_count",
+        },
+    ),
+    "spot_checks": (
+        "audit/spot-check-findings",
+        {
+            "amount_tested": "spotcheck_total_amount_tested",
+            "amount_refunded": "amount_refunded",
+            "pending_unsupported_amount": "pending_unsupported_amount",
+        },
+    ),
+    "micro_assessments": ("audit/micro-assessment", {"risk_rating": "overall_risk_rating"}),
+    "special_audits": ("audit/special-audit", {}),
+}
+
+
+def enrich_engagement(name: str, fields: dict[str, str], item: dict[str, Any], links: Links) -> None:
+    pk = links.engagement(item.get("reference_number"))
+    if pk is None:
+        return
+    engagement = dm.AuditEngagement.objects.get(pk=pk)
+    present = {model_field: key for model_field, key in fields.items() if item.get(key) not in (None, "")}
+    assign(engagement, item, present)
+    high = item.get("high_priority_findings")
+    if isinstance(high, list):
+        engagement.high_priority_findings = len(high)
+    engagement.details = {**(engagement.details or {}), name: _stored(item)}
+    engagement.save()
+
+
+def sync_enrichment(name: str) -> Callable[..., SyncRun]:
+    dataset, fields = ENRICHMENTS[name]
+
+    def sync(run: SyncRun, *, client: DatamartClient, links: Links) -> SyncRun:
+        def body() -> dict[str, Any]:
+            links.missing.clear()
+            links.refresh()  # the engagements were just synced
+            process_items(
+                run, client.list(dataset), lambda item: enrich_engagement(name, fields, item, links), _label
+            )
+            return links.details()
 
         return _run(run, body)
 
@@ -718,7 +1061,9 @@ ENTITY_SYNCS: dict[str, Callable[..., SyncRun]] = {
     "interventions": sync_legacy("interventions", "interventions", upsert_intervention),
     "intervention_budgets": sync_legacy("intervention_budgets", "interventions-budget", update_budget),
     "agreements": sync_legacy("agreements", "partners/agreements", update_agreement),
-    **{name: sync_dataset(name) for name in DATASETS},
+    **{name: sync_dataset(name) for name in DATASETS if name != "audit_findings"},
+    **{name: sync_enrichment(name) for name in ENRICHMENTS},
+    "audit_findings": sync_dataset("audit_findings"),  # after the engagements they belong to
 }
 
 

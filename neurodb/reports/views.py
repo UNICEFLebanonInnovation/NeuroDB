@@ -27,6 +27,7 @@ from neurodb.accounts.roles import can_edit_section
 from neurodb.core.models import PopulationFigure, SavedView
 from neurodb.core.services import population as population_service
 from neurodb.datamart import services as datamart
+from neurodb.datamart.models import AuditEngagement, AuditFinding
 from neurodb.facts.services import dashboard as facts
 from neurodb.indicators.models import Database, MasterIndicator, NeuroReport
 from neurodb.indicators.services.tracking import LABELS
@@ -525,6 +526,7 @@ def partners(request: HttpRequest) -> HttpResponse:
 def partner_profile(request: HttpRequest, pk: int) -> HttpResponse:
     partner = get_object_or_404(PartnerOrganization, pk=pk, deleted_flag=False)
     profile = partnerships.partner_profile(partner)
+    extra = datamart.partner_datamart(partner)
     context = {
         "page_title": partner.name,
         "page_subtitle": " · ".join(x for x in (partner.partner_type, partner.cso_type) if x),
@@ -534,9 +536,10 @@ def partner_profile(request: HttpRequest, pk: int) -> HttpResponse:
         ],
         "partner": partner,
         "profile": profile,
-        "datamart": datamart.partner_datamart(partner),
+        "datamart": extra,
         "chart_data": {
-            "visits_by_year": profile["visits_by_year"],
+            # eTools Trips from the Datamart when synced, else the v2 travel tables
+            "visits_by_year": extra["staff_visits_by_year"] or profile["visits_by_year"],
             "engagement_counts": profile["engagement_counts"],
         },
     }
@@ -564,7 +567,95 @@ def assurance(request: HttpRequest) -> HttpResponse:
         "type_labels": datamart.ENGAGEMENT_TYPES,
         "chart_data": {"by_type": data["by_type"]},
     }
+    if not request.htmx:
+        raw_year = request.GET.get("hact_year", "")
+        context["hact"] = datamart.hact_compliance(int(raw_year) if raw_year.isdigit() else None)
+        context["recent_findings"] = list(
+            AuditFinding.objects.select_related("partner", "engagement").order_by("-created", "-datamart_id")[
+                :15
+            ]
+        )
     template = "reports/partials/assurance_table.html" if request.htmx else "reports/assurance.html"
+    return render(request, template, context)
+
+
+@require_GET
+def engagement_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    engagement = get_object_or_404(AuditEngagement.objects.select_related("partner"), pk=pk)
+    detail = datamart.engagement_detail(engagement)
+    title = engagement.reference_number or detail["engagement"].type_label
+    context = {
+        "page_title": title,
+        "page_subtitle": " · ".join(
+            x for x in (detail["engagement"].type_label, engagement.partner_name, engagement.auditor) if x
+        ),
+        "breadcrumbs": [_crumb(_("Assurance"), reverse("reports:assurance")), _crumb(title)],
+        **detail,
+    }
+    return render(request, "reports/engagement_detail.html", context)
+
+
+@require_GET
+def funds(request: HttpRequest) -> HttpResponse:
+    data = datamart.funds(request.GET)
+    page_obj = _paginate(request, data["headers"])
+    context = {
+        "page_title": _("Funds"),
+        "page_subtitle": _("Funds reservations, disbursements and grants by donor, from the eTools Datamart"),
+        "breadcrumbs": [_crumb(_("Funds"))],
+        "data": data,
+        "page_obj": page_obj,
+        "selected": {key: request.GET.getlist(key) for key in ("donor", "grant")},
+        "year": request.GET.get("year", ""),
+        "q": request.GET.get("q", ""),
+        "chart_data": {
+            "by_donor": data["by_donor"],
+            "by_year": data["by_year"],
+            "disbursed_by_year": data["disbursed_by_year"],
+        },
+    }
+    template = "reports/partials/funds_table.html" if request.htmx else "reports/funds.html"
+    return render(request, template, context)
+
+
+@require_GET
+def partner_reporting(request: HttpRequest) -> HttpResponse:
+    data = datamart.partner_reporting(request.GET)
+    page_obj = _paginate(request, data["reports"])
+    context = {
+        "page_title": _("Partner reporting"),
+        "page_subtitle": _(
+            "Progress reports submitted by partners in the Partner Reporting Portal, from the eTools Datamart"
+        ),
+        "breadcrumbs": [_crumb(_("Partner reporting"))],
+        "data": data,
+        "page_obj": page_obj,
+        "selected": {key: request.GET.getlist(key) for key in ("status", "report_type")},
+        "year": request.GET.get("year", ""),
+        "q": request.GET.get("q", ""),
+        "overdue": request.GET.get("overdue") == "1",
+        "chart_data": {"by_status": data["by_status"]},
+    }
+    template = "reports/partials/reporting_table.html" if request.htmx else "reports/partner_reporting.html"
+    return render(request, template, context)
+
+
+@require_GET
+def progress_report(request: HttpRequest) -> HttpResponse:
+    """Quick view: the indicators of one progress report (``?report=<progress report id>``)."""
+    rows = datamart.report_indicators(request.GET.get("report", "")[:300])
+    if not rows:
+        raise Http404
+    report = rows[0]
+    title = f"{report.pd_reference_number} · {report.report_number}"
+    context = {
+        "rows": rows,
+        "report": report,
+        "page_title": title,
+        "page_subtitle": report.partner_name,
+        "breadcrumbs": [_crumb(_("Partner reporting"), reverse("reports:partner_reporting")), _crumb(title)],
+    }
+    template = "reports/partials/progress_report.html" if request.htmx else "reports/progress_report.html"
     return render(request, template, context)
 
 

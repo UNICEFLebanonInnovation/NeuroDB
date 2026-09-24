@@ -1,0 +1,46 @@
+{% load i18n ui %}
+<div class="kpi-grid">
+  {% trans "Funds reservations" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=data.fr_count|number %}
+  {% trans "Reserved (USD)" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.totals.reserved|number:0 %}
+  {% trans "Disbursed (USD)" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.totals.disbursed|number:0 %}
+  {% trans "Outstanding (USD)" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.totals.outstanding|number:0 %}
+  {% trans "Programme documents" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=data.pds|number %}
+</div>
+<div class="grid grid--2 mb-3">
+  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Reserved by donor" %}</h2><span class="panel__hint">{% trans "FR lines, top 25" %}</span></div>
+    <div class="chart" data-module="charts" data-chart="bars" data-source="funds-chart-data" data-key="by_donor" data-empty-title="{% trans 'No funds reservations' %}"></div></section>
+  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Reserved by FR start year" %}</h2></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="bars" data-orientation="v" data-source="funds-chart-data" data-key="by_year" data-empty-title="{% trans 'No funds reservations' %}"></div>
+    <h3 class="panel__title mt-3">{% trans "Disbursed by FR start year" %}</h3>
+    <div class="chart chart--sm" data-module="charts" data-chart="bars" data-orientation="v" data-source="funds-chart-data" data-key="disbursed_by_year" data-color="--nd-success" data-empty-title="{% trans 'No disbursements' %}"></div></section>
+</div>
+<section class="panel p-0 mb-3">
+  {% include "components/table_toolbar.html" with title=_("Grants") count=data.by_grant|length table_id="fund-grants" filename="grants" %}
+  <div class="table-wrap" style="max-height: 420px"><table class="table table-sm" id="fund-grants" data-sortable>
+    <thead><tr><th>{% trans "Grant" %}</th><th>{% trans "Donor" %}</th><th>{% trans "Expiry" %}</th><th class="num">{% trans "Programme documents" %}</th><th class="num">{% trans "Reserved (USD)" %}</th></tr></thead>
+    <tbody>{% for g in data.by_grant %}<tr><td class="mono small">{{ g.grant_number }}</td><td>{{ g.donor|default:"—" }}</td>
+      <td class="small text-nowrap" data-value="{{ g.expiry|date:'Y-m-d' }}">{{ g.expiry|date:"j M Y"|default:"—" }}{% if g.expired %} {% status_pill "failed" _("Expired") "sm" %}{% elif g.expiring %} {% status_pill "stale" _("Expires within 6 months") "sm" %}{% endif %}</td>
+      <td class="num">{{ g.pds }}</td><td class="num" data-value="{{ g.amount }}">{{ g.amount|number:0 }}</td></tr>
+    {% empty %}<tr><td colspan="5" class="text-muted">{% trans "No grants." %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Funds reservations") count=page_obj.paginator.count table_id="fund-frs" filename="funds-reservations" %}
+  {% if page_obj.object_list %}
+  <div class="table-wrap"><table class="table table-hover" id="fund-frs" data-sortable>
+    <thead><tr><th>{% trans "FR" %}</th><th>{% trans "Programme document" %}</th><th>{% trans "Period" %}</th><th class="num">{% trans "Reserved" %}</th><th class="num">{% trans "Disbursed" %}</th><th class="num">{% trans "Outstanding" %}</th></tr></thead>
+    <tbody>{% for h in page_obj %}<tr>
+      <td class="mono small">{{ h.fr_number }}{% if h.completed_flag %}<span class="cell-sub">{% trans "Completed" %}</span>{% endif %}</td>
+      <td>{% if h.intervention %}<a href="{% url 'reports:programme_detail' h.intervention.id %}">{{ h.intervention.number }}</a><span class="cell-sub">{{ h.intervention.partner_name|default:"" }}</span>{% else %}<span class="mono small">{{ h.pd_reference_number|default:"—" }}</span>{% endif %}</td>
+      <td class="small text-nowrap">{{ h.start_date|date:"M Y"|default:"—" }} – {{ h.end_date|date:"M Y"|default:"—" }}</td>
+      <td class="num" data-value="{{ h.total_amt|default:0 }}">{{ h.total_amt|number:0 }}</td>
+      <td class="num" data-value="{{ h.actual_amt|default:0 }}">{{ h.actual_amt|number:0 }}</td>
+      <td class="num" data-value="{{ h.outstanding_amt|default:0 }}">{{ h.outstanding_amt|number:0 }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% include "components/pagination.html" with hx_target="#funds-results" %}
+  {% else %}
+  {% include "components/empty_state.html" with icon="gift" title=_("No funds reservations match") message=_("Change the filters, or run the eTools Datamart sync if the list is empty.") action_url=request.path %}
+  {% endif %}
+</section>
+{{ chart_data|json_script:"funds-chart-data" }}

@@ -128,3 +128,96 @@ class HACTAggregateAdmin(DatamartAdmin):
         "completed_hact_audits",
         "completed_special_audits",
     )
+
+
+@admin.register(dm.FundsReservationHeader)
+class FundsReservationHeaderAdmin(DatamartAdmin):
+    list_display = (
+        "fr_number",
+        "pd_reference_number",
+        "total_amt",
+        "actual_amt",
+        "outstanding_amt",
+        "end_date",
+    )
+    list_filter = ("completed_flag", "fr_type")
+    search_fields = ("fr_number", "pd_reference_number", "vendor_code")
+    raw_id_fields = ("intervention",)
+
+
+@admin.register(dm.AuditFinding)
+class AuditFindingAdmin(DatamartAdmin):
+    list_display = ("reference_number", "finding_number", "partner_name", "title", "amount")
+    list_filter = ("engagement_type",)
+    search_fields = ("reference_number", "partner_name", "vendor_number", "title")
+    raw_id_fields = ("partner", "engagement")
+
+
+@admin.register(dm.ReportedIndicator)
+class ReportedIndicatorAdmin(DatamartAdmin):
+    list_display = (
+        "pd_reference_number",
+        "report_number",
+        "report_status",
+        "period_end",
+        "indicator",
+        "location",
+    )
+    list_filter = ("report_type", "report_status")
+    search_fields = ("pd_reference_number", "partner_name", "vendor_number", "indicator")
+    raw_id_fields = ("partner", "intervention")
+
+
+@admin.register(dm.TPMActivity)
+class TPMActivityAdmin(DatamartAdmin):
+    list_display = (
+        "task_reference_number",
+        "partner_name",
+        "pd_reference_number",
+        "tpm_name",
+        "status",
+        "date",
+    )
+    list_filter = ("status", "is_programmatic_visit")
+    search_fields = ("task_reference_number", "visit_reference_number", "partner_name", "pd_reference_number")
+    raw_id_fields = ("partner", "intervention")
+
+
+@admin.register(dm.ProgrammaticVisit)
+class ProgrammaticVisitAdmin(DatamartAdmin):
+    list_display = ("travel_reference_number", "travel_type", "partner_name", "partnership_number", "date")
+    list_filter = ("travel_type",)
+    search_fields = ("travel_reference_number", "partner_name", "partnership_number", "primary_traveler")
+    raw_id_fields = ("partner", "intervention")
+
+
+@admin.register(dm.PlannedVisits)
+class PlannedVisitsAdmin(DatamartAdmin):
+    list_display = ("pd_reference_number", "year", "q1", "q2", "q3", "q4")
+    list_filter = ("year",)
+    search_fields = ("pd_reference_number",)
+    raw_id_fields = ("partner", "intervention")
+
+
+@admin.register(dm.PartnerHACTYear)
+class PartnerHACTYearAdmin(DatamartAdmin):
+    list_display = (
+        "partner_name",
+        "year",
+        "risk_rating",
+        "cash_transfers",
+        "pv_completed",
+        "pv_required",
+        "sc_completed",
+        "sc_required",
+    )
+    list_filter = ("year", "risk_rating")
+    search_fields = ("partner_name", "vendor_number")
+    raw_id_fields = ("partner",)
+
+
+@admin.register(dm.PDActivity)
+class PDActivityAdmin(DatamartAdmin):
+    list_display = ("pd_reference_number", "code", "name", "unicef_cash", "cso_cash")
+    search_fields = ("pd_reference_number", "name", "code")
+    raw_id_fields = ("intervention",)

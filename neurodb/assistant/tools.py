@@ -19,6 +19,7 @@ from django.urls import reverse
 
 from neurodb.core.services import population as population_service
 from neurodb.datamart import services as datamart
+from neurodb.datamart.models import FundsReservation
 from neurodb.facts.models import ActivityReportNew
 from neurodb.facts.services import dashboard as facts
 from neurodb.indicators.models import Database, MasterIndicator, NeuroReport, ReportingYear
@@ -442,6 +443,26 @@ def programme_details(number: str) -> dict[str, Any]:
             "outstanding": _num(extra["fr_outstanding"]),
         },
         "open_action_points": extra["open_action_points"],
+        "programmatic_visits_by_year": extra["visits"],
+        "progress_reports": [
+            {
+                "report": r["report_number"],
+                "period_end": r["period_end"],
+                "submitted": r["submission_date"],
+                "status": r["report_status"],
+            }
+            for r in extra["reports"]
+        ],
+        "latest_indicator_progress": extra["latest_progress"],
+        "workplan_outputs": [
+            {
+                "output": o["output"],
+                "activities": len(o["activities"]),
+                "unicef_cash": _num(o["unicef"]),
+                "partner_cash": _num(o["partner"]),
+            }
+            for o in extra["workplan"]
+        ],
         "assurance_engagements": [
             {"reference": e.reference_number, "type": e.engagement_type, "status": e.status}
             for e in extra["engagements"]
@@ -529,6 +550,22 @@ def partner_details(partner_id: int) -> dict[str, Any]:
             else None
         ),
         "open_action_points": extra["open_action_points"],
+        "hact_by_year": [
+            {
+                "year": h.year,
+                "risk_rating": h.risk_rating,
+                "cash_transfers": h.cash_transfers,
+                "programmatic_visits_done_required": [h.pv_completed, h.pv_required],
+                "spot_checks_done_required": [h.sc_completed, h.sc_required],
+                "audits_done_required": [h.audits_completed, h.audits_required],
+            }
+            for h in extra["hact_years"]
+        ],
+        "partner_reporting": extra["reporting"],
+        "financial_findings": [
+            {"engagement": f.reference_number, "title": f.title, "amount": f.amount}
+            for f in extra["audit_findings"][:10]
+        ],
         "field_monitoring_findings_by_rating": extra["finding_ratings"],
         "tpm_visits_recent": len(extra["tpm_visits"]),
         "url": reverse("reports:partner_profile", args=[partner.id]),
@@ -653,6 +690,83 @@ def assurance_overview(year: int | None = None, partner: str | None = None) -> d
             "action_points": reverse("reports:action_points"),
             "field_monitoring": reverse("reports:monitoring"),
         },
+    }
+
+
+def funds_overview(
+    donor: str | None = None, grant: str | None = None, partner: str | None = None, year: int | None = None
+) -> dict[str, Any]:
+    """Funds reservations, disbursements and grants from the eTools Datamart."""
+    donors = []
+    if donor:
+        known = sorted(x for x in FundsReservation.objects.values_list("donor", flat=True).distinct() if x)
+        donors = _match_options(donor, known)
+        if not donors:
+            raise ToolInputError(f"No donor matches '{donor}' in the funds reservations.")
+    params = _Params(
+        {
+            "donor": donors,
+            "grant": [grant] if grant else [],
+            "q": partner or "",
+            "year": str(year) if year else "",
+        }
+    )
+    data = datamart.funds(params)
+    return {
+        "matched_donors": params["donor"],
+        "funds_reservations": data["fr_count"],
+        "programme_documents": data["pds"],
+        "reserved_usd": _num(data["totals"]["reserved"]),
+        "disbursed_usd": _num(data["totals"]["disbursed"]),
+        "outstanding_usd": _num(data["totals"]["outstanding"]),
+        "reserved_by_donor": [{"donor": d, "amount": a} for d, a in data["by_donor"]],
+        "reserved_by_start_year": [{"year": y, "amount": a} for y, a in data["by_year"]],
+        **_cut(
+            [
+                {
+                    "grant": g["grant_number"],
+                    "donor": g["donor"],
+                    "reserved": _num(g["amount"]),
+                    "programme_documents": g["pds"],
+                    "expiry": g["expiry"],
+                    "expired": g["expired"],
+                }
+                for g in data["by_grant"]
+            ],
+            "grants",
+        ),
+        "url": reverse("reports:funds"),
+    }
+
+
+def partner_reporting(
+    partner: str | None = None, year: int | None = None, overdue_only: bool = False
+) -> dict[str, Any]:
+    """Progress reports from the Partner Reporting Portal (through the eTools Datamart)."""
+    data = datamart.partner_reporting(
+        _Params(
+            {"q": partner or "", "year": str(year) if year else "", "overdue": "1" if overdue_only else ""}
+        )
+    )
+    rows = [
+        {
+            "partner": r["partner_name"],
+            "programme_document": r["pd_reference_number"],
+            "report": r["report_number"],
+            "type": r["report_type"],
+            "period": [r["period_start"], r["period_end"]],
+            "due": r["due_date"],
+            "submitted": r["submission_date"],
+            "status": r["report_status"],
+            "indicators": r["indicators"],
+        }
+        for r in data["reports"][: MAX_ROWS + 1]
+    ]
+    return {
+        **data["summary"],
+        "by_status": dict(data["by_status"]),
+        **_cut(rows, "progress_reports"),
+        "url": reverse("reports:partner_reporting"),
     }
 
 
@@ -816,6 +930,35 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         "(by on/off-track rating) and TPM visits. partner filters by name or vendor number.",
         _schema({"year": {"type": "integer"}, "partner": {"type": "string"}}),
         "Reading assurance and monitoring",
+    ),
+    "funds_overview": (
+        funds_overview,
+        "eTools funds: funds reservations (reserved, disbursed, outstanding in USD), amounts reserved by "
+        "donor and by start year, and grants with their donor, expiry and reserved amount. Filter by donor "
+        "name, grant number, partner/PD/FR text or FR start year.",
+        _schema(
+            {
+                "donor": {"type": "string"},
+                "grant": {"type": "string"},
+                "partner": {"type": "string", "description": "Partner name, vendor number, PD or FR number."},
+                "year": {"type": "integer"},
+            }
+        ),
+        "Reading funds and grants",
+    ),
+    "partner_reporting": (
+        partner_reporting,
+        "Partner progress reports (Partner Reporting Portal): counts submitted, late, overdue and accepted, "
+        "reports by status, and the list of reports with period, due and submission dates. Filter by partner "
+        "name/vendor/PD text, year the period ends, or overdue only.",
+        _schema(
+            {
+                "partner": {"type": "string"},
+                "year": {"type": "integer"},
+                "overdue_only": {"type": "boolean"},
+            }
+        ),
+        "Reading partner reporting",
     ),
     "population": (
         population,

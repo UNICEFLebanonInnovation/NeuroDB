@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+<div class="kpi-grid">
+  {% trans "Value covered (USD)" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=engagement.total_value|number:0 %}
+  {% trans "Amount tested / audited (USD)" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=engagement.amount_tested|default:engagement.audited_expenditure|number:0 %}
+  {% trans "Financial findings (USD)" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=engagement.financial_findings|number:0 %}
+  {% trans "Pending unsupported (USD)" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=engagement.pending_unsupported_amount|number:0 %}
+</div>
+<section class="panel mb-3">
+  <dl class="row small mb-0">
+    <dt class="col-sm-3 text-muted">{% trans "Partner" %}</dt><dd class="col-sm-9">{% if engagement.partner %}<a href="{% url 'reports:partner_profile' engagement.partner.id %}">{{ engagement.partner_name|default:engagement.partner.name }}</a>{% else %}{{ engagement.partner_name|default:"—" }}{% endif %}{% if engagement.vendor_number %} · <span class="mono">{{ engagement.vendor_number }}</span>{% endif %}</dd>
+    <dt class="col-sm-3 text-muted">{% trans "Type" %}</dt><dd class="col-sm-9">{{ engagement.type_label }}{% if engagement.year_of_audit %} · {{ engagement.year_of_audit }}{% endif %}</dd>
+    <dt class="col-sm-3 text-muted">{% trans "Status" %}</dt><dd class="col-sm-9">{% status_pill engagement.status engagement.status|code_label "sm" %}</dd>
+    <dt class="col-sm-3 text-muted">{% trans "Auditor" %}</dt><dd class="col-sm-9">{{ engagement.auditor|default:"—" }}</dd>
+    <dt class="col-sm-3 text-muted">{% trans "Period" %}</dt><dd class="col-sm-9">{{ engagement.start_date|date:"j M Y"|default:"—" }} – {{ engagement.end_date|date:"j M Y"|default:"—" }}</dd>
+    <dt class="col-sm-3 text-muted">{% trans "Field visit / final report" %}</dt><dd class="col-sm-9">{{ engagement.date_of_field_visit|date:"j M Y"|default:"—" }} / {{ engagement.date_of_final_report|date:"j M Y"|default:"—" }}</dd>
+    <dt class="col-sm-3 text-muted">{% trans "Opinion / rating" %}</dt><dd class="col-sm-9">{{ engagement.audit_opinion|code_label }}{% if engagement.risk_rating or engagement.rating %} · {{ engagement.risk_rating|default:engagement.rating }}{% endif %}</dd>
+    <dt class="col-sm-3 text-muted">{% trans "Findings" %}</dt><dd class="col-sm-9">{% blocktrans with h=engagement.high_priority_findings|default:0 k=engagement.key_control_weaknesses|default:0 f=engagement.financial_findings_count|default:findings|length %}{{ h }} high-priority · {{ k }} key control weaknesses · {{ f }} financial findings{% endblocktrans %}</dd>
+    <dt class="col-sm-3 text-muted">{% trans "Refunded" %}</dt><dd class="col-sm-9">{{ engagement.amount_refunded|number:0 }}</dd>
+    <dt class="col-sm-3 text-muted">{% trans "Programme documents" %}</dt><dd class="col-sm-9"><div class="chips">{% for pd in interventions %}<a class="chip" href="{% url 'reports:programme_detail' pd.id %}">{{ pd.number }}</a>{% empty %}—{% endfor %}</div></dd>
+  </dl>
+</section>
+<section class="panel p-0 mb-3">
+  {% include "components/table_toolbar.html" with title=_("Financial findings") count=findings|length table_id="eng-findings" %}
+  <div class="table-wrap"><table class="table table-sm" id="eng-findings"><thead><tr><th>#</th><th>{% trans "Finding" %}</th><th>{% trans "Recommendation" %}</th><th class="num">{% trans "Amount (USD)" %}</th></tr></thead>
+  <tbody>{% for f in findings %}<tr><td>{{ f.finding_number|default:"—" }}</td><td>{{ f.title }}{% if f.description %}<span class="cell-sub">{{ f.description|truncatechars:220 }}</span>{% endif %}{% if f.ip_comments %}<span class="cell-sub">{% trans "Partner" %}: {{ f.ip_comments|truncatechars:160 }}</span>{% endif %}</td><td class="small">{{ f.recommendation|truncatechars:220|default:"—" }}</td><td class="num">{{ f.amount|number:0 }}</td></tr>
+  {% empty %}<tr><td colspan="4" class="text-muted">{% trans "No financial findings." %}</td></tr>{% endfor %}</tbody></table></div>
+</section>
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Action points") count=action_points|length table_id="eng-aps" %}
+  <div class="table-wrap"><table class="table table-sm" id="eng-aps"><thead><tr><th>{% trans "Action point" %}</th><th>{% trans "Assigned to" %}</th><th>{% trans "Status" %}</th><th>{% trans "Due" %}</th></tr></thead>
+  <tbody>{% for a in action_points %}<tr><td><span class="mono small">{{ a.reference_number }}</span>{% if a.high_priority %} <span class="chip">{% trans "High priority" %}</span>{% endif %}<span class="cell-sub">{{ a.description|truncatechars:160 }}</span></td><td>{{ a.assigned_to_name|default:"—" }}</td><td>{% status_pill a.status|status_key a.status|code_label "sm" %}</td><td class="small text-nowrap">{{ a.due_date|date:"j M Y"|default:"—" }}</td></tr>
+  {% empty %}<tr><td colspan="4" class="text-muted">{% trans "No action points." %}</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endblock %}

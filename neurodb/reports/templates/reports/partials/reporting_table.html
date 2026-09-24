@@ -1,0 +1,35 @@
+{% load i18n ui %}
+<div class="kpi-grid">
+  {% trans "Progress reports" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=data.summary.reports|number %}
+  {% trans "Submitted" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.summary.submitted|number %}
+  {% trans "Submitted late" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.summary.late|number %}
+  {% trans "Overdue, not submitted" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.summary.overdue|number status=data.summary.overdue|yesno:"off_track," %}
+  {% trans "Accepted" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=data.summary.accepted|number %}
+</div>
+<div class="grid grid--2 mb-3">
+  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Reports by status" %}</h2></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="bars" data-source="reporting-chart-data" data-key="by_status" data-empty-title="{% trans 'No progress reports' %}"></div></section>
+  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "About partner reporting" %}</h2></div>
+    <p class="small text-muted mb-0">{% blocktrans %}Partners report progress on their programme document indicators in the Partner Reporting Portal (PRP): quarterly progress reports (QPR), humanitarian reports (HR) and special reports (SR). Open a report to see each indicator's achievement in the period and cumulative progress, by location.{% endblocktrans %}</p></section>
+</div>
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Progress reports") count=page_obj.paginator.count table_id="progress-reports" filename="progress-reports" %}
+  {% if page_obj.object_list %}
+  <div class="table-wrap"><table class="table table-hover" id="progress-reports" data-sortable>
+    <thead><tr><th>{% trans "Report" %}</th><th>{% trans "Partner / PD" %}</th><th>{% trans "Period" %}</th><th>{% trans "Due" %}</th><th>{% trans "Submitted" %}</th><th>{% trans "Status" %}</th><th class="num">{% trans "Indicators" %}</th></tr></thead>
+    <tbody>{% for r in page_obj %}{% url 'reports:progress_report' as report_url %}<tr>
+      <td><a class="mono small" href="{{ report_url }}?report={{ r.progress_report|urlencode }}" hx-get="{{ report_url }}?report={{ r.progress_report|urlencode }}" hx-target="#modal-content" hx-push-url="false">{{ r.report_number|default:"—" }}</a><span class="cell-sub">{{ r.report_type }}</span></td>
+      <td>{% if r.partner_id %}<a href="{% url 'reports:partner_profile' r.partner_id %}">{{ r.partner_name|default:"—" }}</a>{% else %}{{ r.partner_name|default:"—" }}{% endif %}{% if r.intervention_id %}<span class="cell-sub"><a href="{% url 'reports:programme_detail' r.intervention_id %}">{{ r.pd_reference_number }}</a></span>{% else %}<span class="cell-sub mono">{{ r.pd_reference_number }}</span>{% endif %}</td>
+      <td class="small text-nowrap">{{ r.period_start|date:"j M Y"|default:"—" }} – {{ r.period_end|date:"j M Y"|default:"—" }}</td>
+      <td class="small text-nowrap" data-value="{{ r.due_date|date:'Y-m-d' }}">{{ r.due_date|date:"j M Y"|default:"—" }}</td>
+      <td class="small text-nowrap" data-value="{{ r.submission_date|date:'Y-m-d' }}">{% if r.submission_date %}{{ r.submission_date|date:"j M Y" }}{% if r.due_date and r.submission_date > r.due_date %}<span class="cell-sub text-warning">{% trans "Late" %}</span>{% endif %}{% elif r.due_date and r.due_date < data.today %}<span class="text-danger">{% trans "Overdue" %}</span>{% else %}—{% endif %}</td>
+      <td>{% status_pill r.report_status|status_key r.report_status|code_label "sm" %}</td>
+      <td class="num">{{ r.indicators }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% include "components/pagination.html" with hx_target="#reporting-results" %}
+  {% else %}
+  {% include "components/empty_state.html" with icon="file" title=_("No progress reports match") message=_("Change the filters, or run the eTools Datamart sync if the list is empty.") action_url=request.path %}
+  {% endif %}
+</section>
+{{ chart_data|json_script:"reporting-chart-data" }}

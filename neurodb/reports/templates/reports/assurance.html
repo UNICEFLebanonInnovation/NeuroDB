@@ -26,6 +26,41 @@
   </div>
 </form>
 <div id="assurance-results" aria-live="polite">{% include "reports/partials/assurance_table.html" %}</div>
+<section class="panel p-0 mt-3">
+  <div class="table-toolbar">
+    <div class="table-toolbar__title"><h2 class="h6 mb-0">{% blocktrans with year=hact.year|default:"—" %}HACT assurance by partner, {{ year }}{% endblocktrans %}</h2>
+      <span class="text-muted small">{% blocktrans count counter=hact.partners_behind %}{{ counter }} partner behind its minimum requirements{% plural %}{{ counter }} partners behind their minimum requirements{% endblocktrans %}</span></div>
+    <div class="table-toolbar__actions">
+      {% for y in hact.years %}<a class="btn btn-sm {% if y == hact.year %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?hact_year={{ y }}">{{ y }}</a>{% endfor %}
+      <button type="button" class="btn btn-outline-secondary btn-sm" data-table-csv data-table-target="#hact-partners" data-filename="hact-by-partner">{% include "components/icon.html" with name="download" %}<span>{% trans "CSV" %}</span></button>
+    </div>
+  </div>
+  <div class="table-wrap" style="max-height: 520px"><table class="table table-sm" id="hact-partners" data-sortable>
+    <thead><tr><th>{% trans "Partner" %}</th><th>{% trans "Risk rating" %}</th><th class="num">{% trans "Cash transfers (USD)" %}</th><th class="num">{% trans "Programmatic visits" %}</th><th class="num">{% trans "Spot checks" %}</th><th class="num">{% trans "Audits" %}</th><th class="num">{% trans "Outstanding audit findings" %}</th></tr></thead>
+    <tbody>{% for h in hact.rows %}<tr>
+      <td>{% if h.partner %}<a href="{% url 'reports:partner_profile' h.partner.id %}">{{ h.partner_name|default:h.partner.name }}</a>{% else %}{{ h.partner_name }}{% endif %}{% if h.expiring_threshold %}<span class="cell-sub text-warning">{% trans "Assessment expiring" %}</span>{% elif h.approaching_threshold %}<span class="cell-sub text-warning">{% trans "Approaching the assessment threshold" %}</span>{% endif %}</td>
+      <td>{% if h.risk_rating %}<span class="chip">{{ h.risk_rating }}</span>{% else %}—{% endif %}</td>
+      <td class="num" data-value="{{ h.cash_transfers|default:0 }}">{{ h.cash_transfers|number:0 }}</td>
+      <td class="num {% if h.pv_gap %}text-danger{% endif %}" data-value="{{ h.pv_completed|default:0 }}">{{ h.pv_completed|default:0 }} / {{ h.pv_required|default:0 }}</td>
+      <td class="num {% if h.sc_gap %}text-danger{% endif %}" data-value="{{ h.sc_completed|default:0 }}">{{ h.sc_completed|default:0 }} / {{ h.sc_required|default:0 }}</td>
+      <td class="num">{{ h.audits_completed|default:0 }} / {{ h.audits_required|default:0 }}</td>
+      <td class="num">{{ h.outstanding_findings|default:0 }}</td>
+    </tr>{% empty %}<tr><td colspan="7" class="text-muted">{% trans "No HACT history yet. It arrives with the eTools Datamart sync." %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  <p class="small text-muted px-3 py-2 mb-0">{% trans "Done / required: the minimum programmatic visits, spot checks and audits for the partner's risk rating and cash transfers." %}</p>
+</section>
+<section class="panel p-0 mt-3">
+  {% include "components/table_toolbar.html" with title=_("Latest financial findings") count=recent_findings|length table_id="recent-findings" %}
+  <div class="table-wrap"><table class="table table-sm" id="recent-findings">
+    <thead><tr><th>{% trans "Engagement" %}</th><th>{% trans "Partner" %}</th><th>{% trans "Finding" %}</th><th class="num">{% trans "Amount (USD)" %}</th></tr></thead>
+    <tbody>{% for f in recent_findings %}<tr>
+      <td class="small">{% if f.engagement %}<a class="mono" href="{% url 'reports:engagement_detail' f.engagement.id %}">{{ f.reference_number }}</a>{% else %}<span class="mono">{{ f.reference_number }}</span>{% endif %}<span class="cell-sub">{{ f.created|date:"j M Y" }}</span></td>
+      <td>{% if f.partner %}<a href="{% url 'reports:partner_profile' f.partner.id %}">{{ f.partner_name|default:f.partner.name }}</a>{% else %}{{ f.partner_name|default:"—" }}{% endif %}</td>
+      <td>{{ f.title }}{% if f.recommendation %}<span class="cell-sub">{{ f.recommendation|truncatechars:140 }}</span>{% endif %}</td>
+      <td class="num">{{ f.amount|number:0 }}</td>
+    </tr>{% empty %}<tr><td colspan="4" class="text-muted">{% trans "No financial findings." %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
 <div class="grid grid--2 mt-3">
   <section class="panel p-0">
     {% include "components/table_toolbar.html" with title=_("HACT assurance by year") count=data.hact|length table_id="hact-years" %}

@@ -3,6 +3,7 @@
   {% trans "Findings" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=page_obj.paginator.count|number %}
   {% trans "Monitoring activities" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.activities|number %}
   {% trans "TPM visits" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.tpm_count|number %}
+  {% trans "UNICEF staff trip activities" as l4 %}{% blocktrans asvar hint %}programmatic visits, spot checks, meetings{% endblocktrans %}{% include "components/kpi_tile.html" with label=l4 value=data.staff_visits|number hint=hint %}
 </div>
 <div class="grid grid--2 mb-3">
   <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Findings by rating" %}</h2></div>
@@ -40,5 +41,19 @@
       <td class="small text-nowrap">{{ v.start_date|date:"j M Y"|default:"—" }} – {{ v.end_date|date:"j M Y"|default:"—" }}</td>
     </tr>{% empty %}<tr><td colspan="5" class="text-muted">{% trans "No TPM visits." %}</td></tr>{% endfor %}</tbody>
   </table></div>
+</section>
+<section class="panel p-0 mt-3">
+  {% include "components/table_toolbar.html" with title=_("TPM activities") count=data.tpm_activities|length table_id="tpm-activities" filename="tpm-activities" %}
+  <div class="table-wrap"><table class="table table-sm" id="tpm-activities" data-sortable>
+    <thead><tr><th>{% trans "Activity" %}</th><th>{% trans "Partner / PD" %}</th><th>{% trans "Locations" %}</th><th>{% trans "Status" %}</th><th>{% trans "Date" %}</th></tr></thead>
+    <tbody>{% for a in data.tpm_activities %}<tr>
+      <td class="mono small">{{ a.task_reference_number|default:a.visit_reference_number|default:"—" }}<span class="cell-sub">{{ a.tpm_name }}{% if a.is_programmatic_visit %} · {% trans "Programmatic visit" %}{% endif %}</span></td>
+      <td>{% if a.partner %}<a href="{% url 'reports:partner_profile' a.partner.id %}">{{ a.partner_name|default:a.partner.name }}</a>{% else %}{{ a.partner_name|default:"—" }}{% endif %}{% if a.intervention %}<span class="cell-sub"><a href="{% url 'reports:programme_detail' a.intervention.id %}">{{ a.intervention.number }}</a></span>{% elif a.pd_reference_number %}<span class="cell-sub mono">{{ a.pd_reference_number }}</span>{% endif %}</td>
+      <td class="small">{{ a.locations|default:"—"|truncatechars:80 }}</td>
+      <td>{% status_pill a.status|status_key a.status|code_label "sm" %}</td>
+      <td class="small text-nowrap">{{ a.date|date:"j M Y"|default:"—" }}</td>
+    </tr>{% empty %}<tr><td colspan="5" class="text-muted">{% trans "No TPM activities." %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% if data.staff_by_type %}<p class="small text-muted px-3 py-2 mb-0">{% trans "UNICEF staff trip activities" %}:{% for kind, n in data.staff_by_type %} {{ kind|default:"—"|code_label }} {{ n }}{% if not forloop.last %} ·{% endif %}{% endfor %}</p>{% endif %}
 </section>
 {{ chart_data|json_script:"monitoring-chart-data" }}

@@ -146,6 +146,20 @@ Datamart host (a pagination link to any other host is refused). Every request is
 | `action_points` | `actionpoints/` | action points (action points, partner and programme pages) |
 | `tpm_visits`, `field_monitoring` | `tpm-visits/`, `fm-ontrack/` | TPM visits and field monitoring findings (field monitoring and partner pages) |
 | `hact` | `hact/aggregate/` | HACT totals per year (assurance page) |
+| `funds_reservation_headers` | `funds/fundsreservationheader/` | FRs: reserved, disbursed, outstanding (funds and programme pages) |
+| `partner_reports` | `prp/datareport/` | partner progress reports per indicator and location, periods starting in the last `ETOOLS_DATAMART_REPORTING_YEARS` years (partner reporting, programme and partner pages) |
+| `tpm_activities` | `tpm-activities/` | the PD, place and date of each TPM visit activity (field monitoring and programme pages) |
+| `staff_visits` | `travel-activities/` | UNICEF staff trip activities: programmatic visits, spot checks, meetings (programme and partner pages) |
+| `planned_visits` | `interventions-planned-visits/` | programmatic visits planned per PD and quarter |
+| `hact_history` | `hact/history/` | each partner's HACT year: cash transfers, risk rating, visits, spot checks and audits done against required (assurance and partner pages) |
+| `pd_activities` | `interventions-activities/` | PD workplan activities with UNICEF and partner cash (programme page) |
+| `audit_results`, `audits`, `spot_checks`, `micro_assessments`, `special_audits` | `audit/results/`, `audit/audit/`, `audit/spot-check-findings/`, `audit/micro-assessment/`, `audit/special-audit/` | add risk rating, high-priority findings, key control weaknesses and amounts to the engagements, matched by reference number |
+| `audit_findings` | `audit/financial-findings/` | financial findings of each engagement (engagement, assurance and partner pages) |
+
+Pages: *Funds*, *Partner reporting* (each report opens with its indicators by location),
+*Assurance* (with HACT compliance per partner and an engagement page with its findings and action
+points), *Field monitoring* and *Action points*, plus sections on the programme, partner and donor
+pages. The PRP endpoints other than `prp/datareport/` carry no country field, so they are not read.
 
 Rows link to programme documents by eTools id or reference number and to partners by eTools id or
 vendor number; `details.not_linked` of a run counts the records whose PD or partner is not in

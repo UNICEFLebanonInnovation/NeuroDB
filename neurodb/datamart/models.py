@@ -194,6 +194,16 @@ class AuditEngagement(DatamartRecord):
     financial_findings = models.DecimalField(**MONEY)
     audit_opinion = models.CharField(max_length=100, blank=True)
     rating = models.CharField(max_length=100, blank=True)
+    # From the per-type detail datasets (audit results, audits, spot checks, micro-assessments, special
+    # audits), matched by reference number; ``details`` keeps each of those records by dataset.
+    risk_rating = models.CharField(max_length=100, blank=True)
+    audited_expenditure = models.DecimalField(**MONEY)
+    amount_refunded = models.DecimalField(**MONEY)
+    pending_unsupported_amount = models.DecimalField(**MONEY)
+    financial_findings_count = models.IntegerField(null=True, blank=True)
+    high_priority_findings = models.IntegerField(null=True, blank=True)
+    key_control_weaknesses = models.IntegerField(null=True, blank=True)
+    details = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ("-start_date",)
@@ -299,3 +309,232 @@ class HACTAggregate(DatamartRecord):
 
     def __str__(self):
         return f"HACT {self.year}"
+
+
+class FundsReservationHeader(DatamartRecord):
+    """One funds reservation (FR): amounts reserved, disbursed and outstanding for a programme document."""
+
+    intervention = _intervention("fr_headers")
+    pd_reference_number = models.CharField(max_length=256, blank=True)
+    fr_number = models.CharField("FR number", max_length=20, blank=True, db_index=True)
+    fr_type = models.CharField(max_length=50, blank=True)
+    vendor_code = models.CharField(max_length=20, blank=True, db_index=True)
+    document_text = models.CharField(max_length=255, blank=True)
+    currency = models.CharField(max_length=50, blank=True)
+    total_amt = models.DecimalField("reserved", **MONEY)
+    intervention_amt = models.DecimalField("amount for the PD", **MONEY)
+    actual_amt = models.DecimalField("disbursed", **MONEY)
+    outstanding_amt = models.DecimalField("outstanding", **MONEY)
+    document_date = models.DateField(null=True, blank=True)
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
+    completed_flag = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ("-start_date", "fr_number")
+        verbose_name = "funds reservation"
+
+    def __str__(self):
+        return self.fr_number
+
+
+class AuditFinding(DatamartRecord):
+    """A financial finding of an audit, spot check or special audit (ineligible or unsupported spending)."""
+
+    partner = _partner("audit_findings")
+    engagement = models.ForeignKey(
+        AuditEngagement,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        db_constraint=False,
+        related_name="findings",
+    )
+    reference_number = models.CharField(max_length=300, blank=True, db_index=True)
+    engagement_type = models.CharField(max_length=30, blank=True)
+    engagement_status = models.CharField(max_length=30, blank=True)
+    partner_name = models.CharField(max_length=300, blank=True)
+    vendor_number = models.CharField(max_length=30, blank=True)
+    finding_number = models.IntegerField(null=True, blank=True)
+    title = models.CharField(max_length=300, blank=True)
+    amount = models.DecimalField("amount (USD)", **MONEY)
+    local_amount = models.DecimalField(**MONEY)
+    description = models.TextField(blank=True)
+    recommendation = models.TextField(blank=True)
+    ip_comments = models.TextField("partner comments", blank=True)
+    created = models.DateField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created", "reference_number", "finding_number")
+        verbose_name = "audit finding"
+
+    def __str__(self):
+        return f"{self.reference_number} #{self.finding_number}"
+
+
+class ReportedIndicator(DatamartRecord):
+    """Partner reporting (PRP): one indicator of one progress report, in one location. The progress
+    report itself (number, period, status, narrative) repeats on each of its indicator rows."""
+
+    partner = _partner("reported_indicators")
+    intervention = _intervention("reported_indicators")
+    partner_name = models.CharField(max_length=300, blank=True)
+    vendor_number = models.CharField(max_length=30, blank=True)
+    pd_reference_number = models.CharField(max_length=256, blank=True, db_index=True)
+    progress_report = models.CharField(max_length=300, blank=True, db_index=True)
+    report_number = models.CharField(max_length=30, blank=True)
+    report_type = models.CharField(max_length=30, blank=True, db_index=True)
+    report_status = models.CharField(max_length=50, blank=True, db_index=True)
+    report_accepted_status = models.CharField(max_length=50, blank=True)
+    is_report_final = models.BooleanField(default=False)
+    period_start = models.DateField(null=True, blank=True)
+    period_end = models.DateField(null=True, blank=True, db_index=True)
+    due_date = models.DateField(null=True, blank=True)
+    submission_date = models.DateField(null=True, blank=True)
+    acceptance_date = models.DateField(null=True, blank=True)
+    submitted_by = models.CharField(max_length=300, blank=True)
+    narrative = models.TextField(blank=True)
+    section = models.CharField(max_length=300, blank=True)
+    pd_output = models.CharField(max_length=500, blank=True)
+    pd_output_progress_status = models.CharField(max_length=50, blank=True)
+    indicator = models.CharField(max_length=1024, blank=True)
+    baseline = models.CharField(max_length=100, blank=True)
+    target = models.CharField(max_length=100, blank=True)
+    location = models.CharField(max_length=254, blank=True)
+    p_code = models.CharField(max_length=32, blank=True)
+    achievement_in_period = models.CharField(max_length=100, blank=True)
+    total_cumulative_progress = models.CharField(max_length=100, blank=True)
+    total_cumulative_progress_in_location = models.CharField(max_length=100, blank=True)
+
+    class Meta:
+        ordering = ("-period_end", "pd_reference_number", "indicator")
+        verbose_name = "reported indicator"
+
+    def __str__(self):
+        return f"{self.pd_reference_number} {self.report_number} {self.indicator[:60]}"
+
+
+class TPMActivity(DatamartRecord):
+    """One activity of a third-party monitoring visit: the programme document, place and date monitored."""
+
+    partner = _partner("tpm_activities")
+    intervention = _intervention("tpm_activities")
+    visit_reference_number = models.CharField(max_length=300, blank=True, db_index=True)
+    task_reference_number = models.CharField(max_length=300, blank=True)
+    visit_status = models.CharField(max_length=300, blank=True)
+    status = models.CharField(max_length=50, blank=True)
+    tpm_name = models.CharField("TPM partner", max_length=300, blank=True)
+    partner_name = models.CharField(max_length=300, blank=True)
+    vendor_number = models.CharField(max_length=120, blank=True)
+    pd_reference_number = models.CharField(max_length=300, blank=True)
+    section = models.CharField(max_length=300, blank=True)
+    locations = models.CharField(max_length=1000, blank=True)
+    date = models.DateField(null=True, blank=True, db_index=True)
+    is_programmatic_visit = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ("-date",)
+        verbose_name = "TPM activity"
+        verbose_name_plural = "TPM activities"
+
+    def __str__(self):
+        return self.task_reference_number or self.visit_reference_number
+
+
+class ProgrammaticVisit(DatamartRecord):
+    """A trip activity of UNICEF staff (programmatic visit, spot check, meeting...) from eTools Trips."""
+
+    partner = _partner("programmatic_visits")
+    intervention = _intervention("programmatic_visits")
+    travel_reference_number = models.CharField(max_length=200, blank=True)
+    travel_type = models.CharField(max_length=200, blank=True, db_index=True)
+    date = models.DateField(null=True, blank=True, db_index=True)
+    partner_name = models.CharField(max_length=200, blank=True)
+    partnership_number = models.CharField(max_length=200, blank=True)
+    primary_traveler = models.CharField(max_length=200, blank=True)
+    location_name = models.CharField(max_length=254, blank=True)
+    location_pcode = models.CharField(max_length=32, blank=True)
+
+    class Meta:
+        ordering = ("-date",)
+        verbose_name = "staff trip activity"
+
+    def __str__(self):
+        return f"{self.travel_reference_number} {self.travel_type}"
+
+
+class PlannedVisits(DatamartRecord):
+    """Programmatic visits planned per quarter for a programme document and year."""
+
+    intervention = _intervention("planned_visits_by_year")
+    partner = _partner("planned_visit_years")
+    pd_reference_number = models.CharField(max_length=256, blank=True)
+    year = models.IntegerField(null=True, blank=True)
+    q1 = models.IntegerField(default=0)
+    q2 = models.IntegerField(default=0)
+    q3 = models.IntegerField(default=0)
+    q4 = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ("-year",)
+        verbose_name = "planned visits"
+        verbose_name_plural = "planned visits"
+
+    def __str__(self):
+        return f"{self.pd_reference_number} {self.year}"
+
+    @property
+    def total(self):
+        return self.q1 + self.q2 + self.q3 + self.q4
+
+
+class PartnerHACTYear(DatamartRecord):
+    """A partner's HACT year: cash transfers, risk rating, and assurance planned, required and done."""
+
+    partner = _partner("hact_years")
+    partner_name = models.CharField(max_length=300, blank=True)
+    vendor_number = models.CharField(max_length=30, blank=True, db_index=True)
+    year = models.IntegerField(null=True, blank=True, db_index=True)
+    risk_rating = models.CharField(max_length=100, blank=True)
+    assessment_type = models.CharField(max_length=100, blank=True)
+    cash_transfers = models.DecimalField("cash transfers (Jan-Dec)", **MONEY)
+    liquidations = models.DecimalField("liquidations (Oct-Sep)", **MONEY)
+    pv_required = models.IntegerField("programmatic visits required", null=True, blank=True)
+    pv_planned = models.IntegerField("programmatic visits planned", null=True, blank=True)
+    pv_completed = models.IntegerField("programmatic visits completed", null=True, blank=True)
+    sc_required = models.IntegerField("spot checks required", null=True, blank=True)
+    sc_planned = models.IntegerField("spot checks planned", null=True, blank=True)
+    sc_completed = models.IntegerField("spot checks completed", null=True, blank=True)
+    audits_required = models.IntegerField(null=True, blank=True)
+    audits_completed = models.IntegerField(null=True, blank=True)
+    outstanding_findings = models.IntegerField("audits with outstanding findings", null=True, blank=True)
+    expiring_threshold = models.BooleanField(default=False)
+    approaching_threshold = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ("-year", "partner_name")
+        verbose_name = "partner HACT year"
+
+    def __str__(self):
+        return f"{self.partner_name} {self.year}"
+
+
+class PDActivity(DatamartRecord):
+    """A workplan activity of a programme document, with its UNICEF and partner cash."""
+
+    intervention = _intervention("workplan_activities")
+    pd_reference_number = models.CharField(max_length=256, blank=True, db_index=True)
+    result = models.CharField("PD output", max_length=500, blank=True)
+    result_code = models.CharField(max_length=50, blank=True)
+    code = models.CharField(max_length=50, blank=True)
+    name = models.CharField(max_length=1000, blank=True)
+    unicef_cash = models.DecimalField(**MONEY)
+    cso_cash = models.DecimalField("partner cash", **MONEY)
+
+    class Meta:
+        ordering = ("pd_reference_number", "result_code", "code")
+        verbose_name = "PD workplan activity"
+        verbose_name_plural = "PD workplan activities"
+
+    def __str__(self):
+        return f"{self.code} {self.name[:60]}"

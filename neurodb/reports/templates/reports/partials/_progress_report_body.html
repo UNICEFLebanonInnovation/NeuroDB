@@ -1,0 +1,11 @@
+{% load i18n ui %}
+<dl class="row small mb-3">
+  <dt class="col-sm-4 text-muted">{% trans "Programme document" %}</dt><dd class="col-sm-8">{% if report.intervention_id %}<a href="{% url 'reports:programme_detail' report.intervention_id %}">{{ report.pd_reference_number }}</a>{% else %}{{ report.pd_reference_number|default:"—" }}{% endif %}</dd>
+  <dt class="col-sm-4 text-muted">{% trans "Partner" %}</dt><dd class="col-sm-8">{% if report.partner_id %}<a href="{% url 'reports:partner_profile' report.partner_id %}">{{ report.partner_name }}</a>{% else %}{{ report.partner_name|default:"—" }}{% endif %}</dd>
+  <dt class="col-sm-4 text-muted">{% trans "Period" %}</dt><dd class="col-sm-8">{{ report.period_start|date:"j M Y"|default:"—" }} – {{ report.period_end|date:"j M Y"|default:"—" }}</dd>
+  <dt class="col-sm-4 text-muted">{% trans "Due / submitted" %}</dt><dd class="col-sm-8">{{ report.due_date|date:"j M Y"|default:"—" }} / {{ report.submission_date|date:"j M Y"|default:"—" }}{% if report.submitted_by %} · {{ report.submitted_by }}{% endif %}</dd>
+  <dt class="col-sm-4 text-muted">{% trans "Status" %}</dt><dd class="col-sm-8">{% status_pill report.report_status|status_key report.report_status|code_label "sm" %}{% if report.report_accepted_status %} · {{ report.report_accepted_status|code_label }}{% endif %}</dd>
+</dl>
+{% if report.narrative %}<p class="small">{{ report.narrative|linebreaksbr }}</p>{% endif %}
+<div class="table-wrap"><table class="table table-sm"><thead><tr><th>{% trans "Indicator" %}</th><th>{% trans "Location" %}</th><th class="num">{% trans "Target" %}</th><th class="num">{% trans "In period" %}</th><th class="num">{% trans "Cumulative" %}</th></tr></thead>
+<tbody>{% for r in rows %}<tr><td>{{ r.indicator }}{% if r.pd_output %}<span class="cell-sub">{{ r.pd_output|truncatechars:100 }}{% if r.pd_output_progress_status %} · {{ r.pd_output_progress_status|code_label }}{% endif %}</span>{% endif %}</td><td class="small">{{ r.location|default:"—" }}</td><td class="num">{{ r.target|default:"—" }}</td><td class="num">{{ r.achievement_in_period|default:"—" }}</td><td class="num">{{ r.total_cumulative_progress_in_location|default:r.total_cumulative_progress|default:"—" }}</td></tr>{% endfor %}</tbody></table></div>
