@@ -244,7 +244,7 @@ def test_programme_and_partner_pages_show_monitoring(client_viewer, data, frozen
     text = client_viewer.get(reverse("reports:programme_detail", args=[data["pd"].id])).text
     assert "Monitoring by month and location" in text and "1 on track, 1 off track" in text
     text = client_viewer.get(reverse("reports:partner_profile", args=[data["partner"].id])).text
-    assert "Implementation monitoring" in text and reverse("reports:pd_monitoring") in text
+    assert "implementation monitoring" in text and reverse("reports:pd_monitoring") in text
 
 
 def test_assistant_tool(data, frozen_today):

@@ -191,13 +191,19 @@ def map_data(database: Database, level: str = "governorate", **filters: str) -> 
 
 def snapshot(database: Database) -> dict[str, Any]:
     """Print-friendly bundle: dashboard + top partners + area breakdowns (v2 snapshot page)."""
+    from neurodb.partnerships import linking
+
     dash = database_dashboard(database)
     f = fact_filter(database)
+    top_partners = _top_partners(f, 10)
+    links = linking.links_for([p["partner"] for p in top_partners])
+    for p in top_partners:
+        p["etools_partner"] = links.get(p["partner"])
     return {
         "dashboard": dash,
         "by_governorate": queries.interventions_by_area(f, "governorate"),
         "by_district": queries.interventions_by_area(f, "district")[:15],
-        "top_partners": _top_partners(f, 10),
+        "top_partners": top_partners,
     }
 
 

@@ -2,7 +2,7 @@
 {% include "components/table_toolbar.html" with title=_("Partners") count=page_obj.paginator.count table_id="partners" filename="partners" %}
 {% if page_obj.object_list %}
 <div class="table-wrap"><table class="table table-hover" id="partners" data-sortable>
-  <thead><tr><th>{% trans "Partner" %}</th><th>{% trans "Type" %}</th><th>{% trans "Risk rating" %}</th><th class="num">{% trans "Active documents" %}</th><th class="num">{% trans "All documents" %}</th><th class="num">{% trans "Cash transfers (CP)" %}</th></tr></thead>
+  <thead><tr><th>{% trans "Partner" %}</th><th>{% trans "Type" %}</th><th>{% trans "Risk rating" %}</th><th class="num">{% trans "Active documents" %}</th><th class="num">{% trans "All documents" %}</th><th>{% trans "Reporting" %}</th><th class="num">{% trans "Cash transfers (CP)" %}</th></tr></thead>
   <tbody>{% for p in page_obj %}
     <tr data-href="{% url 'reports:partner_profile' p.id %}">
       <td><a class="cell-title" href="{% url 'reports:partner_profile' p.id %}">{{ p.name }}</a><span class="cell-sub">{{ p.short_name }}{% if p.vendor_number %} · <span class="mono">{{ p.vendor_number }}</span>{% endif %}</span></td>
@@ -10,6 +10,7 @@
       <td>{% if p.rating %}<span class="chip">{{ p.rating }}</span>{% else %}—{% endif %}</td>
       <td class="num">{{ p.active_pd_count }}</td>
       <td class="num">{{ p.pd_count }}</td>
+      <td data-value="{{ p.activityinfo_records|default:0 }}"><div class="chips">{% if p.etools_reporting %}<span class="chip" title="{% trans 'Progress reports in eTools' %}">{% trans "eTools" %}</span>{% endif %}{% if p.activityinfo_records %}<span class="chip" title="{% trans 'Activity records in ActivityInfo' %}">{% trans "ActivityInfo" %} · {{ p.activityinfo_records|number:0 }}</span>{% endif %}{% if not p.etools_reporting and not p.activityinfo_records %}<span class="text-muted small">—</span>{% endif %}</div></td>
       <td class="num" data-value="{{ p.total_ct_cp|default:0 }}">{{ p.total_ct_cp|number:0 }}</td>
     </tr>
   {% endfor %}</tbody>

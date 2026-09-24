@@ -31,6 +31,7 @@ from neurodb.datamart import monitoring as pd_monitoring_service
 from neurodb.datamart import services as datamart
 from neurodb.datamart.models import AuditEngagement, AuditFinding
 from neurodb.facts.services import dashboard as facts
+from neurodb.facts.services import partners as partner_facts
 from neurodb.indicators.models import Database, MasterIndicator, NeuroReport
 from neurodb.indicators.services.tracking import LABELS
 from neurodb.library.models import Resource
@@ -529,6 +530,7 @@ def partner_profile(request: HttpRequest, pk: int) -> HttpResponse:
     partner = get_object_or_404(PartnerOrganization, pk=pk, deleted_flag=False)
     profile = partnerships.partner_profile(partner)
     extra = datamart.partner_datamart(partner)
+    activityinfo = partner_facts.partner_activityinfo(partner)
     context = {
         "page_title": partner.name,
         "page_subtitle": " · ".join(x for x in (partner.partner_type, partner.cso_type) if x),
@@ -539,13 +541,42 @@ def partner_profile(request: HttpRequest, pk: int) -> HttpResponse:
         "partner": partner,
         "profile": profile,
         "datamart": extra,
+        "activityinfo": activityinfo,
+        "labels": LABELS,
         "chart_data": {
             # eTools Trips from the Datamart when synced, else the v2 travel tables
             "visits_by_year": extra["staff_visits_by_year"] or profile["visits_by_year"],
             "engagement_counts": profile["engagement_counts"],
+            "activityinfo_by_year": activityinfo["by_year"],
+            "etools_reports_by_year": extra["reports_by_year"],
         },
     }
     return render(request, "reports/partner_profile.html", context)
+
+
+@require_GET
+def partner_activityinfo(request: HttpRequest, pk: int, database_id: int) -> HttpResponse:
+    """What one partner reported in one ActivityInfo database: master indicators by month (modal/page)."""
+    partner = get_object_or_404(PartnerOrganization, pk=pk, deleted_flag=False)
+    database = _database(database_id)
+    data = partner_facts.partner_database_indicators(partner, database)
+    context = {
+        "page_title": _("%(partner)s in %(database)s")
+        % {"partner": partner.short_name or partner.name, "database": database.label or database.name},
+        "page_subtitle": _("ActivityInfo indicators reported by the partner, by month"),
+        "breadcrumbs": [
+            _crumb(_("Partners"), reverse("reports:partners")),
+            _crumb(partner.short_name or partner.name, reverse("reports:partner_profile", args=[partner.id])),
+            _crumb(database.label or database.name),
+        ],
+        "partner": partner,
+        "database": database,
+        "data": data,
+    }
+    template = (
+        "reports/partials/partner_activityinfo.html" if request.htmx else "reports/partner_activityinfo.html"
+    )
+    return render(request, template, context)
 
 
 # ------------------------------------------------------------------------- eTools Datamart pages

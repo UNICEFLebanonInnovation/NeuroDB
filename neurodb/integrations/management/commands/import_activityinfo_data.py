@@ -9,6 +9,7 @@ from neurodb.indicators.models import Database
 from neurodb.integrations.activityinfo.data import import_data
 from neurodb.integrations.management.commands._base import add_triggered_by, exit_on_failure, write_summary
 from neurodb.integrations.runs import new_run
+from neurodb.partnerships.linking import link_activityinfo_partners
 
 
 class Command(BaseCommand):
@@ -40,4 +41,6 @@ class Command(BaseCommand):
             except Exception:
                 self.stderr.write(f"data import of {database.ai_id} aborted (see log)")
             runs.append(run)
+        if any(run.status != SyncRun.Status.FAILED for run in runs):
+            runs.append(link_activityinfo_partners(triggered_by=options["triggered_by"]))
         exit_on_failure(write_summary(self, runs))

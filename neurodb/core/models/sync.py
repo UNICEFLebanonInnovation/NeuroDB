@@ -16,6 +16,7 @@ class SyncRun(models.Model):
         ETOOLS_DATAMART = "etools_datamart", "eTools Datamart sync"
         LOCATIONS = "locations", "Locations sync"
         POPULATION = "population", "Population figures load"
+        PARTNER_LINKS = "partner_links", "ActivityInfo partner links"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"

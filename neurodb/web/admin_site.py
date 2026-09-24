@@ -90,6 +90,7 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
         _("Replicated from eTools every night; edit them in eTools."),
         [
             "etools.PartnerOrganization",
+            "etools.PartnerLink",
             "etools.Agreement",
             "etools.PCA",
             "etools.Engagement",
@@ -189,6 +190,7 @@ ICONS = {
     "datamart.PDActivity": "checklist",
     "datamart.DatamartDocument": "dataset",
     "etools.PartnerOrganization": "handshake",
+    "etools.PartnerLink": "link",
     "etools.Agreement": "contract",
     "etools.PCA": "description",
     "etools.Engagement": "fact_check",

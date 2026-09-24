@@ -232,6 +232,15 @@ def _monitoring_summary(filters: pd_monitoring.Filters) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------------------- partners
+def reports_by_year(queryset: QuerySet[dm.ReportedIndicator]) -> list[tuple[str, int]]:
+    """Progress reports per year of their period end (partner page: reporting activity over time)."""
+    years: Counter[str] = Counter()
+    for r in progress_reports(queryset):
+        if r["period_end"]:
+            years[str(r["period_end"].year)] += 1
+    return sorted(years.items())
+
+
 def reporting_summary(queryset: QuerySet[dm.ReportedIndicator]) -> dict[str, int]:
     today = datetime.date.today()
     reports = list(progress_reports(queryset))
@@ -282,6 +291,7 @@ def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
         "monitoring": _monitoring_summary(pd_monitoring.Filters(partners=[str(partner.pk)])),
         "reporting": reporting_summary(partner.reported_indicators.all()),
         "reports": list(progress_reports(partner.reported_indicators.all())[:10]),
+        "reports_by_year": reports_by_year(partner.reported_indicators.all()),
         "staff_visits_by_year": sorted(visits.items()),
     }
 

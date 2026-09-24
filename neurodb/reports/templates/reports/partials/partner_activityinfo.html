@@ -1,0 +1,15 @@
+{% load i18n ui %}
+<div class="modal-header">
+  <div>
+    <h2 class="modal-title h5" id="modal-title">{{ partner.name }} · {{ database.label|default:database.name }}</h2>
+    <div class="small text-muted">{% trans "ActivityInfo" %}{% if database.reporting_year %} · {{ database.reporting_year.name }}{% endif %}{% if database.section %} · {{ database.section.name }}{% endif %} · {% blocktrans count counter=data.indicators|length %}{{ counter }} indicator reported{% plural %}{{ counter }} indicators reported{% endblocktrans %}</div>
+  </div>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+</div>
+<div class="modal-body p-0">
+  {% include "reports/partials/_partner_activityinfo_body.html" %}
+</div>
+<div class="modal-footer">
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'reports:partner_activityinfo' partner.id database.id %}">{% include "components/icon.html" with name="external" %}<span>{% trans "Open as page" %}</span></a>
+  <a class="btn btn-primary btn-sm" href="{% url 'reports:database_dashboard' database.id %}">{% include "components/icon.html" with name="grid" %}<span>{% trans "Open the database" %}</span></a>
+</div>

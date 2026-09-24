@@ -36,7 +36,7 @@
   <section class="panel p-0">
     {% include "components/table_toolbar.html" with title=_("Top partners") table_id="snap-partners" %}
     <div class="table-wrap"><table class="table" id="snap-partners"><thead><tr><th>{% trans "Partner" %}</th><th class="num">{% trans "Records" %}</th><th class="num">{% trans "Sites" %}</th></tr></thead>
-    <tbody>{% for p in snapshot.top_partners %}<tr><td>{{ p.partner }}</td><td class="num">{{ p.interventions|number }}</td><td class="num">{{ p.sites|number }}</td></tr>{% empty %}<tr><td colspan="3" class="text-muted">{% trans "No records" %}</td></tr>{% endfor %}</tbody></table></div>
+    <tbody>{% for p in snapshot.top_partners %}<tr><td>{% if p.etools_partner %}<a href="{% url 'reports:partner_profile' p.etools_partner.id %}">{{ p.partner }}</a>{% else %}{{ p.partner }}{% endif %}</td><td class="num">{{ p.interventions|number }}</td><td class="num">{{ p.sites|number }}</td></tr>{% empty %}<tr><td colspan="3" class="text-muted">{% trans "No records" %}</td></tr>{% endfor %}</tbody></table></div>
   </section>
 </div>
 <section class="panel p-0 mt-3">

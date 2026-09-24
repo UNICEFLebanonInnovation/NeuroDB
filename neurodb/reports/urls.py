@@ -21,6 +21,11 @@ urlpatterns = [
     path("donors/", views.donors, name="donors"),
     path("partners/", views.partners, name="partners"),
     path("partners/<int:pk>/", views.partner_profile, name="partner_profile"),
+    path(
+        "partners/<int:pk>/activityinfo/<int:database_id>/",
+        views.partner_activityinfo,
+        name="partner_activityinfo",
+    ),
     path("partner-monitoring/", views.pd_monitoring, name="pd_monitoring"),
     path("partner-monitoring/<int:pk>/<str:key>/", views.pd_indicator, name="pd_indicator"),
     path("assurance/", views.assurance, name="assurance"),

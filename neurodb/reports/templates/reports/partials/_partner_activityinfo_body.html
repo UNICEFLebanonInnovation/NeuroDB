@@ -1,0 +1,30 @@
+{% load i18n ui %}
+{% if data.indicators %}
+<p class="small text-muted px-3 pt-2 mb-2">{% blocktrans with names=data.labels|join:", " %}Records reported under the ActivityInfo name(s) {{ names }}. Value = what this partner reported; total = the whole database; the months are the partner's monthly totals.{% endblocktrans %}</p>
+<div class="table-wrap"><table class="table table-sm monitoring-grid" id="partner-ai-indicators" data-sortable>
+  <thead><tr>
+    <th scope="col" class="monitoring-grid__indicator">{% trans "Master indicator" %}</th>
+    <th scope="col" class="num">{% trans "Partner" %}</th>
+    <th scope="col" class="num">{% trans "Database total" %}</th>
+    <th scope="col" class="num">{% trans "Share" %}</th>
+    {% for m in data.months %}<th scope="col" class="num monitoring-grid__month">{{ data.month_labels|get_item:m }}</th>{% endfor %}
+  </tr></thead>
+  <tbody>
+  {% for i in data.indicators %}
+    <tr>
+      <td><a class="cell-title" href="{{ i.url }}">{{ i.label }}</a><span class="cell-sub mono">{{ i.awp_code }}{% if i.unit %} · {{ i.unit }}{% endif %} · {{ i.aggregation_method }}</span></td>
+      <td class="num" data-value="{{ i.value|default:'' }}">{{ i.value|number:0 }}</td>
+      <td class="num" data-value="{{ i.total|default:'' }}">{{ i.total|number:0 }}</td>
+      <td class="num" data-value="{{ i.share|default:'' }}">{% if i.share is not None %}{{ i.share|percent:0 }}{% else %}—{% endif %}</td>
+      {% for m in data.months %}{% with v=i.months|get_item:m %}<td class="num monitoring-grid__month" data-value="{{ v|default:'' }}">{% if v is not None %}{{ v|number:0 }}{% else %}<span class="text-muted">·</span>{% endif %}</td>{% endwith %}{% endfor %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% if data.sites %}
+<h3 class="h6 px-3 mt-3">{% trans "Sites" %} <span class="text-muted small fw-normal">{{ data.sites|length }}</span></h3>
+<div class="chips px-3 pb-3">{% for s in data.sites %}<span class="chip">{{ s.name }}{% if s.district %} · {{ s.district }}{% endif %} · {{ s.interventions|number }}</span>{% endfor %}</div>
+{% endif %}
+{% else %}
+{% include "components/empty_state.html" with icon="list" title=_("Nothing reported") message=_("No activity record of this partner is linked to a master indicator of this database.") %}
+{% endif %}

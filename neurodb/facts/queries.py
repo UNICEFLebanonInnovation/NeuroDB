@@ -47,12 +47,16 @@ class FactFilter:
     funded_by_unicef_only: bool = False
     month_to: int | None = None  # 1..12, inclusive, on month_name 'YYYY-MM...'
     edited_before: date | None = None  # v2 HPM cut-off: exclude records edited after this date
+    partner_labels: tuple[str, ...] | None = None  # only the records of these ActivityInfo partners
 
     def sql(self) -> tuple[str, dict[str, Any]]:
         clauses = ["i.database_id = %(database_id)s"]
         params: dict[str, Any] = {"database_id": self.database_id}
         if self.funded_by_unicef_only:
             clauses.append("r.funded_by = 'UNICEF'")
+        if self.partner_labels is not None:
+            clauses.append("r.partner_label = ANY(%(partner_labels)s)")
+            params["partner_labels"] = list(self.partner_labels)
         if self.month_to:
             clauses.append(
                 "r.month_name IS NOT NULL AND length(r.month_name) >= 7 "
@@ -64,6 +68,14 @@ class FactFilter:
             clauses.append("(r.last_edited_time IS NULL OR r.last_edited_time < %(edited_before)s)")
             params["edited_before"] = self.edited_before
         return " AND ".join(clauses), params
+
+    def record_sql(self) -> tuple[str, dict[str, Any]]:
+        """The clauses that apply to the record table alone (``r.``), for the queries without a join."""
+        _, params = self.sql()
+        extra = " AND r.funded_by = 'UNICEF'" if self.funded_by_unicef_only else ""
+        if self.partner_labels is not None:
+            extra += " AND r.partner_label = ANY(%(partner_labels)s)"
+        return extra, params
 
 
 # Leaf and sub-indicator CTEs shared by the master-level queries.
@@ -266,8 +278,7 @@ def interventions_by_area(f: FactFilter, level: str, **filters: str) -> list[dic
     filters: partner, pd, month, governorate, district.
     """
     code_col, name_col = _AREA_COLUMNS[level]
-    _, params = f.sql()
-    extra = " AND r.funded_by = 'UNICEF'" if f.funded_by_unicef_only else ""
+    extra, params = f.record_sql()
     mapping = {
         "partner": "r.partner_label",
         "pd": "r.project_label",
@@ -294,8 +305,7 @@ GROUP BY r.location_name
 
 def sites(f: FactFilter) -> list[dict[str, Any]]:
     """Intervention sites with coordinates (strings in v2; converted to floats where possible)."""
-    _, params = f.sql()
-    extra = " AND r.funded_by = 'UNICEF'" if f.funded_by_unicef_only else ""
+    extra, params = f.record_sql()
     rows = _rows(_SITES_SQL.format(extra=extra), params)
     for row in rows:
         for key in ("latitude", "longitude"):
@@ -316,8 +326,7 @@ GROUP BY 1 ORDER BY 1
 
 def monthly_totals(f: FactFilter) -> list[dict[str, Any]]:
     """Total reported value per month of the database's year (new in v3: trend sparkline)."""
-    _, params = f.sql()
-    extra = " AND r.funded_by = 'UNICEF'" if f.funded_by_unicef_only else ""
+    extra, params = f.record_sql()
     rows = _rows(_MONTHLY_SQL.format(extra=extra), params)
     return [{"month": MONTH_LABELS.get(r["month_num"] or "", r["month_num"]), **r} for r in rows]
 
@@ -358,6 +367,78 @@ def database_summaries(database_ids: list[int]) -> dict[int, dict[str, Any]]:
         return {}
     rows = _rows(_SUMMARY_SQL, {"database_ids": list(database_ids)})
     return {r["database_id"]: r for r in rows}
+
+
+_MASTER_MONTHLY_SQL = """
+WITH {leaf_cte},
+master_month AS (
+    SELECT ms.master_id, sm.month_name, SUM(sm.value) AS value
+    FROM pivoting_mastersubindicator ms JOIN sub_month sm ON sm.sub_id = ms.sub_id
+    WHERE ms.effect = 'TOTAL'
+    GROUP BY ms.master_id, sm.month_name
+)
+SELECT master_id, substring(month_name from 6 for 2) AS month_num, SUM(value) AS value
+FROM master_month
+WHERE month_name IS NOT NULL AND length(month_name) >= 7
+GROUP BY 1, 2 ORDER BY 1, 2
+"""
+
+
+def master_monthly_values(f: FactFilter) -> dict[int, dict[str, float]]:
+    """``{master_id: {"01": value, ...}}``: the monthly sums behind every master indicator.
+
+    New in v3 for the partner pages, which show what one partner reported month by month. The
+    monthly figures are sums of the TOTAL sub-indicators whatever the master's aggregation method.
+    """
+    where, params = f.sql()
+    out: dict[int, dict[str, float]] = {}
+    for r in _rows(_MASTER_MONTHLY_SQL.format(leaf_cte=_LEAF_CTE.format(where=where)), params):
+        if r["value"] is not None:
+            out.setdefault(r["master_id"], {})[r["month_num"]] = float(r["value"])
+    return out
+
+
+_PARTNER_ACTIVITY_SQL = """
+SELECT r.dbase_id AS database_id, COUNT(*) AS records,
+       COUNT(DISTINCT r.indicator_id) AS indicators,
+       COUNT(DISTINCT r.location_name) FILTER (WHERE COALESCE(r.location_name, '') <> '') AS sites,
+       COUNT(DISTINCT substring(r.month_name from 1 for 7)) AS months,
+       MIN(substring(r.month_name from 1 for 7)) AS first_month,
+       MAX(substring(r.month_name from 1 for 7)) AS last_month,
+       COUNT(DISTINCT r.project_label) FILTER (WHERE COALESCE(r.project_label, '') <> '') AS pds,
+       SUM(r.indicator_value) AS value
+FROM pivoting_activityreportnew r
+WHERE r.partner_label = ANY(%(labels)s)
+GROUP BY r.dbase_id
+"""
+
+
+def partner_activity(labels: list[str]) -> list[dict[str, Any]]:
+    """What the ActivityInfo partners called ``labels`` reported, per database (partner page)."""
+    if not labels:
+        return []
+    return _rows(_PARTNER_ACTIVITY_SQL, {"labels": list(labels)})
+
+
+_ACTIVITYINFO_PARTNERS_SQL = """
+SELECT r.partner_label AS label, split_part(COALESCE(r.project_label, ''), '-', 1) AS pd_number,
+       COUNT(*) AS records,
+       MIN(substring(r.month_name from 1 for 7)) AS first_month,
+       MAX(substring(r.month_name from 1 for 7)) AS last_month,
+       array_agg(DISTINCT r.dbase_id) AS database_ids
+FROM pivoting_activityreportnew r
+WHERE COALESCE(r.partner_label, '') <> ''
+GROUP BY 1, 2
+"""
+
+
+def activityinfo_partner_rows() -> list[dict[str, Any]]:
+    """Every (partner label, programme document number) pair in the activity records, with counts.
+
+    Feeds the ActivityInfo → eTools partner linking; the PD number is the part before the amendment
+    suffix (``LEB/PCA2026001-1`` reports as ``LEB/PCA2026001``).
+    """
+    return _rows(_ACTIVITYINFO_PARTNERS_SQL, {})
 
 
 _ETOOLS_LOCATIONS_SQL = """

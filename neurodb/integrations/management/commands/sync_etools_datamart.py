@@ -8,7 +8,9 @@ from django.db import connection
 from neurodb.integrations.etools.datamart import DatamartNotConfigured
 from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS, sync_all
 from neurodb.integrations.management.commands._base import add_triggered_by, exit_on_failure, write_summary
+from neurodb.partnerships.linking import link_activityinfo_partners
 
+FAILED = "failed"
 LOCK_ID = 7140428  # one Datamart sync at a time, whoever started it (schedule, admin, shell)
 CORE = ("partners", "interventions", "intervention_budgets", "agreements")
 
@@ -39,6 +41,8 @@ class Command(BaseCommand):
             raise CommandError(str(exc)) from exc
         finally:
             self._unlock()
+        if any(run.target in ("partners", "interventions") and run.status != FAILED for run in runs):
+            runs.append(link_activityinfo_partners(triggered_by=options["triggered_by"]))
         exit_on_failure(write_summary(self, runs))
 
     def _lock(self) -> bool:

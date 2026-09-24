@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+<div class="kpi-grid">
+  {% trans "Indicators reported" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=data.indicators|length %}
+  {% trans "Months" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.months|length %}
+  {% trans "Sites" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.sites|length %}
+  {% trans "Reporting year" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=database.reporting_year.name|default:database.year|default:"—" %}
+</div>
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("ActivityInfo indicators") count=data.indicators|length table_id="partner-ai-indicators" filename="activityinfo-partner" %}
+  {% include "reports/partials/_partner_activityinfo_body.html" %}
+</section>
+<p class="mt-3 d-flex gap-2 flex-wrap">
+  <a class="btn btn-primary btn-sm" href="{% url 'reports:database_dashboard' database.id %}">{% include "components/icon.html" with name="grid" %}<span>{% trans "Open the database" %}</span></a>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'reports:partner_profile' partner.id %}">{% include "components/icon.html" with name="users" %}<span>{% trans "Back to the partner" %}</span></a>
+</p>
+{% endblock %}

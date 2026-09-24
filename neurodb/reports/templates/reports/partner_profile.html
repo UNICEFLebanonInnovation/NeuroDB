@@ -24,13 +24,36 @@
   <section class="panel">
     <div class="panel__header"><h2 class="panel__title">{% trans "Programmatic visits by year" %}</h2></div>
     <div class="chart chart--sm" data-module="charts" data-chart="bars" data-orientation="v" data-key="visits_by_year" data-empty-title="{% trans 'No visits recorded' %}"></div>
-    {% if datamart.monitoring.indicators %}
-    <h3 class="panel__title mt-3">{% trans "Implementation monitoring" %}</h3>
-    <div class="chips mt-2">{% for key, n in datamart.monitoring.status_counts.items %}{% if n %}<span class="chip">{% status_pill key key|code_label "sm" %} {{ n }}</span>{% endif %}{% endfor %}</div>
-    <p class="small mt-2 mb-0"><a href="{% url 'reports:pd_monitoring' %}?partner={{ partner.id }}">{% blocktrans count counter=datamart.monitoring.indicators %}{{ counter }} indicator of the active programme documents, by month and location{% plural %}{{ counter }} indicators of the active programme documents, by month and location{% endblocktrans %}</a></p>
-    {% endif %}
     <h3 class="panel__title mt-3">{% trans "Assurance activities" %}</h3>
     <div class="chips mt-2">{% for kind, n in datamart.engagement_counts.items|default:profile.engagement_counts.items %}<span class="chip">{{ kind|default:"—" }} · {{ n }}</span>{% empty %}<span class="text-muted small">{% trans "No audits, spot checks or micro-assessments." %}</span>{% endfor %}</div>
+  </section>
+</div>
+<h2 class="section-heading">{% trans "Partner reporting" %} <span class="small text-muted fw-normal">{% trans "eTools (current) and ActivityInfo (historical), brought together for this partner" %}</span></h2>
+<div class="grid grid--2 mb-3">
+  <section class="panel" aria-labelledby="etools-reporting-title" id="etools-reporting">
+    <div class="panel__header"><h3 class="panel__title" id="etools-reporting-title">{% trans "eTools · implementation monitoring" %}</h3><a class="panel__hint" href="{% url 'reports:pd_monitoring' %}?partner={{ partner.id }}">{% trans "By month and location" %} →</a></div>
+    {% if datamart.monitoring.indicators %}
+    <div class="chips mb-2">{% for key, n in datamart.monitoring.status_counts.items %}{% if n %}<span class="chip">{% status_pill key key|code_label "sm" %} {{ n }}</span>{% endif %}{% endfor %}</div>
+    <div class="table-wrap"><table class="table table-sm mb-2"><thead><tr><th>{% trans "PD indicator" %}</th><th class="num">{% trans "Cumulative / target" %}</th><th>{% trans "Status" %}</th></tr></thead>
+    <tbody>{% for i in datamart.monitoring.rows|slice:":8" %}<tr><td><a class="cell-title" href="{{ i.url }}" hx-get="{{ i.url }}" hx-target="#modal-content" hx-push-url="false">{{ i.title|truncatechars:80 }}</a><span class="cell-sub mono">{{ i.pd.number }}</span></td><td class="num">{{ i.cumulative|number:0 }} / {{ i.target|number:0 }}</td><td>{% status_pill i.tracking i.tracking_label "sm" %}</td></tr>{% endfor %}</tbody></table></div>
+    <p class="small mb-2"><a href="{% url 'reports:pd_monitoring' %}?partner={{ partner.id }}">{% blocktrans count counter=datamart.monitoring.indicators %}{{ counter }} indicator of the active programme documents{% plural %}All {{ counter }} indicators of the active programme documents{% endblocktrans %}</a>{% if datamart.reporting.reports %} · {% blocktrans with n=datamart.reporting.reports o=datamart.reporting.overdue %}{{ n }} progress reports, {{ o }} overdue{% endblocktrans %}{% endif %}</p>
+    {% else %}
+    <p class="small text-muted">{% trans "No programme document indicator reported in eTools yet. The partner's PDs appear below; their indicators arrive with the eTools sync." %}</p>
+    {% endif %}
+    <h4 class="small text-muted mb-1">{% trans "Progress reports per year" %}</h4>
+    <div class="chart" data-module="charts" data-chart="bars" data-orientation="v" data-key="etools_reports_by_year" data-height="150" data-empty-title="{% trans 'No progress reports' %}"></div>
+  </section>
+  <section class="panel" aria-labelledby="ai-reporting-title" id="activityinfo-reporting">
+    <div class="panel__header"><h3 class="panel__title" id="ai-reporting-title">{% trans "ActivityInfo · reporting history" %}</h3><span class="panel__hint">{% blocktrans count counter=activityinfo.records %}{{ counter }} record{% plural %}{{ counter }} records{% endblocktrans %}</span></div>
+    {% if activityinfo.databases %}
+    <div class="table-wrap"><table class="table table-sm mb-2" id="partner-activityinfo"><thead><tr><th>{% trans "Year" %}</th><th>{% trans "Database" %}</th><th class="num">{% trans "Records" %}</th><th class="num">{% trans "Indicators" %}</th><th class="num">{% trans "Sites" %}</th><th>{% trans "Months" %}</th><th></th></tr></thead>
+    <tbody>{% for d in activityinfo.databases %}<tr><td class="mono small">{{ d.year }}</td><td><a class="cell-title" href="{{ d.url }}" hx-get="{{ d.url }}" hx-target="#modal-content" hx-push-url="false">{{ d.database.label|default:d.database.name }}</a>{% if d.section %}<span class="cell-sub">{{ d.section }}</span>{% endif %}</td><td class="num">{{ d.records|number:0 }}</td><td class="num">{{ d.indicators }}</td><td class="num">{{ d.sites }}</td><td class="small">{{ d.months }}{% if d.first_month %}<span class="cell-sub text-nowrap">{{ d.first_month }} – {{ d.last_month }}</span>{% endif %}</td><td class="small"><a href="{{ d.map_url }}" title="{% trans 'Sites on the map' %}">{% trans "Map" %}</a></td></tr>{% endfor %}</tbody></table></div>
+    {% else %}
+    <p class="small text-muted">{% trans "No ActivityInfo record is linked to this partner." %}{% if not activityinfo.labels %} {% trans "Its ActivityInfo name may differ from the eTools name: an administrator can set the link." %}{% endif %}</p>
+    {% endif %}
+    <p class="small mb-2">{% trans "Reported in ActivityInfo as" %}: {% for l in activityinfo.labels %}<span class="chip">{{ l }}</span> {% empty %}<span class="text-muted">—</span>{% endfor %}{% if user.is_staff %} <a href="{% url 'admin:etools_partnerlink_changelist' %}?partner__id__exact={{ partner.id }}">{% trans "Edit the link" %}</a>{% endif %}</p>
+    <h4 class="small text-muted mb-1">{% trans "Activity records per year" %}</h4>
+    <div class="chart" data-module="charts" data-chart="bars" data-orientation="v" data-key="activityinfo_by_year" data-height="150" data-empty-title="{% trans 'No ActivityInfo records' %}"></div>
   </section>
 </div>
 <section class="panel p-0 mb-3">

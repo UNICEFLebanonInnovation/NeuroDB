@@ -113,6 +113,7 @@ Container Apps cron is **UTC**; Beirut is UTC+3 in summer and UTC+2 in winter.
 | `etools` | `manage sync_etools_datamart` | `30 17 * * *` | 20:30 daily |
 | `freshness` | `manage check_sync_freshness` | `15 * * * *` | hourly; a stale source fails the run |
 | `ai-structure` | `manage import_activityinfo_structure --all` | manual | after yearly rollover |
+| (in `ai-data` and `etools`) | `manage link_partners` | runs at the end of both jobs | ActivityInfo → eTools partner links |
 | `migrate` | `migrate` (then `bootstrap_roles`) | manual, run by the pipeline | |
 
 Run one now: `az containerapp job start -n <prefix>-<job> -g <resource group>`.
@@ -208,6 +209,33 @@ ActivityInfo pages use with the calendar year. Gender, age group, nationality an
 are read from the indicator titles (`neurodb/datamart/tags.py`). The programme and partner pages
 summarise it; the assistant answers with `pd_indicator_progress`. Per-location targets are not in
 any country-filterable Datamart endpoint, so locations are compared on reported values only.
+
+### Partner reporting: ActivityInfo and eTools, side by side
+
+Partners reported in ActivityInfo until 2026 and report in eTools/PRP from then on. Both stay:
+the ActivityInfo databases keep their dashboards, analytical views, maps and Neuro/HPM reports
+(sidebar *ActivityInfo reporting*), the eTools reporting has its own pages (sidebar *eTools partner
+reporting*: *PD indicators*, *Progress reports*), and the **partner page** brings the two together
+under *Partner reporting*: the eTools implementation monitoring on one side, the ActivityInfo
+history per year and database on the other (each database opens the partner's master indicators by
+month; *map* shows its sites).
+
+The bridge is the table *ActivityInfo partner links* (admin → Partnerships): one row per partner
+name found in the activity records (`partner_label`), pointing at the eTools partner. It is
+refreshed by `manage link_partners`, which the ActivityInfo import and the eTools sync run at the
+end (job `partner_links` in the sync runs), and by **Match ActivityInfo partners now** on that
+admin page. A name is linked, in this order, by
+
+1. a link **set by hand** in the admin (kept across every refresh; clearing the partner keeps the
+   row unlinked);
+2. the **same name** as an eTools partner's name, short name or alternate name — case, accents,
+   underscores, dashes and punctuation ignored, and only when a single partner carries the name;
+3. the **programme document** number the records carry (`project_label`, the part before the
+   amendment suffix): the partner of the PD under which most of the name's records fall.
+
+The run's `details` count each method and list up to 20 names left unlinked; fix those by hand
+(the partner list shows, per partner, whether it reports in eTools and how many ActivityInfo
+records are linked). `UNICEF` as a partner name is ignored.
 
 ### Every other endpoint: kept whole for the AI assistant
 All the other country-level endpoints are stored record by record in `datamart.DatamartDocument`

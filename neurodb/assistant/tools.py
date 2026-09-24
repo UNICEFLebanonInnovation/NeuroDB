@@ -25,6 +25,7 @@ from neurodb.datamart import services as datamart
 from neurodb.datamart.models import FundsReservation
 from neurodb.facts.models import ActivityReportNew
 from neurodb.facts.services import dashboard as facts
+from neurodb.facts.services import partners as partner_facts
 from neurodb.indicators.models import Database, MasterIndicator, NeuroReport, ReportingYear
 from neurodb.library.services import completed_maps, search_resources
 from neurodb.partnerships import services as partnerships
@@ -527,6 +528,7 @@ def partner_details(partner_id: int) -> dict[str, Any]:
         raise ToolInputError(f"No partner with id {partner_id}. Use search_partners first.")
     profile = partnerships.partner_profile(partner)
     extra = datamart.partner_datamart(partner)
+    activityinfo = partner_facts.partner_activityinfo(partner)
     return {
         "name": partner.name,
         "short_name": partner.short_name,
@@ -566,6 +568,23 @@ def partner_details(partner_id: int) -> dict[str, Any]:
             for h in extra["hact_years"]
         ],
         "partner_reporting": extra["reporting"],
+        "pd_indicator_monitoring": extra["monitoring"]["status_counts"],
+        "activityinfo_names": activityinfo["labels"],
+        "activityinfo_records": activityinfo["records"],
+        "activityinfo_reporting": [
+            {
+                "year": d["year"],
+                "database": d["database"].label or d["database"].name,
+                "section": d["section"],
+                "records": d["records"],
+                "indicators": d["indicators"],
+                "sites": d["sites"],
+                "months": d["months"],
+                "first_month": d["first_month"],
+                "last_month": d["last_month"],
+            }
+            for d in activityinfo["databases"]
+        ],
         "linked_etools_records": dmq.linked_counts(partner=partner),
         "financial_findings": [
             {"engagement": f.reference_number, "title": f.title, "amount": f.amount}
@@ -772,6 +791,64 @@ def partner_reporting(
         "by_status": dict(data["by_status"]),
         **_cut(rows, "progress_reports"),
         "url": reverse("reports:partner_reporting"),
+    }
+
+
+def _partner_by_text(text: str) -> PartnerOrganization:
+    match = (
+        PartnerOrganization.objects.filter(deleted_flag=False)
+        .filter(Q(name__icontains=text) | Q(short_name__icontains=text) | Q(vendor_number__iexact=text))
+        .order_by("name")
+        .first()
+    )
+    if match is None:
+        raise ToolInputError(f"No partner matches '{text}'.")
+    return match
+
+
+def partner_activityinfo(
+    partner: str, year: int | None = None, database: str | None = None
+) -> dict[str, Any]:
+    """What one partner reported in ActivityInfo (the reporting before eTools/PRP, kept as history):
+    per database, its master indicators with the partner's value, the database total and the value
+    per month."""
+    org = _partner_by_text(partner)
+    overview = partner_facts.partner_activityinfo(org)
+    databases = []
+    for d in overview["databases"]:
+        if year and d["year"] != str(year):
+            continue
+        name = d["database"].label or d["database"].name
+        if database and database.lower() not in name.lower():
+            continue
+        detail = partner_facts.partner_database_indicators(org, d["database"])
+        databases.append(
+            {
+                "year": d["year"],
+                "database": name,
+                "section": d["section"],
+                "records": d["records"],
+                "sites": [s["name"] for s in detail["sites"][:MAX_ROWS]],
+                "indicators": [
+                    {
+                        "indicator": i["label"],
+                        "code": i["awp_code"],
+                        "value": i["value"],
+                        "database_total": i["total"],
+                        "share_percent": i["share"],
+                        "by_month": i["months"],
+                    }
+                    for i in detail["indicators"][:MAX_ROWS]
+                ],
+                "url": d["url"],
+            }
+        )
+    return {
+        "partner": org.name,
+        "activityinfo_names": overview["labels"],
+        "years": overview["years"],
+        "databases": databases,
+        "url": reverse("reports:partner_profile", args=[org.id]) + "#activityinfo-reporting",
     }
 
 
@@ -1100,6 +1177,19 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
             }
         ),
         "Reading partner monitoring",
+    ),
+    "partner_activityinfo": (
+        partner_activityinfo,
+        "What one partner reported in ActivityInfo (the partner reporting before eTools, kept as history "
+        "and linked to the same eTools partner): per year and database, the master indicators with the "
+        "partner's value, the database total, the partner's share and the value per month, plus the "
+        "sites. Use it for 'what did partner X report in 2025', 'how many children did X reach in "
+        "Child Protection', or to compare a partner's ActivityInfo history with its eTools PD indicators.",
+        _schema(
+            {"partner": {"type": "string"}, "year": {"type": "integer"}, "database": {"type": "string"}},
+            ["partner"],
+        ),
+        "Reading the partner's ActivityInfo history",
     ),
     "etools_datasets": (
         etools_datasets,

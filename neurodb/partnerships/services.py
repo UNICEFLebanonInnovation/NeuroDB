@@ -7,11 +7,12 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Any
 
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Count, Exists, IntegerField, OuterRef, Q, QuerySet, Subquery, Sum
 
+from neurodb.datamart.models import ReportedIndicator
 from neurodb.facts.models import ActivityReportNew
 
-from .models import PCA, Engagement, PartnerOrganization, TravelActivity
+from .models import PCA, Engagement, PartnerLink, PartnerOrganization, TravelActivity
 
 ACTIVE_STATUSES = ("active",)
 CLOSED_STATUSES = ("active", "closed", "ended", "terminated", "suspended")
@@ -273,11 +274,19 @@ def partners(params) -> QuerySet[PartnerOrganization]:
         qs = qs.filter(cso_type__in=csos)
     if q:
         qs = qs.filter(Q(name__icontains=q) | Q(short_name__icontains=q) | Q(vendor_number__icontains=q))
+    activityinfo = (
+        PartnerLink.objects.filter(partner=OuterRef("pk"))
+        .values("partner")
+        .annotate(total=Sum("records"))
+        .values("total")
+    )
     return qs.annotate(
         pd_count=Count("interventions", distinct=True, filter=Q(interventions__status__in=CLOSED_STATUSES)),
         active_pd_count=Count(
             "interventions", distinct=True, filter=Q(interventions__status__in=ACTIVE_STATUSES)
         ),
+        activityinfo_records=Subquery(activityinfo, output_field=IntegerField()),
+        etools_reporting=Exists(ReportedIndicator.objects.filter(partner=OuterRef("pk"))),
     ).order_by("name")
 
 
