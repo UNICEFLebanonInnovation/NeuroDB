@@ -506,7 +506,11 @@ def _link_indicator(row, item, links):
         pk = links.intervention(item.get("result_link_intervention"))
     row.intervention_id = pk
     _tag(row, item.get("title"))
-    row.location_id = links.location(item.get("location_source_id"), item.get("location_pcode"))
+    # the Datamart names the eTools location id three ways on this endpoint
+    row.location_id = links.location(
+        item.get("location_source_id") or item.get("source_location_id") or item.get("location"),
+        item.get("location_pcode"),
+    )
 
 
 def _link_partner(source_key: str | None, vendor_key: str):
