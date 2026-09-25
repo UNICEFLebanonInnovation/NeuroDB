@@ -23,6 +23,7 @@ from typing import Any
 from django.db.models import Q, QuerySet
 from django.urls import reverse
 
+from neurodb.geo.models import Location
 from neurodb.indicators.services.tracking import LABELS, NO_TARGET, tracking_between
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
@@ -40,6 +41,11 @@ PAGE_SIZE = 100
 
 def norm(title: str | None) -> str:
     return " ".join((title or "").lower().split())
+
+
+def location_key(p_code: str | None, name: str | None) -> str:
+    """The P-code when eTools gives one (the authoritative identity), else the normalised name."""
+    return (p_code or "").strip().upper() or f"name:{norm(name)}"
 
 
 def number(value: Any) -> float | None:
@@ -163,6 +169,8 @@ class Indicator:
     cluster: str
     tags: dict[str, str]
     locations: list[str] = field(default_factory=list)
+    planned: dict[str, dict[str, Any]] = field(default_factory=dict)  # location key -> {name, p_code, id}
+    by_location: dict[str, dict[str, Any]] = field(default_factory=dict)  # location key -> reported
     months: dict[int, float] = field(default_factory=dict)  # period-end month -> reported value
     reports: int = 0
     cumulative: float | None = None
@@ -242,6 +250,8 @@ def indicators(filters: Filters, today: datetime.date | None = None) -> list[Ind
         "is_high_frequency",
         "cluster_name",
         "location_name",
+        "location_pcode",
+        "location_id",
         *(f"tag_{t}" for t in TAG_FIELDS),
     )
     found: dict[tuple[int, str], Indicator] = {}
@@ -265,6 +275,15 @@ def indicators(filters: Filters, today: datetime.date | None = None) -> list[Ind
             )
         if row["location_name"] and row["location_name"] not in entry.locations:
             entry.locations.append(row["location_name"])
+        if row["location_name"] or row["location_pcode"]:
+            entry.planned.setdefault(
+                location_key(row["location_pcode"], row["location_name"]),
+                {
+                    "name": row["location_name"],
+                    "p_code": row["location_pcode"] or "",
+                    "id": row["location_id"],
+                },
+            )
     if filters.locations:
         wanted = {norm(x) for x in filters.locations}
         found = {k: e for k, e in found.items() if any(norm(loc) in wanted for loc in e.locations)}
@@ -300,6 +319,10 @@ def _attach_reports(found: dict[tuple[int, str], Indicator], filters: Filters, t
         "calculation_across_locations",
         "report_status",
         "pd_output_progress_status",
+        "location",
+        "p_code",
+        "location_ref_id",
+        "total_cumulative_progress_in_location",
     )
     # per indicator, per report: the location values and the report-level fields
     per_report: dict[tuple[int, str], dict[str, dict[str, Any]]] = defaultdict(dict)
@@ -318,8 +341,32 @@ def _attach_reports(found: dict[tuple[int, str], Indicator], filters: Filters, t
                 "method": "",
             },
         )
-        report["values"].append(number(row["achievement_in_period"]))
+        value = number(row["achievement_in_period"])
+        report["values"].append(value)
         report["method"] = report["method"] or row["calculation_across_locations"]
+        if row["location"] or row["p_code"]:
+            place = found[ident].by_location.setdefault(
+                location_key(row["p_code"], row["location"]),
+                {
+                    "name": row["location"] or "",
+                    "p_code": row["p_code"] or "",
+                    "id": row["location_ref_id"],
+                    "achieved": None,
+                    "cumulative": None,
+                    "period": None,
+                    "report": "",
+                },
+            )
+            if place["id"] is None:
+                place["id"] = row["location_ref_id"]
+            end = row["period_end"]
+            if value is not None and end and end.year == filters.year:
+                place["achieved"] = (place["achieved"] or 0) + value
+            if end and (place["period"] is None or end >= place["period"]):
+                place["period"], place["report"] = end, row["progress_report"] or ""
+                cumulative_here = number(row["total_cumulative_progress_in_location"])
+                if cumulative_here is not None:
+                    place["cumulative"] = cumulative_here
         cumulative = number(row["total_cumulative_progress"])
         if cumulative is not None:
             report["cumulative"] = cumulative
@@ -348,6 +395,192 @@ def _attach_reports(found: dict[tuple[int, str], Indicator], filters: Filters, t
     for entry in found.values():
         result = tracking_between(entry.cumulative, entry.target, entry.pd.start, entry.pd.end, today)
         entry.tracking, entry.achieved = result.status, result.achieved
+
+
+# ------------------------------------------------------------------------------------------ map
+LEVEL_GOVERNORATE, LEVEL_DISTRICT = 1, 2  # eTools admin levels in Lebanon (0 = country)
+
+
+def _gazetteer(ids: set[int]) -> dict[int, dict[str, Any]]:
+    """The locations ``ids`` and every ancestor, as plain dicts (one query per level of the tree)."""
+    found: dict[int, dict[str, Any]] = {}
+    pending = {i for i in ids if i}
+    while pending:
+        rows = Location.objects.filter(pk__in=pending).values(
+            "id", "name", "p_code", "latitude", "longitude", "parent_id", "type__admin_level", "type__name"
+        )
+        pending = set()
+        for r in rows:
+            found[r["id"]] = r
+            if r["parent_id"] and r["parent_id"] not in found:
+                pending.add(r["parent_id"])
+    return found
+
+
+def _place(location_id: int | None, gazetteer: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    """Coordinates and hierarchy of a location: its own point, else the nearest ancestor's."""
+    out: dict[str, Any] = {
+        "admin_level": None,
+        "level_name": "",
+        "governorate": "",
+        "district": "",
+        "latitude": None,
+        "longitude": None,
+        "approximate": False,
+        "located_by": "",
+    }
+    row = gazetteer.get(location_id) if location_id else None
+    if row is None:
+        return out
+    out["name"] = row["name"]  # the gazetteer's spelling, not the indicator's
+    out["admin_level"], out["level_name"] = row["type__admin_level"], row["type__name"] or ""
+    node, hops = row, 0
+    while node is not None and hops < 8:
+        if node["type__admin_level"] == LEVEL_GOVERNORATE:
+            out["governorate"] = node["name"]
+        if node["type__admin_level"] == LEVEL_DISTRICT:
+            out["district"] = node["name"]
+        if out["latitude"] is None and node["latitude"] is not None and node["longitude"] is not None:
+            out["latitude"], out["longitude"] = node["latitude"], node["longitude"]
+            out["approximate"], out["located_by"] = node is not row, node["name"]
+        node, hops = gazetteer.get(node["parent_id"]) if node["parent_id"] else None, hops + 1
+    return out
+
+
+def _funding(pd: PCA) -> dict[str, Any]:
+    return {
+        "id": pd.id,
+        "number": pd.number,
+        "title": pd.title,
+        "status": pd.status,
+        "start": pd.start,
+        "end": pd.end,
+        "partner": pd.partner.name if pd.partner else pd.partner_name,
+        "partner_id": pd.partner_id,
+        "url": reverse("reports:programme_detail", args=[pd.id]),
+        "total_budget": number(pd.total_budget),
+        "unicef_cash": number(pd.unicef_cash),
+        "partner_contribution": number(pd.cso_contribution),
+        "currency": pd.budget_currency or "",
+        "donors": list(pd.donors or [])[:8],
+        "agreement": pd.agreement.agreement_number if pd.agreement_id and pd.agreement else "",
+    }
+
+
+def _monitoring_at(pd_ids: set[int], location_ids: set[int]) -> dict[int, dict[str, int]]:
+    """TPM activities, field monitoring findings and open action points per location, for these PDs."""
+    counts: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    if not location_ids:
+        return counts
+    tpm = dm.TPMActivity.location_links.through.objects.filter(
+        location_id__in=location_ids, tpmactivity__intervention_id__in=pd_ids
+    ).values_list("location_id", flat=True)
+    for loc in tpm:
+        counts[loc]["tpm_activities"] += 1
+    findings = dm.MonitoringFinding.objects.filter(location_id__in=location_ids).filter(
+        Q(partner__interventions__in=pd_ids) | Q(partner=None)
+    )
+    for loc, rating in findings.values_list("location_id", "overall_finding_rating").distinct():
+        counts[loc]["findings"] += 1
+        if "off" in (rating or "").lower():
+            counts[loc]["findings_off_track"] += 1
+    points = dm.ActionPoint.objects.filter(location_id__in=location_ids, intervention_id__in=pd_ids)
+    for loc, status in points.values_list("location_id", "status"):
+        counts[loc]["action_points"] += 1
+        if status in dm.ActionPoint.OPEN_STATUSES:
+            counts[loc]["action_points_open"] += 1
+    return counts
+
+
+def map_points(filters: Filters, today: datetime.date | None = None) -> dict[str, Any]:
+    """Every implementation location of the filtered indicators, with what is planned and reported
+    there: partner, PD (and its funding), indicator, target, achieved, status, period, and the
+    monitoring done at the place. A location is placed by its own eTools coordinates, else by the
+    nearest ancestor with coordinates (flagged approximate); names alone never place anything."""
+    rows = indicators(filters, today)
+    places: dict[str, dict[str, Any]] = {}
+    pds: dict[int, dict[str, Any]] = {}
+    for ind in rows:
+        pds.setdefault(ind.pd.id, _funding(ind.pd))
+        keys = set(ind.planned) | set(ind.by_location)
+        for key in keys:
+            planned, reported = ind.planned.get(key), ind.by_location.get(key)
+            meta = planned or reported or {}
+            place = places.setdefault(
+                key,
+                {
+                    "key": key,
+                    "name": meta.get("name") or "",
+                    "p_code": meta.get("p_code") or "",
+                    "id": meta.get("id"),
+                    "rows": [],
+                },
+            )
+            if not place["id"]:
+                place["id"] = (planned or {}).get("id") or (reported or {}).get("id")
+            if not place["name"]:
+                place["name"] = meta.get("name") or ""
+            place["rows"].append(
+                {
+                    "pd_id": ind.pd.id,
+                    "pd": ind.pd.number,
+                    "partner": ind.partner.name if ind.partner else ind.pd.partner_name,
+                    "partner_id": ind.pd.partner_id,
+                    "indicator": ind.title,
+                    "key": ind.key,
+                    "url": ind.url,
+                    "section": ind.section,
+                    "output": ind.output,
+                    "target": ind.target,
+                    "achieved_here": reported["achieved"] if reported else None,
+                    "cumulative_here": reported["cumulative"] if reported else None,
+                    "cumulative": ind.cumulative,
+                    "achieved_percent": round(ind.achieved, 1) if ind.achieved is not None else None,
+                    "tracking": ind.tracking,
+                    "tracking_label": ind.tracking_label,
+                    "period": reported["period"] if reported else None,
+                    "report": reported["report"] if reported else "",
+                    "planned": planned is not None,
+                    "reported": reported is not None,
+                    "high_frequency": ind.high_frequency,
+                }
+            )
+    gazetteer = _gazetteer({p["id"] for p in places.values() if p["id"]})
+    monitoring = _monitoring_at({pd for pd in pds}, {p["id"] for p in places.values() if p["id"]})
+    points, unlocated = [], []
+    order = {"off_track": 0, "on_track": 1, "over_target": 2, "no_target": 3}
+    for place in places.values():
+        counts = Counter(r["tracking"] for r in place["rows"])
+        place.update(_place(place["id"], gazetteer))
+        place.update(
+            {
+                "partners": len({r["partner_id"] or r["partner"] for r in place["rows"]}),
+                "pds": len({r["pd_id"] for r in place["rows"]}),
+                "indicators": len(place["rows"]),
+                "reported": sum(1 for r in place["rows"] if r["reported"]),
+                "status_counts": {k: counts.get(k, 0) for k in LABELS},
+                "worst": min((r["tracking"] for r in place["rows"]), key=lambda t: order.get(t, 9)),
+                "monitoring": dict(monitoring.get(place["id"], {})) if place["id"] else {},
+            }
+        )
+        place["rows"].sort(key=lambda r: (r["partner"] or "", r["pd"] or "", r["indicator"]))
+        (points if place["latitude"] is not None else unlocated).append(place)
+    points.sort(key=lambda p: -p["indicators"])
+    unlocated.sort(key=lambda p: -p["indicators"])
+    return {
+        "points": points,
+        "unlocated": unlocated,
+        "pds": pds,
+        "totals": {
+            "locations": len(places),
+            "located": len(points),
+            "approximate": sum(1 for p in points if p["approximate"]),
+            "indicators": len(rows),
+            "partners": len({r.pd.partner_id for r in rows}),
+            "programme_documents": len(pds),
+            "status_counts": dict(Counter(r.tracking for r in rows)),
+        },
+    }
 
 
 # ------------------------------------------------------------------------------------- summaries
@@ -475,8 +708,17 @@ def indicator_detail(
         )
         value = number(row.achievement_in_period)
         loc = by_location.setdefault(
-            row.location or "—", {"location": row.location or "—", "cells": {}, "cumulative": None}
+            row.location or "—",
+            {
+                "location": row.location or "—",
+                "p_code": row.p_code or "",
+                "location_id": row.location_ref_id,
+                "cells": {},
+                "cumulative": None,
+            },
         )
+        if row.p_code and not loc["p_code"]:
+            loc["p_code"], loc["location_id"] = row.p_code, row.location_ref_id
         if value is not None:
             loc["cells"][row.progress_report] = value
             period["total"] += value

@@ -15,6 +15,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from neurodb.core.models import SavedView
+from neurodb.datamart import monitoring as pd_monitoring
 from neurodb.facts.services import dashboard as facts
 from neurodb.indicators.models import Database, MasterIndicator, NeuroReport
 from neurodb.partnerships import services as partnerships
@@ -92,6 +93,17 @@ class MapAPI(APIView):
         return Response(
             facts.map_data(_database(pk), level=level, **services.map_filters(request.query_params))
         )
+
+
+class PDMapAPI(APIView):
+    """Partner reporting map: every implementation location of the filtered PD indicators, with
+    what is planned and reported there (see ``datamart.monitoring.map_points``)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request) -> Response:
+        filters = pd_monitoring.Filters.from_params(request.query_params)
+        return Response(pd_monitoring.map_points(filters))
 
 
 class IndicatorDetailAPI(APIView):

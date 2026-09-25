@@ -269,11 +269,16 @@ DOCUMENTS: dict[str, Source] = {
     # ---- reference data
     "locations": Source(
         "locations",
-        "Administrative locations: name, P-code, admin level, parent, coordinates.",
+        "Administrative locations: name, P-code, admin level, parent, coordinates "
+        "(written to the locations table, the gazetteer every eTools record links to).",
+        scope="written_by",
         title=("name", "p_code"),
     ),
     "location_sites": Source(
-        "location-sites", "Monitoring sites: name, P-code, parent location.", title=("name",)
+        "location-sites",
+        "Monitoring sites: name, P-code, coordinates, parent location (written to datamart.MonitoringSite).",
+        scope="written_by",
+        title=("name",),
     ),
     "offices": Source("office", "UNICEF field offices.", title=("name",)),
     "sections": Source("reports/sections", "UNICEF programme sections.", title=("name",)),

@@ -42,7 +42,15 @@ def linked(db):
 def test_every_catalogue_dataset_has_a_sync_or_a_table():
     for name, spec in catalogue.DOCUMENTS.items():
         assert spec.scope == "written_by" or name in sync.ENTITY_SYNCS
-    written = {"partners", "interventions", "intervention_budgets", "agreements", *sync.ENRICHMENTS}
+    written = {
+        "locations",
+        "location_sites",
+        "partners",
+        "interventions",
+        "intervention_budgets",
+        "agreements",
+        *sync.ENRICHMENTS,
+    }
     assert {n for n, s in catalogue.DOCUMENTS.items() if s.scope == "written_by"} == written
     assert set(catalogue.TYPED) <= set(sync.ENTITY_SYNCS)
 

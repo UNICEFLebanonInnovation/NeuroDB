@@ -27,6 +27,7 @@ urlpatterns = [
         name="partner_activityinfo",
     ),
     path("partner-monitoring/", views.pd_monitoring, name="pd_monitoring"),
+    path("partner-monitoring/map/", views.pd_monitoring_map, name="pd_monitoring_map"),
     path("partner-monitoring/<int:pk>/<str:key>/", views.pd_indicator, name="pd_indicator"),
     path("assurance/", views.assurance, name="assurance"),
     path("assurance/<int:pk>/", views.engagement_detail, name="engagement_detail"),

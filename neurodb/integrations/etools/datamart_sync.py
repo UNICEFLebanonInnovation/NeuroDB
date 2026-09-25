@@ -36,9 +36,10 @@ from django.utils import timezone
 from neurodb.core.models import SyncRun
 from neurodb.datamart import catalogue, tags
 from neurodb.datamart import models as dm
-from neurodb.geo.models import Location
+from neurodb.geo.models import Location, LocationType
 from neurodb.integrations.etools.datamart import DatamartClient
 from neurodb.integrations.etools.fields import assign, coerce, parse_iso_date
+from neurodb.integrations.etools.locations import parse_point
 from neurodb.integrations.http import IntegrationError
 from neurodb.integrations.runs import fail, finish_by_counts, new_run, process_items
 from neurodb.partnerships.models import PCA, Agreement, PartnerOrganization
@@ -114,13 +115,21 @@ class Links:
         self._pcas_by_etl: dict[str, int] | None = None
         self._pcas_by_number: dict[str, int] | None = None
         self._engagements: dict[str, int] | None = None
+        self._engagements_by_source: dict[str, int] | None = None
+        self._locations_by_pcode: dict[str, int] | None = None
+        self._location_ids: set[int] | None = None
+        self._sites: dict[tuple[int | None, str], int] | None = None
+        self._tpm_activities: dict[str, int] | None = None
+        self._tpm_visits: dict[str, int] | None = None
         self.scope: Any = None  # the CountryScope of the run, once a catalogue dataset needs it
         self.missing: dict[str, int] = defaultdict(int)
 
     def refresh(self) -> None:
         self._partners_by_etl = self._partners_by_vendor = None
         self._pcas_by_etl = self._pcas_by_number = None
-        self._engagements = None
+        self._engagements = self._engagements_by_source = None
+        self._locations_by_pcode = self._location_ids = self._sites = None
+        self._tpm_activities = self._tpm_visits = None
 
     def _load_partners(self) -> None:
         self._partners_by_etl, self._partners_by_vendor = {}, {}
@@ -158,6 +167,71 @@ class Links:
             pk = self._pcas_by_number.get(str(number).strip())
         if pk is None and (source_id or number):
             self.missing["programme_document"] += 1
+        return pk
+
+    def _load_locations(self) -> None:
+        self._locations_by_pcode, self._location_ids = {}, set()
+        for pk, p_code in Location.objects.values_list("pk", "p_code"):
+            self._location_ids.add(pk)
+            if p_code:
+                self._locations_by_pcode.setdefault(p_code.strip().upper(), pk)
+
+    def location(self, source_id: Any = None, p_code: Any = None) -> int | None:
+        """A location by its eTools id (the local id) or, failing that, its P-code; never by name."""
+        if self._location_ids is None:
+            self._load_locations()
+        pk = None
+        if source_id not in (None, "") and str(source_id).isdigit() and int(source_id) in self._location_ids:
+            pk = int(source_id)
+        if pk is None and p_code:
+            pk = self._locations_by_pcode.get(str(p_code).strip().upper())
+        if pk is None and (source_id or p_code):
+            self.missing["location"] += 1
+        return pk
+
+    def site(self, location_id: int | None, name: Any) -> int | None:
+        """A monitoring site by its name inside a location (eTools gives findings the site name only)."""
+        if self._sites is None:
+            self._sites = {}
+            for pk, parent_id, site_name in dm.MonitoringSite.objects.values_list("pk", "parent_id", "name"):
+                self._sites.setdefault((parent_id, site_name.strip().lower()), pk)
+                self._sites.setdefault((None, site_name.strip().lower()), pk)
+        key = str(name or "").strip().lower()
+        if not key:
+            return None
+        pk = self._sites.get((location_id, key)) or self._sites.get((None, key))
+        if pk is None:
+            self.missing["site"] += 1
+        return pk
+
+    def tpm_activity(self, source_id: Any) -> int | None:
+        if self._tpm_activities is None:
+            rows = dm.TPMActivity.objects.exclude(source_id=None).values_list("pk", "source_id")
+            self._tpm_activities = {str(sid): pk for pk, sid in rows}
+        if source_id in (None, ""):
+            return None
+        pk = self._tpm_activities.get(str(source_id))
+        if pk is None:
+            self.missing["tpm_activity"] += 1
+        return pk
+
+    def tpm_visit(self, reference_number: Any) -> int | None:
+        """A TPM visit by its reference number (the activities carry no visit id)."""
+        if self._tpm_visits is None:
+            rows = dm.TPMVisit.objects.exclude(reference_number="").values_list("pk", "reference_number")
+            self._tpm_visits = {ref.strip(): pk for pk, ref in rows}
+        key = str(reference_number or "").strip()
+        return self._tpm_visits.get(key) if key else None
+
+    def engagement_by_source(self, source_id: Any) -> int | None:
+        if self._engagements_by_source is None:
+            rows = dm.AuditEngagement.objects.exclude(source_id=None).values_list("pk", "source_id")
+            self._engagements_by_source = {str(sid): pk for pk, sid in rows}
+        if source_id in (None, ""):
+            return None
+        pk = self._engagements_by_source.get(str(source_id))
+        if pk is None:
+            self.missing["engagement"] += 1
         return pk
 
     def engagement(self, reference_number: Any) -> int | None:
@@ -432,6 +506,7 @@ def _link_indicator(row, item, links):
         pk = links.intervention(item.get("result_link_intervention"))
     row.intervention_id = pk
     _tag(row, item.get("title"))
+    row.location_id = links.location(item.get("location_source_id"), item.get("location_pcode"))
 
 
 def _link_partner(source_key: str | None, vendor_key: str):
@@ -470,15 +545,36 @@ def _link_action_point(row, item, links):
     row.intervention_id = links.intervention(
         item.get("intervention_source_id"), item.get("intervention_number")
     )
+    row.location_id = links.location(
+        item.get("location_source_id") or item.get("location"), item.get("location_pcode")
+    )
+    row.tpm_activity_id = links.tpm_activity(item.get("tpm_activity_source_id"))
+    row.engagement_id = links.engagement_by_source(item.get("engagement_source_id"))
+    if row.engagement_id is None and str(item.get("related_module") or "").lower() == "audit":
+        row.engagement_id = links.engagement(item.get("module_reference_number"))
+
+
+def _location_parts(value: Any) -> tuple[Any, str, str]:
+    """(eTools id, P-code, name) of a Datamart location value: a dict, an id or a name."""
+    if isinstance(value, dict):
+        return (
+            value.get("source_id") or value.get("id"),
+            str(value.get("p_code") or value.get("pcode") or ""),
+            str(value.get("name") or ""),
+        )
+    if isinstance(value, int) or (isinstance(value, str) and value.isdigit()):
+        return value, "", ""
+    return None, "", str(value or "")
 
 
 def _link_monitoring(row, item, links):
     row.partner_id = links.partner(None, item.get("vendor_number"))
-    location = item.get("location")
-    row.location_name = coerce(
-        row._meta.get_field("location_name"),
-        (location.get("name") if isinstance(location, dict) else location) or "",
-    )
+    source_id, p_code, name = _location_parts(item.get("location"))
+    row.location_name = coerce(row._meta.get_field("location_name"), name)
+    row.location_pcode = coerce(row._meta.get_field("location_pcode"), p_code)
+    row.location_source_id = int(source_id) if str(source_id or "").isdigit() else None
+    row.location_id = links.location(source_id, p_code)
+    row.monitoring_site_id = links.site(row.location_id, item.get("site"))
 
 
 def _link_finding(row, item, links):
@@ -509,6 +605,7 @@ def _link_report(row, item, links):
     )
     row.high_frequency = str(item.get("high_frequency") or "").strip().lower() in ("true", "yes", "1", "t")
     row.disaggregation = item.get("disaggregation") if isinstance(item.get("disaggregation"), dict) else {}
+    row.location_ref_id = links.location(None, item.get("p_code"))
     _tag(row, item.get("performance_indicator"))
 
 
@@ -516,6 +613,19 @@ def _link_tpm_activity(row, item, links):
     row.partner_id = links.partner(None, item.get("partner_vendor_number"))
     row.intervention_id = links.intervention(None, item.get("pd_ssfa_reference_number"))
     row.locations = coerce(row._meta.get_field("locations"), ", ".join(names(item.get("locations_data"))))
+    row.location_pcodes = names(item.get("locations_data"), "p_code", "pcode")
+    row.visit_id = links.tpm_visit(item.get("visit_reference_number"))
+
+
+def _tpm_activity_locations(row, item, links):
+    ids = []
+    places = item.get("locations_data")
+    for place in places if isinstance(places, list) else []:
+        source_id, p_code, _ = _location_parts(place)
+        pk = links.location(source_id, p_code)
+        if pk:
+            ids.append(pk)
+    row.location_links.set(ids)
 
 
 def _link_staff_visit(row, item, links):
@@ -523,6 +633,7 @@ def _link_staff_visit(row, item, links):
     row.intervention_id = links.intervention(
         item.get("source_partnership_id"), item.get("partnership_number")
     )
+    row.location_id = links.location(item.get("location"), item.get("location_pcode"))
 
 
 def _link_planned_visits(row, item, links):
@@ -688,30 +799,6 @@ DATASETS: dict[str, tuple[str, Dataset]] = {
             after=_engagement_pds,
         ),
     ),
-    "action_points": (
-        "actionpoints",
-        Dataset(
-            dm.ActionPoint,
-            {
-                "reference_number": "reference_number",
-                "description": "description",
-                "status": "status",
-                "high_priority": "high_priority",
-                "due_date": "due_date",
-                "date_of_completion": "date_of_completion",
-                "assigned_to_name": "assigned_to_name",
-                "office": "office",
-                "section": "section_type",
-                "category": "category_description",
-                "related_module": "related_module",
-                "module_reference_number": "module_reference_number",
-                "partner_name": "partner_name",
-                "intervention_number": "intervention_number",
-                "location_name": "location_name",
-            },
-            link=_link_action_point,
-        ),
-    ),
     "tpm_visits": (
         "tpm-visits",
         Dataset(
@@ -739,6 +826,7 @@ DATASETS: dict[str, tuple[str, Dataset]] = {
                 "entity": "entity",
                 "entity_type": "entity_type",
                 "monitoring_activity": "monitoring_activity",
+                "monitoring_activity_id": "monitoring_activity_id",
                 "reference_number": "reference_number",
                 "status": "status",
                 "overall_finding_rating": "overall_finding_rating",
@@ -881,6 +969,7 @@ DATASETS: dict[str, tuple[str, Dataset]] = {
                 "is_programmatic_visit": "is_pv",
             },
             link=_link_tpm_activity,
+            after=_tpm_activity_locations,
         ),
     ),
     "staff_visits": (
@@ -901,6 +990,38 @@ DATASETS: dict[str, tuple[str, Dataset]] = {
                 )
             },
             link=_link_staff_visit,
+        ),
+    ),
+    "action_points": (
+        "actionpoints",
+        Dataset(
+            dm.ActionPoint,
+            {
+                "reference_number": "reference_number",
+                "description": "description",
+                "status": "status",
+                "high_priority": "high_priority",
+                "due_date": "due_date",
+                "date_of_completion": "date_of_completion",
+                "assigned_to_name": "assigned_to_name",
+                "office": "office",
+                "section": "section_type",
+                "category": "category_description",
+                "related_module": "related_module",
+                "module_reference_number": "module_reference_number",
+                "partner_name": "partner_name",
+                "intervention_number": "intervention_number",
+                "location_name": "location_name",
+                "location_pcode": "location_pcode",
+                "location_source_id": "location_source_id",
+                "location_level": "location_level",
+                "location_levelname": "location_levelname",
+                "related_module_id": "related_module_id",
+                "tpm_activity_source_id": "tpm_activity_source_id",
+                "engagement_source_id": "engagement_source_id",
+                "travel_activity_source_id": "travel_activity_source_id",
+            },
+            link=_link_action_point,
         ),
     ),
     "planned_visits": (
@@ -1075,6 +1196,111 @@ def _write_documents(name: str, items: list[dict[str, Any]], links: Links) -> di
             logger.warning("etools datamart %s: document %s failed: %s", name, _label(item), exc)
     details = writer.finish()
     return {**details, "documents_failed": failed} if failed else details
+
+
+# ------------------------------------------------------------------- locations (the gazetteer)
+def _location_type(admin_level: Any, name: Any, cache: dict[int, int]) -> int | None:
+    """The ``LocationType`` of an admin level (created on first sight, named as eTools names it)."""
+    if admin_level in (None, "") or not str(admin_level).lstrip("-").isdigit():
+        return None
+    level = int(admin_level)
+    if level not in cache:
+        location_type = LocationType.objects.filter(admin_level=level).first()
+        if location_type is None:
+            location_type = LocationType.objects.create(
+                name=str(name or f"Admin level {level}")[:254], admin_level=level
+            )
+        cache[level] = location_type.pk
+    return cache[level]
+
+
+def upsert_location(item: dict[str, Any], links: Links, types: dict[int, int]) -> int | None:
+    """One ``datamart/locations`` record into the locations table, keyed by the eTools id."""
+    source_id = item.get("source_id") or item.get("id")
+    if source_id in (None, ""):
+        return None
+    pk = int(source_id)
+    location, _ = Location.objects.get_or_create(
+        id=pk, defaults={"name": item.get("name") or "", "lft": 1, "rght": 2, "level": 0, "tree_id": pk}
+    )
+    location.name = coerce(Location._meta.get_field("name"), item.get("name") or "")
+    location.p_code = coerce(Location._meta.get_field("p_code"), item.get("p_code") or "")
+    location.type_id = _location_type(item.get("admin_level"), item.get("admin_level_name"), types)
+    location.latitude = coerce(Location._meta.get_field("latitude"), item.get("latitude"))
+    location.longitude = coerce(Location._meta.get_field("longitude"), item.get("longitude"))
+    location.is_active = item.get("is_active") is not False
+    location.save()
+    return pk
+
+
+def sync_locations(run: SyncRun, *, client: DatamartClient, links: Links) -> SyncRun:
+    """The eTools locations (P-code, admin level, parent, coordinates): the table every other
+    eTools record links to by id or P-code. Parents are linked once every row exists."""
+
+    def body() -> dict[str, Any]:
+        links.missing.clear()
+        items = list(client.list("locations"))
+        types: dict[int, int] = {}
+        by_datamart_id: dict[str, int] = {}
+        parents: dict[int, Any] = {}
+
+        def handle(item: dict[str, Any]) -> None:
+            pk = upsert_location(item, links, types)
+            if pk is not None:
+                by_datamart_id[str(item.get("id"))] = pk
+                parents[pk] = item.get("parent")
+
+        process_items(run, items, handle, _label)
+        linked = 0
+        existing = set(Location.objects.values_list("pk", flat=True))
+        for pk, parent in parents.items():
+            parent_pk = _location_parts(parent)[0]
+            parent_pk = by_datamart_id.get(str(parent_pk), parent_pk)
+            if parent_pk in (None, "") or not str(parent_pk).isdigit() or int(parent_pk) not in existing:
+                continue
+            Location.objects.filter(pk=pk).update(parent_id=int(parent_pk))
+            linked += 1
+        links.refresh()
+        details = {"parents_linked": linked, "location_types": len(types), **links.details()}
+        links.missing.clear()
+        return {**details, **_write_documents("locations", items, links)}
+
+    return _run(run, body)
+
+
+def upsert_site(item: dict[str, Any], links: Links) -> None:
+    """One ``datamart/location-sites`` record: a named point inside an admin location."""
+    parent_source_id, parent_pcode, _ = _location_parts(item.get("parent"))
+    longitude, latitude = parse_point(item.get("point"))
+    site, _ = dm.MonitoringSite.objects.get_or_create(
+        datamart_id=int(item["id"]), defaults={"name": item.get("name") or ""}
+    )
+    values = {
+        "source_id": item.get("source_id"),
+        "name": item.get("name") or "",
+        "p_code": item.get("p_code") or "",
+        "latitude": latitude,
+        "longitude": longitude,
+        "is_active": item.get("is_active") is not False,
+        "parent_pcode": parent_pcode,
+        "last_modify_date": item.get("last_modify_date"),
+    }
+    assign(site, values, list(values))
+    site.parent_id = links.location(parent_source_id, parent_pcode)
+    site.save()
+
+
+def sync_sites(run: SyncRun, *, client: DatamartClient, links: Links) -> SyncRun:
+    def body() -> dict[str, Any]:
+        links.missing.clear()
+        items = list(client.list("location-sites"))
+        process_items(run, items, lambda item: upsert_site(item, links), _label)
+        links.refresh()
+        details = links.details()
+        links.missing.clear()
+        return {**details, **_write_documents("location_sites", items, links)}
+
+    return _run(run, body)
 
 
 def sync_legacy(
@@ -1297,6 +1523,8 @@ def sync_documents(name: str) -> Callable[..., SyncRun]:
 
 
 ENTITY_SYNCS: dict[str, Callable[..., SyncRun]] = {
+    "locations": sync_locations,  # first: programme documents, indicators, visits... link to them
+    "location_sites": sync_sites,
     "partners": sync_legacy("partners", "partners", upsert_partner),
     "interventions": sync_legacy("interventions", "interventions", upsert_intervention),
     "intervention_budgets": sync_legacy("intervention_budgets", "interventions-budget", update_budget),

@@ -38,6 +38,20 @@ def _intervention(related_name):
     )
 
 
+def _location(related_name):
+    """The eTools location (``locations.Location``, id = eTools id) resolved from the record's
+    location source id or P-code; never from its name."""
+    return models.ForeignKey(
+        "locations.Location",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        db_constraint=False,
+        related_name=related_name,
+        verbose_name="eTools location",
+    )
+
+
 class DatamartRecord(models.Model):
     datamart_id = models.BigIntegerField(unique=True, help_text="the record's id in the Datamart")
     source_id = models.BigIntegerField(
@@ -124,6 +138,7 @@ class PDIndicator(DatamartRecord):
     location_source_id = models.BigIntegerField(null=True, blank=True)
     location_level = models.IntegerField(null=True, blank=True)
     location_levelname = models.CharField(max_length=80, blank=True)
+    location = _location("pd_indicators")
     numerator_label = models.CharField(max_length=256, blank=True)
     denominator_label = models.CharField(max_length=256, blank=True)
     means_of_verification = models.CharField(max_length=255, blank=True)
@@ -244,6 +259,26 @@ class ActionPoint(DatamartRecord):
     partner_name = models.CharField(max_length=300, blank=True)
     intervention_number = models.CharField(max_length=64, blank=True)
     location_name = models.CharField(max_length=254, blank=True)
+    location_pcode = models.CharField(max_length=32, blank=True)
+    location_source_id = models.BigIntegerField(null=True, blank=True)
+    location_level = models.IntegerField(null=True, blank=True)
+    location_levelname = models.CharField(max_length=80, blank=True)
+    location = _location("datamart_action_points")
+    # the eTools record the action point was raised from, by its eTools id
+    related_module_id = models.BigIntegerField(null=True, blank=True)
+    tpm_activity_source_id = models.BigIntegerField(null=True, blank=True)
+    engagement_source_id = models.BigIntegerField(null=True, blank=True)
+    travel_activity_source_id = models.BigIntegerField(null=True, blank=True)
+    tpm_activity = models.ForeignKey(
+        "TPMActivity", null=True, blank=True, on_delete=models.SET_NULL, related_name="action_points"
+    )
+    engagement = models.ForeignKey(
+        AuditEngagement,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="datamart_action_points",
+    )
 
     OPEN_STATUSES = ("open",)
 
@@ -292,7 +327,14 @@ class MonitoringFinding(DatamartRecord):
     start_date = models.DateField(null=True, blank=True)
     end_date = models.DateField(null=True, blank=True)
     location_name = models.CharField(max_length=254, blank=True)
+    location_pcode = models.CharField(max_length=32, blank=True)
+    location_source_id = models.BigIntegerField(null=True, blank=True)
+    location = _location("monitoring_findings")
     site = models.CharField(max_length=254, blank=True)
+    monitoring_site = models.ForeignKey(
+        "MonitoringSite", null=True, blank=True, on_delete=models.SET_NULL, related_name="findings"
+    )
+    monitoring_activity_id = models.BigIntegerField(null=True, blank=True, help_text="eTools activity id")
     is_programmatic_visit = models.BooleanField(default=False)
     is_remote_monitoring = models.BooleanField(default=False)
     visit_lead = models.CharField(max_length=254, blank=True)
@@ -415,6 +457,7 @@ class ReportedIndicator(DatamartRecord):
     target = models.CharField(max_length=100, blank=True)
     location = models.CharField(max_length=254, blank=True)
     p_code = models.CharField(max_length=32, blank=True)
+    location_ref = _location("reported_indicators")
     achievement_in_period = models.CharField(max_length=100, blank=True)
     total_cumulative_progress = models.CharField(max_length=100, blank=True)
     total_cumulative_progress_in_location = models.CharField(max_length=100, blank=True)
@@ -459,6 +502,13 @@ class TPMActivity(DatamartRecord):
     pd_reference_number = models.CharField(max_length=300, blank=True)
     section = models.CharField(max_length=300, blank=True)
     locations = models.CharField(max_length=1000, blank=True)
+    location_pcodes = models.JSONField(default=list, blank=True, help_text="P-codes of the places monitored")
+    location_links = models.ManyToManyField(
+        "locations.Location", blank=True, db_constraint=False, related_name="tpm_activities"
+    )
+    visit = models.ForeignKey(
+        TPMVisit, null=True, blank=True, on_delete=models.SET_NULL, related_name="activities"
+    )
     date = models.DateField(null=True, blank=True, db_index=True)
     is_programmatic_visit = models.BooleanField(default=False)
 
@@ -484,6 +534,7 @@ class ProgrammaticVisit(DatamartRecord):
     primary_traveler = models.CharField(max_length=200, blank=True)
     location_name = models.CharField(max_length=254, blank=True)
     location_pcode = models.CharField(max_length=32, blank=True)
+    location = _location("programmatic_visits")
 
     class Meta:
         ordering = ("-date",)
@@ -604,3 +655,22 @@ class DatamartDocument(models.Model):
 
     def __str__(self):
         return f"{self.dataset}: {self.title or self.record_key}"
+
+
+class MonitoringSite(DatamartRecord):
+    """A field-monitoring site of eTools (``location-sites``): a named point inside an admin location."""
+
+    name = models.CharField(max_length=254)
+    p_code = models.CharField(max_length=32, blank=True, db_index=True)
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    parent_pcode = models.CharField(max_length=32, blank=True)
+    parent = _location("monitoring_sites")
+
+    class Meta:
+        ordering = ("name",)
+        verbose_name = "monitoring site"
+
+    def __str__(self):
+        return self.name

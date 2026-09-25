@@ -44,7 +44,7 @@ def test_the_changelist_offers_the_action(admin_client, admin_user):
 
 @pytest.mark.parametrize(
     ("scope", "expected"),
-    [("core", ("--only", "partners,interventions,intervention_budgets,agreements")), ("all", ())],
+    [("core", ("--only", "locations,partners,interventions,intervention_budgets,agreements")), ("all", ())],
 )
 def test_starting_a_sync(admin_client, admin_user, started, credentials, scope, expected):
     response = admin_client.post(reverse(URL), {"_form_submitted": "on", "scope": scope})

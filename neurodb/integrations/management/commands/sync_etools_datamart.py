@@ -12,7 +12,7 @@ from neurodb.partnerships.linking import link_activityinfo_partners
 
 FAILED = "failed"
 LOCK_ID = 7140428  # one Datamart sync at a time, whoever started it (schedule, admin, shell)
-CORE = ("partners", "interventions", "intervention_budgets", "agreements")
+CORE = ("locations", "partners", "interventions", "intervention_budgets", "agreements")
 
 
 class Command(BaseCommand):

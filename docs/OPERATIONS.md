@@ -145,6 +145,8 @@ Datamart host (a pagination link to any other host is refused). Every request is
 
 | Dataset | Datamart endpoint | Written to |
 |---|---|---|
+| `locations` | `locations/` | the locations table (`locations.Location`, id = eTools id): name, P-code, admin level (`LocationType`), parent, latitude and longitude — the gazetteer every other eTools record links to |
+| `location_sites` | `location-sites/` | `datamart.MonitoringSite`: field-monitoring sites with their point and parent location |
 | `partners` | `partners/` | the existing partner table (`etools.PartnerOrganization`, by eTools id) |
 | `interventions` | `interventions/` | the existing programme documents (`etools.PCA`) and their agreements, sections, offices, focal points, donors, grants and planned locations |
 | `intervention_budgets` | `interventions-budget/` | the budget columns of the programme documents |
@@ -209,6 +211,39 @@ ActivityInfo pages use with the calendar year. Gender, age group, nationality an
 are read from the indicator titles (`neurodb/datamart/tags.py`). The programme and partner pages
 summarise it; the assistant answers with `pd_indicator_progress`. Per-location targets are not in
 any country-filterable Datamart endpoint, so locations are compared on reported values only.
+
+### One programme implementation ecosystem: how the eTools records are linked
+
+eTools is the source of the relationships and of the identifiers; the sync keeps them instead of
+matching names. Every `datamart` row keeps `datamart_id` (the Datamart record) and `source_id`
+(the eTools record), so anything can be traced back.
+
+| Record | Linked to | By |
+|---|---|---|
+| Programme document (`etools.PCA`) | partner, agreement | eTools ids (`partner_source_id`, `agreement_id`) |
+| Programme document | implementation locations (`PCA.locations`, `location_p_codes`) | the P-codes of `locations_data`, resolved in the locations table |
+| Programme document | funding: UNICEF cash, partner contribution, total budget, donors, grants, FRs | the interventions and budget datasets by eTools id; FRs by PD reference number |
+| PD indicator (`PDIndicator`) | PD, location (`location`) | PD reference number; eTools location id, then P-code |
+| Partner report row (`ReportedIndicator`) | partner, PD, location (`location_ref`), reporting period, status | vendor number, eTools PD id / reference number, P-code, the report's period and status fields |
+| TPM activity | partner, PD, locations (`location_links`) | vendor number, PD reference number, P-codes of `locations_data` |
+| Field monitoring finding | partner, location, site (`monitoring_site`) | vendor number, eTools location id / P-code, the site name inside that location (eTools gives the name only) |
+| Action point | partner, PD, location, TPM activity, audit engagement | eTools ids (`partner_source_id`, `intervention_source_id`, `location_source_id` / P-code, `tpm_activity_source_id`, `engagement_source_id`) |
+| Audit / spot check / micro-assessment | partner, active PDs | vendor number, `active_pd_data` ids and numbers |
+| Staff trip activity | partner, PD, location | eTools ids and P-code |
+
+The run's `details.not_linked` counts, per kind (`partner`, `programme_document`, `location`,
+`site`, `tpm_activity`, `engagement`), the records whose target is not in NeuroDB yet; the
+`locations` dataset runs first and `link_partners`-style re-runs resolve the rest the next night.
+
+**Partner reporting map** (*eTools partner reporting → PD indicators → Map*): every implementation
+location of the filtered indicators, coloured by the worst tracking status there. A location is
+placed by its own eTools coordinates; when it has none, by the nearest parent area that has some
+(drawn hollow, "approximate"); a name alone never places anything, and locations with no
+coordinates anywhere in their hierarchy are listed under the map. Clicking a location lists, per
+partner and programme document (with its funding and agreement), the indicators reported there:
+target, achieved at that location this year, cumulative there and overall, status and latest
+period, plus the TPM activities, field-monitoring findings and open action points recorded at the
+place. The indicator, programme and partner pages link back to the map for their locations.
 
 ### Partner reporting: ActivityInfo and eTools, side by side
 

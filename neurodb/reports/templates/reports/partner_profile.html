@@ -31,7 +31,7 @@
 <h2 class="section-heading">{% trans "Partner reporting" %} <span class="small text-muted fw-normal">{% trans "eTools (current) and ActivityInfo (historical), brought together for this partner" %}</span></h2>
 <div class="grid grid--2 mb-3">
   <section class="panel" aria-labelledby="etools-reporting-title" id="etools-reporting">
-    <div class="panel__header"><h3 class="panel__title" id="etools-reporting-title">{% trans "eTools · implementation monitoring" %}</h3><a class="panel__hint" href="{% url 'reports:pd_monitoring' %}?partner={{ partner.id }}">{% trans "By month and location" %} →</a></div>
+    <div class="panel__header"><h3 class="panel__title" id="etools-reporting-title">{% trans "eTools · implementation monitoring" %}</h3><span class="panel__hint"><a href="{% url 'reports:pd_monitoring' %}?partner={{ partner.id }}">{% trans "By month and location" %}</a> · <a href="{% url 'reports:pd_monitoring_map' %}?partner={{ partner.id }}">{% trans "Map" %}</a></span></div>
     {% if datamart.monitoring.indicators %}
     <div class="chips mb-2">{% for key, n in datamart.monitoring.status_counts.items %}{% if n %}<span class="chip">{% status_pill key key|code_label "sm" %} {{ n }}</span>{% endif %}{% endfor %}</div>
     <div class="table-wrap"><table class="table table-sm mb-2"><thead><tr><th>{% trans "PD indicator" %}</th><th class="num">{% trans "Cumulative / target" %}</th><th>{% trans "Status" %}</th></tr></thead>

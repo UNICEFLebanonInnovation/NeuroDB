@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+{% include "reports/partials/_monitoring_filters.html" %}
+<div class="kpi-grid" data-pdmap-kpis>
+  {% trans "Locations" as l1 %}{% include "components/kpi_tile.html" with label=l1 value="…" %}
+  {% trans "Indicators" as l2 %}{% include "components/kpi_tile.html" with label=l2 value="…" %}
+  {% trans "Programme documents" as l3 %}{% include "components/kpi_tile.html" with label=l3 value="…" %}
+  {% trans "Partners" as l4 %}{% include "components/kpi_tile.html" with label=l4 value="…" %}
+  {% trans "On track" as l5 %}{% include "components/kpi_tile.html" with label=l5 value="…" status="on_track" %}
+  {% trans "Off track" as l6 %}{% include "components/kpi_tile.html" with label=l6 value="…" status="off_track" %}
+</div>
+<div class="grid grid--2">
+  <section class="map-shell" data-module="pdmap" data-config="map-config" aria-label="{% trans 'Partner reporting map' %}">
+    <div class="map" data-map-canvas></div>
+    <div class="map-legend" data-map-legend>
+      <strong>{% trans "Implementation locations" %}</strong>
+      <div class="legend mt-1">{% for key, label in labels.items %}<span class="legend__item">{% status_pill key label "sm" %}</span>{% endfor %}</div>
+      <div class="small text-muted mt-1">{% trans "Circle size: indicators at the location. Hollow: placed at the nearest parent area with coordinates." %}</div>
+    </div>
+  </section>
+  <section class="panel p-0 pdmap-side">
+    <div class="table-toolbar"><div class="table-toolbar__title"><h2 class="h6 mb-0">{% trans "Locations" %}</h2><span class="text-muted small" data-map-totals aria-live="polite"></span></div>
+      <div class="table-toolbar__actions"><input class="form-control form-control-sm" type="search" placeholder="{% trans 'Find a location' %}" data-pdmap-search aria-label="{% trans 'Find a location' %}"></div></div>
+    <div class="table-wrap pdmap-list" style="max-height: min(70vh, 640px)">
+      <table class="table table-hover table-sm" id="pdmap-table">
+        <thead><tr><th>{% trans "Location" %}</th><th class="num">{% trans "Partners" %}</th><th class="num">{% trans "PDs" %}</th><th class="num">{% trans "Indicators" %}</th><th>{% trans "Status" %}</th></tr></thead>
+        <tbody data-pdmap-table><tr><td colspan="5">{% include "components/skeleton.html" %}</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+<section class="panel mt-3" data-pdmap-detail hidden aria-live="polite">
+  <div class="panel__header"><h2 class="panel__title" data-pdmap-detail-title></h2><span class="panel__hint" data-pdmap-detail-sub></span></div>
+  <div data-pdmap-detail-body></div>
+</section>
+<section class="panel mt-3" data-pdmap-unlocated hidden>
+  <div class="panel__header"><h2 class="panel__title">{% trans "Locations without coordinates" %}</h2><span class="panel__hint">{% trans "Neither the location nor any parent area carries coordinates in eTools; they are listed, not drawn." %}</span></div>
+  <div class="chips" data-pdmap-unlocated-list></div>
+</section>
+{{ map_config|json_script:"map-config" }}
+{% endblock %}

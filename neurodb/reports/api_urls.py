@@ -15,6 +15,7 @@ urlpatterns = [
     ),
     path("reports/<int:pk>/hpm/", api.HPMAPI.as_view(), name="hpm"),
     path("reports/<int:pk>/analytical/", api.ReportAnalyticalAPI.as_view(), name="report_analytical"),
+    path("partner-monitoring/map/", api.PDMapAPI.as_view(), name="pd_map"),
     path("programmes/", api.ProgrammesAPI.as_view(), name="programmes"),
     path("donors/", api.DonorsAPI.as_view(), name="donors"),
     path("saved-views/", api.SavedViewsAPI.as_view(), name="saved_views"),

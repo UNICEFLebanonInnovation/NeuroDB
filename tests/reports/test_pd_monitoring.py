@@ -228,10 +228,10 @@ def test_the_users_section_is_the_default_and_the_grid_is_paged(client_viewer, v
     viewer.section = Section.objects.create(name="Child protection", code="CP")
     viewer.save()
     page = client_viewer.get(reverse("reports:pd_monitoring"))
-    assert "Showing your section, Child Protection" in page.text and data["girls"] in page.text
+    assert "Your section, Child Protection, by default" in page.text and data["girls"] in page.text
     assert page.context["filters"].sections == ["Child Protection"]
     everything = client_viewer.get(reverse("reports:pd_monitoring"), {"section": ""})
-    assert "Showing your section" not in everything.text and everything.context["filters"].sections == []
+    assert "by default" not in everything.text and everything.context["filters"].sections == []
     viewer.section = Section.objects.create(name="Youth and Adolescents", code="YA")
     viewer.save()
     assert client_viewer.get(reverse("reports:pd_monitoring")).context["filters"].sections == []
@@ -292,3 +292,115 @@ class _FrozenDatetime:
             return TODAY
 
     timedelta = datetime.timedelta
+
+
+@pytest.fixture
+def places(db):
+    from neurodb.geo.models import Location, LocationType
+
+    gov = LocationType.objects.create(name="Governorate", admin_level=1)
+    dist = LocationType.objects.create(name="District", admin_level=2)
+    village = LocationType.objects.create(name="Cadastral", admin_level=3)
+    akkar = Location.objects.create(
+        id=2,
+        name="Akkar",
+        p_code="LB1",
+        type=gov,
+        latitude=34.55,
+        longitude=36.1,
+        lft=1,
+        rght=2,
+        level=0,
+        tree_id=2,
+    )
+    district = Location.objects.create(
+        id=3, name="Akkar District", p_code="LB11", type=dist, parent=akkar, lft=1, rght=2, level=0, tree_id=3
+    )
+    bekaa = Location.objects.create(
+        id=5,
+        name="Bekaa",
+        p_code="LB5",
+        type=gov,
+        latitude=33.85,
+        longitude=35.9,
+        lft=1,
+        rght=2,
+        level=0,
+        tree_id=5,
+    )
+    halba = Location.objects.create(
+        id=4, name="Halba", p_code="LB1101", type=village, parent=district, lft=1, rght=2, level=0, tree_id=4
+    )  # no coordinates: placed at Akkar
+    return {"akkar": akkar, "district": district, "halba": halba, "bekaa": bekaa}
+
+
+def test_map_points_place_locations_by_etools_coordinates(data, places, frozen_today):
+    pd = data["pd"]
+    dm.PDIndicator.objects.filter(location_name="Akkar").update(
+        location_pcode="LB1101", location=places["halba"]
+    )
+    dm.PDIndicator.objects.filter(location_name="Bekaa").update(
+        location_pcode="LB5", location=places["bekaa"]
+    )
+    dm.ReportedIndicator.objects.filter(location="Akkar").update(
+        p_code="LB1101", location_ref=places["halba"]
+    )
+    dm.ReportedIndicator.objects.filter(location="Bekaa").update(p_code="LB5", location_ref=places["bekaa"])
+    dm.MonitoringFinding.objects.create(
+        datamart_id=1, partner=data["partner"], location=places["halba"], overall_finding_rating="Off Track"
+    )
+    dm.ActionPoint.objects.create(
+        datamart_id=1, partner=data["partner"], intervention=pd, location=places["halba"], status="open"
+    )
+    out = monitoring.map_points(monitoring.Filters(year=2026), today=TODAY)
+    by_key = {p["key"]: p for p in out["points"]}
+    halba = by_key["LB1101"]
+    assert (halba["latitude"], halba["approximate"], halba["located_by"]) == (34.55, True, "Akkar")
+    assert (halba["governorate"], halba["district"], halba["indicators"], halba["worst"]) == (
+        "Akkar",
+        "Akkar District",
+        2,
+        "off_track",
+    )
+    girls = next(r for r in halba["rows"] if "girls" in r["indicator"])
+    assert (girls["achieved_here"], girls["cumulative_here"], girls["tracking"]) == (350.0, 300.0, "on_track")
+    assert girls["period"] == datetime.date(2026, 6, 30) and girls["planned"] and girls["reported"]
+    assert halba["monitoring"] == {
+        "findings": 1,
+        "findings_off_track": 1,
+        "action_points": 1,
+        "action_points_open": 1,
+    }
+    bekaa = by_key["LB5"]
+    assert bekaa["approximate"] is False and bekaa["indicators"] == 1 and bekaa["pds"] == 1
+    funding = out["pds"][pd.id]
+    assert funding["number"] == "LEB/PD1" and funding["partner"] == "Amel Association"
+    assert out["totals"]["locations"] == 2 and out["totals"]["approximate"] == 1 and out["unlocated"] == []
+
+
+def test_map_page_api_and_links(client_viewer, data, places, frozen_today):
+    dm.PDIndicator.objects.filter(location_name="Akkar").update(
+        location_pcode="LB1101", location=places["halba"]
+    )
+    dm.ReportedIndicator.objects.filter(location="Akkar").update(
+        p_code="LB1101", location_ref=places["halba"]
+    )
+    page = client_viewer.get(reverse("reports:pd_monitoring_map"), {"year": "2026"})
+    assert page.status_code == 200 and 'data-module="pdmap"' in page.text
+    assert reverse("api:pd_map") + "?year=2026" in page.text
+    api = client_viewer.get(reverse("api:pd_map"), {"year": "2026"})
+    assert api.status_code == 200
+    keys = {p["key"] for p in api.json()["points"]} | {p["key"] for p in api.json()["unlocated"]}
+    assert "LB1101" in keys and "name:bekaa" in {p["key"] for p in api.json()["unlocated"]}
+    grid = client_viewer.get(reverse("reports:pd_monitoring"), {"year": "2026"})
+    assert reverse("reports:pd_monitoring_map") + "?year=2026" in grid.text
+    modal = client_viewer.get(
+        reverse("reports:pd_indicator", args=[data["pd"].id, "100"]),
+        {"year": "2026"},
+        headers={"HX-Request": "true"},
+    )
+    assert "focus=LB1101" in modal.text and "On the map" in modal.text
+    programme = client_viewer.get(reverse("reports:programme_detail", args=[data["pd"].id])).text
+    assert "Implementation map" in programme
+    partner = client_viewer.get(reverse("reports:partner_profile", args=[data["partner"].id])).text
+    assert reverse("reports:pd_monitoring_map") + "?partner=" in partner

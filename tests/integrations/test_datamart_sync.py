@@ -732,3 +732,168 @@ def test_pd_indicators_and_reports_carry_tags_and_reporting_fields(linked):
         and report.narrative_assessment == "Going well"
     )
     assert (report.tag_gender, report.tag_disability, report.admin_level) == ("Girls", "Yes", 1)
+
+
+def location(source_id: int, name: str, p_code: str, level: int, parent: int | None = None, **extra) -> dict:
+    return {
+        "id": 3000 + source_id,
+        "source_id": source_id,
+        "name": name,
+        "p_code": p_code,
+        "admin_level": level,
+        "admin_level_name": {0: "Country", 1: "Governorate", 2: "District", 3: "Cadastral"}[level],
+        "parent": 3000 + parent if parent else None,
+        "is_active": True,
+        "country_name": "Lebanon",
+        **extra,
+    }
+
+
+@responses.activate
+def test_locations_become_the_gazetteer_and_every_record_links_to_them_by_id_or_pcode(linked):
+    from neurodb.geo.models import Location, LocationType
+
+    p, pd = linked
+    page(
+        "locations",
+        [
+            location(1, "Lebanon", "LB", 0, latitude=33.9, longitude=35.5),
+            location(2, "Akkar", "LB1", 1, parent=1, latitude=34.55, longitude=36.1),
+            location(3, "Akkar District", "LB11", 2, parent=2),  # no coordinates of its own
+            location(4, "Halba", "LB1101", 3, parent=3, latitude=34.54, longitude=36.08),
+        ],
+    )
+    page(
+        "location-sites",
+        [
+            {
+                "id": 1,
+                "source_id": 51,
+                "name": "Halba school",
+                "p_code": "SITE-1",
+                "point": "POINT (36.081 34.541)",
+                "parent": {"id": 3004, "source_id": 4, "p_code": "LB1101", "name": "Halba"},
+                "country_name": "Lebanon",
+            }
+        ],
+    )
+    page(
+        "pd-indicators",
+        [
+            {
+                "id": 1,
+                "source_id": 77,
+                "title": "Children reached",
+                "pd_reference_number": "LEB/PD1",
+                "location_name": "Halba (typo)",
+                "location_pcode": "LB1101",
+                "location_source_id": 4,
+                "target_numerator": "100",
+            },
+            {
+                "id": 2,
+                "source_id": 77,
+                "title": "Children reached",
+                "pd_reference_number": "LEB/PD1",
+                "location_name": "Nowhere",
+                "location_pcode": "LB9999",
+                "target_numerator": "100",
+            },
+        ],
+    )
+    page(
+        "tpm-activities",
+        [
+            {
+                "id": 1,
+                "source_id": 5,
+                "visit_reference_number": "TPM/1",
+                "task_reference_number": "TPM/1/1",
+                "pd_ssfa_reference_number": "LEB/PD1",
+                "partner_vendor_number": "V1",
+                "locations": "Halba, Akkar",
+                "locations_data": [{"id": 4, "name": "Halba", "p_code": "LB1101"}, {"p_code": "LB1"}],
+                "date": "2024-05-01",
+            }
+        ],
+    )
+    page(
+        "fm-ontrack",
+        [
+            {
+                "id": 1,
+                "source_id": 9,
+                "vendor_number": "V1",
+                "entity": "Partner 1",
+                "overall_finding_rating": "Off Track",
+                "monitoring_activity": "MA-1",
+                "monitoring_activity_id": 400,
+                "location": {"source_id": 4, "name": "Halba", "p_code": "LB1101"},
+                "site": "Halba School",
+            }
+        ],
+    )
+    page(
+        "actionpoints",
+        [
+            {
+                "id": 1,
+                "source_id": 501,
+                "reference_number": "LEB/2024/1/APD",
+                "status": "open",
+                "partner_source_id": 1,
+                "intervention_source_id": 11,
+                "location_name": "Halba",
+                "location_pcode": "LB1101",
+                "location_source_id": 4,
+                "location_level": 3,
+                "tpm_activity_source_id": 5,
+                "related_module": "tpm",
+                "related_module_id": 5,
+            }
+        ],
+    )
+    page(
+        "travel-activities",
+        [
+            {
+                "id": 1,
+                "travel_reference_number": "2024/1",
+                "travel_type": "Programmatic Visit",
+                "date": "2024-05-02",
+                "source_partner_id": 1,
+                "partnership_number": "LEB/PD1",
+                "location": 4,
+                "location_pcode": "LB1101",
+                "location_name": "Halba",
+            }
+        ],
+    )
+    runs = run_all(
+        "locations,location_sites,pd_indicators,tpm_activities,field_monitoring,action_points,staff_visits"
+    )
+    assert {r.status for r in runs} == {SyncRun.Status.SUCCEEDED}, [(r.target, r.error) for r in runs]
+
+    halba = Location.objects.get(pk=4)
+    assert (halba.p_code, halba.latitude, halba.type.admin_level, halba.parent_id) == ("LB1101", 34.54, 3, 3)
+    assert Location.objects.get(pk=3).parent_id == 2 and LocationType.objects.count() == 4
+    assert runs[0].details["parents_linked"] == 3
+    site = dm.MonitoringSite.objects.get()
+    assert (site.parent, site.latitude, site.longitude) == (halba, 34.541, 36.081)
+
+    linked_row, unlinked_row = dm.PDIndicator.objects.order_by("datamart_id")
+    assert linked_row.location == halba and unlinked_row.location is None  # a name never links
+    assert runs[2].details["not_linked"]["location"] == 1
+    activity = dm.TPMActivity.objects.get()
+    assert set(activity.location_links.values_list("pk", flat=True)) == {4, 2}
+    assert activity.location_pcodes == ["LB1101", "LB1"]
+    finding = dm.MonitoringFinding.objects.get()
+    assert (finding.location, finding.monitoring_site, finding.monitoring_activity_id) == (halba, site, 400)
+    point = dm.ActionPoint.objects.get()
+    assert (point.location, point.tpm_activity, point.intervention, point.location_level) == (
+        halba,
+        activity,
+        pd,
+        3,
+    )
+    assert dm.ProgrammaticVisit.objects.get().location == halba

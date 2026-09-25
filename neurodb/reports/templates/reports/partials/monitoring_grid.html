@@ -23,7 +23,6 @@
 <section class="panel p-0">
   {% include "components/table_toolbar.html" with title=_("Indicators") count=rows|length table_id="pd-indicators" filename="partner-monitoring" %}
   {% if rows %}
-  {% if own_section %}<p class="small px-3 mb-2">{% blocktrans with section=own_section|join:", " %}Showing your section, {{ section }}, by default.{% endblocktrans %} <a href="?section=">{% trans "Show every section" %}</a></p>{% endif %}
   {% if truncated %}<p class="small text-warning px-3 mb-2">{% trans "Only the first 2,000 indicators are counted: narrow the filters." %}</p>{% endif %}
   <div class="table-wrap"><table class="table table-hover table-sm monitoring-grid" id="pd-indicators">
     <thead><tr>

@@ -173,6 +173,7 @@ ASSETS = {
     "charts": "js/charts.js",
     "pivotModule": "js/pivot.js",
     "mapModule": "js/map.js",
+    "pdMapModule": "js/pdmap.js",
 }
 
 

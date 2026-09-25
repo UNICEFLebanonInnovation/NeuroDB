@@ -14,7 +14,7 @@
   <dt class="col-sm-3 text-muted">{% trans "Section / unit" %}</dt><dd class="col-sm-9">{{ definition.section_name|default:"—" }} · {{ definition.unit|default:"number" }}{% if definition.display_type and definition.display_type != definition.unit %} · {{ definition.display_type }}{% endif %}{% if definition.is_high_frequency %} · {% trans "high frequency (monthly)" %}{% endif %}{% if definition.cluster_name %} · {{ definition.cluster_name }}{% endif %}</dd>
   <dt class="col-sm-3 text-muted">{% trans "Tags" %}</dt><dd class="col-sm-9"><div class="chips">{% if definition.tag_gender %}<span class="chip">{{ definition.tag_gender }}</span>{% endif %}{% if definition.tag_age_group %}<span class="chip">{{ definition.tag_age_group }}</span>{% endif %}{% if definition.tag_nationality %}<span class="chip">{{ definition.tag_nationality }}</span>{% endif %}{% if definition.tag_disability %}<span class="chip">{% trans "Disability" %}</span>{% endif %}{% for d in disaggregations %}<span class="chip">{% trans "Disaggregated by" %} {{ d }}</span>{% endfor %}</div></dd>
   <dt class="col-sm-3 text-muted">{% trans "Means of verification" %}</dt><dd class="col-sm-9">{{ definition.means_of_verification|default:"—" }}</dd>
-  <dt class="col-sm-3 text-muted">{% trans "Planned locations" %}</dt><dd class="col-sm-9">{{ planned_locations|join:", "|default:"—" }}</dd>
+  <dt class="col-sm-3 text-muted">{% trans "Planned locations" %}</dt><dd class="col-sm-9">{{ planned_locations|join:", "|default:"—" }} <a class="small" href="{% url 'reports:pd_monitoring_map' %}?pd={{ pd.number|urlencode }}&amp;scope=all&amp;year={{ year }}&amp;report_type={{ report_type }}">{% trans "On the map" %}</a></dd>
 </dl>
 <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
   <div class="segmented" role="group" aria-label="{% trans 'Report type' %}">
@@ -26,7 +26,7 @@
 <div class="table-wrap"><table class="table table-sm monitoring-grid">
   <thead><tr><th>{% trans "Location" %}</th>{% for p in periods %}<th class="num" title="{{ p.start|date:'j M Y' }} – {{ p.end|date:'j M Y' }} · {{ p.status|code_label }}">{{ p.report }}<span class="cell-sub">{{ p.end|date:"M Y" }}</span></th>{% endfor %}<th class="num">{% trans "Cumulative" %}</th></tr></thead>
   <tbody>
-    {% for loc in by_location %}<tr><td>{{ loc.location }}</td>{% for p in periods %}<td class="num">{% include "reports/partials/_pd_indicator_cell.html" with cells=loc.cells report=p %}</td>{% endfor %}<td class="num fw-semibold">{{ loc.cumulative|number:0 }}</td></tr>{% endfor %}
+    {% for loc in by_location %}<tr><td>{{ loc.location }}{% if loc.p_code %}<span class="cell-sub mono">{{ loc.p_code }} · <a href="{% url 'reports:pd_monitoring_map' %}?pd={{ pd.number|urlencode }}&amp;scope=all&amp;year={{ year }}&amp;report_type={{ report_type }}&amp;focus={{ loc.p_code|urlencode }}">{% trans "map" %}</a></span>{% endif %}</td>{% for p in periods %}<td class="num">{% include "reports/partials/_pd_indicator_cell.html" with cells=loc.cells report=p %}</td>{% endfor %}<td class="num fw-semibold">{{ loc.cumulative|number:0 }}</td></tr>{% endfor %}
     <tr class="table-light"><th scope="row">{% trans "All locations" %}</th>{% for p in periods %}<th class="num">{{ p.total|number:0 }}</th>{% endfor %}<th class="num">{{ indicator.cumulative|number:0 }}</th></tr>
   </tbody>
 </table></div>

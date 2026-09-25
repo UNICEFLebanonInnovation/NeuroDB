@@ -447,3 +447,6 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .monitoring-grid__section th { background: var(--nd-surface-2); font-size: 0.82rem; text-transform: none; letter-spacing: 0; position: static; }
 .monitoring-grid__pd th { background: var(--nd-surface); font-weight: 600; font-size: 0.82rem; text-transform: none; letter-spacing: 0; position: static; border-top: 2px solid var(--nd-border); }
 .monitoring-grid__output td { padding-top: 0.15rem; padding-bottom: 0.15rem; }
+.pdmap-side .table-toolbar__actions { flex: 1 1 200px; justify-content: flex-end; }
+.pdmap-list tr[data-pdmap-row] { cursor: pointer; }
+.map-legend .legend { margin-top: 0.25rem; }

@@ -771,11 +771,56 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
         }
         | ({"section": own_section} if own_section else {}),
         "own_section": own_section,
+        "view": "grid",
         "chart_data": {"status_counts": data["status_counts"], "by_section": data["by_section"]},
         "truncated": len(rows) >= pd_monitoring_service.MAX_INDICATORS,
     }
     template = "reports/partials/monitoring_grid.html" if request.htmx else "reports/pd_monitoring.html"
     return render(request, template, context)
+
+
+@require_GET
+def pd_monitoring_map(request: HttpRequest) -> HttpResponse:
+    """The partner reporting map: where the filtered PD indicators are implemented and reported."""
+    filters = pd_monitoring_service.Filters.from_params(request.GET)
+    options = pd_monitoring_service.filter_options(filters)
+    own_section: list[str] = []
+    if not request.GET:
+        own_section = pd_monitoring_service.default_sections(request.user, options["sections"])
+        if own_section:
+            filters = dataclasses.replace(filters, sections=own_section)
+    params = request.GET.copy()
+    for key in ("section", "partner", "pd", "location", *pd_monitoring_service.TAG_FIELDS):
+        if own_section and key == "section":
+            params.setlist(key, own_section)
+    context = {
+        "page_title": _("Partner reporting map"),
+        "page_subtitle": _(
+            "Where the programme documents are implemented: for each location the partner, the PD, "
+            "the indicators reported there, the target, what was achieved and whether it is on track"
+        ),
+        "breadcrumbs": [
+            _crumb(_("Partner monitoring"), reverse("reports:pd_monitoring")),
+            _crumb(_("Map")),
+        ],
+        "filters": filters,
+        "labels": LABELS,
+        "options": options,
+        "selected": {
+            key: request.GET.getlist(key)
+            for key in ("section", "partner", "pd", "location", *pd_monitoring_service.TAG_FIELDS)
+        }
+        | ({"section": own_section} if own_section else {}),
+        "own_section": own_section,
+        "view": "map",
+        "map_config": {
+            "api": reverse("api:pd_map") + ("?" + params.urlencode() if params else ""),
+            "labels": LABELS,
+            "partnerUrl": reverse("reports:partner_profile", args=[0]),
+            "gridUrl": reverse("reports:pd_monitoring"),
+        },
+    }
+    return render(request, "reports/pd_monitoring_map.html", context)
 
 
 @require_GET
