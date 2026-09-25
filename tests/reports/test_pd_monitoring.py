@@ -373,6 +373,11 @@ def test_map_points_place_locations_by_etools_coordinates(data, places, frozen_t
     }
     bekaa = by_key["LB5"]
     assert bekaa["approximate"] is False and bekaa["indicators"] == 1 and bekaa["pds"] == 1
+    # a row whose link was not set yet is still placed through its P-code
+    dm.PDIndicator.objects.filter(location_name="Bekaa").update(location=None)
+    dm.ReportedIndicator.objects.filter(location="Bekaa").update(location_ref=None)
+    again = {p["key"]: p for p in monitoring.map_points(monitoring.Filters(year=2026), today=TODAY)["points"]}
+    assert again["LB5"]["latitude"] == 33.85
     funding = out["pds"][pd.id]
     assert funding["number"] == "LEB/PD1" and funding["partner"] == "Amel Association"
     assert out["totals"]["locations"] == 2 and out["totals"]["approximate"] == 1 and out["unlocated"] == []

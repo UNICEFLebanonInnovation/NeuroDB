@@ -545,6 +545,16 @@ def map_points(filters: Filters, today: datetime.date | None = None) -> dict[str
                     "high_frequency": ind.high_frequency,
                 }
             )
+    # rows synced before their location reached the gazetteer: resolve the P-code now
+    unresolved = {p["p_code"].upper() for p in places.values() if not p["id"] and p["p_code"]}
+    if unresolved:
+        by_pcode = {
+            (code or "").upper(): pk
+            for pk, code in Location.objects.filter(p_code__in=unresolved).values_list("pk", "p_code")
+        }
+        for place in places.values():
+            if not place["id"] and place["p_code"]:
+                place["id"] = by_pcode.get(place["p_code"].upper())
     gazetteer = _gazetteer({p["id"] for p in places.values() if p["id"]})
     monitoring = _monitoring_at({pd for pd in pds}, {p["id"] for p in places.values() if p["id"]})
     points, unlocated = [], []

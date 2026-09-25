@@ -897,3 +897,31 @@ def test_locations_become_the_gazetteer_and_every_record_links_to_them_by_id_or_
         3,
     )
     assert dm.ProgrammaticVisit.objects.get().location == halba
+
+
+@responses.activate
+def test_records_synced_before_the_gazetteer_are_linked_by_the_locations_run(linked):
+    from neurodb.geo.models import Location
+
+    p, pd = linked
+    PCA.objects.filter(pk=pd.pk).update(location_p_codes=["LB1101"])
+    early = dm.PDIndicator.objects.create(
+        datamart_id=1, source_id=77, intervention=pd, title="x", location_pcode="lb1101", location_source_id=4
+    )
+    report = dm.ReportedIndicator.objects.create(
+        datamart_id=2, intervention=pd, indicator="x", p_code="LB1101"
+    )
+    point = dm.ActionPoint.objects.create(datamart_id=3, intervention=pd, location_pcode="LB1101")
+    page("locations", [location(4, "Halba", "LB1101", 3, latitude=34.54, longitude=36.08)])
+    (run,) = run_all("locations")
+    halba = Location.objects.get(pk=4)
+    for row in (early, report, point):
+        row.refresh_from_db()
+    assert (early.location, report.location_ref, point.location) == (halba, halba, halba)
+    assert list(pd.locations.all()) == [halba]
+    assert run.details["relinked"] == {
+        "pdindicator": 1,
+        "reportedindicator": 1,
+        "actionpoint": 1,
+        "programme_documents": 1,
+    }

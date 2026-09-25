@@ -1265,11 +1265,63 @@ def sync_locations(run: SyncRun, *, client: DatamartClient, links: Links) -> Syn
             Location.objects.filter(pk=pk).update(parent_id=int(parent_pk))
             linked += 1
         links.refresh()
-        details = {"parents_linked": linked, "location_types": len(types), **links.details()}
+        details = {
+            "parents_linked": linked,
+            "location_types": len(types),
+            "relinked": relink_locations(),
+            **links.details(),
+        }
         links.missing.clear()
         return {**details, **_write_documents("locations", items, links)}
 
     return _run(run, body)
+
+
+# (table, location column, eTools id column, P-code column): rows synced before the gazetteer
+# existed, or before a location appeared in it, get their link on the next locations run.
+_RELINK = (
+    ("datamart_pdindicator", "location_id", "location_source_id", "location_pcode"),
+    ("datamart_reportedindicator", "location_ref_id", None, "p_code"),
+    ("datamart_actionpoint", "location_id", "location_source_id", "location_pcode"),
+    ("datamart_monitoringfinding", "location_id", "location_source_id", "location_pcode"),
+    ("datamart_programmaticvisit", "location_id", None, "location_pcode"),
+    ("datamart_monitoringsite", "parent_id", None, "parent_pcode"),
+)
+
+
+def relink_locations() -> dict[str, int]:
+    """Point every unlinked record at its location by eTools id, then by P-code (never by name)."""
+    counts: dict[str, int] = {}
+    with connection.cursor() as cursor:
+        for table, column, id_column, pcode_column in _RELINK:
+            n = 0
+            if id_column:
+                by_id = (  # identifiers come from the tuple above, never from input
+                    f"UPDATE {table} t SET {column} = l.id FROM locations_location l "
+                    f"WHERE t.{column} IS NULL AND t.{id_column} = l.id"
+                )
+                cursor.execute(by_id)  # noqa: S608
+                n += cursor.rowcount
+            by_pcode = (
+                f"UPDATE {table} t SET {column} = l.id FROM locations_location l "
+                f"WHERE t.{column} IS NULL AND t.{pcode_column} <> '' "
+                f"AND upper(l.p_code) = upper(t.{pcode_column})"
+            )
+            cursor.execute(by_pcode)  # noqa: S608
+            n += cursor.rowcount
+            if n:
+                counts[table.removeprefix("datamart_")] = n
+        # programme documents: the planned locations from their P-code arrays
+        cursor.execute(
+            "INSERT INTO etools_pca_locations (pca_id, location_id) "
+            "SELECT p.id, l.id FROM etools_pca p, unnest(p.location_p_codes) AS code "
+            "JOIN locations_location l ON upper(l.p_code) = upper(code) "
+            "WHERE NOT EXISTS (SELECT 1 FROM etools_pca_locations x "
+            "WHERE x.pca_id = p.id AND x.location_id = l.id)"
+        )
+        if cursor.rowcount:
+            counts["programme_documents"] = cursor.rowcount
+    return counts
 
 
 def upsert_site(item: dict[str, Any], links: Links) -> None:
