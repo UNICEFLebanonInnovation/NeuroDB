@@ -75,15 +75,6 @@
       "description": "Time zone for dates shown in the application."
     },
     {
-      "name": "LEGACY_TABLES_MANAGED",
-      "group": "Database",
-      "required": true,
-      "secret": false,
-      "keyVaultSecret": null,
-      "value": "off",
-      "description": "Must stay off: Django never creates or alters the existing v2 tables."
-    },
-    {
       "name": "DATABASE_URL",
       "group": "Database",
       "required": true,

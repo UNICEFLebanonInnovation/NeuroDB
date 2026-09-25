@@ -115,17 +115,14 @@ if ENV in ("staging", "production"):
     DATABASES["default"].setdefault("OPTIONS", {}).setdefault("sslmode", env("DB_SSLMODE", default="require"))
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# The v2 tables are owned by the database, not by Django, until the team decides to take
-# ownership (docs/DATA_MIGRATION.md). Tests flip this so the test database can be created.
-LEGACY_TABLES_MANAGED = env.bool("LEGACY_TABLES_MANAGED", default=False)
+# The v2 tables are managed models: their initial migrations describe them as v2 left them and
+# schema changes are normal migrations (docs/DATA_MIGRATION.md, "Django owns the schema").
 LEGACY_APPS = [
     "users",
     "pivoting",
     "etools",
     "locations",
 ]  # v2 labels; packages are accounts/indicators/facts/geo/library/partnerships
-if ENV == "test":
-    LEGACY_TABLES_MANAGED = True  # the legacy migrations read this flag, so tests create the v2 tables
 
 # ---------------------------------------------------------------------------- auth
 AUTH_USER_MODEL = (

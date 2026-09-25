@@ -3,7 +3,7 @@
 Refuses to run outside DJANGO_ENV=local/test and on a database that already holds databases,
 so it can never touch production data. Usage:
 
-    LEGACY_TABLES_MANAGED=on python manage.py migrate
+    python manage.py migrate
     python manage.py seed_demo --password <choose-one>
 """
 

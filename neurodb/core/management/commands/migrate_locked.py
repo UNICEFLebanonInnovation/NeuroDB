@@ -17,7 +17,7 @@ LOCK_ID = 7140427  # any constant; identical in every NeuroDB container
 
 
 class Command(BaseCommand):
-    help = "migrate + bootstrap_roles + link_partners, one container at a time"
+    help = "migrate + ensure_legacy_tables + bootstrap_roles + link_partners, one container at a time"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -49,6 +49,7 @@ class Command(BaseCommand):
 
     def _migrate(self, verbosity: int) -> None:
         call_command("migrate", interactive=False, verbosity=verbosity)
+        call_command("ensure_legacy_tables", verbosity=verbosity)  # a v2 table the database never had
         call_command("bootstrap_roles", verbosity=verbosity)
         # the ActivityInfo → eTools partner links exist from the first start, not from the first sync
         call_command("link_partners", "--triggered-by", "migrate", verbosity=verbosity)

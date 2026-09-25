@@ -1,4 +1,4 @@
-"""Shared fixtures. The test database is created from the legacy models (LEGACY_TABLES_MANAGED=True)."""
+"""Shared fixtures. The test database is created from the migrations, v2 tables included."""
 
 import datetime
 

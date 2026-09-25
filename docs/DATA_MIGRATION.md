@@ -15,10 +15,8 @@ maps every v2 table through unmanaged Django models generated from the v2 schema
   is `pivoting`, `neurodb.partnerships` is `etools`, `neurodb.geo` is `locations`. Existing content
   types, permissions, group assignments, admin log entries and `AUTH_USER_MODEL = "users.User"` keep
   working without any data change.
-- `Meta.managed = LEGACY_MANAGED`, driven by `LEGACY_TABLES_MANAGED` (default `False`): Django never
-  creates, alters or drops a v2 table. The legacy migrations pass the same flag to every
-  `CreateModel`, so on the production database they are no-ops on the schema. Tests set
-  `DJANGO_ENV=test`, which turns the flag on so the same migrations build the test database.
+- `Meta.managed = True`: the tables belong to Django's migrations (see "Django owns the schema"
+  below); the same migrations build the test database.
 - Migration history lines up with v2: the v2 database already records `users.0001_initial`,
   `pivoting.0001_initial`, `etools.0001_initial` and `locations.0001_initial`, so v3 treats its own
   `0001_initial` files as applied. The later v2 rows (`pivoting.0067_...` and so on) are ignored because
@@ -43,12 +41,15 @@ maps every v2 table through unmanaged Django models generated from the v2 schema
    live schema if needed and re-run the generator.
 5. Run the sync jobs against staging and compare dashboard values with v2 (`docs/DIVERGENCES.md`).
 
-## Taking ownership of the schema later
+## Django owns the schema
 
-When the team wants Django to manage the v2 tables (to add typed columns, indexes, constraints):
+The v2 tables are managed models (`managed = True`) since the ownership step:
 
-1. Set `LEGACY_TABLES_MANAGED=on`, run `makemigrations`, and review the generated operations against
-   a schema dump of production; fix any mismatch in the models first.
-2. On production, `migrate --fake` the initial migrations of the legacy apps so Django records the
-   tables as created.
-3. From then on schema changes are normal migrations, rehearsed on a restored copy first.
+- the initial migrations of the legacy apps describe the tables as v2 left them and are recorded
+  as applied on production, so Django treats the tables as its own without touching them;
+- a table a database never had (production was restored without the `locations` app) is created
+  from the model by `manage ensure_legacy_tables`, which `migrate_locked` runs after `migrate`
+  at every start; it never alters an existing table;
+- from here on a schema change is a normal migration: change the model, `makemigrations`, rehearse
+  `migrate` on a restored copy of production, then deploy. The `LEGACY_TABLES_MANAGED` switch is
+  gone.

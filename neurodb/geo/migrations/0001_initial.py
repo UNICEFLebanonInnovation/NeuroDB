@@ -2,7 +2,6 @@
 
 import django.db.models.deletion
 import django.utils.timezone
-from django.conf import settings
 from django.db import migrations, models
 
 
@@ -45,7 +44,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
-            options={"managed": settings.LEGACY_TABLES_MANAGED, 
+            options={"managed": True, 
                 "verbose_name": "Location Type",
                 "verbose_name_plural": "Location Types",
                 "db_table": "locations_locationtype",
@@ -126,7 +125,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
-            options={"managed": settings.LEGACY_TABLES_MANAGED, 
+            options={"managed": True, 
                 "verbose_name": "location",
                 "verbose_name_plural": "locations",
                 "db_table": "locations_location",

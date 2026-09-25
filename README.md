@@ -71,8 +71,8 @@ Or `docker compose -f docker-compose.dev.yml up`.
 
 ```bash
 createdb neurodb_demo
-export DJANGO_ENV=local DJANGO_DEBUG=on LEGACY_TABLES_MANAGED=on DATABASE_URL=postgres://localhost/neurodb_demo
-.venv/bin/python manage.py migrate        # LEGACY_TABLES_MANAGED=on creates the v2 tables in this empty database
+export DJANGO_ENV=local DJANGO_DEBUG=on DATABASE_URL=postgres://localhost/neurodb_demo
+.venv/bin/python manage.py migrate        # creates the v2 tables in this empty database
 .venv/bin/python manage.py seed_demo --password <choose-one>
 .venv/bin/python manage.py runserver      # sign in as demo-admin, demo-editor or demo-viewer
 ```

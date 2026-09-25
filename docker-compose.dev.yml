@@ -19,7 +19,6 @@ services:
       DJANGO_DEBUG: "on"
       DJANGO_SECRET_KEY: local-development-only-not-a-secret
       DATABASE_URL: postgres://neurodb:neurodb@db:5432/neurodb_v3
-      LEGACY_TABLES_MANAGED: "on"   # an empty local database gets the v2 tables too
       ALLOWED_HOSTS: localhost,127.0.0.1
     volumes: [".:/app:ro"]
     ports: ["8000:8000"]

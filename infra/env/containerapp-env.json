@@ -71,10 +71,6 @@
       "value": "Asia/Beirut"
     },
     {
-      "name": "LEGACY_TABLES_MANAGED",
-      "value": "off"
-    },
-    {
       "name": "DATABASE_URL",
       "secretRef": "database-url"
     },

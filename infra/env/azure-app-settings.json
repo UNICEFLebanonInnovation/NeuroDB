@@ -35,11 +35,6 @@
     "slotSetting": false
   },
   {
-    "name": "LEGACY_TABLES_MANAGED",
-    "value": "off",
-    "slotSetting": false
-  },
-  {
     "name": "DATABASE_URL",
     "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=database-url)",
     "slotSetting": false
