@@ -23,7 +23,8 @@
 <section class="panel p-0">
   {% include "components/table_toolbar.html" with title=_("Indicators") count=rows|length table_id="pd-indicators" filename="partner-monitoring" %}
   {% if rows %}
-  {% if truncated %}<p class="small text-warning px-3 mb-2">{% trans "Only the first 400 indicators are shown: narrow the filters." %}</p>{% endif %}
+  {% if own_section %}<p class="small px-3 mb-2">{% blocktrans with section=own_section|join:", " %}Showing your section, {{ section }}, by default.{% endblocktrans %} <a href="?section=">{% trans "Show every section" %}</a></p>{% endif %}
+  {% if truncated %}<p class="small text-warning px-3 mb-2">{% trans "Only the first 2,000 indicators are counted: narrow the filters." %}</p>{% endif %}
   <div class="table-wrap"><table class="table table-hover table-sm monitoring-grid" id="pd-indicators">
     <thead><tr>
       <th scope="col" class="monitoring-grid__indicator">{% trans "Indicator" %}</th>
@@ -58,6 +59,7 @@
     {% endfor %}
     </tbody>
   </table></div>
+  {% include "components/pagination.html" with hx_target="#monitoring-grid" %}
   <p class="small text-muted px-3 py-2 mb-0">{% blocktrans with kind=options.report_types|get_item:filters.report_type year=filters.year %}Monthly columns show each report's total for its reporting period, in the month the period ends ({{ kind }}, {{ year }}). Cumulative is the value carried by the latest report; the status compares its share of the target with the share of the PD period elapsed (±10 points).{% endblocktrans %}</p>
   {% else %}
   {% include "components/empty_state.html" with icon="target" title=_("No indicators match") message=_("Change the filters, or run the eTools Datamart sync if the list is empty.") action_url=request.path %}

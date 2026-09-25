@@ -34,7 +34,8 @@ DEFAULT_REPORT_TYPE = "QPR"
 ACTIVE_PD_STATUSES = ("active", "signed", "suspended")
 SUBMITTED = ("submitted", "accepted", "sent back", "sen", "sub", "acc")
 MONTHS = tuple(range(1, 13))
-MAX_INDICATORS = 400  # rows the page renders; the filters narrow larger sets
+MAX_INDICATORS = 2000  # rows a request computes; the page shows PAGE_SIZE of them at a time
+PAGE_SIZE = 100
 
 
 def norm(title: str | None) -> str:
@@ -102,6 +103,23 @@ class Filters:
             q=(params.get("q") or "").strip(),
             tags={t: [x for x in getlist(t) if x] for t in TAG_FIELDS},
         )
+
+
+def default_sections(user, options: list[str]) -> list[str]:
+    """The eTools section name(s) matching the user's NeuroDB section, for the page's first load.
+
+    A PD manager sees their own section first; the filter bar still offers every section. Names
+    match case-insensitively, whole or contained either way ("WASH" ~ "WASH / Water, Sanitation
+    and Hygiene"), or by the section code.
+    """
+    section = getattr(user, "section", None)
+    if section is None:
+        return []
+    wanted = {norm(section.name), norm(section.code or "")} - {""}
+    exact = [o for o in options if norm(o) in wanted]
+    if exact:
+        return exact
+    return [o for o in options if any(w in norm(o) or norm(o) in w for w in wanted if len(w) >= 3)]
 
 
 def _pd_queryset(filters: Filters) -> QuerySet[PCA]:
@@ -256,7 +274,10 @@ def indicators(filters: Filters, today: datetime.date | None = None) -> list[Ind
 
 
 def _report_rows(pd_ids: list[int], filters: Filters) -> QuerySet[dm.ReportedIndicator]:
+    # reports after the selected year change neither its months nor its cumulative
     qs = dm.ReportedIndicator.objects.filter(intervention_id__in=pd_ids, report_type=filters.report_type)
+    if filters.year:
+        qs = qs.filter(Q(period_end=None) | Q(period_end__year__lte=filters.year))
     if filters.locations:
         q = Q()
         for loc in filters.locations:
@@ -396,10 +417,10 @@ def filter_options(filters: Filters) -> dict[str, Any]:
         reverse=True,
     )
     options = {
-        "sections": sorted(x for x in base.values_list("section_name", flat=True).distinct() if x),
+        "sections": sorted({x for x in base.values_list("section_name", flat=True) if x}),
         "partners": [{"value": str(pk), "label": name} for pk, name in partners],
         "pds": sorted(x for x in pds.values_list("number", flat=True) if x),
-        "locations": sorted(x for x in base.values_list("location_name", flat=True).distinct() if x),
+        "locations": sorted({x for x in base.values_list("location_name", flat=True) if x}),
         "years": years or [filters.year],
         "report_types": REPORT_TYPES,
     }

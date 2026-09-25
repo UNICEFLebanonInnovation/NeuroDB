@@ -222,6 +222,30 @@ def test_page_partial_filters_and_empty(client_viewer, data, frozen_today):
     assert "No indicators match" in client_viewer.get(reverse("reports:pd_monitoring")).text
 
 
+def test_the_users_section_is_the_default_and_the_grid_is_paged(client_viewer, viewer, data, frozen_today):
+    from neurodb.accounts.models import Section
+
+    viewer.section = Section.objects.create(name="Child protection", code="CP")
+    viewer.save()
+    page = client_viewer.get(reverse("reports:pd_monitoring"))
+    assert "Showing your section, Child Protection" in page.text and data["girls"] in page.text
+    assert page.context["filters"].sections == ["Child Protection"]
+    everything = client_viewer.get(reverse("reports:pd_monitoring"), {"section": ""})
+    assert "Showing your section" not in everything.text and everything.context["filters"].sections == []
+    viewer.section = Section.objects.create(name="Youth and Adolescents", code="YA")
+    viewer.save()
+    assert client_viewer.get(reverse("reports:pd_monitoring")).context["filters"].sections == []
+    assert monitoring.default_sections(viewer, ["Child Protection", "Youth"]) == ["Youth"]
+    monkey = monitoring.PAGE_SIZE
+    monitoring.PAGE_SIZE = 1
+    try:
+        first = client_viewer.get(reverse("reports:pd_monitoring"), {"year": "2026", "page": "2"})
+    finally:
+        monitoring.PAGE_SIZE = monkey
+    assert first.context["page_obj"].paginator.num_pages == 2 and len(first.context["groups"]) == 1
+    assert "Showing 2–2 of 2" in first.text
+
+
 def test_indicator_detail_modal_and_page(client_viewer, data, frozen_today):
     url = reverse("reports:pd_indicator", args=[data["pd"].id, "100"])
     modal = client_viewer.get(url, {"year": "2026"}, headers={"HX-Request": "true"})

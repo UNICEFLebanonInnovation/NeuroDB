@@ -6,6 +6,7 @@ template (``request.htmx``), plain requests the full page.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import io
 import mimetypes
@@ -740,8 +741,15 @@ def action_points(request: HttpRequest) -> HttpResponse:
 @require_GET
 def pd_monitoring(request: HttpRequest) -> HttpResponse:
     filters = pd_monitoring_service.Filters.from_params(request.GET)
+    options = pd_monitoring_service.filter_options(filters)
+    own_section: list[str] = []
+    if not request.GET:  # first load, no choice made yet: the user's own section
+        own_section = pd_monitoring_service.default_sections(request.user, options["sections"])
+        if own_section:
+            filters = dataclasses.replace(filters, sections=own_section)
     rows = pd_monitoring_service.indicators(filters)
     data = pd_monitoring_service.summary(rows, filters)
+    page_obj = _paginate(request, rows, pd_monitoring_service.PAGE_SIZE)
     context = {
         "page_title": _("Partner monitoring"),
         "page_subtitle": _(
@@ -751,15 +759,18 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
         "breadcrumbs": [_crumb(_("Partner monitoring"))],
         "filters": filters,
         "rows": rows,
-        "groups": pd_monitoring_service.grouped(rows),
+        "page_obj": page_obj,
+        "groups": pd_monitoring_service.grouped(list(page_obj.object_list)),
         "data": data,
         "months": pd_monitoring_service.MONTHS,
         "labels": LABELS,
-        "options": pd_monitoring_service.filter_options(filters),
+        "options": options,
         "selected": {
             key: request.GET.getlist(key)
             for key in ("section", "partner", "pd", "location", *pd_monitoring_service.TAG_FIELDS)
-        },
+        }
+        | ({"section": own_section} if own_section else {}),
+        "own_section": own_section,
         "chart_data": {"status_counts": data["status_counts"], "by_section": data["by_section"]},
         "truncated": len(rows) >= pd_monitoring_service.MAX_INDICATORS,
     }
