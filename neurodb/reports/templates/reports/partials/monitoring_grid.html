@@ -4,6 +4,7 @@
   {% trans "Indicators" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=data.indicators|intcomma hint=h1 %}
   {% trans "On track" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.status_counts.on_track status="on_track" %}
   {% trans "Off track" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.status_counts.off_track status="off_track" %}
+  {% trans "Not reported" as l7 %}{% include "components/kpi_tile.html" with label=l7 value=data.status_counts.not_reported hint=_("no progress report read yet") %}
   {% blocktrans asvar h4 with n=data.reported %}{{ n }} indicators reported on{% endblocktrans %}
   {% trans "Programme documents" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.programme_documents hint=h4 %}
   {% trans "Partners" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=data.partners %}

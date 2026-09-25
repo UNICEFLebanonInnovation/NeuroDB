@@ -16,6 +16,7 @@ STATUS_VARIANTS = {
     "off_track": "danger",
     "over_target": "warning",
     "no_target": "neutral",
+    "not_reported": "neutral",
     "fresh": "success",
     "stale": "warning",
     "unknown": "neutral",

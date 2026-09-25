@@ -24,7 +24,8 @@ from django.db.models import Q, QuerySet
 from django.urls import reverse
 
 from neurodb.geo.models import Location
-from neurodb.indicators.services.tracking import LABELS, NO_TARGET, tracking_between
+from neurodb.indicators.services import tracking
+from neurodb.indicators.services.tracking import NO_TARGET, tracking_between
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
 from . import models as dm
@@ -35,6 +36,8 @@ DEFAULT_REPORT_TYPE = "QPR"
 ACTIVE_PD_STATUSES = ("active", "signed", "suspended")
 SUBMITTED = ("submitted", "accepted", "sent back", "sen", "sub", "acc")
 MONTHS = tuple(range(1, 13))
+NOT_REPORTED = "not_reported"  # no progress report read for the indicator: never "off track"
+LABELS = {**tracking.LABELS, NOT_REPORTED: "Not reported"}
 MAX_INDICATORS = 2000  # rows a request computes; the page shows PAGE_SIZE of them at a time
 PAGE_SIZE = 100
 
@@ -255,8 +258,11 @@ def indicators(filters: Filters, today: datetime.date | None = None) -> list[Ind
         *(f"tag_{t}" for t in TAG_FIELDS),
     )
     found: dict[tuple[int, str], Indicator] = {}
+    by_source: dict[tuple[int, str], tuple[int, str]] = {}  # (PD, eTools indicator id) -> ident
     for row in rows.order_by("lower_result_name", "title", "datamart_id"):
         ident = (row["intervention_id"], norm(row["title"]))
+        if row["source_id"]:
+            by_source.setdefault((row["intervention_id"], str(row["source_id"])), ident)
         entry = found.get(ident)
         if entry is None:
             entry = found[ident] = Indicator(
@@ -287,7 +293,7 @@ def indicators(filters: Filters, today: datetime.date | None = None) -> list[Ind
     if filters.locations:
         wanted = {norm(x) for x in filters.locations}
         found = {k: e for k, e in found.items() if any(norm(loc) in wanted for loc in e.locations)}
-    _attach_reports(found, filters, today)
+    _attach_reports(found, filters, today, by_source)
     result = [e for e in found.values() if not filters.status or e.tracking == filters.status]
     return result[:MAX_INDICATORS]
 
@@ -305,9 +311,17 @@ def _report_rows(pd_ids: list[int], filters: Filters) -> QuerySet[dm.ReportedInd
     return qs
 
 
-def _attach_reports(found: dict[tuple[int, str], Indicator], filters: Filters, today: datetime.date) -> None:
+def _attach_reports(
+    found: dict[tuple[int, str], Indicator],
+    filters: Filters,
+    today: datetime.date,
+    by_source: dict[tuple[int, str], tuple[int, str]] | None = None,
+) -> None:
+    """Reports match their PD indicator by the eTools indicator id when the Datamart gives one,
+    else by title within the PD; an indicator with no report read is "not reported", never off track."""
     if not found:
         return
+    by_source = by_source or {}
     pd_ids = list({ident[0] for ident in found})
     rows = _report_rows(pd_ids, filters).values(
         "intervention_id",
@@ -323,11 +337,14 @@ def _attach_reports(found: dict[tuple[int, str], Indicator], filters: Filters, t
         "p_code",
         "location_ref_id",
         "total_cumulative_progress_in_location",
+        "etools_indicator_id",
     )
     # per indicator, per report: the location values and the report-level fields
     per_report: dict[tuple[int, str], dict[str, dict[str, Any]]] = defaultdict(dict)
     for row in rows:
-        ident = (row["intervention_id"], norm(row["indicator"]))
+        ident = by_source.get((row["intervention_id"], str(row["etools_indicator_id"] or "")))
+        if ident is None:
+            ident = (row["intervention_id"], norm(row["indicator"]))
         if ident not in found:
             continue
         report = per_report[ident].setdefault(
@@ -393,6 +410,9 @@ def _attach_reports(found: dict[tuple[int, str], Indicator], filters: Filters, t
             totals = [combine(r["values"], r["method"]) for r in ordered]
             entry.cumulative = combine([t for t in totals if t is not None], "sum")
     for entry in found.values():
+        if not entry.reports:
+            entry.tracking, entry.achieved = NOT_REPORTED, None
+            continue
         result = tracking_between(entry.cumulative, entry.target, entry.pd.start, entry.pd.end, today)
         entry.tracking, entry.achieved = result.status, result.achieved
 
@@ -558,7 +578,7 @@ def map_points(filters: Filters, today: datetime.date | None = None) -> dict[str
     gazetteer = _gazetteer({p["id"] for p in places.values() if p["id"]})
     monitoring = _monitoring_at({pd for pd in pds}, {p["id"] for p in places.values() if p["id"]})
     points, unlocated = [], []
-    order = {"off_track": 0, "on_track": 1, "over_target": 2, "no_target": 3}
+    order = {"off_track": 0, "on_track": 1, "over_target": 2, "no_target": 3, NOT_REPORTED: 4}
     for place in places.values():
         counts = Counter(r["tracking"] for r in place["rows"])
         place.update(_place(place["id"], gazetteer))
@@ -699,7 +719,9 @@ def indicator_detail(
         ),
         None,
     )
-    reports_qs = dm.ReportedIndicator.objects.filter(intervention=pd, indicator__iexact=first.title)
+    reports_qs = dm.ReportedIndicator.objects.filter(intervention=pd).filter(
+        Q(etools_indicator_id=str(first.source_id or "")) | Q(indicator__iexact=first.title)
+    )
     periods: dict[str, dict[str, Any]] = {}
     by_location: dict[str, dict[str, Any]] = {}
     for row in reports_qs.filter(report_type=filters.report_type).order_by("period_end"):

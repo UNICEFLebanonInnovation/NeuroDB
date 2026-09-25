@@ -185,15 +185,36 @@ def test_report_type_location_tag_and_status_filters(data):
     assert [r.title for r in off] == [data["boys"]]
     everything = monitoring.indicators(monitoring.Filters(year=2026, scope="all"), today=TODAY)
     assert len(everything) == 3 and any(
-        r.tracking == "off_track" and r.title == "# of schools" for r in everything
+        r.tracking == "not_reported" and r.title == "# of schools" for r in everything
     )
+    silent = monitoring.indicators(
+        monitoring.Filters(year=2026, scope="all", status="not_reported"), today=TODAY
+    )
+    assert [r.title for r in silent] == ["# of schools"] and silent[0].achieved is None
+
+
+def test_reports_match_their_indicator_by_etools_id_before_title(data):
+    # PRP spells the title differently but carries the eTools indicator id of the girls indicator
+    dm.ReportedIndicator.objects.filter(indicator=data["girls"]).update(
+        indicator="# of girls reached (PRP wording)", etools_indicator_id="100"
+    )
+    rows = {r.title: r for r in monitoring.indicators(monitoring.Filters(year=2026), today=TODAY)}
+    assert rows[data["girls"]].reports == 2 and rows[data["girls"]].cumulative == 550.0
+    detail = monitoring.indicator_detail(data["pd"], "100", "QPR", 2026, today=TODAY)
+    assert len(detail["periods"]) == 2
 
 
 def test_summary_and_grouping(data):
     filters = monitoring.Filters(year=2026)
     rows = monitoring.indicators(filters, today=TODAY)
     data_ = monitoring.summary(rows, filters, today=datetime.date(2026, 11, 1))
-    assert data_["status_counts"] == {"on_track": 1, "off_track": 1, "over_target": 0, "no_target": 0}
+    assert data_["status_counts"] == {
+        "on_track": 1,
+        "off_track": 1,
+        "over_target": 0,
+        "no_target": 0,
+        "not_reported": 0,
+    }
     assert data_["overdue_reports"] == 1 and data_["programme_documents"] == 1 and data_["partners"] == 1
     groups = monitoring.grouped(rows)
     assert (

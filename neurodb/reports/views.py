@@ -763,7 +763,7 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
         "groups": pd_monitoring_service.grouped(list(page_obj.object_list)),
         "data": data,
         "months": pd_monitoring_service.MONTHS,
-        "labels": LABELS,
+        "labels": pd_monitoring_service.LABELS,
         "options": options,
         "selected": {
             key: request.GET.getlist(key)
@@ -804,7 +804,7 @@ def pd_monitoring_map(request: HttpRequest) -> HttpResponse:
             _crumb(_("Map")),
         ],
         "filters": filters,
-        "labels": LABELS,
+        "labels": pd_monitoring_service.LABELS,
         "options": options,
         "selected": {
             key: request.GET.getlist(key)
@@ -815,7 +815,7 @@ def pd_monitoring_map(request: HttpRequest) -> HttpResponse:
         "view": "map",
         "map_config": {
             "api": reverse("api:pd_map") + ("?" + params.urlencode() if params else ""),
-            "labels": LABELS,
+            "labels": pd_monitoring_service.LABELS,
             "partnerUrl": reverse("reports:partner_profile", args=[0]),
             "gridUrl": reverse("reports:pd_monitoring"),
         },
@@ -844,7 +844,7 @@ def pd_indicator(request: HttpRequest, pk: int, key: str) -> HttpResponse:
             _crumb(pd.number or pd.title),
             _crumb(title),
         ],
-        "labels": LABELS,
+        "labels": pd_monitoring_service.LABELS,
         "report_types": pd_monitoring_service.REPORT_TYPES,
         **detail,
     }

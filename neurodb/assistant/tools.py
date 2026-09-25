@@ -1163,14 +1163,18 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         "target, cumulative achievement, % achieved, on/off-track status (achievement vs share of the PD "
         "period elapsed), the partner's own assessment, and the value reported per month of the year "
         "(quarterly QPR by default, or monthly humanitarian HR reports). Filter by partner, PD number, "
-        "section, status (on_track, off_track, over_target, no_target), report type and year. Use it for "
+        "section, status (on_track, off_track, over_target, no_target, not_reported: no progress report read "
+        "yet), report type and year. Use it for "
         "'is partner X on track', 'which indicators are off track', 'what did the partner report in March'.",
         _schema(
             {
                 "partner": {"type": "string"},
                 "programme_document": {"type": "string"},
                 "section": {"type": "string"},
-                "status": {"type": "string", "enum": ["on_track", "off_track", "over_target", "no_target"]},
+                "status": {
+                    "type": "string",
+                    "enum": ["on_track", "off_track", "over_target", "no_target", "not_reported"],
+                },
                 "report_type": {"type": "string", "enum": ["QPR", "HR"]},
                 "year": {"type": "integer"},
                 "include_closed": {"type": "boolean"},

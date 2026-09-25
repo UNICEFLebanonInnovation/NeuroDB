@@ -3,8 +3,8 @@
 // The JSON comes from {{ chart_data|json_script:"chart-data" }}. Charts follow the light/dark theme.
 import { cssVar, isDark, loadScript, readJSON } from "./lib.js";
 
-const STATUS_ORDER = ["on_track", "over_target", "off_track", "no_target"];
-const STATUS_VARS = { on_track: "--nd-success", over_target: "--nd-warning", off_track: "--nd-danger", no_target: "--nd-neutral" };
+const STATUS_ORDER = ["on_track", "over_target", "off_track", "no_target", "not_reported"];
+const STATUS_VARS = { on_track: "--nd-success", over_target: "--nd-warning", off_track: "--nd-danger", no_target: "--nd-neutral", not_reported: "--nd-muted" };
 const PALETTE = ["#446ab3", "#5ba4d9", "#16865a", "#f0b04a", "#c63b3b", "#7c5cc4", "#00a3a3", "#e27d27", "#5b6778", "#9bc53d"];
 const NATIONALITY = { LEB: "Lebanese", SYR: "Syrian", PRS: "Palestinian (Syria)", PRL: "Palestinian (Lebanon)", OTH: "Other", ALL: "All" };
 

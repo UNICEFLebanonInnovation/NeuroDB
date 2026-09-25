@@ -3,8 +3,8 @@
 import { asset, cssVar, escapeHTML, fetchJSON, fmt, loadScript, loadStyle, readJSON } from "./lib.js";
 
 const LEBANON = { center: [35.86, 33.87], zoom: 7.3 };
-const STATUS_VARS = { off_track: "--nd-danger", on_track: "--nd-success", over_target: "--nd-warning", no_target: "--nd-muted" };
-const FALLBACK = { off_track: "#c0392b", on_track: "#1e8449", over_target: "#d68910", no_target: "#7f8c8d" };
+const STATUS_VARS = { off_track: "--nd-danger", on_track: "--nd-success", over_target: "--nd-warning", no_target: "--nd-neutral", not_reported: "--nd-muted" };
+const FALLBACK = { off_track: "#c0392b", on_track: "#1e8449", over_target: "#d68910", no_target: "#7f8c8d", not_reported: "#95a5a6" };
 
 function styleSpec() {
   return {
@@ -17,7 +17,7 @@ function styleSpec() {
 }
 
 const color = (status) => cssVar(STATUS_VARS[status]) || FALLBACK[status] || FALLBACK.no_target;
-const VARIANTS = { on_track: "success", off_track: "danger", over_target: "warning", no_target: "neutral" };
+const VARIANTS = { on_track: "success", off_track: "danger", over_target: "warning", no_target: "neutral", not_reported: "neutral" };
 const pill = (status, label) =>
   `<span class="pill pill--${VARIANTS[status] || "neutral"} pill--sm" data-status="${escapeHTML(status)}"><span class="pill__dot" aria-hidden="true"></span>${escapeHTML(label || status)}</span>`;
 const num = (v, digits = 0) => (v === null || v === undefined || v === "" ? "—" : fmt(Number(v).toFixed(digits)));
@@ -105,7 +105,7 @@ function kpis(data) {
   const box = document.querySelector("[data-pdmap-kpis]");
   if (!box) return;
   const t = data.totals;
-  const values = [t.locations, t.indicators, t.programme_documents, t.partners, t.status_counts.on_track || 0, t.status_counts.off_track || 0];
+  const values = [t.locations, t.indicators, t.programme_documents, t.partners, t.status_counts.on_track || 0, t.status_counts.off_track || 0, t.status_counts.not_reported || 0];
   box.querySelectorAll(".kpi__value").forEach((el, i) => { el.textContent = fmt(values[i] ?? 0); });
 }
 
