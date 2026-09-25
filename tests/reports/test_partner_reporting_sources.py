@@ -39,6 +39,16 @@ def test_partner_filter_in_the_fact_queries(linked):
     assert queries.master_monthly_values(f) == {linked["master"].id: {"01": 150.0}}
     assert [(m["month"], float(m["value"])) for m in queries.monthly_totals(f)] == [("Jan", 150.0)]
     assert [s["name"] for s in queries.sites(f)] == ["Site Beirut"]
+    plain = FactFilter(database_id=db.id)
+    assert [s["name"] for s in queries.sites(plain, partner="Partner B")] == ["Site Akkar"]
+    assert [a["name"] for a in queries.interventions_by_area(plain, "governorate", partner="Partner B")] == [
+        "Akkar"
+    ]
+    from neurodb.facts.services import dashboard
+
+    assert [s["name"] for s in dashboard.map_data(db, "site", partner="Partner A")["sites"]] == [
+        "Site Beirut"
+    ]
     assert queries.partner_activity(["Partner A", "Partner B"])[0]["records"] == 4
     assert queries.partner_activity([]) == []
 
@@ -52,6 +62,9 @@ def test_partner_page_shows_both_sources(client_viewer, linked):
     assert reverse("reports:partner_activityinfo", args=[a.id, linked["database"].id]) in text
     assert response.context["activityinfo"]["labels"] == ["Partner A"]
     assert response.context["activityinfo"]["databases"][0]["records"] == 2
+    assert response.context["activityinfo"]["databases"][0]["map_url"].endswith(
+        "?level=site&partner=Partner+A"
+    )
     assert response.context["chart_data"]["activityinfo_by_year"] == [("2026", 2)]
     assert 'href="' + reverse("reports:pd_monitoring") + "?partner=" in text
 
@@ -63,6 +76,8 @@ def test_partner_activityinfo_modal_and_page(client_viewer, linked):
     assert "Children reached (total)" in modal.text and "Jan" in modal.text and "Site Beirut" in modal.text
     row = next(i for i in modal.context["data"]["indicators"] if i["label"] == "Children reached (total)")
     assert (row["value"], row["total"], row["share"], row["months"]) == (150.0, 500.0, 30.0, {"01": 150.0})
+    ratio = next(i for i in modal.context["data"]["indicators"] if i["label"] == "Share of girls")
+    assert ratio["share"] is None and round(ratio["value"], 1) == 33.3  # a ratio is not a part of a whole
     page = client_viewer.get(url)
     assert page.status_code == 200 and "<html" in page.text
     nothing = client_viewer.get(
@@ -74,15 +89,23 @@ def test_partner_activityinfo_modal_and_page(client_viewer, linked):
 def test_unlinked_partner_page_and_snapshot_links(client_viewer, linked):
     PartnerLink.objects.filter(label="Partner B").update(partner=None, method="")
     text = client_viewer.get(reverse("reports:partner_profile", args=[linked["b"].id])).text
-    assert "No ActivityInfo record is linked to this partner" in text
+    assert "No ActivityInfo record is linked to this partner" in text and "names matched" in text
+    assert "Edit the link" not in text  # viewers cannot change the links
     snapshot = client_viewer.get(reverse("reports:database_snapshot", args=[linked["database"].id])).text
     assert reverse("reports:partner_profile", args=[linked["a"].id]) in snapshot  # Partner A is linked
     assert reverse("reports:partner_profile", args=[linked["b"].id]) not in snapshot
 
 
 def test_partner_list_shows_the_reporting_sources(client_viewer, linked):
+    from neurodb.datamart.models import ReportedIndicator
+
     text = client_viewer.get(reverse("reports:partners")).text
-    assert "ActivityInfo · 2" in text and "Reporting" in text
+    assert "ActivityInfo · 2" in text and "Reporting" in text and ">eTools<" not in text
+    ReportedIndicator.objects.create(
+        datamart_id=1, partner=linked["a"], progress_report="PR-1", indicator="x"
+    )
+    text = client_viewer.get(reverse("reports:partners")).text
+    assert ">eTools<" in text
 
 
 def test_sidebar_separates_the_two_reporting_systems(client_viewer, linked):
@@ -105,6 +128,8 @@ def test_assistant_partner_details_and_activityinfo_tool(linked):
         tools.run("partner_activityinfo", {"partner": "nobody"})
     empty = tools.run("partner_activityinfo", {"partner": "Partner B", "year": 2019})
     assert empty["databases"] == []
+    assert tools.run("partner_activityinfo", {"partner": "Partner A", "database": "child"})["databases"]
+    assert tools.run("partner_activityinfo", {"partner": "Partner A", "database": "wash"})["databases"] == []
 
 
 def test_activityinfo_partner_rows_fold_the_amendment_suffix(linked):

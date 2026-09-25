@@ -171,7 +171,7 @@ def map_data(database: Database, level: str = "governorate", **filters: str) -> 
     areas = queries.interventions_by_area(f, level, **filters) if level != "site" else []
     for a in areas:
         a["value"] = float(a["value"]) if a["value"] is not None else 0.0
-    site_rows = queries.sites(f) if level == "site" else []
+    site_rows = queries.sites(f, **filters) if level == "site" else []
     for s in site_rows:
         s["value"] = float(s["value"]) if s["value"] is not None else 0.0
     return {

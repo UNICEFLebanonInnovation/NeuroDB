@@ -86,8 +86,11 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
         ],
     ),
     (
-        _("Partnerships (eTools, read-only)"),
-        _("Replicated from eTools every night; edit them in eTools."),
+        _("Partnerships (eTools)"),
+        _(
+            "Replicated from eTools every night; edit them in eTools. The ActivityInfo partner links are "
+            "the exception: they are set here."
+        ),
         [
             "etools.PartnerOrganization",
             "etools.PartnerLink",

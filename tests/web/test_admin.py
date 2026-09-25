@@ -38,7 +38,7 @@ def test_dashboard_shows_groups_tiles_and_warnings(client_super, hierarchy):
 
     assert response.status_code == 200
     html = response.content.decode()
-    for group in ("Reporting setup", "Users and access", "Data and sync", "Partnerships (eTools, read-only)"):
+    for group in ("Reporting setup", "Users and access", "Data and sync", "Partnerships (eTools)"):
         assert group in html
     assert 'id="group-reporting-setup"' in html
     assert "Active master indicators" in html

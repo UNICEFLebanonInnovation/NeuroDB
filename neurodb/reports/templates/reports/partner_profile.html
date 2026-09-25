@@ -51,7 +51,7 @@
     {% else %}
     <p class="small text-muted">{% trans "No ActivityInfo record is linked to this partner." %}{% if not activityinfo.labels %} {% trans "Its ActivityInfo name may differ from the eTools name: an administrator can set the link." %}{% endif %}</p>
     {% endif %}
-    <p class="small mb-2">{% trans "Reported in ActivityInfo as" %}: {% for l in activityinfo.labels %}<span class="chip">{{ l }}</span> {% empty %}<span class="text-muted">—</span>{% endfor %}{% if user.is_staff %} <a href="{% url 'admin:etools_partnerlink_changelist' %}?partner__id__exact={{ partner.id }}">{% trans "Edit the link" %}</a>{% endif %}</p>
+    <p class="small mb-2">{% trans "Reported in ActivityInfo as" %}: {% for l in activityinfo.labels %}<span class="chip">{{ l }}</span> {% empty %}<span class="text-muted">—</span>{% endfor %}{% if perms.etools.change_partnerlink %} <a href="{% url 'admin:etools_partnerlink_changelist' %}?partner__id__exact={{ partner.id }}">{% trans "Edit the link" %}</a>{% endif %}<span class="text-muted"> · {% if activityinfo.link_run %}{% blocktrans with when=activityinfo.link_run.finished_at|date:"j M Y H:i" %}names matched {{ when }}{% endblocktrans %}{% else %}{% trans "names not matched yet" %}{% endif %}</span></p>
     <h4 class="small text-muted mb-1">{% trans "Activity records per year" %}</h4>
     <div class="chart" data-module="charts" data-chart="bars" data-orientation="v" data-key="activityinfo_by_year" data-height="150" data-empty-title="{% trans 'No ActivityInfo records' %}"></div>
   </section>

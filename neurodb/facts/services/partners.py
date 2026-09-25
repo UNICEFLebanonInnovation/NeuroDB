@@ -11,6 +11,7 @@ from collections import defaultdict
 from typing import Any
 
 from django.urls import reverse
+from django.utils.http import urlencode
 
 from neurodb.facts import queries
 from neurodb.facts.queries import MONTH_LABELS
@@ -57,9 +58,10 @@ def partner_activityinfo(partner: PartnerOrganization) -> dict[str, Any]:
                 "last_month": r["last_month"] or "",
                 "pds": int(r["pds"] or 0),
                 "url": reverse("reports:partner_activityinfo", args=[partner.id, database.id]),
+                # the map filters on one partner name: the one with the most records
                 "map_url": reverse("reports:database_map", args=[database.id])
-                + "?level=site&partner="
-                + "&partner=".join(labels),
+                + "?level=site&"
+                + urlencode({"partner": labels[0]}),
             }
         )
     items.sort(key=lambda i: (i["year"], i["section"], i["database"].name), reverse=True)
@@ -77,7 +79,7 @@ def partner_database_indicators(partner: PartnerOrganization, database: Database
     """The master indicators of ``database`` with the partner's value, the database total and months."""
     labels = linking.partner_labels(partner)
     f = fact_filter(database, partner_labels=tuple(labels))
-    totals = {r["id"]: _float(r["value"]) for r in queries.master_indicator_values(fact_filter(database))}
+    totals = {r["id"]: r for r in queries.master_indicator_values(fact_filter(database))}
     monthly = queries.master_monthly_values(f)
     months_used: set[str] = set()
     indicators = []
@@ -85,8 +87,19 @@ def partner_database_indicators(partner: PartnerOrganization, database: Database
         value = _float(r["value"])
         if value is None and not monthly.get(r["id"]):
             continue
-        total = totals.get(r["id"])
-        by_month = monthly.get(r["id"], {})
+        method = r["aggregation_method"] or "SUM"
+        whole = totals.get(r["id"], {})
+        total = _float(whole.get("value"))
+        # a share of the database only means something for additive masters: sums of values, or
+        # counts of records (a ratio, an average or a maximum of one partner is not a part of a whole)
+        by_month = monthly.get(r["id"], {}) if method != "COUNT" else {}
+        if method == "SUM":
+            share = round(value * 100 / total, 1) if value is not None and total else None
+        elif method == "COUNT":
+            total_reports = int(whole.get("reports") or 0)
+            share = round(int(r["reports"] or 0) * 100 / total_reports, 1) if total_reports else None
+        else:
+            share = None
         months_used.update(by_month)
         indicators.append(
             {
@@ -94,10 +107,10 @@ def partner_database_indicators(partner: PartnerOrganization, database: Database
                 "label": r["label"],
                 "awp_code": r["awp_code"] or "",
                 "unit": r.get("unit"),
-                "aggregation_method": r["aggregation_method"] or "SUM",
+                "aggregation_method": method,
                 "value": value,
                 "total": total,
-                "share": round(value * 100 / total, 1) if value is not None and total else None,
+                "share": share,
                 "target": _float(r["target"]) if r["target"] else None,
                 "reports": int(r["reports"] or 0),
                 "months": by_month,

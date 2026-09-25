@@ -278,19 +278,27 @@ def interventions_by_area(f: FactFilter, level: str, **filters: str) -> list[dic
     filters: partner, pd, month, governorate, district.
     """
     code_col, name_col = _AREA_COLUMNS[level]
-    extra, params = f.record_sql()
-    mapping = {
-        "partner": "r.partner_label",
-        "pd": "r.project_label",
-        "month": "substring(r.month_name from 6 for 2)",
-        "governorate": "r.location_adminlevel_governorate",
-        "district": "r.location_adminlevel_caza",
-    }
-    for key, value in filters.items():
-        if key in mapping and value:
-            extra += f" AND {mapping[key]} = %({key})s"
-            params[key] = value
+    extra, params = _record_where(f, filters)
     return _rows(_AREA_SQL.format(code_col=code_col, name_col=name_col, extra=extra), params)
+
+
+_EXACT_FILTERS = {
+    "partner": "r.partner_label",
+    "pd": "r.project_label",
+    "month": "substring(r.month_name from 6 for 2)",
+    "governorate": "r.location_adminlevel_governorate",
+    "district": "r.location_adminlevel_caza",
+}
+
+
+def _record_where(f: FactFilter, filters: dict[str, str]) -> tuple[str, dict[str, Any]]:
+    """The record-only clauses of ``f`` plus the optional exact-match filters of the map pages."""
+    extra, params = f.record_sql()
+    for key, value in filters.items():
+        if key in _EXACT_FILTERS and value:
+            extra += f" AND {_EXACT_FILTERS[key]} = %({key})s"
+            params[key] = value
+    return extra, params
 
 
 _SITES_SQL = """
@@ -303,9 +311,12 @@ GROUP BY r.location_name
 """
 
 
-def sites(f: FactFilter) -> list[dict[str, Any]]:
-    """Intervention sites with coordinates (strings in v2; converted to floats where possible)."""
-    extra, params = f.record_sql()
+def sites(f: FactFilter, **filters: str) -> list[dict[str, Any]]:
+    """Intervention sites with coordinates (strings in v2; converted to floats where possible).
+
+    Takes the same optional exact-match filters as :func:`interventions_by_area`.
+    """
+    extra, params = _record_where(f, filters)
     rows = _rows(_SITES_SQL.format(extra=extra), params)
     for row in rows:
         for key in ("latitude", "longitude"):

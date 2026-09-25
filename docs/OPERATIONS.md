@@ -113,8 +113,8 @@ Container Apps cron is **UTC**; Beirut is UTC+3 in summer and UTC+2 in winter.
 | `etools` | `manage sync_etools_datamart` | `30 17 * * *` | 20:30 daily |
 | `freshness` | `manage check_sync_freshness` | `15 * * * *` | hourly; a stale source fails the run |
 | `ai-structure` | `manage import_activityinfo_structure --all` | manual | after yearly rollover |
-| (in `ai-data` and `etools`) | `manage link_partners` | runs at the end of both jobs | ActivityInfo → eTools partner links |
-| `migrate` | `migrate` (then `bootstrap_roles`) | manual, run by the pipeline | |
+| (in `ai-data` and `etools`) | `manage link_partners` | runs at the end of both jobs (the `etools` job only when partners or programme documents were synced) | ActivityInfo → eTools partner links |
+| `migrate` | `migrate` (then `bootstrap_roles` and `link_partners`) | manual, run by the pipeline | |
 
 Run one now: `az containerapp job start -n <prefix>-<job> -g <resource group>`.
 Every run writes a `SyncRun` row (admin → Core → Sync runs; page `/data/health/`), and the job's
@@ -221,21 +221,25 @@ history per year and database on the other (each database opens the partner's ma
 month; *map* shows its sites).
 
 The bridge is the table *ActivityInfo partner links* (admin → Partnerships): one row per partner
-name found in the activity records (`partner_label`), pointing at the eTools partner. It is
-refreshed by `manage link_partners`, which the ActivityInfo import and the eTools sync run at the
-end (job `partner_links` in the sync runs), and by **Match ActivityInfo partners now** on that
-admin page. A name is linked, in this order, by
+name found in the activity records (`partner_label`, exactly as spelled there), pointing at the
+eTools partner. It is refreshed by `manage link_partners`, which `migrate_locked` runs at every
+start, the ActivityInfo import and the eTools sync run at their end (job `partner_links` in the
+sync runs; a failure there is recorded on that run and does not stop the import), and by **Match
+ActivityInfo partners now** on that admin page. A name is linked, in this order, by
 
-1. a link **set by hand** in the admin (kept across every refresh; clearing the partner keeps the
-   row unlinked);
+1. a decision **taken by hand** in the admin: a partner, or the partner cleared to keep the name
+   unlinked — both survive every refresh;
 2. the **same name** as an eTools partner's name, short name or alternate name — case, accents,
    underscores, dashes and punctuation ignored, and only when a single partner carries the name;
 3. the **programme document** number the records carry (`project_label`, the part before the
-   amendment suffix): the partner of the PD under which most of the name's records fall.
+   amendment suffix): the partner of the PD under which most of the name's records fall. When two
+   partners' PDs tie, the name stays unlinked and the run lists it under `ambiguous_examples`.
 
-The run's `details` count each method and list up to 20 names left unlinked; fix those by hand
-(the partner list shows, per partner, whether it reports in eTools and how many ActivityInfo
-records are linked). `UNICEF` as a partner name is ignored.
+Partners deleted in eTools are never linked to. Names that no longer appear in the records lose
+their automatic row (a hand-made row stays, with zero records). The run's `details` count each
+method and list up to 20 names left unlinked; fix those by hand (the partner list shows, per
+partner, whether it reports in eTools and how many ActivityInfo records are linked). `UNICEF` as a
+partner name is ignored.
 
 ### Every other endpoint: kept whole for the AI assistant
 All the other country-level endpoints are stored record by record in `datamart.DatamartDocument`

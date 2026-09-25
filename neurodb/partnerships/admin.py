@@ -108,7 +108,15 @@ class PartnerLinkAdmin(ModelAdmin):
     list_filter = ("method", ("partner", admin.EmptyFieldListFilter))
     search_fields = ("label", "partner__name", "partner__short_name", "partner__vendor_number")
     autocomplete_fields = ("partner",)
-    readonly_fields = ("method", "records", "first_month", "last_month", "database_ids", "updated_at")
+    readonly_fields = (
+        "label",
+        "method",
+        "records",
+        "first_month",
+        "last_month",
+        "database_ids",
+        "updated_at",
+    )
     list_per_page = 100
     ordering = ("partner", "label")
 
@@ -121,8 +129,8 @@ class PartnerLinkAdmin(ModelAdmin):
         return False
 
     def save_model(self, request, obj, form, change):
-        if "partner" in form.changed_data:  # a hand-picked partner (or none) sticks across re-runs
-            obj.method = PartnerLink.Method.MANUAL if obj.partner_id else PartnerLink.Method.NONE
+        if "partner" in form.changed_data:  # a hand-picked partner, or none at all, sticks across re-runs
+            obj.method = PartnerLink.Method.MANUAL
         super().save_model(request, obj, form, change)
 
     def has_relink_permission(self, request):
@@ -137,20 +145,25 @@ class PartnerLinkAdmin(ModelAdmin):
     def relink(self, request):
         run = link_activityinfo_partners(triggered_by=request.user.get_username())
         d = run.details
-        messages.success(
-            request,
-            _(
-                "%(labels)s ActivityInfo partner names: %(name)s linked by name, %(pd)s by programme "
-                "document, %(manual)s set by hand, %(unlinked)s not linked."
+        if run.status == run.Status.FAILED:
+            messages.error(request, _("The matching failed: %(error)s") % {"error": run.error[:300]})
+        else:
+            messages.success(
+                request,
+                _(
+                    "%(labels)s ActivityInfo partner names: %(name)s linked by name, %(pd)s by programme "
+                    "document, %(manual)s set by hand, %(unlinked)s not linked (%(ambiguous)s between "
+                    "several partners' programme documents)."
+                )
+                % {
+                    "labels": d["labels"],
+                    "name": d["linked_by_name"],
+                    "pd": d["linked_by_pd"],
+                    "manual": d["set_by_hand"],
+                    "unlinked": d["unlinked"],
+                    "ambiguous": d["ambiguous"],
+                },
             )
-            % {
-                "labels": d["labels"],
-                "name": d["linked_by_name"],
-                "pd": d["linked_by_pd"],
-                "manual": d["set_by_hand"],
-                "unlinked": d["unlinked"],
-            },
-        )
         url = reverse("admin:etools_partnerlink_changelist")
         if request.headers.get("HX-Request"):
             response = HttpResponse(status=204)
