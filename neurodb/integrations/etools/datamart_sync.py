@@ -1296,18 +1296,19 @@ def relink_locations() -> dict[str, int]:
         for table, column, id_column, pcode_column in _RELINK:
             n = 0
             if id_column:
-                by_id = (  # identifiers come from the tuple above, never from input
-                    f"UPDATE {table} t SET {column} = l.id FROM locations_location l "
+                # identifiers come from the tuple above, never from input
+                by_id = (
+                    f"UPDATE {table} t SET {column} = l.id FROM locations_location l "  # noqa: S608
                     f"WHERE t.{column} IS NULL AND t.{id_column} = l.id"
                 )
-                cursor.execute(by_id)  # noqa: S608
+                cursor.execute(by_id)
                 n += cursor.rowcount
             by_pcode = (
-                f"UPDATE {table} t SET {column} = l.id FROM locations_location l "
+                f"UPDATE {table} t SET {column} = l.id FROM locations_location l "  # noqa: S608
                 f"WHERE t.{column} IS NULL AND t.{pcode_column} <> '' "
                 f"AND upper(l.p_code) = upper(t.{pcode_column})"
             )
-            cursor.execute(by_pcode)  # noqa: S608
+            cursor.execute(by_pcode)
             n += cursor.rowcount
             if n:
                 counts[table.removeprefix("datamart_")] = n
