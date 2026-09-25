@@ -143,7 +143,7 @@ export async function init(el) {
   if (search) search.addEventListener("input", () => fillTable(tbody, data.points, pick, search.value));
 
   map.on("load", () => {
-    const max = Math.max(1, ...data.points.map((p) => p.indicators));
+    const max = Math.max(2, ...data.points.map((p) => p.indicators)); // interpolate stops must ascend strictly
     const features = data.points.map((p) => ({
       type: "Feature",
       geometry: { type: "Point", coordinates: [p.longitude, p.latitude] },

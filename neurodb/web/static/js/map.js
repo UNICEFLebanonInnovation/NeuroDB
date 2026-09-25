@@ -68,7 +68,7 @@ export async function init(el) {
   const rows = config.level === "site" ? data.sites : data.areas;
   fillTable(tbody, rows, config.level);
   if (totals) totals.textContent = `${fmt(data.totals.interventions)} interventions · ${fmt(config.level === "site" ? data.totals.sites : data.totals.areas)} ${config.level === "site" ? "sites" : "areas"}`;
-  const max = Math.max(1, ...rows.map((r) => Number(r.interventions) || 0));
+  const max = Math.max(2, ...rows.map((r) => Number(r.interventions) || 0)); // interpolate stops must ascend strictly
   if (legend) {
     legend.querySelector("[data-legend-max]").textContent = fmt(max);
     legend.hidden = false;
