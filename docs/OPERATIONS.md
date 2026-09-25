@@ -114,7 +114,7 @@ Container Apps cron is **UTC**; Beirut is UTC+3 in summer and UTC+2 in winter.
 | `freshness` | `manage check_sync_freshness` | `15 * * * *` | hourly; a stale source fails the run |
 | `ai-structure` | `manage import_activityinfo_structure --all` | manual | after yearly rollover |
 | (in `ai-data` and `etools`) | `manage link_partners` | runs at the end of both jobs (the `etools` job only when partners or programme documents were synced) | ActivityInfo → eTools partner links |
-| `migrate` | `migrate` (then `bootstrap_roles` and `link_partners`) | manual, run by the pipeline | |
+| `migrate` | `migrate` (then `bootstrap_roles`, which also gives the Administrator group every model permission so new tables show in the admin, and `link_partners`) | manual, run by the pipeline | |
 
 Run one now: `az containerapp job start -n <prefix>-<job> -g <resource group>`.
 Every run writes a `SyncRun` row (admin → Core → Sync runs; page `/data/health/`), and the job's

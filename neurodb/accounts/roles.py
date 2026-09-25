@@ -1,6 +1,6 @@
 """Role model: three groups created by a data migration and checked by mixins/permissions."""
 
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import Group, Permission
 
 VIEWER = "Viewer"
 SECTION_EDITOR = "Section editor"
@@ -19,7 +19,15 @@ def role_of(user):
 
 
 def ensure_groups():
-    return {name: Group.objects.get_or_create(name=name)[0] for name in ALL_ROLES}
+    """Create the three role groups and give Administrators every model permission.
+
+    The admin lists a model only for users holding its permissions, so without this an
+    Administrator who is not a superuser would not see a table added by a deployment. Runs at
+    every start (``bootstrap_roles``), so the grant follows the models.
+    """
+    groups = {name: Group.objects.get_or_create(name=name)[0] for name in ALL_ROLES}
+    groups[ADMIN].permissions.set(Permission.objects.all())
+    return groups
 
 
 def can_edit_section(user, section_id):

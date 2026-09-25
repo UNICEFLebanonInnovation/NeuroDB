@@ -205,6 +205,18 @@ def test_only_users_who_may_change_links_can_rematch(
     assert SyncRun.objects.filter(job=SyncRun.Job.PARTNER_LINKS).count() == 1
 
 
+def test_an_administrator_sees_and_edits_the_links_without_being_a_superuser(
+    database, partners, client, admin_user
+):
+    record(database, "Amel_Association")
+    linking.link_activityinfo_partners()
+    client.force_login(admin_user)  # Administrator group, not a superuser
+    index = client.get(reverse("admin:index"))
+    assert index.status_code == 200 and "ActivityInfo partner links" in index.text
+    assert client.get(reverse("admin:etools_partnerlink_changelist")).status_code == 200
+    assert client.get(reverse("admin:etools_partnerlink_relink")).status_code == 302
+
+
 def test_a_name_two_partners_share_is_not_used(database, partners):
     PartnerOrganization.objects.create(
         etl_id="4", name="Amel Association", short_name="AMEL2", partner_type="CSO", vendor_number="V4"
