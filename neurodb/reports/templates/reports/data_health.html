@@ -22,6 +22,21 @@
     </table></div>
   </section>
   <section class="panel p-0">
+    {% include "components/table_toolbar.html" with title=_("eTools Datamart datasets") count=health.datasets|length table_id="datasets" %}
+    <p class="small text-muted px-3 mb-2">{% trans "Per dataset: the last run, the records read and written, what could not be linked (a partner, programme document or location not in NeuroDB yet), and the rows NeuroDB holds. Read this before trusting a number on an eTools page." %}</p>
+    <div class="table-wrap" style="max-height: 560px"><table class="table table-sm" id="datasets">
+      <thead><tr><th>{% trans "Dataset" %}</th><th>{% trans "Last run" %}</th><th class="num">{% trans "Read / written" %}</th><th class="num">{% trans "Failed" %}</th><th>{% trans "Not linked" %}</th><th class="num">{% trans "Rows" %}</th></tr></thead>
+      <tbody>{% for d in health.datasets %}<tr>
+        <td><span class="mono">{{ d.name }}</span>{% if d.empty_response %}<span class="cell-sub text-warning">{% trans "the Datamart returned nothing: check the country name" %}</span>{% endif %}{% for e in d.errors %}<span class="cell-sub text-danger">{{ e.count }} × {{ e.error|truncatechars:100 }}</span>{% endfor %}</td>
+        <td>{% if d.run %}{% status_pill d.run.status d.run.get_status_display "sm" %}<span class="cell-sub" title="{{ d.run.started_at }}">{{ d.run.started_at|naturaltime }}</span>{% else %}{% trans "Never" as never %}{% status_pill "unknown" never "sm" %}{% endif %}</td>
+        <td class="num small">{% if d.run %}{{ d.run.rows_in|number }} / {{ d.run.rows_written|number }}{% if d.removed %}<span class="cell-sub">{% blocktrans with n=d.removed %}{{ n }} removed{% endblocktrans %}</span>{% endif %}{% else %}—{% endif %}</td>
+        <td class="num small{% if d.run and d.run.rows_failed %} text-danger{% endif %}">{% if d.run %}{{ d.run.rows_failed|number }}{% else %}—{% endif %}</td>
+        <td class="small">{% if d.not_linked_total %}<span class="text-warning">{{ d.not_linked_total|number }}</span><span class="cell-sub">{% for k, v in d.not_linked.items %}{{ k|code_label }} {{ v }}{% if not forloop.last %} · {% endif %}{% endfor %}</span>{% else %}—{% endif %}</td>
+        <td class="num">{% if d.rows is not None %}{{ d.rows|number }}{% else %}—{% endif %}</td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+  <section class="panel p-0">
     {% include "components/table_toolbar.html" with title=_("Recent runs") count=health.runs|length table_id="runs" %}
     <div class="table-wrap" style="max-height: 560px"><table class="table" id="runs">
       <thead><tr><th>{% trans "Job" %}</th><th>{% trans "Status" %}</th><th>{% trans "Started" %}</th><th class="num">{% trans "Rows" %}</th></tr></thead>

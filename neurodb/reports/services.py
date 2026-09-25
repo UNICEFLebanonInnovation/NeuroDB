@@ -221,7 +221,9 @@ def data_health() -> dict[str, Any]:
                 "state_label": _("Never imported") if last is None else (_("Stale") if stale else _("Fresh")),
             }
         )
+    datasets = datamart_quality()
     return {
+        "datasets": datasets,
         "jobs": jobs,
         "runs": list(SyncRun.objects.order_by("-started_at")[:50]),
         "databases": databases,
@@ -229,6 +231,55 @@ def data_health() -> dict[str, Any]:
         "stale_database_days": STALE_DATABASE_DAYS,
         "year": year,
     }
+
+
+LEGACY_TABLES = {
+    "partners": "etools.PartnerOrganization",
+    "interventions": "etools.PCA",
+    "intervention_budgets": "etools.PCA",
+    "agreements": "etools.Agreement",
+    "locations": "locations.Location",
+    "location_sites": "datamart.MonitoringSite",
+}
+
+
+def datamart_quality() -> list[dict[str, Any]]:
+    """Per eTools Datamart dataset: the last run, what it read, wrote, failed to link, and how many
+    rows NeuroDB holds — the table to read before believing a number on an eTools page."""
+    from django.apps import apps
+
+    from neurodb.datamart import query as dmq
+    from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
+
+    last_by_target: dict[str, SyncRun] = {}
+    for run in SyncRun.objects.filter(job=SyncRun.Job.ETOOLS_DATAMART).order_by("-started_at"):
+        last_by_target.setdefault(run.target, run)
+    rows = []
+    for name in ENTITY_SYNCS:
+        run = last_by_target.get(name)
+        details = (run.details or {}) if run else {}
+        if name in LEGACY_TABLES:
+            count = apps.get_model(LEGACY_TABLES[name]).objects.count()
+        else:
+            try:
+                count = dmq.dataset(name).base.count()
+            except Exception:  # a dataset without a table of its own
+                count = None
+        not_linked = details.get("not_linked") or {}
+        rows.append(
+            {
+                "name": name,
+                "run": run,
+                "rows": count,
+                "not_linked": not_linked,
+                "not_linked_total": sum(int(v) for v in not_linked.values()),
+                "removed": details.get("removed"),
+                "empty_response": bool(details.get("empty_response")),
+                "errors": (details.get("errors") or [])[:3],
+                "relinked": details.get("relinked"),
+            }
+        )
+    return rows
 
 
 def health_as_dict(health: dict[str, Any]) -> dict[str, Any]:

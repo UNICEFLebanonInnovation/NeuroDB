@@ -181,6 +181,24 @@ replaced by a complete read (rows the Datamart no longer returns are deleted), e
 Datamart returns nothing at all (`details.empty_response`), which usually means a wrong country name.
 The admin shows these tables read-only under *eTools Datamart*.
 
+### Data quality per dataset
+
+`/data/health/` lists every Datamart dataset with its last run, records read and written, records
+that failed, records whose partner, programme document or location is not in NeuroDB yet
+(`not_linked`, per kind), rows removed because the Datamart no longer returns them, and the rows
+NeuroDB holds. Read it before trusting a number on an eTools page; a dataset with many "not
+linked" records or an "empty response" is the first thing to fix.
+
+### Recording real records as test fixtures
+
+The sync tests were written from the Swagger; production has shown shapes the Swagger did not.
+`python manage.py record_datamart_samples [--limit 25] [--only a,b]` reads a few records of every
+dataset from the live Datamart (same credentials as the sync), removes contact details and writes
+them to `tests/fixtures/datamart/<dataset>.json`; commit the files. The test
+`tests/integrations/test_recorded_samples.py` replays every recorded file through its sync and
+fails when a record cannot be written, so a Datamart change is caught by the test suite rather than
+by the nightly job. Re-record after a Datamart release.
+
 ### When a run says "Succeeded with errors"
 Open the run: **Why rows failed** lists each error message with the number of records it hit and a
 few of their ids (every record is also in the container log). Two causes to know:

@@ -180,7 +180,18 @@ def test_resource_pages(client_viewer, library, population, reporting_year):
 
 def test_health_and_search(client_viewer, hierarchy):
     SyncRun.objects.create(job=SyncRun.Job.ETOOLS, status=SyncRun.Status.FAILED, error="timeout")
-    _get(client_viewer, reverse("reports:data_health"))
+    SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART,
+        target="pd_indicators",
+        status=SyncRun.Status.SUCCEEDED,
+        rows_in=120,
+        rows_written=118,
+        rows_failed=2,
+        details={"not_linked": {"programme_document": 7, "location": 3}, "removed": 4},
+    )
+    health = _get(client_viewer, reverse("reports:data_health")).content.decode()
+    assert "pd_indicators" in health and "120 / 118" in health and "4 removed" in health
+    assert "Programme document 7" in health and "Location 3" in health
     html = _get(client_viewer, reverse("reports:search") + "?q=children").content.decode()
     assert "Children reached (total)" in html
     partial = _get(
