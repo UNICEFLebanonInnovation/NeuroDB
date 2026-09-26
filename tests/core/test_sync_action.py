@@ -65,13 +65,59 @@ def test_missing_credentials_are_explained_and_nothing_starts(admin_client, star
     assert started == [] and "ETOOLS_USERNAME" in response.text
 
 
-def test_a_running_sync_is_not_started_twice(admin_client, started, credentials):
+def test_a_running_sync_is_not_started_twice(admin_client, started, credentials, monkeypatch):
+    monkeypatch.setattr(background, "datamart_lock_is_held", lambda: True)  # its process is alive
     SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="partners", status=SyncRun.Status.RUNNING)
     response = admin_client.post(reverse(URL), {"_form_submitted": "on", "scope": "core"}, follow=True)
     assert started == [] and "already running" in response.text
     SyncRun.objects.update(started_at=timezone.now() - datetime.timedelta(hours=5))  # cut off long ago
     admin_client.post(reverse(URL), {"_form_submitted": "on", "scope": "core"})
     assert len(started) == 1
+
+
+def test_a_run_whose_process_died_is_closed_and_the_next_sync_starts(
+    admin_client, started, credentials, monkeypatch
+):
+    """A deployment restarts the container mid-sync: the row stays RUNNING but nobody holds the lock."""
+    monkeypatch.setattr(background, "datamart_lock_is_held", lambda: False)
+    run = SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART, target="partner_reports", status=SyncRun.Status.RUNNING
+    )
+    admin_client.post(reverse(URL), {"_form_submitted": "on", "scope": "core"})
+    assert len(started) == 1
+    run.refresh_from_db()
+    assert (run.status, run.error) == (SyncRun.Status.FAILED, background.CUT_OFF)
+    assert run.finished_at is not None
+
+
+def test_the_lock_check_sees_the_lock_the_command_takes():
+    from django.db import connection
+
+    assert background.datamart_lock_is_held() is False
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", [background.DATAMART_LOCK_ID])
+        try:
+            assert background.datamart_lock_is_held() is True
+        finally:
+            cursor.execute("SELECT pg_advisory_unlock(%s)", [background.DATAMART_LOCK_ID])
+    assert background.datamart_lock_is_held() is False
+    assert sync_etools_datamart.LOCK_ID == background.DATAMART_LOCK_ID
+
+
+def test_selected_datasets_run_alone(admin_client, admin_user, started, credentials):
+    data = {"_form_submitted": "on", "scope": "selected", "datasets": ["locations", "partners"]}
+    response = admin_client.post(reverse(URL), data)
+    assert response.status_code == 302
+    assert started == [
+        ("sync_etools_datamart", "--triggered-by", admin_user.username, "--only", "locations,partners")
+    ]
+
+
+def test_selected_scope_needs_a_dataset(admin_client, started, credentials):
+    response = admin_client.post(reverse(URL), {"_form_submitted": "on", "scope": "selected"})
+    assert started == [] and "Tick at least one dataset" in response.text
+    dialog = admin_client.get(reverse(URL))
+    assert 'value="locations"' in dialog.text and 'value="pd_indicators"' in dialog.text
 
 
 def test_viewers_cannot_start_a_sync(client, viewer, started, credentials):

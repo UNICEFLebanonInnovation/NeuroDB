@@ -126,9 +126,13 @@ failed item ids in `details`.
 ## eTools Datamart
 
 **Running the sync now.** Admin → *Data and sync* → *Import and sync runs* → **Sync eTools now**
-(administrators): choose *Partners and programme documents* (minutes) or *Everything* (up to two
-hours). It runs in the background in the web container; each dataset appears in that list as it
-finishes. Only one Datamart sync runs at a time (a database lock), whoever starts it. On Container
+(administrators): choose *Partners and programme documents* (minutes), *Everything* (up to two
+hours) or *Only the datasets ticked below* (for example `locations` alone after a gazetteer fix).
+It runs in the background in the web container; each dataset appears in that list as it
+finishes. Only one Datamart sync runs at a time (a database lock), whoever starts it. A deployment
+restarts the container and kills a sync in progress: its run stays *Running* until the next
+**Sync eTools now**, which sees that nobody holds the lock, closes the run as *Failed* ("Cut off")
+and starts. On Container
 Apps the `etools` job also runs it every night; **App Service has no scheduler**, so there the data
 only changes when someone starts it (or through a Container Apps job pointed at the same database).
 From a shell with the same settings: `python manage.py sync_etools_datamart [--only a,b]`.

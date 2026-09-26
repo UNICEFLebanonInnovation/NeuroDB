@@ -15,6 +15,7 @@ import subprocess
 import sys
 
 from django.conf import settings
+from django.db import connection
 from django.utils import timezone
 
 from neurodb.core.models import SyncRun
@@ -22,11 +23,41 @@ from neurodb.core.models import SyncRun
 logger = logging.getLogger(__name__)
 
 RUNNING_FOR_AT_MOST = datetime.timedelta(hours=4)  # a run older than this was cut off (restart)
+DATAMART_LOCK_ID = 7140428  # one Datamart sync at a time, whoever started it (schedule, admin, shell)
+CUT_OFF = "Cut off: the sync process stopped before this run finished (the container was restarted)."
+
+
+def datamart_lock_is_held() -> bool | None:
+    """Whether a Datamart sync process holds its advisory lock right now; ``None`` when the database
+    cannot tell (not PostgreSQL). A session-level advisory lock dies with the process that took it,
+    so this is the truth about a run in progress, unlike the ``SyncRun`` row it may have left behind."""
+    if connection.vendor != "postgresql":
+        return None
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND classid = 0 AND objid = %s "
+            "AND objsubid = 1 LIMIT 1",
+            [DATAMART_LOCK_ID],
+        )
+        return cursor.fetchone() is not None
 
 
 def is_running(job: str) -> bool:
-    since = timezone.now() - RUNNING_FOR_AT_MOST
-    return SyncRun.objects.filter(job=job, status=SyncRun.Status.RUNNING, started_at__gte=since).exists()
+    """A run of ``job`` is in progress. A ``RUNNING`` row whose process no longer holds the lock (the
+    container was restarted mid-run, typically by a deployment) is closed as failed so that the next
+    sync can start instead of waiting hours for the row to age out."""
+    now = timezone.now()
+    running = SyncRun.objects.filter(
+        job=job, status=SyncRun.Status.RUNNING, started_at__gte=now - RUNNING_FOR_AT_MOST
+    )
+    if not running.exists():
+        return False
+    held = datamart_lock_is_held() if job == SyncRun.Job.ETOOLS_DATAMART else None
+    if held is None or held:
+        return True
+    closed = running.update(status=SyncRun.Status.FAILED, finished_at=now, error=CUT_OFF)
+    logger.warning("%s: closed %s cut-off run(s) left as running by a stopped process", job, closed)
+    return False
 
 
 def start_command(*args: str) -> int:

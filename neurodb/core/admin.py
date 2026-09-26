@@ -9,6 +9,7 @@ from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
 from unfold.decorators import action
 from unfold.forms import BaseDialogForm
+from unfold.widgets import UnfoldAdminCheckboxSelectMultipleWidget, UnfoldAdminRadioSelectWidget
 
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
@@ -24,10 +25,41 @@ class DatamartSyncForm(BaseDialogForm):
                 "all",
                 _("Everything: funds, audits, reporting, monitoring and every other dataset (up to 2 hours)"),
             ),
+            ("selected", _("Only the datasets ticked below, in their usual order")),
         ),
         initial="core",
-        widget=forms.RadioSelect,
+        widget=UnfoldAdminRadioSelectWidget,
     )
+    datasets = forms.MultipleChoiceField(
+        label=_("Datasets"),
+        required=False,
+        choices=(),  # filled in __init__: the sync registry is not imported at module load
+        widget=UnfoldAdminCheckboxSelectMultipleWidget,
+        help_text=_("For a single dataset such as locations or partners; the rest is left as it is."),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
+
+        self.fields["datasets"].choices = [(name, name) for name in ENTITY_SYNCS]
+
+    def clean(self):
+        data = super().clean()
+        if data.get("scope") == "selected" and not data.get("datasets"):
+            self.add_error("datasets", _("Tick at least one dataset."))
+        return data
+
+    def only(self) -> list[str] | None:
+        """The ``--only`` datasets of the chosen scope; ``None`` for everything."""
+        from neurodb.integrations.management.commands.sync_etools_datamart import CORE
+
+        scope = self.cleaned_data["scope"]
+        if scope == "core":
+            return list(CORE)
+        if scope == "selected":
+            return list(self.cleaned_data["datasets"])
+        return None
 
 
 @admin.register(SyncRun)
@@ -111,7 +143,6 @@ class SyncRunAdmin(ReadOnlyModelAdmin):
     def sync_etools_datamart(self, request, form):
         from neurodb.integrations import background
         from neurodb.integrations.etools.datamart import configured
-        from neurodb.integrations.management.commands.sync_etools_datamart import CORE
 
         if not configured():
             messages.error(
@@ -125,8 +156,9 @@ class SyncRunAdmin(ReadOnlyModelAdmin):
             messages.warning(request, _("An eTools Datamart sync is already running."))
         else:
             args = ["sync_etools_datamart", "--triggered-by", request.user.get_username()]
-            if form.cleaned_data["scope"] == "core":
-                args += ["--only", ",".join(CORE)]
+            only = form.only()
+            if only is not None:
+                args += ["--only", ",".join(only)]
             background.start_command(*args)
             messages.success(request, _("eTools Datamart sync started. Refresh this page to follow it."))
         url = reverse("admin:core_syncrun_changelist")

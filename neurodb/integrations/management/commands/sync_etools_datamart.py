@@ -5,13 +5,13 @@ from __future__ import annotations
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
+from neurodb.integrations.background import DATAMART_LOCK_ID as LOCK_ID
 from neurodb.integrations.etools.datamart import DatamartNotConfigured
 from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS, sync_all
 from neurodb.integrations.management.commands._base import add_triggered_by, exit_on_failure, write_summary
 from neurodb.partnerships.linking import link_activityinfo_partners
 
 FAILED = "failed"
-LOCK_ID = 7140428  # one Datamart sync at a time, whoever started it (schedule, admin, shell)
 CORE = ("locations", "partners", "interventions", "intervention_budgets", "agreements")
 
 
