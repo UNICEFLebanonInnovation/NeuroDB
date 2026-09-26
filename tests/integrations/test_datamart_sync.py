@@ -956,3 +956,30 @@ def test_locations_reuse_the_v2_location_types_that_already_carry_etools_names(l
     assert Location.objects.get(pk=4).type == school
     assert LocationType.objects.count() == 4
     assert LocationType.objects.get(name="Governorate").admin_level == 1
+
+
+@responses.activate
+def test_partners_with_a_duplicate_vendor_number_and_blank_name_are_still_written():
+    """The v2 table is unique on (name, vendor_number); eTools holds hidden duplicates of a vendor
+    with an empty name. Production rejected them; they are named from the eTools id instead."""
+    PartnerOrganization.objects.create(
+        etl_id="9", name="", vendor_number="2300043124", partner_type="Government"
+    )
+    page(
+        "partners",
+        [
+            partner(371, name="", short_name="", vendor_number="2300043124", hidden=True),
+            partner(372, name="", short_name="", vendor_number="2300043124", hidden=True),
+            partner(373, name="Ministry", vendor_number="2300043124"),
+            partner(374, name="Ministry", vendor_number="2300043124"),
+        ],
+    )
+    (run,) = run_all("partners")
+    assert (run.status, run.rows_written, run.rows_failed) == (SyncRun.Status.SUCCEEDED, 4, 0), run.details
+    names = dict(PartnerOrganization.objects.values_list("etl_id", "name"))
+    assert names["371"] == "Partner 371" and names["372"] == "Partner 372"
+    assert names["373"] == "Ministry" and names["374"] == "Ministry (eTools 374)"
+    assert names["9"] == ""
+    (again,) = run_all("partners")
+    assert again.rows_failed == 0
+    assert dict(PartnerOrganization.objects.values_list("etl_id", "name")) == names

@@ -332,7 +332,23 @@ def upsert_partner(item: dict[str, Any], links: Links) -> None:
     etl_id = str(source_id)
     partner = PartnerOrganization.objects.filter(etl_id=etl_id).first() or PartnerOrganization(etl_id=etl_id)
     assign(partner, item, PARTNER_FIELDS)
+    partner.name = _partner_name(partner)
     partner.save()
+
+
+def _partner_name(partner: PartnerOrganization) -> str:
+    """A name the v2 table accepts: ``(name, vendor_number)`` is unique there, and eTools carries
+    duplicate vendor records (hidden or deleted partners) with the same or an empty name. A blank
+    name falls back to the short or alternate name, then to the eTools id; a name another partner
+    already holds with the same vendor number is suffixed with the eTools id."""
+    name = (partner.name or "").strip() or (partner.short_name or "").strip()
+    name = name or (partner.alternate_name or "").strip() or f"Partner {partner.etl_id}"
+    clash = PartnerOrganization.objects.filter(name=name, vendor_number=partner.vendor_number).exclude(
+        etl_id=partner.etl_id
+    )
+    if clash.exists():
+        name = f"{name[:230]} (eTools {partner.etl_id})"
+    return name[:255]
 
 
 INTERVENTION_FIELDS = {
