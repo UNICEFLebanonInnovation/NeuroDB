@@ -84,6 +84,7 @@ param jobs array = [
   { name: 'ai-data', cron: '0 15 1-22 * *', args: ['manage', 'import_activityinfo_data', '--current-year', '--triggered-by', 'job'], cpu: '1.0', memory: '2Gi', timeout: 7200 }
   { name: 'etools', cron: '30 17 * * *', args: ['manage', 'sync_etools_datamart', '--triggered-by', 'job'], cpu: '0.5', memory: '1Gi', timeout: 7200 }
   { name: 'locations', cron: '0 2 * * *', args: ['manage', 'sync_locations', '--triggered-by', 'job'], cpu: '0.5', memory: '1Gi', timeout: 1800 }
+  { name: 'daily-review', cron: '0 3 * * *', args: ['manage', 'daily_review', '--triggered-by', 'job'], cpu: '0.5', memory: '1Gi', timeout: 1800 }
   { name: 'freshness', cron: '15 * * * *', args: ['manage', 'check_sync_freshness'], cpu: '0.25', memory: '0.5Gi', timeout: 300 }
 ]
 

@@ -1,0 +1,30 @@
+{% load i18n ui humanize %}
+{% with impact=data.impact money=data.money delivery=data.delivery %}
+<div class="kpi-grid" aria-label="{% trans 'Key figures' %}">
+  <div class="kpi kpi--split">
+    <div class="kpi__label" title="{% trans 'The same children are often reported in both sources: the figure is the larger of the two' %}">{% trans "Children reached, at least" %}</div>
+    <div class="kpi__value"><a href="{% url 'reports:pd_monitoring' %}?{{ keep_query }}">{{ impact.children_reached|intcomma }}</a></div>
+    <div class="kpi__meta">
+      {% if impact.delta_previous_year is not None %}<span class="pill pill--sm {% if impact.delta_previous_year >= 0 %}pill--success{% else %}pill--danger{% endif %}" title="{% trans 'Against the same months of the previous year, both sources' %}">{% if impact.delta_previous_year > 0 %}+{% endif %}{{ impact.delta_previous_year|floatformat:"0" }}% {% trans "vs last year" %}</span>{% endif %}
+      <span class="kpi__hint">{% blocktrans with e=impact.children_etools|intcomma a=impact.children_activityinfo|intcomma %}eTools {{ e }} · ActivityInfo {{ a }}{% endblocktrans %}</span>
+    </div>
+  </div>
+  {% blocktrans asvar h2 with n=delivery.partners|intcomma g=delivery.partners_government|intcomma c=delivery.partners_cso|intcomma o=delivery.partners_other|default:0 %}{{ n }} partners: {{ g }} government, {{ c }} civil society, {{ o }} other{% endblocktrans %}
+  {% trans "Programme documents running" as l2 %}{% url 'reports:programmes' as programmes_url %}{% include "components/kpi_tile.html" with label=l2 value=delivery.programme_documents|intcomma hint=h2 href=programmes_url|add:programmes_query %}
+  {% if money.disbursed_percent is not None %}{% blocktrans asvar h3 with r=money.reserved|money p=money.disbursed_percent|floatformat:"0" %}{{ p }}% of {{ r }} reserved{% endblocktrans %}{% else %}{% blocktrans asvar h3 with r=money.reserved|money %}of {{ r }} reserved{% endblocktrans %}{% endif %}
+  {% trans "Funds disbursed" as l3 %}{% url 'reports:funds' as funds_url %}{% include "components/kpi_tile.html" with label=l3 value=money.disbursed|money hint=h3 href=funds_url %}
+  <div class="kpi">
+    <div class="kpi__label">{% trans "Cost per child" %}</div>
+    <div class="kpi__value">{{ money.cost_per_child|money }}{% if money.cost_per_child_previous is not None %} <span class="kpi__unit">{% blocktrans with v=money.cost_per_child_previous|money %}last year {{ v }}{% endblocktrans %}</span>{% endif %}</div>
+    <div class="kpi__meta"><span class="kpi__hint">{{ money.cost_caveat }}</span></div>
+  </div>
+  <div class="kpi">
+    <div class="kpi__label">{% trans "Delivery status" %}</div>
+    <div class="kpi__value"><a href="{% url 'reports:pd_monitoring' %}?{{ keep_query }}">{{ delivery.indicators|intcomma }}</a> <span class="kpi__unit">{% trans "PD indicators" %}</span></div>
+    <div class="legend">
+      {% for key, label in labels.items %}{% with n=delivery.status_counts|get_item:key %}{% if n %}<a class="legend__item" href="{% url 'reports:pd_monitoring' %}?{{ keep_query }}&amp;status={{ key }}">{% status_pill key label "sm" %} {{ n|intcomma }}</a>{% endif %}{% endwith %}{% endfor %}
+      {% if not delivery.indicators %}<span class="legend__item">{% trans "No indicators for this scope yet" %}</span>{% endif %}
+    </div>
+  </div>
+</div>
+{% endwith %}

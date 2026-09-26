@@ -45,8 +45,8 @@ WHATS_NEW = [
     (
         "grid",
         "",
-        _lazy("Programme overview"),
-        _lazy("Every database of the year and its tracking mix on one page."),
+        _lazy("Country overview"),
+        _lazy("Children reached, funds, delivery, assurance and a daily review on one page."),
     ),
     (
         "save",

@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     "neurodb.integrations",
     "neurodb.reports",
     "neurodb.assistant",
+    "neurodb.review",
     "neurodb.web",
 ]
 SITE_ID = 1

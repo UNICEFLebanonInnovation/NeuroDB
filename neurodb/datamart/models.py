@@ -674,3 +674,39 @@ class MonitoringSite(DatamartRecord):
 
     def __str__(self):
         return self.name
+
+
+class IndicatorFlag(models.Model):
+    """Whether an indicator counts children, set by a section once and kept across syncs.
+
+    The overview's "children reached" is read from the indicators whose title names children (the
+    age-group tag) unless a flag says otherwise: a flag with ``counts_children=True`` adds an
+    indicator the title rule misses, ``False`` removes one it wrongly includes. Keyed by the source
+    (eTools PD indicator or ActivityInfo master indicator) and the indicator's own id there, so the
+    Datamart sync, which rewrites the indicator rows, never loses it.
+    """
+
+    class Source(models.TextChoices):
+        ETOOLS = "etools", "eTools PD indicator"
+        ACTIVITYINFO = "activityinfo", "ActivityInfo master indicator"
+
+    source = models.CharField(max_length=16, choices=Source.choices)
+    key = models.CharField(
+        max_length=64,
+        help_text="eTools indicator id (source_id) or ActivityInfo master indicator id",
+    )
+    label = models.CharField(max_length=1024, blank=True, help_text="the indicator title, for the list")
+    counts_children = models.BooleanField(default=True)
+    note = models.CharField(max_length=500, blank=True)
+    updated_by = models.CharField(max_length=150, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["source", "key"], name="datamart_indicatorflag_key")]
+        ordering = ("source", "label")
+        verbose_name = "children indicator flag"
+        verbose_name_plural = "children indicator flags"
+
+    def __str__(self):
+        verdict = "counts children" if self.counts_children else "does not count children"
+        return f"{self.get_source_display()} {self.key}: {verdict}"

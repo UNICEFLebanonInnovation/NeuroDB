@@ -9,8 +9,10 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
 
 ## What v3 offers
 
-- **Programme overview**: status of every master indicator across all databases of the year,
-  data freshness per sync job, one card per database with its tracking mix.
+- **Country overview**: the signed-in home page reads the whole intervention live: children reached
+  by governorate and against targets (eTools and ActivityInfo shown apart), funds disbursed and cost
+  per child by section, delivery status, TPM visit and action point progress, and the daily review,
+  filtered by year, section and governorate; the ActivityInfo database cards stay at the bottom.
 - **Database dashboards**: KPI tiles, tracking donut, monthly trend, filterable indicator table with
   progress bars and a sub-indicator drill-down in a modal; printable snapshot; raw data as CSV or Excel.
 - **Analytical view**: pivot table over every ActivityInfo record with layout presets
@@ -31,6 +33,9 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
   source pages; also from the search box. Needs `OPENAI_API_KEY`; see `docs/OPERATIONS.md`.
 - **Everywhere**: command palette (Ctrl K or /) across databases, reports and indicators; dark mode;
   copy or CSV on every table; keyboard-sortable tables; mobile layout; strict Content Security Policy.
+- **Daily AI review**: every morning fourteen checks read the synced data (off-track and unreported
+  indicators, overdue reports and action points, late TPM reports, spending ahead of delivery,
+  failed syncs) and store dated findings, marked new, still open or resolved, with a short summary.
 
 ## Documents
 

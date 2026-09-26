@@ -27,8 +27,12 @@ DATAMART_LOCK_ID = 7140428  # one Datamart sync at a time, whoever started it (s
 CUT_OFF = "Cut off: the sync process stopped before this run finished (the container was restarted)."
 
 
-def datamart_lock_is_held() -> bool | None:
-    """Whether a Datamart sync process holds its advisory lock right now; ``None`` when the database
+DAILY_REVIEW_LOCK_ID = 7140429  # neurodb.review.services.LOCK_ID
+LOCK_IDS = {SyncRun.Job.ETOOLS_DATAMART: DATAMART_LOCK_ID, SyncRun.Job.DAILY_REVIEW: DAILY_REVIEW_LOCK_ID}
+
+
+def lock_is_held(lock_id: int) -> bool | None:
+    """Whether a process holds the advisory lock ``lock_id`` right now; ``None`` when the database
     cannot tell (not PostgreSQL). A session-level advisory lock dies with the process that took it,
     so this is the truth about a run in progress, unlike the ``SyncRun`` row it may have left behind."""
     if connection.vendor != "postgresql":
@@ -37,9 +41,13 @@ def datamart_lock_is_held() -> bool | None:
         cursor.execute(
             "SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND classid = 0 AND objid = %s "
             "AND objsubid = 1 LIMIT 1",
-            [DATAMART_LOCK_ID],
+            [lock_id],
         )
         return cursor.fetchone() is not None
+
+
+def datamart_lock_is_held() -> bool | None:
+    return lock_is_held(DATAMART_LOCK_ID)
 
 
 def is_running(job: str) -> bool:
@@ -52,7 +60,10 @@ def is_running(job: str) -> bool:
     )
     if not running.exists():
         return False
-    held = datamart_lock_is_held() if job == SyncRun.Job.ETOOLS_DATAMART else None
+    if job == SyncRun.Job.ETOOLS_DATAMART:
+        held = datamart_lock_is_held()
+    else:
+        held = lock_is_held(LOCK_IDS[job]) if job in LOCK_IDS else None
     if held is None or held:
         return True
     closed = running.update(status=SyncRun.Status.FAILED, finished_at=now, error=CUT_OFF)

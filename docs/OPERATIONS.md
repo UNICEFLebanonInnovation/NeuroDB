@@ -2,7 +2,7 @@
 
 ## Deploy and rollback
 The platform is Azure Container Apps: one image runs the website (`<prefix>-web`) and every job
-(`<prefix>-migrate`, `-ai-structure`, `-ai-data`, `-etools`, `-locations`, `-freshness`). Setup and
+(`<prefix>-migrate`, `-ai-structure`, `-ai-data`, `-etools`, `-locations`, `-freshness`, `-daily-review`). Setup and
 architecture: `docs/DEPLOYMENT_AZURE.md`.
 
 CI builds `<acr>/neurodb:<commit sha>` on `main` and runs `infra/scripts/deploy.sh` for staging and
@@ -109,6 +109,7 @@ Container Apps cron is **UTC**; Beirut is UTC+3 in summer and UTC+2 in winter.
 | Job | Command | Schedule (UTC) | Beirut (summer) |
 |---|---|---|---|
 | `locations` | `manage sync_locations` | `0 2 * * *` | 05:00 daily |
+| `daily-review` | `manage daily_review` | `0 3 * * *` | 06:00 daily, after the night's syncs |
 | `ai-data` | `manage import_activityinfo_data --current-year` | `0 15 1-22 * *` | 18:00, days 1–22 |
 | `etools` | `manage sync_etools_datamart` | `30 17 * * *` | 20:30 daily |
 | `freshness` | `manage check_sync_freshness` | `15 * * * *` | hourly; a stale source fails the run |
@@ -341,6 +342,97 @@ records in every dataset.
 The older eTools REST sync (`manage sync_etools`, token `ETOOLS_TOKEN`) is still available on
 demand, for trips (`--only travels`) and the legacy engagement tables; locations still come from
 `sync_locations`.
+
+## Country overview (the signed-in home page)
+
+`/` for a signed-in user is the country overview: one page for the whole intervention, read live
+from the synced eTools tables and the ActivityInfo history. Three rows answer three questions, then
+two progress blocks and the daily AI review:
+
+| Row | Blocks | Source |
+|---|---|---|
+| Impact on children | Children reached (eTools PRP reports and ActivityInfo, shown apart), children reached by governorate (tiles), achievement against target by section, monthly reach of both sources, coverage of the estimated children per governorate | PD indicators + PRP reports (`datamart_pdindicator`, `datamart_reportedindicator`), ActivityInfo facts of the HPM masters, population figures (`category=children`, governorate level) |
+| Value for money | Funds disbursed of reserved, cost per child reached by section, spending vs delivery by section, funding by donor, partnerships that need a decision | Funds reservations (`datamart_fundsreservationheader`, lines for donors), the same indicators |
+| Delivery and assurance | Indicator status by section, assurance counts (field monitoring, TPM, action points, HACT risk), findings by rating, what needs attention | Partner monitoring rule, `datamart_monitoringfinding`, `datamart_tpmvisit`, `datamart_actionpoint`, partner risk ratings |
+| Progress | TPM visits planned, completed and with the report overdue per month; action points due, closed and past due per month, open ones by age | `datamart_tpmvisit` (+ activities for the section), `datamart_actionpoint` |
+
+**Filters.** Year (the reporting year menu), section (multi) and governorate (a click on a tile).
+A PD manager lands on their own section (the user's section in the admin, matched to the eTools
+section names as on the partner monitoring page); "every section" is one click away.
+
+**Which programme documents.** Every PD running in the selected year (its period overlaps the year),
+whatever its status now, except drafts and cancelled ones: a PD that ended in June still counts for
+its months. Only *Decisions this quarter* is limited to the PDs still active.
+
+**Which indicators count children.** A PD indicator counts when it is a plain number and its title
+names children (the age-group tag: under 5, under 18, adolescents, children). An ActivityInfo master
+indicator counts when it is an additive (SUM) master of the year's HPM report, in a database shown
+on the dashboard, and its label names children. Sections correct the rule once in admin → Datamart →
+*Children indicator flags* (eTools indicator id or master indicator id, counts / does not count);
+the flag survives every sync and shows on the page at once. A flag on an ActivityInfo master only
+acts on masters that meet the other conditions (additive, HPM report, displayed database).
+
+**Two sources, never added.** The same children are often reported in both eTools PRP and
+ActivityInfo, so the headline *Children reached, at least* is the larger of the two, with both shown
+beside it; the governorate tiles and the coverage table take the larger of the two per governorate.
+
+**Governorates.** A governorate's eTools figure adds the values reported at the locations inside
+it, for indicators whose locations add up (PRP "sum"); an indicator reported as the maximum or the
+average across locations is counted nationally but not split by governorate. With a governorate
+chosen, the monthly bars, the money and the cost per child follow the same rule: a PD's funds count
+for its share of the children it reached there, and PDs without a children result are left out.
+
+**Cost per child** is what the PDs with a children result disbursed to date (all the years of their
+funds reservations, supplies and operating costs included) over the children they reached in the
+selected year. A PD's money is split across sections in proportion to the children of each section.
+Compare sections, not absolute values. It is empty when no children indicator reported.
+
+**Caching.** The page's data is cached for 10 minutes per (year, sections, governorate, day); a new
+children flag changes the cache key, a sync does not, so the freshness strip at the bottom shows when
+each source last changed.
+
+## Daily AI review
+
+Every morning the `daily-review` job (`manage daily_review`) runs fourteen fixed checks over the
+synced data and stores the result as a dated review with its findings (admin → Daily review). The
+overview shows the latest one in its *Daily review* card, with tabs for the day before and the last
+seven days; the card follows the page's section filter (country-wide findings always show).
+
+| Check | What it looks for | Severity |
+|---|---|---|
+| `new_off_track` | PD indicators off track today that were not yesterday (all of them on the first run), per PD | critical when children are behind target |
+| `not_reported` | Indicators with no progress report although the PD started more than 120 days ago | warning |
+| `reports_overdue` | Progress reports past their due date and not submitted | warning |
+| `spending_ahead` | PDs whose disbursed share is more than 25 points ahead of their achieved share (each indicator capped at 100 %), past half their period | warning |
+| `under_disbursed` | Active PDs past 60 % of their period with less than 40 % disbursed | warning |
+| `pd_ending_soon` | Active PDs ending within 60 days below 70 % of target on average, or with nothing reported | warning |
+| `tpm_reports_late` | TPM visits ended more than 14 days ago whose report has not come in | warning |
+| `action_points_overdue` | Open high-priority action points past their due date, per partner and section | critical |
+| `findings_off_track` | Field monitoring findings rated off track in the last 30 days, per partner | warning |
+| `sync_failures` | Failed or partial sync runs in the last 24 hours | warning |
+| `data_quality` | Datasets whose last run failed rows; ActivityInfo partner names not linked to eTools | info |
+| `locations_unplaced` | PD indicators whose location is not in the gazetteer | info |
+| `stale_sources` | Sources older than `SYNC_STALENESS_HOURS` (the ActivityInfo import is not reported after the 22nd, when it does not run) | info |
+| `improvements` | Indicators back on track since the previous review | good |
+
+**New, still open, resolved.** Each finding has a stable key (for example the PD and the check);
+the next review marks it *still open* when it appears again, and adds a *resolved* entry for every
+key that disappeared. When a check fails, its findings of the day before are carried forward as
+still open, never resolved. The two checks that describe a change (`new_off_track`, `improvements`)
+are always *new*. Findings are ranked by severity, then by the children behind target.
+
+**The summary.** With the AI assistant configured (`OPENAI_API_KEY`), the model reads only the
+day's findings and counts (titles, details and numbers; no staff names, `store=false`) and writes four to six plain sentences;
+tokens are recorded on the review. Without it, or when the call fails, a template writes the
+summary. Findings are prompts to look, never verdicts on partners or staff.
+
+**Run it now.** Admin → Daily review → *Run the daily review now* (administrators, after a
+confirmation), or `python manage.py daily_review [--date YYYY-MM-DD] [--no-narration]`. One review
+runs at a time (a database lock); a second start says so and does nothing. Re-running a date
+replaces its review only when the new run succeeds. `--date` only names the review: the checks always
+read today's data, so use it to re-run today's or yesterday's review, never to rebuild the past. Every run writes a `SyncRun` (job *Daily AI review*); a check that fails is listed on
+the review and the run is *partial*, the other checks still report. On App Service, which has no
+scheduler, start it from the admin after the morning sync or run it as a Container Apps job.
 
 ## Yearly rollover (January)
 1. Admin → Reporting years: create the new year and tick *current* (only one can be current).

@@ -1,6 +1,7 @@
 """Read-only admin over the eTools Datamart tables (refreshed by ``sync_etools_datamart``)."""
 
 from django.contrib import admin
+from unfold.admin import ModelAdmin
 
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin
 
@@ -231,3 +232,18 @@ class DatamartDocumentAdmin(ReadOnlyModelAdmin):
     raw_id_fields = ("partner", "intervention")
     readonly_fields = ("data",)
     list_per_page = 50
+
+
+@admin.register(dm.IndicatorFlag)
+class IndicatorFlagAdmin(ModelAdmin):
+    """The one Datamart table people edit: which indicators count children on the overview."""
+
+    list_display = ("source", "key", "label", "counts_children", "updated_by", "updated_at")
+    list_filter = ("source", "counts_children")
+    search_fields = ("key", "label", "note")
+    readonly_fields = ("updated_by", "updated_at")
+    list_per_page = 50
+
+    def save_model(self, request, obj, form, change):
+        obj.updated_by = request.user.get_username()
+        super().save_model(request, obj, form, change)

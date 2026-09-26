@@ -40,6 +40,8 @@ from neurodb.indicators.services.navigation import invalidate as invalidate_navi
 from neurodb.library.models import Map, Resource, ResourceTag, ResourceTopic, ResourceType
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
+from ._demo_etools import seed_etools
+
 # Rough rectangles per governorate: enough for a readable choropleth, not survey-grade geometry.
 GOVERNORATES = [
     ("AKK", "Akkar", (35.95, 34.45, 36.45, 34.69)),
@@ -206,6 +208,7 @@ class Command(BaseCommand):
                         comment=f"{s_name}: partners scaled up in the North after the funding top-up.",
                     )
         self._partnerships(rng)
+        seed_etools(rng, dt.date.today())
         self._library()
         self._population(rng)
         self._sync_runs()

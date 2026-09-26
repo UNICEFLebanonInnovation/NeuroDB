@@ -1,0 +1,50 @@
+{% load i18n ui humanize %}
+{% with tpm=data.progress.tpm points=data.progress.action_points %}
+<div class="overview-row">
+<h2 class="section-heading">{% trans "TPM visits and action points" %}</h2>
+<div class="grid grid--2">
+  <section class="panel" aria-labelledby="tpm-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="tpm-title">{% trans "Third-party monitoring visits" %}</h3>
+      <a class="panel__hint" href="{% url 'reports:monitoring' %}">{% trans "Field monitoring" %} →</a>
+    </div>
+    <div class="mini-grid">
+      <div class="mini"><div class="mini__value">{{ tpm.planned_total|intcomma }}</div><div class="mini__label">{% trans "Planned this year" %}</div></div>
+      <div class="mini mini--success"><div class="mini__value">{{ tpm.completed_total|intcomma }}</div><div class="mini__label">{% trans "Completed" %}</div></div>
+      <div class="mini{% if tpm.overdue_total %} mini--danger{% endif %}"><div class="mini__value">{{ tpm.overdue_total|intcomma }}</div><div class="mini__label">{% trans "Overdue reports" %}</div></div>
+      <div class="mini"><div class="mini__value">{{ tpm.sites_visited|intcomma }}</div><div class="mini__label">{% trans "Sites visited" %}</div></div>
+      <div class="mini"><div class="mini__value">{{ tpm.completion_percent|percent:0 }}</div><div class="mini__label">{% trans "Completion" %}</div></div>
+    </div>
+    <div class="chart chart--sm" data-module="charts" data-chart="grouped" data-source="overview-chart-data" data-key="progress.tpm" data-height="220" data-empty-title="{% trans 'No TPM visits planned this year' %}" aria-label="{% trans 'TPM visits planned, completed and overdue per month' %}"></div>
+    <p class="source-line">{{ data.progress.source }}</p>
+  </section>
+  <section class="panel" aria-labelledby="ap-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="ap-title">{% trans "Action points" %}</h3>
+      <a class="panel__hint" href="{% url 'reports:action_points' %}">{% trans "Action points" %} →</a>
+    </div>
+    <div class="mini-grid">
+      <div class="mini"><div class="mini__value">{{ points.open_total|intcomma }}</div><div class="mini__label">{% trans "Open" %}</div></div>
+      <div class="mini{% if points.high_priority_open %} mini--danger{% endif %}"><div class="mini__value">{{ points.high_priority_open|intcomma }}</div><div class="mini__label">{% trans "High priority open" %}</div></div>
+      <div class="mini mini--success"><div class="mini__value">{{ points.closed_total|intcomma }}</div><div class="mini__label">{% trans "Closed this year" %}</div></div>
+      <div class="mini"><div class="mini__value">{{ points.closure_percent|percent:0 }}</div><div class="mini__label">{% trans "Due this year, closed" %}</div></div>
+      <div class="mini"><div class="mini__value">{{ points.median_days_to_close|number:0 }}</div><div class="mini__label">{% trans "Median days from due date to closing" %}</div></div>
+    </div>
+    <div class="chart chart--sm" data-module="charts" data-chart="grouped" data-source="overview-chart-data" data-key="progress.action_points" data-height="220" data-empty-title="{% trans 'No action points due this year' %}" aria-label="{% trans 'Action points due, closed and past due per month' %}"></div>
+    {% if points.age %}
+    <div class="table-wrap mt-2"><table class="table table-sm" id="overview-action-point-age">
+      <thead><tr>
+        <th scope="col">{% trans "Open, by age" %}</th>
+        <th scope="col" class="num" title="{% trans 'Not yet due, or less than 30 days past due' %}">{% trans "&lt; 30 d" %}</th>
+        <th scope="col" class="num" title="{% trans '30 to 90 days past due' %}">{% trans "30–90 d" %}</th>
+        <th scope="col" class="num" title="{% trans 'More than 90 days past due' %}">{% trans "&gt; 90 d" %}</th>
+        <th scope="col" class="num">{% trans "High priority" %}</th>
+      </tr></thead>
+      <tbody>{% for row in points.age %}<tr><td>{{ row.module }}</td><td class="num">{{ row.under_30|intcomma }}</td><td class="num">{{ row.d30_90|intcomma }}</td><td class="num{% if row.over_90 %} text-danger{% endif %}">{{ row.over_90|intcomma }}</td><td class="num">{{ row.high_priority|intcomma }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% endif %}
+    <p class="source-line">{{ data.progress.source }}</p>
+  </section>
+</div>
+</div>
+{% endwith %}

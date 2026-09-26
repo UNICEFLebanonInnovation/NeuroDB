@@ -76,6 +76,25 @@ def percent(value: Any, digits: int = 1) -> str:
         return str(value)
 
 
+@register.filter
+def money(value: Any) -> str:
+    """``1234567`` -> ``"$1.2M"``, ``820000`` -> ``"$820k"``, ``950`` -> ``"$950"``; ``None`` -> ``"—"``."""
+    if value is None or value == "":
+        return "—"
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    sign = "-" if amount < 0 else ""
+    amount = abs(amount)
+    for threshold, suffix in ((1_000_000_000, "B"), (1_000_000, "M"), (1_000, "k")):
+        if amount >= threshold:
+            scaled = amount / threshold
+            text = f"{scaled:,.0f}" if scaled >= 100 else f"{scaled:,.1f}".removesuffix(".0")
+            return f"{sign}${text}{suffix}"
+    return f"{sign}${amount:,.0f}"
+
+
 @register.inclusion_tag("components/status_pill.html")
 def status_pill(status: str | None, label: str | None = None, size: str = "") -> dict[str, Any]:
     status = status or "unknown"

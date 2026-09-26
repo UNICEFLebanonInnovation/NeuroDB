@@ -1,0 +1,58 @@
+{% load i18n ui humanize %}
+{% with delivery=data.delivery assurance=data.delivery.assurance %}
+<div class="overview-row">
+<h2 class="section-heading">{% trans "Delivery and assurance" %}</h2>
+<div class="grid grid--2">
+  <section class="panel" aria-labelledby="status-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="status-title">{% trans "Indicator status by section" %}</h3>
+      <span class="panel__hint">{% trans "Cumulative achievement against the share of the PD period elapsed" %}</span>
+    </div>
+    <div class="chart chart--sm" data-module="charts" data-chart="stacked-h" data-source="overview-chart-data" data-key="delivery.by_section" data-height="240" data-empty-title="{% trans 'No PD indicators for this scope' %}" aria-label="{% trans 'Indicator status by section' %}"></div>
+    <div class="legend">{% for key, label in labels.items %}<a class="legend__item" href="{% url 'reports:pd_monitoring' %}?{{ keep_query }}&amp;status={{ key }}">{% status_pill key label "sm" %} {{ delivery.status_counts|get_item:key|default:0|intcomma }}</a>{% endfor %}</div>
+    <p class="source-line">{{ delivery.source }}</p>
+  </section>
+  <section class="panel" aria-labelledby="assurance-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="assurance-title">{% trans "Assurance" %}</h3>
+      <a class="panel__hint" href="{% url 'reports:assurance' %}">{% trans "Assurance" %} →</a>
+    </div>
+    <div class="mini-grid">
+      <a class="mini" href="{% url 'reports:monitoring' %}?year={{ data.scope.year }}"><div class="mini__value">{{ assurance.field_monitoring_visits|intcomma }}</div><div class="mini__label">{% trans "Field monitoring visits" %}</div></a>
+      <a class="mini" href="{% url 'reports:monitoring' %}?year={{ data.scope.year }}"><div class="mini__value">{{ assurance.tpm_visits|intcomma }}</div><div class="mini__label">{% trans "TPM visits" %}</div></a>
+      <a class="mini" href="{% url 'reports:action_points' %}?status=open"><div class="mini__value">{{ assurance.open_action_points|intcomma }}</div><div class="mini__label">{% trans "Open action points" %}</div></a>
+      <a class="mini{% if assurance.overdue_high_priority %} mini--danger{% endif %}" href="{% url 'reports:action_points' %}?overdue=1&amp;priority=1"><div class="mini__value">{{ assurance.overdue_high_priority|intcomma }}</div><div class="mini__label">{% trans "Overdue, high priority" %}</div></a>
+      <a class="mini{% if assurance.high_risk_partners %} mini--warning{% endif %}" href="{% url 'reports:partners' %}"><div class="mini__value">{{ assurance.high_risk_partners|intcomma }} <span class="small fw-normal text-muted">/ {{ assurance.partners_with_pd|intcomma }}</span></div><div class="mini__label">{% trans "High-risk partners with a PD" %}</div></a>
+    </div>
+    {% if selected.section or selected.governorate %}<p class="small text-muted mb-2">{% trans "The figures follow the section and governorate filters; the pages they open list the whole country for the year." %}</p>{% endif %}
+    <h4 class="small fw-semibold mb-1">{% trans "Field monitoring findings by rating" %}</h4>
+    <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-source="overview-chart-data" data-key="delivery.findings_by_rating" data-color-by="status" data-height="150" data-empty-title="{% trans 'No field monitoring findings this year' %}" aria-label="{% trans 'Field monitoring findings by rating' %}"></div>
+    <p class="source-line">{{ delivery.source }}</p>
+  </section>
+</div>
+<section class="panel" aria-labelledby="attention-title">
+  <div class="panel__header">
+    <h3 class="panel__title" id="attention-title">{% trans "What needs a look" %}</h3>
+    <span class="panel__hint">{% trans "Off-track children indicators, indicators never reported, overdue high-priority action points" %}</span>
+  </div>
+  {% if delivery.attention %}
+  <ul class="attention-list">
+    {% for item in delivery.attention %}
+    <li class="attention">
+      <span class="attention__sev attention__sev--{{ item.severity }}" aria-hidden="true"></span>
+      <div class="attention__body">
+        <div class="attention__title">{% if item.url %}<a href="{{ item.url }}">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</div>
+        {% if item.detail %}<div class="attention__detail">{{ item.detail }}</div>{% endif %}
+        {% if item.section %}<div class="attention__meta"><span>{{ item.section }}</span></div>{% endif %}
+      </div>
+      {% if item.children is not None %}<div class="attention__figure">{{ item.children|intcomma }}<small>{% trans "children behind" %}</small></div>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  {% include "components/empty_state.html" with icon="check" title=_("Nothing flagged") message=_("No off-track children indicator, unreported indicator or overdue high-priority action point in this scope.") %}
+  {% endif %}
+  <p class="source-line">{{ delivery.source }}</p>
+</section>
+</div>
+{% endwith %}

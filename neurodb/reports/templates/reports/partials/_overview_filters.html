@@ -1,0 +1,28 @@
+{% load i18n ui %}
+{% if own_section %}
+<div class="toolbar">
+  <span class="small text-muted">{% blocktrans with section=own_section|join:", " %}Your section, {{ section }}, by default{% endblocktrans %} · <a href="?section=">{% trans "every section" %}</a></span>
+</div>
+{% endif %}
+<form method="get" class="filter-bar" role="search" aria-label="{% trans 'Overview filters' %}">
+  {% trans "Section" as l %}{% include "reports/_multiselect.html" with name="section" label=l options=options.sections values=selected.section %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-governorate">{% trans "Governorate" %}</label>
+    <select class="form-select form-select-sm" id="f-governorate" name="governorate">
+      <option value="">{% trans "All" %}</option>
+      {% for g in options.governorates %}<option value="{{ g }}" {% if g == selected.governorate %}selected{% endif %}>{{ g }}</option>{% endfor %}
+      {% if selected.governorate and selected.governorate not in options.governorates %}<option value="{{ selected.governorate }}" selected>{{ selected.governorate }}</option>{% endif %}
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-year">{% trans "Year" %}</label>
+    <select class="form-select form-select-sm" id="f-year" name="year">
+      {% for y in nav.years %}<option value="{{ y.name }}" {% if y.id == year.id %}selected{% endif %}>{{ y.name }}</option>{% empty %}<option value="{{ year.name }}" selected>{{ year.name }}</option>{% endfor %}
+    </select>
+  </div>
+  {% if request.GET.review %}<input type="hidden" name="review" value="{{ request.GET.review }}">{% endif %}
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
+  </div>
+</form>

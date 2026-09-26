@@ -13,7 +13,7 @@ set -euo pipefail
 : "${RESOURCE_GROUP:?set RESOURCE_GROUP}"
 : "${PREFIX:?set PREFIX (the Bicep prefix, e.g. neurodb-prod)}"
 : "${IMAGE:?set IMAGE (registry/repository:tag)}"
-JOBS="${JOBS:-ai-structure ai-data etools locations freshness}"
+JOBS="${JOBS:-ai-structure ai-data etools locations freshness daily-review}"
 VERSION="${IMAGE##*:}"
 SMOKE_HOST="${SMOKE_HOST:-}"   # custom domain; defaults to the Container Apps host name
 

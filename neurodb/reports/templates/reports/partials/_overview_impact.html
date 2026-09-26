@@ -1,0 +1,86 @@
+{% load i18n ui humanize %}
+{% with impact=data.impact %}
+<div class="overview-row">
+<h2 class="section-heading">{% trans "Impact on children" %}</h2>
+<section class="panel" aria-labelledby="gov-title">
+  <div class="panel__header">
+    <h3 class="panel__title" id="gov-title">{% trans "Children reached by governorate" %}</h3>
+    <a class="panel__hint" href="{% url 'reports:pd_monitoring_map' %}?{{ keep_query }}">{% trans "Map" %} →</a>
+  </div>
+  {% if impact.by_governorate %}
+  <div class="gov-grid">
+    {% for g in impact.by_governorate %}
+    <a class="gov-tile gov-tile--l{{ g.level|default:1 }}" href="?{% if base_query %}{{ base_query }}&amp;{% endif %}governorate={{ g.name|urlencode }}"{% if g.name == selected.governorate %} aria-current="true"{% endif %} title="{% blocktrans with e=g.etools|intcomma a=g.activityinfo|intcomma %}eTools {{ e }}, ActivityInfo {{ a }}{% endblocktrans %}">
+      <span class="gov-tile__name">{{ g.name }}</span>
+      <span class="gov-tile__value">{{ g.reached|intcomma }}</span>
+      <span class="gov-tile__sub">{% if g.coverage is not None %}{% blocktrans with p=g.coverage|floatformat:"0" %}at least {{ p }}% of children{% endblocktrans %}{% else %}{% trans "children reached" %}{% endif %}</span>
+    </a>
+    {% endfor %}
+  </div>
+  <div class="gov-legend">
+    <span>{% trans "Fewer" %}</span>
+    <span class="gov-legend__ramp" aria-hidden="true"><span class="gov-tile--l1"></span><span class="gov-tile--l2"></span><span class="gov-tile--l3"></span><span class="gov-tile--l4"></span><span class="gov-tile--l5"></span><span class="gov-tile--l6"></span></span>
+    <span>{% trans "More" %}</span>
+    <span>· {% trans "the larger of the two sources per governorate" %}</span>
+    {% if selected.governorate %}<span>· <a href="?{{ base_query }}">{% trans "every governorate" %}</a></span>{% endif %}
+  </div>
+  {% else %}
+  {% include "components/empty_state.html" with icon="map" title=_("No children reached by governorate yet") message=_("Partner reports with a location appear here once the eTools Datamart and ActivityInfo imports have run for this scope.") %}
+  {% endif %}
+  <p class="source-line">{{ impact.source }}</p>
+</section>
+
+<div class="grid grid--2">
+  <section class="panel" aria-labelledby="target-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="target-title">{% trans "Achievement against target" %}</h3>
+      <span class="panel__hint">{% if selected.governorate %}{% blocktrans with g=selected.governorate %}Whole-PD achievement and target of the children indicators active in {{ g }} (PRP has no target per location); the marker is the share of the PD period elapsed{% endblocktrans %}{% else %}{% trans "Children indicators by section; the marker is the share of the PD period elapsed" %}{% endif %}</span>
+    </div>
+    <div class="chart chart--sm" data-module="charts" data-chart="hbars-target" data-source="overview-chart-data" data-key="impact.by_section" data-height="240" data-empty-title="{% trans 'No children indicators with a target' %}" aria-label="{% trans 'Children achieved against target by section' %}"></div>
+    <p class="source-line">{{ impact.source }}</p>
+  </section>
+  <section class="panel" aria-labelledby="monthly-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="monthly-title">{% trans "Children reached by month" %}</h3>
+      <span class="panel__hint">{% trans "eTools progress reports and ActivityInfo records, kept separate" %}</span>
+    </div>
+    <div class="chart chart--sm" data-module="charts" data-chart="grouped" data-source="overview-chart-data" data-key="impact.monthly" data-height="240" data-empty-title="{% trans 'No monthly values yet' %}" aria-label="{% trans 'Children reached per month by source' %}"></div>
+    <p class="source-line">{{ impact.source }}</p>
+  </section>
+</div>
+
+<section class="panel" aria-labelledby="coverage-title">
+  <div class="panel__header">
+    <h3 class="panel__title" id="coverage-title">{% trans "Coverage of children in need" %}</h3>
+    <span class="panel__hint">{% trans "At least: the larger of the two sources against the population of children" %}</span>
+  </div>
+  {% if impact.by_governorate %}
+  <div class="table-wrap"><table class="table table-sm table-hover" id="overview-coverage">
+    <thead><tr>
+      <th scope="col">{% trans "Governorate" %}</th>
+      <th scope="col" class="num">eTools</th>
+      <th scope="col" class="num">ActivityInfo</th>
+      <th scope="col" class="num">{% trans "Reached (at least)" %}</th>
+      <th scope="col" class="num">{% trans "Children" %}</th>
+      <th scope="col">{% trans "Coverage" %}</th>
+    </tr></thead>
+    <tbody>
+    {% for g in impact.by_governorate %}
+    <tr>
+      <td><a href="?{% if base_query %}{{ base_query }}&amp;{% endif %}governorate={{ g.name|urlencode }}">{{ g.name }}</a></td>
+      <td class="num">{{ g.etools|number:0 }}</td>
+      <td class="num">{{ g.activityinfo|number:0 }}</td>
+      <td class="num"><strong>{{ g.reached|number:0 }}</strong></td>
+      <td class="num">{{ g.population|number:0 }}</td>
+      <td>{% if g.coverage is not None %}<div class="meter"><div class="meter__track"><span class="meter__fill" style="width: {% if g.coverage > 100 %}100{% else %}{{ g.coverage|floatformat:0 }}{% endif %}%"></span></div><span class="meter__value">{{ g.coverage|percent:0 }}</span></div>{% else %}<span class="text-muted small">{% trans "no population figure" %}</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  {% include "components/empty_state.html" with icon="users" title=_("No coverage to show") message=_("Coverage needs children reached per governorate and population figures for the year.") %}
+  {% endif %}
+  <p class="source-line">{% if impact.population_year %}{% blocktrans with y=impact.population_year %}Population of children: figures of {{ y }}{% endblocktrans %} · {% endif %}{{ impact.source }} · <a href="{% url 'reports:population' %}">{% trans "Population figures" %}</a></p>
+</section>
+</div>
+{% endwith %}

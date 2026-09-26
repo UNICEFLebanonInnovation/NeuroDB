@@ -18,7 +18,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_not_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.http import FileResponse, Http404, HttpRequest, HttpResponse, JsonResponse
+from django.http import FileResponse, Http404, HttpRequest, HttpResponse, JsonResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext as _
@@ -39,6 +39,7 @@ from neurodb.library.models import Resource
 from neurodb.library.services import completed_maps, published_resource, resource_filters, search_resources
 from neurodb.partnerships import services as partnerships
 from neurodb.partnerships.models import PCA, PartnerOrganization
+from neurodb.reports import overview as overview_service
 
 from . import exports, services
 from .forms import HPMCommentForm, SavedViewForm
@@ -120,18 +121,171 @@ def home(request: HttpRequest) -> HttpResponse:
     return overview(request)
 
 
+def _year_number(year: Any, default: int) -> int:
+    """The calendar year of a ReportingYear (``year`` or ``name`` starts with four digits)."""
+    for raw in (getattr(year, "year", None), getattr(year, "name", None)):
+        text = str(raw or "").strip()
+        if text[:4].isdigit():
+            return int(text[:4])
+    return default
+
+
+def _overview_chart_data(data: dict[str, Any]) -> dict[str, Any]:
+    """The JSON the overview charts read (static/js/charts.js), shaped for each builder.
+
+    Twelve-month blocks become ``{labels, series: {name: [...]}, colors}`` for the "lines" and
+    "grouped" builders, and an empty dict when every value is zero so the chart shows its empty state.
+    """
+    impact, money, delivery, progress = (
+        data.get(key) or {} for key in ("impact", "money", "delivery", "progress")
+    )
+
+    scope = data.get("scope") or {}
+    today = str(scope.get("today") or "")
+    # In the current year the months still to come are left off, not drawn as zeros.
+    shown = int(today[5:7]) if today[:4] == str(scope.get("year")) and today[5:7].isdigit() else 12
+
+    def series(
+        block: dict[str, Any], names: dict[str, str], colors: dict[str, str], planned: tuple[str, ...] = ()
+    ) -> dict[str, Any]:
+        """``planned`` series (visits planned, points due) keep all twelve months; the others stop at
+        the current month, the months to come shown empty rather than as zeros."""
+        values = {
+            label: [
+                float(v or 0) if key in planned or i < shown else None
+                for i, v in enumerate(block.get(key) or [])
+            ]
+            for key, label in names.items()
+        }
+        if not any(any(v for v in vals if v) for vals in values.values()):
+            return {}
+        if not planned:  # nothing planned ahead: the months to come are left off
+            values = {label: vals[:shown] for label, vals in values.items()}
+            return {"labels": list(block.get("labels") or [])[:shown], "series": values, "colors": colors}
+        return {"labels": list(block.get("labels") or []), "series": values, "colors": colors}
+
+    by_section_money = money.get("by_section") or []
+    return {
+        "impact": {
+            "by_section": [r for r in impact.get("by_section") or [] if r.get("target") or r.get("achieved")],
+            "monthly": series(
+                impact.get("monthly") or {},
+                {"etools": "eTools", "activityinfo": "ActivityInfo"},
+                {"eTools": "--nd-primary", "ActivityInfo": "--nd-series-2"},
+            ),
+        },
+        "money": {
+            "by_section": [
+                [r.get("section"), r.get("cost_per_child")]
+                for r in by_section_money
+                if r.get("cost_per_child") is not None
+            ],
+            "scatter": [
+                {
+                    "name": r.get("section"),
+                    "x": r.get("disbursed_percent"),
+                    "y": r.get("achieved_percent"),
+                    "ahead": bool(r.get("ahead")),
+                }
+                for r in by_section_money
+                if r.get("disbursed_percent") is not None and r.get("achieved_percent") is not None
+            ],
+            "by_donor": money.get("by_donor") or [],
+        },
+        "delivery": {
+            "by_section": [r for r in delivery.get("by_section") or [] if r.get("total")],
+            "findings_by_rating": delivery.get("findings_by_rating") or [],
+        },
+        "progress": {
+            "tpm": series(
+                progress.get("tpm") or {},
+                {"planned": "Planned", "completed": "Completed", "overdue": "Overdue"},
+                {"Planned": "--nd-neutral", "Completed": "--nd-success", "Overdue": "--nd-danger"},
+                planned=("planned",),
+            ),
+            "action_points": series(
+                progress.get("action_points") or {},
+                {"due": "Due", "closed": "Closed", "past_due": "Past due"},
+                {"Due": "--nd-neutral", "Closed": "--nd-success", "Past due": "--nd-danger"},
+                planned=("due",),
+            ),
+        },
+        "status_counts": delivery.get("status_counts") or {},
+        "labels": pd_monitoring_service.LABELS,
+    }
+
+
 @require_GET
 def overview(request: HttpRequest) -> HttpResponse:
+    """The country dashboard: impact on children, value for money, delivery and assurance, progress.
+
+    Filters: ``year`` (ReportingYear name), ``section`` (repeated) and ``governorate``. A first load with
+    no query string at all shows the user's own section, exactly as the partner monitoring page does.
+    """
     year = services.resolve_year(request.GET.get("year"))
-    data = facts.overview(year)
+    today = datetime.date.today()
+    year_number = _year_number(year, today.year)
+    options = overview_service.options(year_number)
+    sections = [s for s in request.GET.getlist("section") if s]
+    governorate = request.GET.get("governorate", "").strip()
+    own_section: list[str] = []
+    if not request.GET:  # first load, no choice made yet: the user's own section
+        own_section = pd_monitoring_service.default_sections(request.user, options["sections"])
+        if own_section:
+            sections = own_section
+    data: dict[str, Any] | None = None
+    review: dict[str, Any] | None = None
+    if year:
+        scope = overview_service.Scope(
+            year=year_number, reporting_year=year, sections=sections, governorate=governorate, today=today
+        )
+        data = overview_service.build(scope)
+        try:
+            from neurodb.review import services as review_services
+        except ImportError:
+            review = None
+        else:
+            review = review_services.for_page(request.GET.get("review"), sections)
+    keep = QueryDict(mutable=True)  # the section, year and PD scope every drill-down link carries
+    keep.setlist("section", sections)
+    if year:
+        keep["year"] = str(year_number)  # the eTools pages read a calendar year
+        keep["scope"] = "year"  # every PD running in the year, as the overview counts them
+    base = QueryDict(mutable=True)  # links back to this page: section and reporting year
+    base.setlist("section", sections)
+    if year:
+        base["year"] = year.name
+    programmes = QueryDict(mutable=True)  # the programmes page filters by section, not by year
+    programmes.setlist("section", sections)
+    here = base.copy()  # ... and the governorate (review tabs and history)
+    if governorate:
+        here["governorate"] = governorate
+    subtitle = ""
+    if year:
+        subtitle = " · ".join(
+            [
+                _("Reporting year %(year)s") % {"year": year.name},
+                ", ".join(sections) if sections else _("every section"),
+                governorate or _("all governorates"),
+            ]
+        )
     context = {
-        "page_title": _("Programme overview"),
-        "page_subtitle": _("Reporting year %(year)s") % {"year": year.name} if year else "",
+        "page_title": _("Country overview"),
+        "page_subtitle": subtitle,
         "breadcrumbs": [_crumb(_("Overview"))],
         "year": year,
+        "today": today,
         "data": data,
-        "labels": LABELS,
-        "chart_data": {"status_counts": data["status_counts"], "labels": LABELS},
+        "options": options,
+        "selected": {"section": sections, "governorate": governorate, "year": year.name if year else ""},
+        "own_section": own_section,
+        "labels": pd_monitoring_service.LABELS,
+        "chart_data": _overview_chart_data(data) if data else {},
+        "review": review,
+        "keep_query": keep.urlencode(),
+        "programmes_query": ("?" + programmes.urlencode()) if sections else "",
+        "base_query": base.urlencode(),
+        "page_query": here.urlencode(),
     }
     return render(request, "reports/overview.html", context)
 

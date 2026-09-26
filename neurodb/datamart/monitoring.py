@@ -89,7 +89,7 @@ class Filters:
     locations: list[str] = field(default_factory=list)
     report_type: str = DEFAULT_REPORT_TYPE
     year: int | None = None
-    scope: str = "active"  # active | all programme documents
+    scope: str = "active"  # active | all programme documents | year (every PD running in ``year``)
     status: str = ""  # on_track | off_track | over_target | no_target
     q: str = ""
     tags: dict[str, list[str]] = field(default_factory=dict)
@@ -107,7 +107,7 @@ class Filters:
             locations=[x for x in getlist("location") if x],
             report_type=report_type if report_type in REPORT_TYPES else DEFAULT_REPORT_TYPE,
             year=int(year_raw) if year_raw.isdigit() else today.year,
-            scope="all" if params.get("scope") == "all" else "active",
+            scope=params.get("scope") if params.get("scope") in ("all", "year") else "active",
             status=params.get("status") or "",
             q=(params.get("q") or "").strip(),
             tags={t: [x for x in getlist(t) if x] for t in TAG_FIELDS},
@@ -135,6 +135,9 @@ def _pd_queryset(filters: Filters) -> QuerySet[PCA]:
     qs = PCA.objects.select_related("partner").exclude(status__in=("draft", "cancelled"))
     if filters.scope == "active":
         qs = qs.filter(status__in=ACTIVE_PD_STATUSES)
+    elif filters.scope == "year" and filters.year:  # every PD running in the year, closed ones too
+        first, last = datetime.date(filters.year, 1, 1), datetime.date(filters.year, 12, 31)
+        qs = qs.filter(Q(start__isnull=True) | Q(start__lte=last), Q(end__isnull=True) | Q(end__gte=first))
     if filters.partners:
         qs = qs.filter(partner_id__in=[int(p) for p in filters.partners if p.isdigit()])
     if filters.pds:
@@ -182,6 +185,7 @@ class Indicator:
     report_status: str = ""
     tracking: str = NO_TARGET
     achieved: float | None = None
+    method: str = ""  # how PRP combines the locations of a period: sum (or empty), max, avg
 
     @property
     def partner(self) -> PartnerOrganization | None:
@@ -372,6 +376,7 @@ def _attach_reports(
                     "cumulative": None,
                     "period": None,
                     "report": "",
+                    "months": {},
                 },
             )
             if place["id"] is None:
@@ -379,6 +384,7 @@ def _attach_reports(
             end = row["period_end"]
             if value is not None and end and end.year == filters.year:
                 place["achieved"] = (place["achieved"] or 0) + value
+                place["months"][end.month] = place["months"].get(end.month, 0) + value
             if end and (place["period"] is None or end >= place["period"]):
                 place["period"], place["report"] = end, row["progress_report"] or ""
                 cumulative_here = number(row["total_cumulative_progress_in_location"])
@@ -400,6 +406,7 @@ def _attach_reports(
                     entry.months.get(report["period_end"].month, 0) + value
                 )
         latest = ordered[-1]
+        entry.method = (latest["method"] or "").strip().lower()
         entry.cumulative_as_of = latest["period_end"]
         entry.report_status = latest["status"]
         entry.partner_status = latest["partner_status"]

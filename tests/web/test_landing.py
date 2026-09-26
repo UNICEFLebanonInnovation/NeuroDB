@@ -27,7 +27,7 @@ def test_root_shows_landing_to_visitors(client, hierarchy):
 
 def test_root_shows_overview_once_signed_in(client_viewer, hierarchy):
     html = client_viewer.get("/").content.decode()
-    assert "Programme overview" in html
+    assert "Country overview" in html
     assert "in one place." not in html
 
 

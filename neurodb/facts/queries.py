@@ -464,3 +464,30 @@ ORDER BY p.number
 def etools_planned_locations(statuses: list[str]) -> list[dict[str, Any]]:
     """Planned locations per programme document (v2 ``ETOOLS_LOCATIONS`` export)."""
     return _rows(_ETOOLS_LOCATIONS_SQL, {"statuses": statuses})
+
+
+_MASTER_AREA_MONTH_SQL = """
+SELECT ms.master_id,
+       COALESCE(r.location_adminlevel_governorate, '') AS governorate,
+       substring(r.month_name from 6 for 2) AS month_num,
+       SUM(r.indicator_value) AS value
+FROM pivoting_mastersubindicator ms
+JOIN pivoting_subindicator_indicators si ON si.subindicator_id = ms.sub_id
+JOIN pivoting_indicatornew i ON i.id = si.indicatornew_id
+JOIN pivoting_activityreportnew r ON r.indicator_id = i.ai_indicator AND r.dbase_id = i.database_id
+WHERE ms.effect = 'TOTAL' AND ms.master_id = ANY(%(master_ids)s) AND {where}
+  AND r.month_name IS NOT NULL AND length(r.month_name) >= 7
+GROUP BY 1, 2, 3
+"""
+
+
+def master_values_by_area(f: FactFilter, master_ids: list[int]) -> list[dict[str, Any]]:
+    """``[{master_id, governorate, month_num, value}]``: what the TOTAL sub-indicators of the given
+    masters add up to, per governorate and month (new in v3 for the country overview).
+
+    Sums, like :func:`master_monthly_values`: meaningful for additive (SUM) masters only.
+    """
+    if not master_ids:
+        return []
+    where, params = f.sql()
+    return _rows(_MASTER_AREA_MONTH_SQL.format(where=where), {**params, "master_ids": list(master_ids)})

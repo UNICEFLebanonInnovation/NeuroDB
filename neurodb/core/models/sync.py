@@ -17,6 +17,7 @@ class SyncRun(models.Model):
         LOCATIONS = "locations", "Locations sync"
         POPULATION = "population", "Population figures load"
         PARTNER_LINKS = "partner_links", "ActivityInfo partner links"
+        DAILY_REVIEW = "daily_review", "Daily AI review"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"

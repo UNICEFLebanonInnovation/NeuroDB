@@ -1,0 +1,10 @@
+{% load i18n ui humanize %}
+<div class="panel freshness mt-3" aria-label="{% trans 'Data freshness' %}">
+  <span class="freshness__title">{% trans "Data freshness" %}</span>
+  {% for job in data.freshness %}
+  <span class="freshness__item"><strong>{{ job.label }}</strong>{% status_pill job.state job.state_label "sm" %}{% if job.last_success and job.last_success.finished_at %}<span title="{{ job.last_success.finished_at }}">{{ job.last_success.finished_at|naturaltime }}</span>{% endif %}</span>
+  {% empty %}
+  <span class="freshness__item">{% trans "No sync has run yet" %}</span>
+  {% endfor %}
+  <a class="freshness__link small" href="{% url 'reports:data_health' %}">{% trans "Data health" %} →</a>
+</div>

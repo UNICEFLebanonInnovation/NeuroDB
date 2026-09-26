@@ -1,0 +1,66 @@
+{% load i18n ui humanize %}
+{# The daily review card of the overview. Context: review = neurodb.review.services.for_page(...), keep_query, selected. #}
+<section class="panel review-card" aria-labelledby="review-title">
+  <div class="panel__header">
+    <div>
+      <h2 class="panel__title" id="review-title">{{ review.title }}</h2>
+      {% if review.when %}<div class="panel__hint">{{ review.when }}</div>{% endif %}
+    </div>
+    <nav class="review-tabs" aria-label="{% trans 'Which review' %}">
+      {% for mode in review.modes %}
+      <a href="?{% if page_query %}{{ page_query }}&amp;{% endif %}review={{ mode }}#daily-review"{% if mode == review.mode %} aria-current="page"{% endif %}>{% if mode == "today" %}{% trans "Latest" %}{% elif mode == "yesterday" %}{% trans "Day before" %}{% else %}{% trans "Last 7 days" %}{% endif %}</a>
+      {% endfor %}
+    </nav>
+  </div>
+
+  {% if review.missing %}
+    <p class="text-muted small mb-0">{{ review.missing }}</p>
+  {% else %}
+    {% if review.summary %}
+    <div class="review-summary">
+      <p>{{ review.summary|linebreaksbr }}</p>
+      <div class="small text-muted mt-1">{{ review.narrated_label }}{% if review.sections or selected.governorate %} · {% trans "the summary covers the whole country; the findings below follow the section filter, not the governorate" %}{% endif %}</div>
+    </div>
+    {% endif %}
+    {% if review.changed %}<div class="review-changed">{% for item in review.changed %}<span>{{ item }}</span>{% endfor %}</div>{% endif %}
+
+    {% if review.findings %}
+    <ul class="review-findings">
+      {% for f in review.findings %}
+      <li class="review-finding">
+        <span class="review-finding__sev review-finding__sev--{{ f.severity }}" role="img" aria-label="{{ f.get_severity_display }}"></span>
+        <div class="review-finding__body">
+          <div class="review-finding__title">
+            {% if f.url %}<a href="{{ f.url }}">{{ f.title }}</a>{% else %}{{ f.title }}{% endif %}
+            <span class="review-tag review-tag--{{ f.state }}">{{ f.get_state_display }}</span>
+            {% if f.section %}<span class="review-tag">{{ f.section }}</span>{% endif %}
+          </div>
+          {% if f.detail %}<div class="review-finding__detail">{{ f.detail }}</div>{% endif %}
+          {% if f.evidence.read %}<div class="review-finding__evidence">{% trans "Where to look" %}: {{ f.evidence.read }}</div>{% endif %}
+        </div>
+        {% if f.children %}<div class="review-finding__children" title="{% trans 'Children behind target' %}">{{ f.children|intcomma }}</div>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% if review.more %}<p class="small text-muted mt-2 mb-0">{% blocktrans count counter=review.more %}{{ counter }} more finding in the administration pages.{% plural %}{{ counter }} more findings in the administration pages.{% endblocktrans %}</p>{% endif %}
+    {% else %}
+    {% include "components/empty_state.html" with icon="check" title=_("Nothing to look at") message=_("No check found anything for this selection.") %}
+    {% endif %}
+
+    {% if review.check_errors %}<p class="small text-warning mt-2 mb-0">{% blocktrans count counter=review.check_errors|length %}{{ counter }} check could not run; its findings are missing.{% plural %}{{ counter }} checks could not run; their findings are missing.{% endblocktrans %}</p>{% endif %}
+  {% endif %}
+
+  {% if review.history|length > 1 %}
+  <div class="review-history" aria-label="{% trans 'Earlier reviews' %}">
+    {% for h in review.history %}<a href="?{% if page_query %}{{ page_query }}&amp;{% endif %}review={{ h.date|date:'Y-m-d' }}#daily-review" title="{% blocktrans with n=h.findings %}{{ n }} findings{% endblocktrans %}">{{ h.date|date:"D d M" }}</a>{% endfor %}
+  </div>
+  {% endif %}
+
+  <details class="review-how">
+    <summary>{% trans "How the daily review works" %}</summary>
+    <p class="mt-2 mb-1">{% blocktrans %}Every morning, after the night's eTools sync, fourteen fixed checks read the programme data: indicators newly off track, indicators never reported, overdue progress reports, spending ahead of delivery, under-disbursed and ending programme documents, late TPM reports, overdue high-priority action points, off-track monitoring findings, failed syncs, data quality, unplaced locations, stale sources and improvements.{% endblocktrans %}</p>
+    <p class="mb-1">{% blocktrans %}Each finding is compared with the day before (new, still open or resolved), ranked by severity and by the children behind target, and links to the page that holds the evidence. When the AI assistant is configured it writes the short summary from the findings alone; otherwise a template does.{% endblocktrans %}</p>
+    <p class="mb-0">{% blocktrans %}A finding is a prompt for a person to look, never a verdict on a partner or a colleague.{% endblocktrans %}</p>
+  </details>
+  <p class="source-line">{% trans "Source: the daily review job over PD indicators, PRP reports, funds reservations, TPM visits, action points, monitoring findings and sync runs." %}</p>
+</section>

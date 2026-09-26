@@ -46,6 +46,31 @@ function pairs(data) {
   return Object.entries(data || {}).map(([k, v]) => [k, num(v)]);
 }
 
+
+// ---- helpers shared by the overview builders
+const statusKey = (label) => String(label ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+
+/** "#446ab3" + 0.15 -> "#446ab326"; other colour notations are returned unchanged. */
+function withAlpha(color, alpha) {
+  if (!/^#[0-9a-f]{6}$/i.test(color)) return color;
+  return `${color}${Math.round(alpha * 255).toString(16).padStart(2, "0")}`;
+}
+
+/** {labels: [...], series: {name: [...]}, colors?: {name: "--nd-token"}} -> normalised parts. */
+function seriesOf(data) {
+  const labels = Array.isArray(data?.labels) ? data.labels.map(String) : [];
+  const series = Object.entries(data?.series || {}).map(([name, values]) => [name, (values || []).map(num)]);
+  return { labels, series, colors: data?.colors || {} };
+}
+
+const seriesColor = (name, i, colors) => (colors[name] ? cssVar(colors[name]) : i === 0 ? cssVar("--nd-primary") : PALETTE[i % PALETTE.length]);
+
+/** A legend under the plot when the chart has two or more series, none otherwise. */
+const legendFor = (count) => (count >= 2 ? { showlegend: true, legend: { orientation: "h", y: -0.24, x: 0, font: { size: 11 } } } : { showlegend: false });
+
+/** Height for horizontal category charts: the declared minimum, or one row per category. */
+const rowsHeight = (el, count, row = 28, extra = 84) => Math.max(Number(el.dataset.height) || 0, count * row + extra);
+
 const BUILDERS = {
   "status-donut"(el, data, labels) {
     const keys = STATUS_ORDER.filter((k) => num(data[k]) > 0);
@@ -164,6 +189,209 @@ const BUILDERS = {
         legend: { orientation: "h", y: -0.12 },
         margin: { t: 4, r: 16, b: 48, l: 8 },
         height: Number(el.dataset.height) || Math.max(260, rows.length * 24 + 90),
+      },
+    };
+  },
+  // ---- overview dashboard builders
+  "hbars-target"(el, data) {
+    // [{section, achieved, target, percent, elapsed}] -> grey target bar, accent achieved bar, elapsed marker
+    const rows = (Array.isArray(data) ? data : [])
+      .slice()
+      .sort((a, b) => num(a.target) - num(b.target) || num(a.achieved) - num(b.achieved));
+    const names = rows.map((r) => String(r.section ?? r.name ?? ""));
+    const text = cssVar("--nd-text");
+    const shapes = rows
+      .filter((r) => num(r.target) > 0 && r.elapsed != null)
+      .map((r) => {
+        const i = names.indexOf(String(r.section ?? r.name ?? ""));
+        const x = (num(r.target) * Math.min(Math.max(num(r.elapsed), 0), 100)) / 100;
+        return { type: "line", x0: x, x1: x, y0: i - 0.32, y1: i + 0.32, xref: "x", yref: "y", line: { color: text, width: 2 } };
+      });
+    return {
+      traces: [
+        {
+          type: "bar",
+          orientation: "h",
+          name: "Target",
+          y: names,
+          x: rows.map((r) => num(r.target)),
+          width: 0.64,
+          marker: { color: withAlpha(cssVar("--nd-neutral"), 0.28), line: { width: 0 } },
+          hovertemplate: "%{y} · target: %{x:,.0f}<extra></extra>",
+        },
+        {
+          type: "bar",
+          orientation: "h",
+          name: "Achieved",
+          y: names,
+          x: rows.map((r) => num(r.achieved)),
+          width: 0.38,
+          customdata: rows.map((r) => (r.percent == null ? "–" : `${Math.round(num(r.percent))}%`)),
+          marker: { color: cssVar("--nd-primary"), line: { width: 0 } },
+          hovertemplate: "%{y} · achieved: %{x:,.0f} (%{customdata} of target)<extra></extra>",
+        },
+        {
+          type: "scatter",
+          mode: "markers",
+          name: "Share of the PD period elapsed",
+          x: [null],
+          y: [null],
+          marker: { symbol: "line-ns-open", size: 10, color: text, line: { width: 2, color: text } },
+          hoverinfo: "skip",
+        },
+      ],
+      layout: {
+        barmode: "overlay",
+        bargap: 0.2,
+        shapes,
+        yaxis: { type: "category" },
+        xaxis: { rangemode: "tozero" },
+        margin: { t: 4, r: 16, b: 56, l: 8 },
+        height: rowsHeight(el, rows.length),
+        ...legendFor(3),
+      },
+    };
+  },
+  lines(el, data) {
+    // {labels, series: {name: [...]}, colors?} -> multi-line chart with a light fill
+    const { labels, series, colors } = seriesOf(data);
+    return {
+      traces: series.map(([name, values], i) => {
+        const color = seriesColor(name, i, colors);
+        return {
+          type: "scatter",
+          mode: "lines+markers",
+          name,
+          x: labels,
+          y: values,
+          line: { color, width: 2, shape: "linear" },
+          marker: { size: 5, color },
+          fill: "tozeroy",
+          fillcolor: withAlpha(color, 0.12),
+          hovertemplate: `${name}: %{y:,.0f}<extra></extra>`,
+        };
+      }),
+      layout: {
+        hovermode: "x unified",
+        xaxis: { type: "category" },
+        yaxis: { rangemode: "tozero" },
+        margin: { t: 8, r: 12, b: 56, l: 48 },
+        ...legendFor(series.length),
+      },
+    };
+  },
+  "stacked-h"(el, data, labels) {
+    // [{section, on_track, off_track, over_target, no_target, not_reported, total}] -> stacked bars in status colours
+    const rows = (Array.isArray(data) ? data : []).slice().sort((a, b) => num(a.total) - num(b.total));
+    const names = rows.map((r) => String(r.section ?? r.name ?? ""));
+    const traces = STATUS_ORDER.map((key) => {
+      const label = labels?.[key] || key;
+      return {
+        type: "bar",
+        orientation: "h",
+        name: label,
+        y: names,
+        x: rows.map((r) => num(r[key])),
+        marker: { color: cssVar(STATUS_VARS[key]), line: { width: 0 } },
+        hovertemplate: `%{y} · ${label}: %{x:,}<extra></extra>`,
+      };
+    }).filter((t) => t.x.some((v) => v > 0));
+    return {
+      traces,
+      layout: {
+        barmode: "stack",
+        bargap: 0.3,
+        yaxis: { type: "category" },
+        margin: { t: 4, r: 16, b: 56, l: 8 },
+        height: rowsHeight(el, rows.length),
+        ...legendFor(traces.length),
+      },
+    };
+  },
+  grouped(el, data) {
+    // {labels, series: {name: [...]}, colors?: {name: "--nd-token"}} -> grouped vertical bars
+    const { labels, series, colors } = seriesOf(data);
+    return {
+      traces: series.map(([name, values], i) => ({
+        type: "bar",
+        name,
+        x: labels,
+        y: values,
+        marker: { color: seriesColor(name, i, colors), line: { width: 0 } },
+        hovertemplate: `%{x} · ${name}: %{y:,}<extra></extra>`,
+      })),
+      layout: {
+        barmode: "group",
+        bargap: 0.25,
+        bargroupgap: 0.06,
+        xaxis: { type: "category" },
+        yaxis: { rangemode: "tozero" },
+        margin: { t: 8, r: 8, b: 56, l: 40 },
+        ...legendFor(series.length),
+      },
+    };
+  },
+  "scatter-xy"(el, data) {
+    // [{name, x, y, ahead}] -> markers coloured by ahead/behind, a diagonal reference line, both axes in percent
+    const rows = (Array.isArray(data) ? data : []).filter((r) => r.x != null && r.y != null);
+    const top = Math.max(105, ...rows.map((r) => Math.max(num(r.x), num(r.y)) + 8));
+    const muted = cssVar("--nd-muted");
+    const group = (list, name, token) => ({
+      type: "scatter",
+      mode: "markers+text",
+      name,
+      x: list.map((r) => num(r.x)),
+      y: list.map((r) => num(r.y)),
+      text: list.map((r) => String(r.name ?? "")),
+      textposition: "top center",
+      textfont: { size: 10, color: muted },
+      marker: { size: 10, color: cssVar(token), line: { width: 1.5, color: cssVar("--nd-surface") } },
+      hovertemplate: "%{text}<br>Disbursed: %{x:.0f}%<br>Achieved: %{y:.0f}%<extra></extra>",
+    });
+    const traces = [
+      group(rows.filter((r) => r.ahead), "Delivery ahead of spending", "--nd-success"),
+      group(rows.filter((r) => !r.ahead), "Spending ahead of delivery", "--nd-warning"),
+    ].filter((t) => t.x.length);
+    return {
+      traces,
+      layout: {
+        shapes: [{ type: "line", x0: 0, y0: 0, x1: top, y1: top, xref: "x", yref: "y", line: { color: cssVar("--nd-border"), width: 1, dash: "dot" } }],
+        xaxis: { range: [0, top], ticksuffix: "%", title: { text: "Disbursed", font: { size: 11, color: muted } } },
+        yaxis: { range: [0, top], ticksuffix: "%", title: { text: "Achieved", font: { size: 11, color: muted } } },
+        margin: { t: 12, r: 12, b: 64, l: 52 },
+        ...legendFor(traces.length),
+      },
+    };
+  },
+  hbars(el, data) {
+    // pairs -> horizontal bars, first pair at the top; data-prefix/data-suffix decorate the hover value,
+    // data-color-by="status" colours each bar by its label ("On Track" -> success)
+    const rows = pairs(data).slice().reverse();
+    const prefix = el.dataset.prefix || "";
+    const suffix = el.dataset.suffix || "";
+    const byStatus = el.dataset.colorBy === "status";
+    const labels = rows.map((r) => (r[0].length > 38 ? `${r[0].slice(0, 36)}…` : r[0]));
+    return {
+      traces: [
+        {
+          type: "bar",
+          orientation: "h",
+          y: labels,
+          x: rows.map((r) => r[1]),
+          customdata: rows.map((r) => r[0]),
+          marker: {
+            color: byStatus ? rows.map((r) => cssVar(STATUS_VARS[statusKey(r[0])] || "--nd-neutral")) : cssVar(el.dataset.color || "--nd-primary"),
+            line: { width: 0 },
+          },
+          hovertemplate: `%{customdata}: ${prefix}%{x:,.0f}${suffix}<extra></extra>`,
+        },
+      ],
+      layout: {
+        bargap: 0.3,
+        yaxis: { type: "category" },
+        xaxis: { rangemode: "tozero" },
+        margin: { t: 4, r: 16, b: 32, l: 8 },
+        height: rowsHeight(el, rows.length, 26, 60),
       },
     };
   },

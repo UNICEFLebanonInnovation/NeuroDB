@@ -1,0 +1,65 @@
+{% load i18n ui humanize %}
+{% with money=data.money %}
+<div class="overview-row">
+<h2 class="section-heading">{% trans "Value for money" %}</h2>
+<div class="grid grid--2">
+  <section class="panel" aria-labelledby="cost-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="cost-title">{% trans "Cost per child by section" %}</h3>
+      <span class="panel__hint">{% trans "Disbursed USD per child reached (eTools)" %}</span>
+    </div>
+    <p class="caveat">{{ money.cost_caveat }}</p>
+    <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-source="overview-chart-data" data-key="money.by_section" data-prefix="$" data-height="200" data-empty-title="{% trans 'No cost per child yet' %}" aria-label="{% trans 'Cost per child by section' %}"></div>
+    {% if money.by_section %}
+    <details class="mt-2">
+      <summary class="small text-muted">{% trans "Figures by section" %}</summary>
+      <div class="table-wrap mt-2"><table class="table table-sm" id="overview-money-sections">
+        <thead><tr><th scope="col">{% trans "Section" %}</th><th scope="col" class="num">{% trans "Disbursed" %}</th><th scope="col" class="num">{% trans "Reserved" %}</th><th scope="col" class="num">{% trans "Children" %}</th><th scope="col" class="num">{% trans "Cost per child" %}</th></tr></thead>
+        <tbody>{% for r in money.by_section %}<tr><td>{{ r.section }}</td><td class="num">{{ r.disbursed|money }}</td><td class="num">{{ r.reserved|money }}</td><td class="num">{{ r.children|number:0 }}</td><td class="num">{{ r.cost_per_child|money }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </details>
+    {% endif %}
+    <p class="source-line">{{ money.source }}</p>
+  </section>
+  <section class="panel" aria-labelledby="scatter-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="scatter-title">{% trans "Spending against delivery" %}</h3>
+      <span class="panel__hint">{% trans "Share disbursed against share of the children target achieved, per section" %}</span>
+    </div>
+    <div class="chart chart--sm" data-module="charts" data-chart="scatter-xy" data-source="overview-chart-data" data-key="money.scatter" data-height="260" data-empty-title="{% trans 'No section has both a disbursement and a children target yet' %}" aria-label="{% trans 'Disbursed share against achieved share by section' %}"></div>
+    <p class="source-line">{{ money.source }}</p>
+  </section>
+  <section class="panel" aria-labelledby="donor-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="donor-title">{% trans "Funding by donor" %}</h3>
+      <a class="panel__hint" href="{% url 'reports:funds' %}">{% trans "Funds" %} →</a>
+    </div>
+    <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-source="overview-chart-data" data-key="money.by_donor" data-prefix="$" data-height="240" data-empty-title="{% trans 'No funds reservations for this scope' %}" aria-label="{% trans 'Funds by donor' %}"></div>
+    <p class="source-line">{{ money.source }}</p>
+  </section>
+  <section class="panel" aria-labelledby="decisions-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="decisions-title">{% trans "Decisions this quarter" %}</h3>
+      <span class="panel__hint">{% trans "PDs ending within 90 days, or behind on disbursement" %}</span>
+    </div>
+    {% if money.decisions %}
+    <ul class="attention-list">
+      {% for d in money.decisions %}
+      <li class="attention">
+        <span class="attention__sev attention__sev--{{ d.severity }}" aria-hidden="true"></span>
+        <div class="attention__body">
+          <div class="attention__title">{% if d.url %}<a href="{{ d.url }}">{{ d.pd }}</a>{% else %}{{ d.pd }}{% endif %}{% if d.partner %} · {{ d.partner }}{% endif %}</div>
+          {% if d.detail %}<div class="attention__detail">{{ d.detail }}</div>{% endif %}
+          <div class="attention__meta">{% if d.section %}<span>{{ d.section }}</span>{% endif %}<span>{{ d.reason }}</span></div>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    {% include "components/empty_state.html" with icon="check" title=_("No decisions pending") message=_("No active programme document ends within 90 days or is behind on disbursement.") %}
+    {% endif %}
+    <p class="source-line">{{ money.source }}</p>
+  </section>
+</div>
+</div>
+{% endwith %}

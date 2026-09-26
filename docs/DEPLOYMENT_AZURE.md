@@ -14,7 +14,8 @@ Users ────────────────────────�
    ├─ neurodb-prod-ai-data       15:00 UTC, days 1–22     (user-assigned managed identity)
    ├─ neurodb-prod-etools        17:30 UTC
    ├─ neurodb-prod-locations     02:00 UTC                Blob storage (identity, no keys)
-   └─ neurodb-prod-freshness     hourly                   Log Analytics + Application Insights
+   ├─ neurodb-prod-freshness     hourly                   Log Analytics + Application Insights
+   └─ neurodb-prod-daily-review  03:00 UTC
 ```
 
 Everything is described in `infra/main.bicep`. The database is **not** created: v3 attaches to
