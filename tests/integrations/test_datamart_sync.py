@@ -741,7 +741,9 @@ def location(source_id: int, name: str, p_code: str, level: int, parent: int | N
         "name": name,
         "p_code": p_code,
         "admin_level": level,
-        "admin_level_name": {0: "Country", 1: "Governorate", 2: "District", 3: "Cadastral"}[level],
+        "admin_level_name": {0: "Country", 1: "Governorate", 2: "District", 3: "Cadastral"}.get(
+            level, f"Level {level}"
+        ),
         "parent": 3000 + parent if parent else None,
         "is_active": True,
         "country_name": "Lebanon",
@@ -925,3 +927,32 @@ def test_records_synced_before_the_gazetteer_are_linked_by_the_locations_run(lin
         "actionpoint": 1,
         "programme_documents": 1,
     }
+
+
+@responses.activate
+def test_locations_reuse_the_v2_location_types_that_already_carry_etools_names(linked):
+    """Production keeps v2's ``locations_locationtype`` rows (unique by name, mostly without an
+    admin level): the sync must adopt them instead of failing on the unique name."""
+    from neurodb.geo.models import Location, LocationType
+
+    cadaster = LocationType.objects.create(name="Cadaster", admin_level=None)
+    school = LocationType.objects.create(name="School", admin_level=9)
+    page(
+        "locations",
+        [
+            location(1, "Lebanon", "LB", 0),
+            location(2, "Akkar", "LB1", 1, parent=1, admin_level_name="Governorate"),
+            location(3, "Halba", "LB1101", 3, parent=2, admin_level_name="cadaster"),
+            location(4, "Halba School", "LB1101-S1", 5, parent=3, admin_level_name="School"),
+        ],
+    )
+    (run,) = run_all("locations")
+    assert (run.status, run.rows_written, run.rows_failed) == (SyncRun.Status.SUCCEEDED, 4, 0), run.details
+
+    cadaster.refresh_from_db()
+    school.refresh_from_db()
+    assert (cadaster.admin_level, school.admin_level) == (3, 9)
+    assert Location.objects.get(pk=3).type == cadaster
+    assert Location.objects.get(pk=4).type == school
+    assert LocationType.objects.count() == 4
+    assert LocationType.objects.get(name="Governorate").admin_level == 1

@@ -1204,16 +1204,24 @@ def _write_documents(name: str, items: list[dict[str, Any]], links: Links) -> di
 
 # ------------------------------------------------------------------- locations (the gazetteer)
 def _location_type(admin_level: Any, name: Any, cache: dict[int, int]) -> int | None:
-    """The ``LocationType`` of an admin level (created on first sight, named as eTools names it)."""
+    """The ``LocationType`` of an admin level, named as eTools names it.
+
+    The v2 table already holds types by name (``Governorate``, ``Cadaster``, ``School`` ...), most
+    without an admin level, and the name is unique: an existing row with eTools' name is reused
+    (and given the level when it has none) before a new one is created."""
     if admin_level in (None, "") or not str(admin_level).lstrip("-").isdigit():
         return None
     level = int(admin_level)
     if level not in cache:
+        label = str(name or f"Admin level {level}").strip()[:254]
         location_type = LocationType.objects.filter(admin_level=level).first()
         if location_type is None:
-            location_type = LocationType.objects.create(
-                name=str(name or f"Admin level {level}")[:254], admin_level=level
-            )
+            location_type = LocationType.objects.filter(name__iexact=label).first()
+            if location_type is not None and location_type.admin_level is None:
+                location_type.admin_level = level
+                location_type.save(update_fields=["admin_level", "modified"])
+        if location_type is None:
+            location_type = LocationType.objects.create(name=label, admin_level=level)
         cache[level] = location_type.pk
     return cache[level]
 
