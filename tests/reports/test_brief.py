@@ -1,0 +1,382 @@
+"""The management brief: its service on the hand-counted overview fixture, its page, the two
+hand-entered tables (section plans, finding assignments) and their admin pages."""
+
+import datetime
+import json
+
+import pytest
+from django.urls import reverse
+
+from neurodb.core.models import PopulationFigure, SyncRun
+from neurodb.datamart import models as dm
+from neurodb.geo.models import Location, LocationType
+from neurodb.partnerships.models import PartnerLink
+from neurodb.reports import brief
+from neurodb.reports.models import SectionPlan
+from neurodb.review import services as review_services
+from neurodb.review.models import FindingAssignment, ReviewFinding
+from tests.reports.overview_fixture import TODAY, make_overview_data
+
+pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture
+def data(hierarchy, settings):
+    settings.AI_ASSISTANT_ENABLED = False
+    made = make_overview_data()
+    # A district between the governorate and the cadaster, and its children, for the gap table.
+    district_type = LocationType.objects.create(name="District", admin_level=2)
+    district = Location.objects.create(
+        id=101, name="Akkar District", p_code="LB11", type=district_type, parent=made["akkar"],
+        lft=1, rght=2, level=0, tree_id=1,
+    )  # fmt: skip
+    made["halba"].parent = district
+    made["halba"].save()
+    PopulationFigure.objects.create(
+        year=2025, category="children", level="district", nationality="ALL", area_name="Akkar District",
+        area_code="LB11", parent_name="Akkar", value=3000,
+    )  # fmt: skip
+    # The plan, a grant behind the funds reservation, and the ActivityInfo link of the partner.
+    SectionPlan.objects.create(
+        year=2026, section="Child Protection", children_target=2000, required_usd=20000
+    )
+    dm.FundsReservation.objects.update(grant_number="SC1")
+    dm.Grant.objects.create(datamart_id=1, name="SC1", donor="EU", expiry=TODAY + datetime.timedelta(days=30))
+    PartnerLink.objects.create(label="Partner A", partner=made["partner"], method="manual")
+    return made
+
+
+def build(reporting_year, **scope):
+    return brief.build(
+        brief.Scope(year=2026, reporting_year=reporting_year, today=TODAY, **scope), cache=False
+    )
+
+
+def test_headline_tiles_are_the_overview_figures_with_their_comparisons(data, reporting_year):
+    tiles = {t["key"]: t for t in build(reporting_year)["headline"]["tiles"]}
+    assert tiles["children"]["value"] == 500 and tiles["children"]["delta"] is None  # no last year
+    achievement = tiles["achievement"]
+    assert achievement["value"] == 50.0 and achievement["delta"]["unit"] == "pts"
+    assert 0 < achievement["delta"]["value"] < 1 and achievement["delta"]["good"]  # 50 % vs 49.7 % elapsed
+    assert (tiles["disbursed"]["value"], tiles["disbursed"]["delta"]["value"]) == (4000, 40.0)
+    assert tiles["cost"]["value"] == 8.0 and tiles["cost"]["delta"] is None
+    assert tiles["on_track"]["value"] == 100.0 and tiles["on_track"]["delta"] is None  # no review 30 days ago
+
+
+def test_pace_bullets_carry_the_cp_target_and_the_projection_extends_the_pace(data, reporting_year):
+    pace = build(reporting_year)["pace"]
+    (bullet,) = pace["bullets"]
+    assert (bullet["section"], bullet["achieved"], bullet["target"], bullet["cp_target"]) == (
+        "Child Protection",
+        500,
+        1000,
+        2000,
+    )
+    assert 490 <= bullet["expected"] <= 500 and pace["has_cp_targets"]
+    projection = pace["projection"]
+    assert projection["actual_months"] == 7 and projection["target"] == 1000
+    etools = projection["series"]["eTools"]
+    assert etools[:7] == [0, 0, 300, 300, 300, 500, 500]  # cumulative to July
+    assert etools[7] == 567 and etools[11] == 833  # + the average of May, June, July (67) per month
+    assert projection["series"]["ActivityInfo"][:2] == [150, 500]
+
+
+def test_confidence_per_section(data, reporting_year):
+    rows = build(reporting_year)["confidence"]["rows"]
+    (row,) = rows
+    assert row["section"] == "Child Protection" and row["indicators"] == 2
+    assert row["reported_percent"] == 50.0  # the teachers indicator never reported
+    assert row["verified_percent"] == 100.0  # TPM/1 was approved on the PD
+    assert row["linked_percent"] == 100.0  # Partner A → Amel
+    assert row["sync_days"] is None and row["level"] == "low"  # reported and sync short
+    SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART,
+        status=SyncRun.Status.SUCCEEDED,
+        finished_at=datetime.datetime.now(datetime.UTC),
+    )
+    (row,) = build(reporting_year)["confidence"]["rows"]
+    assert row["sync_days"] == 0 and row["level"] == "medium"
+
+
+def test_the_two_sources_side_by_side_per_partner(data, reporting_year):
+    (row,) = build(reporting_year)["confidence"]["reconcile"]
+    assert (row["partner"], row["activityinfo"], row["etools"]) == ("Amel Association", 150, 500)
+    assert row["gap_percent"] == 70.0 and not row["consistent"]
+
+
+def test_timeliness_marks_each_quarter(data, reporting_year):
+    timeliness = build(reporting_year)["confidence"]["timeliness"]
+    (row,) = timeliness["rows"]
+    assert row["cells"] == ["on_time", "on_time", "", ""] and row["late"] == 0
+    assert timeliness["counts"] == {"on_time": 2, "late": 0, "missing": 0, "not_due": 0}
+    dm.ReportedIndicator.objects.filter(progress_report="PR-2").update(
+        submission_date=None, report_status="Due", due_date=TODAY - datetime.timedelta(days=10)
+    )
+    (row,) = build(reporting_year)["confidence"]["timeliness"]["rows"]
+    assert row["cells"][1] == "missing" and row["late"] == 1  # due ten days ago, nothing submitted
+
+
+def test_who_and_where(data, reporting_year):
+    who = build(reporting_year)["who"]
+    assert who["sex_age"]["labels"] == ["Children"] and who["sex_age"]["series"]["Not named"] == [500]
+    assert who["children_tagged"] == 500 and who["nationality_named"] == 0
+    assert [n["name"] for n in who["nationality"]] == ["Lebanese", "Syrian", "Palestinian"]
+    assert who["disability"] == {"reached": 0, "share": 0.0}
+    assert [g["name"] for g in who["governorates"]] == ["Akkar", "Beirut"]
+    (district,) = who["districts"]
+    assert (district["district"], district["governorate"], district["children"], district["reached"]) == (
+        "Akkar District",
+        "Akkar",
+        3000,
+        300,
+    )
+    assert (district["coverage"], district["not_reached"]) == (10.0, 2700)
+
+
+def test_partner_scorecard_and_quadrant(data, reporting_year):
+    partners = build(reporting_year)["partners"]
+    (row,) = partners["scorecard"]
+    assert (row["partner"], row["pds"], row["indicators"], row["reserved"]) == (
+        "Amel Association",
+        1,
+        2,
+        10000,
+    )
+    assert row["on_track_percent"] == 100.0 and row["reports_on_time_percent"] == 100.0
+    assert row["points_on_time_percent"] == 0.0  # AP/1 open past due, AP/2 closed ten days late
+    assert row["risk"] == "High" and row["high_risk"] and row["finding"] == "Off Track"
+    assert (row["disbursed_percent"], row["achieved_percent"], row["quadrant"]) == (40.0, 50.0, "ahead")
+    assert row["children"] == 500
+    (point,) = partners["quadrant"]
+    assert (point["x"], point["y"], point["size"], point["quadrant"]) == (40.0, 50.0, 10000, "ahead")
+    assert partners["decisions"] == []
+
+
+def test_money_flows_grants_and_requirements(data, reporting_year):
+    money = build(reporting_year)["money"]
+    assert money["flows"]["donors"] == [{"name": "EU", "amount": 10000.0}]
+    assert money["flows"]["links"] == [{"donor": "EU", "section": "Child Protection", "amount": 10000.0}]
+    assert money["flows"]["sections"] == [{"name": "Child Protection", "children": 500, "reserved": 10000.0}]
+    (grant,) = money["grants"]
+    assert (grant["grant"], grant["donor"], grant["unspent"], grant["days"], grant["at_risk"]) == (
+        "SC1",
+        "EU",
+        6000.0,
+        30,
+        True,
+    )
+    (funded,) = money["funded"]
+    assert (funded["required"], funded["reserved"], funded["percent"]) == (20000.0, 10000.0, 50.0)
+    assert money["has_requirements"]
+
+
+def test_decisions_and_action_read_the_review_and_its_assignments(data, reporting_year):
+    review = review_services.run(date=TODAY, today=TODAY)
+    overdue = review.findings.get(check_id="action_points_overdue")
+    FindingAssignment.objects.create(
+        key=overdue.key, title=overdue.title, section=overdue.section, owner="Chief of Child Protection",
+        due_date=TODAY - datetime.timedelta(days=1), status=FindingAssignment.Status.ASSIGNED,
+    )  # fmt: skip
+    result = build(reporting_year)
+    decide = result["headline"]["decide"]
+    assert 1 <= len(decide) <= brief.MAX_DECISIONS and decide[0]["key"] == overdue.key
+    assert (decide[0]["owner"], decide[0]["status"], decide[0]["status_label"]) == (
+        "Chief of Child Protection",
+        "assigned",
+        "Assigned",
+    )
+    assert decide[0]["assign_url"].startswith(reverse("admin:index")) and decide[1]["status"] == "raised"
+    assert "key=" in decide[1]["assign_url"]  # not assigned yet: the add form, prefilled
+    action = result["action"]
+    assert action["lifecycle"]["raised"] == review.findings.count()
+    assert (
+        action["lifecycle"]["acknowledged"],
+        action["lifecycle"]["assigned"],
+        action["lifecycle"]["closed"],
+    ) == (
+        1,
+        1,
+        0,
+    )
+    assert action["lifecycle"]["median_days"]["assigned"] == 0
+    (owner,) = action["owners"]
+    assert (owner["owner"], owner["open"], owner["past_due"]) == ("Chief of Child Protection", 1, 1)
+    assert action["digest"]["reviews"] == 1 and action["digest"]["last"] == TODAY.isoformat()
+    assert result["lineage"]["review"]["findings"] == review.findings.count()
+    assert "Owner: Chief of Child Protection" in result["text"]
+
+
+def test_a_finding_the_review_sees_resolved_counts_as_closed(data, reporting_year):
+    review_services.run(date=TODAY, today=TODAY)
+    dm.ActionPoint.objects.filter(reference_number="AP/1").update(status="completed")
+    later = TODAY + datetime.timedelta(days=1)
+    second = review_services.run(date=later, today=later)
+    assert second.findings.filter(state=ReviewFinding.State.RESOLVED).exists()
+    result = brief.build(brief.Scope(year=2026, reporting_year=reporting_year, today=later), cache=False)
+    assert result["action"]["lifecycle"]["closed"] >= 1
+
+
+def test_the_brief_as_text_carries_the_figures_on_screen(data, reporting_year):
+    text = build(reporting_year)["text"]
+    assert "Children reached, at least: 500." in text
+    assert "Achievement of PD targets: 50%" in text and "Funds: $4k disbursed (40% of $10k reserved)." in text
+    assert "Cost per child: $8." in text and "Indicators on track: 100%" in text
+    assert "Grants expiring within 90 days with an unspent balance: SC1 (EU, $6k)." in text
+    assert "Low confidence in the figures of: Child Protection." in text
+    assert text.endswith("rules v1.")
+
+
+def test_section_filter_and_empty_database(data, reporting_year, db):
+    other = build(reporting_year, sections=["Education"])
+    assert other["headline"]["tiles"][0]["value"] == 0 and other["confidence"]["rows"] == []
+    assert other["partners"]["scorecard"] == [] and other["money"]["flows"]["links"] == []
+
+
+def test_empty_database_gives_zeros(db, reporting_year):
+    result = build(reporting_year)
+    assert result["headline"]["tiles"][0]["value"] == 0 and result["headline"]["decide"] == []
+    assert result["pace"]["projection"]["series"]["eTools"] == []
+    assert result["confidence"]["rows"] == [] and result["who"]["sex_age"] == {}
+    assert result["money"]["grants"] == [] and result["action"]["digest"] == {}
+    assert result["lineage"]["review"] is None and "no sync yet" in result["text"]
+
+
+def test_result_is_cached_and_a_new_plan_shows_at_once(
+    data, reporting_year, settings, django_assert_max_num_queries
+):
+    settings.DEBUG = False
+    scope = brief.Scope(year=2026, reporting_year=reporting_year, today=TODAY)
+    assert brief.build(scope)["pace"]["bullets"][0]["cp_target"] == 2000
+    with django_assert_max_num_queries(6):  # the fingerprints only
+        brief.build(scope)
+    SectionPlan.objects.filter(section="Child Protection").update(children_target=3000)
+    SectionPlan.objects.get(section="Child Protection").save()  # a real save bumps updated_at
+    assert brief.build(scope)["pace"]["bullets"][0]["cp_target"] == 3000
+
+
+def test_query_count_is_bounded(data, reporting_year, django_assert_max_num_queries):
+    with django_assert_max_num_queries(150):
+        build(reporting_year)
+
+
+# ------------------------------------------------------------------------------- the page
+def test_page_renders_every_block(client_viewer, data, reporting_year):
+    page = client_viewer.get(reverse("reports:brief"))
+    assert page.status_code == 200
+    html = page.text
+    for text in (
+        "Management brief",
+        "Country management brief",
+        "Things to decide this month",
+        "The brief as text",
+        "Are we ahead or behind?",
+        "Confidence in the figures",
+        "Where the two sources disagree",
+        "Reporting timeliness",
+        "Districts with high need and low coverage",
+        "Partner scorecard",
+        "From donor to section to children reached",
+        "Grants at risk",
+        "Finding lifecycle",
+        "Lineage of this brief",
+        "Data dictionary",
+    ):
+        assert text in html, text
+    assert "Akkar District" in html and "Amel Association" in html and 'id="brief-chart-data"' in html
+    start = html.index('id="brief-chart-data"')
+    charts = json.loads(html[html.index(">", start) + 1 : html.index("</script>", start)])
+    assert charts["bullets"][0]["cp_target"] == 2000
+    assert charts["projection"]["actual_months"] == datetime.date.today().month  # the page reads today
+    assert (
+        charts["quadrant"][0]["name"] == "Amel Association" and charts["flows"]["donors"][0]["name"] == "EU"
+    )
+    assert (charts["grants"][0]["label"], charts["grants"][0]["value"]) == ("EU · SC1", 6000.0)
+    assert charts["funded"][0]["percent"] == 50.0 and charts["lifecycle"] == []
+    assert "Assign" not in html.split("Things to decide")[1].split("The brief as text")[0]  # viewers cannot
+
+
+def test_page_filters_and_staff_links(client, admin_user, data, reporting_year):
+    client.force_login(admin_user)
+    page = client.get(reverse("reports:brief") + "?section=Education&year=2026")
+    assert page.status_code == 200 and page.context["selected"]["section"] == ["Education"]
+    assert "Reporting year 2026 · Education" in page.text
+    review_services.run(date=TODAY, today=TODAY)
+    page = client.get(reverse("reports:brief"))
+    assert reverse("admin:review_findingassignment_add") in page.text  # staff see the Assign links
+
+
+def test_page_without_a_reporting_year(client_viewer, db):
+    page = client_viewer.get(reverse("reports:brief"))
+    assert page.status_code == 200 and "No reporting year is configured" in page.text
+
+
+def test_sidebar_and_landing_name_the_brief(client_viewer, reporting_year):
+    page = client_viewer.get(reverse("reports:overview"))
+    assert reverse("reports:brief") in page.text
+
+
+# ------------------------------------------------------------------------------- the tables
+def test_assignment_status_stamps_the_lifecycle_dates(db):
+    a = FindingAssignment.objects.create(key="k", status=FindingAssignment.Status.ACKNOWLEDGED)
+    assert a.acknowledged_at and a.assigned_at is None and a.closed_at is None
+    a.status = FindingAssignment.Status.CLOSED
+    a.save()
+    assert a.assigned_at and a.closed_at
+    a.status = FindingAssignment.Status.ASSIGNED
+    a.save()
+    assert a.closed_at is None and a.assigned_at  # reopened: the closing date is cleared, the rest kept
+
+
+def test_admin_pages_of_the_two_tables(client, admin_user, db):
+    admin_user.is_superuser = True
+    admin_user.save()
+    client.force_login(admin_user)
+    add = reverse("admin:reports_sectionplan_add")
+    assert client.get(add).status_code == 200
+    response = client.post(
+        add,
+        {
+            "year": 2026,
+            "section": "Education",
+            "children_target": 50000,
+            "required_usd": "1000000.00",
+            "note": "CP",
+        },
+    )
+    assert response.status_code == 302
+    plan = SectionPlan.objects.get()
+    assert (plan.section, plan.children_target, plan.updated_by) == ("Education", 50000, admin_user.username)
+    assert client.get(reverse("admin:reports_sectionplan_changelist")).status_code == 200
+
+    add = (
+        reverse("admin:review_findingassignment_add") + "?key=reports_overdue:LEB/PD1&title=Late&section=WASH"
+    )
+    page = client.get(add)
+    assert (
+        page.status_code == 200
+        and 'value="reports_overdue:LEB/PD1"' in page.text
+        and 'value="Late"' in page.text
+    )
+    response = client.post(
+        reverse("admin:review_findingassignment_add"),
+        {"key": "reports_overdue:LEB/PD1", "title": "Late", "section": "WASH", "owner": "Chief of WASH",
+         "due_date": "2026-08-01", "status": "assigned", "note": ""},
+    )  # fmt: skip
+    assert response.status_code == 302
+    a = FindingAssignment.objects.get()
+    assert (a.owner, a.status, a.updated_by) == ("Chief of WASH", "assigned", admin_user.username)
+    assert a.assigned_at is not None
+    assert client.get(reverse("admin:review_findingassignment_changelist")).status_code == 200
+
+
+def test_review_admin_links_each_finding_to_its_assignment(client, admin_user, data, reporting_year):
+    admin_user.is_superuser = True
+    admin_user.save()
+    client.force_login(admin_user)
+    review = review_services.run(date=TODAY, today=TODAY)
+    page = client.get(reverse("admin:review_reviewfinding_changelist"))
+    assert page.status_code == 200 and ">Assign<" in page.text
+    finding = review.findings.first()
+    FindingAssignment.objects.create(key=finding.key, title=finding.title, owner="Deputy Representative")
+    page = client.get(reverse("admin:review_dailyreview_change", args=[review.pk]))
+    assert page.status_code == 200 and "Deputy Representative · Acknowledged" in page.text

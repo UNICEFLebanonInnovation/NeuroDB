@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% load i18n ui humanize %}
+{% block content %}
+{% if not year %}
+  <div class="panel">{% include "components/empty_state.html" with icon="calendar" title=_("No reporting year is configured") message=_("An administrator must mark one reporting year as current in the administration pages.") %}</div>
+{% else %}
+{% include "reports/partials/_brief_filters.html" %}
+<nav class="brief-tabs" aria-label="{% trans 'Sections of the brief' %}">
+  {% for key, label in tabs %}<a href="#brief-{{ key }}">{{ label }}</a>{% endfor %}
+</nav>
+{% include "reports/partials/_brief_headline.html" %}
+{% include "reports/partials/_brief_pace.html" %}
+{% include "reports/partials/_brief_confidence.html" %}
+{% include "reports/partials/_brief_who.html" %}
+{% include "reports/partials/_brief_partners.html" %}
+{% include "reports/partials/_brief_money.html" %}
+{% include "reports/partials/_brief_action.html" %}
+{% include "reports/partials/_brief_reference.html" %}
+{% endif %}
+{{ chart_data|json_script:"brief-chart-data" }}
+{% endblock %}

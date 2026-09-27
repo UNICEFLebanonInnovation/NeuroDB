@@ -1,0 +1,80 @@
+{% load i18n ui humanize %}
+{% with c=data.confidence %}
+<div class="overview-row brief-section" id="brief-confidence">
+<h2 class="section-heading">{% trans "How sure are we?" %} <span class="small text-muted fw-normal">{% trans "How complete, verified and consistent the figures above are" %}</span></h2>
+<section class="panel" aria-labelledby="conf-title">
+  <div class="panel__header">
+    <h3 class="panel__title" id="conf-title">{% trans "Confidence in the figures" %}</h3>
+    <span class="panel__hint">{% blocktrans with r=c.thresholds.reported v=c.thresholds.verified l=c.thresholds.linked d=c.thresholds.sync_days %}High when reported ≥ {{ r }}%, verified ≥ {{ v }}%, linked ≥ {{ l }}% and the sync is at most {{ d }} days old{% endblocktrans %}</span>
+  </div>
+  {% if c.rows %}
+  <div class="table-wrap"><table class="table table-sm" id="brief-confidence-table">
+    <thead><tr><th scope="col">{% trans "Section" %}</th><th scope="col">{% trans "Indicators reported" %}</th><th scope="col">{% trans "Verified by a visit" %}</th><th scope="col">{% trans "Partners linked" %}</th><th scope="col" class="num">{% trans "Days since sync" %}</th><th scope="col">{% trans "Confidence" %}</th></tr></thead>
+    <tbody>
+    {% for r in c.rows %}
+    <tr>
+      <td>{{ r.section }} <span class="text-muted small">{{ r.indicators }}</span></td>
+      <td>{% include "reports/partials/_brief_bar.html" with value=r.reported_percent threshold=c.thresholds.reported %}</td>
+      <td>{% include "reports/partials/_brief_bar.html" with value=r.verified_percent threshold=c.thresholds.verified %}</td>
+      <td>{% include "reports/partials/_brief_bar.html" with value=r.linked_percent threshold=c.thresholds.linked %}</td>
+      <td class="num">{{ r.sync_days|number:0 }}</td>
+      <td><span class="pill pill--sm {% if r.level == 'high' %}pill--success{% elif r.level == 'medium' %}pill--warning{% else %}pill--danger{% endif %}">{% if r.level == 'high' %}{% trans "High" %}{% elif r.level == 'medium' %}{% trans "Medium" %}{% else %}{% trans "Low" %}{% endif %}</span></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  {% include "components/empty_state.html" with icon="shield" title=_("No sections yet") message=_("Sections appear once PD indicators are synced for this year.") %}
+  {% endif %}
+  <p class="source-line">{{ c.source }}</p>
+</section>
+<div class="grid grid--2">
+  <section class="panel" aria-labelledby="recon-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="recon-title">{% trans "Where the two sources disagree" %}</h3>
+      <span class="panel__hint">{% trans "Children reached this year per partner, ActivityInfo against eTools, sorted by the gap" %}</span>
+    </div>
+    {% if c.reconcile %}
+    <div class="table-wrap"><table class="table table-sm table-hover" id="brief-reconcile">
+      <thead><tr><th scope="col">{% trans "Partner" %}</th><th scope="col" class="num">ActivityInfo</th><th scope="col" class="num">eTools</th><th scope="col" class="num">{% trans "Gap" %}</th><th scope="col">{% trans "Read" %}</th></tr></thead>
+      <tbody>
+      {% for r in c.reconcile %}
+      <tr>
+        <td><a href="{{ r.url }}">{{ r.partner }}</a></td>
+        <td class="num">{{ r.activityinfo|intcomma }}</td>
+        <td class="num">{{ r.etools|intcomma }}</td>
+        <td class="num"><span class="pill pill--sm {% if r.consistent %}pill--success{% else %}pill--danger{% endif %}">{% if r.gap_percent > 0 %}+{% endif %}{{ r.gap_percent|floatformat:"0" }}%</span></td>
+        <td class="small">{% if r.consistent %}{% trans "Consistent" %}{% elif not r.activityinfo or not r.etools %}{% trans "Reported in one source only" %}{% else %}{% trans "Ask the partner which one is right" %}{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}
+    {% include "components/empty_state.html" with icon="layers" title=_("No partner reports in both sources") message=_("Partners appear here once they are linked across ActivityInfo and eTools and have children results in either.") %}
+    {% endif %}
+    <p class="source-line">{% trans "ActivityInfo HPM children indicators by partner label, joined to the eTools partner through the ActivityInfo partner links; eTools children indicators by partner" %}</p>
+  </section>
+  <section class="panel" aria-labelledby="time-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="time-title">{% trans "Reporting timeliness" %}</h3>
+      <span class="panel__hint">{% trans "Quarterly progress reports per partner" %}</span>
+    </div>
+    {% if c.timeliness.rows %}
+    <div class="table-wrap"><table class="table table-sm heat" id="brief-timeliness">
+      <thead><tr><th scope="col">{% trans "Partner" %}</th>{% for q in c.timeliness.quarters %}<th scope="col">{{ q }}</th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for r in c.timeliness.rows %}
+      <tr><td><a href="{{ r.url }}">{{ r.partner }}</a></td>{% for cell in r.cells %}<td><span class="heat__cell heat__cell--{{ cell|default:'none' }}" title="{% if cell == 'on_time' %}{% trans 'On time' %}{% elif cell == 'late' %}{% trans 'Late' %}{% elif cell == 'missing' %}{% trans 'Missing' %}{% elif cell == 'not_due' %}{% trans 'Not due' %}{% else %}{% trans 'No report' %}{% endif %}"></span></td>{% endfor %}</tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% if c.timeliness.more %}<p class="small text-muted mb-0">{% blocktrans count counter=c.timeliness.more %}{{ counter }} more partner on the partner reporting page.{% plural %}{{ counter }} more partners on the partner reporting page.{% endblocktrans %}</p>{% endif %}
+    <div class="legend"><span class="legend__item"><i class="heat__cell heat__cell--on_time"></i>{% trans "On time" %} {{ c.timeliness.counts.on_time }}</span><span class="legend__item"><i class="heat__cell heat__cell--late"></i>{% trans "Late" %} {{ c.timeliness.counts.late }}</span><span class="legend__item"><i class="heat__cell heat__cell--missing"></i>{% trans "Missing" %} {{ c.timeliness.counts.missing }}</span><span class="legend__item"><i class="heat__cell heat__cell--not_due"></i>{% trans "Not due" %} {{ c.timeliness.counts.not_due }}</span></div>
+    {% else %}
+    {% include "components/empty_state.html" with icon="clock" title=_("No quarterly reports this year") message=_("Progress reports with a due date appear here once the eTools Datamart sync has read them.") %}
+    {% endif %}
+    <p class="source-line">{% trans "PRP quarterly report due and submission dates per partner; a quarter shows its worst report" %}</p>
+  </section>
+</div>
+</div>
+{% endwith %}

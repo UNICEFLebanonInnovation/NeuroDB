@@ -1,0 +1,69 @@
+{% load i18n ui humanize %}
+{% with p=data.partners %}
+<div class="overview-row brief-section" id="brief-partners">
+<h2 class="section-heading">{% trans "Are partners delivering?" %} <span class="small text-muted fw-normal">{% trans "One line per partner, for renewals and closures" %}</span></h2>
+<section class="panel" aria-labelledby="score-title">
+  <div class="panel__header">
+    <h3 class="panel__title" id="score-title">{% trans "Partner scorecard" %}</h3>
+    <span class="panel__hint">{% trans "Sorted by the share of indicators on track, lowest first" %}</span>
+  </div>
+  {% if p.scorecard %}
+  <div class="table-wrap"><table class="table table-sm table-hover" id="brief-scorecard">
+    <thead><tr><th scope="col">{% trans "Partner" %}</th><th scope="col" class="num">{% trans "PDs" %}</th><th scope="col" class="num">{% trans "Reserved" %}</th><th scope="col" class="num">{% trans "On track" %}</th><th scope="col" class="num">{% trans "Reports on time" %}</th><th scope="col" class="num">{% trans "Action points on time" %}</th><th scope="col">{% trans "HACT risk" %}</th><th scope="col">{% trans "Latest finding" %}</th><th scope="col" class="num">{% trans "Disbursed / achieved" %}</th><th scope="col" class="num">{% trans "Children" %}</th></tr></thead>
+    <tbody>
+    {% for r in p.scorecard %}
+    <tr>
+      <td>{% if r.url %}<a href="{{ r.url }}">{{ r.partner }}</a>{% else %}{{ r.partner }}{% endif %}</td>
+      <td class="num">{{ r.pds }}</td>
+      <td class="num">{{ r.reserved|money }}</td>
+      <td class="num">{% include "reports/partials/_brief_cell.html" with value=r.on_track_percent good=70 warn=50 %}</td>
+      <td class="num">{% include "reports/partials/_brief_cell.html" with value=r.reports_on_time_percent good=80 warn=50 %}</td>
+      <td class="num">{% include "reports/partials/_brief_cell.html" with value=r.points_on_time_percent good=80 warn=50 %}</td>
+      <td>{% if r.risk %}<span class="pill pill--sm {% if r.high_risk %}pill--danger{% elif r.risk|lower == 'medium' %}pill--warning{% else %}pill--success{% endif %}">{{ r.risk }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+      <td>{% if r.finding %}{% status_pill r.finding|lower r.finding "sm" %}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+      <td class="num"><span class="pill pill--sm {% if r.quadrant == 'ahead' %}pill--success{% elif r.quadrant == 'behind' %}pill--danger{% elif r.quadrant %}pill--warning{% else %}pill--neutral{% endif %}">{{ r.disbursed_percent|percent:0 }} / {{ r.achieved_percent|percent:0 }}</span></td>
+      <td class="num">{{ r.children|intcomma }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  {% include "components/empty_state.html" with icon="users" title=_("No partners for this scope") message=_("Partners appear once PD indicators are synced for this year.") %}
+  {% endif %}
+  <p class="source-line">{{ p.source }}</p>
+</section>
+<div class="grid grid--2">
+  <section class="panel" aria-labelledby="quad-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="quad-title">{% trans "Delivery against spending, by partner" %}</h3>
+      <span class="panel__hint">{% trans "Dot size = funds reserved" %}</span>
+    </div>
+    <div class="chart chart--sm" data-module="charts" data-chart="bubble-quadrant" data-source="brief-chart-data" data-key="quadrant" data-height="300" data-empty-title="{% trans 'No partner has both a disbursement and an achievement yet' %}" aria-label="{% trans 'Achieved share against disbursed share per partner' %}"></div>
+    <p class="source-line">{% trans "Mean achievement of the partner's indicators (each capped at 100 %) against funds disbursed of reserved on its PDs running this year" %}</p>
+  </section>
+  <section class="panel" aria-labelledby="pdec-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="pdec-title">{% trans "Partnerships that need a decision" %}</h3>
+      <span class="panel__hint">{% trans "Ending within 90 days, or behind on disbursement" %}</span>
+    </div>
+    {% if p.decisions %}
+    <ul class="attention-list">
+      {% for d in p.decisions %}
+      <li class="attention">
+        <span class="attention__sev attention__sev--{{ d.severity }}" aria-hidden="true"></span>
+        <div class="attention__body">
+          <div class="attention__title">{% if d.url %}<a href="{{ d.url }}">{{ d.pd }}</a>{% else %}{{ d.pd }}{% endif %}{% if d.partner %} · {{ d.partner }}{% endif %}</div>
+          {% if d.detail %}<div class="attention__detail">{{ d.detail }}</div>{% endif %}
+          <div class="attention__meta">{% if d.section %}<span>{{ d.section }}</span>{% endif %}<span>{{ d.reason }}</span></div>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    {% include "components/empty_state.html" with icon="check" title=_("No decisions pending") message=_("No active programme document ends within 90 days or is behind on disbursement.") %}
+    {% endif %}
+    <p class="source-line">{% trans "PD end dates, disbursement pace and achievement to date (as on the overview)" %}</p>
+  </section>
+</div>
+</div>
+{% endwith %}

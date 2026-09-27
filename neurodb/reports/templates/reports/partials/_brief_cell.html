@@ -1,0 +1,1 @@
+{% load ui %}{% if value is None %}<span class="text-muted">—</span>{% else %}<span class="pill pill--sm {% if value >= good %}pill--success{% elif value >= warn %}pill--warning{% else %}pill--danger{% endif %}">{{ value|percent:0 }}</span>{% endif %}

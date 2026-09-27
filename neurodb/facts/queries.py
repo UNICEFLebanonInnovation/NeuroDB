@@ -491,3 +491,26 @@ def master_values_by_area(f: FactFilter, master_ids: list[int]) -> list[dict[str
         return []
     where, params = f.sql()
     return _rows(_MASTER_AREA_MONTH_SQL.format(where=where), {**params, "master_ids": list(master_ids)})
+
+
+_MASTER_PARTNER_SQL = """
+SELECT ms.master_id, COALESCE(r.partner_label, '') AS partner, SUM(r.indicator_value) AS value
+FROM pivoting_mastersubindicator ms
+JOIN pivoting_subindicator_indicators si ON si.subindicator_id = ms.sub_id
+JOIN pivoting_indicatornew i ON i.id = si.indicatornew_id
+JOIN pivoting_activityreportnew r ON r.indicator_id = i.ai_indicator AND r.dbase_id = i.database_id
+WHERE ms.effect = 'TOTAL' AND ms.master_id = ANY(%(master_ids)s) AND {where}
+GROUP BY 1, 2
+"""
+
+
+def master_values_by_partner(f: FactFilter, master_ids: list[int]) -> list[dict[str, Any]]:
+    """``[{master_id, partner, value}]``: what the TOTAL sub-indicators of the given masters add up to
+    per ActivityInfo partner label (new in v3 for the management brief's two-source check).
+
+    Sums, like :func:`master_values_by_area`: meaningful for additive (SUM) masters only.
+    """
+    if not master_ids:
+        return []
+    where, params = f.sql()
+    return _rows(_MASTER_PARTNER_SQL.format(where=where), {**params, "master_ids": list(master_ids)})

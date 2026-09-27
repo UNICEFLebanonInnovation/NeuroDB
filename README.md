@@ -36,6 +36,10 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
 - **Daily AI review**: every morning fourteen checks read the synced data (off-track and unreported
   indicators, overdue reports and action points, late TPM reports, spending ahead of delivery,
   failed syncs) and store dated findings, marked new, still open or resolved, with a short summary.
+- **Management brief**: the overview read for decisions, at `/brief/`: comparisons with last year
+  and the plan, a confidence signal per section, the two sources per partner, equity of reach,
+  district gaps, a partner scorecard, donor-to-child money flows, grants at risk, and whether the
+  daily review's findings are owned and closed; the brief as text for the minutes.
 
 ## Documents
 

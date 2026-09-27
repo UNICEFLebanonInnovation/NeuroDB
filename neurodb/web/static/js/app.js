@@ -136,6 +136,20 @@ function initTables(root) {
       }
     });
   });
+  $$("[data-copy-target]", root).forEach((btn) => {
+    if (btn.dataset.ndBound) return;
+    btn.dataset.ndBound = "1";
+    btn.addEventListener("click", async () => {
+      const el = $(btn.dataset.copyTarget);
+      if (!el) return;
+      try {
+        await navigator.clipboard.writeText(el.textContent || "");
+        toast("Copied — paste it into the minutes.");
+      } catch {
+        toast("Copy is not available in this browser.", "error");
+      }
+    });
+  });
   $$("[data-table-csv]", root).forEach((btn) => {
     if (btn.dataset.ndBound) return;
     btn.dataset.ndBound = "1";

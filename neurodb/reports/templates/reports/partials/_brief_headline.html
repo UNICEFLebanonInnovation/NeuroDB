@@ -1,0 +1,58 @@
+{% load i18n ui humanize %}
+{% with h=data.headline %}
+<div class="overview-row brief-section" id="brief-brief">
+<h2 class="section-heading">{% trans "Country management brief" %} <span class="small text-muted fw-normal">{{ h.period }}</span></h2>
+<div class="kpi-grid kpi-grid--5" aria-label="{% trans 'Key figures' %}">
+  {% for t in h.tiles %}
+  <div class="kpi">
+    <div class="kpi__label">{{ t.label }}</div>
+    <div class="kpi__value">
+      {% if t.url %}<a href="{{ t.url }}">{% endif %}{% if t.format == "money" %}{{ t.value|money }}{% elif t.format == "percent" %}{{ t.value|percent:0 }}{% else %}{{ t.value|intcomma }}{% endif %}{% if t.url %}</a>{% endif %}
+    </div>
+    <div class="kpi__meta">
+      {% if t.delta %}<span class="pill pill--sm {% if t.delta.plain %}pill--neutral{% elif t.delta.good %}pill--success{% else %}pill--danger{% endif %}">{% if not t.delta.plain and t.delta.value > 0 %}+{% endif %}{{ t.delta.value|floatformat:"0" }}{% if t.delta.unit == "pts" %} {% trans "pts" %}{% else %}%{% endif %}</span> <span class="kpi__hint">{{ t.delta.label }}</span>
+      {% else %}<span class="kpi__hint">{{ t.hint }}</span>{% endif %}
+    </div>
+    {% if t.delta %}<div class="kpi__hint mt-1">{{ t.hint }}</div>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+<div class="grid grid--2">
+  <section class="panel brief-decide" aria-labelledby="decide-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="decide-title">{% trans "Things to decide this month" %}</h3>
+      <span class="panel__hint">{% trans "From the latest daily review, ranked by severity then children behind target" %}</span>
+    </div>
+    {% if h.decide %}
+    <ol class="decide-list">
+      {% for d in h.decide %}
+      <li class="decide">
+        <span class="attention__sev attention__sev--{{ d.severity }}" aria-hidden="true"></span>
+        <div class="decide__body">
+          <div class="attention__title">{% if d.url %}<a href="{{ d.url }}">{{ d.title }}</a>{% else %}{{ d.title }}{% endif %}{% if d.section %} <span class="review-tag">{{ d.section }}</span>{% endif %}</div>
+          {% if d.detail %}<div class="attention__detail">{{ d.detail }}</div>{% endif %}
+          <div class="decide__owner">
+            {% if d.owner %}{% blocktrans with o=d.owner %}Owner: {{ o }}{% endblocktrans %}{% if d.due_date %} · {% blocktrans with dd=d.due_date %}due {{ dd }}{% endblocktrans %}{% endif %}{% else %}{% trans "No owner yet" %}{% endif %}
+            {% if user.is_staff %} · <a href="{{ d.assign_url }}">{% if d.owner %}{% trans "Edit" %}{% else %}{% trans "Assign" %}{% endif %}</a>{% endif %}
+          </div>
+        </div>
+        <span class="pill pill--sm decide__status decide__status--{{ d.status }}">{{ d.status_label }}</span>
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}
+    {% include "components/empty_state.html" with icon="check" title=_("Nothing to decide") message=_("The latest daily review raised no critical or warning finding for this selection, or no review has run yet.") %}
+    {% endif %}
+    <p class="source-line">{{ h.source }}</p>
+  </section>
+  <section class="panel" aria-labelledby="text-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="text-title">{% trans "The brief as text" %}</h3>
+      <button type="button" class="btn btn-outline-secondary btn-sm" data-copy-target="#brief-text">{% include "components/icon.html" with name="copy" %}{% trans "Copy" %}</button>
+    </div>
+    <pre class="brief-text" id="brief-text">{{ data.text }}</pre>
+    <p class="source-line">{% trans "Generated from this page's figures and stamped with the runs above; every number here equals the number on screen." %}</p>
+  </section>
+</div>
+</div>
+{% endwith %}

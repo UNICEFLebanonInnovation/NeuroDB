@@ -391,6 +391,50 @@ Compare sections, not absolute values. It is empty when no children indicator re
 children flag changes the cache key, a sync does not, so the freshness strip at the bottom shows when
 each source last changed.
 
+## Management brief (`/brief/`)
+
+The overview read for decisions: one page for senior management and the Country Management Team,
+in the sidebar under *Management brief*. It reuses the overview service (same programme documents,
+same children rule, same cache) for the selected year **and for the year before**, and adds what a
+management meeting asks for. Eight blocks, one tab each:
+
+| Block | What it shows | Source |
+|---|---|---|
+| Brief | Five tiles with a comparison (children reached against the same months of last year, achievement against the elapsed period, disbursed of reserved, cost per child against last year's PDs, indicators on track against the review 30 days ago), the five findings to decide on with their owner, and the brief as text for the minutes (*Copy*) | The overview blocks of both years, the latest daily review, the finding assignments |
+| Ahead or behind | Achievement against the expected point and the Country Programme target per section; the cumulative reach of both sources projected to December at the last three months' pace | PD indicators and PRP reports, ActivityInfo HPM masters, **section plans** |
+| How sure | Confidence per section (indicators reported, PDs verified by a TPM activity or a field monitoring finding, partners linked across sources, days since the eTools sync; High / Medium / Low), the two sources per partner side by side with the gap, quarterly reporting timeliness per partner | PRP reports, TPM activities, monitoring findings, ActivityInfo partner links, sync runs |
+| Who and where | Children by sex and age band, by nationality and disability against the population share (from the indicators' titles), coverage per governorate, districts with high need and low coverage | Indicator title tags, population figures (governorate and district level), eTools locations |
+| Partners | Scorecard (PDs, reserved, on track, reports on time, action points on time, HACT risk, latest finding, disbursed against achieved), delivery-against-spending bubbles, partnerships that need a decision | The same tables per partner |
+| Money | Donor → section → children reached, grants at risk (unspent balance by expiry, red within 90 days), funded against required per section | Funds reservation lines and headers, grants, **section plans** |
+| Action | Finding lifecycle over 30 days (raised, acknowledged, assigned, closed, median days per step), open findings by owner, weekly digest of the last seven reviews | Daily reviews, **finding assignments** |
+| Reference | Lineage (the runs behind the figures, the population year, the rules version, the latest review) and a data dictionary | Sync runs |
+
+**Three tables are entered by hand**, because eTools does not hold them:
+
+* admin → Reports → *Section plans*: per year and section, the Country Programme target for
+  children reached and the funds required (the appeal figure). Without them the bullet chart shows
+  no CP mark and the funded-against-required chart is empty; the page says so.
+* admin → Daily review → *Finding assignments*: who owns a finding (a role or a team, never a
+  person's name), by when, and its status (acknowledged, assigned, closed). Reached from the
+  *Assign* link next to a finding (on the brief and in the review admin); the status stamps the
+  dates the lifecycle chart reads. A finding the review itself sees resolved counts as closed.
+
+**Rules of this page.** Every comparison is against the same rule: the same months of the year
+before for children reached (month to date, the larger of the two sources), the elapsed PD period
+for achievement, the daily review of 30 days ago for the on-track share. The projection is the
+average of the last three reported months, extended to December; it is a pace, not a forecast.
+Confidence thresholds: reported ≥ 80 %, verified ≥ 30 %, linked ≥ 90 %, sync at most 2 days old;
+one short = medium, two or more = low. A grant's unspent balance is each funds reservation's
+outstanding amount in the grant's share of the reservation's lines (eTools carries the
+outstanding amount per reservation, not per grant). Sex, age, nationality and disability come from
+the indicators' titles: a title naming both girls and boys names neither, so most children fall
+under "not named" until PRP disaggregations carry labels.
+
+**Filters and caching.** Year and section (every section by default). The result is cached for
+10 minutes per (year, sections, day), and the key changes with every children flag, section plan,
+assignment or new review, so an entry in the admin shows at once. *Print* prints the page without
+the navigation.
+
 ## Daily AI review
 
 Every morning the `daily-review` job (`manage daily_review`) runs fourteen fixed checks over the

@@ -1,0 +1,2 @@
+{% load i18n ui %}
+{% if value is None %}<span class="text-muted">—</span>{% else %}<div class="conf-bar" title="{{ value|percent:0 }}"><div class="conf-bar__track"><div class="conf-bar__fill {% if value >= threshold %}conf-bar__fill--ok{% else %}conf-bar__fill--short{% endif %}" style="width: {{ value|floatformat:"0" }}%"></div></div><span class="conf-bar__value num">{{ value|percent:0 }}</span></div>{% endif %}

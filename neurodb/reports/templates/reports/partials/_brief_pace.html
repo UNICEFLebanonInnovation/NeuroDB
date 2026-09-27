@@ -1,0 +1,25 @@
+{% load i18n ui humanize %}
+{% with pace=data.pace %}
+<div class="overview-row brief-section" id="brief-pace">
+<h2 class="section-heading">{% trans "Are we ahead or behind?" %} <span class="small text-muted fw-normal">{% trans "Against the plan, and where the year ends at this pace" %}</span></h2>
+<div class="grid grid--2">
+  <section class="panel" aria-labelledby="bullet-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="bullet-title">{% trans "Achievement, expectation and Country Programme target" %}</h3>
+      <span class="panel__hint">{% trans "Children indicators by section" %}</span>
+    </div>
+    <div class="chart chart--sm" data-module="charts" data-chart="bullet" data-source="brief-chart-data" data-key="bullets" data-height="240" data-empty-title="{% trans 'No children indicators with a target' %}" aria-label="{% trans 'Achieved against expected and Country Programme target by section' %}"></div>
+    {% if not pace.has_cp_targets %}<p class="caveat mt-2">{% url 'admin:reports_sectionplan_changelist' as plans_url %}{% blocktrans %}No Country Programme target entered yet: add one per section under <a href="{{ plans_url }}">Section plans</a> in the administration pages.{% endblocktrans %}</p>{% endif %}
+    <p class="source-line">{{ pace.source }}</p>
+  </section>
+  <section class="panel" aria-labelledby="projection-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="projection-title">{% trans "Where the year ends at this pace" %}</h3>
+      <span class="panel__hint">{% trans "Children reached, cumulative, projected to December" %}</span>
+    </div>
+    <div class="chart chart--sm" data-module="charts" data-chart="projection" data-source="brief-chart-data" data-key="projection" data-height="260" data-empty-title="{% trans 'No monthly values yet' %}" aria-label="{% trans 'Cumulative children reached and projection' %}"></div>
+    <p class="source-line">{{ pace.source }}</p>
+  </section>
+</div>
+</div>
+{% endwith %}

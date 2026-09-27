@@ -103,6 +103,9 @@
       <a class="nav-item-link {% active_if 'reports:overview' %}" href="{% url 'reports:overview' %}" {% aria_current 'reports:overview' %}>
         {% include "components/icon.html" with name="home" %}<span>{% trans "Overview" %}</span>
       </a>
+      <a class="nav-item-link {% active_if 'reports:brief' %}" href="{% url 'reports:brief' %}" {% aria_current 'reports:brief' %}>
+        {% include "components/icon.html" with name="target" %}<span>{% trans "Management brief" %}</span>
+      </a>
       {% if AI_ASSISTANT_ENABLED or user.is_staff %}
       <a class="nav-item-link {% active_if 'assistant:ask' %}" href="{% url 'assistant:ask' %}" {% aria_current 'assistant:ask' %}>
         {% include "components/icon.html" with name="sparkle" %}<span>{% trans "Ask NeuroDB" %}</span><span class="nav-badge">{% trans "AI" %}</span>

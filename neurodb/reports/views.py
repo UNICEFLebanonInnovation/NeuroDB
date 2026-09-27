@@ -33,12 +33,13 @@ from neurodb.datamart import services as datamart
 from neurodb.datamart.models import AuditEngagement, AuditFinding
 from neurodb.facts.services import dashboard as facts
 from neurodb.facts.services import partners as partner_facts
-from neurodb.indicators.models import Database, MasterIndicator, NeuroReport
+from neurodb.indicators.models import Database, MasterIndicator, NeuroReport, ReportingYear
 from neurodb.indicators.services.tracking import LABELS
 from neurodb.library.models import Resource
 from neurodb.library.services import completed_maps, published_resource, resource_filters, search_resources
 from neurodb.partnerships import services as partnerships
 from neurodb.partnerships.models import PCA, PartnerOrganization
+from neurodb.reports import brief as brief_service
 from neurodb.reports import overview as overview_service
 
 from . import exports, services
@@ -288,6 +289,105 @@ def overview(request: HttpRequest) -> HttpResponse:
         "page_query": here.urlencode(),
     }
     return render(request, "reports/overview.html", context)
+
+
+def _brief_chart_data(data: dict[str, Any]) -> dict[str, Any]:
+    """The JSON the management brief's charts read (static/js/charts.js)."""
+    who, partners, money, action = (data.get(k) or {} for k in ("who", "partners", "money", "action"))
+    lifecycle = action.get("lifecycle") or {}
+    return {
+        "bullets": [b for b in (data.get("pace") or {}).get("bullets") or [] if b.get("target")],
+        "projection": (data.get("pace") or {}).get("projection") or {},
+        "sex_age": who.get("sex_age") or {},
+        "quadrant": partners.get("quadrant") or [],
+        "flows": money.get("flows") if (money.get("flows") or {}).get("links") else {},
+        "grants": [
+            {
+                "label": f"{g['donor']} · {g['grant']}",
+                "value": g["unspent"],
+                "flag": g["at_risk"],
+                "days": g["days"],
+            }
+            for g in money.get("grants") or []
+        ],
+        "funded": [f for f in money.get("funded") or [] if f.get("required")],
+        "lifecycle": [
+            [str(_("Raised")), lifecycle.get("raised", 0)],
+            [str(_("Acknowledged")), lifecycle.get("acknowledged", 0)],
+            [str(_("Assigned")), lifecycle.get("assigned", 0)],
+            [str(_("Closed")), lifecycle.get("closed", 0)],
+        ]
+        if lifecycle.get("raised")
+        else [],
+        "owners": [[o["owner"], o["open"]] for o in action.get("owners") or []],
+    }
+
+
+@require_GET
+def brief(request: HttpRequest) -> HttpResponse:
+    """The management brief: the overview read for decisions (comparisons, confidence, equity,
+    partners, money, action). Filters: ``year`` (ReportingYear name) and ``section`` (repeated);
+    every section by default, as senior management reads the whole country."""
+    year = services.resolve_year(request.GET.get("year"))
+    today = datetime.date.today()
+    year_number = _year_number(year, today.year)
+    options = overview_service.options(year_number)
+    sections = [s for s in request.GET.getlist("section") if s]
+    data: dict[str, Any] | None = None
+    if year:
+        previous = ReportingYear.objects.filter(name__startswith=str(year_number - 1)).order_by("id").first()
+        scope = brief_service.Scope(
+            year=year_number,
+            reporting_year=year,
+            previous_reporting_year=previous,
+            sections=sections,
+            today=today,
+        )
+        data = brief_service.build(scope)
+    keep = QueryDict(mutable=True)
+    keep.setlist("section", sections)
+    if year:
+        keep["year"] = str(year_number)
+        keep["scope"] = "year"
+    base = QueryDict(mutable=True)
+    base.setlist("section", sections)
+    if year:
+        base["year"] = year.name
+    tabs = [
+        ("brief", _("Brief")),
+        ("pace", _("Ahead or behind")),
+        ("confidence", _("How sure")),
+        ("who", _("Who and where")),
+        ("partners", _("Partners")),
+        ("money", _("Money")),
+        ("action", _("Action")),
+        ("reference", _("Reference")),
+    ]
+    context = {
+        "page_title": _("Management brief"),
+        "page_subtitle": (
+            " · ".join(
+                [
+                    _("Reporting year %(year)s") % {"year": year.name},
+                    ", ".join(sections) if sections else _("every section"),
+                ]
+            )
+            if year
+            else ""
+        ),
+        "breadcrumbs": [_crumb(_("Overview"), reverse("reports:overview")), _crumb(_("Management brief"))],
+        "year": year,
+        "today": today,
+        "data": data,
+        "options": options,
+        "selected": {"section": sections, "year": year.name if year else ""},
+        "chart_data": _brief_chart_data(data) if data else {},
+        "tabs": tabs,
+        "keep_query": keep.urlencode(),
+        "base_query": base.urlencode(),
+        "overview_query": ("?" + base.urlencode()) if base else "",
+    }
+    return render(request, "reports/brief.html", context)
 
 
 # ------------------------------------------------------------------------- databases

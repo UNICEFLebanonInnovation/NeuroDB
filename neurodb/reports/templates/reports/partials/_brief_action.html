@@ -1,0 +1,52 @@
+{% load i18n ui humanize %}
+{% with a=data.action %}
+<div class="overview-row brief-section" id="brief-action">
+<h2 class="section-heading">{% trans "Is anything being acted on?" %} <span class="small text-muted fw-normal">{% trans "What the daily review raised, who owns it, and how fast it closes" %}</span></h2>
+<div class="grid grid--3">
+  <section class="panel" aria-labelledby="life-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="life-title">{% blocktrans with d=a.lifecycle.days %}Finding lifecycle, last {{ d }} days{% endblocktrans %}</h3>
+    </div>
+    <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-source="brief-chart-data" data-key="lifecycle" data-height="180" data-color="--nd-primary" data-empty-title="{% trans 'No new finding in the period' %}" aria-label="{% trans 'Findings raised, acknowledged, assigned and closed' %}"></div>
+    <div class="mini-grid">
+      <div class="mini"><div class="mini__value">{{ a.lifecycle.median_days.acknowledged|number:0 }}</div><div class="mini__label">{% trans "Median days to acknowledge" %}</div></div>
+      <div class="mini"><div class="mini__value">{{ a.lifecycle.median_days.assigned|number:0 }}</div><div class="mini__label">{% trans "to assign" %}</div></div>
+      <div class="mini"><div class="mini__value">{{ a.lifecycle.median_days.closed|number:0 }}</div><div class="mini__label">{% trans "to close" %}</div></div>
+    </div>
+    <p class="source-line">{{ a.source }}</p>
+  </section>
+  <section class="panel" aria-labelledby="own-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="own-title">{% trans "Open findings by owner" %}</h3>
+      <a class="panel__hint" href="{% url 'admin:review_findingassignment_changelist' %}">{% trans "Assignments" %} →</a>
+    </div>
+    {% if a.owners %}
+    <div class="table-wrap"><table class="table table-sm" id="brief-owners">
+      <thead><tr><th scope="col">{% trans "Owner" %}</th><th scope="col" class="num">{% trans "Open" %}</th><th scope="col" class="num">{% trans "Past due" %}</th><th scope="col" class="num">{% trans "Oldest, days" %}</th></tr></thead>
+      <tbody>{% for o in a.owners %}<tr><td>{{ o.owner }}</td><td class="num">{{ o.open }}</td><td class="num">{% if o.past_due %}<span class="pill pill--sm pill--danger">{{ o.past_due }}</span>{% else %}0{% endif %}</td><td class="num">{{ o.oldest_days }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}
+    {% include "components/empty_state.html" with icon="users" title=_("No finding assigned yet") message=_("Assign the findings of the daily review to a role or a team from the review pages in the administration.") %}
+    {% endif %}
+    <p class="source-line">{% trans "Finding assignments not closed, by owner; past due = past the assignment's due date" %}</p>
+  </section>
+  <section class="panel" aria-labelledby="digest-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="digest-title">{% trans "Weekly digest" %}</h3>
+      {% if a.digest %}<span class="panel__hint">{{ a.digest.first }} → {{ a.digest.last }}</span>{% endif %}
+    </div>
+    {% if a.digest %}
+    <ul class="digest">
+      <li><span class="attention__sev attention__sev--critical" aria-hidden="true"></span>{% blocktrans count counter=a.digest.new_critical with n=a.digest.reviews %}{{ counter }} new critical finding over {{ n }} reviews.{% plural %}{{ counter }} new critical findings over {{ n }} reviews.{% endblocktrans %}</li>
+      <li><span class="attention__sev attention__sev--good" aria-hidden="true"></span>{% blocktrans count counter=a.digest.resolved %}{{ counter }} finding resolved.{% plural %}{{ counter }} findings resolved.{% endblocktrans %}</li>
+      {% for line in a.digest.trend %}<li><span class="attention__sev attention__sev--info" aria-hidden="true"></span>{{ line }}</li>{% endfor %}
+    </ul>
+    {% if a.digest.summary %}<p class="small text-muted mb-0">{{ a.digest.summary|truncatechars:280 }}</p>{% endif %}
+    {% else %}
+    {% include "components/empty_state.html" with icon="sparkle" title=_("No review yet") message=_("The digest reads the last seven daily reviews.") %}
+    {% endif %}
+    <p class="source-line">{% trans "The last seven daily reviews, summarised; the latest summary" %}</p>
+  </section>
+</div>
+</div>
+{% endwith %}

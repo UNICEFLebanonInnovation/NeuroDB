@@ -573,3 +573,47 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
   .mini-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .freshness__link { margin-left: 0; }
 }
+
+/* ------------------------------------------------------------------ management brief */
+.brief-tabs { position: sticky; top: var(--nd-topbar-h); z-index: 5; display: flex; gap: 0.25rem; overflow-x: auto; padding: 0.35rem 0; margin: 0 0 0.25rem; background: var(--nd-bg); border-bottom: 1px solid var(--nd-border); }
+.brief-tabs a { padding: 0.3rem 0.7rem; border-radius: 7px; color: var(--nd-muted); font-size: 0.82rem; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.brief-tabs a:hover, .brief-tabs a:focus-visible { background: var(--nd-surface-2); color: var(--nd-text); }
+.brief-section { scroll-margin-top: calc(var(--nd-topbar-h) + 3rem); }
+.brief-stamp { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.75rem; margin: -0.5rem 0 0.75rem; font-size: 0.78rem; color: var(--nd-muted); }
+.brief-stamp__run { font-family: var(--nd-mono, ui-monospace, monospace); font-size: 0.72rem; padding: 0.05rem 0.45rem; border-radius: 6px; background: var(--nd-surface-2); }
+.kpi-grid--5 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 172px), 1fr)); }
+.flow { width: 100%; height: auto; font-size: 12px; }
+.flow text { fill: var(--nd-text); }
+.flow .flow__muted { fill: var(--nd-muted); font-size: 11px; }
+.decide-list { list-style: none; margin: 0; padding: 0; counter-reset: decide; }
+.decide { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.55rem 0; border-bottom: 1px solid var(--nd-border); font-size: 0.85rem; }
+.decide:last-child { border-bottom: 0; }
+.decide__body { flex: 1; min-width: 0; }
+.decide__owner { color: var(--nd-muted); font-size: 0.78rem; margin-top: 0.15rem; }
+.decide__status { flex: none; margin-top: 0.15rem; }
+.decide__status--raised { --pill-bg: var(--nd-neutral-soft); --pill-fg: var(--nd-neutral); }
+.decide__status--acknowledged { --pill-bg: var(--nd-warning-soft); --pill-fg: var(--nd-warning); }
+.decide__status--assigned { --pill-bg: var(--nd-info-soft); --pill-fg: var(--nd-info); }
+.decide__status--closed { --pill-bg: var(--nd-success-soft); --pill-fg: var(--nd-success); }
+.brief-text { white-space: pre-wrap; font-family: var(--nd-mono, ui-monospace, monospace); font-size: 0.76rem; line-height: 1.5; background: var(--nd-surface-2); border-radius: var(--nd-radius-sm); padding: 0.75rem 0.9rem; max-height: 320px; overflow: auto; color: var(--nd-text); margin: 0; }
+.conf-bar { display: flex; align-items: center; gap: 0.5rem; min-width: 140px; }
+.conf-bar__track { flex: 1; height: 6px; border-radius: 3px; background: var(--nd-border); overflow: hidden; }
+.conf-bar__fill { height: 100%; border-radius: 3px; background: var(--nd-warning); }
+.conf-bar__fill--ok { background: var(--nd-success); }
+.conf-bar__fill--short { background: var(--nd-warning); }
+.conf-bar__value { font-size: 0.78rem; color: var(--nd-muted); min-width: 2.6rem; text-align: right; }
+.heat td { padding-top: 0.2rem; padding-bottom: 0.2rem; }
+.heat__cell { display: inline-block; width: 100%; min-width: 48px; height: 18px; border-radius: 4px; background: var(--nd-surface-2); vertical-align: middle; }
+.legend .heat__cell { width: 12px; min-width: 12px; height: 12px; }
+.heat__cell--on_time { background: var(--nd-success); }
+.heat__cell--late { background: var(--nd-warning); }
+.heat__cell--missing { background: var(--nd-danger); }
+.heat__cell--not_due { background: var(--nd-border); }
+.digest { list-style: none; margin: 0 0 0.5rem; padding: 0; font-size: 0.85rem; }
+.digest li { display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.35rem 0; border-bottom: 1px solid var(--nd-border); }
+.digest li:last-child { border-bottom: 0; }
+.lineage { margin: 0; font-size: 0.85rem; }
+.lineage dt { font-weight: 650; margin-top: 0.5rem; }
+.lineage dd { color: var(--nd-muted); margin: 0.1rem 0 0; line-height: 1.45; }
+.table-danger td { background: var(--nd-danger-soft); }
+@media print { .brief-tabs, .filter-bar, .sidebar, .topbar { display: none !important; } .panel { break-inside: avoid; } }

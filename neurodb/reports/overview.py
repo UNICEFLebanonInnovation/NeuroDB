@@ -44,7 +44,7 @@ from neurodb.indicators.services.tracking import OFF_TRACK, percentage_elapsed
 logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 600
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 STATUSES = ("on_track", "off_track", "over_target", "no_target", NOT_REPORTED)
 LEVEL_GOVERNORATE = monitoring.LEVEL_GOVERNORATE
@@ -60,6 +60,8 @@ DECISION_DISBURSED = 40
 MAX_ATTENTION = 8
 MAX_DONORS = 8
 HIGH_RISK = ("high", "significant")
+SEX_RULES = (("Girls", r"\bgirls?\b", r"\bboys?\b"), ("Boys", r"\bboys?\b", r"\bgirls?\b"))
+NATIONALITY_OF_TAG = {"Lebanese": "Lebanese", "Syrian": "Syrian", "Palestinian": "Palestinian"}
 COST_CAVEAT = (
     "Disbursed to date (supplies and operating costs included) over the children reached this year: "
     "compare sections, not absolute values."
@@ -161,6 +163,34 @@ def options(year: int) -> dict[str, list[str]]:
     return {"sections": sections, "governorates": governorates}
 
 
+# --------------------------------------------------------------------------------- ActivityInfo
+def children_masters(reporting_year: Any, sections: list[str], flags: Any) -> dict[int, tuple[Any, set[int]]]:
+    """``{database id: (database, master ids)}``: the additive (SUM) HPM master indicators of the
+    reporting year that count children (title rule or flag), in the databases shown on the dashboard
+    and in the selected sections. Shared by the overview and the management brief."""
+    links = (
+        NeuroReportMasterIndicator.objects.filter(report__is_hpm=True, report__ryear=reporting_year)
+        .select_related("master", "master__database", "master__database__section")
+        .exclude(master=None)
+    )
+    by_database: dict[int, tuple[Database, set[int]]] = {}
+    for link in links:
+        master = link.master
+        database = master.database
+        if database is None or not database.display:
+            continue
+        if (master.aggregation_method or "SUM").upper() != "SUM":
+            continue
+        section = database.section
+        if not section_matches(section.name if section else "", section.code if section else "", sections):
+            continue
+        label = link.label or master.name
+        if not counts_children("activityinfo", str(master.id), label, None, flags, unit=""):
+            continue
+        by_database.setdefault(database.id, (database, set()))[1].add(master.id)
+    return by_database
+
+
 # --------------------------------------------------------------------------------- build
 def _cache_key(scope: Scope) -> str:
     """Everything the result depends on, the children flags included (a new flag shows at once)."""
@@ -169,10 +199,11 @@ def _cache_key(scope: Scope) -> str:
     flags = IndicatorFlag.objects.aggregate(n=Count("pk"), last=Max("updated_at"))
     sections = "|".join(sorted(scope.sections))
     ryear = getattr(scope.reporting_year, "pk", "")
+    last = flags["last"].isoformat() if flags["last"] else ""  # no spaces: memcached-safe
     return (
         f"overview:v{CACHE_VERSION}:{scope.year}:{ryear}:{sections}:{scope.governorate}:{scope.today}:"
-        f"{flags['n']}:{flags['last']}"
-    )
+        f"{flags['n']}:{last}"
+    ).replace(" ", "_")
 
 
 def build(scope: Scope, *, cache: bool = True) -> dict[str, Any]:
@@ -218,9 +249,11 @@ class _Builder:
             ids.update(p["id"] for p in row.by_location.values() if p.get("id"))
         self.gazetteer = monitoring._gazetteer(ids)
         self.governorate_of: dict[int, str] = {}
+        self.district_of: dict[int, str] = {}
         for location_id in ids:
             place = monitoring._place(location_id, self.gazetteer)
             self.governorate_of[location_id] = place["governorate"]
+            self.district_of[location_id] = place["district"]
         if self.gov_key:
             rows = [r for r in rows if self.gov_key in self._governorate_keys(r)]
         return rows
@@ -292,6 +325,9 @@ class _Builder:
                 "sections": list(self.scope.sections),
                 "governorate": self.scope.governorate,
                 "today": self.today.isoformat(),
+                # For the management brief, which reads the same programme documents:
+                "pd_ids": sorted(self.pds),
+                "section_of_pd": {str(pd_id): s for pd_id, s in self.section_of_pd.items()},
             },
             "activityinfo": activityinfo_overview(self.scope.reporting_year),
         }
@@ -316,28 +352,7 @@ class _Builder:
         ryear = self.scope.reporting_year
         if ryear is None:
             return out
-        links = (
-            NeuroReportMasterIndicator.objects.filter(report__is_hpm=True, report__ryear=ryear)
-            .select_related("master", "master__database", "master__database__section")
-            .exclude(master=None)
-        )
-        by_database: dict[int, tuple[Database, set[int]]] = {}
-        for link in links:
-            master = link.master
-            database = master.database
-            if database is None or not database.display:
-                continue
-            if (master.aggregation_method or "SUM").upper() != "SUM":
-                continue
-            section = database.section
-            if not section_matches(
-                section.name if section else "", section.code if section else "", self.scope.sections
-            ):
-                continue
-            label = link.label or master.name
-            if not counts_children("activityinfo", str(master.id), label, None, self.flags, unit=""):
-                continue
-            by_database.setdefault(database.id, (database, set()))[1].add(master.id)
+        by_database = children_masters(ryear, self.scope.sections, self.flags)
         for database, master_ids in by_database.values():
             try:
                 rows = fact_queries.master_values_by_area(fact_filter(database), sorted(master_ids))
@@ -365,6 +380,7 @@ class _Builder:
         etools_total = 0.0
         by_gov: dict[str, float] = defaultdict(float)
         gov_names: dict[str, str] = {}
+        by_district: dict[tuple[str, str], float] = defaultdict(float)
         for row in self.children_rows:
             etools_total += self._year_value(row)
             for month, value in self._months(row).items():
@@ -378,6 +394,9 @@ class _Builder:
                 if place.get("achieved") and key and (not self.gov_key or key == self.gov_key):
                     by_gov[key] += place["achieved"]
                     gov_names.setdefault(key, gov)
+                    district = self.district_of.get(place.get("id")) or ""
+                    if district:
+                        by_district[(district, gov)] += place["achieved"]
         population, population_year = self._children_population()
         keys = (
             set(by_gov)
@@ -419,7 +438,16 @@ class _Builder:
             "children_activityinfo": ai_value,
             "delta_previous_year": None,
             "by_governorate": governorates,
+            "by_district": sorted(
+                (
+                    {"district": d, "governorate": g, "etools": round(v)}
+                    for (d, g), v in by_district.items()
+                    if round(v)
+                ),
+                key=lambda r: (-r["etools"], r["district"]),
+            ),
             "by_section": self._achievement_by_section(),
+            "children_by_tag": self._children_by_tag(),
             "monthly": {
                 "labels": list(MONTH_LABELS),
                 "etools": [round(v) for v in etools_months],
@@ -432,6 +460,31 @@ class _Builder:
                 "apart, and a total is the larger of the two (at least that many children)"
             ),
         }
+
+    def _children_by_tag(self) -> list[dict[str, Any]]:
+        """Each children indicator's value of the year with what its title names: one sex (girls
+        without boys, or the reverse), an age band, a nationality, disability. For the management
+        brief's equity blocks; a title naming both sexes names neither."""
+        out = []
+        for row in self.children_rows:
+            value = self._year_value(row)
+            if not value:
+                continue
+            title = (row.title or "").lower()
+            sex = next(
+                (label for label, yes, no in SEX_RULES if re.search(yes, title) and not re.search(no, title)),
+                "",
+            )
+            out.append(
+                {
+                    "value": round(value),
+                    "sex": sex,
+                    "age_group": row.tags.get("age_group") or "",
+                    "nationality": NATIONALITY_OF_TAG.get(row.tags.get("nationality") or "", ""),
+                    "disability": bool(row.tags.get("disability")),
+                }
+            )
+        return out
 
     def _achievement_by_section(self) -> list[dict[str, Any]]:
         groups: dict[str, dict[str, Any]] = {}
@@ -677,8 +730,15 @@ class _Builder:
         sections: dict[str, Counter[str]] = defaultdict(Counter)
         for row in self.rows:
             sections[row.section or "Other"][row.tracking] += 1
+            if row.reports:
+                sections[row.section or "Other"]["reported"] += 1
         by_section = [
-            {"section": s, **{k: c.get(k, 0) for k in STATUSES}, "total": sum(c.values())}
+            {
+                "section": s,
+                **{k: c.get(k, 0) for k in STATUSES},
+                "total": sum(c.get(k, 0) for k in STATUSES),
+                "reported": c.get("reported", 0),  # indicators with at least one progress report
+            }
             for s, c in sorted(sections.items())
         ]
         partners = {pd.partner for pd in self.pds.values() if pd.partner_id and pd.partner}
@@ -693,6 +753,7 @@ class _Builder:
             "partners_government": government,
             "partners_cso": cso,
             "partners_other": len(partners) - government - cso,  # UN agencies, bilateral
+            "by_partner": self._by_partner(),
             "assurance": self._assurance(partners),
             "findings_by_rating": self._findings_by_rating(),
             "attention": self._attention(),
@@ -701,6 +762,49 @@ class _Builder:
                 f"field monitoring findings, TPM visits, action points and partner risk ratings, {self.year}"
             ),
         }
+
+    def _by_partner(self) -> list[dict[str, Any]]:
+        """One row per partner for the management brief's scorecard: its PDs and indicators in
+        scope, the tracking counts, the mean achievement (capped at 100 %) and the children reached."""
+        groups: dict[int, dict[str, Any]] = {}
+        children_ids = {id(r) for r in self.children_rows}
+        for row in self.rows:
+            pd = row.pd
+            key = pd.partner_id or -pd.id
+            g = groups.setdefault(
+                key,
+                {
+                    "partner_id": pd.partner_id,
+                    "partner": _partner(pd),
+                    "pd_ids": set(),
+                    "indicators": 0,
+                    "reported": 0,
+                    "achieved": [],
+                    "children": 0.0,
+                    **dict.fromkeys(STATUSES, 0),
+                },
+            )
+            g["pd_ids"].add(pd.id)
+            g["indicators"] += 1
+            g[row.tracking] += 1
+            if row.reports:
+                g["reported"] += 1
+            if row.achieved is not None:
+                g["achieved"].append(min(row.achieved, 100.0))
+            if id(row) in children_ids:
+                g["children"] += self._year_value(row)
+        out = []
+        for g in groups.values():
+            achieved = g.pop("achieved")
+            g["pd_ids"] = sorted(g["pd_ids"])
+            g["pds"] = len(g["pd_ids"])
+            g["achieved_percent"] = round(statistics.mean(achieved), 1) if achieved else None
+            g["children"] = round(g["children"])
+            tracked = g["on_track"] + g["off_track"] + g["over_target"]
+            g["on_track_percent"] = _pct(g["on_track"] + g["over_target"], tracked) if tracked else None
+            out.append(g)
+        out.sort(key=lambda g: (-g["indicators"], g["partner"]))
+        return out
 
     def _scoped_findings(self):
         qs = dm.MonitoringFinding.objects.filter(end_date__year=self.year)
@@ -1023,4 +1127,4 @@ def _partner(pd: Any) -> str:
     return (pd.partner.name if pd.partner_id and pd.partner else pd.partner_name) or "unknown partner"
 
 
-__all__ = ["Scope", "build", "governorate_key", "options", "section_matches"]
+__all__ = ["Scope", "build", "children_masters", "governorate_key", "options", "section_matches"]

@@ -363,6 +363,166 @@ const BUILDERS = {
       },
     };
   },
+  // ---- management brief
+  bullet(el, data) {
+    // [{section, achieved, target, expected, cp_target}] -> target bar, achieved bar, expected marker, CP target diamond
+    const rows = (Array.isArray(data) ? data : []).slice().sort((a, b) => num(a.target) - num(b.target));
+    const names = rows.map((r) => String(r.section ?? ""));
+    const text = cssVar("--nd-text");
+    const shapes = rows
+      .filter((r) => r.expected != null)
+      .map((r, i) => ({ type: "line", x0: num(r.expected), x1: num(r.expected), y0: i - 0.34, y1: i + 0.34, xref: "x", yref: "y", line: { color: text, width: 2 } }));
+    const cp = rows.filter((r) => r.cp_target != null);
+    const traces = [
+      { type: "bar", orientation: "h", name: "PD target", y: names, x: rows.map((r) => num(r.target)), width: 0.64, marker: { color: withAlpha(cssVar("--nd-neutral"), 0.28), line: { width: 0 } }, hovertemplate: "%{y} · PD target: %{x:,.0f}<extra></extra>" },
+      { type: "bar", orientation: "h", name: "Achieved", y: names, x: rows.map((r) => num(r.achieved)), width: 0.38, customdata: rows.map((r) => (r.percent == null ? "–" : `${Math.round(num(r.percent))}%`)), marker: { color: cssVar("--nd-primary"), line: { width: 0 } }, hovertemplate: "%{y} · achieved: %{x:,.0f} (%{customdata} of target)<extra></extra>" },
+      { type: "scatter", mode: "markers", name: "Expected at this point", x: [null], y: [null], marker: { symbol: "line-ns-open", size: 10, color: text, line: { width: 2, color: text } }, hoverinfo: "skip" },
+    ];
+    if (cp.length) {
+      traces.push({ type: "scatter", mode: "markers", name: "Country Programme target", x: cp.map((r) => num(r.cp_target)), y: cp.map((r) => String(r.section)), marker: { symbol: "diamond", size: 11, color: cssVar("--nd-series-2"), line: { width: 1, color: cssVar("--nd-surface") } }, hovertemplate: "%{y} · CP target: %{x:,.0f}<extra></extra>" });
+    }
+    return { traces, layout: { barmode: "overlay", bargap: 0.2, shapes, yaxis: { type: "category" }, xaxis: { rangemode: "tozero" }, margin: { t: 4, r: 16, b: 56, l: 8 }, height: rowsHeight(el, rows.length), ...legendFor(3) } };
+  },
+  projection(el, data) {
+    // {labels, series: {name: [12 cumulative values]}, actual_months, target, colors} -> solid to date, dashed projection, target line
+    const { labels, series, colors } = seriesOf(data);
+    const shown = Math.max(1, Number(data?.actual_months) || 0);
+    const traces = [];
+    series.forEach(([name, values], i) => {
+      const color = seriesColor(name, i, colors);
+      if (!values.some((v) => v)) return;
+      traces.push({ type: "scatter", mode: "lines", name, x: labels.slice(0, shown), y: values.slice(0, shown), line: { color, width: 2.5 }, hovertemplate: `%{x} · ${name}: %{y:,.0f}<extra></extra>` });
+      traces.push({ type: "scatter", mode: "lines", name: `${name} projected`, x: labels.slice(shown - 1), y: values.slice(shown - 1), line: { color, width: 2, dash: "dot" }, showlegend: false, hovertemplate: `%{x} · ${name} projected: %{y:,.0f}<extra></extra>` });
+    });
+    const shapes = [];
+    const annotations = [];
+    if (num(data?.target) > 0) {
+      shapes.push({ type: "line", x0: 0, x1: 1, xref: "paper", y0: num(data.target), y1: num(data.target), yref: "y", line: { color: cssVar("--nd-muted"), width: 1, dash: "dash" } });
+      annotations.push({ x: 1, xref: "paper", y: num(data.target), yref: "y", text: `PD targets ${Math.round(num(data.target)).toLocaleString()}`, showarrow: false, xanchor: "right", yanchor: "bottom", font: { size: 10, color: cssVar("--nd-muted") } });
+    }
+    if (shown < 12) shapes.push({ type: "rect", x0: shown - 1, x1: 11, xref: "x", y0: 0, y1: 1, yref: "paper", fillcolor: withAlpha(cssVar("--nd-neutral"), 0.08), line: { width: 0 } });
+    return { traces, layout: { shapes, annotations, xaxis: { type: "category" }, yaxis: { rangemode: "tozero" }, margin: { t: 8, r: 8, b: 56, l: 48 }, ...legendFor(traces.filter((t) => t.showlegend !== false).length) } };
+  },
+  "stacked-series"(el, data) {
+    // {labels, series: {name: [...]}, colors?} -> horizontal stacked bars, one bar per label
+    const { labels, series, colors } = seriesOf(data);
+    const traces = series
+      .map(([name, values], i) => ({ type: "bar", orientation: "h", name, y: labels, x: values, marker: { color: seriesColor(name, i, colors), line: { width: 0 } }, hovertemplate: `%{y} · ${name}: %{x:,}<extra></extra>` }))
+      .filter((t) => t.x.some((v) => v > 0));
+    return { traces, layout: { barmode: "stack", bargap: 0.3, yaxis: { type: "category", autorange: "reversed" }, xaxis: { rangemode: "tozero" }, margin: { t: 4, r: 16, b: 56, l: 8 }, height: rowsHeight(el, labels.length), ...legendFor(traces.length) } };
+  },
+  "bubble-quadrant"(el, data) {
+    // [{name, x, y, size, quadrant}] -> sized markers coloured by quadrant, a diagonal reference line
+    const rows = (Array.isArray(data) ? data : []).filter((r) => r.x != null && r.y != null);
+    const top = Math.max(105, ...rows.map((r) => Math.max(num(r.x), num(r.y)) + 8));
+    const maxSize = Math.max(1, ...rows.map((r) => num(r.size)));
+    const muted = cssVar("--nd-muted");
+    const group = (list, name, token) => ({
+      type: "scatter",
+      mode: "markers+text",
+      name,
+      x: list.map((r) => num(r.x)),
+      y: list.map((r) => num(r.y)),
+      text: list.map((r) => String(r.name ?? "").slice(0, 18)),
+      textposition: "top center",
+      textfont: { size: 10, color: muted },
+      customdata: list.map((r) => num(r.size)),
+      marker: { size: list.map((r) => 8 + 22 * Math.sqrt(num(r.size) / maxSize)), color: cssVar(token), opacity: 0.85, line: { width: 1.5, color: cssVar("--nd-surface") } },
+      hovertemplate: "%{text}<br>Disbursed: %{x:.0f}%<br>Achieved: %{y:.0f}%<br>Reserved: $%{customdata:,.0f}<extra></extra>",
+    });
+    const traces = [
+      group(rows.filter((r) => r.quadrant === "ahead"), "Delivering ahead of spending", "--nd-success"),
+      group(rows.filter((r) => r.quadrant === "spending_ahead"), "Spending ahead of delivery", "--nd-warning"),
+      group(rows.filter((r) => r.quadrant === "behind"), "Behind on both", "--nd-danger"),
+    ].filter((t) => t.x.length);
+    return { traces, layout: { shapes: [{ type: "line", x0: 0, y0: 0, x1: top, y1: top, xref: "x", yref: "y", line: { color: cssVar("--nd-border"), width: 1, dash: "dot" } }], xaxis: { range: [0, top], ticksuffix: "%", title: { text: "Disbursed of reserved", font: { size: 11, color: muted } } }, yaxis: { range: [0, top], ticksuffix: "%", title: { text: "Achieved (mean, capped)", font: { size: 11, color: muted } } }, margin: { t: 12, r: 12, b: 64, l: 52 }, ...legendFor(traces.length) } };
+  },
+  flow(el, data) {
+    // {donors: [{name, amount}], links: [{donor, section, amount}], sections: [{name, children, reserved}]}
+    // -> donor → section → children bands, drawn as SVG (the basic Plotly bundle has no sankey)
+    const donors = (data?.donors || []).filter((d) => num(d.amount) > 0);
+    const sections = (data?.sections || []).filter((s) => num(s.reserved) > 0);
+    const W = 920;
+    const H = Math.max(240, Math.max(donors.length, sections.length) * 34 + 60);
+    const top = 34;
+    const gap = 10;
+    const usable = H - top - 16 - gap * (Math.max(donors.length, sections.length) - 1);
+    const totalDonors = donors.reduce((a, d) => a + num(d.amount), 0) || 1;
+    const totalSections = sections.reduce((a, s) => a + num(s.reserved), 0) || 1;
+    const scale = usable / Math.max(totalDonors, totalSections);
+    const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+    const money = (v) => (v >= 1e6 ? `$${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `$${Math.round(v / 1e3)}k` : `$${Math.round(v)}`);
+    const left = [];
+    let y = top;
+    donors.forEach((d) => {
+      const h = Math.max(4, num(d.amount) * scale);
+      left.push({ name: d.name, y, h, cursor: y, amount: num(d.amount) });
+      y += h + gap;
+    });
+    const mid = [];
+    y = top;
+    sections.forEach((s, i) => {
+      const h = Math.max(4, num(s.reserved) * scale);
+      mid.push({ name: s.name, y, h, cursor: y, color: PALETTE[i % PALETTE.length], reserved: num(s.reserved), children: num(s.children) });
+      y += h + gap;
+    });
+    const x1 = 200;
+    const x2 = 600;
+    const x3 = 900;
+    const parts = [];
+    const band = (xa, ya, ha, xb, yb, hb, color, title) => {
+      const c = (xa + xb) / 2;
+      return `<path d="M${xa},${ya} C${c},${ya} ${c},${yb} ${xb},${yb} L${xb},${yb + hb} C${c},${yb + hb} ${c},${ya + ha} ${xa},${ya + ha} Z" fill="${color}" opacity="0.32"><title>${esc(title)}</title></path>`;
+    };
+    (data?.links || []).forEach((l) => {
+      const d = left.find((x) => x.name === String(l.donor));
+      const s = mid.find((x) => x.name === String(l.section));
+      if (!d || !s || !(num(l.amount) > 0)) return;
+      const h = num(l.amount) * scale;
+      parts.push(band(x1 + 14, d.cursor, h, x2, s.cursor, h, s.color, `${l.donor} → ${l.section}: ${money(num(l.amount))}`));
+      d.cursor += h;
+      s.cursor += h;
+    });
+    mid.forEach((s) => {
+      parts.push(band(x2 + 14, s.y, s.h, x3, s.y, s.h, s.color, `${s.name}: ${s.children.toLocaleString()} children reached`));
+    });
+    const muted = cssVar("--nd-muted");
+    const neutral = cssVar("--nd-neutral");
+    left.forEach((d) => {
+      parts.push(`<rect x="${x1}" y="${d.y}" width="14" height="${d.h}" rx="2" fill="${neutral}"><title>${esc(d.name)}: ${money(d.amount)}</title></rect>`);
+      parts.push(`<text x="${x1 - 6}" y="${d.y + d.h / 2 + 4}" text-anchor="end">${esc(d.name.length > 22 ? `${d.name.slice(0, 21)}…` : d.name)} <tspan class="flow__muted">${money(d.amount)}</tspan></text>`);
+    });
+    mid.forEach((s) => {
+      parts.push(`<rect x="${x2}" y="${s.y}" width="14" height="${s.h}" rx="2" fill="${s.color}"><title>${esc(s.name)}: ${money(s.reserved)} reserved</title></rect>`);
+      parts.push(`<text x="${x2 + 20}" y="${s.y + s.h / 2 + 4}">${esc(s.name)}</text>`);
+      parts.push(`<rect x="${x3}" y="${s.y}" width="14" height="${s.h}" rx="2" fill="${s.color}"></rect>`);
+      parts.push(`<text x="${x3 + 20}" y="${s.y + s.h / 2 + 4}">${s.children.toLocaleString()}</text>`);
+    });
+    const head = `<text x="${x1}" y="18" class="flow__muted">Donors</text><text x="${x2}" y="18" class="flow__muted">Sections</text><text x="${x3}" y="18" class="flow__muted">Children reached</text>`;
+    el.innerHTML = `<svg class="flow" viewBox="0 0 ${W + 120} ${H}" role="img" aria-label="${esc(el.getAttribute("aria-label") || "")}" style="color:${muted}">${head}${parts.join("")}</svg>`;
+    return null;
+  },
+  "hbars-flag"(el, data) {
+    // [{label, value, flag, days}] -> horizontal bars, flagged ones in the danger colour
+    const rows = (Array.isArray(data) ? data : []).slice().reverse();
+    const prefix = el.dataset.prefix || "";
+    return {
+      traces: [{ type: "bar", orientation: "h", y: rows.map((r) => String(r.label)), x: rows.map((r) => num(r.value)), customdata: rows.map((r) => (r.days == null ? "no expiry" : `${r.days} days`)), marker: { color: rows.map((r) => cssVar(r.flag ? "--nd-danger" : "--nd-primary")), line: { width: 0 } }, hovertemplate: `%{y}: ${prefix}%{x:,.0f} unspent · %{customdata}<extra></extra>` }],
+      layout: { bargap: 0.3, yaxis: { type: "category" }, xaxis: { rangemode: "tozero" }, margin: { t: 4, r: 16, b: 32, l: 8 }, height: rowsHeight(el, rows.length, 26, 60) },
+    };
+  },
+  funded(el, data) {
+    // [{section, required, reserved, percent}] -> required (grey) with reserved (accent) over it
+    const rows = (Array.isArray(data) ? data : []).slice().sort((a, b) => num(a.required) - num(b.required));
+    const names = rows.map((r) => String(r.section));
+    return {
+      traces: [
+        { type: "bar", orientation: "h", name: "Required", y: names, x: rows.map((r) => num(r.required)), width: 0.64, marker: { color: withAlpha(cssVar("--nd-neutral"), 0.28), line: { width: 0 } }, hovertemplate: "%{y} · required: $%{x:,.0f}<extra></extra>" },
+        { type: "bar", orientation: "h", name: "Reserved", y: names, x: rows.map((r) => num(r.reserved)), width: 0.38, customdata: rows.map((r) => (r.percent == null ? "–" : `${Math.round(num(r.percent))}% funded`)), marker: { color: cssVar("--nd-primary"), line: { width: 0 } }, hovertemplate: "%{y} · reserved: $%{x:,.0f} (%{customdata})<extra></extra>" },
+      ],
+      layout: { barmode: "overlay", bargap: 0.2, yaxis: { type: "category" }, xaxis: { rangemode: "tozero" }, margin: { t: 4, r: 16, b: 56, l: 8 }, height: rowsHeight(el, rows.length), ...legendFor(2) },
+    };
+  },
   hbars(el, data) {
     // pairs -> horizontal bars, first pair at the top; data-prefix/data-suffix decorate the hover value,
     // data-color-by="status" colours each bar by its label ("On Track" -> success)
@@ -412,7 +572,9 @@ function render(el) {
     el.innerHTML = `<div class="state state--empty"><p class="state__title">${el.dataset.emptyTitle || "No data yet"}</p></div>`;
     return;
   }
-  const { traces, layout } = builder(el, data, source.labels);
+  const built = builder(el, data, source.labels);
+  if (!built) return; // the builder drew the element itself (SVG)
+  const { traces, layout } = built;
   window.Plotly.react(el, traces, baseLayout(el, layout), CONFIG);
 }
 

@@ -1,0 +1,75 @@
+{% load i18n ui humanize %}
+{% with w=data.who %}
+<div class="overview-row brief-section" id="brief-who">
+<h2 class="section-heading">{% trans "Who and where?" %} <span class="small text-muted fw-normal">{% trans "Equity of reach, and the districts where need is high and coverage low" %}</span></h2>
+<div class="grid grid--2">
+  <section class="panel" aria-labelledby="sexage-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="sexage-title">{% trans "Children reached by sex and age band" %}</h3>
+      <span class="panel__hint">{% trans "As the indicators' titles name them (eTools)" %}</span>
+    </div>
+    <div class="chart chart--sm" data-module="charts" data-chart="stacked-series" data-source="brief-chart-data" data-key="sex_age" data-height="220" data-empty-title="{% trans 'No children indicator reported yet' %}" aria-label="{% trans 'Children reached by age band, girls, boys and not named' %}"></div>
+    <p class="caveat mb-0">{% blocktrans with n=w.children_tagged|intcomma %}{{ n }} children reached by eTools indicators this year; a title naming both girls and boys names neither, so most fall under "not named" until PRP disaggregations carry labels.{% endblocktrans %}</p>
+    <p class="source-line">{{ w.source }}</p>
+  </section>
+  <section class="panel" aria-labelledby="nat-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="nat-title">{% trans "By nationality and disability" %}</h3>
+      <span class="panel__hint">{% trans "Share of children reached against their share of the child population" %}</span>
+    </div>
+    <div class="table-wrap"><table class="table table-sm" id="brief-nationality">
+      <thead><tr><th scope="col">{% trans "Nationality" %}</th><th scope="col" class="num">{% trans "Reached" %}</th><th scope="col" class="num">{% trans "Of those named" %}</th><th scope="col" class="num">{% trans "Of the child population" %}</th></tr></thead>
+      <tbody>
+      {% for n in w.nationality %}
+      <tr><td>{{ n.name }}</td><td class="num">{{ n.reached|intcomma }}</td><td class="num">{{ n.reached_share|percent:0 }}</td><td class="num">{{ n.population_share|percent:0 }}</td></tr>
+      {% endfor %}
+      <tr><td>{% trans "Children with disabilities" %}</td><td class="num">{{ w.disability.reached|intcomma }}</td><td class="num">{{ w.disability.share|percent:0 }}</td><td class="num text-muted">—</td></tr>
+      </tbody>
+    </table></div>
+    <p class="caveat mb-0">{% blocktrans with n=w.nationality_named|intcomma %}{{ n }} of the children reached are counted by an indicator naming a nationality; the rest are not disaggregated in the titles.{% endblocktrans %}{% if w.population_year %} {% blocktrans with y=w.population_year %}Population shares: {{ y }} figures.{% endblocktrans %}{% endif %}</p>
+    <p class="source-line">{{ w.source }}</p>
+  </section>
+</div>
+<div class="grid grid--2">
+  <section class="panel" aria-labelledby="cov-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="cov-title">{% trans "Coverage by governorate" %}</h3>
+      <a class="panel__hint" href="{% url 'reports:overview' %}{{ overview_query }}">{% trans "Overview" %} →</a>
+    </div>
+    {% if w.governorates %}
+    <div class="gov-grid">
+      {% for g in w.governorates %}
+      <a class="gov-tile gov-tile--l{{ g.level|default:1 }}" href="{% url 'reports:overview' %}?{% if base_query %}{{ base_query }}&amp;{% endif %}governorate={{ g.name|urlencode }}" title="{% blocktrans with e=g.etools|intcomma a=g.activityinfo|intcomma %}eTools {{ e }}, ActivityInfo {{ a }}{% endblocktrans %}">
+        <span class="gov-tile__name">{{ g.name }}</span>
+        <span class="gov-tile__value">{% if g.coverage is not None %}{{ g.coverage|percent:0 }}{% else %}{{ g.reached|intcomma }}{% endif %}</span>
+        <span class="gov-tile__sub">{% if g.coverage is not None %}{% blocktrans with n=g.reached|intcomma %}{{ n }} of the children{% endblocktrans %}{% else %}{% trans "children reached" %}{% endif %}</span>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    {% include "components/empty_state.html" with icon="map" title=_("No children reached by governorate yet") message=_("Partner reports with a location appear here once the imports have run for this scope.") %}
+    {% endif %}
+    <p class="source-line">{% trans "The larger of the two sources per governorate, against the estimated children there (population figures)" %}</p>
+  </section>
+  <section class="panel" aria-labelledby="gap-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="gap-title">{% trans "Districts with high need and low coverage" %}</h3>
+      <span class="panel__hint">{% trans "Ranked by children not reached" %}</span>
+    </div>
+    {% if w.districts %}
+    <div class="table-wrap"><table class="table table-sm table-hover" id="brief-districts">
+      <thead><tr><th scope="col">{% trans "District" %}</th><th scope="col">{% trans "Governorate" %}</th><th scope="col" class="num">{% trans "Children" %}</th><th scope="col" class="num">{% trans "Reached" %}</th><th scope="col" class="num">{% trans "Coverage" %}</th><th scope="col" class="num">{% trans "Not reached" %}</th></tr></thead>
+      <tbody>
+      {% for d in w.districts %}
+      <tr><td>{{ d.district }}</td><td>{{ d.governorate }}</td><td class="num">{{ d.children|intcomma }}</td><td class="num">{{ d.reached|intcomma }}</td><td class="num"><span class="pill pill--sm {% if d.coverage >= 15 %}pill--success{% elif d.coverage >= 8 %}pill--warning{% else %}pill--danger{% endif %}">{{ d.coverage|percent:0 }}</span></td><td class="num">{{ d.not_reached|intcomma }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}
+    {% include "components/empty_state.html" with icon="map" title=_("No district population figures") message=_("Load children population figures at district level to see the gaps.") %}
+    {% endif %}
+    <p class="source-line">{% trans "Population figures at district level and the children reported at eTools locations inside each district (indicators whose locations add up); not reached = estimated children minus reached" %}</p>
+  </section>
+</div>
+</div>
+{% endwith %}

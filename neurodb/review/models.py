@@ -88,3 +88,56 @@ class ReviewFinding(models.Model):
 
     def __str__(self):
         return f"[{self.severity}] {self.title}"
+
+
+class FindingAssignment(models.Model):
+    """Who owns a finding of the daily review, and by when: the assignment workflow behind the
+    management brief. Keyed by the finding's stable key, so it follows the finding from one day's
+    review to the next. The owner is a role or a team, never a person's name."""
+
+    class Status(models.TextChoices):
+        RAISED = "raised", _("Raised")
+        ACKNOWLEDGED = "acknowledged", _("Acknowledged")
+        ASSIGNED = "assigned", _("Assigned")
+        CLOSED = "closed", _("Closed")
+
+    key = models.CharField(max_length=300, unique=True, help_text="the finding's key, stable across days")
+    title = models.CharField(max_length=300, blank=True, help_text="the finding's title when assigned")
+    section = models.CharField(max_length=128, blank=True)
+    owner = models.CharField(
+        max_length=120, blank=True, help_text="a role or a team, e.g. Chief of Education, not a person"
+    )
+    due_date = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.ACKNOWLEDGED)
+    note = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    assigned_at = models.DateTimeField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.CharField(max_length=150, blank=True)
+
+    class Meta:
+        ordering = ("due_date", "id")
+        verbose_name = _("finding assignment")
+        verbose_name_plural = _("finding assignments")
+
+    def __str__(self):
+        return f"{self.title or self.key} → {self.owner or '—'} ({self.status})"
+
+    def save(self, *args, **kwargs):
+        """Stamp the step the status reached, once: the lifecycle chart reads these dates."""
+        from django.utils import timezone
+
+        now = timezone.now()
+        reached = {
+            self.Status.ACKNOWLEDGED: ("acknowledged_at",),
+            self.Status.ASSIGNED: ("acknowledged_at", "assigned_at"),
+            self.Status.CLOSED: ("acknowledged_at", "assigned_at", "closed_at"),
+        }
+        for name in reached.get(self.status, ()):
+            if getattr(self, name) is None:
+                setattr(self, name, now)
+        if self.status != self.Status.CLOSED:
+            self.closed_at = None
+        super().save(*args, **kwargs)

@@ -1,0 +1,35 @@
+{% load i18n ui humanize %}
+{% with l=data.lineage %}
+<div class="overview-row brief-section" id="brief-reference">
+<h2 class="section-heading">{% trans "Reference" %} <span class="small text-muted fw-normal">{% trans "What each number means and where it came from" %}</span></h2>
+<div class="grid grid--2">
+  <section class="panel" aria-labelledby="lineage-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="lineage-title">{% trans "Lineage of this brief" %}</h3>
+      <a class="panel__hint" href="{% url 'reports:data_health' %}">{% trans "Data health" %} →</a>
+    </div>
+    <dl class="lineage">
+      {% for s in l.sources %}
+      <dt>{{ s.label }}</dt>
+      <dd>{% if s.run %}{% blocktrans with n=s.run when=s.when|slice:":16" rows=s.rows|intcomma %}Run {{ n }}, {{ when }}, {{ rows }} rows.{% endblocktrans %}{% else %}{% trans "Never succeeded." %}{% endif %}</dd>
+      {% endfor %}
+      <dt>{% trans "Population figures" %}</dt>
+      <dd>{% if l.population_year %}{% blocktrans with y=l.population_year %}{{ y }} estimates.{% endblocktrans %}{% else %}{% trans "None loaded." %}{% endif %}</dd>
+      <dt>{% trans "Rules" %} {{ l.rules }}</dt>
+      <dd>{{ l.rules_text }}.</dd>
+      <dt>{% trans "Daily review" %}</dt>
+      <dd>{% if l.review %}{% blocktrans with d=l.review.date c=l.review.checks f=l.review.findings %}{{ d }}, {{ c }} checks, {{ f }} findings{% endblocktrans %}{% if l.review.narrated_by and l.review.narrated_by != "template" %}, {% trans "summary by the assistant" %}{% endif %}.{% else %}{% trans "No review yet." %}{% endif %}</dd>
+    </dl>
+    <p class="source-line">{% trans "Sync runs (the last that succeeded), population figures, the rules of this page, the latest review" %}</p>
+  </section>
+  <section class="panel" aria-labelledby="dict-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="dict-title">{% trans "Data dictionary" %}</h3>
+    </div>
+    <dl class="lineage">
+      {% for term, definition in data.dictionary %}<dt>{{ term }}</dt><dd>{{ definition }}</dd>{% endfor %}
+    </dl>
+  </section>
+</div>
+</div>
+{% endwith %}

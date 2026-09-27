@@ -80,7 +80,8 @@ def seed_etools(rng: random.Random, today: dt.date) -> None:
     _tpm(rng, pcas, gazetteer, today, year)
     _action_points(rng, pcas, gazetteer, today, year)
     _findings(rng, pcas, gazetteer, today, year)
-    _children_population(rng)
+    _children_population(rng, gazetteer)
+    _section_plans(rng, year)
 
 
 def _gazetteer(rng: random.Random) -> dict[str, list[Location]]:
@@ -391,11 +392,13 @@ def _findings(rng, pcas, gazetteer, today, year) -> None:
         )
 
 
-def _children_population(rng) -> None:
-    """Children per governorate (the coverage denominators of the overview)."""
+def _children_population(rng, gazetteer) -> None:
+    """Children per governorate (the coverage denominators of the overview) and per district (the
+    management brief's gap table)."""
     figures = []
+    shares = (("LEB", 0.62), ("SYR", 0.30), ("PRL", 0.04), ("PRS", 0.01), ("OTH", 0.03))
     for name, p_code, _ in GOVERNORATES:
-        for nat, share in (("LEB", 0.62), ("SYR", 0.30), ("PRL", 0.04), ("PRS", 0.01), ("OTH", 0.03)):
+        for nat, share in shares:
             figures.append(
                 PopulationFigure(
                     year=2025,
@@ -408,4 +411,37 @@ def _children_population(rng) -> None:
                     source="Demo",
                 )
             )
+    for district in gazetteer["districts"]:
+        for nat, share in shares:
+            figures.append(
+                PopulationFigure(
+                    year=2025,
+                    nationality=nat,
+                    level="district",
+                    area_code=district.p_code,
+                    area_name=district.name,
+                    parent_name=district.parent.name if district.parent_id else "",
+                    value=int(5_800_000 * share * 0.38 * rng.uniform(0.02, 0.08)),
+                    category="children",
+                    source="Demo",
+                )
+            )
     PopulationFigure.objects.bulk_create(figures, ignore_conflicts=True)
+
+
+def _section_plans(rng, year: int) -> None:
+    """Country Programme targets and requirements per section, for the management brief."""
+    from neurodb.reports.models import SectionPlan
+
+    for section, indicators in INDICATORS.items():
+        target = sum(t for _, t in indicators)
+        SectionPlan.objects.update_or_create(
+            year=year,
+            section=section,
+            defaults={
+                "children_target": int(target * rng.uniform(1.6, 2.4)),
+                "required_usd": Decimal(int(rng.uniform(4, 12)) * 1_000_000),
+                "note": "Demo: CP results framework and appeal figures",
+                "updated_by": "seed_demo",
+            },
+        )

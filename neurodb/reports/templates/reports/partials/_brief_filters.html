@@ -1,0 +1,21 @@
+{% load i18n ui %}
+<form method="get" class="filter-bar" role="search" aria-label="{% trans 'Brief filters' %}">
+  {% trans "Section" as l %}{% include "reports/_multiselect.html" with name="section" label=l options=options.sections values=selected.section %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-year">{% trans "Year" %}</label>
+    <select class="form-select form-select-sm" id="f-year" name="year">
+      {% for y in nav.years %}<option value="{{ y.name }}" {% if y.id == year.id %}selected{% endif %}>{{ y.name }}</option>{% empty %}<option value="{{ year.name }}" selected>{{ year.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'reports:overview' %}{{ overview_query }}">{% trans "Overview" %}</a>
+    <button type="button" class="btn btn-outline-secondary btn-sm" data-autoprint>{% include "components/icon.html" with name="printer" %}{% trans "Print" %}</button>
+  </div>
+</form>
+<div class="brief-stamp">
+  <span>{% blocktrans with d=today|date:"d M Y" %}Figures as of {{ d }}{% endblocktrans %}</span>
+  {% for s in data.lineage.sources %}{% if s.run %}<span class="brief-stamp__run" title="{{ s.when }}">{{ s.label }} · {% trans "run" %} {{ s.run }}</span>{% endif %}{% endfor %}
+  <span class="brief-stamp__run">{% trans "rules" %} {{ data.lineage.rules }}</span>
+</div>

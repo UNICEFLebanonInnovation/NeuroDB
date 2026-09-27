@@ -49,6 +49,12 @@ WHATS_NEW = [
         _lazy("Children reached, funds, delivery, assurance and a daily review on one page."),
     ),
     (
+        "target",
+        "lp-tint-green",
+        _lazy("Management brief"),
+        _lazy("Comparisons, confidence, partners, money and action, read for decisions."),
+    ),
+    (
         "save",
         "lp-tint-green",
         _lazy("Saved and shared views"),

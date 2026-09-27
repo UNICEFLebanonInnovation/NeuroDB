@@ -1,0 +1,41 @@
+{% load i18n ui humanize %}
+{% with m=data.money %}
+<div class="overview-row brief-section" id="brief-money">
+<h2 class="section-heading">{% trans "What does the money do?" %} <span class="small text-muted fw-normal">{% trans "From donor to child, and the money at risk" %}</span></h2>
+<section class="panel" aria-labelledby="flow-title">
+  <div class="panel__header">
+    <h3 class="panel__title" id="flow-title">{% trans "From donor to section to children reached" %}</h3>
+    <span class="panel__hint">{% blocktrans with r=m.reserved|money d=m.disbursed|money %}{{ r }} reserved, {{ d }} disbursed on the PDs running this year{% endblocktrans %}</span>
+  </div>
+  <div class="chart" data-module="charts" data-chart="flow" data-source="brief-chart-data" data-key="flows" data-height="360" data-empty-title="{% trans 'No funds reservation lines for this scope' %}" aria-label="{% trans 'Funding flow from donors to sections to children reached' %}"></div>
+  <p class="source-line">{{ m.source }}</p>
+</section>
+<div class="grid grid--2">
+  <section class="panel" aria-labelledby="grants-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="grants-title">{% trans "Grants at risk" %}</h3>
+      <span class="panel__hint">{% trans "Unspent balance by expiry date; red within 90 days" %}</span>
+    </div>
+    <div class="chart chart--sm" data-module="charts" data-chart="hbars-flag" data-source="brief-chart-data" data-key="grants" data-prefix="$" data-height="220" data-empty-title="{% trans 'No grant with an unspent balance' %}" aria-label="{% trans 'Grants with an unspent balance by expiry' %}"></div>
+    {% if m.grants %}
+    <details class="mt-2"><summary class="small text-muted">{% trans "Figures per grant" %}</summary>
+      <div class="table-wrap mt-2"><table class="table table-sm" id="brief-grants">
+        <thead><tr><th scope="col">{% trans "Grant" %}</th><th scope="col">{% trans "Donor" %}</th><th scope="col">{% trans "Expiry" %}</th><th scope="col" class="num">{% trans "Days" %}</th><th scope="col" class="num">{% trans "Reserved" %}</th><th scope="col" class="num">{% trans "Unspent" %}</th></tr></thead>
+        <tbody>{% for g in m.grants %}<tr{% if g.at_risk %} class="table-danger"{% endif %}><td>{{ g.grant }}</td><td>{{ g.donor }}</td><td>{{ g.expiry|default:"—" }}</td><td class="num">{{ g.days|number:0 }}</td><td class="num">{{ g.reserved|money }}</td><td class="num">{{ g.unspent|money }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </details>
+    {% endif %}
+    <p class="source-line">{{ m.source }}</p>
+  </section>
+  <section class="panel" aria-labelledby="funded-title">
+    <div class="panel__header">
+      <h3 class="panel__title" id="funded-title">{% trans "Funded against required" %}</h3>
+      <span class="panel__hint">{% trans "Per section, USD" %}</span>
+    </div>
+    <div class="chart chart--sm" data-module="charts" data-chart="funded" data-source="brief-chart-data" data-key="funded" data-height="220" data-empty-title="{% trans 'No requirement entered yet' %}" aria-label="{% trans 'Funds reserved against required per section' %}"></div>
+    {% if not m.has_requirements %}<p class="caveat mt-2">{% url 'admin:reports_sectionplan_changelist' as plans_url %}{% blocktrans %}No requirement entered yet: add the funds required per section under <a href="{{ plans_url }}">Section plans</a> in the administration pages.{% endblocktrans %}</p>{% endif %}
+    <p class="source-line">{% trans "Requirements from the section plans (appeal); reserved from the funds reservations of the section's PDs running this year" %}</p>
+  </section>
+</div>
+</div>
+{% endwith %}
