@@ -15,37 +15,7 @@
 {% endif %}
 {% include "reports/partials/_overview_freshness.html" %}
 
-<h2 class="section-heading">{% trans "Databases" %} <span class="small text-muted fw-normal">{{ data.activityinfo.cards|length }}</span></h2>
-{% if data.activityinfo.cards %}
-<div class="grid grid--cards">
-  {% for card in data.activityinfo.cards %}
-  <a class="panel db-card" href="{% url 'reports:database_dashboard' card.database.id %}">
-    <div class="d-flex justify-content-between align-items-start gap-2">
-      <div>
-        <div class="db-card__meta mb-1"><span class="d-inline-flex align-items-center gap-1"><span class="section-dot" {% if card.database.section.color %}style="--section-color: {{ card.database.section.color }}"{% endif %} aria-hidden="true"></span>{{ card.database.section.name|default:_("Other") }}</span></div>
-        <h3 class="db-card__title h6">{{ card.database.label|default:card.database.name }}</h3>
-      </div>
-      {% if card.stale %}{% trans "Stale" as stale %}{% status_pill "stale" stale "sm" %}{% endif %}
-    </div>
-    <div class="status-bar" role="img" aria-label="{% blocktrans with on=card.status_counts.on_track off=card.status_counts.off_track %}{{ on }} on track, {{ off }} off track{% endblocktrans %}">
-      {% for key in labels %}{% with n=card.status_counts|get_item:key %}{% if n %}<span class="{{ key }}" style="flex: {{ n }}"></span>{% endif %}{% endwith %}{% endfor %}
-    </div>
-    <div class="db-card__stats">
-      <div class="db-card__stat"><strong>{{ card.indicators }}</strong><span>{% trans "indicators" %}</span></div>
-      <div class="db-card__stat"><strong>{{ card.status_counts.on_track }}</strong><span>{% trans "on track" %}</span></div>
-      <div class="db-card__stat"><strong>{{ card.reports|intcomma }}</strong><span>{% trans "records" %}</span></div>
-      <div class="db-card__stat"><strong>{{ card.partners }}</strong><span>{% trans "partners" %}</span></div>
-    </div>
-    <div class="db-card__meta">
-      <span>AI {{ card.database.ai_id }}</span>
-      <span>{% if card.last_import %}{% blocktrans with when=card.last_import|naturaltime %}Imported {{ when }}{% endblocktrans %}{% else %}{% trans "Never imported" %}{% endif %}</span>
-    </div>
-  </a>
-  {% endfor %}
-</div>
-{% else %}
-<div class="panel mt-3">{% include "components/empty_state.html" with icon="grid" title=_("No databases for this year") message=_("Databases marked for display in this reporting year appear here.") %}</div>
-{% endif %}
+<p class="small text-muted mt-3 mb-0"><a href="{% url 'reports:databases' %}?year={{ year.name|urlencode }}">{% trans "ActivityInfo databases of the year" %} →</a></p>
 {% endif %}
 {{ chart_data|json_script:"overview-chart-data" }}
 {% endblock %}

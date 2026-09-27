@@ -347,7 +347,9 @@ demand, for trips (`--only travels`) and the legacy engagement tables; locations
 
 `/` for a signed-in user is the country overview: one page for the whole intervention, read live
 from the synced eTools tables and the ActivityInfo history. Three rows answer three questions, then
-two progress blocks and the daily AI review:
+two progress blocks and the daily AI review. The ActivityInfo database cards of the year (one per
+database: indicators, status, records, partners, last import) have their own page, `/databases/`,
+under the sidebar's *Databases* block as *All databases*, with the year's totals and the import runs:
 
 | Row | Blocks | Source |
 |---|---|---|

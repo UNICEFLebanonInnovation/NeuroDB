@@ -57,7 +57,7 @@ def test_renders_every_block_with_data(client_viewer, reporting_year, fake_servi
     assert "$7.2M" in html and "$12.4M" in html  # disbursed of reserved
     assert 'id="overview-chart-data"' in html
     assert "Data freshness" in html and "Daily AI review" in html
-    assert "Databases" in html and "No databases for this year" in html  # the ActivityInfo cards, unchanged
+    assert "ActivityInfo databases of the year" in html  # the cards moved to their own page
     assert "LEB/PD2026001" in html and "Himaya" in html  # decisions and attention lists
     assert "reports/partials/_daily_review.html" not in html
     scope = fake_service[0]
@@ -150,7 +150,6 @@ def test_empty_data_renders_the_empty_states(client_viewer, reporting_year, monk
         "No decisions pending",
         "Nothing flagged",
         "No sync has run yet",
-        "No databases for this year",
         "No indicators for this scope yet",
     ):
         assert text in html, text

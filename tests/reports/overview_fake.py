@@ -21,16 +21,6 @@ def fake_options() -> dict[str, list[str]]:
     return {"sections": list(SECTIONS), "governorates": list(GOVERNORATES)}
 
 
-def _activityinfo_empty() -> dict[str, Any]:
-    return {
-        "year": None,
-        "cards": [],
-        "status_counts": {"on_track": 0, "off_track": 0, "over_target": 0, "no_target": 0},
-        "totals": {"databases": 0, "indicators": 0, "reports": 0, "partners": 0},
-        "last_runs": [],
-    }
-
-
 def fake_data(today: datetime.date = FAKE_TODAY) -> dict[str, Any]:
     """Every block filled with plausible numbers."""
     return {
@@ -346,7 +336,6 @@ def fake_data(today: datetime.date = FAKE_TODAY) -> dict[str, Any]:
             },
         ],  # fmt: skip
         "scope": {"year": today.year, "sections": [], "governorate": "", "today": today.isoformat()},
-        "activityinfo": _activityinfo_empty(),
     }
 
 
@@ -427,5 +416,4 @@ def empty_data(today: datetime.date = FAKE_TODAY) -> dict[str, Any]:
         },
         "freshness": [],
         "scope": {"year": today.year, "sections": [], "governorate": "", "today": today.isoformat()},
-        "activityinfo": _activityinfo_empty(),
     }

@@ -36,7 +36,6 @@ from neurodb.datamart.children import overrides as children_overrides
 from neurodb.datamart.monitoring import ACTIVE_PD_STATUSES, NOT_REPORTED, Filters, Indicator
 from neurodb.facts import queries as fact_queries
 from neurodb.facts.services.dashboard import fact_filter
-from neurodb.facts.services.dashboard import overview as activityinfo_overview
 from neurodb.geo.models import Location
 from neurodb.indicators.models import Database, NeuroReportMasterIndicator
 from neurodb.indicators.services.tracking import OFF_TRACK, percentage_elapsed
@@ -44,7 +43,7 @@ from neurodb.indicators.services.tracking import OFF_TRACK, percentage_elapsed
 logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 600
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 STATUSES = ("on_track", "off_track", "over_target", "no_target", NOT_REPORTED)
 LEVEL_GOVERNORATE = monitoring.LEVEL_GOVERNORATE
@@ -329,7 +328,6 @@ class _Builder:
                 "pd_ids": sorted(self.pds),
                 "section_of_pd": {str(pd_id): s for pd_id, s in self.section_of_pd.items()},
             },
-            "activityinfo": activityinfo_overview(self.scope.reporting_year),
         }
 
     def _pd_sections(self) -> dict[int, str]:

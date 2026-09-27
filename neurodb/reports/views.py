@@ -394,6 +394,27 @@ def brief(request: HttpRequest) -> HttpResponse:
 
 
 @require_GET
+def databases(request: HttpRequest) -> HttpResponse:
+    """The ActivityInfo databases of a reporting year: one card each (indicators, status, records,
+    partners, last import), the year's totals and the import runs. Was the bottom of the overview."""
+    year = services.resolve_year(request.GET.get("year"))
+    data = facts.overview(year) if year else None
+    context = {
+        "page_title": _("ActivityInfo databases"),
+        "page_subtitle": _("Reporting year %(year)s") % {"year": year.name} if year else "",
+        "breadcrumbs": [
+            _crumb(_("Overview"), reverse("reports:overview")),
+            _crumb(_("ActivityInfo databases")),
+        ],
+        "year": year,
+        "data": data,
+        "labels": LABELS,
+        "chart_data": {"status_counts": data["status_counts"], "labels": LABELS} if data else {},
+    }
+    return render(request, "reports/databases.html", context)
+
+
+@require_GET
 def database_dashboard(request: HttpRequest, pk: int) -> HttpResponse:
     database = _database(pk)
     dash = facts.database_dashboard(database)

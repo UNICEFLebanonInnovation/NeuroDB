@@ -12,7 +12,8 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
 - **Country overview**: the signed-in home page reads the whole intervention live: children reached
   by governorate and against targets (eTools and ActivityInfo shown apart), funds disbursed and cost
   per child by section, delivery status, TPM visit and action point progress, and the daily review,
-  filtered by year, section and governorate; the ActivityInfo database cards stay at the bottom.
+  filtered by year, section and governorate; the ActivityInfo database cards have their own page
+  under the sidebar's Databases block.
 - **Database dashboards**: KPI tiles, tracking donut, monthly trend, filterable indicator table with
   progress bars and a sub-indicator drill-down in a modal; printable snapshot; raw data as CSV or Excel.
 - **Analytical view**: pivot table over every ActivityInfo record with layout presets
