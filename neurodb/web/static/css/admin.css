@@ -48,3 +48,11 @@
 .nd-link { color: var(--color-primary-600); }
 .nd-link:hover { text-decoration: underline; }
 .dark .nd-link { color: var(--color-primary-400); }
+
+/* Action dialogs: keep the header and the buttons on screen and scroll the form between them
+   (Unfold gives the form overflow-y but no height limit, so a long form pushed the buttons off). */
+#modal-content > #dialog { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+#modal-content > #dialog > form { display: flex; flex-direction: column; min-height: 0; }
+#modal-content #dialog-form { flex: 1 1 auto; min-height: 0; }
+/* The dataset checkboxes of the Datamart sync dialog, in columns instead of one long list. */
+#id_datasets { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px 16px; }
