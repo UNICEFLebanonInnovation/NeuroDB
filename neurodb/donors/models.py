@@ -41,6 +41,14 @@ class DonorAccount(models.Model):
         default=True,
         help_text=_("set when a temporary password is issued; cleared when the donor changes it"),
     )
+    owns_user = models.BooleanField(
+        default=True,
+        editable=False,
+        help_text=_(
+            "the sign-in was created with this account (deleting the account deletes it); off: an existing "
+            "user was linked (deleting the account switches the sign-in off)"
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.CharField(max_length=150, blank=True, editable=False)
     last_seen_at = models.DateTimeField(null=True, blank=True, editable=False)

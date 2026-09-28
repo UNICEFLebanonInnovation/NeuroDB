@@ -226,6 +226,7 @@ def test_admin_creates_the_sign_in_with_a_temporary_password(client, db, roles):
     assert account.donors == ["EU"] and account.grants == ["SC1", "SC2"]
     assert account.user.email == "focal@donor.example"
     assert not account.user.is_staff and not account.user.is_superuser
+    assert account.active and account.owns_user and account.is_valid_now()
     assert account.must_change_password
     shown = re.search(r"<code[^>]*>([^<]+)</code>", response.text).group(1)
     assert account.user.check_password(shown)
@@ -259,3 +260,72 @@ def test_admin_pages_render_and_a_new_password_can_be_issued(client, db, roles, 
     donor.refresh_from_db()
     donor.user.refresh_from_db()
     assert donor.user.password != old and donor.must_change_password
+
+
+@pytest.fixture
+def root_client(client, db, roles):
+    client.force_login(User.objects.create_superuser("root", "root@example.org", "root-pass-123456"))
+    return client
+
+
+def add_account(client, **fields):
+    form = {
+        "existing_user": "",
+        "email": "",
+        "name": "A donor",
+        "other_donors": "EU",
+        "show_partner_names": "on",
+    }
+    form.update(fields)
+    return client.post(reverse("admin:donors_donoraccount_add"), form, follow=True)
+
+
+def test_admin_links_an_existing_user(root_client, viewer):
+    old_password = viewer.password
+    response = add_account(root_client, existing_user=viewer.pk)
+    assert response.status_code == 200
+    account = DonorAccount.objects.get()
+    viewer.refresh_from_db()
+    assert account.user == viewer and not account.owns_user
+    assert viewer.password == old_password and not account.must_change_password
+    assert not viewer.groups.exists()  # a donor has no role
+    assert account.is_valid_now()
+
+
+def test_linking_can_issue_a_temporary_password(root_client, viewer):
+    response = add_account(root_client, existing_user=viewer.pk, issue_password="on")
+    account = DonorAccount.objects.get()
+    shown = re.search(r"<code[^>]*>([^<]+)</code>", response.text).group(1)
+    viewer.refresh_from_db()
+    assert viewer.check_password(shown) and account.must_change_password
+
+
+def test_staff_and_editors_cannot_be_linked(root_client, admin_user):
+    response = add_account(root_client, existing_user=admin_user.pk)
+    assert response.status_code == 200
+    assert not DonorAccount.objects.exists()
+    assert str(admin_user.pk) not in re.search(
+        r'<select name="existing_user".*?</select>', response.text, re.S
+    ).group(0)
+
+
+def test_one_of_existing_user_or_email(root_client, viewer):
+    add_account(root_client, existing_user=viewer.pk, email="new@donor.example")
+    add_account(root_client)
+    assert not DonorAccount.objects.exists()
+
+
+def test_deleting_a_linked_account_switches_the_user_off(root_client, viewer):
+    add_account(root_client, existing_user=viewer.pk)
+    account = DonorAccount.objects.get()
+    root_client.post(reverse("admin:donors_donoraccount_delete", args=[account.pk]), {"post": "yes"})
+    viewer.refresh_from_db()
+    assert not DonorAccount.objects.exists()
+    assert not viewer.is_active  # kept, but it does not fall back to a viewer's access
+
+
+def test_deleting_an_account_deletes_the_sign_in_it_created(root_client):
+    add_account(root_client, email="new@donor.example")
+    account = DonorAccount.objects.get()
+    root_client.post(reverse("admin:donors_donoraccount_delete", args=[account.pk]), {"post": "yes"})
+    assert not User.objects.filter(email="new@donor.example").exists()

@@ -589,13 +589,18 @@ Disbursed is the FR's disbursed amount times the donor's share of that FR's line
 children (the overview's children rule) are attributed in proportion to the donor's share of the
 programme's funds. The page explains this to the donor under "How to read these figures".
 
-**Creating an account** (admin → Users and access → Donor accounts → Add): the donor's email (it
-must not belong to a staff user), the page title, the donor names as eTools writes them on funds
-reservations (chosen from a list; type a name in "Other donor names" for a donor with no funds synced
-yet), optionally only some grant numbers, whether partner names show ("Partner 1 (civil society)"
-otherwise), the UNICEF contact shown on the page, and an optional end date. Saving creates the
-sign-in with a **temporary password shown once**; send it to the donor separately from the sign-in
-address. At first sign-in the donor must choose their own password.
+**Creating an account** (admin → Users and access → Donor accounts → Add). The sign-in is either:
+- **an existing user** ("Existing user"): a user already created in Users, not staff, not an
+  administrator or section editor, without a donor account. Linking removes its roles and keeps its
+  password; tick "Issue a temporary password" to replace it with one shown once; or
+- **a new sign-in** (the donor's email, which must not belong to a NeuroDB user): created with a
+  **temporary password shown once**.
+
+Send a temporary password to the donor separately from the sign-in address; the donor must choose
+their own at the next sign-in. Then: the page title, the donor names as eTools writes them on funds
+reservations (chosen from a list; type a name in "Other donor names" for a donor with no funds
+synced yet), optionally only some grant numbers, whether partner names show ("Partner 1 (civil
+society)" otherwise), the UNICEF contact shown on the page, and an optional end date.
 
 **Rules enforced for every donor request** (`neurodb/donors/middleware.py`):
 - signing in lands on `/donor/`, whatever `next` says; any other page, the admin and unknown
@@ -607,7 +612,9 @@ address. At first sign-in the donor must choose their own password.
 **Staff**: "Open the donor's page" in the account list previews exactly what the donor sees
 (administrators only; the page does not exist for other staff). "New temporary password" on the
 account (or the list action) replaces the password and asks for a new one at the next sign-in;
-"Switch off the selected accounts" stops a sign-in at once. Deleting an account deletes its sign-in.
+"Switch off the selected accounts" stops a sign-in at once. Deleting an account deletes a sign-in it
+created, and switches off (does not delete) a user it linked: without its donor account that user
+would otherwise sign in with a viewer's access.
 `seed_demo` creates `demo-donor`, a USAID account, on local databases.
 
 ## Yearly rollover (January)

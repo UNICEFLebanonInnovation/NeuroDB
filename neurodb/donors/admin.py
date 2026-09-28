@@ -1,8 +1,13 @@
-"""Donor accounts in the admin: create the sign-in, choose what it sees, issue a temporary password.
+"""Donor accounts in the admin: create or link the sign-in, choose what it sees, issue a password.
 
-Creating an account creates its user too (never staff, no role), with a temporary password shown
-once to the administrator, who passes it to the donor by a separate channel. The donor must replace
-it at first sign-in. "Preview" opens the page exactly as the donor sees it.
+An account either creates its user (never staff, no role) with a temporary password shown once to
+the administrator, who passes it to the donor by a separate channel, or links a user that already
+exists (not staff, not an administrator or section editor, no donor account yet): its roles are
+removed, and it keeps its password unless a temporary one is issued. A temporary password must be
+replaced at the next sign-in. "Preview" opens the page exactly as the donor sees it.
+
+Deleting an account deletes a sign-in it created, and switches off a sign-in it linked (without a
+donor account the user would otherwise fall back to a viewer's access).
 """
 
 from __future__ import annotations
@@ -21,7 +26,15 @@ from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
 from unfold.decorators import action
 from unfold.forms import BaseDialogForm
+from unfold.widgets import (
+    UnfoldAdminEmailInputWidget,
+    UnfoldAdminSelectMultipleWidget,
+    UnfoldAdminSelectWidget,
+    UnfoldAdminTextInputWidget,
+    UnfoldBooleanSwitchWidget,
+)
 
+from neurodb.accounts.roles import ADMIN, SECTION_EDITOR
 from neurodb.web.admin_helpers import badge
 
 from . import services
@@ -47,17 +60,19 @@ class DonorAccountForm(forms.ModelForm):
     donor_choices = forms.MultipleChoiceField(
         label=_("Donors"),
         required=False,
-        widget=forms.SelectMultiple(attrs={"size": 10}),
+        widget=UnfoldAdminSelectMultipleWidget(attrs={"size": 12}),
         help_text=_("The donor names on eTools funds reservations. Hold Ctrl to choose several."),
     )
     other_donors = forms.CharField(
         label=_("Other donor names"),
         required=False,
+        widget=UnfoldAdminTextInputWidget,
         help_text=_("Comma-separated, exactly as eTools writes them, for a donor not in the list yet."),
     )
     grant_list = forms.CharField(
         label=_("Only these grants"),
         required=False,
+        widget=UnfoldAdminTextInputWidget,
         help_text=_("Comma-separated grant numbers. Empty: every grant of the donors above."),
     )
 
@@ -89,26 +104,89 @@ class DonorAccountForm(forms.ModelForm):
         return super().save(commit=commit)
 
 
+def linkable_users():
+    """Users an account may link: not staff or superuser, not an administrator or section editor,
+    without a donor account already."""
+    return (
+        get_user_model()
+        .objects.filter(is_staff=False, is_superuser=False, donor_account__isnull=True)
+        .exclude(groups__name__in=[ADMIN, SECTION_EDITOR])
+        .order_by("email", "username")
+    )
+
+
+class UserChoice(forms.ModelChoiceField):
+    def label_from_instance(self, obj):
+        name = obj.get_full_name()
+        who = f"{obj.email or obj.get_username()}" + (f" ({name})" if name else "")
+        return who if obj.is_active else f"{who} (inactive)"
+
+
 class DonorAccountCreateForm(DonorAccountForm):
-    email = forms.EmailField(
-        label=_("Donor's email"),
+    existing_user = UserChoice(
+        label=_("Existing user"),
+        queryset=get_user_model().objects.none(),
+        required=False,
+        widget=UnfoldAdminSelectWidget,
         help_text=_(
-            "The sign-in. It must not belong to a NeuroDB user already: staff keep their own account."
+            "Link a sign-in that already exists. Staff, administrators, section editors and users with a "
+            "donor account are not listed: linking confines the user to the donor page."
+        ),
+    )
+    email = forms.EmailField(
+        label=_("Or a new sign-in: the donor's email"),
+        required=False,
+        widget=UnfoldAdminEmailInputWidget,
+        help_text=_("Creates the sign-in. It must not belong to a NeuroDB user already."),
+    )
+    issue_password = forms.BooleanField(
+        label=_("Issue a temporary password"),
+        required=False,
+        widget=UnfoldBooleanSwitchWidget,
+        help_text=_(
+            "For an existing user: replace its password with a temporary one, shown once, to change at the "
+            "next sign-in. A new sign-in always gets one."
         ),
     )
 
     class Meta(DonorAccountForm.Meta):
-        fields = ("email", *DonorAccountForm.Meta.fields)
+        # No "active" here: a new account is active (the field is on the change form only).
+        fields = (
+            "existing_user",
+            "email",
+            "issue_password",
+            "name",
+            "show_partner_names",
+            "contact",
+            "expires_on",
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["existing_user"].queryset = linkable_users()
 
     def clean_email(self):
-        email = self.cleaned_data["email"].strip().lower()
+        email = (self.cleaned_data.get("email") or "").strip().lower()
+        if not email:
+            return ""
         User = get_user_model()
         if (
             User.objects.filter(email__iexact=email).exists()
             or User.objects.filter(username__iexact=email).exists()
         ):
-            raise forms.ValidationError(_("A NeuroDB user already has this email."))
+            raise forms.ValidationError(
+                _('A NeuroDB user already has this email: choose it under "Existing user" instead.')
+            )
         return email
+
+    def clean(self):
+        data = super().clean()
+        user, email = data.get("existing_user"), data.get("email")
+        if bool(user) == bool(email):
+            raise forms.ValidationError(
+                _("Choose an existing user or enter an email for a new sign-in (one).")
+            )
+        return data
 
 
 @admin.register(DonorAccount)
@@ -116,7 +194,15 @@ class DonorAccountAdmin(ModelAdmin):
     list_display = ("name", "sign_in", "donor_list", "state", "expires_on", "last_seen_at", "preview")
     list_filter = ("active",)
     search_fields = ("name", "user__email", "user__username")
-    readonly_fields = ("user", "must_change_password", "created_at", "created_by", "last_seen_at", "preview")
+    readonly_fields = (
+        "user",
+        "must_change_password",
+        "owns_user",
+        "created_at",
+        "created_by",
+        "last_seen_at",
+        "preview",
+    )
     actions = ("issue_password", "switch_off")
     actions_detail = ("issue_password_detail",)
 
@@ -140,14 +226,17 @@ class DonorAccountAdmin(ModelAdmin):
             },
         )
         if obj is None:
-            return ((_("Sign-in"), {"fields": ("email", "expires_on")}), what)
+            return (
+                (_("Sign-in"), {"fields": ("existing_user", "email", "issue_password", "expires_on")}),
+                what,
+            )
         return (
             (
                 _("Sign-in"),
                 {"fields": ("user", "active", "expires_on", "must_change_password", "last_seen_at")},
             ),
             what,
-            (_("Record"), {"fields": ("created_at", "created_by", "preview")}),
+            (_("Record"), {"fields": ("owns_user", "created_at", "created_by", "preview")}),
         )
 
     def get_queryset(self, request):
@@ -156,15 +245,36 @@ class DonorAccountAdmin(ModelAdmin):
     @transaction.atomic
     def save_model(self, request, obj, form, change):
         if not change:
-            password = temporary_password()
-            email = form.cleaned_data["email"]
-            obj.user = get_user_model().objects.create_user(
-                username=email, email=email, password=password, first_name=obj.name[:150]
-            )
             obj.created_by = request.user.get_username()
-            obj.must_change_password = True
+            linked = form.cleaned_data.get("existing_user")
+            password = None
+            if linked is not None:
+                obj.user = linked
+                obj.owns_user = False
+                linked.groups.clear()  # a donor has no role
+                linked.user_permissions.clear()
+                if form.cleaned_data.get("issue_password"):
+                    password = temporary_password()
+                    linked.set_password(password)
+                linked.is_active = obj.active
+                linked.save()
+            else:
+                password = temporary_password()
+                email = form.cleaned_data["email"]
+                obj.user = get_user_model().objects.create_user(
+                    username=email, email=email, password=password, first_name=obj.name[:150]
+                )
+                obj.owns_user = True
+            obj.must_change_password = password is not None
             super().save_model(request, obj, form, change)
-            self._show_password(request, obj, password)
+            if password:
+                self._show_password(request, obj, password)
+            else:
+                messages.info(
+                    request,
+                    _("%(user)s now sees the donor page only, and signs in with its current password.")
+                    % {"user": obj.user.email or obj.user.get_username()},
+                )
             return
         super().save_model(request, obj, form, change)
         if obj.user.is_active != obj.active:
@@ -172,9 +282,18 @@ class DonorAccountAdmin(ModelAdmin):
             obj.user.save(update_fields=["is_active"])
 
     def delete_model(self, request, obj):
-        user = obj.user
+        user, owned = obj.user, obj.owns_user
         super().delete_model(request, obj)
-        user.delete()  # the sign-in exists only for this account
+        if owned:
+            user.delete()  # the sign-in existed only for this account
+        else:  # a linked user: without the account it would fall back to a viewer's access
+            user.is_active = False
+            user.save(update_fields=["is_active"])
+            messages.info(
+                request,
+                _("%(user)s was switched off, not deleted: the sign-in existed before the donor account.")
+                % {"user": user.email or user.get_username()},
+            )
 
     def delete_queryset(self, request, queryset):
         for obj in queryset:
