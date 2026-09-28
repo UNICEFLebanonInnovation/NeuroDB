@@ -7,7 +7,13 @@ area holding nationality totals, female/male totals and 5-year age bands.
 
 The published years ship with the code in ``neurodb/core/data/population/``; ``--bundled`` loads
 every bundled year that is not in the table yet (the container runs it at start, so a new
-deployment or an empty database gets the figures without anyone running a command).
+deployment or an empty database gets the figures without anyone running a command). It also
+reloads a bundled year that an older version of this loader stored wrongly (see ``outdated_years``),
+so a fix to the loader reaches the database with the next deployment. ``--replace`` reloads every
+bundled year; the admin's "Reload population figures" button does the same.
+
+Reloading replaces the rows the file provides (total and children figures); rows entered in the
+admin under another category (vulnerable population) are kept.
 """
 
 import json
@@ -79,17 +85,16 @@ class Command(BaseCommand):
             raise CommandError(f"{path} not found")
         self._load(path, options["year"], replace=options["replace"], triggered_by="command")
 
-    def _load_bundled(self, replace):
-        loaded = set(PopulationFigure.objects.values_list("year", flat=True).distinct())
-        for path in sorted(BUNDLED_DIR.glob("*.json")):
-            match = BUNDLED_NAME.match(path.name)
-            if not match:
-                continue
-            year = int(match.group(1))
-            if year in loaded and not replace:
+    def _load_bundled(self, replace, triggered_by="bundled"):
+        loaded = set(PopulationFigure.objects.order_by().values_list("year", flat=True).distinct())
+        outdated = outdated_years()
+        for year, path in bundled_files():
+            if year in outdated and not replace:
+                self.stdout.write(f"Population figures for {year} were loaded by an older version: reloading")
+            elif year in loaded and not replace:
                 self.stdout.write(f"Population figures for {year} already loaded")
                 continue
-            self._load(path, year, replace=True, triggered_by="bundled")
+            self._load(path, year, replace=True, triggered_by=triggered_by)
 
     def _load(self, path: Path, year: int, *, replace: bool, triggered_by: str):
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -98,8 +103,9 @@ class Command(BaseCommand):
             rows = _rows(data, year)
             run.rows_in = len(rows)
             with transaction.atomic():
-                if replace:
-                    PopulationFigure.objects.filter(year=year).delete()
+                if replace:  # only what the file provides: figures entered in the admin stay
+                    categories = {r.category for r in rows}
+                    PopulationFigure.objects.filter(year=year, category__in=categories).delete()
                 PopulationFigure.objects.bulk_create(rows, batch_size=2000, ignore_conflicts=True)
         except Exception as exc:
             run.finish(SyncRun.Status.FAILED, error=str(exc), file=path.name)
@@ -107,6 +113,36 @@ class Command(BaseCommand):
         run.rows_written = len(rows)
         run.finish(SyncRun.Status.SUCCEEDED, file=path.name)
         self.stdout.write(self.style.SUCCESS(f"Loaded {len(rows)} population rows for {year}"))
+
+
+def bundled_files() -> list[tuple[int, Path]]:
+    """The population files shipped with the code, as (year, path), oldest first."""
+    files = []
+    for path in sorted(BUNDLED_DIR.glob("*.json")):
+        match = BUNDLED_NAME.match(path.name)
+        if match:
+            files.append((int(match.group(1)), path))
+    return files
+
+
+def outdated_years() -> set[int]:
+    """Years stored by the loader before the PAL fix: the PAL sheet's age bands, sex and children
+    rows (Palestinians, PRL + PRS) were saved as PRL. Such a year has PRL age-band rows and no PAL
+    row; a correct load never writes a PRL age band."""
+    pal = PopulationFigure.objects.filter(nationality="PAL").order_by()
+    with_pal = set(pal.values_list("year", flat=True))
+    old = PopulationFigure.objects.filter(nationality="PRL").exclude(age_group="").exclude(year__in=with_pal)
+    return set(old.order_by().values_list("year", flat=True).distinct())
+
+
+def reload_bundled(triggered_by: str) -> list[str]:
+    """Reload every bundled year (the admin button). Returns the loader's messages."""
+    from io import StringIO
+
+    out = StringIO()
+    command = Command(stdout=out)
+    command._load_bundled(replace=True, triggered_by=triggered_by)
+    return [line for line in out.getvalue().splitlines() if line.strip()]
 
 
 def _rows(data: dict, year: int) -> list[PopulationFigure]:

@@ -73,3 +73,60 @@ def test_palestinian_age_bands_and_children_are_stored_as_pal_not_prl(db):
     codes = tools.population(2026, "children")["nationality_codes"]
     assert set(children["totals_by_nationality"]) <= set(codes)
     assert "PRL + PRS" in PopulationFigure.Nationality.PAL.label
+
+
+def _load_like_the_old_loader():
+    """What the loader wrote before the PAL fix: the PAL sheet's rows stored under PRL."""
+    call_command("load_population_figures", bundled=True)
+    for row in PopulationFigure.objects.filter(nationality="PAL"):
+        if not PopulationFigure.objects.filter(
+            **{f: getattr(row, f) for f in ("year", "level", "area_code", "category", "age_group", "sex")},
+            nationality="PRL",
+        ).exists():
+            row.nationality = "PRL"
+            row.save(update_fields=["nationality"])
+    PopulationFigure.objects.filter(nationality="PAL").delete()
+
+
+def test_container_start_repairs_years_loaded_by_the_old_loader(db):
+    from neurodb.core.management.commands.load_population_figures import outdated_years
+
+    _load_like_the_old_loader()
+    PopulationFigure.objects.create(
+        year=2026, level="district", area_code="akkar", area_name="Akkar", nationality="SYR",
+        category="vulnerable", vulnerability_level="high", value=10,
+    )  # fmt: skip
+    assert outdated_years() == {2025, 2026}
+
+    call_command("load_population_figures", bundled=True)  # what the container runs at start
+
+    assert outdated_years() == set()
+    assert PopulationFigure.objects.filter(nationality="PAL").exists()
+    assert not PopulationFigure.objects.filter(nationality="PRL").exclude(age_group="").exists()
+    assert PopulationFigure.objects.filter(category="vulnerable").count() == 1  # admin figures stay
+    # and the next start changes nothing
+    runs = SyncRun.objects.count()
+    call_command("load_population_figures", bundled=True)
+    assert SyncRun.objects.count() == runs
+
+
+def test_admin_button_reloads_every_bundled_year(client, admin_user, viewer):
+    from django.urls import reverse
+
+    _load_like_the_old_loader()
+    url = reverse("admin:core_populationfigure_reload_bundled")
+
+    viewer.is_staff = True
+    viewer.save()
+    client.force_login(viewer)
+    client.post(url, {"_form_submitted": "on"})
+    assert not PopulationFigure.objects.filter(nationality="PAL").exists()  # viewers cannot
+
+    admin_user.is_superuser = True
+    admin_user.save()
+    client.force_login(admin_user)
+    assert client.get(url).status_code == 200  # a GET only shows the confirmation
+    response = client.post(url, {"_form_submitted": "on"}, follow=True)
+    assert "Loaded" in response.content.decode()
+    assert PopulationFigure.objects.filter(nationality="PAL").exists()
+    assert SyncRun.objects.filter(job=SyncRun.Job.POPULATION, triggered_by=admin_user.username).count() == 2

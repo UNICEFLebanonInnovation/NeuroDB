@@ -15,8 +15,9 @@ migrates at a time. On App Service this is what migrates the database on each de
 Rollback: `infra/scripts/rollback.sh` with the previous image tag. Migrations are not reversed, so
 every migration must stay compatible with the previous release for one deployment.
 
-One-off step after the release that adds the *PAL* population nationality: run
-`manage load_population_figures --bundled --replace` once (see Yearly rollover, step 5).
+The release that adds the *PAL* population nationality repairs the population figures by itself:
+the first container start reloads the years stored by the older loader (see Yearly rollover, step 5).
+Nothing to run by hand.
 
 ## Configuration
 All settings are environment variables (`.env.example`). In Azure they are set by
@@ -508,12 +509,14 @@ scheduler, start it from the admin after the morning sync or run it as a Contain
 5. Population figures: add the year's UNICEF file as
    `neurodb/core/data/population/Population_figures_YYYY_NeuroDB.json` (the v2 JSON layout) and deploy;
    the container loads any bundled year that is missing when it starts. To load or reload a file by
-   hand: `manage.py load_population_figures <file.json> --year YYYY --replace`.
-   **Once, after deploying the release that stores the Palestinian sheet's age bands, sex and
-   children figures as *PAL* (PRL + PRS together) instead of *PRL*:** the start-up load skips years
-   already in the database, so reload them with `manage.py load_population_figures --bundled --replace`
-   (Container Apps: `manage load_population_figures --bundled --replace`). Until then the population
-   page and the assistant show all Palestinians under "Palestinian refugees in Lebanon".
+   hand: `manage.py load_population_figures <file.json> --year YYYY --replace`. Without server access:
+   admin → Population figures → *Reload population figures* (administrators) reloads every bundled
+   year from its file. A reload replaces the total and children figures of the year; vulnerable
+   population figures entered in the admin are kept. Each load is a *Population figures load* run
+   on Data health.
+   The start-up load also reloads, once, any year stored by the loader before the Palestinian
+   sheet's age bands, sex and children figures became *PAL* (PRL + PRS together) instead of *PRL*
+   (such a year has PRL age bands and no PAL row), so that fix needs no manual step.
 6. Upload the year's HPM PDF tables to the library.
 7. Select the databases → action *Import data from ActivityInfo*; check `/data/health/`.
 

@@ -16,6 +16,10 @@ from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 from .models import PopulationFigure, SavedView, SyncRun
 
 
+class ReloadPopulationForm(BaseDialogForm):
+    """The confirmation step of "Reload population figures" (it makes the action a POST)."""
+
+
 class DatamartSyncForm(BaseDialogForm):
     scope = forms.ChoiceField(
         label=_("What to sync"),
@@ -180,10 +184,48 @@ class SavedViewAdmin(ModelAdmin):
 
 @admin.register(PopulationFigure)
 class PopulationFigureAdmin(ModelAdmin):
+    actions_list = ["reload_bundled"]
     list_display = ("year", "category", "nationality", "level", "area_name", "age_group", "sex", "value")
     list_filter = ("year", "category", "nationality", "level")
     search_fields = ("area_name", "area_code")
     list_per_page = 100
+
+    def has_reload_population_permission(self, request):
+        from neurodb.accounts.roles import ADMIN, role_of
+
+        return request.user.is_superuser or role_of(request.user) == ADMIN
+
+    @action(
+        description=_("Reload population figures"),
+        url_path="reload-population",
+        permissions=["reload_population"],
+        icon="refresh",
+        dialog={
+            "title": _("Reload population figures"),
+            "description": _(
+                "Reloads every year from the files shipped with NeuroDB, replacing their total and "
+                "children figures. Vulnerable population figures entered here are kept. It takes a few "
+                "seconds."
+            ),
+            "form_class": ReloadPopulationForm,
+            "form_submit_text": _("Reload"),
+        },
+    )
+    def reload_bundled(self, request, form):
+        from neurodb.core.management.commands.load_population_figures import reload_bundled
+
+        try:
+            lines = reload_bundled(triggered_by=request.user.get_username())
+        except Exception as exc:  # the run is recorded as failed on Data health; say so here too
+            messages.error(request, _("The reload failed: %(error)s") % {"error": exc})
+        else:
+            messages.success(request, "; ".join(lines) or _("No population file is shipped with NeuroDB."))
+        url = reverse("admin:core_populationfigure_changelist")
+        if request.headers.get("HX-Request"):  # the dialog posts with HTMX: redirect the whole page
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = url
+            return response
+        return redirect(url)
 
 
 @admin.register(LogEntry)

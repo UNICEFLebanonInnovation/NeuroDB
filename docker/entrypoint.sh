@@ -12,8 +12,9 @@ case "$role" in
     if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
       echo "Applying database migrations before start (set RUN_MIGRATIONS=false to skip)"
       python manage.py migrate_locked   # a failure stops the container: no traffic on a half-migrated schema
-      # Reference data shipped with the code (population figures): loads only the years not in the
-      # database yet, so it is a no-op after the first start. A failure is logged, not fatal.
+      # Reference data shipped with the code (population figures): loads the years not in the
+      # database yet and reloads, once, a year an older loader stored wrongly; a no-op otherwise.
+      # A failure is logged, not fatal. Admins can also reload from the admin (Population figures).
       python manage.py load_population_figures --bundled || echo "WARNING: bundled population figures not loaded"
     fi
     exec gunicorn config.wsgi:application --config /app/config/gunicorn.conf.py
