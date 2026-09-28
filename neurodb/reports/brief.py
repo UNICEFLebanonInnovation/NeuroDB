@@ -21,6 +21,7 @@ import statistics
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.core.cache import cache as django_cache
@@ -275,6 +276,7 @@ class _Builder:
         action = self._action()
         data = {
             "headline": headline,
+            "scorecard": self._scorecard(confidence),
             "pace": pace,
             "confidence": confidence,
             "who": self._who(),
@@ -513,6 +515,41 @@ class _Builder:
                 str(owner.get_status_display()) if owner else str(FindingAssignment.Status.RAISED.label)
             ),
             "assign_url": _assign_url(lead, owner),
+        }
+
+    # ------------------------------------------------------------------ 1b scorecard
+    def _scorecard(self, confidence: dict[str, Any]) -> dict[str, Any]:
+        """Each section in five status cells (good / watch / act), worst sections first: pace,
+        indicators on track, spending against results, reporting and confidence. The same figures
+        as the blocks below, read as one picture; each cell says what it compares."""
+        pace = {s["section"]: s for s in self.now["impact"]["by_section"]}
+        delivery = {s["section"]: s for s in self.now["delivery"]["by_section"]}
+        money = {s["section"]: s for s in self.now["money"]["by_section"]}
+        trust = {r["section"]: r for r in confidence["rows"]}
+        rows = []
+        for section in self.sections:
+            cells = [
+                _pace_cell(pace.get(section)),
+                _on_track_cell(delivery.get(section)),
+                _spending_cell(money.get(section)),
+                _reporting_cell(delivery.get(section)),
+                _confidence_cell(trust.get(section)),
+            ]
+            weight = sum({"act": 3, "watch": 1}.get(c["status"], 0) for c in cells)
+            rows.append({"section": section, "cells": cells, "weight": weight, "url": _brief_url(section)})
+        rows.sort(key=lambda r: (-r["weight"], r["section"]))
+        return {
+            "columns": [c["column"] for c in rows[0]["cells"]] if rows else [],
+            "rows": rows,
+            "counts": dict(Counter(c["status"] for r in rows for c in r["cells"])),
+            "source": (
+                "Pace: share of the target reached against the share of the PD period elapsed "
+                "(on pace within 10 points, watch within 20). On track: indicators on track or over "
+                "target among those tracked (good from 70 %, watch from 50 %). Spending: points "
+                "disbursed ahead of achieved (good up to 10, watch up to 25, as the daily review's "
+                "check). Reporting: indicators with a progress report "
+                f"(good from {CONFIDENCE['reported']} %, watch from 50 %). Confidence: the How sure block."
+            ),
         }
 
     # ------------------------------------------------------------------ 2 pace
@@ -1271,6 +1308,83 @@ DICTIONARY = [
 def _signed(value: float) -> str:
     """A delta as the tile pill shows it: whole, halves rounded up, "+" when above zero."""
     return f"{'+' if value > 0 else ''}{half_up(value)}"
+
+
+# --------------------------------------------------------------------------------- scorecard cells
+def _cell(column: str, status: str, value: str, detail: str) -> dict[str, str]:
+    return {"column": column, "status": status, "value": value, "detail": detail}
+
+
+def _band(value: float, good: float, watch: float) -> str:
+    return "good" if value >= good else ("watch" if value >= watch else "act")
+
+
+def _pace_cell(row: dict[str, Any] | None) -> dict[str, str]:
+    if not row or row.get("percent") is None or row.get("elapsed") is None:
+        return _cell("Pace", "none", "—", "No children indicator with a target")
+    gap = row["percent"] - row["elapsed"]
+    return _cell(
+        "Pace",
+        _band(gap, -10, -20),
+        percent(row["percent"], 0),
+        f"{percent(row['percent'], 0)} of the target reached, "
+        f"{percent(row['elapsed'], 0)} of the time elapsed",
+    )
+
+
+def _on_track_cell(row: dict[str, Any] | None) -> dict[str, str]:
+    row = row or {}
+    tracked = row.get("on_track", 0) + row.get("over_target", 0) + row.get("off_track", 0)
+    if not tracked:
+        return _cell("On track", "none", "—", "No indicator tracked yet")
+    share = 100 * ((row["on_track"] + row["over_target"]) / tracked)
+    return _cell(
+        "On track",
+        _band(share, 70, 50),
+        percent(share, 0),
+        f"{row['on_track'] + row['over_target']:,} of {tracked:,} tracked indicators on track or over target",
+    )
+
+
+def _spending_cell(row: dict[str, Any] | None) -> dict[str, str]:
+    if not row or row.get("disbursed_percent") is None or row.get("achieved_percent") is None:
+        return _cell("Spending", "none", "—", "No funds or no achievement to compare")
+    ahead = row["disbursed_percent"] - row["achieved_percent"]
+    status = "good" if ahead <= 10 else ("watch" if ahead <= 25 else "act")
+    return _cell(
+        "Spending",
+        status,
+        percent(row["disbursed_percent"], 0),
+        f"{percent(row['disbursed_percent'], 0)} of reserved funds disbursed, "
+        f"{percent(row['achieved_percent'], 0)} of the target achieved",
+    )
+
+
+def _reporting_cell(row: dict[str, Any] | None) -> dict[str, str]:
+    total = (row or {}).get("total", 0)
+    if not total:
+        return _cell("Reporting", "none", "—", "No indicator")
+    share = 100 * row.get("reported", 0) / total
+    return _cell(
+        "Reporting",
+        _band(share, CONFIDENCE["reported"], 50),
+        percent(share, 0),
+        f"{row.get('reported', 0):,} of {total:,} indicators have a progress report",
+    )
+
+
+def _confidence_cell(row: dict[str, Any] | None) -> dict[str, str]:
+    if not row:
+        return _cell("Confidence", "none", "—", "Not assessed")
+    level = row["level"]
+    status = {"high": "good", "medium": "watch"}.get(level, "act")
+    aside = row.get("set_aside")
+    detail = "See How sure are we?" + (f"; {aside} value(s) left out" if aside else "")
+    return _cell("Confidence", status, level.capitalize(), detail)
+
+
+def _brief_url(section: str) -> str:
+    return reverse("reports:brief") + "?" + urlencode({"section": section})
 
 
 def brief_text(data: dict[str, Any]) -> str:

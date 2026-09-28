@@ -18,7 +18,7 @@
   {% endfor %}
 </div>
 <p class="source-line mt-2">{{ h.source }}</p>
-<div class="grid grid--2">
+<div class="grid grid--2 brief-top">
   <section class="panel brief-decide" aria-labelledby="decide-title">
     {% with dc=h.decide %}
     <div class="panel__header">
@@ -53,13 +53,42 @@
     <p class="source-line">{% if dc.mode == "ai" %}{% blocktrans with m=dc.decided_by %}Written by {{ m }} from the review's open critical and warning findings only; every decision cites its findings, and one with a number not found in them is dropped. Prompts for a decision, not verdicts.{% endblocktrans %}{% else %}{% trans "Critical before warning, then the most children behind target, then new before still open." %}{% endif %}</p>
     {% endwith %}
   </section>
-  <section class="panel" aria-labelledby="text-title">
+  <section class="panel" aria-labelledby="scorecard-title">
+    {% with sc=data.scorecard %}
     <div class="panel__header">
-      <h3 class="panel__title" id="text-title">{% trans "The brief as text" %}</h3>
-      <button type="button" class="btn btn-outline-secondary btn-sm" data-copy-target="#brief-text">{% include "components/icon.html" with name="copy" %}{% trans "Copy" %}</button>
+      <h3 class="panel__title" id="scorecard-title">{% trans "Sections at a glance" %}</h3>
+      <button type="button" class="btn btn-outline-secondary btn-sm" data-copy-target="#brief-text" title="{% trans 'The headline figures and decisions as plain text, for minutes or an e-mail' %}">{% include "components/icon.html" with name="copy" %}{% trans "Copy summary" %}</button>
     </div>
-    <pre class="brief-text" id="brief-text">{{ data.text }}</pre>
-    <p class="source-line">{% trans "Generated from this page's figures and stamped with the runs above; every number here equals the number on screen." %}</p>
+    {% if sc.rows %}
+    <p class="small text-muted mb-2">{% blocktrans count n=sc.counts.act|default:0 %}{{ n }} cell needs action{% plural %}{{ n }} cells need action{% endblocktrans %} · {% blocktrans count n=sc.counts.watch|default:0 %}{{ n }} to watch{% plural %}{{ n }} to watch{% endblocktrans %} · {% trans "weakest sections first; hover a cell for its figures" %}</p>
+    <div class="table-wrap">
+      <table class="table table-sm scorecard" id="brief-scorecard">
+        <thead><tr><th scope="col">{% trans "Section" %}</th>{% for c in sc.columns %}<th scope="col" class="text-center">{{ c }}</th>{% endfor %}</tr></thead>
+        <tbody>
+        {% for r in sc.rows %}
+        <tr>
+          <th scope="row"><a href="{{ r.url }}">{{ r.section }}</a></th>
+          {% for c in r.cells %}
+          <td class="scorecard__cell scorecard__cell--{{ c.status }}" title="{{ c.detail }}" aria-label="{{ c.column }}: {{ c.value }}, {% if c.status == 'good' %}{% trans 'on course' %}{% elif c.status == 'watch' %}{% trans 'watch' %}{% elif c.status == 'act' %}{% trans 'needs action' %}{% else %}{% trans 'no data' %}{% endif %}. {{ c.detail }}">
+            {% if c.status == "good" %}{% include "components/icon.html" with name="check" %}{% elif c.status == "watch" %}{% include "components/icon.html" with name="alert" %}{% elif c.status == "act" %}{% include "components/icon.html" with name="x" %}{% endif %}<span>{{ c.value }}</span>
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="scorecard__legend" aria-hidden="true">
+      <span class="scorecard__cell--good">{% include "components/icon.html" with name="check" %}{% trans "On course" %}</span>
+      <span class="scorecard__cell--watch">{% include "components/icon.html" with name="alert" %}{% trans "Watch" %}</span>
+      <span class="scorecard__cell--act">{% include "components/icon.html" with name="x" %}{% trans "Needs action" %}</span>
+    </div>
+    {% else %}
+    {% include "components/empty_state.html" with icon="grid" title=_("No sections yet") message=_("Sections appear once PD indicators are synced for this year.") %}
+    {% endif %}
+    <p class="source-line">{{ sc.source }}</p>
+    <pre class="visually-hidden" id="brief-text">{{ data.text }}</pre>
+    {% endwith %}
   </section>
 </div>
 </div>

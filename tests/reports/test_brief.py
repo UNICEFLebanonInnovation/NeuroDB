@@ -275,7 +275,8 @@ def test_page_renders_every_block(client_viewer, data, reporting_year):
         "Management brief",
         "Country management brief",
         "Things to decide",
-        "The brief as text",
+        "Sections at a glance",
+        "Copy summary",
         "Are we ahead or behind?",
         "Confidence in the figures",
         "Where the two sources disagree",
@@ -299,7 +300,9 @@ def test_page_renders_every_block(client_viewer, data, reporting_year):
     )
     assert (charts["grants"][0]["label"], charts["grants"][0]["value"]) == ("EU · SC1", 6000.0)
     assert charts["funded"][0]["percent"] == 50.0 and charts["lifecycle"] == []
-    assert "Assign" not in html.split("Things to decide")[1].split("The brief as text")[0]  # viewers cannot
+    assert (
+        "Assign" not in html.split("Things to decide")[1].split("Sections at a glance")[0]
+    )  # viewers cannot
     # The latest finding pill takes the rating's colour, as on the field monitoring page.
     assert '<span class="pill pill--danger pill--sm" data-status="off_track">' in html
 
@@ -523,3 +526,26 @@ def test_the_brief_shows_the_ai_decisions_with_their_findings(data, reporting_ye
     assert "Who: Child Protection section chief, this week." in result["text"]
     # a section the decision's findings are not in does not show it (a country-wide finding would)
     assert build(reporting_year, sections=["Education"])["headline"]["decide"]["items"] == []
+
+
+def test_scorecard_reads_each_section_in_five_status_cells(data, reporting_year):
+    card = build(reporting_year)["scorecard"]
+    assert card["columns"] == ["Pace", "On track", "Spending", "Reporting", "Confidence"]
+    (row,) = card["rows"]
+    assert row["section"] == "Child Protection" and row["url"].endswith("?section=Child+Protection")
+    cells = {c["column"]: c for c in row["cells"]}
+    # 50 % of the target against 49.7 % of the time: on pace
+    assert cells["Pace"]["status"] == "good" and cells["Pace"]["value"] == "50%"
+    assert "of the target reached" in cells["Pace"]["detail"]
+    assert all(c["status"] in ("good", "watch", "act", "none") for c in row["cells"])
+    assert sum(card["counts"].values()) == 5
+
+
+def test_scorecard_bands():
+    assert brief._pace_cell({"percent": 30, "elapsed": 50})["status"] == "watch"  # 20 points behind
+    assert brief._pace_cell({"percent": 20, "elapsed": 50})["status"] == "act"
+    assert brief._spending_cell({"disbursed_percent": 80, "achieved_percent": 50})["status"] == "act"
+    assert brief._spending_cell({"disbursed_percent": 60, "achieved_percent": 50})["status"] == "good"
+    assert brief._on_track_cell({"on_track": 1, "over_target": 0, "off_track": 1})["status"] == "watch"
+    assert brief._reporting_cell({"total": 0})["status"] == "none"
+    assert brief._confidence_cell({"level": "low", "set_aside": 2})["detail"].endswith("2 value(s) left out")

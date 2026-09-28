@@ -623,3 +623,23 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .decide__urgency { font-weight: 600; }
 .decide__urgency--today { color: var(--nd-danger); }
 .decide__urgency--this-week { color: var(--nd-warning); }
+
+/* Management brief: sections at a glance (status cells carry an icon and a value, never colour alone) */
+@media (min-width: 1200px) { .brief-top { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); } }
+.scorecard { border-collapse: separate; border-spacing: 2px; margin: 0; width: 100%; }
+.scorecard > :not(caption) > * > * { padding: 0.35rem 0.4rem; border: 0; }
+.scorecard th[scope="row"] { font-weight: 600; font-size: 0.8rem; padding-right: 0.5rem; line-height: 1.2; }
+.scorecard th[scope="row"] a { color: inherit; text-decoration: none; }
+.scorecard th[scope="row"] a:hover { text-decoration: underline; }
+.scorecard thead th { font-size: 0.68rem; font-weight: 600; color: var(--nd-muted); text-transform: uppercase; letter-spacing: 0.02em; white-space: nowrap; }
+.scorecard__cell { text-align: center; font-size: 0.8rem; font-variant-numeric: tabular-nums; border-radius: 4px; white-space: nowrap; cursor: default; }
+.scorecard__cell .icon, .scorecard__legend .icon { width: 12px; height: 12px; margin-right: 0.2rem; vertical-align: -1px; }
+.scorecard__cell--good { --bs-table-bg: var(--nd-success-soft); }
+.scorecard__cell--watch { --bs-table-bg: var(--nd-warning-soft); }
+.scorecard__cell--act { --bs-table-bg: var(--nd-danger-soft); font-weight: 600; }
+.scorecard__cell--none { color: var(--nd-muted); }
+.scorecard__cell--good .icon, .scorecard__legend .scorecard__cell--good .icon { color: var(--nd-success); }
+.scorecard__cell--watch .icon, .scorecard__legend .scorecard__cell--watch .icon { color: var(--nd-warning); }
+.scorecard__cell--act .icon, .scorecard__legend .scorecard__cell--act .icon { color: var(--nd-danger); }
+.scorecard__legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.75rem; color: var(--nd-muted); margin-top: 0.5rem; }
+.scorecard__legend span { font-weight: 400; }
