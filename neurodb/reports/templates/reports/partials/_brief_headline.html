@@ -27,7 +27,8 @@
     </div>
     {% if dc.other_year %}<p class="small text-muted mb-2">{% trans "From today's review: decisions are about now, whatever year the brief shows." %}</p>{% endif %}
     {% if dc.items %}
-    <ol class="decide-list">
+    <p class="small text-muted mb-1">{% blocktrans count n=dc.items|length %}{{ n }} decision{% plural %}{{ n }} decisions{% endblocktrans %}{% if dc.items|length > 2 %} · {% trans "scroll the list for all of them" %}{% endif %}</p>
+    <ol class="decide-list decide-list--scroll" tabindex="0" aria-label="{% trans 'Things to decide (scrolls)' %}">
       {% for d in dc.items %}
       <li class="decide">
         <span class="attention__sev attention__sev--{{ d.severity }}" aria-hidden="true"></span>
@@ -62,7 +63,7 @@
     {% if sc.rows %}
     <p class="small text-muted mb-2">{% blocktrans count n=sc.counts.act|default:0 %}{{ n }} cell needs action{% plural %}{{ n }} cells need action{% endblocktrans %} · {% blocktrans count n=sc.counts.watch|default:0 %}{{ n }} to watch{% plural %}{{ n }} to watch{% endblocktrans %} · {% trans "weakest sections first; hover a cell for its figures" %}</p>
     <div class="table-wrap">
-      <table class="table table-sm scorecard" id="brief-scorecard">
+      <table class="table table-sm scorecard" id="brief-sections">
         <thead><tr><th scope="col">{% trans "Section" %}</th>{% for c in sc.columns %}<th scope="col" class="text-center">{{ c }}</th>{% endfor %}</tr></thead>
         <tbody>
         {% for r in sc.rows %}

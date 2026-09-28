@@ -643,3 +643,8 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .scorecard__cell--act .icon, .scorecard__legend .scorecard__cell--act .icon { color: var(--nd-danger); }
 .scorecard__legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.75rem; color: var(--nd-muted); margin-top: 0.5rem; }
 .scorecard__legend span { font-weight: 400; }
+/* Things to decide: a fixed height that scrolls, so the box stays level with the scorecard */
+.decide-list--scroll { max-height: 34rem; overflow-y: auto; overscroll-behavior: contain; padding-right: 0.4rem; scrollbar-gutter: stable; }
+.decide-list--scroll:focus-visible { outline: 2px solid var(--nd-primary); outline-offset: 2px; border-radius: 6px; }
+.decide-list--scroll .attention__sev { transform: translateZ(0); } /* Chromium skips painting it in a scroll box */
+@media print { .decide-list--scroll { max-height: none; overflow: visible; } }
