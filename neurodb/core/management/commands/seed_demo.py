@@ -138,7 +138,10 @@ class Command(BaseCommand):
             self._seed(rng, password, months)
         invalidate_navigation()
         self.stdout.write(
-            self.style.SUCCESS("Demo data created. Users: demo-admin, demo-editor, demo-viewer.")
+            self.style.SUCCESS(
+                "Demo data created. Users: demo-admin, demo-editor, demo-viewer, and demo-donor (the donor "
+                "page of USAID only)."
+            )
         )
         if not options["password"]:
             self.stdout.write(f"Generated password for the demo users: {password}")
@@ -210,6 +213,7 @@ class Command(BaseCommand):
                     )
         self._partnerships(rng)
         seed_etools(rng, dt.date.today())
+        self._donor(password)
         self._library()
         self._population(rng)
         self._sync_runs()
@@ -238,6 +242,22 @@ class Command(BaseCommand):
             "demo-viewer", "demo-viewer@example.org", password, first_name="Demo", last_name="Viewer"
         )
         viewer.groups.add(Group.objects.get(name=VIEWER))
+
+    def _donor(self, password: str) -> None:
+        """A donor sign-in confined to the donor page, for USAID's funds."""
+        from neurodb.donors.models import DonorAccount
+
+        user = User.objects.create_user(
+            "demo-donor", "demo-donor@example.org", password, first_name="USAID", last_name="Demo"
+        )
+        DonorAccount.objects.create(
+            user=user,
+            name="USAID",
+            donors=["USAID"],
+            contact="partnerships.demo@example.org",
+            must_change_password=False,
+            created_by="seed_demo",
+        )
 
     def _indicator(
         self, rng, db, activity, s_code, m_index, label, method, target, months

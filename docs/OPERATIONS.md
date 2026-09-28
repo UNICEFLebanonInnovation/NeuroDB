@@ -569,6 +569,47 @@ read today's data, so use it to re-run today's or yesterday's review, never to r
 the review and the run is *partial*, the other checks still report. The scheduled job
 `daily-review` (admin → Scheduled jobs) runs it every morning.
 
+## Donor access (`/donor/`)
+
+A donor can be given a sign-in that sees **one page and nothing else**: no menu, no other page, no
+internal API, no assistant. The page has two tabs.
+
+- **Your contribution**: the donor's funds and what they paid for, filtered in the browser by grant,
+  programme area and governorate: committed and disbursed (tiles, by area, by grant with its end
+  date), a grant → area → partner flow, a schematic governorate map, children reached against
+  targets, girls and boys, cost per child against the country average of the same area, and one row
+  per programme document.
+- **UNICEF Lebanon overall**: the whole country for the year as aggregates only: children reached
+  (by month, programme area, governorate), results on track, programme and partner counts, field
+  visits. No programme, partner or donor is named and no amount of money is shown.
+
+**How the donor's figures are counted.** The donor's money is the funds reservation lines that name
+one of the account's donors (and grants, when the account lists some) on FRs running in the year.
+Disbursed is the FR's disbursed amount times the donor's share of that FR's lines. A programme's
+children (the overview's children rule) are attributed in proportion to the donor's share of the
+programme's funds. The page explains this to the donor under "How to read these figures".
+
+**Creating an account** (admin → Users and access → Donor accounts → Add): the donor's email (it
+must not belong to a staff user), the page title, the donor names as eTools writes them on funds
+reservations (chosen from a list; type a name in "Other donor names" for a donor with no funds synced
+yet), optionally only some grant numbers, whether partner names show ("Partner 1 (civil society)"
+otherwise), the UNICEF contact shown on the page, and an optional end date. Saving creates the
+sign-in with a **temporary password shown once**; send it to the donor separately from the sign-in
+address. At first sign-in the donor must choose their own password.
+
+**Rules enforced for every donor request** (`neurodb/donors/middleware.py`):
+- signing in lands on `/donor/`, whatever `next` says; any other page, the admin and unknown
+  addresses redirect there; the internal API, the assistant and HTMX calls get 403;
+- until the temporary password is changed, every page leads to the password change page;
+- a switched-off account or one past its end date is signed out at its next request;
+- the page never reads a donor or grant from the address: only the year can be chosen.
+
+**Staff**: "Open the donor's page" in the account list previews exactly what the donor sees
+(administrators only; the page does not exist for other staff). "New temporary password" on the
+account (or the list action) replaces the password and asks for a new one at the next sign-in;
+"Switch off the selected accounts" stops a sign-in at once. Deleting an account deletes its sign-in.
+`seed_demo` creates `demo-donor`, a USAID account, on local databases.
+
 ## Yearly rollover (January)
 1. Admin → Reporting years: create the new year and tick *current* (only one can be current).
 2. Admin → Databases: create one row per ActivityInfo folder with `ai_id`, `db_id`, `parent_id`,

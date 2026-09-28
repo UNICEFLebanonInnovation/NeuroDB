@@ -77,6 +77,7 @@ def seed_etools(rng: random.Random, today: dt.date) -> None:
         places = rng.sample(gazetteer["cadasters"], rng.randint(2, 4))
         _indicators_and_reports(rng, pca, section, places, counters, today, year)
         _funds(rng, pca, counters)
+    _grants(rng, today)
     _tpm(rng, pcas, gazetteer, today, year)
     _action_points(rng, pcas, gazetteer, today, year)
     _findings(rng, pcas, gazetteer, today, year)
@@ -271,6 +272,25 @@ def _funds(rng, pca, counters) -> None:
             outstanding_amt=total - actual,
             start_date=pca.start,
             end_date=pca.end,
+        )
+
+
+def _grants(rng, today) -> None:
+    """One Datamart grant per grant number on the FR lines, with an end date (the donor page)."""
+    pairs = (
+        dm.FundsReservation.objects.values_list("grant_number", "donor").distinct().order_by("grant_number")
+    )
+    for n, (grant, donor) in enumerate(pairs, start=1):
+        dm.Grant.objects.get_or_create(
+            name=grant,
+            defaults={
+                "datamart_id": n,
+                "donor": donor,
+                "expiry": today + dt.timedelta(days=rng.choice([60, 95, 200, 280, 420, 640])),
+                "description": rng.choice(
+                    ["Education and protection", "Water and health", "Emergency top-up"]
+                ),
+            },
         )
 
 

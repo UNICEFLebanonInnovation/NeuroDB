@@ -61,9 +61,10 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
     ),
     (
         _("Users and access"),
-        _("Accounts, roles, sections and sign-in."),
+        _("Accounts, roles, sections, donor access and sign-in."),
         [
             "users.User",
+            "donors.DonorAccount",
             "auth.Group",
             "users.Section",
             "users.Office",

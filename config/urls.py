@@ -12,6 +12,7 @@ urlpatterns = [
     path("welcome/", landing, name="landing"),
     path("api/internal/", include("neurodb.reports.api_urls")),
     path("ask/", include("neurodb.assistant.urls")),
+    path("donor/", include("neurodb.donors.urls")),
     path("", include("neurodb.reports.urls")),
 ]
 

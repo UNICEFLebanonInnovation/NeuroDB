@@ -64,6 +64,10 @@ def navigation(request):
     the page shows, so choosing 2025 in the year menu lists the 2025 databases and reports."""
     if not getattr(request, "user", None) or not request.user.is_authenticated:
         return {}
+    from neurodb.donors.middleware import donor_account
+
+    if donor_account(request) is not None:  # a donor sees no menu (an error page included)
+        return {"is_donor": True}
     from neurodb.indicators.services.navigation import build_navigation
 
     active = _active_item(request)

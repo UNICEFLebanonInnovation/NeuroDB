@@ -1,0 +1,216 @@
+{% load i18n static humanize %}<!DOCTYPE html>
+<html lang="{{ LANGUAGE_CODE|default:'en' }}" data-bs-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{{ account.name }} · {% blocktrans %}Results {{ year }}{% endblocktrans %} · {{ SITE_NAME }}</title>
+  {% include "components/favicons.html" %}
+  <link rel="stylesheet" href="{% static 'css/donor.css' %}">
+  <script nonce="{{ request.csp_nonce }}">
+    (function () {
+      try {
+        var t = localStorage.getItem("neurodb-theme") || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.setAttribute("data-bs-theme", t);
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+<a class="skip-link" href="#main">{% trans "Skip to main content" %}</a>
+{% if preview %}
+<div class="preview" role="note">
+  {% blocktrans with name=account.name %}Preview: this is the page <b>{{ name }}</b> sees. Donor accounts see this page only.{% endblocktrans %}
+  <a href="{% url 'admin:donors_donoraccount_change' account.pk %}">{% trans "Back to the account" %}</a>
+</div>
+{% endif %}
+<div class="bar">
+  <div class="wrap bar__inner">
+    <span class="brand">{% include "components/logo.html" with height=28 compact=True %}</span>
+    <span class="bar__spacer"></span>
+    <form method="get" class="yearform">
+      {% if preview %}<input type="hidden" name="account" value="{{ account.pk }}">{% endif %}
+      <label for="year">{% trans "Year" %}</label>
+      <select id="year" name="year" data-autosubmit>
+        {% for y in years %}<option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+      </select>
+      <noscript><button type="submit">{% trans "Show" %}</button></noscript>
+    </form>
+    <button class="iconbtn" type="button" id="theme" aria-pressed="false" aria-label="{% trans 'Dark mode' %}" title="{% trans 'Dark mode' %}">◐</button>
+    {% if not preview %}
+    <details class="menu">
+      <summary aria-label="{% trans 'Account' %}"><span class="avatar" aria-hidden="true">{{ user.get_username|first|upper }}</span></summary>
+      <div class="menu__panel">
+        <div class="menu__who">{{ user.email|default:user.get_username }}</div>
+        <a href="{% url 'account_change_password' %}">{% trans "Change password" %}</a>
+        <form method="post" action="{% url 'account_logout' %}">{% csrf_token %}<button type="submit">{% trans "Sign out" %}</button></form>
+      </div>
+    </details>
+    {% endif %}
+  </div>
+</div>
+
+<main id="main" class="wrap" tabindex="-1">
+  {% if messages %}
+  <div class="messages" role="status">{% for message in messages %}<p class="msg msg--{{ message.tags|default:'info' }}">{{ message }}</p>{% endfor %}</div>
+  {% endif %}
+  <header class="top">
+    <div>
+      <div class="eyebrow">{% trans "Donor results · UNICEF Lebanon country programme" %}</div>
+      <h1 class="donor">{{ account.name }}</h1>
+      <p class="sub">{% blocktrans %}Where your {{ year }} contribution goes, what it achieves for children, and what each result costs. The figures update every night.{% endblocktrans %}</p>
+    </div>
+    <div class="asof">{% trans "Data as of" %} <strong>{% if as_of %}{{ as_of|date:"j M Y" }}{% else %}{% trans "not yet synced" %}{% endif %}</strong><br>{% trans "Source: eTools funds reservations and partner progress reports" %}</div>
+  </header>
+
+  <div class="tabs" role="tablist" aria-label="{% trans 'Views' %}">
+    <a role="tab" id="tab-mine" href="?year={{ year }}{% if preview %}&account={{ account.pk }}{% endif %}" aria-controls="panel-mine" aria-selected="{% if tab == 'mine' %}true{% else %}false{% endif %}" data-tab="mine">{% trans "Your contribution" %}</a>
+    <a role="tab" id="tab-overall" href="?year={{ year }}&tab=overall{% if preview %}&account={{ account.pk }}{% endif %}" aria-controls="panel-overall" aria-selected="{% if tab == 'overall' %}true{% else %}false{% endif %}" data-tab="overall">{% trans "UNICEF Lebanon overall" %}</a>
+  </div>
+
+  <!-- ============================================================== your contribution -->
+  <div id="panel-mine" role="tabpanel" aria-labelledby="tab-mine" {% if tab != 'mine' %}hidden{% endif %}>
+    {% if not data.pds %}
+    <div class="card empty">
+      <h2>{% blocktrans %}No funding found for {{ year }}{% endblocktrans %}</h2>
+      <p>{% trans "No funds reservation running this year names your grants yet. Choose another year above, or contact your UNICEF focal point." %}</p>
+    </div>
+    {% else %}
+    <div class="filters" role="group" aria-label="{% trans 'Filters' %}">
+      <div class="fgroup"><label for="fGrant">{% trans "Grant" %}</label><select id="fGrant"></select></div>
+      <div class="fgroup" id="fSections" role="group" aria-label="{% trans 'Programme area' %}"></div>
+      <div class="fgroup" id="fGov"></div>
+      <span class="scope" id="scope" aria-live="polite"></span>
+    </div>
+
+    <div class="tiles" id="tiles"></div>
+
+    <section class="q" aria-labelledby="q1">
+      <div class="qhead"><h2 id="q1">{% trans "Where your money goes" %}</h2><p>{% trans "From your grants, to programme areas, to the partners who deliver." %}</p></div>
+      <div class="grid2">
+        <div class="card">
+          <div class="cardhead"><div><h3>{% trans "Grant → programme area → partner" %}</h3><p class="note">{% trans "Band width is the amount committed from your grants. Hover a band for the amount." %}</p></div><button class="tablebtn" type="button" data-table="flow">{% trans "Table" %}</button></div>
+          <div id="flow"></div>
+        </div>
+        <div class="card">
+          <div class="cardhead">
+            <div><h3>{% trans "By governorate" %}</h3><p class="note">{% trans "Click a governorate to filter the whole page. Schematic layout, not to scale. Funds follow where the programme's children were reached." %}</p></div>
+            <div class="seg" role="group" aria-label="{% trans 'Map shows' %}">
+              <button type="button" data-metric="money" aria-pressed="true">{% trans "Funds" %}</button>
+              <button type="button" data-metric="children" aria-pressed="false">{% trans "Children" %}</button>
+              <button type="button" data-metric="cost" aria-pressed="false">{% trans "Cost/child" %}</button>
+            </div>
+          </div>
+          <div id="map"></div>
+          <div class="legend" id="mapLegend"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="q" aria-labelledby="q2">
+      <div class="qhead"><h2 id="q2">{% trans "How it is being spent" %}</h2><p>{% trans "Disbursements to partners, and what is left on each grant before it expires." %}</p></div>
+      <div class="grid2">
+        <div class="card">
+          <div class="cardhead"><div><h3>{% trans "Committed and disbursed, by programme area" %}</h3><p class="note">{% trans "Light bar: committed from your grants. Dark bar: paid to partners so far." %}</p></div><button class="tablebtn" type="button" data-table="spend">{% trans "Table" %}</button></div>
+          <div id="spend"></div>
+        </div>
+        <div class="card">
+          <div class="cardhead"><div><h3>{% trans "Your grants" %}</h3><p class="note">{% trans "Share disbursed, and time left before each grant expires." %}</p></div></div>
+          <div id="grants"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="q" aria-labelledby="q3">
+      <div class="qhead"><h2 id="q3">{% trans "Who benefits" %}</h2><p>{% trans "Children reached with your funding, as partners report them." %}</p></div>
+      <div class="grid3">
+        <div class="card">
+          <div class="cardhead"><div><h3>{% trans "Progress to target" %}</h3><p class="note">{% trans "Children reached against the target of the programmes you fund. The tick is where they should be by now." %}</p></div></div>
+          <div id="progress"></div>
+        </div>
+        <div class="card">
+          <div class="cardhead"><div><h3>{% trans "Girls and boys" %}</h3><p class="note">{% trans "As the partners' indicators name them." %}</p></div></div>
+          <div id="sex"></div>
+          <div id="ageBlock"><div class="cardhead mt"><div><h3>{% trans "Age" %}</h3></div></div><div id="age"></div></div>
+        </div>
+        <div class="card">
+          <div class="cardhead"><div><h3>{% trans "By governorate" %}</h3><p class="note">{% trans "Children reached, attributed to your funding." %}</p></div><button class="tablebtn" type="button" data-table="govbars">{% trans "Table" %}</button></div>
+          <div id="govbars"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="q" aria-labelledby="q4">
+      <div class="qhead"><h2 id="q4">{% trans "Value for money" %}</h2><p>{% trans "What a result costs with your funding, set against the country average for the same work." %}</p></div>
+      <div class="grid2">
+        <div class="card">
+          <div class="cardhead"><div><h3>{% trans "Cost per child reached, by programme area" %}</h3><p class="note">{% trans "Filled dot: your funding. Ring: the country average across all donors. Lower is better when the service is the same." %}</p></div><button class="tablebtn" type="button" data-table="vfm">{% trans "Table" %}</button></div>
+          <div id="vfm"></div>
+        </div>
+        <div class="card">
+          <div class="cardhead"><div><h3>{% trans "Spending against results" %}</h3><p class="note">{% trans "For each area: share of your committed funds disbursed (square) and share of the target achieved (dot). Spending far ahead of results is worth a question." %}</p></div></div>
+          <div id="dumbbell"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="q" aria-labelledby="q5">
+      <div class="qhead"><h2 id="q5">{% trans "The programmes you fund" %}</h2><p>{% trans "One row per programme document. Click a column to sort." %}</p></div>
+      <div class="card scroll"><table class="prog" id="prog"></table></div>
+    </section>
+
+    <section class="q" aria-labelledby="q6">
+      <div class="qhead"><h2 id="q6">{% trans "How to read these figures" %}</h2></div>
+      <div class="method">
+        <div class="card"><h3>{% trans "Children attributed to you" %}</h3><p>{% trans "Most programmes are funded by several donors. A programme's children are shared between its donors in proportion to each donor's share of the programme's funds. \"Children reached with your funding\" is that share: attributed, not financed by you alone." %}</p></div>
+        <div class="card"><h3>{% trans "Cost per child" %}</h3><p>{% trans "Your funds disbursed to partners divided by the children attributed to you. It includes supplies and running costs. Compare each programme area with the country average, not areas with each other: a water network and a school place do not cost the same." %}</p></div>
+        <div class="card"><h3>{% trans "What is counted" %}</h3><p>{% trans "Only progress reports accepted by UNICEF count. Partners report quarterly, so the latest quarter can be incomplete. Figures stop at the governorate: no names, no individual records." %}</p></div>
+      </div>
+    </section>
+    {% endif %}
+  </div>
+
+  <!-- ============================================================== overall -->
+  <div id="panel-overall" role="tabpanel" aria-labelledby="tab-overall" {% if tab != 'overall' %}hidden{% endif %}>
+    <p class="lede">{% blocktrans %}What UNICEF Lebanon and its partners achieved for children in {{ year }}, across every programme and every donor. Country totals only.{% endblocktrans %}</p>
+    <div class="tiles" id="oTiles"></div>
+    <section class="q" aria-labelledby="o1">
+      <div class="qhead"><h2 id="o1">{% trans "Children reached" %}</h2><p>{% trans "Every month, and in each programme area against its targets." %}</p></div>
+      <div class="grid2">
+        <div class="card">
+          <div class="cardhead"><div><h3>{% trans "Children reached each month" %}</h3><p class="note">{% trans "As reported by partners; the latest month can be incomplete." %}</p></div><button class="tablebtn" type="button" data-table="oMonths">{% trans "Table" %}</button></div>
+          <div id="oMonths"></div>
+        </div>
+        <div class="card">
+          <div class="cardhead"><div><h3>{% trans "Progress by programme area" %}</h3><p class="note">{% trans "Share of the year's target reached. The tick is the share of the year elapsed." %}</p></div></div>
+          <div id="oSections"></div>
+        </div>
+      </div>
+    </section>
+    <section class="q" aria-labelledby="o2">
+      <div class="qhead"><h2 id="o2">{% trans "Across Lebanon" %}</h2><p>{% trans "Where children were reached, and how results are tracking." %}</p></div>
+      <div class="grid2">
+        <div class="card">
+          <div class="cardhead"><div><h3>{% trans "Children reached by governorate" %}</h3><p class="note">{% trans "Darker: more children reached. The share is of the governorate's child population, where known. Schematic layout, not to scale." %}</p></div><button class="tablebtn" type="button" data-table="oMap">{% trans "Table" %}</button></div>
+          <div id="oMap"></div>
+        </div>
+        <div class="card">
+          <div class="cardhead"><div><h3>{% trans "How results are tracking" %}</h3><p class="note">{% trans "Every result partners report on, against where it should be by now." %}</p></div></div>
+          <div id="oStatus"></div>
+          <div id="oWho"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <span>{% if account.contact %}{% blocktrans with contact=account.contact %}Questions about these figures: your UNICEF focal point, {{ contact }}{% endblocktrans %}{% else %}{% trans "Questions about these figures: your UNICEF partnerships focal point." %}{% endif %}</span>
+    <span>{{ SITE_NAME }} · UNICEF Lebanon</span>
+  </footer>
+</main>
+<div id="tip" hidden></div>
+{{ data|json_script:"donor-data" }}
+<script type="module" src="{% static 'js/donor.js' %}" nonce="{{ request.csp_nonce }}"></script>
+</body>
+</html>

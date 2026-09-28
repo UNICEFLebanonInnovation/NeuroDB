@@ -1242,4 +1242,78 @@ def _partner(pd: Any) -> str:
     return (pd.partner.name if pd.partner_id and pd.partner else pd.partner_name) or "unknown partner"
 
 
-__all__ = ["Scope", "build", "children_masters", "governorate_key", "options", "section_matches"]
+__all__ = [
+    "Scope",
+    "build",
+    "children_by_pd",
+    "children_masters",
+    "governorate_key",
+    "options",
+    "section_matches",
+]
+
+
+# ------------------------------------------------------------------ per programme document
+def children_by_pd(scope: Scope) -> dict[int, dict[str, Any]]:
+    """Each programme document of the year with its children and results, for pages that attribute
+    them (the donor page): children reached (the overview's children rule and its set-aside guard),
+    where (by governorate, additive indicators only), girls and boys as the titles name them, the
+    age tags, the main indicator (largest target), its section and the status of its indicators."""
+    b = _Builder(scope)
+    rows = b._rows()
+    kids, _aside = b._plausible([r for r in rows if b._is_children(r)], b._national_children())
+    out: dict[int, dict[str, Any]] = {}
+
+    def entry(row: Indicator) -> dict[str, Any]:
+        return out.setdefault(
+            row.pd.id,
+            {
+                "sections": Counter(),
+                "children": 0.0,
+                "achieved": 0.0,
+                "target": 0.0,
+                "by_governorate": defaultdict(float),
+                "names": {},
+                "sex": Counter(),
+                "age": Counter(),
+                "statuses": Counter(),
+                "main": None,
+                "elapsed": percentage_elapsed(row.pd.start, row.pd.end, scope.today),
+            },
+        )
+
+    for row in rows:
+        e = entry(row)
+        e["sections"][row.section or "Other"] += 1
+        e["statuses"][row.tracking] += 1
+    for row in kids:
+        e = entry(row)
+        value = b._year_value(row)
+        e["children"] += value
+        if row.target:
+            e["achieved"] += row.cumulative or 0
+            e["target"] += row.target
+            if e["main"] is None or row.target > e["main"]["target"]:
+                e["main"] = {
+                    "title": row.title,
+                    "cumulative": half_up(row.cumulative or 0),
+                    "target": half_up(row.target),
+                    "tracking": row.tracking,
+                }
+        title = (row.title or "").lower()
+        sex = next(
+            (label for label, yes, no in SEX_RULES if re.search(yes, title) and not re.search(no, title)), ""
+        )
+        e["sex"][sex or "Not named"] += value
+        e["age"][row.tags.get("age_group") or "Not named"] += value
+        if b._additive(row):
+            for place in row.by_location.values():
+                gov = b.governorate_of.get(place.get("id")) or ""
+                key = governorate_key(gov)
+                if place.get("achieved") and key:
+                    e["by_governorate"][key] += place["achieved"]
+                    e["names"].setdefault(key, gov)
+    for e in out.values():
+        e["section"] = e.pop("sections").most_common(1)[0][0]
+        e["by_governorate"] = dict(e["by_governorate"])
+    return out

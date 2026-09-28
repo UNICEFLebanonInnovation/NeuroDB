@@ -33,7 +33,7 @@
   <a class="brand" href="{% url 'reports:overview' %}">
     {% include "components/logo.html" with height=30 compact=True %}
   </a>
-  {% if user.is_authenticated %}
+  {% if user.is_authenticated and not is_donor %}
   <button type="button" class="search-trigger" id="search-trigger" aria-haspopup="dialog" aria-controls="search-modal">
     {% include "components/icon.html" with name="search" %}
     <span class="search-trigger__label">{% if AI_ASSISTANT_ENABLED %}{% trans "Search or ask a question" %}{% else %}{% trans "Search indicators, databases, reports" %}{% endif %}</span>
@@ -69,10 +69,11 @@
     </button>
     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="user-menu">
       <li><span class="dropdown-item-text small text-muted">{{ user.email }}</span></li>
-      <li><span class="dropdown-item-text"><span class="badge text-bg-secondary">{{ user_role }}</span>{% if user.section %} <span class="small text-muted">{{ user.section.name }}</span>{% endif %}</span></li>
+      {% if not is_donor %}<li><span class="dropdown-item-text"><span class="badge text-bg-secondary">{{ user_role }}</span>{% if user.section %} <span class="small text-muted">{{ user.section.name }}</span>{% endif %}</span></li>{% endif %}
       <li><hr class="dropdown-divider"></li>
+      {% if is_donor %}<li><a class="dropdown-item" href="{% url 'donors:page' %}">{% trans "Your dashboard" %}</a></li>{% else %}
       {% if user.is_staff %}<li><a class="dropdown-item" href="{% url 'admin:index' %}">{% trans "Administration" %}</a></li>{% endif %}
-      <li><a class="dropdown-item" href="{% url 'reports:data_health' %}">{% trans "Data health" %}</a></li>
+      <li><a class="dropdown-item" href="{% url 'reports:data_health' %}">{% trans "Data health" %}</a></li>{% endif %}
       <li><hr class="dropdown-divider"></li>
       <li>
         <form method="post" action="{% url 'account_logout' %}">{% csrf_token %}
@@ -99,6 +100,8 @@
       {% if "reports:maps" in PUBLIC_PAGES %}<a class="nav-item-link {% active_if 'reports:maps' %}" href="{% url 'reports:maps' %}">{% include "components/icon.html" with name="map" %}<span>{% trans "Maps" %}</span></a>{% endif %}
       <div class="sidebar__section-title">{% trans "Staff" %}</div>
       <a class="nav-item-link" href="{% url 'account_login' %}">{% include "components/icon.html" with name="lock" %}<span>{% trans "Sign in for dashboards" %}</span></a>
+      {% elif is_donor %}
+      <a class="nav-item-link" href="{% url 'donors:page' %}">{% include "components/icon.html" with name="home" %}<span>{% trans "Your dashboard" %}</span></a>
       {% else %}
       <a class="nav-item-link {% active_if 'reports:overview' %}" href="{% url 'reports:overview' %}" {% aria_current 'reports:overview' %}>
         {% include "components/icon.html" with name="home" %}<span>{% trans "Overview" %}</span>

@@ -63,6 +63,7 @@ INSTALLED_APPS = [
     "neurodb.reports",
     "neurodb.assistant",
     "neurodb.review",
+    "neurodb.donors",
     "neurodb.web",
 ]
 SITE_ID = 1
@@ -79,6 +80,7 @@ MIDDLEWARE = [
     "neurodb.web.middleware.PublicPagesLoginRequiredMiddleware",  # login required except PUBLIC_PAGES
     "allauth.account.middleware.AccountMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    "neurodb.donors.middleware.DonorScopeMiddleware",  # a donor account sees its page and nothing else
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
     "neurodb.web.middleware.ContentSecurityPolicyMiddleware",

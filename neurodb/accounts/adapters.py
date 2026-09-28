@@ -5,6 +5,7 @@ from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.contrib import messages
 from django.shortcuts import redirect
+from django.urls import reverse
 
 from .models import User
 
@@ -12,6 +13,21 @@ from .models import User
 class AccountAdapter(DefaultAccountAdapter):
     def is_open_for_signup(self, request):
         return False
+
+    def get_login_redirect_url(self, request):
+        """A donor account lands on its page (whatever ``next`` says); everyone else as usual."""
+        from neurodb.donors.models import DonorAccount
+
+        if DonorAccount.objects.filter(user=request.user).exists():
+            return reverse("donors:page")
+        return super().get_login_redirect_url(request)
+
+    def get_password_change_redirect_url(self, request):
+        from neurodb.donors.models import DonorAccount
+
+        if DonorAccount.objects.filter(user=request.user).exists():
+            return reverse("donors:page")
+        return super().get_password_change_redirect_url(request)
 
 
 class SocialAccountAdapter(DefaultSocialAccountAdapter):
