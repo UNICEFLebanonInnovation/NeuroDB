@@ -15,7 +15,6 @@ from neurodb.facts.models import ActivityReportNew
 from .models import PCA, Engagement, PartnerLink, PartnerOrganization, TravelActivity
 
 ACTIVE_STATUSES = ("active",)
-CLOSED_STATUSES = ("active", "closed", "ended", "terminated", "suspended")
 EXCLUDED_STATUSES = ("draft",)
 
 
@@ -99,11 +98,13 @@ def programme_documents(filters: PDFilters | None = None, *, scope: str = "all")
         qs = qs.filter(status__in=ACTIVE_STATUSES)
     if filters:
         qs = filters.apply(qs)
-    return qs.order_by("-start", "number")
+    # id breaks ties so that pages neither repeat nor skip a row
+    return qs.order_by("-start", "number", "id")
 
 
 def pd_filter_options() -> dict[str, list[str]]:
-    base = PCA.objects.exclude(status__in=EXCLUDED_STATUSES)
+    # no ordering: SELECT DISTINCT would otherwise also select the Meta.ordering column and repeat values
+    base = PCA.objects.exclude(status__in=EXCLUDED_STATUSES).order_by()
     sections, offices, donors, grants = set(), set(), set(), set()
     for row in base.values_list("section_names", "offices_set", "donors", "grants"):
         sections.update(row[0] or [])
@@ -115,7 +116,9 @@ def pd_filter_options() -> dict[str, list[str]]:
             base.exclude(partner_name__isnull=True).values_list("partner_name", flat=True).distinct()
         ),
         "cso_types": sorted(
-            x for x in PartnerOrganization.objects.values_list("cso_type", flat=True).distinct() if x
+            x
+            for x in PartnerOrganization.objects.order_by().values_list("cso_type", flat=True).distinct()
+            if x
         ),
         "sections": sorted(sections),
         "offices": sorted(offices),
@@ -149,7 +152,10 @@ def _donor_rows(donors_set: Any) -> list[dict[str, Any]]:
             {
                 "donor": str(d.get("donor") or d.get("donor_name") or d.get("name") or "Unknown"),
                 "grant": str(d.get("grant") or d.get("grant_number") or ""),
-                "value": _to_float(d.get("value")),
+                # a raw eTools FR line item (older REST syncs) carries overall_amount, not value
+                "value": _to_float(
+                    d.get("value") if d.get("value") not in (None, "") else d.get("overall_amount")
+                ),
             }
         )
     return rows
@@ -157,22 +163,26 @@ def _donor_rows(donors_set: Any) -> list[dict[str, Any]]:
 
 def pd_detail(pd: PCA) -> dict[str, Any]:
     donors = _donor_rows(pd.donors_set)
+    prefix = (pd.number or "").split("-")[0]
     return {
         "pd": pd,
         "donations": sum(d["value"] for d in donors),
         "donors": donors,
-        "interventions": ActivityReportNew.objects.filter(
-            project_label=(pd.number or "").split("-")[0]
-        ).count(),
+        # a PD without a number has no ActivityInfo records (a blank label matches unrelated ones)
+        "interventions": ActivityReportNew.objects.filter(project_label=prefix).count() if prefix else 0,
         "sections": pd.section_names or [],
         "offices": pd.offices_set or [],
     }
 
 
 def pd_summary(scope: str = "active") -> dict[str, Any]:
-    """Counts by partner and by section and PDs ending within 90 days (v2 PCA summary pages)."""
-    statuses = ACTIVE_STATUSES if scope == "active" else CLOSED_STATUSES
-    qs = PCA.objects.filter(status__in=statuses)
+    """Counts by partner and by section and PDs ending within 90 days (v2 PCA summary pages).
+
+    The same PDs as :func:`programme_documents` for the scope: every non-draft PD, or the active ones.
+    """
+    qs = PCA.objects.exclude(status__in=EXCLUDED_STATUSES)
+    if scope == "active":
+        qs = qs.filter(status__in=ACTIVE_STATUSES)
     by_partner = Counter()
     by_section = Counter()
     by_type = Counter()
@@ -281,17 +291,20 @@ def partners(params) -> QuerySet[PartnerOrganization]:
         .values("total")
     )
     return qs.annotate(
-        pd_count=Count("interventions", distinct=True, filter=Q(interventions__status__in=CLOSED_STATUSES)),
+        # every non-draft PD, the same set as the partner profile's 'All documents'
+        pd_count=Count(
+            "interventions", distinct=True, filter=~Q(interventions__status__in=EXCLUDED_STATUSES)
+        ),
         active_pd_count=Count(
             "interventions", distinct=True, filter=Q(interventions__status__in=ACTIVE_STATUSES)
         ),
         activityinfo_records=Subquery(activityinfo, output_field=IntegerField()),
         etools_reporting=Exists(ReportedIndicator.objects.filter(partner=OuterRef("pk"))),
-    ).order_by("name")
+    ).order_by("name", "id")
 
 
 def partner_filter_options() -> dict[str, list[str]]:
-    base = PartnerOrganization.objects.filter(deleted_flag=False, hidden=False)
+    base = PartnerOrganization.objects.filter(deleted_flag=False, hidden=False).order_by()
     return {
         "partner_types": sorted(x for x in base.values_list("partner_type", flat=True).distinct() if x),
         "cso_types": sorted(x for x in base.values_list("cso_type", flat=True).distinct() if x),
@@ -306,17 +319,14 @@ def partner_profile(partner: PartnerOrganization) -> dict[str, Any]:
     visits_by_year: dict[int, int] = defaultdict(int)
     for d in visits.values_list("date", flat=True):
         visits_by_year[d.year] += 1
-    numbers = [p.number.split("-")[0] for p in pds if p.number]
     return {
         "partner": partner,
         "programme_documents": list(pds),
         "active_count": sum(1 for p in pds if p.status in ACTIVE_STATUSES),
         "engagements": list(engagements[:50]),
+        "engagements_total": engagements.count(),
         "engagement_counts": dict(eng_counts),
         "visits_by_year": sorted(visits_by_year.items()),
-        "interventions": ActivityReportNew.objects.filter(project_label__in=numbers).count()
-        if numbers
-        else 0,
         "hact": partner.hact_values or {},
         "risk_rating": partner.rating,
     }

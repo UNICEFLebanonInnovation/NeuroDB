@@ -113,13 +113,11 @@ function init(root) {
     root.classList.toggle("is-busy", busy);
   }
 
-  if (root.dataset.initialQuestion) {
-    input.value = root.dataset.initialQuestion;
-    autosize();
-    form.requestSubmit();
-  } else {
-    input.focus();
-  }
+  // A question from /ask/?q= (the search box's link) is only filled in: the user presses Ask, so a
+  // crawler following the link or a page reload never sends it.
+  autosize();
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
 }
 
 async function readEvents(stream, handle) {

@@ -11,6 +11,7 @@ from neurodb.integrations.etools import locations, sync
 from neurodb.integrations.etools.client import EToolsClient
 from neurodb.integrations.http import make_session
 from neurodb.partnerships.models import PCA, Agreement, PartnerOrganization, Travel, TravelActivity
+from neurodb.partnerships.services import pd_detail
 
 pytestmark = pytest.mark.django_db
 
@@ -123,15 +124,36 @@ def test_sync_intervention_details_accumulates_all_frs():
         json={
             "partner_id": 1, "agreement": 10, "number": "PD1", "document_type": "PD", "status": "active",
             "title": "T", "start": "2024-01-01", "end": "2024-12-31",
-            "frs_details": {"frs": [{"line_item_details": [{"donor": "A"}]}, {"line_item_details": [{"donor": "B"}]}]},
+            "frs_details": {"frs": [
+                {"line_item_details": [
+                    {"donor": "A", "donor_code": "A1", "grant_number": "SC1", "overall_amount": "500.00"},
+                    {"donor": "A", "donor_code": "A1", "grant_number": "SC1", "overall_amount": "250.50"},
+                ]},
+                {"line_item_details": [{"donor": "B", "grant_number": "SC2", "overall_amount": 100}]},
+            ]},
         },
     )  # fmt: skip
     run = sync.sync_intervention_details(make_run("intervention_details"), client=make_client())
     assert run.status == SyncRun.Status.SUCCEEDED
     assert run.rows_in == 1
     pca = PCA.objects.get(etl_id="100")
-    assert pca.donors_set == [{"donor": "A"}, {"donor": "B"}]
+    # The Datamart shape (one entry per donor and grant, with its value): the donor pages keep their amounts.
+    assert pca.donors_set == [
+        {"donor": "A", "donor_code": "A1", "grant_number": "SC1", "value": 750.5},
+        {"donor": "B", "donor_code": "", "grant_number": "SC2", "value": 100.0},
+    ]
+    assert pd_detail(pca)["donations"] == 850.5
     assert (pca.partner, pca.agreement, pca.end_date) == (partner, agreement, dt.date(2024, 12, 31))
+
+
+def test_donor_amounts_also_read_raw_fr_line_items():
+    """donors_set written by an older REST sync (raw line items, no 'value') still shows its amounts."""
+    pca = PCA.objects.create(
+        etl_id="100",
+        title="t",
+        donors_set=[{"donor": "A", "grant_number": "SC1", "overall_amount": "500.00"}],
+    )
+    assert pd_detail(pca)["donors"] == [{"donor": "A", "grant": "SC1", "value": 500.0}]
 
 
 @responses.activate

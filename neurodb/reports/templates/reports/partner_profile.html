@@ -1,13 +1,14 @@
 {% extends "base.html" %}
 {% load i18n ui %}
 {% block content %}
+{% if partner.deleted_flag %}<div class="alert alert-warning py-2 small" role="status">{% trans "This partner is marked as deleted in eTools. Its record is kept here because programme documents and assurance data still refer to it." %}</div>{% endif %}
 <div class="kpi-grid">
   {% trans "Active documents" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=profile.active_count %}
   {% trans "All documents" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=profile.programme_documents|length %}
-  {% trans "ActivityInfo records" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=profile.interventions|number %}
+  {% trans "ActivityInfo records" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=activityinfo.records|number %}
   {% trans "Risk rating" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=profile.risk_rating|default:"—" %}
   {% trans "Cash transfers this year" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=partner.total_ct_cy|number:0 %}
-  {% if datamart.open_action_points %}{% url 'reports:action_points' as ap_url %}{% trans "Open action points" as l6 %}{% include "components/kpi_tile.html" with label=l6 value=datamart.open_action_points|number status="off_track" href=ap_url %}{% endif %}
+  {% if datamart.open_action_points %}{% trans "Open action points" as l6 %}{% include "components/kpi_tile.html" with label=l6 value=datamart.open_action_points|number status="off_track" href=action_points_url %}{% endif %}
 </div>
 <div class="grid grid--2 mb-3">
   <section class="panel">
@@ -36,7 +37,7 @@
     <div class="chips mb-2">{% for key, n in datamart.monitoring.status_counts.items %}{% if n %}<span class="chip">{% status_pill key key|code_label "sm" %} {{ n }}</span>{% endif %}{% endfor %}</div>
     <div class="table-wrap"><table class="table table-sm mb-2"><thead><tr><th>{% trans "PD indicator" %}</th><th class="num">{% trans "Cumulative / target" %}</th><th>{% trans "Status" %}</th></tr></thead>
     <tbody>{% for i in datamart.monitoring.rows|slice:":8" %}<tr><td><a class="cell-title" href="{{ i.url }}" hx-get="{{ i.url }}" hx-target="#modal-content" hx-push-url="false">{{ i.title|truncatechars:80 }}</a><span class="cell-sub mono">{{ i.pd.number }}</span></td><td class="num">{{ i.cumulative|number:0 }} / {{ i.target|number:0 }}</td><td>{% status_pill i.tracking i.tracking_label "sm" %}</td></tr>{% endfor %}</tbody></table></div>
-    <p class="small mb-2"><a href="{% url 'reports:pd_monitoring' %}?partner={{ partner.id }}">{% blocktrans count counter=datamart.monitoring.indicators %}{{ counter }} indicator of the active programme documents{% plural %}All {{ counter }} indicators of the active programme documents{% endblocktrans %}</a>{% if datamart.reporting.reports %} · {% blocktrans with n=datamart.reporting.reports o=datamart.reporting.overdue %}{{ n }} progress reports, {{ o }} overdue{% endblocktrans %}{% endif %}</p>
+    <p class="small mb-2"><a href="{% url 'reports:pd_monitoring' %}?partner={{ partner.id }}">{% blocktrans count counter=datamart.monitoring.indicators %}{{ counter }} indicator of the running (signed, active or suspended) programme documents{% plural %}All {{ counter }} indicators of the running (signed, active or suspended) programme documents{% endblocktrans %}</a>{% if datamart.reporting.reports %} · {% blocktrans with n=datamart.reporting.reports o=datamart.reporting.overdue %}{{ n }} progress reports, {{ o }} overdue{% endblocktrans %}{% endif %}</p>
     {% else %}
     <p class="small text-muted">{% trans "No programme document indicator reported in eTools yet. The partner's PDs appear below; their indicators arrive with the eTools sync." %}</p>
     {% endif %}
@@ -66,14 +67,16 @@
 </section>
 <section class="panel p-0 mb-3">
   {% if datamart.engagements %}
-  {% include "components/table_toolbar.html" with title=_("Assurance engagements") count=datamart.engagements|length table_id="partner-eng" %}
+  {% include "components/table_toolbar.html" with title=_("Assurance engagements") count=datamart.engagements_total table_id="partner-eng" %}
   <div class="table-wrap"><table class="table" id="partner-eng"><thead><tr><th>{% trans "Engagement" %}</th><th>{% trans "Type" %}</th><th>{% trans "Status" %}</th><th>{% trans "Period" %}</th><th class="num">{% trans "Findings (USD)" %}</th></tr></thead>
   <tbody>{% for e in datamart.engagements %}<tr><td class="small"><a class="mono" href="{% url 'reports:engagement_detail' e.id %}">{{ e.reference_number|default:_("Open") }}</a>{% if e.auditor %}<span class="cell-sub">{{ e.auditor }}</span>{% endif %}</td><td>{{ e.type_label }}</td><td>{% status_pill e.status e.status|code_label "sm" %}</td><td class="small text-nowrap">{{ e.start_date|date:"j M Y"|default:"—" }} – {{ e.end_date|date:"j M Y"|default:"—" }}</td><td class="num">{{ e.financial_findings|number:0 }}</td></tr>{% endfor %}</tbody></table></div>
+  {% if datamart.engagements_total > datamart.engagements|length %}<p class="small text-muted px-3 py-2 mb-0">{% blocktrans with n=datamart.engagements|length %}The {{ n }} most recent are listed.{% endblocktrans %}</p>{% endif %}
   {% else %}
-  {% include "components/table_toolbar.html" with title=_("Assurance engagements") count=profile.engagements|length table_id="partner-eng" %}
+  {% include "components/table_toolbar.html" with title=_("Assurance engagements") count=profile.engagements_total table_id="partner-eng" %}
   <div class="table-wrap"><table class="table" id="partner-eng"><thead><tr><th>{% trans "Engagement" %}</th><th>{% trans "Type" %}</th><th>{% trans "Status" %}</th><th>{% trans "Period" %}</th></tr></thead>
   <tbody>{% for e in profile.engagements %}<tr><td>{{ e.displayed_name|default:e.unique_id }}</td><td>{{ e.engagement_type }}</td><td>{{ e.status|code_label }}</td><td class="small text-nowrap">{{ e.start_date|date:"j M Y" }} – {{ e.end_date|date:"j M Y" }}</td></tr>
   {% empty %}<tr><td colspan="4" class="text-muted">{% trans "No engagements." %}</td></tr>{% endfor %}</tbody></table></div>
+  {% if profile.engagements_total > profile.engagements|length %}<p class="small text-muted px-3 py-2 mb-0">{% blocktrans with n=profile.engagements|length %}The {{ n }} most recent are listed.{% endblocktrans %}</p>{% endif %}
   {% endif %}
 </section>
 {% if datamart.hact_years %}
@@ -113,7 +116,7 @@
   {% include "components/table_toolbar.html" with title=_("Open action points") count=datamart.open_action_points table_id="partner-aps" %}
   <div class="table-wrap"><table class="table table-sm" id="partner-aps"><thead><tr><th>{% trans "Action point" %}</th><th>{% trans "Assigned to" %}</th><th>{% trans "Due" %}</th></tr></thead>
   <tbody>{% for a in datamart.action_points %}<tr><td><span class="mono small">{{ a.reference_number }}</span>{% if a.high_priority %} <span class="chip">{% trans "High priority" %}</span>{% endif %}<span class="cell-sub">{{ a.description|truncatechars:140 }}</span></td><td>{{ a.assigned_to_name|default:"—" }}</td><td class="small text-nowrap">{{ a.due_date|date:"j M Y"|default:"—" }}</td></tr>{% endfor %}</tbody></table></div>
-  <div class="p-2 px-3 small"><a href="{% url 'reports:action_points' %}?q={{ partner.vendor_number|default:partner.name|urlencode }}">{% trans "All action points of this partner" %}</a></div>
+  <div class="p-2 px-3 small"><a href="{{ action_points_url }}">{% trans "All action points of this partner" %}</a></div>
 </section>
 {% endif %}
 {% if datamart.findings or datamart.tpm_visits %}

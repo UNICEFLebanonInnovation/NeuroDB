@@ -266,3 +266,12 @@ def test_the_overview_shows_the_review_card(data, hierarchy, client_viewer):
     assert page.status_code == 200
     text = page.content.decode()
     assert 'id="daily-review"' in text and "How the daily review works" in text and "TPM/2" in text
+
+
+def test_snapshot_keeps_the_counts_of_the_pds_running_in_the_year(data):
+    """What the management brief compares its on-track tile with, 30 days later."""
+    data["pd"].status = "ended"  # out of the active rows, still running in the year
+    data["pd"].save()
+    stats = run().stats
+    assert stats["status_counts"]["on_track"] == 0
+    assert (stats["status_counts_year"]["on_track"], stats["status_counts_year"]["not_reported"]) == (1, 1)

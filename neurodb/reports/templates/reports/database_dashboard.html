@@ -3,11 +3,11 @@
 {% block content %}
 <div class="kpi-grid">
   {% blocktrans asvar h1 with n=dashboard.totals.with_target %}{{ n }} with a target{% endblocktrans %}{% blocktrans asvar h4 with n=reported %}{{ n }} indicators with data{% endblocktrans %}{% blocktrans asvar h5 with n=dashboard.totals.partners %}{{ n }} partners{% endblocktrans %}
-  {% trans "Master indicators" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=dashboard.totals.indicators hint=h1 %}
+  {% trans "Master indicators" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=dashboard.totals.indicators hint=h1 status="" %}
   {% trans "On track" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=dashboard.status_counts.on_track status="on_track" %}
   {% trans "Off track" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=dashboard.status_counts.off_track status="off_track" %}
-  {% trans "Reporting" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=reporting_progress unit="%" hint=h4 %}
-  {% trans "Records" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=dashboard.totals.reports|intcomma hint=h5 %}
+  {% trans "Reporting" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=reporting_progress unit="%" hint=h4 status="" %}
+  {% trans "Records" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=dashboard.totals.reports|intcomma hint=h5 status="" %}
 </div>
 
 <div class="grid grid--2 mb-3">

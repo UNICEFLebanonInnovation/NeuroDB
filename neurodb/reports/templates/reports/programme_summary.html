@@ -4,7 +4,7 @@
 <div class="toolbar">
   <div class="segmented" role="group" aria-label="{% trans 'Scope' %}">
     <a href="?scope=active" {% if scope == "active" %}aria-current="page"{% endif %}>{% trans "Active" %}</a>
-    <a href="?scope=all" {% if scope == "all" %}aria-current="page"{% endif %}>{% trans "All signed" %}</a>
+    <a href="?scope=all" {% if scope == "all" %}aria-current="page"{% endif %}>{% trans "All" %}</a>
   </div>
   {% if summary.last_sync %}<span class="small text-muted ms-auto">{% blocktrans with when=summary.last_sync|naturaltime %}eTools data updated {{ when }}{% endblocktrans %}</span>{% endif %}
 </div>

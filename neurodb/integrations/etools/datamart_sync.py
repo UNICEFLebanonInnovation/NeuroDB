@@ -1510,6 +1510,7 @@ def sync_enrichment(name: str) -> Callable[..., SyncRun]:
 def _funded_pcas() -> set[int]:
     return set(
         dm.FundsReservation.objects.exclude(intervention=None)
+        .order_by()
         .values_list("intervention_id", flat=True)
         .distinct()
     )

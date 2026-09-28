@@ -234,12 +234,17 @@ def fake_data(today: datetime.date = FAKE_TODAY) -> dict[str, Any]:
             "assurance": {
                 "field_monitoring_visits": 42,
                 "tpm_visits": 31,
+                "tpm_visits_planned": 28,
                 "open_action_points": 27,
                 "overdue_high_priority": 4,
                 "high_risk_partners": 2,
                 "partners_with_pd": 15,
             },
             "findings_by_rating": [["On Track", 30], ["Off Track", 9], ["Not Applicable", 3]],
+            "attention_more": {
+                "count": 3,
+                "url": "/partner-monitoring/?status=off_track&year=2026&scope=year",
+            },
             "attention": [
                 {
                     "severity": "critical",

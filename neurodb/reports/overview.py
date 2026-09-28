@@ -9,7 +9,8 @@ reporting sources are kept apart: an eTools figure and an ActivityInfo figure ar
 one number where the page says so.
 
 Filters: the year, eTools section names (empty = every section) and one governorate (a gazetteer
-governorate name; empty = the country). The result is cached for a few minutes per filter.
+governorate name; empty = the country). The result is cached for two minutes per filter, and the key
+changes as soon as a sync run finishes.
 """
 
 from __future__ import annotations
@@ -39,11 +40,12 @@ from neurodb.facts.services.dashboard import fact_filter
 from neurodb.geo.models import Location
 from neurodb.indicators.models import Database, NeuroReportMasterIndicator
 from neurodb.indicators.services.tracking import OFF_TRACK, percentage_elapsed
+from neurodb.web.templatetags.ui import half_up
 
 logger = logging.getLogger(__name__)
 
-CACHE_SECONDS = 600
-CACHE_VERSION = 3
+CACHE_SECONDS = 120
+CACHE_VERSION = 4
 MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 STATUSES = ("on_track", "off_track", "over_target", "no_target", NOT_REPORTED)
 LEVEL_GOVERNORATE = monitoring.LEVEL_GOVERNORATE
@@ -133,7 +135,7 @@ def _link(name: str, *args: Any, **params: Any) -> str:
 def _pct(part: float | None, whole: float | None) -> float | None:
     if part is None or not whole:
         return None
-    return round(part * 100 / whole, 1)
+    return half_up(part * 100 / whole, 1)
 
 
 def _money(value: Any) -> float:
@@ -191,8 +193,22 @@ def children_masters(reporting_year: Any, sections: list[str], flags: Any) -> di
 
 
 # --------------------------------------------------------------------------------- build
+def latest_sync_run() -> int | None:
+    """The id of the sync run that finished last (any job, any outcome). In the cache keys of the
+    overview and the brief, so every worker drops its copy as soon as a sync ends."""
+    from neurodb.core.models import SyncRun
+
+    return (
+        SyncRun.objects.exclude(finished_at=None)
+        .order_by("-finished_at", "-id")
+        .values_list("id", flat=True)
+        .first()
+    )
+
+
 def _cache_key(scope: Scope) -> str:
-    """Everything the result depends on, the children flags included (a new flag shows at once)."""
+    """Everything the result depends on, the children flags and the last finished sync included (a new
+    flag or a sync shows at once)."""
     from neurodb.datamart.models import IndicatorFlag
 
     flags = IndicatorFlag.objects.aggregate(n=Count("pk"), last=Max("updated_at"))
@@ -201,7 +217,7 @@ def _cache_key(scope: Scope) -> str:
     last = flags["last"].isoformat() if flags["last"] else ""  # no spaces: memcached-safe
     return (
         f"overview:v{CACHE_VERSION}:{scope.year}:{ryear}:{sections}:{scope.governorate}:{scope.today}:"
-        f"{flags['n']}:{last}"
+        f"{flags['n']}:{last}:{latest_sync_run() or ''}"
     ).replace(" ", "_")
 
 
@@ -253,6 +269,7 @@ class _Builder:
             place = monitoring._place(location_id, self.gazetteer)
             self.governorate_of[location_id] = place["governorate"]
             self.district_of[location_id] = place["district"]
+        self.all_rows = rows  # the whole country, for a PD's share of children in the governorate
         if self.gov_key:
             rows = [r for r in rows if self.gov_key in self._governorate_keys(r)]
         return rows
@@ -405,8 +422,8 @@ class _Builder:
             keys = {k for k in keys | set(population) if k == self.gov_key}
         governorates = []
         for key in keys:
-            etools = round(by_gov.get(key, 0))
-            ai = round(activityinfo["by_governorate"].get(key, 0))
+            etools = half_up(by_gov.get(key, 0))
+            ai = half_up(activityinfo["by_governorate"].get(key, 0))
             reached = max(etools, ai)
             pop = population.get(key, (None, None))[1]
             if not reached and not pop:
@@ -427,8 +444,8 @@ class _Builder:
         governorates.sort(key=lambda g: (-g["reached"], g["name"]))
         for g, level in zip(governorates, _levels([g["reached"] for g in governorates]), strict=True):
             g["level"] = level
-        etools_value = round(etools_total)
-        ai_value = round(activityinfo["total"])
+        etools_value = half_up(etools_total)
+        ai_value = half_up(activityinfo["total"])
         return {
             # The same children are often reported in both sources: the headline is the larger one.
             "children_reached": max(etools_value, ai_value),
@@ -438,9 +455,9 @@ class _Builder:
             "by_governorate": governorates,
             "by_district": sorted(
                 (
-                    {"district": d, "governorate": g, "etools": round(v)}
+                    {"district": d, "governorate": g, "etools": half_up(v)}
                     for (d, g), v in by_district.items()
-                    if round(v)
+                    if half_up(v)
                 ),
                 key=lambda r: (-r["etools"], r["district"]),
             ),
@@ -448,8 +465,8 @@ class _Builder:
             "children_by_tag": self._children_by_tag(),
             "monthly": {
                 "labels": list(MONTH_LABELS),
-                "etools": [round(v) for v in etools_months],
-                "activityinfo": [round(v) for v in activityinfo["months"]],
+                "etools": [half_up(v) for v in etools_months],
+                "activityinfo": [half_up(v) for v in activityinfo["months"]],
             },
             "population_year": population_year,
             "source": (
@@ -475,7 +492,7 @@ class _Builder:
             )
             out.append(
                 {
-                    "value": round(value),
+                    "value": half_up(value),
                     "sex": sex,
                     "age_group": row.tags.get("age_group") or "",
                     "nationality": NATIONALITY_OF_TAG.get(row.tags.get("nationality") or "", ""),
@@ -502,10 +519,10 @@ class _Builder:
             out.append(
                 {
                     "section": section,
-                    "achieved": round(g["achieved"]),
-                    "target": round(g["target"]),
+                    "achieved": half_up(g["achieved"]),
+                    "target": half_up(g["target"]),
                     "percent": _pct(g["achieved"], g["target"]),
-                    "elapsed": round(g["elapsed_weight"] / g["target"], 1) if g["target"] else None,
+                    "elapsed": half_up(g["elapsed_weight"] / g["target"], 1) if g["target"] else None,
                     "indicators": g["indicators"],
                 }
             )
@@ -571,11 +588,15 @@ class _Builder:
             indicators_pd_section[row.pd.id][row.section or "Other"] += 1
         for row in self.children_rows:
             children_pd_section[row.pd.id][row.section or "Other"] += self._year_value(row)
-            children_pd_country[row.pd.id] += sum(v for v in row.months.values() if v)
+        in_scope = {id(r) for r in self.children_rows}
+        for row in self.all_rows:  # every children indicator of the PD, wherever it is located
+            if row.pd.id in per_pd and (id(row) in in_scope or self._is_children(row)):
+                children_pd_country[row.pd.id] += sum(v for v in row.months.values() if v)
         totals = {"reserved": 0.0, "disbursed": 0.0, "outstanding": 0.0, "for_children": 0.0, "children": 0.0}
         sections: dict[str, dict[str, float]] = defaultdict(
             lambda: {"reserved": 0.0, "disbursed": 0.0, "for_children": 0.0, "children": 0.0}
         )
+        factors: dict[int, float] = {}  # the share of each PD's money counted in scope
         for pd_id, amounts in per_pd.items():
             by_section = children_pd_section.get(pd_id, Counter())
             children = sum(by_section.values())
@@ -586,6 +607,7 @@ class _Builder:
                 factor = children / country
             else:
                 factor = 1.0
+            factors[pd_id] = factor
             weights = by_section if children else indicators_pd_section.get(pd_id) or Counter({"Other": 1})
             weight_total = sum(weights.values()) or 1
             for key in ("reserved", "disbursed", "outstanding"):
@@ -604,16 +626,16 @@ class _Builder:
         by_section = []
         for section in sorted(sections):
             amounts = sections[section]
-            children = round(amounts["children"])
+            children = half_up(amounts["children"])
             disbursed_percent = _pct(amounts["disbursed"], amounts["reserved"])
             achieved_percent = achieved.get(section)
             by_section.append(
                 {
                     "section": section,
-                    "disbursed": round(amounts["disbursed"], 2),
-                    "reserved": round(amounts["reserved"], 2),
+                    "disbursed": half_up(amounts["disbursed"], 2),
+                    "reserved": half_up(amounts["reserved"], 2),
                     "children": children,
-                    "cost_per_child": round(amounts["for_children"] / children, 1) if children else None,
+                    "cost_per_child": half_up(amounts["for_children"] / children, 1) if children else None,
                     "disbursed_percent": disbursed_percent,
                     "achieved_percent": achieved_percent,
                     "ahead": bool(
@@ -629,17 +651,23 @@ class _Builder:
             else ""
         )
         return {
-            "reserved": round(totals["reserved"], 2),
-            "disbursed": round(totals["disbursed"], 2),
-            "outstanding": round(totals["outstanding"], 2),
+            "reserved": half_up(totals["reserved"], 2),
+            "disbursed": half_up(totals["disbursed"], 2),
+            "outstanding": half_up(totals["outstanding"], 2),
             "disbursed_percent": _pct(totals["disbursed"], totals["reserved"]),
-            "cost_per_child": round(totals["for_children"] / totals["children"], 1)
+            "cost_per_child": half_up(totals["for_children"] / totals["children"], 1)
             if totals["children"]
             else None,
             "cost_per_child_previous": None,
             "cost_caveat": COST_CAVEAT,
             "by_section": by_section,
-            "by_donor": self._donors([h["fr_number"] for h in headers if h["fr_number"]]),
+            "by_donor": self._donors(
+                {
+                    h["fr_number"]: factors[h["intervention_id"]]
+                    for h in headers
+                    if h["fr_number"] and h["intervention_id"] in factors
+                }
+            ),
             "decisions": self._decisions(per_pd),
             "source": (
                 f"eTools funds reservations of the programme documents running in {self.year} "
@@ -648,17 +676,21 @@ class _Builder:
             ),
         }
 
-    def _donors(self, fr_numbers: list[str]) -> list[list[Any]]:
-        if not fr_numbers:
+    def _donors(self, factors: dict[str, float]) -> list[list[Any]]:
+        """Funding by donor of the FRs ``{fr_number: factor}``, each FR's lines counted for its PD's
+        share in scope (the same pro-rating as the funds tiles; 1.0 for the whole country)."""
+        if not factors:
             return []
-        rows = list(
-            dm.FundsReservation.objects.filter(fr_number__in=set(fr_numbers))
-            .values("donor")
+        amounts: Counter[str] = Counter()
+        for r in (
+            dm.FundsReservation.objects.filter(fr_number__in=list(factors))
+            .values("fr_number", "donor")
             .annotate(amount=Sum("overall_amount"))
-            .order_by("-amount")
-        )
-        top = [[r["donor"] or "Unknown", _money(r["amount"])] for r in rows[:MAX_DONORS]]
-        rest = sum(_money(r["amount"]) for r in rows[MAX_DONORS:])
+        ):
+            amounts[r["donor"] or "Unknown"] += _money(r["amount"]) * factors[r["fr_number"]]
+        rows = sorted(amounts.items(), key=lambda kv: (-kv[1], kv[0]))
+        top = [[donor, amount] for donor, amount in rows[:MAX_DONORS]]
+        rest = sum(amount for _donor, amount in rows[MAX_DONORS:])
         if rest:
             top.append(["Other", rest])
         return top
@@ -677,7 +709,7 @@ class _Builder:
             url = _link("reports:programme_detail", pd.id)
             achieved = achieved_by_pd.get(pd_id)
             achieved_text = (
-                f"{round(statistics.mean(achieved))}% achieved on average"
+                f"{half_up(statistics.mean(achieved))}% achieved on average"
                 if achieved
                 else "no result reported"
             )
@@ -708,7 +740,7 @@ class _Builder:
                         "partner": partner,
                         "section": self.section_of_pd.get(pd_id, ""),
                         "reason": "under-disbursed",
-                        "detail": f"{round(elapsed)}% of the period elapsed, {round(share)}% disbursed",
+                        "detail": f"{half_up(elapsed)}% of the period elapsed, {half_up(share)}% disbursed",
                         "url": url,
                         "severity": "info",
                         "sort": 1000 + share,
@@ -754,7 +786,7 @@ class _Builder:
             "by_partner": self._by_partner(),
             "assurance": self._assurance(partners),
             "findings_by_rating": self._findings_by_rating(),
-            "attention": self._attention(),
+            **self._attention(),
             "source": (
                 "Partner monitoring rule (cumulative achievement against the elapsed PD period, ±10 points), "
                 f"field monitoring findings, TPM visits, action points and partner risk ratings, {self.year}"
@@ -796,8 +828,8 @@ class _Builder:
             achieved = g.pop("achieved")
             g["pd_ids"] = sorted(g["pd_ids"])
             g["pds"] = len(g["pd_ids"])
-            g["achieved_percent"] = round(statistics.mean(achieved), 1) if achieved else None
-            g["children"] = round(g["children"])
+            g["achieved_percent"] = half_up(statistics.mean(achieved), 1) if achieved else None
+            g["children"] = half_up(g["children"])
             tracked = g["on_track"] + g["off_track"] + g["over_target"]
             g["on_track_percent"] = _pct(g["on_track"] + g["over_target"], tracked) if tracked else None
             out.append(g)
@@ -849,22 +881,26 @@ class _Builder:
             qs = qs.filter(location_id__in=self._location_ids_in_governorate())
         return qs
 
-    def _scoped_tpm_activities(self):
-        """The TPM activities of the year's planned visits that match the section and governorate (both
-        conditions on the same activity)."""
-        qs = dm.TPMActivity.objects.filter(visit__start_date__year=self.year).exclude(
-            visit__status__in=TPM_NOT_PLANNED
-        )
+    def _scoped_tpm_activities(self, *, planned: bool = True):
+        """The TPM activities of the year's visits (planned ones only unless ``planned`` is false) that
+        match the section and governorate (both conditions on the same activity)."""
+        qs = dm.TPMActivity.objects.filter(visit__start_date__year=self.year)
+        if planned:
+            qs = qs.exclude(visit__status__in=TPM_NOT_PLANNED)
         if self.scope.sections:
             qs = qs.filter(self._section_q("section", "intervention_id"))
         if self.gov_key:
             qs = qs.filter(location_links__in=self._location_ids_in_governorate())
         return qs
 
-    def _scoped_tpm_visits(self):
-        visits = dm.TPMVisit.objects.filter(start_date__year=self.year).exclude(status__in=TPM_NOT_PLANNED)
+    def _scoped_tpm_visits(self, *, planned: bool = True):
+        """The TPM visits of the year; ``planned=False`` counts draft and cancelled ones too, as the
+        field monitoring page does."""
+        visits = dm.TPMVisit.objects.filter(start_date__year=self.year)
+        if planned:
+            visits = visits.exclude(status__in=TPM_NOT_PLANNED)
         if self.scope.sections or self.gov_key:
-            visits = visits.filter(pk__in=self._scoped_tpm_activities().values("visit_id"))
+            visits = visits.filter(pk__in=self._scoped_tpm_activities(planned=planned).values("visit_id"))
         return visits
 
     def _assurance(self, partners: set[Any]) -> dict[str, Any]:
@@ -876,7 +912,9 @@ class _Builder:
             .values("monitoring_activity")
             .distinct()
             .count(),
-            "tpm_visits": self._scoped_tpm_visits().count(),
+            # Every visit of the year, as on the field monitoring page it links to; planned as a sub-count.
+            "tpm_visits": self._scoped_tpm_visits(planned=False).count(),
+            "tpm_visits_planned": self._scoped_tpm_visits().count(),
             "open_action_points": open_points.count(),
             "overdue_high_priority": open_points.filter(high_priority=True, due_date__lt=self.today).count(),
             "high_risk_partners": sum(1 for p in partners if (p.rating or "").strip().lower() in HIGH_RISK),
@@ -892,7 +930,9 @@ class _Builder:
         )
         return [[r["overall_finding_rating"] or "Not rated", r["n"]] for r in rows]
 
-    def _attention(self) -> list[dict[str, Any]]:
+    def _attention(self) -> dict[str, Any]:
+        """``attention``: at most MAX_ATTENTION items, the overdue action points and one never-reported
+        item always among them; ``attention_more``: how many were left out, and where to see them."""
         items: list[dict[str, Any]] = []
         off: dict[tuple[str, int], list[Indicator]] = defaultdict(list)
         unreported: dict[tuple[str, int], list[Indicator]] = defaultdict(list)
@@ -907,13 +947,14 @@ class _Builder:
                     unreported[key].append(row)
         for (section, _pd_id), group in off.items():
             pd = group[0].pd
+            # The raw section in the link: a blank one is left out, as partner monitoring has no "Other".
             behind = sum(
                 max((r.target or 0) - (r.cumulative or 0), 0) for r in group if id(r) in children_ids
             )
             achieved = [min(r.achieved, 999.0) for r in group if r.achieved is not None]
             detail = (
-                f"{round(sum(achieved) / len(achieved))}% of target on average, "
-                f"{round(percentage_elapsed(pd.start, pd.end, self.today))}% of the PD period elapsed"
+                f"{half_up(sum(achieved) / len(achieved))}% of target on average, "
+                f"{half_up(percentage_elapsed(pd.start, pd.end, self.today))}% of the PD period elapsed"
                 if achieved
                 else "Off track against the elapsed PD period"
             )
@@ -924,14 +965,15 @@ class _Builder:
                     "detail": detail,
                     "url": _link(
                         "reports:pd_monitoring",
-                        section=section,
+                        section=group[0].section,
                         pd=pd.number or "",
                         status="off_track",
                         year=self.year,
                         scope="year",
                     ),
                     "section": section,
-                    "children": round(behind) or None,
+                    "children": half_up(behind) or None,
+                    "kind": "off_track",
                 }
             )
         for (section, _pd_id), group in unreported.items():
@@ -943,7 +985,7 @@ class _Builder:
                     "detail": f"No progress report read although the PD started on {pd.start:%d %b %Y}",
                     "url": _link(
                         "reports:pd_monitoring",
-                        section=section,
+                        section=group[0].section,
                         pd=pd.number or "",
                         status=NOT_REPORTED,
                         year=self.year,
@@ -951,6 +993,7 @@ class _Builder:
                     ),
                     "section": section,
                     "children": None,
+                    "kind": NOT_REPORTED,
                 }
             )
         overdue = (
@@ -958,22 +1001,56 @@ class _Builder:
             .filter(status__in=AP_OPEN, high_priority=True, due_date__lt=self.today)
             .values("section")
             .annotate(n=Count("pk"))
+            .order_by("-n", "section")
         )
-        for r in overdue:
-            section = r["section"] or "No section"
+        by_section = [(r["section"] or "No section", r["n"]) for r in overdue]
+        if by_section:  # one item (the link is the same for every section), always kept below
+            total = sum(n for _section, n in by_section)
             items.append(
                 {
                     "severity": "critical",
-                    "title": f"{_count(r['n'], 'high-priority action point')} past due",
-                    "detail": "Open and past their due date",
+                    "title": f"{_count(total, 'high-priority action point')} past due",
+                    "detail": "Open and past their due date"
+                    + (": " + ", ".join(f"{s} {n}" for s, n in by_section) if len(by_section) > 1 else ""),
                     "url": _link("reports:action_points", overdue="1", priority="1"),
-                    "section": section,
+                    "section": by_section[0][0] if len(by_section) == 1 else "",
                     "children": None,
+                    "kind": "action_points",
                 }
             )
         order = {"critical": 0, "warning": 1, "info": 2}
-        items.sort(key=lambda i: (order.get(i["severity"], 3), -(i["children"] or 0), i["title"]))
-        return items[:MAX_ATTENTION]
+
+        def rank(item: dict[str, Any]) -> tuple:
+            return (order.get(item["severity"], 3), -(item["children"] or 0), item["title"])
+
+        items.sort(key=rank)
+        # Off-track PDs alone can fill every slot: keep the action points and one never-reported item.
+        kept = [i for i in items if i["kind"] == "action_points"]
+        unreported_items = [i for i in items if i["kind"] == NOT_REPORTED]
+        if unreported_items and len(kept) < MAX_ATTENTION:
+            kept.append(unreported_items[0])
+        for item in items:
+            if len(kept) >= MAX_ATTENTION:
+                break
+            if not any(item is k for k in kept):
+                kept.append(item)
+        kept.sort(key=rank)
+        left_out = [i for i in items if not any(i is k for k in kept)]
+        kinds = {i["kind"] for i in left_out}
+        more_status = next(iter(kinds)) if len(kinds) == 1 and kinds <= {"off_track", NOT_REPORTED} else ""
+        return {
+            "attention": kept,
+            "attention_more": {
+                "count": len(left_out),
+                "url": _link(
+                    "reports:pd_monitoring",
+                    section=list(self.scope.sections),
+                    status=more_status,
+                    year=self.year,
+                    scope="year",
+                ),
+            },
+        }
 
     # ------------------------------------------------------------------ progress
     def _progress(self) -> dict[str, Any]:
@@ -1035,7 +1112,7 @@ class _Builder:
                 due[due_date.month - 1] += 1
                 if not is_open and done and done <= self.today:
                     closed_of_due += 1
-            if done and done.year == self.year and not is_open:
+            if done and done.year == self.year and done <= self.today and not is_open:
                 closed[done.month - 1] += 1
                 if due_date:
                     days_to_close.append((done - due_date).days)
@@ -1067,7 +1144,7 @@ class _Builder:
             "closed_total": sum(closed),
             "due_total": sum(due),
             "closure_percent": _pct(closed_of_due, sum(due)),  # of the points due this year
-            "median_days_to_close": round(statistics.median(days_to_close)) if days_to_close else None,
+            "median_days_to_close": half_up(statistics.median(days_to_close)) if days_to_close else None,
             "age": [
                 {
                     "module": module,

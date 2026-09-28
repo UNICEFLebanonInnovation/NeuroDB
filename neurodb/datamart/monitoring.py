@@ -80,12 +80,22 @@ def status_key(text: str | None) -> str:
     return norm(text).replace(" ", "_")
 
 
+def year_param(raw: Any) -> int | None:
+    """A ``?year=`` value as a calendar year, or None: one to four ASCII digits, 1 to 9999 (a
+    date cannot hold a larger year, so a bigger one would fail every date filter)."""
+    text = str(raw or "").strip()
+    if not re.fullmatch(r"[0-9]{1,4}", text) or int(text) < 1:
+        return None
+    return int(text)
+
+
 # ------------------------------------------------------------------------------------ filters
 @dataclass
 class Filters:
     sections: list[str] = field(default_factory=list)
     partners: list[str] = field(default_factory=list)  # partner ids as text
     pds: list[str] = field(default_factory=list)  # PD reference numbers
+    pd_ids: list[int] = field(default_factory=list)  # PD ids (the detail page: a PD may have no number)
     locations: list[str] = field(default_factory=list)
     report_type: str = DEFAULT_REPORT_TYPE
     year: int | None = None
@@ -98,7 +108,6 @@ class Filters:
     def from_params(cls, params, today: datetime.date | None = None) -> Filters:
         today = today or datetime.date.today()
         getlist = params.getlist if hasattr(params, "getlist") else (lambda k: params.get(k, []) or [])
-        year_raw = (params.get("year") or "").strip()
         report_type = (params.get("report_type") or DEFAULT_REPORT_TYPE).upper()
         return cls(
             sections=[x for x in getlist("section") if x],
@@ -106,7 +115,7 @@ class Filters:
             pds=[x for x in getlist("pd") if x],
             locations=[x for x in getlist("location") if x],
             report_type=report_type if report_type in REPORT_TYPES else DEFAULT_REPORT_TYPE,
-            year=int(year_raw) if year_raw.isdigit() else today.year,
+            year=year_param(params.get("year")) or today.year,
             scope=params.get("scope") if params.get("scope") in ("all", "year") else "active",
             status=params.get("status") or "",
             q=(params.get("q") or "").strip(),
@@ -139,9 +148,11 @@ def _pd_queryset(filters: Filters) -> QuerySet[PCA]:
         first, last = datetime.date(filters.year, 1, 1), datetime.date(filters.year, 12, 31)
         qs = qs.filter(Q(start__isnull=True) | Q(start__lte=last), Q(end__isnull=True) | Q(end__gte=first))
     if filters.partners:
-        qs = qs.filter(partner_id__in=[int(p) for p in filters.partners if p.isdigit()])
+        qs = qs.filter(partner_id__in=[int(p) for p in filters.partners if re.fullmatch(r"[0-9]{1,18}", p)])
     if filters.pds:
         qs = qs.filter(number__in=filters.pds)
+    if filters.pd_ids:
+        qs = qs.filter(id__in=filters.pd_ids)
     return qs
 
 
@@ -262,11 +273,8 @@ def indicators(filters: Filters, today: datetime.date | None = None) -> list[Ind
         *(f"tag_{t}" for t in TAG_FIELDS),
     )
     found: dict[tuple[int, str], Indicator] = {}
-    by_source: dict[tuple[int, str], tuple[int, str]] = {}  # (PD, eTools indicator id) -> ident
     for row in rows.order_by("lower_result_name", "title", "datamart_id"):
         ident = (row["intervention_id"], norm(row["title"]))
-        if row["source_id"]:
-            by_source.setdefault((row["intervention_id"], str(row["source_id"])), ident)
         entry = found.get(ident)
         if entry is None:
             entry = found[ident] = Indicator(
@@ -297,7 +305,7 @@ def indicators(filters: Filters, today: datetime.date | None = None) -> list[Ind
     if filters.locations:
         wanted = {norm(x) for x in filters.locations}
         found = {k: e for k, e in found.items() if any(norm(loc) in wanted for loc in e.locations)}
-    _attach_reports(found, filters, today, by_source)
+    _attach_reports(found, filters, today)
     result = [e for e in found.values() if not filters.status or e.tracking == filters.status]
     return result[:MAX_INDICATORS]
 
@@ -312,21 +320,54 @@ def _report_rows(pd_ids: list[int], filters: Filters) -> QuerySet[dm.ReportedInd
         for loc in filters.locations:
             q |= Q(location__iexact=loc)
         qs = qs.filter(q)
-    return qs
+    # a fixed reading order: the "first non-empty" report fields never depend on the query plan
+    return qs.order_by("period_end", "progress_report", "location", "p_code", "datamart_id")
 
 
-def _attach_reports(
-    found: dict[tuple[int, str], Indicator],
-    filters: Filters,
-    today: datetime.date,
-    by_source: dict[tuple[int, str], tuple[int, str]] | None = None,
-) -> None:
+def _by_source(pd_ids: list[int]) -> dict[tuple[int, str], tuple[int, str]]:
+    """(PD, eTools indicator id) -> the PD indicator (PD, title) it identifies, over every indicator
+    of the PDs, not only those the filters keep: a report row of a filtered-out indicator is then
+    skipped instead of falling back to another indicator's title."""
+    out: dict[tuple[int, str], tuple[int, str]] = {}
+    rows = dm.PDIndicator.objects.filter(intervention_id__in=pd_ids).exclude(source_id=None)
+    for pd_id, source_id, title in rows.order_by("lower_result_name", "title", "datamart_id").values_list(
+        "intervention_id", "source_id", "title"
+    ):
+        if source_id:
+            out.setdefault((pd_id, str(source_id)), (pd_id, norm(title)))
+    return out
+
+
+def _ident(
+    by_source: dict[tuple[int, str], tuple[int, str]], pd_id: int, etools_id: Any, title: str | None
+) -> tuple[int, str]:
+    """The PD indicator a report row belongs to: by its eTools indicator id, else by its title."""
+    source = str(etools_id or "").strip()
+    return (by_source.get((pd_id, source)) if source else None) or (pd_id, norm(title))
+
+
+def _later(holder: dict[str, Any], order: tuple, value: float | None) -> None:
+    """Keep in ``holder["cumulative"]`` the value of the latest report (``order`` = period end,
+    report id) that carries one; rows of the same report keep the largest, whatever their order."""
+    if value is None:
+        return
+    if holder.get("_order") is None or order > holder["_order"]:
+        holder["_order"], holder["cumulative"] = order, value
+    elif order == holder["_order"]:
+        holder["cumulative"] = max(holder["cumulative"], value)
+
+
+def _attach_reports(found: dict[tuple[int, str], Indicator], filters: Filters, today: datetime.date) -> None:
     """Reports match their PD indicator by the eTools indicator id when the Datamart gives one,
-    else by title within the PD; an indicator with no report read is "not reported", never off track."""
+    else by title within the PD; an indicator with no report read is "not reported", never off track.
+
+    An indicator's figures depend only on its own report rows, never on the order they are read in
+    or on the other indicators and PDs of the query: a report's cumulative is the largest its
+    location rows carry (PRP repeats the same report total on each of them)."""
     if not found:
         return
-    by_source = by_source or {}
     pd_ids = list({ident[0] for ident in found})
+    by_source = _by_source(pd_ids)
     rows = _report_rows(pd_ids, filters).values(
         "intervention_id",
         "indicator",
@@ -346,13 +387,12 @@ def _attach_reports(
     # per indicator, per report: the location values and the report-level fields
     per_report: dict[tuple[int, str], dict[str, dict[str, Any]]] = defaultdict(dict)
     for row in rows:
-        ident = by_source.get((row["intervention_id"], str(row["etools_indicator_id"] or "")))
-        if ident is None:
-            ident = (row["intervention_id"], norm(row["indicator"]))
+        ident = _ident(by_source, row["intervention_id"], row["etools_indicator_id"], row["indicator"])
         if ident not in found:
             continue
+        report_key = row["progress_report"] or ""
         report = per_report[ident].setdefault(
-            row["progress_report"] or "",
+            report_key,
             {
                 "period_end": row["period_end"],
                 "values": [],
@@ -365,6 +405,7 @@ def _attach_reports(
         value = number(row["achievement_in_period"])
         report["values"].append(value)
         report["method"] = report["method"] or row["calculation_across_locations"]
+        end = row["period_end"]
         if row["location"] or row["p_code"]:
             place = found[ident].by_location.setdefault(
                 location_key(row["p_code"], row["location"]),
@@ -381,23 +422,31 @@ def _attach_reports(
             )
             if place["id"] is None:
                 place["id"] = row["location_ref_id"]
-            end = row["period_end"]
             if value is not None and end and end.year == filters.year:
                 place["achieved"] = (place["achieved"] or 0) + value
                 place["months"][end.month] = place["months"].get(end.month, 0) + value
-            if end and (place["period"] is None or end >= place["period"]):
-                place["period"], place["report"] = end, row["progress_report"] or ""
-                cumulative_here = number(row["total_cumulative_progress_in_location"])
-                if cumulative_here is not None:
-                    place["cumulative"] = cumulative_here
+            if end and (place["period"] is None or (end, report_key) > (place["period"], place["report"])):
+                place["period"], place["report"] = end, report_key
+            if end:
+                _later(place, (end, report_key), number(row["total_cumulative_progress_in_location"]))
         cumulative = number(row["total_cumulative_progress"])
         if cumulative is not None:
-            report["cumulative"] = cumulative
+            report["cumulative"] = (
+                cumulative if report["cumulative"] is None else max(report["cumulative"], cumulative)
+            )
         report["status"] = report["status"] or row["report_status"]
         report["partner_status"] = report["partner_status"] or row["pd_output_progress_status"]
     for ident, reports in per_report.items():
         entry = found[ident]
-        ordered = sorted(reports.values(), key=lambda r: r["period_end"] or datetime.date.min)
+        for place in entry.by_location.values():
+            place.pop("_order", None)
+        # by period end, then report id: two reports ending the same day always read the same way
+        ordered = [
+            r
+            for _, r in sorted(
+                reports.items(), key=lambda kv: (kv[1]["period_end"] or datetime.date.min, kv[0])
+            )
+        ]
         entry.reports = len(ordered)
         for report in ordered:
             value = combine(report["values"], report["method"])
@@ -507,7 +556,11 @@ def _monitoring_at(pd_ids: set[int], location_ids: set[int]) -> dict[int, dict[s
     findings = dm.MonitoringFinding.objects.filter(location_id__in=location_ids).filter(
         Q(partner__interventions__in=pd_ids) | Q(partner=None)
     )
-    for loc, rating in findings.values_list("location_id", "overall_finding_rating").distinct():
+    # one per finding: the partner join repeats a finding once per PD, and the model's default
+    # ordering (end date) must not enter the DISTINCT
+    for _id, loc, rating in (
+        findings.order_by().values_list("id", "location_id", "overall_finding_rating").distinct()
+    ):
         counts[loc]["findings"] += 1
         if "off" in (rating or "").lower():
             counts[loc]["findings_off_track"] += 1
@@ -608,12 +661,15 @@ def map_points(filters: Filters, today: datetime.date | None = None) -> dict[str
         "points": points,
         "unlocated": unlocated,
         "pds": pds,
+        "year": filters.year,  # the indicator links open the detail for the same year and report type
+        "report_type": filters.report_type,
         "totals": {
             "locations": len(places),
             "located": len(points),
             "approximate": sum(1 for p in points if p["approximate"]),
             "indicators": len(rows),
-            "partners": len({r.pd.partner_id for r in rows}),
+            # counted as on the grid: a PD with no linked partner adds none
+            "partners": len({r.pd.partner_id for r in rows if r.pd.partner_id}),
             "programme_documents": len(pds),
             "status_counts": dict(Counter(r.tracking for r in rows)),
         },
@@ -689,13 +745,13 @@ def filter_options(filters: Filters) -> dict[str, Any]:
     options = {
         "sections": sorted({x for x in base.values_list("section_name", flat=True) if x}),
         "partners": [{"value": str(pk), "label": name} for pk, name in partners],
-        "pds": sorted(x for x in pds.values_list("number", flat=True) if x),
+        "pds": sorted({x for x in pds.values_list("number", flat=True) if x}),
         "locations": sorted({x for x in base.values_list("location_name", flat=True) if x}),
         "years": years or [filters.year],
         "report_types": REPORT_TYPES,
     }
     for tag in TAG_FIELDS:
-        options[tag] = sorted(x for x in base.values_list(f"tag_{tag}", flat=True).distinct() if x)
+        options[tag] = sorted(x for x in base.order_by().values_list(f"tag_{tag}", flat=True).distinct() if x)
     return options
 
 
@@ -703,8 +759,13 @@ def filter_options(filters: Filters) -> dict[str, Any]:
 def indicator_detail(
     pd: PCA, key: str, report_type: str, year: int, today: datetime.date | None = None
 ) -> dict[str, Any] | None:
-    """One indicator of a PD: its definition, locations x periods, per-location cumulative and reports."""
+    """One indicator of a PD: its definition, locations x periods, per-location cumulative and reports.
+
+    The report rows are matched and bounded by year as on the grid (reports ending after ``year``
+    are left out), so the matrix, the Reports table and the KPIs describe the same reports."""
     today = today or datetime.date.today()
+    if not re.fullmatch(r"r?[0-9]{1,18}", key or ""):
+        return None
     rows = dm.PDIndicator.objects.filter(intervention=pd)
     rows = rows.filter(datamart_id=int(key[1:])) if key.startswith("r") else rows.filter(source_id=int(key))
     first = rows.order_by("datamart_id").first()
@@ -715,83 +776,116 @@ def indicator_detail(
         year=year,
         scope="all",
     )
+    ident = (pd.id, norm(first.title))
     same = dm.PDIndicator.objects.filter(intervention=pd, title=first.title)
     indicator = next(
         (
             i
             for i in indicators(
-                Filters(pds=[pd.number or ""], scope="all", report_type=filters.report_type, year=year), today
+                Filters(pd_ids=[pd.id], scope="all", report_type=filters.report_type, year=year), today
             )
-            if i.key == key
+            if norm(i.title) == ident[1]
         ),
         None,
     )
-    reports_qs = dm.ReportedIndicator.objects.filter(intervention=pd).filter(
-        Q(etools_indicator_id=str(first.source_id or "")) | Q(indicator__iexact=first.title)
-    )
+    by_source = _by_source([pd.id])
+    reports_qs = dm.ReportedIndicator.objects.filter(intervention=pd)
+    if year:
+        reports_qs = reports_qs.filter(Q(period_end=None) | Q(period_end__year__lte=year))
+    mine = [
+        row
+        for row in reports_qs.values(
+            "datamart_id",
+            "indicator",
+            "etools_indicator_id",
+            "progress_report",
+            "report_type",
+            "report_number",
+            "period_start",
+            "period_end",
+            "due_date",
+            "submission_date",
+            "report_status",
+            "pd_output_progress_status",
+            "narrative_assessment",
+            "total_cumulative_progress",
+            "achievement_in_period",
+            "calculation_across_locations",
+            "location",
+            "p_code",
+            "location_ref_id",
+            "total_cumulative_progress_in_location",
+        ).order_by("period_end", "progress_report", "location", "p_code", "datamart_id")
+        if _ident(by_source, pd.id, row["etools_indicator_id"], row["indicator"]) == ident
+    ]
     periods: dict[str, dict[str, Any]] = {}
     by_location: dict[str, dict[str, Any]] = {}
-    for row in reports_qs.filter(report_type=filters.report_type).order_by("period_end"):
+    for row in mine:
+        if row["report_type"] != filters.report_type:
+            continue
+        report_key = row["progress_report"] or ""
         period = periods.setdefault(
-            row.progress_report,
+            report_key,
             {
-                "key": row.progress_report,
-                "report": row.report_number or row.progress_report,
-                "start": row.period_start,
-                "end": row.period_end,
-                "status": row.report_status,
-                "due": row.due_date,
-                "submitted": row.submission_date,
-                "total": 0.0,
+                "key": report_key,
+                "report": row["report_number"] or report_key,
+                "start": row["period_start"],
+                "end": row["period_end"],
+                "status": row["report_status"],
+                "due": row["due_date"],
+                "submitted": row["submission_date"],
+                "method": "",
+                "values": [],
             },
         )
-        value = number(row.achievement_in_period)
+        period["method"] = period["method"] or row["calculation_across_locations"]
+        value = number(row["achievement_in_period"])
+        period["values"].append(value)
         loc = by_location.setdefault(
-            row.location or "—",
+            location_key(row["p_code"], row["location"]),
             {
-                "location": row.location or "—",
-                "p_code": row.p_code or "",
-                "location_id": row.location_ref_id,
-                "cells": {},
+                "location": row["location"] or "—",
+                "p_code": row["p_code"] or "",
+                "location_id": row["location_ref_id"],
+                "values": defaultdict(list),
                 "cumulative": None,
             },
         )
-        if row.p_code and not loc["p_code"]:
-            loc["p_code"], loc["location_id"] = row.p_code, row.location_ref_id
+        if loc["location_id"] is None:
+            loc["location_id"] = row["location_ref_id"]
         if value is not None:
-            loc["cells"][row.progress_report] = value
-            period["total"] += value
-        cumulative = number(row.total_cumulative_progress_in_location)
-        if cumulative is not None:
-            loc["cumulative"] = cumulative
-    all_reports = reports_qs.values(
-        "progress_report",
-        "report_type",
-        "report_number",
-        "period_start",
-        "period_end",
-        "due_date",
-        "submission_date",
-        "report_status",
-        "pd_output_progress_status",
-        "narrative_assessment",
-        "total_cumulative_progress",
-    ).order_by("-period_end", "report_type")
-    seen, reports = set(), []
-    for r in all_reports:
-        if r["progress_report"] in seen:
-            continue
-        seen.add(r["progress_report"])
-        reports.append(r)
+            loc["values"][report_key].append(value)
+        order = (row["period_end"] or datetime.date.min, report_key)
+        _later(loc, order, number(row["total_cumulative_progress_in_location"]))
+    # a report's cells and its "All locations" total combine the rows the way PRP says (sum, max
+    # or average across locations), as the grid's month does; several rows of one place add up
+    # the same way instead of the last one hiding the others
+    for period in periods.values():
+        period["total"] = combine(period["values"], period["method"])
+    for loc in by_location.values():
+        loc.pop("_order", None)
+        loc["cells"] = {
+            report_key: combine(values, periods[report_key]["method"])
+            for report_key, values in loc.pop("values").items()
+        }
+    reports: dict[str, dict[str, Any]] = {}
+    for row in mine:
+        report = reports.setdefault(row["progress_report"] or "", {**row, "total_cumulative_progress": None})
+        cumulative = number(row["total_cumulative_progress"])
+        if cumulative is not None:  # the report total: the largest its rows carry, as for the KPI
+            current = report["total_cumulative_progress"]
+            report["total_cumulative_progress"] = cumulative if current is None else max(current, cumulative)
+    ordered_reports = sorted(reports.values(), key=lambda r: (r["report_type"], r["progress_report"]))
+    ordered_reports.sort(key=lambda r: r["period_end"] or datetime.date.min, reverse=True)
     return {
         "pd": pd,
         "indicator": indicator,
         "definition": first,
         "disaggregations": sorted({x for x in same.values_list("disaggregation_name", flat=True) if x}),
         "planned_locations": sorted({x for x in same.values_list("location_name", flat=True) if x}),
-        "periods": list(periods.values()),
-        "by_location": sorted(by_location.values(), key=lambda loc: loc["location"]),
-        "reports": reports,
+        "periods": sorted(periods.values(), key=lambda p: (p["end"] or datetime.date.min, p["key"])),
+        "by_location": sorted(by_location.values(), key=lambda loc: (loc["location"], loc["p_code"])),
+        "reports": ordered_reports,
         "report_type": filters.report_type,
         "year": year,
     }

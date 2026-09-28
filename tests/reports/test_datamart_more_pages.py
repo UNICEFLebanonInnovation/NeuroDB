@@ -263,3 +263,20 @@ def test_assistant_tools(data):
     partner = tools.run("partner_details", {"partner_id": data["partner"].id})
     assert partner["hact_by_year"][0]["programmatic_visits_done_required"] == [1, 2]
     assert partner["partner_reporting"]["late"] == 1
+
+
+def test_fr_heading_counts_every_header_row_like_the_table(data):
+    """Two header rows with one FR number: the heading adds both, as the table and /funds/ do."""
+    from neurodb.datamart.services import programme_datamart
+
+    dm.FundsReservationHeader.objects.create(
+        datamart_id=2, intervention=data["pd"], fr_number="0400001", total_amt=Decimal("500"),
+        actual_amt=Decimal("100"), outstanding_amt=Decimal("400"), start_date=TODAY - datetime.timedelta(days=30),
+    )  # fmt: skip
+    detail = programme_datamart(data["pd"])
+    assert (detail["fr_count"], detail["fr_total"], detail["fr_actual"]) == (
+        2,
+        Decimal("1500"),
+        Decimal("500"),
+    )
+    assert len(detail["fr_headers"]) == 2

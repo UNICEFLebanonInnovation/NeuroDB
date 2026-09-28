@@ -32,6 +32,11 @@ class Navigation:
     neuro_year: ReportingYear | None = None
     hpm_year: ReportingYear | None = None
 
+    @property
+    def database_count(self) -> int:
+        """Databases listed (a section may hold several), the figure the Databases page counts."""
+        return sum(len(s.databases) for s in self.sections)
+
 
 def current_year() -> ReportingYear | None:
     return (

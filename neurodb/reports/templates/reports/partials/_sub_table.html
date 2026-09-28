@@ -13,7 +13,7 @@
   {% for r in rows %}
     <tr>
       <td><span class="cell-title">{{ r.label|default:r.name }}</span><span class="cell-sub mono">{{ r.awp_code|default:"" }}</span></td>
-      <td><span class="chip">{{ r.effect|default:"TOTAL" }}</span>{% if not r.listed %} <span class="small text-muted">{% trans "hidden" %}</span>{% endif %}</td>
+      <td>{% if r.effect %}<span class="chip">{{ r.effect }}</span>{% else %}<span class="chip">—</span> <span class="small text-muted">{% trans "not counted" %}</span>{% endif %}{% if not r.listed %} <span class="small text-muted">{% trans "hidden" %}</span>{% endif %}</td>
       <td>{{ r.aggregation_method|default:"SUM" }}</td>
       <td class="num">{{ r.link_target|default:r.target|number }}</td>
       <td class="num">{{ r.value|number }}</td>

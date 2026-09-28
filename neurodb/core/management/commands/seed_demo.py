@@ -17,6 +17,7 @@ from django.conf import settings
 from django.contrib.auth.models import Group
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.db.models import Sum
 from django.utils import timezone
 
 from neurodb.accounts.models import Section, User
@@ -283,7 +284,7 @@ class Command(BaseCommand):
                     database=db,
                     name=f"{label} ({gender.lower()})",
                     awp_code=f"{awp}.{n}",
-                    aggregation_method="SUM" if method != "COUNT" else "COUNT",
+                    aggregation_method="SUM",  # sub-indicators allow only SUM and AVERAGE
                 )
                 sub.indicators.set([leaf for leaf in leaves if leaf.gender == gender])
                 MasterSubIndicator.objects.create(master=master, sub=sub, effect="TOTAL", sequence=n)
@@ -449,9 +450,19 @@ class Command(BaseCommand):
             )
 
     def _population(self, rng) -> None:
+        """National figures are the sums of the governorate figures (and of the age bands), as the
+        real loader computes them, so the KPIs agree with the tables' footers."""
+        children_by_gov = dict(
+            PopulationFigure.objects.filter(year=2025, category="children", level="governorate")
+            .values_list("nationality")
+            .annotate(total=Sum("value"))
+        )  # written by seed_etools (the overview's coverage denominators)
+        bands = ("0-4", "5-9", "10-14", "15-19", "20-59", "60+")
         figures = []
         for nat, share in (("LEB", 0.62), ("SYR", 0.30), ("PRL", 0.04), ("PRS", 0.01), ("OTH", 0.03)):
-            total = int(5_800_000 * share)
+            scale = int(5_800_000 * share)
+            governorates = [int(scale * rng.uniform(0.06, 0.2)) for _ in GOVERNORATES]
+            total = sum(governorates)
             figures.append(
                 PopulationFigure(
                     year=2025, nationality=nat, level="national", value=total, category="total", source="Demo"
@@ -462,12 +473,12 @@ class Command(BaseCommand):
                     year=2025,
                     nationality=nat,
                     level="national",
-                    value=int(total * 0.38),
+                    value=children_by_gov.get(nat) or int(total * 0.38),
                     category="children",
                     source="Demo",
                 )
             )
-            for code, name, _ in GOVERNORATES:
+            for (code, name, _), value in zip(GOVERNORATES, governorates, strict=True):
                 figures.append(
                     PopulationFigure(
                         year=2025,
@@ -475,19 +486,22 @@ class Command(BaseCommand):
                         level="governorate",
                         area_code=code,
                         area_name=name,
-                        value=int(total * rng.uniform(0.06, 0.2)),
+                        value=value,
                         category="total",
                         source="Demo",
                     )
                 )
-            for band in ("0-4", "5-9", "10-14", "15-19", "20-59", "60+"):
+            weights = [rng.uniform(0.05, 0.3) for _ in bands]
+            values = [int(total * w / sum(weights)) for w in weights]
+            values[-1] += total - sum(values)  # the bands add up to the national total
+            for band, value in zip(bands, values, strict=True):
                 figures.append(
                     PopulationFigure(
                         year=2025,
                         nationality=nat,
                         level="national",
                         age_group=band,
-                        value=int(total * rng.uniform(0.05, 0.3)),
+                        value=value,
                         category="total",
                         source="Demo",
                     )
@@ -507,8 +521,9 @@ class Command(BaseCommand):
             run = SyncRun.objects.create(
                 job=job,
                 status=status,
-                rows_in=1200,
-                rows_written=1180 if status != "failed" else 0,
+                # read = written + failed; a run that failed upstream read nothing
+                rows_in=1200 if status != "failed" else 0,
+                rows_written={"succeeded": 1200, "partial": 1180}.get(status, 0),
                 rows_failed=20 if status == "partial" else 0,
                 error="Upstream returned 503" if status == "failed" else "",
             )

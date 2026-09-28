@@ -354,6 +354,30 @@ def donor_line_items(detail: dict[str, Any]) -> list[Any]:
     return [line for fr in frs for line in (fr.get("line_item_details") or [])]
 
 
+def donors_set_of(detail: dict[str, Any]) -> list[dict[str, Any]]:
+    """``PCA.donors_set`` from the FR line items, in the shape the Datamart sync writes (one entry per
+    donor and grant, ``value`` = the lines' overall amounts): the donor pages read ``value``, and raw
+    line items have none, so writing them would show every donation as 0 until the next Datamart run."""
+    totals: dict[tuple[str, str, str], float] = {}
+    for line in donor_line_items(detail):
+        if not isinstance(line, dict):
+            continue
+        key = (
+            str(line.get("donor") or "Unknown"),
+            str(line.get("donor_code") or ""),
+            str(line.get("grant_number") or ""),
+        )
+        try:
+            amount = float(line.get("overall_amount") or 0)
+        except (TypeError, ValueError):
+            amount = 0.0
+        totals[key] = totals.get(key, 0.0) + amount
+    return [
+        {"donor": donor, "donor_code": code, "grant_number": grant, "value": value}
+        for (donor, code, grant), value in sorted(totals.items())
+    ]
+
+
 def sync_intervention_details(run: SyncRun, *, client: EToolsClient | None = None) -> SyncRun:
     """``/api/v2/interventions/{id}/`` for PCAs with donors (v2 ``sync_intervention_individual_data``)."""
     client = client or EToolsClient()
@@ -365,7 +389,7 @@ def sync_intervention_details(run: SyncRun, *, client: EToolsClient | None = Non
         intervention.agreement = refs.by_etl_id(Agreement, item.get("agreement"))
         assign(intervention, item, INTERVENTION_DETAIL_FIELDS)
         assign(intervention, item, {"end_date": "end"})
-        intervention.donors_set = donor_line_items(item)
+        intervention.donors_set = donors_set_of(item)
         intervention.save()
 
     def body() -> dict[str, Any]:

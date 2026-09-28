@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from django import template
@@ -11,6 +13,26 @@ from django.utils.translation import gettext_lazy as _
 from neurodb.indicators.services.tracking import LABELS
 
 register = template.Library()
+
+
+def half_up(value: float, digits: int = 0) -> float | int:
+    """``value`` rounded with halves away from zero (12.5 -> 13, 0.45 -> 0.5), the rule of Django's
+    ``floatformat``; Python's ``round`` and ``f"{x:.0f}"`` round halves to even (12.5 -> 12). An int
+    when ``digits`` is 0."""
+    if not math.isfinite(value):
+        return value
+    rounded = Decimal(str(value)).quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP)
+    return int(rounded) if digits <= 0 else float(rounded)
+
+
+def fixed(value: float, digits: int = 0) -> str:
+    """``value`` with a thousands separator and ``digits`` decimals, halves rounded up (see
+    :func:`half_up`): every number the pages show goes through here or ``floatformat``."""
+    if not math.isfinite(value):
+        return str(value)
+    rounded = Decimal(str(value)).quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP)
+    return f"{rounded:,.{max(digits, 0)}f}"
+
 
 STATUS_VARIANTS = {
     "on_track": "success",
@@ -64,7 +86,7 @@ def number(value: Any, digits: int = 1) -> str:
         return str(value)
     if number_value.is_integer():
         return f"{int(number_value):,}"
-    return f"{number_value:,.{digits}f}"
+    return fixed(number_value, digits)
 
 
 @register.filter
@@ -72,7 +94,7 @@ def percent(value: Any, digits: int = 1) -> str:
     if value is None or value == "":
         return "—"
     try:
-        return f"{float(value):,.{digits}f}%"
+        return f"{fixed(float(value), digits)}%"
     except (TypeError, ValueError):
         return str(value)
 
@@ -91,9 +113,9 @@ def money(value: Any) -> str:
     for threshold, suffix in ((1_000_000_000, "B"), (1_000_000, "M"), (1_000, "k")):
         if amount >= threshold:
             scaled = amount / threshold
-            text = f"{scaled:,.0f}" if scaled >= 100 else f"{scaled:,.1f}".removesuffix(".0")
+            text = fixed(scaled, 0) if scaled >= 100 else fixed(scaled, 1).removesuffix(".0")
             return f"{sign}${text}{suffix}"
-    return f"{sign}${amount:,.0f}"
+    return f"{sign}${fixed(amount, 0)}"
 
 
 @register.inclusion_tag("components/status_pill.html")

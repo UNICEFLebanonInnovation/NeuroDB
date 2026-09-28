@@ -13,6 +13,8 @@ class PopulationFigure(models.Model):
         SYR = "SYR", "Syrian"
         PRS = "PRS", "Palestinian refugees from Syria"
         PRL = "PRL", "Palestinian refugees in Lebanon"
+        # The workbook's age bands, sex and children figures cover all Palestinians (PRL + PRS)
+        PAL = "PAL", "Palestinians (PRL + PRS)"
         OTH = "OTH", "Other"
         ALL = "ALL", "All"
 

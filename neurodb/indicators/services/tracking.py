@@ -35,12 +35,19 @@ class Tracking:
 
 
 def tracking(
-    value: float | None, target: float | None, year: int, today: datetime.date | None = None
+    value: float | None,
+    target: float | None,
+    year: int,
+    today: datetime.date | None = None,
+    *,
+    prorate: bool = True,
 ) -> Tracking:
+    """``prorate=False`` compares with the whole target: a ratio (a share of girls, a rate) is not
+    expected to grow with the year, so 48.8 % against 50 % is on track in March as in December."""
     if not target or target <= 0:
         return Tracking(NO_TARGET, None)
     achieved = (value or 0) * 100 / target
-    elapsed = percentage_of_year_elapsed(year, today)
+    elapsed = percentage_of_year_elapsed(year, today) if prorate else 100.0
     if achieved - elapsed >= TOLERANCE:
         return Tracking(OVER_TARGET, achieved)
     if elapsed - achieved >= TOLERANCE:

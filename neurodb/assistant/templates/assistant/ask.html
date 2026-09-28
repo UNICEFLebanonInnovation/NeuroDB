@@ -6,7 +6,7 @@
   {% include "components/empty_state.html" with icon="sparkle" title=_("The AI assistant is not set up yet") message=_("An administrator needs to add the OpenAI API key (OPENAI_API_KEY) to the application settings.") %}
 </div>
 {% else %}
-<div class="ask" data-ask data-stream-url="{% url 'assistant:stream' %}" data-initial-question="{{ initial_question }}">
+<div class="ask" data-ask data-stream-url="{% url 'assistant:stream' %}">
   <div class="ask__thread" id="ask-thread" aria-live="polite">
     <div class="ask__intro" id="ask-intro">
       <div class="ask__intro-icon" aria-hidden="true">{% include "components/icon.html" with name="sparkle" %}</div>
@@ -26,7 +26,7 @@
 
   <form class="ask__form panel" id="ask-form" autocomplete="off">
     <label class="visually-hidden" for="ask-input">{% trans "Your question" %}</label>
-    <textarea id="ask-input" name="question" rows="1" maxlength="1000" class="form-control ask__input" placeholder="{% trans 'Ask a question, e.g. which partners reported the most in Akkar this year?' %}" required></textarea>
+    <textarea id="ask-input" name="question" rows="1" maxlength="1000" class="form-control ask__input" placeholder="{% trans 'Ask a question, e.g. which partners reported the most in Akkar this year?' %}" required autofocus>{{ initial_question }}</textarea>
     <div class="ask__actions">
       <button type="button" class="btn btn-link btn-sm" id="ask-new" hidden>{% trans "New conversation" %}</button>
       <button type="button" class="btn btn-outline-secondary btn-sm" id="ask-stop" hidden>{% trans "Stop" %}</button>

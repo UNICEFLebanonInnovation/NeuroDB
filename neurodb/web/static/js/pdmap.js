@@ -51,6 +51,8 @@ function detail(place, data, config, el) {
     if (!groups.has(key)) groups.set(key, { partner: r.partner, partner_id: r.partner_id, pd: data.pds[r.pd_id] || { id: r.pd_id, number: r.pd }, rows: [] });
     groups.get(key).rows.push(r);
   });
+  // the detail opens for the map's year and report type, not the current year's QPR
+  const q = `?report_type=${encodeURIComponent(data.report_type || "")}&year=${encodeURIComponent(data.year || "")}`;
   const html = [...groups.values()]
     .map((g) => {
       const pd = g.pd;
@@ -61,7 +63,7 @@ function detail(place, data, config, el) {
       const rows = g.rows
         .map(
           (r) => `<tr>
-            <td><a class="cell-title" href="${r.url}?year=${encodeURIComponent(data.year || "")}" hx-get="${r.url}" hx-target="#modal-content" hx-push-url="false">${escapeHTML(r.indicator)}</a>${r.output ? `<span class="cell-sub">${escapeHTML(r.output)}</span>` : ""}${r.planned && !r.reported ? `<span class="cell-sub">Planned here, nothing reported yet</span>` : ""}</td>
+            <td><a class="cell-title" href="${r.url}${q}" hx-get="${r.url}${q}" hx-target="#modal-content" hx-push-url="false">${escapeHTML(r.indicator)}</a>${r.output ? `<span class="cell-sub">${escapeHTML(r.output)}</span>` : ""}${r.planned && !r.reported ? `<span class="cell-sub">Planned here, nothing reported yet</span>` : ""}</td>
             <td class="num">${num(r.target)}</td>
             <td class="num">${num(r.achieved_here)}</td>
             <td class="num">${num(r.cumulative_here)}</td>
@@ -104,6 +106,10 @@ function fillTable(tbody, points, onPick, filter = "") {
 function kpis(data) {
   const box = document.querySelector("[data-pdmap-kpis]");
   if (!box) return;
+  if (!data) {
+    box.querySelectorAll(".kpi__value").forEach((el) => { el.textContent = "—"; });
+    return;
+  }
   const t = data.totals;
   const values = [t.locations, t.indicators, t.programme_documents, t.partners, t.status_counts.on_track || 0, t.status_counts.off_track || 0, t.status_counts.not_reported || 0];
   box.querySelectorAll(".kpi__value").forEach((el, i) => { el.textContent = fmt(values[i] ?? 0); });
@@ -116,9 +122,18 @@ export async function init(el) {
   const totals = document.querySelector("[data-map-totals]");
   const search = document.querySelector("[data-pdmap-search]");
   loadStyle("maplibreCss");
-  const [data] = await Promise.all([fetchJSON(config.api), loadScript("maplibre")]);
-  const maplibregl = window.maplibregl;
-  maplibregl.setWorkerUrl(asset("maplibreWorker"));
+  const library = loadScript("maplibre");
+  library.catch(() => {}); // awaited below, once the figures are shown
+  // the figures, the location table and the details do not need the map: fill them first, so a
+  // map library that fails to load leaves only the map area with an error
+  let data;
+  try {
+    data = await fetchJSON(config.api);
+  } catch (err) {
+    kpis(null);
+    if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">—</td></tr>`;
+    throw err;
+  }
   const byKey = new Map(data.points.map((p) => [p.key, p]));
   kpis(data);
   if (totals) totals.textContent = `${fmt(data.totals.located)} on the map${data.totals.approximate ? ` (${fmt(data.totals.approximate)} approximate)` : ""}${data.unlocated.length ? ` · ${fmt(data.unlocated.length)} without coordinates` : ""}`;
@@ -129,19 +144,22 @@ export async function init(el) {
       .map((p) => `<span class="chip">${escapeHTML(p.name || p.p_code)}${p.p_code ? ` <span class="mono">${escapeHTML(p.p_code)}</span>` : ""} · ${fmt(p.indicators)}</span>`)
       .join("");
   }
-
-  const map = new maplibregl.Map({ container: canvas, style: styleSpec(), ...LEBANON, attributionControl: { compact: true }, cooperativeGestures: false });
-  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
-  map.addControl(new maplibregl.FullscreenControl(), "top-right");
+  let map = null;
   const pick = (key, fly = true) => {
     const p = byKey.get(key);
     if (!p) return;
     detail(p, data, config, el);
-    if (fly) map.flyTo({ center: [p.longitude, p.latitude], zoom: Math.max(map.getZoom(), 10) });
+    if (fly && map) map.flyTo({ center: [p.longitude, p.latitude], zoom: Math.max(map.getZoom(), 10) });
   };
   fillTable(tbody, data.points, pick);
   if (search) search.addEventListener("input", () => fillTable(tbody, data.points, pick, search.value));
 
+  await library;
+  const maplibregl = window.maplibregl;
+  maplibregl.setWorkerUrl(asset("maplibreWorker"));
+  map = new maplibregl.Map({ container: canvas, style: styleSpec(), ...LEBANON, attributionControl: { compact: true }, cooperativeGestures: false });
+  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+  map.addControl(new maplibregl.FullscreenControl(), "top-right");
   map.on("load", () => {
     const max = Math.max(2, ...data.points.map((p) => p.indicators)); // interpolate stops must ascend strictly
     const features = data.points.map((p) => ({

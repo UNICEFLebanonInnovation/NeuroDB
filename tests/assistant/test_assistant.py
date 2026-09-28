@@ -661,8 +661,13 @@ def test_assistant_requires_sign_in(client, db):
 
 @override_settings(**ENABLED)
 def test_ask_page_and_search_entry(client_viewer, hierarchy):
-    page = client_viewer.get(reverse("assistant:ask") + "?q=hello").content.decode()
-    assert 'data-initial-question="hello"' in page and "js/ask.js" in page
+    page = client_viewer.get(reverse("assistant:ask") + "?q=hello <b>").content.decode()
+    # /ask/?q= only fills the box (escaped); the user presses Ask: nothing submits it on load
+    assert "required autofocus>hello &lt;b&gt;</textarea>" in page and "js/ask.js" in page
+    assert "data-initial-question" not in page
+    ask_js = (settings.BASE_DIR / "neurodb/web/static/js/ask.js").read_text()
+    assert "initialQuestion" not in ask_js and ask_js.count("requestSubmit") == 2  # Enter key, examples
+    assert not AssistantQuestion.objects.exists()
     assert "OpenAI API" in page
 
     search = reverse("reports:search")

@@ -39,12 +39,14 @@ SEX_COLUMNS = {
     "PAL": ("All Palestinian Female", "All Palestinian Male"),
     "ALL": (None, None),
 }
+# Nationality of a sheet's sex, age-band and children rows. The PAL sheet's are PRL + PRS together,
+# so they are stored as PAL, never as PRL (its PRL and PRS totals come from TOTAL_COLUMNS).
 NAT_OF_KEY = {
     "ALL": "ALL",
     "LEB": "LEB",
     "SYR": "SYR",
-    "PAL": "PRL",
-}  # age bands of PAL rows are stored under PRL+PRS = PAL; keep PRL
+    "PAL": "PAL",
+}
 # Governorate spellings that differ between sheets of the same workbook (2026: SYR and PAL sheets).
 # Governorate level only: "Nabatieh" is also a district.
 GOVERNORATE_ALIASES = {"Nabatieh": "El Nabatieh"}

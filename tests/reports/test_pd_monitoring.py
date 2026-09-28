@@ -430,3 +430,224 @@ def test_map_page_api_and_links(client_viewer, data, places, frozen_today):
     assert "Implementation map" in programme
     partner = client_viewer.get(reverse("reports:partner_profile", args=[data["partner"].id])).text
     assert reverse("reports:pd_monitoring_map") + "?partner=" in partner
+
+
+# ------------------------------------------------------------------ regressions: page integrity
+
+
+def _girls(filters):
+    rows = monitoring.indicators(filters, today=TODAY)
+    return next(r for r in rows if "girls" in r.title and r.pd.number != "LEB/PD3")
+
+
+def test_report_cumulative_does_not_depend_on_row_order_or_filters(data):
+    """Location rows of one report carrying different totals: the report total is the largest,
+    whichever row is read last, and the same indicator reads the same under every filter."""
+    girls = data["girls"]
+    for akkar, bekaa in (("450", "550"), ("550", "450")):
+        dm.ReportedIndicator.objects.filter(indicator=girls, progress_report="PR-2", location="Akkar").update(
+            total_cumulative_progress=akkar
+        )
+        dm.ReportedIndicator.objects.filter(indicator=girls, progress_report="PR-2", location="Bekaa").update(
+            total_cumulative_progress=bekaa
+        )
+        assert _girls(monitoring.Filters(year=2026)).cumulative == 550.0
+    # another PD in the query changes nothing for this one
+    other = PCA.objects.create(
+        etl_id="13",
+        partner=data["partner"],
+        partner_name=data["partner"].name,
+        number="LEB/PD3",
+        title="Other",
+        status="active",
+        start=datetime.date(2026, 1, 1),
+        end=datetime.date(2026, 12, 31),
+    )
+    dm.PDIndicator.objects.create(
+        datamart_id=50, source_id=500, intervention=other, title=girls, section_name="Education"
+    )
+    report_rows(
+        other, data["partner"], girls, "PR-9", "QPR1", "QPR", datetime.date(2026, 3, 31), {"Tyre": 5}, 5
+    )
+    views = [
+        monitoring.Filters(year=2026),
+        monitoring.Filters(year=2026, scope="all"),
+        monitoring.Filters(year=2026, scope="year"),
+        monitoring.Filters(year=2026, pds=["LEB/PD1"]),
+        monitoring.Filters(year=2026, partners=[str(data["partner"].id)]),
+        monitoring.Filters(year=2026, sections=["Child Protection"]),
+        monitoring.Filters(year=2026, tags={"gender": ["Girls"]}),
+    ]
+    seen = {
+        (r.cumulative, r.tracking, round(r.achieved), r.cumulative_as_of, r.partner_status)
+        for r in (_girls(f) for f in views)
+    }
+    assert seen == {(550.0, "on_track", 55, datetime.date(2026, 6, 30), "On Track")}
+    detail = monitoring.indicator_detail(data["pd"], "100", "QPR", 2026, today=TODAY)
+    assert detail["indicator"].cumulative == 550.0
+    assert {r["progress_report"]: r["total_cumulative_progress"] for r in detail["reports"]}["PR-2"] == 550.0
+
+
+def test_two_reports_ending_the_same_day_are_read_by_report_id(data):
+    report_rows(
+        data["pd"],
+        data["partner"],
+        data["girls"],
+        "PR-2b",
+        "QPR2b",
+        "QPR",
+        datetime.date(2026, 6, 30),
+        {"Akkar": 1},
+        700,
+    )
+    assert _girls(monitoring.Filters(year=2026)).cumulative == 700.0  # "PR-2b" sorts after "PR-2"
+
+
+def test_a_row_of_a_filtered_out_indicator_never_falls_back_to_another_title(data):
+    # a report row carrying the boys' eTools id but the girls' title belongs to the boys indicator
+    report_rows(
+        data["pd"],
+        data["partner"],
+        data["girls"],
+        "PR-7",
+        "QPR7",
+        "QPR",
+        datetime.date(2026, 6, 30),
+        {"Tyre": 1},
+        9999,
+        etools_indicator_id="200",
+    )
+    assert _girls(monitoring.Filters(year=2026)).cumulative == 550.0
+    assert _girls(monitoring.Filters(year=2026, tags={"gender": ["Girls"]})).cumulative == 550.0
+
+
+def test_indicator_detail_keys_years_and_report_type_links(client_viewer, data, frozen_today):
+    pd = data["pd"]
+    for key in ("abc", "r", "rx", "1e3", "r-1"):
+        assert client_viewer.get(reverse("reports:pd_indicator", args=[pd.id, key])).status_code == 404
+    url = reverse("reports:pd_indicator", args=[pd.id, "100"])
+    modal = client_viewer.get(url, {"year": "2026"}, headers={"HX-Request": "true"})
+    # the report-type switch reloads this detail, not the page the modal was opened from
+    assert (
+        f'href="{url}?report_type=HR&amp;year=2026" hx-get="{url}?report_type=HR&amp;year=2026"' in modal.text
+    )
+    for year in ("99999", "10000", "0", "²"):
+        for name, args in (
+            ("reports:pd_monitoring", []),
+            ("reports:pd_monitoring_map", []),
+            ("reports:pd_indicator", [pd.id, "100"]),
+            ("reports:partner_reporting", []),
+            ("reports:funds", []),
+            ("reports:monitoring", []),
+            ("reports:assurance", []),
+        ):
+            assert (
+                client_viewer.get(reverse(name, args=args), {"year": year, "scope": "year"}).status_code
+                == 200
+            )
+        assert client_viewer.get(reverse("api:pd_map"), {"year": year, "scope": "year"}).status_code == 200
+    assert monitoring.year_param("2026") == 2026 and monitoring.year_param("99999") is None
+
+
+def test_indicator_detail_honours_the_year_and_combines_rows(data):
+    pd = data["pd"]
+    before = monitoring.indicator_detail(pd, "100", "QPR", 2025, today=TODAY)
+    assert before["periods"] == [] and before["reports"] == [] and before["by_location"] == []
+    assert before["indicator"].tracking == "not_reported"
+    # a second Akkar row in QPR1 (another disaggregation) adds up in the cell as in the total
+    report_rows(
+        pd,
+        data["partner"],
+        data["girls"],
+        "PR-1",
+        "QPR1",
+        "QPR",
+        datetime.date(2026, 3, 31),
+        {"akkar": 7},
+        300,
+    )
+    detail = monitoring.indicator_detail(pd, "100", "QPR", 2026, today=TODAY)
+    akkar = next(loc for loc in detail["by_location"] if loc["location"] == "Akkar")
+    assert akkar["cells"]["PR-1"] == 207.0 and detail["periods"][0]["total"] == 307.0
+    assert sum(loc["cells"].get("PR-1", 0) for loc in detail["by_location"]) == detail["periods"][0]["total"]
+    # a "max across locations" indicator: the All locations total is the largest, as on the grid
+    dm.ReportedIndicator.objects.filter(indicator=data["girls"]).update(calculation_across_locations="max")
+    detail = monitoring.indicator_detail(pd, "100", "QPR", 2026, today=TODAY)
+    assert [p["total"] for p in detail["periods"]] == [200.0, 150.0]
+    assert _girls(monitoring.Filters(year=2026)).months == {3: 200.0, 6: 150.0}
+
+
+def test_r_keys_match_only_their_own_rows(data):
+    pd = data["pd"]
+    dm.PDIndicator.objects.create(datamart_id=70, intervention=pd, title="# of caregivers", section_name="CP")
+    # a row of another indicator, without an eTools id
+    report_rows(
+        pd, data["partner"], data["boys"], "PR-5", "QPR5", "QPR", datetime.date(2026, 5, 31), {"Akkar": 3}, 3
+    )
+    detail = monitoring.indicator_detail(pd, "r70", "QPR", 2026, today=TODAY)
+    assert detail["periods"] == [] and detail["reports"] == []
+
+
+def test_pd_without_number_or_partner(client_viewer, data, frozen_today):
+    pd = data["pd"]
+    PCA.objects.filter(pk=pd.pk).update(number=None, partner=None, partner_name=None)
+    PCA.objects.filter(pk=data["closed"].pk).update(status="active")
+    grid = client_viewer.get(reverse("reports:pd_monitoring"), {"year": "2026", "scope": "all"})
+    assert grid.status_code == 200 and ">None<" not in grid.text and " None " not in grid.text
+    detail = monitoring.indicator_detail(PCA.objects.get(pk=pd.pk), "100", "QPR", 2026, today=TODAY)
+    assert detail["indicator"] is not None and detail["indicator"].cumulative == 550.0
+    # the map counts partners as the grid does: a PD with no linked partner adds none
+    out = monitoring.map_points(monitoring.Filters(year=2026, scope="all"), today=TODAY)
+    summary = monitoring.summary(
+        monitoring.indicators(monitoring.Filters(year=2026, scope="all"), TODAY),
+        monitoring.Filters(year=2026),
+    )
+    assert out["totals"]["partners"] == summary["partners"] == 1
+    assert (out["year"], out["report_type"]) == (2026, "QPR")
+
+
+def test_percentage_indicator_without_target(client_viewer, data, frozen_today):
+    dm.PDIndicator.objects.filter(source_id=200).update(display_type="percentage", target_numerator=None)
+    text = client_viewer.get(reverse("reports:pd_monitoring"), {"year": "2026"}).text
+    assert "—%" not in text
+
+
+def test_partner_reporting_lists_a_report_once_when_its_rows_differ(client_viewer, data):
+    from neurodb.datamart import services
+
+    before = len(services.progress_reports(dm.ReportedIndicator.objects.all()))
+    # a partial re-sync: the partner link is missing on one row of PR-1
+    row = dm.ReportedIndicator.objects.filter(progress_report="PR-1", location="Bekaa").first()
+    dm.ReportedIndicator.objects.filter(pk=row.pk).update(partner=None, submission_date=None)
+    reports = services.progress_reports(dm.ReportedIndicator.objects.all())
+    assert len(reports) == before
+    pr1 = next(r for r in reports if r["progress_report"] == "PR-1")
+    assert pr1["partner_id"] == data["partner"].id and pr1["submission_date"] and pr1["indicators"] == 2
+    page = client_viewer.get(reverse("reports:partner_reporting"))
+    assert page.status_code == 200 and page.context["data"]["summary"]["reports"] == before
+
+
+def test_map_counts_findings_and_filter_options_without_duplicates(data, places):
+    pd = data["pd"]
+    dm.PDIndicator.objects.filter(location_name="Akkar").update(
+        location_pcode="LB1", location=places["akkar"]
+    )
+    dm.PDIndicator.objects.create(
+        datamart_id=80, intervention=pd, title="# of girls in school", tag_gender="Girls", section_name="CP"
+    )
+    PCA.objects.create(
+        etl_id="14", partner=data["partner"], number="LEB/PD4", title="Second", status="active"
+    )
+    for n in (1, 2):  # two findings, same place, rating and date; the partner has two PDs
+        dm.MonitoringFinding.objects.create(
+            datamart_id=n,
+            partner=data["partner"],
+            location=places["akkar"],
+            overall_finding_rating="On Track",
+            end_date=datetime.date(2026, 5, 1),
+        )
+    out = monitoring.map_points(monitoring.Filters(year=2026), today=TODAY)
+    akkar = next(p for p in out["points"] if p["key"] == "LB1")
+    assert akkar["monitoring"]["findings"] == 2
+    options = monitoring.filter_options(monitoring.Filters(year=2026))
+    assert options["gender"] == ["Boys", "Girls"]

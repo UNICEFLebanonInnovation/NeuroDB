@@ -3,7 +3,7 @@
 {% block content %}
 <div class="kpi-grid">
   {% trans "Aggregation" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=master.aggregation_method|default:"SUM" %}
-  {% trans "Target" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=master.awp_target|number %}
+  {% trans "Target" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=master.awp_target|default:None|number %}
   {% trans "Sub-indicators" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=rows|length %}
 </div>
 <section class="panel p-0">

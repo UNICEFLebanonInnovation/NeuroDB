@@ -9,5 +9,11 @@
     {% for q in quarters %}<label><input class="visually-hidden" type="radio" name="quarter" value="{{ q }}" {% if data.quarter == q %}checked{% endif %}><span>{{ q }}</span></label>{% endfor %}
   </div>
   <span class="small text-muted ms-auto">{% blocktrans with cutoff=data.cutoff|date:"j M Y" %}Edits after {{ cutoff }} are excluded{% endblocktrans %}</span>
+  {% if other_years %}
+  <div class="dropdown">
+    <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">{% trans "Other years" %}</button>
+    <ul class="dropdown-menu dropdown-menu-end">{% for r in other_years %}<li><a class="dropdown-item" href="{{ r.url }}">{{ r.year }} · {{ r.name }}</a></li>{% endfor %}</ul>
+  </div>
+  {% endif %}
   <noscript><button class="btn btn-primary btn-sm" type="submit">{% trans "Apply" %}</button></noscript>
 </form>

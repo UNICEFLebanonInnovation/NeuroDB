@@ -11,6 +11,9 @@ const PRESETS = {
   demographics: { rows: ["master_indicator"], cols: ["gender", "nationality"] },
 };
 const LAYOUT_KEYS = ["rows", "cols", "vals", "aggregatorName", "rendererName", "exclusions", "inclusions"];
+// Numerator/denominator links of ratio masters are not part of the master's value: leave them out by
+// default so master rows add up to what is counted (the filter on value_role can bring them back).
+const DEFAULT_EXCLUSIONS = { value_role: ["Not counted in master indicator"] };
 
 export async function init(root) {
   const config = readJSON(root.dataset.config || "pivot-config");
@@ -31,7 +34,8 @@ export async function init(root) {
   const $ = window.jQuery;
   const utils = $.pivotUtilities;
   const renderers = $.extend({}, utils.renderers, utils.plotly_renderers || {}, utils.export_renderers || {});
-  if (count) count.textContent = `${fmt(rows.length)} records`;
+  // One pivot row per indicator link, month, place, partner and breakdown, not per ActivityInfo record.
+  if (count) count.textContent = `${fmt(rows.length)} pivot rows`;
 
   if (!rows.length) {
     out.innerHTML = '<div class="state state--empty"><p class="state__title">No ActivityInfo records for this year yet</p><p class="state__message">Run the data import from the administration pages, then reload.</p></div>';
@@ -39,7 +43,7 @@ export async function init(root) {
   }
 
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const HIDDEN = ["sequence", "database_ai_id", "month_num"];
+  const HIDDEN = ["master_id", "sequence", "database_ai_id", "month_num"];
   const numericOnly = Object.keys(rows[0]).filter((k) => k !== "indicator_value");
 
   const draw = (layout = {}) => {
@@ -53,6 +57,7 @@ export async function init(root) {
       vals: ["indicator_value"],
       aggregatorName: "Integer Sum",
       rendererName: "Table",
+      exclusions: DEFAULT_EXCLUSIONS,
       unusedAttrsVertical: true,
       menuLimit: 1000,
       hiddenFromDragDrop: ["indicator_value"],
@@ -80,7 +85,7 @@ export async function init(root) {
   root.querySelectorAll("[data-preset]").forEach((btn) => {
     btn.addEventListener("click", () => {
       root.querySelectorAll("[data-preset]").forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
-      draw({ ...current, ...PRESETS[btn.dataset.preset], exclusions: {}, inclusions: {} });
+      draw({ ...current, ...PRESETS[btn.dataset.preset], exclusions: DEFAULT_EXCLUSIONS, inclusions: {} });
     });
   });
 

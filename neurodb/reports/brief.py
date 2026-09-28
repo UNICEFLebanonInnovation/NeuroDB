@@ -38,11 +38,13 @@ from neurodb.partnerships.models import PCA, PartnerLink
 from neurodb.reports import overview
 from neurodb.reports.models import SectionPlan
 from neurodb.review.models import DailyReview, FindingAssignment, ReviewFinding
+from neurodb.web.templatetags.ui import half_up, percent
+from neurodb.web.templatetags.ui import money as money_text
 
 logger = logging.getLogger(__name__)
 
-CACHE_SECONDS = 600
-CACHE_VERSION = 1
+CACHE_SECONDS = 120
+CACHE_VERSION = 2
 RULES_VERSION = "v1"
 MONTH_LABELS = overview.MONTH_LABELS
 PROJECTION_MONTHS = 3  # the pace is the average of the last three reported months
@@ -58,7 +60,13 @@ LIFECYCLE_DAYS = 30
 DIGEST_DAYS = 7
 HIGH_RISK = overview.HIGH_RISK
 AGE_ORDER = ("Under 5", "Under 18", "Children", "Adolescents", "Youth")
-NATIONALITY_OF_POPULATION = {"LEB": "Lebanese", "SYR": "Syrian", "PRS": "Palestinian", "PRL": "Palestinian"}
+NATIONALITY_OF_POPULATION = {
+    "LEB": "Lebanese",
+    "SYR": "Syrian",
+    "PRS": "Palestinian",
+    "PRL": "Palestinian",
+    "PAL": "Palestinian",
+}
 NATIONALITY_OF_TAG = {"Lebanese": "Lebanese", "Syrian": "Syrian", "Palestinian": "Palestinian"}
 
 
@@ -74,7 +82,7 @@ class Scope:
 def _pct(part: float | None, whole: float | None) -> float | None:
     if part is None or not whole:
         return None
-    return round(part * 100 / whole, 1)
+    return half_up(part * 100 / whole, 1)
 
 
 def _money(value: Any) -> float:
@@ -101,8 +109,8 @@ def _same_day_last_year(day: datetime.date) -> datetime.date:
 
 # --------------------------------------------------------------------------------- build
 def _cache_key(scope: Scope) -> str:
-    """Everything the result depends on: the overview's inputs plus the hand-entered tables and the
-    latest review (a new assignment or plan shows at once)."""
+    """Everything the result depends on: the overview's inputs plus the hand-entered tables, the
+    latest review and the last finished sync (a new assignment, plan or sync shows at once)."""
     from neurodb.datamart.models import IndicatorFlag
 
     flags = IndicatorFlag.objects.aggregate(n=Count("pk"), last=Max("updated_at"))
@@ -115,7 +123,7 @@ def _cache_key(scope: Scope) -> str:
     ryear = getattr(scope.reporting_year, "pk", "")
     fingerprint = (
         f"{flags['n']}:{flags['last']}:{plans['n']}:{plans['last']}:{owners['n']}:{owners['last']}:"
-        f"{review['last']}"
+        f"{review['last']}:{overview.latest_sync_run()}"
     )
     digest = hashlib.sha256(fingerprint.encode()).hexdigest()[:16]  # no spaces: memcached-safe
     return f"brief:v{CACHE_VERSION}:{scope.year}:{ryear}:{sections}:{scope.today}:{digest}"
@@ -292,7 +300,7 @@ class _Builder:
         monthly = block.get("monthly") or {}
         etools = sum((monthly.get("etools") or [])[: self.months_shown])
         ai = sum((monthly.get("activityinfo") or [])[: self.months_shown])
-        return round(max(etools, ai))
+        return half_up(max(etools, ai))
 
     def _headline(self) -> dict[str, Any]:
         now, prev = self.now, self.previous
@@ -308,7 +316,9 @@ class _Builder:
         counts = delivery["status_counts"]
         tracked = counts["on_track"] + counts["off_track"] + counts["over_target"]
         on_track = _pct(counts["on_track"] + counts["over_target"], tracked)
-        month_ago = self._on_track_month_ago() if not self.scope.sections else None
+        month_ago = (
+            self._on_track_month_ago() if not self.scope.sections and self.year == self.today.year else None
+        )
         tiles = [
             {
                 "key": "children",
@@ -331,8 +341,8 @@ class _Builder:
                 "format": "percent",
                 "delta": (
                     {
-                        "value": round(percent - elapsed, 1),
-                        "label": f"vs {round(elapsed)}% of the period elapsed",
+                        "value": half_up(percent - elapsed, 1),
+                        "label": f"vs {half_up(elapsed)}% of the period elapsed",
                         "good": percent >= elapsed - 10,
                         "unit": "pts",
                     }
@@ -352,7 +362,7 @@ class _Builder:
                 "delta": (
                     {
                         "value": money["disbursed_percent"],
-                        "label": f"of {_short_money(money['reserved'])} reserved",
+                        "label": f"of {money_text(money['reserved'])} reserved",
                         "good": True,
                         "unit": "% ",
                         "plain": True,
@@ -384,7 +394,7 @@ class _Builder:
                 "format": "percent",
                 "delta": (
                     {
-                        "value": round(on_track - month_ago, 1),
+                        "value": half_up(on_track - month_ago, 1),
                         "label": "pts vs 30 days ago",
                         "good": on_track >= month_ago,
                         "unit": "pts",
@@ -414,13 +424,23 @@ class _Builder:
         }
 
     def _on_track_month_ago(self) -> float | None:
+        """The tile's share ((on track + over target) of the tracked) in the review of 30 days ago, of
+        the same year: from its counts of the PDs running in the year (older reviews kept only the
+        active PDs' counts)."""
         cutoff = self.today - datetime.timedelta(days=30)
         review = (
-            DailyReview.objects.filter(status=DailyReview.Status.SUCCEEDED, date__lte=cutoff)
+            DailyReview.objects.filter(
+                status=DailyReview.Status.SUCCEEDED, date__lte=cutoff, date__year=self.year
+            )
             .order_by("-date")
             .first()
         )
-        return (review.stats or {}).get("on_track_percent") if review else None
+        if review is None:
+            return None
+        stats = review.stats or {}
+        counts = stats.get("status_counts_year") or stats.get("status_counts") or {}
+        on = (counts.get("on_track") or 0) + (counts.get("over_target") or 0)
+        return _pct(on, on + (counts.get("off_track") or 0))
 
     def _latest_review(self) -> DailyReview | None:
         if not hasattr(self, "_review"):
@@ -481,7 +501,7 @@ class _Builder:
                     "section": s["section"],
                     "achieved": s["achieved"],
                     "target": s["target"],
-                    "expected": round(s["target"] * (s["elapsed"] or 0) / 100),
+                    "expected": half_up(s["target"] * (s["elapsed"] or 0) / 100),
                     "cp_target": plan.children_target if plan and plan.children_target else None,
                     "percent": s["percent"],
                     "elapsed": s["elapsed"],
@@ -606,7 +626,7 @@ class _Builder:
         for partner_id in set(etools) | set(ai):
             if partner_id not in names:
                 continue  # an ActivityInfo partner without a PD running this year
-            e, a = round(etools.get(partner_id, 0)), round(ai.get(partner_id, 0))
+            e, a = half_up(etools.get(partner_id, 0)), half_up(ai.get(partner_id, 0))
             if not e and not a:
                 continue
             gap = _pct(e - a, max(e, a))
@@ -684,14 +704,14 @@ class _Builder:
             if row["disability"]:
                 disability += value
         ages = sorted(by_age, key=lambda a: (AGE_ORDER.index(a) if a in AGE_ORDER else 99, a))
-        population = self._population_by_nationality()
+        population, population_year = self._population_by_nationality()
         nationality = []
         for name in ("Lebanese", "Syrian", "Palestinian"):
             reached = by_nationality.get(name, 0)
             nationality.append(
                 {
                     "name": name,
-                    "reached": round(reached),
+                    "reached": half_up(reached),
                     "reached_share": _pct(reached, sum(by_nationality.values())),
                     "population_share": population.get(name),
                 }
@@ -700,21 +720,21 @@ class _Builder:
             "sex_age": {
                 "labels": ages,
                 "series": {
-                    "Girls": [round(by_age[a]["Girls"]) for a in ages],
-                    "Boys": [round(by_age[a]["Boys"]) for a in ages],
-                    "Not named": [round(by_age[a][""]) for a in ages],
+                    "Girls": [half_up(by_age[a]["Girls"]) for a in ages],
+                    "Boys": [half_up(by_age[a]["Boys"]) for a in ages],
+                    "Not named": [half_up(by_age[a][""]) for a in ages],
                 },
                 "colors": {"Girls": "--nd-series-4", "Boys": "--nd-primary", "Not named": "--nd-neutral"},
             }
             if ages
             else {},
-            "children_tagged": round(total),
+            "children_tagged": half_up(total),
             "nationality": nationality,
-            "nationality_named": round(sum(by_nationality.values())),
-            "disability": {"reached": round(disability), "share": _pct(disability, total)},
+            "nationality_named": half_up(sum(by_nationality.values())),
+            "disability": {"reached": half_up(disability), "share": _pct(disability, total)},
             "governorates": self.now["impact"]["by_governorate"],
             "districts": self._district_gaps(),
-            "population_year": self.now["impact"]["population_year"],
+            "population_year": population_year,  # of the nationality shares (the caption under them)
             "source": (
                 "The children indicators' titles (girls or boys, age band, nationality, disability), PRP "
                 "reports of the year; population shares from the population figures; districts from the "
@@ -727,20 +747,21 @@ class _Builder:
         (computed by the overview from the same rows, so nothing is read twice)."""
         return list(self.now["impact"].get("children_by_tag") or [])
 
-    def _population_by_nationality(self) -> dict[str, float | None]:
+    def _population_by_nationality(self) -> tuple[dict[str, float | None], int | None]:
+        """Each nationality's share of the child population, and the year of the figures used."""
         base = PopulationFigure.objects.filter(
             category="children", age_group="", sex="", vulnerability_level="", year__lte=self.year
         ).exclude(nationality="ALL")
         year = base.order_by("-year").values_list("year", flat=True).first()
         if year is None:
-            return {}
+            return {}, None
         level = "national" if base.filter(year=year, level="national").exists() else "governorate"
         totals: Counter[str] = Counter()
         for r in base.filter(year=year, level=level).values("nationality", "value"):
             name = NATIONALITY_OF_POPULATION.get(r["nationality"], "Other")
             totals[name] += r["value"] or 0
         whole = sum(totals.values())
-        return {name: _pct(value, whole) for name, value in totals.items()}
+        return {name: _pct(value, whole) for name, value in totals.items()}, year
 
     def _district_gaps(self) -> list[dict[str, Any]]:
         base = PopulationFigure.objects.filter(
@@ -836,7 +857,7 @@ class _Builder:
                     "partner": g["partner"],
                     "pds": g["pds"],
                     "indicators": g["indicators"],
-                    "reserved": round(money["reserved"], 2),
+                    "reserved": half_up(money["reserved"], 2),
                     "on_track_percent": g["on_track_percent"],
                     "reports_on_time_percent": _pct(reports["on_time"], reports["due"]),
                     "points_on_time_percent": _pct(points["on_time"], points["due"]),
@@ -905,7 +926,11 @@ class _Builder:
         flows = []
         for (donor, section), amount in sorted(donor_section.items(), key=lambda kv: -kv[1]):
             flows.append(
-                {"donor": donor if donor in top else "Other", "section": section, "amount": round(amount, 2)}
+                {
+                    "donor": donor if donor in top else "Other",
+                    "section": section,
+                    "amount": half_up(amount, 2),
+                }
             )
         merged: Counter[tuple[str, str]] = Counter()
         for f in flows:
@@ -915,14 +940,14 @@ class _Builder:
         for grant, amount in grant_amount.items():
             when = expiry.get(grant)
             days = (when - self.today).days if when else None
-            unspent = round(grant_unspent[grant], 2)
+            unspent = half_up(grant_unspent[grant], 2)
             if not unspent:
                 continue
             grants.append(
                 {
                     "grant": grant,
                     "donor": grant_donor.get(grant, ""),
-                    "reserved": round(amount, 2),
+                    "reserved": half_up(amount, 2),
                     "unspent": unspent,
                     "expiry": when.isoformat() if when else "",
                     "days": days,
@@ -940,21 +965,28 @@ class _Builder:
                 {
                     "section": section,
                     "required": required,
-                    "reserved": round(reserved.get(section, 0.0), 2),
+                    "reserved": half_up(reserved.get(section, 0.0), 2),
                     "percent": _pct(reserved.get(section, 0.0), required) if required else None,
                 }
             )
         return {
             "flows": {
-                "donors": [{"name": d, "amount": round(donors[d], 2)} for d in top]
+                "donors": [{"name": d, "amount": half_up(donors[d], 2)} for d in top]
                 + (
-                    [{"name": "Other", "amount": round(sum(v for d, v in donors.items() if d not in top), 2)}]
+                    [
+                        {
+                            "name": "Other",
+                            "amount": half_up(sum(v for d, v in donors.items() if d not in top), 2),
+                        }
+                    ]
                     if len(donors) > len(top)
                     else []
                 ),
-                "links": [{"donor": d, "section": s, "amount": round(a, 2)} for (d, s), a in merged.items()],
+                "links": [
+                    {"donor": d, "section": s, "amount": half_up(a, 2)} for (d, s), a in merged.items()
+                ],
                 "sections": [
-                    {"name": s, "children": children.get(s, 0), "reserved": round(reserved.get(s, 0.0), 2)}
+                    {"name": s, "children": children.get(s, 0), "reserved": half_up(reserved.get(s, 0.0), 2)}
                     for s in self.sections
                 ],
             },
@@ -1029,7 +1061,9 @@ class _Builder:
                 "acknowledged": counts["acknowledged"],
                 "assigned": counts["assigned"],
                 "closed": counts["closed"],
-                "median_days": {k: (round(statistics.median(v), 1) if v else None) for k, v in steps.items()},
+                "median_days": {
+                    k: (half_up(statistics.median(v), 1) if v else None) for k, v in steps.items()
+                },
             },
             "owners": sorted(owners.values(), key=lambda o: (-o["past_due"], -o["oldest_days"], o["owner"])),
             "digest": self._digest(),
@@ -1110,21 +1144,13 @@ class _Builder:
 def _delta(now: float | None, before: float | None, label: str, *, lower_is_good: bool = False):
     if now is None or before in (None, 0):
         return None
-    change = round((now - before) * 100 / before, 1)
+    change = half_up((now - before) * 100 / before, 1)
     return {
         "value": change,
         "label": label,
         "good": (change <= 0) if lower_is_good else (change >= 0),
         "unit": "%",
     }
-
-
-def _short_money(value: float) -> str:
-    if value >= 1_000_000:
-        return f"${value / 1_000_000:,.1f}M"
-    if value >= 1_000:
-        return f"${value / 1_000:,.0f}k"
-    return f"${value:,.0f}"
 
 
 def _project(monthly: list[float], shown: int) -> list[float | None]:
@@ -1136,12 +1162,12 @@ def _project(monthly: list[float], shown: int) -> list[float | None]:
     total = 0.0
     for v in values[:shown]:
         total += v
-        out.append(round(total))
+        out.append(half_up(total))
     recent = values[max(shown - PROJECTION_MONTHS, 0) : shown]
     pace = sum(recent) / len(recent) if recent else 0.0
     for _ in range(shown, 12):
         total += pace
-        out.append(round(total))
+        out.append(half_up(total))
     return out
 
 
@@ -1210,6 +1236,11 @@ DICTIONARY = [
 ]
 
 
+def _signed(value: float) -> str:
+    """A delta as the tile pill shows it: whole, halves rounded up, "+" when above zero."""
+    return f"{'+' if value > 0 else ''}{half_up(value)}"
+
+
 def brief_text(data: dict[str, Any]) -> str:
     """The brief as plain text for the minutes: the same numbers as on screen."""
     scope = data["scope"]
@@ -1224,32 +1255,32 @@ def brief_text(data: dict[str, Any]) -> str:
     delta = children["delta"]
     lines.append(
         f"Children reached, at least: {children['value']:,}"
-        + (f" ({delta['value']:+.0f}% {delta['label']})" if delta else "")
+        + (f" ({_signed(delta['value'])}% {delta['label']})" if delta else "")
         + "."
     )
     ach = tiles["achievement"]
     if ach["value"] is not None:
         lines.append(
-            f"Achievement of PD targets: {ach['value']:.0f}%"
+            f"Achievement of PD targets: {percent(ach['value'], 0)}"
             + (f" ({ach['delta']['label']})" if ach["delta"] else "")
             + "."
         )
     dis = tiles["disbursed"]
     lines.append(
-        f"Funds: {_short_money(dis['value'])} disbursed"
-        + (f" ({dis['delta']['value']:.0f}% {dis['delta']['label']})" if dis["delta"] else "")
+        f"Funds: {money_text(dis['value'])} disbursed"
+        + (f" ({half_up(dis['delta']['value'])}% {dis['delta']['label']})" if dis["delta"] else "")
         + "."
     )
     cost = tiles["cost"]
     if cost["value"] is not None:
         lines.append(
-            f"Cost per child: ${cost['value']:,.0f}"
-            + (f" ({cost['delta']['value']:+.0f}% {cost['delta']['label']})" if cost["delta"] else "")
+            f"Cost per child: {money_text(cost['value'])}"
+            + (f" ({_signed(cost['delta']['value'])}% {cost['delta']['label']})" if cost["delta"] else "")
             + "."
         )
     track = tiles["on_track"]
     if track["value"] is not None:
-        lines.append(f"Indicators on track: {track['value']:.0f}% ({track['hint']}).")
+        lines.append(f"Indicators on track: {percent(track['value'], 0)} ({track['hint']}).")
     if data["headline"]["decide"]:
         lines += ["", "To decide this month:"]
         for i, d in enumerate(data["headline"]["decide"], start=1):
@@ -1263,7 +1294,7 @@ def brief_text(data: dict[str, Any]) -> str:
     if risk:
         lines.append(
             f"Grants expiring within {GRANT_HORIZON_DAYS} days with an unspent balance: "
-            + ", ".join(f"{g['grant']} ({g['donor']}, {_short_money(g['unspent'])})" for g in risk[:5])
+            + ", ".join(f"{g['grant']} ({g['donor']}, {money_text(g['unspent'])})" for g in risk[:5])
             + "."
         )
     lineage = data["lineage"]

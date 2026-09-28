@@ -15,6 +15,9 @@ migrates at a time. On App Service this is what migrates the database on each de
 Rollback: `infra/scripts/rollback.sh` with the previous image tag. Migrations are not reversed, so
 every migration must stay compatible with the previous release for one deployment.
 
+One-off step after the release that adds the *PAL* population nationality: run
+`manage load_population_figures --bundled --replace` once (see Yearly rollover, step 5).
+
 ## Configuration
 All settings are environment variables (`.env.example`). In Azure they are set by
 `infra/main.bicep`; secrets are Key Vault references read with the app's managed identity. There
@@ -32,7 +35,9 @@ per-user identifier sent to OpenAI (`safety_identifier`, below), so OpenAI's mis
 each user starts afresh.
 
 ## AI assistant (Ask NeuroDB)
-Signed-in users ask questions in plain language on `/ask/` or from the search box (Ctrl K).
+Signed-in users ask questions in plain language on `/ask/` or from the search box (Ctrl K). The
+search box's "Ask NeuroDB AI" link opens `/ask/?q=...` with the question filled in; nothing is sent
+until the user presses Ask, so a crawler or a page reload never asks it.
 ChatGPT answers them: an OpenAI GPT model called through the OpenAI API (platform.openai.com,
 Responses API), not the consumer ChatGPT app. The model calls read-only lookups over NeuroDB's own
 services (indicator results, activity reports, Neuro reports, programme documents, donors,
@@ -228,7 +233,9 @@ and monthly humanitarian (HR) reports describe the same achievements, so the pag
 type at a time (QPR by default; HR exists only for high-frequency and cluster indicators) and never
 adds them. Each report's value is the sum of its location rows (or their maximum / average when the
 indicator's calculation method says so) and is shown in the month its reporting period ends; the
-cumulative is the one the latest report carries. The status compares the cumulative's share of the
+cumulative is the one the latest report carries (PRP repeats it on each location row; if the rows
+disagree, the largest is used, and two reports ending the same day are ordered by report id, so an
+indicator reads the same under every filter). The status compares the cumulative's share of the
 PD target with the share of the PD period (start to end) elapsed, ±10 points, the same rule the
 ActivityInfo pages use with the calendar year. Gender, age group, nationality and disability tags
 are read from the indicator titles (`neurodb/datamart/tags.py`). The programme and partner pages
@@ -289,6 +296,8 @@ The sidebar's *Databases*, *Neuro reports* and *HPM* blocks list the year the pa
 chosen in the year menu (`?year=`), the year of the database or report that is open, or else the
 current reporting year. When that year has none of them (a new year before its databases are
 set up), each block shows the latest year that has some, and says which year in its title.
+Search covers the same year. A Neuro Report or HPM page has an *Other years* menu listing the
+reports with the same report code in other years (set the code in admin → Neuro reports).
 
 The bridge is the table *ActivityInfo partner links* (admin → Partnerships): one row per partner
 name found in the activity records (`partner_label`, exactly as spelled there), pointing at the
@@ -346,7 +355,8 @@ records in every dataset.
 
 The older eTools REST sync (`manage sync_etools`, token `ETOOLS_TOKEN`) is still available on
 demand, for trips (`--only travels`) and the legacy engagement tables; locations still come from
-`sync_locations`.
+`sync_locations`. Its intervention details step writes the donor amounts in the same shape as the
+Datamart sync (one entry per donor and grant), so running it does not blank the donor pages.
 
 ## Country overview (the signed-in home page)
 
@@ -361,7 +371,7 @@ without databases), with the year's totals and the import runs:
 |---|---|---|
 | Impact on children | Children reached (eTools PRP reports and ActivityInfo, shown apart), children reached by governorate (tiles), achievement against target by section, monthly reach of both sources, coverage of the estimated children per governorate | PD indicators + PRP reports (`datamart_pdindicator`, `datamart_reportedindicator`), ActivityInfo facts of the HPM masters, population figures (`category=children`, governorate level) |
 | Value for money | Funds disbursed of reserved, cost per child reached by section, spending vs delivery by section, funding by donor, partnerships that need a decision | Funds reservations (`datamart_fundsreservationheader`, lines for donors), the same indicators |
-| Delivery and assurance | Indicator status by section, assurance counts (field monitoring, TPM, action points, HACT risk), findings by rating, what needs attention | Partner monitoring rule, `datamart_monitoringfinding`, `datamart_tpmvisit`, `datamart_actionpoint`, partner risk ratings |
+| Delivery and assurance | Indicator status by section, assurance counts (field monitoring, TPM visits of every status as on the field monitoring page, with the planned ones beside them, action points, HACT risk), findings by rating, what needs attention (at most eight items; overdue high-priority action points and one never-reported item always among them, "+N more" for the rest) | Partner monitoring rule, `datamart_monitoringfinding`, `datamart_tpmvisit`, `datamart_actionpoint`, partner risk ratings |
 | Progress | TPM visits planned, completed and with the report overdue per month; action points due, closed and past due per month, open ones by age | `datamart_tpmvisit` (+ activities for the section), `datamart_actionpoint` |
 
 **Filters.** Year (the reporting year menu), section (multi) and governorate (a click on a tile).
@@ -395,9 +405,10 @@ funds reservations, supplies and operating costs included) over the children the
 selected year. A PD's money is split across sections in proportion to the children of each section.
 Compare sections, not absolute values. It is empty when no children indicator reported.
 
-**Caching.** The page's data is cached for 10 minutes per (year, sections, governorate, day); a new
-children flag changes the cache key, a sync does not, so the freshness strip at the bottom shows when
-each source last changed.
+**Caching.** The page's data is cached for 2 minutes per (year, sections, governorate, day), in each
+web worker's memory; a new children flag and the end of any sync run change the cache key, so every
+worker shows the new figures at once. The freshness strip at the bottom shows when each source last
+changed.
 
 ## Management brief (`/brief/`)
 
@@ -429,7 +440,8 @@ management meeting asks for. Eight blocks, one tab each:
 
 **Rules of this page.** Every comparison is against the same rule: the same months of the year
 before for children reached (month to date, the larger of the two sources), the elapsed PD period
-for achievement, the daily review of 30 days ago for the on-track share. The projection is the
+for achievement, the daily review of 30 days ago for the on-track share (the same formula and the
+PDs running in the year, only when that review is of the selected year). The projection is the
 average of the last three reported months, extended to December; it is a pace, not a forecast.
 Confidence thresholds: reported ≥ 80 %, verified ≥ 30 %, linked ≥ 90 %, sync at most 2 days old;
 one short = medium, two or more = low. A grant's unspent balance is each funds reservation's
@@ -439,8 +451,8 @@ the indicators' titles: a title naming both girls and boys names neither, so mos
 under "not named" until PRP disaggregations carry labels.
 
 **Filters and caching.** Year and section (every section by default). The result is cached for
-10 minutes per (year, sections, day), and the key changes with every children flag, section plan,
-assignment or new review, so an entry in the admin shows at once. *Print* prints the page without
+2 minutes per (year, sections, day), and the key changes with every children flag, section plan,
+assignment, new review or finished sync run, so an entry in the admin or a sync shows at once. *Print* prints the page without
 the navigation.
 
 ## Daily AI review
@@ -497,6 +509,11 @@ scheduler, start it from the admin after the morning sync or run it as a Contain
    `neurodb/core/data/population/Population_figures_YYYY_NeuroDB.json` (the v2 JSON layout) and deploy;
    the container loads any bundled year that is missing when it starts. To load or reload a file by
    hand: `manage.py load_population_figures <file.json> --year YYYY --replace`.
+   **Once, after deploying the release that stores the Palestinian sheet's age bands, sex and
+   children figures as *PAL* (PRL + PRS together) instead of *PRL*:** the start-up load skips years
+   already in the database, so reload them with `manage.py load_population_figures --bundled --replace`
+   (Container Apps: `manage load_population_figures --bundled --replace`). Until then the population
+   page and the assistant show all Palestinians under "Palestinian refugees in Lebanon".
 6. Upload the year's HPM PDF tables to the library.
 7. Select the databases → action *Import data from ActivityInfo*; check `/data/health/`.
 

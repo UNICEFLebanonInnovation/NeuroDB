@@ -33,6 +33,7 @@
       <button type="submit" class="btn btn-primary btn-sm">{% include "components/icon.html" with name="save" %}<span>{% trans "Save view" %}</span></button>
     </form>
   </div>
+  <p class="small text-muted mb-2">{% trans "The pivot adds up reported values. Rows not counted in their master indicator (the parts of a ratio) are left out at first; the value_role filter brings them back. Masters computed as an average, a maximum, a minimum, a count of records or a ratio show a different figure on the dashboard." %}</p>
   <div class="pivot-shell" data-pivot-output>{% include "components/skeleton.html" with kind="chart" %}</div>
 </section>
 {{ pivot_config|json_script:"pivot-config" }}

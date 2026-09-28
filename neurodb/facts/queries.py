@@ -14,7 +14,7 @@ Semantics (from v2):
   leaf's ``ai_indicator`` within the same database;
 * a sub-indicator value is the SUM (or, for AVERAGE subs, the average) of its leaf totals;
 * a master indicator combines the sub-indicators linked with effect ``TOTAL`` according to its
-  aggregation method: SUM of all leaf values, AVERAGE of the monthly sums, MAXIMUM of the
+  aggregation method (blank means SUM): SUM of all leaf values, AVERAGE, MAXIMUM or MINIMUM of the
   monthly sums, COUNT of activity records, or SUM_OVER_SUM = numerator sub / denominator sub.
 """
 
@@ -92,7 +92,9 @@ leaf_total AS (
 ),
 sub AS (
     SELECT s.id AS sub_id,
-           CASE WHEN s.aggregation_method = 'AVERAGE' THEN AVG(lt.value) ELSE SUM(lt.value) END AS value,
+           CASE s.aggregation_method WHEN 'AVERAGE' THEN AVG(lt.value)
+                                     WHEN 'COUNT' THEN SUM(lt.reports)
+                                     ELSE SUM(lt.value) END AS value,
            SUM(lt.reports) AS reports
     FROM pivoting_subindicator s
     JOIN pivoting_subindicator_indicators si ON si.subindicator_id = s.id
@@ -124,13 +126,17 @@ master_month AS (
     GROUP BY ms.master_id, sm.month_name
 ),
 master_month_agg AS (
-    SELECT master_id, AVG(value) AS avg_value, MAX(value) AS max_value FROM master_month GROUP BY master_id
+    SELECT master_id, AVG(value) AS avg_value, MAX(value) AS max_value, MIN(value) AS min_value
+    FROM master_month GROUP BY master_id
 ),
 ratio AS (
-    SELECT n.master_id, n.value AS numerator, d.value AS denominator
+    -- The records of a ratio are those of its denominator: the numerator's leaves are usually a
+    -- subset of them (girls among children), so adding both would count records twice.
+    SELECT n.master_id, n.value AS numerator, d.value AS denominator, d.reports
     FROM (SELECT ms.master_id, SUM(sub.value) AS value FROM pivoting_mastersubindicator ms
           JOIN sub ON sub.sub_id = ms.sub_id WHERE ms.effect = 'NUMERATOR' GROUP BY ms.master_id) n
-    JOIN (SELECT ms.master_id, SUM(sub.value) AS value FROM pivoting_mastersubindicator ms
+    JOIN (SELECT ms.master_id, SUM(sub.value) AS value, SUM(sub.reports) AS reports
+          FROM pivoting_mastersubindicator ms
           JOIN sub ON sub.sub_id = ms.sub_id WHERE ms.effect = 'DENOMINATOR' GROUP BY ms.master_id) d
       ON d.master_id = n.master_id
 )
@@ -139,16 +145,16 @@ SELECT m.id, m.name, m.awp_code, m.aggregation_method, m.reporting_level, m.indi
        {label_expr} AS label,
        {target_expr} AS target,
        {ram_expr} AS ram_result,
-       CASE m.aggregation_method
+       CASE COALESCE(NULLIF(m.aggregation_method, ''), 'SUM')
             WHEN 'SUM'          THEN mt.sum_value
             WHEN 'AVERAGE'      THEN mm.avg_value
             WHEN 'MAXIMUM'      THEN mm.max_value
-            WHEN 'MINIMUM'      THEN mm.max_value
+            WHEN 'MINIMUM'      THEN mm.min_value
             WHEN 'COUNT'        THEN mt.reports
             WHEN 'SUM_OVER_SUM' THEN
                 CASE WHEN rt.denominator > 0 THEN rt.numerator * 100.0 / rt.denominator END
        END AS value,
-       mt.reports AS reports,
+       COALESCE(mt.reports, rt.reports) AS reports,
        rt.numerator, rt.denominator
 FROM pivoting_masterindicator m
 {report_join}
@@ -209,9 +215,10 @@ def sub_indicator_values(master_id: int, f: FactFilter) -> list[dict[str, Any]]:
 
 
 _ANALYTICAL_SQL = """
-SELECT CONCAT(m.awp_code, '_', m.name) AS master_indicator,
+SELECT m.id                            AS master_id,
+       CONCAT(m.awp_code, '_', m.name) AS master_indicator,
        NULLIF(m.awp_target, 0)         AS target,
-       ms.label                        AS sub_indicator,
+       COALESCE(NULLIF(ms.label, ''), s.name) AS sub_indicator,
        ms.sequence                     AS sequence,
        CASE WHEN ms.effect = 'TOTAL' THEN 'Counted in master indicator'
             ELSE 'Not counted in master indicator' END AS value_role,
@@ -232,7 +239,7 @@ JOIN pivoting_subindicator_indicators si ON si.subindicator_id = s.id
 JOIN pivoting_indicatornew i ON i.id = si.indicatornew_id
 JOIN pivoting_activityreportnew r ON r.indicator_id = i.ai_indicator AND r.dbase_id = m.database_id
 WHERE m.database_id = %(database_id)s AND m.is_active = true AND r.indicator_value > 0 {extra}
-GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24
 """
 
 
@@ -378,6 +385,18 @@ def database_summaries(database_ids: list[int]) -> dict[int, dict[str, Any]]:
         return {}
     rows = _rows(_SUMMARY_SQL, {"database_ids": list(database_ids)})
     return {r["database_id"]: r for r in rows}
+
+
+def partner_count(database_ids: list[int]) -> int:
+    """Distinct ActivityInfo partners across several databases (a partner in two databases counts once)."""
+    if not database_ids:
+        return 0
+    rows = _rows(
+        "SELECT COUNT(DISTINCT r.partner_label) AS partners FROM pivoting_activityreportnew r "
+        "WHERE r.dbase_id = ANY(%(database_ids)s)",
+        {"database_ids": list(database_ids)},
+    )
+    return int(rows[0]["partners"] or 0)
 
 
 _MASTER_MONTHLY_SQL = """

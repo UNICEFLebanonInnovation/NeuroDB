@@ -338,6 +338,7 @@ def check_reports_overdue(ctx: Context) -> list[Draft]:
             submission_date=None,
             due_date__lt=ctx.today,
         )
+        .order_by()
         .values("intervention_id", "progress_report", "report_number", "due_date")
         .distinct()
     )
@@ -871,11 +872,19 @@ def snapshot(ctx: Context) -> dict[str, Any]:
     past_due = dm.ActionPoint.objects.filter(
         status__in=dm.ActionPoint.OPEN_STATUSES, due_date__lt=ctx.today
     ).count()
+    # The management brief's on-track tile reads the PDs running in the year, not only the active ones.
+    year_counts = Counter(
+        ind.tracking
+        for ind in monitoring.indicators(
+            Filters(year=ctx.year, scope="year", report_type=REPORT_TYPE), ctx.today
+        )
+    )
     return {
         "indicators": len(ctx.rows),
         "programme_documents": len(ctx.by_pd),
         "partners": len({ind.pd.partner_id for ind in ctx.rows if ind.pd.partner_id}),
         "status_counts": {key: counts.get(key, 0) for key in monitoring.LABELS},
+        "status_counts_year": {key: year_counts.get(key, 0) for key in monitoring.LABELS},
         "on_track_percent": round(counts.get(ON_TRACK, 0) * 100 / tracked, 1) if tracked else None,
         "indicator_status": {indicator_ref(ind): ind.tracking for ind in ctx.rows},
         "action_points_past_due": past_due,

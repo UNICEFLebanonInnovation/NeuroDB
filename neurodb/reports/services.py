@@ -71,7 +71,7 @@ def map_filters(params) -> dict[str, str]:
 
 
 def search(q: str, year: ReportingYear | None, limit: int = 8) -> list[dict[str, Any]]:
-    """Indicators, databases and reports of the current year whose name or code contains ``q``."""
+    """Indicators, databases and reports of ``year`` whose name or code contains ``q``."""
     q = (q or "").strip()
     if len(q) < 2:
         return []

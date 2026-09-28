@@ -176,16 +176,19 @@ def _indicators_and_reports(rng, pca, section, places, counters, today, year) ->
         if reports_pace == "none":
             continue
         report_rows = []
+        in_location: dict[int, float] = {}  # place id -> cumulative there
         for q, (start, end) in enumerate(quarters, start=1):
             due = end + dt.timedelta(days=30)
             last = q == len(quarters)
             missing = reports_pace == "late" and last
             per_period = share * pace / max(1, len(quarters))
+            this_report = []
             for place in places:
                 value = 0.0 if missing else rng.uniform(per_period * 0.6, per_period * 1.4)
                 cumulative += value
+                in_location[place.id] = in_location.get(place.id, 0.0) + value
                 counters["report"] += 1
-                report_rows.append(
+                this_report.append(
                     dm.ReportedIndicator(
                         datamart_id=counters["report"],
                         partner=pca.partner,
@@ -207,8 +210,7 @@ def _indicators_and_reports(rng, pca, section, places, counters, today, year) ->
                         p_code=place.p_code,
                         location_ref=place,
                         achievement_in_period="" if missing else f"{value:.0f}",
-                        total_cumulative_progress=f"{cumulative:.0f}",
-                        total_cumulative_progress_in_location=f"{value:.0f}",
+                        total_cumulative_progress_in_location=f"{in_location[place.id]:.0f}",
                         calculation_across_locations="sum",
                         calculation_across_periods="sum",
                         etools_indicator_id=str(source_id),
@@ -219,6 +221,10 @@ def _indicators_and_reports(rng, pca, section, places, counters, today, year) ->
                         tag_disability=tags.disability,
                     )
                 )
+            # PRP repeats the report-level total on every location row of the report
+            for row in this_report:
+                row.total_cumulative_progress = f"{cumulative:.0f}"
+            report_rows.extend(this_report)
         dm.ReportedIndicator.objects.bulk_create(report_rows)
 
 
@@ -342,8 +348,11 @@ def _action_points(rng, pcas, gazetteer, today, year) -> None:
             status="completed" if closed else "open",
             high_priority=rng.random() < 0.3,
             due_date=due,
+            # completed in the past, as eTools stamps it: never after yesterday
             date_of_completion=dt.datetime.combine(
-                due + dt.timedelta(days=rng.randint(-10, 40)), dt.time(10, 0), tzinfo=dt.UTC
+                min(due + dt.timedelta(days=rng.randint(-10, 40)), today - dt.timedelta(days=1)),
+                dt.time(10, 0),
+                tzinfo=dt.UTC,
             )
             if closed
             else None,

@@ -43,3 +43,33 @@ def test_bundled_load_skips_years_already_loaded(db):
 
     assert PopulationFigure.objects.count() == count
     assert SyncRun.objects.count() == runs
+
+
+def test_palestinian_age_bands_and_children_are_stored_as_pal_not_prl(db):
+    """The PAL sheet's age bands, sex and children figures are PRL + PRS: they must not be labelled PRL."""
+    from neurodb.assistant import tools
+    from neurodb.reports.brief import NATIONALITY_OF_POPULATION
+
+    call_command("load_population_figures", bundled=True)
+
+    total = population_view(2026)
+    assert total["totals_by_nationality"]["PRL"] == 201_136  # the PRL total itself stays PRL
+    assert total["totals_by_nationality"]["PRS"] == 23_655
+    assert "PAL" not in total["totals_by_nationality"]  # no PAL total row: PRL + PRS would count twice
+    ages = total["by_age_group"]
+    assert "PRL" not in ages["columns"]
+    assert ages["column_totals"][ages["columns"].index("PAL")] == 201_136 + 23_655
+    children = population_view(2026, "children")
+    assert (
+        "PRL" not in children["totals_by_nationality"] and "PRL" not in children["by_governorate"]["columns"]
+    )
+    assert children["totals_by_nationality"]["PAL"] == 83_817
+    assert not PopulationFigure.objects.filter(nationality="PRL").exclude(age_group="", sex="").exists()
+    assert not PopulationFigure.objects.filter(nationality="PRL", category="children").exists()
+    # every stored nationality has a label on the page, in the brief and in the assistant's tool
+    stored = set(PopulationFigure.objects.values_list("nationality", flat=True)) - {"ALL"}
+    assert stored <= set(PopulationFigure.Nationality.values)
+    assert stored <= set(NATIONALITY_OF_POPULATION) | {"OTH"}  # OTH is the brief's "Other"
+    codes = tools.population(2026, "children")["nationality_codes"]
+    assert set(children["totals_by_nationality"]) <= set(codes)
+    assert "PRL + PRS" in PopulationFigure.Nationality.PAL.label

@@ -541,7 +541,8 @@ def partner_details(partner_id: int) -> dict[str, Any]:
         "programme_documents": [_pd_row(pd) for pd in profile["programme_documents"][:30]],
         "assurance_engagements": extra["engagement_counts"] or profile["engagement_counts"],
         "field_visits_by_year": _clean(profile["visits_by_year"]),
-        "activity_reports": profile["interventions"],
+        # the same figure as the profile's 'ActivityInfo records' tile: records of its linked names
+        "activity_reports": activityinfo["records"],
         "hact_assessments": [
             {"type": a.type, "rating": a.rating, "completed": a.completed_date}
             for a in extra["assessments"][:10]
@@ -609,7 +610,8 @@ def population(year: int | None = None, category: str = "total") -> dict[str, An
         "all_nationalities_total": data["grand_total"],
         "totals_by_nationality": data["totals_by_nationality"],
         "nationality_codes": {"LEB": "Lebanese", "SYR": "Syrian", "PRL": "Palestinian refugees in Lebanon",
-                              "PRS": "Palestinian refugees from Syria", "OTH": "Other (migrants)"},
+                              "PRS": "Palestinian refugees from Syria",
+                              "PAL": "All Palestinians (PRL and PRS together)", "OTH": "Other (migrants)"},
         "by_governorate": _clean(data["by_governorate"]),
         "by_district": _clean(data["by_district"]),
         "by_age_group": _clean(data["by_age_group"]),
@@ -723,7 +725,9 @@ def funds_overview(
     """Funds reservations, disbursements and grants from the eTools Datamart."""
     donors = []
     if donor:
-        known = sorted(x for x in FundsReservation.objects.values_list("donor", flat=True).distinct() if x)
+        known = sorted(
+            x for x in FundsReservation.objects.order_by().values_list("donor", flat=True).distinct() if x
+        )
         donors = _match_options(donor, known)
         if not donors:
             raise ToolInputError(f"No donor matches '{donor}' in the funds reservations.")
@@ -891,7 +895,11 @@ def pd_indicator_progress(
     if section:
         params["section"] = _match_options(
             section,
-            sorted(x for x in dm.PDIndicator.objects.values_list("section_name", flat=True).distinct() if x),
+            sorted(
+                x
+                for x in dm.PDIndicator.objects.order_by().values_list("section_name", flat=True).distinct()
+                if x
+            ),
         )
         if not params["section"]:
             raise ToolInputError(f"No section matches '{section}'.")

@@ -247,7 +247,7 @@ def test_result_is_cached_and_a_new_plan_shows_at_once(
     settings.DEBUG = False
     scope = brief.Scope(year=2026, reporting_year=reporting_year, today=TODAY)
     assert brief.build(scope)["pace"]["bullets"][0]["cp_target"] == 2000
-    with django_assert_max_num_queries(6):  # the fingerprints only
+    with django_assert_max_num_queries(7):  # the fingerprints only
         brief.build(scope)
     SectionPlan.objects.filter(section="Child Protection").update(children_target=3000)
     SectionPlan.objects.get(section="Child Protection").save()  # a real save bumps updated_at
@@ -293,6 +293,8 @@ def test_page_renders_every_block(client_viewer, data, reporting_year):
     assert (charts["grants"][0]["label"], charts["grants"][0]["value"]) == ("EU · SC1", 6000.0)
     assert charts["funded"][0]["percent"] == 50.0 and charts["lifecycle"] == []
     assert "Assign" not in html.split("Things to decide")[1].split("The brief as text")[0]  # viewers cannot
+    # The latest finding pill takes the rating's colour, as on the field monitoring page.
+    assert '<span class="pill pill--danger pill--sm" data-status="off_track">' in html
 
 
 def test_page_filters_and_staff_links(client, admin_user, data, reporting_year):
@@ -380,3 +382,78 @@ def test_review_admin_links_each_finding_to_its_assignment(client, admin_user, d
     FindingAssignment.objects.create(key=finding.key, title=finding.title, owner="Deputy Representative")
     page = client.get(reverse("admin:review_dailyreview_change", args=[review.pk]))
     assert page.status_code == 200 and "Deputy Representative · Acknowledged" in page.text
+
+
+def test_a_finished_sync_run_changes_the_cache_key(data, reporting_year, settings):
+    from django.utils import timezone
+
+    settings.DEBUG = False
+    scope = brief.Scope(year=2026, reporting_year=reporting_year, today=TODAY)
+    assert brief.build(scope)["money"]["reserved"] == 10000
+    dm.FundsReservationHeader.objects.update(total_amt=12000)
+    assert brief.build(scope)["money"]["reserved"] == 10000  # cached
+    SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="all", finished_at=timezone.now())
+    assert brief.build(scope)["money"]["reserved"] == 12000
+
+
+def test_brief_text_rounds_and_formats_like_the_tiles():
+    from django.template.defaultfilters import floatformat
+
+    from neurodb.web.templatetags.ui import money
+
+    tile = lambda key, value, delta=None: {"key": key, "value": value, "delta": delta, "hint": "h"}  # noqa: E731
+    data = {
+        "scope": {"sections": [], "today": "2026-07-01"},
+        "headline": {
+            "period": "January to Jul 2026",
+            "decide": [],
+            "tiles": [
+                tile("children", 1000, {"value": -2.5, "label": "vs same period last year"}),
+                tile("achievement", 12.5),
+                tile("disbursed", 7_000_000, {"value": 44.5, "label": "of $15.5M reserved"}),
+                tile("cost", 1500.0, {"value": 12.5, "label": "vs last year's PDs"}),
+                tile("on_track", 0.5),
+            ],
+        },
+        "confidence": {"rows": []},
+        "money": {"grants": [{"grant": "SC1", "donor": "EU", "unspent": 2500.0, "at_risk": True}]},
+        "lineage": {"sources": [], "rules": "v1"},
+    }
+    text = brief.brief_text(data)
+    # Halves round up, as floatformat does on the tile pills (44.5 -> 45, -2.5 -> -3, 12.5 -> 13).
+    assert floatformat(44.5, "0") == "45" and floatformat(-2.5, "0") == "-3"
+    assert "Children reached, at least: 1,000 (-3% vs same period last year)." in text
+    assert "Achievement of PD targets: 13%." in text and "Indicators on track: 1% (h)." in text
+    # Money as the money filter shows it on the same page.
+    assert (
+        f"Funds: {money(7_000_000)} disbursed (45% of $15.5M reserved)." in text and money(7_000_000) == "$7M"
+    )
+    assert "Cost per child: $1.5k (+13% vs last year's PDs)." in text
+    assert "SC1 (EU, $2.5k)" in text
+
+
+def test_on_track_a_month_ago_uses_the_tiles_formula_and_year(data, reporting_year):
+    from neurodb.review.models import DailyReview
+
+    counts = {"on_track": 1, "off_track": 2, "over_target": 1, "no_target": 0, "not_reported": 3}
+    DailyReview.objects.create(
+        date=TODAY - datetime.timedelta(days=40), status=DailyReview.Status.SUCCEEDED,
+        stats={"on_track_percent": 10.0, "status_counts": {**counts, "on_track": 0}, "status_counts_year": counts},
+    )  # fmt: skip
+    tiles = {t["key"]: t for t in build(reporting_year)["headline"]["tiles"]}
+    # (on track + over target) of the tracked, from the counts of the PDs running in the year: 50 %.
+    assert tiles["on_track"]["delta"]["value"] == 100.0 - 50.0
+    DailyReview.objects.update(date=datetime.date(2025, 12, 31))  # a review of another year is no reference
+    tiles = {t["key"]: t for t in build(reporting_year)["headline"]["tiles"]}
+    assert tiles["on_track"]["delta"] is None
+
+
+def test_population_shares_name_the_year_of_their_own_figures(data, reporting_year):
+    for nationality, value in (("LEB", 600), ("SYR", 400)):
+        PopulationFigure.objects.create(
+            year=2026, category="children", level="national", nationality=nationality, area_name="Lebanon",
+            area_code="LB", value=value,
+        )  # fmt: skip
+    who = build(reporting_year)["who"]
+    assert who["population_year"] == 2026  # the nationality shares' year, not the governorates' 2025
+    assert {n["name"]: n["population_share"] for n in who["nationality"]}["Lebanese"] == 60.0

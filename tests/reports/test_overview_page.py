@@ -59,6 +59,8 @@ def test_renders_every_block_with_data(client_viewer, reporting_year, fake_servi
     assert "Data freshness" in html and "Daily AI review" in html
     assert "ActivityInfo databases of the year" in html  # the cards moved to their own page
     assert "LEB/PD2026001" in html and "Himaya" in html  # decisions and attention lists
+    assert "28 planned" in html  # TPM visits of every status, as on field monitoring, planned beside them
+    assert ">+3 more items</a>" in html  # what the attention list left out
     assert "reports/partials/_daily_review.html" not in html
     scope = fake_service[0]
     assert scope.year == 2026 and scope.reporting_year == reporting_year
@@ -195,6 +197,23 @@ def test_money_filter():
     assert money(150_000_000) == "$150M"
     assert money(-2_500) == "-$2.5k"
     assert money("abc") == "abc"
+    assert money(1_250) == "$1.3k" and money(2_450_000) == "$2.5M"  # halves round up
+
+
+def test_number_and_percent_round_halves_up_like_floatformat():
+    from django.template.defaultfilters import floatformat
+
+    from neurodb.web.templatetags.ui import number, percent
+
+    for value in (0.5, 2.5, 12.5, 44.5, -2.5):
+        assert percent(value, 0) == f"{floatformat(value, '0')}%"
+    assert (percent(2.5, 0), percent(0.5, 0), percent(12.25), number(2.25), number(1234.45)) == (
+        "3%",
+        "1%",
+        "12.3%",
+        "2.3",
+        "1,234.5",
+    )
 
 
 def test_renders_against_the_real_service(client_viewer, reporting_year, hierarchy):

@@ -9,7 +9,7 @@ data; anything not listed here must match.
 | D1 | Funded-by filter | `AND funded_by = 'UNICEF'` commented out in 26 places; effectively never applied | Applied when `Database.is_funded_by_unicef` is true, otherwise not | One explicit flag instead of dead SQL |
 | D2 | Zero target | NeuroReport query divided by `awp_target` (default 0) and could raise; dashboards showed `achieved = 0` | A zero or null target yields status "No target" and no percentage | Crash removed; no fake 0% |
 | D3 | SUM_OVER_SUM on dashboards | Dashboard queries handled only SUM/AVERAGE/MAXIMUM/COUNT; ratio masters had no value | Ratio computed as numerator / denominator × 100 | Consistent with the HPM percentage display; confirm the ×100 |
-| D4 | MINIMUM aggregation | Not implemented (choice existed) | Falls back to MAXIMUM of monthly sums until a rule is agreed | No v2 reference behaviour |
+| D4 | MINIMUM aggregation | Not implemented (choice existed) | MINIMUM of the monthly sums, the mirror of MAXIMUM; a blank method is computed as SUM, the method its chip shows | No v2 reference behaviour; a MINIMUM chip must not show the highest month |
 | D5 | Month source on import | `month_name` taken from the extract's `month` column (empty in the 2025 extract) | `month_of_reporting` when present, else `month`; rows with a year outside reporting year ±1 rejected and counted | Data-correctness fix |
 | D6 | Emergency filter | `emergency` query parameter spliced into SQL | Validated to yes/no and bound | Security |
 | D7 | Analytical feed | Pretty-printed JSON (indent=4) | Compact JSON, gzip | Performance |
@@ -19,3 +19,5 @@ data; anything not listed here must match.
 | D11 | Trip sync range | Pages 45+ only | From page 1 | Stale older trips fixed |
 | D12 | Partner staff contacts | Synced and served anonymously | Not displayed; kept only in the replica table pending the data-protection record | Personal data |
 | D13 | Reporting level `GATEWAY` | Displayed as DISTRICT | Displayed as DISTRICT (unchanged) but flagged for cleanup | Admin clarity |
+| D14 | Tracking of ratio masters | Every method compared with the share of the year elapsed | SUM_OVER_SUM masters are compared with the whole target (a share of 48.8 % against 50 % is on track in any month); AVERAGE, MAXIMUM and MINIMUM keep the v2 pro-rating | A ratio does not grow with the year; confirm whether AVERAGE/MAXIMUM should follow |
+| D15 | Neuro Report / HPM periods | Any month or quarter of the year; status against today's share of the year | Only months and quarters that have ended (a past year opens on December, not on the current calendar month); status measured at the end of the chosen period; edits made up to the end of the 17th (Beirut time) count | A future month showed year-to-date values as its total; the cut-off label says 'after the 17th' |

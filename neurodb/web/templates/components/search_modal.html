@@ -6,7 +6,7 @@
         {% include "components/icon.html" with name="search" %}
         <label class="visually-hidden" for="search-input">{% trans "Search" %}</label>
         <input type="search" id="search-input" class="form-control form-control-lg" name="q" autocomplete="off" placeholder="{% if AI_ASSISTANT_ENABLED %}{% trans 'Search, or ask a question…' %}{% else %}{% trans 'Indicators, databases, reports…' %}{% endif %}"
-               hx-get="{% url 'reports:search' %}" hx-trigger="input changed delay:250ms, search" hx-target="#search-results" hx-indicator="#search-modal .htmx-indicator" aria-controls="search-results" aria-describedby="search-help">
+               hx-get="{% url 'reports:search' %}"{% if nav.year %} hx-vals='{"year": "{{ nav.year.name|escapejs }}"}'{% endif %} hx-trigger="input changed delay:250ms, search" hx-target="#search-results" hx-indicator="#search-modal .htmx-indicator" aria-controls="search-results" aria-describedby="search-help">
         <span class="htmx-indicator spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
         <kbd>Esc</kbd>
       </div>

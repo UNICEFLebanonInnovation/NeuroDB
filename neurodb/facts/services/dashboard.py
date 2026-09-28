@@ -6,6 +6,7 @@ the same function feeds an HTML page, an HTMX partial and the internal JSON API.
 
 from __future__ import annotations
 
+import calendar
 import datetime
 from collections import Counter
 from dataclasses import asdict, dataclass, field
@@ -75,18 +76,23 @@ class Dashboard:
         }
 
 
-def _rows_to_indicators(rows: list[dict[str, Any]], year: int) -> list[IndicatorRow]:
+def _rows_to_indicators(
+    rows: list[dict[str, Any]], year: int, today: datetime.date | None = None
+) -> list[IndicatorRow]:
+    """``today`` is the date the status is measured at: the end of a report's period, else today."""
     out = []
     for r in rows:
         value = float(r["value"]) if r["value"] is not None else None
         target = float(r["target"]) if r["target"] else None
-        t = tracking(value, target, year)
+        method = r["aggregation_method"] or "SUM"
+        # A ratio is a level, not a running total: compare it with the whole target.
+        t = tracking(value, target, year, today, prorate=method != "SUM_OVER_SUM")
         out.append(
             IndicatorRow(
                 id=r["id"],
                 label=r["label"],
                 awp_code=r["awp_code"] or "",
-                aggregation_method=r["aggregation_method"] or "SUM",
+                aggregation_method=method,
                 reporting_level=r["reporting_level"],
                 unit=r.get("unit"),
                 target=target,
@@ -230,37 +236,70 @@ def _top_partners(f: FactFilter, limit: int) -> list[dict[str, Any]]:
 # ------------------------------------------------------------------------- Neuro Reports / HPM
 
 
+def last_ended_month(year: int, today: datetime.date | None = None) -> int:
+    """The last month of ``year`` that has ended: December for a past year, the month before this one
+    for the current year (January while January runs, so a report always has a period)."""
+    today = today or datetime.date.today()
+    if year < today.year:
+        return 12
+    if year > today.year:
+        return 1
+    return max(today.month - 1, 1)
+
+
 def resolve_period(
-    month: int | None, quarter: str | None, today: datetime.date | None = None
+    month: int | None, quarter: str | None, today: datetime.date | None = None, last_month: int = 12
 ) -> tuple[int, str | None]:
-    """v2 rule: default month is the previous month; a quarter maps to its last month."""
+    """Default month is the last ended one: the previous month (v2's rule) for the current year,
+    December for a past year. A quarter maps to its last month.
+
+    Periods that have not ended (after ``last_month``) are not offered: a later month or quarter
+    falls back to ``last_month``, so year-to-date values are never labelled as a future total.
+    """
     today = today or datetime.date.today()
     if quarter in QUARTERS:
-        return QUARTERS[quarter], quarter
+        if QUARTERS[quarter] <= last_month:
+            return QUARTERS[quarter], quarter
+        return last_month, None
     if month and 1 <= month <= 12:
-        return month, None
-    return (today.month - 1) or 12, None
+        return min(month, last_month), None
+    return last_month, None
 
 
-def neuroreport(report: NeuroReport, month: int | None = None, quarter: str | None = None) -> dict[str, Any]:
+def neuroreport(
+    report: NeuroReport,
+    month: int | None = None,
+    quarter: str | None = None,
+    today: datetime.date | None = None,
+) -> dict[str, Any]:
     """Values of a Neuro Report to the end of a period with the HPM cut-off and previous-period deltas.
 
     The cut-off ports v2's rule: records last edited after the 17th of the month following the
-    period are excluded (a June report viewed in September ignores edits after 17 July).
+    period are excluded (a June report viewed in September ignores edits made after 17 July; edits
+    made on the 17th, Beirut time, still count). Statuses are measured at the end of the period.
     """
-    month, quarter = resolve_period(month, quarter)
+    today = today or datetime.date.today()
     year = year_of(report.ryear) if report.ryear else timezone.now().year
+    last_month = last_ended_month(year, today)
+    month, quarter = resolve_period(month, quarter, today, last_month)
+    period_end = datetime.date(year, month, calendar.monthrange(year, month)[1])
     cutoff_month = month + 1
     cutoff = datetime.date(year + (1 if cutoff_month > 12 else 0), (cutoff_month - 1) % 12 + 1, 17)
+    # Records edited before the end of the cut-off day (in the site's time zone) count.
+    edited_before = timezone.make_aware(
+        datetime.datetime.combine(cutoff + datetime.timedelta(days=1), datetime.time.min)
+    )
     databases = Database.objects.filter(masterindicator__neuroreportmasterindicator__report=report).distinct()
     prev_month = month - (3 if quarter else 1)
     sections = []
     for db in databases.select_related("section").order_by("section__name", "name"):
-        f_now = fact_filter(db, month_to=month, edited_before=cutoff)
-        rows_now = _rows_to_indicators(queries.master_indicator_values(f_now, report_id=report.id), year)
+        f_now = fact_filter(db, month_to=month, edited_before=edited_before)
+        rows_now = _rows_to_indicators(
+            queries.master_indicator_values(f_now, report_id=report.id), year, min(today, period_end)
+        )
         prev = {}
         if prev_month >= 1:
-            f_prev = fact_filter(db, month_to=prev_month, edited_before=cutoff)
+            f_prev = fact_filter(db, month_to=prev_month, edited_before=edited_before)
             prev = {r["id"]: r for r in queries.master_indicator_values(f_prev, report_id=report.id)}
         items = []
         for i in rows_now:
@@ -281,6 +320,8 @@ def neuroreport(report: NeuroReport, month: int | None = None, quarter: str | No
         "month_label": datetime.date(year, month, 1).strftime("%B"),
         "quarter": quarter,
         "cutoff": cutoff,
+        "last_month": last_month,
+        "quarters": [q for q, m in QUARTERS.items() if m <= last_month],
         "sections": sections,
         "comments": list(comments),
         "totals": {"indicators": sum(len(s["items"]) for s in sections), "databases": len(sections)},
@@ -334,7 +375,7 @@ def overview(year: ReportingYear | None) -> dict[str, Any]:
             "databases": len(cards),
             "indicators": sum(c["indicators"] for c in cards),
             "reports": sum(c["reports"] for c in cards),
-            "partners": len({p for c in cards for p in [c["partners"]]}),
+            "partners": queries.partner_count([d.id for d in databases]),
         },
         "last_runs": [
             {"job": job, "label": label, "run": SyncRun.last_success(job)}

@@ -43,6 +43,11 @@ def resource_filters():
     }
 
 
+def _ids(values) -> list[str]:
+    """The values that are whole numbers: a non-numeric id would make the query raise (HTTP 500)."""
+    return [v for v in (str(v).strip() for v in values) if v.isascii() and v.isdigit()]
+
+
 def search_resources(params, page=1, per_page=12):
     qs = (
         Resource.objects.filter(published=True)
@@ -67,11 +72,16 @@ def search_resources(params, page=1, per_page=12):
             if params.get(key)
             else []
         )
+        if values and key in ("type", "topic"):
+            values = _ids(values)
+            if not values:  # only malformed ids (a mangled link): match nothing rather than drop the filter
+                qs = qs.none()
         if values:
             qs = qs.filter(**{f"{field}__in": values})
     tags = [t for t in params.getlist("tag") if t] if hasattr(params, "getlist") else []
     if tags:
-        qs = qs.filter(tags__id__in=tags).distinct()
+        ids = _ids(tags)
+        qs = qs.filter(tags__id__in=ids).distinct() if ids else qs.none()
     return Paginator(qs, per_page).get_page(page)
 
 

@@ -67,18 +67,17 @@ class ReportAnalyticalAPI(APIView):
         emergency = request.query_params.get("emergency", "")
         if emergency and emergency not in services.EMERGENCY_VALUES:
             return _bad_request("emergency must be 'yes' or 'no'.", allowed=list(services.EMERGENCY_VALUES))
-        wanted = {
-            f"{m.awp_code}_{m.name}"
-            for m in MasterIndicator.objects.filter(neuroreportmasterindicator__report=report).only(
-                "awp_code", "name"
+        wanted = set(
+            MasterIndicator.objects.filter(neuroreportmasterindicator__report=report).values_list(
+                "id", flat=True
             )
-        }
+        )
         rows: list[dict[str, Any]] = []
         for database in services.report_databases(report):
             rows.extend(
                 r
                 for r in facts.analytical_rows(database, emergency=emergency or None)
-                if r["master_indicator"] in wanted
+                if r["master_id"] in wanted
             )
         return Response(rows)
 
@@ -155,7 +154,10 @@ class HPMAPI(APIView):
                 "comments": [
                     {
                         "id": c.id,
-                        "master_id": c.master_id,
+                        # The master indicator id, as in sections[].items[].id; report_master_id is
+                        # the report's own link row the comment was saved against.
+                        "master_id": c.master.master_id if c.master_id else None,
+                        "report_master_id": c.master_id,
                         "comment": c.comment,
                         "month": c.related_month,
                         "entry_date": c.entry_date.isoformat(),
@@ -188,8 +190,10 @@ class DonorsAPI(APIView):
 
     def get(self, request: Request) -> Response:
         data = partnerships.donor_mapping(partnerships.PDFilters.from_params(request.query_params))
+        numbers = [p["pd"].number for p in data["programmes"] if p["pd"].number]
+        counts = partnerships.pd_intervention_counts(numbers)
         data["programmes"] = [
-            {**services.pd_as_dict(p["pd"]), "donations": p["donations"]} for p in data["programmes"]
+            {**services.pd_as_dict(p["pd"], counts), "donations": p["donations"]} for p in data["programmes"]
         ]
         return Response(data)
 

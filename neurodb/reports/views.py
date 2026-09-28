@@ -21,6 +21,7 @@ from django.core.paginator import Paginator
 from django.http import FileResponse, Http404, HttpRequest, HttpResponse, JsonResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.http import urlencode
 from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_GET, require_POST
@@ -560,17 +561,44 @@ def indicator_detail(request: HttpRequest, pk: int, master_id: int) -> HttpRespo
 # ------------------------------------------------------------------------- Neuro Reports / HPM
 
 
-def _report_context(request: HttpRequest, report: NeuroReport) -> dict[str, Any]:
+def _bad_period(request: HttpRequest) -> HttpResponse | None:
+    """A 400 for a ?month= or ?quarter= that does not parse, as the HPM API answers."""
+    raw_month, raw_quarter = request.GET.get("month", ""), request.GET.get("quarter", "")
+    if raw_month and services.parse_month(raw_month) is None:
+        return HttpResponse(_("Invalid month: use a number from 1 to 12."), status=400)
+    if raw_quarter and services.parse_quarter(raw_quarter) is None:
+        return HttpResponse(_("Invalid quarter: use Q1, Q2, Q3 or Q4."), status=400)
+    return None
+
+
+def _report_context(request: HttpRequest, report: NeuroReport, page: str) -> dict[str, Any]:
     month = services.parse_month(request.GET.get("month"))
     quarter = services.parse_quarter(request.GET.get("quarter"))
     data = facts.neuroreport(report, month=month, quarter=quarter)
-    months = [{"value": m, "label": f"{m:02d}"} for m in range(1, 13)]
+    # Only periods that have ended: a future month would show year-to-date values as its total.
+    months = [{"value": m, "label": f"{m:02d}"} for m in range(1, data["last_month"] + 1)]
+    other_years = (
+        NeuroReport.objects.filter(report_code=report.report_code, is_active=True)
+        .exclude(id=report.id)
+        .select_related("ryear")
+        .order_by("-ryear__name")
+        if report.report_code
+        else []
+    )
     return {
         "report": report,
         "data": data,
         "months": months,
-        "quarters": services.QUARTERS,
+        "quarters": data["quarters"],
         "labels": LABELS,
+        "other_years": [
+            {
+                "year": r.ryear.name if r.ryear else "",
+                "name": r.name,
+                "url": reverse(f"reports:{page if r.is_hpm else 'report_dashboard'}", args=[r.id]),
+            }
+            for r in other_years
+        ],
         "breadcrumbs": [_crumb(_("Overview"), reverse("reports:overview")), _crumb(report.name)],
     }
 
@@ -596,7 +624,9 @@ def _report_actions(report: NeuroReport, current: str) -> list[dict[str, Any]]:
 @require_GET
 def report_dashboard(request: HttpRequest, pk: int) -> HttpResponse:
     report = _report(pk)
-    context = _report_context(request, report)
+    if bad := _bad_period(request):
+        return bad
+    context = _report_context(request, report, "report_dashboard")
     context.update(
         {
             "page_title": report.name,
@@ -641,6 +671,11 @@ def report_analytical(request: HttpRequest, pk: int) -> HttpResponse:
 
 def report_hpm(request: HttpRequest, pk: int) -> HttpResponse:
     report = _report(pk)
+    if not report.is_hpm:
+        # Only HPM reports have an HPM view (and comments); the others open on their dashboard.
+        query = request.META.get("QUERY_STRING", "")
+        url = reverse("reports:report_dashboard", args=[report.id])
+        return redirect(url + (f"?{query}" if query else ""))
     if request.method == "POST":
         form = HPMCommentForm(report, request.POST)
         if not form.is_valid():
@@ -658,7 +693,9 @@ def report_hpm(request: HttpRequest, pk: int) -> HttpResponse:
         return redirect(reverse("reports:report_hpm", args=[report.id]) + (f"?{query}" if query else ""))
     if request.method != "GET":
         return HttpResponse(status=405)
-    context = _report_context(request, report)
+    if bad := _bad_period(request):
+        return bad
+    context = _report_context(request, report, "report_hpm")
     editable_sections = {
         s["database"].section_id
         for s in context["data"]["sections"]
@@ -803,7 +840,8 @@ def partners(request: HttpRequest) -> HttpResponse:
 
 @require_GET
 def partner_profile(request: HttpRequest, pk: int) -> HttpResponse:
-    partner = get_object_or_404(PartnerOrganization, pk=pk, deleted_flag=False)
+    # a partner deleted in eTools still opens (PDs and Datamart rows link to it), with a notice
+    partner = get_object_or_404(PartnerOrganization, pk=pk)
     profile = partnerships.partner_profile(partner)
     extra = datamart.partner_datamart(partner)
     activityinfo = partner_facts.partner_activityinfo(partner)
@@ -818,6 +856,10 @@ def partner_profile(request: HttpRequest, pk: int) -> HttpResponse:
         "profile": profile,
         "datamart": extra,
         "activityinfo": activityinfo,
+        # the partner's action points, the same search as the /action-points/ page
+        "action_points_url": reverse("reports:action_points")
+        + "?"
+        + urlencode({"q": partner.vendor_number or partner.name}),
         "labels": LABELS,
         "chart_data": {
             # eTools Trips from the Datamart when synced, else the v2 travel tables
@@ -833,7 +875,7 @@ def partner_profile(request: HttpRequest, pk: int) -> HttpResponse:
 @require_GET
 def partner_activityinfo(request: HttpRequest, pk: int, database_id: int) -> HttpResponse:
     """What one partner reported in one ActivityInfo database: master indicators by month (modal/page)."""
-    partner = get_object_or_404(PartnerOrganization, pk=pk, deleted_flag=False)
+    partner = get_object_or_404(PartnerOrganization, pk=pk)
     database = _database(database_id)
     data = partner_facts.partner_database_indicators(partner, database)
     context = {
@@ -878,7 +920,7 @@ def assurance(request: HttpRequest) -> HttpResponse:
     }
     if not request.htmx:
         raw_year = request.GET.get("hact_year", "")
-        context["hact"] = datamart.hact_compliance(int(raw_year) if raw_year.isdigit() else None)
+        context["hact"] = datamart.hact_compliance(pd_monitoring_service.year_param(raw_year))
         context["recent_findings"] = list(
             AuditFinding.objects.select_related("partner", "engagement").order_by("-created", "-datamart_id")[
                 :15
@@ -1101,8 +1143,7 @@ def pd_monitoring_map(request: HttpRequest) -> HttpResponse:
 @require_GET
 def pd_indicator(request: HttpRequest, pk: int, key: str) -> HttpResponse:
     pd = get_object_or_404(PCA.objects.select_related("partner"), pk=pk)
-    raw_year = request.GET.get("year", "")
-    year = int(raw_year) if raw_year.isdigit() else datetime.date.today().year
+    year = pd_monitoring_service.year_param(request.GET.get("year")) or datetime.date.today().year
     detail = pd_monitoring_service.indicator_detail(
         pd, key, (request.GET.get("report_type") or "").upper(), year
     )
@@ -1134,7 +1175,7 @@ def pd_indicator(request: HttpRequest, pk: int, key: str) -> HttpResponse:
 def population(request: HttpRequest) -> HttpResponse:
     years = population_service.available_years()
     raw_year = request.GET.get("year")
-    year = int(raw_year) if raw_year and raw_year.isdigit() else (years[0] if years else None)
+    year = pd_monitoring_service.year_param(raw_year) or (years[0] if years else None)
     view = request.GET.get("view", "total")
     if view not in services.POPULATION_VIEWS:
         return HttpResponse(_("Invalid population view."), status=400)
@@ -1158,7 +1199,13 @@ def population(request: HttpRequest) -> HttpResponse:
         "views": [
             ("total", _("Total population")),
             ("children", _("Children")),
-            ("vulnerable", _("Vulnerable population")),
+            # No loader writes vulnerable rows (only the admin form does): hide the tab until one exists.
+            # Old ?view=vulnerable links still answer, with the tab selected and the empty state.
+            *(
+                [("vulnerable", _("Vulnerable population"))]
+                if view == "vulnerable" or PopulationFigure.objects.filter(category="vulnerable").exists()
+                else []
+            ),
         ],
         "data": data,
         "chart_data": {
@@ -1334,7 +1381,8 @@ def _looks_like_question(q: str) -> bool:
 @require_GET
 def search(request: HttpRequest) -> HttpResponse:
     q = request.GET.get("q", "").strip()
-    year = services.resolve_year(None)
+    # The year of the page the search starts from (the search box sends it), else the current year.
+    year = services.resolve_year(request.GET.get("year"))
     groups = services.search(q, year) if q else []
     context = {
         "page_title": _("Search"),

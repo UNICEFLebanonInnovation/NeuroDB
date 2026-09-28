@@ -17,6 +17,7 @@
   {% include "components/kpi_tile.html" with label=label value=value|number %}
   {% endfor %}
 </div>
+{% if view == "children" and data.totals_by_nationality and "OTH" not in data.totals_by_nationality %}<p class="caveat">{% trans "Children are the source's age bands from 0-4 to 15-19. The source gives no age breakdown for migrants, so they are not counted here." %}</p>{% endif %}
 <div class="grid grid--2 mb-3">
   <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "By nationality" %}</h2></div>
     <div class="chart" data-module="charts" data-chart="pie" data-labels="nationality" data-key="totals_by_nationality"></div></section>
@@ -35,9 +36,10 @@
 <section class="panel p-0 mb-3">
   {% include "components/table_toolbar.html" with title=_("Age groups") table_id="pop-age" filename="population-age" %}
   {% trans "Age group" as fl %}{% include "reports/_matrix_table.html" with matrix=data.by_age_group table_id="pop-age" first_label=fl %}
+  {% if "OTH" not in data.by_age_group.columns and "OTH" in data.totals_by_nationality %}<p class="caveat px-3 pb-3 mb-0">{% trans "The source gives no age breakdown for migrants (Other), so this table's Total is lower than the all-nationalities figure." %}</p>{% endif %}
 </section>
 {% endif %}
-{% if data.by_vulnerability %}
+{% if data.by_vulnerability.rows %}
 <section class="panel p-0">
   {% include "components/table_toolbar.html" with title=_("Vulnerability by district") table_id="pop-vul" filename="population-vulnerability" %}
   {% trans "District" as fl %}{% include "reports/_matrix_table.html" with matrix=data.by_vulnerability table_id="pop-vul" first_label=fl %}

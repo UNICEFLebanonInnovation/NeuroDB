@@ -21,7 +21,7 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
   export, and **saved views** that can be shared with everyone.
 - **Intervention map**: choropleth by governorate, district or cadaster and site circles
   (MapLibre, OpenStreetMap tiles), with partner, programme document, area and month filters.
-- **Neuro Reports and HPM**: values to the end of any month or quarter with the v2 cut-off rule,
+- **Neuro Reports and HPM**: values to the end of any month or quarter that has ended, with the v2 cut-off rule,
   change against the previous period, and section-scoped comments.
 - **Partnerships**: programme documents with multi-filters, summary (ending within 90 days), donor
   mapping (funds by donor and year, planned versus actual locations), partner profiles.

@@ -20,7 +20,7 @@
       <td class="num">{% include "reports/partials/_brief_cell.html" with value=r.reports_on_time_percent good=80 warn=50 %}</td>
       <td class="num">{% include "reports/partials/_brief_cell.html" with value=r.points_on_time_percent good=80 warn=50 %}</td>
       <td>{% if r.risk %}<span class="pill pill--sm {% if r.high_risk %}pill--danger{% elif r.risk|lower == 'medium' %}pill--warning{% else %}pill--success{% endif %}">{{ r.risk }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
-      <td>{% if r.finding %}{% status_pill r.finding|lower r.finding "sm" %}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+      <td>{% if r.finding %}{% status_pill r.finding|status_key r.finding "sm" %}{% else %}<span class="text-muted">—</span>{% endif %}</td>
       <td class="num"><span class="pill pill--sm {% if r.quadrant == 'ahead' %}pill--success{% elif r.quadrant == 'behind' %}pill--danger{% elif r.quadrant %}pill--warning{% else %}pill--neutral{% endif %}">{{ r.disbursed_percent|percent:0 }} / {{ r.achieved_percent|percent:0 }}</span></td>
       <td class="num">{{ r.children|intcomma }}</td>
     </tr>

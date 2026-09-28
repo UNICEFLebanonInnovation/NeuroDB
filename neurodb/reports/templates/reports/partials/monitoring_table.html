@@ -2,7 +2,7 @@
 <div class="kpi-grid">
   {% trans "Findings" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=page_obj.paginator.count|number %}
   {% trans "Monitoring activities" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.activities|number %}
-  {% trans "TPM visits" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.tpm_count|number %}
+  {% trans "TPM visits" as l3 %}{% trans "every status, draft and cancelled included" as h3 %}{% include "components/kpi_tile.html" with label=l3 value=data.tpm_count|number hint=h3 %}
   {% trans "UNICEF staff trip activities" as l4 %}{% blocktrans asvar hint %}programmatic visits, spot checks, meetings{% endblocktrans %}{% include "components/kpi_tile.html" with label=l4 value=data.staff_visits|number hint=hint %}
 </div>
 <div class="grid grid--2 mb-3">

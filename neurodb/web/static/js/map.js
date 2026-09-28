@@ -5,6 +5,12 @@ import { asset, cssVar, escapeHTML, fetchJSON, fmt, loadScript, loadStyle, readJ
 const LEBANON = { center: [35.86, 33.87], zoom: 7.3 };
 const RAMP = ["#deebf7", "#9ecae1", "#6baed6", "#3182bd", "#08519c"];
 
+// Choropleth stops spread evenly from 1 to max. MapLibre needs strictly ascending stops, which holds
+// for any max > 1 (max * 0.25 fell below the first stop, 1, whenever max was under 4).
+function rampStops(max) {
+  return RAMP.flatMap((colour, i) => [1 + ((max - 1) * i) / (RAMP.length - 1), colour]);
+}
+
 function styleSpec() {
   return {
     version: 8,
@@ -125,7 +131,7 @@ export async function init(el) {
           "case",
           ["==", ["get", "interventions"], 0],
           "rgba(150,150,150,0.08)",
-          ["interpolate", ["linear"], ["get", "interventions"], 1, RAMP[0], max * 0.25, RAMP[1], max * 0.5, RAMP[2], max * 0.75, RAMP[3], max, RAMP[4]],
+          ["interpolate", ["linear"], ["get", "interventions"], ...rampStops(max)],
         ],
         "fill-opacity": 0.78,
       },
