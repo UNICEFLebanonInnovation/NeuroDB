@@ -118,7 +118,7 @@
       {% if nav.sections %}
       <details class="sidebar__block" data-nav-key="databases" {% if nav_active.block == "databases" %}open data-nav-active{% endif %}>
         <summary class="sidebar__block-title">
-          <span>{% trans "Databases" %}{% if nav.year %} {{ nav.year.name }}{% endif %}</span>
+          <span>{% trans "Databases" %}{% if nav.databases_year %} {{ nav.databases_year.name }}{% endif %}</span>
           <span class="count">{{ nav.sections|length }}</span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg>
         </summary>
         {% for s in nav.sections %}
@@ -148,7 +148,7 @@
       {% endif %}
       {% if nav.neuro_reports %}
       <details class="sidebar__block" data-nav-key="reports" {% if nav_active.block == "reports" %}open data-nav-active{% endif %}>
-        <summary class="sidebar__block-title"><span>{% trans "Neuro reports" %}</span><span class="count">{{ nav.neuro_reports|length }}</span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg></summary>
+        <summary class="sidebar__block-title"><span>{% trans "Neuro reports" %}{% if nav.neuro_year %} {{ nav.neuro_year.name }}{% endif %}</span><span class="count">{{ nav.neuro_reports|length }}</span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg></summary>
         <ul class="list-unstyled">
           {% for r in nav.neuro_reports %}
           <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:report_dashboard' 'reports:report_analytical' pk=r.id %}" href="{% url 'reports:report_dashboard' r.id %}" {% aria_current 'reports:report_dashboard' pk=r.id %}>{{ r.name }}</a></li>
@@ -158,7 +158,7 @@
       {% endif %}
       {% if nav.hpm_reports %}
       <details class="sidebar__block" data-nav-key="hpm" {% if nav_active.block == "hpm" %}open data-nav-active{% endif %}>
-        <summary class="sidebar__block-title"><span>{% trans "HPM" %}</span><span class="count">{{ nav.hpm_reports|length }}</span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg></summary>
+        <summary class="sidebar__block-title"><span>{% trans "HPM" %}{% if nav.hpm_year %} {{ nav.hpm_year.name }}{% endif %}</span><span class="count">{{ nav.hpm_reports|length }}</span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg></summary>
         <ul class="list-unstyled">
           {% for r in nav.hpm_reports %}
           <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:report_hpm' pk=r.id %}" href="{% url 'reports:report_hpm' r.id %}" {% aria_current 'reports:report_hpm' pk=r.id %}>{{ r.name }}</a></li>

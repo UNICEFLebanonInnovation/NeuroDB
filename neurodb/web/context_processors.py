@@ -40,10 +40,31 @@ def _active_item(request) -> dict:
     return {"block": None}
 
 
+def _page_year(request, active: dict):
+    """The reporting year the page shows: ``?year=``, else the year of the database or report open,
+    else None (the current year)."""
+    from neurodb.indicators.models import Database, NeuroReport, ReportingYear
+
+    raw = request.GET.get("year", "").strip()
+    if raw:
+        found = ReportingYear.objects.filter(name=raw).first()
+        if found:
+            return found
+    if active.get("db"):
+        db = Database.objects.select_related("reporting_year").filter(pk=active["db"]).first()
+        return db.reporting_year if db else None
+    if active.get("report"):
+        report = NeuroReport.objects.select_related("ryear").filter(pk=active["report"]).first()
+        return report.ryear if report else None
+    return None
+
+
 def navigation(request):
-    """Sidebar content generated from the database (v2 hard-coded 190 lines of HTML)."""
+    """Sidebar content generated from the database (v2 hard-coded 190 lines of HTML), for the year
+    the page shows, so choosing 2025 in the year menu lists the 2025 databases and reports."""
     if not getattr(request, "user", None) or not request.user.is_authenticated:
         return {}
     from neurodb.indicators.services.navigation import build_navigation
 
-    return {"nav": build_navigation(), "nav_active": _active_item(request)}
+    active = _active_item(request)
+    return {"nav": build_navigation(_page_year(request, active)), "nav_active": active}

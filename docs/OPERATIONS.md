@@ -285,6 +285,11 @@ under *Partner reporting*: the eTools implementation monitoring on one side, the
 history per year and database on the other (each database opens the partner's master indicators by
 month; *map* shows its sites).
 
+The sidebar's *Databases*, *Neuro reports* and *HPM* blocks list the year the page shows: the year
+chosen in the year menu (`?year=`), the year of the database or report that is open, or else the
+current reporting year. When that year has none of them (a new year before its databases are
+set up), each block shows the latest year that has some, and says which year in its title.
+
 The bridge is the table *ActivityInfo partner links* (admin → Partnerships): one row per partner
 name found in the activity records (`partner_label`, exactly as spelled there), pointing at the
 eTools partner. It is refreshed by `manage link_partners`, which `migrate_locked` runs at every
