@@ -136,18 +136,22 @@ class DatabaseAdmin(ModelAdmin):
         self._run_import(request, queryset, "import_activityinfo_data")
 
     def _run_import(self, request, queryset, command):
-        """Run the management command in-process; it records its own SyncRun.
+        """Start the management command in the background, one process per database (an import can
+        take longer than a web request). It records its own SyncRun, shown in *Import and sync runs*.
 
         Scheduled jobs run the same command, so a manual run and a nightly run behave identically.
         """
-        from django.core.management import call_command
+        from neurodb.integrations import background
 
         for db in queryset:
-            try:
-                call_command(command, database=db.ai_id, triggered_by=request.user.get_username())
-                self.message_user(request, f"{command} finished for {db}.", messages.SUCCESS)
-            except Exception as exc:  # noqa: BLE001 - surfaced to the admin user
-                self.message_user(request, f"{command} failed for {db}: {exc}", messages.ERROR)
+            background.start_command(
+                command, "--database", str(db.ai_id), "--triggered-by", request.user.get_username()
+            )
+            self.message_user(
+                request,
+                f"{command} started for {db}. Follow it in Import and sync runs.",
+                messages.SUCCESS,
+            )
 
 
 @admin.register(Activity)

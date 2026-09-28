@@ -13,6 +13,7 @@ from unfold.widgets import UnfoldAdminCheckboxSelectMultipleWidget, UnfoldAdminR
 
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
+from .admin_jobs import JobActionsMixin
 from .models import PopulationFigure, SavedView, SyncRun
 
 
@@ -67,8 +68,10 @@ class DatamartSyncForm(BaseDialogForm):
 
 
 @admin.register(SyncRun)
-class SyncRunAdmin(ReadOnlyModelAdmin):
-    actions_list = ["sync_etools_datamart"]
+class SyncRunAdmin(JobActionsMixin, ReadOnlyModelAdmin):
+    # "Sync eTools now" (the nightly Datamart sync) stays a button of its own; every other command
+    # an operator may need is in the "Run a job" menu (admin_jobs.py).
+    actions_list = ["sync_etools_datamart", JobActionsMixin.JOB_MENU]
 
     list_display = (
         "job",

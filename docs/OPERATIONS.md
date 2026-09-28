@@ -130,6 +130,35 @@ Triage a failure: open the run, read `error`, re-run the command with `--databas
 `--only <entity>` (`az containerapp exec … --command "neurodb manage …"`). A `PARTIAL` run lists the
 failed item ids in `details`.
 
+## Running jobs without a command line
+
+Everything an operator runs with `manage.py` has a button in the admin, for administrators, each
+with a confirmation step. Admin → *Data and sync* → *Import and sync runs* (also linked from the
+admin home page, *Quick actions*):
+
+| Button | Command it runs | How |
+|---|---|---|
+| **Sync eTools now** | `sync_etools_datamart` (core, all or chosen datasets) | background |
+| Run a job → *eTools REST sync* | `sync_etools` | background |
+| Run a job → *Locations sync* | `sync_locations` | background |
+| Run a job → *ActivityInfo structure* (current year) | `import_activityinfo_structure --all` | background |
+| Run a job → *ActivityInfo data* (current year) | `import_activityinfo_data --current-year` | background |
+| Run a job → *Link partners* | `link_partners` | background |
+| Run a job → *Daily review* | `daily_review` | background |
+| Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
+| Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
+| Run a job → *Repair roles* | `bootstrap_roles` | in the request |
+
+One database at a time: *Reporting setup* → *Databases*, select them, action *Import structure* or
+*Import data from ActivityInfo* (one background process per database). The daily review and the
+population figures also have their button on their own admin pages.
+
+A background job runs as its own process (it survives the web worker that started it), is recorded
+as a run in this list like a scheduled run, and does not start while a run of the same job is in
+progress. Not available as buttons, on purpose: `migrate_locked` and `ensure_legacy_tables` (every
+deployment runs them), `seed_demo` (local databases only) and `record_datamart_samples` (writes test
+fixtures into the source code).
+
 ## eTools Datamart
 
 **Running the sync now.** Admin → *Data and sync* → *Import and sync runs* → **Sync eTools now**

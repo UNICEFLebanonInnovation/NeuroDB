@@ -48,6 +48,7 @@
           <ul class="nd-quick">
             {% if perms.users.add_user %}<li><a href="{% url 'admin:users_user_add' %}"><span class="material-symbols-outlined">person_add</span>{% trans "Add a user" %}</a></li>{% endif %}
             {% if perms.users.view_user %}<li><a href="{% url 'admin:users_user_changelist' %}?role=none&amp;is_active__exact=1"><span class="material-symbols-outlined">badge</span>{% trans "Give roles to new users" %}</a></li>{% endif %}
+            {% if perms.core.view_syncrun %}<li><a href="{% url 'admin:core_syncrun_changelist' %}"><span class="material-symbols-outlined">play_arrow</span>{% trans "Run a job (syncs, imports, review, population…)" %}</a></li>{% endif %}
             {% if perms.pivoting.change_database %}<li><a href="{% url 'admin:pivoting_database_changelist' %}"><span class="material-symbols-outlined">sync</span>{% trans "Run an ActivityInfo import" %}</a></li>{% endif %}
             {% if perms.pivoting.add_neuroreport %}<li><a href="{% url 'admin:pivoting_neuroreport_add' %}"><span class="material-symbols-outlined">summarize</span>{% trans "Create a Neuro report" %}</a></li>{% endif %}
             {% if perms.pivoting.add_resource %}<li><a href="{% url 'admin:pivoting_resource_add' %}"><span class="material-symbols-outlined">menu_book</span>{% trans "Publish a library resource" %}</a></li>{% endif %}
