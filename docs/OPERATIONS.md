@@ -110,25 +110,44 @@ come from.
   Azure tenant) needs a small code change (the SDK's `AzureOpenAI` client) and different settings.
 
 ## Scheduled jobs
-Container Apps cron is **UTC**; Beirut is UTC+3 in summer and UTC+2 in winter.
+The periodic jobs are managed in the admin: **Data and sync → Scheduled jobs**. Each row is one
+command on one schedule, in **Beirut time** (summer time is followed automatically):
 
-| Job | Command | Schedule (UTC) | Beirut (summer) |
-|---|---|---|---|
-| `locations` | `manage sync_locations` | `0 2 * * *` | 05:00 daily |
-| `daily-review` | `manage daily_review` | `0 3 * * *` | 06:00 daily, after the night's syncs |
-| `ai-data` | `manage import_activityinfo_data --current-year` | `0 15 1-22 * *` | 18:00, days 1–22 |
-| `etools` | `manage sync_etools_datamart` | `30 17 * * *` | 20:30 daily |
-| `freshness` | `manage check_sync_freshness` | `15 * * * *` | hourly; a stale source fails the run |
-| `ai-structure` | `manage import_activityinfo_structure --all` | manual | after yearly rollover |
-| (in `ai-data` and `etools`) | `manage link_partners` | runs at the end of both jobs (the `etools` job only when partners or programme documents were synced) | ActivityInfo → eTools partner links |
-| `migrate` | `migrate` (then `bootstrap_roles`, which also gives the Administrator group every model permission so new tables show in the admin, and `link_partners`) | manual, run by the pipeline | |
+| Job | Runs | Default schedule (Beirut) |
+|---|---|---|
+| `locations` | `sync_locations` | `0 5 * * *`, daily 05:00 |
+| `daily-review` | `daily_review` | `0 6 * * *`, daily 06:00, after the night's syncs |
+| `activityinfo-data` | `import_activityinfo_data --current-year` | `0 18 1-22 * *`, 18:00 on days 1–22 |
+| `etools-datamart` | `sync_etools_datamart` | `30 20 * * *`, daily 20:30 |
+| `freshness` | `check_sync_freshness` | `15 * * * *`, hourly; a stale source is logged as an error |
+| `activityinfo-structure` | `import_activityinfo_structure --all` | switched off; switch on or use *Run now* after the yearly rollover |
+| (inside `activityinfo-data` and `etools-datamart`) | `link_partners` | at the end of both jobs |
 
-Run one now: `az containerapp job start -n <prefix>-<job> -g <resource group>`.
-Every run writes a `SyncRun` row (admin → Core → Sync runs; page `/data/health/`), and the job's
-execution history keeps its logs.
-Triage a failure: open the run, read `error`, re-run the command with `--database <ai_id>` or
-`--only <entity>` (`az containerapp exec … --command "neurodb manage …"`). A `PARTIAL` run lists the
-failed item ids in `details`.
+On the page: switch a job on or off (the toggle, then *Save*), open it to change its schedule (five
+cron fields: minute hour day-of-month month day-of-week; the form refuses a schedule it cannot read),
+*Run now* from the row's **⋯** menu, or *Add scheduled job* to run another listed command on a
+schedule (for example the eTools REST sync weekly). Only the commands in that list can be
+scheduled. Each row shows its next run, the last run of its command (a link to the run) and the
+last outcome ("started", or "skipped: the previous run is still going"). Every change records who
+made it (*Updated by*, and the History button).
+
+**How it runs.** The scheduler runs inside the website: each gunicorn worker starts it in a thread
+and a database lock lets exactly one of them act, so a job starts once however many workers or
+replicas run. The banner above the list says whether it checked in during the last three minutes,
+and on which host. A due job starts within a minute, in the background, as the admin buttons do,
+and appears in *Import and sync runs* with *schedule* as its trigger. A job whose previous run is
+still going is skipped until its next time. Times missed while the site was down (a deployment, a
+restart) are caught up once when it comes back. It works the same on App Service and Container
+Apps; on **App Service, turn on *Always On*** (Configuration → General settings), otherwise the site
+sleeps when nobody uses it and the scheduler with it. `SCHEDULER_ENABLED=false` switches the
+scheduler off (the page then says so); `python manage.py run_scheduler [--once]` runs it in the
+foreground (local development).
+
+The Container Apps jobs in `infra/main.bicep` have no schedule any more (they stay for manual runs:
+`az containerapp job start -n <prefix>-<job> -g <resource group>`), so nothing runs twice. Every run
+writes a `SyncRun` row (admin → *Import and sync runs*; page `/data/health/`).
+Triage a failure: open the run, read `error`, re-run the job from the admin, or the command with
+`--database <ai_id>` or `--only <entity>`. A `PARTIAL` run lists the failed item ids in `details`.
 
 ## Running jobs without a command line
 
@@ -139,6 +158,7 @@ admin home page, *Quick actions*):
 | Button | Command it runs | How |
 |---|---|---|
 | **Sync eTools now** | `sync_etools_datamart` (core, all or chosen datasets) | background |
+| *Scheduled jobs* page → row **⋯** → *Run now* | that job's command | background |
 | Run a job → *eTools REST sync* | `sync_etools` | background |
 | Run a job → *Locations sync* | `sync_locations` | background |
 | Run a job → *ActivityInfo structure* (current year) | `import_activityinfo_structure --all` | background |
@@ -168,9 +188,7 @@ It runs in the background in the web container; each dataset appears in that lis
 finishes. Only one Datamart sync runs at a time (a database lock), whoever starts it. A deployment
 restarts the container and kills a sync in progress: its run stays *Running* until the next
 **Sync eTools now**, which sees that nobody holds the lock, closes the run as *Failed* ("Cut off")
-and starts. On Container
-Apps the `etools` job also runs it every night; **App Service has no scheduler**, so there the data
-only changes when someone starts it (or through a Container Apps job pointed at the same database).
+and starts. The scheduled job `etools-datamart` (admin → Scheduled jobs) runs it every night.
 From a shell with the same settings: `python manage.py sync_etools_datamart [--only a,b]`.
 
 The nightly eTools sync reads the **eTools Datamart** (`https://datamart.unicef.io`, the new eTools
@@ -525,8 +543,8 @@ confirmation), or `python manage.py daily_review [--date YYYY-MM-DD] [--no-narra
 runs at a time (a database lock); a second start says so and does nothing. Re-running a date
 replaces its review only when the new run succeeds. `--date` only names the review: the checks always
 read today's data, so use it to re-run today's or yesterday's review, never to rebuild the past. Every run writes a `SyncRun` (job *Daily AI review*); a check that fails is listed on
-the review and the run is *partial*, the other checks still report. On App Service, which has no
-scheduler, start it from the admin after the morning sync or run it as a Container Apps job.
+the review and the run is *partial*, the other checks still report. The scheduled job
+`daily-review` (admin → Scheduled jobs) runs it every morning.
 
 ## Yearly rollover (January)
 1. Admin → Reporting years: create the new year and tick *current* (only one can be current).

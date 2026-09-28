@@ -1,0 +1,58 @@
+"""The commands the scheduler may run: a fixed list, so a schedule can never run arbitrary code.
+
+Shared by the scheduled jobs page (which command a schedule runs) and the scheduler (how to start it).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from django.utils.translation import gettext_lazy as _
+
+from .models import SyncRun
+
+
+@dataclass(frozen=True)
+class JobCommand:
+    label: str
+    args: tuple[str, ...]  # manage.py arguments
+    sync_job: str | None  # the SyncRun job it records: a second start is refused while one runs
+    triggered_by: bool = True  # the command takes --triggered-by
+
+
+COMMANDS: dict[str, JobCommand] = {
+    "etools_datamart": JobCommand(
+        _("Sync eTools (Datamart)"), ("sync_etools_datamart",), SyncRun.Job.ETOOLS_DATAMART
+    ),
+    "etools_rest": JobCommand(_("Sync eTools (REST API)"), ("sync_etools",), SyncRun.Job.ETOOLS),
+    "locations": JobCommand(_("Sync locations"), ("sync_locations",), SyncRun.Job.LOCATIONS),
+    "ai_structure": JobCommand(
+        _("Import ActivityInfo structure (current year)"),
+        ("import_activityinfo_structure", "--all"),
+        SyncRun.Job.ACTIVITYINFO_STRUCTURE,
+    ),
+    "ai_data": JobCommand(
+        _("Import ActivityInfo data (current year)"),
+        ("import_activityinfo_data", "--current-year"),
+        SyncRun.Job.ACTIVITYINFO_DATA,
+    ),
+    "link_partners": JobCommand(
+        _("Link ActivityInfo partners to eTools"), ("link_partners",), SyncRun.Job.PARTNER_LINKS
+    ),
+    "daily_review": JobCommand(_("Daily review"), ("daily_review",), SyncRun.Job.DAILY_REVIEW),
+    "freshness": JobCommand(_("Check data freshness"), ("check_sync_freshness",), None, triggered_by=False),
+}
+
+COMMAND_CHOICES = [(key, cmd.label) for key, cmd in COMMANDS.items()]
+
+
+def start(key: str, triggered_by: str) -> str:
+    """Start a job's command in the background. Returns "started" or "running" (not started)."""
+    from neurodb.integrations import background
+
+    command = COMMANDS[key]
+    if command.sync_job and background.is_running(command.sync_job):
+        return "running"
+    args = [*command.args, *(("--triggered-by", triggered_by) if command.triggered_by else ())]
+    background.start_command(*args)
+    return "started"

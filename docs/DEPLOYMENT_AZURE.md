@@ -222,12 +222,11 @@ environments. Put their names in the variables at the top of the pipeline.
 | Rotate a secret | Update it in Key Vault, then `az containerapp revision restart -n neurodb-prod-web -g … --revision <active>`; jobs read it on their next run |
 | Scale | `minReplicas` and `maxReplicas` parameters (HTTP rule: 40 concurrent requests per replica) |
 
-Schedules are cron expressions in **UTC** (Container Apps has no time zone setting). Beirut is
-UTC+3 in summer and UTC+2 in winter, so local times move by an hour twice a year; adjust the `jobs`
-parameter if exact local times matter. A failed job run stays failed (`replicaRetryLimit: 0`) and
-is visible in the execution history and on the NeuroDB **Data health** page. The hourly
-`freshness` job exits with an error when a source is stale. Create an Azure Monitor alert on failed
-executions of the jobs (portal: the job → Alerts), notifying the NeuroDB team.
+The schedules are managed in the application (admin → **Scheduled jobs**, in Beirut time), run by
+the web container's own scheduler, so the Container Apps jobs have no cron and serve manual runs
+only (see OPERATIONS.md, Scheduled jobs). A failed run is visible on the NeuroDB **Data health**
+page and in *Import and sync runs*; the hourly freshness check logs an error when a source is stale
+(an Application Insights alert on `sync freshness` log errors notifies the NeuroDB team).
 
 Rollback does not reverse migrations. Every migration must therefore stay compatible with the
 previous release for one deployment (add columns first, remove them in a later release).
@@ -235,6 +234,5 @@ previous release for one deployment (add columns first, remove them in a later r
 ## Also possible: App Service for Containers
 
 The same image runs on Web App for Containers: set `WEBSITES_PORT=8000`, the same environment
-variables (Key Vault references), and health check path `/healthz/`. App Service WebJobs cannot run
-this image's commands, so the scheduled syncs would still need Container Apps Jobs. That is why
-Container Apps is the recommended target.
+variables (Key Vault references), health check path `/healthz/`, and **Always On** (the in-app
+scheduler that runs the scheduled jobs lives in the web workers, and App Service stops idle sites).

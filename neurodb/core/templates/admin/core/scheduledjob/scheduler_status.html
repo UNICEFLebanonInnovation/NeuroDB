@@ -1,0 +1,16 @@
+{% load i18n humanize %}
+<div class="nd-scheduler {% if scheduler_alive %}nd-scheduler--ok{% else %}nd-scheduler--warn{% endif %}" role="status">
+  <span class="material-symbols-outlined" aria-hidden="true">{% if scheduler_alive %}check_circle{% else %}warning{% endif %}</span>
+  <div>
+    {% if not scheduler_enabled %}
+      <strong>{% trans "The scheduler is switched off" %}</strong>
+      <p>{% trans "SCHEDULER_ENABLED is false in the application settings: no job runs on its schedule. The Run now buttons still work." %}</p>
+    {% elif scheduler_alive %}
+      <strong>{% trans "The scheduler is running" %}</strong>
+      <p>{% blocktrans with when=scheduler_seen|naturaltime host=scheduler_host %}Last check {{ when }}, on {{ host }}. Times are Beirut time; a job starts within a minute of its time, in the background, and appears in Import and sync runs.{% endblocktrans %}</p>
+    {% else %}
+      <strong>{% trans "The scheduler has not checked in recently" %}</strong>
+      <p>{% if scheduler_seen %}{% blocktrans with when=scheduler_seen|naturaltime %}Last check {{ when }}.{% endblocktrans %} {% endif %}{% trans "It runs inside the website's workers (gunicorn) and checks every 30 seconds. After a deployment or restart it resumes on its own; if this stays, restart the web app and check its log." %}</p>
+    {% endif %}
+  </div>
+</div>

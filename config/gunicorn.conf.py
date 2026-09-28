@@ -34,3 +34,10 @@ logconfig_dict = {
         "gunicorn.error": {"handlers": ["error"], "level": "INFO", "propagate": False},
     },
 }
+
+
+def post_worker_init(worker):
+    """Each worker starts the in-app scheduler thread; a database lock lets only one of them act."""
+    from neurodb.core import scheduler
+
+    scheduler.start()

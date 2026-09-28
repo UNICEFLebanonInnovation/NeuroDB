@@ -56,3 +56,11 @@
 #modal-content #dialog-form { flex: 1 1 auto; min-height: 0; }
 /* The dataset checkboxes of the Datamart sync dialog, in columns instead of one long list. */
 #id_datasets { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px 16px; }
+
+/* Scheduled jobs: the scheduler's status above the list */
+.nd-scheduler { display: flex; gap: .75rem; align-items: flex-start; margin-bottom: 1rem; padding: .75rem 1rem; border-radius: 8px; border: 1px solid; font-size: .875rem; }
+.nd-scheduler p { margin: .15rem 0 0; }
+.nd-scheduler--ok { background: rgb(240 253 244); border-color: rgb(187 247 208); color: rgb(21 128 61); }
+.nd-scheduler--warn { background: rgb(255 251 235); border-color: rgb(253 230 138); color: rgb(146 64 14); }
+.dark .nd-scheduler--ok { background: rgb(20 83 45 / .25); border-color: rgb(22 101 52); color: rgb(187 247 208); }
+.dark .nd-scheduler--warn { background: rgb(120 53 15 / .25); border-color: rgb(146 64 14); color: rgb(253 230 138); }

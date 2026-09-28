@@ -1,9 +1,14 @@
+import datetime
+
 from django import forms
+from django.conf import settings
 from django.contrib import admin, messages
 from django.contrib.admin.models import ADDITION, CHANGE, DELETION, LogEntry
+from django.contrib.humanize.templatetags.humanize import naturaltime
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import NoReverseMatch, reverse
+from django.utils import timezone
 from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
@@ -14,7 +19,7 @@ from unfold.widgets import UnfoldAdminCheckboxSelectMultipleWidget, UnfoldAdminR
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
 from .admin_jobs import JobActionsMixin
-from .models import PopulationFigure, SavedView, SyncRun
+from .models import PopulationFigure, SavedView, ScheduledJob, SyncRun
 
 
 class ReloadPopulationForm(BaseDialogForm):
@@ -282,3 +287,159 @@ class AuditTrailAdmin(ReadOnlyModelAdmin):
     @admin.display(description=_("Change"))
     def change_message_text(self, obj):
         return obj.get_change_message()
+
+
+class ScheduledJobForm(forms.ModelForm):
+    command = forms.ChoiceField(label=_("Runs"), choices=())
+
+    class Meta:
+        model = ScheduledJob
+        fields = ("key", "command", "schedule", "enabled")
+
+    def __init__(self, *args, **kwargs):
+        from .jobs import COMMAND_CHOICES
+
+        super().__init__(*args, **kwargs)
+        self.fields["command"].choices = COMMAND_CHOICES
+
+    def clean_schedule(self):
+        from .cron import CronError, next_after
+
+        schedule = " ".join(self.cleaned_data["schedule"].split())
+        try:
+            next_after(schedule, timezone.now())
+        except CronError as exc:
+            raise forms.ValidationError(str(exc)) from None
+        return schedule
+
+
+class RunScheduledJobForm(BaseDialogForm):
+    """The confirmation step of "Run now" on a scheduled job."""
+
+
+@admin.register(ScheduledJob)
+class ScheduledJobAdmin(ModelAdmin):
+    """Admin → Scheduled jobs: what runs when (Beirut time), switched on and off here."""
+
+    form = ScheduledJobForm
+    list_before_template = "admin/core/scheduledjob/scheduler_status.html"
+    list_display = (
+        "key",
+        "runs",
+        "when",
+        "enabled",
+        "next_run_at",
+        "last_run",
+        "last_outcome",
+    )
+    list_editable = ("enabled",)
+    list_filter = ("enabled",)
+    actions = ["enable_jobs", "disable_jobs"]
+    actions_row = ["run_now"]
+    readonly_fields = ("next_run_at", "last_started_at", "last_outcome", "updated_by", "updated_at")
+
+    @admin.display(description=_("Runs"), ordering="command")
+    def runs(self, obj):
+        from .jobs import COMMANDS
+
+        command = COMMANDS.get(obj.command)
+        return command.label if command else obj.command
+
+    @admin.display(description=_("When (Beirut time)"), ordering="schedule")
+    def when(self, obj):
+        from .cron import describe
+
+        text = describe(obj.schedule)
+        if text == obj.schedule:
+            return format_html("<code>{}</code>", obj.schedule)
+        return format_html("{}<br><code class='text-xs'>{}</code>", text, obj.schedule)
+
+    @admin.display(description=_("Last run"))
+    def last_run(self, obj):
+        from .jobs import COMMANDS
+
+        command = COMMANDS.get(obj.command)
+        if not command or not command.sync_job:
+            return format_html("{}", naturaltime(obj.last_started_at)) if obj.last_started_at else "—"
+        run = SyncRun.objects.filter(job=command.sync_job).order_by("-started_at").first()
+        if not run:
+            return "—"
+        url = reverse("admin:core_syncrun_change", args=[run.pk])
+        return format_html(
+            '<a href="{}">{}</a> {}', url, badge(run.get_status_display()), naturaltime(run.started_at)
+        )
+
+    def save_model(self, request, obj, form, change):
+        obj.updated_by = request.user.get_username()
+        obj.plan_next()  # a new or edited schedule counts from now
+        super().save_model(request, obj, form, change)
+
+    def changelist_view(self, request, extra_context=None):
+        from .models import SchedulerState
+
+        state = SchedulerState.objects.filter(pk=1).first()
+        seen = state.last_seen_at if state else None
+        alive = bool(seen and timezone.now() - seen < datetime.timedelta(minutes=3))
+        extra_context = {
+            "scheduler_alive": alive,
+            "scheduler_seen": seen,
+            "scheduler_host": state.host if state else "",
+            "scheduler_enabled": settings.SCHEDULER_ENABLED,
+            **(extra_context or {}),
+        }
+        return super().changelist_view(request, extra_context)
+
+    @admin.action(description=_("Switch on the selected jobs"))
+    def enable_jobs(self, request, queryset):
+        for job in queryset:
+            job.enabled = True
+            job.plan_next()
+            job.updated_by = request.user.get_username()
+            job.save()
+        self.message_user(request, _("Switched on."), messages.SUCCESS)
+
+    @admin.action(description=_("Switch off the selected jobs"))
+    def disable_jobs(self, request, queryset):
+        queryset.update(enabled=False, next_run_at=None, updated_by=request.user.get_username())
+        self.message_user(request, _("Switched off."), messages.SUCCESS)
+
+    def has_run_now_permission(self, request):
+        from neurodb.accounts.roles import ADMIN, role_of
+
+        return request.user.is_superuser or role_of(request.user) == ADMIN
+
+    @action(
+        description=_("Run now"),
+        url_path="run-now",
+        permissions=["run_now"],
+        icon="play_arrow",
+        dialog={
+            "title": _("Run this job now"),
+            "description": _(
+                "Starts the job's command in the background, as its schedule would. Its schedule does "
+                "not change. Follow the run in Import and sync runs."
+            ),
+            "form_class": RunScheduledJobForm,
+            "form_submit_text": _("Run"),
+        },
+    )
+    def run_now(self, request, form, object_id):
+        from .jobs import COMMANDS, start
+
+        job = ScheduledJob.objects.filter(pk=object_id).first()
+        if job is None or job.command not in COMMANDS:
+            messages.error(request, _("This job cannot run: its command is unknown."))
+        elif start(job.command, triggered_by=request.user.get_username()) == "running":
+            messages.warning(request, _("%(job)s is already running.") % {"job": job.key})
+        else:
+            job.last_started_at = timezone.now()
+            job.last_outcome = f"started by {request.user.get_username()}"
+            job.save(update_fields=["last_started_at", "last_outcome"])
+            message = _("%(job)s started. Follow it in Import and sync runs.") % {"job": job.key}
+            messages.success(request, message)
+        url = reverse("admin:core_scheduledjob_changelist")
+        if request.headers.get("HX-Request"):
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = url
+            return response
+        return redirect(url)

@@ -336,6 +336,8 @@ if ETOOLS_USERNAME.startswith("@Microsoft.KeyVault(") or ETOOLS_PASSWORD.startsw
     ETOOLS_USERNAME = ETOOLS_PASSWORD = ""
 INTEGRATION_TIMEOUT_SECONDS = (10, 120)
 SYNC_STALENESS_HOURS = env.int("SYNC_STALENESS_HOURS", default=30)
+# The in-app scheduler (admin → Scheduled jobs), run by the web workers. Off: nothing runs on a schedule.
+SCHEDULER_ENABLED = env.bool("SCHEDULER_ENABLED", default=True)
 
 # ---------------------------------------------------------------------------- AI assistant (OpenAI API)
 # Natural-language questions answered by an OpenAI GPT model (ChatGPT) over NeuroDB's own data through

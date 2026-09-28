@@ -76,9 +76,10 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
     ),
     (
         _("Data and sync"),
-        _("Import history, population figures, saved views, AI questions and the audit trail."),
+        _("Import history, scheduled jobs, population figures, saved views, AI questions, audit trail."),
         [
             "core.SyncRun",
+            "core.ScheduledJob",
             "core.PopulationFigure",
             "core.SavedView",
             "assistant.AssistantQuestion",
@@ -169,6 +170,7 @@ ICONS = {
     "socialaccount.SocialToken": "token",
     "sites.Site": "language",
     "core.SyncRun": "sync",
+    "core.ScheduledJob": "schedule",
     "core.PopulationFigure": "groups",
     "core.SavedView": "bookmark",
     "admin.LogEntry": "history",
