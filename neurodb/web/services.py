@@ -6,14 +6,17 @@ from typing import Any
 
 from django.core.cache import cache
 from django.db.models import Max
+from django.utils import timezone
 
+from neurodb.core.models import SyncRun
+from neurodb.datamart.models import PDIndicator, ReportedIndicator
 from neurodb.facts.models import ActivityReportNew
 from neurodb.indicators.models import Database, MasterIndicator, ReportingYear
 from neurodb.indicators.services.navigation import current_year
 from neurodb.library.models import Map, Resource
 from neurodb.partnerships.models import PCA
 
-CACHE_KEY = "landing:highlights:v1"
+CACHE_KEY = "landing:highlights:v2"
 CACHE_SECONDS = 3600
 
 
@@ -43,7 +46,7 @@ def public_highlights() -> dict[str, Any]:
         .values("location_adminlevel_governorate_code")
         .distinct()
         .count(),
-        "active_programmes": PCA.objects.filter(status="active").count(),
+        **_etools_counts(year),
         "resources": Resource.objects.filter(published=True).count()
         + Map.objects.filter(status="Completed").count(),
         "years": ReportingYear.objects.count(),
@@ -51,3 +54,26 @@ def public_highlights() -> dict[str, Any]:
     }
     cache.set(CACHE_KEY, data, CACHE_SECONDS)
     return data
+
+
+def _etools_counts(year: Any) -> dict[str, Any]:
+    """Partnerships and partner reporting from eTools: active programme documents, their partners
+    and indicators, and progress reports on periods ending in the reporting year."""
+    active = PCA.objects.filter(status="active")
+    label = str((year.year or year.name) if year else "").strip()
+    calendar_year = int(label) if label.isdigit() else timezone.localdate().year
+    last = SyncRun.last_success(SyncRun.Job.ETOOLS_DATAMART)
+    return {
+        "active_programmes": active.count(),
+        "etools_partners": active.exclude(partner=None).values("partner").distinct().count(),
+        "pd_indicators": PDIndicator.objects.filter(intervention__in=active, is_active=True)
+        .values("source_id")
+        .distinct()
+        .count(),
+        "progress_reports": ReportedIndicator.objects.filter(period_end__year=calendar_year)
+        .exclude(progress_report="")
+        .values("progress_report")
+        .distinct()
+        .count(),
+        "etools_update": last.finished_at if last else None,
+    }

@@ -46,13 +46,43 @@ WHATS_NEW = [
         "grid",
         "",
         _lazy("Country overview"),
-        _lazy("Children reached, funds, delivery, assurance and a daily review on one page."),
+        _lazy("Children reached, funds, delivery, assurance and the daily review on one page."),
     ),
     (
         "target",
         "lp-tint-green",
         _lazy("Management brief"),
         _lazy("Comparisons, confidence, partners, money and action, read for decisions."),
+    ),
+    (
+        "users",
+        "lp-tint-blue",
+        _lazy("eTools partner reporting"),
+        _lazy("Progress reports on every programme document indicator, tracked against its period."),
+    ),
+    (
+        "clock",
+        "lp-tint-amber",
+        _lazy("Daily review"),
+        _lazy("Fourteen checks every morning; findings get an owner and a due date."),
+    ),
+    (
+        "sparkle",
+        "lp-tint-amber",
+        _lazy("Ask NeuroDB"),
+        _lazy("Questions in plain language, answered with links to the figures."),
+    ),
+    (
+        "eye",
+        "lp-tint-red",
+        _lazy("Assurance and funds"),
+        _lazy("Monitoring visits, action points, audits, HACT and funds by donor."),
+    ),
+    (
+        "database",
+        "",
+        _lazy("ActivityInfo databases"),
+        _lazy("Every database of the year, its status and its latest import."),
     ),
     (
         "save",
@@ -64,13 +94,13 @@ WHATS_NEW = [
         "search",
         "lp-tint-blue",
         _lazy("Search everything"),
-        _lazy("Ctrl K finds any database, report or indicator."),
+        _lazy("Ctrl K finds any page, partner, programme document or indicator."),
     ),
     (
         "pulse",
         "lp-tint-amber",
         _lazy("Data health"),
-        _lazy("When each source last synchronised, and what failed."),
+        _lazy("When each source last synchronised, what failed, and data-quality checks."),
     ),
     (
         "map",
@@ -79,19 +109,31 @@ WHATS_NEW = [
         _lazy("Governorate to site level, filtered in the browser."),
     ),
     (
-        "moon",
-        "",
-        _lazy("Dark mode and mobile"),
-        _lazy("Comfortable at a desk, at night, or on a phone in the field."),
-    ),
-    (
         "shield",
         "lp-tint-green",
-        _lazy("Single sign-on"),
-        _lazy("Use your UNICEF account; access follows your role."),
+        _lazy("Single sign-on, dark mode, mobile"),
+        _lazy("Your UNICEF account, at a desk, at night or on a phone in the field."),
     ),
-    ("download", "lp-tint-red", _lazy("Exports everywhere"), _lazy("Copy, CSV or Excel from every table.")),
 ]
+
+# Public figures, in order of preference; the first six that are not zero are shown.
+LANDING_STATS = [
+    ("active_programmes", _lazy("active programme documents")),
+    ("etools_partners", _lazy("partners with active programme documents")),
+    ("pd_indicators", _lazy("programme document indicators monitored")),
+    ("progress_reports", _lazy("partner progress reports this year")),
+    ("indicators", _lazy("ActivityInfo results tracked against targets")),
+    ("governorates", _lazy("governorates reached")),
+    ("records", _lazy("activity records this year")),
+    ("partners", _lazy("partners reporting in ActivityInfo")),
+    ("sections", _lazy("programme sections")),
+]
+
+
+def _stat_items(stats: dict | None) -> list[tuple[int, str]]:
+    if not stats:
+        return []
+    return [(stats[key], label) for key, label in LANDING_STATS if stats.get(key)][:6]
 
 
 def _quick_links(user) -> list[dict]:
@@ -146,6 +188,13 @@ def _quick_links(user) -> list[dict]:
             "external": True,
         },
         {
+            "title": "eTools",
+            "text": _("Programme documents, partner reporting and assurance."),
+            "icon": "external",
+            "url": "https://etools.unicef.org",
+            "external": True,
+        },
+        {
             "title": "UNICEF Lebanon",
             "text": _("Programmes, news and publications."),
             "icon": "external",
@@ -169,8 +218,10 @@ def _quick_links(user) -> list[dict]:
 @login_not_required
 def landing(request):
     """Public landing page: what NeuroDB is, why it matters, and where to go next."""
+    stats = public_highlights() if settings.PUBLIC_LANDING_STATS else None
     context = {
-        "stats": public_highlights() if settings.PUBLIC_LANDING_STATS else None,
+        "stats": stats,
+        "stat_items": _stat_items(stats),
         "quick_links": _quick_links(request.user),
         "public_pages": [p.split(":", 1)[1] for p in settings.PUBLIC_PAGES],
         "whats_new": WHATS_NEW,

@@ -77,7 +77,7 @@
 .lp-stat { background: var(--nd-surface); padding: 1.3rem 1.25rem; }
 .lp-stat strong { display: block; font-size: clamp(1.6rem, 1.2rem + 1.2vw, 2.2rem); font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
 .lp-stat span { color: var(--nd-muted); font-size: 0.85rem; }
-.lp-stats-note { margin-top: 0.75rem; color: var(--nd-muted); font-size: 0.8rem; display: flex; align-items: center; gap: 0.4rem; }
+.lp-stats-note { flex-wrap: wrap; margin-top: 0.75rem; color: var(--nd-muted); font-size: 0.8rem; display: flex; align-items: center; gap: 0.4rem; }
 
 /* feature cards */
 .lp-features { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 1.25rem; }
@@ -151,3 +151,9 @@
   .lp-js .lp-reveal.is-visible { opacity: 1; transform: none; }
 }
 @media (prefers-reduced-motion: reduce) { .lp-float, .lp-mock__bars span { animation: none; } .lp-card, .lp-link { transition: none; } }
+.lp-steps--4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 1100px) and (min-width: 861px) {
+  .lp-steps--4 { grid-template-columns: repeat(2, 1fr); }
+  .lp-steps--4 .lp-step:nth-child(2n)::after { display: none; }
+}
+@media (max-width: 860px) { .lp-steps--4 { grid-template-columns: 1fr; } }

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>{{ SITE_NAME }} · {% trans "Results for children in Lebanon, in one place" %}</title>
-  <meta name="description" content="{% trans 'NeuroDB is UNICEF Lebanon’s programme monitoring platform: progress against targets, maps, partnerships and reports built from ActivityInfo and eTools data.' %}">
+  <meta name="description" content="{% trans 'NeuroDB is UNICEF Lebanon’s programme monitoring platform: children reached, progress against targets, partner reporting, funds, assurance and maps, built from eTools and ActivityInfo data.' %}">
   <meta property="og:title" content="{{ SITE_NAME }} · UNICEF Lebanon">
   <meta property="og:description" content="{% trans 'Progress against targets, where support reaches, and what needs attention — in one place.' %}">
   <meta property="og:type" content="website">
@@ -57,9 +57,9 @@
   <section class="lp-hero" aria-labelledby="hero-title">
     <div class="lp-container lp-hero__grid">
       <div>
-        <span class="lp-pill"><b>{% trans "New" %}</b>{% trans "NeuroDB 3 — rebuilt for speed, clarity and security" %}</span>
+        <span class="lp-pill"><b>{% trans "New" %}</b>{% trans "Management brief, daily review and eTools partner reporting" %}</span>
         <h1 id="hero-title">{% blocktrans %}Every result for children in Lebanon, <span class="lp-grad">in one place.</span>{% endblocktrans %}</h1>
-        <p class="lp-lead">{% blocktrans %}NeuroDB brings together partner reporting from ActivityInfo and partnerships from eTools, so teams see progress against targets, where support reaches, and what needs attention — refreshed automatically every day.{% endblocktrans %}</p>
+        <p class="lp-lead">{% blocktrans %}NeuroDB brings together programme documents and partner progress reports from eTools, results from ActivityInfo, funds, assurance and population figures, so teams see how many children are reached, what is on track, where support goes and what needs a decision — synchronised every night, reviewed every morning.{% endblocktrans %}</p>
         <div class="lp-cta">
           {% if user.is_authenticated %}
           <a class="btn btn-primary btn-lg" href="{% url 'reports:overview' %}">{% trans "Open your overview" %}{% include "components/icon.html" with name="arrow" %}</a>
@@ -70,7 +70,7 @@
         </div>
         <div class="lp-trust">
           <span>{% include "components/icon.html" with name="check" %}{% trans "Official UNICEF Lebanon data" %}</span>
-          <span>{% include "components/icon.html" with name="check" %}{% trans "Updated every night" %}</span>
+          <span>{% include "components/icon.html" with name="check" %}{% trans "Synchronised every night" %}</span>
           <span>{% include "components/icon.html" with name="check" %}{% trans "Single sign-on and role-based access" %}</span>
         </div>
       </div>
@@ -79,9 +79,9 @@
         <div class="lp-mock">
           <div class="lp-mock__bar"><i></i><i></i><i></i></div>
           <div class="lp-mock__kpis">
+            <div class="lp-mock__kpi"><small>{% trans "Children reached" %}</small><strong>412k</strong> <em>▲ 8%</em></div>
             <div class="lp-mock__kpi"><small>{% trans "On track" %}</small><strong>68%</strong> <em>▲ 6</em></div>
-            <div class="lp-mock__kpi"><small>{% trans "Reporting" %}</small><strong>92%</strong> <em>▲ 3</em></div>
-            <div class="lp-mock__kpi"><small>{% trans "Partners" %}</small><strong>57</strong></div>
+            <div class="lp-mock__kpi"><small>{% trans "Funds used" %}</small><strong>74%</strong></div>
           </div>
           <div class="lp-mock__row">
             <div class="lp-mock__card"><div class="lp-mock__donut"></div></div>
@@ -97,21 +97,19 @@
             {% endfor %}
           </div>
         </div>
-        <div class="lp-float lp-float--a">{% include "components/icon.html" with name="target" %}{% trans "Target reached: vaccination" %}</div>
-        <div class="lp-float lp-float--b">{% include "components/icon.html" with name="refresh" %}{% trans "Synced 6 hours ago" %}</div>
+        <div class="lp-float lp-float--a">{% include "components/icon.html" with name="sparkle" %}{% trans "Daily review: 3 findings to look at" %}</div>
+        <div class="lp-float lp-float--b">{% include "components/icon.html" with name="refresh" %}{% trans "eTools synced last night" %}</div>
       </div>
     </div>
 
-    {% if stats and stats.databases %}
+    {% if stats and stat_items %}
     <div class="lp-container mt-5 lp-reveal">
       <div class="lp-stats" role="list" aria-label="{% blocktrans with year=stats.year %}NeuroDB in {{ year }}{% endblocktrans %}">
-        <div class="lp-stat" role="listitem"><strong data-count="{{ stats.indicators }}">{{ stats.indicators|intcomma }}</strong><span>{% trans "results tracked against targets" %}</span></div>
-        <div class="lp-stat" role="listitem"><strong data-count="{{ stats.records }}">{{ stats.records|intcomma }}</strong><span>{% trans "activity records this year" %}</span></div>
-        <div class="lp-stat" role="listitem"><strong data-count="{{ stats.partners }}">{{ stats.partners|intcomma }}</strong><span>{% trans "implementing partners" %}</span></div>
-        <div class="lp-stat" role="listitem"><strong data-count="{{ stats.governorates }}">{{ stats.governorates|intcomma }}</strong><span>{% trans "governorates reached" %}</span></div>
-        <div class="lp-stat" role="listitem"><strong data-count="{{ stats.sections }}">{{ stats.sections|intcomma }}</strong><span>{% trans "programme sections" %}</span></div>
+        {% for value, label in stat_items %}
+        <div class="lp-stat" role="listitem"><strong data-count="{{ value }}">{{ value|intcomma }}</strong><span>{{ label }}</span></div>
+        {% endfor %}
       </div>
-      <p class="lp-stats-note">{% include "components/icon.html" with name="clock" %}{% blocktrans with year=stats.year %}Reporting year {{ year }}{% endblocktrans %}{% if stats.last_update %} · {% blocktrans with when=stats.last_update|naturaltime %}latest import {{ when }}{% endblocktrans %}{% endif %} · {% trans "aggregate counts only" %}</p>
+      <p class="lp-stats-note">{% include "components/icon.html" with name="clock" %}{% if stats.year %}{% blocktrans with year=stats.year %}Reporting year {{ year }}{% endblocktrans %} · {% endif %}{% if stats.etools_update %}{% blocktrans with when=stats.etools_update|naturaltime %}eTools synced {{ when }}{% endblocktrans %} · {% endif %}{% if stats.last_update %}{% blocktrans with when=stats.last_update|naturaltime %}ActivityInfo imported {{ when }}{% endblocktrans %} · {% endif %}{% trans "aggregate counts only" %}</p>
     </div>
     {% endif %}
   </section>
@@ -128,17 +126,32 @@
         <article class="lp-card lp-reveal">
           <span class="lp-icon">{% include "components/icon.html" with name="layers" %}</span>
           <h3>{% trans "One source of truth" %}</h3>
-          <p>{% trans "ActivityInfo reports, eTools programme documents, population estimates and research in a single place — the same numbers for every team and every meeting." %}</p>
+          <p>{% trans "eTools programme documents, partner progress reports, funds and assurance, ActivityInfo results, population estimates and research in one place — the same numbers for every team and every meeting." %}</p>
+        </article>
+        <article class="lp-card lp-reveal">
+          <span class="lp-icon lp-tint-green">{% include "components/icon.html" with name="users" %}</span>
+          <h3>{% trans "Impact for children" %}</h3>
+          <p>{% trans "Children reached against targets and the child population, by section, governorate, sex and age, with the funds behind them and the cost per child." %}</p>
         </article>
         <article class="lp-card lp-reveal">
           <span class="lp-icon lp-tint-green">{% include "components/icon.html" with name="target" %}</span>
           <h3>{% trans "Progress you can trust" %}</h3>
-          <p>{% trans "Every result is compared with its target and with how much of the year has passed, so on-track and off-track indicators stand out at a glance." %}</p>
+          <p>{% trans "Every indicator is compared with its target and with how much of its period has passed, so on-track and off-track results stand out at a glance — with the partner reports behind each figure." %}</p>
         </article>
         <article class="lp-card lp-reveal">
-          <span class="lp-icon lp-tint-amber">{% include "components/icon.html" with name="zap" %}</span>
-          <h3>{% trans "Answers in seconds" %}</h3>
-          <p>{% trans "Slice any result by month, area, partner, sex, age or nationality. Save a view, share it with colleagues and export it to Excel." %}</p>
+          <span class="lp-icon lp-tint-amber">{% include "components/icon.html" with name="chart" %}</span>
+          <h3>{% trans "Read for decisions" %}</h3>
+          <p>{% trans "The management brief compares this year with the last, says how far each figure can be trusted, scores partners, follows the money and lists the findings to act on, with their owners." %}</p>
+        </article>
+        <article class="lp-card lp-reveal">
+          <span class="lp-icon lp-tint-amber">{% include "components/icon.html" with name="sparkle" %}</span>
+          <h3>{% trans "A second pair of eyes" %}</h3>
+          <p>{% trans "Every morning a review runs fourteen checks — new off-track indicators, late reports, spending ahead of results, overdue action points — and Ask NeuroDB answers questions in plain language." %}</p>
+        </article>
+        <article class="lp-card lp-reveal">
+          <span class="lp-icon lp-tint-red">{% include "components/icon.html" with name="eye" %}</span>
+          <h3>{% trans "Assurance in view" %}</h3>
+          <p>{% trans "Third-party monitoring visits, field monitoring findings, action points, audits and HACT risk ratings next to each partner and programme document." %}</p>
         </article>
         <article class="lp-card lp-reveal">
           <span class="lp-icon lp-tint-blue">{% include "components/icon.html" with name="map" %}</span>
@@ -146,9 +159,9 @@
           <p>{% trans "Interactive maps down to cadaster and site level show coverage and gaps, filtered by partner, programme document or month." %}</p>
         </article>
         <article class="lp-card lp-reveal">
-          <span class="lp-icon lp-tint-red">{% include "components/icon.html" with name="file" %}</span>
-          <h3>{% trans "Reporting on time" %}</h3>
-          <p>{% trans "Humanitarian performance and programme reports assemble themselves for any month or quarter, with change since last period and section comments." %}</p>
+          <span class="lp-icon lp-tint-blue">{% include "components/icon.html" with name="file" %}</span>
+          <h3>{% trans "Reports in seconds" %}</h3>
+          <p>{% trans "Humanitarian performance and programme reports for any month or quarter; slice any result by area, partner, sex, age or nationality, save the view and export it." %}</p>
         </article>
         <article class="lp-card lp-reveal">
           <span class="lp-icon">{% include "components/icon.html" with name="shield" %}</span>
@@ -167,21 +180,26 @@
         <h2 class="lp-h2" id="how-title">{% trans "Partners report once. Everyone benefits." %}</h2>
         <p class="lp-lead">{% trans "No double entry: NeuroDB reads the systems partners and staff already use, applies the agreed indicator rules, and tells you when anything is out of date." %}</p>
       </div>
-      <div class="lp-steps">
+      <div class="lp-steps lp-steps--4">
         <div class="lp-step lp-reveal">
           <h3>{% trans "Collect" %}</h3>
-          <p>{% trans "Partners submit monthly results in ActivityInfo. Programme documents, budgets and assurance activities are managed in eTools." %}</p>
-          <div class="chips"><span class="chip">ActivityInfo</span><span class="chip">eTools</span></div>
+          <p>{% trans "Partners report progress on their programme documents in the eTools Partner Reporting Portal. Budgets, funds and assurance are managed in eTools; monthly activity results come from ActivityInfo." %}</p>
+          <div class="chips"><span class="chip">eTools</span><span class="chip">{% trans "Partner reporting" %}</span><span class="chip">ActivityInfo</span></div>
         </div>
         <div class="lp-step lp-reveal">
           <h3>{% trans "Consolidate" %}</h3>
-          <p>{% trans "Every night NeuroDB synchronises both sources, rolls activity data up into sub- and master indicators, and records how each sync went." %}</p>
+          <p>{% trans "Every night NeuroDB synchronises the eTools Datamart; ActivityInfo imports run from the 1st to the 22nd of each month. Results roll up into indicators, and every sync is recorded." %}</p>
           <div class="chips"><span class="chip">{% trans "Indicator rules" %}</span><span class="chip">{% trans "Freshness checks" %}</span></div>
         </div>
         <div class="lp-step lp-reveal">
+          <h3>{% trans "Review" %}</h3>
+          <p>{% trans "At 06:00 Beirut time the daily review flags what changed overnight and what looks wrong. Each finding can be given an owner and a due date." %}</p>
+          <div class="chips"><span class="chip">{% trans "Daily review" %}</span><span class="chip">{% trans "Findings" %}</span></div>
+        </div>
+        <div class="lp-step lp-reveal">
           <h3>{% trans "Act" %}</h3>
-          <p>{% trans "Teams open dashboards, maps and reports, spot what is off track, and share exports with management, partners and donors." %}</p>
-          <div class="chips"><span class="chip">{% trans "Dashboards" %}</span><span class="chip">{% trans "Maps" %}</span><span class="chip">{% trans "Reports" %}</span></div>
+          <p>{% trans "Teams open the overview, the brief, dashboards and maps, ask questions in plain language, and share exports with management, partners and donors." %}</p>
+          <div class="chips"><span class="chip">{% trans "Overview" %}</span><span class="chip">{% trans "Brief" %}</span><span class="chip">{% trans "Maps" %}</span></div>
         </div>
       </div>
 
@@ -190,8 +208,8 @@
           <span class="lp-icon">{% include "components/icon.html" with name="users" %}</span>
           <h3>{% trans "For programme sections" %}</h3>
           <ul>
-            <li>{% include "components/icon.html" with name="check" %}{% trans "Your section’s results and targets on one dashboard" %}</li>
-            <li>{% include "components/icon.html" with name="check" %}{% trans "Drill from a master indicator to every activity behind it" %}</li>
+            <li>{% include "components/icon.html" with name="check" %}{% trans "Your section’s programme documents, indicators and results on one page" %}</li>
+            <li>{% include "components/icon.html" with name="check" %}{% trans "Drill from a figure to the partner reports and locations behind it" %}</li>
             <li>{% include "components/icon.html" with name="check" %}{% trans "Comment on your indicators in the monthly HPM" %}</li>
           </ul>
         </article>
@@ -201,16 +219,16 @@
           <ul>
             <li>{% include "components/icon.html" with name="check" %}{% trans "Consistent aggregation rules for every report" %}</li>
             <li>{% include "components/icon.html" with name="check" %}{% trans "Saved pivot views instead of rebuilt spreadsheets" %}</li>
-            <li>{% include "components/icon.html" with name="check" %}{% trans "A data health page that shows failed or late syncs" %}</li>
+            <li>{% include "components/icon.html" with name="check" %}{% trans "A data health page with failed or late syncs and data-quality checks" %}</li>
           </ul>
         </article>
         <article class="lp-card lp-reveal">
           <span class="lp-icon lp-tint-amber">{% include "components/icon.html" with name="gift" %}</span>
           <h3>{% trans "For management and partnerships" %}</h3>
           <ul>
-            <li>{% include "components/icon.html" with name="check" %}{% trans "The whole country programme on one overview" %}</li>
-            <li>{% include "components/icon.html" with name="check" %}{% trans "Funds by donor and year, planned versus actual locations" %}</li>
-            <li>{% include "components/icon.html" with name="check" %}{% trans "Partner profiles with programme documents and assurance" %}</li>
+            <li>{% include "components/icon.html" with name="check" %}{% trans "The country programme on one overview, and a brief for decisions" %}</li>
+            <li>{% include "components/icon.html" with name="check" %}{% trans "Funds by donor, reserved against disbursed, value per child" %}</li>
+            <li>{% include "components/icon.html" with name="check" %}{% trans "Partner scorecards with reporting, assurance and risk ratings" %}</li>
           </ul>
         </article>
       </div>
@@ -223,7 +241,7 @@
       <div class="lp-head lp-reveal">
         <span class="lp-eyebrow">{% include "components/icon.html" with name="sparkle" %}{% trans "What’s new in NeuroDB 3" %}</span>
         <h2 class="lp-h2" id="new-title">{% trans "Same trusted data. A much better experience." %}</h2>
-        <p class="lp-lead">{% trans "NeuroDB 3 keeps every year of history from the previous version and adds the tools teams asked for." %}</p>
+        <p class="lp-lead">{% trans "NeuroDB 3 keeps every year of history from the previous version, adds eTools partner reporting from 2026, and the tools teams asked for." %}</p>
       </div>
       <div class="lp-new">
         {% for icon, tint, title, text in whats_new %}
@@ -267,9 +285,10 @@
       <div class="lp-faq">
         <details><summary>{% trans "Who can use NeuroDB?" %}</summary><p>{% trans "UNICEF Lebanon staff with a registered account. Viewers see all dashboards and reports, section editors can also comment on their section’s indicators, and administrators manage configuration. Selected resources can be opened to the public by the NeuroDB team." %}</p></details>
         <details><summary>{% trans "How do I get access?" %}</summary><p>{% if SUPPORT_EMAIL %}{% blocktrans %}Write to <a href="mailto:{{ SUPPORT_EMAIL }}">{{ SUPPORT_EMAIL }}</a> with your section and the role you need. Once registered, sign in with your UNICEF Microsoft account — no extra password.{% endblocktrans %}{% else %}{% trans "Ask the NeuroDB administrators in the Planning, Monitoring and Evaluation section. Once registered, sign in with your UNICEF Microsoft account — no extra password." %}{% endif %}</p></details>
-        <details><summary>{% trans "Where does the data come from?" %}</summary><p>{% trans "Results come from partner reports in ActivityInfo; programme documents, donors and assurance from eTools; population estimates from the official planning figures loaded each year. NeuroDB never asks partners to report twice." %}</p></details>
-        <details><summary>{% trans "How current is it?" %}</summary><p>{% trans "Sources synchronise every night. The data health page shows when each source was last updated, and pages warn you when a database has not been imported recently." %}</p></details>
-        <details><summary>{% trans "What does “on track” mean?" %}</summary><p>{% trans "An indicator is on track when its achievement is within ten percentage points of the share of the year that has passed. Well above is “over target”, well below is “off track”, and indicators without a target are shown separately." %}</p></details>
+        <details><summary>{% trans "Where does the data come from?" %}</summary><p>{% trans "Programme documents, partner progress reports, funds, donors and assurance (monitoring visits, audits, action points, HACT) come from eTools through the eTools Datamart; monthly activity results from ActivityInfo; population estimates from the official planning figures loaded each year. NeuroDB never asks partners to report twice." %}</p></details>
+        <details><summary>{% trans "How current is it?" %}</summary><p>{% trans "eTools data synchronises every night, ActivityInfo imports run from the 1st to the 22nd of each month, and the daily review runs each morning after the syncs. The data health page shows when each source was last updated, and pages warn you when data is out of date." %}</p></details>
+        <details><summary>{% trans "What does “on track” mean?" %}</summary><p>{% trans "An indicator is on track when its achievement is within ten percentage points of the time that has passed: the share of the programme document’s period for eTools indicators, the share of the year for ActivityInfo ones. Well above is “over target”, well below is “off track”, and indicators without a target are shown separately." %}</p></details>
+        <details><summary>{% trans "What does the AI do, and what does it see?" %}</summary><p>{% trans "Ask NeuroDB answers questions about the data and links to the pages its figures come from; the daily review’s checks are fixed rules, with a short written summary on top. Both only read data. They use the OpenAI API: a question, the recent turns of its conversation and the figures looked up to answer it leave UNICEF’s Azure environment for that purpose. Treat findings as prompts to look, never as verdicts." %}</p></details>
         <details><summary>{% trans "Can I export the data?" %}</summary><p>{% trans "Yes. Every table can be copied or downloaded as CSV, raw data is available in Excel, and dashboards have a printable snapshot you can save as PDF." %}</p></details>
         <details><summary>{% trans "Is the data secure?" %}</summary><p>{% trans "Access requires UNICEF single sign-on and a registered account. Partner-level data, dashboards and reports are never public; the only public figures are the aggregate counts on this page." %}</p></details>
       </div>
@@ -282,7 +301,7 @@
       <div class="lp-final lp-reveal">
         <img class="lp-final__mark" src="{% static 'img/logo-mark.png' %}" alt="" aria-hidden="true">
         <h2 class="lp-h2">{% trans "Ready to see the whole picture?" %}</h2>
-        <p>{% trans "Sign in to open your section’s dashboard, or explore the resources that are available to everyone." %}</p>
+        <p>{% trans "Sign in to open the country overview and your section’s pages, or explore the resources that are available to everyone." %}</p>
         <div class="lp-cta justify-content-center">
           <a class="btn btn-light btn-lg" href="{% if user.is_authenticated %}{% url 'reports:overview' %}{% else %}{% url 'account_login' %}{% endif %}">{% if user.is_authenticated %}{% trans "Open NeuroDB" %}{% else %}{% trans "Sign in" %}{% endif %}</a>
           <a class="btn btn-outline-light btn-lg" href="#explore">{% trans "Quick links" %}</a>

@@ -25,6 +25,33 @@ def test_root_shows_landing_to_visitors(client, hierarchy):
     assert "Partner A" not in html  # no partner names leak to the public page
 
 
+def test_etools_counts_show_without_activityinfo(client, db):
+    """From 2026 partners report in eTools: the figures come from there, still aggregate only."""
+    import datetime
+
+    from neurodb.datamart import models as dm
+    from neurodb.partnerships.models import PCA, PartnerOrganization
+
+    partner = PartnerOrganization.objects.create(etl_id="1", name="Amel Association", vendor_number="V1")
+    pd = PCA.objects.create(etl_id="11", partner=partner, number="LEB/PD1", title="PSS", status="active")
+    PCA.objects.create(etl_id="12", partner=partner, number="LEB/PD2", title="Old", status="closed")
+    for n, (source, location) in enumerate([(100, "Akkar"), (100, "Bekaa"), (200, "Akkar")], start=1):
+        dm.PDIndicator.objects.create(
+            datamart_id=n, source_id=source, intervention=pd, title=f"# {source}", location_name=location
+        )
+    year = datetime.date.today().year
+    for n, report in enumerate(["QPR1", "QPR1", "QPR2"], start=1):
+        dm.ReportedIndicator.objects.create(
+            datamart_id=n, intervention=pd, progress_report=report, period_end=datetime.date(year, 3 * n, 28)
+        )
+    html = client.get(reverse("landing")).content.decode()
+    assert "active programme documents" in html and "partner progress reports this year" in html
+    # 1 active PD and its partner, 2 indicators (one repeated per location), 2 progress reports.
+    assert html.count('data-count="1"') == 2 and html.count('data-count="2"') == 2
+    assert "ActivityInfo results tracked" not in html  # zero counts are left out
+    assert "Amel Association" not in html and "LEB/PD1" not in html
+
+
 def test_root_shows_overview_once_signed_in(client_viewer, hierarchy):
     html = client_viewer.get("/").content.decode()
     assert "Country overview" in html
