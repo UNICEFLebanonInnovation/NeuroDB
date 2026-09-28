@@ -31,7 +31,7 @@ def _active_item(request) -> dict:
     match = getattr(request, "resolver_match", None)
     name = match.url_name if match else None
     pk = match.kwargs.get("pk") if match else None
-    if name in DATABASE_ROUTES or name == "databases":
+    if name in DATABASE_ROUTES:
         return {"block": "databases", "db": pk}
     if name in REPORT_ROUTES:
         return {"block": "reports", "report": pk}

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from django import template
+from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 
 from neurodb.indicators.services.tracking import LABELS
@@ -122,7 +123,7 @@ def active_if(context: dict[str, Any], *view_names: str, pk: int | None = None, 
 
 @register.simple_tag(takes_context=True)
 def aria_current(context: dict[str, Any], *view_names: str, pk: int | None = None) -> str:
-    return 'aria-current="page"' if active_if(context, *view_names, pk=pk) else ""
+    return mark_safe('aria-current="page"') if active_if(context, *view_names, pk=pk) else ""
 
 
 @register.filter

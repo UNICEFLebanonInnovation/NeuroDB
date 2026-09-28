@@ -111,16 +111,16 @@
         {% include "components/icon.html" with name="sparkle" %}<span>{% trans "Ask NeuroDB" %}</span><span class="nav-badge">{% trans "AI" %}</span>
       </a>
       {% endif %}
-      {% if nav.sections %}
       <div class="sidebar__section-title">{% trans "ActivityInfo reporting" %}</div>
+      <a class="nav-item-link {% active_if 'reports:databases' %}" href="{% url 'reports:databases' %}" {% aria_current 'reports:databases' %}>
+        {% include "components/icon.html" with name="database" %}<span>{% trans "ActivityInfo databases" %}</span>
+      </a>
+      {% if nav.sections %}
       <details class="sidebar__block" data-nav-key="databases" {% if nav_active.block == "databases" %}open data-nav-active{% endif %}>
         <summary class="sidebar__block-title">
           <span>{% trans "Databases" %}{% if nav.year %} {{ nav.year.name }}{% endif %}</span>
           <span class="count">{{ nav.sections|length }}</span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg>
         </summary>
-        <a class="nav-item-link {% active_if 'reports:databases' %}" href="{% url 'reports:databases' %}" {% aria_current 'reports:databases' %}>
-          {% include "components/icon.html" with name="grid" %}<span>{% trans "All databases" %}</span>
-        </a>
         {% for s in nav.sections %}
         {% if s.databases|length == 1 %}
         {% with db=s.databases.0 %}

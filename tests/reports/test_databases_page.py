@@ -14,7 +14,13 @@ def test_cards_totals_and_sidebar_link(client_viewer, hierarchy, database):
     assert reverse("reports:database_dashboard", args=[database.id]) in html
     assert 'id="databases-chart-data"' in html and "Tracking status across databases" in html
     assert page.context["data"]["totals"]["databases"] == 1
-    assert "All databases" in html and page.context["nav_active"]["block"] == "databases"
+    # A menu item of its own under "ActivityInfo reporting", marked as the current page.
+    assert 'aria-current="page"' in html.split("ActivityInfo databases</span>")[0].rsplit("<a ", 1)[1]
+
+
+def test_the_menu_item_shows_even_when_the_year_has_no_databases(client_viewer, reporting_year):
+    html = client_viewer.get(reverse("reports:overview")).text
+    assert f'href="{reverse("reports:databases")}"' in html and "ActivityInfo databases" in html
 
 
 def test_empty_year_and_no_year(client_viewer, reporting_year):

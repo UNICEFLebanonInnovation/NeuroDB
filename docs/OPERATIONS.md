@@ -349,7 +349,8 @@ demand, for trips (`--only travels`) and the legacy engagement tables; locations
 from the synced eTools tables and the ActivityInfo history. Three rows answer three questions, then
 two progress blocks and the daily AI review. The ActivityInfo database cards of the year (one per
 database: indicators, status, records, partners, last import) have their own page, `/databases/`,
-under the sidebar's *Databases* block as *All databases*, with the year's totals and the import runs:
+in the sidebar as *ActivityInfo databases* (under *ActivityInfo reporting*, shown even in a year
+without databases), with the year's totals and the import runs:
 
 | Row | Blocks | Source |
 |---|---|---|
