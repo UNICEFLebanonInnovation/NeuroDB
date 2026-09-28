@@ -17,20 +17,25 @@
   </div>
   {% endfor %}
 </div>
+<p class="source-line mt-2">{{ h.source }}</p>
 <div class="grid grid--2">
   <section class="panel brief-decide" aria-labelledby="decide-title">
+    {% with dc=h.decide %}
     <div class="panel__header">
-      <h3 class="panel__title" id="decide-title">{% trans "Things to decide this month" %}</h3>
-      <span class="panel__hint">{% trans "From the latest daily review, ranked by severity then children behind target" %}</span>
+      <h3 class="panel__title" id="decide-title">{% trans "Things to decide" %}{% if dc.mode == "ai" %} <span class="nav-badge">{% trans "AI" %}</span>{% endif %}</h3>
+      <span class="panel__hint">{% if dc.mode == "ai" %}{% blocktrans with d=dc.review_date %}Chosen and written by the AI daily review of {{ d }} from its findings{% endblocktrans %}{% elif dc.mode == "rules" %}{% blocktrans with d=dc.review_date %}The daily review of {{ d }}: its most important open findings (the AI did not choose decisions){% endblocktrans %}{% endif %}</span>
     </div>
-    {% if h.decide %}
+    {% if dc.other_year %}<p class="small text-muted mb-2">{% trans "From today's review: decisions are about now, whatever year the brief shows." %}</p>{% endif %}
+    {% if dc.items %}
     <ol class="decide-list">
-      {% for d in h.decide %}
+      {% for d in dc.items %}
       <li class="decide">
         <span class="attention__sev attention__sev--{{ d.severity }}" aria-hidden="true"></span>
         <div class="decide__body">
-          <div class="attention__title">{% if d.url %}<a href="{{ d.url }}">{{ d.title }}</a>{% else %}{{ d.title }}{% endif %}{% if d.section %} <span class="review-tag">{{ d.section }}</span>{% endif %}</div>
+          <div class="attention__title">{% if d.url and not d.findings %}<a href="{{ d.url }}">{{ d.title }}</a>{% else %}{{ d.title }}{% endif %}{% if d.section %} <span class="review-tag">{{ d.section }}</span>{% endif %}</div>
           {% if d.detail %}<div class="attention__detail">{{ d.detail }}</div>{% endif %}
+          {% if d.who or d.urgency %}<div class="decide__who">{% if d.who %}{% blocktrans with w=d.who %}Who: {{ w }}{% endblocktrans %}{% endif %}{% if d.urgency %}{% if d.who %} · {% endif %}<span class="decide__urgency decide__urgency--{{ d.urgency|slugify }}">{{ d.urgency|capfirst }}</span>{% endif %}</div>{% endif %}
+          {% if d.findings %}<div class="decide__findings">{% trans "Based on:" %} {% for f in d.findings %}<a href="{{ f.url }}">{{ f.title|truncatechars:70 }}</a>{% if not forloop.last %} · {% endif %}{% endfor %}</div>{% endif %}
           <div class="decide__owner">
             {% if d.owner %}{% blocktrans with o=d.owner %}Owner: {{ o }}{% endblocktrans %}{% if d.due_date %} · {% blocktrans with dd=d.due_date %}due {{ dd }}{% endblocktrans %}{% endif %}{% else %}{% trans "No owner yet" %}{% endif %}
             {% if user.is_staff %} · <a href="{{ d.assign_url }}">{% if d.owner %}{% trans "Edit" %}{% else %}{% trans "Assign" %}{% endif %}</a>{% endif %}
@@ -40,10 +45,13 @@
       </li>
       {% endfor %}
     </ol>
+    {% elif dc.mode == "none" %}
+    {% include "components/empty_state.html" with icon="clock" title=_("No daily review yet") message=_("The daily review runs every morning at 06:00 (admin → Scheduled jobs). Its decisions appear here after its first run; an administrator can also run it now from that page.") %}
     {% else %}
-    {% include "components/empty_state.html" with icon="check" title=_("Nothing to decide") message=_("The latest daily review raised no critical or warning finding for this selection, or no review has run yet.") %}
+    {% include "components/empty_state.html" with icon="check" title=_("Nothing to decide") message=_("The latest daily review raised no open critical or warning finding for this selection.") %}
     {% endif %}
-    <p class="source-line">{{ h.source }}</p>
+    <p class="source-line">{% if dc.mode == "ai" %}{% blocktrans with m=dc.decided_by %}Written by {{ m }} from the review's open critical and warning findings only; every decision cites its findings, and one with a number not found in them is dropped. Prompts for a decision, not verdicts.{% endblocktrans %}{% else %}{% trans "Critical before warning, then the most children behind target, then new before still open." %}{% endif %}</p>
+    {% endwith %}
   </section>
   <section class="panel" aria-labelledby="text-title">
     <div class="panel__header">

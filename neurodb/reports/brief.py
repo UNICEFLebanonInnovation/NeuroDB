@@ -449,46 +449,71 @@ class _Builder:
             )
         return self._review
 
-    def _decide(self) -> list[dict[str, Any]]:
-        """The five findings of the latest review that matter most, with who owns them."""
+    def _decide(self) -> dict[str, Any]:
+        """What management should decide: the AI daily review's decisions (each resting on findings of
+        the review), or, when no model chose them, the review's five most important open findings."""
         review = self._latest_review()
         if review is None:
-            return []
-        from neurodb.review.services import in_sections
+            return {"mode": "none", "items": [], "review_date": None, "decided_by": ""}
+        from neurodb.review.services import DECISION_SEVERITIES, RULES, in_sections
 
-        findings = [
+        open_findings = [
             f
             for f in review.findings.all()
-            if f.state != ReviewFinding.State.RESOLVED
-            and f.severity in (ReviewFinding.Severity.CRITICAL, ReviewFinding.Severity.WARNING)
-            and in_sections(f.section, self.scope.sections)
-        ][:MAX_DECISIONS]
-        owners = {a.key: a for a in FindingAssignment.objects.filter(key__in=[f.key for f in findings])}
-        out = []
-        for f in findings:
-            owner = owners.get(f.key)
-            out.append(
-                {
-                    "key": f.key,
-                    "severity": f.severity,
-                    "state": f.state,
-                    "section": f.section,
-                    "title": f.title,
-                    "detail": f.detail,
-                    "children": f.children,
-                    "url": f.url,
-                    "owner": owner.owner if owner else "",
-                    "due_date": owner.due_date.isoformat() if owner and owner.due_date else "",
-                    "status": owner.status if owner else FindingAssignment.Status.RAISED,
-                    "status_label": (
-                        str(owner.get_status_display())
-                        if owner
-                        else str(FindingAssignment.Status.RAISED.label)
-                    ),
-                    "assign_url": _assign_url(f, owner),
-                }
-            )
-        return out
+            if f.state != ReviewFinding.State.RESOLVED and f.severity in DECISION_SEVERITIES
+        ]
+        by_key = {f.key: f for f in open_findings}
+        owners = {a.key: a for a in FindingAssignment.objects.filter(key__in=list(by_key))}
+        items = []
+        if review.decisions and review.decided_by not in ("", RULES):
+            for d in review.decisions:
+                cited = [by_key[k] for k in d.get("finding_keys", []) if k in by_key]
+                if not cited or not any(in_sections(f.section, self.scope.sections) for f in cited):
+                    continue
+                items.append(self._decision_item(d["decision"], d.get("why", ""), cited, owners, d))
+            mode = "ai"
+        else:
+            mine = [f for f in open_findings if in_sections(f.section, self.scope.sections)]
+            for f in mine[:MAX_DECISIONS]:
+                items.append(self._decision_item(f.title, f.detail, [f], owners, None))
+            mode = "rules"
+        return {
+            "mode": mode,
+            "items": items,
+            "review_date": review.date.isoformat(),
+            "decided_by": review.decided_by if mode == "ai" else "",
+            "other_year": review.date.year != self.year,
+        }
+
+    @staticmethod
+    def _decision_item(title, detail, cited, owners, ai: dict[str, Any] | None) -> dict[str, Any]:
+        severity = (
+            ReviewFinding.Severity.CRITICAL
+            if any(f.severity == ReviewFinding.Severity.CRITICAL for f in cited)
+            else ReviewFinding.Severity.WARNING
+        )
+        lead = cited[0]
+        owner = owners.get(lead.key)
+        return {
+            "key": lead.key,
+            "severity": severity,
+            "state": lead.state,
+            "section": ", ".join(dict.fromkeys(f.section for f in cited if f.section)),
+            "title": title,
+            "detail": detail,
+            "who": ai["who"] if ai else "",
+            "urgency": ai["urgency"] if ai else "",
+            "children": sum(f.children or 0 for f in cited),
+            "url": lead.url,
+            "findings": [{"title": f.title, "url": f.url} for f in cited] if ai else [],
+            "owner": owner.owner if owner else "",
+            "due_date": owner.due_date.isoformat() if owner and owner.due_date else "",
+            "status": owner.status if owner else FindingAssignment.Status.RAISED,
+            "status_label": (
+                str(owner.get_status_display()) if owner else str(FindingAssignment.Status.RAISED.label)
+            ),
+            "assign_url": _assign_url(lead, owner),
+        }
 
     # ------------------------------------------------------------------ 2 pace
     def _pace(self) -> dict[str, Any]:
@@ -552,6 +577,8 @@ class _Builder:
             )
         )
         sync_days = self._sync_age_days()
+        implausible = self.now["impact"].get("implausible") or []
+        set_aside = Counter(x["section"] for x in implausible)
         by_section = {r["section"]: r for r in self.now["delivery"]["by_section"]}
         rows = []
         for section in self.sections:
@@ -580,11 +607,16 @@ class _Builder:
                     "verified_percent": verified_pct,
                     "linked_percent": linked_pct,
                     "sync_days": sync_days,
-                    "level": "high" if short == 0 else ("medium" if short == 1 else "low"),
+                    "set_aside": set_aside.get(section, 0),
+                    # a value set aside as an error makes the section's figures low, whatever else
+                    "level": "low"
+                    if set_aside.get(section)
+                    else ("high" if short == 0 else ("medium" if short == 1 else "low")),
                 }
             )
         return {
             "rows": rows,
+            "implausible": implausible,
             "thresholds": CONFIDENCE,
             "reconcile": self._reconcile(),
             "timeliness": self._timeliness(),
@@ -1281,15 +1313,33 @@ def brief_text(data: dict[str, Any]) -> str:
     track = tiles["on_track"]
     if track["value"] is not None:
         lines.append(f"Indicators on track: {percent(track['value'], 0)} ({track['hint']}).")
-    if data["headline"]["decide"]:
-        lines += ["", "To decide this month:"]
-        for i, d in enumerate(data["headline"]["decide"], start=1):
+    decide = data["headline"]["decide"]
+    if decide["items"]:
+        how = (
+            f"chosen by the AI daily review of {decide['review_date']}"
+            if decide["mode"] == "ai"
+            else f"the daily review of {decide['review_date']}, most important findings first"
+        )
+        lines += ["", f"To decide ({how}):"]
+        for i, d in enumerate(decide["items"], start=1):
+            who = f" Who: {d['who']}" if d["who"] else ""
+            when = f", {d['urgency']}" if d["urgency"] else ""
             owner = f" Owner: {d['owner']}" if d["owner"] else ""
             due = f", due {d['due_date']}" if d["due_date"] else ""
-            lines.append(f"{i}. {d['title']}.{owner}{due}")
+            lines.append(f"{i}. {d['title'].rstrip('.')}.{who}{when}.{owner}{due}".replace("..", "."))
     low = [r["section"] for r in data["confidence"]["rows"] if r["level"] == "low"]
     if low:
         lines += ["", f"Low confidence in the figures of: {', '.join(low)}."]
+    aside = data["confidence"].get("implausible") or []
+    if aside:
+        lines.append(
+            f"Left out of children reached as reporting errors: {len(aside)} indicator"
+            + ("s" if len(aside) != 1 else "")
+            + " ("
+            + "; ".join(f"{x['pd']} {x['title'][:60]}: {x['value']:,}, {x['reason']}" for x in aside[:3])
+            + ("; …" if len(aside) > 3 else "")
+            + "). Check them in eTools."
+        )
     risk = [g for g in data["money"]["grants"] if g["at_risk"]]
     if risk:
         lines.append(

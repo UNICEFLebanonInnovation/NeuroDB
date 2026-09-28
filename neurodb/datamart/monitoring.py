@@ -13,6 +13,7 @@ is the one the latest report carries.
 
 from __future__ import annotations
 
+import ast
 import datetime
 import re
 from collections import Counter, defaultdict
@@ -21,6 +22,7 @@ from decimal import Decimal
 from typing import Any
 
 from django.db.models import Q, QuerySet
+from django.db.models.functions import Trim
 from django.urls import reverse
 
 from neurodb.geo.models import Location
@@ -51,17 +53,45 @@ def location_key(p_code: str | None, name: str | None) -> str:
     return (p_code or "").strip().upper() or f"name:{norm(name)}"
 
 
+NUMBER = re.compile(r"[-+]?\d+(?:\.\d+)?")
+
+
+def _from_parts(parts: dict) -> float | None:
+    """PRP stores a value as ``{"v": numerator, "d": denominator, "c": calculated}``: the calculated
+    value when there is one, else the numerator over a real denominator, else the numerator."""
+    for key in ("c", "v"):
+        if parts.get(key) not in (None, ""):
+            value = number(parts[key])
+            if key == "v" and value is not None:
+                d = number(parts.get("d"))
+                if d not in (None, 0.0, 1.0):
+                    return value / d
+            return value
+    return None
+
+
 def number(value: Any) -> float | None:
-    """A PRP value as a number: ``"1,234"``, ``"12.5 %"``, ``Decimal`` or None."""
+    """A PRP value as a number: ``1234``, ``"1,234"``, ``"12.5 %"``, ``Decimal``, or PRP's
+    ``{"v": .., "d": .., "c": ..}`` (as a dict or as its text). None when the text holds no number
+    or several (``"45/100"``, a date): the digits of separate numbers are never glued into one,
+    which once turned a structured value into billions of children."""
     if value in (None, ""):
+        return None
+    if isinstance(value, bool):
         return None
     if isinstance(value, int | float | Decimal):
         return float(value)
-    text = re.sub(r"[^0-9.\-]", "", str(value).replace(",", ""))
-    try:
-        return float(text) if text not in ("", "-", ".") else None
-    except ValueError:
-        return None
+    if isinstance(value, dict):
+        return _from_parts(value)
+    text = str(value).strip()
+    if text.startswith("{"):
+        try:
+            parts = ast.literal_eval(text)
+        except (ValueError, SyntaxError):
+            parts = None
+        return _from_parts(parts) if isinstance(parts, dict) else None
+    found = NUMBER.findall(text.replace(",", ""))
+    return float(found[0]) if len(found) == 1 else None
 
 
 def combine(values: list[float], method: str) -> float | None:
@@ -158,8 +188,9 @@ def _pd_queryset(filters: Filters) -> QuerySet[PCA]:
 
 def _indicator_rows(filters: Filters, pd_ids: list[int]) -> QuerySet[dm.PDIndicator]:
     qs = dm.PDIndicator.objects.filter(intervention_id__in=pd_ids)
-    if filters.sections:
-        qs = qs.filter(section_name__in=filters.sections)
+    if filters.sections:  # trimmed: rows synced before names were trimmed may end with a space
+        wanted = [s.strip() for s in filters.sections]
+        qs = qs.annotate(_section=Trim("section_name")).filter(_section__in=wanted)
     if filters.q:
         qs = qs.filter(Q(title__icontains=filters.q) | Q(lower_result_name__icontains=filters.q))
     for tag, values in filters.tags.items():
@@ -282,7 +313,7 @@ def indicators(filters: Filters, today: datetime.date | None = None) -> list[Ind
                 pd=pds[row["intervention_id"]],
                 title=row["title"],
                 output=row["lower_result_name"],
-                section=row["section_name"],
+                section=(row["section_name"] or "").strip(),
                 unit=row["unit"],
                 display_type=row["display_type"],
                 baseline=number(row["baseline_numerator"]),
@@ -743,7 +774,7 @@ def filter_options(filters: Filters) -> dict[str, Any]:
         reverse=True,
     )
     options = {
-        "sections": sorted({x for x in base.values_list("section_name", flat=True) if x}),
+        "sections": sorted({(x or "").strip() for x in base.values_list("section_name", flat=True)} - {""}),
         "partners": [{"value": str(pk), "label": name} for pk, name in partners],
         "pds": sorted({x for x in pds.values_list("number", flat=True) if x}),
         "locations": sorted({x for x in base.values_list("location_name", flat=True) if x}),

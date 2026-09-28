@@ -26,6 +26,17 @@
   {% else %}
   {% include "components/empty_state.html" with icon="shield" title=_("No sections yet") message=_("Sections appear once PD indicators are synced for this year.") %}
   {% endif %}
+  {% if c.implausible %}
+  <div class="brief-aside" role="note">
+    <strong>{% blocktrans count n=c.implausible|length %}{{ n }} indicator left out of children reached{% plural %}{{ n }} indicators left out of children reached{% endblocktrans %}</strong>
+    <span class="text-muted small">{% trans "Their reported value cannot be right (it is above the child population of Lebanon or far above the target), so it is not added up. Check them in eTools with the partner." %}</span>
+    <ul class="list-unstyled mb-0 mt-1">
+      {% for x in c.implausible %}
+      <li><a href="{{ x.url }}">{{ x.pd }} · {{ x.title|truncatechars:90 }}</a> <span class="text-muted small">{{ x.partner }} · {{ x.value|intcomma }}{% if x.target %} / {{ x.target|intcomma }}{% endif %} · {{ x.reason }}</span></li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
   <p class="source-line">{{ c.source }}</p>
 </section>
 <div class="grid grid--2">

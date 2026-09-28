@@ -93,6 +93,8 @@ def coerce(field: models.Field, value: Any) -> Any:
         if value is None:
             return None if field.null else ""
         text = value if isinstance(value, str) else str(value)
+        if isinstance(field, models.CharField):
+            text = text.strip()  # "PSEA " and "PSEA" are one section; narratives (TextField) stay as sent
         limit = getattr(field, "max_length", None)
         return text[:limit] if limit else text
     return value

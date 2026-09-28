@@ -32,6 +32,14 @@ class DailyReview(models.Model):
     error = models.TextField(blank=True)
     model_input_tokens = models.PositiveIntegerField(default=0)
     model_output_tokens = models.PositiveIntegerField(default=0)
+    decisions = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="what management should decide, chosen and written by the AI from the findings",
+    )
+    decided_by = models.CharField(
+        max_length=100, blank=True, help_text="the model that chose the decisions, or rules"
+    )
 
     class Meta:
         ordering = ("-date",)

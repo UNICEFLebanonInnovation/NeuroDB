@@ -467,9 +467,9 @@ management meeting asks for. Eight blocks, one tab each:
 
 | Block | What it shows | Source |
 |---|---|---|
-| Brief | Five tiles with a comparison (children reached against the same months of last year, achievement against the elapsed period, disbursed of reserved, cost per child against last year's PDs, indicators on track against the review 30 days ago), the five findings to decide on with their owner, and the brief as text for the minutes (*Copy*) | The overview blocks of both years, the latest daily review, the finding assignments |
+| Brief | Five tiles with a comparison (children reached against the same months of last year, achievement against the elapsed period, disbursed of reserved, cost per child against last year's PDs, indicators on track against the review 30 days ago), *Things to decide* (up to five decisions chosen and written by the AI daily review from its findings, each with who, when and the findings it rests on, and their owner; without the assistant, the review's five most important open findings), and the brief as text for the minutes (*Copy*) | The overview blocks of both years, the latest daily review, the finding assignments |
 | Ahead or behind | Achievement against the expected point and the Country Programme target per section; the cumulative reach of both sources projected to December at the last three months' pace | PD indicators and PRP reports, ActivityInfo HPM masters, **section plans** |
-| How sure | Confidence per section (indicators reported, PDs verified by a TPM activity or a field monitoring finding, partners linked across sources, days since the eTools sync; High / Medium / Low), the two sources per partner side by side with the gap, quarterly reporting timeliness per partner | PRP reports, TPM activities, monitoring findings, ActivityInfo partner links, sync runs |
+| How sure | Confidence per section (indicators reported, PDs verified by a TPM activity or a field monitoring finding, partners linked across sources, days since the eTools sync; High / Medium / Low; Low whenever a value was set aside, see below), the two sources per partner side by side with the gap, quarterly reporting timeliness per partner | PRP reports, TPM activities, monitoring findings, ActivityInfo partner links, sync runs |
 | Who and where | Children by sex and age band, by nationality and disability against the population share (from the indicators' titles), coverage per governorate, districts with high need and low coverage | Indicator title tags, population figures (governorate and district level), eTools locations |
 | Partners | Scorecard (PDs, reserved, on track, reports on time, action points on time, HACT risk, latest finding, disbursed against achieved), delivery-against-spending bubbles, partnerships that need a decision | The same tables per partner |
 | Money | Donor → section → children reached, grants at risk (unspent balance by expiry, red within 90 days), funded against required per section | Funds reservation lines and headers, grants, **section plans** |
@@ -497,6 +497,15 @@ outstanding amount in the grant's share of the reservation's lines (eTools carri
 outstanding amount per reservation, not per grant). Sex, age, nationality and disability come from
 the indicators' titles: a title naming both girls and boys names neither, so most children fall
 under "not named" until PRP disaggregations carry labels.
+
+**Values that cannot be right are left out.** A children indicator whose reported value is above
+the child population of Lebanon (the latest population figures), or more than 20 times its target
+(and above 1,000), is not added to children reached or to achievement: its section's confidence
+is Low, the *How sure* block lists it with a link, and the brief as text says how many were left
+out. Check such an indicator in eTools with the partner. PRP values that eTools sends as
+`{"v": .., "d": .., "c": ..}` are read as their calculated value (else numerator over
+denominator); a value holding several numbers (`45/100`, a date) is read as no value, never as
+the digits glued together. Section names are trimmed ("PSEA " is "PSEA").
 
 **Filters and caching.** Year and section (every section by default). The result is cached for
 2 minutes per (year, sections, day), and the key changes with every children flag, section plan,
@@ -537,6 +546,20 @@ are always *new*. Findings are ranked by severity, then by the children behind t
 day's findings and counts (titles, details and numbers; no staff names, `store=false`) and writes four to six plain sentences;
 tokens are recorded on the review. Without it, or when the call fails, a template writes the
 summary. Findings are prompts to look, never verdicts on partners or staff.
+
+**The decisions.** In a second call the model reads the same facts (the open critical and warning
+findings, at most 40, each with its key) and chooses at most five decisions for management, most
+important first: what to decide (an action, not a restatement), why (facts from its findings), who
+(a role: a section chief, the PD's programme manager, PM&E, Partnerships or Operations; never a
+name), when (today, this week, this month) and the findings it rests on. The answer must follow a
+fixed JSON schema, and NeuroDB keeps a decision only when every finding it cites exists in the
+review and every number it writes appears in those findings (small counts up to 10 excepted);
+anything else is dropped and logged. They are stored on the review (*Decisions*, *Decided by*) and
+shown in the management brief's *Things to decide* box with the findings they rest on. Without the
+assistant, with nothing to decide, or when the call fails, *Decided by* reads *rules* and the box
+shows the review's five most important open findings instead (critical first, then the most
+children behind target, then new before still open), and says so. Findings assigned in the admin
+(*Finding assignments*) show their owner, due date and status on the decision that cites them first.
 
 **Run it now.** Admin → Daily review → *Run the daily review now* (administrators, after a
 confirmation), or `python manage.py daily_review [--date YYYY-MM-DD] [--no-narration]`. One review

@@ -45,7 +45,7 @@ from neurodb.web.templatetags.ui import half_up
 logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 120
-CACHE_VERSION = 4
+CACHE_VERSION = 5
 MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 STATUSES = ("on_track", "off_track", "over_target", "no_target", NOT_REPORTED)
 LEVEL_GOVERNORATE = monitoring.LEVEL_GOVERNORATE
@@ -59,6 +59,10 @@ DECISION_ENDING_DAYS = 90
 DECISION_ELAPSED = 60
 DECISION_DISBURSED = 40
 MAX_ATTENTION = 8
+# A children indicator above this many times its target (and above the floor) is set aside as an
+# error rather than added to the children reached; so is one above the country's child population.
+IMPLAUSIBLE_TIMES = 20
+IMPLAUSIBLE_FLOOR = 1000
 MAX_DONORS = 8
 HIGH_RISK = ("high", "significant")
 SEX_RULES = (("Girls", r"\bgirls?\b", r"\bboys?\b"), ("Boys", r"\bboys?\b", r"\bgirls?\b"))
@@ -151,9 +155,8 @@ def _levels(values: list[float]) -> list[int]:
 # --------------------------------------------------------------------------------- options
 def options(year: int) -> dict[str, list[str]]:
     """The filter bar's choices: eTools section names of the PD indicators and gazetteer governorates."""
-    sections = sorted(
-        {s for s in dm.PDIndicator.objects.exclude(section_name="").values_list("section_name", flat=True)}
-    )
+    names = dm.PDIndicator.objects.order_by().values_list("section_name", flat=True).distinct()
+    sections = sorted({(s or "").strip() for s in names} - {""})
     governorates = sorted(
         set(
             Location.objects.filter(type__admin_level=LEVEL_GOVERNORATE, is_active=True).values_list(
@@ -322,7 +325,9 @@ class _Builder:
     def build(self) -> dict[str, Any]:
         rows = self._rows()
         self.rows = rows
-        self.children_rows = [r for r in rows if self._is_children(r)]
+        self.children_rows, self.implausible = self._plausible(
+            [r for r in rows if self._is_children(r)], self._national_children()
+        )
         self.pds = {r.pd.id: r.pd for r in rows}
         self.section_of_pd = self._pd_sections()
         activityinfo = self._activityinfo_children()
@@ -469,6 +474,7 @@ class _Builder:
                 "activityinfo": [half_up(v) for v in activityinfo["months"]],
             },
             "population_year": population_year,
+            "implausible": self.implausible,
             "source": (
                 "eTools PRP progress reports of the PD indicators that count children, and the additive "
                 f"ActivityInfo HPM indicators that count children, {self.year}; the two sources are shown "
@@ -527,6 +533,40 @@ class _Builder:
                 }
             )
         return out
+
+    def _national_children(self) -> int | None:
+        by_governorate, _year = self._children_population()
+        return sum(n for _name, n in by_governorate.values()) or None
+
+    @staticmethod
+    def _plausible(rows: list[Indicator], national_children: int | None) -> tuple[list, list]:
+        """Children indicators whose figures can be added up, and the ones set aside: a value above
+        the whole country's child population, or more than IMPLAUSIBLE_TIMES its own target, is a
+        reporting or reading error, not a result (one such value once showed billions of children).
+        The set-aside ones are listed on the page so someone checks them in eTools."""
+        kept, aside = [], []
+        for row in rows:
+            value = max(row.cumulative or 0, sum(v for v in row.months.values() if v))
+            too_many = national_children and value > national_children
+            too_far = row.target and value > IMPLAUSIBLE_TIMES * row.target and value > IMPLAUSIBLE_FLOOR
+            if too_many or too_far:
+                aside.append(
+                    {
+                        "pd": row.pd.number or "",
+                        "partner": _partner(row.pd),
+                        "section": row.section or "",
+                        "title": row.title,
+                        "value": half_up(value),
+                        "target": half_up(row.target) if row.target else None,
+                        "reason": "above the child population of Lebanon"
+                        if too_many
+                        else f"more than {IMPLAUSIBLE_TIMES} times its target",
+                        "url": row.url,
+                    }
+                )
+            else:
+                kept.append(row)
+        return kept, aside
 
     def _children_population(self) -> tuple[dict[str, tuple[str, int]], int | None]:
         """``{governorate key: (name, children)}`` of the latest year of child figures up to the scope's."""

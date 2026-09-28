@@ -11,6 +11,7 @@ import datetime
 import hashlib
 import json
 import logging
+import re
 import time
 from collections import Counter
 from dataclasses import asdict
@@ -49,6 +50,48 @@ PAGE_FINDINGS = 12  # findings the overview card lists; the rest is a count
 HISTORY_DAYS = 7
 NARRATION_FINDINGS = 40  # the most important findings the model reads
 NARRATION_MAX_OUTPUT_TOKENS = 600
+MAX_DECISIONS = 5
+DECISION_FINDINGS = 40  # the critical and warning findings the model chooses from
+DECISIONS_MAX_OUTPUT_TOKENS = 1500
+URGENCIES = ("today", "this week", "this month")
+DECISION_INSTRUCTIONS = (
+    "You prepare the decisions of the UNICEF Lebanon country office management from today's automated "
+    "programme review. The input is JSON: the day's counts and the open critical and warning findings, "
+    "each with a key. Choose at most 5 decisions management should take, most important first. A "
+    "decision may group several findings about the same problem (the same programme document, partner "
+    "or section). For each: 'decision', one sentence saying what to decide or whom to ask for what "
+    "(an action, not a restatement of the finding); 'why', one or two sentences with the facts from its "
+    "findings; 'who', the role that should take it (a section chief named by the finding's section, the "
+    "programme manager of a programme document, Planning Monitoring and Evaluation, Partnerships or "
+    "Operations), never a person's name; 'urgency', one of today, this week, this month; "
+    "'finding_keys', the keys of the findings it rests on. Use only facts in the JSON: every number "
+    "you write must appear in the findings you cite, and never invent a cause, a date, a name or an "
+    "amount. Findings are prompts to look, not verdicts: do not blame partners or staff. Plain English, "
+    "no markdown. Return fewer decisions rather than weak ones."
+)
+DECISION_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["decisions"],
+    "properties": {
+        "decisions": {
+            "type": "array",
+            "maxItems": MAX_DECISIONS,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["decision", "why", "who", "urgency", "finding_keys"],
+                "properties": {
+                    "decision": {"type": "string"},
+                    "why": {"type": "string"},
+                    "who": {"type": "string"},
+                    "urgency": {"type": "string", "enum": list(URGENCIES)},
+                    "finding_keys": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+        }
+    },
+}
 NARRATION_INSTRUCTIONS = (
     "You write the morning note of the UNICEF Lebanon programme monitoring team. The input is the JSON "
     "of today's automated review: its findings (ranked, most important first) and the day's counts. "
@@ -138,9 +181,11 @@ def _run(date, triggered_by, narrate, today) -> DailyReview:
         ]
         if narrate:
             review.summary = narrate_review(review, findings)
+            review.decisions = decide(review, findings)
         else:
             review.summary = template_summary(findings, stats)
             review.narrated_by = DailyReview.TEMPLATE
+            review.decided_by = RULES
         review.status = DailyReview.Status.SUCCEEDED
         sync.rows_in = stats["indicators"]
     except Exception as exc:
@@ -361,6 +406,129 @@ def narration_input(review: DailyReview, findings: list[ReviewFinding]) -> dict[
             for f in findings[:NARRATION_FINDINGS]
         ],
     }
+
+
+# --------------------------------------------------------------------------------- decisions
+RULES = "rules"  # decided_by when no model chose the decisions (the brief ranks the findings itself)
+DECISION_SEVERITIES = (ReviewFinding.Severity.CRITICAL, ReviewFinding.Severity.WARNING)
+
+
+def decision_candidates(findings: list[ReviewFinding]) -> list[ReviewFinding]:
+    """The findings a decision may rest on: open (not resolved), critical or warning, ranked."""
+    return [f for f in findings if f.state != RESOLVED and f.severity in DECISION_SEVERITIES][
+        :DECISION_FINDINGS
+    ]
+
+
+def decision_input(review: DailyReview, findings: list[ReviewFinding]) -> dict[str, Any]:
+    """What the model reads to choose the decisions: the same facts as the narration, with keys."""
+    stats = review.stats or {}
+    return {
+        "date": review.date.isoformat(),
+        "counts_by_severity": stats.get("counts", {}),
+        "indicator_status_counts": stats.get("status_counts", {}),
+        "on_track_percent": stats.get("on_track_percent"),
+        "findings": [
+            {
+                "key": f.key,
+                "severity": f.severity,
+                "state": f.state,
+                "section": f.section,
+                "title": f.title,
+                "detail": f.detail,
+                "children_behind_target": f.children,
+                "numbers": (f.evidence or {}).get("numbers", {}),
+            }
+            for f in findings
+        ],
+    }
+
+
+NUMBER_IN_TEXT = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def _numbers(text: str) -> set[str]:
+    return {n.replace(",", "").rstrip(".") for n in NUMBER_IN_TEXT.findall(text or "")}
+
+
+def _grounded(item: dict[str, Any], cited: list[ReviewFinding]) -> bool:
+    """Every number the model wrote appears in the findings it cites (numbers up to 10 excepted:
+    "two indicators", "Q3", "the 3 PDs" are counts of what it cites, not figures)."""
+    source = " ".join(
+        f"{f.title} {f.detail} {f.children or ''} {json.dumps((f.evidence or {}).get('numbers', {}))}"
+        for f in cited
+    )
+    allowed = _numbers(source)
+    written = _numbers(f"{item['decision']} {item['why']}")
+    return all(n in allowed or (n.isdigit() and int(n) <= 10) for n in written)
+
+
+def validate_decisions(raw: Any, candidates: list[ReviewFinding]) -> list[dict[str, Any]]:
+    """Keep only well-formed decisions that rest on real open findings and invent no number."""
+    by_key = {f.key: f for f in candidates}
+    out: list[dict[str, Any]] = []
+    for item in (raw or {}).get("decisions", [])[:MAX_DECISIONS] if isinstance(raw, dict) else []:
+        if not isinstance(item, dict):
+            continue
+        keys = [k for k in dict.fromkeys(item.get("finding_keys") or []) if k in by_key]
+        text = {f: " ".join(str(item.get(f) or "").split()) for f in ("decision", "why", "who")}
+        if not keys or not text["decision"] or item.get("urgency") not in URGENCIES:
+            logger.info("daily review: a decision was dropped (no known finding or malformed)")
+            continue
+        clean = {
+            "decision": text["decision"][:300],
+            "why": text["why"][:600],
+            "who": text["who"][:120],
+            "urgency": item["urgency"],
+            "finding_keys": keys,
+        }
+        if not _grounded(clean, [by_key[k] for k in keys]):
+            logger.info("daily review: a decision was dropped (a number not in its findings)")
+            continue
+        out.append(clean)
+    return out
+
+
+def decide(review: DailyReview, findings: list[ReviewFinding]) -> list[dict[str, Any]]:
+    """The decisions for management, chosen and written by the assistant from the day's findings.
+    Empty (and ``decided_by`` "rules") without the assistant, with nothing to decide, or when the call
+    fails: the brief then ranks the findings itself. Tokens are added to the review's."""
+    candidates = decision_candidates(findings)
+    if not settings.AI_ASSISTANT_ENABLED or not candidates:
+        review.decided_by = RULES
+        return []
+    try:
+        from neurodb.assistant import agent
+
+        response = agent.client().responses.create(
+            model=settings.AI_ASSISTANT_MODEL,
+            instructions=DECISION_INSTRUCTIONS,
+            input=json.dumps(decision_input(review, candidates), default=str),
+            max_output_tokens=DECISIONS_MAX_OUTPUT_TOKENS,
+            store=False,
+            reasoning={"effort": "low"},
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "decisions",
+                    "schema": DECISION_SCHEMA,
+                    "strict": True,
+                }
+            },
+        )
+        usage = getattr(response, "usage", None)
+        review.model_input_tokens += int(getattr(usage, "input_tokens", 0) or 0)
+        review.model_output_tokens += int(getattr(usage, "output_tokens", 0) or 0)
+        raw = json.loads(getattr(response, "output_text", "") or "{}")
+        decisions = validate_decisions(raw, candidates)
+    except Exception:
+        logger.exception(
+            "daily review %s: choosing the decisions failed; the brief ranks findings", review.date
+        )
+        review.decided_by = RULES
+        return []
+    review.decided_by = settings.AI_ASSISTANT_MODEL if decisions else RULES
+    return decisions
 
 
 def template_summary(findings: list[ReviewFinding], stats: dict[str, Any]) -> str:

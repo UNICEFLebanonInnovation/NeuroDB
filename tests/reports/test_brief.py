@@ -178,7 +178,8 @@ def test_decisions_and_action_read_the_review_and_its_assignments(data, reportin
         due_date=TODAY - datetime.timedelta(days=1), status=FindingAssignment.Status.ASSIGNED,
     )  # fmt: skip
     result = build(reporting_year)
-    decide = result["headline"]["decide"]
+    assert result["headline"]["decide"]["mode"] == "rules"  # the assistant is off in tests
+    decide = result["headline"]["decide"]["items"]
     assert 1 <= len(decide) <= brief.MAX_DECISIONS and decide[0]["key"] == overdue.key
     assert (decide[0]["owner"], decide[0]["status"], decide[0]["status_label"]) == (
         "Chief of Child Protection",
@@ -234,7 +235,13 @@ def test_section_filter_and_empty_database(data, reporting_year, db):
 
 def test_empty_database_gives_zeros(db, reporting_year):
     result = build(reporting_year)
-    assert result["headline"]["tiles"][0]["value"] == 0 and result["headline"]["decide"] == []
+    assert result["headline"]["tiles"][0]["value"] == 0
+    assert result["headline"]["decide"] == {
+        "mode": "none",
+        "items": [],
+        "review_date": None,
+        "decided_by": "",
+    }
     assert result["pace"]["projection"]["series"]["eTools"] == []
     assert result["confidence"]["rows"] == [] and result["who"]["sex_age"] == {}
     assert result["money"]["grants"] == [] and result["action"]["digest"] == {}
@@ -267,7 +274,7 @@ def test_page_renders_every_block(client_viewer, data, reporting_year):
     for text in (
         "Management brief",
         "Country management brief",
-        "Things to decide this month",
+        "Things to decide",
         "The brief as text",
         "Are we ahead or behind?",
         "Confidence in the figures",
@@ -406,7 +413,7 @@ def test_brief_text_rounds_and_formats_like_the_tiles():
         "scope": {"sections": [], "today": "2026-07-01"},
         "headline": {
             "period": "January to Jul 2026",
-            "decide": [],
+            "decide": {"mode": "none", "items": [], "review_date": None, "decided_by": ""},
             "tiles": [
                 tile("children", 1000, {"value": -2.5, "label": "vs same period last year"}),
                 tile("achievement", 12.5),
@@ -457,3 +464,62 @@ def test_population_shares_name_the_year_of_their_own_figures(data, reporting_ye
     who = build(reporting_year)["who"]
     assert who["population_year"] == 2026  # the nationality shares' year, not the governorates' 2025
     assert {n["name"]: n["population_share"] for n in who["nationality"]}["Lebanese"] == 60.0
+
+
+def test_prp_structured_values_are_read_not_glued(data, reporting_year):
+    """PRP's {"v", "d", "c"} values once became one long number (300 -> 30011300...)."""
+    for row in dm.ReportedIndicator.objects.all():
+        row.achievement_in_period = (
+            f"{{'c': {row.achievement_in_period}.0, 'd': 1, 'v': {row.achievement_in_period}}}"
+        )
+        row.total_cumulative_progress = f"{{'c': {row.total_cumulative_progress}.0, 'd': 1, 'v': 1}}"
+        row.save()
+    tiles = {t["key"]: t for t in build(reporting_year)["headline"]["tiles"]}
+    assert tiles["children"]["value"] == 500 and tiles["achievement"]["value"] == 50.0
+
+
+def test_an_impossible_children_value_is_set_aside_and_flagged(data, reporting_year):
+    dm.ReportedIndicator.objects.update(total_cumulative_progress="9999999", achievement_in_period="9999999")
+    result = build(reporting_year)
+    tiles = {t["key"]: t for t in result["headline"]["tiles"]}
+    assert tiles["children"]["hint"].startswith("eTools 0 ·")  # not 20 million children (500 is ActivityInfo)
+    (aside,) = result["confidence"]["implausible"]
+    assert aside["value"] == 19999998 and "child population" in aside["reason"]
+    (row,) = result["confidence"]["rows"]
+    assert row["level"] == "low" and row["set_aside"] == 1
+    assert "Left out of children reached as reporting errors: 1 indicator" in result["text"]
+
+
+def test_section_names_are_trimmed(data, reporting_year):
+    dm.PDIndicator.objects.update(section_name="Child Protection ")
+    result = build(reporting_year)
+    assert [r["section"] for r in result["confidence"]["rows"]] == ["Child Protection"]
+    assert "Child Protection ," not in result["text"]
+
+
+def test_the_brief_shows_the_ai_decisions_with_their_findings(data, reporting_year):
+    review = review_services.run(date=TODAY, today=TODAY, narrate=False)
+    first, second = review.findings.filter(
+        severity__in=["critical", "warning"], section="Child Protection"
+    ).order_by("rank")[:2]
+    review.decisions = [
+        {
+            "decision": "Agree a catch-up plan with the partner.",
+            "why": "Two indicators are off track.",
+            "who": "Child Protection section chief",
+            "urgency": "this week",
+            "finding_keys": [first.key, second.key],
+        }
+    ]
+    review.decided_by = "test-model"
+    review.save()
+    result = build(reporting_year)
+    decide = result["headline"]["decide"]
+    assert decide["mode"] == "ai" and decide["decided_by"] == "test-model"
+    (item,) = decide["items"]
+    assert item["title"] == "Agree a catch-up plan with the partner." and item["who"].startswith("Child")
+    assert [f["title"] for f in item["findings"]] == [first.title, second.title]
+    assert "To decide (chosen by the AI daily review of" in result["text"]
+    assert "Who: Child Protection section chief, this week." in result["text"]
+    # a section the decision's findings are not in does not show it (a country-wide finding would)
+    assert build(reporting_year, sections=["Education"])["headline"]["decide"]["items"] == []

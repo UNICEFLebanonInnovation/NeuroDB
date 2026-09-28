@@ -617,3 +617,9 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .lineage dd { color: var(--nd-muted); margin: 0.1rem 0 0; line-height: 1.45; }
 .table-danger td { background: var(--nd-danger-soft); }
 @media print { .brief-tabs, .filter-bar, .sidebar, .topbar { display: none !important; } .panel { break-inside: avoid; } }
+.brief-aside { margin-top: 0.75rem; padding: 0.6rem 0.8rem; border-radius: 8px; border: 1px solid var(--nd-danger-soft); background: color-mix(in srgb, var(--nd-danger-soft) 45%, transparent); font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.15rem; }
+.decide__who { font-size: 0.78rem; margin-top: 0.2rem; }
+.decide__findings { font-size: 0.75rem; color: var(--nd-muted); margin-top: 0.15rem; }
+.decide__urgency { font-weight: 600; }
+.decide__urgency--today { color: var(--nd-danger); }
+.decide__urgency--this-week { color: var(--nd-warning); }

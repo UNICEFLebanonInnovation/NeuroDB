@@ -86,6 +86,10 @@ def test_the_assistant_writes_the_summary_when_configured(data, settings, monkey
     seen = {}
 
     def create(**kwargs):
+        if "text" in kwargs:  # the second call chooses the decisions: none today
+            return SimpleNamespace(
+                output_text='{"decisions": []}', usage=SimpleNamespace(input_tokens=50, output_tokens=5)
+            )
         seen.update(kwargs)
         return SimpleNamespace(
             output_text="Two things need a person today.",
@@ -95,8 +99,9 @@ def test_the_assistant_writes_the_summary_when_configured(data, settings, monkey
     monkeypatch.setattr(agent, "client", lambda: SimpleNamespace(responses=SimpleNamespace(create=create)))
     review = run()
     assert (review.summary, review.narrated_by) == ("Two things need a person today.", "test-model")
-    assert (review.model_input_tokens, review.model_output_tokens) == (90, 12)
+    assert (review.model_input_tokens, review.model_output_tokens) == (140, 17)  # both calls
     assert seen["store"] is False and "Amel Association" in seen["input"]
+    assert review.decisions == [] and review.decided_by == "rules"  # no decision: the brief ranks
 
 
 def test_a_failing_narration_falls_back_to_the_template(data, settings, monkeypatch):
@@ -275,3 +280,70 @@ def test_snapshot_keeps_the_counts_of_the_pds_running_in_the_year(data):
     stats = run().stats
     assert stats["status_counts"]["on_track"] == 0
     assert (stats["status_counts_year"]["on_track"], stats["status_counts_year"]["not_reported"]) == (1, 1)
+
+
+def _ai(monkeypatch, settings, answer):
+    """A fake assistant: a fixed summary, and ``answer(findings)`` as the decisions call's JSON."""
+    import json
+
+    from neurodb.assistant import agent
+
+    settings.AI_ASSISTANT_ENABLED, settings.AI_ASSISTANT_MODEL = True, "test-model"
+    calls = []
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        if "text" not in kwargs:
+            return SimpleNamespace(output_text="Summary.", usage=None)
+        findings = json.loads(kwargs["input"])["findings"]
+        return SimpleNamespace(output_text=json.dumps(answer(findings)), usage=None)
+
+    monkeypatch.setattr(agent, "client", lambda: SimpleNamespace(responses=SimpleNamespace(create=create)))
+    return calls
+
+
+def test_the_assistant_chooses_the_decisions_and_nothing_is_invented(data, settings, monkeypatch):
+    def answer(findings):
+        first, second = findings[0], findings[1]
+        return {
+            "decisions": [
+                {
+                    "decision": "Ask the programme manager to agree a catch-up plan with the partner.",
+                    "why": f"{first['title']}.",
+                    "who": "Child Protection section chief",
+                    "urgency": "this week",
+                    "finding_keys": [first["key"], second["key"]],
+                },
+                {  # a number that is in no finding: dropped
+                    "decision": "Release 12345 USD.",
+                    "why": "Invented.",
+                    "who": "Operations",
+                    "urgency": "today",
+                    "finding_keys": [first["key"]],
+                },
+                {  # a key that is not a finding: dropped
+                    "decision": "Look at something else.",
+                    "why": "",
+                    "who": "PM&E",
+                    "urgency": "this month",
+                    "finding_keys": ["made-up-key"],
+                },
+            ]
+        }
+
+    calls = _ai(monkeypatch, settings, answer)
+    review = run()
+    decision_call = next(c for c in calls if "text" in c)
+    assert decision_call["store"] is False and decision_call["text"]["format"]["type"] == "json_schema"
+    assert review.decided_by == "test-model" and len(review.decisions) == 1
+    (kept,) = review.decisions
+    assert kept["urgency"] == "this week" and len(kept["finding_keys"]) == 2
+    keys = set(review.findings.values_list("key", flat=True))
+    assert set(kept["finding_keys"]) <= keys
+
+
+def test_a_broken_decisions_answer_falls_back_to_the_rules(data, settings, monkeypatch):
+    _ai(monkeypatch, settings, lambda findings: {"unexpected": True})
+    review = run()
+    assert review.status == DailyReview.Status.SUCCEEDED
+    assert review.decisions == [] and review.decided_by == "rules" and review.summary == "Summary."
