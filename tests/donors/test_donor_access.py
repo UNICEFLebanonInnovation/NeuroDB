@@ -329,3 +329,20 @@ def test_deleting_an_account_deletes_the_sign_in_it_created(root_client):
     account = DonorAccount.objects.get()
     root_client.post(reverse("admin:donors_donoraccount_delete", args=[account.pk]), {"post": "yes"})
     assert not User.objects.filter(email="new@donor.example").exists()
+
+
+def test_grants_are_offered_by_donor_and_must_belong_to_the_chosen_donors(root_client, data):
+    add = root_client.get(reverse("admin:donors_donoraccount_add"))
+    assert '<optgroup label="EU">' in add.text and ">SC1<" in add.text
+    assert "On: the donor sees the partners" in add.text and "Off: partners appear as" in add.text
+    assert "Empty: it does not expire." in add.text
+
+    wrong = add_account(root_client, email="x@donor.example", other_donors="Japan", grant_choices=["SC1"])
+    assert "Not a grant of the donors chosen above: SC1." in wrong.text
+    assert not DonorAccount.objects.exists()
+
+    add_account(root_client, email="x@donor.example", grant_choices=["SC1"], grant_list="SC9")
+    account = DonorAccount.objects.get()
+    assert account.donors == ["EU"] and account.grants == ["SC1", "SC9"]
+    change = root_client.get(reverse("admin:donors_donoraccount_change", args=[account.pk]))
+    assert '<option value="SC1" selected>' in change.text and 'value="SC9"' in change.text

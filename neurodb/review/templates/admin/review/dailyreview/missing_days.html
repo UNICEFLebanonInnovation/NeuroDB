@@ -1,0 +1,11 @@
+{% load i18n %}
+{% if missing_days %}
+  <div class="nd-scheduler nd-scheduler--warn" role="status">
+    <span class="material-symbols-outlined" aria-hidden="true">event_busy</span>
+    <div>
+      <strong>{% blocktrans count n=missing_days|length %}No review for {{ n }} day in the last {{ lookback_days }} days{% plural %}No review for {{ n }} days in the last {{ lookback_days }} days{% endblocktrans %}</strong>
+      <p>{% for day in missing_days %}{{ day|date:"D j M" }}{% if not forloop.last %}, {% endif %}{% endfor %}.
+        {% url 'admin:core_scheduledjob_changelist' as jobs_url %}{% blocktrans trimmed %}The review runs every morning from <a class="underline" href="{{ jobs_url }}">Scheduled jobs</a>; a missing day usually means the scheduler was not running or the run failed. A missed day cannot be caught up: the checks always read the current data.{% endblocktrans %}</p>
+    </div>
+  </div>
+{% endif %}

@@ -64,3 +64,19 @@
 .nd-scheduler--warn { background: rgb(255 251 235); border-color: rgb(253 230 138); color: rgb(146 64 14); }
 .dark .nd-scheduler--ok { background: rgb(20 83 45 / .25); border-color: rgb(22 101 52); color: rgb(187 247 208); }
 .dark .nd-scheduler--warn { background: rgb(120 53 15 / .25); border-color: rgb(146 64 14); color: rgb(253 230 138); }
+
+/* ------------------------------------------------------------------ ux review: admin */
+/* A one-line note above a list (the two eTools syncs, the Enabled switch). */
+.nd-list-note { display: flex; gap: .5rem; align-items: flex-start; margin: 0 0 1rem; font-size: .875rem; color: var(--color-base-600); }
+.nd-list-note .material-symbols-outlined { font-size: 18px; color: var(--color-primary-600); }
+.dark .nd-list-note { color: var(--color-base-300); }
+.dark .nd-list-note .material-symbols-outlined { color: var(--color-primary-400); }
+/* Django's "you are N hours behind server time" note is about times; a date has none, and Unfold
+   draws the note as a red warning icon that reads like an error on an empty, optional date. */
+.vDateField ~ .timezonewarning { display: none; }
+/* The daily review list: the summary preview wraps instead of stretching the table. */
+.nd-summary-preview { display: block; max-width: 36rem; white-space: normal; }
+.nd-jobs__more { font-size: 12px; font-weight: 400; }
+/* Import and sync runs: the plain-words meaning of an error, above the raw message. */
+.nd-error-hint { display: block; min-width: 11rem; font-weight: 500; color: var(--color-red-700, #b91c1c); }
+.dark .nd-error-hint { color: var(--color-red-400, #f87171); }

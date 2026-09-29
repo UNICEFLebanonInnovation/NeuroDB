@@ -150,3 +150,43 @@ def test_run_now_and_viewers(superadmin, client, viewer, started):
     client.force_login(viewer)
     client.post(url, {"_form_submitted": "on"})
     assert len(started) == 1
+
+
+@pytest.mark.django_db
+def test_overdue_jobs_are_marked_and_the_stalled_banner_says_what_to_do(superadmin, settings):
+    settings.SUPPORT_EMAIL = "support@example.org"
+    ScheduledJob.objects.filter(key="etools-datamart").update(
+        next_run_at=timezone.now() - datetime.timedelta(hours=3)
+    )
+    html = superadmin.get(reverse("admin:core_scheduledjob_changelist")).content.decode()
+    assert "Overdue" in html and "Never run" in html
+    assert "Run due jobs now" in html and "support@example.org" in html
+    assert "check its log" not in html and "Last outcome" not in html
+    assert "saves as soon as you click it" in html
+
+
+@pytest.mark.django_db
+def test_run_due_jobs_now_runs_one_pass_and_keeps_the_banner_truthful(superadmin, client, viewer, started):
+    ScheduledJob.objects.exclude(key="locations").delete()
+    ScheduledJob.objects.filter(key="locations").update(
+        next_run_at=timezone.now() - datetime.timedelta(hours=1)
+    )
+    seen = timezone.now() - datetime.timedelta(hours=15)
+    SchedulerState.objects.create(pk=1, last_seen_at=seen, host="web-1 (pid 7)")
+    url = reverse("admin:core_scheduledjob_run_due_jobs")
+
+    assert superadmin.get(url).status_code == 200 and started == []  # confirmation first
+    response = superadmin.post(url, {"_form_submitted": "on"}, follow=True)
+    assert started == [("sync_locations", "--triggered-by", "schedule")]
+    assert "Started: locations" in response.content.decode()
+    assert SchedulerState.objects.get(pk=1).last_seen_at == seen  # still reported as stalled
+
+    superadmin.post(url, {"_form_submitted": "on"})
+    assert len(started) == 1  # planned for tomorrow now: nothing due
+
+    viewer.is_staff = True
+    viewer.save()
+    client.force_login(viewer)
+    ScheduledJob.objects.update(next_run_at=timezone.now() - datetime.timedelta(hours=1))
+    client.post(url, {"_form_submitted": "on"})
+    assert len(started) == 1

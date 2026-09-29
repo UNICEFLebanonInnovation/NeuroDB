@@ -31,7 +31,7 @@ def _url(name):
 
 def test_the_menu_lists_every_job(superadmin):
     html = superadmin.get(reverse("admin:core_syncrun_changelist")).content.decode()
-    assert "Run a job" in html and "Sync eTools now" in html
+    assert "Run a job" in html and "Sync eTools Datamart now" in html
     for title in [s.menu for s in BACKGROUND_JOBS] + [
         "Population figures",
         "Check freshness",
@@ -85,3 +85,41 @@ def test_database_imports_run_in_the_background(superadmin, admin_user, started,
     assert started == [
         ("import_activityinfo_data", "--database", str(database.ai_id), "--triggered-by", admin_user.username)
     ]
+
+
+@pytest.mark.parametrize(
+    ("job", "error", "hint"),
+    [
+        ("etools", "GET /api/v2/partners/: HTTP 503 Service Unavailable", "eTools was unavailable"),
+        ("ai_data", "POST /resources/query: ReadTimeout", "ActivityInfo did not answer in time"),
+        (
+            "etools_datamart",
+            "GET /api/latest/datamart/: HTTP 401 Unauthorized",
+            "refused NeuroDB's credentials",
+        ),
+        ("etools", "a KeyError nobody foresaw", ""),
+    ],
+)
+def test_known_errors_get_a_plain_hint(job, error, hint):
+    from neurodb.core.admin import error_hint
+
+    result = str(error_hint(SyncRun(job=job, error=error)))
+    assert (hint in result) if hint else result == ""
+
+
+def test_triggered_by_reads_as_scheduler_manual_or_command():
+    from neurodb.core.admin import triggered_by_label
+
+    assert str(triggered_by_label("schedule")) == "Scheduler"
+    assert str(triggered_by_label("command")) == "Command line"
+    assert str(triggered_by_label("demo-admin")) == "Manual (demo-admin)"
+    assert triggered_by_label("") == "—"
+
+
+def test_the_run_list_explains_the_two_etools_syncs_and_its_errors(superadmin):
+    SyncRun.objects.create(job="etools", status="failed", error="GET /x: HTTP 503 Service Unavailable")
+    SyncRun.objects.create(job="population", status="succeeded", triggered_by="demo-admin")
+    html = superadmin.get(reverse("admin:core_syncrun_changelist")).content.decode()
+    assert "Two eTools syncs" in html and "Import and sync runs" in html and "Data and sync" in html
+    assert "eTools was unavailable: try again later." in html and "HTTP 503" in html
+    assert "Manual (demo-admin)" in html

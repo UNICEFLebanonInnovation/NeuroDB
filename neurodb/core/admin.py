@@ -1,4 +1,5 @@
 import datetime
+import re
 
 from django import forms
 from django.conf import settings
@@ -8,7 +9,7 @@ from django.contrib.humanize.templatetags.humanize import naturaltime
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import NoReverseMatch, reverse
-from django.utils import timezone
+from django.utils import formats, timezone
 from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
@@ -20,6 +21,68 @@ from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
 from .admin_jobs import JobActionsMixin
 from .models import PopulationFigure, SavedView, ScheduledJob, SyncRun
+
+# The scheduler checks in every 30 seconds: silent for longer than this, it has stopped.
+SCHEDULER_STALLED_AFTER = datetime.timedelta(minutes=3)
+# A job starts within a minute of its time; later than this past its time, it is overdue.
+OVERDUE_AFTER = datetime.timedelta(minutes=5)
+
+
+def scheduler_heartbeat() -> tuple[datetime.datetime | None, str, bool]:
+    """The scheduler's last check-in, its host, and whether it checked in recently."""
+    from .models import SchedulerState
+
+    state = SchedulerState.objects.filter(pk=1).first()
+    seen = state.last_seen_at if state else None
+    alive = bool(seen and timezone.now() - seen < SCHEDULER_STALLED_AFTER)
+    return seen, state.host if state else "", alive
+
+
+def is_overdue(job: ScheduledJob, now=None) -> bool:
+    """An enabled job whose planned time passed without the scheduler starting it."""
+    now = now or timezone.now()
+    return bool(job.enabled and job.next_run_at and job.next_run_at < now - OVERDUE_AFTER)
+
+
+def triggered_by_label(value: str) -> str:
+    """Who started a run, in words: the scheduler, a command typed on the server, or a person."""
+    if value == "schedule":
+        return _("Scheduler")
+    if value == "command":
+        return _("Command line")
+    if not value:
+        return "—"
+    return _("Manual (%(user)s)") % {"user": value}
+
+
+# Which service a job reads, for the plain-words error hints.
+SOURCES = {
+    SyncRun.Job.ACTIVITYINFO_STRUCTURE: "ActivityInfo",
+    SyncRun.Job.ACTIVITYINFO_DATA: "ActivityInfo",
+    SyncRun.Job.ETOOLS: "eTools",
+    SyncRun.Job.ETOOLS_DATAMART: "eTools Datamart",
+    SyncRun.Job.LOCATIONS: "eTools",
+    SyncRun.Job.PARTNER_LINKS: "eTools",
+}
+UNAVAILABLE = re.compile(r"\b(?:HTTP|returned) (?:5\d\d|429)\b")
+REFUSED = re.compile(r"\b(?:HTTP|returned) (?:401|403)\b")
+UNREACHABLE = re.compile(r"Timeout|ConnectionError|SSLError|timed out", re.IGNORECASE)
+
+
+def error_hint(run: SyncRun) -> str:
+    """What a known error means for the administrator, or "" when the raw error is all we know."""
+    error = run.error or ""
+    source = SOURCES.get(run.job) or _("The data source")
+    if UNAVAILABLE.search(error):
+        return _("%(source)s was unavailable: try again later.") % {"source": source}
+    if UNREACHABLE.search(error):
+        return _("%(source)s did not answer in time: try again later.") % {"source": source}
+    if REFUSED.search(error):
+        return _(
+            "%(source)s refused NeuroDB's credentials: they may have expired. Ask the team that runs "
+            "NeuroDB's hosting to renew them."
+        ) % {"source": source}
+    return ""
 
 
 class ReloadPopulationForm(BaseDialogForm):
@@ -74,9 +137,10 @@ class DatamartSyncForm(BaseDialogForm):
 
 @admin.register(SyncRun)
 class SyncRunAdmin(JobActionsMixin, ReadOnlyModelAdmin):
-    # "Sync eTools now" (the nightly Datamart sync) stays a button of its own; every other command
+    # "Sync eTools Datamart now" (the nightly sync) stays a button of its own; every other command
     # an operator may need is in the "Run a job" menu (admin_jobs.py).
     actions_list = ["sync_etools_datamart", JobActionsMixin.JOB_MENU]
+    list_before_template = "admin/core/syncrun/etools_syncs.html"
 
     list_display = (
         "job",
@@ -86,15 +150,27 @@ class SyncRunAdmin(JobActionsMixin, ReadOnlyModelAdmin):
         "duration_display",
         "rows_written",
         "rows_failed",
-        "triggered_by",
+        "triggered_by_display",
         "error_short",
     )
     list_filter = ("job", "status", "started_at", "triggered_by")
     search_fields = ("target", "error", "triggered_by")
     date_hierarchy = "started_at"
     ordering = ("-started_at",)
-    readonly_fields = tuple(f.name for f in SyncRun._meta.fields) + ("duration", "errors_display")
+    readonly_fields = tuple(f.name for f in SyncRun._meta.fields) + (
+        "error_meaning",
+        "duration",
+        "errors_display",
+    )
     list_per_page = 50
+
+    @admin.display(description=_("Triggered by"), ordering="triggered_by")
+    def triggered_by_display(self, obj):
+        return triggered_by_label(obj.triggered_by)
+
+    @admin.display(description=_("What the error means"))
+    def error_meaning(self, obj):
+        return error_hint(obj) or "—"
 
     @admin.display(description=_("Status"), ordering="status")
     def status_badge(self, obj):
@@ -130,7 +206,13 @@ class SyncRunAdmin(JobActionsMixin, ReadOnlyModelAdmin):
 
     @admin.display(description=_("Error"))
     def error_short(self, obj):
-        return (obj.error[:90] + "…") if len(obj.error) > 90 else (obj.error or "")
+        raw = (obj.error[:90] + "…") if len(obj.error) > 90 else (obj.error or "")
+        hint = error_hint(obj)
+        if hint:
+            return format_html(
+                '<span class="nd-error-hint">{}</span><small class="text-subtle">{}</small>', hint, raw
+            )
+        return raw
 
     def has_run_sync_permission(self, request):
         from neurodb.accounts.roles import ADMIN, role_of
@@ -138,15 +220,16 @@ class SyncRunAdmin(JobActionsMixin, ReadOnlyModelAdmin):
         return request.user.is_superuser or role_of(request.user) == ADMIN
 
     @action(
-        description=_("Sync eTools now"),
+        description=_("Sync eTools Datamart now"),
         url_path="sync-etools-datamart",
         permissions=["run_sync"],
         icon="sync",
         dialog={
             "title": _("Sync from the eTools Datamart"),
             "description": _(
-                "Reads the eTools Datamart in the background. Each dataset appears in this list as it "
-                "runs; refresh the page to follow it."
+                "Runs the nightly eTools sync now, in the background: funds, partners, programme "
+                "documents, audits and monitoring, which feed the dashboards and the donor page. Each "
+                "dataset appears in this list as it runs; refresh the page to follow it."
             ),
             "form_class": DatamartSyncForm,
             "form_submit_text": _("Start"),
@@ -314,7 +397,7 @@ class ScheduledJobForm(forms.ModelForm):
 
 
 class RunScheduledJobForm(BaseDialogForm):
-    """The confirmation step of "Run now" on a scheduled job."""
+    """The confirmation step of "Run now" on a scheduled job, and of "Run due jobs now"."""
 
 
 @admin.register(ScheduledJob)
@@ -328,15 +411,28 @@ class ScheduledJobAdmin(ModelAdmin):
         "runs",
         "when",
         "enabled",
-        "next_run_at",
+        "next_run",
         "last_run",
-        "last_outcome",
     )
-    list_editable = ("enabled",)
+    list_editable = ("enabled",)  # the switch saves at once (scheduler_status.html)
     list_filter = ("enabled",)
     actions = ["enable_jobs", "disable_jobs"]
+    actions_list = ["run_due_jobs"]
     actions_row = ["run_now"]
-    readonly_fields = ("next_run_at", "last_started_at", "last_outcome", "updated_by", "updated_at")
+    readonly_fields = ("next_run_at", "last_started_at", "start_attempt", "updated_by", "updated_at")
+
+    @admin.display(description=_("Next run at"), ordering="next_run_at")
+    def next_run(self, obj):
+        if not obj.next_run_at:
+            return "—"
+        when = formats.date_format(timezone.localtime(obj.next_run_at), "DATETIME_FORMAT")
+        if is_overdue(obj):
+            return format_html("{}<br>{}", badge(_("Overdue"), "bad"), when)
+        return when
+
+    @admin.display(description=_("Scheduler's last start"))
+    def start_attempt(self, obj):
+        return obj.last_outcome or _("The scheduler has not started this job yet.")
 
     @admin.display(description=_("Runs"), ordering="command")
     def runs(self, obj):
@@ -360,14 +456,25 @@ class ScheduledJobAdmin(ModelAdmin):
 
         command = COMMANDS.get(obj.command)
         if not command or not command.sync_job:
-            return format_html("{}", naturaltime(obj.last_started_at)) if obj.last_started_at else "—"
-        run = SyncRun.objects.filter(job=command.sync_job).order_by("-started_at").first()
-        if not run:
-            return "—"
-        url = reverse("admin:core_syncrun_change", args=[run.pk])
-        return format_html(
-            '<a href="{}">{}</a> {}', url, badge(run.get_status_display()), naturaltime(run.started_at)
-        )
+            text = format_html("{}", naturaltime(obj.last_started_at)) if obj.last_started_at else None
+        else:
+            run = SyncRun.objects.filter(job=command.sync_job).order_by("-started_at").first()
+            text = None
+            if run:
+                url = reverse("admin:core_syncrun_change", args=[run.pk])
+                text = format_html(
+                    '<a href="{}">{}</a> {}',
+                    url,
+                    badge(run.get_status_display()),
+                    naturaltime(run.started_at),
+                )
+        if text is None:
+            text = badge(_("Never run"), "muted")
+        # The scheduler's own note, only when it could not start the job (it says "started" otherwise).
+        problem = obj.last_outcome if obj.last_outcome.startswith(("skipped", "not started", "error")) else ""
+        if problem:
+            return format_html('{}<br><small class="text-subtle">{}</small>', text, problem)
+        return text
 
     def save_model(self, request, obj, form, change):
         obj.updated_by = request.user.get_username()
@@ -375,16 +482,13 @@ class ScheduledJobAdmin(ModelAdmin):
         super().save_model(request, obj, form, change)
 
     def changelist_view(self, request, extra_context=None):
-        from .models import SchedulerState
-
-        state = SchedulerState.objects.filter(pk=1).first()
-        seen = state.last_seen_at if state else None
-        alive = bool(seen and timezone.now() - seen < datetime.timedelta(minutes=3))
+        seen, host, alive = scheduler_heartbeat()
         extra_context = {
             "scheduler_alive": alive,
             "scheduler_seen": seen,
-            "scheduler_host": state.host if state else "",
+            "scheduler_host": host,
             "scheduler_enabled": settings.SCHEDULER_ENABLED,
+            "support_email": settings.SUPPORT_EMAIL,
             **(extra_context or {}),
         }
         return super().changelist_view(request, extra_context)
@@ -407,6 +511,55 @@ class ScheduledJobAdmin(ModelAdmin):
         from neurodb.accounts.roles import ADMIN, role_of
 
         return request.user.is_superuser or role_of(request.user) == ADMIN
+
+    @action(
+        description=_("Run due jobs now"),
+        url_path="run-due-jobs",
+        permissions=["run_now"],
+        icon="play_circle",
+        dialog={
+            "title": _("Run the jobs that are due"),
+            "description": _(
+                "Does what the scheduler does every 30 seconds, once: starts, in the background, every "
+                "switched-on job whose time has passed. Use it while the scheduler is not checking in. "
+                "Follow the runs in Import and sync runs."
+            ),
+            "form_class": RunScheduledJobForm,
+            "form_submit_text": _("Run due jobs"),
+        },
+    )
+    def run_due_jobs(self, request, form):
+        from neurodb.integrations import background
+
+        from . import scheduler
+        from .models import SchedulerState
+
+        seen, host, alive = scheduler_heartbeat()
+        if alive and background.lock_is_held(scheduler.LOCK_ID):
+            messages.info(
+                request, _("The scheduler is running: due jobs start on their own within a minute.")
+            )
+        else:
+            started = scheduler.tick()
+            # tick() records a check-in; this was a person, not the scheduler: keep the banner truthful.
+            if seen is None:
+                SchedulerState.objects.filter(pk=1).delete()
+            else:
+                SchedulerState.objects.filter(pk=1).update(last_seen_at=seen, host=host)
+            if started:
+                messages.success(
+                    request,
+                    _("Started: %(jobs)s. Follow them in Import and sync runs.")
+                    % {"jobs": ", ".join(started)},
+                )
+            else:
+                messages.info(request, _("No job was due: nothing was started."))
+        url = reverse("admin:core_scheduledjob_changelist")
+        if request.headers.get("HX-Request"):
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = url
+            return response
+        return redirect(url)
 
     @action(
         description=_("Run now"),

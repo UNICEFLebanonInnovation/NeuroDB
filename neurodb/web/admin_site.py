@@ -20,7 +20,9 @@ from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
+from django.utils.formats import date_format
 from django.utils.text import slugify
+from django.utils.timesince import timesince
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
 from django.views.decorators.cache import never_cache
@@ -41,6 +43,8 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
             "pivoting.IndicatorNew",
             "pivoting.Activity",
             "pivoting.MasterIndicatorTag",
+            "reports.SectionPlan",
+            "datamart.IndicatorFlag",
         ],
     ),
     (
@@ -77,10 +81,16 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
     ),
     (
         _("Data and sync"),
-        _("Import history, scheduled jobs, population figures, saved views, AI questions, audit trail."),
+        _(
+            "Import history, scheduled jobs, the daily review, population figures, saved views, AI "
+            "questions, audit trail."
+        ),
         [
             "core.SyncRun",
             "core.ScheduledJob",
+            "review.DailyReview",
+            "review.ReviewFinding",
+            "review.FindingAssignment",
             "core.PopulationFigure",
             "core.SavedView",
             "assistant.AssistantQuestion",
@@ -143,6 +153,16 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
     ),
 ]
 STALE_DATABASE_DAYS = 40
+# Sign-in plumbing (allauth, sites) and the replicated Datamart tables: listed for superusers only,
+# so the administrators' own tools are not lost among them. The pages stay reachable by URL.
+DEVELOPER_ONLY = {
+    "account.EmailAddress",
+    "socialaccount.SocialApp",
+    "socialaccount.SocialToken",
+    "sites.Site",
+}
+DEVELOPER_ONLY_APPS = {"datamart"}
+DEVELOPER_ONLY_KEEP = {"datamart.IndicatorFlag"}  # edited by administrators (Reporting setup)
 # Clearer menu names for models whose verbose name is technical.
 RENAMES = {"admin.LogEntry": _("Audit trail"), "core.SyncRun": _("Import and sync runs")}
 # Material Symbols names for the sidebar (https://fonts.google.com/icons); unlisted models get a dot.
@@ -175,6 +195,11 @@ ICONS = {
     "core.PopulationFigure": "groups",
     "core.SavedView": "bookmark",
     "admin.LogEntry": "history",
+    "review.DailyReview": "fact_check",
+    "review.ReviewFinding": "checklist",
+    "review.FindingAssignment": "assignment_ind",
+    "reports.SectionPlan": "target",
+    "datamart.IndicatorFlag": "child_care",
     "assistant.AssistantQuestion": "smart_toy",
     "datamart.FundsReservation": "account_balance",
     "datamart.Grant": "redeem",
@@ -223,6 +248,8 @@ class NeuroDBAdminSite(UnfoldAdminSite):
             return super().get_app_list(request, app_label)
         apps = self._build_app_dict(request)
         by_key = {f"{app['app_label']}.{m['object_name']}": m for app in apps.values() for m in app["models"]}
+        if not request.user.is_superuser:
+            by_key = {k: m for k, m in by_key.items() if not _developer_only(k)}
         for key, label in RENAMES.items():
             if key in by_key:
                 by_key[key]["name"] = label
@@ -273,6 +300,12 @@ class NeuroDBAdminSite(UnfoldAdminSite):
     def index(self, request, extra_context=None):
         extra_context = {**(extra_context or {}), "dashboard": dashboard(request)}
         return super().index(request, extra_context)
+
+
+def _developer_only(key: str) -> bool:
+    if key in DEVELOPER_ONLY_KEEP:
+        return False
+    return key in DEVELOPER_ONLY or key.split(".", 1)[0] in DEVELOPER_ONLY_APPS
 
 
 def adopt_unfold(site) -> None:
@@ -383,16 +416,19 @@ def _dashboard(request) -> dict[str, Any]:
                 "url": _admin_url("pivoting_database") + "?freshness=never",
             }
         )
-    stale = shown.filter(last_monthly_update_date__lt=stale_before).count()
+    stale = list(shown.filter(last_monthly_update_date__lt=stale_before).values_list("name", flat=True))
     if stale:
+        names = ", ".join(str(n) for n in stale[:3])
+        if len(stale) > 3:
+            names += " " + _("and %(n)s more") % {"n": len(stale) - 3}
         warnings.append(
             {
                 "text": ngettext(
-                    "%(n)s database was not imported for %(d)s days.",
-                    "%(n)s databases were not imported for %(d)s days.",
-                    stale,
+                    "%(names)s was not imported for more than %(d)s days.",
+                    "%(names)s were not imported for more than %(d)s days.",
+                    len(stale),
                 )
-                % {"n": stale, "d": STALE_DATABASE_DAYS},
+                % {"names": names, "d": STALE_DATABASE_DAYS},
                 "url": _admin_url("pivoting_database") + "?freshness=stale",
             }
         )
@@ -421,14 +457,20 @@ def _dashboard(request) -> dict[str, Any]:
                 "url": _admin_url("users_user") + "?role=none",
             }
         )
-    failed = [j for j in jobs if j["last"] and j["last"].status == SyncRun.Status.FAILED]
-    for j in failed:
-        warnings.append(
-            {
-                "text": _("The last %(job)s failed.") % {"job": j["label"]},
-                "url": _admin_url("core_syncrun") + f"?job__exact={j['job']}",
-            }
-        )
+    for j in jobs:
+        last = j["last"]
+        if last and last.status == SyncRun.Status.FAILED:
+            text = _("The last %(job)s failed.") % {"job": j["label"]}
+        elif last and last.status == SyncRun.Status.PARTIAL:
+            text = ngettext(
+                "The last %(job)s succeeded with errors: %(n)s row failed.",
+                "The last %(job)s succeeded with errors: %(n)s rows failed.",
+                last.rows_failed,
+            ) % {"job": j["label"], "n": last.rows_failed}
+        else:
+            continue
+        warnings.append({"text": text, "url": reverse("admin:core_syncrun_change", args=[last.pk])})
+    warnings += _schedule_warnings(now)
 
     return {
         "year": year,
@@ -468,6 +510,64 @@ def _dashboard(request) -> dict[str, Any]:
         "jobs": jobs,
         "warnings": warnings,
     }
+
+
+def _schedule_warnings(now) -> list[dict[str, Any]]:
+    """The scheduler not checking in, switched-on jobs past their time, a missing daily review."""
+    from neurodb.core.admin import is_overdue, scheduler_heartbeat
+    from neurodb.core.jobs import COMMANDS
+    from neurodb.core.models import ScheduledJob, SyncRun
+    from neurodb.review.models import DailyReview
+
+    warnings = []
+    jobs_url = _admin_url("core_scheduledjob")
+    enabled = list(ScheduledJob.objects.filter(enabled=True))
+    overdue = [job for job in enabled if is_overdue(job, now)]
+    stalled = False
+    if settings.SCHEDULER_ENABLED and enabled:
+        seen, _host, alive = scheduler_heartbeat()
+        stalled = not alive
+        if stalled:
+            since = timesince(seen, now) if seen else None
+            text = (
+                _("The scheduler has not checked in for %(since)s: scheduled jobs are not starting.")
+                % {"since": since}
+                if since
+                else _("The scheduler has never checked in: scheduled jobs are not starting.")
+            )
+            if overdue:
+                text += " " + ngettext("%(n)s job is overdue.", "%(n)s jobs are overdue.", len(overdue)) % {
+                    "n": len(overdue)
+                }
+            warnings.append({"text": text, "url": jobs_url})
+    for job in overdue:
+        command = COMMANDS.get(job.command)
+        label = command.label if command else job.command
+        ran = bool(job.last_started_at) or bool(
+            command and command.sync_job and SyncRun.objects.filter(job=command.sync_job).exists()
+        )
+        values = {"job": label, "when": _local(job.next_run_at)}
+        if not ran:  # listed even under a stalled scheduler: the data it brings was never there
+            text = _("Scheduled job “%(job)s” has never run: it was due %(when)s.") % values
+        elif not stalled:  # under a stalled scheduler, counted in its warning
+            text = _("Scheduled job “%(job)s” is overdue: it was due %(when)s.") % values
+        else:
+            continue
+        warnings.append({"text": text, "url": jobs_url})
+    if any(job.command == "daily_review" for job in enabled):
+        yesterday = timezone.localdate(now) - datetime.timedelta(days=1)
+        if not DailyReview.objects.filter(date__gte=yesterday, status=DailyReview.Status.SUCCEEDED).exists():
+            last = DailyReview.objects.filter(status=DailyReview.Status.SUCCEEDED).order_by("-date").first()
+            if last:
+                text = _("No daily review since %(date)s.") % {"date": date_format(last.date, "j M Y")}
+            else:
+                text = _("No daily review has been written yet.")
+            warnings.append({"text": text, "url": _admin_url("review_dailyreview")})
+    return warnings
+
+
+def _local(when) -> str:
+    return date_format(timezone.localtime(when), "j M, H:i")
 
 
 def _admin_url(model: str) -> str:

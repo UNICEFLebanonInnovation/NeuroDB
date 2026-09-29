@@ -53,9 +53,27 @@ def _split(text: str) -> list[str]:
     return [part.strip() for part in (text or "").replace("\n", ",").split(",") if part.strip()]
 
 
+def grants_by_donor() -> dict[str, set[str]]:
+    """The grant numbers on funds reservation lines, by donor name (as eTools writes it)."""
+    from neurodb.datamart.models import FundsReservation
+
+    rows = (
+        FundsReservation.objects.exclude(donor="")
+        .exclude(grant_number="")
+        .values_list("donor", "grant_number")
+        .distinct()
+    )
+    grants: dict[str, set[str]] = {}
+    for donor, grant in rows:
+        if donor.strip() and grant.strip():
+            grants.setdefault(donor.strip(), set()).add(grant.strip())
+    return grants
+
+
 class DonorAccountForm(forms.ModelForm):
-    """The donors as a choice of the names eTools writes on funds reservation lines (plus any typed
-    in, for a donor with no funds synced yet) and the grants as a comma-separated list."""
+    """The donors as a choice of the names eTools writes on funds reservation lines, and the grants as
+    a choice of the grant numbers on those lines, grouped by donor; each with a typed list for a donor
+    or grant with no funds synced yet."""
 
     donor_choices = forms.MultipleChoiceField(
         label=_("Donors"),
@@ -69,11 +87,20 @@ class DonorAccountForm(forms.ModelForm):
         widget=UnfoldAdminTextInputWidget,
         help_text=_("Comma-separated, exactly as eTools writes them, for a donor not in the list yet."),
     )
-    grant_list = forms.CharField(
+    grant_choices = forms.MultipleChoiceField(
         label=_("Only these grants"),
         required=False,
+        widget=UnfoldAdminSelectMultipleWidget(attrs={"size": 10}),
+        help_text=_(
+            "The grants on eTools funds reservations, under their donor's name. Hold Ctrl to choose "
+            "several. None chosen: every grant of the donors above."
+        ),
+    )
+    grant_list = forms.CharField(
+        label=_("Other grant numbers"),
+        required=False,
         widget=UnfoldAdminTextInputWidget,
-        help_text=_("Comma-separated grant numbers. Empty: every grant of the donors above."),
+        help_text=_("Comma-separated, for a grant not in the list yet."),
     )
 
     class Meta:
@@ -87,7 +114,22 @@ class DonorAccountForm(forms.ModelForm):
         self.fields["donor_choices"].choices = [(n, n) for n in names]
         self.fields["donor_choices"].initial = [n for n in current if n in names]
         self.fields["other_donors"].initial = ", ".join(n for n in current if n not in names)
-        self.fields["grant_list"].initial = ", ".join(self.instance.grants or []) if self.instance.pk else ""
+        self.grants_by_donor = grants_by_donor()
+        self.fields["grant_choices"].choices = [
+            (donor, [(g, g) for g in sorted(grants)])
+            for donor, grants in sorted(self.grants_by_donor.items(), key=lambda item: item[0].casefold())
+        ]
+        known = set().union(*self.grants_by_donor.values())
+        grants = list(self.instance.grants or []) if self.instance.pk else []
+        self.fields["grant_choices"].initial = [g for g in grants if g in known]
+        self.fields["grant_list"].initial = ", ".join(g for g in grants if g not in known)
+        self.fields["show_partner_names"].help_text = _(
+            "On: the donor sees the partners' names. Off: partners appear as 'Partner 1 (civil "
+            "society)' and so on."
+        )
+        self.fields["expires_on"].help_text = _(
+            "The account stops working after this day. Empty: it does not expire."
+        )
 
     def clean(self):
         data = super().clean()
@@ -95,7 +137,19 @@ class DonorAccountForm(forms.ModelForm):
         if not donors:
             raise forms.ValidationError(_("Choose at least one donor: the account shows only their funds."))
         data["donors"] = list(dict.fromkeys(donors))
-        data["grants"] = list(dict.fromkeys(_split(data.get("grant_list", ""))))
+        chosen = {d.casefold() for d in data["donors"]}
+        foreign = [
+            g
+            for g in data.get("grant_choices") or []
+            if not any(g in grants for d, grants in self.grants_by_donor.items() if d.casefold() in chosen)
+        ]
+        if foreign:
+            self.add_error(
+                "grant_choices",
+                _("Not a grant of the donors chosen above: %(grants)s.") % {"grants": ", ".join(foreign)},
+            )
+        grants = list(data.get("grant_choices") or []) + _split(data.get("grant_list", ""))
+        data["grants"] = list(dict.fromkeys(grants))
         return data
 
     def save(self, commit=True):
@@ -219,6 +273,7 @@ class DonorAccountAdmin(ModelAdmin):
                     "name",
                     "donor_choices",
                     "other_donors",
+                    "grant_choices",
                     "grant_list",
                     "show_partner_names",
                     "contact",
