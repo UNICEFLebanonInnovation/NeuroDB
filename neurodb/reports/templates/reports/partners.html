@@ -7,7 +7,12 @@
     <input class="form-control form-control-sm" type="search" id="f-q" name="q" value="{{ q }}" placeholder="{% trans 'Name or vendor number' %}">
   </div>
   {% trans "Partner type" as l %}{% include "reports/_multiselect.html" with name="partner_type" label=l options=options.partner_types values=selected.partner_type %}
-  {% trans "CSO type" as l %}{% include "reports/_multiselect.html" with name="cso_type" label=l options=options.cso_types values=selected.cso_type %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-cso_type"><span class="has-tip" title="{% trans 'Civil society organisation type in eTools: national, international, community based or academic' %}">{% trans "CSO type" %}</span></label>
+    <select class="form-select form-select-sm" id="f-cso_type" name="cso_type" multiple data-tom placeholder="{% trans 'All' %}">
+      {% for opt in options.cso_types %}<option value="{{ opt }}" {% if opt|stringformat:"s" in selected.cso_type %}selected{% endif %}>{{ opt }}</option>{% endfor %}
+    </select>
+  </div>
   <div class="filter-bar__actions">
     <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
     <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>

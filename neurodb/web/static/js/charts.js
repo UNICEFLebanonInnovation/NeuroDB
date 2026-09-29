@@ -8,6 +8,13 @@ const STATUS_VARS = { on_track: "--nd-success", over_target: "--nd-warning", off
 const PALETTE = ["#446ab3", "#5ba4d9", "#16865a", "#f0b04a", "#c63b3b", "#7c5cc4", "#00a3a3", "#e27d27", "#5b6778", "#9bc53d"];
 const NATIONALITY = { LEB: "Lebanese", SYR: "Syrian", PRS: "Palestinian (Syria)", PRL: "Palestinian (Lebanon)", PAL: "Palestinian (PRL + PRS)", OTH: "Other", ALL: "All" };
 
+// One colour per nationality code, the same in every population chart
+const NATIONALITY_COLORS = { LEB: "#446ab3", SYR: "#5ba4d9", PRS: "#e27d27", PRL: "#16865a", PAL: "#7c5cc4", OTH: "#5b6778", ALL: "#9bc53d" };
+const nationalityColor = (code, i) => NATIONALITY_COLORS[code] || PALETTE[i % PALETTE.length];
+
+/** A share as people read it: one decimal, two below 1 % (0.44 %, not 0 % or 4 %). */
+const shareLabel = (share) => `${share < 1 ? share.toFixed(2) : share.toFixed(1)}%`;
+
 const num = (v) => (v === null || v === undefined || v === "" ? 0 : Number(v));
 
 function baseLayout(el, extra = {}) {
@@ -187,6 +194,53 @@ const BUILDERS = {
         barmode: "stack",
         showlegend: true,
         legend: { orientation: "h", y: -0.12 },
+        margin: { t: 4, r: 16, b: 48, l: 8 },
+        height: Number(el.dataset.height) || Math.max(260, rows.length * 24 + 90),
+      },
+    };
+  },
+  "nationality-pie"(el, data) {
+    // {code: value} -> donut in the nationality colours; small slices are labelled outside the ring
+    const rows = pairs(data).filter((r) => r[1] > 0);
+    const total = rows.reduce((sum, r) => sum + r[1], 0) || 1;
+    const shares = rows.map((r) => (100 * r[1]) / total);
+    return {
+      traces: [
+        {
+          type: "pie",
+          hole: 0.5,
+          sort: false,
+          labels: rows.map((r) => NATIONALITY[r[0]] || r[0]),
+          values: rows.map((r) => r[1]),
+          marker: { colors: rows.map((r, i) => nationalityColor(r[0], i)) },
+          text: shares.map(shareLabel),
+          textinfo: "text",
+          textposition: shares.map((p) => (p < 4 ? "outside" : "inside")),
+          automargin: true,
+          hovertemplate: "%{label}: %{value:,} (%{text})<extra></extra>",
+        },
+      ],
+      layout: { showlegend: true, legend: { orientation: "v", x: 1, y: 0.5 }, margin: { t: 16, r: 4, b: 16, l: 4 } },
+    };
+  },
+  "nationality-bars"(el, data) {
+    // {columns: [codes], rows: [{label, values, total}]} -> stacked horizontal bars in the nationality colours
+    const rows = (data?.rows || []).slice().sort((a, b) => num(a.total) - num(b.total));
+    const columns = data?.columns || [];
+    return {
+      traces: columns.map((col, i) => ({
+        type: "bar",
+        orientation: "h",
+        name: NATIONALITY[col] || col,
+        y: rows.map((r) => r.label),
+        x: rows.map((r) => num(r.values[i])),
+        marker: { color: nationalityColor(col, i), line: { width: 0 } },
+        hovertemplate: `%{y} · ${NATIONALITY[col] || col}: %{x:,}<extra></extra>`,
+      })),
+      layout: {
+        barmode: "stack",
+        showlegend: true,
+        legend: { orientation: "h", y: -0.12, traceorder: "normal" },
         margin: { t: 4, r: 16, b: 48, l: 8 },
         height: Number(el.dataset.height) || Math.max(260, rows.length * 24 + 90),
       },

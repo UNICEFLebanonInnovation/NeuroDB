@@ -4,22 +4,22 @@
 <div class="table-wrap"><table class="table table-hover" id="pds" data-sortable>
   <thead><tr>
     <th>{% trans "Document" %}</th><th>{% trans "Partner" %}</th><th>{% trans "Status" %}</th><th>{% trans "Period" %}</th>
-    <th>{% trans "Sections" %}</th><th>{% trans "Donors" %}</th><th class="num">{% trans "Budget" %}</th><th class="num">{% trans "Records" %}</th>
+    <th>{% trans "Sections" %}</th><th>{% trans "Donors" %}</th><th class="num"><span class="has-tip" title="{% trans 'Total budget of the programme document (UNICEF and partner contributions). The money set aside is on the Funds page.' %}">{% trans "Budget (USD)" %}</span></th><th class="num"><span class="has-tip" title="{% trans 'ActivityInfo records reported against this programme document' %}">{% trans "Records" %}</span></th>
   </tr></thead>
   <tbody>{% for pd in rows %}
     <tr data-href="{% url 'reports:programme_detail' pd.id %}">
       <td><a class="cell-title" href="{% url 'reports:programme_detail' pd.id %}">{{ pd.number|default:"—" }}</a><span class="cell-sub">{{ pd.title|truncatechars:90 }}</span></td>
-      <td>{{ pd.partner_name|default:"—" }}<span class="cell-sub">{{ pd.document_type|default:"" }}</span></td>
-      <td>{% status_pill pd.status|default:"unknown" pd.status|default:_("Unknown")|capfirst "sm" %}</td>
+      <td>{{ pd.partner_name|default:"—" }}{% if pd.document_type == "PD" %}<span class="cell-sub has-tip" title="{% trans 'Programme document' %}">PD</span>{% elif pd.document_type == "SPD" %}<span class="cell-sub has-tip" title="{% trans 'Simplified programme document, for smaller or shorter partnerships' %}">SPD</span>{% elif pd.document_type %}<span class="cell-sub">{{ pd.document_type }}</span>{% endif %}</td>
+      <td>{% status_pill pd.status|default:"unknown" pd.status|default:_("Unknown")|capfirst "sm" %}{% if pd.past_end %}<span class="cell-sub text-warning text-nowrap" title="{% trans 'The end date has passed but eTools still shows this status: the programme document may not be closed yet.' %}">{% trans "past end date" %}</span>{% endif %}</td>
       <td class="small text-nowrap" data-value="{{ pd.start|default:'' }}">{{ pd.start|default:"—" }}<span class="cell-sub">{{ pd.end|default:"" }}</span></td>
       <td><div class="chips">{% for s in pd.sections|slice:":3" %}<span class="chip">{{ s }}</span>{% endfor %}{% if pd.sections|length > 3 %}<span class="chip">+{{ pd.sections|length|add:"-3" }}</span>{% endif %}</div></td>
       <td><div class="chips">{% for d in pd.donors|slice:":2" %}<span class="chip">{{ d|truncatechars:24 }}</span>{% endfor %}{% if pd.donors|length > 2 %}<span class="chip">+{{ pd.donors|length|add:"-2" }}</span>{% endif %}</div></td>
-      <td class="num" data-value="{{ pd.total_budget|default:0 }}">{{ pd.total_budget|number }}</td>
+      <td class="num" data-value="{{ pd.total_budget|default:0 }}">{{ pd.total_budget|number }}{% if pd.budget_currency and pd.budget_currency != "USD" %} {{ pd.budget_currency }}{% endif %}</td>
       <td class="num">{{ pd.interventions|number }}</td>
     </tr>
   {% endfor %}</tbody>
 </table></div>
 {% include "components/pagination.html" with hx_target="#pd-table" %}
 {% else %}
-{% include "components/empty_state.html" with icon="filter" title=_("No programme documents match") message=_("Remove some filters, or run the eTools sync if the list is empty.") action_url=request.path %}
+{% include "components/empty_state.html" with icon="filter" title=_("No programme documents match") message=_("Remove some filters. If the list stays empty, the eTools data has not been synced yet.") action_url=request.path %}
 {% endif %}

@@ -287,7 +287,7 @@ def test_indicator_detail_modal_and_page(client_viewer, data, frozen_today):
 
 def test_programme_and_partner_pages_show_monitoring(client_viewer, data, frozen_today):
     text = client_viewer.get(reverse("reports:programme_detail", args=[data["pd"].id])).text
-    assert "Monitoring by month and location" in text and "1 on track, 1 off track" in text
+    assert "Monitoring by month and location" in text and "1 on track or ahead, 1 off track" in text
     text = client_viewer.get(reverse("reports:partner_profile", args=[data["partner"].id])).text
     assert "implementation monitoring" in text and reverse("reports:pd_monitoring") in text
 

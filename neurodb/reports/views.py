@@ -737,7 +737,14 @@ def programmes(request: HttpRequest) -> HttpResponse:
     filters = partnerships.PDFilters.from_params(request.GET)
     page_obj = _paginate(request, partnerships.programme_documents(filters, scope=scope))
     counts = partnerships.pd_intervention_counts([pd.number for pd in page_obj if pd.number])
-    rows = [services.pd_as_dict(pd, counts) for pd in page_obj]
+    rows = [
+        {
+            **services.pd_as_dict(pd, counts),
+            "budget_currency": pd.budget_currency or "",
+            "past_end": partnerships.past_end_date(pd.status, pd.end),
+        }
+        for pd in page_obj
+    ]
     context = {
         "page_title": _("Programme documents"),
         "page_subtitle": _("eTools partnerships with their donors, grants and ActivityInfo interventions"),
@@ -802,30 +809,39 @@ def programme_detail(request: HttpRequest, pk: int) -> HttpResponse:
         ],
         "detail": detail,
         "pd": pd,
+        "past_end": partnerships.past_end_date(pd.status, pd.end),
         "datamart": datamart.programme_datamart(pd),
     }
     template = "reports/partials/programme_detail.html" if request.htmx else "reports/programme_detail.html"
     return render(request, template, context)
 
 
+DONOR_PAGE_PDS = 10  # the Donors page lists the largest ones and links to Programmes for the rest
+
+
 @require_GET
 def donors(request: HttpRequest) -> HttpResponse:
     filters = partnerships.PDFilters.from_params(request.GET)
     data = partnerships.donor_mapping(filters)
+    selected = {key: request.GET.getlist(key) for key in ("donor", "grant", "partner", "section", "status")}
+    # the full lists live on Programmes and Funds: this page links there with the same filters
+    programmes_query = urlencode([(k, v) for k, values in selected.items() for v in values])
+    funds_query = urlencode([(k, v) for k in ("donor", "grant") for v in selected[k]])
     context = {
         "page_title": _("Donors"),
-        "page_subtitle": _("Funds by donor and year, planned versus actual locations"),
+        "page_subtitle": _("What each donor funds, by grant, and the programme documents they fund"),
         "breadcrumbs": [_crumb(_("Donors"))],
         "data": data,
-        "grants": datamart.grants_for_donors(filters.donors),
+        "top_programmes": sorted(data["programmes"], key=lambda p: -p["donations"])[:DONOR_PAGE_PDS],
+        "donor_grants": datamart.grants_by_donor(filters.donors, filters.grants),
+        "programmes_url": reverse("reports:programmes")
+        + (f"?{programmes_query}" if programmes_query else ""),
+        "funds_url": reverse("reports:funds") + (f"?{funds_query}" if funds_query else ""),
         "options": partnerships.pd_filter_options(),
-        "selected": {
-            key: request.GET.getlist(key) for key in ("donor", "grant", "partner", "section", "status")
-        },
+        "selected": selected,
         "chart_data": {
             "funds_by_donor": data["funds_by_donor"],
             "funds_by_year": data["funds_by_year"],
-            "interventions_by_governorate": data["interventions_by_governorate"],
         },
     }
     template = "reports/partials/donor_results.html" if request.htmx else "reports/donors.html"
@@ -872,8 +888,11 @@ def partner_profile(request: HttpRequest, pk: int) -> HttpResponse:
         + urlencode({"q": partner.vendor_number or partner.name}),
         "labels": LABELS,
         "chart_data": {
-            # eTools Trips from the Datamart when synced, else the v2 travel tables
-            "visits_by_year": extra["staff_visits_by_year"] or profile["visits_by_year"],
+            # staff trips from eTools Trips in the Datamart when synced, else the v2 travel tables,
+            # next to the field monitoring and third-party visits the page lists
+            "visits_by_year": datamart.visits_chart(
+                extra["staff_visits_by_year"] or profile["visits_by_year"], extra["monitoring_visits_by_year"]
+            ),
             "engagement_counts": profile["engagement_counts"],
             "activityinfo_by_year": activityinfo["by_year"],
             "etools_reports_by_year": extra["reports_by_year"],
@@ -1191,9 +1210,17 @@ def population(request: HttpRequest) -> HttpResponse:
         return HttpResponse(_("Invalid population view."), status=400)
     data = population_service.population_view(year, view) if year else None
     nationality_labels = dict(PopulationFigure.Nationality.choices)
+    # the nationality codes heading the tables' columns, explained once above them
+    used = {
+        code
+        for key in ("by_governorate", "by_district", "by_age_group", "by_vulnerability")
+        for code in ((data or {}).get(key) or {}).get("columns", [])
+    }
+    column_codes = [(code, label) for code, label in nationality_labels.items() if code in used]
     context = {
         "page_title": _("Population figures"),
         "nationality_labels": nationality_labels,
+        "column_codes": column_codes,
         "national": (
             ([(_("All nationalities"), data["grand_total"])] if data and data["grand_total"] else [])
             + [

@@ -40,7 +40,7 @@
   </table></div>
   {% include "components/pagination.html" with hx_target="#funds-results" %}
   {% else %}
-  {% include "components/empty_state.html" with icon="gift" title=_("No funds reservations match") message=_("Change the filters, or run the eTools Datamart sync if the list is empty.") action_url=request.path %}
+  {% include "reports/partials/_datamart_empty.html" with icon="gift" title=_("No funds reservations match") empty_title=_("No funds reservations synced yet") %}
   {% endif %}
 </section>
 {{ chart_data|json_script:"funds-chart-data" }}

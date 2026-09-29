@@ -148,7 +148,7 @@ def test_filters(client_viewer, datamart):
 
 def test_programme_detail_shows_funds_indicators_and_follow_up(client_viewer, datamart):
     text = client_viewer.get(reverse("reports:programme_detail", args=[datamart["pd"].id])).text
-    assert "0400001" in text and "Funds reservations" in text
+    assert "0400001" in text and "Donors and grants" in text
     # The FR total counts once although the FR has two lines.
     from neurodb.datamart.services import programme_datamart
 

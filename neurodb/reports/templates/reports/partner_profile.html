@@ -7,8 +7,8 @@
   {% trans "All documents" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=profile.programme_documents|length %}
   {% trans "ActivityInfo records" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=activityinfo.records|number %}
   {% trans "Risk rating" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=profile.risk_rating|default:"—" %}
-  {% trans "Cash transfers this year" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=partner.total_ct_cy|number:0 %}
-  {% if datamart.open_action_points %}{% trans "Open action points" as l6 %}{% include "components/kpi_tile.html" with label=l6 value=datamart.open_action_points|number status="off_track" href=action_points_url %}{% endif %}
+  {% trans "Cash transfers this year (USD)" as l5 %}{% if partner.total_ct_cp %}{% blocktrans asvar h5 with cp=partner.total_ct_cp|number:0 %}This calendar year. Since the country programme (CP) started: {{ cp }}{% endblocktrans %}{% else %}{% trans "This calendar year" as h5 %}{% endif %}{% include "components/kpi_tile.html" with label=l5 value=partner.total_ct_cy|number:0 hint=h5 %}
+  {% if datamart.open_action_points %}{% trans "Open action points" as l6 %}{% if datamart.overdue_action_points %}{% blocktrans asvar h6 count counter=datamart.overdue_action_points %}{{ counter }} overdue{% plural %}{{ counter }} overdue{% endblocktrans %}{% else %}{% trans "none overdue" as h6 %}{% endif %}{% include "components/kpi_tile.html" with label=l6 value=datamart.open_action_points|number status="off_track" href=action_points_url hint=h6 %}{% endif %}
 </div>
 <div class="grid grid--2 mb-3">
   <section class="panel">
@@ -23,8 +23,8 @@
     </dl>
   </section>
   <section class="panel">
-    <div class="panel__header"><h2 class="panel__title">{% trans "Programmatic visits by year" %}</h2></div>
-    <div class="chart chart--sm" data-module="charts" data-chart="bars" data-orientation="v" data-key="visits_by_year" data-empty-title="{% trans 'No visits recorded' %}"></div>
+    <div class="panel__header"><h2 class="panel__title">{% trans "Programmatic visits by year" %}</h2><span class="panel__hint">{% trans "Staff trips, field monitoring and third-party visits; drafts and cancelled visits not counted" %}</span></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="grouped" data-key="visits_by_year" data-empty-title="{% trans 'No visits recorded' %}"></div>
     <h3 class="panel__title mt-3">{% trans "Assurance activities" %}</h3>
     <div class="chips mt-2">{% for kind, n in datamart.engagement_counts.items|default:profile.engagement_counts.items %}<span class="chip">{{ kind|default:"—" }} · {{ n }}</span>{% empty %}<span class="text-muted small">{% trans "No audits, spot checks or micro-assessments." %}</span>{% endfor %}</div>
   </section>
@@ -115,7 +115,7 @@
 <section class="panel p-0 mb-3">
   {% include "components/table_toolbar.html" with title=_("Open action points") count=datamart.open_action_points table_id="partner-aps" %}
   <div class="table-wrap"><table class="table table-sm" id="partner-aps"><thead><tr><th>{% trans "Action point" %}</th><th>{% trans "Assigned to" %}</th><th>{% trans "Due" %}</th></tr></thead>
-  <tbody>{% for a in datamart.action_points %}<tr><td><span class="mono small">{{ a.reference_number }}</span>{% if a.high_priority %} <span class="chip">{% trans "High priority" %}</span>{% endif %}<span class="cell-sub">{{ a.description|truncatechars:140 }}</span></td><td>{{ a.assigned_to_name|default:"—" }}</td><td class="small text-nowrap">{{ a.due_date|date:"j M Y"|default:"—" }}</td></tr>{% endfor %}</tbody></table></div>
+  <tbody>{% for a in datamart.action_points %}<tr><td><span class="mono small">{{ a.reference_number }}</span>{% if a.high_priority %} <span class="chip">{% trans "High priority" %}</span>{% endif %}<span class="cell-sub">{{ a.description|truncatechars:140 }}</span></td><td>{{ a.assigned_to_name|default:"—" }}</td><td class="small text-nowrap" data-value="{{ a.due_date|date:'Y-m-d' }}">{{ a.due_date|date:"j M Y"|default:"—" }}{% if a.overdue %}<span class="cell-sub text-danger">{% trans "Overdue" %}</span>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
   <div class="p-2 px-3 small"><a href="{{ action_points_url }}">{% trans "All action points of this partner" %}</a></div>
 </section>
 {% endif %}

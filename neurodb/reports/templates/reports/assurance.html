@@ -28,8 +28,8 @@
 <div id="assurance-results" aria-live="polite">{% include "reports/partials/assurance_table.html" %}</div>
 <section class="panel p-0 mt-3">
   <div class="table-toolbar">
-    <div class="table-toolbar__title"><h2 class="h6 mb-0">{% blocktrans with year=hact.year|default:"—" %}HACT assurance by partner, {{ year }}{% endblocktrans %}</h2>
-      <span class="text-muted small">{% blocktrans count counter=hact.partners_behind %}{{ counter }} partner behind its minimum requirements{% plural %}{{ counter }} partners behind their minimum requirements{% endblocktrans %}</span></div>
+    <div class="table-toolbar__title"><h2 class="h6 mb-0">{% if hact.year %}{% blocktrans with year=hact.year %}HACT assurance by partner, {{ year }}{% endblocktrans %}{% else %}{% trans "HACT assurance by partner" %}{% endif %}</h2>
+      {% if hact.rows %}<span class="text-muted small">{% blocktrans count counter=hact.partners_behind %}{{ counter }} partner behind its minimum requirements{% plural %}{{ counter }} partners behind their minimum requirements{% endblocktrans %}</span>{% endif %}</div>
     <div class="table-toolbar__actions">
       {% for y in hact.years %}<a class="btn btn-sm {% if y == hact.year %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?hact_year={{ y }}">{{ y }}</a>{% endfor %}
       <button type="button" class="btn btn-outline-secondary btn-sm" data-table-csv data-table-target="#hact-partners" data-filename="hact-by-partner">{% include "components/icon.html" with name="download" %}<span>{% trans "CSV" %}</span></button>
