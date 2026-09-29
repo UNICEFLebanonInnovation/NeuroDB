@@ -14,6 +14,7 @@ urlpatterns = [
     path("ask/", include("neurodb.assistant.urls")),
     path("donor/", include("neurodb.donors.urls")),
     path("youth/", include("neurodb.youth.urls")),
+    path("education/", include("neurodb.education.urls")),
     path("", include("neurodb.reports.urls")),
 ]
 

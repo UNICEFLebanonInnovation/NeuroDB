@@ -124,6 +124,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `freshness` | `check_sync_freshness` | `15 * * * *`, hourly; a stale source is logged as an error |
 | `activityinfo-structure` | `import_activityinfo_structure --all` | switched off; switch on or use *Run now* after the yearly rollover |
 | `compiler-youth` | `sync_compiler_youth` | `0 21 * * *`, daily 21:00; switched off until Compiler is configured |
+| `compiler-education` | `sync_compiler_education` | `30 6 * * *`, daily 06:30; switched off until Compiler is configured |
 | (inside `activityinfo-data` and `etools-datamart`) | `link_partners` | at the end of both jobs |
 
 On the page: switch a job on or off (the toggle saves at once), open it to change its schedule (five
@@ -174,6 +175,7 @@ admin home page, *Quick actions*):
 | Run a job → *Link partners* | `link_partners` | background |
 | Run a job → *Daily review* | `daily_review` | background |
 | Run a job → *Compiler youth figures* | `sync_compiler_youth` | background |
+| Run a job → *Compiler education figures* | `sync_compiler_education` | background |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |
@@ -685,6 +687,56 @@ the Compiler programme document's project code for links to be suggested.
    `compiler-youth` scheduled job (every night at 21:00, off by default). It reads this year and
    `COMPILER_YOUTH_YEARS - 1` years before it (default 2 in all); a year Compiler does not have is
    skipped.
+
+## Education programmes (`/education/`, Makani and Bridging from Compiler)
+
+In Compiler the education partners register children in **Makani (MSCC)** and **Bridging (Dirasa)**,
+add them to services, and manage centers or schools, facilitators or teachers and daily attendance.
+There is no programme document, donor or indicator behind these registrations. NeuroDB reads
+**counts only** (never a name, identifier or row about a child).
+
+**How Compiler counts, without weighing on the running system.** A Celery task counts at night and
+stores the result in a snapshot table (`student_registration/figures`); the API
+(`GET /api/figures/` and `/api/figures/<mscc|bridging>/?year=`) only reads the stored snapshot, one
+indexed row, and never counts during a request. Each part of the count is one read-only SQL query
+(`GROUP BY GROUPING SETS`, so each table is read once whatever the number of groupings) with a
+statement timeout and a bounded `work_mem`, optionally on a read replica (`FIGURES_DATABASE`). When
+NeuroDB asks for a year with no snapshot, or one older than a day, Compiler answers with what it
+has (or 202 "being counted") and queues one background count; a lock stops a second request from
+queuing another. The API is limited to the "NeuroDB API" group and rate-limited.
+
+**What is counted.**
+- *Makani*: registrations not deleted in the rounds of a year (the current year also counts the
+  registrations without a round yet, as the partners' lists do); partner = the registration's
+  partner, else the center's; place = the center's governorate, district and cadaster.
+- *Bridging*: registrations not deleted in the round; place = the registration's governorate,
+  district and cadaster. A child who dropped out still counts; the learning result shows dropouts.
+- A child counts once per figure however many registrations, services or partners, so rows do not
+  add up to the total. Age groups (under 6, 6-9, 10-14, 15-17, 18 and over) come from the birth year.
+- Parts: children (by partner, governorate, district, cadaster, center or school, round, registration
+  type or level, sex, age group, nationality, disability, learning result, education status, source
+  of identification, center type; Bridging also pre- and post-tested); services received (Makani:
+  education, child protection, health and nutrition, digital, youth, follow-up, inclusion,
+  recreational, Lego, referral; Bridging: the "yes" answers of the services form); Makani education
+  programmes (BLN, ABLN, CBECE...); centers or schools with children; facilitators or teachers;
+  attendance (child-days recorded and attended, days off left out, by month).
+
+**The page** (Partnerships → Education programmes): one tab per programme; filters: year (Makani)
+or round (Bridging), partner, governorate. If Compiler could not count a part (e.g. its query hit
+the timeout), the page says which and the other parts still show.
+
+**Setting it up.**
+1. Compiler: deploy branch `neurodb-education-figures` (migration `figures.0001`), then add a
+   periodic task in Django admin → Periodic tasks: `student_registration.figures.tasks.refresh_all_figures`,
+   e.g. every night at 02:30. `python manage.py refresh_neurodb_figures` counts at once (off-peak).
+   Optional settings: `FIGURES_DATABASE` (a read-replica alias), `FIGURES_STATEMENT_TIMEOUT_MS`
+   (600000), `FIGURES_WORK_MEM` (32MB), `FIGURES_MAX_AGE_HOURS` (26), `FIGURES_API_RATE` (120/hour).
+2. NeuroDB uses the same Compiler URL and token as the youth figures.
+3. Admin → Import and sync runs → Run a job → **Compiler education figures**, then switch on the
+   `compiler-education` schedule (06:30, after Compiler's night count; off by default). It reads the
+   current year or round of each programme and the counted ones before it
+   (`COMPILER_EDUCATION_YEARS`, default 3). A year Compiler has not counted yet is listed as
+   *pending* in the run and arrives at the next run.
 
 ## Yearly rollover (January)
 1. Admin → Reporting years: create the new year and tick *current* (only one can be current).

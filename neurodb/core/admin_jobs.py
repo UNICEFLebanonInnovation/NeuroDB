@@ -118,6 +118,19 @@ BACKGROUND_JOBS = [
         "groups",
     ),
     BackgroundJob(
+        "run_sync_compiler_education",
+        ("sync_compiler_education",),
+        SyncRun.Job.COMPILER_EDUCATION,
+        _("Compiler education figures"),
+        _("Read the education figures from Compiler"),
+        _(
+            "Reads the Makani and Bridging counts Compiler prepared at night (children by partner, place, "
+            "sex, age, services, attendance; no personal data), in the background. A year Compiler has "
+            "not counted yet is counted there and arrives at the next run."
+        ),
+        "school",
+    ),
+    BackgroundJob(
         "run_daily_review",
         ("daily_review",),
         SyncRun.Job.DAILY_REVIEW,

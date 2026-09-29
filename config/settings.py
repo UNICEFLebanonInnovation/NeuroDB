@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     "neurodb.review",
     "neurodb.donors",
     "neurodb.youth",
+    "neurodb.education",
     "neurodb.web",
 ]
 SITE_ID = 1
@@ -345,6 +346,8 @@ COMPILER_API_TOKEN = env.ENVIRON.get("COMPILER_API_TOKEN", "").strip()
 if COMPILER_API_TOKEN.startswith("@Microsoft.KeyVault("):
     COMPILER_API_TOKEN = ""
 COMPILER_YOUTH_YEARS = env.int("COMPILER_YOUTH_YEARS", default=2)  # this year and the ones before
+# Makani and Bridging counts (GET /api/figures/): the current year or round and the counted ones before it
+COMPILER_EDUCATION_YEARS = env.int("COMPILER_EDUCATION_YEARS", default=3)
 INTEGRATION_TIMEOUT_SECONDS = (10, 120)
 SYNC_STALENESS_HOURS = env.int("SYNC_STALENESS_HOURS", default=30)
 # The in-app scheduler (admin → Scheduled jobs), run by the web workers. Off: nothing runs on a schedule.
