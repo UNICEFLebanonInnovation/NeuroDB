@@ -2,13 +2,20 @@
 {% load i18n ui %}
 {% block content %}
 <div class="toolbar">
-  <div class="segmented" role="group" aria-label="{% trans 'Map level' %}">
+  <div class="segmented segmented--scroll" role="group" aria-label="{% trans 'Map level' %}">
     {% for l in levels %}<a href="?{% qs_replace level=l %}" {% if l == level %}aria-current="page"{% endif %}>{% if l == "governorate" %}{% trans "Governorates" %}{% elif l == "district" %}{% trans "Districts" %}{% elif l == "cadaster" %}{% trans "Cadasters" %}{% else %}{% trans "Sites" %}{% endif %}</a>{% endfor %}
   </div>
   <span class="small text-muted ms-auto" data-map-totals aria-live="polite"></span>
 </div>
 <form method="get" class="filter-bar" role="search" aria-label="{% trans 'Map filters' %}">
   <input type="hidden" name="level" value="{{ level }}">
+  <div class="filter-bar__field">
+    <label class="form-label" for="map-indicator">{% trans "Indicator" %}</label>
+    <select class="form-select form-select-sm" id="map-indicator" name="indicator">
+      <option value="">{% trans "All indicators (records only)" %}</option>
+      {% for m in indicators %}<option value="{{ m.id }}" {% if indicator and indicator.id == m.id %}selected{% endif %}>{{ m.awp_code }} · {{ m.name }}</option>{% endfor %}
+    </select>
+  </div>
   {% for key, label in filter_fields %}
   <div class="filter-bar__field">
     <label class="form-label" for="map-{{ key }}">{{ label }}</label>
@@ -24,7 +31,7 @@
   </div>
 </form>
 <div class="grid grid--2">
-  <section class="map-shell" data-module="map" data-config="map-config" aria-label="{% trans 'Intervention map' %}">
+  <section class="map-shell" data-module="map" data-config="map-config" aria-label="{% trans 'Records per area' %}">
     <div class="map" data-map-canvas></div>
     <div class="map-legend" data-map-legend hidden>
       <strong>{% trans "Records" %}</strong>
@@ -33,10 +40,11 @@
     </div>
   </section>
   <section class="panel p-0">
-    {% include "components/table_toolbar.html" with title=_("Areas") table_id="map-table" filename="interventions-"|add:level %}
+    {% include "components/table_toolbar.html" with title=_("Areas") table_id="map-table" filename="records-"|add:level %}
+    <p class="status-ref">{% if indicator %}{% blocktrans with code=indicator.awp_code %}Records and reported value of {{ code }} only.{% endblocktrans %}{% else %}{% trans "Records of every indicator. Choose an indicator above to see its reported value per area." %}{% endif %}</p>
     <div class="table-wrap" style="max-height: min(70vh, 640px)">
       <table class="table table-hover" id="map-table" data-sortable>
-        <thead><tr><th>{% if level == "site" %}{% trans "Site" %}{% else %}{% trans "Area" %}{% endif %}</th><th class="num">{% trans "Records" %}</th><th class="num">{% trans "Value" %}</th>{% if level != "site" %}<th class="num">{% trans "Partners" %}</th>{% endif %}</tr></thead>
+        <thead><tr><th>{% if level == "site" %}{% trans "Site" %}{% else %}{% trans "Area" %}{% endif %}</th><th class="num">{% trans "Records" %}</th>{% if indicator %}<th class="num">{% trans "Reported" %}</th>{% endif %}{% if level != "site" %}<th class="num">{% trans "Partners" %}</th>{% endif %}</tr></thead>
         <tbody data-map-table><tr><td colspan="4">{% include "components/skeleton.html" %}</td></tr></tbody>
       </table>
     </div>

@@ -18,6 +18,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_not_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
+from django.db.models import Q
 from django.http import FileResponse, Http404, HttpRequest, HttpResponse, JsonResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -26,7 +27,7 @@ from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_GET, require_POST
 
-from neurodb.accounts.roles import can_edit_section
+from neurodb.accounts.roles import SECTION_EDITOR, can_edit_section, role_of
 from neurodb.core.models import PopulationFigure, SavedView
 from neurodb.core.services import population as population_service
 from neurodb.datamart import monitoring as pd_monitoring_service
@@ -64,9 +65,19 @@ def _crumb(label: str, url: str | None = None) -> dict[str, str | None]:
     return {"label": label, "url": url}
 
 
+def _section_label(database: Database) -> str:
+    """The database's section name, or "" when it only repeats the database's name."""
+    name = database.section.name if database.section else ""
+    same = name.strip().casefold() in {
+        (database.label or "").strip().casefold(),
+        database.name.strip().casefold(),
+    }
+    return "" if same else name
+
+
 def _database_crumbs(database: Database, *extra: dict[str, str | None]) -> list[dict[str, str | None]]:
     crumbs = [_crumb(_("Overview"), reverse("reports:overview"))]
-    if database.section:
+    if _section_label(database):
         crumbs.append(_crumb(database.section.name))
     crumbs.append(
         _crumb(database.label or database.name, reverse("reports:database_dashboard", args=[database.id]))
@@ -78,23 +89,25 @@ def _database_crumbs(database: Database, *extra: dict[str, str | None]) -> list[
 def _database_actions(database: Database, current: str) -> list[dict[str, Any]]:
     """The dashboard header buttons of v2: analytical, map, snapshot, raw data."""
     items = [
-        ("database_dashboard", _("Dashboard"), "grid"),
-        ("database_analytical", _("Analytical view"), "table"),
-        ("database_map", _("Intervention map"), "map"),
-        ("database_snapshot", _("Snapshot"), "printer"),
+        ("database_dashboard", _("Dashboard"), "grid", _("Status of every master indicator")),
+        ("database_analytical", _("Analytical view"), "table", _("Pivot table to cut the records your way")),
+        ("database_map", _("Intervention map"), "map", _("Records by governorate, district and site")),
+        ("database_snapshot", _("Snapshot"), "printer", _("Print-ready one-page summary")),
     ]
     actions = [
         {
             "label": label,
             "url": reverse(f"reports:{name}", args=[database.id]),
             "icon": icon,
+            "hint": hint,
             "current": name == current,
         }
-        for name, label, icon in items
+        for name, label, icon, hint in items
     ]
     actions.append(
         {
             "label": _("Raw data"),
+            "hint": _("Every record of the year as a spreadsheet"),
             "icon": "download",
             "menu": [
                 {"label": "CSV", "url": reverse("reports:database_raw_data", args=[database.id, "csv"])},
@@ -437,22 +450,50 @@ def database_dashboard(request: HttpRequest, pk: int) -> HttpResponse:
     reported = sum(1 for i in dash.indicators if i.reports)
     context = {
         "page_title": database.label or database.name,
-        "page_subtitle": database.section.name if database.section else "",
+        "page_subtitle": _database_subtitle(database),
         "breadcrumbs": _database_crumbs(database),
         "actions": _database_actions(database, "database_dashboard"),
         "database": database,
         "dashboard": dash,
         "indicators": indicators,
+        "methods": facts.METHODS,
         "reported": reported,
         "reporting_progress": round(reported * 100 / len(dash.indicators)) if dash.indicators else 0,
         "labels": LABELS,
         "status": status,
         "q": q,
         "status_ref": _status_reference(dash.year, datetime.date.today()),
-        "chart_data": {"status_counts": dash.status_counts, "labels": LABELS, "monthly": dash.monthly},
+        "editor_reports": _editor_hpm_reports(request, database),
+        "chart_data": {
+            "status_counts": dash.status_counts,
+            "labels": LABELS,
+            "monthly": facts.monthly_by_indicator(facts.fact_filter(database), dash.indicators),
+        },
     }
     template = "reports/partials/indicator_table.html" if request.htmx else "reports/database_dashboard.html"
     return render(request, template, context)
+
+
+def _database_subtitle(database: Database) -> str:
+    """The section, unless it repeats the database's name; then what the page is."""
+    if section := _section_label(database):
+        return section
+    year = database.reporting_year.name if database.reporting_year else ""
+    return _("ActivityInfo database · %(year)s") % {"year": year} if year else _("ActivityInfo database")
+
+
+def _editor_hpm_reports(request: HttpRequest, database: Database) -> list[NeuroReport] | None:
+    """For a section editor on a database of their own section: the HPM reports where they can
+    comment on its indicators (the one thing the role adds in the pages). None for other users."""
+    if role_of(request.user) != SECTION_EDITOR or not can_edit_section(request.user, database.section_id):
+        return None
+    return list(
+        NeuroReport.objects.filter(
+            is_active=True, is_hpm=True, neuroreportmasterindicator__master__database=database
+        )
+        .distinct()
+        .order_by("name")
+    )
 
 
 @require_GET
@@ -503,7 +544,7 @@ def database_snapshot(request: HttpRequest, pk: int) -> HttpResponse:
         "chart_data": {
             "status_counts": snap["dashboard"].status_counts,
             "labels": LABELS,
-            "monthly": snap["dashboard"].monthly,
+            "monthly": facts.monthly_by_indicator(facts.fact_filter(database), snap["dashboard"].indicators),
             "by_governorate": snap["by_governorate"],
         },
     }
@@ -517,9 +558,13 @@ def database_map(request: HttpRequest, pk: int) -> HttpResponse:
     if level not in services.MAP_LEVELS:
         return HttpResponse(_("Invalid map level."), status=400)
     filters = services.map_filters(request.GET)
+    # The value column adds up one indicator at a time: the additive (SUM) master indicators.
+    indicators = MasterIndicator.objects.filter(database=database, is_active=True).filter(
+        Q(aggregation_method="SUM") | Q(aggregation_method="") | Q(aggregation_method__isnull=True)
+    )
     context = {
         "page_title": _("%(name)s · Intervention map") % {"name": database.label or database.name},
-        "page_subtitle": _("Interventions by admin area and site"),
+        "page_subtitle": _("Records by admin area and site"),
         "breadcrumbs": _database_crumbs(database, _crumb(_("Intervention map"))),
         "actions": _database_actions(database, "database_map"),
         "database": database,
@@ -534,6 +579,8 @@ def database_map(request: HttpRequest, pk: int) -> HttpResponse:
             ("district", _("District")),
             ("month", _("Month")),
         ],
+        "indicators": indicators.order_by("sequence", "awp_code"),
+        "indicator": next((m for m in indicators if str(m.id) == filters.get("indicator")), None),
         "map_config": {"api": reverse("api:map", args=[database.id]), "level": level, "filters": filters},
     }
     return render(request, "reports/database_map.html", context)
@@ -555,6 +602,7 @@ def indicator_detail(request: HttpRequest, pk: int, master_id: int) -> HttpRespo
     database = _database(pk)
     master = get_object_or_404(MasterIndicator, pk=master_id, database=database)
     rows = facts.master_detail(database, master.id)
+    summary = facts.indicator_summary(database, master.id)
     context = {
         "page_title": master.name,
         "page_subtitle": _("Sub-indicators of %(code)s") % {"code": master.awp_code},
@@ -562,6 +610,9 @@ def indicator_detail(request: HttpRequest, pk: int, master_id: int) -> HttpRespo
         "database": database,
         "master": master,
         "rows": rows,
+        "summary": summary,
+        "methods": facts.METHODS,
+        "status_ref": _status_reference(summary["year"], datetime.date.today()) if summary else None,
         "analytical_url": reverse("reports:database_analytical", args=[database.id]),
     }
     template = "reports/partials/indicator_detail.html" if request.htmx else "reports/indicator_detail.html"
@@ -1423,7 +1474,9 @@ def search(request: HttpRequest) -> HttpResponse:
     q = request.GET.get("q", "").strip()
     # The year of the page the search starts from (the search box sends it), else the current year.
     year = services.resolve_year(request.GET.get("year"))
-    groups = services.search(q, year) if q else []
+    # ?group= lists one group in full (the "See all" link of a group cut at its first items).
+    group = request.GET.get("group") or None
+    groups = services.search(q, year, group=group) if q else []
     context = {
         "page_title": _("Search"),
         "page_subtitle": _("Indicators, databases and reports of %(year)s") % {"year": year.name}
@@ -1431,6 +1484,8 @@ def search(request: HttpRequest) -> HttpResponse:
         else "",
         "breadcrumbs": [_crumb(_("Search"))],
         "q": q,
+        "group": group,
+        "year_name": year.name if year else "",
         "groups": groups,
         "total": sum(len(g["items"]) for g in groups),
         "ai_enabled": settings.AI_ASSISTANT_ENABLED,

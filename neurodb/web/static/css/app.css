@@ -721,3 +721,27 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 }
 @media print { .filters-toggle, .page-purpose { display: none !important; } }
 .brief-decide .nav-badge { white-space: nowrap; }
+
+/* ------------------------------------------------------------------ ux review: activityinfo */
+/* Segmented controls of the database pages scroll sideways on a phone instead of widening the page. */
+.segmented--scroll { position: relative; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.segmented--scroll::-webkit-scrollbar { display: none; }
+/* The header buttons (Dashboard, Analytical view, Map, Snapshot) form one scrollable bar on a phone:
+   the phone rule above lost to the later ".page-actions" rule. */
+@media (max-width: 575.98px) {
+  .page-actions { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .page-actions::-webkit-scrollbar { display: none; }
+}
+.status-legend { justify-content: center; }
+.db-card__note { margin: 0; font-size: 0.75rem; color: var(--nd-warning); }
+.editor-note { display: flex; gap: 0.5rem; align-items: flex-start; margin: 0 0 1rem; padding: 0.6rem 0.9rem; font-size: 0.85rem; background: var(--nd-primary-soft); border-radius: var(--nd-radius-sm); }
+.editor-note .icon { flex: none; margin-top: 0.15rem; }
+.table > tbody > tr > td.hpm-comments { min-width: 260px; vertical-align: top; border-left: 1px solid var(--nd-border); }
+/* The unused pivot fields fold away (the "More fields" button) so the table gets the width. */
+[data-module="pivot"]:not(.pivot--fields-open) .pvtUnused { display: none; }
+.search-group__count { margin-left: 0.35rem; font-weight: 600; text-transform: none; letter-spacing: 0; }
+.search-item mark { padding: 0; color: inherit; background: color-mix(in srgb, var(--nd-warning) 28%, transparent); border-radius: 2px; }
+.search-item--more { font-size: 0.8rem; font-weight: 600; color: var(--nd-primary); }
+.pivot-shell .pvtUi { width: 100%; }
+.pivot-shell .pvtUnused li { display: inline-block; }
+#indicator-q { min-width: 15rem; }

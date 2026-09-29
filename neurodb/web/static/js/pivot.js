@@ -15,6 +15,50 @@ const LAYOUT_KEYS = ["rows", "cols", "vals", "aggregatorName", "rendererName", "
 // default so master rows add up to what is counted (the filter on value_role can bring them back).
 const DEFAULT_EXCLUSIONS = { value_role: ["Not counted in master indicator"] };
 
+// Readable names for the fields of the API rows. The pivot shows these; layouts (presets, saved
+// views) keep the field names, translated when a layout is drawn and when it is saved.
+const LABELS = {
+  master_indicator: "Master indicator",
+  target: "Target",
+  sub_indicator: "Sub-indicator",
+  value_role: "Counted in master?",
+  ai_indicator: "ActivityInfo indicator",
+  gender: "Gender",
+  nationality: "Nationality",
+  disability: "Disability",
+  programme: "Programme",
+  age: "Age group",
+  indicator_name: "ActivityInfo indicator code",
+  awp_code: "AWP code",
+  emergency: "Emergency",
+  governorate: "Governorate",
+  district: "District",
+  cadaster: "Cadaster",
+  partner: "Partner",
+  pd: "Programme document",
+  plan: "Plan",
+  project: "Project",
+  month: "Month",
+  indicator_value: "Value",
+  database: "Database",
+};
+const FIELDS = Object.fromEntries(Object.entries(LABELS).map(([field, label]) => [label, field]));
+const toLabel = (field) => LABELS[field] || field;
+const toField = (label) => FIELDS[label] || label;
+const mapNames = (list, fn) => (Array.isArray(list) ? list.map(fn) : list);
+const mapKeys = (obj, fn) => (obj ? Object.fromEntries(Object.entries(obj).map(([k, v]) => [fn(k), v])) : obj);
+function translateLayout(layout, fn) {
+  const out = { ...layout };
+  for (const key of ["rows", "cols", "vals"]) if (key in out) out[key] = mapNames(out[key], fn);
+  for (const key of ["exclusions", "inclusions"]) if (key in out) out[key] = mapKeys(out[key], fn);
+  return out;
+}
+
+// Fields that tell indicators apart: adding up across them mixes children, schools and percentages.
+const INDICATOR_FIELDS = ["master_indicator", "sub_indicator", "ai_indicator", "indicator_name", "awp_code"].map(toLabel);
+// The aggregators offered: a saved view that used another one keeps it (added when it is drawn).
+const AGGREGATORS = { Sum: "Integer Sum", Count: "Count", Average: "Average" };
+
 export async function init(root) {
   const config = readJSON(root.dataset.config || "pivot-config");
   if (!config) throw new Error("Missing pivot configuration.");
@@ -33,9 +77,35 @@ export async function init(root) {
   ]);
   const $ = window.jQuery;
   const utils = $.pivotUtilities;
-  const renderers = $.extend({}, utils.renderers, utils.plotly_renderers || {}, utils.export_renderers || {});
   // One pivot row per indicator link, month, place, partner and breakdown, not per ActivityInfo record.
-  if (count) count.textContent = `${fmt(rows.length)} pivot rows`;
+  if (count) {
+    count.textContent = `${fmt(rows.length)} pivot rows`;
+    count.title = "A pivot row groups the records of one indicator, month, place, partner and breakdown. One record can count in several indicators, so this differs from the number of records.";
+  }
+  const labelled = rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [toLabel(k), v])));
+  const masterLabel = toLabel("master_indicator");
+
+  // The table renderers leave out the totals that would add up different indicators: the Totals row
+  // when rows are indicators, the Totals column when columns are, both when every cell mixes them.
+  const note = root.querySelector("[data-pivot-mix]");
+  const withTotals = (render) => (pivotData, opts) => {
+    // Counts of pivot rows add up across indicators; sums and averages of values do not.
+    const counting = /^Count/.test(pivotData.aggregatorName || "");
+    const mixed = !counting && new Set(labelled.filter((r) => pivotData.filter(r)).map((r) => r[masterLabel])).size > 1;
+    const inRows = pivotData.rowAttrs.some((a) => INDICATOR_FIELDS.includes(a));
+    const inCols = pivotData.colAttrs.some((a) => INDICATOR_FIELDS.includes(a));
+    const everyCell = mixed && !inRows && !inCols;
+    if (note) note.hidden = !everyCell;
+    const table = { rowTotals: !(mixed && (inCols || everyCell)), colTotals: !(mixed && (inRows || everyCell)) };
+    return render(pivotData, $.extend(true, {}, opts, { table }));
+  };
+  const tables = Object.fromEntries(Object.entries(utils.renderers).map(([name, fn]) => [name, withTotals(fn)]));
+  const renderers = $.extend({}, tables, utils.plotly_renderers || {}, utils.export_renderers || {});
+  const aggregatorsFor = (name) => {
+    const chosen = Object.fromEntries(Object.entries(AGGREGATORS).map(([label, key]) => [label, utils.aggregators[key]]));
+    if (name && !(name in chosen) && utils.aggregators[name]) chosen[name] = utils.aggregators[name];
+    return chosen;
+  };
 
   if (!rows.length) {
     out.innerHTML = '<div class="state state--empty"><p class="state__title">No ActivityInfo records for this year yet</p><p class="state__message">Run the data import from the administration pages, then reload.</p></div>';
@@ -44,30 +114,33 @@ export async function init(root) {
 
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const HIDDEN = ["master_id", "sequence", "database_ai_id", "month_num"];
-  const numericOnly = Object.keys(rows[0]).filter((k) => k !== "indicator_value");
+  const numericOnly = Object.keys(labelled[0]).filter((k) => k !== toLabel("indicator_value"));
 
   const draw = (layout = {}) => {
+    // Saved views store field names and v2's "Integer Sum": show them with the readable names.
+    const shown = translateLayout({ rows: PRESETS.month.rows, cols: PRESETS.month.cols, exclusions: DEFAULT_EXCLUSIONS, ...layout }, toLabel);
+    const aggregatorName = Object.entries(AGGREGATORS).find(([, key]) => key === layout.aggregatorName)?.[0] || layout.aggregatorName || "Sum";
     const options = {
       renderers,
-      sorters: { month: utils.sortAs(MONTHS) },
+      aggregators: aggregatorsFor(aggregatorName),
+      sorters: { [toLabel("month")]: utils.sortAs(MONTHS) },
       hiddenAttributes: HIDDEN,
       hiddenFromAggregators: numericOnly,
-      rows: PRESETS.month.rows,
-      cols: PRESETS.month.cols,
-      vals: ["indicator_value"],
-      aggregatorName: "Integer Sum",
+      vals: [toLabel("indicator_value")],
       rendererName: "Table",
-      exclusions: DEFAULT_EXCLUSIONS,
-      unusedAttrsVertical: true,
+      unusedAttrsVertical: false,
       menuLimit: 1000,
-      hiddenFromDragDrop: ["indicator_value"],
+      hiddenFromDragDrop: [toLabel("indicator_value")],
       rendererOptions: { plotly: { paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)" }, plotlyConfig: { displaylogo: false, responsive: true } },
       onRefresh: (cfg) => {
-        current = Object.fromEntries(LAYOUT_KEYS.map((k) => [k, cfg[k]]));
+        if (note && !(cfg.rendererName in tables)) note.hidden = true;
+        const layoutNow = Object.fromEntries(LAYOUT_KEYS.map((k) => [k, cfg[k]]));
+        current = translateLayout({ ...layoutNow, aggregatorName: AGGREGATORS[cfg.aggregatorName] || cfg.aggregatorName }, toField);
       },
-      ...layout,
+      ...shown,
+      aggregatorName,
     };
-    $(out).pivotUI(rows, options, true);
+    $(out).pivotUI(labelled, options, true);
   };
 
   const renderViews = () => {
@@ -136,6 +209,14 @@ export async function init(root) {
       return;
     }
     download(`${config.exportName || "pivot"}.csv`, toCSV(tableRows(table)));
+  });
+
+  // The unused fields sit in a band above the table; it folds away so the table keeps the width.
+  const fieldsBtn = root.querySelector("[data-pivot-fields]");
+  fieldsBtn?.addEventListener("click", () => {
+    const open = fieldsBtn.getAttribute("aria-expanded") !== "true";
+    fieldsBtn.setAttribute("aria-expanded", String(open));
+    root.classList.toggle("pivot--fields-open", open);
   });
 
   renderViews();

@@ -5,9 +5,11 @@
   {% include "reports/partials/_search_ask_item.html" %}
 {% endif %}
 {% for g in groups %}
-  <div class="search-group__title">{{ g.label }}</div>
-  {% for item in g.items %}<a class="search-item" role="option" aria-selected="false" href="{{ item.url }}"><span>{{ item.label }}</span>{% if item.hint %}<span class="search-item__hint">{{ item.hint }}</span>{% endif %}</a>{% endfor %}
+  <div class="search-group__title">{{ g.label }} <span class="search-group__count">{% if g.total > g.items|length %}{% blocktrans with shown=g.items|length total=g.total %}{{ shown }} of {{ total }}{% endblocktrans %}{% else %}{{ g.total }}{% endif %}</span></div>
+  {% for item in g.items %}<a class="search-item" role="option" aria-selected="false" href="{{ item.url }}"><span>{{ item.before }}{% if item.match %}<mark>{{ item.match }}</mark>{{ item.after }}{% endif %}</span>{% if item.hint %}<span class="search-item__hint">{{ item.hint }}</span>{% endif %}</a>{% endfor %}
+  {% if g.total > g.items|length %}<a class="search-item search-item--more" role="option" aria-selected="false" href="{% url 'reports:search' %}?{% if year_name %}year={{ year_name|urlencode }}&amp;{% endif %}q={{ q|urlencode }}&amp;group={{ g.key }}">{% blocktrans with total=g.total %}See all {{ total }}{% endblocktrans %} →</a>{% endif %}
 {% endfor %}
+{% if group %}<a class="search-item search-item--more" role="option" aria-selected="false" href="{% url 'reports:search' %}?{% if year_name %}year={{ year_name|urlencode }}&amp;{% endif %}q={{ q|urlencode }}">{% trans "Back to every kind of result" %}</a>{% endif %}
 {% if ai_enabled and q|length >= 2 and groups and not ask_first %}
   {% include "reports/partials/_search_ask_item.html" %}
 {% endif %}

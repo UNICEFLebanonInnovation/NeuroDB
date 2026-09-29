@@ -193,7 +193,7 @@ def test_health_and_search(client_viewer, hierarchy):
     assert "pd_indicators" in health and "120 / 118" in health and "4 removed" in health
     assert "Programme document 7" in health and "Location 3" in health
     html = _get(client_viewer, reverse("reports:search") + "?q=children").content.decode()
-    assert "Children reached (total)" in html
+    assert "<mark>Children</mark> reached (total)" in html
     partial = _get(
         client_viewer, reverse("reports:search") + "?q=zz-nothing", HTTP_HX_REQUEST="true"
     ).content.decode()

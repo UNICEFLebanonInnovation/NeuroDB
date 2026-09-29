@@ -2,12 +2,14 @@
 <div class="modal-header">
   <div>
     <h2 class="modal-title h5" id="modal-title">{{ master.name }}</h2>
-    <div class="small text-muted mono">{{ master.awp_code }} · {{ master.aggregation_method|default:"SUM" }}{% if master.awp_target %} · {% trans "target" %} {{ master.awp_target|number }}{% endif %}</div>
+    <div class="small text-muted mono">{{ master.awp_code }}</div>
   </div>
   <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
 </div>
-<div class="modal-body p-0">
-  {% include "reports/partials/_sub_table.html" %}
+<div class="modal-body">
+  {% if summary %}{% include "reports/partials/_indicator_summary.html" %}{% endif %}
+  <h3 class="h6">{% trans "Sub-indicators" %}</h3>
+  <div class="panel p-0">{% include "reports/partials/_sub_table.html" %}</div>
 </div>
 <div class="modal-footer">
   <a class="btn btn-outline-secondary btn-sm" href="{% url 'reports:indicator_detail' database.id master.id %}">{% include "components/icon.html" with name="external" %}<span>{% trans "Open as page" %}</span></a>

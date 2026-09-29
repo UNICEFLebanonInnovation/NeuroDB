@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 from neurodb.facts import queries
 from neurodb.facts.queries import FactFilter
@@ -26,6 +27,27 @@ from neurodb.indicators.services.tracking import (
 )
 
 QUARTERS = {"Q1": 3, "Q2": 6, "Q3": 9, "Q4": 12}
+
+# How a master indicator combines what is reported: a short name for the tables and a sentence for
+# their tooltip (the codes are v2's ``aggregation_method``; blank means SUM).
+METHODS = {
+    "SUM": {"label": _("Sum"), "help": _("Adds up everything reported during the year.")},
+    "AVERAGE": {"label": _("Average"), "help": _("The average of the monthly totals.")},
+    "MAXIMUM": {"label": _("Maximum"), "help": _("The highest monthly total.")},
+    "MINIMUM": {"label": _("Minimum"), "help": _("The lowest monthly total.")},
+    "COUNT": {"label": _("Count"), "help": _("The number of records reported.")},
+    "SUM_OVER_SUM": {
+        "label": _("Ratio"),
+        "help": _("A percentage: the numerator sub-indicator divided by the denominator."),
+    },
+}
+
+# What a sub-indicator link (``effect``) does to its master indicator's value.
+EFFECTS = {
+    "TOTAL": _("In the total"),
+    "NUMERATOR": _("Numerator"),
+    "DENOMINATOR": _("Denominator"),
+}
 
 
 def fact_filter(database: Database, **kwargs: Any) -> FactFilter:
@@ -158,7 +180,77 @@ def master_detail(database: Database, master_id: int) -> list[dict[str, Any]]:
     rows = queries.sub_indicator_values(master_id, fact_filter(database))
     for r in rows:
         r["value"] = float(r["value"]) if r["value"] is not None else None
+        r["effect_label"] = EFFECTS.get(r["effect"] or "", "")
     return rows
+
+
+def _month_point(method: str, parts: dict[str, dict[str, dict[str, float]]], month: str) -> dict[str, Any]:
+    """One indicator's value and records in one month, by its method: a ratio divides the month's
+    numerator by its denominator, a count is the month's records, the others the month's total."""
+    if method == "SUM_OVER_SUM":
+        num = parts.get("NUMERATOR", {}).get(month)
+        den = parts.get("DENOMINATOR", {}).get(month)
+        value = num["value"] * 100 / den["value"] if num and den and den["value"] > 0 else None
+        return {"value": value, "reports": den["reports"] if den else 0}
+    total = parts.get("TOTAL", {}).get(month)
+    if not total:
+        return {"value": None, "reports": 0}
+    return {
+        "value": float(total["reports"]) if method == "COUNT" else total["value"],
+        "reports": total["reports"],
+    }
+
+
+def monthly_by_indicator(f: FactFilter, indicators: list[IndicatorRow]) -> dict[str, Any]:
+    """The monthly chart of a dashboard, one master indicator at a time (adding indicators with
+    different units gave a meaningless total): ``{months, indicators: [{id, label, values,
+    reports}], default}``. The default is the first SUM indicator with data."""
+    parts = queries.master_monthly_parts(f)
+    months = sorted({m for p in parts.values() for effect in p.values() for m in effect})
+    series = []
+    for i in indicators:
+        points = [_month_point(i.aggregation_method, parts.get(i.id, {}), m) for m in months]
+        series.append(
+            {
+                "id": i.id,
+                "label": f"{i.awp_code} · {i.label}" if i.awp_code else i.label,
+                "unit": i.unit or ("%" if i.aggregation_method == "SUM_OVER_SUM" else ""),
+                "values": [p["value"] for p in points],
+                "reports": [p["reports"] for p in points],
+            }
+        )
+    with_data = [s for s, i in zip(series, indicators, strict=True) if any(s["reports"]) or i.reports]
+    first_sum = next(
+        (
+            s["id"]
+            for s, i in zip(series, indicators, strict=True)
+            if i.aggregation_method == "SUM" and i.reports
+        ),
+        with_data[0]["id"] if with_data else None,
+    )
+    return {
+        "months": [queries.MONTH_LABELS.get(m, m) for m in months],
+        "indicators": series,
+        "default": first_sum,
+    }
+
+
+def indicator_summary(database: Database, master_id: int) -> dict[str, Any] | None:
+    """Achieved value, % of target, status and months of one master indicator (indicator detail)."""
+    f = fact_filter(database)
+    year = year_of(database.reporting_year) if database.reporting_year else timezone.now().year
+    rows = [r for r in queries.master_indicator_values(f) if r["id"] == master_id]
+    if not rows:
+        return None
+    row = _rows_to_indicators(rows, year)[0]
+    parts = queries.master_monthly_parts(f).get(master_id, {})
+    months = sorted({m for effect in parts.values() for m in effect})
+    return {
+        "row": row,
+        "unit": row.unit or ("%" if row.aggregation_method == "SUM_OVER_SUM" else ""),
+        "year": year,
+        "months": [{"month": m, **_month_point(row.aggregation_method, parts, m)} for m in months],
+    }
 
 
 def analytical_rows(database: Database, emergency: str | None = None) -> list[dict[str, Any]]:
@@ -211,10 +303,20 @@ def snapshot(database: Database) -> dict[str, Any]:
     links = linking.links_for([p["partner"] for p in top_partners])
     for p in top_partners:
         p["etools_partner"] = links.get(p["partner"])
+    by_district = queries.interventions_by_area(f, "district")[:15]
+    # Two districts may share a name (in two governorates): name the governorate of those.
+    names = Counter(a["name"] for a in by_district)
+    places = Counter((a["name"], a["governorate"]) for a in by_district)
+    for a in by_district:
+        # The governorate tells them apart; the district code when the governorate does not.
+        extra = [a["governorate"]] if a["governorate"] else []
+        if places[(a["name"], a["governorate"])] > 1:
+            extra.append(a["code"])
+        a["where"] = " · ".join(extra) if names[a["name"]] > 1 else ""
     return {
         "dashboard": dash,
         "by_governorate": queries.interventions_by_area(f, "governorate"),
-        "by_district": queries.interventions_by_area(f, "district")[:15],
+        "by_district": by_district,
         "top_partners": top_partners,
     }
 
@@ -311,19 +413,28 @@ def neuroreport(
         for i in rows_now:
             p = prev.get(i.id, {}).get("value")
             p = float(p) if p is not None else 0.0
-            items.append({**asdict(i), "previous": p, "delta": (i.value or 0.0) - p})
+            # Counts of people or things show whole numbers; a ratio keeps one decimal.
+            digits = 1 if i.aggregation_method == "SUM_OVER_SUM" else 0
+            items.append({**asdict(i), "previous": p, "delta": (i.value or 0.0) - p, "digits": digits})
         if items:
             sections.append({"database": db, "items": items})
-    comments = (
+    comments = list(
         NeuroReportComment.objects.filter(report=report, is_active=True, related_month__lte=f"{month:02d}")
-        .select_related("master")
+        .select_related("master__master")
         .order_by("related_month", "entry_date")
     )
+    # The HPM table shows the comments of a section in one cell beside all its rows, each with the
+    # code of its indicator, so a comment is not read as a note on the section's first indicator.
+    for s in sections:
+        ids = {i["id"] for i in s["items"]}
+        s["comments"] = [c for c in comments if c.master and c.master.master_id in ids]
     return {
         "report": report,
         "year": year,
         "month": month,
         "month_label": datetime.date(year, month, 1).strftime("%B"),
+        # What "previous" means: the end of the month (or quarter) before; nothing before January.
+        "previous_label": datetime.date(year, prev_month, 1).strftime("%B") if prev_month >= 1 else "",
         "quarter": quarter,
         "cutoff": cutoff,
         # The statuses are measured at the end of the period (or today, if earlier), not today.
@@ -335,7 +446,7 @@ def neuroreport(
         "last_month": last_month,
         "quarters": [q for q, m in QUARTERS.items() if m <= last_month],
         "sections": sections,
-        "comments": list(comments),
+        "comments": comments,
         "totals": {"indicators": sum(len(s["items"]) for s in sections), "databases": len(sections)},
     }
 
@@ -366,6 +477,7 @@ def overview(year: ReportingYear | None) -> dict[str, Any]:
         counts = Counter(i.tracking for i in inds)
         status_total.update(counts)
         s = summaries.get(db.id, {})
+        stale = bool(db.last_monthly_update_date and (timezone.now() - db.last_monthly_update_date).days > 40)
         cards.append(
             {
                 "database": db,
@@ -374,9 +486,16 @@ def overview(year: ReportingYear | None) -> dict[str, Any]:
                 "reports": int(s.get("reports") or 0),
                 "partners": int(s.get("partners") or 0),
                 "last_import": db.last_monthly_update_date,
-                "stale": bool(
-                    db.last_monthly_update_date and (timezone.now() - db.last_monthly_update_date).days > 40
-                ),
+                "stale": stale,
+                # The data import runs database by database: the last attempt on this one says why
+                # it is old while the import itself succeeded recently (for the others).
+                "last_attempt": SyncRun.objects.filter(
+                    job=SyncRun.Job.ACTIVITYINFO_DATA, target=str(db.ai_id)
+                )
+                .order_by("-started_at")
+                .first()
+                if stale
+                else None,
             }
         )
     return {

@@ -15,21 +15,25 @@
     <thead><tr>
       <th>{% trans "Indicator" %}</th><th class="num">{% trans "Target" %}</th>
       <th class="num">{% blocktrans with m=data.quarter|default:data.month_label %}Total to {{ m }}{% endblocktrans %}</th>
-      <th class="num">{% trans "Previous" %}</th><th class="num">{% trans "Change" %}</th><th class="num">%</th><th>{% trans "Comments" %}</th>
+      <th class="num">{% if data.previous_label %}{% blocktrans with m=data.previous_label %}End of {{ m }}{% endblocktrans %}{% else %}{% trans "Previous" %}{% endif %}</th><th class="num">{% trans "Change" %}</th><th class="num">%</th><th>{% trans "Comments" %}</th>
     </tr></thead>
     <tbody>{% for i in s.items %}
       <tr>
         <td><span class="cell-title">{{ i.label }}</span><span class="cell-sub mono">{{ i.awp_code }}</span></td>
         <td class="num">{{ i.target|number }}</td>
-        <td class="num fw-semibold">{{ i.value|number }}</td>
-        <td class="num text-muted">{{ i.previous|number }}</td>
-        <td class="num {% if i.delta > 0 %}delta--up{% elif i.delta < 0 %}delta--down{% endif %}">{% if i.delta > 0 %}+{% endif %}{{ i.delta|number }}</td>
+        <td class="num fw-semibold">{{ i.value|number:i.digits }}</td>
+        <td class="num text-muted">{{ i.previous|number:i.digits }}</td>
+        <td class="num {% if i.delta > 0 %}delta--up{% elif i.delta < 0 %}delta--down{% endif %}">{% if i.delta > 0 %}+{% endif %}{{ i.delta|number:i.digits }}</td>
         <td class="num">{{ i.achieved|percent:0 }}</td>
-        <td style="min-width: 260px">
-          {% for c in data.comments %}{% if c.master.master_id == i.id %}
-          <div class="comment"><div class="comment__meta">{{ c.related_month|month_name }} · {{ c.entry_date|date:"j M Y" }}</div>{{ c.comment|linebreaksbr }}</div>
-          {% endif %}{% endfor %}
+        {% if forloop.first %}
+        {# One cell beside every row of the section: each comment names its indicator. #}
+        <td class="hpm-comments" rowspan="{{ s.items|length }}">
+          {% for c in s.comments %}
+          <div class="comment"><div class="comment__meta"><span class="mono">{{ c.master.master.awp_code }}</span> · {{ c.related_month|month_name }} · {{ c.entry_date|date:"j M Y" }}</div>{{ c.comment|linebreaksbr }}</div>
+          {% empty %}<span class="text-muted small">—</span>
+          {% endfor %}
         </td>
+        {% endif %}
       </tr>
     {% endfor %}</tbody>
   </table></div>

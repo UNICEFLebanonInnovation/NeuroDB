@@ -39,20 +39,23 @@ function bounds(features) {
   return minX <= maxX ? [[minX, minY], [maxX, maxY]] : null;
 }
 
-function fillTable(tbody, rows, level) {
+// The value column adds up one indicator only: it shows when an indicator is chosen (withValue).
+// "interventions" in the API data are ActivityInfo records, and are called records on every page.
+function fillTable(tbody, rows, level, withValue) {
   if (!tbody) return;
+  const where = (r) => (level === "site" ? r.district : level === "governorate" ? "" : r.governorate);
   tbody.innerHTML = rows.length
     ? rows
         .slice()
         .sort((a, b) => b.interventions - a.interventions)
         .map(
-          (r) => `<tr><td>${escapeHTML(r.name || r.code || "—")}${level === "site" && r.district ? `<span class="cell-sub">${escapeHTML(r.district)}</span>` : ""}</td>
+          (r) => `<tr><td>${escapeHTML(r.name || r.code || "—")}${where(r) ? `<span class="cell-sub">${escapeHTML(where(r))}</span>` : ""}</td>
             <td class="num" data-value="${r.interventions}">${fmt(r.interventions)}</td>
-            <td class="num" data-value="${r.value}">${fmt(r.value)}</td>
+            ${withValue ? `<td class="num" data-value="${r.value}">${fmt(r.value)}</td>` : ""}
             ${level === "site" ? "" : `<td class="num">${fmt(r.partners)}</td>`}</tr>`,
         )
         .join("")
-    : `<tr><td colspan="4" class="text-center text-muted py-4">No interventions match these filters.</td></tr>`;
+    : `<tr><td colspan="4" class="text-center text-muted py-4">No records match these filters.</td></tr>`;
 }
 
 export async function init(el) {
@@ -72,8 +75,9 @@ export async function init(el) {
   map.addControl(new maplibregl.FullscreenControl(), "top-right");
 
   const rows = config.level === "site" ? data.sites : data.areas;
-  fillTable(tbody, rows, config.level);
-  if (totals) totals.textContent = `${fmt(data.totals.interventions)} interventions · ${fmt(config.level === "site" ? data.totals.sites : data.totals.areas)} ${config.level === "site" ? "sites" : "areas"}`;
+  const withValue = Boolean(config.filters?.indicator);
+  fillTable(tbody, rows, config.level, withValue);
+  if (totals) totals.textContent = `${fmt(data.totals.interventions)} records · ${fmt(config.level === "site" ? data.totals.sites : data.totals.areas)} ${config.level === "site" ? "sites" : "areas"}`;
   const max = Math.max(2, ...rows.map((r) => Number(r.interventions) || 0)); // interpolate stops must ascend strictly
   if (legend) {
     legend.querySelector("[data-legend-max]").textContent = fmt(max);
@@ -83,7 +87,7 @@ export async function init(el) {
   map.on("load", () => {
     const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 8 });
     const html = (p) =>
-      `<strong>${escapeHTML(p.name || p.code)}</strong><br>${fmt(p.interventions)} interventions<br>Value ${fmt(p.value)}${p.partners != null ? `<br>${fmt(p.partners)} partners` : ""}`;
+      `<strong>${escapeHTML(p.name || p.code)}</strong><br>${fmt(p.interventions)} records${withValue ? `<br>Reported ${fmt(p.value)}` : ""}${p.partners != null ? `<br>${fmt(p.partners)} partners` : ""}`;
 
     if (config.level === "site") {
       const features = data.sites

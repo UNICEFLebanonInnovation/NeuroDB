@@ -595,10 +595,16 @@ def test_a_failed_log_write_does_not_break_the_answer(client_viewer, db, fake, m
     assert "could not log question" in caplog.text
 
 
-def test_disabled_without_an_api_key(client_viewer, db):
+def test_disabled_without_an_api_key(client_viewer, viewer, admin_user, db):
     with override_settings(AI_ASSISTANT_ENABLED=False, OPENAI_API_KEY=""):
         page = client_viewer.get(reverse("assistant:ask")).content.decode()
-        assert "not set up yet" in page and "OPENAI_API_KEY" in page
+        # A viewer is pointed to Search and the brief, with a static icon; the key is for staff only.
+        assert "not set up yet" in page and "OPENAI_API_KEY" not in page
+        assert f'href="{reverse("reports:search")}"' in page and f'href="{reverse("reports:brief")}"' in page
+        assert "#i-sparkle" not in page.split("<main", 1)[1].split("</main>", 1)[0]
+        client_viewer.force_login(admin_user)
+        assert "OPENAI_API_KEY" in client_viewer.get(reverse("assistant:ask")).content.decode()
+        client_viewer.force_login(viewer)
         assert _ask(client_viewer, "Hello?").status_code == 503
         with pytest.raises(agent.AssistantUnavailable):
             agent.client()

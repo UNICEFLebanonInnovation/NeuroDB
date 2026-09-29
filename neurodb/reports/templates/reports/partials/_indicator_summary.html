@@ -1,0 +1,21 @@
+{% load i18n ui %}{# Achieved, % of target, status and months of one master indicator (context: summary, methods, status_ref, master). #}
+{% with row=summary.row m=methods|get_item:summary.row.aggregation_method %}
+<div class="kpi-grid">
+  {% trans "Achieved" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=row.value|number unit=summary.unit %}
+  {% trans "Target" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=row.target|number %}
+  {% trans "Of target" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=row.achieved|percent:0 %}
+  {% trans "Status" as l4 %}{% include "components/kpi_tile.html" with label=l4 value="" status=row.tracking status_label=row.tracking_label %}
+</div>
+<p class="small text-muted mb-2">{% blocktrans with method=m.label|default:row.aggregation_method help=m.help|default:"" %}Method: {{ method }}. {{ help }}{% endblocktrans %}</p>
+<section class="panel p-0 mb-3">
+  {% include "components/status_reference.html" with ref=status_ref %}
+  {% if summary.months %}
+  <div class="table-wrap"><table class="table table-sm mb-0" id="indicator-months">
+    <thead><tr><th scope="col">{% trans "Month" %}</th><th scope="col" class="num">{% if row.aggregation_method == "SUM_OVER_SUM" %}{% trans "Ratio in the month" %}{% elif row.aggregation_method == "COUNT" %}{% trans "Records in the month" %}{% else %}{% trans "Reported in the month" %}{% endif %}</th><th scope="col" class="num">{% trans "Records" %}</th></tr></thead>
+    <tbody>{% for p in summary.months %}<tr><td>{{ p.month|month_name }}</td><td class="num">{{ p.value|number }}{% if p.value is not None and summary.unit %} <span class="text-muted small">{{ summary.unit }}</span>{% endif %}</td><td class="num">{{ p.reports|number }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}
+  <p class="text-muted small px-3 py-2 mb-0">{% trans "No records yet this year." %}</p>
+  {% endif %}
+</section>
+{% endwith %}

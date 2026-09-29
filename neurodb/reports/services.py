@@ -29,7 +29,7 @@ from neurodb.indicators.services.navigation import current_year
 from neurodb.partnerships.models import PCA
 
 MAP_LEVELS = ("governorate", "district", "cadaster", "site")
-MAP_FILTERS = ("partner", "pd", "month", "governorate", "district")
+MAP_FILTERS = ("partner", "pd", "month", "governorate", "district", "indicator")
 EMERGENCY_VALUES = ("yes", "no")
 QUARTERS = ("Q1", "Q2", "Q3", "Q4")
 POPULATION_VIEWS = ("total", "children", "vulnerable")
@@ -70,109 +70,116 @@ def map_filters(params) -> dict[str, str]:
 # ------------------------------------------------------------------------- global search
 
 
-def search(q: str, year: ReportingYear | None, limit: int = 8) -> list[dict[str, Any]]:
-    """Indicators, databases and reports of ``year`` whose name or code contains ``q``."""
+SEARCH_GROUP_LIMIT = 200  # the items of one group listed by its "See all" link
+
+
+def humanize_ai_name(name: str) -> str:
+    """``"Children reached_Male_Lebanese"`` -> ``"Children reached · Male · Lebanese"``: ActivityInfo
+    names join their breakdowns with underscores."""
+    return " · ".join(part.strip() for part in (name or "").split("_") if part.strip()) or (name or "")
+
+
+def _highlight(label: str, q: str) -> dict[str, str]:
+    """The label split around the first match of ``q`` (the template marks the match)."""
+    at = label.casefold().find(q.casefold())
+    if at < 0:
+        return {"before": label, "match": "", "after": ""}
+    return {"before": label[:at], "match": label[at : at + len(q)], "after": label[at + len(q) :]}
+
+
+def search(
+    q: str, year: ReportingYear | None, limit: int = 8, group: str | None = None
+) -> list[dict[str, Any]]:
+    """Indicators, databases and reports of ``year`` whose name or code contains ``q``.
+
+    Each group lists up to ``limit`` items with its ``total``; ``group`` lists that group alone, up to
+    ``SEARCH_GROUP_LIMIT`` items (the "See all" link of a capped group).
+    """
     q = (q or "").strip()
     if len(q) < 2:
         return []
     dbs = Database.objects.filter(reporting_year=year, display=True) if year else Database.objects.none()
     db_ids = list(dbs.values_list("id", flat=True))
     name_or_code = Q(name__icontains=q) | Q(awp_code__icontains=q)
-    groups: list[dict[str, Any]] = []
+    reports = NeuroReport.objects.filter(ryear=year, is_active=True, name__icontains=q) if year else None
 
-    databases = dbs.filter(Q(name__icontains=q) | Q(label__icontains=q)).select_related("section")[:limit]
-    groups.append(
-        {
-            "key": "databases",
-            "label": _("Databases"),
-            "items": [
-                {
-                    "label": d.label or d.name,
-                    "hint": d.section.name if d.section else "",
-                    "url": reverse("reports:database_dashboard", args=[d.id]),
-                }
-                for d in databases
-            ],
-        }
-    )
-    reports = (
-        NeuroReport.objects.filter(ryear=year, is_active=True, name__icontains=q)[:limit] if year else []
-    )
-    groups.append(
-        {
-            "key": "reports",
-            "label": _("Reports"),
-            "items": [
-                {
-                    "label": r.name,
-                    "hint": _("HPM report") if r.is_hpm else _("Neuro report"),
-                    "url": reverse(
-                        "reports:report_hpm" if r.is_hpm else "reports:report_dashboard", args=[r.id]
-                    ),
-                }
-                for r in reports
-            ],
-        }
-    )
-    masters = (
-        MasterIndicator.objects.filter(database_id__in=db_ids, is_active=True)
-        .filter(name_or_code)
-        .select_related("database")
-        .order_by("database__name", "sequence")[:limit]
-    )
-    groups.append(
-        {
-            "key": "masters",
-            "label": _("Master indicators"),
-            "items": [
-                {
-                    "label": m.name,
-                    "hint": f"{m.awp_code} · {m.database.label or m.database.name}",
-                    "url": reverse("reports:database_dashboard", args=[m.database_id]) + f"#indicator-{m.id}",
-                }
-                for m in masters
-            ],
-        }
-    )
-    subs = (
-        SubIndicator.objects.filter(database_id__in=db_ids)
-        .filter(name_or_code)
-        .select_related("database")[:limit]
-    )
-    groups.append(
-        {
-            "key": "subs",
-            "label": _("Sub-indicators"),
-            "items": [
-                {
-                    "label": s.name,
-                    "hint": f"{s.awp_code} · {s.database.label or s.database.name}",
-                    "url": reverse("reports:database_analytical", args=[s.database_id]),
-                }
-                for s in subs
-            ],
-        }
-    )
-    leaves = (
-        IndicatorNew.objects.filter(database_id__in=db_ids)
-        .filter(name_or_code)
-        .select_related("database")[:limit]
-    )
-    groups.append(
-        {
-            "key": "indicators",
-            "label": _("ActivityInfo indicators"),
-            "items": [
-                {
-                    "label": i.name,
-                    "hint": f"{i.awp_code or ''} · {i.database.label or i.database.name}",
-                    "url": reverse("reports:database_analytical", args=[i.database_id]),
-                }
-                for i in leaves
-            ],
-        }
-    )
-    return [g for g in groups if g["items"]]
+    # key, label, queryset, item builder
+    sources = [
+        (
+            "databases",
+            _("Databases"),
+            dbs.filter(Q(name__icontains=q) | Q(label__icontains=q))
+            .select_related("section")
+            .order_by("name"),
+            lambda d: {
+                "label": d.label or d.name,
+                "hint": d.section.name if d.section and d.section.name != (d.label or d.name) else "",
+                "url": reverse("reports:database_dashboard", args=[d.id]),
+            },
+        ),
+        (
+            "reports",
+            _("Reports"),
+            reports.order_by("name") if reports is not None else NeuroReport.objects.none(),
+            lambda r: {
+                "label": r.name,
+                "hint": _("HPM report") if r.is_hpm else _("Neuro report"),
+                "url": reverse("reports:report_hpm" if r.is_hpm else "reports:report_dashboard", args=[r.id]),
+            },
+        ),
+        (
+            "masters",
+            _("Master indicators"),
+            MasterIndicator.objects.filter(database_id__in=db_ids, is_active=True)
+            .filter(name_or_code)
+            .select_related("database")
+            .order_by("database__name", "sequence", "id"),
+            lambda m: {
+                "label": m.name,
+                "hint": f"{m.awp_code} · {m.database.label or m.database.name}",
+                "url": reverse("reports:database_dashboard", args=[m.database_id]) + f"#indicator-{m.id}",
+            },
+        ),
+        (
+            "subs",
+            _("Sub-indicators"),
+            SubIndicator.objects.filter(database_id__in=db_ids)
+            .filter(name_or_code)
+            .select_related("database")
+            .order_by("database__name", "awp_code", "id"),
+            lambda s: {
+                "label": humanize_ai_name(s.name),
+                "hint": f"{s.awp_code} · {s.database.label or s.database.name}",
+                "url": reverse("reports:database_analytical", args=[s.database_id]),
+            },
+        ),
+        (
+            "indicators",
+            _("ActivityInfo indicators"),
+            IndicatorNew.objects.filter(database_id__in=db_ids)
+            .filter(name_or_code)
+            .select_related("database")
+            .order_by("database__name", "awp_code", "id"),
+            lambda i: {
+                "label": humanize_ai_name(i.name),
+                "hint": f"{i.awp_code or ''} · {i.database.label or i.database.name}",
+                "url": reverse("reports:database_analytical", args=[i.database_id]),
+            },
+        ),
+    ]
+    groups: list[dict[str, Any]] = []
+    for key, label, queryset, build in sources:
+        if group and key != group:
+            continue
+        cap = SEARCH_GROUP_LIMIT if group else limit
+        items = [build(obj) for obj in queryset[:cap]]
+        if not items:
+            continue
+        for item in items:
+            item.update(_highlight(item["label"], q))
+        total = len(items) if len(items) < cap else queryset.count()
+        groups.append({"key": key, "label": label, "items": items, "total": total})
+    return groups
 
 
 # ------------------------------------------------------------------------- data health

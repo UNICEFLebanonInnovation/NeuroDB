@@ -3,7 +3,16 @@
 {% block content %}
 {% if not enabled %}
 <div class="panel">
-  {% include "components/empty_state.html" with icon="sparkle" title=_("The AI assistant is not set up yet") message=_("An administrator needs to add the OpenAI API key (OPENAI_API_KEY) to the application settings.") %}
+  <div class="state state--empty" role="status">
+    {% include "components/icon.html" with name="info" class="state__icon" %}
+    <p class="state__title">{% trans "The AI assistant is not set up yet" %}</p>
+    <p class="state__message">{% trans "Until it is, Search finds any indicator, database or report by name, and the Management brief answers the common questions about results, money and partners." %}</p>
+    <div class="d-flex flex-wrap justify-content-center gap-2 mt-1">
+      <a class="btn btn-outline-primary btn-sm" href="{% url 'reports:search' %}">{% include "components/icon.html" with name="search" %}<span>{% trans "Search" %}</span></a>
+      <a class="btn btn-outline-primary btn-sm" href="{% url 'reports:brief' %}">{% include "components/icon.html" with name="target" %}<span>{% trans "Management brief" %}</span></a>
+    </div>
+    {% if request.user.is_staff %}<p class="small text-muted mt-2 mb-0">{% trans "For administrators: add the OpenAI API key (OPENAI_API_KEY) to the application settings to turn the assistant on." %}</p>{% endif %}
+  </div>
 </div>
 {% else %}
 <div class="ask" data-ask data-stream-url="{% url 'assistant:stream' %}">

@@ -57,7 +57,8 @@ come from.
   `OPENAI_API_KEY` (App Service:
   `@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=openai-api-key)`; Container Apps:
   `enableAiAssistant = true` in `main.bicepparam`). Restart the app. Without a key the assistant is
-  off and the search box works as before. Never put the key in a committed file or a Bicep
+  off and the search box works as before; `/ask/` then points users to Search and the Management
+  brief, and only staff see which setting is missing. Never put the key in a committed file or a Bicep
   parameter.
 - **Settings**: `AI_ASSISTANT_MODEL` (default `gpt-5.5`; it can be switched to a newer model such
   as `gpt-6-sol`, released on 2026-09-22, after checking its price on OpenAI's pricing page and
@@ -350,7 +351,8 @@ The sidebar's *Databases*, *Neuro reports* and *HPM* blocks list the year the pa
 chosen in the year menu (`?year=`), the year of the database or report that is open, or else the
 current reporting year. When that year has none of them (a new year before its databases are
 set up), each block shows the latest year that has some, and says which year in its title.
-Search covers the same year. A Neuro Report or HPM page has an *Other years* menu listing the
+Search covers the same year; each kind of result shows its first 8 matches and a *See all* link
+(`?group=`) when there are more. A Neuro Report or HPM page has an *Other years* menu listing the
 reports with the same report code in other years (set the code in admin → Neuro reports).
 
 The bridge is the table *ActivityInfo partner links* (admin → Partnerships): one row per partner
