@@ -82,14 +82,49 @@ def test_contribution_attributes_the_donors_share_of_funds_and_children(data, re
     assert pd["gov"] == {"akkar": 0.6, "beirut": 0.4}
     assert pd["partner"] == "Amel Association"
     assert pd["grants"] == {"SC1": 10000}
+    assert pd["closed"] is False
+    assert pd["age"] == {"Age not specified": 1.0}  # "Children" names no age range
     assert result["grants"] == [
         {
             "key": "SC1",
             "label": "SC1",
+            "name": "",
             "expires": "2026-09-30",
             "days_left": (datetime.date(2026, 9, 30) - TODAY).days,
         }
     ]
+
+
+def test_grants_carry_their_readable_name(data, reporting_year, donor):
+    dm.Grant.objects.filter(name="SC1").update(description="Education and protection")
+    grant = services.contribution(donor, 2026, TODAY)["grants"][0]
+    assert (grant["name"], grant["label"]) == ("Education and protection", "SC1 · Education and protection")
+
+
+def test_a_programme_past_its_end_is_closed_not_behind(data, reporting_year, donor):
+    after_the_end = datetime.date(2027, 1, 15)
+    PCA.objects.filter(number="LEB/PD1").update(end=datetime.date(2026, 6, 30))
+    pd = services.contribution(donor, 2026, after_the_end)["pds"][0]
+    assert pd["closed"] is True
+    page = services.build(donor, 2026, after_the_end, cache=False)
+    assert page["statuses"]["closed"]["label"] == "Closed"
+
+
+def test_data_date_is_the_datamart_sync_else_the_latest_source(db):
+    from django.utils import timezone
+
+    from neurodb.core.models import SyncRun
+
+    assert services.data_as_of() is None
+    now = timezone.now()
+    ok, failed = SyncRun.Status.SUCCEEDED, SyncRun.Status.FAILED
+    SyncRun.objects.create(job=SyncRun.Job.ACTIVITYINFO_DATA, status=ok, finished_at=now)
+    SyncRun.objects.create(job=SyncRun.Job.POPULATION, status=ok, finished_at=now + datetime.timedelta(1))
+    assert services.data_as_of() == now  # no Datamart sync yet: the latest source that feeds the page
+    earlier = now - datetime.timedelta(days=1)
+    SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, status=ok, finished_at=earlier)
+    SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, status=failed, finished_at=now)
+    assert services.data_as_of() == earlier  # the funds and indicators come from the Datamart
 
 
 def test_grant_restriction_and_other_donor(data, reporting_year):
@@ -160,6 +195,7 @@ def test_donor_page_shows_own_funds_only(data, reporting_year, donor_client):
     assert [p["id"] for p in payload["pds"]] == ["LEB/PD1"]
     assert payload["pds"][0]["committed"] == 10000
     assert "Amel" not in json.dumps(payload["overall"])
+    assert "The date of the data is not available yet." in response.text  # never "not yet synced"
 
 
 def test_a_year_outside_the_choices_falls_back(data, reporting_year, donor_client):

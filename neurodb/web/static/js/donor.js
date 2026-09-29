@@ -17,6 +17,31 @@ const NS = "http://www.w3.org/2000/svg";
 function svg(w, h, label) { const s = document.createElementNS(NS, "svg"); s.setAttribute("viewBox", `0 0 ${w} ${h}`); s.setAttribute("role", "img"); s.setAttribute("aria-label", label); return s; }
 function el(tag, attrs = {}, parent) { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); if (parent) parent.appendChild(e); return e; }
 function txt(parent, x, y, text, attrs = {}) { const t = el("text", { x, y, "font-size": 12, fill: css("--ink-2"), ...attrs }, parent); t.textContent = text; return t; }
+// Shorten an SVG label to maxW (viewBox units) with an ellipsis; the full text stays in a <title>.
+// The SVG must be in the page to be measured; a hidden one is estimated from its length.
+function fit(t, maxW) {
+  const full = t.textContent, size = parseFloat(t.getAttribute("font-size")) || 12;
+  const width = () => t.getComputedTextLength() || t.textContent.length * size * 0.58;
+  if (width() <= maxW) return t;
+  let n = full.length;
+  while (n > 1 && width() > maxW) t.textContent = full.slice(0, --n).trimEnd() + "…";
+  el("title", {}, t).textContent = full;
+  return t;
+}
+// Round axis ticks: a step of 1, 2, 2.5 or 5 times a power of ten, and a top that is a whole step.
+function niceScale(maxVal, count = 4) {
+  const raw = Math.max(maxVal, 1) / count, pow = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * pow).find((v) => v >= raw);
+  const top = Math.ceil(maxVal / step) * step || step;
+  return { top, ticks: Array.from({ length: Math.round(top / step) + 1 }, (_, i) => i * step) };
+}
+// Spread label centres at least `gap` apart inside [lo, hi], as close to their wish as possible.
+function spread(ys, gap, lo, hi) {
+  const out = [...ys];
+  for (let i = 0; i < out.length; i++) out[i] = Math.max(out[i], i ? out[i - 1] + gap : lo);
+  for (let i = out.length - 1; i >= 0; i--) out[i] = Math.min(out[i], i < out.length - 1 ? out[i + 1] - gap : hi);
+  return out;
+}
 
 const SECTIONS = DATA.sections || [];
 const slotOf = (section) => { const s = SECTIONS.find((x) => x.key === section); return `--s${s ? s.slot : 0}`; };
@@ -31,8 +56,12 @@ const ICONS = {
   warn: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l6.5 12h-13L8 2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 6.5v3.5M8 12v.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
   dash: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
 };
-const pill = (s) => `<span class="pill ${s.cls}">${ICONS[s.icon] || ""}${esc(s.label)}</span>`;
+const pill = (s, title = "") => `<span class="pill ${s.cls}"${title ? ` title="${esc(title)}"` : ""}>${ICONS[s.icon] || ""}${esc(s.label)}</span>`;
 const statusOf = (key) => (DATA.statuses || {})[key] || { cls: "none", label: "Not reported yet", icon: "warn" };
+const rowStatus = (r) => statusOf(r.closed ? "closed" : r.status); // an ended programme is "Closed", never "Behind"
+const GRANTS = Object.fromEntries((DATA.grants || []).map((g) => [g.key, g]));
+const grantName = (key) => (GRANTS[key] || {}).name || "";
+const grantLabel = (key) => (GRANTS[key] || {}).label || key;
 function paceStatus(achieved, expected) {
   if (achieved < expected - 10) return { cls: "crit", label: "Behind", icon: "x" };
   if (achieved > expected + 10) return { cls: "good", label: "Ahead of schedule", icon: "up" };
@@ -106,7 +135,7 @@ function renderFilterState() {
   if (any) gov.insertAdjacentHTML("beforeend", `<button class="reset" type="button" id="reset">Clear filters</button>`);
   const r = $("#reset");
   if (r) r.addEventListener("click", () => { state.grant = "all"; state.sections.clear(); state.gov = null; $("#fGrant").value = "all"; render(); });
-  const parts = [state.grant === "all" ? "all grants" : state.grant, state.sections.size ? [...state.sections].join(", ") : "all areas", state.gov ? govName(state.gov) : "all of Lebanon"];
+  const parts = [state.grant === "all" ? "all grants" : grantLabel(state.grant), state.sections.size ? [...state.sections].join(", ") : "all areas", state.gov ? govName(state.gov) : "all of Lebanon"];
   $("#scope").textContent = `Showing ${parts.join(" · ")}`;
 }
 
@@ -131,8 +160,8 @@ function renderTiles(list) {
 function renderFlow(list) {
   const box = $("#flow"); box.innerHTML = "";
   if (!list.length) { box.innerHTML = `<p class="note">Nothing funded in this selection.</p>`; return; }
-  const W = 660, nodeW = 12, gap = 10, cols = [96, 310, 474];
-  const short = (name) => (name.length > 24 ? name.slice(0, 23).trimEnd() + "…" : name);
+  // Columns: grant labels (name, then number and amount) | grants | areas | partners | partner labels.
+  const W = 680, nodeW = 12, gap = 10, cols = [196, 312, 498];
   const gs = {}, sp = {}, gv = {}, sv = {}, pv = {}, partnerSection = {};
   list.forEach((r) => {
     Object.entries(r.grantsAmt).forEach(([g, v]) => { gs[`${g}|${r.section}`] = (gs[`${g}|${r.section}`] || 0) + v; gv[g] = (gv[g] || 0) + v; });
@@ -147,7 +176,7 @@ function renderFlow(list) {
   sections.forEach((s) => Object.keys(pv).filter((p) => sp[`${s}|${p}`]).sort((a, b) => pv[b] - pv[a]).forEach((p) => { if (!partners.includes(p)) partners.push(p); }));
   const colNodes = [grants, sections, partners];
   const values = [gv, sv, pv];
-  const H = Math.max(240, Math.min(560, 26 * Math.max(...colNodes.map((n) => n.length)) + 60));
+  const H = Math.max(240, Math.min(620, Math.max(26 * sections.length + 60, 34 * grants.length + 24, 30 * partners.length + 24)));
   const total = sum(list, "committed");
   const scale = Math.min(...colNodes.map((n) => (H - gap * (n.length - 1)) / total));
   const pos = colNodes.map((nodes, c) => {
@@ -157,6 +186,8 @@ function renderFlow(list) {
     return out;
   });
   const s = svg(W, H + 6, "Flow of committed funds from grants to programme areas to partners");
+  box.appendChild(s); // in the page first, so that labels can be measured
+  const nameOf = (c, k) => (c === 0 ? grantLabel(k) : k);
   const links = el("g", {}, s);
   function band(x0, y0, x1, y1, w, color, html) {
     const xm = (x0 + x1) / 2;
@@ -168,7 +199,7 @@ function renderFlow(list) {
   grants.forEach((g) => sections.forEach((sec) => {
     const v = gs[`${g}|${sec}`]; if (!v) return;
     const w = v * scale, a = pos[0][g], b = pos[1][sec];
-    band(cols[0] + nodeW, a.outY, cols[1], b.inY, w, colorOf(sec), `<b>${esc(g)} → ${esc(sec)}</b><br>${money(v)} committed`);
+    band(cols[0] + nodeW, a.outY, cols[1], b.inY, w, colorOf(sec), `<b>${esc(grantLabel(g))} → ${esc(sec)}</b><br>${money(v)} committed`);
     a.outY += w; b.inY += w;
   }));
   sections.forEach((sec) => partners.forEach((p) => {
@@ -179,17 +210,32 @@ function renderFlow(list) {
   }));
   const nodes = el("g", {}, s);
   const halo = { "paint-order": "stroke", stroke: css("--surface"), "stroke-width": 4, "stroke-linejoin": "round" };
-  colNodes.forEach((keys, c) => keys.forEach((k) => {
-    const p = pos[c][k], color = c === 0 ? css("--ink-2") : c === 1 ? colorOf(k) : colorOf(partnerSection[k]);
-    const r = el("rect", { x: cols[c], y: p.y, width: nodeW, height: Math.max(2, p.h), rx: 3, fill: color }, nodes);
-    hover(r, `<b>${esc(k)}</b><br>${money(values[c][k])} committed`);
-    const x = c === 0 ? cols[0] - 8 : cols[c] + nodeW + 6, anchor = c === 0 ? "end" : "start";
-    const t = txt(nodes, x, p.y + p.h / 2 + 4, c === 1 ? k : short(k), { "text-anchor": anchor, "font-weight": c === 2 ? 500 : 700, "font-size": 13, fill: css("--ink"), ...halo });
-    if (c !== 1) hover(t, `<b>${esc(k)}</b><br>${money(values[c][k])} committed`);
-    if (c !== 1 && p.h >= 30) txt(nodes, x, p.y + p.h / 2 + 19, money(values[c][k]), { "text-anchor": anchor, "font-size": 11.5, fill: css("--muted"), ...halo });
-  }));
-  box.appendChild(s);
-  box.dataset.table = JSON.stringify({ head: ["From", "To", "Committed"], rows: [...Object.entries(gs), ...Object.entries(sp)].map(([k, v]) => [...k.split("|"), money(v)]) });
+  const muted = { "font-size": 11.5, fill: css("--muted"), ...halo };
+  colNodes.forEach((keys, c) => {
+    const mids = keys.map((k) => pos[c][k].y + pos[c][k].h / 2);
+    // Every grant and partner label carries its amount, so a thin band never hides it; labels that
+    // would overlap are moved apart.
+    const at = c === 1 ? mids : spread(mids, c === 0 ? 32 : 28, 14, H - 12);
+    keys.forEach((k, i) => {
+      const p = pos[c][k], color = c === 0 ? css("--ink-2") : c === 1 ? colorOf(k) : colorOf(partnerSection[k]);
+      const tipHtml = `<b>${esc(nameOf(c, k))}</b><br>${money(values[c][k])} committed`;
+      const r = el("rect", { x: cols[c], y: p.y, width: nodeW, height: Math.max(2, p.h), rx: 3, fill: color }, nodes);
+      hover(r, tipHtml);
+      const x = c === 0 ? cols[0] - 8 : cols[c] + nodeW + 6, anchor = c === 0 ? "end" : "start";
+      const room = c === 0 ? cols[0] - 12 : c === 1 ? cols[2] - x - 6 : W - x;
+      const y = at[i];
+      if (Math.abs(y - mids[i]) > 3) el("line", { x1: c === 0 ? x + 2 : x - 2, x2: c === 0 ? cols[0] : cols[c] + nodeW, y1: y - 2, y2: mids[i], stroke: css("--axis") }, nodes);
+      const name = c === 0 ? grantName(k) || k : k;
+      const top = c === 1 ? y + 4 : y - 2;
+      const t = fit(txt(nodes, x, top, name, { "text-anchor": anchor, "font-weight": c === 2 ? 500 : 700, "font-size": c === 2 ? 13 : 12.5, fill: css("--ink"), ...halo }), room);
+      hover(t, tipHtml);
+      if (c !== 1) {
+        const line2 = c === 0 && grantName(k) ? `${k} · ${money(values[c][k])}` : money(values[c][k]);
+        hover(fit(txt(nodes, x, top + 14, line2, { "text-anchor": anchor, ...muted }), room), tipHtml);
+      }
+    });
+  });
+  box.dataset.table = JSON.stringify({ head: ["From", "To", "Committed"], rows: [...Object.entries(gs), ...Object.entries(sp)].map(([k, v]) => { const [a, b] = k.split("|"); return [GRANTS[a] ? grantLabel(a) : a, b, money(v)]; }) });
 }
 
 // ------------------------------------------------------------------ schematic tile map
@@ -263,6 +309,7 @@ function renderSpend(list) {
 }
 
 // ------------------------------------------------------------------ grants
+const GRANT_RULE = "On schedule: more than 120 days left before the grant expires, or less than a quarter of its funds still to disburse.";
 function renderGrants(list) {
   const out = (DATA.grants || []).map((g) => {
     const committed = sum(list, (r) => r.grantsAmt[g.key] || 0);
@@ -277,7 +324,7 @@ function renderGrants(list) {
   if (!out.length) { $("#grants").innerHTML = `<p class="note">No grant in this selection.</p>`; return; }
   $("#grants").innerHTML = out.map((x) => `
     <div class="grant">
-      <div class="head"><strong>${esc(x.g.label)}</strong>${pill(x.st)}</div>
+      <div class="head"><strong>${esc(x.g.label)}</strong>${pill(x.st, GRANT_RULE)}</div>
       <div class="mini" style="height:10px;margin-top:8px" title="${pct(x.share)} disbursed"><b style="width:${Math.min(100, x.share)}%;background:var(--s1)"></b></div>
       <div class="foot">
         <span>${money(x.disbursed)} of ${money(x.committed)} disbursed (${pct(x.share)})</span>
@@ -313,9 +360,8 @@ function renderSexAge(list) {
   const children = sum(list, "children");
   const girls = sum(list, (r) => r.children * (r.sex.Girls || 0)), boys = sum(list, (r) => r.children * (r.sex.Boys || 0));
   const rest = Math.max(0, children - girls - boys);
-  if (!children) $("#sex").innerHTML = `<p class="note">No children reported yet.</p>`;
-  else if (girls + boys < 1) $("#sex").innerHTML = `<p class="note">The indicators of these programmes count girls and boys together.</p>`;
-  else {
+  $("#sexBlock").hidden = girls + boys < 1; // no split to show: the indicators count girls and boys together
+  if (girls + boys >= 1) {
     const parts = [["Girls", girls, "--s5"], ["Boys", boys, "--s1"], ["Not split", rest, "--axis"]].filter((p) => p[1] >= 1);
     $("#sex").innerHTML = `<div class="stack">${parts.map(([l, v, c]) => `<div title="${l}: ${num(v)} (${pct((100 * v) / children)})" style="flex:${v};background:var(${c})"></div>`).join("")}</div>
       <div class="legend">${parts.map(([l, v, c]) => `<span><i style="background:var(${c})"></i>${l} ${pct((100 * v) / children)}</span>`).join("")}</div>`;
@@ -323,8 +369,9 @@ function renderSexAge(list) {
   const ages = {};
   list.forEach((r) => Object.entries(r.age || {}).forEach(([k, v]) => { ages[k] = (ages[k] || 0) + r.children * v; }));
   const data = Object.entries(ages).filter((a) => a[1] >= 1).sort((a, b) => b[1] - a[1]);
-  $("#ageBlock").hidden = data.length < 2;
+  $("#ageBlock").hidden = data.length < 2; // one group only (often "Age not specified") says nothing
   $("#age").innerHTML = barsHtml(data, "var(--s1)");
+  $("#whoCard").hidden = $("#sexBlock").hidden && $("#ageBlock").hidden;
 }
 function renderGovBars(list) {
   const data = GOVS.filter((g) => !state.gov || g.key === state.gov)
@@ -346,10 +393,10 @@ function renderVfm(list) {
   }).filter((s) => s.cost || s.avg);
   if (!secs.length) { box.innerHTML = `<p class="note">No children reached yet, so no cost per child.</p>`; return; }
   const W = 560, rowH = 40, L = 170, R = 40, H = secs.length * rowH + 30;
-  const max = Math.max(...secs.map((s) => Math.max(s.cost || 0, s.avg || 0)), 1) * 1.15;
+  const { top: max, ticks } = niceScale(Math.max(...secs.map((s) => Math.max(s.cost || 0, s.avg || 0)), 1) * 1.08);
   const x = (v) => L + (W - L - R) * (v / max);
   const s = svg(W, H, "Cost per child by programme area against the country average");
-  [0, 0.25, 0.5, 0.75, 1].forEach((f) => { const v = max * f; el("line", { x1: x(v), x2: x(v), y1: 0, y2: H - 22, stroke: css("--grid") }, s); txt(s, x(v), H - 6, `$${Math.round(v)}`, { "text-anchor": "middle", "font-size": 11, fill: css("--muted") }); });
+  ticks.forEach((v) => { el("line", { x1: x(v), x2: x(v), y1: 0, y2: H - 22, stroke: css("--grid") }, s); txt(s, x(v), H - 6, `$${Math.round(v)}`, { "text-anchor": "middle", "font-size": 11, fill: css("--muted") }); });
   secs.forEach((sec, i) => {
     const cy = i * rowH + 20;
     txt(s, L - 12, cy + 4, sec.key.length > 24 ? sec.key.slice(0, 23) + "…" : sec.key, { "text-anchor": "end", "font-size": 12.5, "font-weight": 600, fill: css("--ink") });
@@ -389,7 +436,7 @@ function renderDumbbell(list) {
     hover(sq, html); hover(dt, html);
   });
   box.appendChild(s);
-  box.insertAdjacentHTML("beforeend", `<div class="legend"><span><i style="background:var(--surface);border:2px solid var(--ink-2)"></i>Disbursed</span><span><i style="background:var(--ink-2);border-radius:50%"></i>Achieved</span><span><i style="background:var(--crit);height:3px;width:14px"></i>Spending more than 25 points ahead</span></div>`);
+  box.insertAdjacentHTML("beforeend", `<div class="legend"><span><i style="background:var(--surface);border:2px solid var(--ink-2)"></i>Disbursed</span><span><i style="background:var(--ink-2);border-radius:50%"></i>Achieved</span><span><i class="line soft"></i>Gap between them</span><span><i class="line"></i>Spending more than 25 points ahead of results</span></div>`);
 }
 
 // ------------------------------------------------------------------ programmes table
@@ -401,7 +448,7 @@ const COLS = [
   { key: "children", label: "Children", n: true, get: (r) => r.children },
   { key: "cost", label: "Cost/child", n: true, get: (r) => (r.children >= 1 ? r.disbursed / r.children : Infinity) },
   { key: "result", label: "Main result", get: (r) => (r.indicator_target ? (r.indicator_cumulative || 0) / r.indicator_target : -1) },
-  { key: "status", label: "Status", get: (r) => statusOf(r.status).label },
+  { key: "status", label: "Status", get: (r) => rowStatus(r).label },
 ];
 function renderTable(list) {
   const { key, dir } = state.sort, col = COLS.find((c) => c.key === key);
@@ -411,18 +458,19 @@ function renderTable(list) {
   t.innerHTML = `<thead><tr>${COLS.map((c) => `<th scope="col" class="${c.n ? "n" : ""}" data-sort="${c.key}" tabindex="0" aria-sort="${c.key === key ? (dir > 0 ? "ascending" : "descending") : "none"}">${c.label}</th>`).join("")}</tr></thead>
   <tbody>${sorted.map((r) => {
     const disb = (100 * r.disbursed) / (r.committed || 1);
+    const reached = r.indicator_target ? `${num(r.indicator_cumulative)} of ${num(r.indicator_target)} (${pct((100 * (r.indicator_cumulative || 0)) / r.indicator_target)})` : "";
     const result = r.indicator
-      ? `${esc(r.indicator)}<small>${r.indicator_target ? `${num(r.indicator_cumulative)} of ${num(r.indicator_target)} (${pct((100 * (r.indicator_cumulative || 0)) / r.indicator_target)}), ` : ""}${pct(r.elapsed)} of the time elapsed</small>`
+      ? `${esc(r.indicator)}<small>${r.closed ? `Final result${reached ? `: ${reached}` : ""}, ended ${fmtDate(r.end, month)}` : `${reached ? `${reached}, ` : ""}${pct(r.elapsed)} of the time elapsed`}</small>`
       : `<small>No children result reported yet</small>`;
     return `<tr>
-      <td class="pd">${esc(r.title)}<small>${esc(r.partner)} · ${esc(r.id)} · ${fmtDate(r.start, month)} to ${fmtDate(r.end, month)}</small></td>
+      <td class="pd">${esc(r.title)}<small>${esc(r.partner)} · ${fmtDate(r.start, month)} to ${fmtDate(r.end, month)}</small><small class="ref">eTools ref. ${esc(r.id)}</small></td>
       <td><span class="sw" style="background:var(${slotOf(r.section)})"></span>${esc(r.section)}<small>${esc(Object.keys(r.gov).map(govName).join(", "))}</small></td>
       <td class="n">${money(r.committed)}<small>${pct(r.share * 100)} of the programme</small></td>
       <td class="n">${pct(disb)}<div class="mini"><b style="width:${Math.min(100, disb)}%"></b></div></td>
       <td class="n">${num(r.children)}</td>
       <td class="n">${r.children >= 1 ? "$" + Math.round(r.disbursed / r.children) : "—"}</td>
       <td style="min-width:200px">${result}</td>
-      <td>${pill(statusOf(r.status))}</td>
+      <td>${pill(rowStatus(r))}</td>
     </tr>`;
   }).join("") || `<tr><td colspan="8" class="note">No programme in this selection.</td></tr>`}</tbody>`;
   t.querySelectorAll("[data-sort]").forEach((th) => {
@@ -436,22 +484,22 @@ function renderTable(list) {
 function renderOverall() {
   const o = DATA.overall || {};
   $("#oTiles").innerHTML = tilesHtml([
-    { k: "Children reached", v: num(o.children), h: `in ${DATA.year}, every programme` },
+    { k: "Children reached", v: num(o.children), h: `in ${DATA.year}, as partners report them; a child in two programmes counts in each` },
     { k: "Programmes", v: num(o.programmes), h: "with partners, running this year" },
     { k: "Partners", v: num(o.partners), h: "delivering for children" },
     { k: "Governorates reached", v: `${o.governorates_reached || 0} of ${GOVS.length}`, h: "where children were reached" },
-    { k: "Results on track", v: o.on_track_percent === null || o.on_track_percent === undefined ? "—" : pct(o.on_track_percent), h: `of ${num(o.results_measured)} results with a target` },
-    { k: "Field visits", v: num(o.visits), h: "monitoring and third-party visits" },
+    { k: "Results on track or ahead", v: o.on_track_percent === null || o.on_track_percent === undefined ? "—" : pct(o.on_track_percent), h: `${num((o.status_counts || {}).on_track + (o.status_counts || {}).over_target)} of the ${num(o.results_measured)} results reported against a target` },
   ]);
   // children by month
   const box = $("#oMonths"); box.innerHTML = "";
   const months = o.months || [], labels = o.month_labels || [];
   if (!months.some((v) => v)) box.innerHTML = `<p class="note">No monthly figures yet.</p>`;
   else {
-    const W = 560, H = 240, L = 50, R = 10, T = 12, B = 26, max = Math.max(...months, 1) * 1.1;
+    const { top: max, ticks } = niceScale(Math.max(...months, 1), 3);
+    const W = 560, H = 240, L = 50, R = 10, T = 12, B = 26;
     const bw = (W - L - R) / 12, y = (v) => T + (H - T - B) * (1 - v / max);
     const s = svg(W, H, "Children reached each month");
-    [0, 0.5, 1].forEach((f) => { el("line", { x1: L, x2: W - R, y1: y(max * f), y2: y(max * f), stroke: css("--grid") }, s); txt(s, L - 6, y(max * f) + 4, num(max * f), { "text-anchor": "end", "font-size": 11, fill: css("--muted") }); });
+    ticks.forEach((v) => { el("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: css("--grid") }, s); txt(s, L - 6, y(v) + 4, num(v), { "text-anchor": "end", "font-size": 11, fill: css("--muted") }); });
     months.forEach((v, i) => {
       const r = el("rect", { x: L + i * bw + 4, y: y(v), width: bw - 8, height: Math.max(0, y(0) - y(v)), rx: 3, fill: css("--s1") }, s);
       hover(r, `<b>${esc(labels[i])} ${DATA.year}</b><br>${num(v)} children`);
@@ -490,9 +538,12 @@ function renderOverall() {
   const sex = o.sex || {}, sexTotal = Object.values(sex).reduce((a, b) => a + b, 0);
   Object.entries(sex).forEach(([k, v]) => { if (sexTotal) facts.push([pct((100 * v) / sexTotal), `${k.toLowerCase()} (where named)`]); });
   if (o.disability) facts.push([num(o.disability), "children with disabilities"]);
-  if (o.sites_visited) facts.push([num(o.sites_visited), "sites visited by third-party monitors"]);
+  const visits = [[num(o.visits), "field visits by UNICEF staff and third-party monitors"]];
+  if (o.sites_visited) visits.push([num(o.sites_visited), "sites seen by the third-party monitors"]);
   const nat = Object.entries(o.nationality || {});
-  $("#oWho").innerHTML = (facts.length ? `<div class="facts">${facts.map(([v, l]) => `<div class="fact"><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join("")}</div>` : "") +
+  const factsHtml = (list) => `<div class="facts">${list.map(([v, l]) => `<div class="fact"><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join("")}</div>`;
+  $("#oWho").innerHTML = (facts.length ? factsHtml(facts) : "") +
+    (o.visits ? `<div class="cardhead mt"><div><h3>Field monitoring in ${DATA.year}</h3><p class="note">Visits to programme sites to check that the work is done as reported.</p></div></div>${factsHtml(visits)}` : "") +
     (nat.length > 1 ? `<div class="cardhead mt"><div><h3>Children reached by nationality</h3><p class="note">Where the indicators name it.</p></div></div>${barsHtml(nat, "var(--s1)")}` : "");
 }
 
@@ -515,7 +566,8 @@ document.querySelectorAll("[data-tab]").forEach((a) => a.addEventListener("click
   document.querySelectorAll("[data-tab]").forEach((x) => x.setAttribute("aria-selected", String(x === a)));
   $("#panel-mine").hidden = tab !== "mine";
   $("#panel-overall").hidden = tab !== "overall";
-  hideTip();
+  render(); // labels drawn while the tab was hidden are measured again
+
   try { history.replaceState(null, "", a.getAttribute("href")); } catch (err) { /* file:// or sandboxed */ }
 }));
 document.querySelectorAll("[data-autosubmit]").forEach((s) => s.addEventListener("change", () => s.form.submit()));

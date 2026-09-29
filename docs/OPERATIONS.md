@@ -578,11 +578,16 @@ internal API, no assistant. The page has two tabs.
 - **Your contribution**: the donor's funds and what they paid for, filtered in the browser by grant,
   programme area and governorate: committed and disbursed (tiles, by area, by grant with its end
   date), a grant → area → partner flow, a schematic governorate map, children reached against
-  targets, girls and boys, cost per child against the country average of the same area, and one row
-  per programme document.
+  targets, girls and boys and age (shown only when the indicators split them), cost per child
+  against the country average of the same area, and one row per programme document (a programme
+  past its end date shows "Closed" with its final result).
 - **UNICEF Lebanon overall**: the whole country for the year as aggregates only: children reached
-  (by month, programme area, governorate), results on track, programme and partner counts, field
-  visits. No programme, partner or donor is named and no amount of money is shown.
+  (by month, programme area, governorate), results on track or ahead, programme and partner counts,
+  field visits and sites visited. No programme, partner or donor is named and no amount of money is
+  shown.
+
+"Data as of" is the last successful eTools Datamart sync (funds and indicators); without one, the
+latest successful eTools or ActivityInfo data sync.
 
 **How the donor's figures are counted.** The donor's money is the funds reservation lines that name
 one of the account's donors (and grants, when the account lists some) on FRs running in the year.
