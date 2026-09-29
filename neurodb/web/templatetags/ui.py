@@ -217,6 +217,7 @@ ASSETS = {
     "pivotModule": "js/pivot.js",
     "mapModule": "js/map.js",
     "pdMapModule": "js/pdmap.js",
+    "eduMapModule": "js/edumap.js",
 }
 
 

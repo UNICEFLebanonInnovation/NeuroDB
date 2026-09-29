@@ -1,0 +1,20 @@
+{% load i18n %}
+{# single-select slicers as in the Power BI; options are the values found in the counts. data-keep: sent along when the year or round changes #}
+<form method="get" action="{{ request.path }}" class="filter-bar" id="edu-filters" data-filter-bar data-hx-target="#edu-results" role="search" aria-label="{% blocktrans with name=page.name %}{{ name }} filters{% endblocktrans %}">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <input type="hidden" name="{{ page.period_param }}" value="{{ period }}">
+  {% for name, value in kept %}<input type="hidden" name="{{ name }}" value="{{ value }}" data-keep>{% endfor %}
+  {% for s in slicers %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-{{ s.slicer.name }}">{{ s.slicer.label }}</label>
+    <select class="form-select form-select-sm" id="f-{{ s.slicer.name }}" name="{{ s.slicer.name }}" data-keep{% if s.slicer.search %} data-tom placeholder="{% trans 'All' %}"{% endif %}>
+      {% if not s.slicer.required %}<option value="">{% trans "All" %}</option>{% endif %}
+      {% for value, label in s.options %}<option value="{{ value }}"{% if value == s.selected %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  {% endfor %}
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}?tab={{ tab }}&amp;{{ page.period_param }}={{ period|urlencode }}">{% trans "Reset" %}</a>
+  </div>
+</form>

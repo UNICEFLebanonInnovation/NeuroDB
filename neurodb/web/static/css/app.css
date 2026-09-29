@@ -745,3 +745,65 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .pivot-shell .pvtUi { width: 100%; }
 .pivot-shell .pvtUnused li { display: inline-block; }
 #indicator-q { min-width: 15rem; }
+
+/* ------------------------------------------------------------------ education dashboards (Makani, Dirasa) */
+/* Categorical palette: one colour per category in the dist, donut and share-bar charts (charts.js reads
+   the tokens). The order is part of the palette: neighbours stay apart for colour-blind readers. The dark
+   steps are the same hues for the dark surface; labels on a fill are white or near-black, whichever
+   contrasts more (at least 4.5:1 on every slot). */
+:root {
+  --nd-cat-1: #446ab3; /* blue */
+  --nd-cat-2: #eb6834; /* orange */
+  --nd-cat-3: #1baf7a; /* aqua */
+  --nd-cat-4: #eda100; /* yellow */
+  --nd-cat-5: #e87ba4; /* pink */
+  --nd-cat-6: #008300; /* green */
+  --nd-cat-7: #4a3aa7; /* violet */
+  --nd-cat-8: #e34948; /* red */
+  --nd-cat-9: #0b8fb0; /* cyan */
+  --nd-cat-10: #a8661f; /* brown */
+}
+[data-bs-theme="dark"] {
+  --nd-cat-1: #3987e5;
+  --nd-cat-2: #d95926;
+  --nd-cat-3: #199e70;
+  --nd-cat-4: #c98500;
+  --nd-cat-5: #d55181;
+  --nd-cat-6: #008300;
+  --nd-cat-7: #9085e9;
+  --nd-cat-8: #e66767;
+  --nd-cat-9: #1a93b0;
+  --nd-cat-10: #b87328;
+}
+/* KPI tile with an icon (components/kpi_tile.html icon="child"): the icon in a circle above the label and figure,
+   centred, so a row of small cards reads like a summary strip */
+.kpi--icon { display: flex; flex-direction: column; align-items: center; gap: 0.45rem; text-align: center; padding: 0.85rem 0.6rem; }
+.kpi__icon { flex: none; display: inline-grid; place-items: center; width: 2.5rem; height: 2.5rem; border-radius: 50%; background: var(--nd-primary-soft); color: var(--nd-primary); }
+.kpi__icon .icon { width: 1.35rem; height: 1.35rem; vertical-align: 0; }
+.kpi__body { min-width: 0; width: 100%; }
+.kpi--icon .kpi__meta { justify-content: center; }
+.kpi--icon .kpi__hint { font-size: 0.72rem; line-height: 1.3; }
+/* A strip of icon tiles: as many columns as tiles on wide screens (style="--kpi-cols: 9"), wrapping below */
+.kpi-grid--icons { gap: 0.6rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); }
+@media (min-width: 1280px) {
+  .kpi-grid--icons { grid-template-columns: repeat(var(--kpi-cols, 6), minmax(0, 1fr)); }
+}
+/* A map that shares the page with its table and other charts */
+.map-shell--compact { height: clamp(320px, 55vh, 460px); }
+.map-legend__title { font-weight: 650; color: var(--nd-text); }
+.map-shell--compact .map-legend { max-width: min(62%, 300px); }
+.map-legend .legend__swatch--dot { border-radius: 50%; }
+/* maplibre-gl.css loads after this file and paints popups white: the education maps keep them themed */
+[data-module="edumap"] .maplibregl-popup-content { background: var(--nd-surface); color: var(--nd-text); }
+[data-module="edumap"] .maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+[data-module="edumap"] .maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+[data-module="edumap"] .maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip { border-top-color: var(--nd-surface); }
+[data-module="edumap"] .maplibregl-popup-anchor-top .maplibregl-popup-tip,
+[data-module="edumap"] .maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+[data-module="edumap"] .maplibregl-popup-anchor-top-right .maplibregl-popup-tip { border-bottom-color: var(--nd-surface); }
+[data-module="edumap"] .maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--nd-surface); }
+[data-module="edumap"] .maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--nd-surface); }
+.map-popup__line { display: block; }
+.map-popup__line span { color: var(--nd-muted); }
+/* The one-bar share chart (data-chart="share-bar") needs less room than a plot */
+.chart--share { min-height: 110px; }

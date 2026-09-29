@@ -688,7 +688,7 @@ the Compiler programme document's project code for links to be suggested.
    `COMPILER_YOUTH_YEARS - 1` years before it (default 2 in all); a year Compiler does not have is
    skipped.
 
-## Education programmes (`/education/`, Makani and Bridging from Compiler)
+## Education programmes (`/education/makani/`, `/education/dirasa/`, Makani and Bridging from Compiler)
 
 In Compiler the education partners register children in **Makani (MSCC)** and **Bridging (Dirasa)**,
 add them to services, and manage centers or schools, facilitators or teachers and daily attendance.
@@ -720,10 +720,72 @@ queuing another. The API is limited to the "NeuroDB API" group and rate-limited.
   recreational, Lego, referral; Bridging: the "yes" answers of the services form); Makani education
   programmes (BLN, ABLN, CBECE...); centers or schools with children; facilitators or teachers;
   attendance (child-days recorded and attended, days off left out, by month).
+- *Cubes* (payload format 2, what the dashboards read): records counted per combination of every
+  slicer at once, so they add up and any mix of filters is answered by summing rows. Makani
+  `enrolment` (one record per registration: center, partner, governorate, sex, nationality, CWD
+  type, caregiver, working, education programme and status of the latest education service, package,
+  ID type, malnutrition result and development delay of the latest health record; with the flags
+  married, IDP, caregiver counselling, immunized, screened, minimum meals, vaccinated) and `staff`
+  (today's facilitators: the record has no year); Bridging `enrolment` (school, partner, the child's
+  governorate, sex, nationality, CWD type, level, learning result, main attendance barrier),
+  `teachers` and `trainings` (teachers per training topic), plus `outreach` (Compiler's Kobo outreach,
+  shared by every programme, every year: interview year, partner and governorate as typed, and the
+  answer to education status, referral, dropout reason, ID type). The payload also lists the centers
+  and schools (type, emergency status, GPS point; schools with the children numbers they report).
 
-**The page** (Partnerships → Education programmes): one tab per programme; filters: year (Makani)
-or round (Bridging), partner, governorate. If Compiler could not count a part (e.g. its query hit
-the timeout), the page says which and the other parts still show.
+**The pages** (Partnerships → **Makani (MSCC)** and **Dirasa (Bridging)**; `/education/` opens
+Makani). They follow the programmes' Power BI dashboards: title "Makani Programme Dashboard <year>"
+or "Dirasa Programme Dashboard <round>", the last data update (Compiler's count) and a year or round
+select; one tab per Power BI page (`?tab=`); a slicer bar of single-select dropdowns ("All" by
+default, options = the values found in the counts, "Not specified" for unknown values). A slicer
+change replaces the results only (HTMX); the tabs keep the filters. A filter chosen on a tab that does
+not have it (e.g. gender on the Dirasa map) stays in the links for the other tabs and the page lists it
+as "not applied on this tab"; a figure a filter cannot reach says so in its hint (program staff,
+in-school children, teachers).
+- *Makani* slicers: CWD type, Education services (the programme without its level: "BLN Level 2" →
+  BLN, "Summer RS Grade 3" → Summer RS, "YFS Level 1 - RS Grade 9" and "RS-YFS" → YFS - RS, catch-up
+  with its programme), child nationality, child gender, caregiver (mother, father, other), working
+  children, partner, governorate, center, center active during emergency.
+  - *Overview*: Makani centers (with children under the filters), children enrolled (registrations:
+    a child registered twice counts twice, as in the Power BI), children enrolled – unique count
+    (from the unique-children counts, shown only when the filters are partner, governorate or center,
+    else "—"), children with disabilities (a CWD type other than "No"), working, married, caregiver
+    counselling, IDP children, program staff (today's list, place filters only); charts by
+    governorate, nationality, gender, package and education programme.
+  - *Education*: enrolment per programme and level, child identification ID, education status upon
+    enrolment (latest education service; registrations without one left out of those charts).
+  - *Health and nutrition*: centers, children, CWD, immunized, screened for malnutrition (a result
+    recorded), eating minimum meals, vaccinated; malnutrition results ("No malnutrition screening"
+    shown as "No malnutrition") and development delays ("No" left out).
+  - *Maps*: children per governorate (choropleth) and the centers (points coloured by governorate;
+    popup: partner, governorate, children, emergency), each with a table. Compiler's governorates are
+    matched to NeuroDB's polygons by name, English or Arabic, with aliases (Baalbek-Hermel /
+    Baalbeck-Hermel / بعلبك-الهرمل, Nabatieh / El Nabatieh / النبطية...); an unmatched one is marked
+    "not on the map" in the table. Centers without a GPS point are in the table only.
+- *Dirasa* slicers: CWD type, nationality, gender, school, partner, governorate, school type, school
+  active during emergency. School filters (school, partner, governorate = the school's, type,
+  emergency) choose the schools and the registrations counted are those of these schools (and of the
+  partner chosen; partner "Not specified": registrations without a partner, schools without any);
+  child filters (CWD type, nationality, gender) apply to registrations only.
+  - *Overview*: Dirasa schools (with children under the filters), children enrolled in Dirasa,
+    in-school children and in-school CWD (the numbers the chosen schools report; child filters do
+    not apply), CWD in Dirasa, Dirasa teachers (of the chosen schools); charts: nationality (Syrian,
+    Lebanese, Non-Lebanese), gender, type of schools, in-school Lebanese / non-Lebanese, governorate
+    (the child's), teacher trainings by topic.
+  - *Outreach*: its own slicers (interview year, latest by default or all years; partner and
+    governorate as typed in Kobo); education status, referrals, initial dropout reasons, child ID
+    type. Kobo names and labels of one choice are one key (older forms cut names at 40 characters);
+    known keys have a label ("Referred to Dirasa", "UNHCR registered"...), others are shown with
+    spaces for "_". Blank answers are left out.
+  - *Attendance barriers*: the main barrier of each registration (blank left out).
+  - *Schools map*: slicers partner, governorate, school type, emergency; schools coloured by type
+    (popup: partners, governorate, type, children registered, in-school children) and their table.
+- Everything is filtered in Python from the stored payload (`neurodb/education/cube.py`); each tab's
+  result is cached 10 minutes per stored row, fetch, filters and language.
+- A year stored from a Compiler without cubes (format 1) shows "Compiler sends the older format":
+  run the education sync after Compiler is updated.
+- If Compiler could not count a part (e.g. its query hit the timeout), the page says which and the
+  other parts still show.
 
 **Setting it up.**
 1. Compiler: deploy branch `neurodb-education-figures` (migration `figures.0001`), then add a

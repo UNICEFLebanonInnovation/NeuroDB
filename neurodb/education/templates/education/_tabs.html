@@ -1,0 +1,5 @@
+{% load i18n ui %}
+{# the Power BI pages; after a filter change the partial sends them again (out of band) so their links keep the filters #}
+<nav class="segmented segmented--scroll mb-3" id="edu-tabs" aria-label="{% trans 'Dashboard pages' %}"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% for key, label in page.tabs %}<a href="?{% qs_replace tab=key %}"{% if key == tab %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
+</nav>

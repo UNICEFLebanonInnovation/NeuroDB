@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block page_header %}{% endblock %}
+{% block content %}
+{# the whole page is one element: a new year or round replaces it (htmx on the period form, a plain GET without JS) #}
+<div id="edu-page">
+<div class="page-header">
+  <nav aria-label="{% trans 'Breadcrumb' %}">
+    <ol class="breadcrumb">{% for crumb in breadcrumbs %}<li class="breadcrumb-item{% if forloop.last %} active{% endif %}"{% if forloop.last %} aria-current="page"{% endif %}>{{ crumb.label }}</li>{% endfor %}</ol>
+  </nav>
+  <div class="page-header__row">
+    <div class="page-header__titles">
+      <h1 class="page-title">{{ page_title }}</h1>
+      <p class="page-subtitle">{{ page.subtitle }}</p>
+    </div>
+    {% if periods %}
+    <div class="page-actions align-items-center gap-3">
+      {% if record %}{% with when=record.counted_at|default:record.fetched_at %}<span class="small text-muted">{% trans "Last data update" %} <time datetime="{{ when|date:'c' }}">{{ when|date:"d/m/Y H:i" }}</time></span>{% endwith %}{% endif %}
+      <form method="get" action="{{ request.path }}" class="d-flex align-items-center gap-2" hx-get="{{ request.path }}" hx-trigger="change" hx-target="#edu-page" hx-select="#edu-page" hx-swap="outerHTML" hx-push-url="true" hx-include="#edu-filters [data-keep]">
+        <input type="hidden" name="tab" value="{{ tab }}">
+        <label class="form-label small fw-semibold mb-0" for="edu-period">{{ page.period_label }}</label>
+        <select class="form-select form-select-sm w-auto" id="edu-period" name="{{ page.period_param }}">
+          {% for p in periods %}<option value="{{ p }}"{% if p == period %} selected{% endif %}>{{ p }}</option>{% endfor %}
+        </select>
+        <noscript><button type="submit" class="btn btn-outline-secondary btn-sm">{% trans "Show" %}</button></noscript>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if not periods %}
+<section class="panel">
+  {% if configured %}
+  {% include "components/empty_state.html" with icon="book" title=_("No education figures yet") message=_("They are read from Compiler by the job “Read the education figures from Compiler” (admin → Import and sync runs → Run a job). Compiler counts at night; a year it has not counted yet arrives at the next run.") %}
+  {% else %}
+  {% include "components/empty_state.html" with icon="book" title=_("Compiler is not connected") message=_("An administrator sets COMPILER_API_URL and COMPILER_API_TOKEN (Key Vault secret compiler-api-token), then runs the job “Read the education figures from Compiler”.") %}
+  {% endif %}
+</section>
+{% elif old_format %}
+<section class="panel">
+  {% include "components/empty_state.html" with icon="refresh" title=_("Compiler sends the older format") message=_("Run the education sync after Compiler is updated: these dashboards need the counts per slicer that Compiler sends from format 2 (admin → Import and sync runs → Run a job → “Read the education figures from Compiler”).") %}
+</section>
+{% else %}
+{% include "education/_tabs.html" %}
+<div class="filters-collapse" data-filters-collapse>{% include "education/_slicers.html" %}</div>
+<div id="edu-results" aria-live="polite">{% include "education/partials/results.html" with inline=True %}</div>
+{% endif %}
+</div>
+{% endblock %}

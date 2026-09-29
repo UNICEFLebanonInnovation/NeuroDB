@@ -1,4 +1,4 @@
-"""Education figures from Compiler (Makani, Bridging): reading blocks, the sync and the page."""
+"""Education figures from Compiler (Makani, Bridging): reading blocks, the sync and the client."""
 
 from itertools import combinations
 
@@ -141,28 +141,15 @@ def test_sync_stores_counted_years_and_waits_for_the_others():
     assert not EducationFigures.objects.exists()
 
 
-def test_page_shows_children_services_attendance(client_viewer):
-    sync(triggered_by="test", client=FakeClient())
-    response = client_viewer.get(reverse("education:dashboard"))
-    assert response.status_code == 200
-    data = response.context["data"]
-    assert (data["children"], data["female"], data["male"], data["partners"]) == (2, 1, 1, 2)
-    assert data["sites"] == 2 and data["staff"] == 3 and data["attendance_rate"] == 80.0
-    assert [(m["month"], m["rate"]) for m in data["months"]] == [("2025-03", 83.3), ("2025-04", 75.0)]
-    education = next(s for s in data["services"] if s["label"] == "Education")
-    assert (education["people"], education["female"], education["male"]) == (2, 1, 1)
-    assert data["matrix"][0] == {"age_group": "6-9", "female": 1, "male": None, "other": None}
-    assert b"Education programmes" in response.content
-
-    filtered = client_viewer.get(reverse("education:dashboard"), {"partner": "6"}).context["data"]
-    assert filtered["children"] == 1 and filtered["male"] == 0
-    by_place = client_viewer.get(reverse("education:dashboard"), {"governorate": "20"}).context["data"]
-    assert by_place["children"] == 2
-    assert "partner" in [b["key"] for b in by_place["breakdowns"]]
+def test_synced_older_format_asks_for_the_newer_one(client_viewer):
+    sync(triggered_by="test", client=FakeClient())  # a Compiler that sends format 1 (no cubes)
+    response = client_viewer.get(reverse("education:makani"))
+    assert response.status_code == 200 and response.context["period"] == "2025"
+    assert b"Compiler sends the older format" in response.content
 
 
 def test_page_without_figures_says_how_to_connect(client_viewer):
-    response = client_viewer.get(reverse("education:dashboard"))
+    response = client_viewer.get(reverse("education:makani"))
     assert response.status_code == 200 and b"Compiler is not connected" in response.content
 
 

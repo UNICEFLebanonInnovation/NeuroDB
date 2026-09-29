@@ -1,0 +1,17 @@
+{% load i18n ui %}
+<p class="caveat">{% blocktrans with children=data.kpis.children|number count n=data.kpis.schools %}{{ n }} school under these filters, {{ children }} children enrolled in Dirasa there.{% plural %}{{ n }} schools under these filters, {{ children }} children enrolled in Dirasa there.{% endblocktrans %}{% if data.unlocated %} {% blocktrans count n=data.unlocated %}{{ n }} school without a GPS point is in the table only.{% plural %}{{ n }} schools without a GPS point are in the table only.{% endblocktrans %}{% endif %}</p>
+<section class="panel mb-3">
+  <div class="panel__header"><h2 class="panel__title">{% trans "Dirasa schools distribution" %}</h2><span class="panel__hint">{% trans "coloured by school type" %}</span></div>
+  <section class="map-shell" data-module="edumap" data-config="edu-map-schools" aria-label="{% trans 'Map of the Dirasa schools under these filters, coloured by school type; the table below lists them' %}">
+    <div class="map" data-map-canvas></div>
+    <div class="map-legend" data-map-legend hidden></div>
+  </section>
+</section>
+<section class="panel p-0 mb-3">
+  {% include "components/table_toolbar.html" with title=_("Schools") count=data.school_rows|length table_id="edu-schools" filename="dirasa-schools" %}
+  <div class="table-wrap table-wrap--tall"><table class="table table-sm mb-0" id="edu-schools" data-sortable>
+    <thead><tr><th>{% trans "School" %}</th><th>{% trans "Type" %}</th><th>{% trans "Partners" %}</th><th>{% trans "Governorate" %}</th><th class="num">{% trans "Children registered" %}</th><th class="num">{% trans "In-school children" %}</th></tr></thead>
+    <tbody>{% for r in data.school_rows %}<tr><td>{{ r.name }}{% if not r.located %} <span class="text-muted small">({% trans "no GPS point" %})</span>{% endif %}</td><td>{{ r.type }}</td><td>{{ r.partners }}</td><td>{{ r.governorate }}</td><td class="num" data-value="{{ r.children }}">{{ r.children|number }}</td><td class="num" data-value="{{ r.in_school|default_if_none:'' }}">{{ r.in_school|number }}</td></tr>{% empty %}<tr><td colspan="6" class="text-muted">{% trans "No school under these filters." %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{{ data.points|json_script:"edu-map-schools" }}

@@ -1,0 +1,5 @@
+{% load i18n ui %}
+{% if not inline %}{% include "education/_tabs.html" with oob=True %}{% endif %}
+{% if not_applied %}<p class="caveat" role="note">{% blocktrans with names=not_applied|join:", " %}Not applied on this tab (kept for the other tabs): {{ names }}.{% endblocktrans %}</p>{% endif %}
+{% if data.errors %}<div class="alert alert-warning small" role="status">{% trans "Compiler could not count some parts this time (they show as empty):" %} {{ data.errors|join:", " }}.</div>{% endif %}
+{% include tab_template %}

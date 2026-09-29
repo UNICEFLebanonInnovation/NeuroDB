@@ -1,0 +1,16 @@
+{% load i18n ui %}
+<div class="kpi-grid kpi-grid--icons" style="--kpi-cols: 7">
+  {% trans "Makani centers" as l %}{% trans "With children under these filters" as h %}{% include "components/kpi_tile.html" with label=l value=data.kpis.centers|number icon="home" hint=h %}
+  {% trans "Children enrolled" as l %}{% trans "Registrations: a child may count twice" as h %}{% include "components/kpi_tile.html" with label=l value=data.kpis.children|number icon="child" hint=h %}
+  {% trans "Children with disabilities" as l %}{% include "components/kpi_tile.html" with label=l value=data.kpis.cwd|number icon="accessible" hint="" %}
+  {% trans "Child immunized" as l %}{% trans "Immunization record screened" as h %}{% include "components/kpi_tile.html" with label=l value=data.kpis.immunized|number icon="shield-plus" hint=h %}
+  {% trans "Children screened for malnutrition" as l %}{% trans "With a result recorded" as h %}{% include "components/kpi_tile.html" with label=l value=data.kpis.screened|number icon="ruler" hint=h %}
+  {% trans "Children eating minimum meals" as l %}{% trans "Three meals a day" as h %}{% include "components/kpi_tile.html" with label=l value=data.kpis.minimum_meals|number icon="bowl" hint=h %}
+  {% trans "Children vaccinated" as l %}{% trans "National calendar" as h %}{% include "components/kpi_tile.html" with label=l value=data.kpis.vaccinated|number icon="syringe" hint=h %}
+</div>
+<div class="grid grid--2 mb-3">
+  {% trans "Screened children malnutrition results" as t %}{% trans "No malnutrition result under these filters" as e %}{% include "education/_chart.html" with title=t key="malnutrition" kind="dist" orientation="v" show="value" empty=e %}
+  {% trans "Children with development delays identified" as t %}{% trans "No development delay recorded under these filters" as e %}{% include "education/_chart.html" with title=t key="delays" kind="dist" orientation="h" show="value" empty=e %}
+</div>
+<p class="caveat">{% trans "The answers of each registration's latest health and nutrition record; most are asked of children under 6 only." %}</p>
+{{ data.charts|json_script:"edu-chart-data" }}

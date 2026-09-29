@@ -4,6 +4,10 @@ A payload holds blocks (registrations, services, education programmes, sites, st
 each with the names of its measures (unique children, or attendance days) and one table per
 grouping. A count of unique children is never added up across rows: a question is answered from the
 grouping that holds exactly its filters and its breakdown.
+
+Format 2 adds cubes (records counted per combination of the dashboards' slicers, see cube.py), the
+centers (Makani) or schools (Bridging) with their place, type, emergency status and GPS point, the
+lists that name the cubes' ids, and the Kobo outreach cubes.
 """
 
 from __future__ import annotations
@@ -11,6 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Any
+
+from .cube import Cube
 
 AGE_ORDER = ("Under 6", "6-9", "10-14", "15-17", "18 and over", "Not specified")
 LABELS = {
@@ -74,6 +80,17 @@ class Figures:
     def block(self, name: str) -> Block:
         return Block(self.payload.get("blocks", {}).get(name, {}))
 
+    @property
+    def has_cubes(self) -> bool:
+        """False for a payload of format 1 (sent by a Compiler without the cubes)."""
+        return isinstance(self.payload.get("cubes"), dict)
+
+    def cube(self, name: str) -> Cube:
+        return Cube((self.payload.get("cubes") or {}).get(name))
+
+    def outreach(self, name: str) -> Cube:
+        return Cube(((self.payload.get("outreach") or {}).get("cubes") or {}).get(name))
+
     def _index(self, key: str) -> dict[Any, dict[str, Any]]:
         return {item["id"]: item for item in self.payload.get(key, [])}
 
@@ -101,6 +118,22 @@ class Figures:
     def rounds(self):
         return self._index("rounds")
 
+    @cached_property
+    def centers(self):
+        return {**self.sites, **self._index("centers")}
+
+    @cached_property
+    def schools(self):
+        return {**self.sites, **self._index("schools")}
+
+    @cached_property
+    def id_types(self):
+        return self._index("id_types")
+
+    @cached_property
+    def trainings(self):
+        return self._index("trainings")
+
     def label_of(self, dimension: str, value: Any) -> str:
         if value is None or value == "":
             return "Not specified"
@@ -109,11 +142,13 @@ class Figures:
             "governorate": self.locations,
             "district": self.locations,
             "cadaster": self.locations,
-            "center": self.sites,
-            "school": self.sites,
+            "center": self.centers,
+            "school": self.schools,
             "nationality": self.nationalities,
             "disability": self.disabilities,
             "round": self.rounds,
+            "id_type": self.id_types,
+            "training": self.trainings,
         }
         if dimension in lookups:
             item = lookups[dimension].get(value)

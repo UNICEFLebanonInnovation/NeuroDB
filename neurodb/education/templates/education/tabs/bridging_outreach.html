@@ -1,0 +1,12 @@
+{% load i18n ui %}
+<div class="kpi-grid kpi-grid--icons" style="--kpi-cols: 4">
+  {% trans "Outreached children" as l %}{% if data.kpis.year %}{% blocktrans asvar h with year=data.kpis.year %}Interviewed in {{ year }}{% endblocktrans %}{% else %}{% trans "Every year" as h %}{% endif %}{% include "components/kpi_tile.html" with label=l value=data.kpis.outreached|number icon="route" hint=h %}
+</div>
+<p class="caveat">{% trans "Compiler's Kobo outreach is shared by every programme (Makani, Dirasa and the others) and is not tied to a round: the year is that of the interview, partner and governorate are as typed in the form. Answers left blank are left out of the charts." %}</p>
+<div class="grid grid--2 mb-3">
+  {% trans "Outreached children education status" as t %}{% trans "No outreach answer under these filters" as e %}{% include "education/_chart.html" with title=t key="education_status" kind="dist" orientation="h" show="percent" max_label="40" empty=e %}
+  {% trans "Outreached children referrals" as t %}{% trans "No outreach answer under these filters" as e %}{% include "education/_chart.html" with title=t key="referral" kind="dist" orientation="h" show="percent" max_label="40" empty=e %}
+  {% trans "Initial dropout reasons from parent feedback during outreach" as t %}{% trans "No outreach answer under these filters" as e %}{% include "education/_chart.html" with title=t key="dropout_reason" kind="donut" show="percent" height="380" empty=e %}
+  {% trans "Child ID type" as t %}{% trans "the caregiver's answer" as h %}{% trans "No outreach answer under these filters" as e %}{% include "education/_chart.html" with title=t key="id_type" kind="dist" orientation="v" show="percent" hint=h empty=e %}
+</div>
+{{ data.charts|json_script:"edu-chart-data" }}

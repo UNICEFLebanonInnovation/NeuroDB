@@ -1,0 +1,37 @@
+{% load i18n ui %}
+<div class="grid grid--2 mb-3">
+  <section class="panel">
+    <div class="panel__header"><h2 class="panel__title">{% trans "Enrolled children map" %}</h2><span class="panel__hint">{% trans "children enrolled per governorate (the center's)" %}</span></div>
+    <section class="map-shell map-shell--compact" data-module="edumap" data-config="edu-map-governorates" aria-label="{% trans 'Map of the children enrolled per governorate; the table beside it has the same figures' %}">
+      <div class="map" data-map-canvas></div>
+      <div class="map-legend" data-map-legend hidden></div>
+    </section>
+  </section>
+  <section class="panel p-0">
+    {% include "components/table_toolbar.html" with title=_("Children enrolled per governorate") count=data.governorate_rows|length table_id="edu-governorates" filename="makani-governorates" %}
+    <div class="table-wrap"><table class="table table-sm mb-0" id="edu-governorates" data-sortable>
+      <thead><tr><th>{% trans "Governorate" %}</th><th class="num">{% trans "Children enrolled" %}</th></tr></thead>
+      <tbody>
+        {% for r in data.governorate_rows %}<tr><td>{{ r.label }}{% if not r.mapped %} <span class="text-muted small">({% trans "not on the map" %})</span>{% endif %}</td><td class="num" data-value="{{ r.value }}">{{ r.value|number }}</td></tr>{% empty %}<tr><td colspan="2" class="text-muted">{% trans "No children under these filters." %}</td></tr>{% endfor %}
+        {% if data.unknown_governorate %}<tr><td>{% trans "Not specified" %}</td><td class="num" data-value="{{ data.unknown_governorate }}">{{ data.unknown_governorate|number }}</td></tr>{% endif %}
+      </tbody>
+    </table></div>
+  </section>
+</div>
+{# the centers' table has five columns: the map and the table take the page width, one under the other #}
+<section class="panel mb-3">
+  <div class="panel__header"><h2 class="panel__title">{% trans "Makani centers" %}</h2><span class="panel__hint">{% trans "coloured by governorate" %}{% if data.unlocated %}; {% blocktrans count n=data.unlocated %}{{ n }} center without a GPS point is in the table only{% plural %}{{ n }} centers without a GPS point are in the table only{% endblocktrans %}{% endif %}</span></div>
+  <section class="map-shell map-shell--compact" data-module="edumap" data-config="edu-map-centers" aria-label="{% trans 'Map of the Makani centers with children enrolled under these filters, coloured by governorate; the table below lists them' %}">
+    <div class="map" data-map-canvas></div>
+    <div class="map-legend" data-map-legend hidden></div>
+  </section>
+</section>
+<section class="panel p-0 mb-3">
+  {% include "components/table_toolbar.html" with title=_("Centers") count=data.center_rows|length table_id="edu-centers" filename="makani-centers" %}
+  <div class="table-wrap table-wrap--tall"><table class="table table-sm mb-0" id="edu-centers" data-sortable>
+    <thead><tr><th>{% trans "Center" %}</th><th>{% trans "Partner" %}</th><th>{% trans "Governorate" %}</th><th class="num">{% trans "Children" %}</th><th>{% trans "Active during emergency" %}</th></tr></thead>
+    <tbody>{% for r in data.center_rows %}<tr><td>{{ r.name }}{% if not r.located %} <span class="text-muted small">({% trans "no GPS point" %})</span>{% endif %}</td><td>{{ r.partner }}</td><td>{{ r.governorate }}</td><td class="num" data-value="{{ r.children }}">{{ r.children|number }}</td><td>{{ r.emergency }}</td></tr>{% empty %}<tr><td colspan="5" class="text-muted">{% trans "No center under these filters." %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{{ data.choropleth|json_script:"edu-map-governorates" }}
+{{ data.points|json_script:"edu-map-centers" }}

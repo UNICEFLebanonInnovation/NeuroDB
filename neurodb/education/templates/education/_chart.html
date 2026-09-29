@@ -1,0 +1,6 @@
+{% load i18n %}
+{# one chart panel; the data is data.charts[key], written once per tab as json_script "edu-chart-data" #}
+<section class="panel">
+  <div class="panel__header"><h2 class="panel__title">{{ title }}</h2>{% if hint %}<span class="panel__hint">{{ hint }}</span>{% endif %}</div>
+  <div class="chart{% if size %} chart--{{ size }}{% endif %}" data-module="charts" data-chart="{{ kind }}" data-source="edu-chart-data" data-key="{{ key }}"{% if orientation %} data-orientation="{{ orientation }}"{% endif %}{% if show %} data-show="{{ show }}"{% endif %}{% if palette %} data-palette="{{ palette }}"{% endif %}{% if max_label %} data-max-label="{{ max_label }}"{% endif %}{% if height %} data-height="{{ height }}"{% endif %}{% if center_total %} data-center-total="1"{% endif %} data-empty-title="{% if empty %}{{ empty }}{% else %}{% trans 'No children under these filters' %}{% endif %}" aria-label="{{ title }}"></div>
+</section>

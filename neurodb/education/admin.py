@@ -35,7 +35,8 @@ class EducationFiguresAdmin(ReadOnlyModelAdmin):
 
     @admin.display(description=_("Page"))
     def page(self, obj):
-        url = reverse("education:dashboard")
-        return format_html(
-            '<a href="{}?programme={}&year={}">{}</a>', url, obj.programme, obj.year, _("Open")
-        )
+        if obj.programme == "bridging":
+            url, param = reverse("education:dirasa"), "round"
+        else:
+            url, param = reverse("education:makani"), "year"
+        return format_html('<a href="{}?{}={}">{}</a>', url, param, obj.year, _("Open"))

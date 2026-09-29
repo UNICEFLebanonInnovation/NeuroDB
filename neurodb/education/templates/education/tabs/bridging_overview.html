@@ -1,0 +1,23 @@
+{% load i18n ui %}
+<div class="kpi-grid kpi-grid--icons" style="--kpi-cols: 6">
+  {% trans "Dirasa schools" as l %}{% trans "With children under these filters" as h %}{% include "components/kpi_tile.html" with label=l value=data.kpis.schools|number icon="school" hint=h %}
+  {% trans "Children enrolled in Dirasa" as l %}{% trans "Registrations in the round" as h %}{% include "components/kpi_tile.html" with label=l value=data.kpis.children|number icon="child" hint=h %}
+  {% trans "In-school children" as l %}{% trans "Reported by the schools; child filters do not apply" as h %}{% include "components/kpi_tile.html" with label=l value=data.kpis.in_school|number icon="users" hint=h %}
+  {% trans "CWD in Dirasa" as l %}{% trans "A disability other than “No”" as h %}{% include "components/kpi_tile.html" with label=l value=data.kpis.cwd|number icon="accessible" hint=h %}
+  {% trans "In-school CWD" as l %}{% trans "Reported by the schools; child filters do not apply" as h %}{% include "components/kpi_tile.html" with label=l value=data.kpis.in_school_cwd|number icon="accessible" hint=h %}
+  {% trans "Dirasa teachers" as l %}{% trans "In these schools; child filters do not apply" as h %}{% include "components/kpi_tile.html" with label=l value=data.kpis.teachers|number icon="teacher" hint=h %}
+</div>
+<div class="mb-3">
+  {% trans "Enrolment by gender" as t %}{% include "education/_chart.html" with title=t key="gender" kind="share-bar" size="share" %}
+</div>
+<div class="grid grid--2 mb-3">
+  {% trans "Enrolment by nationality" as t %}{% include "education/_chart.html" with title=t key="nationality" kind="donut" show="both" %}
+  {% trans "Enrolment by governorate" as t %}{% trans "the child's governorate" as h %}{% include "education/_chart.html" with title=t key="governorate" kind="dist" orientation="v" show="percent" hint=h %}
+  {% trans "Type of schools" as t %}{% trans "schools under the school filters" as h %}{% trans "No school under these filters" as e %}{% include "education/_chart.html" with title=t key="school_types" kind="donut" show="both" hint=h empty=e %}
+  {% trans "In-school children nationality breakdown" as t %}{% trans "reported by the schools" as h %}{% trans "The schools did not report these numbers" as e %}{% include "education/_chart.html" with title=t key="in_school_nationality" kind="donut" show="both" hint=h empty=e %}
+</div>
+<div class="mb-3">
+  {% trans "Teacher trainings by topic" as t %}{% trans "teachers of these schools trained on each topic; child filters do not apply" as h %}{% trans "No teacher training recorded for these schools" as e %}{% include "education/_chart.html" with title=t key="trainings" kind="dist" orientation="v" show="value" hint=h empty=e %}
+</div>
+<p class="caveat">{% trans "School filters (school, partner, governorate, school type, active during emergency) choose the schools, and the registrations counted are those of these schools; the child filters (CWD type, nationality, gender) apply to the registrations only." %}</p>
+{{ data.charts|json_script:"edu-chart-data" }}

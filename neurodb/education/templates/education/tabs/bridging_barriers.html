@@ -1,0 +1,9 @@
+{% load i18n ui %}
+<div class="kpi-grid kpi-grid--icons" style="--kpi-cols: 4">
+  {% trans "Children enrolled in Dirasa" as l %}{% trans "Registrations in the round under these filters" as h %}{% include "components/kpi_tile.html" with label=l value=data.kpis.children|number icon="child" hint=h %}
+  {% trans "With a main barrier recorded" as l %}{% trans "Asked at the end of the round when the child missed days" as h %}{% include "components/kpi_tile.html" with label=l value=data.kpis.with_barrier|number icon="alert" hint=h %}
+</div>
+<div class="mb-3">
+  {% trans "Most common barriers of attendance" as t %}{% trans "share of the children with a barrier recorded" as h %}{% trans "No barrier recorded under these filters" as e %}{% include "education/_chart.html" with title=t key="barriers" kind="dist" orientation="v" show="percent" hint=h empty=e %}
+</div>
+{{ data.charts|json_script:"edu-chart-data" }}

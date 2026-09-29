@@ -1,0 +1,12 @@
+{% load i18n ui %}
+<p class="caveat">{% blocktrans with n=data.kpis.children|number c=data.kpis.centers|number %}{{ n }} children enrolled under these filters, in {{ c }} centers. The programme, level and status are those of each registration's latest education service; registrations without one are left out of those two charts.{% endblocktrans %}</p>
+<div class="mb-3">
+  {% trans "Children enrolment per programme and level" as t %}{% include "education/_chart.html" with title=t key="programme_level" kind="dist" orientation="v" show="value" size="lg" max_label="18" %}
+</div>
+<div class="mb-3">
+  {% trans "Children education status upon enrolment" as t %}{% include "education/_chart.html" with title=t key="education_status" kind="donut" show="both" height="460" max_label="46" %}
+</div>
+<div class="mb-3">
+  {% trans "Child identification ID" as t %}{% include "education/_chart.html" with title=t key="id_type" kind="dist" orientation="v" show="percent" max_label="40" %}
+</div>
+{{ data.charts|json_script:"edu-chart-data" }}

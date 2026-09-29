@@ -1,7 +1,7 @@
 // Plotly charts declared in templates:
 //   <div data-module="charts" data-chart="status-donut" data-source="chart-data" data-key="status_counts"></div>
 // The JSON comes from {{ chart_data|json_script:"chart-data" }}. Charts follow the light/dark theme.
-import { cssVar, isDark, loadScript, readJSON } from "./lib.js";
+import { cssVar, debounce, escapeHTML, isDark, loadScript, readJSON } from "./lib.js";
 
 const STATUS_ORDER = ["on_track", "over_target", "off_track", "no_target", "not_reported"];
 const STATUS_VARS = { on_track: "--nd-success", over_target: "--nd-warning", off_track: "--nd-danger", no_target: "--nd-neutral", not_reported: "--nd-muted" };
@@ -77,6 +77,135 @@ const legendFor = (count) => (count >= 2 ? { showlegend: true, legend: { orienta
 
 /** Height for horizontal category charts: the declared minimum, or one row per category. */
 const rowsHeight = (el, count, row = 28, extra = 84) => Math.max(Number(el.dataset.height) || 0, count * row + extra);
+
+function emptyState(el) {
+  window.Plotly?.purge(el);
+  el.innerHTML = `<div class="state state--empty"><p class="state__title">${escapeHTML(el.dataset.emptyTitle || "No data yet")}</p></div>`;
+  return null;
+}
+
+// ---- helpers shared by the category builders (dist, donut, share-bar)
+const CATEGORICAL = 10;
+const DARK_INK = "#0f141b";
+
+/** --nd-cat-1 … --nd-cat-10 (themed in app.css); the fixed PALETTE where a token is missing. */
+const categorical = () => Array.from({ length: CATEGORICAL }, (_, i) => cssVar(`--nd-cat-${i + 1}`) || PALETTE[i]);
+
+/** "#446ab3", "--nd-cat-2" or "var(--nd-cat-2)" -> a colour Plotly can draw. */
+function resolveColor(value) {
+  const text = String(value ?? "").trim();
+  const token = /^var\(\s*(--[\w-]+)\s*\)$/.exec(text)?.[1] || (text.startsWith("--") ? text : "");
+  return token ? cssVar(token) : text;
+}
+
+/** pairs, keeping the colour an item may carry ([{label, value, color}]); a value that is not a number counts 0. */
+function items(data) {
+  const colors = Array.isArray(data) ? data.map((d) => (d && typeof d === "object" && !Array.isArray(d) ? d.color : null)) : [];
+  return pairs(data).map(([label, value], i) => ({ label, value: Number.isFinite(value) ? value : 0, color: colors[i] || null }));
+}
+
+/** Each item its own colour, else the next categorical slot; data-palette="single" paints all in --nd-primary.
+ * A chart read through its legend (keyed: donut, share-bar) paints the items past the tenth in --nd-neutral
+ * rather than a slot already used: an eleventh slice would take the blue of the first, right next to it. */
+function itemColors(el, rows, keyed = false) {
+  if (el.dataset.palette === "single") return rows.map(() => cssVar("--nd-primary"));
+  const palette = categorical();
+  const neutral = cssVar("--nd-neutral") || PALETTE[8];
+  const slot = (i) => (keyed && i >= palette.length ? neutral : palette[i % palette.length]);
+  return rows.map((r, i) => (r.color && resolveColor(r.color)) || slot(i));
+}
+
+const luminance = (hex) =>
+  [0, 2, 4]
+    .map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+    .reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
+
+/** White or near-black text on a fill, whichever contrasts more (WCAG); white on a colour that is not hex. */
+function inkOn(color) {
+  const hex = /^#([0-9a-f]{6})$/i.exec(String(color).trim())?.[1];
+  if (!hex) return "#ffffff";
+  const fill = luminance(hex) + 0.05;
+  return 1.05 / fill >= fill / (luminance(DARK_INK.slice(1)) + 0.05) ? "#ffffff" : DARK_INK;
+}
+
+/** Plotly reads text as light HTML: a label such as "SAM (MUAC <11.5 cm)" must not open a tag. */
+const plotlyText = (text) => String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+const countFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
+/** 9906 -> "9,906" */
+const count = (v) => countFormat.format(v);
+
+/** Whole percent of the total ("27%"); a share that is not zero never shows as "0%". */
+function wholePercent(value, total) {
+  const share = total ? (100 * value) / total : 0;
+  return share > 0 && share < 0.5 ? "<1%" : `${Math.round(share)}%`;
+}
+
+/** The text on a bar or slice for data-show: percent -> "27%", value -> "9,906", both -> "9,906 (27%)". */
+function shownText(show, value, total) {
+  if (show === "value") return count(value);
+  if (show === "both") return `${count(value)} (${wholePercent(value, total)})`;
+  return wholePercent(value, total);
+}
+
+/** A long category label cut near max characters, at a word when one ends close by, with an ellipsis. */
+function shorten(label, max) {
+  if (label.length <= max) return label;
+  const cut = label.slice(0, max - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,;:(/–-]+$/, "")}…`;
+}
+
+/** Words wrapped into lines of about width characters; a line may also break after "-" or "/"
+ * ("Baalbek-Hermel" -> "Baalbek-", "Hermel"). */
+function wrap(label, width) {
+  const parts = label.split(/\s+/).flatMap((word, i) => word.split(/(?<=[-/])(?=.)/).map((part, j) => ({ part, space: i > 0 && j === 0 })));
+  return parts.reduce((lines, { part, space }) => {
+    const last = lines.length - 1;
+    const joined = last >= 0 ? `${lines[last]}${space ? " " : ""}${part}` : "";
+    if (last >= 0 && joined.length <= width) lines[last] = joined;
+    else lines.push(part);
+    return lines;
+  }, []);
+}
+
+/** wrap() kept to count lines, the last one ending with an ellipsis when the label goes on. */
+function clampLines(label, width, count) {
+  const lines = wrap(label, width);
+  if (lines.length <= count) return lines;
+  const kept = lines.slice(0, count);
+  kept[count - 1] = shorten(`${kept[count - 1]} ${lines.slice(count).join(" ")}`, width);
+  return kept;
+}
+
+/** Pixels of a line of chart text: a close enough estimate for 11-12px digits and letters. */
+const textWidth = (chars, size = 12) => chars * size * 0.58;
+
+/** Label, value and percent for the hover of one item. */
+const hoverData = (r, total) => [plotlyText(r.label), count(r.value), plotlyText(wholePercent(r.value, total))];
+const HOVER = "<b>%{customdata[0]}</b><br>%{customdata[1]} (%{customdata[2]})<extra></extra>";
+
+/** A donut's legend goes under it when the box is narrow (charts redraw when the box crosses this width). */
+const NARROW = 480;
+const WIDTH_AWARE = ["dist", "donut"];
+const isNarrow = (el) => (el.clientWidth || NARROW) < NARROW;
+
+/** Pixels of a legend laid under a chart: its items (each a list of lines) flow in rows across width. */
+function legendUnderHeight(entries, width) {
+  const rows = [];
+  let x = width;
+  entries.forEach((lines) => {
+    const item = 40 + textWidth(Math.max(...lines.map((line) => line.length)));
+    if (x + item > width) {
+      rows.push(0);
+      x = 0;
+    }
+    x += item;
+    rows[rows.length - 1] = Math.max(rows[rows.length - 1], lines.length);
+  });
+  return rows.reduce((sum, lines) => sum + lines * 15 + 6, 0);
+}
 
 const BUILDERS = {
   "status-donut"(el, data, labels) {
@@ -622,6 +751,185 @@ const BUILDERS = {
       },
     };
   },
+  // ---- education dashboards: one colour per category, the figure written on each bar or slice
+  dist(el, data) {
+    // pairs or [{label, value, color?}] -> one bar per category, in the order given. data-orientation
+    // v (columns) | h (first item on top); data-show percent | value | both; data-palette categorical |
+    // single; data-max-label (28): longer labels are cut, the hover keeps them whole
+    const rows = items(data);
+    const total = rows.reduce((sum, r) => sum + r.value, 0);
+    if (!total) return emptyState(el);
+    const horizontal = el.dataset.orientation === "h";
+    const show = ["value", "both"].includes(el.dataset.show) ? el.dataset.show : "percent";
+    const max = Number(el.dataset.maxLabel) || 28;
+    const size = rows.length > 20 ? 11 : 12;
+    const short = rows.map((r) => shorten(r.label, max));
+    // columns: the room of one column decides how labels and figures are written (the chart redraws
+    // when its box changes width)
+    const slot = (Math.max(el.clientWidth || 480, 240) - 16) / rows.length;
+    // labels: up to three short lines under each column, else one line that Plotly turns
+    const perLine = Math.floor(slot / textWidth(1));
+    const wrapped = short.map((label) => wrap(label, perLine));
+    const upright = !horizontal && wrapped.every((lines) => lines.length <= 3 && lines.every((line) => line.length <= perLine));
+    const ticks = (upright ? wrapped : short.map((label) => [label])).map((lines) => lines.map(plotlyText).join("<br>"));
+    // figures: "9,906 (25%)" on two lines above a column when that fits it, else turned upright
+    const lines = rows.map((r) => (show === "both" && !horizontal ? [count(r.value), `(${wholePercent(r.value, total)})`] : [shownText(show, r.value, total)]));
+    const widest = Math.max(...lines.flat().map((t) => t.length));
+    const turned = !horizontal && textWidth(widest, size) > slot * 0.95;
+    const text = turned ? rows.map((r) => shownText(show, r.value, total)) : lines.map((l) => l.map(plotlyText).join("<br>"));
+    const index = rows.map((_, i) => i);
+    const values = rows.map((r) => r.value);
+    const grid = cssVar("--nd-border");
+    // the category axis carries the labels by position, so two labels cut to the same text stay two bars
+    const categoryAxis = { tickmode: "array", tickvals: index, ticktext: ticks, showgrid: false, zeroline: false, showline: true, linecolor: grid, ticks: "", fixedrange: true, ...(horizontal ? { autorange: "reversed" } : upright ? { tickangle: 0 } : {}) };
+    const valueAxis = { showgrid: false, zeroline: false, showticklabels: false, rangemode: "tozero", fixedrange: true };
+    // the figures sit past the bar ends: room for them above the columns or right of the bars
+    const longest = Math.max(...rows.map((r) => shownText(show, r.value, total).length));
+    const margin = horizontal
+      ? { t: 4, r: 12 + textWidth(longest, size), b: 8, l: 8 }
+      : { t: turned ? 10 + textWidth(longest, size) : 6 + 16 * Math.max(...lines.map((l) => l.length)), r: 8, b: 8, l: 8 };
+    return {
+      traces: [
+        {
+          type: "bar",
+          orientation: horizontal ? "h" : "v",
+          x: horizontal ? values : index,
+          y: horizontal ? index : values,
+          text: turned ? text.map(plotlyText) : text,
+          textposition: "outside",
+          textangle: turned ? -90 : 0,
+          cliponaxis: false,
+          constraintext: "none",
+          textfont: { color: cssVar("--nd-text"), size },
+          customdata: rows.map((r) => hoverData(r, total)),
+          marker: { color: itemColors(el, rows), line: { width: 0 }, cornerradius: 3 },
+          hovertemplate: HOVER,
+        },
+      ],
+      layout: {
+        bargap: rows.length > 12 ? 0.2 : 0.35,
+        xaxis: horizontal ? valueAxis : categoryAxis,
+        yaxis: horizontal ? categoryAxis : valueAxis,
+        margin,
+        height: horizontal ? rowsHeight(el, rows.length, 30, 24) : Number(el.dataset.height) || undefined,
+      },
+    };
+  },
+  donut(el, data) {
+    // pairs or [{label, value, color?}] -> donut, zeros left out. data-show both ("9,906 (25%)", the
+    // default) | percent | value on each slice, outside the ring when it does not fit inside, none on a
+    // slice under half a percent (the legend and hover have it); legend on the right, under the ring in
+    // a narrow box, its labels on up to two lines of data-max-label (28) characters at most, fewer when the
+    // box is small (one line when two do not fit); the chart grows to hold its legend;
+    // data-center-total="1" writes the total in the hole (data-center-label under it)
+    const rows = items(data).filter((r) => r.value > 0);
+    if (!rows.length) return emptyState(el);
+    const total = rows.reduce((sum, r) => sum + r.value, 0);
+    const show = ["percent", "value"].includes(el.dataset.show) ? el.dataset.show : "both";
+    const max = Number(el.dataset.maxLabel) || 28;
+    const colors = itemColors(el, rows, true);
+    const ink = cssVar("--nd-text");
+    const narrow = isNarrow(el);
+    const width = el.clientWidth || NARROW;
+    // the declared height, else the box's CSS minimum (not its current height, which the last draw set)
+    const height = Number(el.dataset.height) || parseFloat(getComputedStyle(el).minHeight) || 260;
+    // legend lines are also cut to the room they have: beside the ring under half the box (a wider
+    // legend would push into the ring and its labels), under it the whole width
+    const perLine = Math.max(12, Math.min(max, Math.floor(((narrow ? width : 0.45 * width) - 40) / textWidth(1))));
+    const twoLines = rows.map((r) => clampLines(r.label, perLine, 2));
+    const legendHeight = (entries) => (narrow ? legendUnderHeight(entries, width) : entries.flat().length * 15 + entries.length * 6);
+    // one line each when two would not fit: beside the ring the height of the box, under it ~240px
+    const tall = legendHeight(twoLines) > (narrow ? 240 : height - 32);
+    const entries = tall ? rows.map((r) => [shorten(r.label, perLine)]) : twoLines;
+    // the box grows when the legend needs it: beside the ring its full height; under it ~200px of ring on
+    // top, and twice the legend (Plotly gives a legend under the plot half the height, then scrolls it)
+    const needed = narrow ? Math.max(232 + legendHeight(entries), 2 * legendHeight(entries) + 16) : legendHeight(entries) + 32;
+    // a pie adds up slices of the same label: two labels cut to the same text are kept apart
+    const seen = new Set();
+    const labels = entries.map((lines) => {
+      let label = lines.map(plotlyText).join("<br>");
+      while (seen.has(label)) label += "\u200b"; // zero-width space
+      seen.add(label);
+      return label;
+    });
+    const center = el.dataset.centerTotal === "1";
+    const caption = el.dataset.centerLabel ? `<br><span style="font-size:11px">${plotlyText(el.dataset.centerLabel)}</span>` : "";
+    return {
+      traces: [
+        {
+          type: "pie",
+          hole: 0.55,
+          sort: false,
+          direction: "clockwise",
+          labels,
+          values: rows.map((r) => r.value),
+          text: rows.map((r) => {
+            const share = (100 * r.value) / total;
+            if (share < 0.5) return "";
+            // a large slice takes "9,906 (25%)" on two lines, which fits inside the ring more often
+            return show === "both" && share >= 5 ? `${count(r.value)}<br>(${wholePercent(r.value, total)})` : plotlyText(shownText(show, r.value, total));
+          }),
+          textinfo: "text",
+          // inside, or outside when the text would have to shrink; a narrow ring is thin: there large
+          // slices keep their label inside (turned, smaller, or left out) so it never meets the legend
+          textposition: narrow ? rows.map((r) => ((100 * r.value) / total >= 5 ? "inside" : "outside")) : "auto",
+          insidetextorientation: narrow ? "auto" : "horizontal",
+          insidetextfont: { color: colors.map(inkOn) },
+          outsidetextfont: { color: ink },
+          automargin: true,
+          marker: { colors, line: { color: cssVar("--nd-surface"), width: 1.5 } },
+          customdata: rows.map((r) => hoverData(r, total)),
+          hovertemplate: HOVER,
+        },
+      ],
+      layout: {
+        showlegend: true,
+        legend: narrow ? { orientation: "h", x: 0.5, xanchor: "center", y: -0.04, yanchor: "top" } : { orientation: "v", x: 1.04, xanchor: "left", y: 0.5, yanchor: "middle" },
+        margin: { t: 16, r: 8, b: 16, l: 8 },
+        height: Math.max(height, needed),
+        ...(narrow ? { uniformtext: { mode: "hide", minsize: 9 } } : {}),
+        annotations: center ? [{ text: `<b>${count(total)}</b>${caption}`, x: 0.5, y: 0.5, xref: "paper", yref: "paper", showarrow: false, font: { size: 16, color: ink } }] : [],
+      },
+    };
+  },
+  "share-bar"(el, data) {
+    // pairs or [{label, value, color?}] -> one 100% bar split by category, each part labelled
+    // "Female 51%" (hidden when it does not fit; the hover has it), legend above
+    const rows = items(data).filter((r) => r.value > 0);
+    if (!rows.length) return emptyState(el);
+    const total = rows.reduce((sum, r) => sum + r.value, 0);
+    const colors = itemColors(el, rows, true);
+    const max = Number(el.dataset.maxLabel) || 28;
+    const surface = cssVar("--nd-surface");
+    return {
+      traces: rows.map((r, i) => ({
+        type: "bar",
+        orientation: "h",
+        name: plotlyText(shorten(r.label, max)),
+        y: [0],
+        x: [(100 * r.value) / total],
+        text: [plotlyText(`${shorten(r.label, max)} ${wholePercent(r.value, total)}`)],
+        textposition: "inside",
+        insidetextanchor: "middle",
+        textangle: 0,
+        textfont: { color: inkOn(colors[i]), size: 13 },
+        marker: { color: colors[i], line: { color: surface, width: 2 } },
+        customdata: [hoverData(r, total)],
+        hovertemplate: HOVER,
+      })),
+      layout: {
+        barmode: "stack",
+        bargap: 0.2,
+        showlegend: true,
+        legend: { orientation: "h", x: 0, xanchor: "left", y: 1, yanchor: "bottom", traceorder: "normal" },
+        uniformtext: { mode: "hide", minsize: 10 },
+        xaxis: { range: [0, 100], visible: false, fixedrange: true },
+        yaxis: { visible: false, fixedrange: true },
+        margin: { t: 8, r: 4, b: 4, l: 4 },
+        height: Number(el.dataset.height) || 110,
+      },
+    };
+  },
 };
 
 function lookup(source, key) {
@@ -636,7 +944,7 @@ function render(el) {
   if (!builder) throw new Error(`Unknown chart type ${el.dataset.chart}`);
   const empty = data == null || (Array.isArray(data) && !data.length) || (typeof data === "object" && !Array.isArray(data) && !Object.keys(data).length);
   if (empty) {
-    el.innerHTML = `<div class="state state--empty"><p class="state__title">${el.dataset.emptyTitle || "No data yet"}</p></div>`;
+    emptyState(el);
     return;
   }
   const built = builder(el, data, source.labels);
@@ -648,8 +956,36 @@ function render(el) {
 export async function init(el) {
   el.setAttribute("role", el.getAttribute("role") || "img");
   await loadScript("plotly");
+  if (!el.isConnected) return; // swapped out while Plotly loaded
   render(el);
-  document.addEventListener("nd:themechange", () => render(el));
+  let observer = null;
+  const select = el.dataset.select ? document.getElementById(el.dataset.select) : null;
+  const redrawTheme = () => (el.isConnected ? render(el) : release());
+  const redrawSelect = () => render(el);
+  // A chart swapped out by HTMX (a filter change) stops listening and frees its plot; one removed some
+  // other way does so at the next theme change.
+  function release() {
+    document.removeEventListener("nd:themechange", redrawTheme);
+    select?.removeEventListener("change", redrawSelect);
+    observer?.disconnect();
+    window.Plotly?.purge(el);
+  }
+  el.addEventListener("htmx:beforeCleanupElement", (e) => e.target === el && release());
+  document.addEventListener("nd:themechange", redrawTheme);
   // A chart that shows one series at a time redraws when its <select> changes.
-  if (el.dataset.select) document.getElementById(el.dataset.select)?.addEventListener("change", () => render(el));
+  select?.addEventListener("change", redrawSelect);
+  // A donut puts its legend under the ring in a narrow box, columns fit their labels to their width:
+  // they redraw when the box width changes.
+  if (WIDTH_AWARE.includes(el.dataset.chart) && window.ResizeObserver) {
+    let width = el.clientWidth;
+    const redraw = debounce(() => {
+      if (!el.isConnected) return release();
+      const crossed = el.clientWidth < NARROW !== width < NARROW;
+      if (!crossed && Math.abs(el.clientWidth - width) < 24) return;
+      width = el.clientWidth;
+      render(el);
+    }, 200);
+    observer = new ResizeObserver(redraw);
+    observer.observe(el);
+  }
 }

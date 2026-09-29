@@ -1,0 +1,22 @@
+{% load i18n ui %}
+<div class="kpi-grid kpi-grid--icons" style="--kpi-cols: 9">
+  {% trans "Makani centers" as l %}{% trans "With children under these filters" as h %}{% include "components/kpi_tile.html" with label=l value=data.kpis.centers|number icon="home" hint=h %}
+  {% trans "Children enrolled" as l %}{% trans "Registrations: a child may count twice" as h %}{% include "components/kpi_tile.html" with label=l value=data.kpis.children|number icon="child" hint=h %}
+  {% trans "Children enrolled (unique count)" as l %}{% if data.kpis.unique is None %}{% trans "Shown with partner, governorate or center filters only" as h %}{% else %}{% trans "Each child once" as h %}{% endif %}{% include "components/kpi_tile.html" with label=l value=data.kpis.unique|number icon="users" hint=h %}
+  {% trans "Children with disabilities" as l %}{% include "components/kpi_tile.html" with label=l value=data.kpis.cwd|number icon="accessible" hint="" %}
+  {% trans "Working children" as l %}{% include "components/kpi_tile.html" with label=l value=data.kpis.working|number icon="briefcase" hint="" %}
+  {% trans "Married children" as l %}{% include "components/kpi_tile.html" with label=l value=data.kpis.married|number icon="ring" hint="" %}
+  {% trans "Caregiver counselling" as l %}{% trans "One-on-one sessions" as h %}{% include "components/kpi_tile.html" with label=l value=data.kpis.counselling|number icon="chat" hint=h %}
+  {% trans "IDP children" as l %}{% include "components/kpi_tile.html" with label=l value=data.kpis.idp|number icon="tent" hint="" %}
+  {% trans "Program staff" as l %}{% trans "Today's list; place filters only" as h %}{% include "components/kpi_tile.html" with label=l value=data.kpis.staff|number icon="teacher" hint=h %}
+</div>
+<div class="grid grid--2 mb-3">
+  {% trans "Enrolment by governorate" as t %}{% include "education/_chart.html" with title=t key="governorate" kind="dist" orientation="v" show="percent" %}
+  {% trans "Enrolment by nationality" as t %}{% include "education/_chart.html" with title=t key="nationality" kind="donut" show="percent" %}
+  {% trans "Enrolment by gender" as t %}{% include "education/_chart.html" with title=t key="gender" kind="dist" orientation="h" show="percent" size="sm" %}
+  {% trans "Enrolment per package" as t %}{% include "education/_chart.html" with title=t key="package" kind="dist" orientation="v" show="percent" size="sm" %}
+</div>
+<div class="mb-3">
+  {% trans "Makani education programme" as t %}{% trans "latest education service of each registration; those without one left out" as h %}{% include "education/_chart.html" with title=t key="programme" kind="dist" orientation="v" show="value" hint=h %}
+</div>
+{{ data.charts|json_script:"edu-chart-data" }}
