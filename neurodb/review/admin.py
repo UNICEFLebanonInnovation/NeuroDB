@@ -1,20 +1,26 @@
 """The daily reviews in the admin: read-only, with their findings, and a button to run one now."""
 
+import datetime
 from urllib.parse import urlencode
 
 from django.contrib import admin, messages
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.html import format_html
+from django.utils.text import Truncator
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.decorators import action
 from unfold.forms import BaseDialogForm
 
+from neurodb.core.admin import triggered_by_label
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
 from .models import DailyReview, FindingAssignment, ReviewFinding
+
+MISSING_DAYS_LOOKBACK = 14  # the list flags the days without a review in this many past days
 
 
 class RunReviewForm(BaseDialogForm):
@@ -52,13 +58,15 @@ class ReviewFindingInline(TabularInline):
 @admin.register(DailyReview)
 class DailyReviewAdmin(ReadOnlyModelAdmin):
     actions_list = ["run_review_now"]
+    list_before_template = "admin/review/dailyreview/missing_days.html"
     list_display = (
         "date",
         "status_badge",
+        "summary_preview",
         "findings_count",
-        "narrated_by",
+        "narrated_by_display",
         "duration_display",
-        "triggered_by",
+        "triggered_by_display",
     )
     list_filter = ("status", "narrated_by")
     date_hierarchy = "date"
@@ -72,9 +80,57 @@ class DailyReviewAdmin(ReadOnlyModelAdmin):
             obj.get_status_display(), {"succeeded": "ok", "failed": "bad", "running": "info"}.get(obj.status)
         )
 
+    @admin.display(description=_("Summary"))
+    def summary_preview(self, obj):
+        text = obj.summary or obj.error
+        if not text:
+            return "—"
+        first = text.split(". ", 1)[0]  # the first sentence, at most two lines of the list
+        return format_html('<span class="nd-summary-preview">{}</span>', Truncator(first).chars(160))
+
     @admin.display(description=_("Findings"))
     def findings_count(self, obj):
         return obj.findings.count()
+
+    @admin.display(description=_("Narrated by"), ordering="narrated_by")
+    def narrated_by_display(self, obj):
+        if obj.narrated_by == DailyReview.TEMPLATE:
+            return format_html(
+                '<span title="{}">{}</span>',
+                _(
+                    "The AI assistant is switched off or did not answer, so the summary was written from a "
+                    "standard template. The checks and findings are the same."
+                ),
+                _("AI off: standard summary"),
+            )
+        return obj.narrated_by or "—"
+
+    @admin.display(description=_("Triggered by"), ordering="triggered_by")
+    def triggered_by_display(self, obj):
+        return triggered_by_label(obj.triggered_by)
+
+    def changelist_view(self, request, extra_context=None):
+        today = timezone.localdate()
+        start = today - datetime.timedelta(days=MISSING_DAYS_LOOKBACK)
+        done = set(
+            DailyReview.objects.filter(date__gte=start, status=DailyReview.Status.SUCCEEDED).values_list(
+                "date", flat=True
+            )
+        )
+        first = DailyReview.objects.order_by("date").values_list("date", flat=True).first()
+        missing = []
+        if first:  # from the first review on: before it, the daily review did not exist yet
+            day = max(start, first)
+            while day < today:  # today's review may simply not have run yet
+                if day not in done:
+                    missing.append(day)
+                day += datetime.timedelta(days=1)
+        extra_context = {
+            "missing_days": missing,
+            "lookback_days": MISSING_DAYS_LOOKBACK,
+            **(extra_context or {}),
+        }
+        return super().changelist_view(request, extra_context)
 
     @admin.display(description=_("Duration"))
     def duration_display(self, obj):

@@ -347,3 +347,26 @@ def test_a_broken_decisions_answer_falls_back_to_the_rules(data, settings, monke
     review = run()
     assert review.status == DailyReview.Status.SUCCEEDED
     assert review.decisions == [] and review.decided_by == "rules" and review.summary == "Summary."
+
+
+def test_the_admin_list_previews_the_summary_and_flags_missing_days(client, admin_user):
+    from django.utils import timezone
+
+    today = timezone.localdate()
+    DailyReview.objects.create(
+        date=today - datetime.timedelta(days=3),
+        status="succeeded",
+        summary="Three programme documents are behind. The rest is on track.",
+        narrated_by=DailyReview.TEMPLATE,
+        triggered_by="schedule",
+    )
+    DailyReview.objects.create(
+        date=today - datetime.timedelta(days=1), status="succeeded", summary="All good."
+    )
+    client.force_login(admin_user)
+    html = client.get(reverse("admin:review_dailyreview_changelist")).content.decode()
+    assert "Three programme documents are behind" in html and "The rest is on track" not in html
+    assert "AI off: standard summary" in html and "Scheduler" in html
+    assert "No review for 1 day in the last 14 days" in html
+    missing = today - datetime.timedelta(days=2)
+    assert f"{missing:%a} {missing.day} {missing:%b}" in html

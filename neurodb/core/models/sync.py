@@ -39,6 +39,7 @@ class SyncRun(models.Model):
 
     class Meta:
         ordering = ("-started_at",)
+        verbose_name = "import and sync run"  # the admin menu's name for this list
         indexes = [models.Index(fields=["job", "status", "-started_at"])]
 
     def __str__(self):

@@ -539,6 +539,7 @@ class ProgrammaticVisit(DatamartRecord):
     class Meta:
         ordering = ("-date",)
         verbose_name = "staff trip activity"
+        verbose_name_plural = "staff trip activities"
 
     def __str__(self):
         return f"{self.travel_reference_number} {self.travel_type}"

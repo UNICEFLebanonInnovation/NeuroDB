@@ -195,3 +195,53 @@ def test_admin_login_always_returns_to_the_admin(client, db):
     assert response.status_code == 302
     assert response["Location"].endswith("?next=" + reverse("admin:index").replace("/", "%2F"))
     assert client.get(response["Location"]).status_code == 200
+
+
+def test_needs_attention_lists_the_scheduler_partial_runs_jobs_and_the_daily_review(client_super, database):
+    from neurodb.core.models import ScheduledJob, SchedulerState
+    from neurodb.review.models import DailyReview
+
+    now = timezone.now()
+    database.display = True
+    database.last_monthly_update_date = now - datetime.timedelta(days=60)
+    database.save()
+    run = SyncRun.objects.create(job=SyncRun.Job.ETOOLS, status=SyncRun.Status.PARTIAL, rows_failed=20)
+    SchedulerState.objects.create(pk=1, last_seen_at=now - datetime.timedelta(hours=15))
+    ScheduledJob.objects.filter(key="etools-datamart").update(next_run_at=now - datetime.timedelta(hours=2))
+    DailyReview.objects.create(date=timezone.localdate() - datetime.timedelta(days=3), status="succeeded")
+
+    html = client_super.get(reverse("admin:index")).content.decode()
+
+    assert "Child Protection 2026 was not imported for more than 40 days." in html
+    assert "The last eTools sync succeeded with errors: 20 rows failed." in html
+    assert reverse("admin:core_syncrun_change", args=[run.pk]) in html
+    assert "The scheduler has not checked in for 15" in html and "1 job is overdue." in html
+    assert "Sync eTools (Datamart)” has never run" in html
+    assert "No daily review since" in html and reverse("admin:review_dailyreview_changelist") in html
+
+
+def test_a_running_scheduler_and_fresh_review_raise_no_schedule_warning(client_super):
+    from neurodb.core.models import ScheduledJob, SchedulerState
+    from neurodb.review.models import DailyReview
+
+    SchedulerState.objects.create(pk=1, last_seen_at=timezone.now())
+    ScheduledJob.objects.update(next_run_at=timezone.now() + datetime.timedelta(hours=1))
+    DailyReview.objects.create(date=timezone.localdate(), status="succeeded")
+
+    html = client_super.get(reverse("admin:index")).content.decode()
+
+    warnings = html.split("Needs attention")[1].split("Quick actions")[0]
+    assert "scheduler has not checked in" not in warnings and "Scheduled job" not in warnings
+    assert "No daily review" not in html
+
+
+def test_developer_sections_are_listed_for_superusers_only(client, client_super, admin_user):
+    html = client_super.get(reverse("admin:index")).content.decode()
+    assert "Social applications" in html and "eTools Datamart (read-only)" in html
+    assert "Staff trip activities" in html and "activitys" not in html
+
+    client.force_login(admin_user)
+    html = client.get(reverse("admin:index")).content.decode()
+    assert "Scheduled jobs" in html and "Daily reviews" in html and "Children indicator flags" in html
+    for hidden in ("Social application", "Email addresses", "eTools Datamart (read-only)", "</span>Sites"):
+        assert hidden not in html

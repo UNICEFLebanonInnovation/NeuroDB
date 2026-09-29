@@ -73,7 +73,10 @@
             <tbody>
               {% for j in dashboard.jobs %}
                 <tr>
-                  <th scope="row"><a class="nd-link" href="{% url 'admin:core_syncrun_changelist' %}?job__exact={{ j.job }}">{{ j.label }}</a></th>
+                  <th scope="row">
+                    <a class="nd-link" href="{% url 'admin:core_syncrun_changelist' %}?job__exact={{ j.job }}">{{ j.label }}</a>
+                    {% if j.job == "daily_review" and perms.review.view_dailyreview %}<br><a class="nd-link nd-jobs__more" href="{% url 'admin:review_dailyreview_changelist' %}">{% trans "Read the reviews" %}</a>{% endif %}
+                  </th>
                   <td>{% if j.last %}{% blocktrans with since=j.last.started_at|timesince %}{{ since }} ago{% endblocktrans %}{% else %}—{% endif %}</td>
                   <td>
                     {% if j.last %}

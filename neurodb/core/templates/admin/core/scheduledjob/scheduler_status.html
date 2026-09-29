@@ -4,13 +4,33 @@
   <div>
     {% if not scheduler_enabled %}
       <strong>{% trans "The scheduler is switched off" %}</strong>
-      <p>{% trans "SCHEDULER_ENABLED is false in the application settings: no job runs on its schedule. The Run now buttons still work." %}</p>
+      <p>{% trans "SCHEDULER_ENABLED is false in the application settings: no job runs on its schedule. The Run now and Run due jobs now buttons still work." %}</p>
     {% elif scheduler_alive %}
       <strong>{% trans "The scheduler is running" %}</strong>
       <p>{% blocktrans with when=scheduler_seen|naturaltime host=scheduler_host %}Last check {{ when }}, on {{ host }}. Times are Beirut time; a job starts within a minute of its time, in the background, and appears in Import and sync runs.{% endblocktrans %}</p>
     {% else %}
       <strong>{% trans "The scheduler has not checked in recently" %}</strong>
-      <p>{% if scheduler_seen %}{% blocktrans with when=scheduler_seen|naturaltime %}Last check {{ when }}.{% endblocktrans %} {% endif %}{% trans "It runs inside the website's workers (gunicorn) and checks every 30 seconds. After a deployment or restart it resumes on its own; if this stays, restart the web app and check its log." %}</p>
+      <p>{% if scheduler_seen %}{% blocktrans with when=scheduler_seen|naturaltime %}Last check {{ when }}.{% endblocktrans %} {% endif %}{% trans "It runs inside the website and checks every 30 seconds; after a deployment or restart it resumes on its own within a few minutes. Meanwhile, use Run due jobs now (top right) to start the jobs whose time has passed." %}</p>
+      <p>
+        {% if support_email %}
+          {% blocktrans trimmed %}If this message stays for more than an hour, write to <a class="underline" href="mailto:{{ support_email }}?subject=NeuroDB%20scheduler">{{ support_email }}</a>: the website needs a restart by the team that runs its hosting.{% endblocktrans %}
+        {% else %}
+          {% trans "If this message stays for more than an hour, tell the team that runs NeuroDB's hosting: the website needs a restart." %}
+        {% endif %}
+      </p>
     {% endif %}
   </div>
 </div>
+<p class="nd-list-note">
+  <span class="material-symbols-outlined" aria-hidden="true">info</span>
+  <span>{% trans "The Enabled switch saves as soon as you click it. A switched-off job keeps its schedule but does not start until it is switched on again." %}</span>
+</p>
+<script nonce="{{ request.csp_nonce }}">
+  // An "Enabled" switch saves at once: submit the list's form with its Save button.
+  document.addEventListener("change", function (event) {
+    var input = event.target;
+    if (!input.matches || !input.matches('#changelist-form input[type="checkbox"][name$="-enabled"]')) return;
+    var save = document.querySelector('button[name="_save"][form="changelist-form"]');
+    if (save) save.click();
+  });
+</script>

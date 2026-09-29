@@ -123,18 +123,23 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `activityinfo-structure` | `import_activityinfo_structure --all` | switched off; switch on or use *Run now* after the yearly rollover |
 | (inside `activityinfo-data` and `etools-datamart`) | `link_partners` | at the end of both jobs |
 
-On the page: switch a job on or off (the toggle, then *Save*), open it to change its schedule (five
+On the page: switch a job on or off (the toggle saves at once), open it to change its schedule (five
 cron fields: minute hour day-of-month month day-of-week; the form refuses a schedule it cannot read),
 *Run now* from the row's **⋯** menu, or *Add scheduled job* to run another listed command on a
 schedule (for example the eTools REST sync weekly). Only the commands in that list can be
-scheduled. Each row shows its next run, the last run of its command (a link to the run) and the
-last outcome ("started", or "skipped: the previous run is still going"). Every change records who
-made it (*Updated by*, and the History button).
+scheduled. Each row shows its next run (marked *Overdue* in red when its time passed more than five
+minutes ago without a start) and the last run of its command (a link to the run, or *Never run*),
+with the scheduler's note under it when it could not start the job ("skipped: the previous run is
+still going"). Every change records who made it (*Updated by*, and the History button).
 
 **How it runs.** The scheduler runs inside the website: each gunicorn worker starts it in a thread
 and a database lock lets exactly one of them act, so a job starts once however many workers or
 replicas run. The banner above the list says whether it checked in during the last three minutes,
-and on which host. A due job starts within a minute, in the background, as the admin buttons do,
+and on which host. While it does not, **Run due jobs now** (top right) does one scheduler pass from
+the browser: it starts every switched-on job whose time has passed; the banner names
+`SUPPORT_EMAIL`, when set, as the contact for a restart. The admin home's *Needs attention* lists a
+silent scheduler, overdue or never-run jobs, runs that failed or succeeded with errors, and a
+missing daily review. A due job starts within a minute, in the background, as the admin buttons do,
 and appears in *Import and sync runs* with *schedule* as its trigger. A job whose previous run is
 still going is skipped until its next time. Times missed while the site was down (a deployment, a
 restart) are caught up once when it comes back. It works the same on App Service and Container
@@ -157,7 +162,7 @@ admin home page, *Quick actions*):
 
 | Button | Command it runs | How |
 |---|---|---|
-| **Sync eTools now** | `sync_etools_datamart` (core, all or chosen datasets) | background |
+| **Sync eTools Datamart now** | `sync_etools_datamart` (core, all or chosen datasets) | background |
 | *Scheduled jobs* page → row **⋯** → *Run now* | that job's command | background |
 | Run a job → *eTools REST sync* | `sync_etools` | background |
 | Run a job → *Locations sync* | `sync_locations` | background |
@@ -181,13 +186,13 @@ fixtures into the source code).
 
 ## eTools Datamart
 
-**Running the sync now.** Admin → *Data and sync* → *Import and sync runs* → **Sync eTools now**
+**Running the sync now.** Admin → *Data and sync* → *Import and sync runs* → **Sync eTools Datamart now**
 (administrators): choose *Partners and programme documents* (minutes), *Everything* (up to two
 hours) or *Only the datasets ticked below* (for example `locations` alone after a gazetteer fix).
 It runs in the background in the web container; each dataset appears in that list as it
 finishes. Only one Datamart sync runs at a time (a database lock), whoever starts it. A deployment
 restarts the container and kills a sync in progress: its run stays *Running* until the next
-**Sync eTools now**, which sees that nobody holds the lock, closes the run as *Failed* ("Cut off")
+**Sync eTools Datamart now**, which sees that nobody holds the lock, closes the run as *Failed* ("Cut off")
 and starts. The scheduled job `etools-datamart` (admin → Scheduled jobs) runs it every night.
 From a shell with the same settings: `python manage.py sync_etools_datamart [--only a,b]`.
 
