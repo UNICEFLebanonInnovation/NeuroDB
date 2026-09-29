@@ -16,7 +16,7 @@
   <div class="kpi">
     <div class="kpi__label">{% trans "Cost per child" %}</div>
     <div class="kpi__value">{{ money.cost_per_child|money }}{% if money.cost_per_child_previous is not None %} <span class="kpi__unit">{% blocktrans with v=money.cost_per_child_previous|money %}last year {{ v }}{% endblocktrans %}</span>{% endif %}</div>
-    <div class="kpi__meta"><span class="kpi__hint">{% if money.cost_children %}{% blocktrans with d=money.cost_disbursed|money n=money.cost_children|intcomma %}{{ d }} over {{ n }} children in eTools partner reports (not the headline figure).{% endblocktrans %} {% endif %}{{ money.cost_caveat }}</span></div>
+    <div class="kpi__meta"><span class="kpi__hint">{% if money.cost_children %}{% blocktrans with d=money.cost_disbursed|money n=money.cost_children|intcomma %}{{ d }} disbursed over {{ n }} children in eTools partner reports (not the headline figure). Supplies and running costs included: compare sections, not absolute values.{% endblocktrans %}{% else %}{{ money.cost_caveat }}{% endif %}</span></div>
   </div>
   <div class="kpi">
     <div class="kpi__label">{% trans "Delivery status" %}</div>
