@@ -11,7 +11,7 @@
     <dl class="lineage">
       {% for s in l.sources %}
       <dt>{{ s.label }}</dt>
-      <dd>{% if s.run %}{% blocktrans with n=s.run when=s.when|slice:":16" rows=s.rows|intcomma %}Run {{ n }}, {{ when }}, {{ rows }} rows.{% endblocktrans %}{% else %}{% trans "Never succeeded." %}{% endif %}</dd>
+      <dd>{% if s.run %}{% blocktrans with n=s.run when=s.when|slice:":16" rows=s.rows|intcomma %}Run {{ n }}, {{ when }}, {{ rows }} rows.{% endblocktrans %}{% else %}{% trans "Not yet synced on this server." %}{% endif %}</dd>
       {% endfor %}
       <dt>{% trans "Population figures" %}</dt>
       <dd>{% if l.population_year %}{% blocktrans with y=l.population_year %}{{ y }} estimates.{% endblocktrans %}{% else %}{% trans "None loaded." %}{% endif %}</dd>

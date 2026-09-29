@@ -748,7 +748,7 @@ def programmes(request: HttpRequest) -> HttpResponse:
     context = {
         "page_title": _("Programme documents"),
         "page_subtitle": _("eTools partnerships with their donors, grants and ActivityInfo interventions"),
-        "breadcrumbs": [_crumb(_("Programmes"))],
+        "breadcrumbs": [_crumb(_("Programme documents"))],
         "actions": [
             {"label": _("Summary"), "url": reverse("reports:programme_summary"), "icon": "chart"},
             {
@@ -788,7 +788,10 @@ def programme_summary(request: HttpRequest) -> HttpResponse:
     context = {
         "page_title": _("Programme documents · Summary"),
         "page_subtitle": _("Active partnerships") if scope == "active" else _("All partnerships"),
-        "breadcrumbs": [_crumb(_("Programmes"), reverse("reports:programmes")), _crumb(_("Summary"))],
+        "breadcrumbs": [
+            _crumb(_("Programme documents"), reverse("reports:programmes")),
+            _crumb(_("Summary")),
+        ],
         "scope": scope,
         "summary": summary,
         "chart_data": {"by_section": summary["by_section"][:20], "by_type": summary["by_type"]},
@@ -804,7 +807,7 @@ def programme_detail(request: HttpRequest, pk: int) -> HttpResponse:
         "page_title": pd.number or pd.title,
         "page_subtitle": pd.title,
         "breadcrumbs": [
-            _crumb(_("Programmes"), reverse("reports:programmes")),
+            _crumb(_("Programme documents"), reverse("reports:programmes")),
             _crumb(pd.number or pd.title),
         ],
         "detail": detail,
@@ -1003,11 +1006,11 @@ def partner_reporting(request: HttpRequest) -> HttpResponse:
     data = datamart.partner_reporting(request.GET)
     page_obj = _paginate(request, data["reports"])
     context = {
-        "page_title": _("Partner reporting"),
+        "page_title": _("Progress reports"),
         "page_subtitle": _(
             "Progress reports submitted by partners in the Partner Reporting Portal, from the eTools Datamart"
         ),
-        "breadcrumbs": [_crumb(_("Partner reporting"))],
+        "breadcrumbs": [_crumb(_("Progress reports"))],
         "data": data,
         "page_obj": page_obj,
         "selected": {key: request.GET.getlist(key) for key in ("status", "report_type")},
@@ -1033,7 +1036,7 @@ def progress_report(request: HttpRequest) -> HttpResponse:
         "report": report,
         "page_title": title,
         "page_subtitle": report.partner_name,
-        "breadcrumbs": [_crumb(_("Partner reporting"), reverse("reports:partner_reporting")), _crumb(title)],
+        "breadcrumbs": [_crumb(_("Progress reports"), reverse("reports:partner_reporting")), _crumb(title)],
     }
     template = "reports/partials/progress_report.html" if request.htmx else "reports/progress_report.html"
     return render(request, template, context)
@@ -1127,7 +1130,7 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
 
 @require_GET
 def pd_monitoring_map(request: HttpRequest) -> HttpResponse:
-    """The partner reporting map: where the filtered PD indicators are implemented and reported."""
+    """The partner monitoring map: where the filtered PD indicators are implemented and reported."""
     filters = pd_monitoring_service.Filters.from_params(request.GET)
     options = pd_monitoring_service.filter_options(filters)
     own_section: list[str] = []
@@ -1140,7 +1143,7 @@ def pd_monitoring_map(request: HttpRequest) -> HttpResponse:
         if own_section and key == "section":
             params.setlist(key, own_section)
     context = {
-        "page_title": _("Partner reporting map"),
+        "page_title": _("Partner monitoring map"),
         "page_subtitle": _(
             "Where the programme documents are implemented: for each location the partner, the PD, "
             "the indicators reported there, the target, what was achieved and whether it is on track"

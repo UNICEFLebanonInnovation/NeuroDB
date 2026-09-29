@@ -150,7 +150,7 @@ def test_empty_data_renders_the_empty_states(client_viewer, reporting_year, monk
         "No children reached by governorate yet",
         "No coverage to show",
         "No decisions pending",
-        "Nothing flagged",
+        "No off-track indicators",
         "No sync has run yet",
         "No indicators for this scope yet",
     ):
@@ -227,3 +227,15 @@ def test_renders_against_the_real_service(client_viewer, reporting_year, hierarc
         'id="overview-chart-data"',
     ):
         assert text in html, text
+
+
+def test_the_page_says_what_it_is_for_and_whether_the_figures_can_be_used(
+    client_viewer, reporting_year, monkeypatch
+):
+    data = empty_data()
+    data["freshness_note"] = "eTools: not yet synced on this server, so its figures may be incomplete."
+    monkeypatch.setattr(overview_service, "build", lambda scope, **kw: data)
+    html = _get(client_viewer, reverse("reports:overview")).text
+    assert 'class="page-purpose"' in html and reverse("reports:brief") in html
+    assert "so its figures may be incomplete" in html
+    assert "data-filters-collapse" in html  # the filters fold behind a button on phones

@@ -27,7 +27,7 @@ def test_a_new_empty_current_year_keeps_the_menus(client_viewer, hierarchy, repo
     reporting_year.save()
     ReportingYear.objects.create(name="2027", year="2027", current=True)
     side = _sidebar(client_viewer.get(reverse("reports:overview")).text)
-    assert "Databases 2026" in side and "Neuro reports 2026" in side and "HPM 2026" in side
+    assert "Databases 2026" in side and "Reports 2026" in side and "HPM reports 2026" in side
     assert reverse("reports:database_dashboard", args=[hierarchy["database"].id]) in side
     assert reverse("reports:report_hpm", args=[hierarchy["report"].id]) in side
 
@@ -54,3 +54,20 @@ def test_the_sidebar_follows_the_chosen_year(client_viewer, hierarchy, section):
     # Without a year, the current one.
     side = _sidebar(client_viewer.get(reverse("reports:overview")).text)
     assert "Databases 2026" in side and current_db in side
+
+
+def test_menu_labels_match_the_page_titles(client_viewer, reporting_year):
+    side = _sidebar(client_viewer.get(reverse("reports:overview")).text)
+    for name, label in (
+        ("reports:pd_monitoring", "Partner monitoring"),
+        ("reports:partner_reporting", "Progress reports"),
+        ("reports:programmes", "Programme documents"),
+    ):
+        assert f"<span>{label}</span>" in side
+        assert f"<title>{label} ·" in client_viewer.get(reverse(name)).text
+
+
+def test_the_search_button_keeps_its_name_as_an_icon(client_viewer, reporting_year):
+    html = client_viewer.get(reverse("reports:overview")).text
+    button = html.split('id="search-trigger"')[1].split(">")[0]
+    assert 'aria-label="Search' in button

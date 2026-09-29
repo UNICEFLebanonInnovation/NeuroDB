@@ -110,8 +110,8 @@ def test_partner_list_shows_the_reporting_sources(client_viewer, linked):
 
 def test_sidebar_separates_the_two_reporting_systems(client_viewer, linked):
     text = client_viewer.get(reverse("reports:partners")).text
-    assert "ActivityInfo reporting" in text and "eTools partner reporting" in text
-    assert "PD indicators" in text and "Progress reports" in text
+    assert "Monthly results (ActivityInfo)" in text and "Partner progress (eTools)" in text
+    assert "Partner monitoring" in text and "Progress reports" in text
 
 
 def test_assistant_partner_details_and_activityinfo_tool(linked):

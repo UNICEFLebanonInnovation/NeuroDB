@@ -1,0 +1,14 @@
+{% load i18n humanize %}
+<li class="review-finding">
+  <span class="review-finding__sev review-finding__sev--{{ f.severity }}" role="img" aria-label="{{ f.get_severity_display }}"></span>
+  <div class="review-finding__body">
+    <div class="review-finding__title">
+      {% if f.url %}<a href="{{ f.url }}">{{ f.title }}</a>{% else %}{{ f.title }}{% endif %}
+      <span class="review-tag review-tag--{{ f.state }}">{{ f.get_state_display }}</span>
+      {% if f.section %}<span class="review-tag">{{ f.section }}</span>{% endif %}
+    </div>
+    {% if f.detail %}<div class="review-finding__detail">{{ f.detail }}</div>{% endif %}
+    {% if f.evidence.read %}<div class="review-finding__evidence">{% trans "Where to look" %}: {{ f.evidence.read }}</div>{% endif %}
+  </div>
+  {% if f.children %}<div class="review-finding__children" title="{% trans 'Children behind target' %}">{{ f.children|intcomma }}</div>{% endif %}
+</li>

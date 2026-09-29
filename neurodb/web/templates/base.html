@@ -34,9 +34,10 @@
     {% include "components/logo.html" with height=30 compact=True %}
   </a>
   {% if user.is_authenticated and not is_donor %}
-  <button type="button" class="search-trigger" id="search-trigger" aria-haspopup="dialog" aria-controls="search-modal">
+  {% if AI_ASSISTANT_ENABLED %}{% trans "Search or ask a question" as search_label %}{% else %}{% trans "Search indicators, databases, reports" as search_label %}{% endif %}
+  <button type="button" class="search-trigger" id="search-trigger" aria-haspopup="dialog" aria-controls="search-modal" aria-label="{{ search_label }}" title="{{ search_label }}">
     {% include "components/icon.html" with name="search" %}
-    <span class="search-trigger__label">{% if AI_ASSISTANT_ENABLED %}{% trans "Search or ask a question" %}{% else %}{% trans "Search indicators, databases, reports" %}{% endif %}</span>
+    <span class="search-trigger__label">{{ search_label }}</span>
     <kbd class="d-none d-md-inline">Ctrl K</kbd>
   </button>
   {% endif %}
@@ -114,7 +115,7 @@
         {% include "components/icon.html" with name="sparkle" %}<span>{% trans "Ask NeuroDB" %}</span><span class="nav-badge">{% trans "AI" %}</span>
       </a>
       {% endif %}
-      <div class="sidebar__section-title">{% trans "ActivityInfo reporting" %}</div>
+      <div class="sidebar__section-title">{% trans "Monthly results (ActivityInfo)" %}</div>
       <a class="nav-item-link {% active_if 'reports:databases' %}" href="{% url 'reports:databases' %}" {% aria_current 'reports:databases' %}>
         {% include "components/icon.html" with name="database" %}<span>{% trans "ActivityInfo databases" %}</span>
       </a>
@@ -151,7 +152,7 @@
       {% endif %}
       {% if nav.neuro_reports %}
       <details class="sidebar__block" data-nav-key="reports" {% if nav_active.block == "reports" %}open data-nav-active{% endif %}>
-        <summary class="sidebar__block-title"><span>{% trans "Neuro reports" %}{% if nav.neuro_year %} {{ nav.neuro_year.name }}{% endif %}</span><span class="count">{{ nav.neuro_reports|length }}</span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg></summary>
+        <summary class="sidebar__block-title"><span>{% trans "Reports" %}{% if nav.neuro_year %} {{ nav.neuro_year.name }}{% endif %}</span><span class="count">{{ nav.neuro_reports|length }}</span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg></summary>
         <ul class="list-unstyled">
           {% for r in nav.neuro_reports %}
           <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:report_dashboard' 'reports:report_analytical' pk=r.id %}" href="{% url 'reports:report_dashboard' r.id %}" {% aria_current 'reports:report_dashboard' pk=r.id %}>{{ r.name }}</a></li>
@@ -161,7 +162,7 @@
       {% endif %}
       {% if nav.hpm_reports %}
       <details class="sidebar__block" data-nav-key="hpm" {% if nav_active.block == "hpm" %}open data-nav-active{% endif %}>
-        <summary class="sidebar__block-title"><span>{% trans "HPM" %}{% if nav.hpm_year %} {{ nav.hpm_year.name }}{% endif %}</span><span class="count">{{ nav.hpm_reports|length }}</span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg></summary>
+        <summary class="sidebar__block-title"><span>{% trans "HPM reports" %}{% if nav.hpm_year %} {{ nav.hpm_year.name }}{% endif %}</span><span class="count">{{ nav.hpm_reports|length }}</span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg></summary>
         <ul class="list-unstyled">
           {% for r in nav.hpm_reports %}
           <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:report_hpm' pk=r.id %}" href="{% url 'reports:report_hpm' r.id %}" {% aria_current 'reports:report_hpm' pk=r.id %}>{{ r.name }}</a></li>
@@ -170,15 +171,15 @@
       </details>
       {% endif %}
       <div class="sidebar__section-title">{% trans "Partnerships" %}</div>
-      <a class="nav-item-link {% active_if 'reports:programmes' 'reports:programme_summary' 'reports:programme_detail' %}" href="{% url 'reports:programmes' %}" {% aria_current 'reports:programmes' %}>{% include "components/icon.html" with name="file" %}<span>{% trans "Programmes" %}</span></a>
+      <a class="nav-item-link {% active_if 'reports:programmes' 'reports:programme_summary' 'reports:programme_detail' %}" href="{% url 'reports:programmes' %}" {% aria_current 'reports:programmes' %}>{% include "components/icon.html" with name="file" %}<span>{% trans "Programme documents" %}</span></a>
       <a class="nav-item-link {% active_if 'reports:donors' %}" href="{% url 'reports:donors' %}" {% aria_current 'reports:donors' %}>{% include "components/icon.html" with name="gift" %}<span>{% trans "Donors" %}</span></a>
       <a class="nav-item-link {% active_if 'reports:partners' 'reports:partner_profile' %}" href="{% url 'reports:partners' %}" {% aria_current 'reports:partners' %}>{% include "components/icon.html" with name="users" %}<span>{% trans "Partners" %}</span></a>
       <a class="nav-item-link {% active_if 'reports:funds' %}" href="{% url 'reports:funds' %}" {% aria_current 'reports:funds' %}>{% include "components/icon.html" with name="database" %}<span>{% trans "Funds" %}</span></a>
       <a class="nav-item-link {% active_if 'reports:assurance' 'reports:engagement_detail' %}" href="{% url 'reports:assurance' %}" {% aria_current 'reports:assurance' %}>{% include "components/icon.html" with name="shield" %}<span>{% trans "Assurance" %}</span></a>
       <a class="nav-item-link {% active_if 'reports:monitoring' %}" href="{% url 'reports:monitoring' %}" {% aria_current 'reports:monitoring' %}>{% include "components/icon.html" with name="eye" %}<span>{% trans "Field monitoring" %}</span></a>
       <a class="nav-item-link {% active_if 'reports:action_points' %}" href="{% url 'reports:action_points' %}" {% aria_current 'reports:action_points' %}>{% include "components/icon.html" with name="check" %}<span>{% trans "Action points" %}</span></a>
-      <div class="sidebar__section-title">{% trans "eTools partner reporting" %}</div>
-      <a class="nav-item-link {% active_if 'reports:pd_monitoring' 'reports:pd_indicator' %}" href="{% url 'reports:pd_monitoring' %}" {% aria_current 'reports:pd_monitoring' %}>{% include "components/icon.html" with name="target" %}<span>{% trans "PD indicators" %}</span></a>
+      <div class="sidebar__section-title">{% trans "Partner progress (eTools)" %}</div>
+      <a class="nav-item-link {% active_if 'reports:pd_monitoring' 'reports:pd_indicator' %}" href="{% url 'reports:pd_monitoring' %}" {% aria_current 'reports:pd_monitoring' %}>{% include "components/icon.html" with name="target" %}<span>{% trans "Partner monitoring" %}</span></a>
       <a class="nav-item-link {% active_if 'reports:partner_reporting' 'reports:progress_report' %}" href="{% url 'reports:partner_reporting' %}" {% aria_current 'reports:partner_reporting' %}>{% include "components/icon.html" with name="file" %}<span>{% trans "Progress reports" %}</span></a>
       <div class="sidebar__section-title">{% trans "Resources" %}</div>
       <a class="nav-item-link {% active_if 'reports:population' %}" href="{% url 'reports:population' %}" {% aria_current 'reports:population' %}>{% include "components/icon.html" with name="chart" %}<span>{% trans "Population" %}</span></a>

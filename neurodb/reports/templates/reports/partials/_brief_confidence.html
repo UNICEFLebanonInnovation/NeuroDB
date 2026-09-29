@@ -18,7 +18,7 @@
       <td>{% include "reports/partials/_brief_bar.html" with value=r.verified_percent threshold=c.thresholds.verified %}</td>
       <td>{% include "reports/partials/_brief_bar.html" with value=r.linked_percent threshold=c.thresholds.linked %}</td>
       <td class="num">{{ r.sync_days|number:0 }}</td>
-      <td><span class="pill pill--sm {% if r.level == 'high' %}pill--success{% elif r.level == 'medium' %}pill--warning{% else %}pill--danger{% endif %}">{% if r.level == 'high' %}{% trans "High" %}{% elif r.level == 'medium' %}{% trans "Medium" %}{% else %}{% trans "Low" %}{% endif %}</span></td>
+      <td><span class="pill pill--sm {% if r.level == 'high' %}pill--success{% elif r.level == 'medium' %}pill--warning{% else %}pill--danger{% endif %}">{% if r.level == 'high' %}{% trans "High" %}{% elif r.level == 'medium' %}{% trans "Medium" %}{% else %}{% trans "Low" %}{% endif %}</span>{% if r.reasons %}<span class="brief-because">{% trans "because" %} {{ r.reasons|join:"; " }}</span>{% endif %}</td>
     </tr>
     {% endfor %}
     </tbody>

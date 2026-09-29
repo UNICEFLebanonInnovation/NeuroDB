@@ -27,7 +27,6 @@
   {% else %}
   {% include "components/empty_state.html" with icon="map" title=_("No children reached by governorate yet") message=_("Partner reports with a location appear here once the eTools Datamart and ActivityInfo imports have run for this scope.") %}
   {% endif %}
-  <p class="source-line">{{ impact.source }}</p>
 </section>
 
 <div class="grid grid--2">
@@ -37,7 +36,6 @@
       <span class="panel__hint">{% if selected.governorate %}{% blocktrans with g=selected.governorate %}Whole-PD achievement and target of the children indicators active in {{ g }} (PRP has no target per location); the marker is the share of the PD period elapsed{% endblocktrans %}{% else %}{% trans "Children indicators by section; the marker is the share of the PD period elapsed" %}{% endif %}</span>
     </div>
     <div class="chart chart--sm" data-module="charts" data-chart="hbars-target" data-source="overview-chart-data" data-key="impact.by_section" data-height="240" data-empty-title="{% trans 'No children indicators with a target' %}" aria-label="{% trans 'Children achieved against target by section' %}"></div>
-    <p class="source-line">{{ impact.source }}</p>
   </section>
   <section class="panel" aria-labelledby="monthly-title">
     <div class="panel__header">
@@ -45,7 +43,6 @@
       <span class="panel__hint">{% trans "eTools progress reports and ActivityInfo records, kept separate" %}</span>
     </div>
     <div class="chart chart--sm" data-module="charts" data-chart="grouped" data-source="overview-chart-data" data-key="impact.monthly" data-height="240" data-empty-title="{% trans 'No monthly values yet' %}" aria-label="{% trans 'Children reached per month by source' %}"></div>
-    <p class="source-line">{{ impact.source }}</p>
   </section>
 </div>
 

@@ -16,7 +16,6 @@
       <div class="mini"><div class="mini__value">{{ tpm.completion_percent|percent:0 }}</div><div class="mini__label">{% trans "Completion" %}</div></div>
     </div>
     <div class="chart chart--sm" data-module="charts" data-chart="grouped" data-source="overview-chart-data" data-key="progress.tpm" data-height="220" data-empty-title="{% trans 'No TPM visits planned this year' %}" aria-label="{% trans 'TPM visits planned, completed and overdue per month' %}"></div>
-    <p class="source-line">{{ data.progress.source }}</p>
   </section>
   <section class="panel" aria-labelledby="ap-title">
     <div class="panel__header">

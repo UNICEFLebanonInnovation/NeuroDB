@@ -4,7 +4,9 @@
 {% if not year %}
   <div class="panel">{% include "components/empty_state.html" with icon="calendar" title=_("No reporting year is configured") message=_("An administrator must mark one reporting year as current in the administration pages.") %}</div>
 {% else %}
-{% include "reports/partials/_brief_filters.html" %}
+{% url 'reports:overview' as overview_url %}
+<p class="page-purpose">{% blocktrans %}To prepare decisions: what to decide and who owns it, how sure the figures are, and which partners and funds need attention. To follow the programme day to day, open the <a href="{{ overview_url }}">overview</a>.{% endblocktrans %}</p>
+<div class="filters-collapse" data-filters-collapse>{% include "reports/partials/_brief_filters.html" %}</div>
 <nav class="brief-tabs" aria-label="{% trans 'Sections of the brief' %}">
   {% for key, label in tabs %}<a href="#brief-{{ key }}">{{ label }}</a>{% endfor %}
 </nav>

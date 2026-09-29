@@ -37,10 +37,10 @@
     </div>
     {% if a.digest %}
     <ul class="digest">
-      <li><span class="attention__sev attention__sev--critical" aria-hidden="true"></span>{% blocktrans count counter=a.digest.new_critical with n=a.digest.reviews %}{{ counter }} new critical finding over {{ n }} reviews.{% plural %}{{ counter }} new critical findings over {{ n }} reviews.{% endblocktrans %}</li>
-      <li><span class="attention__sev attention__sev--good" aria-hidden="true"></span>{% blocktrans count counter=a.digest.resolved %}{{ counter }} finding resolved.{% plural %}{{ counter }} findings resolved.{% endblocktrans %}</li>
+      {% if a.digest.reviews > 1 %}<li><span class="attention__sev attention__sev--critical" aria-hidden="true"></span>{% blocktrans count counter=a.digest.new_critical with d=a.digest.since %}{{ counter }} new critical finding since the review of {{ d }}.{% plural %}{{ counter }} new critical findings since the review of {{ d }}.{% endblocktrans %}</li>{% endif %}
       {% for line in a.digest.trend %}<li><span class="attention__sev attention__sev--info" aria-hidden="true"></span>{{ line }}</li>{% endfor %}
     </ul>
+    {% if a.digest.one_day_findings %}<p class="small text-muted mb-1">{% trans "An indicator newly off track is a finding on the day it turns off track only, so the counts can fall without any finding being resolved." %}</p>{% endif %}
     {% if a.digest.summary %}<p class="small text-muted mb-0">{{ a.digest.summary|truncatechars:280 }}</p>{% endif %}
     {% else %}
     {% include "components/empty_state.html" with icon="sparkle" title=_("No review yet") message=_("The digest reads the last seven daily reviews.") %}

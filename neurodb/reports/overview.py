@@ -45,7 +45,7 @@ from neurodb.web.templatetags.ui import half_up
 logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 120
-CACHE_VERSION = 6
+CACHE_VERSION = 7
 MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 STATUSES = ("on_track", "off_track", "over_target", "no_target", NOT_REPORTED)
 LEVEL_GOVERNORATE = monitoring.LEVEL_GOVERNORATE
@@ -150,6 +150,14 @@ def _levels(values: list[float]) -> list[int]:
     """1..6 for the governorate tiles: the share of the largest value, rounded up (0 stays level 1)."""
     top = max(values, default=0)
     return [max(1, math.ceil(v * 6 / top)) if top else 1 for v in values]
+
+
+def governorate_names() -> dict[str, str]:
+    """``{governorate key: the gazetteer's name}``: one spelling of each governorate on every page."""
+    names = Location.objects.filter(type__admin_level=LEVEL_GOVERNORATE, is_active=True).values_list(
+        "name", flat=True
+    )
+    return {governorate_key(name): name for name in sorted(set(names))}
 
 
 # --------------------------------------------------------------------------------- options
@@ -335,12 +343,14 @@ class _Builder:
         money = self._money(impact)
         delivery = self._delivery()
         progress = self._progress()
+        freshness = self._freshness()
         return {
             "impact": impact,
             "money": money,
             "delivery": delivery,
             "progress": progress,
-            "freshness": self._freshness(),
+            "freshness": freshness,
+            "freshness_note": freshness_note(freshness),
             "scope": {
                 "year": self.year,
                 "sections": list(self.scope.sections),
@@ -425,6 +435,7 @@ class _Builder:
         )
         if self.gov_key:
             keys = {k for k in keys | set(population) if k == self.gov_key}
+        gazetteer_names = governorate_names()
         governorates = []
         for key in keys:
             etools = half_up(by_gov.get(key, 0))
@@ -435,7 +446,9 @@ class _Builder:
                 continue
             governorates.append(
                 {
-                    "name": gov_names.get(key)
+                    # the gazetteer's spelling first, as in the filter ("Beqaa", never "Bekaa" beside it)
+                    "name": gazetteer_names.get(key)
+                    or gov_names.get(key)
                     or population.get(key, (None, None))[0]
                     or activityinfo["names"].get(key)
                     or key,
@@ -1219,7 +1232,7 @@ class _Builder:
         for job in ("ai_data", "etools_datamart", "locations", "daily_review"):
             last = SyncRun.last_success(job)
             if last is None or last.finished_at is None:
-                state, state_label = "unknown", "Never succeeded"
+                state, state_label = "unknown", "Not yet synced"
             elif now - last.finished_at > staleness:
                 state, state_label = "stale", "Stale"
             else:
@@ -1234,6 +1247,27 @@ class _Builder:
                 }
             )
         return out
+
+
+def freshness_note(jobs: list[dict[str, Any]]) -> str:
+    """One plain line under the freshness strip: whether the figures can be used as they are."""
+    sources = [j for j in jobs if j["job"] != "daily_review"]
+    never = [j["label"] for j in sources if j["state"] == "unknown"]
+    stale = [j["label"] for j in sources if j["state"] == "stale"]
+    if not never and not stale:
+        return "Every source synced on time: the figures on this page are current."
+    parts = []
+    if never:
+        its = "its" if len(never) == 1 else "their"
+        parts.append(
+            f"{' and '.join(never)}: not yet synced on this server, so {its} figures may be incomplete."
+        )
+    if stale:
+        its = "its" if len(stale) == 1 else "their"
+        parts.append(f"{' and '.join(stale)}: out of date, so {its} figures may miss recent changes.")
+    if len(never) + len(stale) < len(sources):
+        parts.append("The other figures are current.")
+    return " ".join(parts)
 
 
 def _who(pd: Any) -> str:

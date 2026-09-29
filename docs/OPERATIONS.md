@@ -326,7 +326,7 @@ The run's `details.not_linked` counts, per kind (`partner`, `programme_document`
 `site`, `tpm_activity`, `engagement`), the records whose target is not in NeuroDB yet; the
 `locations` dataset runs first and `link_partners`-style re-runs resolve the rest the next night.
 
-**Partner reporting map** (*eTools partner reporting → PD indicators → Map*): every implementation
+**Partner monitoring map** (*Partner progress (eTools) → Partner monitoring → Map*): every implementation
 location of the filtered indicators, coloured by the worst tracking status there. A location is
 placed by its own eTools coordinates; when it has none, by the nearest parent area that has some
 (drawn hollow, "approximate"); a name alone never places anything, and locations with no
@@ -340,8 +340,8 @@ place. The indicator, programme and partner pages link back to the map for their
 
 Partners reported in ActivityInfo until 2026 and report in eTools/PRP from then on. Both stay:
 the ActivityInfo databases keep their dashboards, analytical views, maps and Neuro/HPM reports
-(sidebar *ActivityInfo reporting*), the eTools reporting has its own pages (sidebar *eTools partner
-reporting*: *PD indicators*, *Progress reports*), and the **partner page** brings the two together
+(sidebar *Monthly results (ActivityInfo)*), the eTools reporting has its own pages (sidebar *Partner
+progress (eTools)*: *Partner monitoring*, *Progress reports*), and the **partner page** brings the two together
 under *Partner reporting*: the eTools implementation monitoring on one side, the ActivityInfo
 history per year and database on the other (each database opens the partner's master indicators by
 month; *map* shows its sites).
@@ -418,7 +418,7 @@ Datamart sync (one entry per donor and grant), so running it does not blank the 
 from the synced eTools tables and the ActivityInfo history. Three rows answer three questions, then
 two progress blocks and the daily AI review. The ActivityInfo database cards of the year (one per
 database: indicators, status, records, partners, last import) have their own page, `/databases/`,
-in the sidebar as *ActivityInfo databases* (under *ActivityInfo reporting*, shown even in a year
+in the sidebar as *ActivityInfo databases* (under *Monthly results (ActivityInfo)*, shown even in a year
 without databases), with the year's totals and the import runs:
 
 | Row | Blocks | Source |
@@ -473,9 +473,9 @@ management meeting asks for. Eight blocks, one tab each:
 
 | Block | What it shows | Source |
 |---|---|---|
-| Brief | Five tiles with a comparison (children reached against the same months of last year, achievement against the elapsed period, disbursed of reserved, cost per child against last year's PDs, indicators on track against the review 30 days ago), *Things to decide* (up to five decisions chosen and written by the AI daily review from its findings, each with who, when and the findings it rests on, and their owner; without the assistant, the review's five most important open findings), and *Sections at a glance*: one row per section, weakest first, with five status cells (pace: target reached against time elapsed; indicators on track; spending: disbursed against achieved; reporting; confidence), each with an icon, its value and, on hover, its figures (the rules are under the table). *Copy summary* copies the headline figures and decisions as plain text for minutes | The overview blocks of both years, the latest daily review, the finding assignments |
+| Brief | Five tiles with a comparison (children reached against the same months of last year, achievement against the elapsed period, disbursed of reserved, cost per child against last year's PDs, indicators on track against the review 30 days ago), *Things to decide* (up to five decisions chosen and written by the AI daily review from its findings, each with one reason, a suggested owner and when, and the findings it rests on (marked *AI-suggested*; the model's name stays on the stored review only); without the assistant, the review's five most important open findings), and *Sections at a glance*: one row per section, weakest first, with five status cells (pace: target reached against time elapsed; indicators on track; spending: disbursed against achieved; reporting; confidence), each with an icon, its value and, on hover, its figures (the rules are under the table). *Copy summary* copies the headline figures and decisions as plain text for minutes | The overview blocks of both years, the latest daily review, the finding assignments |
 | Ahead or behind | Achievement against the expected point and the Country Programme target per section; the cumulative reach of both sources projected to December at the last three months' pace | PD indicators and PRP reports, ActivityInfo HPM masters, **section plans** |
-| How sure | Confidence per section (indicators reported, PDs verified by a TPM activity or a field monitoring finding, partners linked across sources, days since the eTools sync; High / Medium / Low; Low whenever a value was set aside, see below), the two sources per partner side by side with the gap, quarterly reporting timeliness per partner | PRP reports, TPM activities, monitoring findings, ActivityInfo partner links, sync runs |
+| How sure | Confidence per section (indicators reported, PDs verified by a TPM activity or a field monitoring finding, partners linked across sources, days since the eTools sync; High / Medium / Low, with what keeps it from High next to the badge, e.g. "because partners are not linked to ActivityInfo"; Low whenever a value was set aside, see below), the two sources per partner side by side with the gap, quarterly reporting timeliness per partner | PRP reports, TPM activities, monitoring findings, ActivityInfo partner links, sync runs |
 | Who and where | Children by sex and age band, by nationality and disability against the population share (from the indicators' titles), coverage per governorate, districts with high need and low coverage | Indicator title tags, population figures (governorate and district level), eTools locations |
 | Partners | Scorecard (PDs, reserved, on track, reports on time, action points on time, HACT risk, latest finding, disbursed against achieved), delivery-against-spending bubbles, partnerships that need a decision | The same tables per partner |
 | Money | Donor → section → children reached, grants at risk (unspent balance by expiry, red within 90 days), funded against required per section | Funds reservation lines and headers, grants, **section plans** |
@@ -523,7 +523,10 @@ the navigation.
 Every morning the `daily-review` job (`manage daily_review`) runs fourteen fixed checks over the
 synced data and stores the result as a dated review with its findings (admin → Daily review). The
 overview shows the latest one in its *Daily review* card, with tabs for the day before and the last
-seven days; the card follows the page's section filter (country-wide findings always show).
+seven days; the card follows the page's section filter (country-wide findings always show). The
+programme findings are listed (the first twelve, the rest under *Show more*); the findings about the
+data pipeline (`sync_failures`, `data_quality`, `stale_sources`, `locations_unplaced`) are summed up
+in one *Data problems* line that links to the Data health page.
 
 | Check | What it looks for | Severity |
 |---|---|---|

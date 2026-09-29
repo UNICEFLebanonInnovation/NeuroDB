@@ -22,25 +22,24 @@
   <section class="panel brief-decide" aria-labelledby="decide-title">
     {% with dc=h.decide %}
     <div class="panel__header">
-      <h3 class="panel__title" id="decide-title">{% trans "Things to decide" %}{% if dc.mode == "ai" %} <span class="nav-badge">{% trans "AI" %}</span>{% endif %}</h3>
-      <span class="panel__hint">{% if dc.mode == "ai" %}{% blocktrans with d=dc.review_date %}Chosen and written by the AI daily review of {{ d }} from its findings{% endblocktrans %}{% elif dc.mode == "rules" %}{% blocktrans with d=dc.review_date %}The daily review of {{ d }}: its most important open findings (the AI did not choose decisions){% endblocktrans %}{% endif %}</span>
+      <h3 class="panel__title" id="decide-title">{% trans "Things to decide" %}{% if dc.mode == "ai" %} <span class="nav-badge">{% trans "AI-suggested" %}</span>{% endif %}</h3>
+      <span class="panel__hint">{% if dc.mode == "ai" %}{% blocktrans with d=dc.review_date %}Suggested by the AI from the findings of the daily review of {{ d }}{% endblocktrans %}{% elif dc.mode == "rules" %}{% blocktrans with d=dc.review_date %}The daily review of {{ d }}: its most important open findings (the AI did not choose decisions){% endblocktrans %}{% endif %}</span>
     </div>
     {% if dc.other_year %}<p class="small text-muted mb-2">{% trans "From today's review: decisions are about now, whatever year the brief shows." %}</p>{% endif %}
     {% if dc.items %}
-    <p class="small text-muted mb-1">{% blocktrans count n=dc.items|length %}{{ n }} decision{% plural %}{{ n }} decisions{% endblocktrans %}{% if dc.items|length > 2 %} · {% trans "scroll the list for all of them" %}{% endif %}</p>
-    <ol class="decide-list decide-list--scroll" tabindex="0" aria-label="{% trans 'Things to decide (scrolls)' %}">
+    <p class="small text-muted mb-1">{% blocktrans count n=dc.items|length %}{{ n }} decision{% plural %}{{ n }} decisions{% endblocktrans %}</p>
+    <ol class="decide-list" aria-label="{% trans 'Things to decide' %}">
       {% for d in dc.items %}
       <li class="decide">
         <span class="attention__sev attention__sev--{{ d.severity }}" aria-hidden="true"></span>
         <div class="decide__body">
           <div class="attention__title">{% if d.url and not d.findings %}<a href="{{ d.url }}">{{ d.title }}</a>{% else %}{{ d.title }}{% endif %}{% if d.section %} <span class="review-tag">{{ d.section }}</span>{% endif %}</div>
-          {% if d.detail %}<div class="attention__detail">{{ d.detail }}</div>{% endif %}
-          {% if d.who or d.urgency %}<div class="decide__who">{% if d.who %}{% blocktrans with w=d.who %}Who: {{ w }}{% endblocktrans %}{% endif %}{% if d.urgency %}{% if d.who %} · {% endif %}<span class="decide__urgency decide__urgency--{{ d.urgency|slugify }}">{{ d.urgency|capfirst }}</span>{% endif %}</div>{% endif %}
-          {% if d.findings %}<div class="decide__findings">{% trans "Based on:" %} {% for f in d.findings %}<a href="{{ f.url }}">{{ f.title|truncatechars:70 }}</a>{% if not forloop.last %} · {% endif %}{% endfor %}</div>{% endif %}
+          {% if d.detail %}<div class="attention__detail">{% blocktrans with why=d.detail %}Why: {{ why }}{% endblocktrans %}</div>{% endif %}
           <div class="decide__owner">
-            {% if d.owner %}{% blocktrans with o=d.owner %}Owner: {{ o }}{% endblocktrans %}{% if d.due_date %} · {% blocktrans with dd=d.due_date %}due {{ dd }}{% endblocktrans %}{% endif %}{% else %}{% trans "No owner yet" %}{% endif %}
+            {% if d.owner %}{% blocktrans with o=d.owner %}Owner: {{ o }}{% endblocktrans %}{% if d.due_date %} · {% blocktrans with dd=d.due_date %}due {{ dd }}{% endblocktrans %}{% endif %}{% elif d.who %}{% blocktrans with w=d.who %}Owner: {{ w }} (suggested, not assigned yet){% endblocktrans %}{% else %}{% trans "No owner yet" %}{% endif %}{% if d.urgency %} · <span class="decide__urgency decide__urgency--{{ d.urgency|slugify }}">{{ d.urgency|capfirst }}</span>{% endif %}
             {% if user.is_staff %} · <a href="{{ d.assign_url }}">{% if d.owner %}{% trans "Edit" %}{% else %}{% trans "Assign" %}{% endif %}</a>{% endif %}
           </div>
+          {% if d.findings %}<div class="decide__findings">{% trans "Evidence:" %} {% for f in d.findings %}<a href="{{ f.url }}">{{ f.title|truncatechars:70 }}</a>{% if not forloop.last %} · {% endif %}{% endfor %}</div>{% endif %}
         </div>
         <span class="pill pill--sm decide__status decide__status--{{ d.status }}">{{ d.status_label }}</span>
       </li>
@@ -51,7 +50,7 @@
     {% else %}
     {% include "components/empty_state.html" with icon="check" title=_("Nothing to decide") message=_("The latest daily review raised no open critical or warning finding for this selection.") %}
     {% endif %}
-    <p class="source-line">{% if dc.mode == "ai" %}{% blocktrans with m=dc.decided_by %}Written by {{ m }} from the review's open critical and warning findings only; every decision cites its findings, and one with a number not found in them is dropped. Prompts for a decision, not verdicts.{% endblocktrans %}{% else %}{% trans "Critical before warning, then the most children behind target, then new before still open." %}{% endif %}</p>
+    <p class="source-line">{% if dc.mode == "ai" %}{% trans "AI-suggested from the review's open critical and warning findings only; every decision cites its findings, and one with a number not found in them is dropped. Prompts for a decision, not verdicts." %}{% else %}{% trans "Critical before warning, then the most children behind target, then new before still open." %}{% endif %}</p>
     {% endwith %}
   </section>
   <section class="panel" aria-labelledby="scorecard-title">
