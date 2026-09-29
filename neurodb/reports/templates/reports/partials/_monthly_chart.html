@@ -1,0 +1,10 @@
+{% load i18n %}{# Monthly chart of one master indicator at a time (context: chart_data.monthly from facts.monthly_by_indicator). #}
+{% if chart_data.monthly.indicators %}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+  <label class="small text-muted" for="monthly-indicator">{% trans "Indicator" %}</label>
+  <select class="form-select form-select-sm w-auto mw-100" id="monthly-indicator" data-chart-select>
+    {% for i in chart_data.monthly.indicators %}<option value="{{ i.id }}" {% if i.id == chart_data.monthly.default %}selected{% endif %}>{{ i.label }}</option>{% endfor %}
+  </select>
+</div>
+{% endif %}
+<div class="chart chart--sm" data-module="charts" data-chart="monthly" data-key="monthly" data-select="monthly-indicator" data-height="220" data-empty-title="{% trans 'No records yet' %}" aria-label="{% trans 'Reported value and records per month of one indicator' %}"></div>

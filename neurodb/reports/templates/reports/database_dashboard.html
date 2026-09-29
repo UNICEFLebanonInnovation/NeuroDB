@@ -2,11 +2,11 @@
 {% load i18n ui humanize %}
 {% block content %}
 <div class="kpi-grid">
-  {% blocktrans asvar h1 with n=dashboard.totals.with_target %}{{ n }} with a target{% endblocktrans %}{% blocktrans asvar h4 with n=reported %}{{ n }} indicators with data{% endblocktrans %}{% blocktrans asvar h5 with n=dashboard.totals.partners %}{{ n }} partners{% endblocktrans %}
+  {% blocktrans asvar h1 with n=dashboard.totals.with_target %}{{ n }} with a target{% endblocktrans %}{% blocktrans asvar h4 with n=reported total=dashboard.totals.indicators %}{{ n }} of {{ total }} master indicators{% endblocktrans %}{% blocktrans asvar h5 with n=dashboard.totals.partners %}{{ n }} partners{% endblocktrans %}
   {% trans "Master indicators" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=dashboard.totals.indicators hint=h1 status="" %}
   {% trans "On track" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=dashboard.status_counts.on_track status="on_track" %}
   {% trans "Off track" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=dashboard.status_counts.off_track status="off_track" %}
-  {% trans "Reporting" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=reporting_progress unit="%" hint=h4 status="" %}
+  {% trans "Indicators with data" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=reporting_progress unit="%" hint=h4 status="" %}
   {% trans "Records" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=dashboard.totals.reports|intcomma hint=h5 status="" %}
 </div>
 
@@ -14,23 +14,27 @@
   <section class="panel">
     <div class="panel__header"><h2 class="panel__title">{% trans "Tracking status" %}</h2><span class="panel__hint">{% trans "Achievement vs share of the year elapsed" %}</span></div>
     <div class="chart chart--sm" data-module="charts" data-chart="status-donut" data-key="status_counts" data-height="220" aria-label="{% trans 'Indicator status distribution' %}"></div>
+    {% include "reports/partials/_status_legend.html" with counts=dashboard.status_counts %}
   </section>
   <section class="panel">
     <div class="panel__header"><h2 class="panel__title">{% trans "Monthly reporting" %}</h2>
       <span class="panel__hint">{% if dashboard.last_import %}{% blocktrans with when=dashboard.last_import|naturaltime %}Last import {{ when }}{% endblocktrans %}{% else %}{% trans "Never imported" %}{% endif %}</span></div>
-    <div class="chart chart--sm" data-module="charts" data-chart="monthly" data-key="monthly" data-height="220" aria-label="{% trans 'Reported value and records per month' %}"></div>
+    {% include "reports/partials/_monthly_chart.html" %}
   </section>
 </div>
+{% if editor_reports is not None %}
+<p class="editor-note">{% include "components/icon.html" with name="info" %}<span>{% if editor_reports %}{% trans "As a section editor you can add comments to this database's indicators on" %} {% for r in editor_reports %}<a href="{% url 'reports:report_hpm' r.id %}">{{ r.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}. {% trans "Targets and indicator settings are changed by an administrator." %}{% else %}{% trans "As a section editor you can add comments to your section's indicators on an HPM report once this database's indicators are part of one. Targets and indicator settings are changed by an administrator." %}{% endif %}</span></p>
+{% endif %}
 
 <section class="panel p-0">
   <form class="toolbar px-3 pt-3 mb-2" method="get" hx-get="{% url 'reports:database_dashboard' database.id %}" hx-target="#indicator-table" hx-trigger="change, input from:#indicator-q delay:300ms, submit" hx-push-url="true" role="search">
-    <div class="segmented" role="radiogroup" aria-label="{% trans 'Filter by status' %}">
+    <div class="segmented segmented--scroll" role="radiogroup" aria-label="{% trans 'Filter by status' %}">
       <label class="m-0"><input class="visually-hidden" type="radio" name="status" value="" {% if not status %}checked{% endif %}><span>{% trans "All" %}</span></label>
       {% for key, label in labels.items %}
       <label class="m-0"><input class="visually-hidden" type="radio" name="status" value="{{ key }}" {% if status == key %}checked{% endif %}><span>{{ label }}</span></label>
       {% endfor %}
     </div>
-    <input id="indicator-q" class="form-control form-control-sm w-auto" type="search" name="q" value="{{ q }}" placeholder="{% trans 'Filter indicators or AWP codes' %}" aria-label="{% trans 'Filter indicators' %}">
+    <input id="indicator-q" class="form-control form-control-sm w-auto" type="search" name="q" value="{{ q }}" placeholder="{% trans 'Indicator name or AWP code' %}" aria-label="{% trans 'Filter by indicator name or AWP code' %}">
     {% if dashboard.sibling_years %}
     <div class="dropdown ms-auto">
       <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">{% trans "Other years" %}</button>

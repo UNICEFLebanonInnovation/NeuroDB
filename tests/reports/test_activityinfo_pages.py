@@ -46,9 +46,9 @@ def test_dashboard_reporting_counts_ratio_masters_and_status_filter_colours_only
     url = reverse("reports:database_dashboard", args=[hierarchy["database"].id])
     html = client_viewer.get(url + "?status=off_track").text
     tiles = _kpi_classes(html)
-    assert tiles["Master indicators"] == "kpi" and tiles["Reporting"] == "kpi" and tiles["Records"] == "kpi"
-    assert tiles["Off track"] == "kpi kpi--off_track"
-    assert "2 indicators with data" in html  # the ratio master has records too
+    assert tiles["Master indicators"] == "kpi" and tiles["Indicators with data"] == "kpi"
+    assert tiles["Records"] == "kpi" and tiles["Off track"] == "kpi kpi--off_track"
+    assert "2 of 2 master indicators" in html  # the ratio master has records too
 
 
 def test_indicator_detail_zero_target_and_empty_effect(client_viewer, hierarchy):
@@ -60,7 +60,7 @@ def test_indicator_detail_zero_target_and_empty_effect(client_viewer, hierarchy)
     ).text
     target = html.split('<div class="kpi__label">Target</div>', 1)[1].split("</div>", 2)[0]
     assert "—" in target and ">0<" not in target
-    assert "not counted" in html and ">TOTAL<" not in html
+    assert "Not counted" in html and ">TOTAL<" not in html
 
 
 def test_hpm_view_is_only_for_hpm_reports(client_viewer, hierarchy):

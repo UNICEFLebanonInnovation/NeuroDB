@@ -2,7 +2,7 @@
 {# Shared analytical view. Context: pivot_config, saved_views, optional emergency + emergency_url. #}
 <section class="panel" data-module="pivot" data-config="pivot-config" data-views="saved-views" aria-label="{% trans 'Pivot table' %}">
   <div class="toolbar">
-    <div class="segmented" role="group" aria-label="{% trans 'Layout presets' %}">
+    <div class="segmented segmented--scroll" role="group" aria-label="{% trans 'Layout presets' %}">
       <button type="button" data-preset="month" aria-pressed="false">{% trans "By month" %}</button>
       <button type="button" data-preset="governorate" aria-pressed="false">{% trans "By governorate" %}</button>
       <button type="button" data-preset="partner" aria-pressed="false">{% trans "By partner" %}</button>
@@ -10,7 +10,7 @@
       <button type="button" data-preset="demographics" aria-pressed="false">{% trans "Demographics" %}</button>
     </div>
     {% if show_emergency %}
-    <div class="segmented" role="group" aria-label="{% trans 'Emergency filter' %}">
+    <div class="segmented segmented--scroll" role="group" aria-label="{% trans 'Emergency filter' %}">
       <a href="?" {% if not emergency %}aria-current="page"{% endif %}>{% trans "All records" %}</a>
       <a href="?emergency=yes" {% if emergency == "yes" %}aria-current="page"{% endif %}>{% trans "Emergency" %}</a>
       <a href="?emergency=no" {% if emergency == "no" %}aria-current="page"{% endif %}>{% trans "Regular" %}</a>
@@ -33,7 +33,12 @@
       <button type="submit" class="btn btn-primary btn-sm">{% include "components/icon.html" with name="save" %}<span>{% trans "Save view" %}</span></button>
     </form>
   </div>
-  <p class="small text-muted mb-2">{% trans "The pivot adds up reported values. Rows not counted in their master indicator (the parts of a ratio) are left out at first; the value_role filter brings them back. Masters computed as an average, a maximum, a minimum, a count of records or a ratio show a different figure on the dashboard." %}</p>
+  <p class="small text-muted mb-2">{% trans "A pivot row groups the records of one indicator, month, place, partner and breakdown, so the pivot rows do not match the records on the dashboard. The pivot adds up reported values: parts of a ratio are left out at first (the “Counted in master?” filter brings them back), and masters that are not sums (averages, counts, ratios) show a different figure on the dashboard. Totals that would add up different indicators are hidden." %}</p>
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+    <button type="button" class="btn btn-outline-secondary btn-sm" data-pivot-fields aria-expanded="false">{% include "components/icon.html" with name="list" %}<span>{% trans "More fields" %}</span></button>
+    <span class="small text-muted">{% trans "Show every field to drag into rows or columns, or to filter on." %}</span>
+  </div>
+  <p class="alert alert-warning small py-2 mb-2" data-pivot-mix hidden>{% trans "Each figure adds up several indicators with different units. Put “Master indicator” in the rows or columns, or filter it to one indicator." %}</p>
   <div class="pivot-shell" data-pivot-output>{% include "components/skeleton.html" with kind="chart" %}</div>
 </section>
 {{ pivot_config|json_script:"pivot-config" }}

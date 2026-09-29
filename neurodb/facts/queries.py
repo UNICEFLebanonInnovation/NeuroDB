@@ -263,6 +263,7 @@ def analytical_rows(f: FactFilter, *, emergency: str | None = None) -> list[dict
 
 _AREA_SQL = """
 SELECT {code_col} AS code, MAX({name_col}) AS name,
+       MAX(r.location_adminlevel_governorate) AS governorate,
        COUNT(*) AS interventions, COUNT(DISTINCT r.location_name) AS locations,
        COUNT(DISTINCT r.partner_label) AS partners, SUM(r.indicator_value) AS value
 FROM pivoting_activityreportnew r
@@ -282,7 +283,8 @@ def interventions_by_area(f: FactFilter, level: str, **filters: str) -> list[dic
     """Counts and totals per admin area or site (v2 intervention-map and snapshot feeds).
 
     ``level`` is one of governorate, district, cadaster, site (validated). Optional exact-match
-    filters: partner, pd, month, governorate, district.
+    filters: partner, pd, month, governorate, district, and ``indicator`` (a master indicator id:
+    only the records of its TOTAL sub-indicators, so that the value adds up one indicator).
     """
     code_col, name_col = _AREA_COLUMNS[level]
     extra, params = _record_where(f, filters)
@@ -298,6 +300,14 @@ _EXACT_FILTERS = {
 }
 
 
+# The records counted in one master indicator: those of the leaves of its TOTAL sub-indicators.
+_MASTER_RECORDS = """ AND r.indicator_id IN (
+    SELECT i.ai_indicator FROM pivoting_mastersubindicator ms
+    JOIN pivoting_subindicator_indicators si ON si.subindicator_id = ms.sub_id
+    JOIN pivoting_indicatornew i ON i.id = si.indicatornew_id
+    WHERE ms.master_id = %(indicator)s AND ms.effect = 'TOTAL' AND i.database_id = r.dbase_id)"""
+
+
 def _record_where(f: FactFilter, filters: dict[str, str]) -> tuple[str, dict[str, Any]]:
     """The record-only clauses of ``f`` plus the optional exact-match filters of the map pages."""
     extra, params = f.record_sql()
@@ -305,6 +315,10 @@ def _record_where(f: FactFilter, filters: dict[str, str]) -> tuple[str, dict[str
         if key in _EXACT_FILTERS and value:
             extra += f" AND {_EXACT_FILTERS[key]} = %({key})s"
             params[key] = value
+    indicator = str(filters.get("indicator") or "")
+    if indicator.isdigit():
+        extra += _MASTER_RECORDS
+        params["indicator"] = int(indicator)
     return extra, params
 
 
@@ -498,6 +512,35 @@ WHERE ms.effect = 'TOTAL' AND ms.master_id = ANY(%(master_ids)s) AND {where}
   AND r.month_name IS NOT NULL AND length(r.month_name) >= 7
 GROUP BY 1, 2, 3
 """
+
+
+_MASTER_MONTH_PARTS_SQL = """
+WITH {leaf_cte}
+SELECT ms.master_id, ms.effect, substring(l.month_name from 6 for 2) AS month_num,
+       SUM(l.value) AS value, SUM(l.reports) AS reports
+FROM pivoting_mastersubindicator ms
+JOIN pivoting_subindicator_indicators si ON si.subindicator_id = ms.sub_id
+JOIN leaf l ON l.indicator_id = si.indicatornew_id
+WHERE ms.effect IN ('TOTAL', 'NUMERATOR', 'DENOMINATOR')
+  AND l.month_name IS NOT NULL AND length(l.month_name) >= 7
+GROUP BY 1, 2, 3 ORDER BY 1, 2, 3
+"""
+
+
+def master_monthly_parts(f: FactFilter) -> dict[int, dict[str, dict[str, dict[str, float]]]]:
+    """``{master_id: {effect: {"01": {"value": ..., "reports": ...}}}}``: what each master's TOTAL,
+    NUMERATOR and DENOMINATOR sub-indicators add up to per month, with their record counts.
+
+    New in v3 for the monthly chart and the indicator detail, which show one indicator at a time.
+    """
+    where, params = f.sql()
+    out: dict[int, dict[str, dict[str, dict[str, float]]]] = {}
+    for r in _rows(_MASTER_MONTH_PARTS_SQL.format(leaf_cte=_LEAF_CTE.format(where=where)), params):
+        out.setdefault(r["master_id"], {}).setdefault(r["effect"], {})[r["month_num"]] = {
+            "value": float(r["value"] or 0),
+            "reports": int(r["reports"] or 0),
+        }
+    return out
 
 
 def master_values_by_area(f: FactFilter, master_ids: list[int]) -> list[dict[str, Any]]:

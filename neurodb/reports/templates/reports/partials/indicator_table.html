@@ -20,7 +20,7 @@
   {% for i in indicators %}
     <tr id="indicator-{{ i.id }}">
       <td><span class="cell-title">{{ i.label }}</span><span class="cell-sub mono">{{ i.awp_code }}{% if i.reporting_level %} · {{ i.reporting_level }}{% endif %}</span></td>
-      <td><span class="chip">{{ i.aggregation_method|default:"SUM" }}</span></td>
+      <td>{% with m=methods|get_item:i.aggregation_method %}<span class="chip" title="{{ m.help|default:'' }}">{{ m.label|default:i.aggregation_method }}</span>{% endwith %}</td>
       <td class="num" data-value="{{ i.target|default:'' }}">{{ i.target|number }}</td>
       <td class="num" data-value="{{ i.value|default:'' }}">{{ i.value|number }}{% if i.unit %} <span class="text-muted small">{{ i.unit }}</span>{% endif %}</td>
       <td data-value="{{ i.achieved|default:'' }}">

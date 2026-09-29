@@ -11,10 +11,11 @@
     <div class="table-toolbar__title">
       <span class="section-dot" {% if s.database.section.color %}style="--section-color: {{ s.database.section.color }}"{% endif %} aria-hidden="true"></span>
       <h2 class="h6 mb-0" id="rs-{{ s.database.id }}"><a href="{% url 'reports:database_dashboard' s.database.id %}">{{ s.database.label|default:s.database.name }}</a></h2>
-      <span class="small text-muted">{{ s.database.section.name }}</span>
+      {% with section=s.database.section.name|default:"" name=s.database.label|default:s.database.name %}{% if section and section|lower != name|lower %}<span class="small text-muted">{{ section }}</span>{% endif %}{% endwith %}
     </div>
     <div class="table-toolbar__actions">
       <button type="button" class="btn btn-outline-secondary btn-sm" data-table-copy data-table-target="#rt-{{ s.database.id }}">{% include "components/icon.html" with name="copy" %}<span>{% trans "Copy" %}</span></button>
+      <button type="button" class="btn btn-outline-secondary btn-sm" data-table-csv data-table-target="#rt-{{ s.database.id }}" data-filename="report-{{ s.database.id }}-{{ data.month }}">{% include "components/icon.html" with name="download" %}<span>CSV</span></button>
     </div>
   </div>
   <div class="table-wrap"><table class="table table-hover" id="rt-{{ s.database.id }}" data-sortable>
@@ -26,8 +27,8 @@
       <tr>
         <td><span class="cell-title">{{ i.label }}</span><span class="cell-sub mono">{{ i.awp_code }}</span></td>
         <td class="num">{{ i.target|number }}</td>
-        <td class="num">{{ i.value|number }}</td>
-        <td class="num {% if i.delta > 0 %}delta--up{% elif i.delta < 0 %}delta--down{% endif %}" data-value="{{ i.delta }}">{% if i.delta > 0 %}+{% endif %}{{ i.delta|number }}</td>
+        <td class="num">{{ i.value|number:i.digits }}</td>
+        <td class="num {% if i.delta > 0 %}delta--up{% elif i.delta < 0 %}delta--down{% endif %}" data-value="{{ i.delta }}">{% if i.delta > 0 %}+{% endif %}{{ i.delta|number:i.digits }}</td>
         <td data-value="{{ i.achieved|default:'' }}">{% if i.achieved is not None %}<div class="meter"><div class="meter__track"><span class="meter__fill meter__fill--{{ i.tracking }}" style="width: {% if i.achieved > 100 %}100{% else %}{{ i.achieved|floatformat:0 }}{% endif %}%"></span></div><span class="meter__value">{{ i.achieved|percent:0 }}</span></div>{% else %}<span class="text-muted small">—</span>{% endif %}</td>
         <td>{% status_pill i.tracking i.tracking_label "sm" %}</td>
       </tr>

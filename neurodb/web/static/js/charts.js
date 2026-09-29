@@ -94,34 +94,47 @@ const BUILDERS = {
     };
   },
   monthly(el, data) {
-    const rows = Array.isArray(data) ? data : [];
+    // {months, indicators: [{id, label, unit, values, reports}], default}: one indicator at a time
+    // (the indicator picked in the <select> named by data-select), as adding indicators with
+    // different units gave a meaningless total. The records line shares the months, on its own axis.
+    const select = el.dataset.select ? document.getElementById(el.dataset.select) : null;
+    const list = data?.indicators || [];
+    const series = list.find((i) => String(i.id) === String(select?.value ?? data?.default)) || list[0];
+    const months = data?.months || [];
+    if (!series || !months.length) {
+      window.Plotly.purge(el);
+      el.innerHTML = `<div class="state state--empty"><p class="state__title">${el.dataset.emptyTitle || "No data yet"}</p></div>`;
+      return null;
+    }
+    const unit = series.unit ? ` ${series.unit}` : "";
     return {
       traces: [
         {
           type: "bar",
-          x: rows.map((r) => r.month),
-          y: rows.map((r) => num(r.value)),
+          x: months,
+          y: series.values.map((v) => (v === null ? null : num(v))),
           marker: { color: cssVar("--nd-primary"), line: { width: 0 } },
-          hovertemplate: "%{x}: %{y:,.0f}<extra></extra>",
-          name: "Value",
+          hovertemplate: `%{x}: %{y:,.1~f}${unit}<extra></extra>`,
+          name: "Reported in the month",
         },
         {
           type: "scatter",
           mode: "lines+markers",
-          x: rows.map((r) => r.month),
-          y: rows.map((r) => num(r.reports)),
+          x: months,
+          y: series.reports.map(num),
           yaxis: "y2",
-          line: { color: cssVar("--nd-warning"), width: 2, shape: "spline" },
+          line: { color: cssVar("--nd-warning"), width: 2 },
           marker: { size: 5 },
-          hovertemplate: "%{x}: %{y:,} reports<extra></extra>",
-          name: "Reports",
+          hovertemplate: "%{x}: %{y:,} records<extra></extra>",
+          name: "Records",
         },
       ],
       layout: {
         bargap: 0.35,
         showlegend: true,
         legend: { orientation: "h", y: 1.12, x: 0 },
-        yaxis2: { overlaying: "y", side: "right", showgrid: false, tickfont: { color: cssVar("--nd-muted") } },
+        yaxis: { rangemode: "tozero" },
+        yaxis2: { overlaying: "y", side: "right", showgrid: false, rangemode: "tozero", tickfont: { color: cssVar("--nd-muted") } },
         margin: { t: 24, r: 44, b: 36, l: 56 },
       },
     };
@@ -583,4 +596,6 @@ export async function init(el) {
   await loadScript("plotly");
   render(el);
   document.addEventListener("nd:themechange", () => render(el));
+  // A chart that shows one series at a time redraws when its <select> changes.
+  if (el.dataset.select) document.getElementById(el.dataset.select)?.addEventListener("change", () => render(el));
 }

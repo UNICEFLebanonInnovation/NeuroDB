@@ -14,9 +14,10 @@
 </div>
 <div class="grid grid--2 mb-3">
   <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Tracking status" %}</h2></div>
-    <div class="chart chart--sm" data-module="charts" data-chart="status-donut" data-key="status_counts" data-height="220"></div></section>
+    <div class="chart chart--sm" data-module="charts" data-chart="status-donut" data-key="status_counts" data-height="220" aria-label="{% trans 'Indicator status distribution' %}"></div>
+    {% include "reports/partials/_status_legend.html" with counts=dashboard.status_counts %}</section>
   <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Monthly reporting" %}</h2></div>
-    <div class="chart chart--sm" data-module="charts" data-chart="monthly" data-key="monthly" data-height="220"></div></section>
+    {% include "reports/partials/_monthly_chart.html" %}</section>
 </div>
 <section class="panel p-0 mb-3">
   {% include "components/table_toolbar.html" with title=_("Master indicators") count=dashboard.indicators|length table_id="snapshot-indicators" %}
@@ -24,7 +25,7 @@
   <div class="table-wrap"><table class="table" id="snapshot-indicators">
     <thead><tr><th>{% trans "Indicator" %}</th><th class="num">{% trans "Target" %}</th><th class="num">{% trans "Achieved" %}</th><th class="num">%</th><th>{% trans "Status" %}</th></tr></thead>
     <tbody>{% for i in dashboard.indicators %}
-      <tr><td><span class="cell-title">{{ i.label }}</span><span class="cell-sub mono">{{ i.awp_code }}</span></td><td class="num">{{ i.target|number }}</td><td class="num">{{ i.value|number }}</td><td class="num">{{ i.achieved|percent:0 }}</td><td>{% status_pill i.tracking i.tracking_label "sm" %}</td></tr>
+      <tr><td><span class="cell-title">{{ i.label }}</span><span class="cell-sub mono">{{ i.awp_code }}</span></td><td class="num">{{ i.target|number }}</td><td class="num">{{ i.value|number }}{% if i.unit %} <span class="text-muted small">{{ i.unit }}</span>{% endif %}</td><td class="num">{{ i.achieved|percent:0 }}</td><td>{% status_pill i.tracking i.tracking_label "sm" %}</td></tr>
     {% endfor %}</tbody>
   </table></div>
 </section>
@@ -43,7 +44,7 @@
 <section class="panel p-0 mt-3">
   {% include "components/table_toolbar.html" with title=_("Top districts") table_id="snap-districts" %}
   <div class="table-wrap"><table class="table" id="snap-districts"><thead><tr><th>{% trans "District" %}</th><th class="num">{% trans "Records" %}</th><th class="num">{% trans "Sites" %}</th><th class="num">{% trans "Partners" %}</th></tr></thead>
-  <tbody>{% for a in snapshot.by_district %}<tr><td>{{ a.name|default:a.code }}</td><td class="num">{{ a.interventions|number }}</td><td class="num">{{ a.locations|number }}</td><td class="num">{{ a.partners|number }}</td></tr>{% empty %}<tr><td colspan="4" class="text-muted">{% trans "No records" %}</td></tr>{% endfor %}</tbody></table></div>
+  <tbody>{% for a in snapshot.by_district %}<tr><td>{{ a.name|default:a.code }}{% if a.where %} <span class="text-muted small">({{ a.where }})</span>{% endif %}</td><td class="num">{{ a.interventions|number }}</td><td class="num">{{ a.locations|number }}</td><td class="num">{{ a.partners|number }}</td></tr>{% empty %}<tr><td colspan="4" class="text-muted">{% trans "No records" %}</td></tr>{% endfor %}</tbody></table></div>
 </section>
 {{ chart_data|json_script:"chart-data" }}
 {% endblock %}

@@ -21,7 +21,7 @@
       {% for action in actions %}
         {% if action.menu %}
         <div class="dropdown d-inline-block">
-          <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+          <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"{% if action.hint %} title="{{ action.hint }}"{% endif %}>
             {% if action.icon %}{% include "components/icon.html" with name=action.icon %}{% endif %}<span>{{ action.label }}</span>
           </button>
           <ul class="dropdown-menu dropdown-menu-end">
@@ -29,7 +29,7 @@
           </ul>
         </div>
         {% else %}
-        <a class="btn btn-sm {% if action.current %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="{{ action.url }}"{% if action.current %} aria-current="page"{% endif %}>
+        <a class="btn btn-sm {% if action.current %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="{{ action.url }}"{% if action.current %} aria-current="page"{% endif %}{% if action.hint %} title="{{ action.hint }}"{% endif %}>
           {% if action.icon %}{% include "components/icon.html" with name=action.icon %}{% endif %}<span>{{ action.label }}</span>
         </a>
         {% endif %}

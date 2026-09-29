@@ -1,0 +1,2 @@
+{% load ui humanize %}{# The legend of a status donut: every status with its count, zeros included. Context: counts, labels. #}
+<div class="legend status-legend">{% for key, label in labels.items %}<span class="legend__item">{% status_pill key label "sm" %} {{ counts|get_item:key|default:0|intcomma }}</span>{% endfor %}</div>
