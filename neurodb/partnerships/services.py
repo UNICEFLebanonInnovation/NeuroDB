@@ -16,6 +16,13 @@ from .models import PCA, Engagement, PartnerLink, PartnerOrganization, TravelAct
 
 ACTIVE_STATUSES = ("active",)
 EXCLUDED_STATUSES = ("draft",)
+# statuses of a programme document still running; eTools can lag in closing one after its end date
+RUNNING_STATUSES = ("active", "signed", "suspended")
+
+
+def past_end_date(status: str | None, end: datetime.date | None, today: datetime.date | None = None) -> bool:
+    """True for a running programme document whose end date has passed (its status not yet updated)."""
+    return bool(status in RUNNING_STATUSES and end and end < (today or datetime.date.today()))
 
 
 def _to_float(value: Any) -> float:

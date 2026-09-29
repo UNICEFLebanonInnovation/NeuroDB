@@ -234,7 +234,10 @@ def test_partner_page_shows_hact_years_reporting_and_findings(client_viewer, dat
     response = client_viewer.get(reverse("reports:partner_profile", args=[data["partner"].id]))
     text = response.text
     assert "HACT by year" in text and "Partner reporting" in text and "Ineligible expenditure" in text
-    assert response.context["chart_data"]["visits_by_year"] == [(TODAY.year, 1)]
+    assert response.context["chart_data"]["visits_by_year"] == {
+        "labels": [str(TODAY.year)],
+        "series": {"UNICEF staff trips": [1], "Field monitoring": [0], "Third-party monitoring": [0]},
+    }
 
 
 def test_monitoring_page_lists_tpm_activities(client_viewer, data):

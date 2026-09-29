@@ -4,6 +4,10 @@
 {% block content %}
 <h1 class="h4 text-center mb-1">{% trans "Sign in" %}</h1>
 <p class="text-center text-muted small mb-4">{% trans "Programme monitoring for UNICEF Lebanon" %}</p>
+{% comment %}A visitor sent here from a page that needs an account (next=...) is told why. Population,
+Library and Maps are open without an account only when an administrator lists them in PUBLIC_PAGES.{% endcomment %}
+{% url 'reports:population' as population_url %}{% url 'reports:library' as library_url %}{% url 'reports:maps' as maps_url %}
+{% if redirect_field_value %}<div class="alert alert-info py-2 small" role="status">{% if population_url in redirect_field_value %}{% trans "Sign in to see the population figures. They are open to registered users only." %}{% elif library_url in redirect_field_value %}{% trans "Sign in to open the library of reports and documents. It is open to registered users only." %}{% elif maps_url in redirect_field_value %}{% trans "Sign in to see the maps. They are open to registered users only." %}{% else %}{% trans "Sign in to open this page." %}{% endif %}</div>{% endif %}
 {% if SSO_ENABLED %}
 <a class="btn btn-primary w-100 justify-content-center py-2" href="{% provider_login_url 'microsoft' process='login' %}{% if redirect_field_value %}?{{ redirect_field_name }}={{ redirect_field_value|urlencode }}{% endif %}">
   <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="8" fill="currentColor" stroke="none"/><rect x="13" y="3" width="8" height="8" fill="currentColor" stroke="none"/><rect x="3" y="13" width="8" height="8" fill="currentColor" stroke="none"/><rect x="13" y="13" width="8" height="8" fill="currentColor" stroke="none"/></svg>

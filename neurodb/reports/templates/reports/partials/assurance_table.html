@@ -29,7 +29,7 @@
   </table></div>
   {% include "components/pagination.html" with hx_target="#assurance-results" %}
   {% else %}
-  {% include "components/empty_state.html" with icon="shield" title=_("No engagements match") message=_("Change the filters, or run the eTools Datamart sync if the list is empty.") action_url=request.path %}
+  {% include "reports/partials/_datamart_empty.html" with icon="shield" title=_("No engagements match") empty_title=_("No audits or spot checks synced yet") %}
   {% endif %}
 </section>
 {{ chart_data|json_script:"assurance-chart-data" }}

@@ -29,7 +29,7 @@
   </table></div>
   {% include "components/pagination.html" with hx_target="#reporting-results" %}
   {% else %}
-  {% include "components/empty_state.html" with icon="file" title=_("No progress reports match") message=_("Change the filters, or run the eTools Datamart sync if the list is empty.") action_url=request.path %}
+  {% include "reports/partials/_datamart_empty.html" with icon="file" title=_("No progress reports match") empty_title=_("No progress reports synced yet") %}
   {% endif %}
 </section>
 {{ chart_data|json_script:"reporting-chart-data" }}

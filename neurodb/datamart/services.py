@@ -29,6 +29,11 @@ ENGAGEMENT_STATUSES = {
 }
 
 
+# TPM visit statuses that are not (or no longer) planned visits, as the overview counts them
+TPM_NOT_PLANNED = ("draft", "cancelled")
+TPM_COMPLETED = ("tpm_reported", "unicef_approved")
+
+
 def engagement_type_label(code: str) -> str:
     return ENGAGEMENT_TYPES.get(code or "", (code or "—").replace("_", " ").capitalize())
 
@@ -229,6 +234,16 @@ def latest_progress(pd: PCA) -> list[dict[str, Any]]:
     return list(rows.values())
 
 
+def _flag_overdue(points: list[dm.ActionPoint]) -> list[dm.ActionPoint]:
+    """Marks the open action points past their due date, as the Action points page flags them."""
+    today = datetime.date.today()
+    for point in points:
+        point.overdue = bool(
+            point.status in dm.ActionPoint.OPEN_STATUSES and point.due_date and point.due_date < today
+        )
+    return points
+
+
 def programme_datamart(pd: PCA) -> dict[str, Any]:
     lines = list(dm.FundsReservation.objects.filter(intervention=pd))
     action_points = dm.ActionPoint.objects.filter(intervention=pd)
@@ -237,7 +252,7 @@ def programme_datamart(pd: PCA) -> dict[str, Any]:
         **_fr_totals(pd, lines),
         "indicators": indicators_for(dm.PDIndicator.objects.filter(intervention=pd)),
         "workplan": workplan(pd.workplan_activities.all()),
-        "action_points": list(action_points.order_by("status", "due_date")[:50]),
+        "action_points": _flag_overdue(list(action_points.order_by("status", "due_date")[:50])),
         "open_action_points": action_points.filter(status__in=dm.ActionPoint.OPEN_STATUSES).count(),
         "engagements": _with_type_labels(list(pd.datamart_engagements.order_by("-start_date"))),
         "visits": visits_by_year(pd),
@@ -256,6 +271,8 @@ def _monitoring_summary(filters: pd_monitoring.Filters) -> dict[str, Any]:
         "rows": rows,
         "indicators": len(rows),
         "status_counts": {key: counts.get(key, 0) for key in pd_monitoring.LABELS},
+        # ahead of schedule is on track too, as the daily review and the brief count it
+        "on_track_or_ahead": counts.get("on_track", 0) + counts.get("over_target", 0),
         "reported": sum(1 for r in rows if r.reports),
     }
 
@@ -312,10 +329,13 @@ def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
         # over every engagement of the partner, not only the 50 listed
         "engagement_counts": dict(engagement_counts.most_common()),
         "audit_findings": list(partner.audit_findings.order_by("-created")[:20]),
-        "action_points": list(
-            action_points.filter(status__in=dm.ActionPoint.OPEN_STATUSES).order_by("due_date")[:20]
+        "action_points": _flag_overdue(
+            list(action_points.filter(status__in=dm.ActionPoint.OPEN_STATUSES).order_by("due_date")[:20])
         ),
         "open_action_points": action_points.filter(status__in=dm.ActionPoint.OPEN_STATUSES).count(),
+        "overdue_action_points": action_points.filter(
+            status__in=dm.ActionPoint.OPEN_STATUSES, due_date__lt=datetime.date.today()
+        ).count(),
         "tpm_visits": tpm_visits,
         "findings": recent_findings,
         "monitoring_count": len(tpm_visits) + len(recent_findings),
@@ -326,10 +346,78 @@ def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
         "reports": list(progress_reports(partner.reported_indicators.all())[:10]),
         "reports_by_year": reports_by_year(partner.reported_indicators.all()),
         "staff_visits_by_year": sorted(visits.items()),
+        "monitoring_visits_by_year": _monitoring_visits_by_year(partner),
+    }
+
+
+def _monitoring_visits_by_year(partner: PartnerOrganization) -> dict[str, dict[int, int]]:
+    """Field monitoring visits (one per monitoring activity, however many findings it has) and planned
+    third-party visits (drafts and cancelled ones left out) of a partner, per year."""
+    field: Counter[int] = Counter()
+    seen: set[str] = set()
+    for activity, pk, day in (
+        dm.MonitoringFinding.objects.filter(partner=partner)
+        .exclude(end_date=None)
+        .values_list("monitoring_activity", "pk", "end_date")
+    ):
+        key = activity or f"#{pk}"
+        if key not in seen:
+            seen.add(key)
+            field[day.year] += 1
+    tpm: Counter[int] = Counter(
+        day.year
+        for day in dm.TPMVisit.objects.filter(partner=partner)
+        .exclude(start_date=None)
+        .exclude(status__in=TPM_NOT_PLANNED)
+        .values_list("start_date", flat=True)
+    )
+    return {"field": dict(field), "tpm": dict(tpm)}
+
+
+def visits_chart(staff: list[tuple[int, int]], monitoring: dict[str, dict[int, int]]) -> dict[str, Any]:
+    """The partner page's visits card: UNICEF staff trips, field monitoring and third-party visits per
+    year, as grouped bars ({labels, series}); empty when there is none."""
+    staff_by_year = dict(staff)
+    years = sorted(set(staff_by_year) | set(monitoring["field"]) | set(monitoring["tpm"]))
+    if not years:
+        return {}
+    return {
+        "labels": [str(y) for y in years],
+        "series": {
+            "UNICEF staff trips": [staff_by_year.get(y, 0) for y in years],
+            "Field monitoring": [monitoring["field"].get(y, 0) for y in years],
+            "Third-party monitoring": [monitoring["tpm"].get(y, 0) for y in years],
+        },
     }
 
 
 # ------------------------------------------------------------------------------------------ donors
+def grants_by_donor(donors: list[str], grants: list[str] | None = None) -> list[dict[str, Any]]:
+    """The Donors page's main table: each donor's grants (``grants_for_donors``) under a donor row with
+    the total reserved, largest donor first."""
+    rows = grants_for_donors(donors)
+    if grants:
+        rows = [r for r in rows if r["grant"].name in grants]
+    donor_of = {r["grant"].name: r["grant"].donor or "" for r in rows}
+    pds: dict[str, set[int]] = defaultdict(set)
+    for grant, pd_id in (
+        dm.FundsReservation.objects.filter(grant_number__in=list(donor_of))
+        .exclude(intervention=None)
+        .values_list("grant_number", "intervention")
+    ):
+        pds[donor_of[grant]].add(pd_id)
+    by_donor: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        donor = row["grant"].donor or ""
+        entry = by_donor.setdefault(donor, {"donor": donor, "reserved": 0, "grants": []})
+        entry["reserved"] += row["reserved"]
+        entry["grants"].append(row)
+    for entry in by_donor.values():
+        entry["pds"] = len(pds[entry["donor"]])
+        entry["grants"].sort(key=lambda r: -r["reserved"])
+    return sorted(by_donor.values(), key=lambda e: (-e["reserved"], e["donor"]))
+
+
 def grants_for_donors(donors: list[str]) -> list[dict[str, Any]]:
     """Grants with their expiry and the FR amounts reserved against them."""
     reserved = {
@@ -452,6 +540,7 @@ def monitoring(params) -> dict[str, Any]:
     by_month: dict[str, int] = defaultdict(int)
     for day in findings.exclude(end_date=None).values_list("end_date", flat=True):
         by_month[day.strftime("%Y-%m")] += 1
+    planned_visits = visits.exclude(status__in=TPM_NOT_PLANNED)
     activities = dm.TPMActivity.objects.select_related("partner", "intervention")
     staff = dm.ProgrammaticVisit.objects.all()
     if year:
@@ -481,6 +570,9 @@ def monitoring(params) -> dict[str, Any]:
         .count(),
         "tpm_visits": list(visits.order_by("-start_date")[:50]),
         "tpm_count": visits.count(),
+        # planned = not draft or cancelled, the count the overview's third-party monitoring shows
+        "tpm_planned": planned_visits.count(),
+        "tpm_completed": planned_visits.filter(status__in=TPM_COMPLETED).count(),
         "options": {
             "ratings": sorted(
                 x

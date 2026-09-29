@@ -1,37 +1,51 @@
 {% load i18n ui %}
 <div class="kpi-grid">
   {% trans "Programme documents" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=data.count|number %}
-  {% trans "Donor contributions (USD)" as l2 %}{% trans "As listed on the programme documents. Money actually set aside is on the Funds page (reserved), and a programme's budget is on Programmes." as h2 %}{% include "components/kpi_tile.html" with label=l2 value=data.donations_total|number:0 hint=h2 %}
-  {% trans "ActivityInfo records" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.interventions_total|number %}
+  {% trans "Donor contributions (USD)" as l2 %}{% trans "As listed on the programme documents. The money actually set aside is the Reserved column of Grants by donor below, and a programme's budget is on Programmes." as h2 %}{% include "components/kpi_tile.html" with label=l2 value=data.donations_total|number:0 hint=h2 %}
+  {% trans "ActivityInfo records" as l3 %}{% trans "reported against these programme documents" as h3 %}{% include "components/kpi_tile.html" with label=l3 value=data.interventions_total|number hint=h3 %}
   {% trans "Actual locations" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.unique_actual_locations|number %}
   {% blocktrans asvar hint with n=data.planned_locations_unique %}{{ n }} unique{% endblocktrans %}
   {% trans "Planned locations" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=data.planned_locations|number hint=hint %}
 </div>
 <div class="grid grid--2 mb-3">
-  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Funds by donor" %}</h2><span class="panel__hint">{% trans "Top 25" %}</span></div>
+  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Contributions by donor (USD)" %}</h2><span class="panel__hint">{% trans "As listed on the programme documents · top 25" %}</span></div>
     <div class="chart" data-module="charts" data-chart="bars" data-source="donor-chart-data" data-key="funds_by_donor"></div></section>
-  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Funds by start year" %}</h2></div>
-    <div class="chart" data-module="charts" data-chart="bars" data-orientation="v" data-source="donor-chart-data" data-key="funds_by_year"></div>
-    <h3 class="panel__title mt-3">{% trans "Records by governorate" %}</h3>
-    <div class="chart chart--sm" data-module="charts" data-chart="bars" data-source="donor-chart-data" data-key="interventions_by_governorate" data-color="--nd-success"></div></section>
+  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Contributions by start year (USD)" %}</h2><span class="panel__hint">{% trans "The year the programme document starts" %}</span></div>
+    <div class="chart" data-module="charts" data-chart="bars" data-orientation="v" data-source="donor-chart-data" data-key="funds_by_year"></div></section>
 </div>
+<section class="panel p-0 mb-3">
+  <div class="table-toolbar">
+    <div class="table-toolbar__title"><h2 class="h6 mb-0">{% trans "Grants by donor" %}</h2>
+      <span class="text-muted small">{% trans "Reserved: the money set aside in funds reservations against each grant (USD)" %}</span></div>
+    <div class="table-toolbar__actions">
+      <a class="btn btn-outline-secondary btn-sm" href="{{ funds_url }}">{% trans "Funds reservations" %}</a>
+      <button type="button" class="btn btn-outline-secondary btn-sm" data-table-csv data-table-target="#donor-grants" data-filename="donor-grants">{% include "components/icon.html" with name="download" %}<span>{% trans "CSV" %}</span></button>
+    </div>
+  </div>
+  {% if donor_grants %}
+  <div class="table-wrap"><table class="table table-sm" id="donor-grants">
+    <thead><tr><th>{% trans "Donor / grant" %}</th><th>{% trans "Expiry" %}</th><th class="num">{% trans "Programme documents" %}</th><th class="num">{% trans "Reserved (USD)" %}</th></tr></thead>
+    {% for d in donor_grants %}<tbody>
+      <tr class="table-light"><th scope="rowgroup">{{ d.donor|default:_("Donor not given") }} <span class="text-muted fw-normal small">· {% blocktrans count counter=d.grants|length %}{{ counter }} grant{% plural %}{{ counter }} grants{% endblocktrans %}</span></th><td></td><th class="num">{{ d.pds }}</th><th class="num">{{ d.reserved|number:0 }}</th></tr>
+      {% for g in d.grants %}<tr><td class="ps-4"><span class="mono small">{{ g.grant.name }}</span>{% if g.grant.description %}<span class="cell-sub">{{ g.grant.description|truncatechars:80 }}</span>{% endif %}</td>
+        <td class="small text-nowrap">{{ g.grant.expiry|date:"j M Y"|default:"—" }}{% if g.expired %} {% status_pill "failed" _("Expired") "sm" %}{% elif g.expiring %} {% status_pill "stale" _("Expires within 6 months") "sm" %}{% endif %}</td>
+        <td class="num">{{ g.pds }}</td><td class="num">{{ g.reserved|number:0 }}</td></tr>{% endfor %}
+    </tbody>{% endfor %}
+  </table></div>
+  {% else %}
+  {% include "components/empty_state.html" with icon="gift" title=_("No grants to show") message=_("No funds reservation names a grant of these donors yet.") %}
+  {% endif %}
+</section>
 <section class="panel p-0">
-  {% include "components/table_toolbar.html" with title=_("Programme documents") count=data.count table_id="donor-pds" filename="donor-programmes" %}
-  <div class="table-wrap" style="max-height: 560px"><table class="table table-hover" id="donor-pds" data-sortable>
-    <thead><tr><th>{% trans "Document" %}</th><th>{% trans "Partner" %}</th><th>{% trans "Status" %}</th><th>{% trans "Donors" %}</th><th class="num">{% trans "Donor contributions" %}</th></tr></thead>
-    <tbody>{% for p in data.programmes %}<tr data-href="{% url 'reports:programme_detail' p.pd.id %}"><td><a href="{% url 'reports:programme_detail' p.pd.id %}">{{ p.pd.number }}</a><span class="cell-sub">{{ p.pd.title|truncatechars:80 }}</span></td><td>{{ p.pd.partner_name }}</td><td>{% status_pill p.pd.status p.pd.status|capfirst "sm" %}</td><td><div class="chips">{% for d in p.pd.donors|slice:":3" %}<span class="chip">{{ d|truncatechars:24 }}</span>{% endfor %}</div></td><td class="num" data-value="{{ p.donations }}">{{ p.donations|number:0 }}</td></tr>
+  <div class="table-toolbar">
+    <div class="table-toolbar__title"><h2 class="h6 mb-0">{% trans "Largest programme documents" %}</h2>
+      <span class="text-muted small">{% blocktrans count counter=data.count %}by donor contribution, {{ counter }} in all{% plural %}by donor contribution, {{ counter }} in all{% endblocktrans %}</span></div>
+    <div class="table-toolbar__actions"><a class="btn btn-outline-secondary btn-sm" href="{{ programmes_url }}">{% blocktrans count counter=data.count %}The programme document on Programmes{% plural %}All {{ counter }} on Programmes{% endblocktrans %}</a></div>
+  </div>
+  <div class="table-wrap"><table class="table table-hover" id="donor-pds">
+    <thead><tr><th>{% trans "Document" %}</th><th>{% trans "Partner" %}</th><th>{% trans "Status" %}</th><th>{% trans "Donors" %}</th><th class="num">{% trans "Donor contributions (USD)" %}</th></tr></thead>
+    <tbody>{% for p in top_programmes %}<tr data-href="{% url 'reports:programme_detail' p.pd.id %}"><td><a href="{% url 'reports:programme_detail' p.pd.id %}">{{ p.pd.number }}</a><span class="cell-sub">{{ p.pd.title|truncatechars:80 }}</span></td><td>{{ p.pd.partner_name }}</td><td>{% status_pill p.pd.status p.pd.status|capfirst "sm" %}</td><td><div class="chips">{% for d in p.pd.donors|slice:":3" %}<span class="chip">{{ d|truncatechars:24 }}</span>{% endfor %}</div></td><td class="num">{{ p.donations|number:0 }}</td></tr>
     {% empty %}<tr><td colspan="5">{% include "components/empty_state.html" with icon="gift" title=_("No programme documents match") %}</td></tr>{% endfor %}</tbody>
   </table></div>
 </section>
 {{ chart_data|json_script:"donor-chart-data" }}
-{% if grants %}
-<section class="panel p-0 mt-3">
-  {% include "components/table_toolbar.html" with title=_("Grants") count=grants|length table_id="donor-grants" filename="donor-grants" %}
-  <div class="table-wrap" style="max-height: 480px"><table class="table table-sm" id="donor-grants" data-sortable>
-    <thead><tr><th>{% trans "Grant" %}</th><th>{% trans "Donor" %}</th><th>{% trans "Expiry" %}</th><th class="num">{% trans "Programme documents" %}</th><th class="num">{% trans "Reserved (USD)" %}</th></tr></thead>
-    <tbody>{% for g in grants %}<tr><td class="mono small">{{ g.grant.name }}{% if g.grant.description %}<span class="cell-sub">{{ g.grant.description|truncatechars:80 }}</span>{% endif %}</td><td>{{ g.grant.donor|default:"—" }}</td>
-      <td class="small text-nowrap" data-value="{{ g.grant.expiry|date:'Y-m-d' }}">{{ g.grant.expiry|date:"j M Y"|default:"—" }}{% if g.expired %} {% status_pill "failed" _("Expired") "sm" %}{% elif g.expiring %} {% status_pill "stale" _("Expires within 6 months") "sm" %}{% endif %}</td>
-      <td class="num">{{ g.pds }}</td><td class="num" data-value="{{ g.reserved }}">{{ g.reserved|number:0 }}</td></tr>{% endfor %}</tbody>
-  </table></div>
-</section>
-{% endif %}

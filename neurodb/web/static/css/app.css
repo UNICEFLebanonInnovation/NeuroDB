@@ -667,3 +667,14 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .decide-list--scroll:focus-visible { outline: 2px solid var(--nd-primary); outline-offset: 2px; border-radius: 6px; }
 .decide-list--scroll .attention__sev { transform: translateZ(0); } /* Chromium skips painting it in a scroll box */
 @media print { .decide-list--scroll { max-height: none; overflow: visible; } }
+
+/* ------------------------------------------------------------------ ux review: etools */
+/* A label with an explanation on hover (eTools codes such as PD/SPD, CSO type, FR) */
+.has-tip { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
+/* The PD indicators grid: its horizontal scrollbar stays on screen, month values never wrap */
+.table-wrap--tall { max-height: 75vh; overflow-y: auto; }
+.monitoring-grid__month { min-width: 4.6em; white-space: nowrap; }
+/* Population: the nationality codes of the tables */
+.code-legend { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; margin: 0 0 0.75rem; font-size: 0.8rem; color: var(--nd-muted); }
+.code-legend b { color: var(--nd-text); font-family: var(--nd-font-mono); font-weight: 600; margin-right: 0.3rem; }
+@media print { .table-wrap--tall { max-height: none; overflow: visible; } }

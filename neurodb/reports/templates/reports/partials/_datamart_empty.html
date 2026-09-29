@@ -1,0 +1,11 @@
+{% load i18n %}{% comment %}
+Empty state of an eTools Datamart list. With filters in the address: "no match" and a way back. Without
+filters the list itself is empty: say nothing has been synced yet, and only staff (who can run the sync
+in the admin) are told how to fill it.
+{% endcomment %}{% if request.GET %}
+{% include "components/empty_state.html" with icon=icon title=title message=_("Change the filters.") action_url=request.path %}
+{% elif user.is_staff %}
+{% include "components/empty_state.html" with icon=icon title=empty_title message=_("Run the eTools Datamart sync in the admin to load them.") %}
+{% else %}
+{% include "components/empty_state.html" with icon=icon title=empty_title message=_("They appear here after the next eTools sync.") %}
+{% endif %}
