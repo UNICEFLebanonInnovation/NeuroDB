@@ -33,7 +33,7 @@ from neurodb.partnerships.models.legacy import PCA
 from neurodb.reports import overview
 
 CACHE_SECONDS = 300
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 SECTION_SLOTS = 5  # the categorical colours of the page (--s1 .. --s5), then "other"
 GOVERNORATES = {  # overview.governorate_key -> the name and place on the page's schematic map
     "akkar": ("Akkar", 1, 0),
@@ -45,6 +45,14 @@ GOVERNORATES = {  # overview.governorate_key -> the name and place on the page's
     "south": ("South", 0, 3),
     "nabatieh": ("Nabatieh", 1, 3),
 }
+# A programme document past its end date (or closed in eTools) is "Closed": its result is final.
+CLOSED = ("none", "Closed", "dash")
+ENDED_STATUSES = {"ended", "closed", "terminated", "implemented"}
+# The age tags of the indicator titles (datamart.tags), as the donor reads them: "Children" only
+# means the title names no age range, so it is not a group apart from "Under 5".
+AGE_LABELS = {"Children": "Age not specified", "Not named": "Age not specified"}
+# The syncs that feed the page: the eTools Datamart first (funds and indicators), then the others.
+SOURCE_JOBS = ("etools_datamart", "etools", "ai_data")
 STATUS = {  # the partner monitoring rule, as the donor reads it (icon + label, never colour alone)
     "on_track": ("good", "On track", "check"),
     "over_target": ("good", "Ahead of schedule", "up"),
@@ -173,6 +181,10 @@ def contribution(account, year: int, today: datetime.date) -> dict[str, Any]:
         main = kids.get("main") or {}
         tracking = main.get("tracking") or _most_common(kids.get("statuses")) or "not_reported"
         partner = _partner_name(pd, account.show_partner_names, partner_alias)
+        end = pd.end or pd.end_date
+        ages: dict[str, float] = defaultdict(float)
+        for label, value in age.items():
+            ages[AGE_LABELS.get(label, label)] += value
         out_pds.append(
             {
                 "id": pd.number or f"PD {pd.id}",
@@ -185,7 +197,8 @@ def contribution(account, year: int, today: datetime.date) -> dict[str, Any]:
                 "disbursed": round(sum(entry["paid"].values()), 2),
                 "share": round(share, 4),
                 "start": pd.start.isoformat() if pd.start else None,
-                "end": (pd.end or pd.end_date).isoformat() if (pd.end or pd.end_date) else None,
+                "end": end.isoformat() if end else None,
+                "closed": bool(end and end < today) or (pd.status or "").lower() in ENDED_STATUSES,
                 "elapsed": round(kids.get("elapsed") or _elapsed(pd, today), 1),
                 "children": round(whole * share, 1),
                 "children_whole": round(whole),
@@ -193,7 +206,7 @@ def contribution(account, year: int, today: datetime.date) -> dict[str, Any]:
                 "target": round((kids.get("target") or 0) * share, 1),
                 "gov": {k: round(v, 4) for k, v in gov.items()},
                 "sex": _fractions(sex, whole),
-                "age": _fractions({k: v for k, v in age.items() if k != "Not named"}, whole),
+                "age": _fractions(ages, whole),
                 "indicator": main.get("title") or "",
                 "indicator_cumulative": main.get("cumulative"),
                 "indicator_target": main.get("target"),
@@ -217,11 +230,25 @@ def contribution(account, year: int, today: datetime.date) -> dict[str, Any]:
             {
                 "key": key,
                 "label": f"{key} · {descriptions[key]}" if descriptions.get(key) else key,
+                "name": descriptions.get(key) or "",
                 "expires": ends.isoformat() if ends else None,
                 "days_left": (ends - today).days if ends else None,
             }
         )
     return {"pds": out_pds, "grants": grants}
+
+
+def data_as_of() -> datetime.datetime | None:
+    """When the page's data last came in: the last successful eTools Datamart sync (the funds and the
+    indicators); without one, the latest successful sync of the other sources (eTools, ActivityInfo)."""
+    from neurodb.core.models import SyncRun
+
+    runs = SyncRun.objects.filter(
+        job__in=SOURCE_JOBS, status__in=[SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL]
+    ).exclude(finished_at=None)
+    datamart = runs.filter(job=SyncRun.Job.ETOOLS_DATAMART).order_by("-finished_at").first()
+    last = datamart or runs.order_by("-finished_at").first()
+    return last.finished_at if last else None
 
 
 def _most_common(counter: Counter | None) -> str:
@@ -354,7 +381,10 @@ def build(account, year: int, today: datetime.date | None = None, *, cache: bool
         "today": today.isoformat(),
         "sections": sections,
         "governorates": [{"key": k, "name": n, "c": c, "r": r} for k, (n, c, r) in GOVERNORATES.items()],
-        "statuses": {k: {"cls": c, "label": label, "icon": icon} for k, (c, label, icon) in STATUS.items()},
+        "statuses": {
+            k: {"cls": c, "label": label, "icon": icon}
+            for k, (c, label, icon) in {**STATUS, "closed": CLOSED}.items()
+        },
         **mine,
         "overall": whole,
     }
@@ -363,4 +393,4 @@ def build(account, year: int, today: datetime.date | None = None, *, cache: bool
     return data
 
 
-__all__ = ["build", "contribution", "country", "donor_names", "years"]
+__all__ = ["build", "contribution", "country", "data_as_of", "donor_names", "years"]

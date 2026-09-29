@@ -61,12 +61,12 @@
       <h1 class="donor">{{ account.name }}</h1>
       <p class="sub">{% blocktrans %}Where your {{ year }} contribution goes, what it achieves for children, and what each result costs. The figures update every night.{% endblocktrans %}</p>
     </div>
-    <div class="asof">{% trans "Data as of" %} <strong>{% if as_of %}{{ as_of|date:"j M Y" }}{% else %}{% trans "not yet synced" %}{% endif %}</strong><br>{% trans "Source: eTools funds reservations and partner progress reports" %}</div>
+    <div class="asof">{% if as_of %}{% trans "Data as of" %} <strong>{{ as_of|date:"j M Y" }}</strong>{% else %}{% trans "The date of the data is not available yet." %}{% endif %}<br>{% trans "Source: eTools funds reservations and partner progress reports" %}</div>
   </header>
 
   <div class="tabs" role="tablist" aria-label="{% trans 'Views' %}">
     <a role="tab" id="tab-mine" href="?year={{ year }}{% if preview %}&account={{ account.pk }}{% endif %}" aria-controls="panel-mine" aria-selected="{% if tab == 'mine' %}true{% else %}false{% endif %}" data-tab="mine">{% trans "Your contribution" %}</a>
-    <a role="tab" id="tab-overall" href="?year={{ year }}&tab=overall{% if preview %}&account={{ account.pk }}{% endif %}" aria-controls="panel-overall" aria-selected="{% if tab == 'overall' %}true{% else %}false{% endif %}" data-tab="overall">{% trans "UNICEF Lebanon overall" %}</a>
+    <a role="tab" id="tab-overall" href="?year={{ year }}&tab=overall{% if preview %}&account={{ account.pk }}{% endif %}" aria-controls="panel-overall" aria-selected="{% if tab == 'overall' %}true{% else %}false{% endif %}" data-tab="overall"><span class="tab-long">{% trans "UNICEF Lebanon overall" %}</span><span class="tab-short">{% trans "Lebanon overall" %}</span></a>
   </div>
 
   <!-- ============================================================== your contribution -->
@@ -91,6 +91,7 @@
       <div class="grid2">
         <div class="card">
           <div class="cardhead"><div><h3>{% trans "Grant → programme area → partner" %}</h3><p class="note">{% trans "Band width is the amount committed from your grants. Hover a band for the amount." %}</p></div><button class="tablebtn" type="button" data-table="flow">{% trans "Table" %}</button></div>
+          <p class="note scroll-hint">{% trans "Scroll sideways to see the partners." %}</p>
           <div id="flow"></div>
         </div>
         <div class="card">
@@ -116,7 +117,7 @@
           <div id="spend"></div>
         </div>
         <div class="card">
-          <div class="cardhead"><div><h3>{% trans "Your grants" %}</h3><p class="note">{% trans "Share disbursed, and time left before each grant expires." %}</p></div></div>
+          <div class="cardhead"><div><h3>{% trans "Your grants" %}</h3><p class="note">{% trans "Share disbursed, and time left before each grant expires. \"On schedule\": more than 120 days left, or less than a quarter of the funds still to disburse." %}</p></div></div>
           <div id="grants"></div>
         </div>
       </div>
@@ -129,10 +130,9 @@
           <div class="cardhead"><div><h3>{% trans "Progress to target" %}</h3><p class="note">{% trans "Children reached against the target of the programmes you fund. The tick is where they should be by now." %}</p></div></div>
           <div id="progress"></div>
         </div>
-        <div class="card">
-          <div class="cardhead"><div><h3>{% trans "Girls and boys" %}</h3><p class="note">{% trans "As the partners' indicators name them." %}</p></div></div>
-          <div id="sex"></div>
-          <div id="ageBlock"><div class="cardhead mt"><div><h3>{% trans "Age" %}</h3></div></div><div id="age"></div></div>
+        <div class="card" id="whoCard">
+          <div id="sexBlock"><div class="cardhead"><div><h3>{% trans "Girls and boys" %}</h3><p class="note">{% trans "As the partners' indicators name them." %}</p></div></div><div id="sex"></div></div>
+          <div id="ageBlock"><div class="cardhead"><div><h3>{% trans "Age" %}</h3><p class="note">{% trans "As the partners' indicators name it." %}</p></div></div><div id="age"></div></div>
         </div>
         <div class="card">
           <div class="cardhead"><div><h3>{% trans "By governorate" %}</h3><p class="note">{% trans "Children reached, attributed to your funding." %}</p></div><button class="tablebtn" type="button" data-table="govbars">{% trans "Table" %}</button></div>
@@ -165,7 +165,7 @@
       <div class="method">
         <div class="card"><h3>{% trans "Children attributed to you" %}</h3><p>{% trans "Most programmes are funded by several donors. A programme's children are shared between its donors in proportion to each donor's share of the programme's funds. \"Children reached with your funding\" is that share: attributed, not financed by you alone." %}</p></div>
         <div class="card"><h3>{% trans "Cost per child" %}</h3><p>{% trans "Your funds disbursed to partners divided by the children attributed to you. It includes supplies and running costs. Compare each programme area with the country average, not areas with each other: a water network and a school place do not cost the same." %}</p></div>
-        <div class="card"><h3>{% trans "What is counted" %}</h3><p>{% trans "Only progress reports accepted by UNICEF count. Partners report quarterly, so the latest quarter can be incomplete. Figures stop at the governorate: no names, no individual records." %}</p></div>
+        <div class="card"><h3>{% trans "What is counted" %}</h3><p>{% trans "Only progress reports accepted by UNICEF count. Partners report quarterly, so the latest quarter can be incomplete. Children are counted as partners report them: a child reached by two programmes is counted in each. Figures stop at the governorate: no names, no individual records." %}</p></div>
       </div>
     </section>
     {% endif %}

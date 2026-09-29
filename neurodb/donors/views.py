@@ -9,7 +9,6 @@ from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_GET
 
 from neurodb.accounts.roles import ADMIN, role_of
-from neurodb.core.models import SyncRun
 
 from . import services
 from .middleware import donor_account
@@ -31,7 +30,6 @@ def page(request: HttpRequest) -> HttpResponse:
     raw = request.GET.get("year", "")
     year = int(raw) if raw.isdigit() and int(raw) in choices else choices[0]
     data = services.build(account, year, today)
-    synced = SyncRun.last_success(SyncRun.Job.ETOOLS_DATAMART)
     return render(
         request,
         "donors/page.html",
@@ -41,7 +39,7 @@ def page(request: HttpRequest) -> HttpResponse:
             "year": year,
             "years": choices,
             "data": data,
-            "as_of": synced.finished_at if synced else None,
+            "as_of": services.data_as_of(),
             "tab": "overall" if request.GET.get("tab") == "overall" else "mine",
         },
     )
