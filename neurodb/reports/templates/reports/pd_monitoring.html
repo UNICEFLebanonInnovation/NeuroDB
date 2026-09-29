@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% load i18n ui %}
 {% block content %}
-{% include "reports/partials/_monitoring_filters.html" %}
+<div class="filters-collapse" data-filters-collapse>{% include "reports/partials/_monitoring_filters.html" %}</div>
 <div id="monitoring-grid" aria-live="polite">{% include "reports/partials/monitoring_grid.html" %}</div>
 {% endblock %}

@@ -68,6 +68,8 @@
 .lp-float--a .icon { background: var(--nd-success-soft); color: var(--nd-success); }
 .lp-float--b { right: -1rem; top: -1.2rem; animation-delay: -3s; }
 .lp-float--b .icon { background: var(--nd-primary-soft); color: var(--nd-primary); }
+.lp-mock-figure { margin: 0; }
+.lp-mock-caption { margin-top: 1.25rem; text-align: center; font-size: 0.78rem; color: var(--nd-muted); }
 @media (max-width: 560px) { .lp-float { display: none; } }
 @keyframes lp-grow { from { transform: scaleY(0); } }
 @keyframes lp-float { 50% { transform: translateY(-8px); } }

@@ -24,26 +24,26 @@
     {% endif %}
     {% if review.changed %}<div class="review-changed">{% for item in review.changed %}<span>{{ item }}</span>{% endfor %}</div>{% endif %}
 
+    {% if review.data_problems %}
+    <p class="review-data-problems">
+      {% include "components/icon.html" with name="alert" %}
+      <span><strong>{% trans "Data problems" %}:</strong> {% for f in review.data_problems %}{{ f.title }}{% if not forloop.last %}; {% endif %}{% endfor %}. <a href="{% url 'reports:data_health' %}">{% trans "Data health" %} →</a></span>
+    </p>
+    {% endif %}
+
     {% if review.findings %}
     <ul class="review-findings">
-      {% for f in review.findings %}
-      <li class="review-finding">
-        <span class="review-finding__sev review-finding__sev--{{ f.severity }}" role="img" aria-label="{{ f.get_severity_display }}"></span>
-        <div class="review-finding__body">
-          <div class="review-finding__title">
-            {% if f.url %}<a href="{{ f.url }}">{{ f.title }}</a>{% else %}{{ f.title }}{% endif %}
-            <span class="review-tag review-tag--{{ f.state }}">{{ f.get_state_display }}</span>
-            {% if f.section %}<span class="review-tag">{{ f.section }}</span>{% endif %}
-          </div>
-          {% if f.detail %}<div class="review-finding__detail">{{ f.detail }}</div>{% endif %}
-          {% if f.evidence.read %}<div class="review-finding__evidence">{% trans "Where to look" %}: {{ f.evidence.read }}</div>{% endif %}
-        </div>
-        {% if f.children %}<div class="review-finding__children" title="{% trans 'Children behind target' %}">{{ f.children|intcomma }}</div>{% endif %}
-      </li>
-      {% endfor %}
+      {% for f in review.findings %}{% include "reports/partials/_daily_review_finding.html" %}{% endfor %}
     </ul>
-    {% if review.more %}<p class="small text-muted mt-2 mb-0">{% blocktrans count counter=review.more %}{{ counter }} more finding in the administration pages.{% plural %}{{ counter }} more findings in the administration pages.{% endblocktrans %}</p>{% endif %}
-    {% else %}
+    {% if review.more_findings %}
+    <details class="review-more">
+      <summary>{% blocktrans count counter=review.more %}Show {{ counter }} more finding{% plural %}Show {{ counter }} more findings{% endblocktrans %}</summary>
+      <ul class="review-findings">
+        {% for f in review.more_findings %}{% include "reports/partials/_daily_review_finding.html" %}{% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+    {% elif not review.data_problems %}
     {% include "components/empty_state.html" with icon="check" title=_("Nothing to look at") message=_("No check found anything for this selection.") %}
     {% endif %}
 

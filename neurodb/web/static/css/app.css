@@ -667,3 +667,46 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .decide-list--scroll:focus-visible { outline: 2px solid var(--nd-primary); outline-offset: 2px; border-radius: 6px; }
 .decide-list--scroll .attention__sev { transform: translateZ(0); } /* Chromium skips painting it in a scroll box */
 @media print { .decide-list--scroll { max-height: none; overflow: visible; } }
+
+/* ------------------------------------------------------------------ ux review: management */
+/* One line under the overview's and the brief's title: what the page is for. */
+.page-purpose { margin: -0.5rem 0 0.9rem; font-size: 0.88rem; color: var(--nd-muted); max-width: 62rem; }
+/* The freshness strip says in words whether the figures can be used. */
+.freshness__note { flex-basis: 100%; margin: 0; color: var(--nd-text); }
+/* Daily review card: data-pipeline findings in one line, the rest of the findings folded. */
+.review-data-problems { display: flex; align-items: flex-start; gap: 0.5rem; margin: 0 0 0.75rem; padding: 0.5rem 0.75rem; border-radius: var(--nd-radius-sm); background: var(--nd-surface-2); font-size: 0.82rem; color: var(--nd-muted); }
+.review-data-problems .icon { flex: none; margin-top: 0.15rem; color: var(--nd-warning, #b45309); }
+.review-data-problems strong { color: var(--nd-text); }
+.review-more > summary { margin-top: 0.5rem; font-size: 0.85rem; font-weight: 600; color: var(--nd-primary); cursor: pointer; }
+/* Brief: why a section's confidence is not high, next to its badge. */
+.brief-because { display: block; margin-top: 0.2rem; font-size: 0.75rem; line-height: 1.3; color: var(--nd-muted); min-width: 12rem; }
+/* Brief tables: long headers wrap instead of being cut at the card's edge. */
+.brief-section .table thead th { white-space: normal; min-width: 4.5rem; vertical-align: bottom; line-height: 1.25; }
+/* Brief tab strip: it scrolls sideways on a narrow screen; a shadow on the edge says there is more. */
+.brief-tabs {
+  background:
+    linear-gradient(to right, var(--nd-bg) 40%, transparent) left center / 2rem 100% no-repeat local,
+    linear-gradient(to left, var(--nd-bg) 40%, transparent) right center / 2rem 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgba(15, 23, 42, 0.25), transparent) left center / 0.9rem 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgba(15, 23, 42, 0.25), transparent) right center / 0.9rem 100% no-repeat scroll,
+    var(--nd-bg);
+  scrollbar-width: thin;
+  scrollbar-color: var(--nd-border) transparent;
+}
+.brief-tabs::-webkit-scrollbar { height: 6px; }
+.brief-tabs::-webkit-scrollbar-thumb { background: var(--nd-border); border-radius: 999px; }
+/* Filter bars fold behind a "Filters" button on phones (the button is added by app.js). */
+.filters-toggle { display: none; }
+@media (max-width: 767.98px) {
+  .filters-collapse.is-collapsible .filters-toggle { display: inline-flex; align-items: center; gap: 0.35rem; margin-bottom: 0.75rem; }
+  .filters-collapse.is-collapsible:not(.is-open) .filter-bar { display: none; }
+}
+@media (max-width: 575.98px) {
+  /* The top bar's search is an icon button on a phone, not a label cut to "S…". */
+  .search-trigger { flex: none; width: 2.25rem; height: 2.25rem; padding: 0; justify-content: center; }
+  .search-trigger__label { display: none; }
+  /* The brief's sources line keeps only its date on a phone; the Reference block has the rest. */
+  .brief-stamp__src { display: none; }
+}
+@media print { .filters-toggle, .page-purpose { display: none !important; } }
+.brief-decide .nav-badge { white-space: nowrap; }

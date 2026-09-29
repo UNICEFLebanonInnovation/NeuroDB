@@ -7,4 +7,5 @@
   <span class="freshness__item">{% trans "No sync has run yet" %}</span>
   {% endfor %}
   <a class="freshness__link small" href="{% url 'reports:data_health' %}">{% trans "Data health" %} →</a>
+  {% if data.freshness_note %}<p class="freshness__note">{{ data.freshness_note }}</p>{% endif %}
 </div>

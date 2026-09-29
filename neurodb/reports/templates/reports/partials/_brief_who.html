@@ -17,8 +17,9 @@
       <h3 class="panel__title" id="nat-title">{% trans "By nationality and disability" %}</h3>
       <span class="panel__hint">{% trans "Share of children reached against their share of the child population" %}</span>
     </div>
+    {% if w.nationality_named or w.disability.reached %}
     <div class="table-wrap"><table class="table table-sm" id="brief-nationality">
-      <thead><tr><th scope="col">{% trans "Nationality" %}</th><th scope="col" class="num">{% trans "Reached" %}</th><th scope="col" class="num">{% trans "Of those named" %}</th><th scope="col" class="num">{% trans "Of the child population" %}</th></tr></thead>
+      <thead><tr><th scope="col">{% trans "Nationality" %}</th><th scope="col" class="num">{% trans "Reached" %}</th><th scope="col" class="num">{% trans "Of those named" %}</th><th scope="col" class="num">{% trans "Of all children" %}</th></tr></thead>
       <tbody>
       {% for n in w.nationality %}
       <tr><td>{{ n.name }}</td><td class="num">{{ n.reached|intcomma }}</td><td class="num">{{ n.reached_share|percent:0 }}</td><td class="num">{{ n.population_share|percent:0 }}</td></tr>
@@ -27,6 +28,10 @@
       </tbody>
     </table></div>
     <p class="caveat mb-0">{% blocktrans with n=w.nationality_named|intcomma %}{{ n }} of the children reached are counted by an indicator naming a nationality; the rest are not disaggregated in the titles.{% endblocktrans %}{% if w.population_year %} {% blocktrans with y=w.population_year %}Population shares: {{ y }} figures.{% endblocktrans %}{% endif %}</p>
+    {% else %}
+    {% include "components/empty_state.html" with icon="users" title=_("No split by nationality or disability yet") message=_("No children indicator of the year names a nationality or a disability in its title, so the children reached cannot be split this way. The split appears once partner reports carry these labels.") %}
+    {% if w.nationality %}<p class="caveat mb-0">{% trans "Share of all children, for reference:" %} {% for n in w.nationality %}{{ n.name }} {{ n.population_share|percent:0 }}{% if not forloop.last %}, {% endif %}{% endfor %}{% if w.population_year %} ({{ w.population_year }}){% endif %}.</p>{% endif %}
+    {% endif %}
     <p class="source-line">{{ w.source }}</p>
   </section>
 </div>
@@ -56,15 +61,20 @@
       <h3 class="panel__title" id="gap-title">{% trans "Districts with high need and low coverage" %}</h3>
       <span class="panel__hint">{% trans "Ranked by children not reached" %}</span>
     </div>
-    {% if w.districts %}
+    {% if w.districts and w.districts_matched %}
     <div class="table-wrap"><table class="table table-sm table-hover" id="brief-districts">
       <thead><tr><th scope="col">{% trans "District" %}</th><th scope="col">{% trans "Governorate" %}</th><th scope="col" class="num">{% trans "Children" %}</th><th scope="col" class="num">{% trans "Reached" %}</th><th scope="col" class="num">{% trans "Coverage" %}</th><th scope="col" class="num">{% trans "Not reached" %}</th></tr></thead>
       <tbody>
       {% for d in w.districts %}
-      <tr><td>{{ d.district }}</td><td>{{ d.governorate }}</td><td class="num">{{ d.children|intcomma }}</td><td class="num">{{ d.reached|intcomma }}</td><td class="num"><span class="pill pill--sm {% if d.coverage >= 15 %}pill--success{% elif d.coverage >= 8 %}pill--warning{% else %}pill--danger{% endif %}">{{ d.coverage|percent:0 }}</span></td><td class="num">{{ d.not_reached|intcomma }}</td></tr>
+      <tr><td>{{ d.district }}</td><td>{{ d.governorate|default:"—" }}</td><td class="num">{{ d.children|intcomma }}</td><td class="num">{{ d.reached|intcomma }}</td><td class="num"><span class="pill pill--sm {% if d.coverage >= 15 %}pill--success{% elif d.coverage >= 8 %}pill--warning{% else %}pill--danger{% endif %}">{{ d.coverage|percent:0 }}</span></td><td class="num">{{ d.not_reached|intcomma }}</td></tr>
       {% endfor %}
       </tbody>
     </table></div>
+    {% elif w.districts and w.districts_reported %}
+    {% blocktrans asvar why with names=w.districts_reported|join:", " %}The partner reports name districts ({{ names }}) that match none of the districts in the population figures, so coverage by district cannot be worked out. The governorate view on the left still holds.{% endblocktrans %}
+    {% include "components/empty_state.html" with icon="map" title=_("District names do not match") message=why %}
+    {% elif w.districts %}
+    {% include "components/empty_state.html" with icon="map" title=_("No report placed in a district yet") message=_("No eTools progress report of the year has a location inside a district, so coverage by district cannot be worked out yet.") %}
     {% else %}
     {% include "components/empty_state.html" with icon="map" title=_("No district population figures") message=_("Load children population figures at district level to see the gaps.") %}
     {% endif %}

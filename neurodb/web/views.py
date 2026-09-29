@@ -41,6 +41,12 @@ def healthz(request):
     return JsonResponse(status)
 
 
+ASK_ITEM = (
+    "sparkle",
+    "lp-tint-amber",
+    _lazy("Ask NeuroDB"),
+    _lazy("Questions in plain language, answered with links to the figures."),
+)
 WHATS_NEW = [
     (
         "grid",
@@ -66,12 +72,7 @@ WHATS_NEW = [
         _lazy("Daily review"),
         _lazy("Fourteen checks every morning; findings get an owner and a due date."),
     ),
-    (
-        "sparkle",
-        "lp-tint-amber",
-        _lazy("Ask NeuroDB"),
-        _lazy("Questions in plain language, answered with links to the figures."),
-    ),
+    ASK_ITEM,
     (
         "eye",
         "lp-tint-red",
@@ -116,11 +117,12 @@ WHATS_NEW = [
     ),
 ]
 
-# Public figures, in order of preference; the first six that are not zero are shown.
+# Public figures, in order of preference; the first six that are not zero are shown. The eTools
+# ones are counted as the country overview counts them (programme documents running in the year).
 LANDING_STATS = [
-    ("active_programmes", _lazy("active programme documents")),
-    ("etools_partners", _lazy("partners with active programme documents")),
-    ("pd_indicators", _lazy("programme document indicators monitored")),
+    ("running_programmes", _lazy("programme documents running this year")),
+    ("etools_partners", _lazy("partners with a programme document this year")),
+    ("pd_indicators", _lazy("programme document indicators this year")),
     ("progress_reports", _lazy("partner progress reports this year")),
     ("indicators", _lazy("ActivityInfo results tracked against targets")),
     ("governorates", _lazy("governorates reached")),
@@ -219,11 +221,14 @@ def _quick_links(user) -> list[dict]:
 def landing(request):
     """Public landing page: what NeuroDB is, why it matters, and where to go next."""
     stats = public_highlights() if settings.PUBLIC_LANDING_STATS else None
+    last_sync = SyncRun.last_success(SyncRun.Job.ETOOLS_DATAMART)
     context = {
         "stats": stats,
         "stat_items": _stat_items(stats),
         "quick_links": _quick_links(request.user),
         "public_pages": [p.split(":", 1)[1] for p in settings.PUBLIC_PAGES],
-        "whats_new": WHATS_NEW,
+        # Ask NeuroDB is only promoted where it is switched on
+        "whats_new": [item for item in WHATS_NEW if settings.AI_ASSISTANT_ENABLED or item is not ASK_ITEM],
+        "etools_synced": last_sync.finished_at if last_sync else None,
     }
     return render(request, "landing.html", context)

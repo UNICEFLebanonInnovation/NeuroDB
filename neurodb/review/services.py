@@ -46,7 +46,10 @@ STATE_ORDER = {NEW: 0, STILL_OPEN: 1, RESOLVED: 2}
 # Checks that describe a change since the previous review: their findings are new by nature and
 # never "resolved" when they stop appearing.
 DELTA_CHECKS = frozenset({"new_off_track", "improvements"})
-PAGE_FINDINGS = 12  # findings the overview card lists; the rest is a count
+PAGE_FINDINGS = 12  # findings the overview card lists; the rest open under "Show more"
+# Checks about the data pipeline rather than the programme: the card sums them up in one "Data
+# problems" line pointing to the Data health page, apart from the programme findings.
+SYSTEM_CHECKS = frozenset({"sync_failures", "data_quality", "stale_sources", "locations_unplaced"})
 HISTORY_DAYS = 7
 NARRATION_FINDINGS = 40  # the most important findings the model reads
 NARRATION_MAX_OUTPUT_TOKENS = 600
@@ -661,28 +664,48 @@ def _changed(review: DailyReview, findings: list[ReviewFinding]) -> list[str]:
 
 
 def _trend(reviews: list[DailyReview]) -> list[str]:
-    """Week mode: how the counts moved from the oldest of the reviews to the latest."""
+    """Week mode: how the counts moved from the oldest of the reviews to the latest, dated."""
     if not reviews:
         return []
     ordered = sorted(reviews, key=lambda r: r.date)
     first, last = ordered[0], ordered[-1]
     counts_first = (first.stats or {}).get("counts") or {}
     counts_last = (last.stats or {}).get("counts") or {}
+    day_first, day_last = first.date.strftime("%d %b"), last.date.strftime("%d %b")
+    if len(ordered) == 1:
+        return [
+            _("Country-wide, review of %(d)s.") % {"d": day_last},
+            _("Open critical findings: %(n)s") % {"n": counts_last.get("critical", 0)},
+            _("Open warnings: %(n)s") % {"n": counts_last.get("warning", 0)},
+        ]
     trend = [
-        _("Country-wide over these reviews.") if len(ordered) > 1 else _("Country-wide."),
-        _("Critical: from %(a)s to %(b)s")
-        % {"a": counts_first.get("critical", 0), "b": counts_last.get("critical", 0)},
-        _("Warnings: from %(a)s to %(b)s")
-        % {"a": counts_first.get("warning", 0), "b": counts_last.get("warning", 0)},
-        _("Resolved over the week: %(n)s")
-        % {"n": sum(((r.stats or {}).get("states") or {}).get(RESOLVED, 0) for r in ordered[1:])},
+        _("Country-wide, reviews of %(a)s to %(b)s.") % {"a": day_first, "b": day_last},
+        _("Open critical findings: %(a)s on %(da)s, %(b)s on %(db)s")
+        % {
+            "a": counts_first.get("critical", 0),
+            "da": day_first,
+            "b": counts_last.get("critical", 0),
+            "db": day_last,
+        },
+        _("Open warnings: %(a)s on %(da)s, %(b)s on %(db)s")
+        % {
+            "a": counts_first.get("warning", 0),
+            "da": day_first,
+            "b": counts_last.get("warning", 0),
+            "db": day_last,
+        },
+        _("Findings resolved since %(d)s: %(n)s")
+        % {
+            "d": day_first,
+            "n": sum(((r.stats or {}).get("states") or {}).get(RESOLVED, 0) for r in ordered[1:]),
+        },
     ]
     share_first = on_track_share(first.stats)
     share_last = on_track_share(last.stats)
     if share_first is not None and share_last is not None:
         trend.append(
-            _("Indicators on track or ahead of schedule: from %(a)s %% to %(b)s %%")
-            % {"a": round(share_first), "b": round(share_last)}
+            _("Indicators on track or ahead of schedule: %(a)s %% on %(da)s, %(b)s %% on %(db)s")
+            % {"a": round(share_first), "da": day_first, "b": round(share_last), "db": day_last}
         )
     return trend
 
@@ -723,6 +746,8 @@ def for_page(day: str | None, sections: list[str]) -> dict[str, Any] | None:
         "history": _history(reviews),
         "missing": missing if review is None else "",
         "findings": [],
+        "more_findings": [],
+        "data_problems": [],
         "more": 0,
         "total": 0,
         "counts": _counts([]),
@@ -754,6 +779,7 @@ def for_page(day: str | None, sections: list[str]) -> dict[str, Any] | None:
         "n": len(findings),
         "checks": review.checks_run,
     }
+    programme = [f for f in findings if f.check_id not in SYSTEM_CHECKS]
     page.update(
         summary=review.summary,
         narrated_by=review.narrated_by,
@@ -762,8 +788,10 @@ def for_page(day: str | None, sections: list[str]) -> dict[str, Any] | None:
             if review.narrated_by in ("", DailyReview.TEMPLATE)
             else _("Summary written by the AI assistant from the findings")
         ),
-        findings=findings[:PAGE_FINDINGS],
-        more=max(len(findings) - PAGE_FINDINGS, 0),
+        findings=programme[:PAGE_FINDINGS],
+        more_findings=programme[PAGE_FINDINGS:],
+        data_problems=[f for f in findings if f.check_id in SYSTEM_CHECKS and f.state != RESOLVED],
+        more=max(len(programme) - PAGE_FINDINGS, 0),
         total=len(findings),
         counts=_counts(findings),
         check_errors=(review.stats or {}).get("check_errors") or {},

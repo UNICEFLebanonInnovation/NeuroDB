@@ -10,7 +10,6 @@
     </div>
     <div class="chart chart--sm" data-module="charts" data-chart="stacked-h" data-source="overview-chart-data" data-key="delivery.by_section" data-height="240" data-empty-title="{% trans 'No PD indicators for this scope' %}" aria-label="{% trans 'Indicator status by section' %}"></div>
     <div class="legend">{% for key, label in labels.items %}<a class="legend__item" href="{% url 'reports:pd_monitoring' %}?{{ keep_query }}&amp;status={{ key }}">{% status_pill key label "sm" %} {{ delivery.status_counts|get_item:key|default:0|intcomma }}</a>{% endfor %}</div>
-    <p class="source-line">{{ delivery.source }}</p>
   </section>
   <section class="panel" aria-labelledby="assurance-title">
     <div class="panel__header">
@@ -27,7 +26,6 @@
     {% if selected.section or selected.governorate %}<p class="small text-muted mb-2">{% trans "The figures follow the section and governorate filters; the pages they open list the whole country for the year." %}</p>{% endif %}
     <h4 class="small fw-semibold mb-1">{% trans "Field monitoring findings by rating" %}</h4>
     <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-source="overview-chart-data" data-key="delivery.findings_by_rating" data-color-by="status" data-height="150" data-empty-title="{% trans 'No field monitoring findings this year' %}" aria-label="{% trans 'Field monitoring findings by rating' %}"></div>
-    <p class="source-line">{{ delivery.source }}</p>
   </section>
 </div>
 <section class="panel" aria-labelledby="attention-title">
@@ -51,7 +49,7 @@
   </ul>
   {% if delivery.attention_more.count %}<p class="small mb-2"><a href="{{ delivery.attention_more.url }}">{% blocktrans count n=delivery.attention_more.count %}+{{ n }} more item{% plural %}+{{ n }} more items{% endblocktrans %}</a></p>{% endif %}
   {% else %}
-  {% include "components/empty_state.html" with icon="check" title=_("Nothing flagged") message=_("No off-track children indicator, unreported indicator or overdue high-priority action point in this scope.") %}
+  {% include "components/empty_state.html" with icon="check" title=_("No off-track indicators") message=_("No off-track children indicator, unreported indicator or overdue high-priority action point in this scope. Late reports and field monitoring findings are in the visits card and the daily review.") %}
   {% endif %}
   <p class="source-line">{{ delivery.source }}</p>
 </section>

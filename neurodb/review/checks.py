@@ -54,6 +54,7 @@ SYNC_WINDOW_HOURS = 24
 AI_DATA_LAST_DAY = 22  # the ai-data job's schedule: days 1-22 of the month (infra/main.bicep)
 MAX_PER_CHECK = 200  # a bound, not a display limit: a finding past it would read as resolved the next day
 TPM_OPEN_STATUSES = ("assigned", "tpm_accepted")
+TPM_STATUS_WORDS = {"assigned": "assigned to the TPM partner", "tpm_accepted": "accepted by the TPM partner"}
 TPM_NOT_PLANNED = ("draft", "cancelled")
 TPM_COMPLETED = ("tpm_reported", "unicef_approved")
 OFF_TRACK_RATING = "off"  # matched inside MonitoringFinding.overall_finding_rating, case-insensitive
@@ -524,7 +525,8 @@ def check_tpm_reports_late(ctx: Context) -> list[Draft]:
                 detail=(
                     f"The visit{' of ' + partner if partner else ''} "
                     f"by {visit.tpm_name or 'the TPM partner'} "
-                    f"ended on {visit.end_date:%d %b %Y} and its status is still '{visit.status}'; "
+                    f"ended on {visit.end_date:%d %b %Y} and is still "
+                    f"{TPM_STATUS_WORDS.get(visit.status, visit.status.replace('_', ' '))}, with no report; "
                     f"reports are expected within {TPM_REPORT_GRACE_DAYS} days."
                 ),
                 evidence=_evidence(

@@ -45,7 +45,7 @@ from neurodb.web.templatetags.ui import money as money_text
 logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 120
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 RULES_VERSION = "v1"
 MONTH_LABELS = overview.MONTH_LABELS
 PROJECTION_MONTHS = 3  # the pace is the average of the last three reported months
@@ -59,6 +59,7 @@ MAX_DISTRICTS = 12
 MAX_GRANTS = 12
 LIFECYCLE_DAYS = 30
 DIGEST_DAYS = 7
+MAX_REASON = 280  # characters: a decision's reason is one or two sentences, not the review's summary
 HIGH_RISK = overview.HIGH_RISK
 AGE_ORDER = ("Under 5", "Under 18", "Children", "Adolescents", "Youth")
 NATIONALITY_OF_POPULATION = {
@@ -414,15 +415,23 @@ class _Builder:
                 ),
             },
         ]
+        last_year = self.year - 1
+        has_last_year = bool(children_prev)  # no children reported then: no comparison on any tile
+        source = (
+            f"The overview's figures for this year, against the same months of {last_year} (same "
+            "programme documents rule, same children rule)."
+            if has_last_year
+            else f"The overview's figures for this year. No {last_year} data for the same months to "
+            "compare with, so no change against last year is shown."
+        )
+        if month_ago is not None:
+            source += " On track: change against the daily review of 30 days ago."
         return {
             "tiles": tiles,
             "decide": self._decide(),
             "period": f"January to {MONTH_LABELS[self.months_shown - 1]} {self.year}",
-            "source": (
-                "The overview's blocks for this year and for the same months of the year before (same "
-                "programme documents rule, same children rule); on-track share of the daily review 30 days "
-                "ago"
-            ),
+            "last_year": {"year": last_year, "has_data": has_last_year},
+            "source": source,
         }
 
     def _on_track_month_ago(self) -> float | None:
@@ -468,11 +477,15 @@ class _Builder:
         owners = {a.key: a for a in FindingAssignment.objects.filter(key__in=list(by_key))}
         items = []
         if review.decisions and review.decided_by not in ("", RULES):
+            whys = Counter((d.get("why") or "").strip() for d in review.decisions)
             for d in review.decisions:
                 cited = [by_key[k] for k in d.get("finding_keys", []) if k in by_key]
                 if not cited or not any(in_sections(f.section, self.scope.sections) for f in cited):
                     continue
-                items.append(self._decision_item(d["decision"], d.get("why", ""), cited, owners, d))
+                why = (d.get("why") or "").strip()
+                if whys[why] > 1 or len(why) > MAX_REASON:  # a summary repeated on every card is no reason
+                    why = cited[0].detail
+                items.append(self._decision_item(d["decision"], why, cited, owners, d))
             mode = "ai"
         else:
             mine = [f for f in open_findings if in_sections(f.section, self.scope.sections)]
@@ -500,7 +513,7 @@ class _Builder:
             "key": lead.key,
             "severity": severity,
             "state": lead.state,
-            "section": ", ".join(dict.fromkeys(f.section for f in cited if f.section)),
+            "section": next((f.section for f in cited if f.section), ""),  # one section per card
             "title": title,
             "detail": detail,
             "who": ai["who"] if ai else "",
@@ -628,14 +641,33 @@ class _Builder:
             reported = _pct(delivery.get("reported"), delivery.get("total"))
             verified_pct = _pct(len(verified), len(section_pds))
             linked_pct = _pct(len(partners & linked), len(partners))
-            short = sum(
-                [
-                    reported is None or reported < CONFIDENCE["reported"],
-                    verified_pct is None or verified_pct < CONFIDENCE["verified"],
-                    linked_pct is None or linked_pct < CONFIDENCE["linked"],
-                    sync_days is None or sync_days > CONFIDENCE["sync_days"],
-                ]
-            )
+            # What keeps the section from high confidence, in the reader's words (shown by the badge)
+            reasons = [
+                reason
+                for short_of, reason in (
+                    (
+                        reported is None or reported < CONFIDENCE["reported"],
+                        "few indicators have a progress report",
+                    ),
+                    (
+                        verified_pct is None or verified_pct < CONFIDENCE["verified"],
+                        "few programme documents were verified by a visit",
+                    ),
+                    (
+                        linked_pct is None or linked_pct < CONFIDENCE["linked"],
+                        "partners are not linked to ActivityInfo",
+                    ),
+                    (sync_days is None, "eTools is not yet synced on this server"),
+                    (
+                        sync_days is not None and sync_days > CONFIDENCE["sync_days"],
+                        f"eTools was last synced {sync_days} days ago",
+                    ),
+                )
+                if short_of
+            ]
+            short = len(reasons)
+            if set_aside.get(section):
+                reasons.insert(0, f"{set_aside[section]} reported value(s) left out as errors")
             rows.append(
                 {
                     "section": section,
@@ -645,6 +677,7 @@ class _Builder:
                     "linked_percent": linked_pct,
                     "sync_days": sync_days,
                     "set_aside": set_aside.get(section, 0),
+                    "reasons": reasons,
                     # a value set aside as an error makes the section's figures low, whatever else
                     "level": "low"
                     if set_aside.get(section)
@@ -773,6 +806,7 @@ class _Builder:
             if row["disability"]:
                 disability += value
         ages = sorted(by_age, key=lambda a: (AGE_ORDER.index(a) if a in AGE_ORDER else 99, a))
+        districts = self._district_gaps()
         population, population_year = self._population_by_nationality()
         nationality = []
         for name in ("Lebanese", "Syrian", "Palestinian"):
@@ -802,7 +836,12 @@ class _Builder:
             "nationality_named": half_up(sum(by_nationality.values())),
             "disability": {"reached": half_up(disability), "share": _pct(disability, total)},
             "governorates": self.now["impact"]["by_governorate"],
-            "districts": self._district_gaps(),
+            "districts": districts,
+            # No district reached at all: say why rather than show a column of zeros. Either no report
+            # is placed in a district, or the districts the reports name are not those of the
+            # population figures (the names differ).
+            "districts_matched": any(d["reached"] for d in districts),
+            "districts_reported": [d["district"] for d in self.now["impact"]["by_district"][:3]],
             "population_year": population_year,  # of the nationality shares (the caption under them)
             "source": (
                 "The children indicators' titles (girls or boys, age band, nationality, disability), PRP "
@@ -1143,7 +1182,7 @@ class _Builder:
         }
 
     def _digest(self) -> dict[str, Any]:
-        from neurodb.review.services import _trend
+        from neurodb.review.services import DELTA_CHECKS, _trend
 
         latest = self._latest_review()
         if latest is None:
@@ -1154,20 +1193,28 @@ class _Builder:
                 status=DailyReview.Status.SUCCEEDED, date__gte=first, date__lte=latest.date
             ).order_by("-date")
         )
+        # The oldest review of the week is the baseline: "new" counts what appeared after it (its
+        # own findings are new against a review outside the week, or all new on the very first run).
+        later = reviews[:-1]
         new_critical = ReviewFinding.objects.filter(
-            review__in=reviews, state=ReviewFinding.State.NEW, severity=ReviewFinding.Severity.CRITICAL
+            review__in=later, state=ReviewFinding.State.NEW, severity=ReviewFinding.Severity.CRITICAL
         ).count()
-        resolved = ReviewFinding.objects.filter(
-            review__in=reviews, state=ReviewFinding.State.RESOLVED
-        ).count()
+        resolved = ReviewFinding.objects.filter(review__in=later, state=ReviewFinding.State.RESOLVED).count()
         lines = [str(t) for t in _trend(reviews)]
+        # Findings about a change ("newly off track") show on one day only: counts can then fall
+        # with nothing resolved, which the digest says when it happened this week.
+        one_day = ReviewFinding.objects.filter(
+            review__in=reviews[1:], check_id__in=DELTA_CHECKS, severity=ReviewFinding.Severity.CRITICAL
+        ).exists()
         return {
             "first": first.isoformat(),
             "last": latest.date.isoformat(),
+            "since": reviews[-1].date.isoformat(),
             "reviews": len(reviews),
             "new_critical": new_critical,
             "resolved": resolved,
             "trend": lines,
+            "one_day_findings": one_day,
             "summary": latest.summary,
         }
 
@@ -1183,6 +1230,7 @@ class _Builder:
                     "label": labels.get(job, job),
                     "run": last.id if last else None,
                     "when": last.finished_at.isoformat() if last and last.finished_at else "",
+                    "finished": last.finished_at if last else None,
                     "rows": last.rows_written if last else None,
                     "status": last.status if last else "never",
                 }
@@ -1379,8 +1427,8 @@ def _confidence_cell(row: dict[str, Any] | None) -> dict[str, str]:
         return _cell("Confidence", "none", "—", "Not assessed")
     level = row["level"]
     status = {"high": "good", "medium": "watch"}.get(level, "act")
-    aside = row.get("set_aside")
-    detail = "See How sure are we?" + (f"; {aside} value(s) left out" if aside else "")
+    reasons = row.get("reasons") or []
+    detail = f"{level.capitalize()} because {'; '.join(reasons)}" if reasons else "See How sure are we?"
     return _cell("Confidence", status, level.capitalize(), detail)
 
 

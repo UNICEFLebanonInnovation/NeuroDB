@@ -343,3 +343,36 @@ def test_a_finished_sync_run_changes_the_cache_key(data, reporting_year, setting
     assert overview.build(scope)["money"]["reserved"] == 10000  # cached
     SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="all", finished_at=timezone.now())
     assert overview.build(scope)["money"]["reserved"] == 12000  # every worker's key changed with the sync
+
+
+def test_a_governorate_takes_the_gazetteer_spelling_whatever_the_source(data, reporting_year):
+    from neurodb.core.models import PopulationFigure
+
+    Location.objects.create(
+        id=13, name="Beqaa", p_code="LB4", type=data["akkar"].type, lft=1, rght=2, level=0, tree_id=1
+    )
+    PopulationFigure.objects.create(
+        year=2025, category="children", level="governorate", nationality="ALL", area_name="Bekaa",
+        area_code="LB4", value=5000,
+    )  # fmt: skip
+    names = [g["name"] for g in build(reporting_year)["impact"]["by_governorate"]]
+    assert "Beqaa" in names and "Bekaa" not in names  # as in the filter, which lists the gazetteer
+
+
+def test_the_freshness_note_says_whether_the_figures_can_be_used():
+    job = lambda key, label, state: {"job": key, "label": label, "state": state}  # noqa: E731
+    fresh = [job("ai_data", "ActivityInfo", "fresh"), job("etools_datamart", "eTools", "fresh")]
+    assert (
+        overview.freshness_note(fresh) == "Every source synced on time: the figures on this page are current."
+    )
+    note = overview.freshness_note(
+        [job("ai_data", "ActivityInfo", "stale"), job("etools_datamart", "eTools", "unknown")]
+        + [job("daily_review", "Daily review", "unknown")]  # not a source of figures
+    )
+    assert note == (
+        "eTools: not yet synced on this server, so its figures may be incomplete. "
+        "ActivityInfo: out of date, so its figures may miss recent changes."
+    )
+    assert overview.freshness_note([*fresh, job("locations", "Locations", "stale")]).endswith(
+        "The other figures are current."
+    )

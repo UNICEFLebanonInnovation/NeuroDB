@@ -19,7 +19,6 @@
       </table></div>
     </details>
     {% endif %}
-    <p class="source-line">{{ money.source }}</p>
   </section>
   <section class="panel" aria-labelledby="scatter-title">
     <div class="panel__header">
@@ -27,7 +26,6 @@
       <span class="panel__hint">{% trans "Share disbursed against share of the children target achieved, per section" %}</span>
     </div>
     <div class="chart chart--sm" data-module="charts" data-chart="scatter-xy" data-source="overview-chart-data" data-key="money.scatter" data-height="260" data-empty-title="{% trans 'No section has both a disbursement and a children target yet' %}" aria-label="{% trans 'Disbursed share against achieved share by section' %}"></div>
-    <p class="source-line">{{ money.source }}</p>
   </section>
   <section class="panel" aria-labelledby="donor-title">
     <div class="panel__header">
@@ -35,7 +33,6 @@
       <a class="panel__hint" href="{% url 'reports:funds' %}">{% trans "Funds" %} →</a>
     </div>
     <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-source="overview-chart-data" data-key="money.by_donor" data-prefix="$" data-height="240" data-empty-title="{% trans 'No funds reservations for this scope' %}" aria-label="{% trans 'Funds by donor' %}"></div>
-    <p class="source-line">{{ money.source }}</p>
   </section>
   <section class="panel" aria-labelledby="decisions-title">
     <div class="panel__header">

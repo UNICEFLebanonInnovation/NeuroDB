@@ -45,8 +45,9 @@ def test_etools_counts_show_without_activityinfo(client, db):
             datamart_id=n, intervention=pd, progress_report=report, period_end=datetime.date(year, 3 * n, 28)
         )
     html = client.get(reverse("landing")).content.decode()
-    assert "active programme documents" in html and "partner progress reports this year" in html
-    # 1 active PD and its partner, 2 indicators (one repeated per location), 2 progress reports.
+    assert "programme documents running this year" in html and "partner progress reports this year" in html
+    # As the overview counts them: 1 PD running this year (the closed one has no indicator) and its
+    # partner, 2 indicators (one repeated per location), 2 progress reports.
     assert html.count('data-count="1"') == 2 and html.count('data-count="2"') == 2
     assert "ActivityInfo results tracked" not in html  # zero counts are left out
     assert "Amel Association" not in html and "LEB/PD1" not in html
@@ -134,3 +135,25 @@ def test_readiness_is_503_when_the_database_is_down(client, db, monkeypatch):
     assert response.status_code == 503
     assert response.json()["database"] == "error: RuntimeError"
     assert client.get("/healthz/live/").status_code == 200
+
+
+def test_the_mock_up_is_marked_and_ask_is_promoted_only_when_on(client, hierarchy, settings):
+    settings.AI_ASSISTANT_ENABLED = False
+    html = client.get(reverse("landing")).text
+    assert "Illustration of the overview, not real figures." in html
+    assert "eTools synced last night" not in html  # no fixed claim: the real date, or nothing
+    assert "Ask NeuroDB" not in html and "What does the AI do" not in html
+    settings.AI_ASSISTANT_ENABLED = True
+    assert "Ask NeuroDB" in client.get(reverse("landing")).text
+
+
+def test_the_floating_sync_label_shows_the_real_last_sync(client, hierarchy):
+    from django.utils import timezone
+
+    from neurodb.core.models import SyncRun
+
+    SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART, target="all", status=SyncRun.Status.SUCCEEDED,
+        finished_at=timezone.now() - timezone.timedelta(hours=3),
+    )  # fmt: skip
+    assert "eTools synced 3\xa0hours ago" in client.get(reverse("landing")).text

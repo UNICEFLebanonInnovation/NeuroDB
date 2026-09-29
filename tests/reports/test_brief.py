@@ -5,6 +5,7 @@ import datetime
 import json
 
 import pytest
+from django.core.cache import cache
 from django.urls import reverse
 
 from neurodb.core.models import PopulationFigure, SyncRun
@@ -548,4 +549,79 @@ def test_scorecard_bands():
     assert brief._spending_cell({"disbursed_percent": 60, "achieved_percent": 50})["status"] == "good"
     assert brief._on_track_cell({"on_track": 1, "over_target": 0, "off_track": 1})["status"] == "watch"
     assert brief._reporting_cell({"total": 0})["status"] == "none"
-    assert brief._confidence_cell({"level": "low", "set_aside": 2})["detail"].endswith("2 value(s) left out")
+    low = {"level": "low", "reasons": ["2 reported value(s) left out as errors", "eTools is not yet synced"]}
+    assert brief._confidence_cell(low)["detail"] == (
+        "Low because 2 reported value(s) left out as errors; eTools is not yet synced"
+    )
+
+
+# ------------------------------------------------------------------------------- user review
+def test_confidence_says_what_lowers_it(client_viewer, data, reporting_year):
+    from django.utils import timezone
+
+    (row,) = build(reporting_year)["confidence"]["rows"]
+    assert row["level"] != "high" and "eTools is not yet synced on this server" in row["reasons"]
+    assert "because" in client_viewer.get(reverse("reports:brief")).text
+    SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART,
+        target="all",
+        status=SyncRun.Status.SUCCEEDED,
+        finished_at=timezone.now(),
+    )
+    (row,) = build(reporting_year)["confidence"]["rows"]
+    assert not any("synced" in reason for reason in row["reasons"])
+
+
+def test_who_and_where_says_why_a_block_is_empty(client_viewer, data, reporting_year):
+    html = client_viewer.get(reverse("reports:brief")).text
+    # No indicator title names a nationality: no column of zeros, a reason instead.
+    assert "No split by nationality or disability yet" in html and 'id="brief-nationality"' not in html
+    assert 'id="brief-districts"' in html  # Akkar District matches the population figures
+    PopulationFigure.objects.filter(level="district").update(area_name="Qobayat")
+    cache.clear()  # a population load is a sync run, which the cache key follows; here it is a bare update
+    who = build(reporting_year)["who"]
+    assert not who["districts_matched"] and who["districts_reported"] == ["Akkar District"]
+    html = client_viewer.get(reverse("reports:brief")).text
+    assert "District names do not match" in html and 'id="brief-districts"' not in html
+
+
+def test_the_brief_says_when_last_year_has_nothing_to_compare(data, reporting_year):
+    headline = build(reporting_year)["headline"]
+    assert headline["last_year"] == {"year": 2025, "has_data": False}
+    assert "No 2025 data for the same months to compare with" in headline["source"]
+
+
+def test_the_digest_counts_what_is_new_after_the_first_review(data, reporting_year):
+    review_services.run(date=TODAY, today=TODAY)
+    later = TODAY + datetime.timedelta(days=1)
+    review_services.run(date=later, today=later)
+    result = brief.build(brief.Scope(year=2026, reporting_year=reporting_year, today=later), cache=False)
+    digest = result["action"]["digest"]
+    assert digest["reviews"] == 2 and digest["since"] == TODAY.isoformat()
+    assert digest["new_critical"] == 0  # the first review is the baseline, not "new"
+    assert any(line.startswith("Open critical findings:") and " on " in line for line in digest["trend"])
+
+
+def test_decisions_carry_one_reason_and_no_model_name(client_viewer, data, reporting_year):
+    review = review_services.run(date=TODAY, today=TODAY, narrate=False)
+    first, second = review.findings.filter(severity__in=["critical", "warning"]).order_by("rank")[:2]
+    summary = "The daily review found many items to look at. " * 3
+    review.decisions = [
+        {"decision": f"Decide {n}.", "why": summary, "who": "Child Protection section chief",
+         "urgency": "today", "finding_keys": [f.key]}
+        for n, f in enumerate((first, second))
+    ]  # fmt: skip
+    review.decided_by = "test-model"
+    review.save()
+    items = build(reporting_year)["headline"]["decide"]["items"]
+    assert [i["detail"] for i in items] == [first.detail, second.detail]  # not the repeated summary
+    html = client_viewer.get(reverse("reports:brief")).text
+    assert "AI-suggested" in html and "test-model" not in html
+    assert "Owner: Child Protection section chief (suggested, not assigned yet)" in html
+
+
+def test_the_brief_stamp_is_a_plain_data_as_of_line(client_viewer, data, reporting_year):
+    html = client_viewer.get(reverse("reports:brief")).text
+    stamp = html.split('class="brief-stamp"')[1].split("</p>")[0]
+    assert "Figures as of" in stamp and "rules" not in stamp and "run" not in stamp.lower().split("title=")[0]
+    assert "not yet synced" in stamp and "data-filters-collapse" in html and 'class="page-purpose"' in html

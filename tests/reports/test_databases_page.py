@@ -14,7 +14,7 @@ def test_cards_totals_and_sidebar_link(client_viewer, hierarchy, database):
     assert reverse("reports:database_dashboard", args=[database.id]) in html
     assert 'id="databases-chart-data"' in html and "Tracking status across databases" in html
     assert page.context["data"]["totals"]["databases"] == 1
-    # A menu item of its own under "ActivityInfo reporting", marked as the current page.
+    # A menu item of its own under "Monthly results (ActivityInfo)", marked as the current page.
     assert 'aria-current="page"' in html.split("ActivityInfo databases</span>")[0].rsplit("<a ", 1)[1]
 
 

@@ -347,3 +347,39 @@ def test_a_broken_decisions_answer_falls_back_to_the_rules(data, settings, monke
     review = run()
     assert review.status == DailyReview.Status.SUCCEEDED
     assert review.decisions == [] and review.decided_by == "rules" and review.summary == "Summary."
+
+
+def test_the_card_sets_data_problems_apart_and_folds_the_rest(
+    data, client_viewer, reporting_year, monkeypatch
+):
+    from django.utils import timezone
+
+    SyncRun.objects.create(
+        job=SyncRun.Job.POPULATION, target="x", status=SyncRun.Status.FAILED, error="Upstream returned 503",
+        finished_at=timezone.now(),
+    )  # fmt: skip
+    run()
+    page = services.for_page("today", [])
+    assert [f.check_id for f in page["data_problems"]] == ["sync_failures"]
+    assert all(f.check_id not in services.SYSTEM_CHECKS for f in page["findings"])
+    monkeypatch.setattr(services, "PAGE_FINDINGS", 1)
+    page = services.for_page("today", [])
+    assert len(page["findings"]) == 1 and page["more"] == len(page["more_findings"]) > 0
+    html = client_viewer.get(reverse("reports:overview") + "?section=").text
+    assert "Data problems" in html and "administration pages" not in html
+    assert "Show " in html and " more finding" in html  # the rest open in place, for every viewer
+
+
+def test_a_late_tpm_report_names_the_status_in_words(data):
+    detail = by_check(run())["tpm_reports_late"].detail
+    assert "tpm_accepted" not in detail and "'assigned'" not in detail
+    assert "with no report" in detail
+
+
+def test_the_week_trend_is_dated(data):
+    run()
+    run(NEXT_DAY)
+    trend = services.for_page("week", [])["changed"]
+    day = TODAY.strftime("%d %b")
+    assert trend[0] == f"Country-wide, reviews of {day} to {NEXT_DAY.strftime('%d %b')}."
+    assert trend[1].startswith("Open critical findings: ") and f" on {day}, " in trend[1]

@@ -75,8 +75,8 @@
         </div>
       </div>
 
-      <div class="position-relative" aria-hidden="true">
-        <div class="lp-mock">
+      <figure class="position-relative lp-mock-figure">
+        <div class="lp-mock" aria-hidden="true">
           <div class="lp-mock__bar"><i></i><i></i><i></i></div>
           <div class="lp-mock__kpis">
             <div class="lp-mock__kpi"><small>{% trans "Children reached" %}</small><strong>412k</strong> <em>▲ 8%</em></div>
@@ -97,9 +97,10 @@
             {% endfor %}
           </div>
         </div>
-        <div class="lp-float lp-float--a">{% include "components/icon.html" with name="sparkle" %}{% trans "Daily review: 3 findings to look at" %}</div>
-        <div class="lp-float lp-float--b">{% include "components/icon.html" with name="refresh" %}{% trans "eTools synced last night" %}</div>
-      </div>
+        <div class="lp-float lp-float--a" aria-hidden="true">{% include "components/icon.html" with name="sparkle" %}{% trans "Daily review: findings to look at" %}</div>
+        {% if etools_synced %}<div class="lp-float lp-float--b">{% include "components/icon.html" with name="refresh" %}{% blocktrans with when=etools_synced|naturaltime %}eTools synced {{ when }}{% endblocktrans %}</div>{% endif %}
+        <figcaption class="lp-mock-caption">{% trans "Illustration of the overview, not real figures." %}{% if stats and stat_items %} {% trans "The real counts are below." %}{% endif %}</figcaption>
+      </figure>
     </div>
 
     {% if stats and stat_items %}
@@ -146,7 +147,7 @@
         <article class="lp-card lp-reveal">
           <span class="lp-icon lp-tint-amber">{% include "components/icon.html" with name="sparkle" %}</span>
           <h3>{% trans "A second pair of eyes" %}</h3>
-          <p>{% trans "Every morning a review runs fourteen checks — new off-track indicators, late reports, spending ahead of results, overdue action points — and Ask NeuroDB answers questions in plain language." %}</p>
+          <p>{% if AI_ASSISTANT_ENABLED %}{% trans "Every morning a review runs fourteen checks — new off-track indicators, late reports, spending ahead of results, overdue action points — and Ask NeuroDB answers questions in plain language." %}{% else %}{% trans "Every morning a review runs fourteen checks — new off-track indicators, late reports, spending ahead of results, overdue action points — and lists what needs a person." %}{% endif %}</p>
         </article>
         <article class="lp-card lp-reveal">
           <span class="lp-icon lp-tint-red">{% include "components/icon.html" with name="eye" %}</span>
@@ -198,7 +199,7 @@
         </div>
         <div class="lp-step lp-reveal">
           <h3>{% trans "Act" %}</h3>
-          <p>{% trans "Teams open the overview, the brief, dashboards and maps, ask questions in plain language, and share exports with management, partners and donors." %}</p>
+          <p>{% if AI_ASSISTANT_ENABLED %}{% trans "Teams open the overview, the brief, dashboards and maps, ask questions in plain language, and share exports with management, partners and donors." %}{% else %}{% trans "Teams open the overview, the brief, dashboards and maps, and share exports with management, partners and donors." %}{% endif %}</p>
           <div class="chips"><span class="chip">{% trans "Overview" %}</span><span class="chip">{% trans "Brief" %}</span><span class="chip">{% trans "Maps" %}</span></div>
         </div>
       </div>
@@ -288,7 +289,7 @@
         <details><summary>{% trans "Where does the data come from?" %}</summary><p>{% trans "Programme documents, partner progress reports, funds, donors and assurance (monitoring visits, audits, action points, HACT) come from eTools through the eTools Datamart; monthly activity results from ActivityInfo; population estimates from the official planning figures loaded each year. NeuroDB never asks partners to report twice." %}</p></details>
         <details><summary>{% trans "How current is it?" %}</summary><p>{% trans "eTools data synchronises every night, ActivityInfo imports run from the 1st to the 22nd of each month, and the daily review runs each morning after the syncs. The data health page shows when each source was last updated, and pages warn you when data is out of date." %}</p></details>
         <details><summary>{% trans "What does “on track” mean?" %}</summary><p>{% trans "An indicator is on track when its achievement is within ten percentage points of the time that has passed: the share of the programme document’s period for eTools indicators, the share of the year for ActivityInfo ones. Well above is “ahead of schedule” (“over target” once it has passed its target), well below is “off track”, and indicators without a target are shown separately." %}</p></details>
-        <details><summary>{% trans "What does the AI do, and what does it see?" %}</summary><p>{% trans "Ask NeuroDB answers questions about the data and links to the pages its figures come from; the daily review’s checks are fixed rules, with a short written summary on top. Both only read data. They use the OpenAI API: a question, the recent turns of its conversation and the figures looked up to answer it leave UNICEF’s Azure environment for that purpose. Treat findings as prompts to look, never as verdicts." %}</p></details>
+        {% if AI_ASSISTANT_ENABLED %}<details><summary>{% trans "What does the AI do, and what does it see?" %}</summary><p>{% trans "Ask NeuroDB answers questions about the data and links to the pages its figures come from; the daily review’s checks are fixed rules, with a short written summary on top. Both only read data. They use the OpenAI API: a question, the recent turns of its conversation and the figures looked up to answer it leave UNICEF’s Azure environment for that purpose. Treat findings as prompts to look, never as verdicts." %}</p></details>{% endif %}
         <details><summary>{% trans "Can I export the data?" %}</summary><p>{% trans "Yes. Every table can be copied or downloaded as CSV, raw data is available in Excel, and dashboards have a printable snapshot you can save as PDF." %}</p></details>
         <details><summary>{% trans "Is the data secure?" %}</summary><p>{% trans "Access requires UNICEF single sign-on and a registered account. Partner-level data, dashboards and reports are never public; the only public figures are the aggregate counts on this page." %}</p></details>
       </div>

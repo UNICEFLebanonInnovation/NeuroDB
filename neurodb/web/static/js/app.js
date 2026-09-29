@@ -119,6 +119,30 @@ function initFilterBar(form) {
   $$('input[type="search"]', form).forEach((el) => el.addEventListener("input", auto));
 }
 
+// ------------------------------------------------------------------ filter bars folded on phones
+// A wrapper with data-filters-collapse gets a "Filters" button; under 768px (CSS) its filter bar stays
+// folded until the button opens it, so the page's figures come first. Without JS nothing is folded.
+function initFiltersCollapse(root) {
+  $$("[data-filters-collapse]", root).forEach((wrap, index) => {
+    const form = $("form.filter-bar", wrap);
+    if (wrap.dataset.ndBound || !form) return;
+    wrap.dataset.ndBound = "1";
+    form.id ||= `filter-bar-${index + 1}`;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "btn btn-outline-secondary btn-sm filters-toggle";
+    button.setAttribute("aria-controls", form.id);
+    button.setAttribute("aria-expanded", "false");
+    button.innerHTML = '<svg class="icon" aria-hidden="true" focusable="false"><use href="#i-filter"></use></svg><span>Filters</span>';
+    button.addEventListener("click", () => {
+      const open = wrap.classList.toggle("is-open");
+      button.setAttribute("aria-expanded", String(open));
+    });
+    form.before(button);
+    wrap.classList.add("is-collapsible");
+  });
+}
+
 // ------------------------------------------------------------------ tables
 function initTables(root) {
   $$("[data-table-copy]", root).forEach((btn) => {
@@ -254,6 +278,7 @@ async function initModules(root) {
 
 function enhance(root = document) {
   $$("form[data-filter-bar]", root).forEach(initFilterBar);
+  initFiltersCollapse(root);
   initTables(root);
   initSelects(root);
   initModules(root);
