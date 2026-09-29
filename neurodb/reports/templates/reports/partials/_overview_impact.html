@@ -21,7 +21,7 @@
     <span>{% trans "Fewer" %}</span>
     <span class="gov-legend__ramp" aria-hidden="true"><span class="gov-tile--l1"></span><span class="gov-tile--l2"></span><span class="gov-tile--l3"></span><span class="gov-tile--l4"></span><span class="gov-tile--l5"></span><span class="gov-tile--l6"></span></span>
     <span>{% trans "More" %}</span>
-    <span>· {% trans "the larger of the two sources per governorate" %}</span>
+    <span>· {% trans "the larger of the two sources per governorate, so the tiles add up to more than the national figure (which takes the larger source for the country as a whole)" %}</span>
     {% if selected.governorate %}<span>· <a href="?{{ base_query }}">{% trans "every governorate" %}</a></span>{% endif %}
   </div>
   {% else %}

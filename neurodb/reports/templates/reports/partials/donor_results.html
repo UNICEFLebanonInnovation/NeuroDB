@@ -1,7 +1,7 @@
 {% load i18n ui %}
 <div class="kpi-grid">
   {% trans "Programme documents" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=data.count|number %}
-  {% trans "Donations" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.donations_total|number:0 %}
+  {% trans "Donor contributions (USD)" as l2 %}{% trans "As listed on the programme documents. Money actually set aside is on the Funds page (reserved), and a programme's budget is on Programmes." as h2 %}{% include "components/kpi_tile.html" with label=l2 value=data.donations_total|number:0 hint=h2 %}
   {% trans "ActivityInfo records" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.interventions_total|number %}
   {% trans "Actual locations" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.unique_actual_locations|number %}
   {% blocktrans asvar hint with n=data.planned_locations_unique %}{{ n }} unique{% endblocktrans %}
@@ -18,7 +18,7 @@
 <section class="panel p-0">
   {% include "components/table_toolbar.html" with title=_("Programme documents") count=data.count table_id="donor-pds" filename="donor-programmes" %}
   <div class="table-wrap" style="max-height: 560px"><table class="table table-hover" id="donor-pds" data-sortable>
-    <thead><tr><th>{% trans "Document" %}</th><th>{% trans "Partner" %}</th><th>{% trans "Status" %}</th><th>{% trans "Donors" %}</th><th class="num">{% trans "Donations" %}</th></tr></thead>
+    <thead><tr><th>{% trans "Document" %}</th><th>{% trans "Partner" %}</th><th>{% trans "Status" %}</th><th>{% trans "Donors" %}</th><th class="num">{% trans "Donor contributions" %}</th></tr></thead>
     <tbody>{% for p in data.programmes %}<tr data-href="{% url 'reports:programme_detail' p.pd.id %}"><td><a href="{% url 'reports:programme_detail' p.pd.id %}">{{ p.pd.number }}</a><span class="cell-sub">{{ p.pd.title|truncatechars:80 }}</span></td><td>{{ p.pd.partner_name }}</td><td>{% status_pill p.pd.status p.pd.status|capfirst "sm" %}</td><td><div class="chips">{% for d in p.pd.donors|slice:":3" %}<span class="chip">{{ d|truncatechars:24 }}</span>{% endfor %}</div></td><td class="num" data-value="{{ p.donations }}">{{ p.donations|number:0 }}</td></tr>
     {% empty %}<tr><td colspan="5">{% include "components/empty_state.html" with icon="gift" title=_("No programme documents match") %}</td></tr>{% endfor %}</tbody>
   </table></div>

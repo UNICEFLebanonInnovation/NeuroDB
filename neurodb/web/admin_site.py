@@ -357,8 +357,8 @@ def _dashboard(request) -> dict[str, Any]:
         jobs.append({"job": job, "label": label, "last": last, "last_success": ok})
 
     no_role = (
-        user_model.objects.filter(is_active=True, is_superuser=False)
-        .exclude(groups__name__in=ALL_ROLES)
+        user_model.objects.filter(is_active=True, is_superuser=False, donor_account__isnull=True)
+        .exclude(groups__name__in=ALL_ROLES)  # donor accounts have no role on purpose
         .distinct()
         .count()
     )

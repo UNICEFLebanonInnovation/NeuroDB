@@ -388,8 +388,8 @@ def narration_input(review: DailyReview, findings: list[ReviewFinding]) -> dict[
         "indicators": stats.get("indicators"),
         "programme_documents": stats.get("programme_documents"),
         "indicator_status_counts": stats.get("status_counts", {}),
-        "on_track_percent": stats.get("on_track_percent"),
-        "previous_on_track_percent": (previous.stats or {}).get("on_track_percent") if previous else None,
+        "on_track_percent": on_track_share(stats),
+        "previous_on_track_percent": on_track_share(previous.stats) if previous else None,
         "action_points_past_due": stats.get("action_points_past_due"),
         "tpm_completion": stats.get("tpm_completion"),
         "checks_that_failed": sorted((stats.get("check_errors") or {}).keys()),
@@ -427,7 +427,7 @@ def decision_input(review: DailyReview, findings: list[ReviewFinding]) -> dict[s
         "date": review.date.isoformat(),
         "counts_by_severity": stats.get("counts", {}),
         "indicator_status_counts": stats.get("status_counts", {}),
-        "on_track_percent": stats.get("on_track_percent"),
+        "on_track_percent": on_track_share(stats),
         "findings": [
             {
                 "key": f.key,
@@ -567,11 +567,14 @@ def template_summary(findings: list[ReviewFinding], stats: dict[str, Any]) -> st
     tracked = status.get("on_track", 0) + status.get("off_track", 0) + status.get("over_target", 0)
     if tracked:
         sentences.append(
-            _("%(on)s of the %(tracked)s indicators with a target and a report are on track (%(pct)s %%).")
+            _(
+                "%(on)s of the %(tracked)s indicators with a target and a report are on track or ahead of "
+                "schedule (%(pct)s %%)."
+            )
             % {
-                "on": status.get("on_track", 0),
+                "on": status.get("on_track", 0) + status.get("over_target", 0),
                 "tracked": tracked,
-                "pct": round(stats.get("on_track_percent") or 0),
+                "pct": round(on_track_share(stats) or 0),
             }
         )
     good = [f for f in findings if f.severity == GOOD and f.state != RESOLVED]
@@ -607,6 +610,18 @@ def in_sections(section: str, sections: list[str]) -> bool:
     return False
 
 
+def on_track_share(stats: dict[str, Any] | None) -> float | None:
+    """Indicators on track or ahead of schedule, in % of those with a target and a report: the
+    brief's and the overview's definition. Read from the stored counts, so a review saved when
+    "on track" alone was counted reads the same way."""
+    stats = stats or {}
+    counts = stats.get("status_counts") or {}
+    tracked = counts.get("on_track", 0) + counts.get("off_track", 0) + counts.get("over_target", 0)
+    if tracked:
+        return round((counts.get("on_track", 0) + counts.get("over_target", 0)) * 100 / tracked, 1)
+    return stats.get("on_track_percent")
+
+
 def _counts(findings: list[ReviewFinding]) -> dict[str, int]:
     counts = Counter(f.severity for f in findings)
     return {sev: counts.get(sev, 0) for sev in SEVERITY_ORDER}
@@ -618,7 +633,7 @@ def _history(reviews: list[DailyReview]) -> list[dict[str, Any]]:
             "date": r.date,
             "counts": (r.stats or {}).get("counts") or {},
             "findings": (r.stats or {}).get("findings", 0),
-            "on_track_percent": (r.stats or {}).get("on_track_percent"),
+            "on_track_percent": on_track_share(r.stats),
         }
         for r in sorted(reviews, key=lambda r: r.date)
     ]
@@ -631,11 +646,11 @@ def _changed(review: DailyReview, findings: list[ReviewFinding]) -> list[str]:
         _("Still open: %(n)s") % {"n": states.get(STILL_OPEN, 0)},
         _("Resolved: %(n)s") % {"n": states.get(RESOLVED, 0)},
     ]
-    share = (review.stats or {}).get("on_track_percent")
+    share = on_track_share(review.stats)
     if share is not None:
         previous = _previous_of(review)
-        before = (previous.stats or {}).get("on_track_percent") if previous else None
-        text = _("Indicators on track, country: %(pct)s %%") % {"pct": round(share)}
+        before = on_track_share(previous.stats) if previous else None
+        text = _("Indicators on track or ahead of schedule, country: %(pct)s %%") % {"pct": round(share)}
         if before is not None:
             text += " " + _("(review of %(date)s: %(pct)s %%)") % {
                 "date": previous.date.strftime("%d %b"),
@@ -662,11 +677,11 @@ def _trend(reviews: list[DailyReview]) -> list[str]:
         _("Resolved over the week: %(n)s")
         % {"n": sum(((r.stats or {}).get("states") or {}).get(RESOLVED, 0) for r in ordered[1:])},
     ]
-    share_first = (first.stats or {}).get("on_track_percent")
-    share_last = (last.stats or {}).get("on_track_percent")
+    share_first = on_track_share(first.stats)
+    share_last = on_track_share(last.stats)
     if share_first is not None and share_last is not None:
         trend.append(
-            _("Indicators on track: from %(a)s %% to %(b)s %%")
+            _("Indicators on track or ahead of schedule: from %(a)s %% to %(b)s %%")
             % {"a": round(share_first), "b": round(share_last)}
         )
     return trend

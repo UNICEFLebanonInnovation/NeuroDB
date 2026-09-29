@@ -1342,7 +1342,8 @@ def _on_track_cell(row: dict[str, Any] | None) -> dict[str, str]:
         "On track",
         _band(share, 70, 50),
         percent(share, 0),
-        f"{row['on_track'] + row['over_target']:,} of {tracked:,} tracked indicators on track or over target",
+        f"{row['on_track'] + row['over_target']:,} of {tracked:,} tracked indicators on track or ahead of "
+        "schedule",
     )
 
 

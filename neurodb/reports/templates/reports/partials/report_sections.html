@@ -4,6 +4,7 @@
   {% trans "Indicators" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.totals.indicators %}
   {% trans "Period" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.quarter|default:data.month_label hint=data.year %}
 </div>
+<div class="panel p-0 mb-3">{% include "components/status_reference.html" with ref=data.status_ref %}</div>
 {% for s in data.sections %}
 <section class="panel p-0 mb-3" aria-labelledby="rs-{{ s.database.id }}">
   <div class="table-toolbar">

@@ -415,6 +415,14 @@ def databases(request: HttpRequest) -> HttpResponse:
     return render(request, "reports/databases.html", context)
 
 
+def _status_reference(year: int, day: datetime.date) -> dict[str, Any]:
+    """What an ActivityInfo status is measured against, shown next to the statuses: the share of the
+    year elapsed at ``day`` (today on the dashboards, the end of the period on a report)."""
+    from neurodb.indicators.services.tracking import TOLERANCE, percentage_of_year_elapsed
+
+    return {"date": day, "elapsed": percentage_of_year_elapsed(year, day), "tolerance": TOLERANCE}
+
+
 @require_GET
 def database_dashboard(request: HttpRequest, pk: int) -> HttpResponse:
     database = _database(pk)
@@ -440,6 +448,7 @@ def database_dashboard(request: HttpRequest, pk: int) -> HttpResponse:
         "labels": LABELS,
         "status": status,
         "q": q,
+        "status_ref": _status_reference(dash.year, datetime.date.today()),
         "chart_data": {"status_counts": dash.status_counts, "labels": LABELS, "monthly": dash.monthly},
     }
     template = "reports/partials/indicator_table.html" if request.htmx else "reports/database_dashboard.html"
@@ -490,6 +499,7 @@ def database_snapshot(request: HttpRequest, pk: int) -> HttpResponse:
         "snapshot": snap,
         "dashboard": snap["dashboard"],
         "labels": LABELS,
+        "status_ref": _status_reference(snap["dashboard"].year, datetime.date.today()),
         "chart_data": {
             "status_counts": snap["dashboard"].status_counts,
             "labels": LABELS,

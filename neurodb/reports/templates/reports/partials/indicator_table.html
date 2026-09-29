@@ -1,5 +1,6 @@
 {% load i18n ui %}
 {% include "components/table_toolbar.html" with title=_("Master indicators") count=indicators|length table_id="indicators" filename=database.label|default:database.name|slugify %}
+{% include "components/status_reference.html" with ref=status_ref %}
 {% if indicators %}
 <div class="table-wrap">
 <table class="table table-hover" id="indicators" data-sortable>

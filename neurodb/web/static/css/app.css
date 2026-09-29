@@ -247,7 +247,24 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .db-card__stat span { font-size: 0.72rem; color: var(--nd-muted); }
 
 /* ------------------------------------------------------------------ tables */
-.table-wrap { overflow-x: auto; border-radius: var(--nd-radius); }
+/* A wide table scrolls inside its card. Two cues say so: a shadow on the edge that has more
+   columns (the "local" covers follow the content and hide the shadow at either end), and a thin
+   scrollbar that stays visible instead of appearing only on hover. */
+.table-wrap {
+  overflow-x: auto;
+  border-radius: var(--nd-radius);
+  background:
+    linear-gradient(to right, var(--nd-surface) 40%, transparent) left center / 2.5rem 100% no-repeat local,
+    linear-gradient(to left, var(--nd-surface) 40%, transparent) right center / 2.5rem 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgba(15, 23, 42, 0.22), transparent) left center / 0.9rem 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgba(15, 23, 42, 0.22), transparent) right center / 0.9rem 100% no-repeat scroll;
+  scrollbar-width: thin;
+  scrollbar-color: var(--nd-border) transparent;
+}
+.table-wrap::-webkit-scrollbar { height: 8px; width: 8px; }
+.table-wrap::-webkit-scrollbar-thumb { background: var(--nd-border); border-radius: 999px; }
+.table-wrap::-webkit-scrollbar-track { background: transparent; }
+.status-ref { margin: 0; padding: 0.5rem 1rem; font-size: 0.78rem; color: var(--nd-muted); border-bottom: 1px solid var(--nd-border); }
 .table { --bs-table-bg: transparent; --bs-table-color: var(--nd-text); --bs-table-border-color: var(--nd-border); --bs-table-hover-bg: var(--nd-surface-2); margin: 0; font-size: 0.875rem; }
 .table thead th { position: sticky; top: 0; z-index: 1; background: var(--nd-surface-2); color: var(--nd-muted); font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; border-bottom-width: 1px; }
 .table td, .table th { padding: 0.55rem 0.75rem; vertical-align: middle; }
@@ -311,7 +328,9 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .map-legend__ramp { height: 8px; border-radius: 4px; background: linear-gradient(90deg, #deebf7, #6baed6, #08519c); margin: 0.35rem 0 0.15rem; }
 .map-legend__scale { display: flex; justify-content: space-between; color: var(--nd-muted); }
 .maplibregl-popup-content { background: var(--nd-surface); color: var(--nd-text); border-radius: var(--nd-radius-sm); box-shadow: var(--nd-shadow-lg); font-size: 0.8rem; }
-.pivot-shell { overflow: auto; }
+.pivot-shell { overflow: auto; scrollbar-width: thin; scrollbar-color: var(--nd-border) transparent; }
+.pivot-shell::-webkit-scrollbar { height: 8px; width: 8px; }
+.pivot-shell::-webkit-scrollbar-thumb { background: var(--nd-border); border-radius: 999px; }
 .pivot-shell .pvtUi { color: var(--nd-text); font-family: var(--nd-font); font-size: 0.8rem; }
 .pivot-shell .pvtUi td, .pivot-shell table.pvtTable { font-size: 0.8rem; }
 .pivot-shell .pvtAxisContainer, .pivot-shell .pvtVals, .pivot-shell .pvtRenderer, .pivot-shell .pvtUiCell { background: var(--nd-surface-2); border-color: var(--nd-border); }

@@ -90,6 +90,7 @@ def test_delivery_and_assurance(data, reporting_year):
         "field_monitoring_visits": 1,
         "tpm_visits": 2,
         "tpm_visits_planned": 2,
+        "tpm_visits_completed": 1,  # the approved one; the other has no report yet
         "open_action_points": 1,
         "overdue_high_priority": 1,
         "high_risk_partners": 1,

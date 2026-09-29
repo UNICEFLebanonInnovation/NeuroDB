@@ -24,6 +24,7 @@ class RoleFilter(admin.SimpleListFilter):
             ("viewer", VIEWER),
             ("editor", SECTION_EDITOR),
             ("admin", _("Administrator (incl. superusers)")),
+            ("donor", _("Donor (donor page only)")),
             ("none", _("No role assigned")),
         )
 
@@ -35,8 +36,12 @@ class RoleFilter(admin.SimpleListFilter):
             return queryset.filter(groups__name=SECTION_EDITOR).distinct()
         if value == "admin":
             return queryset.filter(Q(is_superuser=True) | Q(groups__name=ADMIN)).distinct()
-        if value == "none":
-            return queryset.filter(is_superuser=False).exclude(groups__name__in=ALL_ROLES)
+        if value == "donor":
+            return queryset.filter(donor_account__isnull=False)
+        if value == "none":  # a donor account has no role on purpose: not listed here
+            return queryset.filter(is_superuser=False, donor_account__isnull=True).exclude(
+                groups__name__in=ALL_ROLES
+            )
         return queryset
 
 
@@ -75,16 +80,22 @@ class UserAdmin(DjangoUserAdmin, ModelAdmin):
     autocomplete_fields = ("backup_user",)
 
     def get_queryset(self, request):
-        return super().get_queryset(request).prefetch_related("groups")
+        return super().get_queryset(request).prefetch_related("groups").select_related("donor_account")
 
     @admin.display(description=_("Name"), ordering="last_name")
     def full_name(self, obj):
         return obj.get_full_name() or "—"
 
+    @staticmethod
+    def _is_donor(obj) -> bool:
+        return getattr(obj, "donor_account", None) is not None
+
     @admin.display(description=_("Role"))
     def role(self, obj):
         if obj.is_superuser:
             return badge(_("Superuser"), "bad")
+        if self._is_donor(obj):
+            return badge(_("Donor"), "warn")
         names = {g.name for g in obj.groups.all()}
         for name in (ADMIN, SECTION_EDITOR, VIEWER):
             if name in names:
@@ -92,7 +103,20 @@ class UserAdmin(DjangoUserAdmin, ModelAdmin):
         return badge(_("None (viewer)"), "muted")
 
     def _set_role(self, request, queryset, role):
-        """Roles are exclusive: drop the other two role groups, keep any unrelated groups."""
+        """Roles are exclusive: drop the other two role groups, keep any unrelated groups. A donor
+        account never gets a staff role (remove its donor access first)."""
+        donors = queryset.filter(donor_account__isnull=False).count()
+        if donors:
+            queryset = queryset.filter(donor_account__isnull=True)
+            self.message_user(
+                request,
+                _(
+                    "%(n)s donor account(s) skipped: a donor sees the donor page only. Delete the donor "
+                    "access first to give that sign-in a staff role."
+                )
+                % {"n": donors},
+                messages.WARNING,
+            )
         groups = ensure_groups()
         others = [g for name, g in groups.items() if name != role]
         count = 0

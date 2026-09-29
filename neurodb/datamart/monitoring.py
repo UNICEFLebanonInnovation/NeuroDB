@@ -235,7 +235,11 @@ class Indicator:
 
     @property
     def tracking_label(self) -> str:
-        return LABELS[self.tracking]
+        return (
+            LABELS[self.tracking]
+            if self.tracking == NOT_REPORTED
+            else tracking.label_for(self.tracking, self.achieved)
+        )
 
     @property
     def url(self) -> str:

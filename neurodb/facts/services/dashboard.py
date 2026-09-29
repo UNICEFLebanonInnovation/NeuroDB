@@ -17,7 +17,13 @@ from django.utils import timezone
 from neurodb.facts import queries
 from neurodb.facts.queries import FactFilter
 from neurodb.indicators.models import Database, NeuroReport, NeuroReportComment, ReportingYear
-from neurodb.indicators.services.tracking import LABELS, tracking, year_of
+from neurodb.indicators.services.tracking import (
+    LABELS,
+    TOLERANCE,
+    percentage_of_year_elapsed,
+    tracking,
+    year_of,
+)
 
 QUARTERS = {"Q1": 3, "Q2": 6, "Q3": 9, "Q4": 12}
 
@@ -320,6 +326,12 @@ def neuroreport(
         "month_label": datetime.date(year, month, 1).strftime("%B"),
         "quarter": quarter,
         "cutoff": cutoff,
+        # The statuses are measured at the end of the period (or today, if earlier), not today.
+        "status_ref": {
+            "date": min(today, period_end),
+            "elapsed": percentage_of_year_elapsed(year, min(today, period_end)),
+            "tolerance": TOLERANCE,
+        },
         "last_month": last_month,
         "quarters": [q for q, m in QUARTERS.items() if m <= last_month],
         "sections": sections,

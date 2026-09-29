@@ -47,7 +47,7 @@ GOVERNORATES = {  # overview.governorate_key -> the name and place on the page's
 }
 STATUS = {  # the partner monitoring rule, as the donor reads it (icon + label, never colour alone)
     "on_track": ("good", "On track", "check"),
-    "over_target": ("good", "Ahead", "up"),
+    "over_target": ("good", "Ahead of schedule", "up"),
     "off_track": ("crit", "Behind", "x"),
     "not_reported": ("warn", "Not reported yet", "warn"),
     "no_target": ("none", "No target", "dash"),

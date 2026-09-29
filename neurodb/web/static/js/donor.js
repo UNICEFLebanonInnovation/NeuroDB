@@ -35,7 +35,7 @@ const pill = (s) => `<span class="pill ${s.cls}">${ICONS[s.icon] || ""}${esc(s.l
 const statusOf = (key) => (DATA.statuses || {})[key] || { cls: "none", label: "Not reported yet", icon: "warn" };
 function paceStatus(achieved, expected) {
   if (achieved < expected - 10) return { cls: "crit", label: "Behind", icon: "x" };
-  if (achieved > expected + 10) return { cls: "good", label: "Ahead", icon: "up" };
+  if (achieved > expected + 10) return { cls: "good", label: "Ahead of schedule", icon: "up" };
   return { cls: "good", label: "On track", icon: "check" };
 }
 

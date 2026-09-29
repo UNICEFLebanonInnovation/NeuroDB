@@ -1,7 +1,10 @@
 """Tracking status of an indicator against its target (ported from v2 ``setTrackingStatus``).
 
 Rule from the SDD: compare the percentage achieved with the percentage of the year elapsed;
-within ±10 points is on track, below is off track, above is over target; no target means no status.
+within ±10 points is on track, below is off track, above is ahead of schedule; no target means no
+status. The status keeps its v2 key, ``over_target``, but reads "Ahead of schedule": 80 % of the
+target in September is ahead, not over. One indicator past 100 % of its target reads "Over target"
+(``label_for``).
 """
 
 from __future__ import annotations
@@ -10,8 +13,20 @@ import datetime
 from dataclasses import dataclass
 
 ON_TRACK, OFF_TRACK, OVER_TARGET, NO_TARGET = "on_track", "off_track", "over_target", "no_target"
-LABELS = {ON_TRACK: "On track", OFF_TRACK: "Off track", OVER_TARGET: "Over target", NO_TARGET: "No target"}
+LABELS = {
+    ON_TRACK: "On track",
+    OFF_TRACK: "Off track",
+    OVER_TARGET: "Ahead of schedule",
+    NO_TARGET: "No target",
+}
 TOLERANCE = 10
+
+
+def label_for(status: str, achieved: float | None) -> str:
+    """The label of one indicator's status: "Over target" when it has passed 100 % of its target."""
+    if status == OVER_TARGET and achieved is not None and achieved >= 100:
+        return "Over target"
+    return LABELS.get(status, status)
 
 
 def percentage_of_year_elapsed(year: int, today: datetime.date | None = None) -> float:
@@ -31,7 +46,7 @@ class Tracking:
 
     @property
     def label(self) -> str:
-        return LABELS[self.status]
+        return label_for(self.status, self.achieved)
 
 
 def tracking(

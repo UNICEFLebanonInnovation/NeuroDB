@@ -20,6 +20,7 @@
 </div>
 <section class="panel p-0 mb-3">
   {% include "components/table_toolbar.html" with title=_("Master indicators") count=dashboard.indicators|length table_id="snapshot-indicators" %}
+  {% include "components/status_reference.html" with ref=status_ref %}
   <div class="table-wrap"><table class="table" id="snapshot-indicators">
     <thead><tr><th>{% trans "Indicator" %}</th><th class="num">{% trans "Target" %}</th><th class="num">{% trans "Achieved" %}</th><th class="num">%</th><th>{% trans "Status" %}</th></tr></thead>
     <tbody>{% for i in dashboard.indicators %}

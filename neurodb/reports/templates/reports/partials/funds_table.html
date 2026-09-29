@@ -1,8 +1,8 @@
 {% load i18n ui %}
 <div class="kpi-grid">
   {% trans "Funds reservations" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=data.fr_count|number %}
-  {% trans "Reserved (USD)" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.totals.reserved|number:0 %}
-  {% trans "Disbursed (USD)" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.totals.disbursed|number:0 %}
+  {% trans "Reserved (USD)" as l2 %}{% trans "Money set aside for partners in funds reservations. Donor contributions listed on the programme documents are on the Donors page." as h2 %}{% include "components/kpi_tile.html" with label=l2 value=data.totals.reserved|number:0 hint=h2 %}
+  {% trans "Disbursed (USD)" as l3 %}{% trans "Paid to partners so far, out of the reserved amount." as h3 %}{% include "components/kpi_tile.html" with label=l3 value=data.totals.disbursed|number:0 hint=h3 %}
   {% trans "Outstanding (USD)" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.totals.outstanding|number:0 %}
   {% trans "Programme documents" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=data.pds|number %}
 </div>

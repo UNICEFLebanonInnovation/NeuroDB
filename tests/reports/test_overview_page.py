@@ -45,7 +45,7 @@ def test_renders_every_block_with_data(client_viewer, reporting_year, fake_servi
     for text in (
         "Children reached",
         "Cost per child",
-        "TPM visits",
+        "Third-party visits completed",
         "Value for money",
         "Delivery and assurance",
     ):
@@ -59,7 +59,7 @@ def test_renders_every_block_with_data(client_viewer, reporting_year, fake_servi
     assert "Data freshness" in html and "Daily AI review" in html
     assert "ActivityInfo databases of the year" in html  # the cards moved to their own page
     assert "LEB/PD2026001" in html and "Himaya" in html  # decisions and attention lists
-    assert "28 planned" in html  # TPM visits of every status, as on field monitoring, planned beside them
+    assert "19 <span" in html and "28 planned" in html  # completed of planned, as the TPM block counts them
     assert ">+3 more items</a>" in html  # what the attention list left out
     assert "reports/partials/_daily_review.html" not in html
     scope = fake_service[0]
@@ -222,7 +222,7 @@ def test_renders_against_the_real_service(client_viewer, reporting_year, hierarc
     for text in (
         "Children reached",
         "Cost per child",
-        "TPM visits",
+        "Third-party visits completed",
         "Child Protection",
         'id="overview-chart-data"',
     ):

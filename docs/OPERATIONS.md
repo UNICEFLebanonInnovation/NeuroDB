@@ -290,8 +290,9 @@ are read from the indicator titles (`neurodb/datamart/tags.py`). The programme a
 summarise it; the assistant answers with `pd_indicator_progress`. Per-location targets are not in
 any country-filterable Datamart endpoint, so locations are compared on reported values only.
 
-**Statuses.** *On track / Off track / Over target* compare the cumulative achievement with the
-share of the PD period elapsed (±10 points); *No target* when the PD sets none; **Not reported**
+**Statuses.** *On track / Off track / Ahead of schedule* compare the cumulative achievement with
+the share of the PD period elapsed (±10 points); an indicator ahead of schedule that has passed 100 %
+of its target reads *Over target* (the stored key stays `over_target`); *No target* when the PD sets none; **Not reported**
 when no progress report of the selected type and year was read for the indicator — an indicator
 nobody reported on is never called off track. A report row is matched to its PD indicator by the
 eTools indicator id (`etools_cp_output_indicators_id` = the PD indicator's `source_id`) when the

@@ -45,7 +45,7 @@ from neurodb.web.templatetags.ui import half_up
 logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 120
-CACHE_VERSION = 5
+CACHE_VERSION = 6
 MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 STATUSES = ("on_track", "off_track", "over_target", "no_target", NOT_REPORTED)
 LEVEL_GOVERNORATE = monitoring.LEVEL_GOVERNORATE
@@ -68,8 +68,8 @@ HIGH_RISK = ("high", "significant")
 SEX_RULES = (("Girls", r"\bgirls?\b", r"\bboys?\b"), ("Boys", r"\bboys?\b", r"\bgirls?\b"))
 NATIONALITY_OF_TAG = {"Lebanese": "Lebanese", "Syrian": "Syrian", "Palestinian": "Palestinian"}
 COST_CAVEAT = (
-    "Disbursed to date (supplies and operating costs included) over the children reached this year: "
-    "compare sections, not absolute values."
+    "Disbursed to date (supplies and operating costs included) over the children reached this year in "
+    "eTools partner reports, the same programmes on both sides: compare sections, not absolute values."
 )
 
 
@@ -699,6 +699,10 @@ class _Builder:
             if totals["children"]
             else None,
             "cost_per_child_previous": None,
+            # The children the cost divides by: eTools partner reports only (the money is eTools'),
+            # so not the headline, which may take ActivityInfo's larger figure.
+            "cost_children": round(totals["children"]),
+            "cost_disbursed": half_up(totals["for_children"], 2),
             "cost_caveat": COST_CAVEAT,
             "by_section": by_section,
             "by_donor": self._donors(
@@ -955,6 +959,8 @@ class _Builder:
             # Every visit of the year, as on the field monitoring page it links to; planned as a sub-count.
             "tpm_visits": self._scoped_tpm_visits(planned=False).count(),
             "tpm_visits_planned": self._scoped_tpm_visits().count(),
+            # The card shows completed of planned, the pair the third-party monitoring block uses.
+            "tpm_visits_completed": self._scoped_tpm_visits().filter(status__in=TPM_COMPLETED).count(),
             "open_action_points": open_points.count(),
             "overdue_high_priority": open_points.filter(high_priority=True, due_date__lt=self.today).count(),
             "high_risk_partners": sum(1 for p in partners if (p.rating or "").strip().lower() in HIGH_RISK),

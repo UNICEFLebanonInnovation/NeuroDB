@@ -816,7 +816,8 @@ def check_improvements(ctx: Context) -> list[Draft]:
                 section=section,
                 title=f"{len(inds)} {plural(len(inds), 'indicator')} back on track in {pd_label(pd)}",
                 detail=(
-                    f"Off track at the review of {ctx.previous.date:%d %b %Y}, on track or over target today."
+                    f"Off track at the review of {ctx.previous.date:%d %b %Y}, on track or ahead of "
+                    "schedule today."
                 ),
                 evidence=_evidence(
                     "A new progress report usually explains it.",
@@ -885,7 +886,12 @@ def snapshot(ctx: Context) -> dict[str, Any]:
         "partners": len({ind.pd.partner_id for ind in ctx.rows if ind.pd.partner_id}),
         "status_counts": {key: counts.get(key, 0) for key in monitoring.LABELS},
         "status_counts_year": {key: year_counts.get(key, 0) for key in monitoring.LABELS},
-        "on_track_percent": round(counts.get(ON_TRACK, 0) * 100 / tracked, 1) if tracked else None,
+        # On track or ahead of schedule, as the brief and the overview count it.
+        "on_track_percent": (
+            round((counts.get(ON_TRACK, 0) + counts.get(OVER_TARGET, 0)) * 100 / tracked, 1)
+            if tracked
+            else None
+        ),
         "indicator_status": {indicator_ref(ind): ind.tracking for ind in ctx.rows},
         "action_points_past_due": past_due,
         "tpm_completion": {
