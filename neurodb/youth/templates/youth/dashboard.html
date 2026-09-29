@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+{% if not years %}
+<section class="panel">
+  {% if configured %}
+  {% include "components/empty_state.html" with icon="users" title=_("No youth figures yet") message=_("The youth figures are read from Compiler by the job “Read the youth figures from Compiler” (admin → Import and sync runs → Run a job).") %}
+  {% else %}
+  {% include "components/empty_state.html" with icon="users" title=_("Compiler is not connected") message=_("An administrator sets COMPILER_API_URL and COMPILER_API_TOKEN (Key Vault secret compiler-api-token), then runs the job “Read the youth figures from Compiler”.") %}
+  {% endif %}
+</section>
+{% else %}
+<form method="get" class="filter-bar" role="search" aria-label="{% trans 'Youth filters' %}">
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-year">{% trans "Year" %}</label>
+    <select class="form-select form-select-sm" id="f-year" name="year">
+      {% for y in years %}<option value="{{ y }}" {% if y == filters.year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+    </select>
+  </div>
+  {% if data %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-master">{% trans "Master indicator" %}</label>
+    <select class="form-select form-select-sm" id="f-master" name="master">
+      <option value="">{% trans "All" %}</option>
+      {% for id, label in data.options.masters %}<option value="{{ id }}" {% if id == filters.master %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-partner">{% trans "Partner" %}</label>
+    <select class="form-select form-select-sm" id="f-partner" name="partner">
+      <option value="">{% trans "All" %}</option>
+      {% for id, label in data.options.partners %}<option value="{{ id }}" {% if id == filters.partner %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-donor">{% trans "Donor" %}</label>
+    <select class="form-select form-select-sm" id="f-donor" name="donor">
+      <option value="">{% trans "All" %}</option>
+      {% for id, label in data.options.donors %}<option value="{{ id }}" {% if id == filters.donor %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-governorate">{% trans "Governorate" %}</label>
+    <select class="form-select form-select-sm" id="f-governorate" name="governorate">
+      <option value="">{% trans "All" %}</option>
+      {% for id, label in data.options.governorates %}<option value="{{ id }}" {% if id == filters.governorate %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  {% endif %}
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
+  </div>
+</form>
+
+{% if data %}
+<p class="text-muted small mb-2">
+  {% blocktrans with when=data.fetched_at|date:"j M Y H:i" %}Counted in Compiler, read on {{ when }}.{% endblocktrans %}
+  {% trans "Each figure counts young people once, however many activities they joined, so the rows of a table do not add up to its total." %}
+</p>
+<div class="kpi-grid">
+  {% trans "Young people reached" as l1 %}{% trans "Registered in Compiler and enrolled in at least one activity under a youth indicator (deleted registrations left out)." as h1 %}{% include "components/kpi_tile.html" with label=l1 value=data.total|number hint=h1 %}
+  {% trans "Female" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.female|number %}
+  {% trans "Male" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.male|number %}
+  {% trans "Partners" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.partners|number %}
+  {% trans "Links to eTools" as l5 %}{% blocktrans asvar h5 with c=data.linked s=data.suggested %}{{ c }} confirmed, {{ s }} suggested{% endblocktrans %}{% include "components/kpi_tile.html" with label=l5 value=data.links|length|number hint=h5 %}
+</div>
+
+<section class="panel p-0 mb-3">
+  {% include "components/table_toolbar.html" with title=_("Youth indicators") count=data.indicators|length table_id="youth-indicators" filename="youth-indicators" %}
+  {% if data.targets_hidden %}<p class="text-muted small px-3 mb-0">{% trans "Targets are set per programme document, not per place: they are hidden while a governorate is selected." %}</p>{% endif %}
+  {% if data.indicators %}
+  <div class="table-wrap"><table class="table table-sm" id="youth-indicators">
+    <thead><tr><th>{% trans "Indicator" %}</th><th class="num">{% trans "Young people reached" %}</th><th class="num">{% trans "Target" %}</th><th class="num">{% trans "% of target" %}</th><th>{% trans "eTools indicator (partner reporting)" %}</th></tr></thead>
+    <tbody>
+    {% for m in data.indicators %}
+      <tr class="fw-semibold"><td>{{ m.label }}</td><td class="num">{{ m.reached|number }}</td><td class="num">{{ m.target|number }}</td><td class="num">{{ m.percent|percent:0 }}</td>
+        <td>{% include "youth/_links.html" with links=m.links %}</td></tr>
+      {% for s in m.subs %}
+      <tr><td class="ps-4">{{ s.label }}</td><td class="num">{{ s.reached|number }}</td><td class="num">{{ s.target|number }}</td><td class="num">{{ s.percent|percent:0 }}</td>
+        <td>{% include "youth/_links.html" with links=s.links %}</td></tr>
+      {% endfor %}
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  {% include "components/empty_state.html" with icon="users" title=_("No young people match these filters") action_url=request.path %}
+  {% endif %}
+</section>
+
+<div class="grid grid--3 mb-3">
+  {% for b in data.breakdowns %}
+  <section class="panel"><div class="panel__header"><h2 class="panel__title">{{ b.label }}</h2><span class="panel__hint">{% trans "young people" %}</span></div>
+    {% if b.rows %}
+    <div class="table-wrap" style="max-height: 300px"><table class="table table-sm mb-0" id="youth-by-{{ b.key }}">
+      <tbody>{% for label, count in b.rows %}<tr><td>{{ label }}</td><td class="num">{{ count|number }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}<p class="text-muted small mb-0">{% trans "None." %}</p>{% endif %}
+  </section>
+  {% endfor %}
+</div>
+
+<section class="panel p-0 mb-3">
+  {% include "components/table_toolbar.html" with title=_("Compiler and eTools, side by side") count=data.links|length table_id="youth-reconciliation" filename="youth-compiler-etools" %}
+  <p class="text-muted small px-3 mb-2">{% trans "For each link: the young people Compiler counted in the whole programme document (whatever the place or master indicator filter) and the progress the partner last reported on the eTools indicator. A large gap means one of the two needs a look." %}</p>
+  {% if data.links %}
+  <div class="table-wrap"><table class="table table-sm" id="youth-reconciliation" data-sortable>
+    <thead><tr><th>{% trans "Programme document" %}</th><th>{% trans "Youth indicator" %}</th><th class="num">{% trans "Counted in Compiler" %}</th><th>{% trans "eTools indicator" %}</th><th class="num">{% trans "eTools target" %}</th><th class="num">{% trans "Reported in eTools" %}</th><th class="num">{% trans "Difference" %}</th><th>{% trans "Status" %}</th><th>{% trans "Link" %}</th></tr></thead>
+    <tbody>{% for r in data.links %}<tr>
+      <td class="mono small">{% if r.link.pd_id %}<a href="{% url 'reports:programme_detail' r.link.pd_id %}">{{ r.compiler_pd }}</a>{% else %}{{ r.compiler_pd }}{% endif %}<span class="cell-sub">{{ r.partner }}</span></td>
+      <td>{{ r.youth_indicator }}</td>
+      <td class="num" data-value="{{ r.counted }}">{{ r.counted|number }}</td>
+      <td>{% if r.etools %}<a href="{{ r.etools.url }}">{{ r.link.etools_title }}</a>{% else %}{{ r.link.etools_title }}{% endif %}</td>
+      <td class="num">{% if r.etools %}{{ r.etools.target|number }}{% else %}—{% endif %}</td>
+      <td class="num" data-value="{{ r.reported|default:'' }}">{{ r.reported|number }}{% if r.etools.cumulative_as_of %}<span class="cell-sub">{{ r.etools.cumulative_as_of|date:"j M Y" }}</span>{% endif %}</td>
+      <td class="num" data-value="{{ r.difference|default:'' }}">{% if r.difference is not None %}{% if r.difference > 0 %}+{% endif %}{{ r.difference|number }}{% else %}—{% endif %}</td>
+      <td>{% if r.etools %}{% status_pill r.etools.tracking r.etools.tracking_label "sm" %}{% else %}—{% endif %}</td>
+      <td>{% if r.link.source == "confirmed" %}{% status_pill "succeeded" _("Confirmed") "sm" %}{% else %}{% status_pill "stale" _("Suggested") "sm" %}{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}
+  {% include "components/empty_state.html" with icon="layers" title=_("No youth indicator is linked to eTools yet") message=_("Links are suggested when a Compiler programme document carries the eTools reference number and an indicator title matches; administrators confirm or add them in admin → Youth indicator links.") %}
+  {% endif %}
+</section>
+
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Programme documents in Compiler") count=data.programme_documents|length table_id="youth-pds" filename="youth-programme-documents" %}
+  <div class="table-wrap" style="max-height: 420px"><table class="table table-sm" id="youth-pds" data-sortable>
+    <thead><tr><th>{% trans "Project code" %}</th><th>{% trans "Partner" %}</th><th>{% trans "Donors" %}</th><th>{% trans "Period" %}</th><th class="num">{% trans "Young people reached" %}</th></tr></thead>
+    <tbody>{% for p in data.programme_documents %}<tr>
+      <td class="mono small">{{ p.code }}<span class="cell-sub">{{ p.name }}</span></td><td>{{ p.partner }}</td><td class="small">{{ p.donors|default:"—" }}</td>
+      <td class="small text-nowrap">{% if p.period.0 or p.period.1 %}{{ p.period.0|date:"j M Y"|default:"—" }} – {{ p.period.1|date:"j M Y"|default:"—" }}{% else %}—{% endif %}</td><td class="num" data-value="{{ p.youth }}">{{ p.youth|number }}</td>
+    </tr>{% empty %}<tr><td colspan="5" class="text-muted">{% trans "None." %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% else %}
+<section class="panel">{% include "components/empty_state.html" with icon="users" title=_("No figures for this year") %}</section>
+{% endif %}
+{% endif %}
+{% endblock %}

@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     "neurodb.assistant",
     "neurodb.review",
     "neurodb.donors",
+    "neurodb.youth",
     "neurodb.web",
 ]
 SITE_ID = 1
@@ -336,6 +337,14 @@ ETOOLS_USERNAME = env("ETOOLS_USERNAME", default="").strip()
 ETOOLS_PASSWORD = env.ENVIRON.get("ETOOLS_PASSWORD", "").strip("\r\n")
 if ETOOLS_USERNAME.startswith("@Microsoft.KeyVault(") or ETOOLS_PASSWORD.startswith("@Microsoft.KeyVault("):
     ETOOLS_USERNAME = ETOOLS_PASSWORD = ""
+# Compiler (the education and youth registration platform): the youth indicator figures, counts of
+# young people only (GET /api/youth/indicator-figures/). The token is a Compiler service account's
+# (group "NeuroDB API"), from the environment or Key Vault only (secret compiler-api-token).
+COMPILER_API_URL = env("COMPILER_API_URL", default="").strip().rstrip("/")
+COMPILER_API_TOKEN = env.ENVIRON.get("COMPILER_API_TOKEN", "").strip()
+if COMPILER_API_TOKEN.startswith("@Microsoft.KeyVault("):
+    COMPILER_API_TOKEN = ""
+COMPILER_YOUTH_YEARS = env.int("COMPILER_YOUTH_YEARS", default=2)  # this year and the ones before
 INTEGRATION_TIMEOUT_SECONDS = (10, 120)
 SYNC_STALENESS_HOURS = env.int("SYNC_STALENESS_HOURS", default=30)
 # The in-app scheduler (admin → Scheduled jobs), run by the web workers. Off: nothing runs on a schedule.

@@ -39,6 +39,9 @@ COMMANDS: dict[str, JobCommand] = {
     "link_partners": JobCommand(
         _("Link ActivityInfo partners to eTools"), ("link_partners",), SyncRun.Job.PARTNER_LINKS
     ),
+    "compiler_youth": JobCommand(
+        _("Read the youth figures from Compiler"), ("sync_compiler_youth",), SyncRun.Job.COMPILER_YOUTH
+    ),
     "daily_review": JobCommand(_("Daily review"), ("daily_review",), SyncRun.Job.DAILY_REVIEW),
     "freshness": JobCommand(_("Check data freshness"), ("check_sync_freshness",), None, triggered_by=False),
 }

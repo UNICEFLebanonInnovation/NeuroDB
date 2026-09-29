@@ -18,6 +18,7 @@ class SyncRun(models.Model):
         POPULATION = "population", "Population figures load"
         PARTNER_LINKS = "partner_links", "ActivityInfo partner links"
         DAILY_REVIEW = "daily_review", "Daily AI review"
+        COMPILER_YOUTH = "compiler_youth", "Compiler youth figures"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"

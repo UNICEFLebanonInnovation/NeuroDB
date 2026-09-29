@@ -105,6 +105,19 @@ BACKGROUND_JOBS = [
         "link",
     ),
     BackgroundJob(
+        "run_sync_compiler_youth",
+        ("sync_compiler_youth",),
+        SyncRun.Job.COMPILER_YOUTH,
+        _("Compiler youth figures"),
+        _("Read the youth figures from Compiler"),
+        _(
+            "Reads from Compiler how many young people each youth indicator reached, per partner, "
+            "donor and place (counts only, no personal data), in the background, then suggests links "
+            "to the eTools indicators of the same programme documents."
+        ),
+        "groups",
+    ),
+    BackgroundJob(
         "run_daily_review",
         ("daily_review",),
         SyncRun.Job.DAILY_REVIEW,

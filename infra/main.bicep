@@ -58,6 +58,11 @@ param enableEtoolsDatamart bool = true
 @description('Country filter of the eTools Datamart sync.')
 param etoolsDatamartCountry string = 'Lebanon'
 
+@description('Youth figures from Compiler (counts only). When true the secret compiler-api-token must exist.')
+param enableCompilerYouth bool = false
+@description('Base URL of Compiler, e.g. https://compiler.example.org')
+param compilerApiUrl string = ''
+
 @description('AI assistant (Ask NeuroDB, OpenAI API). When true the secret openai-api-key must exist.')
 param enableAiAssistant bool = false
 @description('OpenAI model for the AI assistant.')
@@ -254,6 +259,7 @@ var secretNames = concat(
   ['django-secret-key', 'database-url', 'activityinfo-token', 'etools-token'],
   enableSso ? ['entra-client-secret'] : [],
   enableEtoolsDatamart ? ['etools-username', 'etools-password'] : [],
+  enableCompilerYouth ? ['compiler-api-token'] : [],
   enableAiAssistant ? ['openai-api-key'] : []
 )
 var appSecrets = [for s in secretNames: {
@@ -300,6 +306,12 @@ var commonEnv = concat(
         { name: 'ETOOLS_USERNAME', secretRef: 'etools-username' }
         { name: 'ETOOLS_PASSWORD', secretRef: 'etools-password' }
         { name: 'ETOOLS_DATAMART_COUNTRY', value: etoolsDatamartCountry }
+      ]
+    : [],
+  enableCompilerYouth
+    ? [
+        { name: 'COMPILER_API_URL', value: compilerApiUrl }
+        { name: 'COMPILER_API_TOKEN', secretRef: 'compiler-api-token' }
       ]
     : [],
   enableAiAssistant

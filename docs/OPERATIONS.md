@@ -28,7 +28,8 @@ and re-running the deployment.
 ## Secrets rotation
 Key Vault secrets: `django-secret-key`, `database-url`, `activityinfo-token`, `etools-token`,
 `etools-username` and `etools-password` (the eTools Datamart service account), (with SSO)
-`entra-client-secret` and (with the AI assistant) `openai-api-key`. To rotate, set a
+`entra-client-secret`, (with the AI assistant) `openai-api-key` and (with Compiler youth figures)
+`compiler-api-token`. To rotate, set a
 new version in Key Vault, then restart the active web revision (`az containerapp revision
 restart`). Jobs pick the new value up on their next run.
 No code change is needed. Rotating the Django secret key signs everyone out and changes the
@@ -122,6 +123,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `etools-datamart` | `sync_etools_datamart` | `30 20 * * *`, daily 20:30 |
 | `freshness` | `check_sync_freshness` | `15 * * * *`, hourly; a stale source is logged as an error |
 | `activityinfo-structure` | `import_activityinfo_structure --all` | switched off; switch on or use *Run now* after the yearly rollover |
+| `compiler-youth` | `sync_compiler_youth` | `0 21 * * *`, daily 21:00; switched off until Compiler is configured |
 | (inside `activityinfo-data` and `etools-datamart`) | `link_partners` | at the end of both jobs |
 
 On the page: switch a job on or off (the toggle saves at once), open it to change its schedule (five
@@ -171,6 +173,7 @@ admin home page, *Quick actions*):
 | Run a job → *ActivityInfo data* (current year) | `import_activityinfo_data --current-year` | background |
 | Run a job → *Link partners* | `link_partners` | background |
 | Run a job → *Daily review* | `daily_review` | background |
+| Run a job → *Compiler youth figures* | `sync_compiler_youth` | background |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |
@@ -632,6 +635,56 @@ account (or the list action) replaces the password and asks for a new one at the
 created, and switches off (does not delete) a user it linked: without its donor account that user
 would otherwise sign in with a viewer's access.
 `seed_demo` creates `demo-donor`, a USAID account, on local databases.
+
+## Youth programmes (`/youth/`, from Compiler)
+
+Compiler is the platform where the youth partners register young people and enrol them in
+activities, each under a youth **master indicator** and **sub indicator**, with the partner, the
+donor, the Compiler programme document and the place. Compiler counts the young people itself and
+NeuroDB reads **only the counts** (never a name, identifier or row about a person) from
+`GET <COMPILER_API_URL>/api/youth/indicator-figures/?year=` (Compiler's
+`student_registration/youth/indicator_figures.py`).
+
+**How Compiler counts.** A young person counts once per figure, however many activities they joined
+(enrolled twice in the same sub indicator, or in two sub indicators of the same master indicator:
+once for the master indicator). Deleted registrations are left out. The place is the enrolment's
+governorate and district, or the youth's registered address when the activity is "in the same
+location". Age groups (under 15, 15-17, 18-24, 25 and over) come from the birth year and the
+reporting year. Because the same young person can be in two partners' or donors' programmes, unique
+counts cannot be added up: Compiler sends one table per grouping (every combination of master
+indicator, partner, donor and governorate, alone or with one detail: sub indicator, programme
+document, district, sex, age group or nationality; plus the sub indicators of each programme
+document), and the page reads the table that matches its filters.
+
+**The page** (Partnerships → Youth programmes; filters: year, master indicator, partner, donor,
+governorate): young people reached, female and male; each master and sub indicator with young people
+reached, the target (sum of the Compiler programme documents' targets; hidden under a governorate
+filter, targets are not set per place) and the linked eTools indicator with what the partner
+reported and its status; breakdowns by partner, donor, governorate, district, sex, age group and
+nationality; **Compiler and eTools side by side** (per link: young people Compiler counted in the
+programme document, the eTools target, the partner's last cumulative progress, the difference); and
+the Compiler programme documents.
+
+**Links to eTools.** After every read, NeuroDB suggests links: a Compiler programme document whose
+project code is an eTools reference number (`LEB/PCA2026005` matches `LEB/PCA2026005-1`; an
+agreement number matches when exactly one PD under it runs in the year), then within it the eTools
+indicator whose title holds at least 60% of the youth indicator's words (a bonus when the targets are
+equal; each eTools indicator goes to one youth indicator). Suggestions are replaced at every read.
+Admin → Youth (Compiler) → Youth indicator links: select and **Confirm**, or add or edit a link
+(saving it confirms it); confirmed links are never changed by a read. Put the eTools PD reference in
+the Compiler programme document's project code for links to be suggested.
+
+**Setting it up.**
+1. In Compiler: create a service user (not a partner), add it to the group **NeuroDB API** (or the
+   group named by Compiler's `YOUTH_FIGURES_API_GROUP` setting) and create its API token (Django
+   admin → Auth Token).
+2. In Key Vault: secret `compiler-api-token` = that token. Deploy with the bicep parameters
+   `enableCompilerYouth=true` and `compilerApiUrl=https://<compiler address>` (locally:
+   `COMPILER_API_URL` and `COMPILER_API_TOKEN` in `.env`).
+3. Admin → Import and sync runs → Run a job → **Compiler youth figures**; then switch on the
+   `compiler-youth` scheduled job (every night at 21:00, off by default). It reads this year and
+   `COMPILER_YOUTH_YEARS - 1` years before it (default 2 in all); a year Compiler does not have is
+   skipped.
 
 ## Yearly rollover (January)
 1. Admin → Reporting years: create the new year and tick *current* (only one can be current).
