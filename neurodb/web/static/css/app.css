@@ -226,6 +226,7 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .meter__fill--off_track { --meter-color: var(--nd-danger); }
 .meter__fill--over_target { --meter-color: var(--nd-warning); }
 .meter__fill--no_target { --meter-color: var(--nd-neutral); }
+.meter__fill--not_reported { --meter-color: var(--nd-muted); }
 .meter__value { font-size: 0.78rem; font-variant-numeric: tabular-nums; color: var(--nd-muted); min-width: 3.2em; text-align: right; }
 .status-bar { display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: var(--nd-surface-2); }
 .status-bar > span { display: block; height: 100%; }
@@ -233,6 +234,7 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .status-bar .off_track { background: var(--nd-danger); }
 .status-bar .over_target { background: var(--nd-warning); }
 .status-bar .no_target { background: var(--nd-neutral); opacity: 0.5; }
+.status-bar .not_reported { background: var(--nd-muted); opacity: 0.35; }
 .legend { display: flex; flex-wrap: wrap; gap: 0.35rem 0.9rem; font-size: 0.75rem; color: var(--nd-muted); margin-top: 0.5rem; }
 .legend__item { display: inline-flex; align-items: center; gap: 0.35rem; }
 .legend__swatch { width: 9px; height: 9px; border-radius: 2px; }
@@ -807,3 +809,14 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .map-popup__line span { color: var(--nd-muted); }
 /* The one-bar share chart (data-chart="share-bar") needs less room than a plot */
 .chart--share { min-height: 110px; }
+
+/* ------------------------------------------------------------------ country programme (CPD) */
+@media (min-width: 1100px) { .cpd-kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+.cpd-indicators { table-layout: fixed; min-width: 900px; }
+.cpd-indicators__title { width: 34%; }
+.cpd-indicators__num { width: 9%; }
+.cpd-indicators__meter { width: 15%; }
+.cpd-indicators__status { width: 11%; }
+.cpd-indicators td:first-child { overflow-wrap: anywhere; }
+.cpd-output { border-top: 1px solid var(--nd-border); margin-top: 0.5rem; }
+.table.cpd-indicators thead th { white-space: normal; vertical-align: bottom; line-height: 1.25; }

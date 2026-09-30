@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+{% if not programme %}
+<section class="panel">
+  {% include "components/empty_state.html" with icon="target" title=_("No country programme cycle yet") message=_("An administrator adds the cycle, its documents and its results framework in admin → Country programme → Country programme cycles (from the Excel template, or AI-suggested from the CPD and reviewed before saving).") %}
+</section>
+{% else %}
+{% if programmes|length > 1 %}
+<form method="get" class="filter-bar" role="search" aria-label="{% trans 'Country programme cycle' %}">
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-cycle">{% trans "Cycle" %}</label>
+    <select class="form-select form-select-sm" id="f-cycle" name="cycle">
+      {% for p in programmes %}<option value="{{ p.pk }}" {% if p.pk == programme.pk %}selected{% endif %}>{{ p.name }} ({{ p.start_year }}–{{ p.end_year }})</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__actions"><button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button></div>
+</form>
+{% endif %}
+
+<section class="panel mb-3">
+  <div class="panel__header">
+    <h2 class="panel__title">{{ programme.name }}</h2>
+    <span class="panel__hint">{{ programme.start_year }}–{{ programme.end_year }} · {% blocktrans count n=data.cycle_years %}{{ n }} year{% plural %}{{ n }} years{% endblocktrans %}{% if user.is_staff %} · <a href="{% url 'admin:cpd_countryprogramme_change' programme.pk %}">{% trans "Edit in the admin" %}</a>{% endif %}</span>
+  </div>
+  <div class="meter mb-1" role="img" aria-label="{% blocktrans with e=data.elapsed %}{{ e }}% of the cycle elapsed{% endblocktrans %}"><div class="meter__track"><span class="meter__fill" style="width: {{ data.elapsed|floatformat:0 }}%"></span></div><span class="meter__value">{{ data.elapsed|percent:0 }}</span></div>
+  <p class="text-muted small mb-2">{% if data.year_of_cycle %}{% blocktrans with y=data.year_of_cycle n=data.cycle_years e=data.elapsed when=data.today|date:"j M Y" %}Year {{ y }} of {{ n }}: {{ e }}% of the cycle elapsed on {{ when }}.{% endblocktrans %}{% else %}{% trans "The cycle has not started yet." %}{% endif %}
+    {% trans "An indicator is on track when the share of the way from its baseline to its target is within 10 points of the share expected by now (this year's milestone when set, else the share of the cycle elapsed)." %}</p>
+  {% if programme.summary %}<p class="mb-2">{{ programme.summary|linebreaksbr }}</p>{% endif %}
+  {% if documents %}
+  <ul class="list-unstyled small mb-0 cpd-documents">
+    {% for d in documents %}<li>{% include "components/icon.html" with name="file" %} <a href="{% url 'cpd:document' d.pk %}">{{ d.title }}</a> <span class="text-muted">· {{ d.get_kind_display }}{% if d.note %} · {{ d.note }}{% endif %}</span></li>{% endfor %}
+  </ul>
+  {% else %}<p class="text-muted small mb-0">{% trans "No document uploaded for this cycle." %}</p>{% endif %}
+</section>
+
+{% if data.unreviewed %}
+<p class="editor-note">{% include "components/icon.html" with name="info" %}<span>{% blocktrans count n=data.unreviewed %}{{ n }} indicator was AI-suggested from the CPD and has not been reviewed yet: check it against the document in the admin.{% plural %}{{ n }} indicators were AI-suggested from the CPD and have not been reviewed yet: check them against the document in the admin.{% endblocktrans %}</span></p>
+{% endif %}
+
+{% if not data.indicator_total %}
+<section class="panel">
+  {% include "components/empty_state.html" with icon="target" title=_("No results framework yet") message=_("Add the outcomes, outputs and indicators in the admin: download the Excel template from the cycle, fill it and import it, or have them AI-suggested from the CPD (PDF) and tick the ones to keep.") %}
+</section>
+{% else %}
+<div class="kpi-grid cpd-kpis">
+  {% trans "CPD indicators" as l1 %}{% blocktrans asvar h1 with n=data.outcomes|length %}under {{ n }} outcomes{% endblocktrans %}{% include "components/kpi_tile.html" with label=l1 value=data.indicator_total|number hint=h1 %}
+  {% trans "On track" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.counts.on_track|number status="on_track" %}
+  {% trans "Off track" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.counts.off_track|number status="off_track" %}
+  {% trans "Ahead of schedule" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.counts.over_target|number status="over_target" %}
+  {% trans "No data yet" as l5 %}{% blocktrans asvar h5 with n=data.counts.no_target %}{{ n }} without a target{% endblocktrans %}{% include "components/kpi_tile.html" with label=l5 value=data.counts.not_reported|number hint=h5 %}
+  {% trans "Interventions" as l6 %}{% blocktrans asvar h6 with n=data.partner_total total=data.pd_in_cycle %}{{ n }} partners; {{ total }} programme documents run in the cycle{% endblocktrans %}{% include "components/kpi_tile.html" with label=l6 value=data.pd_total|number hint=h6 %}
+</div>
+
+<div class="grid grid--2 mb-3">
+  <section class="panel">
+    <div class="panel__header"><h2 class="panel__title">{% trans "Where the CPD indicators stand" %}</h2><span class="panel__hint">{{ data.today|date:"j M Y" }}</span></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="status-donut" data-key="status_counts" data-height="220" data-empty-title="{% trans 'No indicator yet' %}" aria-label="{% trans 'CPD indicator status distribution' %}"></div>
+    {% include "reports/partials/_status_legend.html" with counts=data.counts labels=data.status_labels %}
+  </section>
+  <section class="panel">
+    <div class="panel__header"><h2 class="panel__title">{% trans "Outcomes" %}</h2><span class="panel__hint">{% trans "indicators of the outcome and its outputs" %}</span></div>
+    <ul class="list-unstyled mb-0 cpd-outcomes">
+      {% for o in data.outcomes %}<li class="mb-2">
+        <a href="#outcome-{{ o.outcome.pk }}"><span class="mono small">{{ o.outcome.code }}</span> {{ o.outcome.title|truncatechars:110 }}</a>
+        {% if o.total %}<div class="status-bar mt-1" role="img" aria-label="{% for s, n in o.counts %}{{ n }} {{ data.status_labels|get_item:s }}{% if not forloop.last %}, {% endif %}{% endfor %}">{% for s, n in o.counts %}<span class="{{ s }}" style="width: {% widthratio n o.total 100 %}%"></span>{% endfor %}</div>{% else %}<span class="text-muted small">{% trans "No indicator." %}</span>{% endif %}
+      </li>{% endfor %}
+    </ul>
+  </section>
+</div>
+{{ chart_data|json_script:"chart-data" }}
+
+{% for o in data.outcomes %}
+<section class="panel p-0 mb-3" id="outcome-{{ o.outcome.pk }}">
+  <div class="panel__header px-3 pt-3"><h2 class="panel__title">{% trans "Outcome" %} {{ o.outcome.code }}</h2>{% if o.outcome.sections %}<span class="panel__hint">{{ o.outcome.sections }}</span>{% endif %}</div>
+  <p class="px-3 mb-2">{{ o.outcome.title }}</p>
+  {% if o.indicators %}{% include "cpd/_indicators.html" with rows=o.indicators table_id="cpd-outcome-"|add:o.outcome.code %}{% endif %}
+  {% for row in o.outputs %}
+  <div class="cpd-output px-3 pt-3">
+    <h3 class="h6 mb-1">{% trans "Output" %} {{ row.output.code }} <span class="fw-normal">{{ row.output.title }}</span></h3>
+    <p class="text-muted small mb-2">
+      {% if row.pds %}
+      {% blocktrans count n=row.pds|length %}{{ n }} programme document contributes{% plural %}{{ n }} programme documents contribute{% endblocktrans %}
+      ({% for pd in row.pds|slice:":8" %}<a href="{% url 'reports:programme_detail' pd.pk %}">{{ pd.number|default:pd.pk }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}{% if row.pds|length > 8 %}, …{% endif %})
+      {% if row.partners %}· {% trans "partners" %}: {{ row.partners|join:", "|truncatechars:220 }}{% endif %}
+      {% if row.reported %}· {% blocktrans with y=data.reporting_year %}partner reporting {{ y }}{% endblocktrans %}: {% for s, n in row.reporting.items %}{% status_pill s None "sm" %} {{ n }} {% endfor %}{% endif %}
+      {% else %}{% trans "No programme document in eTools names this output." %}{% endif %}
+    </p>
+  </div>
+  {% if row.indicators %}{% include "cpd/_indicators.html" with rows=row.indicators table_id="cpd-output-"|add:row.output.code %}{% else %}<p class="text-muted small px-3">{% trans "No indicator under this output." %}</p>{% endif %}
+  {% endfor %}
+  <div class="pb-2"></div>
+</section>
+{% endfor %}
+{% endif %}
+{% endif %}
+{% endblock %}

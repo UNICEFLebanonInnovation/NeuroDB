@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+{% with i=indicator p=progress %}
+<div class="kpi-grid">
+  {% trans "Status" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=p.label status=p.status %}
+  {% trans "Value" as l2 %}{% if p.value_year %}{% blocktrans asvar h2 with y=p.value_year %}to {{ y }}{% endblocktrans %}{% endif %}{% include "components/kpi_tile.html" with label=l2 value=p.value|number hint=h2 %}
+  {% trans "Target" as l3 %}{% blocktrans asvar h3 with b=i.baseline|number %}baseline {{ b }}{% endblocktrans %}{% include "components/kpi_tile.html" with label=l3 value=i.target|number hint=h3 %}
+  {% trans "Progress to target" as l4 %}{% blocktrans asvar h4 with e=p.expected|percent:0 %}{{ e }} expected by now{% endblocktrans %}{% include "components/kpi_tile.html" with label=l4 value=p.achieved|percent:0 hint=h4 %}
+</div>
+
+<section class="panel mb-3">
+  <dl class="row small mb-0">
+    <dt class="col-sm-3">{% trans "Cycle" %}</dt><dd class="col-sm-9"><a href="{% url 'cpd:dashboard' %}?cycle={{ i.programme_id }}">{{ i.programme.name }}</a></dd>
+    <dt class="col-sm-3">{% if i.output %}{% trans "Output" %}{% else %}{% trans "Outcome" %}{% endif %}</dt><dd class="col-sm-9">{% if i.output %}{{ i.output.code }} {{ i.output.title }}{% else %}{{ i.outcome.code }} {{ i.outcome.title }}{% endif %}</dd>
+    <dt class="col-sm-3">{% trans "Unit and direction" %}</dt><dd class="col-sm-9">{{ i.get_unit_display }} · {{ i.get_direction_display }} · {{ i.get_accumulate_display }}</dd>
+    {% if i.means_of_verification %}<dt class="col-sm-3">{% trans "Means of verification" %}</dt><dd class="col-sm-9">{{ i.means_of_verification }}</dd>{% endif %}
+    <dt class="col-sm-3">{% trans "Entered" %}</dt><dd class="col-sm-9">{{ i.get_origin_display }}{% if user.is_staff %} · <a href="{% url 'admin:cpd_indicator_change' i.pk %}">{% trans "Edit in the admin" %}</a>{% endif %}</dd>
+  </dl>
+</section>
+
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Year by year") count=rows|length table_id="cpd-years" filename="cpd-indicator" %}
+  <p class="text-muted small px-3 mb-2">{% trans "A value entered in the admin for a year replaces the linked sources of that year. Linked sources of the same year are added up." %}</p>
+  <div class="table-wrap"><table class="table table-sm" id="cpd-years">
+    <thead><tr><th>{% trans "Year" %}</th><th class="num">{% trans "Milestone" %}</th><th class="num">{% trans "Value" %}</th><th>{% trans "From" %}</th></tr></thead>
+    <tbody>{% for r in rows %}<tr>
+      <td>{{ r.year }}</td><td class="num">{{ r.milestone|number }}</td><td class="num">{{ r.value|number }}</td>
+      <td class="small">{% if r.manual %}{% trans "Entered in the admin" %}{% if r.source %}: {{ r.source }}{% endif %}{% elif r.parts %}{% for part in r.parts %}<div>{{ part.kind }} — {{ part.label }}: <strong>{{ part.value|number }}</strong></div>{% endfor %}{% else %}—{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% if suggested %}<p class="text-muted small px-3 pb-3 mb-0">{% blocktrans count n=suggested|length %}{{ n }} linked source is not confirmed yet and is left out.{% plural %}{{ n }} linked sources are not confirmed yet and are left out.{% endblocktrans %}</p>{% endif %}
+</section>
+{% endwith %}
+{% endblock %}

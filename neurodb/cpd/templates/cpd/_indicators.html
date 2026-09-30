@@ -1,0 +1,15 @@
+{% load i18n ui %}{# CPD indicators as a table. Context: rows (Progress list), table_id. #}
+<div class="table-wrap"><table class="table table-sm mb-0 cpd-indicators" id="{{ table_id }}">
+  <colgroup><col class="cpd-indicators__title"><col span="4" class="cpd-indicators__num"><col class="cpd-indicators__meter"><col class="cpd-indicators__num"><col class="cpd-indicators__status"></colgroup>
+  <thead><tr><th>{% trans "Indicator" %}</th><th class="num">{% trans "Baseline" %}</th><th class="num">{% trans "Target" %}</th><th class="num" title="{% trans 'The milestone set for this year' %}">{% trans "Milestone" %}</th><th class="num">{% trans "Value" %}</th><th>{% trans "Progress to target" %}</th><th class="num">{% trans "Expected by now" %}</th><th>{% trans "Status" %}</th></tr></thead>
+  <tbody>{% for p in rows %}{% with i=p.indicator %}<tr>
+    <td><a href="{% url 'cpd:indicator' i.pk %}">{% if i.code %}<span class="mono small">{{ i.code }}</span> {% endif %}{{ i.title|truncatechars:160 }}</a>{% if i.origin == "ai_suggested" %} {% status_pill "stale" _("AI-suggested, to review") "sm" %}{% endif %}</td>
+    <td class="num">{{ i.baseline|number }}{% if i.unit == "percent" and i.baseline is not None %}%{% endif %}{% if i.baseline_year %}<span class="cell-sub">{{ i.baseline_year }}</span>{% endif %}</td>
+    <td class="num">{{ i.target|number }}{% if i.unit == "percent" and i.target is not None %}%{% endif %}</td>
+    <td class="num">{{ p.milestone|number }}{% if i.unit == "percent" and p.milestone is not None %}%{% endif %}</td>
+    <td class="num">{{ p.value|number }}{% if i.unit == "percent" and p.value is not None %}%{% endif %}{% if p.value_year %}<span class="cell-sub">{% if i.accumulate == "sum" %}{% trans "cycle to" %} {% endif %}{{ p.value_year }}</span>{% endif %}</td>
+    <td>{% if p.achieved is not None %}<div class="meter"><div class="meter__track"><span class="meter__fill meter__fill--{{ p.status }}" style="width: {% if p.achieved > 100 %}100{% elif p.achieved < 0 %}0{% else %}{{ p.achieved|floatformat:0 }}{% endif %}%"></span></div><span class="meter__value">{{ p.achieved|percent:0 }}</span></div>{% else %}<span class="text-muted small">—</span>{% endif %}</td>
+    <td class="num">{{ p.expected|percent:0 }}</td>
+    <td>{% status_pill p.status p.label "sm" %}</td>
+  </tr>{% endwith %}{% endfor %}</tbody>
+</table></div>

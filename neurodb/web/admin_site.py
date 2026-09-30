@@ -123,6 +123,21 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
         ["youth.YouthIndicatorLink", "youth.YouthFigures", "education.EducationFigures"],
     ),
     (
+        _("Country programme"),
+        _(
+            "The CPD cycles, their documents and results framework (outcomes, outputs, indicators), the "
+            "values and linked sources that measure progress, and the AI-suggested frameworks to review."
+        ),
+        [
+            "cpd.CountryProgramme",
+            "cpd.CPDocument",
+            "cpd.Outcome",
+            "cpd.Output",
+            "cpd.Indicator",
+            "cpd.FrameworkProposal",
+        ],
+    ),
+    (
         _("eTools Datamart (read-only)"),
         _("Funds, indicators, assurance and monitoring from the eTools Datamart, refreshed every night."),
         [

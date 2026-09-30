@@ -800,6 +800,69 @@ in-school children, teachers).
    (`COMPILER_EDUCATION_YEARS`, default 3). A year Compiler has not counted yet is listed as
    *pending* in the run and arrives at the next run.
 
+## Country programme (`/country-programme/`, CPD results and progress)
+
+The page shows whether the country programme is on track with its outcomes and outputs. Everything is
+set in admin → **Country programme**.
+
+**1. The cycle.** Add a *country programme cycle*: name, first and last year (a cycle of 2, 3 or 5
+years; 7 at most), and tick *Current* for the cycle the page opens on (one at a time; the page offers
+the others in a list). *Country programme in eTools* is the country programme as eTools writes it on
+the programme documents (`country_programme`); when set, only those programme documents count as the
+cycle's interventions, else every programme document running in the cycle's years (not draft or
+cancelled).
+
+**2. The documents.** On the cycle, tab *CPD documents*: upload the CPD, the results and resources
+framework, annexes, reviews (PDF, Word, Excel, PowerPoint; 50 MB at most). They are stored in the
+media storage (Azure Blob in production, under `cpd/<cycle>/`), listed on the page, and downloaded by
+signed-in users only (donor accounts cannot reach the page).
+
+**3. The results framework** (outcomes → outputs → indicators; an indicator sits under an outcome or
+an output), in any of three ways, which can be mixed:
+
+- *Typed in the admin*: Outcomes (with their outputs and indicators inline), Outputs, Indicators.
+- *Excel*: on the cycle, **Excel template** downloads the sheet, pre-filled with what is already
+  entered (so it is also the export); fill it and **Import from Excel**. One row per outcome, output
+  or indicator; *Parent code* ties an output to its outcome and an indicator to its outcome or output;
+  one *Milestone <year>* column per year of the cycle. Items are matched by code: importing again
+  updates them and never deletes. The whole sheet is checked first; when a row is wrong nothing is
+  saved and the page lists the rows to fix.
+- *AI-suggested from the CPD*: in *CPD documents*, select a PDF and run **Propose the results
+  framework**. The document is read in the background (a minute or two) by the OpenAI API with the
+  same key and model as Ask NeuroDB (`OPENAI_API_KEY`, `AI_ASSISTANT_MODEL`), with `store=False`;
+  the CPD is a public document. The proposal appears in *AI-suggested frameworks*: **Review and
+  apply** lists every outcome, output and indicator with its baseline and target; untick what is
+  wrong and apply. Nothing enters the framework before that. Applied items are marked
+  *AI-suggested* (on the page too) until someone checks them against the document and runs *Mark the
+  selected AI-suggested indicators as reviewed* (or sets *Origin* to *Entered in the admin*).
+
+For each indicator: unit (number or percentage), direction (increase, or decrease for a rate to
+reduce), *cycle value* (the latest year's value for a level such as a rate; the sum of the years for
+people reached), baseline and its year, the end-of-cycle target, and optional yearly milestones.
+
+**4. What measures progress.** On an indicator:
+
+- *Linked sources* (summed for their year): pick the source from the list — the eTools PD indicators
+  of the programme documents under the output (partner reporting: the partner's cumulative progress
+  in the year), the ActivityInfo master indicators of the cycle's years (the master indicator's
+  result), the Compiler youth indicators (young people reached) or Makani / Dirasa (children
+  enrolled). The year fills itself from the source when it can. Untick *Confirmed* to keep a link
+  without counting it.
+- *Values typed here*: a survey, ministry data, an annual report. A typed value replaces the linked
+  sources for its year.
+
+For an output, the page also lists the programme documents that contribute to it and their partners,
+with the status of their eTools PD indicators this year. A programme document contributes when one of
+its CP outputs in eTools is the output: the name set in *eTools CP output* on the output, else the
+output's code at the start of the eTools name ("1.1 …", "Output 1.1: …").
+
+**The status rule.** Progress = the share of the way from the baseline to the target that the value
+has covered (a decrease counts the same way). Expected = this year's milestone as a share of that way
+when one is set, else the share of the cycle elapsed (1 January of the first year to 31 December of
+the last). Within 10 points of expected: on track; below: off track; above: ahead of schedule
+("Target reached" at 100 %). No target: *no target*; no value yet: *no data yet*. It is the same
+tolerance as the other NeuroDB pages.
+
 ## Yearly rollover (January)
 1. Admin → Reporting years: create the new year and tick *current* (only one can be current).
 2. Admin → Databases: create one row per ActivityInfo folder with `ai_id`, `db_id`, `parent_id`,

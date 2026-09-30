@@ -1,0 +1,36 @@
+{% extends "admin/base_site.html" %}
+{% load i18n unfold %}
+{% block content %}
+<form method="post" class="max-w-6xl">
+  {% csrf_token %}
+  {% component "unfold/components/card.html" with title=proposal.document.title %}
+    <div class="flex flex-col gap-4">
+      <p>{% blocktrans with cycle=proposal.document.programme.name %}Proposed from the document for {{ cycle }}. Untick what is wrong or not needed, then apply: the ticked items are added to the framework, marked "AI-suggested" until someone reviews them. A child item is kept only with its parent. Check every figure against the document.{% endblocktrans %}</p>
+      <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-left border-b"><th class="p-2">{% trans "Keep" %}</th><th class="p-2">{% trans "Level" %}</th><th class="p-2">{% trans "Code" %}</th><th class="p-2">{% trans "Title" %}</th><th class="p-2">{% trans "Baseline" %}</th><th class="p-2">{% trans "Target" %}</th><th class="p-2">{% trans "Means of verification" %}</th></tr></thead>
+        <tbody>
+        {% for row in rows %}
+          <tr class="border-b align-top">
+            <td class="p-2"><input type="checkbox" name="keep" value="{{ row.key }}" id="keep-{{ row.key }}" checked aria-label="{% trans 'Keep' %} {{ row.level }} {{ row.item.code }}"></td>
+            <td class="p-2 whitespace-nowrap">{% if row.depth == 1 %}&nbsp;&nbsp;{% elif row.depth == 2 %}&nbsp;&nbsp;&nbsp;&nbsp;{% endif %}{{ row.level }}</td>
+            <td class="p-2 whitespace-nowrap">{{ row.item.code|default:"—" }}</td>
+            <td class="p-2"><label for="keep-{{ row.key }}">{{ row.item.title }}</label></td>
+            <td class="p-2 whitespace-nowrap">{% if row.level == "Indicator" %}{{ row.item.baseline|default_if_none:"—" }}{% if row.item.baseline_year %} ({{ row.item.baseline_year }}){% endif %}{% if row.item.unit == "percent" and row.item.baseline is not None %}%{% endif %}{% endif %}</td>
+            <td class="p-2 whitespace-nowrap">{% if row.level == "Indicator" %}{{ row.item.target|default_if_none:"—" }}{% if row.item.unit == "percent" and row.item.target is not None %}%{% endif %}{% endif %}</td>
+            <td class="p-2">{{ row.item.means_of_verification|default:"" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="7" class="p-2">{% trans "The proposal holds nothing." %}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  {% endcomponent %}
+  <div class="flex justify-end gap-4 mt-6">
+    <a class="px-3 py-2" href="{% url 'admin:cpd_frameworkproposal_changelist' %}">{% trans "Cancel" %}</a>
+    {% component "unfold/components/button.html" with submit=1 %}{% trans "Apply the ticked items" %}{% endcomponent %}
+  </div>
+</form>
+{% endblock %}

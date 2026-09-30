@@ -1,0 +1,28 @@
+{% extends "admin/base_site.html" %}
+{% load i18n unfold %}
+{% block content %}
+<form method="post" enctype="multipart/form-data" class="max-w-4xl">
+  {% csrf_token %}
+  {% component "unfold/components/card.html" with title=programme.name %}
+    <div class="flex flex-col gap-4">
+      <p>{% blocktrans %}Fill the Excel template (one row per outcome, output or indicator) and import it. Items are matched by their code: importing again updates them; nothing is deleted. The whole sheet is checked first; nothing is saved when a row is wrong.{% endblocktrans %}</p>
+      <p><a class="text-primary-600 underline" href="{% url 'admin:cpd_countryprogramme_template' programme.pk %}">{% trans "Download the template (with what is already entered)" %}</a></p>
+      {% if errors %}
+      <div class="text-red-600 dark:text-red-500" role="alert">
+        <p class="font-semibold">{% trans "Nothing was imported:" %}</p>
+        <ul class="list-disc ml-6">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+      </div>
+      {% endif %}
+      <div class="flex flex-col gap-2">
+        <label class="font-semibold text-important" for="{{ form.file.id_for_label }}">{{ form.file.label }}</label>
+        {% if form.file.errors %}<div class="text-red-600 dark:text-red-500">{{ form.file.errors }}</div>{% endif %}
+        {{ form.file }}
+      </div>
+    </div>
+  {% endcomponent %}
+  <div class="flex justify-end gap-4 mt-6">
+    <a class="px-3 py-2" href="{% url 'admin:cpd_countryprogramme_change' programme.pk %}">{% trans "Cancel" %}</a>
+    {% component "unfold/components/button.html" with submit=1 %}{% trans "Import" %}{% endcomponent %}
+  </div>
+</form>
+{% endblock %}
