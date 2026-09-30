@@ -40,7 +40,7 @@
 
 {% if not data.indicator_total %}
 <section class="panel">
-  {% include "components/empty_state.html" with icon="target" title=_("No results framework yet") message=_("Add the outcomes, outputs and indicators in the admin: download the Excel template from the cycle, fill it and import it, or have them AI-suggested from the CPD (PDF) and tick the ones to keep.") %}
+  {% include "components/empty_state.html" with icon="target" title=_("No results framework yet") message=_("Add the outcomes, outputs and indicators in the admin: download the Excel template from the cycle, fill it and import it, or have them AI-suggested from the CPD (PDF, Word or text) and tick the ones to keep.") %}
 </section>
 {% else %}
 <div class="kpi-grid cpd-kpis">

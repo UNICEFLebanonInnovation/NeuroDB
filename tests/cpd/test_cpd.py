@@ -4,6 +4,7 @@ progress rule, the linked sources and the dashboard."""
 import datetime
 import io
 import json
+import zipfile
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -496,10 +497,53 @@ def test_a_failed_proposal_says_why(pdf, monkeypatch):
     assert proposal.status == "failed" and "could not be read" in proposal.error
 
 
-def test_only_pdfs_are_read(cycle, media):
+def test_a_text_cpd_is_sent_as_text(cycle, media, monkeypatch):
+    fake = SimpleNamespace(responses=FakeResponses(json.dumps(PROPOSED)))
+    monkeypatch.setattr("neurodb.assistant.agent.client", lambda: fake)
+    text = "Outcome 1: Children learn\nIndicator 1.a: Out-of-school rate — baseline 40% (2025), target 20%"
+    doc = CPDocument.objects.create(
+        programme=cycle, title="CPD", file=SimpleUploadedFile("cpd.txt", text.encode("cp1252"))
+    )
+    proposal = extraction.run(FrameworkProposal.objects.create(document=doc))
+    assert proposal.status == "ready"
+    sent = fake.responses.calls[0]["input"][0]["content"]
+    assert sent[0]["type"] == "input_text" and "Out-of-school rate — baseline 40%" in sent[0]["text"]
+    assert sent[1]["text"] == extraction.PROMPT
+
+
+def _docx(paragraphs):
+    ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    body = "".join(f"<w:p><w:r><w:t>{a}</w:t><w:tab/><w:t>{b}</w:t></w:r></w:p>" for a, b in paragraphs)
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(
+            "word/document.xml", f'<w:document xmlns:w="{ns}"><w:body>{body}</w:body></w:document>'
+        )
+    return buffer.getvalue()
+
+
+def test_a_word_cpd_is_read_paragraph_by_paragraph(cycle, media, monkeypatch):
+    fake = SimpleNamespace(responses=FakeResponses(json.dumps(PROPOSED)))
+    monkeypatch.setattr("neurodb.assistant.agent.client", lambda: fake)
+    data = _docx([("Outcome 1", "Children learn"), ("1.a", "Out-of-school rate")])
+    doc = CPDocument.objects.create(programme=cycle, title="CPD", file=SimpleUploadedFile("cpd.docx", data))
+    extraction.run(FrameworkProposal.objects.create(document=doc))
+    sent = fake.responses.calls[0]["input"][0]["content"][0]["text"]
+    assert sent.endswith("Outcome 1\tChildren learn\n1.a\tOut-of-school rate")
+    broken = CPDocument.objects.create(programme=cycle, title="x", file=SimpleUploadedFile("x.docx", b"nope"))
+    with pytest.raises(extraction.ExtractionError, match="could not be opened"):
+        extraction.extract(broken)
+
+
+def test_only_pdf_word_and_text_documents_are_read(cycle, media):
     doc = CPDocument.objects.create(programme=cycle, title="RRF", file=SimpleUploadedFile("rrf.xlsx", b"x"))
     with pytest.raises(extraction.ExtractionError):
         extraction.extract(doc)
+    empty = CPDocument.objects.create(
+        programme=cycle, title="CPD", file=SimpleUploadedFile("cpd.md", b"  \n")
+    )
+    with pytest.raises(extraction.ExtractionError, match="no text"):
+        extraction.extract(empty)
 
 
 def test_applying_keeps_the_ticked_items_with_their_parents(pdf):

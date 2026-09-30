@@ -17,7 +17,7 @@ from django.core.validators import FileExtensionValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-DOCUMENT_EXTENSIONS = ("pdf", "docx", "doc", "xlsx", "xls", "pptx", "ppt")
+DOCUMENT_EXTENSIONS = ("pdf", "docx", "doc", "txt", "md", "xlsx", "xls", "pptx", "ppt")
 MAX_DOCUMENT_MB = 50
 
 
@@ -88,7 +88,7 @@ class CPDocument(models.Model):
         upload_to=document_path,
         max_length=300,
         validators=[FileExtensionValidator(DOCUMENT_EXTENSIONS), max_size],
-        help_text=_("PDF, Word, Excel or PowerPoint, %(mb)s MB at most") % {"mb": MAX_DOCUMENT_MB},
+        help_text=_("PDF, Word, text, Excel or PowerPoint, %(mb)s MB at most") % {"mb": MAX_DOCUMENT_MB},
     )
     note = models.CharField(max_length=500, blank=True)
     uploaded_by = models.CharField(max_length=150, blank=True, editable=False)

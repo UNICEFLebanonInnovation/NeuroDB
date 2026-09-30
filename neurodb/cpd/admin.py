@@ -97,7 +97,7 @@ class CountryProgrammeAdmin(ModelAdmin):
             reverse("admin:cpd_countryprogramme_import", args=[obj.pk]),
             _("import a filled sheet"),
             _(
-                "or propose it from an uploaded CPD PDF: Documents list, action "
+                "or propose it from an uploaded CPD (PDF, Word or text): Documents list, action "
                 "“Propose the results framework”."
             ),
         )
@@ -196,9 +196,11 @@ class CPDocumentAdmin(ModelAdmin):
         from neurodb.integrations import background
 
         for document in queryset:
-            if not document.filename.lower().endswith(".pdf"):
+            if not extraction.readable(document.filename):
                 messages.warning(
-                    request, _("%(doc)s is not a PDF: use the Excel import.") % {"doc": document}
+                    request,
+                    _("%(doc)s cannot be read (PDF, Word .docx or text only): use the Excel import.")
+                    % {"doc": document},
                 )
                 continue
             proposal = FrameworkProposal.objects.create(document=document, requested_by=_user(request))

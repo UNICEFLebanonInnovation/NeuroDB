@@ -813,7 +813,7 @@ cycle's interventions, else every programme document running in the cycle's year
 cancelled).
 
 **2. The documents.** On the cycle, tab *CPD documents*: upload the CPD, the results and resources
-framework, annexes, reviews (PDF, Word, Excel, PowerPoint; 50 MB at most). They are stored in the
+framework, annexes, reviews (PDF, Word, text, Excel, PowerPoint; 50 MB at most). They are stored in the
 media storage (Azure Blob in production, under `cpd/<cycle>/`), listed on the page, and downloaded by
 signed-in users only (donor accounts cannot reach the page).
 
@@ -827,9 +827,11 @@ an output), in any of three ways, which can be mixed:
   one *Milestone <year>* column per year of the cycle. Items are matched by code: importing again
   updates them and never deletes. The whole sheet is checked first; when a row is wrong nothing is
   saved and the page lists the rows to fix.
-- *AI-suggested from the CPD*: in *CPD documents*, select a PDF and run **Propose the results
+- *AI-suggested from the CPD*: in *CPD documents*, select the CPD — a PDF, a Word document (.docx)
+  or a text file (.txt, .md; an old .doc must be saved as .docx or PDF first) — and run **Propose the results
   framework**. The document is read in the background (a minute or two) by the OpenAI API with the
-  same key and model as Ask NeuroDB (`OPENAI_API_KEY`, `AI_ASSISTANT_MODEL`), with `store=False`;
+  same key and model as Ask NeuroDB (`OPENAI_API_KEY`, `AI_ASSISTANT_MODEL`), with `store=False`
+  (a PDF is sent as a file, the text of a Word or text document as text);
   the CPD is a public document. The proposal appears in *AI-suggested frameworks*: **Review and
   apply** lists every outcome, output and indicator with its baseline and target; untick what is
   wrong and apply. Nothing enters the framework before that. Applied items are marked
