@@ -13,27 +13,23 @@ stored by OpenAI (store=False).
 from __future__ import annotations
 
 import base64
-import io
 import json
 import logging
-import re
-import zipfile
 from typing import Any
-from xml.etree import ElementTree
 
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
+
+from neurodb.knowledge import text as knowledge_text
 
 from .models import CPDocument, FrameworkProposal, Indicator, Origin, Outcome, Output
 
 logger = logging.getLogger(__name__)
 
 MAX_PDF_MB = 30
-MAX_DOCX_XML_MB = 60
 MAX_TEXT_CHARS = 600_000  # about 150k tokens; a CPD is far shorter
 READABLE = (".pdf", ".docx", ".txt", ".md")
-WORD_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 MAX_OUTPUT_TOKENS = 32000
 
 _INDICATOR = {
@@ -112,35 +108,11 @@ def readable(filename: str) -> bool:
     return filename.lower().endswith(READABLE)
 
 
-def decode_text(data: bytes) -> str:
-    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
-        return data.decode("utf-16", errors="replace")
-    try:
-        return data.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        return data.decode("cp1252", errors="replace")
-
-
 def docx_text(data: bytes) -> str:
-    """The paragraphs of a Word document, one per line (table cells included)."""
     try:
-        with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            if archive.getinfo("word/document.xml").file_size > MAX_DOCX_XML_MB * 1024 * 1024:
-                raise ExtractionError("The Word document is too large to read.")
-            # an admin's upload; Python's expat refuses entity expansion attacks
-            root = ElementTree.fromstring(archive.read("word/document.xml"))  # noqa: S314
-    except (zipfile.BadZipFile, KeyError, ElementTree.ParseError) as exc:
-        raise ExtractionError("The Word document could not be opened (save it as .docx or PDF).") from exc
-    lines = []
-    for paragraph in root.iter(f"{WORD_NS}p"):
-        parts = []
-        for node in paragraph.iter():
-            if node.tag == f"{WORD_NS}t" and node.text:
-                parts.append(node.text)
-            elif node.tag == f"{WORD_NS}tab":
-                parts.append("\t")
-        lines.append("".join(parts))
-    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+        return knowledge_text.docx_text(data)
+    except knowledge_text.TextError as exc:
+        raise ExtractionError(str(exc)) from exc
 
 
 def _content(document: CPDocument, data: bytes) -> dict[str, Any]:
@@ -152,7 +124,7 @@ def _content(document: CPDocument, data: bytes) -> dict[str, Any]:
             "filename": document.filename,
             "file_data": f"data:application/pdf;base64,{encoded}",
         }
-    text = docx_text(data) if name.endswith(".docx") else decode_text(data)
+    text = docx_text(data) if name.endswith(".docx") else knowledge_text.decode_text(data)
     if not text.strip():
         raise ExtractionError("The document holds no text.")
     if len(text) > MAX_TEXT_CHARS:

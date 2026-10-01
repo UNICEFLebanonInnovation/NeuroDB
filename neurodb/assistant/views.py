@@ -20,6 +20,8 @@ from django.utils import timezone
 from django.utils.translation import gettext as _
 from django.views.decorators.http import require_GET, require_POST
 
+from neurodb.knowledge.access import can_add as can_add_knowledge
+
 from . import agent
 from .models import AssistantQuestion
 
@@ -58,6 +60,7 @@ def ask(request: HttpRequest) -> HttpResponse:
         "examples": EXAMPLES,
         "recent": recent_unique[:6],
         "hourly_limit": settings.AI_ASSISTANT_HOURLY_LIMIT,
+        "can_add_knowledge": can_add_knowledge(request.user),
     }
     return render(request, "assistant/ask.html", context)
 

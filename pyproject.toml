@@ -18,6 +18,7 @@ dependencies = [
   "gunicorn~=23.0",
   "requests~=2.32",
   "openpyxl~=3.1",
+  "pypdf~=6.19",                         # text of PDF documents for the knowledge base
   "django-storages[azure]~=1.14",
   "azure-identity~=1.19",                # managed identity for Blob storage
   "azure-monitor-opentelemetry~=1.6",    # Application Insights (enabled by APPLICATIONINSIGHTS_CONNECTION_STRING)

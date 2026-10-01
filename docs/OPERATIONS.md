@@ -111,6 +111,45 @@ come from.
   not work there. Moving the assistant to Azure OpenAI (for example to keep the traffic in the
   Azure tenant) needs a small code change (the SDK's `AzureOpenAI` client) and different settings.
 
+### Knowledge base (`/knowledge/`)
+
+People give Ask NeuroDB documents and texts to answer from: reports, evaluations, meeting minutes,
+guidance, notes. Administrators and section editors add them (**Add a document or text** on Ask
+NeuroDB or on the Knowledge base page): a file (PDF with a text layer, Word .docx, PowerPoint .pptx,
+Excel .xlsx, CSV, Markdown or text; 50 MB at most) or pasted text, with a title and optionally its
+source, section and year. Every signed-in user reads and searches them; donor accounts cannot. A
+document is read again or removed by the person who added it or an administrator; links are added
+or removed by hand in admin → Library and maps → Knowledge documents.
+
+Once added, `manage.py index_knowledge --document <id>` runs in the background (seconds to a few
+minutes; the page refreshes until it is ready):
+
+1. **Text**: read from the file (pypdf for PDFs, page by page; a scanned PDF without text is
+   refused with a message, as there is no OCR) and stored in the database; the file itself is kept
+   in the media storage (Azure Blob in production, under `knowledge/`).
+2. **Index**: the text is cut into passages of about 1,500 characters (with their page) and indexed
+   with PostgreSQL full-text search (English stemming, plus the words as written for Arabic, place
+   names and reference numbers; the title counts most).
+3. **Links**: the partners (full, short or alternate name, vendor number), programme documents
+   (reference number, with or without the amendment suffix), sections, governorates and districts
+   named in the text are linked. Matching is literal and whole-word; "North" and "South" count
+   only as "North Lebanon" / "South governorate". The documents then show on the partner's and the
+   programme document's pages, and `partner_details` / `programme_details` give them to the AI.
+4. **Summary** (when the AI assistant is configured): the first 120,000 characters go to the OpenAI
+   API (`store=false`) for a short summary, key points, the document's date and the organisations,
+   places and reference numbers it names; those names become *AI-suggested* links when they match a
+   NeuroDB record. If this step fails, the document is still searchable and says so.
+
+The assistant has two tools for it: `search_knowledge` (best passages for some words, optionally
+only in the documents linked to a partner, programme document, section or year) and
+`read_knowledge` (a document's summary, links and text in parts of 8,000 characters). It quotes
+and links the documents it uses. Their text is sent to OpenAI as part of the answer; the
+instructions tell the model that it is material, never instructions to follow, and the AI cannot
+change or add documents. Do not add personal data of children, beneficiaries or staff.
+
+After new partners or programme documents arrive, `manage.py index_knowledge --all` links the
+existing documents to them (it also writes new summaries, at the API's cost).
+
 ## Scheduled jobs
 The periodic jobs are managed in the admin: **Data and sync → Scheduled jobs**. Each row is one
 command on one schedule, in **Beirut time** (summer time is followed automatically):

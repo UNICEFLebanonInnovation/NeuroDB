@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block content %}
+<form method="post" enctype="multipart/form-data" class="panel" style="max-width: 860px">
+  {% csrf_token %}
+  {% if form.non_field_errors %}<div class="alert alert-danger small" role="alert">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+  {% for field in form %}
+  <div class="mb-3">
+    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
+    {{ field }}
+    {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+    {% for e in field.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+  </div>
+  {% endfor %}
+  <p class="small text-muted">{% trans "Do not add personal data of children, beneficiaries or staff. The text is stored in NeuroDB, sent to the OpenAI API to be summarised, and passages of it are sent again when a question uses them; every signed-in NeuroDB user can read it." %}</p>
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-primary">{% trans "Add to the knowledge base" %}</button>
+    <a class="btn btn-link" href="{% url 'knowledge:index' %}">{% trans "Cancel" %}</a>
+  </div>
+</form>
+{% endblock %}

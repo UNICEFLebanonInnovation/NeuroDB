@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+<form method="get" class="filter-bar" role="search" aria-label="{% trans 'Search the knowledge base' %}">
+  <div class="filter-bar__field flex-grow-1">
+    <label class="form-label" for="k-q">{% trans "Search" %}</label>
+    <input class="form-control form-control-sm" type="search" id="k-q" name="q" value="{{ q }}" placeholder="{% trans 'Words in the documents, a partner, a place…' %}">
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="k-section">{% trans "Section" %}</label>
+    <select class="form-select form-select-sm" id="k-section" name="section">
+      <option value="">{% trans "All" %}</option>
+      {% for s in sections %}<option value="{{ s.pk }}" {% if s.pk == filters.section_id %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="k-year">{% trans "Year" %}</label>
+    <input class="form-control form-control-sm" type="number" id="k-year" name="year" min="1990" max="2100" value="{{ filters.year|default_if_none:'' }}" style="width: 7rem">
+  </div>
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Search" %}</button>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
+    {% if can_add %}<a class="btn btn-outline-primary btn-sm" href="{% url 'knowledge:add' %}">{% include "components/icon.html" with name="file" %}<span>{% trans "Add a document or text" %}</span></a>{% endif %}
+  </div>
+</form>
+
+<p class="text-muted small">{% trans "Ask NeuroDB searches these documents when a question calls for them and links to the passages it quotes." %} <a href="{% url 'assistant:ask' %}">{% trans "Ask a question" %}</a></p>
+
+{% if results is not None %}
+<section class="panel p-0">
+  <div class="px-3 pt-3"><h2 class="h6">{% blocktrans count n=results|length %}{{ n }} document matches{% plural %}{{ n }} documents match{% endblocktrans %}</h2></div>
+  {% if results %}
+  <ul class="list-unstyled mb-0">
+    {% for d, hit in results %}
+    <li class="px-3 py-2 border-top">
+      <a class="fw-semibold" href="{{ d.get_absolute_url }}">{{ d.title }}</a>{% if hit.chunk.page %} <span class="text-muted small">· {% blocktrans with p=hit.chunk.page %}page {{ p }}{% endblocktrans %}</span>{% endif %}
+      <div class="small mt-1">{{ hit.snippet }}</div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  {% include "components/empty_state.html" with icon="search" title=_("Nothing in the knowledge base matches") action_url=request.path %}
+  {% endif %}
+</section>
+{% else %}
+<section class="panel p-0">
+  {% if documents.object_list %}
+  <div class="table-wrap"><table class="table table-sm mb-0" id="knowledge-documents">
+    <thead><tr><th>{% trans "Document" %}</th><th>{% trans "Mentions" %}</th><th>{% trans "Added" %}</th><th>{% trans "Status" %}</th></tr></thead>
+    <tbody>{% for d in documents %}<tr>
+      <td><a href="{{ d.get_absolute_url }}">{{ d.title }}</a>{% if d.summary %}<span class="cell-sub">{{ d.summary|truncatechars:200 }}</span>{% elif d.source %}<span class="cell-sub">{{ d.source }}</span>{% endif %}</td>
+      <td class="small">{% include "knowledge/_links.html" with links=d.links.all|slice:":5" %}</td>
+      <td class="small text-nowrap">{{ d.created_at|date:"j M Y" }}{% if d.added_by %}<span class="cell-sub">{{ d.added_by.get_full_name|default:d.added_by.username }}</span>{% endif %}</td>
+      <td>{% if d.status == "ready" %}{% status_pill "succeeded" d.get_status_display "sm" %}{% elif d.status == "failed" %}{% status_pill "failed" d.get_status_display "sm" %}{% else %}{% status_pill "running" d.get_status_display "sm" %}{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% include "components/pagination.html" with page_obj=documents %}
+  {% else %}
+  {% if can_add %}
+  {% include "components/empty_state.html" with icon="book" title=_("The knowledge base is empty") message=_("Add reports, minutes, studies, guidance or notes: Ask NeuroDB will then answer from them too.") action_url=add_url action_label=_("Add a document or text") %}
+  {% else %}
+  {% include "components/empty_state.html" with icon="book" title=_("The knowledge base is empty") message=_("Administrators and section editors add documents to it.") %}
+  {% endif %}
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

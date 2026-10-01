@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block head_extra %}{% if working %}<meta http-equiv="refresh" content="8">{% endif %}{% endblock %}
+{% block content %}
+<section class="panel mb-3">
+  <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+    {% if document.status == "ready" %}{% status_pill "succeeded" document.get_status_display %}{% elif document.status == "failed" %}{% status_pill "failed" document.get_status_display %}{% else %}{% status_pill "running" document.get_status_display %} <span class="small text-muted">{% trans "This page refreshes until it is ready." %}</span>{% endif %}
+    <span class="ms-auto d-flex gap-2">
+      {% if document.status == "ready" %}<a class="btn btn-primary btn-sm" href="{% url 'assistant:ask' %}?q={% filter urlencode %}{% blocktrans with t=document.title %}In the document “{{ t }}”: {% endblocktrans %}{% endfilter %}">{% include "components/icon.html" with name="sparkle" %}<span>{% trans "Ask about it" %}</span></a>{% endif %}
+      {% if document.file %}<a class="btn btn-outline-secondary btn-sm" href="{% url 'knowledge:file' document.pk %}">{% include "components/icon.html" with name="download" %}<span>{{ document.filename|truncatechars:40 }}</span></a>{% endif %}
+      {% if can_manage %}
+      <form method="post" action="{% url 'knowledge:reindex' document.pk %}">{% csrf_token %}<button class="btn btn-outline-secondary btn-sm" type="submit">{% include "components/icon.html" with name="refresh" %}<span>{% trans "Read again" %}</span></button></form>
+      <details class="knowledge-remove"><summary class="btn btn-outline-danger btn-sm">{% trans "Remove" %}</summary>
+        <form method="post" action="{% url 'knowledge:delete' document.pk %}" class="mt-1">{% csrf_token %}<button class="btn btn-danger btn-sm" type="submit">{% trans "Remove it for good" %}</button></form></details>
+      {% endif %}
+    </span>
+  </div>
+  {% if document.error %}<p class="small {% if document.status == 'failed' %}text-danger{% else %}text-muted{% endif %}">{{ document.error }}</p>{% endif %}
+  <dl class="row small mb-0">
+    {% if document.source %}<dt class="col-sm-3">{% trans "Source" %}</dt><dd class="col-sm-9">{{ document.source }}</dd>{% endif %}
+    {% if document.document_date %}<dt class="col-sm-3">{% trans "Date" %}</dt><dd class="col-sm-9">{{ document.document_date|date:"j M Y" }}</dd>{% endif %}
+    {% if document.section or document.year %}<dt class="col-sm-3">{% trans "Section and year" %}</dt><dd class="col-sm-9">{{ document.section.name|default:"—" }} · {{ document.year|default:"—" }}</dd>{% endif %}
+    <dt class="col-sm-3">{% trans "Added" %}</dt><dd class="col-sm-9">{{ document.created_at|date:"j M Y H:i" }}{% if document.added_by %} {% trans "by" %} {{ document.added_by.get_full_name|default:document.added_by.username }}{% endif %}</dd>
+    {% if document.status == "ready" %}<dt class="col-sm-3">{% trans "Indexed" %}</dt><dd class="col-sm-9">{% blocktrans count n=chunks with c=document.characters|number %}{{ c }} characters in {{ n }} passage{% plural %}{{ c }} characters in {{ n }} passages{% endblocktrans %}{% if document.pages > 1 %} · {% blocktrans with p=document.pages %}{{ p }} pages{% endblocktrans %}{% endif %}</dd>{% endif %}
+  </dl>
+</section>
+
+{% if document.summary or document.key_points %}
+<section class="panel mb-3">
+  <div class="panel__header"><h2 class="panel__title">{% trans "Summary" %}</h2><span class="panel__hint">{% trans "AI-written; check it against the document" %}</span></div>
+  {% if document.summary %}<p>{{ document.summary }}</p>{% endif %}
+  {% if document.key_points %}<ul class="mb-0">{% for p in document.key_points %}<li>{{ p }}</li>{% endfor %}</ul>{% endif %}
+</section>
+{% endif %}
+
+<section class="panel mb-3">
+  <div class="panel__header"><h2 class="panel__title">{% trans "Linked in NeuroDB" %}</h2><span class="panel__hint">{% trans "what the document mentions" %}</span></div>
+  {% for kind, links in link_groups.items %}
+  <div class="mb-2"><div class="small text-muted mb-1">{{ kind }}</div>
+    {% for link in links %}{% if link.url %}<a class="chip" href="{{ link.url }}">{{ link.label|truncatechars:70 }}</a>{% else %}<span class="chip">{{ link.label|truncatechars:70 }}</span>{% endif %}{% if link.origin == "ai" %}<span class="small text-muted"> ({% trans "AI-suggested" %})</span>{% endif %} {% endfor %}
+  </div>
+  {% empty %}<p class="text-muted small mb-0">{% trans "No partner, programme document, section or place of NeuroDB is named in it." %}</p>{% endfor %}
+  {% if user.is_staff %}<p class="small mb-0 mt-2"><a href="{% url 'admin:knowledge_document_change' document.pk %}">{% trans "Add or remove links in the admin" %}</a></p>{% endif %}
+</section>
+
+{% if text %}
+<section class="panel">
+  <div class="panel__header"><h2 class="panel__title">{% trans "Text" %}</h2>{% if text_cut %}<span class="panel__hint">{% trans "the beginning; the whole text is searched" %}</span>{% endif %}</div>
+  <div class="knowledge-text">{{ text|linebreaks }}</div>
+</section>
+{% endif %}
+{% endblock %}

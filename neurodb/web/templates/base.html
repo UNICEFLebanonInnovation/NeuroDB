@@ -190,6 +190,7 @@
       <div class="sidebar__section-title">{% trans "Resources" %}</div>
       <a class="nav-item-link {% active_if 'reports:population' %}" href="{% url 'reports:population' %}" {% aria_current 'reports:population' %}>{% include "components/icon.html" with name="chart" %}<span>{% trans "Population" %}</span></a>
       <a class="nav-item-link {% active_if 'reports:library' %}" href="{% url 'reports:library' %}" {% aria_current 'reports:library' %}>{% include "components/icon.html" with name="book" %}<span>{% trans "Library" %}</span></a>
+      <a class="nav-item-link {% active_if 'knowledge:index' 'knowledge:detail' 'knowledge:add' %}" href="{% url 'knowledge:index' %}" {% aria_current 'knowledge:index' %}>{% include "components/icon.html" with name="layers" %}<span>{% trans "Knowledge base" %}</span></a>
       <a class="nav-item-link {% active_if 'reports:maps' %}" href="{% url 'reports:maps' %}" {% aria_current 'reports:maps' %}>{% include "components/icon.html" with name="map" %}<span>{% trans "Maps" %}</span></a>
       <a class="nav-item-link {% active_if 'reports:data_health' %}" href="{% url 'reports:data_health' %}" {% aria_current 'reports:data_health' %}>{% include "components/icon.html" with name="pulse" %}<span>{% trans "Data health" %}</span></a>
       {% endif %}

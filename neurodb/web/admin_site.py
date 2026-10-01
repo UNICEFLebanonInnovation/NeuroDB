@@ -54,13 +54,14 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
     ),
     (
         _("Library and maps"),
-        _("Published resources, their classification and map products."),
+        _("Published resources, their classification, map products, and the knowledge base of Ask NeuroDB."),
         [
             "pivoting.Resource",
             "pivoting.ResourceType",
             "pivoting.ResourceTopic",
             "pivoting.ResourceTag",
             "pivoting.Map",
+            "knowledge.Document",
         ],
     ),
     (

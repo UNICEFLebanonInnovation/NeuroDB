@@ -1,0 +1,9 @@
+{% load i18n %}{# On a partner or programme document page: the knowledge base documents that mention it. Context: knowledge_documents. #}
+{% if knowledge_documents %}
+<section class="panel mb-3">
+  <div class="panel__header"><h2 class="panel__title">{% trans "In the knowledge base" %}</h2><span class="panel__hint">{% trans "documents that mention it" %}</span></div>
+  <ul class="list-unstyled mb-0 small">
+    {% for d in knowledge_documents %}<li class="mb-1">{% include "components/icon.html" with name="book" %} <a href="{{ d.get_absolute_url }}">{{ d.title }}</a>{% if d.summary %}<div class="text-muted">{{ d.summary|truncatechars:180 }}</div>{% endif %}</li>{% endfor %}
+  </ul>
+</section>
+{% endif %}

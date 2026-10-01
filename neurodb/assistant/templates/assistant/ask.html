@@ -20,7 +20,7 @@
     <div class="ask__intro" id="ask-intro">
       <div class="ask__intro-icon" aria-hidden="true">{% include "components/icon.html" with name="sparkle" %}</div>
       <h2 class="h5 mb-1">{% trans "Ask anything about NeuroDB's data" %}</h2>
-      <p class="text-muted mb-3">{% trans "Indicators and targets, partners and programme documents, donors, population figures, the library and data freshness. The assistant looks the figures up and links to the pages they come from." %}</p>
+      <p class="text-muted mb-3">{% trans "Indicators and targets, partners and programme documents, donors, population figures, the library, the knowledge base and data freshness. The assistant looks the figures up and links to the pages they come from." %}</p>
       <div class="ask__examples" role="list" aria-label="{% trans 'Example questions' %}">
         {% for e in examples %}<button type="button" class="chip chip--action" role="listitem" data-ask-example>{{ e }}</button>{% endfor %}
       </div>
@@ -37,6 +37,7 @@
     <label class="visually-hidden" for="ask-input">{% trans "Your question" %}</label>
     <textarea id="ask-input" name="question" rows="1" maxlength="1000" class="form-control ask__input" placeholder="{% trans 'Ask a question, e.g. which partners reported the most in Akkar this year?' %}" required autofocus>{{ initial_question }}</textarea>
     <div class="ask__actions">
+      {% if can_add_knowledge %}<a class="btn btn-link btn-sm me-auto" href="{% url 'knowledge:add' %}" title="{% trans 'Give NeuroDB a document or a text to answer from' %}">{% include "components/icon.html" with name="file" %}<span>{% trans "Add a document or text" %}</span></a>{% endif %}
       <button type="button" class="btn btn-link btn-sm" id="ask-new" hidden>{% trans "New conversation" %}</button>
       <button type="button" class="btn btn-outline-secondary btn-sm" id="ask-stop" hidden>{% trans "Stop" %}</button>
       <button type="submit" class="btn btn-primary btn-sm" id="ask-submit">{% include "components/icon.html" with name="sparkle" %}<span>{% trans "Ask" %}</span></button>

@@ -37,6 +37,7 @@ from neurodb.facts.services import dashboard as facts
 from neurodb.facts.services import partners as partner_facts
 from neurodb.indicators.models import Database, MasterIndicator, NeuroReport, ReportingYear
 from neurodb.indicators.services.tracking import LABELS
+from neurodb.knowledge.search import linked as linked_documents
 from neurodb.library.models import Resource
 from neurodb.library.services import completed_maps, published_resource, resource_filters, search_resources
 from neurodb.partnerships import services as partnerships
@@ -865,6 +866,7 @@ def programme_detail(request: HttpRequest, pk: int) -> HttpResponse:
         "pd": pd,
         "past_end": partnerships.past_end_date(pd.status, pd.end),
         "datamart": datamart.programme_datamart(pd),
+        "knowledge_documents": linked_documents("programme_document", pd.pk),
     }
     template = "reports/partials/programme_detail.html" if request.htmx else "reports/programme_detail.html"
     return render(request, template, context)
@@ -933,6 +935,7 @@ def partner_profile(request: HttpRequest, pk: int) -> HttpResponse:
             _crumb(partner.short_name or partner.name),
         ],
         "partner": partner,
+        "knowledge_documents": linked_documents("partner", partner.pk),
         "profile": profile,
         "datamart": extra,
         "activityinfo": activityinfo,

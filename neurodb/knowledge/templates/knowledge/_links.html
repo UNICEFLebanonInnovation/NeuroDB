@@ -1,0 +1,2 @@
+{% load i18n %}{# The links of a document as chips. Context: links. #}
+{% for link in links %}{% if link.url %}<a class="chip" href="{{ link.url }}">{{ link.label|truncatechars:60 }}</a>{% else %}<span class="chip">{{ link.label|truncatechars:60 }}</span>{% endif %}{% endfor %}
