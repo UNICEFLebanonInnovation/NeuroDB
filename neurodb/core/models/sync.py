@@ -23,6 +23,7 @@ class SyncRun(models.Model):
         COMPILER_WELLBEING = "compiler_wellbeing", "Compiler Makani wellbeing flags"
         KNOWLEDGE_HUB = "knowledge_hub", "Knowledge hub"
         WHATS_NEW = "whats_new", "What's new note"
+        ML_READINESS = "ml_readiness", "Machine learning readiness check"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"

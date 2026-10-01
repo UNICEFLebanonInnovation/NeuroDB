@@ -191,6 +191,8 @@ def data_health() -> dict[str, Any]:
     staleness = datetime.timedelta(hours=settings.SYNC_STALENESS_HOURS)
     jobs = []
     for job, label in SyncRun.Job.choices:
+        if job == SyncRun.Job.ML_READINESS:
+            continue  # a weekly check, shown in its own section: not a sync that goes stale
         last_ok = SyncRun.last_success(job)
         last_run = SyncRun.objects.filter(job=job).order_by("-started_at").first()
         age = (now - last_ok.finished_at) if last_ok and last_ok.finished_at else None

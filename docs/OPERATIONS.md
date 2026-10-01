@@ -256,6 +256,34 @@ Where it shows:
 
 Changes are kept (admin → *Knowledge hub changes*); a year of them is a few tens of thousands of rows.
 
+### Ready for machine learning? (Data health)
+
+Before any model is built, the job `ml-readiness` (`ml_readiness`, every Monday 06:45; *Run a job →
+Machine learning readiness* for now) measures what each source really holds and shows it at the bottom
+of the Data health page. Counts only: nothing is predicted and nothing leaves NeuroDB.
+
+| Source | What is measured |
+|---|---|
+| ActivityInfo reports | years and months reported; months a partner reported between its first and last month (a missing month is not a zero); values that are 0 or empty; reports with a governorate, district and cadastral code; governorates written as NeuroDB knows them; days from the end of the month to the last edit in ActivityInfo (late reports and corrections) |
+| Master indicators | targets set; indicators found again the year before (same section and AWP code or name) |
+| eTools | PDs with locations, CP outputs and a section; PD indicators with targets; partner progress reports, how many have a due and submission date, and how many were on time; ActivityInfo partner names and records linked to eTools partners |
+| Assurance and monitoring | partners with a HACT rating; assessments, audits and spot checks; action points completed; programmatic visits |
+| Daily review | days run; findings resolved; findings people took on |
+| Context | latest population figures by level; Compiler years and periods; days of the change log |
+
+For each decision a model could support, it says **Ready**, **Partly ready** or **Not yet**, and which
+checks pass:
+
+| Decision | Method it would use | Needs (thresholds in `neurodb/insights/readiness.py`) |
+|---|---|---|
+| Indicators or activities falling behind their targets | year-end forecast per indicator from its own monthly pattern | 2 years with 10+ months reported; 60% of indicators found again the year before; 70% with a target; 70% of months reported |
+| Patterns across places, partners and periods | unusual reports and similar profiles, explained | 18 months of reports; 90% with a governorate, 70% with a district; 70% of months reported |
+| Where partners overlap and where the gaps are | counts by place against need; grouping related activities | 90% of governorates matching; 70% with a district; 70% of records linked to eTools partners; 50% of PDs with locations; population figures 3 years old at most |
+| Where to review implementation or data quality | a ranked list with its reasons: rules first, learning from outcomes later | 30 days of daily review; assessments or audits recorded; 30 progress reports with due and submission dates; 50 findings people resolved or took on |
+
+The first model is chosen from these results with the programme teams; a check that fails says what
+to improve first (for example, PD locations in eTools, or linking ActivityInfo partner names).
+
 ## Scheduled jobs
 The periodic jobs are managed in the admin: **Data and sync → Scheduled jobs**. Each row is one
 command on one schedule, in **Beirut time** (summer time is followed automatically):
@@ -272,6 +300,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `compiler-education` | `sync_compiler_education` | `30 6 * * *`, daily 06:30; switched off until Compiler is configured |
 | `knowledge-hub` | `build_knowledge_hub` | `0 7 * * *`, daily 07:00: reads new library and CPD documents, then rebuilds the knowledge hub (it is also rebuilt after every sync) |
 | `whats-new` | `whats_new_digest` | `30 7 * * *`, daily 07:30: the what's new notes, emailed to who asked |
+| `ml-readiness` | `ml_readiness` | `45 6 * * 1`, Mondays 06:45: is the data ready for machine learning (Data health) |
 | (inside `activityinfo-data` and `etools-datamart`) | `link_partners` | at the end of both jobs |
 
 On the page: switch a job on or off (the toggle saves at once), open it to change its schedule (five
@@ -325,6 +354,7 @@ admin home page, *Quick actions*):
 | Run a job → *Compiler education figures* | `sync_compiler_education` | background |
 | Run a job → *Knowledge hub* | `build_knowledge_hub` | background |
 | Run a job → *What's new note* | `whats_new_digest` | background |
+| Run a job → *Machine learning readiness* | `ml_readiness` | background |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |

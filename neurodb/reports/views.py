@@ -28,7 +28,7 @@ from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_GET, require_POST
 
 from neurodb.accounts.roles import SECTION_EDITOR, can_edit_section, role_of
-from neurodb.core.models import PopulationFigure, SavedView
+from neurodb.core.models import PopulationFigure, SavedView, SyncRun
 from neurodb.core.services import population as population_service
 from neurodb.datamart import monitoring as pd_monitoring_service
 from neurodb.datamart import services as datamart
@@ -1469,6 +1469,7 @@ def data_health(request: HttpRequest) -> HttpResponse:
         "page_subtitle": _("Sync runs and freshness of every source"),
         "breadcrumbs": [_crumb(_("Data health"))],
         "health": health,
+        "readiness": SyncRun.last_success(SyncRun.Job.ML_READINESS),
     }
     return render(request, "reports/data_health.html", context)
 

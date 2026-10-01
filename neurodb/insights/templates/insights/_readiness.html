@@ -1,0 +1,41 @@
+{% load i18n ui humanize %}
+{# Data health: is the data ready for machine learning? Context: readiness = the last ml_readiness SyncRun. #}
+<section class="panel mt-3" id="ml-readiness" aria-labelledby="ml-readiness-title">
+  <div class="panel__header">
+    <div>
+      <h2 class="panel__title" id="ml-readiness-title">{% trans "Ready for machine learning?" %}</h2>
+      <div class="panel__hint">{% if readiness %}{% blocktrans with when=readiness.finished_at|naturaltime %}Measured {{ when }}, every Monday{% endblocktrans %}{% else %}{% trans "Not measured yet" %}{% endif %} · {% trans "what the data holds for each decision a model could support; counts only, nothing predicted" %}</div>
+    </div>
+  </div>
+  {% if readiness %}
+  {% with result=readiness.details.readiness %}
+  <div class="grid grid--2">
+    {% for v in result.verdicts %}
+    <div class="panel">
+      <div class="d-flex justify-content-between align-items-start gap-2">
+        <h3 class="panel__title">{{ v.question }}</h3>
+        {% if v.status == "ready" %}{% status_pill "succeeded" v.status_label "sm" %}{% elif v.status == "partly" %}{% status_pill "partial" v.status_label "sm" %}{% else %}{% status_pill "unknown" v.status_label "sm" %}{% endif %}
+      </div>
+      <p class="small text-muted mb-2">{{ v.method }}</p>
+      <ul class="list-unstyled small mb-0">
+        {% for c in v.checks %}<li>{% if c.ok %}✓{% elif c.ok is None %}?{% else %}✗{% endif %} {{ c.text }}</li>{% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </div>
+  <details class="mt-3">
+    <summary class="small">{% trans "Every measure, per source" %}</summary>
+    <div class="table-wrap mt-2"><table class="table table-sm" id="ml-readiness-metrics">
+      <thead><tr><th>{% trans "Source" %}</th><th>{% trans "Measure" %}</th><th class="num">{% trans "Value" %}</th></tr></thead>
+      <tbody>{% for s in result.sections %}{% for m in s.metrics %}<tr>
+        <td class="small">{% if forloop.first %}{{ s.label }}{% endif %}</td>
+        <td>{{ m.label }}{% if m.note %}<span class="cell-sub">{{ m.note }}</span>{% endif %}</td>
+        <td class="num">{{ m.display }}</td>
+      </tr>{% empty %}<tr><td class="small">{{ s.label }}</td><td colspan="2" class="small {% if s.error %}text-danger{% else %}text-muted{% endif %}">{% if s.error %}{% trans "Could not be measured" %}: {{ s.error }}{% else %}{% trans "No data" %}{% endif %}</td></tr>{% endfor %}{% endfor %}</tbody>
+    </table></div>
+  </details>
+  {% endwith %}
+  {% else %}
+  <p class="small text-muted mb-0">{% trans "An administrator can run it now: Administration → Run a job → Machine learning readiness, or the Scheduled jobs page." %}</p>
+  {% endif %}
+</section>

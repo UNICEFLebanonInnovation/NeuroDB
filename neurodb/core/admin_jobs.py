@@ -158,6 +158,19 @@ BACKGROUND_JOBS = [
         "hub",
     ),
     BackgroundJob(
+        "run_ml_readiness",
+        ("ml_readiness",),
+        SyncRun.Job.ML_READINESS,
+        _("Machine learning readiness"),
+        _("Check the data's readiness for machine learning"),
+        _(
+            "Measures, for each source, how much history there is, how complete it is and how places, "
+            "indicators and outcomes are recorded, and says for each programme decision whether a model "
+            "could support it yet. Shown on the Data health page. Counts only; nothing is predicted."
+        ),
+        "query_stats",
+    ),
+    BackgroundJob(
         "run_whats_new_digest",
         ("whats_new_digest",),
         SyncRun.Job.WHATS_NEW,
