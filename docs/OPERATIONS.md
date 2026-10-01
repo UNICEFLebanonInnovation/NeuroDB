@@ -150,6 +150,57 @@ change or add documents. Do not add personal data of children, beneficiaries or 
 After new partners or programme documents arrive, `manage.py index_knowledge --all` links the
 existing documents to them (it also writes new summaries, at the API's cost).
 
+**Library publications and country programme documents** are read into the knowledge base too, so
+their full text is searched, quoted and linked like an added document. Each published library item
+(its file, or its title and summary when it has none) and each uploaded CPD document becomes a
+knowledge document whose source reads *Library publication* or the country programme's name, with
+*Open the original*. Saving or deleting one starts `manage.py index_documents --origin library|cpd --id <id>`
+in the background (`KNOWLEDGE_INDEX_ON_SAVE=false` turns that off); the morning knowledge hub job
+runs `index_documents` for all of them and reads only the new or changed ones (file name, file size
+or summary changed), and removes the ones unpublished or deleted. They are changed or removed at
+their source (the library or the country programme page), not on the knowledge base: only an
+administrator can read one again. The first run reads every publication, and with the assistant
+configured writes a summary of each, at the API's cost (once; later runs only read what changed).
+
+### Knowledge hub: everything linked, for questions across sources
+
+So that a question can combine sources ("which donors fund the partners working in Akkar, and what
+do the evaluations say about them?"), NeuroDB keeps one index of everything it holds, linked:
+
+| Things | From | Linked to |
+|---|---|---|
+| Partners | eTools (names, short and alternate names, vendor numbers, ActivityInfo partner labels) | their programme documents, ActivityInfo databases they report in, Makani centres, documents, findings |
+| Programme documents | eTools | partner, sections, donors, grants, governorates and districts (from the PD locations), country programme outputs |
+| Donors and grants | eTools PDs and Datamart grants | programme documents, grants |
+| Sections, governorates, districts | NeuroDB and the eTools gazetteer (same names merge) | everything placed in them |
+| ActivityInfo databases, master indicators, Neuro/HPM reports | ActivityInfo | sections, partners, reports |
+| Country programme cycles, outcomes, outputs, indicators | Country programme | PDs (eTools CP outputs and confirmed links), master indicators, youth and education figures |
+| Youth indicators, Makani and Dirasa, Makani centres | Compiler | PDs, partners, governorates |
+| Documents and maps | Knowledge base, library, country programme | the partners, PDs, sections and places they name |
+| Open daily review findings | Daily review | the PD or partner they are about, section |
+
+The hub holds **names and links only**: every figure is read live. Each thing carries a *lookup*,
+the assistant tool and arguments that give its current figures (e.g. `partner_details`,
+`database_results`, `cpd_indicator`, `makani_wellbeing`). The assistant uses it in three steps:
+`find_anything` (things matching a name, code or number, with the best document passages),
+`entity_profile` (everything linked to one thing, grouped by how) and `connected` (things of one
+kind up to two links away, with what connects them), then the lookups, combined in one answer with
+each figure's source. Other tools added with it: `country_programme`, `cpd_indicator`,
+`youth_figures`, `education_figures`, `makani_wellbeing`, `daily_review` and `management_brief`.
+
+**Child data is not reachable.** For Makani wellbeing the assistant sees centre and partner totals
+(`CenterSummary`); flags of individual children (registration numbers) are neither in the hub nor in
+any tool.
+
+**Rebuilding.** The scheduled job `knowledge-hub` (`build_knowledge_hub`, daily 07:00 Beirut, after
+the daily review and the Compiler syncs) reads new library and CPD documents, then rebuilds the hub
+from every source in one transaction: things that are gone disappear. A source that fails is listed
+in the run's details and the run is *Succeeded with errors*; the others are still rebuilt. *Run now*
+on the Scheduled jobs page or Run a job → *Knowledge hub* in the admin; `manage.py build_knowledge_hub
+[--no-documents]` from a shell. Browse it in admin → Library and maps → *Knowledge hub entities* and
+*Knowledge hub links* (read-only). It takes seconds (a few thousand things); reading documents takes longer the
+first time.
+
 ## Scheduled jobs
 The periodic jobs are managed in the admin: **Data and sync → Scheduled jobs**. Each row is one
 command on one schedule, in **Beirut time** (summer time is followed automatically):
@@ -164,6 +215,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `activityinfo-structure` | `import_activityinfo_structure --all` | switched off; switch on or use *Run now* after the yearly rollover |
 | `compiler-youth` | `sync_compiler_youth` | `0 21 * * *`, daily 21:00; switched off until Compiler is configured |
 | `compiler-education` | `sync_compiler_education` | `30 6 * * *`, daily 06:30; switched off until Compiler is configured |
+| `knowledge-hub` | `build_knowledge_hub` | `0 7 * * *`, daily 07:00: reads new library and CPD documents, then rebuilds the knowledge hub |
 | (inside `activityinfo-data` and `etools-datamart`) | `link_partners` | at the end of both jobs |
 
 On the page: switch a job on or off (the toggle saves at once), open it to change its schedule (five
@@ -215,6 +267,7 @@ admin home page, *Quick actions*):
 | Run a job → *Daily review* | `daily_review` | background |
 | Run a job → *Compiler youth figures* | `sync_compiler_youth` | background |
 | Run a job → *Compiler education figures* | `sync_compiler_education` | background |
+| Run a job → *Knowledge hub* | `build_knowledge_hub` | background |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |

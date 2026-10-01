@@ -10,14 +10,14 @@
       {% if document.file %}<a class="btn btn-outline-secondary btn-sm" href="{% url 'knowledge:file' document.pk %}">{% include "components/icon.html" with name="download" %}<span>{{ document.filename|truncatechars:40 }}</span></a>{% endif %}
       {% if can_manage %}
       <form method="post" action="{% url 'knowledge:reindex' document.pk %}">{% csrf_token %}<button class="btn btn-outline-secondary btn-sm" type="submit">{% include "components/icon.html" with name="refresh" %}<span>{% trans "Read again" %}</span></button></form>
-      <details class="knowledge-remove"><summary class="btn btn-outline-danger btn-sm">{% trans "Remove" %}</summary>
-        <form method="post" action="{% url 'knowledge:delete' document.pk %}" class="mt-1">{% csrf_token %}<button class="btn btn-danger btn-sm" type="submit">{% trans "Remove it for good" %}</button></form></details>
+      {% if document.origin == "added" %}<details class="knowledge-remove"><summary class="btn btn-outline-danger btn-sm">{% trans "Remove" %}</summary>
+        <form method="post" action="{% url 'knowledge:delete' document.pk %}" class="mt-1">{% csrf_token %}<button class="btn btn-danger btn-sm" type="submit">{% trans "Remove it for good" %}</button></form></details>{% endif %}
       {% endif %}
     </span>
   </div>
   {% if document.error %}<p class="small {% if document.status == 'failed' %}text-danger{% else %}text-muted{% endif %}">{{ document.error }}</p>{% endif %}
   <dl class="row small mb-0">
-    {% if document.source %}<dt class="col-sm-3">{% trans "Source" %}</dt><dd class="col-sm-9">{{ document.source }}</dd>{% endif %}
+    {% if document.source %}<dt class="col-sm-3">{% trans "Source" %}</dt><dd class="col-sm-9">{{ document.source }}{% if document.origin_url %} · <a href="{{ document.origin_url }}">{% trans "Open the original" %}</a>{% endif %}</dd>{% endif %}
     {% if document.document_date %}<dt class="col-sm-3">{% trans "Date" %}</dt><dd class="col-sm-9">{{ document.document_date|date:"j M Y" }}</dd>{% endif %}
     {% if document.section or document.year %}<dt class="col-sm-3">{% trans "Section and year" %}</dt><dd class="col-sm-9">{{ document.section.name|default:"—" }} · {{ document.year|default:"—" }}</dd>{% endif %}
     <dt class="col-sm-3">{% trans "Added" %}</dt><dd class="col-sm-9">{{ document.created_at|date:"j M Y H:i" }}{% if document.added_by %} {% trans "by" %} {{ document.added_by.get_full_name|default:document.added_by.username }}{% endif %}</dd>

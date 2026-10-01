@@ -1506,3 +1506,10 @@ def run(name: str, args: dict[str, Any]) -> dict[str, Any]:
 
 def label(name: str) -> str:
     return TOOLS[name][3] if name in TOOLS else "Looking up data"
+
+
+# The knowledge hub and the other sources (defined apart; registered here, after the first tools, so
+# the order of the tools stays fixed).
+from .hub_tools import HUB_TOOLS  # noqa: E402
+
+TOOLS.update(HUB_TOOLS)

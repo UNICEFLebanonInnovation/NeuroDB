@@ -66,6 +66,19 @@ class Document(models.Model):
     characters = models.PositiveIntegerField(default=0)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING, db_index=True)
     error = models.TextField(blank=True)
+
+    class Origin(models.TextChoices):
+        ADDED = "added", _("Added to the knowledge base")
+        LIBRARY = "library", _("Library publication")
+        CPD = "cpd", _("Country programme document")
+
+    origin = models.CharField(max_length=10, choices=Origin.choices, default=Origin.ADDED)
+    origin_id = models.PositiveIntegerField(
+        null=True, blank=True, help_text=_("the publication or CPD document")
+    )
+    origin_signature = models.CharField(
+        max_length=300, blank=True, help_text=_("tells when the source changed")
+    )
     added_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
@@ -76,6 +89,13 @@ class Document(models.Model):
     class Meta:
         ordering = ("-created_at",)
         verbose_name = _("knowledge document")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["origin", "origin_id"],
+                condition=~models.Q(origin="added"),
+                name="knowledge_one_per_source",
+            )
+        ]
 
     def __str__(self):
         return self.title
@@ -86,6 +106,14 @@ class Document(models.Model):
     @property
     def filename(self) -> str:
         return os.path.basename(self.file.name or "")
+
+    @property
+    def origin_url(self) -> str:
+        if self.origin == self.Origin.LIBRARY and self.origin_id:
+            return reverse("reports:library_item", args=[self.origin_id])
+        if self.origin == self.Origin.CPD and self.origin_id:
+            return reverse("cpd:document", args=[self.origin_id])
+        return ""
 
 
 class Chunk(models.Model):

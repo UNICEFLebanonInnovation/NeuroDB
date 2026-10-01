@@ -52,6 +52,11 @@ COMMANDS: dict[str, JobCommand] = {
         ("sync_compiler_wellbeing",),
         SyncRun.Job.COMPILER_WELLBEING,
     ),
+    "knowledge_hub": JobCommand(
+        _("Rebuild the knowledge hub (and read new documents)"),
+        ("build_knowledge_hub",),
+        SyncRun.Job.KNOWLEDGE_HUB,
+    ),
     "daily_review": JobCommand(_("Daily review"), ("daily_review",), SyncRun.Job.DAILY_REVIEW),
     "freshness": JobCommand(_("Check data freshness"), ("check_sync_freshness",), None, triggered_by=False),
 }

@@ -54,7 +54,10 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
     ),
     (
         _("Library and maps"),
-        _("Published resources, their classification, map products, and the knowledge base of Ask NeuroDB."),
+        _(
+            "Published resources, their classification, map products, the knowledge base of Ask NeuroDB "
+            "and the knowledge hub that links everything (rebuilt every night)."
+        ),
         [
             "pivoting.Resource",
             "pivoting.ResourceType",
@@ -62,6 +65,8 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
             "pivoting.ResourceTag",
             "pivoting.Map",
             "knowledge.Document",
+            "graph.Entity",
+            "graph.Edge",
         ],
     ),
     (
@@ -213,6 +218,8 @@ ICONS = {
     "pivoting.ResourceTopic": "topic",
     "pivoting.ResourceTag": "sell",
     "pivoting.Map": "map",
+    "graph.Entity": "hub",
+    "graph.Edge": "share",
     "users.User": "person",
     "auth.Group": "badge",
     "users.Section": "workspaces",

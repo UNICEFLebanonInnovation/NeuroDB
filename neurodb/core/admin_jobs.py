@@ -144,6 +144,20 @@ BACKGROUND_JOBS = [
         "favorite",
     ),
     BackgroundJob(
+        "run_build_knowledge_hub",
+        ("build_knowledge_hub",),
+        SyncRun.Job.KNOWLEDGE_HUB,
+        _("Knowledge hub"),
+        _("Rebuild the knowledge hub"),
+        _(
+            "Reads new or changed library publications and CPD documents into the knowledge base, then "
+            "links every partner, programme document, donor, grant, place, indicator, CPD result, Compiler "
+            "programme and centre, document and review finding across sources, in the background. Run it "
+            "every night, after the other jobs."
+        ),
+        "hub",
+    ),
+    BackgroundJob(
         "run_daily_review",
         ("daily_review",),
         SyncRun.Job.DAILY_REVIEW,

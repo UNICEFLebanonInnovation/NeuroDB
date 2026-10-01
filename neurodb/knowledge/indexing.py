@@ -101,6 +101,15 @@ def index(document: Document) -> None:
         with document.file.open("rb") as handle:
             extracted = read(document.filename, handle.read())
         document.text, document.pages = extracted.text, extracted.pages
+    elif document.origin != Document.Origin.ADDED:  # a library publication or a CPD document
+        from .sources import source_bytes, source_text
+
+        found = source_bytes(document)
+        if found:
+            extracted = read(*found)
+            document.text, document.pages = extracted.text, extracted.pages
+        else:
+            document.text, document.pages = clean(source_text(document)), 1
     else:
         document.text = clean(document.text)
         document.pages = 1

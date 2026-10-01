@@ -21,6 +21,7 @@ class SyncRun(models.Model):
         COMPILER_YOUTH = "compiler_youth", "Compiler youth figures"
         COMPILER_EDUCATION = "compiler_education", "Compiler education figures"
         COMPILER_WELLBEING = "compiler_wellbeing", "Compiler Makani wellbeing flags"
+        KNOWLEDGE_HUB = "knowledge_hub", "Knowledge hub"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"

@@ -142,8 +142,8 @@ def reindex(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def delete(request: HttpRequest, pk: int) -> HttpResponse:
     document = get_object_or_404(Document, pk=pk)
-    if not can_manage(request.user, document):
-        raise PermissionDenied
+    if not can_manage(request.user, document) or document.origin != Document.Origin.ADDED:
+        raise PermissionDenied  # a publication or CPD document goes with its source
     title = document.title
     if document.file:
         document.file.delete(save=False)

@@ -14,8 +14,12 @@ def can_add(user) -> bool:
 
 
 def can_manage(user, document) -> bool:
+    """Read again or remove. Publications and CPD documents follow their source: only an
+    administrator reads them again, and they are removed with their source."""
     if not user.is_authenticated:
         return False
+    if document.origin != "added":
+        return user.is_superuser or role_of(user) == ADMIN
     return (
         user.is_superuser
         or role_of(user) == ADMIN
