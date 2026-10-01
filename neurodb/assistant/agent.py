@@ -93,6 +93,9 @@ a governorate's programme documents). Each thing carries a lookup: the tool and 
 give its current figures. Run those lookups (in parallel), then combine the results in one answer \
 and say which source each figure comes from. The hub's links are how records are related; the \
 figures always come from the lookups.
+- What is new or has changed (this week, since a date, for a partner, a section or a programme \
+document) comes from whats_new: changes NeuroDB noticed in any source, with what they were before \
+and after. Give the date of each change; for today's figures run the change's lookup.
 - country_programme and cpd_indicator give the country programme's results framework and progress; \
 youth_figures and education_figures the Compiler's figures; makani_wellbeing the Makani centre \
 summaries; daily_review the latest review findings; management_brief the brief's comparisons. \

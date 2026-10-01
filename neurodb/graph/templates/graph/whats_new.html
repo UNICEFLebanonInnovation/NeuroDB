@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+<form method="get" class="filter-bar" aria-label="{% trans 'Filter what is new' %}">
+  <div class="filter-bar__field">
+    <label class="form-label" for="wn-days">{% trans "Period" %}</label>
+    <select class="form-select form-select-sm" id="wn-days" name="days">
+      <option value="1" {% if days == 1 %}selected{% endif %}>{% trans "Last 24 hours" %}</option>
+      <option value="7" {% if days == 7 %}selected{% endif %}>{% trans "Last 7 days" %}</option>
+      <option value="30" {% if days == 30 %}selected{% endif %}>{% trans "Last 30 days" %}</option>
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="wn-section">{% trans "Section" %}</label>
+    <select class="form-select form-select-sm" id="wn-section" name="section">
+      <option value="">{% trans "Every section" %}</option>
+      {% for s in sections %}<option value="{{ s.pk }}" {% if s.pk == section_id %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="wn-kind">{% trans "What" %}</label>
+    <select class="form-select form-select-sm" id="wn-kind" name="kind">
+      <option value="">{% trans "Everything" %}</option>
+      {% for value, label in kinds %}<option value="{{ value }}" {% if value == kind %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__field align-self-end">
+    <div class="form-check">
+      <input class="form-check-input" type="checkbox" id="wn-all" name="all" value="1" {% if minor %}checked{% endif %}>
+      <label class="form-check-label small" for="wn-all">{% trans "Include minor changes" %}</label>
+    </div>
+  </div>
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Show" %}</button>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
+  </div>
+</form>
+
+{% if note %}
+<section class="panel" aria-labelledby="wn-note">
+  <div class="panel__header">
+    <div>
+      <h2 class="panel__title" id="wn-note">{% blocktrans with d=note.date|date:"j F Y" %}Note of {{ d }}{% endblocktrans %}{% if note.section_name %} · {{ note.section_name }}{% else %} · {% trans "every section" %}{% endif %}</h2>
+      <div class="panel__hint">{% if note.written_by == "template" %}{% trans "Listed by NeuroDB" %}{% else %}{% trans "Written by the AI assistant from the changes below; check the figures on their pages" %}{% endif %}</div>
+    </div>
+  </div>
+  <p class="mb-0">{{ note.text|linebreaksbr }}</p>
+</section>
+{% endif %}
+
+<section class="panel p-0" aria-labelledby="wn-list">
+  <div class="px-3 pt-3 d-flex flex-wrap justify-content-between gap-2">
+    <h2 class="h6 mb-0" id="wn-list">{% blocktrans count n=total %}{{ n }} change{% plural %}{{ n }} changes{% endblocktrans %}{% if section_name %} · {{ section_name }}{% endif %}{% if shown < total %} <span class="text-muted small">({% blocktrans %}the latest {{ shown }} shown{% endblocktrans %})</span>{% endif %}</h2>
+    <span class="small text-muted">{% if last_build %}{% blocktrans with t=last_build|date:"j M Y, H:i" %}Last checked {{ t }}{% endblocktrans %}{% else %}{% trans "Not checked yet" %}{% endif %}</span>
+  </div>
+  {% if days_list %}
+  {% for day, items in days_list %}
+  <h3 class="h6 px-3 pt-3 mb-1 text-muted">{{ day|date:"l j F" }}</h3>
+  <ul class="list-unstyled mb-0">
+    {% for change, text in items %}
+    <li class="px-3 py-2 border-top d-flex gap-2 align-items-baseline">
+      {% if change.op == "added" or change.op == "linked" %}{% status_pill "succeeded" change.get_op_display "sm" %}{% elif change.op == "removed" or change.op == "unlinked" %}{% status_pill "failed" change.get_op_display "sm" %}{% else %}{% status_pill "running" change.get_op_display "sm" %}{% endif %}
+      <span>{% if change.url %}<a href="{{ change.url }}">{{ text }}</a>{% else %}{{ text }}{% endif %}{% if change.link.url %} · <a href="{{ change.link.url }}">{{ change.link.name }}</a>{% endif %}
+        <div class="small text-muted">{{ change.get_kind_display }} · {{ change.detected_at|date:"H:i" }}{% if not change.notable %} · {% trans "minor" %}{% endif %}</div>
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endfor %}
+  {% else %}
+  {% include "components/empty_state.html" with icon="inbox" title=_("Nothing new in this period") message=_("NeuroDB checks after every sync and every morning.") %}
+  {% endif %}
+</section>
+
+<p class="small text-muted mt-3">{% trans "Ask NeuroDB knows these changes too: ask “what changed for Caritas this week?” or “what is new in Child Protection?”." %} <a href="{% url 'assistant:ask' %}">{% trans "Ask a question" %}</a></p>
+
+{% if email_enabled %}
+<form method="post" action="{% url 'graph:email' %}" class="small">
+  {% csrf_token %}
+  {% if subscribed %}
+  <input type="hidden" name="email" value="0">
+  <span>{% trans "You get the daily note of your section by email." %}</span> <button class="btn btn-link btn-sm p-0" type="submit">{% trans "Stop the email" %}</button>
+  {% else %}
+  <input type="hidden" name="email" value="1">
+  <button class="btn btn-outline-primary btn-sm" type="submit">{% trans "Email me the daily note" %}</button>
+  {% endif %}
+</form>
+{% endif %}
+{% endblock %}

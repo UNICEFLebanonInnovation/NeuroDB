@@ -1,0 +1,20 @@
+{% load i18n ui %}
+{# The overview's "What's new" card. Context: whats_new = [(change, sentence)], selected. #}
+<section class="panel" aria-labelledby="whats-new-title">
+  <div class="panel__header">
+    <div>
+      <h2 class="panel__title" id="whats-new-title">{% trans "What's new" %}</h2>
+      <div class="panel__hint">{% trans "Noticed in the last two days, from every source" %}{% if selected.section %} · {{ selected.section|join:", " }}{% endif %}</div>
+    </div>
+    <a class="small" href="{% url 'graph:whats_new' %}">{% trans "Everything new" %} →</a>
+  </div>
+  {% if whats_new %}
+  <ul class="list-unstyled mb-0 small">
+    {% for change, text in whats_new %}
+    <li class="py-1">{% if change.url %}<a href="{{ change.url }}">{{ text }}</a>{% else %}{{ text }}{% endif %} <span class="text-muted">· {{ change.detected_at|date:"j M H:i" }}</span></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-muted small mb-0">{% trans "Nothing notable changed in the last two days." %}</p>
+  {% endif %}
+</section>

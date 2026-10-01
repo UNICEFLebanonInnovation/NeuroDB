@@ -376,6 +376,66 @@ def management_brief(year: int | None = None, section: str | None = None) -> dic
     )
 
 
+# ------------------------------------------------------------------------------ what's new
+def whats_new(
+    since: str | None = None,
+    kind: str | None = None,
+    about: str | None = None,
+    section: str | None = None,
+    include_minor: bool = False,
+) -> dict[str, Any]:
+    from django.utils import timezone
+
+    from neurodb.accounts.models import Section
+    from neurodb.graph import news, query
+    from neurodb.graph.models import Entity
+
+    today = timezone.localdate()
+    try:
+        start = datetime.date.fromisoformat(since) if since else today - datetime.timedelta(days=7)
+    except ValueError as exc:
+        raise ToolInputError("since must be a date like 2026-09-01.") from exc
+    if kind and kind not in dict(Entity.Kind.choices):
+        raise ToolInputError(f"Unknown kind '{kind}'.")
+    sections = None
+    if section:
+        found = Section.objects.filter(name__icontains=section).values_list("pk", flat=True)[:5]
+        if not found:
+            raise ToolInputError(f"No section matches '{section}'.")
+        sections = list(found)
+    entity_ids = None
+    about_names = []
+    if about:
+        things = query.find(about, limit=5)
+        if not things:
+            raise ToolInputError(f"Nothing in NeuroDB matches '{about}'; try find_anything.")
+        about_names = [t.name for t in things]
+        entity_ids = news.around([t.pk for t in things])
+    since_dt = timezone.make_aware(datetime.datetime.combine(start, datetime.time.min))
+    qs = news.recent(
+        since_dt,
+        sections=sections,
+        kinds=[kind] if kind else None,
+        notable_only=not include_minor,
+        entity_ids=entity_ids,
+    )
+    rows = list(qs.select_related("entity")[: MAX_LIST + 20])
+    last = news.last_build()
+    return _clean(
+        {
+            "since": start,
+            "about": about_names or None,
+            "hub_last_rebuilt": timezone.localtime(last).strftime("%Y-%m-%d %H:%M") if last else None,
+            "totals": news.totals(qs),
+            "changes": [news.as_dict(c) for c in rows],
+            "more": max(qs.count() - len(rows), 0),
+            "note": "Changes noticed between builds of the knowledge hub (every sync and every morning). "
+            "Figures shown are as of that moment: use each change's lookup for today's figures.",
+            "url": reverse("graph:whats_new"),
+        }
+    )
+
+
 _KIND = {
     "type": "string",
     "description": "Entity kind, e.g. partner, programme_document, donor, governorate.",
@@ -459,6 +519,25 @@ HUB_TOOLS: dict[str, tuple] = {
         "severity and page.",
         _schema({}),
         "Reading the daily review",
+    ),
+    "whats_new": (
+        whats_new,
+        "What is new or changed in NeuroDB since a date (default: the last 7 days), whatever the source: "
+        "new partners, programme documents, donors, grants, documents, centres and indicators; status, "
+        "budget, progress or report counts that moved; new links (a PD newly funded by a donor, a partner "
+        "newly reporting in a database); things gone. Optionally about one thing and what is linked to it, "
+        "one kind, or one section. Minor changes (a new district, a document mentioning a place) only with "
+        "include_minor.",
+        _schema(
+            {
+                "since": {"type": "string", "description": "YYYY-MM-DD"},
+                "kind": _KIND,
+                "about": {"type": "string", "description": "A name, code or number, e.g. a partner."},
+                "section": {"type": "string"},
+                "include_minor": {"type": "boolean"},
+            }
+        ),
+        "Checking what's new",
     ),
     "management_brief": (
         management_brief,

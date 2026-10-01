@@ -152,10 +152,22 @@ BACKGROUND_JOBS = [
         _(
             "Reads new or changed library publications and CPD documents into the knowledge base, then "
             "links every partner, programme document, donor, grant, place, indicator, CPD result, Compiler "
-            "programme and centre, document and review finding across sources, in the background. Run it "
-            "every night, after the other jobs."
+            "programme and centre, document and review finding across sources, and records what changed "
+            "since the previous build, in the background. It also runs on its own after every sync."
         ),
         "hub",
+    ),
+    BackgroundJob(
+        "run_whats_new_digest",
+        ("whats_new_digest",),
+        SyncRun.Job.WHATS_NEW,
+        _("What's new note"),
+        _("Write the what's new note"),
+        _(
+            "Writes today's what's new notes (one for everyone, one per section concerned) from the notable "
+            "changes of the last 24 hours, and emails them to the people who asked, in the background."
+        ),
+        "campaign",
     ),
     BackgroundJob(
         "run_daily_review",

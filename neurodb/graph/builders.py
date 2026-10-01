@@ -23,6 +23,14 @@ def _url(name: str, *args) -> str:
         return ""
 
 
+def _amount(value) -> float | None:
+    """A money figure stored as text in the eTools tables."""
+    try:
+        return round(float(str(value).replace(",", "")), 2) if value not in (None, "") else None
+    except ValueError:
+        return None
+
+
 class Names:
     """Find an entity from a name as another source writes it (partners, places, sections)."""
 
@@ -145,6 +153,11 @@ def add_programmes(c: Collector, names: Names) -> None:
                 if v
             },
             lookup={"tool": "programme_details", "args": {"number": number}} if number else {},
+            snapshot={
+                "budget": _amount(pd.total_budget),
+                "disbursed": _amount(pd.actual_amount),
+                "outstanding": _amount(pd.frs_total_outstanding_amt),
+            },
         )
         if pd.partner_id:
             c.edge(ref, "implemented_by", (K.PARTNER, str(pd.partner_id)), "eTools")
@@ -186,9 +199,18 @@ def add_grants(c: Collector, names: Names) -> None:
 
 # ---------------------------------------------------------------------------- ActivityInfo
 def add_activityinfo(c: Collector, names: Names) -> None:
+    from django.db.models import Count, Max
+
+    from neurodb.facts.models import ActivityReportNew
     from neurodb.indicators.models import Database, MasterIndicator, NeuroReport, NeuroReportMasterIndicator
     from neurodb.partnerships.models import PartnerLink
 
+    reported = {  # the current year's databases: new monthly reports show as a change
+        row["dbase_id"]: {"reports": row["reports"], "latest_month": row["latest"]}
+        for row in ActivityReportNew.objects.filter(dbase__reporting_year__current=True)
+        .values("dbase_id")
+        .annotate(reports=Count("id"), latest=Max("month"))
+    }
     for db in Database.objects.select_related("reporting_year", "section"):
         year = db.reporting_year.year if db.reporting_year_id else db.year
         ref = c.entity(
@@ -199,6 +221,7 @@ def add_activityinfo(c: Collector, names: Names) -> None:
             url=_url("reports:database_dashboard", db.pk),
             attrs={"year": year},
             lookup={"tool": "database_results", "args": {"database_id": db.pk}},
+            snapshot=reported.get(db.pk),
         )
         if db.section_id:
             c.edge(ref, "in_section", (K.SECTION, str(db.section_id)), "ActivityInfo")
@@ -247,8 +270,14 @@ def add_activityinfo(c: Collector, names: Names) -> None:
 
 # -------------------------------------------------------------------------- country programme
 def add_country_programme(c: Collector, names: Names) -> None:
+    import datetime
+
+    from neurodb.cpd import services
     from neurodb.cpd.models import CountryProgramme, Indicator, Link, Outcome, Output
     from neurodb.cpd.services import interventions, output_matches
+
+    today = datetime.date.today()
+    progress = {}  # indicator id -> where it stands today, so a status or value change shows
 
     for p in CountryProgramme.objects.all():
         c.entity(
@@ -259,6 +288,18 @@ def add_country_programme(c: Collector, names: Names) -> None:
             url=_url("cpd:dashboard") + f"?cycle={p.pk}",
             lookup={"tool": "country_programme", "args": {"cycle": p.pk}},
         )
+        indicators = list(
+            Indicator.objects.filter(programme=p).prefetch_related("values", "milestones", "links")
+        )
+        values = services.link_values([lk for i in indicators for lk in i.links.all() if lk.confirmed])
+        elapsed = services.elapsed_share(p, today)
+        for i in indicators:
+            state = services.progress(i, values, today, elapsed)
+            progress[i.pk] = {
+                "value": round(state.value, 2) if state.value is not None else None,
+                "achieved_pct": state.achieved,
+                "status": str(state.label),
+            }
         pds = interventions(p)
         for output in Output.objects.filter(outcome__programme=p):
             for pd in pds:
@@ -304,6 +345,7 @@ def add_country_programme(c: Collector, names: Names) -> None:
             },
             url=_url("cpd:indicator", i.pk),
             lookup={"tool": "cpd_indicator", "args": {"indicator_id": i.pk}},
+            snapshot=progress.get(i.pk),
         )
         parent = (K.CPD_OUTPUT, str(i.output_id)) if i.output_id else (K.CPD_OUTCOME, str(i.outcome_id))
         c.edge(ref, "measures", parent, "country programme")
@@ -374,6 +416,10 @@ def add_compiler(c: Collector, names: Names) -> None:
             attrs={"partner": s.partner_name, "governorate": s.governorate},
             url=_url("wellbeing:summaries"),
             lookup={"tool": "makani_wellbeing", "args": {"centre": s.center_name}},
+            snapshot={  # centre totals of its latest month
+                "month": s.month.isoformat(),
+                **{k: v for k, v in (s.figures or {}).items() if isinstance(v, int | float)},
+            },
         )
         c.edge(ref, "part_of", (K.EDUCATION_PROGRAMME, "mscc"), "Compiler")
         c.edge(ref, "run_by", names.get(K.PARTNER, s.partner_name), "Compiler (partner name)")
@@ -484,6 +530,7 @@ SOURCES: list[tuple[str, Callable[[Collector, Names], None]]] = [
 def collect() -> tuple[Collector, dict[str, str]]:
     c, names, errors = Collector(), Names(), {}
     for label, add in SOURCES:
+        c.source = label
         try:
             add(c, names)
         except Exception as exc:

@@ -179,7 +179,7 @@ do the evaluations say about them?"), NeuroDB keeps one index of everything it h
 | Documents and maps | Knowledge base, library, country programme | the partners, PDs, sections and places they name |
 | Open daily review findings | Daily review | the PD or partner they are about, section |
 
-The hub holds **names and links only**: every figure is read live. Each thing carries a *lookup*,
+The hub holds **names and links** (plus a few headline figures, kept only to notice what changed): every figure the assistant gives is read live. Each thing carries a *lookup*,
 the assistant tool and arguments that give its current figures (e.g. `partner_details`,
 `database_results`, `cpd_indicator`, `makani_wellbeing`). The assistant uses it in three steps:
 `find_anything` (things matching a name, code or number, with the best document passages),
@@ -192,14 +192,69 @@ each figure's source. Other tools added with it: `country_programme`, `cpd_indic
 (`CenterSummary`); flags of individual children (registration numbers) are neither in the hub nor in
 any tool.
 
-**Rebuilding.** The scheduled job `knowledge-hub` (`build_knowledge_hub`, daily 07:00 Beirut, after
-the daily review and the Compiler syncs) reads new library and CPD documents, then rebuilds the hub
-from every source in one transaction: things that are gone disappear. A source that fails is listed
-in the run's details and the run is *Succeeded with errors*; the others are still rebuilt. *Run now*
-on the Scheduled jobs page or Run a job → *Knowledge hub* in the admin; `manage.py build_knowledge_hub
-[--no-documents]` from a shell. Browse it in admin → Library and maps → *Knowledge hub entities* and
-*Knowledge hub links* (read-only). It takes seconds (a few thousand things); reading documents takes longer the
-first time.
+**Rebuilding.** The hub is rebuilt **whenever new data arrives** and every morning:
+
+- After every sync or import that succeeds (any `SyncRun`: ActivityInfo, eTools, Datamart, Compiler,
+  locations, the daily review…) and every document read into the knowledge base, a rebuild is asked
+  for. A background process (`build_knowledge_hub --when-requested`) waits
+  `KNOWLEDGE_HUB_SETTLE_SECONDS` (60) so that a burst of syncs makes one build, then rebuilds without
+  re-reading documents; its run says which syncs asked (*new data: eTools Datamart sync, …*). One build
+  runs at a time (a PostgreSQL advisory lock): a request made during a build is answered by the next.
+  `KNOWLEDGE_HUB_ON_NEW_DATA=false` turns this off.
+- The scheduled job `knowledge-hub` (daily 07:00 Beirut) also reads new library and CPD documents first.
+
+A source that fails is listed in the run's details and the run is *Succeeded with errors*: what it
+added last time, and the links to it, are **kept as they were** (a source that could not be read is not
+"gone"), the others are rebuilt. *Run now* on the Scheduled jobs page or Run a job → *Knowledge hub* in
+the admin; `manage.py build_knowledge_hub [--no-documents]` from a shell. Browse it in admin → Library
+and maps → *Knowledge hub entities* and *Knowledge hub links* (read-only). It takes seconds (a few
+thousand things); reading documents takes longer the first time.
+
+### What's new (`/whats-new/`)
+
+Every build is compared with the previous one, so anything that reaches the hub, from today's sources
+or one added later, is noticed without code of its own. A **change** is one of:
+
+| Change | Example |
+|---|---|
+| New | a partner, programme document, donor, grant, database, CPD indicator, document, Makani centre |
+| Changed | a PD's status, end date, budget, disbursed or outstanding amount; a partner's risk rating; a CPD indicator's value, % achieved or status; a database's number of activity reports and latest month; a centre's latest monthly totals |
+| Newly linked / No longer linked | a PD newly funded by a donor, a partner newly reporting in a database, a CPD indicator newly linked to a PD |
+| Gone | a PD or document removed at its source |
+
+A change is **notable** (in the daily note, the overview card and the assistant's default answer) when
+it is a new or gone thing of the main kinds, a status or date that changed, a figure that moved by at
+least 10% (and at least $1,000 for money, 5 for report counts), a funding or reporting link, or a
+critical review finding. The rest (a new district in the gazetteer, a document newly mentioning a
+place) is kept and shown with *Include minor changes*. The rules are in `neurodb/graph/changes.py`.
+Each change is tagged with the sections it concerns: its own (a PD's), else those of what it is linked
+to (a partner's or a donor's through their PDs). The first build is the starting point (nothing is
+"new"), and figures recorded for the first time are not changes. Youth and education figures are not
+tracked yet (their lookups give them live).
+
+Where it shows:
+
+- **The What's new page** (sidebar, every signed-in user; donor accounts cannot): the last 24 hours,
+  7 or 30 days, by section (the user's own first), kind of thing, with or without minor changes; each
+  line links to the page of the thing. Above the list, the latest daily note of the chosen section.
+- **The overview**: a *What's new* card with the notable changes of the last two days in the chosen
+  sections.
+- **Ask NeuroDB**: `whats_new` (since a date, about one thing and what is linked to it, one kind or one
+  section); each change carries the lookup for today's figures. Ask "what changed for Caritas this
+  week?" or "what is new in Child Protection since 1 September?".
+- **The daily note**: the job `whats-new` (`whats_new_digest`, daily 07:30 Beirut, after the hub) writes
+  one note for everyone and one per section concerned, from the notable changes of the last 24 hours.
+  With the assistant configured, the model writes two to five sentences from the change lines only
+  (`store=false`; names and figures as NeuroDB holds them, no personal data); otherwise, or if it
+  fails, the changes are listed. Run again the same day, the note is rewritten. Admin → Library and
+  maps → *What's new notes*.
+- **By email**, when `EMAIL_URL` is set (SMTP, e.g. `smtp+tls://user:password@smtp.office365.com:587`;
+  the password is a secret, kept in the platform's secret store) and `DEFAULT_FROM_EMAIL`, `SITE_URL`
+  for the link. People ask for it on the What's new page (*Email me the daily note*) and stop it there;
+  each gets their section's note, or the note for everyone when they have no section or their section
+  has no note that day. Donor accounts never get it. Without `EMAIL_URL` the button is not shown.
+
+Changes are kept (admin → *Knowledge hub changes*); a year of them is a few tens of thousands of rows.
 
 ## Scheduled jobs
 The periodic jobs are managed in the admin: **Data and sync → Scheduled jobs**. Each row is one
@@ -215,7 +270,8 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `activityinfo-structure` | `import_activityinfo_structure --all` | switched off; switch on or use *Run now* after the yearly rollover |
 | `compiler-youth` | `sync_compiler_youth` | `0 21 * * *`, daily 21:00; switched off until Compiler is configured |
 | `compiler-education` | `sync_compiler_education` | `30 6 * * *`, daily 06:30; switched off until Compiler is configured |
-| `knowledge-hub` | `build_knowledge_hub` | `0 7 * * *`, daily 07:00: reads new library and CPD documents, then rebuilds the knowledge hub |
+| `knowledge-hub` | `build_knowledge_hub` | `0 7 * * *`, daily 07:00: reads new library and CPD documents, then rebuilds the knowledge hub (it is also rebuilt after every sync) |
+| `whats-new` | `whats_new_digest` | `30 7 * * *`, daily 07:30: the what's new notes, emailed to who asked |
 | (inside `activityinfo-data` and `etools-datamart`) | `link_partners` | at the end of both jobs |
 
 On the page: switch a job on or off (the toggle saves at once), open it to change its schedule (five
@@ -268,6 +324,7 @@ admin home page, *Quick actions*):
 | Run a job → *Compiler youth figures* | `sync_compiler_youth` | background |
 | Run a job → *Compiler education figures* | `sync_compiler_education` | background |
 | Run a job → *Knowledge hub* | `build_knowledge_hub` | background |
+| Run a job → *What's new note* | `whats_new_digest` | background |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |

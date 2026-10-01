@@ -238,4 +238,7 @@ def process(document: Document) -> Document:
         note = f"Searchable, but the AI summary failed: {type(exc).__name__}"
     document.status, document.error, document.indexed_at = Document.Status.READY, note, timezone.now()
     document.save(update_fields=["status", "error", "indexed_at", "updated_at"])
+    from neurodb.graph.refresh import request
+
+    request("knowledge base")  # the hub links the new document and reports it as new
     return document

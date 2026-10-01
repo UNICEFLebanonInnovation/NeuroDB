@@ -18,8 +18,22 @@ class Command(BaseCommand):
         parser.add_argument(
             "--no-documents", action="store_true", help="skip reading library and CPD documents"
         )
+        parser.add_argument(
+            "--when-requested",
+            action="store_true",
+            help="rebuild only if new data asked for it (started after each sync)",
+        )
 
     def handle(self, *args, **options):
+        if options["when_requested"]:
+            from neurodb.graph.refresh import drain
+
+            runs = drain()
+            if not runs:
+                self.stdout.write("Nothing to rebuild (or a build is running and takes the requests)")
+                return
+            exit_on_failure(write_summary(self, runs))
+            return
         exit_on_failure(
             write_summary(self, [run(options["triggered_by"], documents=not options["no_documents"])])
         )

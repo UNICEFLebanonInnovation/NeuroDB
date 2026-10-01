@@ -118,6 +118,7 @@
         {% include "components/icon.html" with name="sparkle" %}<span>{% trans "Ask NeuroDB" %}</span><span class="nav-badge">{% trans "AI" %}</span>
       </a>
       {% endif %}
+      <a class="nav-item-link {% active_if 'graph:whats_new' %}" href="{% url 'graph:whats_new' %}" {% aria_current 'graph:whats_new' %}>{% include "components/icon.html" with name="inbox" %}<span>{% trans "What's new" %}</span></a>
       <div class="sidebar__section-title">{% trans "Monthly results (ActivityInfo)" %}</div>
       <a class="nav-item-link {% active_if 'reports:databases' %}" href="{% url 'reports:databases' %}" {% aria_current 'reports:databases' %}>
         {% include "components/icon.html" with name="database" %}<span>{% trans "ActivityInfo databases" %}</span>

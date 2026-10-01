@@ -318,6 +318,18 @@ PUBLIC_LANDING_STATS = env.bool("PUBLIC_LANDING_STATS", default=True)  # aggrega
 SUPPORT_EMAIL = env("SUPPORT_EMAIL", default="")
 USER_GUIDE_URL = env("USER_GUIDE_URL", default="")
 
+# ------------------------------------------------------------------- knowledge hub, what's new
+KNOWLEDGE_INDEX_ON_SAVE = env.bool("KNOWLEDGE_INDEX_ON_SAVE", default=True)  # library/CPD documents
+KNOWLEDGE_HUB_ON_NEW_DATA = env.bool("KNOWLEDGE_HUB_ON_NEW_DATA", default=True)  # rebuild after each sync
+KNOWLEDGE_HUB_SETTLE_SECONDS = env.int("KNOWLEDGE_HUB_SETTLE_SECONDS", default=60)  # a burst: one rebuild
+SITE_URL = env("SITE_URL", default="").rstrip("/")  # e.g. https://neurodb.example.org, for email links
+# Email (the daily what's new note): e.g. smtp+tls://user:password@smtp.office365.com:587; empty: no email
+EMAIL_URL = env("EMAIL_URL", default="")
+if EMAIL_URL:
+    vars().update(env.email_url("EMAIL_URL"))
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="") or "NeuroDB <noreply@localhost>"
+DIGEST_EMAIL_ENABLED = bool(EMAIL_URL)
+
 # ---------------------------------------------------------------------------- upstream systems
 ACTIVITYINFO_BASE_URL = env("ACTIVITYINFO_BASE_URL", default="https://www.activityinfo.org")
 ACTIVITYINFO_TOKEN = env("ACTIVITYINFO_TOKEN", default="").strip()  # a stray newline breaks the header

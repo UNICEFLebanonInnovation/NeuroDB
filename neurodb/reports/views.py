@@ -231,6 +231,18 @@ def _overview_chart_data(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _whats_new(sections: list[str]) -> list[tuple[Any, str]]:
+    """The notable changes of the last two days in the chosen sections, for the overview card."""
+    from django.utils import timezone
+
+    from neurodb.accounts.models import Section
+    from neurodb.graph import news
+
+    ids = list(Section.objects.filter(name__in=sections).values_list("pk", flat=True)) if sections else None
+    since = timezone.now() - datetime.timedelta(days=2)
+    return [(c, news.sentence(c)) for c in news.recent(since, sections=ids)[:6]]
+
+
 @require_GET
 def overview(request: HttpRequest) -> HttpResponse:
     """The country dashboard: impact on children, value for money, delivery and assurance, progress.
@@ -298,6 +310,7 @@ def overview(request: HttpRequest) -> HttpResponse:
         "labels": pd_monitoring_service.LABELS,
         "chart_data": _overview_chart_data(data) if data else {},
         "review": review,
+        "whats_new": _whats_new(sections),
         "keep_query": keep.urlencode(),
         "programmes_query": ("?" + programmes.urlencode()) if sections else "",
         "base_query": base.urlencode(),
