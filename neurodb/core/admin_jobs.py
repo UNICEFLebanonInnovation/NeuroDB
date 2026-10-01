@@ -131,6 +131,19 @@ BACKGROUND_JOBS = [
         "school",
     ),
     BackgroundJob(
+        "run_sync_compiler_wellbeing",
+        ("sync_compiler_wellbeing",),
+        SyncRun.Job.COMPILER_WELLBEING,
+        _("Makani wellbeing flags"),
+        _("Read the Makani wellbeing flags from Compiler"),
+        _(
+            "Reads from Compiler the flags it worked out at night on Makani children who may need a "
+            "follow-up (children by registration number only, no names) and the centre summaries, in "
+            "the background. Only the flags changed since the last run are read."
+        ),
+        "favorite",
+    ),
+    BackgroundJob(
         "run_daily_review",
         ("daily_review",),
         SyncRun.Job.DAILY_REVIEW,

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+<div class="kpi-grid">
+  {% trans "Open flags" as l1 %}{% blocktrans asvar h1 with n=counts.children %}on {{ n }} children{% endblocktrans %}{% include "components/kpi_tile.html" with label=l1 value=counts.open|number hint=h1 %}
+  {% trans "Urgent" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=counts.urgent|number status="off_track" %}
+  {% trans "Priority" as l3 %}{% trans "the child works, lives without parents or has a disability" as h3 %}{% include "components/kpi_tile.html" with label=l3 value=counts.priority|number hint=h3 %}
+  {% trans "Open past the target" as l4 %}{% blocktrans asvar h4 with d=target %}more than {{ d }} days{% endblocktrans %}{% include "components/kpi_tile.html" with label=l4 value=counts.late|number hint=h4 status="over_target" %}
+</div>
+
+<form method="get" class="filter-bar" role="search" aria-label="{% trans 'Flag filters' %}">
+  <div class="filter-bar__field"><label class="form-label" for="f-status">{% trans "Status" %}</label>
+    <select class="form-select form-select-sm" id="f-status" name="status">{% for code, label in statuses %}<option value="{{ code }}" {% if code == status %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+  <div class="filter-bar__field"><label class="form-label" for="f-kind">{% trans "Flag" %}</label>
+    <select class="form-select form-select-sm" id="f-kind" name="kind"><option value="">{% trans "All" %}</option>{% for code, label in kinds %}<option value="{{ code }}" {% if code == kind %}selected{% endif %}>{{ label }}{% if by_kind|get_item:code %} ({{ by_kind|get_item:code }}){% endif %}</option>{% endfor %}</select></div>
+  <div class="filter-bar__field"><label class="form-label" for="f-partner">{% trans "Partner" %}</label>
+    <select class="form-select form-select-sm" id="f-partner" name="partner"><option value="">{% trans "All" %}</option>{% for id, name in partners %}<option value="{{ id }}" {% if id == partner %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
+  <div class="filter-bar__field"><label class="form-label" for="f-center">{% trans "Centre" %}</label>
+    <select class="form-select form-select-sm" id="f-center" name="center"><option value="">{% trans "All" %}</option>{% for id, name in centers %}<option value="{{ id }}" {% if id == center %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
+  <div class="filter-bar__field"><label class="form-label" for="f-urgent">{% trans "Urgency" %}</label>
+    <select class="form-select form-select-sm" id="f-urgent" name="urgent"><option value="">{% trans "All" %}</option><option value="1" {% if request.GET.urgent == "1" %}selected{% endif %}>{% trans "Urgent only" %}</option></select></div>
+  <div class="filter-bar__actions"><button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button><a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a></div>
+</form>
+
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Flags") count=page.paginator.count table_id="wellbeing-flags" filename="makani-wellbeing-flags" %}
+  <p class="text-muted small px-3 mb-2">{% trans "Children are shown by their BMA registration number only. “Open in BMA” shows the child with your own BMA access. Protection concerns follow the child protection referral procedure straight away; the flag only shows that no referral is recorded." %}</p>
+  <div class="table-wrap"><table class="table table-sm" id="wellbeing-flags">
+    <thead><tr><th>{% trans "Registration" %}</th><th>{% trans "Child" %}</th><th>{% trans "Centre" %}</th><th>{% trans "Flag and why" %}</th><th>{% trans "Raised" %}</th><th>{% if status == "open" %}{% trans "Open for" %}{% else %}{% trans "Outcome" %}{% endif %}</th><th></th></tr></thead>
+    <tbody>{% for f in page %}<tr>
+      <td class="mono">{{ f.registration }}{% if f.urgent %} {% status_pill "off_track" _("Urgent") "sm" %}{% endif %}{% if f.priority %} {% status_pill "over_target" _("Priority") "sm" %}{% endif %}</td>
+      <td class="small">{{ f.child_gender|default:"—" }} · {{ f.child_age_band }}<span class="cell-sub">{{ f.child_nationality }}</span></td>
+      <td class="small">{{ f.center_name }}<span class="cell-sub">{{ f.partner_name }}</span></td>
+      <td style="min-width: 18rem"><strong>{{ f.kind_label }}</strong><span class="cell-sub">{{ f.reason }}</span></td>
+      <td class="small text-nowrap">{{ f.opened_on|date:"j M Y" }}</td>
+      <td class="small">{% if f.status == "open" %}{% blocktrans count n=f.days_open %}{{ n }} day{% plural %}{{ n }} days{% endblocktrans %}{% if f.days_open > target %} {% status_pill "off_track" _("late") "sm" %}{% endif %}{% elif f.status == "followed_up" %}{{ f.followed_up_on|date:"j M Y" }} · {{ f.result_label }}{% if f.followed_up_by_name %}<span class="cell-sub">{{ f.followed_up_by_name }}</span>{% endif %}{% else %}{% blocktrans with d=f.resolved_on|date:"j M Y" %}Cleared on {{ d }}{% endblocktrans %}{% endif %}</td>
+      <td><div class="d-flex flex-column align-items-start gap-1">{% if f.status == "open" %}<a class="btn btn-outline-primary btn-sm text-nowrap" href="{% url 'wellbeing:follow_up' f.pk %}">{% trans "Record follow-up" %}</a>{% endif %}
+        {% if f.bma_url %}<a class="small text-nowrap" href="{{ f.bma_url }}" target="_blank" rel="noopener">{% include "components/icon.html" with name="external" %} {% trans "Open in BMA" %}</a>{% endif %}</div></td>
+    </tr>{% empty %}<tr><td colspan="7" class="text-muted">{% trans "No flag here." %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% include "components/pagination.html" with page_obj=page %}
+</section>
+{% endblock %}

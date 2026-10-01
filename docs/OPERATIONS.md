@@ -904,6 +904,29 @@ the last). Within 10 points of expected: on track; below: off track; above: ahea
 ("Target reached" at 100 %). No target: *no target*; no value yet: *no data yet*. It is the same
 tolerance as the other NeuroDB pages.
 
+## Makani wellbeing (`/makani/wellbeing/`, flags worked out in BMA)
+
+BMA (Compiler) works out every night which Makani children may need a follow-up and why (absence
+streaks, low or falling attendance, a required service not received, a dropout without follow-up,
+malnutrition, developmental delay or a protection concern without referral, no learning progress
+between tests), and monthly centre summaries. BMA only calculates and serves them; NeuroDB shows
+them. The rules, thresholds and the BMA side are described in BMA's
+`student_registration/wellbeing/README.md`.
+
+- **Reading**: the job "Read the Makani wellbeing flags from Compiler" (`sync_compiler_wellbeing`;
+  admin → Import and sync runs → Run a job, or a schedule after BMA's night run) reads the flags
+  changed since the last run and the last 12 months of centre summaries. `--full` reads every flag
+  again. It uses the same `COMPILER_API_URL` / `COMPILER_API_TOKEN` as the youth and education
+  figures; the BMA service account must be in BMA's "NeuroDB API" group.
+- **No names**: a child is known here only by the BMA registration number, gender, age band and
+  nationality. "Open in BMA" opens the child's profile in BMA, with the user's own BMA access.
+- **Who sees what**: every signed-in user sees the centre summaries (counts); administrators and
+  section editors see **Children to follow up** and record the follow-ups (how, result, date, a note
+  without names). A follow-up is sent to BMA, which closes the flag; BMA reopens it only when newer
+  data shows the problem continues. When BMA cannot be reached, nothing is saved and the page says so.
+- Protection concerns follow the child protection referral procedure straight away; the flag only
+  shows that no referral is recorded.
+
 ## Yearly rollover (January)
 1. Admin → Reporting years: create the new year and tick *current* (only one can be current).
 2. Admin → Databases: create one row per ActivityInfo folder with `ai_id`, `db_id`, `parent_id`,

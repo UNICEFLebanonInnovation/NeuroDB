@@ -15,6 +15,7 @@ from neurodb.integrations.http import IntegrationError, get_json, make_session, 
 
 PATH = "/api/youth/indicator-figures/"
 EDUCATION_PATH = "/api/figures/"
+WELLBEING_PATH = "/api/wellbeing/"
 
 
 def configured() -> bool:
@@ -65,3 +66,38 @@ class CompilerClient:
         if not isinstance(data, dict) or "blocks" not in data or "year" not in data:
             raise IntegrationError("Compiler education figures: unexpected response", url=url)
         return data
+
+    # ------------------------------------------------------------- Makani wellbeing flags
+    def wellbeing_flags(
+        self, *, modified_since: str | None = None, after: int | None = None, limit: int = 500
+    ) -> dict[str, Any]:
+        """One page of flags (children by registration number only); ``next_after`` gives the next."""
+        params: dict[str, Any] = {"limit": limit}
+        if modified_since:
+            params["modified_since"] = modified_since
+        if after:
+            params["after"] = after
+        url = self.base_url + WELLBEING_PATH + "flags/"
+        data = get_json(self.session, url, **params)
+        if not isinstance(data, dict) or not isinstance(data.get("flags"), list):
+            raise IntegrationError("Compiler wellbeing flags: unexpected response", url=url)
+        return data
+
+    def wellbeing_summaries(self, month: str | None = None) -> dict[str, Any]:
+        url = self.base_url + WELLBEING_PATH + "summaries/"
+        data = get_json(self.session, url, **({"month": month} if month else {}))
+        if not isinstance(data, dict) or not isinstance(data.get("summaries"), list):
+            raise IntegrationError("Compiler wellbeing summaries: unexpected response", url=url)
+        return data
+
+    def wellbeing_follow_up(self, flag_id: int, values: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        """Record a follow-up in Compiler. Returns (status code, body): 200 recorded, 400 refused
+        (field errors), 409 the flag is no longer open (body has the flag as it is)."""
+        url = f"{self.base_url}{WELLBEING_PATH}flags/{int(flag_id)}/follow-up/"
+        try:
+            response = send(self.session, "POST", url, json=values)
+        except IntegrationError as exc:
+            if exc.status in (400, 409) and exc.response is not None:
+                return exc.status, exc.response.json()
+            raise
+        return response.status_code, response.json()

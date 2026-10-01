@@ -119,9 +119,17 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
         _("Compiler (youth and education)"),
         _(
             "Counts read from Compiler (no personal data): youth figures and the links between its youth "
-            "indicators and the eTools indicators; Makani and Bridging figures."
+            "indicators and the eTools indicators; Makani and Bridging figures; Makani wellbeing flags "
+            "(children by registration number only) and centre summaries."
         ),
-        ["youth.YouthIndicatorLink", "youth.YouthFigures", "education.EducationFigures"],
+        [
+            "youth.YouthIndicatorLink",
+            "youth.YouthFigures",
+            "education.EducationFigures",
+            "wellbeing.Flag",
+            "wellbeing.CenterSummary",
+            "wellbeing.SyncState",
+        ],
     ),
     (
         _("Country programme"),

@@ -20,6 +20,7 @@ class SyncRun(models.Model):
         DAILY_REVIEW = "daily_review", "Daily AI review"
         COMPILER_YOUTH = "compiler_youth", "Compiler youth figures"
         COMPILER_EDUCATION = "compiler_education", "Compiler education figures"
+        COMPILER_WELLBEING = "compiler_wellbeing", "Compiler Makani wellbeing flags"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"

@@ -68,6 +68,7 @@ INSTALLED_APPS = [
     "neurodb.education",
     "neurodb.cpd",
     "neurodb.knowledge",
+    "neurodb.wellbeing",
     "neurodb.web",
 ]
 SITE_ID = 1

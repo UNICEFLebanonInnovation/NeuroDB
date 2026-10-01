@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+{% if not months %}
+<section class="panel">
+  {% if configured %}
+  {% include "components/empty_state.html" with icon="pulse" title=_("No wellbeing figures yet") message=_("They are read from BMA by the job “Read the Makani wellbeing flags from Compiler” (admin → Import and sync runs → Run a job), once BMA has worked them out at night.") %}
+  {% else %}
+  {% include "components/empty_state.html" with icon="pulse" title=_("Compiler is not connected") message=_("An administrator sets COMPILER_API_URL and COMPILER_API_TOKEN, then runs the job “Read the Makani wellbeing flags from Compiler”.") %}
+  {% endif %}
+</section>
+{% else %}
+<form method="get" class="filter-bar" role="search" aria-label="{% trans 'Wellbeing filters' %}">
+  <div class="filter-bar__field">
+    <label class="form-label" for="w-month">{% trans "Month" %}</label>
+    <select class="form-select form-select-sm" id="w-month" name="month">
+      {% for m in months %}<option value="{{ m|date:'Y-m-d' }}" {% if m == month %}selected{% endif %}>{{ m|date:"F Y" }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="w-partner">{% trans "Partner" %}</label>
+    <select class="form-select form-select-sm" id="w-partner" name="partner">
+      <option value="">{% trans "All" %}</option>
+      {% for id, name in partners %}<option value="{{ id }}" {% if id == partner %}selected{% endif %}>{{ name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
+    {% if can_follow_up %}<a class="btn btn-outline-primary btn-sm" href="{% url 'wellbeing:flags' %}">{% include "components/icon.html" with name="check" %}<span>{% trans "Children to follow up" %}</span></a>{% endif %}
+  </div>
+</form>
+<p class="text-muted small mb-2">{% if state.synced_at %}{% blocktrans with when=state.synced_at|date:"j M Y H:i" %}Read from BMA on {{ when }}.{% endblocktrans %}{% endif %} {% blocktrans with d=state.settings.followup_days|default:7 %}A flag means “check on this child”; centres are expected to follow up within {{ d }} days.{% endblocktrans %}</p>
+
+<div class="kpi-grid cpd-kpis">
+  {% trans "Children" as l1 %}{% blocktrans asvar h1 with n=total.dropouts %}{{ n }} recorded as having left{% endblocktrans %}{% include "components/kpi_tile.html" with label=l1 value=total.children|number hint=h1 %}
+  {% trans "Children with an open flag" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=total.flagged|number status="off_track" %}
+  {% trans "Flags raised this month" as l3 %}{% blocktrans asvar h3 with n=total.on_time d=state.settings.followup_days|default:7 %}{{ n }} followed up within {{ d }} days{% endblocktrans %}{% include "components/kpi_tile.html" with label=l3 value=total.opened|number hint=h3 %}
+  {% trans "Open past the target" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=total.late|number status="over_target" %}
+  {% trans "Urgent flags open" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=total.urgent|number status="off_track" %}
+  {% trans "Attendance sheets all present" as l6 %}{% blocktrans asvar h6 with n=total.sheets %}of {{ n }} sheets: probably not filled in{% endblocktrans %}{% include "components/kpi_tile.html" with label=l6 value=total.sheets_all_present|number hint=h6 %}
+</div>
+
+<div class="grid grid--2 mb-3">
+  <section class="panel">
+    <div class="panel__header"><h2 class="panel__title">{% trans "Open flags by kind" %}</h2></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="bars" data-key="open_by_kind" data-empty-title="{% trans 'No open flag' %}" aria-label="{% trans 'Open flags by kind' %}"></div>
+  </section>
+  <section class="panel">
+    <div class="panel__header"><h2 class="panel__title">{% trans "How flags are raised" %}</h2></div>
+    <ul class="small mb-0">
+      <li>{% blocktrans with n=state.settings.absence_streak|default:3 %}Absent {{ n }} class days in a row{% endblocktrans %}; {% blocktrans with r=state.settings.attendance_rate_below|default:70 d=state.settings.attendance_window_days|default:28 %}attendance under {{ r }}% over {{ d }} days{% endblocktrans %}; {% blocktrans with p=state.settings.drop_points|default:30 %}a drop of {{ p }} points{% endblocktrans %}.</li>
+      <li>{% blocktrans with w=state.settings.service_weeks|default:6 %}A required service not received {{ w }} weeks after joining the round.{% endblocktrans %}</li>
+      <li>{% trans "A dropout, malnutrition, developmental delay or protection concern recorded without the follow-up or referral that should come with it." %}</li>
+      <li>{% trans "No progress between the first and latest learning test (TaRL, BLN, Summer RS)." %}</li>
+      <li>{% trans "Attendance sheets with every child present are left out: the BMA form fills “present” in advance." %}</li>
+    </ul>
+  </section>
+</div>
+{{ chart_data|json_script:"chart-data" }}
+
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Centres") count=rows|length table_id="wellbeing-centres" filename="makani-wellbeing-centres" %}
+  <div class="table-wrap"><table class="table table-sm" id="wellbeing-centres" data-sortable>
+    <thead><tr>
+      <th>{% trans "Centre" %}</th><th class="num">{% trans "Children" %}</th><th class="num">{% trans "Attendance, 28 days" %}</th>
+      <th class="num">{% trans "With an open flag" %}</th><th class="num">{% trans "Raised this month" %}</th><th class="num">{% trans "Followed up on time" %}</th>
+      <th class="num">{% trans "Median days to follow-up" %}</th><th class="num">{% trans "Open past target" %}</th>
+      <th class="num">{% trans "Required services done" %}</th><th class="num">{% trans "Left" %}</th><th>{% trans "Data quality" %}</th>
+    </tr></thead>
+    <tbody>{% for r in rows %}{% with f=r.figures %}<tr>
+      <td>{{ r.center_name }}<span class="cell-sub">{{ r.partner_name }}{% if r.governorate %} · {{ r.governorate }}{% endif %}</span></td>
+      <td class="num" data-value="{{ f.children }}">{{ f.children|number }}</td>
+      <td class="num" data-value="{{ f.attendance.rate_28_days|default_if_none:'' }}">{{ f.attendance.rate_28_days|percent:0 }}</td>
+      <td class="num" data-value="{{ f.flags.children_flagged }}">{{ f.flags.children_flagged|number }}</td>
+      <td class="num">{{ f.flags.opened_this_month|number }}</td>
+      <td class="num">{{ f.flags.followed_up_on_time|number }}</td>
+      <td class="num">{{ f.flags.median_days_to_follow_up|number }}</td>
+      <td class="num">{{ f.flags.open_longer_than_target|number }}</td>
+      <td class="num">{{ f.services.completed|number }} / {{ f.services.required|number }}</td>
+      <td class="num">{{ f.dropouts|number }}</td>
+      <td class="small">{% blocktrans with a=f.attendance.sheets_all_present n=f.attendance.sheets %}{{ a }} of {{ n }} sheets all present{% endblocktrans %}{% if f.services.core_children_without_checklist %} · {% blocktrans with n=f.services.core_children_without_checklist %}{{ n }} without a service checklist{% endblocktrans %}{% endif %}</td>
+    </tr>{% endwith %}{% empty %}<tr><td colspan="11" class="text-muted">{% trans "None." %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}
+{% endblock %}

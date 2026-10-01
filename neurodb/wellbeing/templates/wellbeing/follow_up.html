@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+<section class="panel" style="max-width: 760px">
+  <p class="mb-1"><span class="mono">{{ flag.registration }}</span> · {{ flag.child_gender|default:"—" }}, {{ flag.child_age_band }} · {{ flag.center_name }} ({{ flag.partner_name }})</p>
+  <p class="mb-1"><strong>{{ flag.kind_label }}</strong>{% if flag.urgent %} {% status_pill "off_track" _("Urgent") "sm" %}{% endif %}</p>
+  <p class="text-muted small">{{ flag.reason }} · {% blocktrans with d=flag.opened_on|date:"j M Y" %}raised on {{ d }}{% endblocktrans %}{% if flag.bma_url %} · <a href="{{ flag.bma_url }}" target="_blank" rel="noopener">{% trans "Open in BMA" %}</a>{% endif %}</p>
+  {% if flag.kind == "P1" %}<p class="editor-note">{% include "components/icon.html" with name="alert" %}<span>{% trans "A protection concern follows the child protection referral procedure; record here what was done." %}</span></p>{% endif %}
+  {% if flag.status != "open" %}
+  <p class="editor-note">{% include "components/icon.html" with name="info" %}<span>{% trans "This flag is no longer open." %}</span></p>
+  {% else %}
+  <form method="post">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="alert alert-danger small">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+    {% for field in form %}
+    <div class="mb-3">
+      <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+      {{ field }}
+      {% for e in field.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+    </div>
+    {% endfor %}
+    <p class="small text-muted">{% trans "Saved in BMA, which closes the flag. It opens again only if newer data shows the problem continues." %}</p>
+    <button class="btn btn-primary" type="submit">{% trans "Save in BMA" %}</button>
+    <a class="btn btn-link" href="{% url 'wellbeing:flags' %}">{% trans "Cancel" %}</a>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}

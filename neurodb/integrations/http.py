@@ -35,10 +35,13 @@ ERROR_MESSAGE_CHARS = 200
 class IntegrationError(Exception):
     """An upstream call failed. ``status`` is the HTTP status when one was received."""
 
-    def __init__(self, message: str, *, status: int | None = None, url: str | None = None) -> None:
+    def __init__(
+        self, message: str, *, status: int | None = None, url: str | None = None, response: Any = None
+    ) -> None:
         super().__init__(message)
         self.status = status
         self.url = url
+        self.response = response  # the HTTP response when one was received (its body may explain)
 
 
 class TimeoutSession(requests.Session):
@@ -116,6 +119,7 @@ def send(
             f"{method} {path}: HTTP {response.status_code} {_short_body(response)}",
             status=response.status_code,
             url=url,
+            response=response,
         )
     return response
 
