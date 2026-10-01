@@ -75,3 +75,67 @@ def test_data_health_shows_the_verdicts_not_a_stale_sync(client_viewer, db):
     page = client_viewer.get(reverse("reports:data_health")).content.decode()
     assert "Which indicators or activities may be falling behind their targets?" in page
     assert 'panel__title">Machine learning readiness check<' not in page  # no stale/fresh card
+
+
+def test_months_come_from_month_name_whatever_the_month_column_holds(hierarchy):
+    from neurodb.facts.models import ActivityReportNew
+
+    ActivityReportNew.objects.update(month="1")  # production keeps something else in this column
+    m = _metrics(readiness.measure(datetime.date(2026, 10, 1)))
+    assert m["activityinfo.months"] == 2 and m["activityinfo.dated"] == 1.0
+
+
+def test_governorates_match_by_name_spelling_or_code_and_the_rest_is_named(hierarchy):
+    from neurodb.facts.models import ActivityReportNew
+    from neurodb.geo.models import GovernorateLocation
+
+    GovernorateLocation.objects.create(code="BEI", name="Beirut", ai_id=1)
+    GovernorateLocation.objects.create(code="LB8", name="Baalbek-Hermel", ai_id=2)
+    ActivityReportNew.objects.filter(location_adminlevel_governorate="Akkar").update(
+        location_adminlevel_governorate="Baalbek-El Hermel", location_adminlevel_governorate_code="X"
+    )
+    ActivityReportNew.objects.create(
+        dbase=hierarchy["database"], month_name="2026-02-01", indicator_value=1,
+        location_adminlevel_governorate="Mount Lebanon", location_adminlevel_governorate_code="MOU",
+    )  # fmt: skip
+    result = readiness.measure()
+    metric = next(m for s in result["sections"] for m in s["metrics"] if m["key"] == "governorate_matched")
+    assert metric["value"] == 0.8  # Beirut by code, Baalbek-El Hermel by spelling; Mount Lebanon unknown
+    assert metric["note"] == "not matched: Mount Lebanon (MOU): 1"
+
+
+def test_progress_reports_are_counted_per_report_and_future_periods_flagged(db):
+    from neurodb.datamart.models import ReportedIndicator
+
+    def row(pk, number, period_end, due=None, sent=None):
+        ReportedIndicator.objects.create(
+            datamart_id=pk, pd_reference_number="PD1", report_number=number, report_type="QPR",
+            period_end=period_end, due_date=due, submission_date=sent,
+        )  # fmt: skip
+
+    day = datetime.date
+    row(1, "QPR1", day(2025, 3, 31), day(2025, 4, 15), day(2025, 4, 10))
+    row(2, "QPR1", day(2025, 3, 31), day(2025, 4, 15), day(2025, 4, 10))  # a second indicator, same report
+    row(3, "QPR2", day(2025, 6, 30), day(2025, 7, 15), day(2025, 7, 20))
+    row(4, "QPR9", day(2029, 7, 31))
+    m = _metrics(readiness.measure(day(2026, 10, 1)))
+    assert m["etools.progress_reports"] == 3 and m["etools.reports_dated"] == 2
+    assert m["etools.reports_on_time"] == 0.5
+    assert m["etools.reporting_span"] == "Mar 2025 – Jun 2025" and m["etools.reports_future"] == 1
+
+
+def test_action_points_are_closed_by_status(db):
+    from neurodb.datamart.models import ActionPoint
+
+    for pk, status in enumerate(("open", "completed", "completed", "cancelled"), start=1):
+        ActionPoint.objects.create(datamart_id=pk, status=status)
+    result = readiness.measure()
+    metric = next(m for s in result["sections"] for m in s["metrics"] if m["key"] == "action_points_closed")
+    assert metric["value"] == 0.75 and metric["note"] == "completed: 2, cancelled: 1, open: 1"
+
+
+def test_the_population_year_is_a_year(db):
+    from neurodb.core.models import PopulationFigure
+
+    PopulationFigure.objects.create(year=2026, level="national", area_code="LB", area_name="Lebanon", value=1)
+    assert _metrics(readiness.measure())["context.population_latest"] == "2026"

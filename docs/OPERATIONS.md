@@ -264,10 +264,10 @@ of the Data health page. Counts only: nothing is predicted and nothing leaves Ne
 
 | Source | What is measured |
 |---|---|
-| ActivityInfo reports | years and months reported; months a partner reported between its first and last month (a missing month is not a zero); values that are 0 or empty; reports with a governorate, district and cadastral code; governorates written as NeuroDB knows them; days from the end of the month to the last edit in ActivityInfo (late reports and corrections) |
+| ActivityInfo reports | years and months reported (the month is read from `month_name`, as on every page); months a partner reported between its first and last month (a missing month is not a zero); values that are 0 or empty; reports with a governorate, district and cadastral code; governorates matching NeuroDB's by name, spelling variant or code, with the names that do not match; days from the end of the month to the last edit in ActivityInfo (late reports and corrections) |
 | Master indicators | targets set; indicators found again the year before (same section and AWP code or name) |
-| eTools | PDs with locations, CP outputs and a section; PD indicators with targets; partner progress reports, how many have a due and submission date, and how many were on time; ActivityInfo partner names and records linked to eTools partners |
-| Assurance and monitoring | partners with a HACT rating; assessments, audits and spot checks; action points completed; programmatic visits |
+| eTools | PDs with locations, CP outputs and a section; PD indicators with targets; partner progress reports (one per PD, report number, type and period), how many have a due and submission date, how many were on time, and how many have a period ending after today (to check in eTools); ActivityInfo partner names and records linked to eTools partners |
+| Assurance and monitoring | partners with a HACT rating; assessments, audits and spot checks; action points no longer open, by status; programmatic visits |
 | Daily review | days run; findings resolved; findings people took on |
 | Context | latest population figures by level; Compiler years and periods; days of the change log |
 

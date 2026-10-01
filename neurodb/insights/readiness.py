@@ -19,6 +19,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from django.db.models import Count, Max, Min, Q
+from django.db.models.functions import Substr
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,11 @@ def _norm(text: str | None) -> str:
     return " ".join(re.sub(r"[^\w]+", " ", (text or "").lower()).split())
 
 
+def _compact(text: str | None) -> str:
+    """ "Baalbek-El Hermel", "Baalbek Hermel" and "Baalbek-Hermel" alike."""
+    return "".join(w for w in _norm(text).split() if w not in ("el", "al", "governorate", "mohafaza"))
+
+
 # ---------------------------------------------------------------------------------- sources
 def activityinfo(s: Section, today: datetime.date) -> None:
     from neurodb.facts.models import ActivityReportNew as A
@@ -95,27 +101,29 @@ def activityinfo(s: Section, today: datetime.date) -> None:
     s.add("reports", "Activity reports", total)
     if not total:
         return
+    # the month of a report is in month_name ("2025-03-01"), as everywhere else in NeuroDB
+    dated = A.objects.filter(month_name__regex=r"^[0-9]{4}-[0-9]{2}").annotate(ym=Substr("month_name", 1, 7))
+    s.add("dated", "Reports with a month", _share(dated.count(), total))
     by_year = list(
-        A.objects.exclude(dbase__reporting_year__year=None)
-        .values("dbase__reporting_year__year")
-        .annotate(n=Count("id"), months=Count("month", distinct=True))
-        .order_by("dbase__reporting_year__year")
+        dated.annotate(y=Substr("month_name", 1, 4))
+        .values("y")
+        .annotate(n=Count("id"), months=Count("ym", distinct=True))
+        .order_by("y")
     )
     full_years = [r for r in by_year if r["months"] >= 10]
     s.add(
         "years",
-        "Reporting years with reports",
+        "Years with reports",
         len(by_year),
-        note=", ".join(str(r["dbase__reporting_year__year"]) for r in by_year),
+        note=", ".join(f"{r['y']}: {r['months']} months" for r in by_year),
     )
     s.add("full_years", "Years with at least 10 months reported", len(full_years))
-    months = A.objects.exclude(month=None).values("month").distinct().count()
-    s.add("months", "Months with reports, all years", months)
+    s.add("months", "Months with reports, all years", dated.values("ym").distinct().count())
 
     pairs = list(
-        A.objects.exclude(month=None)
-        .values("dbase_id", "partner_label")
-        .annotate(months=Count("month", distinct=True), first=Min("month"), last=Max("month"))
+        dated.values("dbase_id", "partner_label").annotate(
+            months=Count("ym", distinct=True), first=Min("ym"), last=Max("ym")
+        )
     )
     reported = sum(p["months"] for p in pairs)
     expected = sum(_months_between(p["first"], p["last"]) or p["months"] for p in pairs)
@@ -140,23 +148,40 @@ def activityinfo(s: Section, today: datetime.date) -> None:
     s.add("governorate_coded", "Reports with a governorate", _share(gov, total))
     s.add("district_coded", "Reports with a district (caza) code", _share(dist, total))
     s.add("cadastral_coded", "Reports with a cadastral area code", _share(cad, total))
-    known = {_norm(n) for n in GovernorateLocation.objects.values_list("name", flat=True)}
-    known |= {_norm(c) for c in GovernorateLocation.objects.values_list("code", flat=True)}
-    names = A.objects.exclude(location_adminlevel_governorate=None).values("location_adminlevel_governorate")
-    matched = 0
-    for row in names.annotate(n=Count("id")):
-        if _norm(row["location_adminlevel_governorate"]) in known:
+    known = set()
+    for name, code in GovernorateLocation.objects.values_list("name", "code"):
+        known |= {_norm(name), _compact(name), _norm(code)}
+    matched, unmatched = 0, []
+    rows = (
+        A.objects.exclude(location_adminlevel_governorate=None)
+        .exclude(location_adminlevel_governorate="")
+        .values("location_adminlevel_governorate", "location_adminlevel_governorate_code")
+        .annotate(n=Count("id"))
+    )
+    for row in rows:
+        name, code = row["location_adminlevel_governorate"], row["location_adminlevel_governorate_code"]
+        if {_norm(name), _compact(name), _norm(code)} & known:
             matched += row["n"]
-    s.add("governorate_matched", "Governorates written as NeuroDB knows them", _share(matched, gov))
+        else:
+            unmatched.append((row["n"], name, code))
+    unmatched.sort(reverse=True)
+    s.add(
+        "governorate_matched",
+        "Governorates matching NeuroDB's (name or code)",
+        _share(matched, gov),
+        note="not matched: " + "; ".join(f"{n} ({c or 'no code'}): {k:,}" for k, n, c in unmatched[:6])
+        if unmatched
+        else "",
+    )
 
     # how long after the month a report was last edited in ActivityInfo (late reports and corrections)
     start = f"{today.year - 1}-01"
     delays = []
     for row in (
-        A.objects.filter(month__gte=start)
+        dated.filter(month_name__gte=start)
         .exclude(last_edited_time=None)
         .values("report_id")
-        .annotate(month=Max("month"), edited=Max("last_edited_time"))[:200_000]
+        .annotate(month=Max("ym"), edited=Max("last_edited_time"))[:200_000]
     ):
         try:
             first_day = datetime.date.fromisoformat(f"{(row['month'] or '')[:7]}-01")
@@ -251,26 +276,35 @@ def etools(s: Section, today: datetime.date) -> None:
             "PD indicators with a target",
             _share(PDIndicator.objects.filter(target_numerator__gt=0).count(), indicators_n),
         )
-    reports = (
-        ReportedIndicator.objects.exclude(progress_report="").values("progress_report").distinct().count()
+    report = ("intervention_id", "pd_reference_number", "report_number", "report_type", "period_end")
+    s.add(
+        "progress_reports",
+        "Partner progress reports",
+        ReportedIndicator.objects.values(*report).distinct().count(),
     )
-    s.add("progress_reports", "Partner progress reports", reports)
     dated = list(
         ReportedIndicator.objects.exclude(due_date=None)
         .exclude(submission_date=None)
-        .values("progress_report")
+        .values(*report)
         .annotate(due=Max("due_date"), sent=Max("submission_date"))
     )
     s.add("reports_dated", "Progress reports with a due and a submission date", len(dated))
     if dated:
-        s.add(
-            "reports_on_time",
-            "Progress reports submitted by their due date",
-            _share(sum(r["sent"] <= r["due"] for r in dated), len(dated)),
-        )
-    span = ReportedIndicator.objects.aggregate(first=Min("period_end"), last=Max("period_end"))
+        on_time = sum(r["sent"] <= r["due"] for r in dated)
+        s.add("reports_on_time", "Progress reports submitted by their due date", _share(on_time, len(dated)))
+    span = ReportedIndicator.objects.filter(period_end__lte=today).aggregate(
+        first=Min("period_end"), last=Max("period_end")
+    )
     if span["first"]:
         s.add("reporting_span", "Partner reporting covers", f"{span['first']:%b %Y} – {span['last']:%b %Y}")
+    future = ReportedIndicator.objects.filter(period_end__gt=today).values(*report).distinct().count()
+    if future:
+        s.add(
+            "reports_future",
+            "Progress reports with a period ending after today",
+            future,
+            note="to check in eTools",
+        )
     links = PartnerLink.objects.aggregate(
         all=Count("id"), linked=Count("id", filter=Q(partner__isnull=False))
     )
@@ -302,10 +336,16 @@ def assurance(s: Section, today: datetime.date) -> None:
     points = ActionPoint.objects.count()
     s.add("action_points", "Action points", points)
     if points:
+        statuses = dict(ActionPoint.objects.values_list("status").annotate(n=Count("id")))
+        closed = sum(n for st, n in statuses.items() if st not in ActionPoint.OPEN_STATUSES)
         s.add(
             "action_points_closed",
-            "Action points completed",
-            _share(ActionPoint.objects.exclude(date_of_completion=None).count(), points),
+            "Action points no longer open",
+            _share(closed, points),
+            note=", ".join(
+                f"{st or 'no status'}: {n:,}"
+                for st, n in sorted(statuses.items(), key=lambda x: (-x[1], x[0] or ""))
+            ),
         )
     visits = ProgrammaticVisit.objects.aggregate(n=Count("id"), first=Min("date"), last=Max("date"))
     s.add("visits", "Programmatic visits", visits["n"])
@@ -335,7 +375,7 @@ def context(s: Section, today: datetime.date) -> None:
     from neurodb.youth.models import YouthFigures
 
     pop = PopulationFigure.objects.aggregate(latest=Max("year"), n=Count("id"))
-    s.add("population_latest", "Latest population figures", pop["latest"])
+    s.add("population_latest", "Latest population figures", str(pop["latest"]) if pop["latest"] else None)
     if pop["n"]:
         s.add(
             "population_levels",
