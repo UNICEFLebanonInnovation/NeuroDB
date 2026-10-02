@@ -3,15 +3,18 @@ page (summary, links, text) and its file."""
 
 from __future__ import annotations
 
+import logging
 import os
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.http import FileResponse, Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from neurodb.accounts.models import Section
@@ -21,7 +24,24 @@ from .access import can_add, can_manage
 from .forms import DocumentForm
 from .models import Document, Link, ReportSeries
 
+logger = logging.getLogger(__name__)
+
 TEXT_PREVIEW = 20000
+STORAGE_MESSAGE = gettext_lazy(
+    "The file could not be stored: NeuroDB's file storage is not set up. An administrator sets the "
+    "storage account (AZURE_STORAGE_ACCOUNT, see the deployment guide); nothing was added."
+)
+
+
+def _storage_errors() -> tuple[type[BaseException], ...]:
+    try:
+        from azure.core.exceptions import AzureError
+    except ImportError:  # pragma: no cover - the Azure SDK is installed with django-storages[azure]
+        return (OSError,)
+    return (OSError, AzureError)
+
+
+STORAGE_ERRORS = _storage_errors()
 
 
 def start(document: Document) -> None:
@@ -102,8 +122,15 @@ def add(request: HttpRequest) -> HttpResponse:
     if not can_add(request.user):
         raise PermissionDenied
     form = DocumentForm(request.POST or None, request.FILES or None)
+    documents = []
     if request.method == "POST" and form.is_valid():
-        documents = save_added(form, request.user)
+        try:
+            with transaction.atomic():  # all the files or none
+                documents = save_added(form, request.user)
+        except STORAGE_ERRORS:
+            logger.exception("knowledge base: the uploaded file(s) could not be stored")
+            form.add_error(None, STORAGE_MESSAGE)
+    if documents:
         if len(documents) == 1:
             start(documents[0])
             messages.success(

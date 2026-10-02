@@ -194,6 +194,14 @@ Replace every `<placeholder>`, the Key Vault name (`neurodb-prod-kv`) and the do
 `CONTAINER_APP_NAME`, `CONTAINER_APP_ENV_DNS_SUFFIX`, `WEBSITE_HOSTNAME` or `APP_VERSION`: Azure or
 the image build sets them. `AZURE_STORAGE_KEY` stays unset because storage access uses the managed identity.
 
+**Uploaded files (knowledge base documents, CPD documents) need the storage account.** Set
+`AZURE_STORAGE_ACCOUNT` (and `AZURE_CLIENT_ID`, the managed identity that holds *Storage Blob Data
+Contributor* on the account, with a `media` container). Without it the files are written to the
+container's own disk (`/app/media`, or `MEDIA_ROOT`) and are lost when the container is replaced:
+the text and figures already read stay in the database, but *Read again* and the download then
+fail for those documents. An upload that cannot be stored is refused with a message naming the
+setting (before the image fix of October 2026 it failed with "Permission denied: '/app/media'").
+
 ## Pipeline (Azure DevOps)
 
 `azure-pipelines.yml` runs on every pull request and on `main`:

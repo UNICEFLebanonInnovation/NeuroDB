@@ -204,7 +204,10 @@ STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "neurodb" / "web" / "static"]
 MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+# Without Blob storage (AZURE_STORAGE_ACCOUNT, below) uploads are kept on this disk: in a container they
+# are lost when it is replaced, so production sets the storage account (MEDIA_ROOT can point to a
+# mounted share instead).
+MEDIA_ROOT = Path(env("MEDIA_ROOT", default=str(BASE_DIR / "media")))
 STORAGES = {
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},

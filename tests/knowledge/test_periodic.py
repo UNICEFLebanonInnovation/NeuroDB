@@ -14,6 +14,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from neurodb.assistant import charts, tools
 from neurodb.knowledge import indexing, pdf_layout, periodic
@@ -441,3 +442,37 @@ def test_the_answer_carries_the_chart_drawn_from_its_lookups(client_viewer, quie
     drawn = [e for e in events if e["type"] == "chart"]
     assert len(drawn) == 1 and drawn[0]["spec"]["data"]["series"] == {"IDPs": [100.0, 500.0]}
     assert events[-1]["type"] == "done"
+
+
+def test_documents_left_unread_are_read_by_the_morning_job(db, monkeypatch, started):
+    from neurodb.graph.management.commands.build_knowledge_hub import resume_left_behind
+
+    order = []
+    monkeypatch.setattr(
+        "neurodb.knowledge.management.commands.index_knowledge.process",
+        lambda d: (order.append(d.title), Document.objects.filter(pk=d.pk).update(status="ready")),
+    )
+    long_ago = timezone.now() - datetime.timedelta(hours=5)
+    for title, status in (("waiting", "pending"), ("cut off", "indexing"), ("just added", "pending")):
+        Document.objects.create(title=title, text="x", status=status)
+    Document.objects.exclude(title="just added").update(updated_at=long_ago)
+    resume_left_behind(SimpleNamespace(stdout=io.StringIO()))
+    assert started == [("index_knowledge", "--pending", "--stale")]
+    call_command("index_knowledge", "--pending", "--stale")
+    assert sorted(order) == ["cut off", "waiting"]  # the one just added is read by its own upload
+    assert Document.objects.get(title="just added").status == "pending"
+    started.clear()
+    resume_left_behind(SimpleNamespace(stdout=io.StringIO()))
+    assert started == []
+
+
+def test_a_file_that_cannot_be_stored_is_refused_plainly(client, editor, media, started, monkeypatch):
+    def refuse(self, name, content, max_length=None):
+        raise PermissionError(13, "Permission denied", "/app/media")
+
+    monkeypatch.setattr("django.core.files.storage.FileSystemStorage.save", refuse)
+    client.force_login(editor)
+    files = [SimpleUploadedFile("a - NUM-1.pdf", b"%PDF"), SimpleUploadedFile("a - NUM-2.pdf", b"%PDF")]
+    response = client.post(reverse("knowledge:add"), {"files": files, "periodic": "on"})
+    assert response.status_code == 200 and b"AZURE_STORAGE_ACCOUNT" in response.content
+    assert not Document.objects.exists() and started == []  # all the files or none

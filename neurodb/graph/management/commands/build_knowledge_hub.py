@@ -1,6 +1,7 @@
 """``build_knowledge_hub``: read new library and CPD documents, then link every named thing of
 NeuroDB across sources (partners, programme documents, donors, places, indicators, CPD results,
-Compiler programmes and centres, documents, findings)."""
+Compiler programmes and centres, documents, findings). It also starts reading, in the background,
+the knowledge base documents left unread (an upload cut off by a restart)."""
 
 from __future__ import annotations
 
@@ -34,6 +35,18 @@ class Command(BaseCommand):
                 return
             exit_on_failure(write_summary(self, runs))
             return
+        if not options["no_documents"]:
+            resume_left_behind(self)
         exit_on_failure(
             write_summary(self, [run(options["triggered_by"], documents=not options["no_documents"])])
         )
+
+
+def resume_left_behind(command: BaseCommand) -> None:
+    from neurodb.integrations import background
+    from neurodb.knowledge.management.commands.index_knowledge import left_behind
+
+    waiting = left_behind()
+    if waiting:
+        background.start_command("index_knowledge", "--pending", "--stale")
+        command.stdout.write(f"{waiting} knowledge document(s) left unread: reading them in the background")

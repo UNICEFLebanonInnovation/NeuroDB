@@ -49,6 +49,9 @@ COPY --from=build /venv /venv
 COPY --from=build /app /app
 COPY docker/entrypoint.sh /usr/local/bin/neurodb
 COPY docker/healthcheck.py /usr/local/bin/neurodb-healthcheck
+# Uploaded files go to Blob storage (AZURE_STORAGE_ACCOUNT); without it, to this folder, the only
+# one the application user may write to (lost when the container is replaced).
+RUN mkdir -p /app/media && chown 10001:10001 /app/media
 USER 10001:10001
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["python", "/usr/local/bin/neurodb-healthcheck"]
