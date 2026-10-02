@@ -1,4 +1,5 @@
-"""Read the education programmes' counts from Compiler and keep them (counts only)."""
+"""Ask Compiler to count the education programmes, wait until it is done, then read the counts and keep
+them (counts only)."""
 
 from __future__ import annotations
 
@@ -8,7 +9,7 @@ from django.utils.dateparse import parse_datetime
 
 from neurodb.core.models import SyncRun
 from neurodb.integrations.runs import fail, finish_by_counts, new_run, note_error
-from neurodb.youth.compiler import CompilerClient
+from neurodb.youth.compiler import CompilerClient, calculate, calculation_problem
 
 from .models import EducationFigures
 
@@ -23,10 +24,19 @@ def wanted_years(entry: dict) -> list[str]:
     return years[:limit]
 
 
-def sync(triggered_by: str = "schedule", client: CompilerClient | None = None) -> SyncRun:
+def sync(
+    triggered_by: str = "schedule", client: CompilerClient | None = None, *, calculate_first: bool = True
+) -> SyncRun:
+    """``calculate_first``: ask Compiler to count every programme's current year first (it keeps no
+    schedule of its own); a count that fails or takes too long is noted and the stored counts are
+    read all the same."""
     run = new_run(SyncRun.Job.COMPILER_EDUCATION, "compiler", triggered_by)
+    calculation = None
     try:
         client = client or CompilerClient()
+        if calculate_first:
+            calculation = calculate(client, "education")
+            run.details["calculation"] = calculation
         index = client.education_index()
     except Exception as exc:
         return fail(run, exc)
@@ -38,7 +48,7 @@ def sync(triggered_by: str = "schedule", client: CompilerClient | None = None) -
             label = f"{programme} {year}"
             try:
                 payload = client.education(programme, year)
-                if payload is None:  # Compiler is counting it in the background: next time
+                if payload is None:  # not counted yet in Compiler: next time
                     pending.append(label)
                     continue
                 EducationFigures.objects.update_or_create(
@@ -56,4 +66,5 @@ def sync(triggered_by: str = "schedule", client: CompilerClient | None = None) -
             else:
                 run.rows_written += 1
                 stored.append(label)
-    return finish_by_counts(run, stored=stored, pending=pending)
+    problem = calculation_problem(calculation)
+    return finish_by_counts(run, partial=bool(problem), error=problem, stored=stored, pending=pending)

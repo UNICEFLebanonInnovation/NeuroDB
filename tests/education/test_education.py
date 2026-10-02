@@ -91,8 +91,12 @@ def payload(year="2025"):
 
 
 class FakeClient:
-    def __init__(self, ready=True):
-        self.ready = ready
+    def __init__(self, ready=True, calculation="succeeded"):
+        self.ready, self.calculation, self.asked = ready, calculation, []
+
+    def start_run(self, kind, payload=None):
+        self.asked.append(kind)
+        return {"id": 1, "status": self.calculation, "error": "worker stopped"}
 
     def education_index(self):
         return [
@@ -141,6 +145,20 @@ def test_sync_stores_counted_years_and_waits_for_the_others():
     assert not EducationFigures.objects.exists()
 
 
+def test_sync_asks_compiler_to_count_first_and_reads_even_when_the_count_fails():
+    good = FakeClient()
+    run = sync(triggered_by="test", client=good)
+    assert good.asked == ["education"] and run.details["calculation"]["status"] == "succeeded"
+
+    run = sync(triggered_by="test", client=FakeClient(calculation="failed"))
+    assert run.status == SyncRun.Status.PARTIAL and "BMA calculation failed: worker stopped" in run.error
+    assert run.details["stored"] == ["mscc 2025"]  # what Compiler had is read all the same
+
+    quiet = FakeClient()
+    run = sync(triggered_by="test", client=quiet, calculate_first=False)
+    assert quiet.asked == [] and "calculation" not in run.details
+
+
 def test_synced_older_format_asks_for_the_newer_one(client_viewer):
     sync(triggered_by="test", client=FakeClient())  # a Compiler that sends format 1 (no cubes)
     response = client_viewer.get(reverse("education:makani"))
@@ -160,7 +178,7 @@ def test_command_refuses_to_run_unconfigured(settings):
 
 
 @responses.activate
-def test_client_reads_the_index_and_treats_202_as_not_ready():
+def test_client_reads_the_index_and_treats_202_and_404_as_not_ready():
     responses.get(BASE + "/api/figures/", json={"programmes": FakeClient().education_index()})
     responses.get(
         BASE + "/api/figures/mscc/",
@@ -177,4 +195,6 @@ def test_client_reads_the_index_and_treats_202_as_not_ready():
     assert client.education_index()[0]["programme"] == "mscc"
     assert client.education("mscc", "2026") is None
     assert client.education("mscc", "2025")["year"] == "2025"
+    responses.get(BASE + "/api/figures/bridging/", status=404, json={"detail": "Not counted yet"})
+    assert client.education("bridging", "2025") is None
     assert responses.calls[0].request.headers["Authorization"] == "Token abc123"

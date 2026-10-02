@@ -1,12 +1,19 @@
 """Compiler's figures APIs: the youth indicator figures (GET /api/youth/indicator-figures/?year=) and
 the education programmes' stored counts (GET /api/figures/ and /api/figures/<programme>/?year=).
 
+NeuroDB decides when BMA calculates: BMA keeps no schedule of its own. A sync asks BMA for a
+calculation (POST /api/figures/runs/ or /api/wellbeing/runs/), follows it until it is done
+(GET .../runs/<id>/) and then reads the results. One calculation runs at a time in BMA: asking while
+one is going returns that one.
+
 The token belongs to a Compiler service account in the "NeuroDB API" group; it is sent as
 ``Authorization: Token <key>`` and never logged (see ``integrations/http.py``).
 """
 
 from __future__ import annotations
 
+import time
+from collections.abc import Callable
 from typing import Any
 
 from django.conf import settings
@@ -16,6 +23,8 @@ from neurodb.integrations.http import IntegrationError, get_json, make_session, 
 PATH = "/api/youth/indicator-figures/"
 EDUCATION_PATH = "/api/figures/"
 WELLBEING_PATH = "/api/wellbeing/"
+RUNS = {"education": EDUCATION_PATH + "runs/", "wellbeing": WELLBEING_PATH + "runs/"}
+DONE = ("succeeded", "failed")
 
 
 def configured() -> bool:
@@ -51,8 +60,8 @@ class CompilerClient:
         return data["programmes"]
 
     def education(self, programme: str, year: str) -> dict[str, Any] | None:
-        """The stored counts of ``programme`` for ``year``; None while Compiler is still counting them
-        (it answers 202 and counts in the background) or when it has no such year."""
+        """The stored counts of ``programme`` for ``year``; None when Compiler has not counted them yet
+        (404; an older Compiler answered 202 and counted in the background) or has no such year."""
         url = f"{self.base_url}{EDUCATION_PATH}{programme}/"
         try:
             response = send(self.session, "GET", url, params={"year": year})
@@ -101,3 +110,67 @@ class CompilerClient:
                 return exc.status, exc.response.json()
             raise
         return response.status_code, response.json()
+
+    # ------------------------------------------------------------- calculations NeuroDB asks for
+    def start_run(self, kind: str, payload: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        """Ask BMA to calculate (``kind`` "education" or "wellbeing"); the run queued, or the one already
+        going. None when this BMA cannot be asked yet (no runs address: an older BMA)."""
+        url = self.base_url + RUNS[kind]
+        try:
+            response = send(self.session, "POST", url, json=payload or {})
+        except IntegrationError as exc:
+            if exc.status in (404, 405):
+                return None
+            raise
+        return _run(response.json(), url)
+
+    def run_status(self, kind: str, run_id: int) -> dict[str, Any]:
+        url = f"{self.base_url}{RUNS[kind]}{int(run_id)}/"
+        return _run(get_json(self.session, url), url)
+
+
+def _run(data: Any, url: str) -> dict[str, Any]:
+    if not isinstance(data, dict) or "id" not in data or "status" not in data:
+        raise IntegrationError("Compiler calculation: unexpected response", url=url)
+    return data
+
+
+def calculate(
+    client: CompilerClient,
+    kind: str,
+    payload: dict[str, Any] | None = None,
+    *,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> dict[str, Any]:
+    """Ask BMA to calculate and wait until it is done. Returns what to record on the sync run:
+    ``{"status": "succeeded" | "failed" | "timed out" | "unavailable", "run": id, "error": ...}``.
+    Never raises: whatever happens, the sync goes on to read what BMA has."""
+    try:
+        run = client.start_run(kind, payload)
+        if run is None:
+            return {"status": "unavailable", "error": "this BMA cannot be asked to calculate"}
+        deadline = clock() + settings.COMPILER_RUN_TIMEOUT_MINUTES * 60
+        while run["status"] not in DONE:
+            if clock() >= deadline:
+                return {
+                    "status": "timed out",
+                    "run": run["id"],
+                    "error": f"still {run['status']} after {settings.COMPILER_RUN_TIMEOUT_MINUTES} minutes",
+                }
+            sleep(settings.COMPILER_RUN_POLL_SECONDS)
+            run = client.run_status(kind, run["id"])
+    except IntegrationError as exc:
+        return {"status": "failed", "error": str(exc)[:500]}
+    out = {"status": run["status"], "run": run["id"], "finished_at": run.get("finished_at")}
+    if run.get("error"):  # a count may succeed in part: the parts that failed are said here
+        out["error"] = run["error"][:500]
+    return out
+
+
+def calculation_problem(calculation: dict[str, Any] | None) -> str:
+    """What went wrong with the calculation, for the run's error; empty when nothing did (or when this
+    BMA cannot be asked: what it has is read as before)."""
+    if not calculation or calculation["status"] not in ("failed", "timed out"):
+        return ""
+    return f"BMA calculation {calculation['status']}: {calculation.get('error') or 'no reason given'}"

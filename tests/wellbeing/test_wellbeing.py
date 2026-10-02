@@ -76,6 +76,10 @@ class FakeBMA:
         self.calls, self.posted = [], []
         self.answer = None
 
+    def start_run(self, kind, payload=None):
+        self.calls.append(("calculate", kind))
+        return {"id": 1, "status": "succeeded"}
+
     def wellbeing_flags(self, modified_since=None, after=None, limit=500):
         self.calls.append((modified_since, after))
         rows = [
@@ -130,7 +134,8 @@ def bma(db):
 def test_sync_reads_every_page_then_only_changes(bma):
     run = sync.sync(client=bma)
     assert run.status == SyncRun.Status.SUCCEEDED and Flag.objects.count() == 3
-    assert [c[1] for c in bma.calls] == [None, 2]  # two pages
+    assert bma.calls[0] == ("calculate", "wellbeing")  # BMA works the flags out first
+    assert [c[1] for c in bma.calls[1:]] == [None, 2]  # two pages
     f = Flag.objects.get(bma_id=2)
     assert (f.registration, f.urgent, f.child_age_band, f.center_name) == (5002, True, "10-14", "Center A")
     assert CenterSummary.objects.filter(month="2026-09-01").get().figures["children"] == 120
@@ -138,7 +143,7 @@ def test_sync_reads_every_page_then_only_changes(bma):
     state = SyncState.current()
     assert state.flags_modified_since == "2026-09-30T02:00:03" and state.settings["followup_days"] == 7
     bma.calls.clear()
-    sync.sync(client=bma)
+    sync.sync(client=bma, calculate_first=False)
     assert bma.calls[0][0] == "2026-09-30T02:00:03"
 
 

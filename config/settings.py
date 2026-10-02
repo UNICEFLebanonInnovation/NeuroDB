@@ -372,6 +372,10 @@ if COMPILER_API_TOKEN.startswith("@Microsoft.KeyVault("):
 COMPILER_YOUTH_YEARS = env.int("COMPILER_YOUTH_YEARS", default=2)  # this year and the ones before
 # Makani and Bridging counts (GET /api/figures/): the current year or round and the counted ones before it
 COMPILER_EDUCATION_YEARS = env.int("COMPILER_EDUCATION_YEARS", default=3)
+# NeuroDB asks BMA to calculate before reading (BMA keeps no schedule) and checks every minute whether
+# it is done (BMA allows the figures API 120 calls an hour), giving up after two hours.
+COMPILER_RUN_POLL_SECONDS = env.int("COMPILER_RUN_POLL_SECONDS", default=60)
+COMPILER_RUN_TIMEOUT_MINUTES = env.int("COMPILER_RUN_TIMEOUT_MINUTES", default=120)
 INTEGRATION_TIMEOUT_SECONDS = (10, 120)
 SYNC_STALENESS_HOURS = env.int("SYNC_STALENESS_HOURS", default=30)
 # The in-app scheduler (admin → Scheduled jobs), run by the web workers. Off: nothing runs on a schedule.

@@ -340,8 +340,8 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `freshness` | `check_sync_freshness` | `15 * * * *`, hourly; a stale source is logged as an error |
 | `activityinfo-structure` | `import_activityinfo_structure --all` | switched off; switch on or use *Run now* after the yearly rollover |
 | `compiler-youth` | `sync_compiler_youth` | `0 21 * * *`, daily 21:00; switched off until Compiler is configured |
-| `compiler-education` | `sync_compiler_education` | `30 6 * * *`, daily 06:30; switched off until Compiler is configured |
-| `compiler-wellbeing` | `sync_compiler_wellbeing` | `0 4 * * *`, daily 04:00, after BMA's 03:00 flags; switched off until Compiler is configured |
+| `compiler-education` | `sync_compiler_education` | `30 2 * * *`, daily 02:30: asks Compiler (BMA) to count Makani and Bridging, waits, then reads the counts; switched off until Compiler is configured |
+| `compiler-wellbeing` | `sync_compiler_wellbeing` | `0 3 * * *`, daily 03:00: asks BMA to work out the Makani wellbeing flags, waits, then reads them; switched off until Compiler is configured |
 | `knowledge-hub` | `build_knowledge_hub` | `0 7 * * *`, daily 07:00: reads new library and CPD documents, then rebuilds the knowledge hub (it is also rebuilt after every sync) |
 | `whats-new` | `whats_new_digest` | `30 7 * * *`, daily 07:30: the what's new notes, emailed to who asked |
 | `ml-readiness` | `ml_readiness` | `45 6 * * 1`, Mondays 06:45: is the data ready for machine learning (Data health) |
@@ -921,15 +921,16 @@ add them to services, and manage centers or schools, facilitators or teachers an
 There is no programme document, donor or indicator behind these registrations. NeuroDB reads
 **counts only** (never a name, identifier or row about a child).
 
-**How Compiler counts, without weighing on the running system.** A Celery task counts at night and
-stores the result in a snapshot table (`student_registration/figures`); the API
-(`GET /api/figures/` and `/api/figures/<mscc|bridging>/?year=`) only reads the stored snapshot, one
-indexed row, and never counts during a request. Each part of the count is one read-only SQL query
+**How Compiler counts, without weighing on the running system.** NeuroDB decides when Compiler counts:
+the `compiler-education` job asks for a count (`POST /api/figures/runs/`), Compiler's Celery worker
+counts and stores the result in a snapshot table (`student_registration/figures`), NeuroDB checks
+the run every minute (`GET /api/figures/runs/<id>/`) and, once it is done, reads the counts
+(`GET /api/figures/` and `/api/figures/<mscc|bridging>/?year=`), which only read the stored snapshot,
+one indexed row, and never count during a request. Compiler keeps no schedule of its own. Each part of the count is one read-only SQL query
 (`GROUP BY GROUPING SETS`, so each table is read once whatever the number of groupings) with a
-statement timeout and a bounded `work_mem`, optionally on a read replica (`FIGURES_DATABASE`). When
-NeuroDB asks for a year with no snapshot, or one older than a day, Compiler answers with what it
-has (or 202 "being counted") and queues one background count; a lock stops a second request from
-queuing another. The API is limited to the "NeuroDB API" group and rate-limited.
+statement timeout and a bounded `work_mem`, optionally on a read replica (`FIGURES_DATABASE`). One count
+runs at a time: asking while one is going returns that one. A year never counted answers 404 and
+is listed as *pending*. The API is limited to the "NeuroDB API" group and rate-limited.
 
 **What is counted.**
 - *Makani*: registrations not deleted in the rounds of a year (the current year also counts the
@@ -1014,14 +1015,18 @@ in-school children, teachers).
   other parts still show.
 
 **Setting it up.**
-1. Compiler: deploy branch `neurodb-education-figures` (migration `figures.0001`), then add a
-   periodic task in Django admin → Periodic tasks: `student_registration.figures.tasks.refresh_all_figures`,
-   e.g. every night at 02:30. `python manage.py refresh_neurodb_figures` counts at once (off-peak).
+1. Compiler: deploy branch `neurodb-education-figures` (migrations `figures.0001` and `0002`) with its
+   Celery worker running (no Celery beat or periodic task is needed: NeuroDB asks).
+   `python manage.py refresh_neurodb_figures` counts at once on the Compiler server.
    Optional settings: `FIGURES_DATABASE` (a read-replica alias), `FIGURES_STATEMENT_TIMEOUT_MS`
-   (600000), `FIGURES_WORK_MEM` (32MB), `FIGURES_MAX_AGE_HOURS` (26), `FIGURES_API_RATE` (120/hour).
+   (600000), `FIGURES_WORK_MEM` (32MB), `FIGURES_API_RATE` (120/hour).
 2. NeuroDB uses the same Compiler URL and token as the youth figures.
 3. Admin → Import and sync runs → Run a job → **Compiler education figures**, then switch on the
-   `compiler-education` schedule (06:30, after Compiler's night count; off by default). It reads the
+   `compiler-education` schedule (02:30; off by default; change the time in the admin). It first
+   asks Compiler to count every programme's current year and waits for it (checking every
+   `COMPILER_RUN_POLL_SECONDS`, default 60, for at most `COMPILER_RUN_TIMEOUT_MINUTES`, default 120);
+   a count that fails or takes longer is written on the run, which ends *partial*, and what Compiler
+   has is read all the same. `--no-calculate` only reads. It reads the
    current year or round of each programme and the counted ones before it
    (`COMPILER_EDUCATION_YEARS`, default 3). A year Compiler has not counted yet is listed as
    *pending* in the run and arrives at the next run.
@@ -1093,18 +1098,24 @@ tolerance as the other NeuroDB pages.
 
 ## Makani wellbeing (`/makani/wellbeing/`, flags worked out in BMA)
 
-BMA (Compiler) works out every night which Makani children may need a follow-up and why (absence
+BMA (Compiler) works out, when NeuroDB asks (every night by default), which Makani children may need a follow-up and why (absence
 streaks, low or falling attendance, a required service not received, a dropout without follow-up,
 malnutrition, developmental delay or a protection concern without referral, no learning progress
 between tests), and monthly centre summaries. BMA only calculates and serves them; NeuroDB shows
 them. The rules, thresholds and the BMA side are described in BMA's
 `student_registration/wellbeing/README.md`.
 
-- **Reading**: the job "Read the Makani wellbeing flags from Compiler" (`sync_compiler_wellbeing`;
-  admin → Import and sync runs → Run a job, or the `compiler-wellbeing` schedule, daily 04:00 after
-  BMA's 03:00 run; off until Compiler is configured) reads the flags
-  changed since the last run and the last 12 months of centre summaries. `--full` reads every flag
-  again. It uses the same `COMPILER_API_URL` / `COMPILER_API_TOKEN` as the youth and education
+- **Calculating and reading**: the job "Read the Makani wellbeing flags from Compiler"
+  (`sync_compiler_wellbeing`; admin → Import and sync runs → Run a job, or the `compiler-wellbeing`
+  schedule, daily 03:00; off until Compiler is configured) first asks BMA to work the flags out
+  (`POST /api/wellbeing/runs/`) and waits until BMA is done (as for the education counts:
+  `COMPILER_RUN_POLL_SECONDS`, `COMPILER_RUN_TIMEOUT_MINUTES`), then reads the flags changed since
+  the last run and the last 12 months of centre summaries. BMA keeps no schedule: when and how often
+  the flags are worked out is set here, in Scheduled jobs. A calculation that fails or takes too
+  long ends the run *partial* with the reason, and what BMA has is read all the same.
+  `--no-calculate` only reads; `--full` reads every flag again.
+- **BMA side**: deploy branch `makani-wellbeing-flags` (migrations `wellbeing.0001`–`0003` and
+  `attendances.0069`) with its Celery worker running; no Celery beat or periodic task is needed. It uses the same `COMPILER_API_URL` / `COMPILER_API_TOKEN` as the youth and education
   figures; the BMA service account must be in BMA's "NeuroDB API" group.
 - **No names**: a child is known here only by the BMA registration number, gender, age band and
   nationality. "Open in BMA" opens the child's profile in BMA, with the user's own BMA access.

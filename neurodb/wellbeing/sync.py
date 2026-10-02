@@ -1,4 +1,5 @@
-"""Read the Makani wellbeing flags (changed since the last run) and the centre summaries from BMA."""
+"""Ask BMA to work out the Makani wellbeing flags, wait until it is done, then read the flags (changed
+since the last run) and the centre summaries."""
 
 from __future__ import annotations
 
@@ -9,7 +10,7 @@ from django.utils.dateparse import parse_date, parse_datetime
 
 from neurodb.core.models import SyncRun
 from neurodb.integrations.runs import fail, finish_by_counts, new_run, note_error
-from neurodb.youth.compiler import CompilerClient
+from neurodb.youth.compiler import CompilerClient, calculate, calculation_problem
 
 from .models import CenterSummary, Flag, SyncState
 
@@ -57,11 +58,23 @@ def store_flag(item: dict[str, Any]) -> Flag:
     return flag
 
 
-def sync(triggered_by: str = "schedule", client: CompilerClient | None = None, full: bool = False) -> SyncRun:
+def sync(
+    triggered_by: str = "schedule",
+    client: CompilerClient | None = None,
+    full: bool = False,
+    *,
+    calculate_first: bool = True,
+) -> SyncRun:
+    """``calculate_first``: ask BMA to work out the flags first (it keeps no schedule of its own); a
+    calculation that fails or takes too long is noted and what BMA has is read all the same."""
     run = new_run(SyncRun.Job.COMPILER_WELLBEING, "compiler", triggered_by)
     state = SyncState.current()
+    calculation = None
     try:
         client = client or CompilerClient()
+        if calculate_first:
+            calculation = calculate(client, "wellbeing")
+            run.details["calculation"] = calculation
         since = None if full else (state.flags_modified_since or None)
         latest, after, pages = since or "", None, 0
         while True:
@@ -110,4 +123,5 @@ def sync(triggered_by: str = "schedule", client: CompilerClient | None = None, f
         state.save()
     except Exception as exc:
         return fail(run, exc)
-    return finish_by_counts(run, pages=pages, months=stored_months)
+    problem = calculation_problem(calculation)
+    return finish_by_counts(run, partial=bool(problem), error=problem, pages=pages, months=stored_months)

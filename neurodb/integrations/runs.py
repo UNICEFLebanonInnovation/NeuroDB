@@ -51,9 +51,10 @@ def note_error(run: SyncRun, label: str, exc: BaseException) -> None:
         run.details["other_errors"] = run.details.get("other_errors", 0) + 1
 
 
-def finish_by_counts(run: SyncRun, **details: Any) -> SyncRun:
-    """SUCCEEDED when nothing failed, PARTIAL otherwise."""
-    status = SyncRun.Status.PARTIAL if run.rows_failed else SyncRun.Status.SUCCEEDED
+def finish_by_counts(run: SyncRun, *, partial: bool = False, **details: Any) -> SyncRun:
+    """SUCCEEDED when nothing failed, PARTIAL otherwise (or when ``partial``: a step besides the rows
+    went wrong)."""
+    status = SyncRun.Status.PARTIAL if run.rows_failed or partial else SyncRun.Status.SUCCEEDED
     run.finish(status, **details)
     return run
 

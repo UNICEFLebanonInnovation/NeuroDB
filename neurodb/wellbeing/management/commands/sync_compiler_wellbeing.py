@@ -14,11 +14,23 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         add_triggered_by(parser)
+        parser.add_argument(
+            "--no-calculate", action="store_true", help="only read what BMA has; do not ask it to calculate"
+        )
         parser.add_argument("--full", action="store_true", help="read every flag again, not only changes")
 
     def handle(self, *args, **options):
         if not compiler.configured():
             raise CommandError("Compiler is not configured: set COMPILER_API_URL and COMPILER_API_TOKEN")
         exit_on_failure(
-            write_summary(self, [sync(triggered_by=options["triggered_by"], full=options["full"])])
+            write_summary(
+                self,
+                [
+                    sync(
+                        triggered_by=options["triggered_by"],
+                        full=options["full"],
+                        calculate_first=not options["no_calculate"],
+                    )
+                ],
+            )
         )
