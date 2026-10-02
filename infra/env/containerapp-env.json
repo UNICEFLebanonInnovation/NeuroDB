@@ -91,6 +91,14 @@
       "secretRef": "activityinfo-token"
     },
     {
+      "name": "ACTIVITYINFO_USERNAME",
+      "secretRef": "activityinfo-username"
+    },
+    {
+      "name": "ACTIVITYINFO_PASSWORD",
+      "secretRef": "activityinfo-password"
+    },
+    {
       "name": "ETOOLS_BASE_URL",
       "value": "https://etools.unicef.org"
     },

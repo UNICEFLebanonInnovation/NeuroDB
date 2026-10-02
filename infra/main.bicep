@@ -52,6 +52,10 @@ param enableSso bool = false
 param entraTenantId string = ''
 param entraClientId string = ''
 
+@description('ActivityInfo sign-in: password (secrets activityinfo-username and activityinfo-password: the account email and password) or token (secret activityinfo-token).')
+@allowed(['password', 'token'])
+param activityInfoAuth string = 'password'
+
 @description('eTools Datamart sync (basic auth). When true the secrets etools-username and etools-password must exist.')
 param enableEtoolsDatamart bool = true
 
@@ -256,7 +260,8 @@ resource containerEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
 // ------------------------------------------------------------------------------ shared app settings
 var kvSecretUri = 'https://${keyVaultName}${environment().suffixes.keyvaultDns}/secrets/'
 var secretNames = concat(
-  ['django-secret-key', 'database-url', 'activityinfo-token', 'etools-token'],
+  ['django-secret-key', 'database-url', 'etools-token'],
+  activityInfoAuth == 'password' ? ['activityinfo-username', 'activityinfo-password'] : ['activityinfo-token'],
   enableSso ? ['entra-client-secret'] : [],
   enableEtoolsDatamart ? ['etools-username', 'etools-password'] : [],
   enableCompilerYouth ? ['compiler-api-token'] : [],
@@ -279,7 +284,6 @@ var commonEnv = concat(
     { name: 'DJANGO_ENV', value: 'production' }
     { name: 'DJANGO_SECRET_KEY', secretRef: 'django-secret-key' }
     { name: 'DATABASE_URL', secretRef: 'database-url' }
-    { name: 'ACTIVITYINFO_TOKEN', secretRef: 'activityinfo-token' }
     { name: 'ETOOLS_TOKEN', secretRef: 'etools-token' }
     { name: 'ALLOWED_HOSTS', value: hosts }
     { name: 'CSRF_TRUSTED_ORIGINS', value: empty(customDomain) ? '' : 'https://${customDomain}' }
@@ -301,6 +305,12 @@ var commonEnv = concat(
         { name: 'ENTRA_CLIENT_SECRET', secretRef: 'entra-client-secret' }
       ]
     : [],
+  activityInfoAuth == 'password'
+    ? [
+        { name: 'ACTIVITYINFO_USERNAME', secretRef: 'activityinfo-username' }
+        { name: 'ACTIVITYINFO_PASSWORD', secretRef: 'activityinfo-password' }
+      ]
+    : [{ name: 'ACTIVITYINFO_TOKEN', secretRef: 'activityinfo-token' }],
   enableEtoolsDatamart
     ? [
         { name: 'ETOOLS_USERNAME', secretRef: 'etools-username' }

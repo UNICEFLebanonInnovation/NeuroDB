@@ -86,7 +86,9 @@ files or generated so they never appear in shell history.
 |---|---|
 | `django-secret-key` | 64 random characters |
 | `database-url` | `postgres://<user>:<password>@<server>.postgres.database.azure.com:5432/<database>?sslmode=require` |
-| `activityinfo-token` | ActivityInfo service-account API token |
+| `activityinfo-username` | the ActivityInfo account's email (with `activityInfoAuth = 'password'`, the default) |
+| `activityinfo-password` | that account's password: NeuroDB signs in with HTTP basic authentication, sent to the ActivityInfo host only |
+| `activityinfo-token` | only with `activityInfoAuth = 'token'`: an ActivityInfo API token instead of the password |
 | `etools-token` | eTools REST token, only for the on-demand `sync_etools` (can stay empty) |
 | `etools-username` | eTools Datamart service account (basic authentication user name) |
 | `etools-password` | eTools Datamart password; required while `enableEtoolsDatamart = true` (the default) |
@@ -98,11 +100,12 @@ KV=neurodb-prod-kv
 az keyvault secret set --vault-name $KV --name django-secret-key \
   --value "$(python3 -c 'import secrets; print(secrets.token_urlsafe(64))')" --output none
 az keyvault secret set --vault-name $KV --name database-url --file ./database-url.txt --output none
-az keyvault secret set --vault-name $KV --name activityinfo-token --file ./activityinfo-token.txt --output none
+az keyvault secret set --vault-name $KV --name activityinfo-username --file ./activityinfo-username.txt --output none
+az keyvault secret set --vault-name $KV --name activityinfo-password --file ./activityinfo-password.txt --output none
 az keyvault secret set --vault-name $KV --name etools-token --file ./etools-token.txt --output none
 az keyvault secret set --vault-name $KV --name etools-username --file ./etools-username.txt --output none
 az keyvault secret set --vault-name $KV --name etools-password --file ./etools-password.txt --output none
-shred -u ./database-url.txt ./activityinfo-token.txt ./etools-token.txt ./etools-username.txt ./etools-password.txt
+shred -u ./database-url.txt ./activityinfo-username.txt ./activityinfo-password.txt ./etools-token.txt ./etools-username.txt ./etools-password.txt
 ```
 
 Use a dedicated database login for the application, with rights on the existing tables and

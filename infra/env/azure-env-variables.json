@@ -113,11 +113,29 @@
     {
       "name": "ACTIVITYINFO_TOKEN",
       "group": "Integrations",
-      "required": true,
+      "required": false,
       "secret": true,
       "keyVaultSecret": "activityinfo-token",
       "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=activityinfo-token)",
-      "description": "ActivityInfo service-account API token."
+      "description": "ActivityInfo service-account API token (not needed when ACTIVITYINFO_USERNAME and ACTIVITYINFO_PASSWORD are set)."
+    },
+    {
+      "name": "ACTIVITYINFO_USERNAME",
+      "group": "Integrations",
+      "required": false,
+      "secret": true,
+      "keyVaultSecret": "activityinfo-username",
+      "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=activityinfo-username)",
+      "description": "ActivityInfo account email (HTTP basic authentication); used instead of the token when the password is set too."
+    },
+    {
+      "name": "ACTIVITYINFO_PASSWORD",
+      "group": "Integrations",
+      "required": false,
+      "secret": true,
+      "keyVaultSecret": "activityinfo-password",
+      "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=activityinfo-password)",
+      "description": "ActivityInfo account password (HTTP basic authentication)."
     },
     {
       "name": "ETOOLS_BASE_URL",

@@ -334,6 +334,13 @@ DIGEST_EMAIL_ENABLED = bool(EMAIL_URL)
 # ---------------------------------------------------------------------------- upstream systems
 ACTIVITYINFO_BASE_URL = env("ACTIVITYINFO_BASE_URL", default="https://www.activityinfo.org")
 ACTIVITYINFO_TOKEN = env("ACTIVITYINFO_TOKEN", default="").strip()  # a stray newline breaks the header
+# Or the ActivityInfo account's email and password (HTTP basic auth); used instead of the token when set
+ACTIVITYINFO_USERNAME = env("ACTIVITYINFO_USERNAME", default="").strip()
+ACTIVITYINFO_PASSWORD = env.ENVIRON.get("ACTIVITYINFO_PASSWORD", "").strip("\r\n")
+if ACTIVITYINFO_USERNAME.startswith("@Microsoft.KeyVault(") or ACTIVITYINFO_PASSWORD.startswith(
+    "@Microsoft.KeyVault("
+):  # an unresolved Key Vault reference is not a credential
+    ACTIVITYINFO_USERNAME = ACTIVITYINFO_PASSWORD = ""
 ETOOLS_BASE_URL = env("ETOOLS_BASE_URL", default="https://etools.unicef.org")
 ETOOLS_TOKEN = env("ETOOLS_TOKEN", default="").strip()
 # eTools Datamart (datamart.unicef.io): the eTools data of every country office, read with HTTP basic

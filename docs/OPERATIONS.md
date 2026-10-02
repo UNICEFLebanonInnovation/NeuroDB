@@ -26,8 +26,10 @@ is no configuration file in the image. Change a non-secret setting by editing th
 and re-running the deployment.
 
 ## Secrets rotation
-Key Vault secrets: `django-secret-key`, `database-url`, `activityinfo-token`, `etools-token`,
-`etools-username` and `etools-password` (the eTools Datamart service account), (with SSO)
+Key Vault secrets: `django-secret-key`, `database-url`, `activityinfo-username` and
+`activityinfo-password` (the ActivityInfo account's email and password; or `activityinfo-token` with
+`activityInfoAuth = 'token'`), `etools-token`, `etools-username` and `etools-password` (the eTools
+Datamart service account), (with SSO)
 `entra-client-secret`, (with the AI assistant) `openai-api-key` and (with Compiler youth figures)
 `compiler-api-token`. To rotate, set a
 new version in Key Vault, then restart the active web revision (`az containerapp revision

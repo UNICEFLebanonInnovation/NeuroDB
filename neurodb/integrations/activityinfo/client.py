@@ -1,8 +1,10 @@
 """ActivityInfo v4 API client.
 
-Ports ``pivoting/client.py::Client`` (token auth, ``get_resource``/``post_resource``) and the
-export-job flow of ``pivoting/exports.py::get_database_data``. The ``Authorization`` header value
-is the bare token, exactly as v2 ``pivoting/auth.py::TokenAuth`` sent it (no ``Bearer`` prefix).
+Ports ``pivoting/client.py::Client`` (``get_resource``/``post_resource``) and the export-job flow
+of ``pivoting/exports.py::get_database_data``. Authentication: the account's email and password
+(``ACTIVITYINFO_USERNAME`` / ``ACTIVITYINFO_PASSWORD``, HTTP basic auth, sent to the ActivityInfo
+host only) when both are set; otherwise the API token (``ACTIVITYINFO_TOKEN``), sent bare in the
+``Authorization`` header exactly as v2 ``pivoting/auth.py::TokenAuth`` did (no ``Bearer`` prefix).
 
 Fixed v2 defects: the token literal in the source -> ``settings.ACTIVITYINFO_TOKEN`` only; the
 unbounded ``while True`` polling loop -> ``max_attempts`` x ``interval``; downloads returned to the
@@ -20,7 +22,14 @@ import requests
 from django.conf import settings
 
 from neurodb.indicators.models import Database
-from neurodb.integrations.http import IntegrationError, get_bytes, get_json, make_session, post_json
+from neurodb.integrations.http import (
+    IntegrationError,
+    basic_auth_for,
+    get_bytes,
+    get_json,
+    make_session,
+    post_json,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +45,22 @@ class ActivityInfoClient:
         base_url: str | None = None,
         token: str | None = None,
         *,
+        username: str | None = None,
+        password: str | None = None,
         session: requests.Session | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.base_url = (base_url or settings.ACTIVITYINFO_BASE_URL).rstrip("/")
-        token = settings.ACTIVITYINFO_TOKEN if token is None else token
-        self.session = session or make_session(token)
+        username = settings.ACTIVITYINFO_USERNAME if username is None else username
+        password = settings.ACTIVITYINFO_PASSWORD if password is None else password
+        if token is None and username and password:  # the account's email and password
+            self.session = session or make_session("")
+            self.session.auth = basic_auth_for(self.base_url, username, password)
+            self.auth = "password"
+        else:
+            token = settings.ACTIVITYINFO_TOKEN if token is None else token
+            self.session = session or make_session(token)
+            self.auth = "token"
         self._sleep = sleep
 
     def url(self, path: str) -> str:

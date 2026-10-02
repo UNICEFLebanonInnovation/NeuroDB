@@ -231,7 +231,7 @@ Golden tests: for every v2 constant, the ETL rehearsal database (section 13) sto
 
 `integrations/http.py` provides one `requests.Session` factory with: timeouts (connect 10 s, read 120 s), retry with backoff on 429/5xx (5 attempts), an `Authorization` header from settings, structured logging of method, path, status, and duration (never of bodies or tokens), and a `RateLimiter`. Every upstream call goes through it. Tests use recorded responses (`responses` library) from sanitised fixtures.
 
-Tokens: `ACTIVITYINFO_TOKEN`, `ETOOLS_TOKEN` (and nothing else) read from the environment; rotation is a Key Vault update and a job restart, no code change. Service accounts are requested from both platforms before cutover; until then the personal tokens live only in Key Vault.
+Credentials: `ACTIVITYINFO_USERNAME` / `ACTIVITYINFO_PASSWORD` (or `ACTIVITYINFO_TOKEN`), `ETOOLS_USERNAME` / `ETOOLS_PASSWORD` and `ETOOLS_TOKEN` (and nothing else) read from the environment; rotation is a Key Vault update and a job restart, no code change. Service accounts are requested from both platforms before cutover; until then the personal tokens live only in Key Vault.
 
 ### 6.2 ActivityInfo
 

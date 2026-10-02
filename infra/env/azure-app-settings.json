@@ -60,6 +60,16 @@
     "slotSetting": false
   },
   {
+    "name": "ACTIVITYINFO_USERNAME",
+    "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=activityinfo-username)",
+    "slotSetting": false
+  },
+  {
+    "name": "ACTIVITYINFO_PASSWORD",
+    "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=activityinfo-password)",
+    "slotSetting": false
+  },
+  {
     "name": "ETOOLS_BASE_URL",
     "value": "https://etools.unicef.org",
     "slotSetting": false

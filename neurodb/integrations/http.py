@@ -22,6 +22,7 @@ from urllib.parse import urlsplit
 import requests
 from django.conf import settings
 from requests.adapters import HTTPAdapter
+from requests.auth import HTTPBasicAuth
 from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
@@ -165,3 +166,23 @@ def get_bytes(session: requests.Session, url: str) -> bytes:
     """GET ``url`` (streamed) and return the whole body as bytes."""
     with send(session, "GET", url, stream=True) as response:
         return response.content
+
+
+class HostBoundBasicAuth(HTTPBasicAuth):
+    """Basic auth added only to requests for one origin (scheme + host + port): a redirect or a
+    download link to another host (a file store) never receives the password."""
+
+    def __init__(self, username: str, password: str, origin: tuple[str, str]) -> None:
+        super().__init__(username, password)
+        self.origin = origin
+
+    def __call__(self, request: requests.PreparedRequest) -> requests.PreparedRequest:
+        parts = urlsplit(request.url or "")
+        if (parts.scheme, parts.netloc) == self.origin:
+            return super().__call__(request)
+        return request
+
+
+def basic_auth_for(base_url: str, username: str, password: str) -> HostBoundBasicAuth:
+    parts = urlsplit(base_url)
+    return HostBoundBasicAuth(username, password, (parts.scheme, parts.netloc))
