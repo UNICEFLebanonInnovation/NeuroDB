@@ -20,6 +20,7 @@ from typing import Any
 from neurodb.core.models import SyncRun
 from neurodb.geo.models import Location, LocationType
 from neurodb.integrations.etools.client import EToolsClient
+from neurodb.integrations.http import IntegrationError
 from neurodb.integrations.runs import fail, finish_by_counts, new_run, process_items
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,12 @@ def sync_location_types(run: SyncRun, *, client: EToolsClient | None = None) -> 
         process_items(
             run, client.list("/api/locations-types/", page_size=None), handle, lambda i: str(i.get("id"))
         )
+    except IntegrationError as exc:
+        if exc.status == 404:
+            # eTools removed this endpoint: the admin levels come with the Datamart's locations
+            return finish_by_counts(run, note="eTools no longer serves location types (404); skipped")
+        fail(run, exc)
+        raise
     except Exception as exc:
         fail(run, exc)
         raise

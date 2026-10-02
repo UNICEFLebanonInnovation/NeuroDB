@@ -259,3 +259,16 @@ def test_sync_locations_sets_type_parent_and_coordinates():
     assert (ain.type_id, ain.parent_id, ain.cas_code, ain.longitude) == (2, 100, "10110", None)
     old = Location.objects.get(id=300)
     assert (old.type_id, old.parent_id, old.cas_code) == (None, None, "1")
+
+
+@responses.activate
+def test_the_rest_locations_skip_the_removed_location_types_endpoint(db):
+    responses.get(f"{BASE}/api/locations-types/", status=404, body="<!doctype html>Not found")
+    responses.get(
+        f"{BASE}/api/locations/",
+        json=[{"id": 100, "name": "Beirut", "p_code": "LB_GOV_1", "gateway": None, "parent": None}],
+    )
+    runs = locations.sync_all_locations(client=make_client(), triggered_by="test")
+    assert [r.status for r in runs] == [SyncRun.Status.SUCCEEDED, SyncRun.Status.SUCCEEDED]
+    assert "no longer serves location types" in runs[0].details["note"]
+    assert Location.objects.filter(id=100).exists()

@@ -331,7 +331,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 
 | Job | Runs | Default schedule (Beirut) |
 |---|---|---|
-| `locations` | `sync_locations` | `0 5 * * *`, daily 05:00 |
+| `locations` | `sync_locations` | `0 5 * * *`, daily 05:00: the eTools locations from the Datamart (`--source rest` for the older eTools REST API, which needs `ETOOLS_TOKEN`; its location-types endpoint is gone and is skipped) |
 | `daily-review` | `daily_review` | `0 6 * * *`, daily 06:00, after the night's syncs |
 | `activityinfo-data` | `import_activityinfo_data --current-year` | `0 18 1-22 * *`, 18:00 on days 1–22 |
 | `etools-datamart` | `sync_etools_datamart` | `30 20 * * *`, daily 20:30 |
@@ -637,8 +637,9 @@ count and add up), `etools_search` (which datasets mention a name or reference) 
 records in every dataset.
 
 The older eTools REST sync (`manage sync_etools`, token `ETOOLS_TOKEN`) is still available on
-demand, for trips (`--only travels`) and the legacy engagement tables; locations still come from
-`sync_locations`. Its intervention details step writes the donor amounts in the same shape as the
+demand, for trips (`--only travels`) and the legacy engagement tables; locations come from the
+Datamart (`sync_locations`). An "Invalid token" (HTTP 403) from it means `ETOOLS_TOKEN` was revoked or
+expired: ask eTools for a new token and store it in Key Vault (never in a file). Its intervention details step writes the donor amounts in the same shape as the
 Datamart sync (one entry per donor and grant), so running it does not blank the donor pages.
 
 ## Country overview (the signed-in home page)

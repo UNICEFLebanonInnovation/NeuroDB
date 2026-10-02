@@ -983,3 +983,23 @@ def test_partners_with_a_duplicate_vendor_number_and_blank_name_are_still_writte
     (again,) = run_all("partners")
     assert again.rows_failed == 0
     assert dict(PartnerOrganization.objects.values_list("etl_id", "name")) == names
+
+
+@responses.activate
+def test_the_locations_job_reads_the_datamart_by_default(db):
+    from neurodb.geo.models import Location
+    from neurodb.integrations.management.commands.sync_locations import sync_from_datamart
+
+    page(
+        "locations",
+        [
+            location(1, "Lebanon", "LB", 0),
+            location(2, "Akkar", "LB1", 1, parent=1),
+            location(3, "Halba", "LB11", 2, parent=2),
+        ],
+    )
+    (run,) = sync_from_datamart("test", client=make_client())
+    assert run.job == SyncRun.Job.LOCATIONS and run.status == SyncRun.Status.SUCCEEDED, run.error
+    akkar = Location.objects.get(p_code="LB1")
+    assert akkar.type.admin_level == 1
+    assert Location.objects.get(p_code="LB11").parent_id == akkar.pk

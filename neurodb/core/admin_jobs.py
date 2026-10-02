@@ -64,7 +64,10 @@ BACKGROUND_JOBS = [
         SyncRun.Job.LOCATIONS,
         _("Locations sync"),
         _("Sync locations"),
-        _("Reads location types and locations (P-codes) from eTools, in the background."),
+        _(
+            "Reads the eTools locations (P-codes, admin levels, parents) from the eTools Datamart, as the "
+            "nightly Datamart sync does, in the background."
+        ),
         "location_on",
     ),
     BackgroundJob(
