@@ -341,6 +341,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `activityinfo-structure` | `import_activityinfo_structure --all` | switched off; switch on or use *Run now* after the yearly rollover |
 | `compiler-youth` | `sync_compiler_youth` | `0 21 * * *`, daily 21:00; switched off until Compiler is configured |
 | `compiler-education` | `sync_compiler_education` | `30 6 * * *`, daily 06:30; switched off until Compiler is configured |
+| `compiler-wellbeing` | `sync_compiler_wellbeing` | `0 4 * * *`, daily 04:00, after BMA's 03:00 flags; switched off until Compiler is configured |
 | `knowledge-hub` | `build_knowledge_hub` | `0 7 * * *`, daily 07:00: reads new library and CPD documents, then rebuilds the knowledge hub (it is also rebuilt after every sync) |
 | `whats-new` | `whats_new_digest` | `30 7 * * *`, daily 07:30: the what's new notes, emailed to who asked |
 | `ml-readiness` | `ml_readiness` | `45 6 * * 1`, Mondays 06:45: is the data ready for machine learning (Data health) |
@@ -1100,7 +1101,8 @@ them. The rules, thresholds and the BMA side are described in BMA's
 `student_registration/wellbeing/README.md`.
 
 - **Reading**: the job "Read the Makani wellbeing flags from Compiler" (`sync_compiler_wellbeing`;
-  admin → Import and sync runs → Run a job, or a schedule after BMA's night run) reads the flags
+  admin → Import and sync runs → Run a job, or the `compiler-wellbeing` schedule, daily 04:00 after
+  BMA's 03:00 run; off until Compiler is configured) reads the flags
   changed since the last run and the last 12 months of centre summaries. `--full` reads every flag
   again. It uses the same `COMPILER_API_URL` / `COMPILER_API_TOKEN` as the youth and education
   figures; the BMA service account must be in BMA's "NeuroDB API" group.
