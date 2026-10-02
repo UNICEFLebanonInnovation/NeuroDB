@@ -135,11 +135,16 @@ class DatamartSyncForm(BaseDialogForm):
         return None
 
 
+class StopRunForm(BaseDialogForm):
+    """Nothing to fill in: the dialog asks for confirmation."""
+
+
 @admin.register(SyncRun)
 class SyncRunAdmin(JobActionsMixin, ReadOnlyModelAdmin):
     # "Sync eTools Datamart now" (the nightly sync) stays a button of its own; every other command
     # an operator may need is in the "Run a job" menu (admin_jobs.py).
     actions_list = ["sync_etools_datamart", JobActionsMixin.JOB_MENU]
+    actions_detail = ["stop_run"]
     list_before_template = "admin/core/syncrun/etools_syncs.html"
 
     list_display = (
@@ -218,6 +223,38 @@ class SyncRunAdmin(JobActionsMixin, ReadOnlyModelAdmin):
         from neurodb.accounts.roles import ADMIN, role_of
 
         return request.user.is_superuser or role_of(request.user) == ADMIN
+
+    def has_stop_run_permission(self, request, object_id=None):
+        return self.has_run_sync_permission(request)
+
+    @action(
+        description=_("Stop"),
+        url_path="stop",
+        permissions=["stop_run"],
+        icon="stop_circle",
+        dialog={
+            "title": _("Stop this run"),
+            "description": _(
+                "Marks the run as stopped, so the job can be started again. A job waiting for another "
+                "system (the Compiler/BMA calculations) quits within a minute; any other job finishes the "
+                "work it is doing in the background, without changing this run's status."
+            ),
+            "form_class": StopRunForm,
+            "form_submit_text": _("Stop"),
+        },
+    )
+    def stop_run(self, request, form, object_id):
+        run = SyncRun.objects.filter(pk=object_id).first()
+        if run is None or not run.stop(request.user.get_username()):
+            messages.warning(request, _("This run is not running."))
+        else:
+            messages.success(request, _("Stopped. The job can be started again."))
+        url = reverse("admin:core_syncrun_change", args=[object_id])
+        if request.headers.get("HX-Request"):
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = url
+            return response
+        return redirect(url)
 
     @action(
         description=_("Sync eTools Datamart now"),

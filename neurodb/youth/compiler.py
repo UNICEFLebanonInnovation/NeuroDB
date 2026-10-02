@@ -142,9 +142,10 @@ def calculate(
     *,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
+    stop: Callable[[], bool] = lambda: False,
 ) -> dict[str, Any]:
     """Ask BMA to calculate and wait until it is done. Returns what to record on the sync run:
-    ``{"status": "succeeded" | "failed" | "timed out" | "unavailable", "run": id, "error": ...}``.
+    ``{"status": "succeeded" | "failed" | "timed out" | "unavailable" | "stopped", "run": id, ...}``.
     Never raises: whatever happens, the sync goes on to read what BMA has."""
     try:
         run = client.start_run(kind, payload)
@@ -159,6 +160,8 @@ def calculate(
                     "error": f"still {run['status']} after {settings.COMPILER_RUN_TIMEOUT_MINUTES} minutes",
                 }
             sleep(settings.COMPILER_RUN_POLL_SECONDS)
+            if stop():  # stopped from the admin: stop waiting (BMA's calculation goes on)
+                return {"status": "stopped", "run": run["id"]}
             run = client.run_status(kind, run["id"])
     except IntegrationError as exc:
         return {"status": "failed", "error": str(exc)[:500]}

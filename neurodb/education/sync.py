@@ -35,8 +35,11 @@ def sync(
     try:
         client = client or CompilerClient()
         if calculate_first:
-            calculation = calculate(client, "education")
+            calculation = calculate(client, "education", stop=run.stopped)
             run.details["calculation"] = calculation
+            if calculation["status"] == "stopped":  # stopped from the admin: nothing is read
+                run.finish(SyncRun.Status.FAILED)
+                return run
         index = client.education_index()
     except Exception as exc:
         return fail(run, exc)

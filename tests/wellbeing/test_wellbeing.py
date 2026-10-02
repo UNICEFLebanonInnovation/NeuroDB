@@ -262,3 +262,36 @@ def test_a_date_before_the_flag_or_in_the_future_is_refused(client, editor, bma,
         url, {"follow_up_type": "Phone call", "result": "referred", "followed_up_on": "2026-09-01"}
     )
     assert response.status_code == 200 and bma.posted == []
+
+
+def test_a_run_stopped_in_the_admin_stays_stopped_and_frees_the_job(admin_client, bma, settings):
+    from neurodb.core.models import SyncRun
+    from neurodb.integrations import background
+
+    run = SyncRun.objects.create(job=SyncRun.Job.COMPILER_WELLBEING, target="compiler")
+    assert background.is_running(SyncRun.Job.COMPILER_WELLBEING)
+    response = admin_client.post(
+        reverse("admin:core_syncrun_stop_run", args=[run.pk]), {"_form_submitted": "on"}
+    )
+    run.refresh_from_db()
+    assert (
+        response.status_code in (204, 302) and run.status == "failed" and run.error.startswith("Stopped by")
+    )
+    assert not background.is_running(SyncRun.Job.COMPILER_WELLBEING)
+    run.rows_written = 3
+    run.finish(SyncRun.Status.SUCCEEDED)  # its process ends later: the run stays stopped
+    run.refresh_from_db()
+    assert run.status == "failed" and run.error.startswith("Stopped by") and run.rows_written == 3
+
+    class Stopped(FakeBMA):  # a sync told to stop while waiting for BMA reads nothing
+        def start_run(self, kind, payload=None):
+            return {"id": 1, "status": "queued"}
+
+        def run_status(self, kind, run_id):  # stopped from the admin meanwhile
+            SyncRun.objects.filter(status="running").update(status="failed", error="Stopped by admin")
+            return {"id": 1, "status": "queued"}
+
+    settings.COMPILER_RUN_POLL_SECONDS = 0
+    stopped = sync.sync(client=Stopped([flag(1)]))
+    assert stopped.status == "failed" and stopped.details["calculation"]["status"] == "stopped"
+    assert stopped.error == "Stopped by admin" and not Flag.objects.exists()

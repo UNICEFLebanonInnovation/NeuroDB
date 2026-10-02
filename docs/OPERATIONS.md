@@ -424,6 +424,11 @@ The Container Apps jobs in `infra/main.bicep` have no schedule any more (they st
 writes a `SyncRun` row (admin → *Import and sync runs*; page `/data/health/`).
 Triage a failure: open the run, read `error`, re-run the job from the admin, or the command with
 `--database <ai_id>` or `--only <entity>`. A `PARTIAL` run lists the failed item ids in `details`.
+**Stopping a run**: open it in *Import and sync runs* and press **Stop** (administrators). The run
+becomes *Failed* with "Stopped by <user> at <time>", and the job can be started again at once. A
+job waiting for the Compiler (BMA) to calculate quits within a minute (BMA's calculation itself
+goes on); any other job finishes the work it is doing in the background without changing the
+stopped run.
 
 ## Running jobs without a command line
 

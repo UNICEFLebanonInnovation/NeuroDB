@@ -77,3 +77,10 @@ def test_the_client_starts_and_follows_runs():
     responses.get(BASE + "/api/figures/runs/4/", json={"oops": True})
     with pytest.raises(IntegrationError, match="unexpected"):
         client.run_status("education", 4)
+
+
+def test_a_wait_stopped_from_the_admin_ends_at_once(settings):
+    settings.COMPILER_RUN_POLL_SECONDS = 60
+    bma = Steps(*["queued"] * 10)
+    out = calculate(bma, "wellbeing", sleep=bma.sleep, clock=bma.clock, stop=lambda: len(bma.slept) >= 2)
+    assert out == {"status": "stopped", "run": 7} and bma.slept == [60, 60]

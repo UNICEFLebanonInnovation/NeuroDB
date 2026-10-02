@@ -73,8 +73,11 @@ def sync(
     try:
         client = client or CompilerClient()
         if calculate_first:
-            calculation = calculate(client, "wellbeing")
+            calculation = calculate(client, "wellbeing", stop=run.stopped)
             run.details["calculation"] = calculation
+            if calculation["status"] == "stopped":  # stopped from the admin: nothing is read
+                run.finish(SyncRun.Status.FAILED)
+                return run
         since = None if full else (state.flags_modified_since or None)
         latest, after, pages = since or "", None, 0
         while True:
