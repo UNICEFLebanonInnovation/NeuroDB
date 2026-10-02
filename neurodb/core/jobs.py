@@ -58,6 +58,9 @@ COMMANDS: dict[str, JobCommand] = {
         SyncRun.Job.KNOWLEDGE_HUB,
     ),
     "daily_review": JobCommand(_("Daily review"), ("daily_review",), SyncRun.Job.DAILY_REVIEW),
+    "forecast": JobCommand(
+        _("Forecast the year-end value of the indicators"), ("forecast_indicators",), SyncRun.Job.FORECAST
+    ),
     "ml_readiness": JobCommand(
         _("Check whether the data is ready for machine learning"), ("ml_readiness",), SyncRun.Job.ML_READINESS
     ),

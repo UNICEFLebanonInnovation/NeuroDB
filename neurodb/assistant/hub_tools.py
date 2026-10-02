@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
+from django.db.models import Q
 from django.http import QueryDict
 from django.urls import reverse
 
@@ -436,6 +437,75 @@ def whats_new(
     )
 
 
+# ----------------------------------------------------------------------------- forecasts
+def indicator_forecasts(
+    section: str | None = None,
+    database_id: int | None = None,
+    status: str | None = None,
+    text: str | None = None,
+) -> dict[str, Any]:
+    from neurodb.accounts.models import Section
+    from neurodb.insights import services
+    from neurodb.insights.models import IndicatorForecast
+
+    run = services.latest_run()
+    if run is None:
+        return {"note": "No year-end forecast has been made yet."}
+    backtest = run.details.get("backtest") or {}
+    if not services.shown(run):
+        return {
+            "note": "Forecasts are not shown yet: the test on past years did not show them reliable enough.",
+            "backtest": backtest,
+        }
+    filters: dict[str, Any] = {}
+    if section:
+        ids = list(Section.objects.filter(name__icontains=section).values_list("pk", flat=True)[:5])
+        if not ids:
+            raise ToolInputError(f"No section matches '{section}'.")
+        filters["section_id__in"] = ids
+    if database_id:
+        filters["database_id"] = database_id
+    if status:
+        if status not in IndicatorForecast.Status.values:
+            raise ToolInputError(f"status must be one of {', '.join(IndicatorForecast.Status.values)}.")
+        filters["status"] = status
+    qs = services.forecasts(**filters)
+    if text:
+        qs = qs.filter(Q(master__name__icontains=text) | Q(master__awp_code__icontains=text))
+    rows = list(qs[: MAX_LIST + 1])
+    return _clean(
+        {
+            "year": run.details.get("year"),
+            "months_used": services.MONTHS[run.details.get("as_of") or 0],
+            "made": run.finished_at,
+            "accuracy_on_past_years": backtest.get("by_month"),
+            "forecasts": [
+                {
+                    "indicator": f.master.name,
+                    "awp_code": f.master.awp_code,
+                    "database": f.database.label or f.database.name,
+                    "database_id": f.database_id,
+                    "to_date": round(f.value_to_date),
+                    "target": f.target,
+                    "likely_year_end": round(f.forecast) if f.forecast is not None else None,
+                    "range": [round(f.low), round(f.high)] if f.low is not None else None,
+                    "range_pct_of_target": [f.low_pct, f.high_pct] if f.low_pct is not None else None,
+                    "straight_line": round(f.linear) if f.linear is not None else None,
+                    "status": f.get_status_display(),
+                    "based_on": f.basis,
+                    "url": reverse("reports:database_dashboard", args=[f.database_id]),
+                }
+                for f in rows[:MAX_LIST]
+            ],
+            "more": len(rows) > MAX_LIST,
+            "note": "Estimates from each indicator's monthly pattern in past years, with the range that held "
+            "the real result in past years; months count once 30 days have passed since they ended. Say they "
+            "are estimates and give the range.",
+            "url": reverse("insights:forecasts"),
+        }
+    )
+
+
 _KIND = {
     "type": "string",
     "description": "Entity kind, e.g. partner, programme_document, donor, governorate.",
@@ -538,6 +608,22 @@ HUB_TOOLS: dict[str, tuple] = {
             }
         ),
         "Checking what's new",
+    ),
+    "indicator_forecasts": (
+        indicator_forecasts,
+        "Year-end forecasts of the ActivityInfo master indicators of the current year: value to date, likely "
+        "year-end value with a range, target, status (on_course, uncertain, likely_short, no_reports, "
+        "too_early, no_target) and what the pattern is based on; with the method's accuracy on past years. "
+        "Filter by section, database_id, status or words of the indicator's name or AWP code.",
+        _schema(
+            {
+                "section": {"type": "string"},
+                "database_id": {"type": "integer"},
+                "status": {"type": "string"},
+                "text": {"type": "string"},
+            }
+        ),
+        "Reading the year-end forecasts",
     ),
     "management_brief": (
         management_brief,

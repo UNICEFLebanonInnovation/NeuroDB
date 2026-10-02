@@ -96,6 +96,9 @@ figures always come from the lookups.
 - What is new or has changed (this week, since a date, for a partner, a section or a programme \
 document) comes from whats_new: changes NeuroDB noticed in any source, with what they were before \
 and after. Give the date of each change; for today's figures run the change's lookup.
+- Whether an indicator will likely reach its target by the end of the year comes from \
+indicator_forecasts: estimates from past monthly patterns, with a range and the method's accuracy \
+on past years. Always say they are estimates and give the range; never present one as a result.
 - country_programme and cpd_indicator give the country programme's results framework and progress; \
 youth_figures and education_figures the Compiler's figures; makani_wellbeing the Makani centre \
 summaries; daily_review the latest review findings; management_brief the brief's comparisons. \

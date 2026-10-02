@@ -231,6 +231,15 @@ def _overview_chart_data(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _forecast_risk(sections: list[str]) -> list[Any]:
+    """The indicators of the chosen sections likely to fall short of their target (overview card)."""
+    from neurodb.accounts.models import Section
+    from neurodb.insights.services import at_risk
+
+    ids = list(Section.objects.filter(name__in=sections).values_list("pk", flat=True)) if sections else None
+    return at_risk(section_ids=ids, limit=6)
+
+
 def _whats_new(sections: list[str]) -> list[tuple[Any, str]]:
     """The notable changes of the last two days in the chosen sections, for the overview card."""
     from django.utils import timezone
@@ -311,6 +320,7 @@ def overview(request: HttpRequest) -> HttpResponse:
         "chart_data": _overview_chart_data(data) if data else {},
         "review": review,
         "whats_new": _whats_new(sections),
+        "forecast_risk": _forecast_risk(sections),
         "keep_query": keep.urlencode(),
         "programmes_query": ("?" + programmes.urlencode()) if sections else "",
         "base_query": base.urlencode(),
@@ -477,6 +487,7 @@ def database_dashboard(request: HttpRequest, pk: int) -> HttpResponse:
         "status": status,
         "q": q,
         "status_ref": _status_reference(dash.year, datetime.date.today()),
+        "forecast_risk": _database_forecast_risk(database),
         "editor_reports": _editor_hpm_reports(request, database),
         "chart_data": {
             "status_counts": dash.status_counts,
@@ -486,6 +497,12 @@ def database_dashboard(request: HttpRequest, pk: int) -> HttpResponse:
     }
     template = "reports/partials/indicator_table.html" if request.htmx else "reports/database_dashboard.html"
     return render(request, template, context)
+
+
+def _database_forecast_risk(database: Database) -> list[Any]:
+    from neurodb.insights.services import at_risk
+
+    return at_risk(database_id=database.pk, limit=10)
 
 
 def _database_subtitle(database: Database) -> str:

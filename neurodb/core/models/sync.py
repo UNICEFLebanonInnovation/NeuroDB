@@ -24,6 +24,7 @@ class SyncRun(models.Model):
         KNOWLEDGE_HUB = "knowledge_hub", "Knowledge hub"
         WHATS_NEW = "whats_new", "What's new note"
         ML_READINESS = "ml_readiness", "Machine learning readiness check"
+        FORECAST = "forecast", "Year-end indicator forecast"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"

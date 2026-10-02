@@ -158,6 +158,19 @@ BACKGROUND_JOBS = [
         "hub",
     ),
     BackgroundJob(
+        "run_forecast_indicators",
+        ("forecast_indicators",),
+        SyncRun.Job.FORECAST,
+        _("Year-end forecast"),
+        _("Forecast the indicators' year-end values"),
+        _(
+            "Learns each ActivityInfo indicator's monthly pattern from the past years, checks how well "
+            "it would have forecast them, then forecasts the current year: the likely year-end value, "
+            "a range, and whether the target is likely to be reached. In the background."
+        ),
+        "trending_up",
+    ),
+    BackgroundJob(
         "run_ml_readiness",
         ("ml_readiness",),
         SyncRun.Job.ML_READINESS,

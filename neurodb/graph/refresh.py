@@ -101,7 +101,12 @@ def on_run_finished(sender, instance, update_fields=None, **kwargs) -> None:
 
     if not update_fields or "finished_at" not in update_fields:
         return
-    if instance.job in (SyncRun.Job.KNOWLEDGE_HUB, SyncRun.Job.WHATS_NEW, SyncRun.Job.ML_READINESS):
+    if instance.job in (
+        SyncRun.Job.KNOWLEDGE_HUB,
+        SyncRun.Job.WHATS_NEW,
+        SyncRun.Job.ML_READINESS,
+        SyncRun.Job.FORECAST,
+    ):
         return  # they bring no new data
     if instance.status not in (SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL):
         return

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% load i18n ui humanize insights %}
+{% block content %}
+{% if not run %}
+<div class="panel">{% include "components/empty_state.html" with icon="trend" title=_("No forecast yet") message=_("The forecast runs every Monday; an administrator can run it now (Run a job → Year-end forecast).") %}</div>
+{% else %}
+<section class="panel" aria-labelledby="bt-title">
+  <div class="panel__header">
+    <div>
+      <h2 class="panel__title" id="bt-title">{% trans "How good is it? Tested on past years" %}</h2>
+      <div class="panel__hint">{% blocktrans with years=backtest.years|join:", " %}Each past year ({{ years }}) forecast again month by month with only what was known then, and compared with what happened and with a straight-line projection.{% endblocktrans %}</div>
+    </div>
+    {% if shown %}{% status_pill "succeeded" _("Shown on the dashboards") "sm" %}{% else %}{% status_pill "unknown" _("Not shown yet") "sm" %}{% endif %}
+  </div>
+  {% if checks %}
+  <div class="table-wrap"><table class="table table-sm mb-0" id="backtest">
+    <thead><tr><th>{% trans "Forecast made at the end of" %}</th><th class="num">{% trans "Typical error" %}</th><th class="num">{% trans "Straight line" %}</th><th class="num">{% trans "Range held the real result" %}</th><th class="num">{% trans "“Likely to fall short” was right" %}</th><th class="num">{% trans "Shortfalls it caught" %}</th></tr></thead>
+    <tbody>{% for month, m in checks %}<tr>
+      <td>{% if month == 3 %}{% trans "March" %}{% elif month == 6 %}{% trans "June" %}{% else %}{% trans "September" %}{% endif %} <span class="cell-sub">{% blocktrans with n=m.cases|intcomma %}{{ n }} indicator-years{% endblocktrans %}</span></td>
+      <td class="num">{{ m.error|share }}</td>
+      <td class="num text-muted">{{ m.linear_error|share }}</td>
+      <td class="num">{{ m.range_held|share }}</td>
+      <td class="num">{{ m.short_flagged_right|share }}<span class="cell-sub">{% trans "straight line" %} {{ m.linear_short_flagged_right|share }}</span></td>
+      <td class="num">{{ m.short_caught|share }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  <p class="small text-muted mt-2 mb-0">{% trans "Typical error: the median gap between the forecast and the real year-end, as a share of the real value. Forecasts are shown on the dashboards when, at the end of June, they beat the straight line and their range held the real result at least 70% of the time." %}</p>
+  {% else %}
+  <p class="small text-muted mb-0">{% trans "Not enough past years with monthly reports to test it yet." %}</p>
+  {% endif %}
+</section>
+
+{% if not shown and not user.is_staff %}
+<div class="panel mt-3">{% include "components/empty_state.html" with icon="info" title=_("Forecasts are not shown yet") message=_("They will appear once the test on past years shows they are reliable enough.") %}</div>
+{% else %}
+{% if not shown %}<p class="small text-warning mt-3">{% trans "Shown to administrators only, for review: the test on past years has not passed yet." %}</p>{% endif %}
+<form method="get" class="filter-bar mt-3" aria-label="{% trans 'Filter the forecasts' %}">
+  <div class="filter-bar__field">
+    <label class="form-label" for="fc-section">{% trans "Section" %}</label>
+    <select class="form-select form-select-sm" id="fc-section" name="section">
+      <option value="">{% trans "Every section" %}</option>
+      {% for s in sections %}<option value="{{ s.pk }}" {% if s.pk == section_id %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="fc-status">{% trans "Status" %}</label>
+    <select class="form-select form-select-sm" id="fc-status" name="status">
+      <option value="">{% trans "All" %}</option>
+      {% for value, label in statuses %}<option value="{{ value }}" {% if value == status %}selected{% endif %}>{{ label }}{% for k, n in counts.items %}{% if k == value %} ({{ n }}){% endif %}{% endfor %}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Show" %}</button>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}?section=">{% trans "Reset" %}</a>
+  </div>
+</form>
+<section class="panel p-0">
+  <div class="px-3 pt-3"><h2 class="h6">{% blocktrans with y=year m=as_of %}{{ y }}, with the months up to {{ m }}{% endblocktrans %} <span class="small text-muted fw-normal">· {% trans "a month counts once 30 days have passed since it ended" %}</span></h2></div>
+  {% if rows %}
+  <div class="table-wrap"><table class="table table-sm mb-0" id="forecasts" data-sortable>
+    <thead><tr><th>{% trans "Indicator" %}</th><th class="num">{% trans "To date" %}</th><th class="num">{% trans "Likely by December" %}</th><th>{% trans "Status" %}</th><th>{% trans "Based on" %}</th></tr></thead>
+    <tbody>{% for f in rows %}<tr>
+      <td><a href="{% url 'reports:database_dashboard' f.database_id %}">{{ f.master.name|truncatechars:110 }}</a><span class="cell-sub">{{ f.master.awp_code }} · {{ f.database.label|default:f.database.name }}{% if f.target %} · {% trans "target" %} {{ f.target|floatformat:0|intcomma }}{% endif %}</span></td>
+      <td class="num" data-value="{{ f.to_date_pct|default_if_none:'' }}">{{ f.value_to_date|floatformat:0|intcomma }}{% if f.to_date_pct is not None %}<span class="cell-sub">{{ f.to_date_pct }}%</span>{% endif %}</td>
+      <td class="num" data-value="{{ f.forecast_pct|default_if_none:'' }}">{% if f.forecast is not None %}{{ f.forecast|floatformat:0|intcomma }}{% if f.low is not None %}<span class="cell-sub">{{ f.low|floatformat:0|intcomma }} – {{ f.high|floatformat:0|intcomma }}{% if f.low_pct is not None %} ({{ f.low_pct|floatformat:0 }}–{{ f.high_pct|floatformat:0 }}%){% endif %}</span>{% endif %}{% else %}—{% endif %}</td>
+      <td>{% for k, v in pills.items %}{% if k == f.status %}{% status_pill v f.get_status_display "sm" %}{% endif %}{% endfor %}{% if f.status not in pills %}{% status_pill "unknown" f.get_status_display "sm" %}{% endif %}</td>
+      <td class="small">{{ f.basis }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}
+  {% include "components/empty_state.html" with icon="trend" title=_("No forecast matches") action_url=request.path %}
+  {% endif %}
+</section>
+<p class="small text-muted mt-3">{% trans "Only indicators that add up month by month (SUM) are forecast; averages, maximums and ratios are not. A forecast is an estimate from past patterns: a new activity, a funding change or late reporting can move the real result." %} {% trans "Ask NeuroDB can explain one: “why is indicator X likely to fall short?”" %}</p>
+{% endif %}
+{% endif %}
+{% endblock %}

@@ -123,6 +123,7 @@
       <a class="nav-item-link {% active_if 'reports:databases' %}" href="{% url 'reports:databases' %}" {% aria_current 'reports:databases' %}>
         {% include "components/icon.html" with name="database" %}<span>{% trans "ActivityInfo databases" %}</span>
       </a>
+      <a class="nav-item-link {% active_if 'insights:forecasts' %}" href="{% url 'insights:forecasts' %}" {% aria_current 'insights:forecasts' %}>{% include "components/icon.html" with name="trend" %}<span>{% trans "Year-end forecasts" %}</span></a>
       {% if nav.sections %}
       <details class="sidebar__block" data-nav-key="databases" {% if nav_active.block == "databases" %}open data-nav-active{% endif %}>
         <summary class="sidebar__block-title">

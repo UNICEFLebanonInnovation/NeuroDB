@@ -18,6 +18,7 @@ urlpatterns = [
     path("country-programme/", include("neurodb.cpd.urls")),
     path("knowledge/", include("neurodb.knowledge.urls")),
     path("whats-new/", include("neurodb.graph.urls")),
+    path("insights/", include("neurodb.insights.urls")),
     path("makani/wellbeing/", include("neurodb.wellbeing.urls")),
     path("", include("neurodb.reports.urls")),
 ]

@@ -26,6 +26,7 @@
 <p class="editor-note">{% include "components/icon.html" with name="info" %}<span>{% if editor_reports %}{% trans "As a section editor you can add comments to this database's indicators on" %} {% for r in editor_reports %}<a href="{% url 'reports:report_hpm' r.id %}">{{ r.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}. {% trans "Targets and indicator settings are changed by an administrator." %}{% else %}{% trans "As a section editor you can add comments to your section's indicators on an HPM report once this database's indicators are part of one. Targets and indicator settings are changed by an administrator." %}{% endif %}</span></p>
 {% endif %}
 
+{% include "insights/_at_risk.html" %}
 <section class="panel p-0">
   <form class="toolbar px-3 pt-3 mb-2" method="get" hx-get="{% url 'reports:database_dashboard' database.id %}" hx-target="#indicator-table" hx-trigger="change, input from:#indicator-q delay:300ms, submit" hx-push-url="true" role="search">
     <div class="segmented segmented--scroll" role="radiogroup" aria-label="{% trans 'Filter by status' %}">

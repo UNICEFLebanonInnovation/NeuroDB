@@ -284,6 +284,47 @@ checks pass:
 The first model is chosen from these results with the programme teams; a check that fails says what
 to improve first (for example, PD locations in eTools, or linking ActivityInfo partner names).
 
+### Year-end forecasts (`/insights/forecasts/`, the first model)
+
+For each ActivityInfo master indicator of the current reporting year that adds up month by month
+(aggregation SUM; averages, maximums and ratios are not forecast), where it will likely stand in
+December, with a range, against its target. The method is in `neurodb/insights/forecast.py`; it runs
+on NeuroDB's servers, with no outside service and no new library.
+
+1. **History**: every year's monthly sums of every additive master indicator (the same monthly sums
+   as the dashboards; one query per database). An indicator is recognised across years by its section
+   and its AWP code or name.
+2. **Pattern**: the share of the year's total reached by the end of each month, averaged over the
+   indicator's own past years and blended with its section's pattern (5 indicators or more), else
+   with all indicators', else a straight line.
+3. **Forecast**: value to date ÷ the share usually reached by then. Only **settled months** count: a
+   month once 30 days have passed since it ended (late reports and corrections arrive by then).
+4. **Range**: how far past forecasts made at the same month landed from the real year-end, for
+   indicators with the same years of own history (0, 1, 2, 3+): the 5th to 95th percentile.
+5. **Status**: *On course* when even the low end reaches the target, *Likely to fall short* when even
+   the high end does not, *Uncertain* in between; also *Nothing reported yet*, *Too early to tell*
+   (before 5% of the year's usual total) and *No target*.
+
+**Back-test, and when forecasts are shown.** Every past year is forecast again at the end of each
+month with only what was known then (the history before that year, and ranges from the *other*
+years), and compared with the real year-end and with the straight line (value to date × 12 ÷
+months). The page shows, at the end of March, June and September: the typical error (median gap as
+a share of the real value) against the straight line's, how often the range held the real result,
+how often "likely to fall short" was right, and the share of real shortfalls it caught. Forecasts
+appear on the dashboards, the overview and in Ask NeuroDB only when, at the end of June, the method
+beats the straight line and its range held the real result at least 70% of the time
+(`GATE_MONTH`, `GATE_COVERAGE`); until then the page shows the test, and the forecasts to
+administrators only, for review.
+
+**Where it shows**: the *Year-end forecasts* page (sidebar, under the ActivityInfo databases; the
+user's section first; filter by section and status), a *Likely to fall short by December* card on
+the overview (the chosen sections) and on each database dashboard, and Ask NeuroDB
+(`indicator_forecasts`), which is told to say they are estimates and to give the range.
+
+**Running it**: the job `forecast` (`forecast_indicators`, Mondays 07:15; *Run a job → Year-end
+forecast*). Each run replaces the forecasts; the back-test is in the run's details (admin → Import
+and sync runs). Reading every year's monthly sums takes a few minutes on the production data.
+
 ## Scheduled jobs
 The periodic jobs are managed in the admin: **Data and sync → Scheduled jobs**. Each row is one
 command on one schedule, in **Beirut time** (summer time is followed automatically):
@@ -301,6 +342,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `knowledge-hub` | `build_knowledge_hub` | `0 7 * * *`, daily 07:00: reads new library and CPD documents, then rebuilds the knowledge hub (it is also rebuilt after every sync) |
 | `whats-new` | `whats_new_digest` | `30 7 * * *`, daily 07:30: the what's new notes, emailed to who asked |
 | `ml-readiness` | `ml_readiness` | `45 6 * * 1`, Mondays 06:45: is the data ready for machine learning (Data health) |
+| `forecast` | `forecast_indicators` | `15 7 * * 1`, Mondays 07:15: year-end forecasts of the indicators, back-tested |
 | (inside `activityinfo-data` and `etools-datamart`) | `link_partners` | at the end of both jobs |
 
 On the page: switch a job on or off (the toggle saves at once), open it to change its schedule (five
@@ -355,6 +397,7 @@ admin home page, *Quick actions*):
 | Run a job → *Knowledge hub* | `build_knowledge_hub` | background |
 | Run a job → *What's new note* | `whats_new_digest` | background |
 | Run a job → *Machine learning readiness* | `ml_readiness` | background |
+| Run a job → *Year-end forecast* | `forecast_indicators` | background |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |

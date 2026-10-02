@@ -1,0 +1,19 @@
+{% load i18n ui humanize %}
+{# Indicators likely to fall short of their target. Context: forecast_risk (list of IndicatorForecast), forecast_scope (text). #}
+{% if forecast_risk %}
+<section class="panel mt-3" aria-labelledby="forecast-risk-title">
+  <div class="panel__header">
+    <div>
+      <h2 class="panel__title" id="forecast-risk-title">{% trans "Likely to fall short by December" %}</h2>
+      <div class="panel__hint">{% trans "Year-end forecasts from each indicator's monthly pattern in past years: estimates with a range" %}{% if forecast_scope %} · {{ forecast_scope }}{% endif %}</div>
+    </div>
+    <a class="small" href="{% url 'insights:forecasts' %}?status=likely_short">{% trans "All forecasts" %} →</a>
+  </div>
+  <ul class="list-unstyled small mb-0">
+    {% for f in forecast_risk %}
+    <li class="py-1"><a href="{% url 'reports:database_dashboard' f.database_id %}">{{ f.master.name|truncatechars:90 }}</a>
+      <span class="text-muted">· {{ f.database.label|default:f.database.name }} · {% blocktrans with lo=f.low_pct|floatformat:0 hi=f.high_pct|floatformat:0 %}likely {{ lo }}–{{ hi }}% of target{% endblocktrans %}</span></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
