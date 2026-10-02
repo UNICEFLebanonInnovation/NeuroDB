@@ -5,8 +5,10 @@ from __future__ import annotations
 import math
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
+from urllib.parse import urlencode
 
 from django import template
+from django.urls import reverse
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 
@@ -227,3 +229,52 @@ def asset_urls() -> str:
     from django.utils.html import json_script
 
     return json_script({key: static(path) for key, path in ASSETS.items()}, "asset-urls")
+
+
+# The pages that show a chosen year (``?year=``): the year menu keeps the user on them. The pages of
+# one year's database or report go to that year's list of databases; any other page to the overview.
+YEAR_PAGES = frozenset(
+    {
+        "reports:overview",
+        "reports:brief",
+        "reports:databases",
+        "reports:assurance",
+        "reports:funds",
+        "reports:partner_reporting",
+        "reports:monitoring",
+        "reports:pd_monitoring",
+        "reports:pd_monitoring_map",
+        "reports:population",
+        "reports:search",
+        "knowledge:index",
+    }
+)
+YEAR_LIST_PAGES = frozenset(
+    {
+        "reports:database_dashboard",
+        "reports:database_analytical",
+        "reports:database_snapshot",
+        "reports:database_map",
+        "reports:database_raw_data",
+        "reports:indicator_detail",
+        "reports:report_dashboard",
+        "reports:report_analytical",
+        "reports:report_hpm",
+    }
+)
+
+
+@register.simple_tag(takes_context=True)
+def year_url(context: dict[str, Any], year: str) -> str:
+    """Where the year menu goes for ``year``: the same page in that year when the page has one (its
+    other filters kept, back to the first page), else the year's databases or the overview."""
+    request = context.get("request")
+    match = getattr(request, "resolver_match", None)
+    name = match.view_name if match else ""
+    if request is not None and name in YEAR_PAGES:
+        params = request.GET.copy()
+        params["year"] = year
+        params.pop("page", None)
+        return f"{request.path}?{params.urlencode()}"
+    target = "reports:databases" if name in YEAR_LIST_PAGES else "reports:overview"
+    return f"{reverse(target)}?{urlencode({'year': year})}"

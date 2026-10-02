@@ -143,7 +143,7 @@ def test_sidebar_badge_counts_databases_and_topbar_marks_the_page_year(client_vi
     assert '<span class="count">2</span>' in block  # two databases in one section
     html = client_viewer.get(reverse("reports:database_dashboard", args=[old_db.id])).text
     menu = html.split('id="year-menu"', 1)[1].split("</ul>", 1)[0]
-    assert "<span>2025</span>" in menu and 'class="dropdown-item active" href="/?year=2025"' in menu
+    assert "<span>2025</span>" in menu and 'class="dropdown-item active" href="/databases/?year=2025"' in menu
 
 
 def test_pivot_and_map_scripts():

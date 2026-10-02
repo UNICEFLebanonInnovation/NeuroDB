@@ -51,7 +51,7 @@
     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="year-menu">
       <li><h6 class="dropdown-header">{% trans "Reporting year" %}</h6></li>
       {% for y in nav.years %}
-      <li><a class="dropdown-item {% if year.id and y.id == year.id or not year.id and y.id == nav.year.id %}active{% endif %}" href="{% url 'reports:overview' %}?year={{ y.name|urlencode }}">{{ y.name }}{% if y.current %} <span class="text-muted small">({% trans "current" %})</span>{% endif %}</a></li>
+      <li><a class="dropdown-item {% if year.id and y.id == year.id or not year.id and y.id == nav.year.id %}active{% endif %}" href="{% year_url y.name %}">{{ y.name }}{% if y.current %} <span class="text-muted small">({% trans "current" %})</span>{% endif %}</a></li>
       {% endfor %}
     </ul>
   </div>
