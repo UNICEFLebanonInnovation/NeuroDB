@@ -20,6 +20,7 @@
   <div class="filter-bar__actions">
     <button type="submit" class="btn btn-primary btn-sm">{% trans "Search" %}</button>
     <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'knowledge:series_index' %}">{% include "components/icon.html" with name="chart" %}<span>{% trans "Periodic reports" %}</span></a>
     {% if can_add %}<a class="btn btn-outline-primary btn-sm" href="{% url 'knowledge:add' %}">{% include "components/icon.html" with name="file" %}<span>{% trans "Add a document or text" %}</span></a>{% endif %}
   </div>
 </form>

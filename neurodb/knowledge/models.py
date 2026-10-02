@@ -1,5 +1,9 @@
 """The knowledge base of Ask NeuroDB: documents and texts people add, cut into passages with a
 full-text index, and linked to the partners, programme documents, sections and places they mention.
+
+Periodic reports (a snapshot or situation report issued again and again under the same name, with
+its number and date) are grouped in a series, and the figures of each edition are kept as data
+(``ReportFigure``), so that they can be followed over time (see ``periodic.py``).
 """
 
 from __future__ import annotations
@@ -29,6 +33,26 @@ def document_path(instance: Document, filename: str) -> str:
 def max_size(file) -> None:
     if file.size > MAX_FILE_MB * 1024 * 1024:
         raise ValidationError(_("The file is larger than %(mb)s MB.") % {"mb": MAX_FILE_MB})
+
+
+class ReportSeries(models.Model):
+    """A report issued again and again under the same name (e.g. "Escalation of hostilities - UNICEF
+    snapshot"); each edition is a document with its number and issue date."""
+
+    key = models.CharField(max_length=200, unique=True, help_text=_("the name without number and date"))
+    name = models.CharField(max_length=300)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("name",)
+        verbose_name = _("periodic report")
+        verbose_name_plural = _("periodic reports")
+
+    def __str__(self):
+        return self.name
+
+    def get_absolute_url(self) -> str:
+        return reverse("knowledge:series", args=[self.pk])
 
 
 class Document(models.Model):
@@ -85,6 +109,25 @@ class Document(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     indexed_at = models.DateTimeField(null=True, blank=True)
+
+    # an edition of a periodic report: its figures are kept as data
+    class FiguresStatus(models.TextChoices):
+        NONE = "", _("Not a periodic report")
+        PENDING = "pending", _("Figures waiting to be read")
+        READ = "read", _("Figures read")
+        FAILED = "failed", _("Figures could not be read")
+
+    periodic = models.BooleanField(
+        default=False, help_text=_("an edition of a report issued periodically: its figures are kept by date")
+    )
+    series = models.ForeignKey(
+        ReportSeries, null=True, blank=True, on_delete=models.SET_NULL, related_name="editions"
+    )
+    edition = models.PositiveIntegerField(null=True, blank=True, help_text=_("its number, e.g. 37"))
+    issued_on = models.DateField(null=True, blank=True)
+    figures_status = models.CharField(max_length=10, choices=FiguresStatus.choices, default="", blank=True)
+    figures_note = models.TextField(blank=True)
+    figures_read_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ("-created_at",)
@@ -177,3 +220,49 @@ class Link(models.Model):
         if self.kind == self.Kind.PROGRAMME:
             return reverse("reports:programme_detail", args=[self.object_id])
         return None
+
+
+class ReportFigure(models.Model):
+    """One figure of an edition of a periodic report: what is counted, the value, the date it is
+    about, and where it was read (page, words around it). The same measure in every edition shares
+    ``key``, so the figures line up over time; when two editions give a value for the same date,
+    the newer edition's counts (see ``periodic.timeline``)."""
+
+    class Method(models.TextChoices):
+        CHART = "chart", _("Read from a chart")
+        TEXT = "text", _("Read from the text (AI)")
+
+    series = models.ForeignKey(ReportSeries, on_delete=models.CASCADE, related_name="figures")
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="figures")
+    key = models.CharField(max_length=300, help_text=_("the same measure in every edition"))
+    group = models.CharField(max_length=200, blank=True, help_text=_("heading or sector, e.g. Health"))
+    metric = models.CharField(max_length=300)
+    breakdown = models.CharField(
+        max_length=150, blank=True, help_text=_("e.g. children; empty for the total")
+    )
+    unit = models.CharField(max_length=40, blank=True)
+    is_percent = models.BooleanField(default=False)
+    value = models.DecimalField(max_digits=20, decimal_places=4)
+    target = models.DecimalField(max_digits=20, decimal_places=4, null=True, blank=True)
+    as_of = models.DateField(help_text=_("the date the figure is about"))
+    period = models.CharField(max_length=200, blank=True)
+    source = models.CharField(max_length=200, blank=True)
+    internal = models.BooleanField(default=False, help_text=_("marked for internal use in the report"))
+    page = models.PositiveIntegerField(null=True, blank=True)
+    quote = models.CharField(max_length=500, blank=True)
+    method = models.CharField(max_length=10, choices=Method.choices)
+
+    class Meta:
+        ordering = ("series", "group", "metric", "breakdown", "as_of")
+        verbose_name = _("report figure")
+        indexes = [models.Index(fields=["series", "key", "as_of"])]
+        constraints = [
+            models.UniqueConstraint(fields=["document", "key", "as_of"], name="knowledge_figure_once")
+        ]
+
+    def __str__(self):
+        return f"{self.label}: {self.value} ({self.as_of})"
+
+    @property
+    def label(self) -> str:
+        return " — ".join(p for p in (self.metric, self.breakdown) if p)

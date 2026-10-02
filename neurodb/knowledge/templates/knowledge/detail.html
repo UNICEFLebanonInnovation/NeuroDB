@@ -25,6 +25,17 @@
   </dl>
 </section>
 
+{% if document.periodic %}
+<section class="panel mb-3">
+  <div class="panel__header"><h2 class="panel__title">{% trans "Periodic report" %}</h2>{% if document.series %}<a class="panel__hint" href="{{ document.series.get_absolute_url }}">{% trans "all editions and figures" %}</a>{% endif %}</div>
+  <dl class="row small mb-0">
+    <dt class="col-sm-3">{% trans "Report" %}</dt><dd class="col-sm-9">{% if document.series %}<a href="{{ document.series.get_absolute_url }}">{{ document.series.name }}</a>{% else %}{% trans "not recognised yet" %}{% endif %}</dd>
+    <dt class="col-sm-3">{% trans "Edition" %}</dt><dd class="col-sm-9">{% if document.edition %}#{{ document.edition }}{% else %}—{% endif %}{% if document.issued_on %} · {% blocktrans with d=document.issued_on|date:"j M Y" %}issued {{ d }}{% endblocktrans %}{% endif %}</dd>
+    <dt class="col-sm-3">{% trans "Figures" %}</dt><dd class="col-sm-9">{% if document.figures_status == "read" %}{% blocktrans count n=figures %}{{ n }} figure kept{% plural %}{{ n }} figures kept{% endblocktrans %}{% elif document.figures_status %}{{ document.get_figures_status_display }}{% else %}{% trans "read after the text" %}{% endif %}{% if document.figures_note %} · {{ document.figures_note }}{% endif %}</dd>
+  </dl>
+</section>
+{% endif %}
+
 {% if document.summary or document.key_points %}
 <section class="panel mb-3">
   <div class="panel__header"><h2 class="panel__title">{% trans "Summary" %}</h2><span class="panel__hint">{% trans "AI-written; check it against the document" %}</span></div>

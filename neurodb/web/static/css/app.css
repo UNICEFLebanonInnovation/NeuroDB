@@ -382,6 +382,9 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .ask-step--note::before { border-color: var(--nd-border); }
 @keyframes nd-spin { to { transform: rotate(360deg); } }
 .ask-turn__body { line-height: 1.6; overflow-wrap: anywhere; }
+.ask-turn__charts:empty { display: none; }
+.ask-chart { margin: 0.75rem 0 0; padding: 0.75rem; }
+.ask-chart__title { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.25rem; }
 .ask-turn__body > :last-child { margin-bottom: 0; }
 .ask-turn__body table { width: auto; max-width: 100%; margin: 0.5rem 0 1rem; font-size: 0.88rem; border-collapse: collapse; display: block; overflow-x: auto; overflow-wrap: normal; }
 .ask-turn__body th { white-space: nowrap; }

@@ -340,15 +340,17 @@ def test_editors_add_a_file_or_a_text_and_it_is_read_in_the_background(client, e
     client.force_login(editor)
     url = reverse("knowledge:add")
     assert client.get(url).status_code == 200
-    response = client.post(url, {"title": "Review", "file": SimpleUploadedFile("review.pdf", pdf("Dropout"))})
+    response = client.post(
+        url, {"title": "Review", "files": SimpleUploadedFile("review.pdf", pdf("Dropout"))}
+    )
     doc = Document.objects.get()
     assert response.status_code == 302 and doc.added_by == editor and doc.file.name.startswith("knowledge/")
     assert started == [("index_knowledge", "--document", str(doc.pk))]
     response = client.post(url, {"title": "Note", "text": "Pasted note"})
     assert Document.objects.filter(title="Note", text="Pasted note").exists()
-    response = client.post(url, {"title": "Both", "text": "x", "file": SimpleUploadedFile("a.txt", b"y")})
+    response = client.post(url, {"title": "Both", "text": "x", "files": SimpleUploadedFile("a.txt", b"y")})
     assert response.status_code == 200 and b"one of the two" in response.content
-    response = client.post(url, {"title": "Exe", "file": SimpleUploadedFile("a.exe", b"y")})
+    response = client.post(url, {"title": "Exe", "files": SimpleUploadedFile("a.exe", b"y")})
     assert response.status_code == 200 and not Document.objects.filter(title="Exe").exists()
 
 

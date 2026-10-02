@@ -1045,6 +1045,8 @@ def search_knowledge(
             {
                 "document_id": h.document.pk,
                 "title": h.document.title,
+                "date": h.document.document_date,
+                **({"edition": h.document.edition} if h.document.edition else {}),
                 "page": h.chunk.page,
                 "text": h.chunk.text,
                 "url": h.document.get_absolute_url(),
@@ -1492,8 +1494,15 @@ def validate(name: str, args: Any) -> dict[str, Any]:
                 raise ToolInputError(f"Argument '{key}' must map up to 12 field names to single values.")
             value = {k: v.strip()[:200] if isinstance(v, str) else v for k, v in value.items()}
         if expected is list:
-            if len(value) > 30 or not all(isinstance(v, str) and len(v) <= 80 for v in value):
-                raise ToolInputError(f"Argument '{key}' must be a list of up to 30 field names.")
+            item = spec.get("items", {}).get("type", "string")
+            if item == "string" and (
+                len(value) > 60 or not all(isinstance(v, str) and len(v) <= 80 for v in value)
+            ):
+                raise ToolInputError(
+                    f"Argument '{key}' must be a list of up to 60 texts of up to 80 characters."
+                )
+            if item == "object" and (len(value) > 10 or not all(isinstance(v, dict) for v in value)):
+                raise ToolInputError(f"Argument '{key}' must be a list of up to 10 objects.")
         clean[key] = value
     return clean
 
@@ -1510,6 +1519,10 @@ def label(name: str) -> str:
 
 # The knowledge hub and the other sources (defined apart; registered here, after the first tools, so
 # the order of the tools stays fixed).
+from .charts import CHART_TOOLS  # noqa: E402
 from .hub_tools import HUB_TOOLS  # noqa: E402
+from .report_tools import REPORT_TOOLS  # noqa: E402
 
 TOOLS.update(HUB_TOOLS)
+TOOLS.update(REPORT_TOOLS)
+TOOLS.update(CHART_TOOLS)

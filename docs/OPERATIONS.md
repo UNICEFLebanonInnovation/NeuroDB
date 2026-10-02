@@ -124,7 +124,8 @@ document is read again or removed by the person who added it or an administrator
 or removed by hand in admin → Library and maps → Knowledge documents.
 
 Once added, `manage.py index_knowledge --document <id>` runs in the background (seconds to a few
-minutes; the page refreshes until it is ready):
+minutes; the page refreshes until it is ready; several files added at once are read by one
+`index_knowledge --pending`):
 
 1. **Text**: read from the file (pypdf for PDFs, page by page; a scanned PDF without text is
    refused with a message, as there is no OCR) and stored in the database; the file itself is kept
@@ -163,6 +164,51 @@ or summary changed), and removes the ones unpublished or deleted. They are chang
 their source (the library or the country programme page), not on the knowledge base: only an
 administrator can read one again. The first run reads every publication, and with the assistant
 configured writes a summary of each, at the API's cost (once; later runs only read what changed).
+
+### Periodic reports (`/knowledge/reports/`): figures kept by date
+
+Some reports are issued again and again under the same name with a number and a date, e.g. the
+*ESCALATION OF HOSTILITIES - LEBANON 2026 - UNICEF SNAPSHOT - 02 October-2026 - NUM-37*. Each
+edition is a knowledge base document like any other (searched, quoted), and its figures are also
+kept as data, so Ask NeuroDB can give the counts of a period, compare before and after, work out
+differences, follow trends and draw charts.
+
+- **Adding editions**: Knowledge base → *Add a document or text*, choose the files (several at once,
+  e.g. editions 22 to 37) and tick **Periodic report**. Each file becomes a document named after it.
+  A later edition of a report already here is recognised without the box ticked. Several files are
+  read one after the other by one background process (`manage.py index_knowledge --pending`), oldest
+  edition first, a few minutes each when the AI is configured.
+- **Recognising an edition**: the series is the name without its number and date; the number comes
+  from `NUM-37`, `#37`, `No. 37`, the date from `02 October-2026`, `2026-10-02`, `02.10.2026` or
+  `October 2, 2026`, else from the text (`# 37 - Issued 02 October 2026`). The series can be renamed
+  in admin → Periodic reports.
+- **Charts of values over dates** are read from where their labels sit on the PDF page, without AI:
+  each value is paired with the date under it, the axis ticks are left out, labels drawn twice
+  count once, a cut date ("08…") takes the month that keeps the dates in order (or the one a full
+  label of the same day gives elsewhere in the edition; when still ambiguous the value is left out
+  and the edition says so). A value drawn a little left of its date still counts: the axis ticks are
+  recognised as the column of numbers left of the first date. The page heading gives the group,
+  its source (e.g. IOM) and whether it is *internal use*. Charts saved as pictures (e.g. page 2 of
+  the older editions such as #23) cannot be read: the edition names those pages. Their history is
+  usually in the later editions' charts, which repeat every date since the start.
+- **Other figures** (headline counts and their breakdowns, indicators with achievement and target)
+  are listed by the AI (OpenAI API, `store=false`) from the pages laid out as on paper. A figure is
+  kept only when its number is printed on the page it is said to come from; the others are counted
+  in the edition's note. Earlier editions' measures are given to the AI so that the same measure
+  keeps the same name. Without the AI configured only the charts' figures are kept.
+- **Over time**: the figures of all editions are lined up by the date they are about. When several
+  editions give a value for the same date, the newest edition's counts (the snapshots correct and
+  re-date earlier points: e.g. #31 gives open shelters on 16 and 25 June that #36 and #37 revise). The report's page shows
+  every measure (latest value, the value before, the change, target), a chart over time and the
+  editions with what was read from each. Figures can be checked or corrected in admin → Report
+  figures (each keeps its page and the words around it).
+- **Ask NeuroDB**: `periodic_reports` (reports, editions, measures) and `report_figures` (values
+  over time with the changes between dates, or what one edition said). `make_chart` draws a line,
+  column, bar or pie chart under the answer; it only accepts numbers the answer's lookups returned,
+  so a chart cannot show a figure the model made up. Figures marked internal use are flagged to the
+  model, which says so.
+- Search ranks the newest edition first when several say the same thing, and gives the assistant
+  each passage's date and edition.
 
 ### Knowledge hub: everything linked, for questions across sources
 

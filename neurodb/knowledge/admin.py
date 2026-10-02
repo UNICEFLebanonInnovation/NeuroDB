@@ -1,5 +1,6 @@
 """The knowledge base in the admin: documents, their links (add or remove one by hand) and their
-reading status."""
+reading status; the periodic reports and the figures kept from their editions (rename a report, check
+or correct a figure)."""
 
 from __future__ import annotations
 
@@ -10,7 +11,7 @@ from unfold.admin import ModelAdmin, TabularInline
 
 from neurodb.web.admin_helpers import badge
 
-from .models import Document, Link
+from .models import Document, Link, ReportFigure, ReportSeries
 
 
 def _label(kind: str, object_id: int) -> str | None:
@@ -61,11 +62,12 @@ class LinkInline(TabularInline):
 @admin.register(Document)
 class DocumentAdmin(ModelAdmin):
     list_display = ("title", "status_badge", "section", "year", "added_by", "created_at")
-    list_filter = ("status", "section", "year")
+    list_filter = ("status", "periodic", "series", "section", "year")
     search_fields = ("title", "source", "summary")
     fields = (
         "title", "source", "section", "year", "file", "status", "error", "summary", "key_points",
         "document_date", "pages", "characters", "added_by", "created_at", "indexed_at",
+        "periodic", "series", "edition", "issued_on", "figures_status", "figures_note", "figures_read_at",
     )  # fmt: skip
     readonly_fields = (
         "file",
@@ -76,6 +78,9 @@ class DocumentAdmin(ModelAdmin):
         "added_by",
         "created_at",
         "indexed_at",
+        "figures_status",
+        "figures_note",
+        "figures_read_at",
     )
     inlines = (LinkInline,)
     actions = ("read_again",)
@@ -109,12 +114,53 @@ class DocumentAdmin(ModelAdmin):
 
     @admin.action(description=_("Read, index and summarise again"))
     def read_again(self, request, queryset):
+        from neurodb.integrations import background
+
         from .views import start
 
-        for document in queryset:
+        documents = list(queryset)
+        for document in documents:
             document.status = Document.Status.PENDING
             document.save(update_fields=["status", "updated_at"])
-            start(document)
+        if len(documents) == 1:
+            start(documents[0])
+        elif documents:  # one process reads them all, editions of periodic reports oldest first
+            background.start_command("index_knowledge", "--pending")
         messages.success(
             request, _("Reading %(n)s document(s) again in the background.") % {"n": queryset.count()}
         )
+
+
+@admin.register(ReportSeries)
+class ReportSeriesAdmin(ModelAdmin):
+    list_display = ("name", "key", "created_at")
+    search_fields = ("name", "key")
+    readonly_fields = ("key", "created_at")
+    fields = ("name", "key", "created_at")
+
+
+@admin.register(ReportFigure)
+class ReportFigureAdmin(ModelAdmin):
+    list_display = ("metric", "breakdown", "group", "value", "target", "as_of", "edition", "page", "method")
+    list_filter = ("series", "method", "internal", "is_percent")
+    search_fields = ("metric", "group", "breakdown", "quote")
+    date_hierarchy = "as_of"
+    list_select_related = ("document",)
+    fields = (
+        "series", "document", "group", "metric", "breakdown", "unit", "is_percent", "value", "target",
+        "as_of", "period", "source", "internal", "page", "quote", "method", "key",
+    )  # fmt: skip
+    readonly_fields = ("series", "document", "method", "key", "quote", "page")
+
+    def has_add_permission(self, request):
+        return False  # figures are read from the editions
+
+    @admin.display(description=_("Edition"), ordering="document__issued_on")
+    def edition(self, obj):
+        return f"#{obj.document.edition}" if obj.document.edition else obj.document.issued_on
+
+    def save_model(self, request, obj, form, change):
+        from .periodic import measure_key
+
+        obj.key = measure_key(obj.group, obj.metric, obj.breakdown, obj.is_percent)
+        super().save_model(request, obj, form, change)

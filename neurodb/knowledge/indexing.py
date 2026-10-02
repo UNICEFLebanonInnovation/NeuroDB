@@ -118,6 +118,10 @@ def index(document: Document) -> None:
     if len(document.text) > MAX_CHARACTERS:
         raise TextError(f"The text is longer than {MAX_CHARACTERS:,} characters; split it in parts.")
     document.characters = len(document.text.replace(PAGE_BREAK, ""))
+    if document.periodic:  # the series, number and date of the edition (its name, then its text)
+        from . import periodic
+
+        periodic.assign(document, document.text)
     found = linking.detect(document.text.replace(PAGE_BREAK, "\n"))
     with transaction.atomic():
         document.chunks.all().delete()
@@ -127,7 +131,12 @@ def index(document: Document) -> None:
         )
         Chunk.objects.filter(document=document).update(search_vector=_vector(document.title))
         replace_links(document, found, Link.Origin.DETECTED)
-        document.save(update_fields=["text", "pages", "characters", "updated_at"])
+        document.save(
+            update_fields=[
+                "text", "pages", "characters", "series", "edition", "issued_on", "document_date", "year",
+                "updated_at",
+            ]
+        )  # fmt: skip
 
 
 def replace_links(document: Document, found: list[linking.Found], origin: str) -> None:
@@ -236,6 +245,16 @@ def process(document: Document) -> Document:
     except Exception as exc:  # the document is searchable anyway; say why it has no summary
         logger.exception("knowledge document %s could not be summarised", document.pk)
         note = f"Searchable, but the AI summary failed: {type(exc).__name__}"
+    if document.periodic:  # an edition of a periodic report: its figures are kept as data
+        from . import periodic
+
+        try:
+            periodic.read_figures(document)
+        except Exception as exc:  # the document is searchable anyway
+            logger.exception("periodic report %s: the figures could not be read", document.pk)
+            document.figures_status = Document.FiguresStatus.FAILED
+            document.figures_note = f"The figures could not be read: {type(exc).__name__}"
+            document.save(update_fields=["figures_status", "figures_note", "updated_at"])
     document.status, document.error, document.indexed_at = Document.Status.READY, note, timezone.now()
     document.save(update_fields=["status", "error", "indexed_at", "updated_at"])
     from neurodb.graph.refresh import request

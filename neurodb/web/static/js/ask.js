@@ -1,5 +1,8 @@
 // Ask NeuroDB: streams the assistant's answer (Server-Sent Events over a POST) into a conversation thread.
+import { init as drawChart } from "./charts.js";
 import { csrfToken, toast } from "./lib.js";
+
+let chartCount = 0;
 
 const root = document.querySelector("[data-ask]");
 if (root) init(root);
@@ -193,9 +196,39 @@ function turnUI(turn) {
       bodyEl.innerHTML = event.html; // sanitized on the server (no scripts, images or styles)
       finalText = event.answer;
       answered = true;
+    } else if (event.type === "chart") {
+      chart(event.spec);
     } else if (event.type === "error") {
       error(event.message);
     }
+  }
+
+  // A chart the assistant drew from figures it looked up (checked on the server), with the
+  // dashboards' chart code.
+  function chart(spec) {
+    chartCount += 1;
+    const id = `ask-chart-${chartCount}`;
+    const figure = document.createElement("figure");
+    figure.className = "ask-chart panel";
+    const caption = document.createElement("figcaption");
+    caption.className = "ask-chart__title";
+    caption.textContent = spec.unit ? `${spec.title} (${spec.unit})` : spec.title;
+    const data = document.createElement("script");
+    data.type = "application/json";
+    data.id = id;
+    data.textContent = JSON.stringify(spec.data);
+    const el = document.createElement("div");
+    el.className = "chart";
+    el.dataset.chart = spec.chart;
+    el.dataset.source = id;
+    el.dataset.orientation = spec.orientation;
+    el.dataset.height = spec.chart === "bars" ? "" : "300";
+    el.setAttribute("aria-label", spec.title);
+    figure.append(caption, data, el);
+    turn.querySelector(".ask-turn__charts").append(figure);
+    drawChart(el).catch(() => {
+      el.textContent = "The chart could not be drawn.";
+    });
   }
 
   function error(message, tone = "danger") {

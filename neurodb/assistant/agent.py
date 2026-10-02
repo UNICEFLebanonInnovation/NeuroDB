@@ -6,6 +6,7 @@ can stream them to the browser:
 
     {"type": "text", "text": "...", "round": n}   answer text as the model writes it
     {"type": "tool", "label": "...", "round": n}   a data lookup is starting
+    {"type": "chart", "spec": {...}}               a chart to draw under the answer (see charts.py)
     {"type": "done", "html": "...", "answer": "..."}
     {"type": "error", "message": "..."}
 
@@ -32,7 +33,7 @@ from django.utils import timezone
 from django.utils.crypto import salted_hmac
 from markdown.extensions.tables import TableExtension
 
-from . import tools
+from . import charts, tools
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,16 @@ and after. Give the date of each change; for today's figures run the change's lo
 - Whether an indicator will likely reach its target by the end of the year comes from \
 indicator_forecasts: estimates from past monthly patterns, with a range and the method's accuracy \
 on past years. Always say they are estimates and give the range; never present one as a result.
+- Periodic reports (snapshots and situation reports issued again and again, e.g. the escalation \
+of hostilities snapshot) keep their figures by date: periodic_reports lists the reports, their \
+editions and the measures followed; report_figures gives a measure's values over time with the \
+changes between dates, or what one edition said. Use them for counts in a period, before and after, \
+differences and trends; give the dates and editions the figures come from, and say when a figure is \
+marked for internal use. search_knowledge finds what the editions say in words.
+- When the user asks for a chart or graph (pie, bar, line), or a trend is easier to see than to \
+read, call make_chart with figures you looked up in this answer (it refuses any other number): \
+'line' over time, 'column' to compare periods or categories, 'bar' for many categories, 'pie' for \
+parts of a whole. Look the figures up again when they came from an earlier answer.
 - country_programme and cpd_indicator give the country programme's results framework and progress; \
 youth_figures and education_figures the Compiler's figures; makani_wellbeing the Makani centre \
 summaries; daily_review the latest review findings; management_brief the brief's comparisons. \
@@ -145,6 +156,8 @@ class Outcome:
     cache_read_tokens: int = 0
     output_tokens: int = 0
     error: str = ""
+    charts: list[dict[str, Any]] = field(default_factory=list)
+    numbers: set[float] = field(default_factory=set)  # every number the lookups returned (charts)
 
     def add_usage(self, usage: Any) -> None:
         """Add one model call's tokens. OpenAI counts cached prompt tokens inside input_tokens; they
@@ -374,7 +387,16 @@ def _run_tools(calls: list[Any], outcome: Outcome) -> list[dict[str, Any]]:
         args: Any = call.arguments
         try:
             args = _arguments(call.arguments)
-            output, ok = json.dumps(tools.run(call.name, args), ensure_ascii=False), True
+            if call.name == "make_chart":  # drawn under the answer, from figures looked up
+                outcome.charts.append(charts.build(tools.validate(call.name, args), outcome.numbers))
+                result = {
+                    "drawn": True,
+                    "note": "The chart is shown under the answer. Refer to it; do not describe how it looks.",
+                }
+            else:
+                result = tools.run(call.name, args)
+                charts.numbers_in(result, outcome.numbers)
+            output, ok = json.dumps(result, ensure_ascii=False), True
         except tools.ToolInputError as exc:
             # Unknown tool, unreadable JSON or arguments outside the schema: the model can correct it.
             output = json.dumps({"error": str(exc), "received": args}, ensure_ascii=False, default=str)
@@ -454,7 +476,10 @@ def answer(
         for call in calls:
             yield {"type": "tool", "label": tools.label(call.name), "round": round_no}
         items += _replay(output)
+        drawn = len(outcome.charts)
         items += _run_tools(calls, outcome)
+        for spec in outcome.charts[drawn:]:
+            yield {"type": "chart", "spec": spec}
     else:
         outcome.status, outcome.error = "failed", "too many lookups"
         yield {"type": "error", "message": "This question needed too many lookups. Try splitting it up."}

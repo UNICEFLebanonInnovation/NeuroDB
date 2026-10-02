@@ -3,6 +3,8 @@ page (summary, links, text) and its file."""
 
 from __future__ import annotations
 
+import os
+
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
@@ -17,7 +19,7 @@ from neurodb.accounts.models import Section
 from . import search
 from .access import can_add, can_manage
 from .forms import DocumentForm
-from .models import Document, Link
+from .models import Document, Link, ReportSeries
 
 TEXT_PREVIEW = 20000
 
@@ -26,6 +28,40 @@ def start(document: Document) -> None:
     from neurodb.integrations import background
 
     background.start_command("index_knowledge", "--document", str(document.pk))
+
+
+def save_added(form: DocumentForm, user) -> list[Document]:
+    """One document per chosen file (named after it when several are chosen), or the pasted text.
+    An edition of a periodic report gets its series, number and date from its name at once, so that
+    the editions are read oldest first."""
+    from . import periodic
+
+    data = form.cleaned_data
+    files = data.get("files") or [None]
+    title = (data.get("title") or "").strip()
+    out = []
+    for upload in files:
+        document = Document(
+            title=title,
+            text=data.get("text") or "",
+            source=data.get("source") or "",
+            section=data.get("section"),
+            year=data.get("year"),
+            periodic=bool(data.get("periodic")),
+            added_by=user,
+        )
+        if upload is not None:
+            document.text = ""
+            document.file = upload
+            stem = os.path.splitext(os.path.basename(upload.name))[0].replace("_", " ").strip()
+            document.title = (title if len(files) == 1 and title else stem)[:300]
+        if not document.periodic and periodic.known_series(document):
+            document.periodic = True  # another edition of a periodic report already here
+        if document.periodic:
+            periodic.assign(document)
+        document.save()
+        out.append(document)
+    return out
 
 
 def _int(value: str | None) -> int | None:
@@ -67,18 +103,32 @@ def add(request: HttpRequest) -> HttpResponse:
         raise PermissionDenied
     form = DocumentForm(request.POST or None, request.FILES or None)
     if request.method == "POST" and form.is_valid():
-        document = form.save(commit=False)
-        document.added_by = request.user
-        document.save()
-        start(document)
+        documents = save_added(form, request.user)
+        if len(documents) == 1:
+            start(documents[0])
+            messages.success(
+                request,
+                _(
+                    "Added. NeuroDB is reading it (a few seconds to a few minutes); "
+                    "it can be asked about once ready."
+                ),
+            )
+            return redirect(documents[0])
+        from neurodb.integrations import background
+
+        background.start_command("index_knowledge", "--pending")
         messages.success(
             request,
             _(
-                "Added. NeuroDB is reading it (a few seconds to a few minutes); "
-                "it can be asked about once ready."
-            ),
+                "%(n)s documents added. NeuroDB reads them one after the other, editions of a periodic "
+                "report oldest first; this can take a few minutes per document."
+            )
+            % {"n": len(documents)},
         )
-        return redirect(document)
+        series = {d.series_id for d in documents}
+        if len(series) == 1 and None not in series:
+            return redirect("knowledge:series", pk=series.pop())
+        return redirect("knowledge:index")
     context = {
         "page_title": _("Add to the knowledge base"),
         "breadcrumbs": [
@@ -111,8 +161,85 @@ def detail(request: HttpRequest, pk: int) -> HttpResponse:
         "chunks": document.chunks.count(),
         "can_manage": can_manage(request.user, document),
         "working": document.status in (Document.Status.PENDING, Document.Status.INDEXING),
+        "figures": document.figures.count() if document.periodic else 0,
     }
     return render(request, "knowledge/detail.html", context)
+
+
+@require_GET
+def series_index(request: HttpRequest) -> HttpResponse:
+    from django.db.models import Count, Max, Min, Q
+
+    ready = Q(editions__status=Document.Status.READY)
+    rows = ReportSeries.objects.annotate(
+        n_editions=Count("editions", filter=ready, distinct=True),
+        first_issue=Min("editions__issued_on", filter=ready),
+        last_issue=Max("editions__issued_on", filter=ready),
+        n_figures=Count("figures", distinct=True),
+    ).order_by("-last_issue", "name")
+    context = {
+        "page_title": _("Periodic reports"),
+        "page_subtitle": _(
+            "Reports issued again and again (snapshots, situation reports): their figures are kept by date, "
+            "so Ask NeuroDB can compare editions, follow trends and draw charts"
+        ),
+        "breadcrumbs": [
+            {"label": _("Knowledge base"), "url": reverse("knowledge:index")},
+            {"label": _("Periodic reports"), "url": None},
+        ],
+        "rows": rows,
+        "can_add": can_add(request.user),
+    }
+    return render(request, "knowledge/series_index.html", context)
+
+
+@require_GET
+def series_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    from django.db.models import Count
+
+    from . import periodic
+
+    series = get_object_or_404(ReportSeries, pk=pk)
+    found = periodic.overview(series)
+    editions = list(
+        series.editions.order_by("-issued_on", "-edition", "-pk").annotate(n_figures=Count("figures"))
+    )
+    trend = [
+        {
+            "id": m["key"],
+            "label": " · ".join(
+                p
+                for p in (
+                    "" if m["group"].lower() in m["metric"].lower() else m["group"],
+                    m["metric"],
+                    m["breakdown"],
+                )
+                if p
+            ),
+            "unit": "%" if m["is_percent"] else m["unit"],
+            "dates": [p["as_of"].isoformat() for p in m["timeline"]],
+            "values": [float(p["value"]) for p in m["timeline"]],
+        }
+        for m in found
+        if len(m["timeline"]) >= 2
+    ]
+    default = max(trend, key=lambda t: len(t["dates"]))["id"] if trend else None
+    context = {
+        "page_title": series.name,
+        "page_subtitle": _("Periodic report: its figures by date, the newest edition counting for each date"),
+        "breadcrumbs": [
+            {"label": _("Knowledge base"), "url": reverse("knowledge:index")},
+            {"label": _("Periodic reports"), "url": reverse("knowledge:series_index")},
+            {"label": series.name[:60], "url": None},
+        ],
+        "series": series,
+        "measures": found,
+        "editions": editions,
+        "working": any(e.status in (Document.Status.PENDING, Document.Status.INDEXING) for e in editions),
+        "chart_data": {"trend": {"series": trend, "default": default}},
+        "can_add": can_add(request.user),
+    }
+    return render(request, "knowledge/series_detail.html", context)
 
 
 @require_GET

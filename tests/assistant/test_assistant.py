@@ -832,8 +832,8 @@ def test_validate_enforces_every_schema_keyword():
             tools.validate(name, {**valid, "not_a_parameter": 1})
         for key, spec in props.items():
             assert set(spec) <= {"type", "description", "enum", "minimum", "maximum", "items"}, (name, key)
-            if spec["type"] == "array":
-                assert spec["items"] == {"type": "string"}, (name, key)  # validate() allows strings only
+            if spec["type"] == "array":  # validate() checks lists of texts and of objects
+                assert spec["items"] in ({"type": "string"}, {"type": "object"}), (name, key)
             with pytest.raises(tools.ToolInputError):
                 tools.validate(name, {**valid, key: wrong_type[spec["type"]]})
             if spec["type"] == "integer":  # booleans are not integers here, unlike in Python

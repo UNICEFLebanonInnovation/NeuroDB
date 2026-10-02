@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+<p class="text-muted small">{% trans "An edition is recognised by its name (the report's name with its number or date, e.g. 'UNICEF SNAPSHOT - 02 October-2026 - NUM-37'). Add editions with “Periodic report” ticked; several can be added at once." %}{% if can_add %} <a href="{% url 'knowledge:add' %}">{% trans "Add editions" %}</a>{% endif %}</p>
+<section class="panel p-0">
+  {% if rows %}
+  <div class="table-wrap"><table class="table table-sm mb-0">
+    <thead><tr><th>{% trans "Report" %}</th><th class="text-end">{% trans "Editions" %}</th><th>{% trans "From" %}</th><th>{% trans "To" %}</th><th class="text-end">{% trans "Figures kept" %}</th></tr></thead>
+    <tbody>{% for s in rows %}<tr>
+      <td><a href="{{ s.get_absolute_url }}">{{ s.name }}</a></td>
+      <td class="text-end">{{ s.n_editions|number }}</td>
+      <td class="text-nowrap">{{ s.first_issue|date:"j M Y"|default:"—" }}</td>
+      <td class="text-nowrap">{{ s.last_issue|date:"j M Y"|default:"—" }}</td>
+      <td class="text-end">{{ s.n_figures|number }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}
+  {% include "components/empty_state.html" with icon="book" title=_("No periodic report yet") message=_("Add the editions of a snapshot or situation report with “Periodic report” ticked.") %}
+  {% endif %}
+</section>
+{% endblock %}

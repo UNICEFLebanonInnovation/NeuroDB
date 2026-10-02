@@ -14,7 +14,7 @@ from functools import reduce
 from operator import or_
 
 from django.contrib.postgres.search import SearchQuery, SearchRank
-from django.db.models import Q, QuerySet
+from django.db.models import F, Q, QuerySet
 from django.utils.safestring import SafeString, mark_safe
 
 from .models import Chunk, Document, Link
@@ -106,7 +106,10 @@ def search(query: str, filters: Filters | None = None, limit: int = 8) -> list[H
             base.filter(search_vector=tsquery)
             .exclude(pk__in=seen)
             .annotate(rank=SearchRank("search_vector", tsquery))
-            .order_by("-rank", "document_id", "position")[: limit - len(hits)]
+            # editions of a periodic report repeat the same words: the newest first
+            .order_by(
+                "-rank", F("document__document_date").desc(nulls_last=True), "-document_id", "position"
+            )[: limit - len(hits)]
         )
         for chunk in rows:
             seen.add(chunk.pk)

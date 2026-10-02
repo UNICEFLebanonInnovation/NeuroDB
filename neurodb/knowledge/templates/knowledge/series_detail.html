@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block head_extra %}{% if working %}<meta http-equiv="refresh" content="20">{% endif %}{% endblock %}
+{% block content %}
+<section class="panel mb-3">
+  <div class="d-flex flex-wrap gap-2 align-items-center">
+    <span class="small text-muted">{% blocktrans count n=editions|length %}{{ n }} edition{% plural %}{{ n }} editions{% endblocktrans %} · {% blocktrans count n=measures|length %}{{ n }} measure{% plural %}{{ n }} measures{% endblocktrans %}</span>
+    {% if working %}<span class="small text-muted">· {% trans "Editions are being read; this page refreshes." %}</span>{% endif %}
+    <span class="ms-auto d-flex gap-2">
+      <a class="btn btn-primary btn-sm" href="{% url 'assistant:ask' %}?q={% filter urlencode %}{% blocktrans with t=series.name %}In the periodic report “{{ t }}”: {% endblocktrans %}{% endfilter %}">{% include "components/icon.html" with name="sparkle" %}<span>{% trans "Ask about it" %}</span></a>
+      {% if can_add %}<a class="btn btn-outline-primary btn-sm" href="{% url 'knowledge:add' %}">{% include "components/icon.html" with name="file" %}<span>{% trans "Add editions" %}</span></a>{% endif %}
+    </span>
+  </div>
+</section>
+
+{% if chart_data.trend.series %}
+<section class="panel mb-3">
+  <div class="panel__header"><h2 class="panel__title">{% trans "Over time" %}</h2><span class="panel__hint">{% trans "each date from the newest edition that gives it" %}</span></div>
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+    <label class="small text-muted" for="trend-measure">{% trans "Measure" %}</label>
+    <select class="form-select form-select-sm w-auto mw-100" id="trend-measure" data-chart-select>
+      {% for t in chart_data.trend.series %}<option value="{{ t.id }}" {% if t.id == chart_data.trend.default %}selected{% endif %}>{{ t.label|truncatechars:110 }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="chart" data-module="charts" data-chart="trend" data-key="trend" data-select="trend-measure" data-height="280" aria-label="{% trans 'The chosen measure over time' %}"></div>
+</section>
+{% endif %}
+
+<section class="panel p-0 mb-3">
+  <div class="px-3 pt-3"><h2 class="h6">{% trans "Measures" %}</h2></div>
+  {% if measures %}
+  <div class="table-wrap"><table class="table table-sm mb-0">
+    <thead><tr><th>{% trans "Measure" %}</th><th class="text-end">{% trans "Latest" %}</th><th>{% trans "As of" %}</th><th class="text-end">{% trans "Before" %}</th><th class="text-end">{% trans "Change" %}</th><th class="text-end">{% trans "Target" %}</th><th class="text-end">{% trans "Dates" %}</th></tr></thead>
+    <tbody>{% for m in measures %}<tr>
+      <td>{{ m.metric }}{% if m.breakdown %} — {{ m.breakdown }}{% endif %}<span class="cell-sub">{{ m.group }}{% if m.source %} · {{ m.source }}{% endif %}{% if m.internal %} · <strong>{% trans "internal use" %}</strong>{% endif %}</span></td>
+      <td class="text-end text-nowrap">{{ m.latest.value|number }}{% if m.is_percent %}%{% endif %}</td>
+      <td class="text-nowrap small">{{ m.latest.as_of|date:"j M Y" }}{% if m.latest.edition %}<span class="cell-sub">#{{ m.latest.edition }}</span>{% endif %}</td>
+      <td class="text-end text-nowrap">{% if m.previous %}{{ m.previous.value|number }}{% if m.is_percent %}%{% endif %}<span class="cell-sub">{{ m.previous.as_of|date:"j M" }}</span>{% else %}—{% endif %}</td>
+      <td class="text-end text-nowrap">{% if m.change %}{% if m.change.change > 0 %}+{% endif %}{{ m.change.change|number }}{% if m.change.change_percent is not None %}<span class="cell-sub">{% if m.change.change_percent > 0 %}+{% endif %}{{ m.change.change_percent }}%</span>{% endif %}{% else %}—{% endif %}</td>
+      <td class="text-end">{{ m.latest.target|number }}</td>
+      <td class="text-end">{{ m.points }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}
+  <p class="px-3 pb-3 text-muted small mb-0">{% trans "No figure kept yet: the editions are being read, or their figures could not be read (see below)." %}</p>
+  {% endif %}
+</section>
+
+<section class="panel p-0">
+  <div class="px-3 pt-3"><h2 class="h6">{% trans "Editions" %}</h2></div>
+  <div class="table-wrap"><table class="table table-sm mb-0">
+    <thead><tr><th class="text-end">#</th><th>{% trans "Issued" %}</th><th>{% trans "Document" %}</th><th>{% trans "Figures" %}</th></tr></thead>
+    <tbody>{% for e in editions %}<tr>
+      <td class="text-end">{{ e.edition|default:"—" }}</td>
+      <td class="text-nowrap">{{ e.issued_on|date:"j M Y"|default:"—" }}</td>
+      <td><a href="{{ e.get_absolute_url }}">{{ e.title|truncatechars:90 }}</a>{% if e.status != "ready" %}<span class="cell-sub">{{ e.get_status_display }}</span>{% endif %}</td>
+      <td class="small">{% if e.figures_status == "read" %}{% blocktrans count n=e.n_figures %}{{ n }} figure{% plural %}{{ n }} figures{% endblocktrans %}{% elif e.figures_status %}{{ e.get_figures_status_display }}{% else %}{% trans "Waiting" %}{% endif %}{% if e.figures_note %}<span class="cell-sub">{{ e.figures_note|truncatechars:200 }}</span>{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{{ chart_data|json_script:"chart-data" }}
+{% endblock %}

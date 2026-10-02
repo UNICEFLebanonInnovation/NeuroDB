@@ -229,6 +229,39 @@ const BUILDERS = {
       },
     };
   },
+  trend(el, data) {
+    // {series: [{id, label, unit, dates, values}], default}: one measure of a periodic report at a time
+    // (picked in the <select> named by data-select), its values by date.
+    const select = el.dataset.select ? document.getElementById(el.dataset.select) : null;
+    const list = data?.series || [];
+    const series = list.find((s) => String(s.id) === String(select?.value ?? data?.default)) || list[0];
+    if (!series || !series.dates.length) {
+      emptyState(el);
+      return null;
+    }
+    const unit = series.unit ? ` ${plotlyText(series.unit)}` : "";
+    const color = cssVar("--nd-primary");
+    return {
+      traces: [
+        {
+          type: "scatter",
+          mode: "lines+markers",
+          x: series.dates,
+          y: series.values,
+          line: { color, width: 2 },
+          marker: { size: 6, color },
+          fill: "tozeroy",
+          fillcolor: withAlpha(color, 0.12),
+          hovertemplate: `%{x|%d %b %Y}: %{y:,.1~f}${unit}<extra></extra>`,
+        },
+      ],
+      layout: {
+        xaxis: { type: "date", tickformat: "%d %b" },
+        yaxis: { rangemode: "tozero" },
+        margin: { t: 8, r: 12, b: 40, l: 56 },
+      },
+    };
+  },
   monthly(el, data) {
     // {months, indicators: [{id, label, unit, values, reports}], default}: one indicator at a time
     // (the indicator picked in the <select> named by data-select), as adding indicators with
