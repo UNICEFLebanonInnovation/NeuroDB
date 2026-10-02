@@ -101,6 +101,11 @@ _GOVERNORATE_ALIASES = {
     "mountlebanonexceptbeirut": "mountlebanon",
     "beirut": "beirut",
     "akkar": "akkar",
+    # French, as ActivityInfo writes them in production ("Mont Liban", "Baalbek_Hermel"…)
+    "montliban": "mountlebanon",
+    "nord": "north",
+    "sud": "south",
+    "beyrouth": "beirut",
 }
 
 

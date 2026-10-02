@@ -87,11 +87,6 @@ def _norm(text: str | None) -> str:
     return " ".join(re.sub(r"[^\w]+", " ", (text or "").lower()).split())
 
 
-def _compact(text: str | None) -> str:
-    """ "Baalbek-El Hermel", "Baalbek Hermel" and "Baalbek-Hermel" alike."""
-    return "".join(w for w in _norm(text).split() if w not in ("el", "al", "governorate", "mohafaza"))
-
-
 # ---------------------------------------------------------------------------------- sources
 def activityinfo(s: Section, today: datetime.date) -> None:
     from neurodb.facts.models import ActivityReportNew as A
@@ -148,9 +143,11 @@ def activityinfo(s: Section, today: datetime.date) -> None:
     s.add("governorate_coded", "Reports with a governorate", _share(gov, total))
     s.add("district_coded", "Reports with a district (caza) code", _share(dist, total))
     s.add("cadastral_coded", "Reports with a cadastral area code", _share(cad, total))
+    from neurodb.reports.overview import governorate_key  # the matching every page uses
+
     known = set()
     for name, code in GovernorateLocation.objects.values_list("name", "code"):
-        known |= {_norm(name), _compact(name), _norm(code)}
+        known |= {governorate_key(name), _norm(code)}
     matched, unmatched = 0, []
     rows = (
         A.objects.exclude(location_adminlevel_governorate=None)
@@ -160,14 +157,14 @@ def activityinfo(s: Section, today: datetime.date) -> None:
     )
     for row in rows:
         name, code = row["location_adminlevel_governorate"], row["location_adminlevel_governorate_code"]
-        if {_norm(name), _compact(name), _norm(code)} & known:
+        if {governorate_key(name), _norm(code)} & known:
             matched += row["n"]
         else:
             unmatched.append((row["n"], name, code))
     unmatched.sort(reverse=True)
     s.add(
         "governorate_matched",
-        "Governorates matching NeuroDB's (name or code)",
+        "Governorates matching NeuroDB's (any spelling, English or French, or code)",
         _share(matched, gov),
         note="not matched: " + "; ".join(f"{n} ({c or 'no code'}): {k:,}" for k, n, c in unmatched[:6])
         if unmatched
@@ -291,7 +288,12 @@ def etools(s: Section, today: datetime.date) -> None:
     s.add("reports_dated", "Progress reports with a due and a submission date", len(dated))
     if dated:
         on_time = sum(r["sent"] <= r["due"] for r in dated)
-        s.add("reports_on_time", "Progress reports submitted by their due date", _share(on_time, len(dated)))
+        s.add(
+            "reports_on_time",
+            "Progress reports submitted by their due date",
+            _share(on_time, len(dated)),
+            note="by the latest submission date: a report sent back and submitted again counts as late",
+        )
     span = ReportedIndicator.objects.filter(period_end__lte=today).aggregate(
         first=Min("period_end"), last=Max("period_end")
     )
@@ -301,9 +303,9 @@ def etools(s: Section, today: datetime.date) -> None:
     if future:
         s.add(
             "reports_future",
-            "Progress reports with a period ending after today",
+            "Progress reports for periods not ended yet",
             future,
-            note="to check in eTools",
+            note="eTools creates the reporting periods of a PD in advance",
         )
     links = PartnerLink.objects.aggregate(
         all=Count("id"), linked=Count("id", filter=Q(partner__isnull=False))

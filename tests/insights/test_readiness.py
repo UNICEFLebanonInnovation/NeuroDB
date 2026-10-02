@@ -96,12 +96,18 @@ def test_governorates_match_by_name_spelling_or_code_and_the_rest_is_named(hiera
     )
     ActivityReportNew.objects.create(
         dbase=hierarchy["database"], month_name="2026-02-01", indicator_value=1,
-        location_adminlevel_governorate="Mount Lebanon", location_adminlevel_governorate_code="MOU",
+        location_adminlevel_governorate="Mont Liban", location_adminlevel_governorate_code="5",
     )  # fmt: skip
+    ActivityReportNew.objects.create(
+        dbase=hierarchy["database"], month_name="2026-02-01", indicator_value=1,
+        location_adminlevel_governorate="Atlantis", location_adminlevel_governorate_code="99",
+    )  # fmt: skip
+    GovernorateLocation.objects.create(code="MOU", name="Mount Lebanon", ai_id=3)
     result = readiness.measure()
     metric = next(m for s in result["sections"] for m in s["metrics"] if m["key"] == "governorate_matched")
-    assert metric["value"] == 0.8  # Beirut by code, Baalbek-El Hermel by spelling; Mount Lebanon unknown
-    assert metric["note"] == "not matched: Mount Lebanon (MOU): 1"
+    # Beirut by code, Baalbek-El Hermel by spelling, Mont Liban in French; Atlantis is unknown
+    assert metric["value"] == round(5 / 6, 3)
+    assert metric["note"] == "not matched: Atlantis (99): 1"
 
 
 def test_progress_reports_are_counted_per_report_and_future_periods_flagged(db):

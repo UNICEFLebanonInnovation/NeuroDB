@@ -185,6 +185,13 @@ def test_result_is_cached_per_scope(data, reporting_year, settings, django_asser
         ("South", "South Lebanon"),
         ("Akkar", "AKKAR"),
         ("Beirut", "Beirut Governorate"),
+        # French, as ActivityInfo writes them in production
+        ("Mont Liban", "Mount Lebanon"),
+        ("Nord", "North"),
+        ("Sud", "South"),
+        ("Beyrouth", "Beirut"),
+        ("Nabatiye", "Nabatieh"),
+        ("Baalbek_Hermel", "Baalbek-Hermel"),
     ],
 )
 def test_governorate_names_match_across_sources(a, b):
