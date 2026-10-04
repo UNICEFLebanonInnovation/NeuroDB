@@ -7,7 +7,6 @@ task groups as the dashboard (``sidebar_navigation``, wired in ``settings.UNFOLD
 
 from __future__ import annotations
 
-import datetime
 import logging
 from typing import Any
 from urllib.parse import urlencode
@@ -20,11 +19,8 @@ from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
-from django.utils.formats import date_format
 from django.utils.text import slugify
-from django.utils.timesince import timesince
 from django.utils.translation import gettext_lazy as _
-from django.utils.translation import ngettext
 from django.views.decorators.cache import never_cache
 from unfold.sites import UnfoldAdminSite
 
@@ -198,7 +194,6 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
         ],
     ),
 ]
-STALE_DATABASE_DAYS = 40
 # Sign-in plumbing (allauth, sites) and the replicated Datamart tables: listed for superusers only,
 # so the administrators' own tools are not lost among them. The pages stay reachable by URL.
 DEVELOPER_ONLY = {
@@ -423,15 +418,13 @@ def dashboard(request) -> dict[str, Any]:
 
 def _dashboard(request) -> dict[str, Any]:
     from django.contrib.auth import get_user_model
-    from django.db.models import Q
 
-    from neurodb.accounts.roles import ALL_ROLES
     from neurodb.core.models import SyncRun
     from neurodb.facts.models import ActivityReportNew
     from neurodb.indicators.models import Database, MasterIndicator
     from neurodb.indicators.services.navigation import current_year
     from neurodb.library.models import Resource
-    from neurodb.watch import sections as watch_sections
+    from neurodb.web import health
 
     user_model = get_user_model()
     now = timezone.now()
@@ -439,7 +432,6 @@ def _dashboard(request) -> dict[str, Any]:
     databases = Database.objects.filter(reporting_year=year) if year else Database.objects.none()
     shown = databases.filter(display=True)
     masters = MasterIndicator.objects.filter(database__in=shown, is_active=True)
-    stale_before = now - datetime.timedelta(days=STALE_DATABASE_DAYS)
 
     jobs = []
     for job, label in SyncRun.Job.choices:
@@ -447,89 +439,8 @@ def _dashboard(request) -> dict[str, Any]:
         ok = SyncRun.last_success(job)
         jobs.append({"job": job, "label": label, "last": last, "last_success": ok})
 
-    no_role = (
-        user_model.objects.filter(is_active=True, is_superuser=False, donor_account__isnull=True)
-        .exclude(groups__name__in=ALL_ROLES)  # donor accounts have no role on purpose
-        .distinct()
-        .count()
-    )
-    warnings = []
-    if not year:
-        warnings.append(
-            {
-                "text": _("No reporting year is marked as current."),
-                "url": _admin_url("pivoting_reportingyear"),
-            }
-        )
-    never = shown.filter(last_monthly_update_date__isnull=True).count()
-    if never:
-        warnings.append(
-            {
-                "text": ngettext(
-                    "%(n)s displayed database was never imported.",
-                    "%(n)s displayed databases were never imported.",
-                    never,
-                )
-                % {"n": never},
-                "url": _admin_url("pivoting_database") + "?freshness=never",
-            }
-        )
-    stale = list(shown.filter(last_monthly_update_date__lt=stale_before).values_list("name", flat=True))
-    if stale:
-        names = ", ".join(str(n) for n in stale[:3])
-        if len(stale) > 3:
-            names += " " + _("and %(n)s more") % {"n": len(stale) - 3}
-        warnings.append(
-            {
-                "text": ngettext(
-                    "%(names)s was not imported for more than %(d)s days.",
-                    "%(names)s were not imported for more than %(d)s days.",
-                    len(stale),
-                )
-                % {"names": names, "d": STALE_DATABASE_DAYS},
-                "url": _admin_url("pivoting_database") + "?freshness=stale",
-            }
-        )
-    no_target = masters.filter(Q(awp_target__isnull=True) | Q(awp_target=0)).count()
-    if no_target:
-        warnings.append(
-            {
-                "text": ngettext(
-                    "%(n)s active master indicator has no target.",
-                    "%(n)s active master indicators have no target.",
-                    no_target,
-                )
-                % {"n": no_target},
-                "url": _admin_url("pivoting_masterindicator") + "?has_target=no&is_active__exact=1",
-            }
-        )
-    if no_role:
-        warnings.append(
-            {
-                "text": ngettext(
-                    "%(n)s active user has no role and sees the site as a viewer.",
-                    "%(n)s active users have no role and see the site as viewers.",
-                    no_role,
-                )
-                % {"n": no_role},
-                "url": _admin_url("users_user") + "?role=none",
-            }
-        )
-    for j in jobs:
-        last = j["last"]
-        if last and last.status == SyncRun.Status.FAILED:
-            text = _("The last %(job)s failed.") % {"job": j["label"]}
-        elif last and last.status == SyncRun.Status.PARTIAL:
-            text = ngettext(
-                "The last %(job)s succeeded with errors: %(n)s row failed.",
-                "The last %(job)s succeeded with errors: %(n)s rows failed.",
-                last.rows_failed,
-            ) % {"job": j["label"], "n": last.rows_failed}
-        else:
-            continue
-        warnings.append({"text": text, "url": reverse("admin:core_syncrun_change", args=[last.pk])})
-    warnings += _schedule_warnings(now)
-    warnings += watch_sections.needs_attention()  # eTools section names NeuroDB Watch cannot route
+    # The same lines NeuroDB Watch tells the administrators (web/health.py)
+    warnings = health.warnings(now)
 
     return {
         "year": year,
@@ -569,64 +480,6 @@ def _dashboard(request) -> dict[str, Any]:
         "jobs": jobs,
         "warnings": warnings,
     }
-
-
-def _schedule_warnings(now) -> list[dict[str, Any]]:
-    """The scheduler not checking in, switched-on jobs past their time, a missing daily review."""
-    from neurodb.core.admin import is_overdue, scheduler_heartbeat
-    from neurodb.core.jobs import COMMANDS
-    from neurodb.core.models import ScheduledJob, SyncRun
-    from neurodb.review.models import DailyReview
-
-    warnings = []
-    jobs_url = _admin_url("core_scheduledjob")
-    enabled = list(ScheduledJob.objects.filter(enabled=True))
-    overdue = [job for job in enabled if is_overdue(job, now)]
-    stalled = False
-    if settings.SCHEDULER_ENABLED and enabled:
-        seen, _host, alive = scheduler_heartbeat()
-        stalled = not alive
-        if stalled:
-            since = timesince(seen, now) if seen else None
-            text = (
-                _("The scheduler has not checked in for %(since)s: scheduled jobs are not starting.")
-                % {"since": since}
-                if since
-                else _("The scheduler has never checked in: scheduled jobs are not starting.")
-            )
-            if overdue:
-                text += " " + ngettext("%(n)s job is overdue.", "%(n)s jobs are overdue.", len(overdue)) % {
-                    "n": len(overdue)
-                }
-            warnings.append({"text": text, "url": jobs_url})
-    for job in overdue:
-        command = COMMANDS.get(job.command)
-        label = command.label if command else job.command
-        ran = bool(job.last_started_at) or bool(
-            command and command.sync_job and SyncRun.objects.filter(job=command.sync_job).exists()
-        )
-        values = {"job": label, "when": _local(job.next_run_at)}
-        if not ran:  # listed even under a stalled scheduler: the data it brings was never there
-            text = _("Scheduled job “%(job)s” has never run: it was due %(when)s.") % values
-        elif not stalled:  # under a stalled scheduler, counted in its warning
-            text = _("Scheduled job “%(job)s” is overdue: it was due %(when)s.") % values
-        else:
-            continue
-        warnings.append({"text": text, "url": jobs_url})
-    if any(job.command == "daily_review" for job in enabled):
-        yesterday = timezone.localdate(now) - datetime.timedelta(days=1)
-        if not DailyReview.objects.filter(date__gte=yesterday, status=DailyReview.Status.SUCCEEDED).exists():
-            last = DailyReview.objects.filter(status=DailyReview.Status.SUCCEEDED).order_by("-date").first()
-            if last:
-                text = _("No daily review since %(date)s.") % {"date": date_format(last.date, "j M Y")}
-            else:
-                text = _("No daily review has been written yet.")
-            warnings.append({"text": text, "url": _admin_url("review_dailyreview")})
-    return warnings
-
-
-def _local(when) -> str:
-    return date_format(timezone.localtime(when), "j M, H:i")
 
 
 def _admin_url(model: str) -> str:

@@ -19,7 +19,7 @@ from unfold.widgets import (
 
 from neurodb.indicators.services.navigation import invalidate
 from neurodb.web.admin_helpers import badge
-from neurodb.web.admin_site import STALE_DATABASE_DAYS
+from neurodb.web.health import STALE_DATABASE_DAYS
 
 from .models import (
     Activity,

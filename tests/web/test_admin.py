@@ -235,6 +235,31 @@ def test_a_running_scheduler_and_fresh_review_raise_no_schedule_warning(client_s
     assert "No daily review" not in html
 
 
+def test_needs_attention_shows_the_lines_shared_with_neurodb_watch(client_super):
+    from django.utils.html import escape
+
+    from neurodb.web import health
+
+    long_ago = timezone.now() - datetime.timedelta(hours=30)
+    SyncRun.objects.create(
+        job=SyncRun.Job.WATCH,
+        target="daily",
+        status=SyncRun.Status.SUCCEEDED,
+        started_at=long_ago,
+        finished_at=long_ago,
+    )
+    SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, status=SyncRun.Status.FAILED, error="boom")
+
+    html = client_super.get(reverse("admin:index")).content.decode()
+
+    box = html.split("Needs attention")[1].split("Quick actions")[0]
+    assert "NeuroDB Watch has not run for more than 26 hours" in box
+    assert "The last eTools Datamart sync failed." in box
+    for line in health.warnings():  # the admin home lists exactly the shared lines
+        assert escape(line.text) in box
+    assert box.count("nd-warnings__icon") == len(health.warnings())
+
+
 def test_developer_sections_are_listed_for_superusers_only(client, client_super, admin_user):
     html = client_super.get(reverse("admin:index")).content.decode()
     assert "Social applications" in html and "eTools Datamart (read-only)" in html

@@ -182,6 +182,22 @@ def test_money_flows_grants_and_requirements(data, reporting_year):
     assert money["has_requirements"]
 
 
+def test_the_unspent_balance_of_a_grant_is_the_same_in_the_brief_and_in_neurodb_watch(
+    data, reporting_year, settings
+):
+    """The brief and the watch's expiring-grant check read the funds through the same two functions."""
+    from neurodb.watch.detectors import Context, money
+
+    (grant,) = build(reporting_year)["money"]["grants"]
+    _per_pd, lines = brief.fr_lines([data["pd"].pk], 2026)
+    assert brief.grant_balances(lines)["SC1"]["unspent"] == grant["unspent"] == 6000.0
+    settings.WATCH_GRANT_MIN_UNSPENT = 5_000  # the watch follows 10,000 USD or more by default
+    morning = datetime.datetime.combine(TODAY, datetime.time(9), tzinfo=datetime.UTC)  # noon in Beirut
+    (found,) = money.grants_expiring(Context.make(now=morning))
+    assert found.evidence["numbers"]["unspent"] == grant["unspent"]
+    assert (found.due_date, found.severity) == (TODAY + datetime.timedelta(days=30), "warning")
+
+
 def test_decisions_and_action_read_the_review_and_its_assignments(data, reporting_year):
     review = review_services.run(date=TODAY, today=TODAY)
     overdue = review.findings.get(check_id="action_points_overdue")

@@ -414,10 +414,12 @@ replicas run. The banner above the list says whether it checked in during the la
 and on which host. While it does not, **Run due jobs now** (top right) does one scheduler pass from
 the browser: it starts every switched-on job whose time has passed; the banner names
 `SUPPORT_EMAIL`, when set, as the contact for a restart. The admin home's *Needs attention* lists a
-silent scheduler, overdue or never-run jobs, runs that failed or succeeded with errors, and a
-missing daily review. A due job starts within a minute, in the background, as the admin buttons do,
-and appears in *Import and sync runs* with *schedule* as its trigger. A job whose previous run is
-still going is skipped until its next time. Times missed while the site was down (a deployment, a
+silent scheduler, overdue or never-run jobs, runs that failed or succeeded with errors (a Compiler
+job only while its schedule is switched on), and a missing daily review. NeuroDB Watch tells the
+administrators the same lines on their *For you* page, and closes each one once it is no longer
+listed (`neurodb/web/health.py` builds the list for both). A due job starts within a minute, in the
+background, as the admin buttons do, and appears in *Import and sync runs* with *schedule* as its
+trigger. A job whose previous run is still going is skipped until its next time. Times missed while the site was down (a deployment, a
 restart) are caught up once when it comes back. It works the same on App Service and Container
 Apps; on **App Service, turn on *Always On*** (Configuration → General settings), otherwise the site
 sleeps when nobody uses it and the scheduler with it. `SCHEDULER_ENABLED=false` switches the

@@ -38,8 +38,20 @@ MISSES_TO_GONE = 2  # fresh morning passes in a row without the item
 REOPEN_DAYS = 14  # an item back within this many days of closing reopens as the same episode
 State = WatchItem.State
 SEVERITY_WORDS = {"critical": "critical", "warning": "warning", "info": "to note"}
-# Evidence numbers that change every day by themselves: left out of the fingerprint
-COUNTING_NUMBERS = frozenset({"days_left", "days_open", "days_overdue", "days_since", "days_ago"})
+# Evidence numbers that change every day by themselves: left out of the fingerprint (the last three
+# are the daily review's, kept under its names on the findings it imports)
+COUNTING_NUMBERS = frozenset(
+    {
+        "days_left",
+        "days_open",
+        "days_overdue",
+        "days_since",
+        "days_ago",
+        "days_since_end",
+        "days_since_start",
+        "elapsed_percent",
+    }
+)
 
 # The text columns of WatchItem, cut to their size
 _SIZES = {

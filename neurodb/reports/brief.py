@@ -109,6 +109,79 @@ def _same_day_last_year(day: datetime.date) -> datetime.date:
         return day.replace(year=day.year - 1, day=28)
 
 
+# --------------------------------------------------------------------------------- money, shared
+# The brief's money block and NeuroDB Watch's expiring-grant check read the funds through these two
+# functions, so that a grant's unspent balance is the same figure in both places.
+def fr_lines(pd_ids: list[int], year: int) -> tuple[dict[int, dict[str, float]], list[dict[str, Any]]]:
+    """The funds reservations (FR headers) of these PDs that overlap ``year``: per PD, the amounts
+    reserved, disbursed and outstanding; and the FR lines (donor, grant) of those headers, each with
+    its PD (``pd_id``: the line's own, else its header's) and its header's outstanding and total
+    amounts (``fr_outstanding``, ``fr_total``)."""
+    first, last = datetime.date(year, 1, 1), datetime.date(year, 12, 31)
+    headers = list(
+        dm.FundsReservationHeader.objects.filter(intervention_id__in=pd_ids)
+        .filter(
+            Q(start_date__isnull=True) | Q(start_date__lte=last),
+            Q(end_date__isnull=True) | Q(end_date__gte=first),
+        )
+        .values("intervention_id", "fr_number", "total_amt", "actual_amt", "outstanding_amt")
+    )
+    per_pd: dict[int, dict[str, float]] = defaultdict(
+        lambda: {"reserved": 0.0, "disbursed": 0.0, "outstanding": 0.0}
+    )
+    fr_of: dict[str, dict[str, Any]] = {}
+    for h in headers:
+        per_pd[h["intervention_id"]]["reserved"] += _money(h["total_amt"])
+        per_pd[h["intervention_id"]]["disbursed"] += _money(h["actual_amt"])
+        per_pd[h["intervention_id"]]["outstanding"] += _money(h["outstanding_amt"])
+        if h["fr_number"]:
+            fr_of[h["fr_number"]] = h
+    lines = list(
+        dm.FundsReservation.objects.filter(fr_number__in=list(fr_of)).values(
+            "fr_number", "intervention_id", "donor", "grant_number", "overall_amount"
+        )
+    )
+    for line in lines:
+        header = fr_of[line["fr_number"]]
+        line["pd_id"] = line["intervention_id"] or header["intervention_id"]
+        line["fr_outstanding"] = _money(header["outstanding_amt"])
+        line["fr_total"] = _money(header["total_amt"])
+    return dict(per_pd), lines
+
+
+def grant_balances(lines: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Per grant number, from the FR lines of :func:`fr_lines`, in the order of its first line:
+
+    - ``donor``: the donor of its first line;
+    - ``reserved``: what its lines reserve;
+    - ``unspent``: its unspent balance, each FR's outstanding amount in the grant's share of the FR's
+      lines;
+    - ``frs``: that balance per FR number;
+    - ``pd_ids``: the PDs it funds, in the order of their first line.
+
+    Lines without a grant number are left out."""
+    fr_total: Counter[str] = Counter()
+    for line in lines:
+        fr_total[line["fr_number"]] += _money(line["overall_amount"])
+    grants: dict[str, dict[str, Any]] = {}
+    for line in lines:
+        grant = line["grant_number"] or ""
+        if not grant:
+            continue
+        amount = _money(line["overall_amount"])
+        entry = grants.setdefault(
+            grant, {"donor": line["donor"] or "", "reserved": 0.0, "unspent": 0.0, "frs": {}, "pd_ids": []}
+        )
+        entry["reserved"] += amount
+        share = amount / fr_total[line["fr_number"]] if fr_total[line["fr_number"]] else 0
+        unspent = line["fr_outstanding"] * share
+        entry["unspent"] += unspent
+        entry["frs"][line["fr_number"]] = entry["frs"].get(line["fr_number"], 0.0) + unspent
+        if line["pd_id"] and line["pd_id"] not in entry["pd_ids"]:
+            entry["pd_ids"].append(line["pd_id"])
+    return grants
+
+
 # --------------------------------------------------------------------------------- build
 def _cache_key(scope: Scope) -> str:
     """Everything the result depends on: the overview's inputs plus the hand-entered tables, the
@@ -202,39 +275,9 @@ class _Builder:
 
     def _funds(self) -> tuple[dict[int, dict[str, float]], list[dict[str, Any]]]:
         """Per PD: reserved, disbursed, outstanding (FR headers overlapping the year); and the FR lines
-        (donor, grant) of those headers."""
-        if hasattr(self, "_fund_rows"):
-            return self._fund_rows
-        first, last = datetime.date(self.year, 1, 1), datetime.date(self.year, 12, 31)
-        headers = list(
-            dm.FundsReservationHeader.objects.filter(intervention_id__in=self.pd_ids)
-            .filter(
-                Q(start_date__isnull=True) | Q(start_date__lte=last),
-                Q(end_date__isnull=True) | Q(end_date__gte=first),
-            )
-            .values("intervention_id", "fr_number", "total_amt", "actual_amt", "outstanding_amt")
-        )
-        per_pd: dict[int, dict[str, float]] = defaultdict(
-            lambda: {"reserved": 0.0, "disbursed": 0.0, "outstanding": 0.0}
-        )
-        fr_of: dict[str, dict[str, Any]] = {}
-        for h in headers:
-            per_pd[h["intervention_id"]]["reserved"] += _money(h["total_amt"])
-            per_pd[h["intervention_id"]]["disbursed"] += _money(h["actual_amt"])
-            per_pd[h["intervention_id"]]["outstanding"] += _money(h["outstanding_amt"])
-            if h["fr_number"]:
-                fr_of[h["fr_number"]] = h
-        lines = list(
-            dm.FundsReservation.objects.filter(fr_number__in=list(fr_of)).values(
-                "fr_number", "intervention_id", "donor", "grant_number", "overall_amount"
-            )
-        )
-        for line in lines:
-            header = fr_of[line["fr_number"]]
-            line["pd_id"] = line["intervention_id"] or header["intervention_id"]
-            line["fr_outstanding"] = _money(header["outstanding_amt"])
-            line["fr_total"] = _money(header["total_amt"])
-        self._fund_rows = (dict(per_pd), lines)
+        (donor, grant) of those headers (:func:`fr_lines`, read once)."""
+        if not hasattr(self, "_fund_rows"):
+            self._fund_rows = fr_lines(self.pd_ids, self.year)
         return self._fund_rows
 
     def _reports(self) -> list[dict[str, Any]]:
@@ -1008,24 +1051,13 @@ class _Builder:
         _per_pd, lines = self._funds()
         pds = self._pds()
         donor_section: Counter[tuple[str, str]] = Counter()
-        grant_amount: Counter[str] = Counter()
-        grant_unspent: Counter[str] = Counter()
-        grant_donor: dict[str, str] = {}
-        fr_lines_total: Counter[str] = Counter()
-        for line in lines:
-            fr_lines_total[line["fr_number"]] += _money(line["overall_amount"])
         for line in lines:
             amount = _money(line["overall_amount"])
             section = pds.get(line["pd_id"], {}).get("section") or self.section_of_pd.get(
                 line["pd_id"], "Other"
             )
             donor_section[(line["donor"] or "Unknown", section or "Other")] += amount
-            grant = line["grant_number"] or ""
-            if grant:
-                grant_amount[grant] += amount
-                grant_donor.setdefault(grant, line["donor"] or "")
-                share = amount / fr_lines_total[line["fr_number"]] if fr_lines_total[line["fr_number"]] else 0
-                grant_unspent[grant] += line["fr_outstanding"] * share
+        balances = grant_balances(lines)
         children = {s["section"]: s["achieved"] for s in self.now["impact"]["by_section"]}
         donors = Counter()
         for (donor, _section), amount in donor_section.items():
@@ -1043,19 +1075,19 @@ class _Builder:
         merged: Counter[tuple[str, str]] = Counter()
         for f in flows:
             merged[(f["donor"], f["section"])] += f["amount"]
-        expiry = {g.name: g.expiry for g in dm.Grant.objects.filter(name__in=list(grant_amount))}
+        expiry = {g.name: g.expiry for g in dm.Grant.objects.filter(name__in=list(balances))}
         grants = []
-        for grant, amount in grant_amount.items():
+        for grant, balance in balances.items():
             when = expiry.get(grant)
             days = (when - self.today).days if when else None
-            unspent = half_up(grant_unspent[grant], 2)
+            unspent = half_up(balance["unspent"], 2)
             if not unspent:
                 continue
             grants.append(
                 {
                     "grant": grant,
-                    "donor": grant_donor.get(grant, ""),
-                    "reserved": half_up(amount, 2),
+                    "donor": balance["donor"],
+                    "reserved": half_up(balance["reserved"], 2),
                     "unspent": unspent,
                     "expiry": when.isoformat() if when else "",
                     "days": days,

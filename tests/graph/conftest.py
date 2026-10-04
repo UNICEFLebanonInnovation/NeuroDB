@@ -129,3 +129,21 @@ def world(db, database, no_ai):
         amel=amel, care=care, pd=pd, database=database, master=master, education=education, output=output,
         indicator=indicator, note=note, cycle=cycle,
     )  # fmt: skip
+
+
+def build_hub():
+    """Build the knowledge hub from the records as they are now, without reading documents (the first
+    build is the starting point; a later one records what changed)."""
+    from neurodb.core.models import SyncRun
+    from neurodb.graph import build
+
+    run = build.run(triggered_by="test", documents=False)
+    assert run.status == SyncRun.Status.SUCCEEDED, run.details
+    return run
+
+
+@pytest.fixture
+def hub(world):
+    """``world`` with the knowledge hub built from it."""
+    build_hub()
+    return world
