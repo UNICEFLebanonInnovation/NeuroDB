@@ -203,6 +203,7 @@ def started(monkeypatch):
 def test_a_finished_sync_asks_for_a_rebuild_once_committed(
     db, started, settings, django_capture_on_commit_callbacks
 ):
+    settings.WATCH_ENABLED = False  # NeuroDB Watch's own requests: tests/watch/test_runner.py
     with django_capture_on_commit_callbacks(execute=True):
         new_run(SyncRun.Job.ETOOLS_DATAMART, "", "test").finish(SyncRun.Status.SUCCEEDED)
         new_run(SyncRun.Job.ETOOLS, "", "test").finish(SyncRun.Status.FAILED)  # nothing new

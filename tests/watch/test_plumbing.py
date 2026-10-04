@@ -24,6 +24,8 @@ from neurodb.integrations.runs import new_run
 from neurodb.reports.services import data_health
 from neurodb.watch import lock
 from neurodb.watch.management.commands.run_watch import BUSY, SWITCHED_OFF
+from neurodb.watch.models import WatchRequest
+from neurodb.watch.services import NOTHING_WAITING
 
 ROOT = Path(__file__).resolve().parents[2]
 SETTINGS_FILE = ROOT / "config" / "settings.py"
@@ -96,11 +98,15 @@ def test_a_morning_pass_is_recorded_as_a_succeeded_run():
 
 
 @pytest.mark.django_db
-def test_a_quick_pass_and_a_given_day():
+def test_a_quick_pass_and_a_given_day(settings):
+    settings.WATCH_SETTLE_SECONDS = 0
+    ScheduledJob.objects.filter(command="watch").update(enabled=False)  # no morning pass to wait for
+    assert _run("--when-requested").strip() == NOTHING_WAITING  # no new data asked for it
+    WatchRequest.objects.create(reason="Knowledge hub")
     _run("--when-requested", "--date", "2026-10-05")
     run = SyncRun.objects.get(job=SyncRun.Job.WATCH)
-    assert run.target == "quick" and run.details == {"mode": "quick", "date": "2026-10-05"}
-    assert run.triggered_by == "command"
+    assert run.target == "quick" and run.details["mode"] == "quick" and run.details["date"] == "2026-10-05"
+    assert run.triggered_by == "command: Knowledge hub" and not WatchRequest.objects.exists()
     with pytest.raises(CommandError, match="YYYY-MM-DD"):
         _run("--date", "5 Oct")
     with pytest.raises(CommandError):

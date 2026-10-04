@@ -1,27 +1,24 @@
 """``run_watch [--daily | --when-requested] [--date YYYY-MM-DD]``: one pass of NeuroDB Watch.
 
 ``--daily`` is the morning pass (the scheduled job "watch", 07:45, and "Run NeuroDB Watch now" in the
-admin); ``--when-requested`` is the quick pass started shortly after new data arrives. One run at a
-time: a second start while one runs does nothing and exits without an error. Every run is recorded
-as a ``SyncRun`` (job "watch"); with WATCH_ENABLED off it records only that it was switched off.
+admin); ``--when-requested`` is the quick pass started shortly after new data arrives (it waits
+``WATCH_SETTLE_SECONDS`` first, and runs the morning pass instead when that was missed today). One run
+at a time: a second start while one runs does nothing and exits without an error. Every pass is
+recorded as a ``SyncRun`` (job "watch"); with WATCH_ENABLED off a run records only that it was
+switched off. The steps are in :mod:`neurodb.watch.services`.
 """
 
 from __future__ import annotations
 
 import datetime
 
-from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.utils import timezone
 
-from neurodb.core.models import SyncRun
 from neurodb.integrations.management.commands._base import add_triggered_by, exit_on_failure, write_summary
-from neurodb.integrations.runs import new_run
-from neurodb.watch import lock
+from neurodb.watch import services
+from neurodb.watch.services import BUSY, DAILY, QUICK, SWITCHED_OFF
 
-DAILY, QUICK = "daily", "quick"
-BUSY = "Another run of NeuroDB Watch is running; nothing to do."
-SWITCHED_OFF = "NeuroDB Watch is switched off (WATCH_ENABLED); nothing was checked."
+__all__ = ["BUSY", "SWITCHED_OFF", "Command"]
 
 
 class Command(BaseCommand):
@@ -39,23 +36,15 @@ class Command(BaseCommand):
         add_triggered_by(parser)
 
     def handle(self, *args, **options):
-        day = timezone.localdate()
+        day = None
         if options["date"]:
             try:
                 day = datetime.date.fromisoformat(options["date"])
             except ValueError as exc:
                 raise CommandError(f"--date must be YYYY-MM-DD, got {options['date']!r}") from exc
         mode = QUICK if options["when_requested"] else DAILY
-        with lock.hold() as got:
-            if not got:
-                self.stdout.write(BUSY)
-                return
-            run = new_run(SyncRun.Job.WATCH, mode, options["triggered_by"])
-            if not settings.WATCH_ENABLED:
-                run.finish(SyncRun.Status.SUCCEEDED, mode=mode, date=day.isoformat(), note=SWITCHED_OFF)
-                self.stdout.write(SWITCHED_OFF)
-                return
-            # The pass itself (checks, memory, who is told, notes) is added by the runner
-            # (neurodb.watch.services); until then a run only records that it ran.
-            run.finish(SyncRun.Status.SUCCEEDED, mode=mode, date=day.isoformat())
-        exit_on_failure(write_summary(self, [run]))
+        done = services.run(mode, options["triggered_by"], today=day)
+        if done.note:
+            self.stdout.write(done.note)
+        if done.runs:
+            exit_on_failure(write_summary(self, done.runs))
