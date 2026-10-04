@@ -580,6 +580,16 @@ def _outstanding(pd_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
     return per_pd
 
 
+def _closure_title(pd: PCA, today: datetime.date) -> str:
+    """eTools can mark a PD ended before its planned end date: say so rather than "ended" on a date
+    still to come."""
+    if not pd.end:
+        return "PD ended, awaiting closure: "
+    if pd.end > today:
+        return f"PD marked ended before its end date ({_day(pd.end)}), awaiting closure: "
+    return f"PD ended {_day(pd.end)}, awaiting closure: "
+
+
 def pds_awaiting_closure(ctx: Context) -> Iterator[Candidate]:
     """PDs eTools shows as ended: past their end, not closed yet."""
     pds = list(_pds(status=ENDED))
@@ -614,10 +624,7 @@ def pds_awaiting_closure(ctx: Context) -> Iterator[Candidate]:
             key=closure_key(number),
             kind=CONCERN,
             severity=WARNING if late else INFO,
-            title=(
-                f"PD ended {_day(pd.end)}, awaiting closure: " if pd.end else "PD ended, awaiting closure: "
-            )
-            + pd_label(pd),
+            title=_closure_title(pd, ctx.today) + pd_label(pd),
             detail=detail,
             etools_sections=_sections(pd),
             scope=COUNTRY if late else SECTION,

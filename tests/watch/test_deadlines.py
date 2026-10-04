@@ -446,6 +446,8 @@ def test_a_pd_ending_given_a_later_date_or_ended_closes(partner, fresh):
     assert item("due:pd_end:LEB/PD-ext").close_reason == "end date moved to 23 Apr 2027"
     assert item("due:pd_end:LEB/PD-end").close_reason == "eTools now shows the PD as ended"
     assert keys("pd_awaiting_closure") == {"closure:LEB/PD-end"}
+    # eTools marked it ended before its planned end date: the title does not say it ended on a date to come
+    assert item("closure:LEB/PD-end").title.startswith("PD marked ended before its end date (25 Oct 2026)")
 
 
 def test_an_ended_pd_awaits_closure_and_long_after_with_money_left_it_is_a_warning(partner, fresh):
