@@ -13,7 +13,7 @@ import logging
 from functools import wraps
 
 from django.contrib import messages
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBadRequest, HttpResponseForbidden
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -88,20 +88,28 @@ def react(request: HttpRequest, pk: int) -> HttpResponse:
             comment=request.POST.get("comment", ""),
         )
     except page.Refused as exc:
-        if request.htmx:
-            return HttpResponseBadRequest(str(exc))
+        if request.htmx:  # the card again, saying why in plain words (htmx does not show a 4xx)
+            receipt.refresh_from_db()
+            return _card(request, receipt, str(exc), refused=True)
         messages.error(request, str(exc))
         return redirect("watch:for_you")
     if not request.htmx:
         messages.success(request, said)
         return redirect(reverse("watch:for_you") + f"#watch-{receipt.item_id}")
+    return _card(request, receipt, said)
+
+
+def _card(request: HttpRequest, receipt: WatchReceipt, said: str, refused: bool = False) -> HttpResponse:
+    """The card after a button, in place of the one pressed (each point is on the page once, so it
+    keeps its anchor), with what was done (or why not) and the same words for the page's live region."""
     today = timezone.localdate()
     shown = page.point(receipt.item, receipt, today, modes=page.check_modes())
     shown["anchor"] = f"watch-{receipt.item_id}"
     shown["said"] = said
+    shown["refused"] = refused
     shown["why"] = page.set_aside_reason(receipt, today)
     shown["undo"] = bool(shown["why"])
-    return render(request, "watch/partials/_item.html", {"card": shown, "open": True})
+    return render(request, "watch/partials/_item.html", {"card": shown, "open": True, "live": True})
 
 
 @require_POST

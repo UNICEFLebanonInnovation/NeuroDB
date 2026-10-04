@@ -27,18 +27,22 @@ person again only when the step moves on:
   announced, unless it is critical or due within 3 days;
 - a **milestone** of its due date is crossed (14, 7, 3, 1, 0 days...), at most 3 per item and person;
 - its due date **passed** while it is still open (once);
-- it got **worse** (its severity rose since they were last told);
+- it got **worse** (its severity rose above the one they were last told, kept on their receipt);
 - the week-old **escalation** above, for the whole-country view;
 - their **snooze** ended while it is still open ("Remind me later");
 - 7 days after they marked it **Done**, it is still open ("still open after you marked it done"),
   once, then never again;
-- it **closed** or went, and they had been told about it ("resolved", good to know).
+- it **closed** or went, and they had been told about it (good to know), as it ended: "resolved" (done,
+  or no longer seen), "missed" (its date passed and it was not done: never told as resolved) or
+  "closed" (no longer followed here: its date moved, another point follows it).
 
 **Reactions.** "Not mine" and the person's own "Something's wrong" hide the item from them unless it
 becomes critical. "Done" hides it from them, and for the whole section when a Section editor of that
-section or an Administrator marked it. A snooze hides it until its day. Three "Not useful" on the
-same check within 30 days mute that check's info and warning items for the person (critical items are
-still told). An item marked wrong for everyone (state "wrong") is told to no one.
+section or an Administrator marked it. A Section editor's "Something's wrong" hides it for their own
+section until its evidence changes (:func:`hidden_sections`); an Administrator's, or that of an editor
+whose section is the item's only one, marks it wrong for everyone (state "wrong"), and it is then told
+to no one. A snooze hides it until its day. Three "Not useful" on the same check within 30 days mute
+that check's info and warning items for the person (critical items are still told).
 
 **How much.** Warning and critical items are "Needs you"; info items and "resolved" are "Good to
 know". Each person gets at most ``WATCH_NEEDS_YOU_PER_DAY`` (5) and ``WATCH_GOOD_TO_KNOW_PER_DAY``
@@ -47,7 +51,9 @@ waits for the next pass and stays on the page meanwhile. The quick pass after ne
 critical items, items due within 3 days and system items, and only "Needs you".
 
 Receipts older than 12 months are deleted (:func:`prune`). Nothing outside ``WatchReceipt`` is
-written here.
+written here, and of a receipt only what was told: never the reaction, comment or reminder people
+write (a reminder that has done its work is cleared, and a point told again is marked unseen, by
+their own updates, and a person who answered while a pass ran is not told over their answer).
 """
 
 from __future__ import annotations
@@ -88,12 +94,14 @@ from .detectors import (
 )
 from .detectors.calendar import ASSIGNMENT_PREFIX
 from .detectors.concerns import REVIEW_PREFIX
-from .memory import SEVERITY_WORDS, Outcome
+from .memory import SEVERITY_WORDS, Outcome, fingerprint
 from .models import DetectorSetting, WatchItem, WatchNote, WatchReceipt
 
 # What a receipt says was told (WatchReceipt.told_step; a milestone is its number of days, "7")
 KNOWN, NEW, OVERDUE, WORSE = WatchReceipt.KNOWN, WatchReceipt.NEW, WatchReceipt.OVERDUE, WatchReceipt.WORSE
 STILL_OPEN, RESOLVED = WatchReceipt.STILL_OPEN, WatchReceipt.RESOLVED
+MISSED, CLOSED = WatchReceipt.MISSED, WatchReceipt.CLOSED  # its date passed, not done; no longer followed
+ENDED = (RESOLVED, MISSED, CLOSED)  # the steps that tell an item closed or went
 ESCALATED = "escalated"  # critical, open 7 days, no one assigned: the whole-country view
 REMINDER = "reminder"  # the person's snooze ended while it is still open
 NEEDS_YOU, GOOD_TO_KNOW = WatchReceipt.Level.NEEDS_YOU, WatchReceipt.Level.GOOD_TO_KNOW
@@ -116,15 +124,15 @@ MUTE_DAYS = 30
 RESOLVED_WITHIN_DAYS = 14  # items closed this recently are told as resolved to those told before
 RETENTION_DAYS = 365  # receipts last told longer ago are deleted
 OPEN_ASSIGNMENT = (FindingAssignment.Status.ACKNOWLEDGED, FindingAssignment.Status.ASSIGNED)
-# The receipt fields a telling writes (never the reaction, comment or email date: those are people's)
+# The receipt fields a telling writes (never the reaction, comment, reminder, seen stamp or email date:
+# those are people's; an ended reminder and the unseen mark are cleared by filtered updates, see _write)
 TOLD_FIELDS = (
     "first_told_on",
     "last_told_on",
     "told_step",
+    "told_severity",
     "milestone_count",
     "level",
-    "seen_at",
-    "snoozed_until",
 )
 
 # Ranks of the steps among tellings on the same day (lower first) when several apply at once
@@ -255,14 +263,15 @@ class Routing:
 
     def since(self, item: WatchItem) -> datetime.date:
         """The day the people who get the item now could first hear of its check's items: the day it
-        went on for staff, or the day it went into trial (its first run, or an administrator's
-        change). Items found by then were there already."""
+        went on for staff (``on_since``), or the day it went into trial (``trial_since``: its first
+        run, an administrator's change or going back by itself; never a save that keeps it in trial).
+        Items found by then were there already."""
         setting = self.checks.get(item.detector)
         if setting is None:
             return self.today
         if setting.mode == ON:
             return setting.on_since or self.today
-        return timezone.localdate(setting.updated_at) if setting.updated_at else self.today
+        return setting.trial_since or self.today
 
     # ------------------------------------------------------------------ the rules
     @staticmethod
@@ -408,16 +417,33 @@ def quick_worthy(item: WatchItem, today: datetime.date) -> bool:
 
 
 def level_of(item: WatchItem, step: str) -> str:
-    """Warning and critical items are "Needs you"; info items, known ones and "resolved" are "Good
-    to know"."""
-    if step in (KNOWN, RESOLVED) or item.severity == INFO:
+    """Warning and critical items are "Needs you"; info items, known ones and those that closed or
+    went are "Good to know"."""
+    if step == KNOWN or step in ENDED or item.severity == INFO:
         return GOOD_TO_KNOW
     return NEEDS_YOU
 
 
+def closing_step(item: WatchItem) -> str:
+    """How a closed or gone item is told: missed (its date passed and it was not done), closed (no
+    longer followed here) or resolved (done, or no longer seen)."""
+    if item.state == State.CLOSED and item.close_kind == WatchItem.CloseKind.MISSED:
+        return MISSED
+    if item.state == State.CLOSED and item.close_kind == WatchItem.CloseKind.CHANGED:
+        return CLOSED
+    return RESOLVED
+
+
+def told_severity(item: WatchItem, receipt: WatchReceipt) -> str:
+    """The severity the person was last told (kept on the receipt; for a receipt written before it
+    was kept, read from the item's story)."""
+    return receipt.told_severity or severity_told(item, receipt.last_told_on)
+
+
 def severity_told(item: WatchItem, since: datetime.date) -> str:
     """The item's severity on ``since`` (the day someone was last told): what its first severity
-    change after that day says it was, else its severity now."""
+    change after that day says it was, else its severity now. (Only for receipts without
+    ``told_severity``.)"""
     after = since.isoformat()
     for line in item.story or []:
         if not isinstance(line, dict) or str(line.get("on") or "") <= after:
@@ -449,6 +475,10 @@ def reason(receipt: WatchReceipt, item: WatchItem | None = None) -> str:
         return "Agreed date passed" if item.key.startswith(ASSIGNMENT_PREFIX) else "Date passed"
     if step == RESOLVED:
         return "No longer seen" if item.state == State.GONE else "Resolved"
+    if step == MISSED:
+        return "Date passed, not done"
+    if step == CLOSED:
+        return "No longer followed here"
     return {
         NEW: "New",
         WORSE: "Got worse",
@@ -530,12 +560,11 @@ class _Pass:
             self.receipts[(receipt.user_id, receipt.item_id)] = receipt
             self.by_item[receipt.item_id].append(receipt)
         self.muted = muted(routing.people, ctx.now)
-        self.done: dict[int, set[int]] = defaultdict(set)  # item id -> sections that marked it done
+        # item id -> the sections it is hidden for: marked done, or wrong, for the section
+        self.done: dict[int, set[int]] = defaultdict(set)
         by_id = {item.pk: item for item in items}
         for (user_id, item_id), receipt in self.receipts.items():
-            item = by_id[item_id]
-            if done_in_episode(item, receipt):
-                self.done[item_id] |= done_sections(routing.people[user_id], item)
+            self.done[item_id] |= hidden_sections(routing.people[user_id], by_id[item_id], receipt)
 
     # ------------------------------------------------------------------ open items
     def decide(self, item: WatchItem, person: Person) -> Telling | None:
@@ -555,12 +584,12 @@ class _Pass:
                     return None  # theirs to disown: told again only once it is critical
                 if fresh:
                     return tell(NEW)
-                return tell(WORSE) if severity_told(item, receipt.last_told_on) != CRITICAL else None
+                return tell(WORSE) if told_severity(item, receipt) != CRITICAL else None
             if not fresh and done_in_episode(item, receipt):
                 checked = timezone.localdate(receipt.reacted_at) + datetime.timedelta(days=DONE_CHECK_DAYS)
                 return tell(STILL_OPEN if self.today >= checked and receipt.told_step != STILL_OPEN else None)
         if person.section_id is not None and person.section_id in self.done.get(item.pk, ()):
-            return None  # their section marked it done
+            return None  # their section marked it done, or wrong
         quiet = (person.id, item.detector) in self.muted and not critical
         if fresh:
             if person.country and self.routing.escalated(item):
@@ -591,8 +620,10 @@ class _Pass:
             and told < item.due_date - datetime.timedelta(days=reached)
         ):
             steps["milestone"] = str(reached)
+        # worse than the severity they were last told (kept on the receipt, so a rise later the same
+        # day, or a telling put off by the day's limits, is still told)
         if item.key in self.worse_now or SEVERITY_RANK.get(item.severity, 0) > SEVERITY_RANK.get(
-            severity_told(item, told), 0
+            told_severity(item, receipt), 0
         ):
             steps[WORSE] = WORSE
         if person.country and self.routing.escalated(item) and told < self.routing.escalation_day(item):
@@ -605,11 +636,13 @@ class _Pass:
 
     # ------------------------------------------------------------------ closed items
     def resolved(self, item: WatchItem) -> list[Telling]:
-        """Tell a closed or gone item as resolved to the people who had been told about it (not only
-        recorded as known) and did not set it aside."""
+        """Tell a closed or gone item, as it ended (:func:`closing_step`: resolved, missed or closed),
+        to the people who had been told about it (not only recorded as known) and did not set it
+        aside."""
+        step = closing_step(item)
         tellings = []
         for receipt in self.by_item.get(item.pk, ()):
-            if receipt.told_step in (KNOWN, RESOLVED):
+            if receipt.told_step == KNOWN or receipt.told_step in ENDED:
                 continue
             person = self.routing.people[receipt.user_id]
             if (
@@ -620,7 +653,7 @@ class _Pass:
                 or (person.section_id is not None and person.section_id in self.done.get(item.pk, ()))
             ):
                 continue
-            tellings.append(Telling(person, item, RESOLVED, receipt, False))
+            tellings.append(Telling(person, item, step, receipt, False))
         return tellings
 
 
@@ -648,20 +681,60 @@ def done_sections(person: Person, item: WatchItem) -> set[int]:
     return set()
 
 
+def wrong_for_everyone(person: Person | None, item: WatchItem) -> bool:
+    """The person's "Something's wrong" marks the item wrong for everyone (state "wrong"): an
+    Administrator's, or a Section editor's whose section is the only one of a section item."""
+    if person is None:
+        return False
+    if person.admin:
+        return True
+    return (
+        person.editor
+        and item.scope == SECTION
+        and bool(item.section_ids)
+        and set(item.section_ids) <= {person.section_id}
+    )
+
+
+def evidence_mark(item: WatchItem) -> str:
+    """What an answer of "Something's wrong" is kept against: the fingerprint of the item's evidence
+    (it changes when its records or numbers do)."""
+    return item.evidence_hash or fingerprint(item.evidence)
+
+
+def wrong_sections(person: Person, item: WatchItem, receipt: WatchReceipt) -> set[int]:
+    """The section for which a Section editor's "Something's wrong" hides the item: their own, while
+    the item's evidence is what it was when they said so. (An Administrator's marks it wrong for
+    everyone instead: :func:`wrong_for_everyone`.)"""
+    if (
+        receipt.reaction == Reaction.WRONG
+        and receipt.wrong_hash
+        and receipt.wrong_hash == evidence_mark(item)
+        and person.editor
+        and person.section_id in item.section_ids
+    ):
+        return {person.section_id}
+    return set()
+
+
+def hidden_sections(person: Person, item: WatchItem, receipt: WatchReceipt) -> set[int]:
+    """The sections for which the person's answer hides the item: marked done since it last
+    (re)appeared (:func:`done_sections`), or marked wrong while its evidence is the same
+    (:func:`wrong_sections`)."""
+    hidden = done_sections(person, item) if done_in_episode(item, receipt) else set()
+    return hidden | wrong_sections(person, item, receipt)
+
+
 def done_by_section(item: WatchItem, routing: Routing | None = None) -> bool:
     """A Section editor of one of the item's sections, or an Administrator, marked it done (for the
     morning note: yes or no, never who)."""
-    routing = routing or Routing.load()
-    for receipt in item.receipts.filter(reaction=Reaction.DONE):
-        person = routing.people.get(receipt.user_id)
-        if person and done_in_episode(item, receipt) and (person.admin or done_sections(person, item)):
-            return True
-    return False
+    return item_stats([item], routing)[item.key]["done_by_section"]
 
 
 def item_stats(items: Iterable[WatchItem], routing: Routing | None = None) -> dict[str, dict[str, Any]]:
     """For the morning note, per item key: ``times_told`` (people it was announced to, not only
-    recorded as known) and ``done_by_section`` (yes or no). Never who."""
+    recorded as known) and ``done_by_section`` (yes or no). Never who. Two queries, whatever the
+    number of items."""
     routing = routing or Routing.load()
     items = list(items)
     told = Counter(
@@ -669,10 +742,31 @@ def item_stats(items: Iterable[WatchItem], routing: Routing | None = None) -> di
         .exclude(told_step=KNOWN)
         .values_list("item_id", flat=True)
     )
+    by_id = {item.pk: item for item in items}
+    done: set[int] = set()
+    for receipt in WatchReceipt.objects.filter(item__in=items, reaction=Reaction.DONE).order_by("pk"):
+        person, item = routing.people.get(receipt.user_id), by_id[receipt.item_id]
+        if person and done_in_episode(item, receipt) and (person.admin or done_sections(person, item)):
+            done.add(item.pk)
     return {
-        item.key: {"times_told": told.get(item.pk, 0), "done_by_section": done_by_section(item, routing)}
-        for item in items
+        item.key: {"times_told": told.get(item.pk, 0), "done_by_section": item.pk in done} for item in items
     }
+
+
+def wrong_by_section(items: Iterable[WatchItem], routing: Routing | None = None) -> dict[int, set[int]]:
+    """Item id -> the sections a Section editor marked it wrong for (:func:`wrong_sections`): their
+    morning notes leave it out. One query."""
+    routing = routing or Routing.load()
+    by_id = {item.pk: item for item in items}
+    found: dict[int, set[int]] = defaultdict(set)
+    rows = WatchReceipt.objects.filter(item_id__in=list(by_id), reaction=Reaction.WRONG).exclude(
+        wrong_hash=""
+    )
+    for receipt in rows:
+        person = routing.people.get(receipt.user_id)
+        if person is not None:
+            found[receipt.item_id] |= wrong_sections(person, by_id[receipt.item_id], receipt)
+    return {pk: sections for pk, sections in found.items() if sections}
 
 
 def announce(ctx: Context, outcome: Outcome | None = None, sync_run: SyncRun | None = None) -> Announced:
@@ -744,40 +838,80 @@ def _within_limits(
     return kept
 
 
-def _write(tellings: list[Telling], today: datetime.date, result: Announced) -> None:
-    """Create or update the receipts of the tellings, in one transaction."""
-    created: list[WatchReceipt] = []
-    updated: list[WatchReceipt] = []
+def _still_as_read(tellings: list[Telling], result: Announced) -> list[Telling]:
+    """The tellings whose receipt is still as the pass read it, locked until the pass commits. A
+    person who answered meanwhile (a reaction, "Remind me later") is left for the next pass, which
+    reads their answer: never told over it."""
+    read = {t.receipt.pk: t.receipt for t in tellings if t.receipt is not None}
+    if not read:
+        return tellings
+    now = {
+        pk: rest
+        for pk, *rest in WatchReceipt.objects.select_for_update()
+        .filter(pk__in=list(read))
+        .values_list("pk", "reaction", "reacted_at", "snoozed_until")
+    }
+    kept = []
     for telling in tellings:
-        step, level = telling.step, telling.level
-        is_milestone = step.isdigit()
         receipt = telling.receipt
-        if receipt is None:
-            receipt = WatchReceipt(user_id=telling.person.id, item=telling.item, first_told_on=today)
-            created.append(receipt)
-        else:
-            updated.append(receipt)
-            if telling.fresh:  # a new episode of the item: told afresh
-                receipt.first_told_on = today
-                receipt.milestone_count = 0
-        receipt.told_step = step
-        receipt.level = level
-        receipt.last_told_on = today
-        receipt.milestone_count += is_milestone
-        if step != KNOWN:
-            receipt.seen_at = None  # announced again: unseen until they open the page
-        if receipt.snoozed_until and receipt.snoozed_until <= today:
-            receipt.snoozed_until = None  # the snooze has done its work
-        result.steps["milestone" if is_milestone else step] += 1
-        if step == KNOWN:
-            result.known += 1
-        elif level == NEEDS_YOU:
-            result.needs_you += 1
-        else:
-            result.good_to_know += 1
+        if receipt is not None and now.get(receipt.pk) != [
+            receipt.reaction,
+            receipt.reacted_at,
+            receipt.snoozed_until,
+        ]:
+            result.deferred += 1
+            continue
+        kept.append(telling)
+    return kept
+
+
+def _write(tellings: list[Telling], today: datetime.date, result: Announced) -> None:
+    """Create or update the receipts of the tellings, in one transaction. Only what was told is
+    written (``TOLD_FIELDS``); a point told again is marked unseen, and a reminder that has done its
+    work is cleared only while it is still that reminder, by their own updates. A person who answered
+    or asked for a reminder in the meantime is not told over it (:func:`_still_as_read`), and a seen
+    stamp of a point only recorded as known is left as it is."""
     with transaction.atomic():
+        tellings = _still_as_read(tellings, result)
+        created: list[WatchReceipt] = []
+        updated: list[WatchReceipt] = []
+        unseen: list[int] = []  # announced again: unseen until they open the page
+        reminded: list[int] = []  # the reminder has done its work
+        for telling in tellings:
+            step, level = telling.step, telling.level
+            is_milestone = step.isdigit()
+            receipt = telling.receipt
+            if receipt is None:
+                receipt = WatchReceipt(user_id=telling.person.id, item=telling.item, first_told_on=today)
+                created.append(receipt)
+            else:
+                updated.append(receipt)
+                if telling.fresh:  # a new episode of the item: told afresh
+                    receipt.first_told_on = today
+                    receipt.milestone_count = 0
+                if step != KNOWN:
+                    unseen.append(receipt.pk)
+                    receipt.seen_at = None
+                if receipt.snoozed_until and receipt.snoozed_until <= today:
+                    reminded.append(receipt.pk)
+            receipt.told_step = step
+            receipt.told_severity = telling.item.severity
+            receipt.level = level
+            receipt.last_told_on = today
+            receipt.milestone_count += is_milestone
+            result.steps["milestone" if is_milestone else step] += 1
+            if step == KNOWN:
+                result.known += 1
+            elif level == NEEDS_YOU:
+                result.needs_you += 1
+            else:
+                result.good_to_know += 1
         WatchReceipt.objects.bulk_create(created)
         WatchReceipt.objects.bulk_update(updated, TOLD_FIELDS)
+        if unseen:
+            WatchReceipt.objects.filter(pk__in=unseen).update(seen_at=None)
+        if reminded:
+            WatchReceipt.objects.filter(pk__in=reminded, snoozed_until__lte=today).update(snoozed_until=None)
     result.created, result.updated = len(created), len(updated)
 
 

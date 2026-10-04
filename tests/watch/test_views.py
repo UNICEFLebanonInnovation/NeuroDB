@@ -17,7 +17,7 @@ from neurodb.accounts.models import Section, User
 from neurodb.accounts.roles import ADMIN, MANAGEMENT, SECTION_EDITOR, VIEWER
 from neurodb.core.models import SyncRun
 from neurodb.donors.models import DonorAccount
-from neurodb.watch import page
+from neurodb.watch import page, routing
 from neurodb.watch.detectors import CRITICAL, DEADLINE, INFO, ON, SECTION, TRIAL, WARNING
 from neurodb.watch.models import DetectorSetting, SectionMatch, WatchItem, WatchNote, WatchReceipt
 
@@ -276,14 +276,18 @@ def test_the_count_shows_unseen_needs_you_points_of_today_and_opening_the_page_c
     assert 'class="nav-count"' not in htmx(client, reverse("watch:badge")).content.decode()
 
 
-def test_the_count_is_cached_for_a_minute(team):
-    tell(team.edu, item())
+def test_the_count_is_cached_until_the_persons_receipts_change_whichever_worker_cached_it(team):
+    first = tell(team.edu, item())
     client = login(team.edu)
     assert ">1<" in htmx(client, reverse("watch:badge")).content.decode()
-    tell(team.edu, item())  # told by a pass meanwhile
+    DetectorSetting.objects.filter(detector=CHECK).update(mode=TRIAL)  # nothing of theirs changed: cached
     assert ">1<" in htmx(client, reverse("watch:badge")).content.decode()
-    page.forget_badge(team.edu)
+    DetectorSetting.objects.filter(detector=CHECK).update(mode=ON)
+    tell(team.edu, item())  # told by a pass meanwhile
     assert ">2<" in htmx(client, reverse("watch:badge")).content.decode()
+    # seen on For you, served by another web worker (no forget_badge in this one): the count follows
+    WatchReceipt.objects.filter(pk=first.pk).update(seen_at=timezone.now())
+    assert ">1<" in htmx(client, reverse("watch:badge")).content.decode()
 
 
 def test_a_snooze_lowers_the_count(team):
@@ -303,10 +307,13 @@ def test_a_snooze_lowers_the_count(team):
     assert "Set aside (2)" in html and "You asked to hear about it again tomorrow" in html
 
 
-def test_a_reminder_before_a_date_already_past_is_refused(team):
+def test_a_reminder_before_a_date_already_past_is_refused_in_plain_words(team):
     receipt = tell(team.edu, item(due=day(2)))
     response = react(login(team.edu), receipt, snooze="before_due")
-    assert response.status_code == 400
+    html = response.content.decode()
+    # the card again, saying why (htmx shows no 4xx: the person would read only an error code)
+    assert response.status_code == 200 and "That reminder date has already passed." in html
+    assert "watch-card__said--refused" in html and 'id="watch-live"' in html
     receipt.refresh_from_db()
     assert receipt.snoozed_until is None
 
@@ -378,7 +385,10 @@ def test_without_htmx_a_button_goes_back_to_the_page(team):
 
 def test_an_unknown_answer_is_refused(team):
     receipt = tell(team.edu, item())
-    assert react(login(team.edu), receipt, reaction="delete_everything").status_code == 400
+    response = react(login(team.edu), receipt, reaction="delete_everything")
+    assert response.status_code == 200 and "Unknown answer." in response.content.decode()
+    receipt.refresh_from_db()
+    assert receipt.reaction == ""
 
 
 def test_a_viewers_somethings_wrong_hides_the_point_only_for_them(team):
@@ -400,14 +410,14 @@ def test_a_viewers_somethings_wrong_hides_the_point_only_for_them(team):
 
 
 def test_an_editors_somethings_wrong_hides_the_point_for_the_section(team):
-    point = item()
+    point = item()  # its only section is the editor's: wrong for everyone
     editor_receipt = tell(team.editor, point)
     tell(team.edu, point)
     response = react(login(team.editor), editor_receipt, reaction="wrong")
     assert "hidden for everyone until its data changes" in response.content.decode()
     point.refresh_from_db()
     assert point.state == WatchItem.State.WRONG
-    assert "Marked wrong for its section" in point.story[-1]["text"]
+    assert point.story[-1]["text"].startswith("Marked wrong")
     assert point.title not in login(team.edu).get(FOR_YOU).content.decode()
     # Undo by the editor brings it back
     react(login(team.editor), editor_receipt, reaction="undo")
@@ -496,9 +506,9 @@ def test_the_look_up_is_shown_as_written_by_ai_only_when_kept(team):
     tell(team.edu, kept)
     tell(team.edu, dropped)
     html = login(team.edu).get(FOR_YOU).content.decode()
-    # The kept look-up on its card (shown in "Needs you today" and in "Everything open"), not the other
-    assert html.count('class="watch-lookup"') == 2
-    assert html.count("3 of its 4 reports were late this year.") == 2
+    # The kept look-up on its card (shown once: in "Needs you today"), not the other
+    assert html.count('class="watch-lookup"') == 1
+    assert html.count("3 of its 4 reports were late this year.") == 1
     assert "What NeuroDB looked up (AI)" in html
 
 
@@ -527,7 +537,11 @@ def test_an_older_note_says_it_is_not_todays(team):
 
 
 def test_the_empty_page(team):
-    succeeded(1)
+    # a morning check earlier today (Beirut time), whatever the hour the test runs at (just after
+    # midnight, an hour ago would be yesterday)
+    now = timezone.localtime()
+    since_midnight = now - now.replace(hour=0, minute=0, second=0, microsecond=0)
+    succeeded(min(1, since_midnight.total_seconds() / 3600 / 2))
     html = login(team.edu).get(FOR_YOU).content.decode()
     assert "Nothing needs you today." in html and "NeuroDB checked today at" in html
     assert "Everything open (0)" in html
@@ -618,3 +632,170 @@ def test_check_now_is_for_administrators(team):
         response = login(team.admin).post(reverse("watch:check_now"), follow=True)
     start.assert_called_once_with("watch", triggered_by="admin")
     assert "NeuroDB is checking now" in response.content.decode()
+
+
+# ---------------------------------------------------------------------------- answers, each section on its own
+def test_an_editors_somethings_wrong_on_a_point_of_several_sections_hides_it_for_theirs_only(team):
+    point = item(sections=("Education", "Health"))
+    editor_receipt = tell(team.editor, point)
+    tell(team.edu, point)
+    tell(team.hlt, point)
+    tell(team.admin, point)
+    response = react(login(team.editor), editor_receipt, reaction="wrong", comment="Not ours")
+    assert "hidden for your section" in response.content.decode()
+    point.refresh_from_db()
+    assert point.state == WatchItem.State.OPEN  # Health, the Administrators and Management still see it
+    editor_receipt.refresh_from_db()
+    assert editor_receipt.wrong_hash == routing.evidence_mark(point)
+    edu_html = login(team.edu).get(FOR_YOU).content.decode()
+    assert "Marked wrong for your section, until its data changes" in edu_html
+    hlt_html = login(team.hlt).get(FOR_YOU).content.decode()
+    assert point.title in hlt_html and "Marked wrong for your section" not in hlt_html
+    assert page.card(team.hlt)["count"] == 1 and page.card(team.edu)["count"] == 0
+    # its evidence changes: shown to Education again
+    WatchItem.objects.filter(pk=point.pk).update(evidence_hash="the records changed")
+    assert page.card(team.edu)["count"] == 1
+    assert "Marked wrong for your section" not in login(team.edu).get(FOR_YOU).content.decode()
+
+
+def test_an_administrators_somethings_wrong_hides_it_for_everyone(team):
+    point = item(sections=("Education", "Health"))
+    receipt = tell(team.admin, point)
+    response = react(login(team.admin), receipt, reaction="wrong")
+    assert "hidden for everyone" in response.content.decode()
+    point.refresh_from_db()
+    assert point.state == WatchItem.State.WRONG
+
+
+# ---------------------------------------------------------------------------- the answer buttons
+def test_the_comment_has_its_own_form_so_enter_sends_somethings_wrong(team):
+    """Enter in a text box submits its form with the form's first button: the comment's form has only
+    "Something's wrong" (never "Useful")."""
+    receipt = tell(team.edu, item())
+    html = login(team.edu).get(FOR_YOU).content.decode()
+    forms = re.findall(r"<form class=\"watch-actions__form\".*?</form>", html, re.S)
+    assert len(forms) == 2
+    useful, wrong = forms
+    assert 'value="useful"' in useful and 'name="comment"' not in useful
+    assert 'name="comment"' in wrong and 'value="useful"' not in wrong
+    assert '<input type="hidden" name="reaction" value="wrong">' in wrong
+    # what the browser sends when Enter is pressed in the comment: the form's own fields
+    response = react(login(team.edu), receipt, reaction="wrong", comment="wrong partner")
+    receipt.refresh_from_db()
+    assert receipt.reaction == Reaction.WRONG and receipt.comment == "wrong partner"
+    assert "Noted: something is wrong. It is hidden for you" in response.content.decode()
+
+
+def test_after_a_button_focus_and_the_live_region_get_the_message(team):
+    receipt = tell(team.edu, item())
+    page_html = login(team.edu).get(FOR_YOU).content.decode()
+    assert '<div id="watch-live" class="visually-hidden" role="status" aria-live="polite"></div>' in page_html
+    html = react(login(team.edu), receipt, reaction="useful").content.decode()
+    assert re.search(r'<p class="watch-card__said" tabindex="-1" autofocus>Thanks: marked useful.</p>', html)
+    assert re.search(r'<div id="watch-live"[^>]*hx-swap-oob="true">Thanks: marked useful.</div>', html)
+
+
+def test_done_says_once_more_in_7_days_without_naming_etools(team):
+    receipt = tell(team.edu, item())
+    html = react(login(team.edu), receipt, reaction="done").content.decode()
+    said = re.search(r'<p class="watch-card__said"[^>]*>(.*?)</p>', html).group(1)
+    assert said == "Marked done. If it is still open in 7 days, NeuroDB tells you once more."
+
+
+# ---------------------------------------------------------------------------- what the page shows
+def test_each_point_is_on_the_page_once(team):
+    needs = item(due=day(5))
+    later = item(due=day(40))
+    tell(team.edu, needs)
+    html = login(team.edu).get(FOR_YOU).content.decode()
+    assert html.count(f'id="watch-{needs.pk}"') == 1 and html.count(needs.title) == 1
+    assert "Everything else open (1)" in html and later.title in html
+
+
+def test_the_reason_chip_holds_only_while_it_is_true(team):
+    fresh = tell(team.edu, item(due=day(9)), step="new")
+    old_new = tell(team.edu, item(due=day(9)), step="new", on=day(-40))
+    yesterday = tell(team.edu, item(due=day(9)), step="worse", on=day(-1))
+    milestone = tell(team.edu, item(due=day(9)), step="14", on=day(-5))
+    shown = {
+        receipt.pk: page.point(receipt.item, receipt, today())["reason"]
+        for receipt in (fresh, old_new, yesterday, milestone)
+    }
+    assert shown == {
+        fresh.pk: "New",
+        old_new.pk: "",  # told 40 days ago: no longer new
+        yesterday.pk: "Got worse · told yesterday",
+        milestone.pk: "",  # "Due in 14 days" told 5 days ago is out of date: the due chip says it
+    }
+
+
+def test_how_we_know_shows_words_and_dates_not_field_names(team):
+    point = item(due=day(10))
+    point.evidence = {
+        "source": "Year-end forecasts",
+        "records": [{"label": "Children reached", "date": f"{today().year}-10-03", "value": 800, "url": ""}],
+        "numbers": {
+            "low_pct": 62.5,
+            "unspent": 48000,
+            "year": 2026,
+            "as_of_month": 8,
+            "flagged_by_review": True,
+        },
+    }
+    point.story = [{"on": f"{today().year}-10-03", "text": "Got worse: was warning, now critical"}]
+    point.save()
+    shown = page.point(point, None, today())["evidence"]
+    numbers = {n["name"]: n["value"] for n in shown["numbers"]}
+    assert numbers == {
+        "Lowest likely (% of target)": "62.5",
+        "Unspent (US$)": "48,000",
+        "Year": "2026",
+        "Data up to": "August",
+        "Flagged by the daily review": "yes",
+    }
+    assert shown["records"][0]["date"] == "3 Oct" and shown["story"][0]["on"] == "3 Oct"
+
+
+def test_staff_without_a_section_are_not_told_nothing_is_due(team):
+    item(due=day(3))
+    html = login(team.nobody).get(FOR_YOU).content.decode()
+    assert "Nothing is due in the next 30 days" not in html and "Coming up" not in html
+    assert "ask an administrator to set your section" in html
+
+
+def test_someone_without_a_role_is_told_to_ask_for_a_role(roles, education):
+    norole = person("norole2", None, education)
+    html = login(norole).get(FOR_YOU).content.decode()
+    assert "ask an administrator to give you a role" in html
+    assert "ask an administrator to set your section" not in html
+
+
+def test_the_count_and_the_card_list_only_points_the_page_shows(team):
+    point = item()
+    tell(team.edu, point)
+    client = login(team.edu)
+    assert page.badge_count(team.edu) == 1 and page.card(team.edu)["count"] == 1
+    DetectorSetting.objects.filter(detector=CHECK).update(mode=TRIAL)  # an administrator: back to trial
+    page.forget_badge(team.edu)
+    assert page.badge_count(team.edu) == 0 and page.card(team.edu)["count"] == 0
+    assert "Nothing needs you today." in client.get(FOR_YOU).content.decode()
+
+
+def test_the_overview_card_links_each_point_and_names_its_severity(team):
+    point = item(severity=CRITICAL)
+    tell(team.edu, point)
+    html = htmx(login(team.edu), reverse("watch:card")).content.decode()
+    assert f'href="{FOR_YOU}#watch-{point.pk}"' in html
+    assert 'role="img" aria-label="Critical"' in html
+
+
+def test_an_answer_reads_the_point_anew_so_a_pass_writing_it_meanwhile_is_kept(team):
+    point = item(sections=("Education", "Health"))
+    receipt = WatchReceipt.objects.select_related("item").get(pk=tell(team.editor, point).pk)
+    # a pass writes the point after the page loaded it
+    worse = {"on": today().isoformat(), "text": "Got worse: was warning, now critical"}
+    WatchItem.objects.filter(pk=point.pk).update(story=[*point.story, worse], severity=CRITICAL)
+    page.react(receipt, reaction=Reaction.WRONG)
+    point.refresh_from_db()
+    assert point.severity == CRITICAL and worse["text"] in [line["text"] for line in point.story]
+    assert point.story[-1]["text"].startswith("Marked wrong for one of its sections")

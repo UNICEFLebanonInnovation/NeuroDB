@@ -88,6 +88,14 @@ class WatchItem(models.Model):
         GONE = "gone", _("No longer seen")
         WRONG = "wrong", _("Marked wrong")
 
+    class CloseKind(models.TextChoices):
+        """How a closed item ended: done, its date passed without it being done, or no longer
+        followed here for another reason (its date moved, another point follows it...)."""
+
+        RESOLVED = "resolved", _("Resolved")
+        MISSED = "missed", _("Date passed, not done")
+        CHANGED = "changed", _("No longer followed here")
+
     # Identity and kind
     key = models.CharField(max_length=KEY_MAX, unique=True, help_text="built from lasting identifiers")
     detector = models.CharField("check", max_length=40, db_index=True, help_text="the check that found it")
@@ -139,6 +147,9 @@ class WatchItem(models.Model):
     # State and lifecycle
     state = models.CharField(max_length=16, choices=State.choices, default=State.OPEN, db_index=True)
     close_reason = models.CharField(max_length=300, blank=True)
+    close_kind = models.CharField(
+        max_length=16, choices=CloseKind.choices, blank=True, help_text="how it closed (closed items only)"
+    )
     first_seen_on = models.DateField()
     last_seen_on = models.DateField()
     changed_on = models.DateField(help_text="when its severity, due date or state last changed")
@@ -206,9 +217,10 @@ class WatchReceipt(models.Model):
         NOT_MINE = "not_mine", _("Not mine")
         WRONG = "wrong", _("Something's wrong")
 
-    # told_step values besides a milestone's number of days ("14", "7"...)
+    # told_step values besides a milestone's number of days ("14", "7"...). An item that closed is told
+    # as resolved, missed (its date passed and it was not done) or closed (no longer followed here)
     KNOWN, NEW, OVERDUE, WORSE = "known", "new", "overdue", "worse"
-    STILL_OPEN, RESOLVED = "still_open", "resolved"
+    STILL_OPEN, RESOLVED, MISSED, CLOSED = "still_open", "resolved", "missed", "closed"
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="watch_receipts"
@@ -217,7 +229,13 @@ class WatchReceipt(models.Model):
     first_told_on = models.DateField()
     last_told_on = models.DateField()
     told_step = models.CharField(
-        max_length=16, help_text="known, new, a milestone (days left), overdue, worse, still_open or resolved"
+        max_length=16,
+        help_text=(
+            "known, new, a milestone (days left), overdue, worse, still_open, resolved, missed or closed"
+        ),
+    )
+    told_severity = models.CharField(
+        max_length=16, blank=True, help_text="the item's severity when the person was last told"
     )
     milestone_count = models.PositiveSmallIntegerField(default=0, help_text="milestones told, at most 3")
     level = models.CharField(max_length=16, choices=Level.choices, default=Level.GOOD_TO_KNOW)
@@ -226,6 +244,12 @@ class WatchReceipt(models.Model):
     reacted_at = models.DateTimeField(null=True, blank=True)
     comment = models.CharField(
         max_length=300, blank=True, help_text="seen by administrators only; never sent to the AI or by email"
+    )
+    wrong_hash = models.CharField(
+        max_length=40,
+        blank=True,
+        help_text="the item's evidence when marked wrong: a Section editor's answer hides it for their "
+        "section until the evidence changes",
     )
     snoozed_until = models.DateField(null=True, blank=True)
     emailed_on = models.DateField(null=True, blank=True)
@@ -292,6 +316,7 @@ class WatchDelivery(models.Model):
 
     class Channel(models.TextChoices):
         EMAIL_DAILY = "email_daily", _("Morning email")
+        WHATS_NEW = "whats_new", _("What's new email (the morning run did not send its email)")
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="watch_deliveries"
@@ -370,6 +395,13 @@ class DetectorSetting(models.Model):
     on_since = models.DateField(
         null=True, blank=True, help_text="items found before this day were known already: not announced"
     )
+    trial_since = models.DateField(
+        null=True,
+        blank=True,
+        help_text=(
+            "the day it went into trial: items found before were known already to the whole-country view"
+        ),
+    )
     demoted_at = models.DateTimeField(null=True, blank=True, help_text="when it went back to trial by itself")
     demoted_reason = models.CharField(max_length=300, blank=True)
     updated_by = models.CharField(max_length=150, blank=True)
@@ -386,6 +418,10 @@ class DetectorSetting(models.Model):
     def save(self, *args, **kwargs):
         if self.mode == self.Mode.ON and self.on_since is None:
             self.on_since = timezone.localdate()
+        if self.mode == self.Mode.TRIAL and self.trial_since is None:
+            self.trial_since = timezone.localdate()
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = {*kwargs["update_fields"], "trial_since"}
         super().save(*args, **kwargs)
 
     @classmethod

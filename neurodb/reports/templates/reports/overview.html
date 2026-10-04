@@ -7,9 +7,10 @@
 {% url 'reports:brief' as brief_url %}
 <p class="page-purpose">{% blocktrans %}To follow the country programme: where each section and governorate stands this year. For what to decide and how far the figures can be trusted, open the <a href="{{ brief_url }}">management brief</a>.{% endblocktrans %}</p>
 <div class="filters-collapse" data-filters-collapse>{% include "reports/partials/_overview_filters.html" %}</div>
-{# For you (NeuroDB Watch): loaded after the page, so the overview itself reads nothing more #}
-<div class="watch-overview-slot" hx-get="{% url 'watch:card' %}" hx-trigger="load" hx-swap="outerHTML"></div>
 {% include "reports/partials/_overview_kpis.html" %}
+{# For you (NeuroDB Watch): loaded after the page, so the overview itself reads nothing more; below the
+   key figures, with room kept for its heading, so they do not move when it arrives #}
+<div class="watch-overview-slot" hx-get="{% url 'watch:card' %}" hx-trigger="load" hx-swap="outerHTML"></div>
 {% include "reports/partials/_overview_impact.html" %}
 {% include "reports/partials/_overview_money.html" %}
 {% include "reports/partials/_overview_delivery.html" %}

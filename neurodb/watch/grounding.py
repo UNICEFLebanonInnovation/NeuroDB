@@ -11,6 +11,8 @@ of the facts it rests on. A sentence is kept only when:
 - every eTools reference in it (LEB/PCA2026001/PD2026001, PD2026001) is in the facts it cites;
 - it has no link, no markdown and no HTML;
 - it names no person NeuroDB knows and has no email address (:mod:`neurodb.watch.people`);
+- it uses none of the system's words that staff pages never show (item, detector, receipt, agent,
+  LLM), unless the word is in a name or title it cites;
 - it has at most 400 characters.
 
 Anything else is dropped. When no sentence is left, the note is listed by code instead.
@@ -38,6 +40,7 @@ SMALL = 10  # whole numbers up to this one need no source: counts of what is cit
 
 # Why a sentence was dropped
 EMPTY, TOO_LONG, LINK, EMAIL, MARKUP, PERSON = "empty", "too_long", "link", "email", "markup", "person"
+WORDING = "wording"
 NUMBER, DATE, REFERENCE = "number", "date", "reference"
 NO_KEYS, UNKNOWN_KEY, MALFORMED = "no_keys", "unknown_key", "malformed"
 
@@ -46,6 +49,9 @@ MARKUP_IN_TEXT = re.compile(
     r"[*`|~\[\]{}<>]|__|&(?:[a-z]+|#\d+);|^\s*(?:#|[-+]\s|\d+[.)]\s)", re.IGNORECASE | re.MULTILINE
 )
 REFERENCE_IN_TEXT = re.compile(r"\b[A-Z]{3}(?:/[A-Za-z0-9-]+)+|\b(?:PCA|PD|SPD|HPD|SSFA)\d+(?:-\d+)?\b")
+# The system's words staff pages never show (they read "points" and "NeuroDB")
+SYSTEM_WORDS = re.compile(r"\b(?:items?|detectors?|receipts?|agents?|LLMs?)\b", re.IGNORECASE)
+NAMED_FIELDS = ("title", "name", "check", "about", "connected", "sections", "section", "audience")
 
 MONTHS = {
     "jan": 1,
@@ -186,6 +192,25 @@ def _allowed_dates(blob: str) -> tuple[set, set, set]:
     return whole, day_month, month_year
 
 
+def _names_of(cited: list[Any], today: datetime.date | None) -> str:
+    """The names and titles in the cited facts (where a word like "items" may be part of a name)."""
+    found: list[str] = []
+
+    def walk(value: Any, field: str = "") -> None:
+        if isinstance(value, Mapping):
+            for key, inner in value.items():
+                walk(inner, str(key))
+        elif isinstance(value, list | tuple):
+            for inner in value:
+                walk(inner, field)
+        elif isinstance(value, str) and field in NAMED_FIELDS:
+            found.append(value)
+
+    for fact in cited:
+        walk(facts_of(fact, today) if isinstance(fact, WatchItem) else fact)
+    return "\n".join(found).casefold()
+
+
 def _without(text: str, spans: list[tuple[int, int]]) -> str:
     for start, end in sorted(spans, reverse=True):
         text = f"{text[:start]} {text[end:]}"
@@ -218,6 +243,12 @@ def check(
     cited = list(cited)
     if not cited:
         return Verdict(False, NO_KEYS)
+    words = SYSTEM_WORDS.findall(sentence)
+    if words:
+        named = _names_of(cited, today)
+        for word in words:
+            if not re.search(rf"\b{re.escape(word.casefold())}\b", named):
+                return Verdict(False, WORDING, word)
     blob = _blob(cited, today)
     folded_blob = blob.casefold()
 

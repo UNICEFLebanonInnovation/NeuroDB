@@ -54,6 +54,14 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
+                    "trial_since",
+                    models.DateField(
+                        blank=True,
+                        help_text="the day it went into trial: items found before were known already to the whole-country view",
+                        null=True,
+                    ),
+                ),
+                (
                     "demoted_at",
                     models.DateTimeField(
                         blank=True,
@@ -342,6 +350,19 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("close_reason", models.CharField(blank=True, max_length=300)),
+                (
+                    "close_kind",
+                    models.CharField(
+                        blank=True,
+                        choices=[
+                            ("resolved", "Resolved"),
+                            ("missed", "Date passed, not done"),
+                            ("changed", "No longer followed here"),
+                        ],
+                        help_text="how it closed (closed items only)",
+                        max_length=16,
+                    ),
+                ),
                 ("first_seen_on", models.DateField()),
                 ("last_seen_on", models.DateField()),
                 (
@@ -479,7 +500,13 @@ class Migration(migrations.Migration):
                 (
                     "channel",
                     models.CharField(
-                        choices=[("email_daily", "Morning email")],
+                        choices=[
+                            ("email_daily", "Morning email"),
+                            (
+                                "whats_new",
+                                "What's new email (the morning run did not send its email)",
+                            ),
+                        ],
                         default="email_daily",
                         max_length=20,
                     ),
@@ -523,7 +550,15 @@ class Migration(migrations.Migration):
                 (
                     "told_step",
                     models.CharField(
-                        help_text="known, new, a milestone (days left), overdue, worse, still_open or resolved",
+                        help_text="known, new, a milestone (days left), overdue, worse, still_open, resolved, missed or closed",
+                        max_length=16,
+                    ),
+                ),
+                (
+                    "told_severity",
+                    models.CharField(
+                        blank=True,
+                        help_text="the item's severity when the person was last told",
                         max_length=16,
                     ),
                 ),
@@ -568,6 +603,14 @@ class Migration(migrations.Migration):
                         blank=True,
                         help_text="seen by administrators only; never sent to the AI or by email",
                         max_length=300,
+                    ),
+                ),
+                (
+                    "wrong_hash",
+                    models.CharField(
+                        blank=True,
+                        help_text="the item's evidence when marked wrong: a Section editor's answer hides it for their section until the evidence changes",
+                        max_length=40,
                     ),
                 ),
                 ("snoozed_until", models.DateField(blank=True, null=True)),

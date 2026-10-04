@@ -5,8 +5,11 @@ Each line of :func:`neurodb.web.health.warnings` (the same list the admin home s
 checking in and a missing daily review are critical; the other lines are warnings. When a line is no
 longer listed the problem was fixed, and its item closes at once.
 
-"NeuroDB Watch has not run for 26 hours" is left out of the morning pass: that pass is the run it
-asks for (a quick pass still raises it, as the morning run is still missing).
+"NeuroDB Watch has not run for 26 hours" is not raised by the morning pass: that pass is the run it
+asks for (a quick pass still raises it, as the morning run is still missing). Nor does the morning pass
+close it: while the line is listed, an item already open for it is carried as it is, since the pass
+that would fix it has not succeeded yet. It closes in the first pass after a morning pass succeeded
+(the line is then gone).
 
 These items are never sent to the AI: they carry error text and server details (see
 :func:`neurodb.watch.redact.refused`).
@@ -14,10 +17,24 @@ These items are never sent to the AI: they carry error text and server details (
 
 from __future__ import annotations
 
-from neurodb.watch.models import fit_key
+from neurodb.watch.models import WatchItem, fit_key
 from neurodb.web import health
 
-from . import ADMINS, CRITICAL, ON, SYSTEM, WARNING, Candidate, Close, Context, Detector, record, register
+from . import (
+    ADMINS,
+    ALIVE,
+    CRITICAL,
+    ON,
+    RESOLVED,
+    SYSTEM,
+    WARNING,
+    Candidate,
+    Close,
+    Context,
+    Detector,
+    record,
+    register,
+)
 
 ID = "system"
 PREFIX = "system:"  # the stale-source items use "system:stale:"; no health key starts with "stale:"
@@ -41,7 +58,16 @@ def lines(ctx: Context) -> dict[str, health.Warning]:
     def read() -> dict[str, health.Warning]:
         found = health.warnings(ctx.now)
         if ctx.daily:
-            found = [line for line in found if line.key not in FIXED_BY_THE_MORNING_PASS]
+            # not raised by the pass it asks for; an item already open for it stays as it is
+            waiting = [key_of(line) for line in found if line.key in FIXED_BY_THE_MORNING_PASS]
+            carried = set(
+                WatchItem.objects.filter(key__in=waiting, state__in=ALIVE).values_list("key", flat=True)
+                if waiting
+                else ()
+            )
+            found = [
+                line for line in found if line.key not in FIXED_BY_THE_MORNING_PASS or key_of(line) in carried
+            ]
         return {key_of(line): line for line in found}
 
     return ctx.memo("health_warnings", read)
@@ -77,7 +103,7 @@ def run(ctx: Context) -> list[Candidate]:
 def resolved(ctx: Context, open_items) -> dict[str, Close]:
     """The items whose line is gone: fixed, closed at once."""
     current = lines(ctx)
-    return {item.key: Close(FIXED) for item in open_items if item.key not in current}
+    return {item.key: Close(FIXED, kind=RESOLVED) for item in open_items if item.key not in current}
 
 
 SYSTEM_HEALTH = register(

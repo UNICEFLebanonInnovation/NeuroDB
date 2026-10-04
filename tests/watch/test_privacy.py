@@ -456,7 +456,7 @@ def test_the_ai_input_entries_can_be_cited_as_facts(cited, other):
     citable = {**entries, count["key"]: count, situation["key"]: situation}
     answer = {
         "sentences": [
-            {"text": "Education has 12 open items, 2 of them critical.", "keys": ["count:3"]},
+            {"text": "Education has 12 open points, 2 of them critical.", "keys": ["count:3"]},
             {
                 "text": "Partner A has a report due 15 Oct and grant SC123 ending 20 Nov.",
                 "keys": ["partner:9"],
@@ -470,12 +470,28 @@ def test_the_ai_input_entries_can_be_cited_as_facts(cited, other):
     }
     kept, dropped = grounding.validate(answer, citable, today=TODAY, names=frozenset())
     assert kept == [
-        {"text": "Education has 12 open items, 2 of them critical.", "keys": ["count:3"]},
+        {"text": "Education has 12 open points, 2 of them critical.", "keys": ["count:3"]},
         {"text": "Partner A has a report due 15 Oct and grant SC123 ending 20 Nov.", "keys": ["partner:9"]},
     ]
     assert dropped == [grounding.NUMBER, grounding.UNKNOWN_KEY, grounding.MALFORMED, grounding.MALFORMED]
     no_keys = {"sentences": [{"text": "Partner A is late.", "keys": []}]}
     assert grounding.validate(no_keys, citable, names=frozenset()) == ([], [grounding.NO_KEYS])
+
+
+def test_a_sentence_with_the_systems_words_is_dropped_unless_a_name_it_cites_has_them(cited):
+    """Staff pages say "points" and "NeuroDB": never item, detector, receipt, agent or LLM."""
+    for sentence, word in (
+        ("Two items are due on 15 Oct.", "items"),
+        ("The detector found a report due on 15 Oct.", "detector"),
+        ("The agent saw a report due on 15 Oct.", "agent"),
+    ):
+        verdict = grounding.check(sentence, [cited], TODAY, frozenset())
+        assert (verdict.reason, verdict.detail) == (grounding.WORDING, word)
+    named = {"key": "partner:9", "name": "Non-food items for Partner A", "items": [cited.key]}
+    assert grounding.check(
+        "Non-food items for Partner A: a report is due 15 Oct.", [named, cited], TODAY, frozenset()
+    )
+    assert grounding.check("Two points are due on 15 Oct.", [cited], TODAY, frozenset())
 
 
 def test_the_review_number_helper_is_shared_under_its_new_name():

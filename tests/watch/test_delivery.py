@@ -229,11 +229,23 @@ def test_the_body_never_holds_an_assignment_note_a_comment_or_a_figure_for_inter
         detail="planted detail text",
         has_owner=True,
         assignment_status="acknowledged",
-        looked_up={"text": "planted look-up", "numbers": [], "tools": [], "at": "2026-10-05"},
+        # a look-up that was kept: shown on the card as AI text, never emailed
+        looked_up={
+            "text": "planted look-up",
+            "numbers": [],
+            "tools": ["programme_details"],
+            "at": "2026-10-05T07:50:00+03:00",
+            "on": "2026-10-05",
+            "kept": True,
+            "reason": "",
+        },
     )
     point.evidence = {**point.evidence, "numbers": {"internal_use_figure": 987654321}}
     point.save()
     told(val, point, comment="planted reviewer comment")
+    from neurodb.watch import investigate
+
+    assert investigate.shown(point)["text"] == "planted look-up"  # the page would show it
     delivery.send_daily(TODAY)
     message = sent_to("val@example.org")
     text = message.subject + message.body
@@ -396,3 +408,50 @@ def test_the_whats_new_email_goes_out_when_the_morning_email_does_not(email_on, 
 
 def test_the_morning_pass_is_the_job_whose_schedule_is_checked():
     assert delivery.MORNING_COMMAND == services.MORNING_COMMAND
+
+
+# ---------------------------------------------------------------------------- decided per day
+def test_a_morning_pass_that_ends_before_its_email_sends_the_whats_new_note_instead(
+    email_on, cp, todays_note
+):
+    person("val", section=cp)
+    assert write_notes("test").details["emailed"] == 0  # stepped aside for the morning email
+    email_on.WATCH_TIME_LIMIT_SECONDS = 0  # the morning pass stops before its steps
+    run = services.daily(now=NOW).runs[0]
+    assert "email" in run.details["not_run"]
+    message = sent_to("val@example.org")
+    assert "what's new for Child Protection" in message.subject
+    assert "One PD of Child Protection ended." in message.body
+    assert run.details["emails"]["whats_new"] == 1
+    # caught up later the same day: the morning email does not repeat the note (nothing else to say)
+    email_on.WATCH_TIME_LIMIT_SECONDS = 900
+    services.daily(now=NOW)
+    assert len(mail.outbox) == 1
+    assert WatchDelivery.objects.filter(channel=WatchDelivery.Channel.WHATS_NEW).count() == 1
+
+
+def test_a_morning_pass_that_fails_still_sends_the_whats_new_note(email_on, cp, todays_note, monkeypatch):
+    person("val", section=cp)
+    write_notes("test")
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("the runner broke")
+
+    monkeypatch.setattr(services.Context, "make", broken)
+    run = services.daily(now=NOW).runs[0]
+    assert run.status == SyncRun.Status.FAILED
+    assert "One PD of Child Protection ended." in sent_to("val@example.org").body
+
+
+def test_a_whats_new_note_written_after_the_morning_email_goes_out_by_itself(email_on, cp, todays_note):
+    person("val", section=cp)
+    Digest.objects.all().delete()  # no note yet when the morning email goes
+    services.daily(now=NOW)
+    assert mail.outbox == []  # nothing to say: no point, no note
+    assert delivery.carries_whats_new() and not delivery.carries_whats_new(TODAY)
+    for found in todays_note:  # the What's new job ran late
+        found.pk = None
+        found.save()
+    run = write_notes("test")
+    assert run.details["emailed"] == 1 and "email" not in run.details
+    assert "what's new for Child Protection" in sent_to("val@example.org").subject

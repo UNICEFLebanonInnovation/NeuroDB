@@ -75,6 +75,12 @@ STORY_CHANGES = (
     ("The evidence changed since it was marked wrong", "new"),
 )
 SEVERITY_RANK = {"critical": 0, "warning": 1, "info": 2}
+# How a point that closed today ended, in the words the AI reads (redact.CHANGES)
+ENDED_AS = {
+    WatchItem.CloseKind.RESOLVED: "closed",
+    WatchItem.CloseKind.MISSED: "missed",
+    WatchItem.CloseKind.CHANGED: "no_longer_followed",
+}
 # Which reason a run's details give when the notes differ (the first found)
 REASON_ORDER = (
     budget.QUOTA,
@@ -88,12 +94,15 @@ REASON_ORDER = (
 INSTRUCTIONS = """\
 You write the morning note of NeuroDB Watch for UNICEF Lebanon programme staff: what needs attention \
 in the programmes they follow. The user message is JSON written by NeuroDB:
-- "items": open points, and points closed today, each with a key. "change" says what happened to it \
-today (new, worse, milestone, overdue, due_moved, closed, gone; empty when nothing changed). \
-"has_owner" and "assignment_status" say whether someone is assigned, never who. "times_told" is how \
-many people were told, and "done_by_section" whether its section marked it done.
-- "situations": open points that meet on one partner or grant, with a key, the keys of their items \
-and the names of what they connect.
+- "points": open points, and points that ended today, each with a key. "change" says what happened \
+to it today (new, worse, milestone, overdue, due_moved, gone; empty when nothing changed), and how a \
+point ended today: closed (it was done or fixed), missed (its date passed and it was not done: never \
+call it resolved, closed or done) or no_longer_followed (it no longer applies here: its date moved, \
+it moved elsewhere or another point follows it). "has_owner" and "assignment_status" say whether \
+someone is assigned, never who. "times_told" is how many people were told, and "done_by_section" \
+whether its section marked it done.
+- "situations": open points that meet on one partner or grant, with a key, the keys of their points \
+("items") and the names of what they connect.
 - "changes": What's new lines about those situations.
 - "section_counts" (only in the whole-country note): counts of open points per section, each with a \
 key.
@@ -103,16 +112,18 @@ Write 2 to 6 short plain sentences in English, in this order, leaving out what d
 1. where several open points meet on one partner, programme document or grant;
 2. what is due or late in the coming days, soonest first;
 3. what is new or got worse and is serious, critical first;
-4. what closed or is no longer seen.
+4. what was missed, closed or is no longer seen.
 In the whole-country note, start with one sentence on the section counts.
 
 Rules:
-- Use only facts in the JSON. Every number and date you write must be written in the items, \
+- Use only facts in the JSON. Every number and date you write must be written in the points, \
 situations or counts the sentence cites: a due date as "15 Oct" or "15 Oct 2026", days_left and \
 days_open as numbers of days. Do not write today's date. Never add up, subtract or compute a \
 percentage, and never guess a cause.
-- Give each sentence the keys of every item, situation or section count it rests on, and only keys \
+- Give each sentence the keys of every point, situation or section count it rests on, and only keys \
 that are in the JSON.
+- Call them points or open points. Never write the words item, items, detector, receipt, agent or \
+LLM.
 - Name programme documents, partners, grants and sections exactly as written. Name no person, and \
 write no email address, link, page address, Markdown, list or heading.
 - Do not judge or blame partners or staff, and give no advice beyond saying that something needs \
@@ -196,7 +207,7 @@ class Facts:
 
     @property
     def item_keys(self) -> list[str]:
-        return [entry["key"] for entry in self.payload["items"]]
+        return [entry["key"] for entry in self.payload["points"]]
 
     @property
     def input_hash(self) -> str:
@@ -212,15 +223,18 @@ class Facts:
 
 def change_of(item: WatchItem, today: datetime.date) -> str:
     """What happened to ``item`` today, in the words the AI reads (one of ``redact.CHANGES``, or "").
-    Read from the item itself: closed or gone today, first seen today, its story's lines of today
-    (got worse, due date moved, back again), its due date passed yesterday, or a milestone of its due
-    date reached today."""
+    Read from the item itself: ended today (closed when done, missed when its date passed and it was
+    not done, no_longer_followed for another reason, gone), first seen today, its story's lines of
+    today (got worse, due date moved, back again), its due date passed yesterday, or a milestone of
+    its due date reached today."""
     from . import detectors
 
     if item.state in (WatchItem.State.CLOSED, WatchItem.State.GONE):
-        if item.closed_on == today:
-            return "closed" if item.state == WatchItem.State.CLOSED else "gone"
-        return ""
+        if item.closed_on != today:
+            return ""
+        if item.state == WatchItem.State.GONE:
+            return "gone"
+        return ENDED_AS.get(item.close_kind, "closed")
     if item.first_seen_on == today:
         return "new"
     for line in reversed(item.story or []):
@@ -332,7 +346,7 @@ def facts(
 
     payload: dict[str, Any] = {
         "audience": redact.text(name or (COUNTRY_NAME if audience == WatchNote.COUNTRY else ""), names=names),
-        "items": entries,
+        "points": entries,
         "situations": situation_entries,
         "changes": lines,
     }
@@ -520,8 +534,19 @@ def template(
         )
 
     ended = [item for item in items if item.state != WatchItem.State.OPEN and item.closed_on == today]
-    if ended:
-        sentences.append({"text": _listing("No longer open", ended, _closed), "keys": [i.key for i in ended]})
+    missed = [item for item in ended if change_of(item, today) == "missed"]
+    if missed:
+        sentences.append(
+            {"text": _listing("Date passed, not done", missed, _closed), "keys": [i.key for i in missed]}
+        )
+    resolved = [item for item in ended if change_of(item, today) == "closed"]
+    if resolved:
+        sentences.append({"text": _listing("Resolved", resolved, _closed), "keys": [i.key for i in resolved]})
+    others = [item for item in ended if item not in missed and item not in resolved]
+    if others:
+        sentences.append(
+            {"text": _listing("No longer open", others, _closed), "keys": [i.key for i in others]}
+        )
 
     if not sentences:
         if open_items:
@@ -646,6 +671,7 @@ def write_all(
     items = [item for item in open_items + ended if not redact.refused(item)]
     situations = connect.situations_of(open_items, today=today)
     stats = routes.item_stats(items, routing)
+    wrong = routes.wrong_by_section(items, routing)  # a section's editor said it is wrong: not in its note
     section_names = dict(Section.objects.values_list("pk", "name"))
     counts = routing.section_counts(items)
     names = people.known_names()
@@ -655,6 +681,9 @@ def write_all(
             summary.stopped = True
             break
         mine = routing.audience_items(audience, items)
+        section_id = routes.section_of(audience)
+        if section_id is not None:
+            mine = [item for item in mine if section_id not in wrong.get(item.pk, ())]
         keys = {item.key for item in mine}
         theirs = [
             kept for kept in (situation.restricted(keys) for situation in situations) if kept is not None

@@ -236,6 +236,7 @@ class DetectorSettingAdmin(ModelAdmin):
         "mode",
         "usefulness",
         "on_since",
+        "trial_since",
         "demoted_at",
         "demoted_reason",
         "updated_by",
@@ -246,6 +247,7 @@ class DetectorSettingAdmin(ModelAdmin):
         "check_name",
         "usefulness",
         "on_since",
+        "trial_since",
         "demoted_at",
         "demoted_reason",
         "updated_by",
@@ -353,6 +355,8 @@ class DetectorSettingAdmin(ModelAdmin):
             obj.demoted_at, obj.demoted_reason = None, ""  # an administrator decided
             if obj.mode == DetectorSetting.Mode.ON:
                 obj.on_since = timezone.localdate()  # what exists today is known: not announced
+            elif obj.mode == DetectorSetting.Mode.TRIAL:
+                obj.trial_since = timezone.localdate()  # the same, for the whole-country view
         super().save_model(request, obj, form, change)
 
     @admin.action(

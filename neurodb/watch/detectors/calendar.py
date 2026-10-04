@@ -36,9 +36,11 @@ from neurodb.review.models import FindingAssignment, ReviewFinding
 from ..models import WatchItem, fit_key
 from . import (
     ADMINS,
+    CHANGED,
     COUNTRY,
     DEADLINE,
     INFO,
+    MISSED,
     WARNING,
     Candidate,
     Close,
@@ -195,14 +197,14 @@ def assignments_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Clos
     for finding_key, key in wanted.items():
         row = rows.get(finding_key)
         if row is None:
-            closes[key] = Close("the assignment was deleted")
+            closes[key] = Close("the assignment was deleted", kind=CHANGED)
         elif row["status"] == CLOSED:
             when = timezone.localdate(row["closed_at"]) if row["closed_at"] else None
             closes[key] = Close(f"closed on {_day(when)}" if when else "closed")
         elif row["due_date"] is None:
-            closes[key] = Close("agreed date removed")
+            closes[key] = Close("agreed date removed", kind=CHANGED)
         elif row["due_date"] > until:
-            closes[key] = Close(f"agreed date moved to {_day(row['due_date'])}")
+            closes[key] = Close(f"agreed date moved to {_day(row['due_date'])}", kind=CHANGED)
     return closes
 
 
@@ -261,13 +263,13 @@ def donor_accounts_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, C
     for pk, key in wanted.items():
         row = found.get(pk)
         if row is None:
-            closes[key] = Close("the donor account was deleted")
+            closes[key] = Close("the donor account was deleted", kind=CHANGED)
         elif not row["active"] or not row["user__is_active"]:
-            closes[key] = Close("the donor account was switched off")
+            closes[key] = Close("the donor account was switched off", kind=CHANGED)
         elif row["expires_on"] is None:
             closes[key] = Close("the donor account no longer has an end date")
         elif row["expires_on"] < ctx.today:
-            closes[key] = Close(f"the donor account ended on {_day(row['expires_on'])}")
+            closes[key] = Close(f"the donor account ended on {_day(row['expires_on'])}", kind=CHANGED)
         elif row["expires_on"] > until:
             closes[key] = Close(f"extended to {_day(row['expires_on'])}")
     return closes
@@ -357,7 +359,8 @@ def rollovers_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Close]
         elif ctx.today > datetime.date(year, *ROLLOVER_UNTIL):
             closes[item.key] = Close(
                 f"the rollover period ended on {_day(datetime.date(year, *ROLLOVER_UNTIL))} with {year} "
-                "still not marked current"
+                "still not marked current",
+                kind=MISSED,
             )
     return closes
 

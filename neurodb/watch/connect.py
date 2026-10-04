@@ -592,29 +592,33 @@ def _tell(
         for key, item in touched.items():
             items[key] = item
             news_of[key].append(change)
-    changed: list[WatchItem] = []
-    for key, changes in news_of.items():
-        item = items[key]
-        told = told_changes(item)
-        fresh = [change for change in changes if change.pk not in told]
-        if not fresh:
-            continue
-        for change in fresh[:STORY_CHANGES_MAX]:
-            _add_line(item, f"What's new: {news.sentence(change)}", change.detected_at, [change.pk])
-        rest = fresh[STORY_CHANGES_MAX:]
-        if rest:
-            _add_line(
-                item,
-                f"What's new: and {len(rest)} more change{'s' if len(rest) > 1 else ''} around it",
-                rest[-1].detected_at,
-                [change.pk for change in rest],
-            )
-        counts["added"] += len(fresh)
-        changed.append(item)
-    counts["items"] = len(changed)
+    changed = 0
     with transaction.atomic():
-        for item in changed:
+        # each story read anew under a lock: a line added meanwhile (an answer on the page) is kept
+        fresh_rows = WatchItem.objects.select_for_update().in_bulk([items[key].pk for key in news_of])
+        for key, changes in news_of.items():
+            item = fresh_rows.get(items[key].pk)
+            if item is None:
+                continue
+            told = told_changes(item)
+            fresh = [change for change in changes if change.pk not in told]
+            if not fresh:
+                continue
+            for change in fresh[:STORY_CHANGES_MAX]:
+                _add_line(item, f"What's new: {news.sentence(change)}", change.detected_at, [change.pk])
+            rest = fresh[STORY_CHANGES_MAX:]
+            if rest:
+                _add_line(
+                    item,
+                    f"What's new: and {len(rest)} more change{'s' if len(rest) > 1 else ''} around it",
+                    rest[-1].detected_at,
+                    [change.pk for change in rest],
+                )
             item.save(update_fields=["story"])
+            items[key].story = item.story
+            counts["added"] += len(fresh)
+            changed += 1
+    counts["items"] = changed
 
 
 def _add_line(item: WatchItem, text: str, when: datetime.datetime, pks: list[int]) -> None:

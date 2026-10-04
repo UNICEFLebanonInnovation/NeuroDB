@@ -120,12 +120,14 @@ def recipients(digest: Digest, has_own_note: set[int]) -> list[str]:
     return sorted(set(subs.values_list("user__email", flat=True)))
 
 
-def carried_by_morning_email() -> bool:
+def carried_by_morning_email(day: datetime.date | None = None) -> bool:
     """NeuroDB Watch's morning email is on and scheduled: it carries today's note to the people who
-    asked for the email, so the What's new email steps aside."""
+    asked for the email, so the What's new email steps aside. With ``day``: and that day's morning
+    email has not gone yet (a note written after it goes out by itself; one the morning pass could
+    not email, it sends in its place)."""
     from neurodb.watch import delivery
 
-    return delivery.carries_whats_new()
+    return delivery.carries_whats_new(day)
 
 
 def send(notes: list[Digest]) -> int:
@@ -133,7 +135,7 @@ def send(notes: list[Digest]) -> int:
     morning email carries the note (:data:`CARRIED`)."""
     if not getattr(settings, "DIGEST_EMAIL_ENABLED", False) or not notes:
         return 0
-    if carried_by_morning_email():
+    if carried_by_morning_email(notes[0].date):
         logger.info("what's new note: not emailed, %s", CARRIED)
         return 0
     has_own_note = {d.section_id for d in notes if d.section_id}

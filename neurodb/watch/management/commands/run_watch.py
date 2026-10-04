@@ -3,7 +3,8 @@
 ``--daily`` is the morning pass (the scheduled job "watch", 07:45, and "Run NeuroDB Watch now" in the
 admin); ``--when-requested`` is the quick pass started shortly after new data arrives (it waits
 ``WATCH_SETTLE_SECONDS`` first, and runs the morning pass instead when that was missed today). One run
-at a time: a second start while one runs does nothing and exits without an error. Every pass is
+at a time: a quick pass started while one runs does nothing and exits without an error; a morning pass
+waits for it (at most 20 minutes) and then runs, unless a morning pass finished meanwhile. Every pass is
 recorded as a ``SyncRun`` (job "watch"); with WATCH_ENABLED off a run records only that it was
 switched off. The steps are in :mod:`neurodb.watch.services`.
 """

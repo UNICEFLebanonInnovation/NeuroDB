@@ -30,9 +30,13 @@
 <p class="watch-preview" role="status">{% blocktrans with who=subtitle_for %}You are looking at what {{ who }} is shown: the note and the open points. People's own answers and reminders are never shown here.{% endblocktrans %} <a href="{% url 'watch:for_you' %}">{% trans "Back to my page" %}</a></p>
 {% endif %}
 
-{% if no_section %}
+{% if no_role %}
+<p class="watch-preview" role="status">{% trans "NeuroDB does not send you notes yet: ask an administrator to give you a role. Meanwhile, here is everything open that section staff are told about." %}</p>
+{% elif no_section %}
 <p class="watch-preview" role="status">{% trans "NeuroDB does not send you notes yet: ask an administrator to set your section to get notes for it. Meanwhile, here is everything open that section staff are told about." %}</p>
 {% endif %}
+{# what a button did, read out by screen readers (each answer writes its message here) #}
+<div id="watch-live" class="visually-hidden" role="status" aria-live="polite"></div>
 
 {% for note in notes %}
 <section class="panel watch-note" aria-labelledby="watch-note-{{ forloop.counter }}">
@@ -68,6 +72,7 @@
 </section>
 {% endif %}
 
+{% if not no_section %}
 <section class="panel" aria-labelledby="watch-coming-title">
   <div class="panel__header"><h2 class="panel__title" id="watch-coming-title">{% trans "Coming up (next 30 days)" %}</h2></div>
   {% if coming_up %}
@@ -76,6 +81,7 @@
   <p class="text-muted small mb-0">{% trans "Nothing is due in the next 30 days." %}</p>
   {% endif %}
 </section>
+{% endif %}
 
 {% if situations %}
 <section class="panel" aria-labelledby="watch-connect-title">
@@ -100,7 +106,7 @@
 {% endif %}
 
 <details class="panel watch-everything"{% if preview or no_section %} open{% endif %}>
-  <summary><h2 class="panel__title d-inline">{% blocktrans with n=everything|length %}Everything open ({{ n }}){% endblocktrans %}</h2></summary>
+  <summary><h2 class="panel__title d-inline">{% if everything_else %}{% blocktrans with n=everything|length %}Everything else open ({{ n }}){% endblocktrans %}{% else %}{% blocktrans with n=everything|length %}Everything open ({{ n }}){% endblocktrans %}{% endif %}</h2></summary>
   {% if everything %}
   <ul class="watch-cards watch-cards--compact mt-2">{% for card in everything %}{% include "watch/partials/_item.html" with open=False %}{% endfor %}</ul>
   {% else %}

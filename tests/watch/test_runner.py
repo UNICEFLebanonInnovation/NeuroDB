@@ -2,6 +2,7 @@
 ask for it, and running again safely (cut off, failing, stopped, out of time, one run at a time)."""
 
 import datetime
+import json
 import re
 from types import SimpleNamespace
 
@@ -44,9 +45,9 @@ STEPS = [
     "checks",
     "connect",
     "announce",
-    "look_ups",
     "notes",
     "email",
+    "look_ups",
     "watermark",
     "retention",
 ]
@@ -88,11 +89,16 @@ def ai_on(settings):
     return settings
 
 
+LOOK_UP_CALLS, LOOK_UP_TOKENS = 2, (3_000, 500, 200)  # what one faked look-up uses: in, cached, out
+
+
 @pytest.fixture
 def model(monkeypatch):
     """The OpenAI client and Ask NeuroDB's loop, faked: every use is counted. A morning note gets an
-    answer with no sentence (the plain note is used); a look-up finds nothing."""
-    used = SimpleNamespace(clients=0, requests=[], look_ups=0)
+    answer with no sentence (the plain note is used); a look-up makes 2 model calls, runs the real
+    tools listed in ``tool_calls`` (read-only, through the look-up's filter: what the AI would read
+    goes in ``tool_results``) and finds nothing. ``questions`` holds what each look-up was asked."""
+    used = SimpleNamespace(clients=0, requests=[], look_ups=0, questions=[], tool_calls=[], tool_results=[])
 
     def create(**params):
         used.requests.append(params)
@@ -111,6 +117,11 @@ def model(monkeypatch):
 
     def answer(question, history, outcome, **kwargs):
         used.look_ups += 1
+        used.questions.append(question)
+        for name, args in used.tool_calls:
+            used.tool_results.append(agent._lookup(name, args, kwargs["options"]))
+        outcome.calls += LOOK_UP_CALLS
+        outcome.input_tokens, outcome.cache_read_tokens, outcome.output_tokens = LOOK_UP_TOKENS
         outcome.answer = '{"what_i_found": "", "numbers": []}'
         return iter(())
 
@@ -186,6 +197,12 @@ def snapshot():
     return items, receipts, notes
 
 
+def _without(found, key: str):
+    """A snapshot without one item and what was told about it."""
+    items, receipts, notes = found
+    return [i for i in items if i[0] != key], [r for r in receipts if r[1] != key], notes
+
+
 def morning_pass(**kwargs) -> SyncRun:
     done = services.daily(now=NOW, **kwargs)
     assert len(done.runs) == 1, done.note
@@ -248,7 +265,8 @@ def _spy(order: list, label: str, real):
     return spy
 
 
-def test_the_morning_pass_looks_things_up_after_announcing_and_before_the_notes(db, monkeypatch):
+def test_the_morning_pass_writes_the_notes_before_it_looks_things_up(db, monkeypatch):
+    """The look-ups come last: they use what the notes left of the day's AI budget and time."""
     order = []
     for module, name, label in (
         (memory, "run", "checks"),
@@ -258,7 +276,7 @@ def test_the_morning_pass_looks_things_up_after_announcing_and_before_the_notes(
     ):
         monkeypatch.setattr(module, name, _spy(order, label, getattr(module, name)))
     morning_pass()
-    assert order == ["checks", "announce", "look_ups", "notes"]
+    assert order == ["checks", "announce", "notes", "look_ups"]
     order.clear()
     requested()
     assert [run.target for run in services.when_requested(now=NOW).runs] == ["quick"]
@@ -267,29 +285,114 @@ def test_the_morning_pass_looks_things_up_after_announcing_and_before_the_notes(
 
 def test_with_the_ai_on_the_morning_pass_looks_up_and_writes_notes_within_one_ledger(morning, ai_on, model):
     run = morning_pass()
-    assert model.look_ups >= 1 and model.requests  # a look-up on the critical item, then the notes
+    assert model.look_ups >= 1 and model.requests  # the notes, then a look-up on the critical item
     assert run.details["look_ups"]["tried"] == model.look_ups
-    assert run.details["model_calls"] == len(model.requests)  # the fake look-up made no model call
-    assert run.details["tokens"] == 1_100 * len(model.requests)
+    looked = run.details["look_ups"]
+    assert (looked["calls"], looked["tokens"]) == (LOOK_UP_CALLS * model.look_ups, 3_700 * model.look_ups)
+    # the run's account holds both: the notes' calls and tokens, and the look-ups'
+    assert run.details["model_calls"] == len(model.requests) + LOOK_UP_CALLS * model.look_ups
+    assert run.details["tokens"] == 1_100 * len(model.requests) + 3_700 * model.look_ups
+    assert run.details["ai_use_today"]["watch_calls"] == run.details["model_calls"]  # the ledger agrees
     assert all(request["store"] is False and not request.get("tools") for request in model.requests)
 
 
-def test_a_look_up_starts_only_while_there_is_time_for_it_and_the_notes(morning, ai_on, model, settings):
-    settings.WATCH_TIME_LIMIT_SECONDS = investigate.TIME_LIMIT + services.NOTES_ROOM_SECONDS - 30
+def test_a_look_up_starts_only_while_there_is_time_for_it(morning, ai_on, model, settings):
+    settings.WATCH_TIME_LIMIT_SECONDS = investigate.TIME_LIMIT + services.AFTER_ROOM_SECONDS - 30
     run = morning_pass()
     assert model.look_ups == 0 and run.details["look_ups"]["skipped"] == investigate.STOPPED
     assert run.details["notes"]["written"] == 2 and run.status == Status.SUCCEEDED
 
 
+def _every_look_up_tool(world) -> list[tuple[str, dict]]:
+    """Each tool a look-up may use, with arguments that find something in the hub tests' world."""
+    from neurodb.graph.models import Entity
+
+    partner = Entity.objects.get(kind="partner", name=world.amel.name)
+    calls = [
+        ("find_anything", {"text": "Amel"}),
+        ("entity_profile", {"kind": "partner", "key": partner.key}),
+        ("connected", {"kind": "partner", "key": partner.key, "to_kind": "programme_document"}),
+        ("programme_details", {"number": world.pd.number}),
+        ("partner_details", {"partner_id": world.amel.pk}),
+        ("partner_reporting", {"partner": "Amel"}),
+        ("pd_indicator_progress", {"partner": "Amel"}),
+        ("funds_overview", {"partner": "Amel"}),
+        ("assurance_overview", {"partner": "Amel"}),
+        ("indicator_forecasts", {}),
+        ("whats_new", {}),
+        ("daily_review", {}),
+        ("data_freshness", {}),
+    ]
+    assert {name for name, _args in calls} == set(investigate.TOOLS)
+    return calls
+
+
 def test_a_morning_pass_writes_only_its_own_tables(morning, ai_on, model):
+    """The whole morning pass, with an assignment on a finding (read row by row by the checks) and a
+    look-up running every tool it may use: only the watch's tables, the AI ledger and its run."""
+    FindingAssignment.objects.create(
+        key="ap_overdue:CARE", owner="Education team", note="Follow up", status="assigned"
+    )
+    model.tool_calls = _every_look_up_tool(morning.world)
     with CaptureQueriesContext(connection) as queries:
         run = morning_pass()
     assert run.status == Status.SUCCEEDED and model.requests  # the AI wrote (tried) the notes
+    assert model.look_ups >= 1 and len(model.tool_results) == len(investigate.TOOLS) * model.look_ups
     written = {found[1] for query in queries.captured_queries if (found := WRITE.match(query["sql"]))}
     assert {"watch_watchitem", "watch_watchreceipt", "watch_watchnote", "assistant_aiusage"} <= written
     assert all(
         table.startswith("watch_") or table in {"assistant_aiusage", "core_syncrun"} for table in written
     ), written
+
+
+PLANTED = (
+    "Zebulon",
+    "Quartermaine",
+    "zebulon.q@example.org",
+    "Philippa Thistlewood",
+    "Octavia Fennimore",
+    "octavia@example.org",
+    "Call her before Friday",
+    "Ignatius Brambleworth",
+)
+
+
+def test_no_planted_person_reaches_the_ai_in_a_whole_morning_pass(morning, ai_on, model):
+    """Names and emails planted in every source of the morning pass: a user, a PD's focal points and
+    its title (so What's new tells it), a finding's assignment (owner and note), a knowledge base
+    document and an action point's assignee. None is in what the AI is sent: the notes' input and
+    instructions, the look-ups' questions and what their tools return."""
+    world = morning.world
+    User.objects.create(
+        username="zq", first_name="Zebulon", last_name="Quartermaine", email="zebulon.q@example.org"
+    )
+    PCA.objects.filter(pk=world.pd.pk).update(
+        title="Education support with Zebulon Quartermaine", unicef_focal_points=["Philippa Thistlewood"]
+    )
+    world.note.title = "Field visit minutes with Zebulon Quartermaine"
+    world.note.save(update_fields=["title"])
+    FindingAssignment.objects.create(
+        key="ap_overdue:CARE",
+        owner="Octavia Fennimore",
+        note="Call her before Friday: octavia@example.org",
+        status="assigned",
+    )
+    dm.ActionPoint.objects.create(
+        datamart_id=900, assigned_to_name="Ignatius Brambleworth", status="open", description="Visit"
+    )
+    build_hub()  # What's new tells the PD's new title
+    WatchRequest.objects.all().delete()
+    model.tool_calls = _every_look_up_tool(world)
+
+    run = morning_pass()
+
+    assert run.status == Status.SUCCEEDED and model.requests and model.questions and model.tool_results
+    sent = [request["input"] + request["instructions"] for request in model.requests]
+    sent += model.questions + [json.dumps(result, ensure_ascii=False) for result in model.tool_results]
+    assert any("Education support with" in text for text in sent)  # the PD's change did reach the AI
+    for text in sent:
+        for planted in PLANTED:
+            assert planted.casefold() not in text.casefold(), planted
 
 
 # ---------------------------------------------------------------------------- waiting for its inputs
@@ -364,8 +467,15 @@ def test_cut_off_after_the_checks_then_run_again_nothing_twice(morning, monkeypa
     again = morning_pass()
     cut.refresh_from_db()
     assert (cut.status, cut.error) == (Status.FAILED, background.CUT_OFF)  # closed by the next run
-    assert again.status == Status.SUCCEEDED and snapshot() == clean
-    assert morning_pass().status == Status.SUCCEEDED and snapshot() == clean  # and once more
+    # the cut-off run is the watch's last finished run: the administrators hear it failed
+    failed = WatchItem.objects.get(key="system:job_failed:watch")
+    assert failed.state == WatchItem.State.OPEN
+    assert again.status == Status.SUCCEEDED and _without(snapshot(), failed.key) == clean
+    assert (
+        morning_pass().status == Status.SUCCEEDED and _without(snapshot(), failed.key) == clean
+    )  # once more
+    failed.refresh_from_db()
+    assert failed.state == WatchItem.State.CLOSED  # a run of the watch succeeded since
 
 
 def test_a_step_that_fails_is_recorded_the_others_still_run_and_a_rerun_mends_it(morning, monkeypatch):
@@ -388,7 +498,8 @@ def test_a_step_that_fails_is_recorded_the_others_still_run_and_a_rerun_mends_it
 
     monkeypatch.setattr(routing, "announce", real)
     assert morning_pass().status == Status.SUCCEEDED
-    items, receipts, notes = snapshot()
+    # the run with errors is the watch's last finished run: the administrators hear of it
+    items, receipts, notes = _without(snapshot(), "system:job_partial:watch")
     assert (items, receipts) == clean[:2] and [n[0] for n in notes] == [n[0] for n in clean[2]]
 
 
@@ -563,6 +674,81 @@ def test_switched_off_a_pass_records_only_that(db, settings):
     done = services.when_requested(now=NOW)
     assert done.note == services.SWITCHED_OFF and done.runs[0].details["note"] == services.SWITCHED_OFF
     assert not WatchItem.objects.exists()
+
+
+def test_new_data_landing_while_the_morning_pass_runs_gets_a_quick_pass_right_after(db, monkeypatch):
+    """The hub build finished while the morning pass ran: its request is answered by a trailing quick
+    pass under the same lock (the quick process it started would find the lock taken and give up)."""
+    requested()  # waiting when the morning pass starts: answered by it
+    real = explain.write_all
+
+    def notes_while_data_lands(*args, **kwargs):
+        requested("Knowledge hub")  # the late hub build finished meanwhile
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(explain, "write_all", notes_while_data_lands)
+    done = services.daily(now=NOW)
+    assert [run.target for run in done.runs] == ["daily", "quick"] and done.note == ""
+    assert done.runs[1].triggered_by == "new data: Knowledge hub" and done.runs[1].details["requests"] == 1
+    assert not WatchRequest.objects.exists() and services.quick_passes_used(NOW) == 1
+
+
+def test_no_trailing_pass_after_a_morning_pass_an_administrator_stopped(db, monkeypatch):
+    real = memory.run
+
+    def checks_then_stopped(ctx, *args, sync_run=None, **kwargs):
+        requested()  # new data meanwhile
+        outcome = real(ctx, *args, sync_run=sync_run, **kwargs)
+        sync_run.stop("boss")
+        return outcome
+
+    monkeypatch.setattr(memory, "run", checks_then_stopped)
+    done = services.daily(now=NOW)
+    assert [run.target for run in done.runs] == ["daily"] and WatchRequest.objects.count() == 1
+
+
+def test_a_morning_pass_whose_announcements_failed_is_caught_up_the_same_day(db, monkeypatch):
+    def broken(*args, **kwargs):
+        raise RuntimeError("routing broke")
+
+    real = routing.announce
+    monkeypatch.setattr(routing, "announce", broken)
+    run = morning_pass()
+    assert run.status == Status.PARTIAL  # a success with errors, for the admin home
+    assert WatchState.get().last_daily_on is None and services.catch_up_due(NOW)
+    monkeypatch.setattr(routing, "announce", real)
+    requested()
+    done = services.when_requested(now=NOW)
+    assert [(again.target, again.details["catch_up"]) for again in done.runs] == [("daily", True)]
+    assert WatchState.get().last_daily_on == TODAY and not services.catch_up_due(NOW)
+
+
+@pytest.fixture
+def held_then_freed(db, monkeypatch, slept):
+    """Another run holds the watch's lock, and finishes after the first minute of waiting."""
+    other = connections.create_connection("default")
+    with other.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_lock(%s)", [lock.LOCK_ID])
+
+    def wait(seconds):
+        slept.append(seconds)
+        other.close()  # the other run ends: its lock goes with its session
+
+    monkeypatch.setattr(services, "_sleep", wait)
+    yield slept
+    other.close()
+
+
+def test_the_morning_pass_waits_for_the_run_holding_the_lock(held_then_freed):
+    done = services.daily(now=NOW)
+    assert held_then_freed == [services.LOCK_POLL_SECONDS]
+    assert [run.target for run in done.runs] == ["daily"] and done.runs[0].status == Status.SUCCEEDED
+
+
+def test_after_waiting_it_does_not_run_again_when_a_morning_pass_finished_meanwhile(held_then_freed):
+    ran_today()  # e.g. the quick process holding the lock caught the morning pass up
+    done = services.daily(now=NOW)
+    assert done.runs == [] and done.note == services.ALREADY_RAN
 
 
 # ---------------------------------------------------------------------------- what asks for a quick pass

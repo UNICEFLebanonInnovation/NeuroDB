@@ -8,6 +8,10 @@ Until then nothing is sent and nothing fails; the morning pass records why (``de
 (``DigestSubscription.email``): active users with an email address, never a donor account. It takes
 the place of the What's new email: while it is on and the morning pass is scheduled,
 ``neurodb.graph.digest.send`` steps aside (:func:`carries_whats_new`), so people get one email, not two.
+That is decided per day: once the day's morning email went, a What's new note written later goes out
+by itself; and a morning pass that ends without its email (it failed, was stopped or ran out of time)
+sends the day's What's new note in its place (:func:`send_whats_new_instead`), so the note is never
+lost.
 
 **What** (:func:`compose`), plain text written by code only:
 
@@ -51,7 +55,7 @@ from django.db.models import QuerySet
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
-from neurodb.core.models import ScheduledJob
+from neurodb.core.models import ScheduledJob, SyncRun
 from neurodb.graph import digest as whats_new
 from neurodb.graph.models import Digest
 from neurodb.integrations.runs import describe_error
@@ -63,6 +67,7 @@ from .models import WatchDelivery, WatchItem, WatchReceipt
 logger = logging.getLogger(__name__)
 
 CHANNEL = WatchDelivery.Channel.EMAIL_DAILY
+WHATS_NEW_CHANNEL = WatchDelivery.Channel.WHATS_NEW  # the What's new note sent in the morning email's place
 LISTED = 5  # "Needs you" titles in one email; the rest is on the page
 COMING_UP_DAYS = 30
 FOR_YOU_PATH = "/for-you/"  # the page's address while its URL is not installed
@@ -93,11 +98,23 @@ def enabled() -> bool:
     return not off_reason()
 
 
-def carries_whats_new() -> bool:
+def carries_whats_new(day: datetime.date | None = None) -> bool:
     """The morning email carries the What's new note: it is on and the morning pass is scheduled (an
     enabled scheduled job "watch"). The What's new email then steps aside; when an administrator
-    pauses the morning pass, the What's new email goes out again, so the note is never lost."""
-    return enabled() and ScheduledJob.objects.filter(command=MORNING_COMMAND, enabled=True).exists()
+    pauses the morning pass, the What's new email goes out again, so the note is never lost. With
+    ``day``: and that day's morning email has not gone yet (a note written after it is not in it, so
+    the What's new email goes out by itself)."""
+    if not enabled() or not ScheduledJob.objects.filter(command=MORNING_COMMAND, enabled=True).exists():
+        return False
+    return day is None or not morning_email_went(day)
+
+
+def morning_email_went(day: datetime.date) -> bool:
+    """A morning pass of ``day`` (the day it reasoned from: its details' "date") reached its email
+    step, or sent the What's new note in its place (its details have "emails")."""
+    return SyncRun.objects.filter(
+        job=SyncRun.Job.WATCH, target="daily", details__date=day.isoformat(), details__has_key="emails"
+    ).exists()
 
 
 # ---------------------------------------------------------------------------- who and where
@@ -146,6 +163,7 @@ class _Today:
     rules: routing.Routing
     due_soon: list[tuple[WatchItem, set[int]]]  # open points due in the next 30 days, with who gets them
     notes: dict[int | None, Digest]  # section id (None: everyone) -> today's What's new note
+    had_whats_new: set[int] = field(default_factory=set)  # got today's note already, in its own email
 
     @classmethod
     def load(cls, day: datetime.date) -> _Today:
@@ -160,10 +178,18 @@ class _Today:
             rules=rules,
             due_soon=[(item, set(rules.recipients(item))) for item in due],
             notes={note.section_id: note for note in Digest.objects.filter(date=day)},
+            had_whats_new=set(
+                WatchDelivery.objects.filter(date=day, channel=WHATS_NEW_CHANNEL).values_list(
+                    "user_id", flat=True
+                )
+            ),
         )
 
     def note_for(self, user) -> Digest | None:
-        """Their section's What's new note today, else the note for everyone."""
+        """Their section's What's new note today, else the note for everyone (none when they got it
+        already today, in the email sent in place of an earlier morning email)."""
+        if user.pk in self.had_whats_new:
+            return None
         return self.notes.get(user.section_id) or self.notes.get(None)
 
 
@@ -273,7 +299,9 @@ def compose(user, today: _Today) -> Morning | None:
 
 
 # ---------------------------------------------------------------------------- sending, once
-def _claim(user, day: datetime.date, row: WatchDelivery | None) -> WatchDelivery | None:
+def _claim(
+    user, day: datetime.date, row: WatchDelivery | None, channel: str = CHANNEL
+) -> WatchDelivery | None:
     """The person's delivery row for the day, claimed for this email: a new row, or the row of an
     email that failed; None when another run claimed it meanwhile."""
     if row is not None:
@@ -282,9 +310,62 @@ def _claim(user, day: datetime.date, row: WatchDelivery | None) -> WatchDelivery
         return row
     try:
         with transaction.atomic():
-            return WatchDelivery.objects.create(user=user, date=day, channel=CHANNEL)
+            return WatchDelivery.objects.create(user=user, date=day, channel=channel)
     except IntegrityError:
         return None
+
+
+def whats_new_email(note: Digest) -> tuple[str, str]:
+    """(subject, body) of the What's new note sent in the morning email's place: as the What's new
+    email words it."""
+    audience = note.section_name or "all sections"
+    link = whats_new_url()
+    body = note.text.strip() + (f"\n\nEverything that changed: {link}" if link else "")
+    body += "\n\nYou get this because you asked for it on NeuroDB's What's new page, where you can stop it.\n"
+    return f"NeuroDB — what's new for {audience}, {note.date:%d %b %Y}", body
+
+
+def send_whats_new_instead(day: datetime.date | None = None) -> dict[str, Any]:
+    """A morning pass ended without its email (it failed, was stopped or ran out of time first): send
+    the day's What's new note to the people who asked for the email, as the What's new email would
+    have (it stepped aside for the morning email), once per person and day (a ``WatchDelivery`` row,
+    "whats_new"); nobody who already got the day's morning email. Nothing when the morning email does
+    not carry the note (the What's new email went out itself) or there is no note. Returns the counts
+    for the run's details (``whats_new``, ``failed``)."""
+    day = day or timezone.localdate()
+    counts = Counter(whats_new=0, failed=0)
+    if not carries_whats_new():
+        return {**counts, "note": off_reason() or "the What's new email went out by itself"}
+    notes = {note.section_id: note for note in Digest.objects.filter(date=day)}
+    if not notes:
+        return {**counts, "note": "no What's new note today"}
+    rows = WatchDelivery.objects.filter(date=day, channel__in=(CHANNEL, WHATS_NEW_CHANNEL))
+    done = {(row.user_id, row.channel): row for row in rows}
+    for user in recipients():
+        if (user.pk, CHANNEL) in done:
+            continue  # the morning email went (or is going) to them today
+        row = done.get((user.pk, WHATS_NEW_CHANNEL))
+        if row is not None and (row.sent_at is not None or not row.error):
+            continue  # sent already, or its sending was cut off: at most once
+        note = notes.get(user.section_id) or notes.get(None)
+        if note is None:
+            continue
+        delivery = _claim(user, day, row, WHATS_NEW_CHANNEL)
+        if delivery is None:
+            continue
+        subject, body = whats_new_email(note)
+        try:
+            send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [user.email])
+        except Exception as exc:
+            logger.exception("NeuroDB Watch: could not send the What's new note to one person")
+            delivery.error = describe_error(exc)[:500]
+            delivery.save(update_fields=["error"])
+            counts["failed"] += 1
+            continue
+        delivery.sent_at = timezone.now()
+        delivery.save(update_fields=["sent_at"])
+        counts["whats_new"] += 1
+    return {**counts, "note": "the morning email did not go out: the What's new note was sent in its place"}
 
 
 def send_daily(day: datetime.date | None = None) -> dict[str, Any]:

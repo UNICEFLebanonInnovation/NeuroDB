@@ -12,6 +12,7 @@ from neurodb.watch.detectors import (
     DAILY,
     DEADLINE,
     INFO,
+    MISSED,
     QUICK,
     STALE_DETECTOR,
     SYSTEM,
@@ -239,10 +240,26 @@ def test_positive_evidence_closes_at_once(check):
 def test_a_close_can_hand_the_item_over_to_the_daily_review(check):
     check.pass_(ctx(0))
     check.found = {}
-    check.closes = {KEY: Close("now overdue: see the daily review", review_key="reports_overdue:PD2026001")}
+    check.closes = {
+        KEY: Close("now overdue: see the daily review", review_key="reports_overdue:PD2026001", kind=MISSED)
+    }
     check.pass_(ctx(1))
     assert item().review_key == "reports_overdue:PD2026001"
     assert item().close_reason == "now overdue: see the daily review"
+    assert item().close_kind == WatchItem.CloseKind.MISSED  # its date passed: never told as resolved
+
+
+def test_a_close_says_how_it_ended_and_coming_back_forgets_it(check):
+    check.pass_(ctx(0))
+    check.found = {}
+    check.closes = {KEY: "report submitted on 6 Oct 2026"}  # a plain reason: done
+    check.pass_(ctx(1))
+    assert item().close_kind == WatchItem.CloseKind.RESOLVED
+    check.found, check.closes = {KEY: {}}, {}
+    check.pass_(ctx(2))
+    assert item().state == WatchItem.State.OPEN and item().close_kind == ""
+    with pytest.raises(ValueError):
+        Close("gone somewhere", kind="vanished")
 
 
 def test_one_miss_keeps_it_open_and_two_make_it_gone(check):

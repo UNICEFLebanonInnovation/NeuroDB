@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import runpy
+import threading
 import typing
 import uuid
 from dataclasses import replace
@@ -20,7 +21,7 @@ import pytest
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ImproperlyConfigured
-from django.db import DatabaseError, transaction
+from django.db import DatabaseError, connection, transaction
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -737,6 +738,8 @@ def test_a_background_run_calls_only_its_tools_and_reads_them_filtered(db, fake,
 
     def keep_jobs(name, result):
         filtered.append(name)
+        if "error" in result:  # a tool's error message passes the filter too
+            return {"error": result["error"]}
         return {"jobs": result["jobs"]}
 
     model = fake(
@@ -749,9 +752,9 @@ def test_a_background_run_calls_only_its_tools_and_reads_them_filtered(db, fake,
 
     outputs = _outputs(model.requests[1])
     # a tool that exists but is not offered is unknown to this run, and never runs
-    assert outputs["call_1"]["error"] == "Unknown tool etools_query." and ran == []
+    assert outputs["call_1"] == {"error": "Unknown tool etools_query."} and ran == []
     assert outputs["call_2"] == {"jobs": 4}  # what the filter let through, nothing else
-    assert filtered == ["data_freshness"] and outcome.numbers == {4.0}
+    assert filtered == ["etools_query", "data_freshness"] and outcome.numbers == {4.0}
     assert [(t["tool"], t["ok"]) for t in outcome.tools] == [
         ("etools_query", False),
         ("data_freshness", True),
@@ -788,13 +791,32 @@ def test_read_only_blocks_writes_inside_an_open_transaction(db):
     assert sorted(AssistantQuestion.objects.values_list("question", flat=True)) == ["after", "before"]
 
 
-@pytest.mark.django_db(transaction=True)
-def test_read_only_blocks_writes_outside_a_transaction():
-    with pytest.raises(DatabaseError, match="read-only transaction"):
-        with tools.read_only():
-            AssistantQuestion.objects.create(question="inside")
-    AssistantQuestion.objects.create(question="after")
-    assert list(AssistantQuestion.objects.values_list("question", flat=True)) == ["after"]
+def test_read_only_blocks_writes_outside_a_transaction(db):
+    """Where no transaction is open, as in a job: run on another thread, whose connection is in
+    autocommit, so the test needs no transactional database (whose flush would empty the rows the
+    migrations seeded, such as the scheduled jobs, for the next run reusing the database)."""
+    found: dict = {}
+
+    def job():
+        try:
+            found["outside"] = not transaction.get_connection().in_atomic_block
+            with pytest.raises(DatabaseError, match="read-only transaction"):
+                with tools.read_only():
+                    AssistantQuestion.objects.create(question="inside")
+            with transaction.atomic():  # the connection writes again (rolled back: nothing is left)
+                AssistantQuestion.objects.create(question="after")
+                found["after"] = list(AssistantQuestion.objects.values_list("question", flat=True))
+                transaction.set_rollback(True)
+        except BaseException as exc:  # reported by the test, not lost in the thread
+            found["error"] = exc
+        finally:
+            connection.close()
+
+    thread = threading.Thread(target=job)
+    thread.start()
+    thread.join()
+    assert "error" not in found, found.get("error")
+    assert found == {"outside": True, "after": ["after"]}
 
 
 @override_settings(**ENABLED)

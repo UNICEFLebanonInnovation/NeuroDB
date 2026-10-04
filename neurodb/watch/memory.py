@@ -6,7 +6,9 @@ they found into ``WatchItem`` rows, keyed on lasting identifiers, by these rules
 - **Seen again**: the item is updated (``last_seen_on``, ``source_mark``). ``changed_on`` moves, and
   a dated line is added to its story, only when its severity, due date or state changes ("Got
   worse: was warning, now critical", "Due date moved to 30 Nov 2026").
-- **Positive evidence** from the check (a report submitted) closes the item at once: "closed".
+- **Evidence that it is over** from the check closes the item at once: "closed", with how it ended
+  (``close_kind``): resolved (a report submitted), missed (its date passed and it was not done) or
+  changed (no longer followed here: its date moved, another point follows it).
 - **Missed**: an item its check no longer finds counts a miss only in the morning pass, only when
   the check ran on a fresh source without an error, and only when the check's source mark is newer
   than the item's (data newer than what showed it). Two misses make it "gone" ("no longer in
@@ -16,6 +18,9 @@ they found into ``WatchItem`` rows, keyed on lasting identifiers, by these rules
 - **Marked wrong** by people (state "wrong"): it stays hidden while its evidence is the same, and
   opens again when the records or numbers change.
 - A check that is off, stale, stopped or failing changes nothing: its items are carried forward.
+
+The rows a pass writes are locked while it writes them (``select_for_update``), so an answer given on
+the For you page meanwhile ("Something's wrong") waits for it and is never written over.
 
 Nothing else is written here: who is told what is :mod:`neurodb.watch.routing`'s.
 """
@@ -149,7 +154,8 @@ def apply(ctx: Context, results: list[Result]) -> Outcome:
 def _remember(ctx: Context, results: list[Result], outcome: Outcome) -> set[str]:
     """Create or update an item per candidate; the keys seen in this pass."""
     keys = [fit_key(candidate.key) for result in results for candidate in result.candidates]
-    existing = WatchItem.objects.in_bulk(keys, field_name="key")
+    # locked until the pass commits: an answer on the page (state "wrong") waits, then reads them anew
+    existing = WatchItem.objects.select_for_update().in_bulk(keys, field_name="key")
     seen: set[str] = set()
     for result in results:
         for candidate in result.candidates:
@@ -268,6 +274,7 @@ def _update(
         item.state = State.OPEN
         item.closed_on = None
         item.close_reason = ""
+        item.close_kind = ""
         changed = True
     if values["severity"] != item.severity:
         was, now = SEVERITY_WORDS[item.severity], SEVERITY_WORDS[values["severity"]]
@@ -305,7 +312,7 @@ def _update(
 
 def _attach(ctx: Context, attach: Attach, outcome: Outcome) -> None:
     """Note the daily review finding on an item the watch already follows (once)."""
-    item = WatchItem.objects.filter(key=fit_key(attach.key), state__in=ALIVE).first()
+    item = WatchItem.objects.select_for_update().filter(key=fit_key(attach.key), state__in=ALIVE).first()
     review_key = attach.review_key[:300]
     if item is None or item.review_key == review_key:
         return
@@ -320,7 +327,7 @@ def _close_or_miss(ctx: Context, result: Result, seen: set[str], outcome: Outcom
     """The check's items it did not find today: closed on its positive evidence, else missed (in
     the morning pass, on data newer than the item's)."""
     check = result.detector.id
-    for item in WatchItem.objects.filter(detector=check, state__in=ALIVE).order_by("pk"):
+    for item in WatchItem.objects.select_for_update().filter(detector=check, state__in=ALIVE).order_by("pk"):
         if item.key in seen:
             continue
         close = result.closes.get(item.key)
@@ -342,6 +349,7 @@ def _close(ctx: Context, item: WatchItem, close: Close) -> None:
     item.closed_on = ctx.today
     item.changed_on = ctx.today
     item.close_reason = reason[:300]
+    item.close_kind = close.kind
     item.missed_runs = 0
     if close.review_key:
         item.review_key = close.review_key[:300]
@@ -362,6 +370,7 @@ def _miss(ctx: Context, item: WatchItem, mark: str) -> bool:
     item.closed_on = ctx.today
     item.changed_on = ctx.today
     item.close_reason = f"No longer in {source}"[:300]
+    item.close_kind = ""  # gone: not seen any more, which says nothing of how it ended
     item.add_story(f"No longer in {source}", ctx.today)
     item.save()
     return True

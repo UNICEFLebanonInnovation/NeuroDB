@@ -12,8 +12,11 @@ Each check is registered once with :func:`register`, as a :class:`Detector`:
   within ``SYNC_STALENESS_HOURS`` (or its own ``max_age_hours``); otherwise it is skipped, its items
   are left as they are, and one ``system:stale:<job>`` item tells the administrators;
 - ``run(ctx)``: the candidates (and :class:`Attach` hand-overs to the daily review);
-- ``resolved(ctx, open_items)``: positive evidence that some of its open items are over, as
-  ``{key: reason}`` (a report submitted, an FR spent). These close at once;
+- ``resolved(ctx, open_items)``: evidence that some of its open items are over, as ``{key: Close}``
+  (a report submitted, an FR spent). These close at once. A :class:`Close` says how: ``RESOLVED``
+  (done: the default), ``MISSED`` (its date passed and it was not done: a report now overdue, a grant
+  expired with money unspent) or ``CHANGED`` (no longer followed here: its date moved, another point
+  follows it). People are told the three differently, never "resolved" for a missed date;
 - ``source_mark(ctx)``: how fresh the data it read is (by default the time of the oldest last
   success of its source jobs). An item it no longer finds counts as missed only when this mark is
   newer than the item's own, so an item is never closed by data older than what showed it;
@@ -55,6 +58,9 @@ SECTION, COUNTRY, ADMINS = WatchItem.Scope.SECTION, WatchItem.Scope.COUNTRY, Wat
 TRIAL, ON, OFF = DetectorSetting.Mode.TRIAL, DetectorSetting.Mode.ON, DetectorSetting.Mode.OFF
 
 SEVERITY_RANK = {INFO: 0, WARNING: 1, CRITICAL: 2}
+# How an item closed (Close.kind, WatchItem.close_kind)
+RESOLVED = WatchItem.CloseKind.RESOLVED
+MISSED, CHANGED = WatchItem.CloseKind.MISSED, WatchItem.CloseKind.CHANGED
 ALIVE = (WatchItem.State.OPEN, WatchItem.State.WRONG)  # items a check still follows
 
 STALE_DETECTOR = "stale_source"  # the check behind the "system:stale:<job>" items
@@ -184,11 +190,17 @@ class Attach:
 
 @dataclass(frozen=True)
 class Close:
-    """Positive evidence that an item is over, said in plain words ("report submitted on 3 Oct"),
-    and the daily review finding that takes it over, if any."""
+    """Evidence that an item is over, said in plain words ("report submitted on 3 Oct"), how it ended
+    (``kind``: ``RESOLVED``, ``MISSED`` or ``CHANGED``) and the daily review finding that takes it
+    over, if any."""
 
     reason: str
     review_key: str = ""
+    kind: str = RESOLVED
+
+    def __post_init__(self):
+        if self.kind not in WatchItem.CloseKind.values:
+            raise ValueError(f"a close is {', '.join(WatchItem.CloseKind.values)}, not {self.kind!r}")
 
 
 def record(label: str, date: datetime.date | str | None = None, value: Any = "", url: str = "") -> dict:
@@ -399,7 +411,8 @@ def _stale_result(ctx: Context, detectors: list[Detector], results: list[Result]
         if job not in stale and ctx.fresh(job, limits.get(job)):
             last = ctx.last_success(job)
             result.closes[item.key] = Close(
-                f"{_job_label(job)} ran again on {timezone.localtime(last.finished_at):%d %b %Y %H:%M}"
+                f"{_job_label(job)} ran again on {timezone.localtime(last.finished_at):%d %b %Y %H:%M}",
+                kind=RESOLVED,
             )
     return result
 

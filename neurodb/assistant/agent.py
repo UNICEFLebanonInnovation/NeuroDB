@@ -480,7 +480,11 @@ def _run_tools(calls: list[Any], outcome: Outcome, options: RunOptions | None = 
             output, ok = json.dumps(result, ensure_ascii=False), True
         except tools.ToolInputError as exc:
             # Unknown tool, unreadable JSON or arguments outside the schema: the model can correct it.
-            output = json.dumps({"error": str(exc), "received": args}, ensure_ascii=False, default=str)
+            # A background run's filter reads the error too (it may name what the data holds).
+            error: Any = {"error": str(exc), "received": args}
+            if options is not None and options.tool_filter:
+                error = options.tool_filter(call.name, error)
+            output = json.dumps(error, ensure_ascii=False, default=str)
             ok = False
         except Exception:
             logger.exception("assistant tool %s failed", call.name)

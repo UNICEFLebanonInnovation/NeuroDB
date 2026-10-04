@@ -122,9 +122,14 @@ def test_switched_off_it_checks_nothing_and_says_so(settings):
 
 
 @pytest.mark.django_db
-def test_a_second_start_while_one_runs_does_nothing(held_elsewhere):
+def test_a_second_start_while_one_runs_does_nothing(held_elsewhere, monkeypatch):
+    from neurodb.watch import services
+
+    waited = []
+    monkeypatch.setattr(services, "_sleep", waited.append)  # the morning pass waits for the lock first
     assert _run("--daily").strip() == BUSY  # exits without an error
     assert not SyncRun.objects.filter(job=SyncRun.Job.WATCH).exists()
+    assert sum(waited) == services.LOCK_WAIT_SECONDS
 
 
 @pytest.mark.django_db

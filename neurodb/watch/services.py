@@ -14,15 +14,25 @@ NeuroDB Watch now" in the admin). One step after the other:
 5. **connect**: the open items are connected through the knowledge hub, and the notable What's new
    changes since the watermark are added to their stories (:mod:`neurodb.watch.connect`);
 6. **announce**: who is told what (:func:`neurodb.watch.routing.announce`);
-7. **look_ups**: the AI looks into a few open critical items (:func:`neurodb.watch.investigate.run`),
-   within the budget, and only while the time left leaves room for a whole look-up and the notes;
-8. **notes**: the morning note of each audience (:func:`neurodb.watch.explain.write_all`);
-9. **email**: the morning email (:func:`neurodb.watch.delivery.send_daily`), once per person and day,
+7. **notes**: the morning note of each audience (:func:`neurodb.watch.explain.write_all`), before the
+   look-ups, so that they never take the notes' share of the day's AI budget;
+8. **email**: the morning email (:func:`neurodb.watch.delivery.send_daily`), once per person and day,
    dormant until email is set up (``EMAIL_URL``);
-10. **watermark**: what was read is kept (``WatchState.last_change_id``) with the day of the pass
-    (``WatchState.last_daily_on``);
+9. **look_ups**: the AI looks into a few open critical items (:func:`neurodb.watch.investigate.run`),
+   within what is left of the budget, and only while the time left leaves room for a whole look-up;
+10. **watermark**: what was read is kept (``WatchState.last_change_id``) and, when the checks and the
+    announcements succeeded, the day of the pass (``WatchState.last_daily_on``: a pass whose checks or
+    announcements failed is caught up later the same day);
 11. **retention**: receipts last told over 12 months ago, items closed over 24 months ago and the
     requests this pass answered are deleted.
+
+A pass that ends without its email (it failed, was stopped or ran out of time first) still sends
+today's What's new note to the people who asked for the email
+(:func:`neurodb.watch.delivery.send_whats_new_instead`): the What's new email stepped aside for the
+morning email. Requests for a quick pass that arrived while it ran (new data that landed meanwhile) get
+a trailing quick pass under the same lock, unless an administrator stopped it. When another run holds
+the lock, the morning pass waits for it (every minute, at most 20 minutes); it then runs, unless a
+morning pass finished meanwhile.
 
 **The quick pass** (:func:`when_requested`; ``run_watch --when-requested``, started by
 :mod:`neurodb.watch.signals` when a knowledge hub build finishes, a job fails or a finding's
@@ -71,7 +81,7 @@ from neurodb.graph import refresh
 from neurodb.integrations import background
 from neurodb.integrations.runs import describe_error, new_run
 
-from . import budget, connect, explain, investigate, lock, memory, routing, sections
+from . import budget, connect, explain, investigate, lock, memory, routing, sections, signals
 from .detectors import DAILY, QUICK, Context
 from .models import WatchItem, WatchRequest, WatchState
 from .signals import quick_passes_used  # the day's count, also read when new data asks for a pass
@@ -81,12 +91,14 @@ logger = logging.getLogger(__name__)
 INPUTS = (SyncRun.Job.DAILY_REVIEW, SyncRun.Job.KNOWLEDGE_HUB)  # what the morning pass waits for
 INPUT_WAIT_SECONDS = 20 * 60
 INPUT_POLL_SECONDS = 60
+LOCK_WAIT_SECONDS = 20 * 60  # the morning pass waits this long for another run to finish
+LOCK_POLL_SECONDS = 60
 RUNNING, NOT_TODAY = "running", "not_today"  # why an input was not ready (details["inputs_not_ready"])
 DUE_SOON = datetime.timedelta(minutes=45)  # the morning pass is this close: the quick pass leaves it the data
 MAX_PASSES = 3  # per quick process: data that keeps arriving waits for the next request
 MORNING_COMMAND = "watch"  # the ScheduledJob command of the morning pass
 ITEM_RETENTION_DAYS = 730  # items closed or gone this long ago are deleted (receipts: routing.prune)
-NOTES_ROOM_SECONDS = 120  # a look-up starts only while this much time is left for the notes after it
+AFTER_ROOM_SECONDS = 30  # a look-up starts only while this much time is left after it (watermark...)
 ERROR_CHARS = 500
 
 # Why a run stopped between steps (details["stopped"])
@@ -98,6 +110,7 @@ SWITCHED_OFF = "NeuroDB Watch is switched off (WATCH_ENABLED); nothing was check
 NOTHING_WAITING = "No new data is waiting for NeuroDB Watch; nothing to do."
 DEFERRED = "The morning run of NeuroDB Watch starts within 45 minutes; the new data waits for it."
 CAPPED = "NeuroDB Watch made its quick checks for today; the new data waits for the morning run."
+ALREADY_RAN = "A morning run of NeuroDB Watch finished while this one waited; nothing more to do."
 CATCH_UP = "catch-up"  # added to triggered_by when a quick pass runs the missed morning pass
 
 _sleep = time.sleep  # the tests replace it
@@ -137,14 +150,33 @@ def daily(
     today: datetime.date | None = None,
     now: datetime.datetime | None = None,
 ) -> Passes:
-    """Run the morning pass (see the module's notes), unless another run holds the lock."""
-    with lock.hold() as got:
-        if not got:
+    """Run the morning pass (see the module's notes). When another run holds the lock, wait for it
+    (every minute, at most 20 minutes; then nothing is done), and run unless a morning pass finished
+    meanwhile. Requests for a quick pass that arrived while it ran get a trailing quick pass."""
+    waited = 0
+    while True:
+        with lock.hold() as got:
+            if got:
+                if waited and _morning_done(today or _local_day(now)):
+                    return Passes(note=ALREADY_RAN)  # e.g. the quick pass caught it up meanwhile
+                _close_cut_off()
+                if not settings.WATCH_ENABLED:
+                    return Passes([_switched_off(DAILY, triggered_by, today, now)], SWITCHED_OFF)
+                done = Passes([_daily(triggered_by, today, now)])
+                if _latest_request() is not None and not done.runs[-1].stopped():
+                    # new data landed while it ran: a trailing quick pass, as its own process would
+                    _answer_requests(done, signals.TRIGGERED_BY, today, now, catch_up=False, defer=False)
+                return done
+        if waited >= LOCK_WAIT_SECONDS:
             return Passes(note=BUSY)
-        _close_cut_off()
-        if not settings.WATCH_ENABLED:
-            return Passes([_switched_off(DAILY, triggered_by, today, now)], SWITCHED_OFF)
-        return Passes([_daily(triggered_by, today, now)])
+        _sleep(LOCK_POLL_SECONDS)
+        waited += LOCK_POLL_SECONDS
+
+
+def _morning_done(day: datetime.date) -> bool:
+    """A morning pass whose checks and announcements succeeded ran on ``day``."""
+    state = WatchState.objects.filter(pk=1).first()
+    return state is not None and state.last_daily_on == day
 
 
 def _daily(
@@ -169,13 +201,17 @@ def _daily(
         outcome = pass_.step("checks", lambda: memory.run(ctx, sync_run=run))
         top = pass_.step("connect", lambda: _connect(run, ctx, watermark))
         announced = pass_.step("announce", lambda: routing.announce(ctx, outcome, sync_run=run))
-        pass_.step("look_ups", lambda: _look_ups(run, ctx.today, pass_.no_room_for_a_look_up))
         pass_.step("notes", lambda: _notes(run, ctx.today, pass_.stop))
         pass_.step("email", lambda: _email(run, ctx.today))
-        pass_.step("watermark", lambda: _keep(run, top, _local_day(now)))
+        pass_.step("look_ups", lambda: _look_ups(run, ctx.today, pass_.no_room_for_a_look_up))
+        # the day counts as done only when its checks and announcements were made (else: caught up)
+        done_on = _local_day(now) if outcome is not None and announced is not None else None
+        pass_.step("watermark", lambda: _keep(run, top, done_on))
         pass_.step("retention", lambda: _retention(run, ctx.today, answered))
+        _whats_new_instead(pass_, ctx.today)
         return pass_.finish(outcome, announced)
     except Exception as exc:  # a fault of the runner itself (each step catches its own)
+        _whats_new_instead(pass_, today or _local_day(now))
         return pass_.fail(exc)
 
 
@@ -202,30 +238,50 @@ def when_requested(
         return Passes(note=NOTHING_WAITING)  # another process answered them
     with lock.hold() as got:
         if not got:
+            # the run holding it answers the requests that arrived meanwhile (the morning pass's trailing
+            # pass, or the other quick process's next pass)
             return Passes(note=BUSY)
         _close_cut_off()
         done = Passes()
-        caught_up = False
-        while len(done.runs) < MAX_PASSES:
-            moment = now or timezone.now()
-            if quick_passes_used(moment) >= settings.WATCH_QUICK_PASSES_PER_DAY:
-                done.note = CAPPED
-                break
-            if not caught_up and catch_up_due(moment):
-                caught_up = True
-                _count_quick_pass(moment)
-                done.runs.append(_daily(f"{triggered_by} ({CATCH_UP})", today, now, catch_up=True))
-            elif _latest_request() is None:
-                break
-            elif morning_due_soon(moment):
-                done.note = DEFERRED
-                break
-            else:
-                _count_quick_pass(moment)
-                done.runs.append(_quick(triggered_by, today, now))
-            if done.runs[-1].status == SyncRun.Status.FAILED:
-                break  # the next request or the morning pass tries again
+        _answer_requests(done, triggered_by, today, now)
         return done
+
+
+def _answer_requests(
+    done: Passes,
+    triggered_by: str,
+    today: datetime.date | None,
+    now: datetime.datetime | None,
+    *,
+    catch_up: bool = True,
+    defer: bool = True,
+) -> Passes:
+    """The lock held: quick passes while requests remain, at most 3 per process, within the day's
+    quick passes; with ``catch_up``, the missed morning pass instead of the first; with ``defer``, the
+    requests are left to a morning pass due within 45 minutes. Adds the runs (and why it stopped) to
+    ``done``."""
+    caught_up = not catch_up
+    started = len(done.runs)
+    while len(done.runs) - started < MAX_PASSES:
+        moment = now or timezone.now()
+        if quick_passes_used(moment) >= settings.WATCH_QUICK_PASSES_PER_DAY:
+            done.note = CAPPED
+            break
+        if not caught_up and catch_up_due(moment):
+            caught_up = True
+            _count_quick_pass(moment)
+            done.runs.append(_daily(f"{triggered_by} ({CATCH_UP})", today, now, catch_up=True))
+        elif _latest_request() is None:
+            break
+        elif defer and morning_due_soon(moment):
+            done.note = DEFERRED
+            break
+        else:
+            _count_quick_pass(moment)
+            done.runs.append(_quick(triggered_by, today, now))
+        if done.runs[-1].status == SyncRun.Status.FAILED:
+            break  # the next request or the morning pass tries again
+    return done
 
 
 def _quick(triggered_by: str, today: datetime.date | None, now: datetime.datetime | None) -> SyncRun:
@@ -394,9 +450,11 @@ def _connect(run: SyncRun, ctx: Context, watermark: int) -> int:
 
 
 def _look_ups(run: SyncRun, today: datetime.date, stop: Callable[[], bool]) -> investigate.Summary:
+    """The look-ups, after the notes: they use what the notes left of the day's AI budget."""
     summary = investigate.run(today, stop=stop)
     run.details["look_ups"] = summary.details()
     _add_ai_use(run, summary.calls, summary.tokens)
+    run.details["ai_use_today"] = budget.status()  # the watch's tokens and calls against its caps
     return summary
 
 
@@ -425,6 +483,24 @@ def _email(run: SyncRun, today: datetime.date) -> Any:
     sent = send_daily(today)
     run.details["emails"] = sent if isinstance(sent, dict) else {"sent": int(sent or 0)}
     return sent
+
+
+def _whats_new_instead(pass_: _Pass, today: datetime.date) -> None:
+    """A morning pass that ended without its email step (it failed, was stopped or ran out of time
+    first): today's What's new note goes to the people who asked for the email all the same
+    (``delivery.send_whats_new_instead``), since the What's new email stepped aside for this one. Never
+    fails the run."""
+    if "email" in pass_.done:
+        return
+    send = _hook("delivery", "send_whats_new_instead")
+    if send is None:
+        return
+    try:
+        pass_.run.details["emails"] = send(today)
+        pass_.run.details.setdefault("date", today.isoformat())  # the day it was for
+        pass_.run.save(update_fields=["details"])
+    except Exception:
+        logger.exception("NeuroDB Watch: the What's new note could not be emailed instead")
 
 
 def _keep(run: SyncRun, top: int | None, morning_of: datetime.date | None) -> None:
@@ -509,6 +585,7 @@ class _Pass:
         self.errors: dict[str, str] = {}
         self.seconds: dict[str, float] = {}
         self.not_run: list[str] = []
+        self.done: set[str] = set()  # the steps that ran without an error
 
     def start_clock(self) -> None:
         self.deadline = time.monotonic() + settings.WATCH_TIME_LIMIT_SECONDS
@@ -528,8 +605,8 @@ class _Pass:
 
     def no_room_for_a_look_up(self) -> bool:
         """No (more) look-up: the run must stop, or the time left would not hold a whole look-up and
-        the notes after it."""
-        return self.stop() or self.left() < investigate.TIME_LIMIT + NOTES_ROOM_SECONDS
+        the short steps after it."""
+        return self.stop() or self.left() < investigate.TIME_LIMIT + AFTER_ROOM_SECONDS
 
     def step(self, name: str, work: Callable[[], Any]) -> Any:
         """Run one step; its result, or None when it failed or did not run."""
@@ -539,11 +616,14 @@ class _Pass:
             return None
         started = time.monotonic()
         try:
-            return work()
+            result = work()
         except Exception as exc:
             logger.exception("NeuroDB Watch: the step %s failed", name)
             self.errors[name] = describe_error(exc)[:ERROR_CHARS]
             return None
+        else:
+            self.done.add(name)
+            return result
         finally:
             self.seconds[name] = round(time.monotonic() - started, 1)
             self._save()

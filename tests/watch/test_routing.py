@@ -12,7 +12,7 @@ from neurodb.accounts.models import Section, User
 from neurodb.accounts.roles import ADMIN, MANAGEMENT, SECTION_EDITOR, VIEWER
 from neurodb.core.models import SyncRun
 from neurodb.donors.models import DonorAccount
-from neurodb.watch import memory, routing
+from neurodb.watch import memory, page, routing
 from neurodb.watch.detectors import (
     ADMINS,
     CONCERN,
@@ -33,11 +33,13 @@ from neurodb.watch.detectors import (
 from neurodb.watch.models import DetectorSetting, SectionMatch, WatchItem, WatchNote, WatchReceipt
 from neurodb.watch.routing import (
     ADMINS_ONLY,
+    CLOSED,
     COUNTRY_VIEW,
     ESCALATED,
     ESCALATION,
     GOOD_TO_KNOW,
     KNOWN,
+    MISSED,
     NEEDS_YOU,
     NEW,
     OVERDUE,
@@ -122,7 +124,12 @@ def setting(detector=CHECK, mode=ON, since=None) -> DetectorSetting:
     """The check's setting, on (or in trial) since ``since`` (default: a month ago)."""
     since = since or day(-30)
     row, _ = DetectorSetting.objects.update_or_create(
-        detector=detector, defaults={"mode": mode, "on_since": since if mode == ON else None}
+        detector=detector,
+        defaults={
+            "mode": mode,
+            "on_since": since if mode == ON else None,
+            "trial_since": since if mode == TRIAL else None,
+        },
     )
     DetectorSetting.objects.filter(pk=row.pk).update(
         updated_at=datetime.datetime.combine(since, datetime.time(5), tzinfo=UTC)
@@ -750,3 +757,140 @@ def test_an_item_no_longer_seen_is_worded_as_such(team, checks):
     thing.save()
     run(1)
     assert routing.reason(receipts(team.edu, thing).get()) == "No longer seen"
+
+
+# ---------------------------------------------------------------------------- how a closed item ended
+@pytest.mark.parametrize(
+    "kind, told, words",
+    [
+        (WatchItem.CloseKind.RESOLVED, RESOLVED, "Resolved"),
+        (WatchItem.CloseKind.MISSED, MISSED, "Date passed, not done"),
+        (WatchItem.CloseKind.CHANGED, CLOSED, "No longer followed here"),
+    ],
+)
+def test_a_closed_item_is_told_as_it_ended_never_resolved_when_its_date_passed(
+    team, checks, kind, told, words
+):
+    thing = item(severity=WARNING, due=day(5))
+    run()
+    assert step(team.edu, thing) == NEW
+    thing.state, thing.closed_on, thing.close_kind = WatchItem.State.CLOSED, day(6), kind
+    thing.close_reason = "now overdue: see the daily review"
+    thing.save()
+    run(6)
+    receipt = receipts(team.edu, thing).get()
+    assert (receipt.told_step, receipt.level, receipt.last_told_on) == (told, GOOD_TO_KNOW, day(6))
+    assert routing.reason(receipt) == words
+    run(7)
+    assert receipts(team.edu, thing).get().last_told_on == day(6)  # told once
+
+
+def test_a_report_now_overdue_is_closed_as_missed_by_the_memory(team, checks):
+    """The check's own words decide: "now overdue" is a missed date, told as such."""
+    from neurodb.watch.detectors import MISSED as MISSED_KIND
+    from neurodb.watch.detectors import Close, Detector, Result
+
+    thing = item(severity=WARNING, due=day(-1))
+    check = Detector(id=CHECK, label="Reports due soon", run=lambda ctx: ())
+    result = Result(detector=check, mode=ON, mark="9999")
+    result.closes[thing.key] = Close("now overdue: see the daily review", kind=MISSED_KIND)
+    outcome = memory.apply(ctx(), [result])
+    thing.refresh_from_db()
+    assert outcome.closed == [thing.key]
+    assert (thing.state, thing.close_kind) == (WatchItem.State.CLOSED, WatchItem.CloseKind.MISSED)
+
+
+# ---------------------------------------------------------------------------- got worse, the same day
+def test_a_rise_later_the_day_they_were_told_is_told_the_next_morning(team, checks):
+    thing = item(severity=INFO, due=day(20))
+    run()  # the morning: told as new, to note
+    assert step(team.edu, thing) == NEW and receipts(team.edu, thing).get().told_severity == INFO
+    # a quick pass that afternoon raises it: not urgent, so the quick pass does not tell it
+    thing.severity = WARNING
+    thing.add_story("Got worse: was to note, now warning", TODAY)
+    thing.save()
+    run(0, mode=QUICK)
+    assert step(team.edu, thing) == NEW
+    run(1)  # the next morning: nothing got worse in that pass, but it is worse than what they were told
+    receipt = receipts(team.edu, thing).get()
+    assert (receipt.told_step, receipt.told_severity, receipt.level) == (WORSE, WARNING, NEEDS_YOU)
+
+
+# ---------------------------------------------------------------------------- answers given while it runs
+def test_an_answer_or_a_visit_made_while_announcing_is_never_written_over(team, checks, monkeypatch):
+    thing = item(severity=WARNING, due=day(9), milestones=(7,))
+    run()
+    real = routing._within_limits
+
+    def meanwhile(*args, **kwargs):
+        kept = real(*args, **kwargs)
+        # while the pass runs: edu asks to hear about it later, edu2 opens the page
+        WatchReceipt.objects.filter(user=team.edu, item=thing).update(snoozed_until=day(5))
+        WatchReceipt.objects.filter(user=team.edu2, item=thing).update(seen_at=NOW)
+        return kept
+
+    monkeypatch.setattr(routing, "_within_limits", meanwhile)
+    done = run(2)  # the 7-day milestone
+    edu = receipts(team.edu, thing).get()
+    assert edu.snoozed_until == day(5) and edu.told_step == NEW  # their reminder holds: not told over it
+    assert done.deferred >= 1
+    edu2 = receipts(team.edu2, thing).get()
+    assert edu2.told_step == "7" and edu2.seen_at is None  # told again: unseen until they look
+
+
+# ---------------------------------------------------------------------------- a section's "Something's wrong"
+def test_a_section_editors_wrong_hides_it_for_their_section_only(team, checks, health):
+    thing = item(sections=("Education", "Health"), severity=WARNING, due=day(9), milestones=(7,))
+    thing.evidence_hash = memory.fingerprint(thing.evidence)
+    thing.save()
+    run()
+    page.react(receipts(team.editor, thing).get(), reaction=Reaction.WRONG, now=NOW)
+    thing.refresh_from_db()
+    assert thing.state == WatchItem.State.OPEN
+    run(2)  # the 7-day milestone
+    assert receipts(team.edu, thing).get().last_told_on == TODAY  # Education: hidden
+    assert step(team.hlt, thing) == "7"  # Health: still told
+    assert routing.wrong_by_section([thing]) == {thing.pk: {thing.section_ids[0]}}
+    # its evidence changes: Education hears of it again
+    thing.evidence_hash = "the records changed"
+    thing.save()
+    assert routing.wrong_by_section([thing]) == {}
+
+
+def test_a_section_editors_wrong_on_an_item_of_their_section_only_is_wrong_for_everyone(team, checks):
+    thing = item(severity=WARNING)
+    run()
+    page.react(receipts(team.editor, thing).get(), reaction=Reaction.WRONG, now=NOW)
+    thing.refresh_from_db()
+    assert thing.state == WatchItem.State.WRONG
+
+
+# ---------------------------------------------------------------------------- a check kept in trial
+def test_saving_a_check_kept_in_trial_does_not_make_its_new_points_known(team):
+    setting(CHECK, TRIAL, since=day(-10))
+    # "Keep in trial" in the admin, or a save that changes nothing: its time of change moves
+    DetectorSetting.objects.filter(detector=CHECK).update(updated_at=NOW)
+    fresh = item(severity=WARNING, due=day(20), first_seen=TODAY)
+    run()
+    assert step(team.admin, fresh) == NEW
+
+
+def test_a_check_going_into_trial_records_the_day(db):
+    row = DetectorSetting.objects.create(detector="new_check", mode=TRIAL)
+    assert row.trial_since is not None
+    row.mode = ON
+    row.save()
+    assert row.on_since is not None
+
+
+# ---------------------------------------------------------------------------- the morning note's counts
+def test_the_morning_notes_counts_read_the_receipts_in_two_queries(team, checks):
+    things = [item(severity=WARNING) for _ in range(6)]
+    run()
+    for thing in things[:3]:
+        react(team.editor, thing, Reaction.DONE)
+    rules = Routing.load(TODAY)
+    with CaptureQueriesContext(connection) as queries:
+        stats = routing.item_stats(things, rules)
+    assert len(queries.captured_queries) == 2
+    assert [stats[t.key]["done_by_section"] for t in things] == [True] * 3 + [False] * 3

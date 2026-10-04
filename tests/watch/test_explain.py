@@ -247,8 +247,8 @@ def test_valid_output_is_stored(openai_fake, education):
     assert (note.input_tokens, note.cached_tokens, note.output_tokens) == (3_000, 1_000, 500)
     assert note.date == TODAY and note.audience_name == "Education"
     sent = _sent(fake)
-    assert [entry["key"] for entry in sent["items"]] == [LATE_KEY, DUE_KEY]  # critical first
-    assert {e["key"]: e["change"] for e in sent["items"]} == {LATE_KEY: "worse", DUE_KEY: "new"}
+    assert [entry["key"] for entry in sent["points"]] == [LATE_KEY, DUE_KEY]  # critical first
+    assert {e["key"]: e["change"] for e in sent["points"]} == {LATE_KEY: "worse", DUE_KEY: "new"}
     assert sent["situations"] == [
         {
             "key": "partner:9",
@@ -420,7 +420,7 @@ def test_system_and_makani_points_are_never_sent(openai_fake, education):
     _write(items=[system, makani, due])
 
     sent = _sent(fake)
-    assert [entry["key"] for entry in sent["items"]] == [DUE_KEY]
+    assert [entry["key"] for entry in sent["points"]] == [DUE_KEY]
     assert "hunter2" not in fake.requests[0]["input"] and "Centre 3" not in fake.requests[0]["input"]
 
 
@@ -444,7 +444,7 @@ def test_the_request(openai_fake, education):
     assert explain.SCHEMA["properties"]["sentences"]["maxItems"] == 6
     assert "tools" not in request and "tool_choice" not in request and "safety_identifier" not in request
     assert fake.options == [{"timeout": 60, "max_retries": 1}]
-    assert set(json.loads(request["input"])) == {"audience", "items", "situations", "changes"}
+    assert set(json.loads(request["input"])) == {"audience", "points", "situations", "changes"}
 
 
 def test_the_ai_use_is_recorded(openai_fake, education):
@@ -782,7 +782,7 @@ def test_the_plain_note_lists_what_matters_in_order(education):
         "2 open points meet on Partner A.",
         f"Due soon or past due: {due.title}.",
         f"New or worse today: {late.title}.",
-        f"No longer open: {closed.title} (submitted on 3 Oct).",
+        f"Resolved: {closed.title} (submitted on 3 Oct).",
     ]
     assert sentences[1]["keys"] == [DUE_KEY] and sentences[3]["keys"] == [closed.key]
     assert all(len(s["text"]) <= grounding.MAX_CHARS for s in sentences)

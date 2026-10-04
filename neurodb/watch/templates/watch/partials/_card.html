@@ -11,7 +11,7 @@
   {% if top %}
   <ul class="watch-overview__list">
     {% for t in top %}
-    <li><span class="watch-card__sev watch-card__sev--{{ t.severity }}" aria-hidden="true"></span><a href="{% url 'watch:for_you' %}">{{ t.title }}</a>{% if t.reason %} <span class="watch-chip watch-chip--reason">{{ t.reason }}</span>{% endif %}</li>
+    <li><span class="watch-card__sev watch-card__sev--{{ t.severity }}" role="img" aria-label="{{ t.severity_label }}"></span><a href="{% url 'watch:for_you' %}#{{ t.anchor }}">{{ t.title }}</a>{% if t.reason %} <span class="watch-chip watch-chip--reason">{{ t.reason }}</span>{% endif %}</li>
     {% endfor %}
   </ul>
   {% endif %}

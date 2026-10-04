@@ -1,5 +1,5 @@
 {% load i18n %}
-{# One point on For you. Context: card = page.point(...) (plus "why" when set aside, "said" after a button), open = show the details at once. #}
+{# One point on For you. Context: card = page.point(...) (plus "why" when set aside, "said" after a button, "refused" when the answer could not be taken), open = show the details at once, live = also write "said" into the page's live region (after a button). #}
 <li class="watch-card watch-card--{{ card.severity }}{% if card.why %} watch-card--aside{% endif %}"{% if card.anchor %} id="{{ card.anchor }}"{% endif %}>
   <span class="watch-card__sev watch-card__sev--{{ card.severity }}" role="img" aria-label="{{ card.severity_label }}"></span>
   <div class="watch-card__body">
@@ -11,7 +11,8 @@
       {% if card.trial %}<span class="watch-chip watch-chip--trial" title="{% trans 'A new check on trial: only administrators and management see it until it is switched on for staff' %}">{% trans "Trial check" %}</span>{% endif %}
       {% if card.state == "closed" %}<span class="watch-chip watch-chip--closed">{% trans "Closed" %}</span>{% elif card.state == "gone" %}<span class="watch-chip">{% trans "No longer seen" %}</span>{% endif %}
     </div>
-    {% if card.said %}<p class="watch-card__said" role="status">{{ card.said }}</p>{% endif %}
+    {# after a button: focus comes here (htmx focuses [autofocus]), so the place on the page is kept #}
+    {% if card.said %}<p class="watch-card__said{% if card.refused %} watch-card__said--refused{% endif %}" tabindex="-1" autofocus>{{ card.said }}</p>{% endif %}
     {% if card.why %}<p class="watch-card__why">{{ card.why }}.</p>{% endif %}
 
     {% if not open %}<details class="watch-card__more"><summary>{% if card.receipt %}{% trans "Details and answers" %}{% else %}{% trans "Details" %}{% endif %}</summary>{% endif %}
@@ -30,7 +31,8 @@
 
     {% if card.receipt and not card.why or card.undo %}
     {% url 'watch:react' card.receipt.pk as react_url %}
-    <form class="watch-actions" method="post" action="{{ react_url }}" hx-post="{{ react_url }}" hx-target="closest .watch-card" hx-swap="outerHTML" aria-label="{% trans 'Your answer' %}">
+    <div class="watch-actions" role="group" aria-label="{% trans 'Your answer' %}">
+    <form class="watch-actions__form" method="post" action="{{ react_url }}" hx-post="{{ react_url }}" hx-target="closest .watch-card" hx-swap="outerHTML">
       {% csrf_token %}
       {% if card.why %}
       <button type="submit" class="btn btn-sm btn-outline-secondary" name="reaction" value="undo">{% trans "Undo" %}</button>
@@ -47,22 +49,31 @@
         </div>
       </details>
       {% endif %}
+      {% if card.reaction %}<button type="submit" class="btn btn-sm btn-link" name="reaction" value="undo">{% trans "Undo" %}</button>{% endif %}
+      {% endif %}
+    </form>
+    {% if not card.why %}
+    {# its own form: Enter in the comment sends "Something's wrong", never the first button above #}
+    <form class="watch-actions__form" method="post" action="{{ react_url }}" hx-post="{{ react_url }}" hx-target="closest .watch-card" hx-swap="outerHTML">
+      {% csrf_token %}
+      <input type="hidden" name="reaction" value="wrong">
       <details class="watch-menu">
         <summary class="btn btn-sm btn-outline-secondary">{% trans "Something's wrong" %}</summary>
         <div class="watch-menu__panel">
           <label class="form-label small mb-1 w-100">{% trans "What is wrong? Optional; read by administrators only." %}
             <input class="form-control form-control-sm mt-1" type="text" name="comment" maxlength="300">
           </label>
-          <button type="submit" class="btn btn-sm btn-outline-danger mt-1" name="reaction" value="wrong">{% trans "Send" %}</button>
+          <button type="submit" class="btn btn-sm btn-outline-danger mt-1">{% trans "Send" %}</button>
         </div>
       </details>
-      {% if card.ask_url %}<a class="btn btn-sm btn-outline-primary" href="{{ card.ask_url }}">{% include "components/icon.html" with name="sparkle" %}<span>{% trans "Look into this" %}</span></a>{% endif %}
-      {% if card.reaction %}<button type="submit" class="btn btn-sm btn-link" name="reaction" value="undo">{% trans "Undo" %}</button>{% endif %}
-      {% endif %}
     </form>
+    {% if card.ask_url %}<a class="btn btn-sm btn-outline-primary" href="{{ card.ask_url }}">{% include "components/icon.html" with name="sparkle" %}<span>{% trans "Look into this" %}</span></a>{% endif %}
+    {% endif %}
+    </div>
     {% elif card.ask_url and not preview %}
     <div class="watch-actions"><a class="btn btn-sm btn-outline-primary" href="{{ card.ask_url }}">{% include "components/icon.html" with name="sparkle" %}<span>{% trans "Look into this" %}</span></a></div>
     {% endif %}
     {% if not open %}</details>{% endif %}
   </div>
 </li>
+{% if live %}<div id="watch-live" class="visually-hidden" role="status" aria-live="polite" hx-swap-oob="true">{{ card.said }}</div>{% endif %}

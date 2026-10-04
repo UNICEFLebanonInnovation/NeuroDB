@@ -44,11 +44,14 @@ from neurodb.web.templatetags.ui import half_up
 
 from ..models import RECORDS_MAX, WatchItem, fit_key
 from . import (
+    CHANGED,
     CONCERN,
     COUNTRY,
     CRITICAL,
     DEADLINE,
     INFO,
+    MISSED,
+    RESOLVED,
     WARNING,
     Candidate,
     Close,
@@ -299,9 +302,11 @@ def grants_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Close]:
         unspent = unspent_of(found[name]) if name in found else 0.0
         if grant.expiry < ctx.today:
             left = f" with {_usd(unspent)} unspent" if unspent else ""
-            closes[key] = Close(f"expired on {_day(grant.expiry)}{left}")
+            closes[key] = Close(
+                f"expired on {_day(grant.expiry)}{left}", kind=MISSED if unspent else RESOLVED
+            )
         elif grant.expiry > until:
-            closes[key] = Close(f"expiry moved to {_day(grant.expiry)}")
+            closes[key] = Close(f"expiry moved to {_day(grant.expiry)}", kind=CHANGED)
         elif unspent < minimum:
             closes[key] = Close(
                 f"{_usd(unspent)} left unspent on this year's funds reservations, below the {_usd(minimum)} "
@@ -412,9 +417,11 @@ def frs_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Close]:
         elif outstanding <= 0:
             closes[key] = Close("nothing outstanding any more: disbursed or liquidated")
         elif end is not None and end < ctx.today:
-            closes[key] = Close(f"ended on {_day(end)} with {_usd(outstanding)} still outstanding")
+            closes[key] = Close(
+                f"ended on {_day(end)} with {_usd(outstanding)} still outstanding", kind=MISSED
+            )
         elif end is not None and end > until:
-            closes[key] = Close(f"end date moved to {_day(end)}")
+            closes[key] = Close(f"end date moved to {_day(end)}", kind=CHANGED)
     return closes
 
 
@@ -554,7 +561,9 @@ def hact_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Close]:
                 closes[key] = Close("assurance complete: every required visit, spot check and audit is done")
             elif year < ctx.today.year:
                 todo = ", ".join(what for what, _required, _completed in missing)
-                closes[key] = Close(f"the {year} HACT year ended on 31 Dec {year} with {todo} not done")
+                closes[key] = Close(
+                    f"the {year} HACT year ended on 31 Dec {year} with {todo} not done", kind=MISSED
+                )
     return closes
 
 

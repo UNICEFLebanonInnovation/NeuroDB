@@ -53,6 +53,7 @@ from neurodb.review.services import SYSTEM_CHECKS
 from ..models import RECORDS_MAX, DetectorSetting, WatchItem, fit_key
 from . import (
     ALIVE,
+    CHANGED,
     CONCERN,
     COUNTRY,
     INFO,
@@ -319,9 +320,9 @@ def review_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Close]:
     for item in items:
         key = finding_key_of(item.key)
         if key in read.handed_over:
-            closes[item.key] = Close(f"followed from now on as: {read.handed_over[key][1]}")
+            closes[item.key] = Close(f"followed from now on as: {read.handed_over[key][1]}", kind=CHANGED)
         elif key in read.lowered:
-            closes[item.key] = Close(LOWERED)
+            closes[item.key] = Close(LOWERED, kind=CHANGED)
     return closes
 
 
@@ -419,7 +420,7 @@ def forecasts_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Close]
     closed at once; all of them when the forecasts are no longer shown. An indicator gone from the
     forecasts gets no reason: missed at each newer forecast, then gone."""
     if not _shown(ctx):
-        return {item.key: Close(NOT_SHOWN) for item in items}
+        return {item.key: Close(NOT_SHOWN, kind=CHANGED) for item in items}
     wanted = {item.key: ids for item in items if (ids := _forecast_ids(item.key))}
     rows = IndicatorForecast.objects.filter(master_id__in={master for _, master in wanted.values()})
     now = {master: (year, status) for master, year, status in rows.values_list("master_id", "year", "status")}
@@ -429,7 +430,7 @@ def forecasts_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Close]
             continue
         current_year, status = now[master]
         if current_year != year:
-            closes[key] = Close(f"the forecasts are now for {current_year}")
+            closes[key] = Close(f"the forecasts are now for {current_year}", kind=CHANGED)
         elif status == ON_COURSE:
             closes[key] = Close(RECOVERED)
         elif status != SHORT:

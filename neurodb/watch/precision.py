@@ -218,10 +218,13 @@ def demote(today: datetime.date | None = None, now: datetime.datetime | None = N
         if not too_unhelpful(score):
             continue
         setting.mode = TRIAL
+        setting.trial_since = today  # what exists today is known to the whole-country view: not announced
         setting.demoted_at = now
         setting.demoted_reason = reason(score)[:300]
         setting.updated_by = DEMOTED_BY
-        setting.save(update_fields=["mode", "demoted_at", "demoted_reason", "updated_by", "updated_at"])
+        setting.save(
+            update_fields=["mode", "trial_since", "demoted_at", "demoted_reason", "updated_by", "updated_at"]
+        )
         demoted[setting.detector] = setting.demoted_reason
     return {"checks": looked_at, "demoted": demoted}
 

@@ -8,7 +8,11 @@ today (became critical, got worse) first, and asks the AI to look into at most
 - only the read-only tools in :data:`TOOLS` (never the raw eTools queries, the knowledge base's text,
   Makani, the management brief or charts); a call to any other tool goes back to the AI as an error;
 - every tool result passes the allow-list (:func:`neurodb.watch.redact.for_tool`) before the AI reads
-  it: no person's name or email, no free text, no link;
+  it, and so does a tool's error message: no person's name or email, no free text, no link, nothing
+  about a Makani centre or a daily review finding of the knowledge hub. The ``daily_review`` result is
+  replaced by the watch's own (:func:`review_for_look_up`): the review's open programme findings with
+  their title, severity, section and state, never its data checks (they carry sync error text) nor a
+  finding's detail;
 - each tool runs inside a read-only transaction, so a write fails;
 - at most 4 rounds and 150 seconds, low effort, its own prompt cache key and no safety identifier (no
   person asked for it);
@@ -26,7 +30,9 @@ today (became critical, got worse) first, and asks the AI to look into at most
 The result goes in ``WatchItem.looked_up``, shown on the item's card as "What NeuroDB looked up (AI)"
 (:func:`shown`): ``{text, numbers, tools, at, on, kept, reason}``. A result that is not kept still
 records the try (no text, ``kept`` false and why), so the item is not looked into again until it
-changes. Nothing else is written: never the item's title, severity, due date or who is told.
+changes; so does a look-up the model service failed (``reason`` "error"), which counts in the day's
+look-ups and is tried again on a later day. Nothing else is written: never the item's title, severity,
+due date or who is told.
 
 The AI's text is never sent to the AI again (:mod:`neurodb.watch.redact` does not read ``looked_up``).
 """
@@ -204,8 +210,9 @@ def candidates(today: datetime.date | None = None) -> list[WatchItem]:
         if modes.get(item.detector) == DetectorSetting.Mode.OFF or redact.refused(item):
             continue
         last = _looked_on(item)
-        if last is not None and (last >= today or item.changed_on <= last):
-            continue
+        failed = (item.looked_up or {}).get("reason") == ERROR if isinstance(item.looked_up, dict) else False
+        if last is not None and (last >= today or (item.changed_on <= last and not failed)):
+            continue  # looked into today, or since it last changed (a service failure: tried another day)
         eligible.append(item)
 
     def rank(item: WatchItem) -> tuple:
@@ -217,12 +224,36 @@ def candidates(today: datetime.date | None = None) -> list[WatchItem]:
 
 
 # ---------------------------------------------------------------------------- one look-up
+def review_for_look_up() -> dict[str, Any]:
+    """The daily review as a look-up reads it (in place of the ``daily_review`` tool's result): the
+    latest review's open findings of the programme, with their title, severity, section and state.
+    Never the review's own data checks (sync failures and the like carry error text), a finding's
+    detail or link, nor the review's summary."""
+    from neurodb.review.models import DailyReview
+    from neurodb.review.services import SYSTEM_CHECKS
+
+    review = DailyReview.objects.filter(status="succeeded").order_by("-date").first()
+    if review is None:
+        return {"note": "No daily review has run yet."}
+    findings = review.findings.exclude(state="resolved").exclude(check_id__in=SYSTEM_CHECKS).order_by("rank")
+    return {
+        "date": review.date.isoformat(),
+        "findings": [
+            {"title": f.title, "severity": f.severity, "section": f.section, "state": f.state}
+            for f in findings[: redact.TOOL_LIST_MAX]
+        ],
+    }
+
+
 def run_options(returned: list[Any], names: Iterable[str]) -> agent.RunOptions:
-    """The look-up's run options. Every tool result is filtered by the allow-list and added to
-    ``returned``: what the AI read, which its answer is checked against."""
+    """The look-up's run options. Every tool result (and a tool's error message) is filtered by the
+    allow-list and added to ``returned``: what the AI read, which its answer is checked against. The
+    daily review's result is the watch's own (:func:`review_for_look_up`)."""
     names = frozenset(names)
 
-    def keep(_tool: str, result: Any) -> Any:
+    def keep(tool: str, result: Any) -> Any:
+        if tool == "daily_review" and not (isinstance(result, dict) and "error" in result):
+            result = review_for_look_up()
         clean = redact.for_tool(result, names)
         returned.append(clean)
         return clean
@@ -387,6 +418,7 @@ def run(today: datetime.date | None = None, *, stop: Callable[[], bool] | None =
             break
         except Exception as exc:
             logger.warning("NeuroDB Watch: the look-up failed: %s: %s", type(exc).__name__, exc)
+            _record_failure(item, today, outcome)  # the try counts in the day's look-ups
             summary.dropped[item.key] = ERROR
             summary.skipped = _failed(exc)
             break
@@ -400,6 +432,23 @@ def run(today: datetime.date | None = None, *, stop: Callable[[], bool] | None =
         else:
             summary.dropped[item.key] = looked_up["reason"]
     return summary
+
+
+def _record_failure(item: WatchItem, today: datetime.date, outcome: agent.Outcome) -> None:
+    """Record a look-up the model service failed (a timeout, a 5xx after earlier rounds used tokens):
+    it counts in the day's ``WATCH_INVESTIGATE_PER_DAY``, so a later morning pass the same day does not
+    try again; the item may be tried again on a later day."""
+    looked_up = {
+        "text": "",
+        "numbers": [],
+        "tools": sorted({t["tool"] for t in outcome.tools if t.get("ok")}),
+        "at": timezone.now().isoformat(timespec="seconds"),
+        "on": today.isoformat(),
+        "kept": False,
+        "reason": ERROR,
+    }
+    WatchItem.objects.filter(pk=item.pk).update(looked_up=looked_up)
+    item.looked_up = looked_up
 
 
 # ---------------------------------------------------------------------------- the card

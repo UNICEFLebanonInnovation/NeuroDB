@@ -187,6 +187,40 @@ def test_the_watch_not_run_line_and_the_pass_it_asks_for(healthy):
     assert items()["system:watch_not_run"].state == "closed"
 
 
+def test_a_morning_pass_does_not_close_the_not_run_item_before_it_succeeded(healthy):
+    """The morning pass that would fix it leaves an open "has not run" item as it is: if that pass then
+    fails, the administrators were never told "Resolved" and the item stays open."""
+    SyncRun.objects.filter(job=SyncRun.Job.WATCH).update(
+        started_at=NOW - 27 * HOUR, finished_at=NOW - 27 * HOUR
+    )
+    check(mode=QUICK)  # raised by a quick pass
+    item = items()["system:watch_not_run"]
+    assert item.state == "open"
+
+    outcome = check(minutes=5)  # the morning pass starts: still listed, so carried as it is
+    item.refresh_from_db()
+    assert item.state == "open" and item.key not in outcome.closed and item.missed_runs == 0
+    check(minutes=10)  # that morning pass failed: the next one still finds it open, never "back again"
+    item.refresh_from_db()
+    assert item.state == "open" and not any("Back again" in line["text"] for line in item.story)
+
+    ran(SyncRun.Job.WATCH, SUCCEEDED, NOW, target="daily")  # a morning pass succeeded
+    check(minutes=20, mode=QUICK)
+    item.refresh_from_db()
+    assert item.state == "closed" and item.close_kind == WatchItem.CloseKind.RESOLVED
+
+
+def test_the_watchs_own_failed_run_is_an_item_while_it_runs_again(healthy):
+    """The watch's latest run is the one running the check: the line reads its latest finished run."""
+    ran(SyncRun.Job.WATCH, FAILED, NOW - HOUR, target="quick")
+    SyncRun.objects.create(
+        job=SyncRun.Job.WATCH, target="daily", status=SyncRun.Status.RUNNING, started_at=NOW
+    )
+    assert "job_failed:watch" in lines()
+    check()
+    assert items()["system:job_failed:watch"].state == "open"
+
+
 def test_the_watch_not_run_line_waits_for_its_first_run_and_follows_the_switches(healthy, settings):
     SyncRun.objects.filter(job=SyncRun.Job.WATCH).delete()
     assert "watch_not_run" not in lines()  # never started: the scheduled job's own line says so

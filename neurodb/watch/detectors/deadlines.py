@@ -50,10 +50,12 @@ from neurodb.review.models import DailyReview, ReviewFinding
 
 from ..models import RECORDS_MAX, WatchItem, fit_key
 from . import (
+    CHANGED,
     CONCERN,
     COUNTRY,
     DEADLINE,
     INFO,
+    MISSED,
     SECTION,
     WARNING,
     Candidate,
@@ -329,14 +331,18 @@ def reports_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Close]:
         if due is not None and due < ctx.today:
             if active:
                 closes[item.key] = Close(
-                    "now overdue: see the daily review", review_key=f"reports_overdue:{pd_number(pd)}"
+                    "now overdue: see the daily review",
+                    review_key=f"reports_overdue:{pd_number(pd)}",
+                    kind=MISSED,
                 )
             else:
-                closes[item.key] = Close(f"due on {_day(due)} and not submitted; {_status_now(pd)}")
+                closes[item.key] = Close(
+                    f"due on {_day(due)} and not submitted; {_status_now(pd)}", kind=MISSED
+                )
         elif not active:
-            closes[item.key] = Close(_status_now(pd))
+            closes[item.key] = Close(_status_now(pd), kind=CHANGED)
         elif due is not None and due > until:
-            closes[item.key] = Close(f"due date moved to {_day(due)}")
+            closes[item.key] = Close(f"due date moved to {_day(due)}", kind=CHANGED)
     return closes
 
 
@@ -471,14 +477,16 @@ def action_points_due_resolved(ctx: Context, items: list[WatchItem]) -> dict[str
         if any(r["high_priority"] for r in late):
             section, partner = _group_of(next(r for r in late if r["high_priority"]))
             closes[item.key] = Close(
-                "now overdue: see the daily review", review_key=f"action_points_overdue:{section}:{partner}"
+                "now overdue: see the daily review",
+                review_key=f"action_points_overdue:{section}:{partner}",
+                kind=MISSED,
             )
         elif late:
-            closes[item.key] = Close("now overdue")
+            closes[item.key] = Close("now overdue", kind=MISSED)
         elif _due_soon(ctx, rows):
-            closes[item.key] = Close("now listed under another section or partner in eTools")
+            closes[item.key] = Close("now listed under another section or partner in eTools", kind=CHANGED)
         elif later:
-            closes[item.key] = Close(f"due date moved to {_day(min(later))}")
+            closes[item.key] = Close(f"due date moved to {_day(min(later))}", kind=CHANGED)
         else:
             closes[item.key] = Close("closed in eTools")
     return closes
@@ -549,11 +557,11 @@ def pds_ending_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Close
         if pd is None or item.key != pd_end_key(pd_number(pd)):
             continue
         if pd.status not in ACTIVE_PD_STATUSES:
-            closes[item.key] = Close(_status_now(pd))
+            closes[item.key] = Close(_status_now(pd), kind=CHANGED)
         elif pd.end is not None and pd.end < ctx.today:
-            closes[item.key] = Close(f"its end date passed on {_day(pd.end)}")
+            closes[item.key] = Close(f"its end date passed on {_day(pd.end)}", kind=CHANGED)
         elif pd.end is not None and pd.end > until:
-            closes[item.key] = Close(f"end date moved to {_day(pd.end)}")
+            closes[item.key] = Close(f"end date moved to {_day(pd.end)}", kind=CHANGED)
     return closes
 
 

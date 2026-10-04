@@ -195,7 +195,14 @@ def _jobs() -> list[Warning]:
     for job, label in SyncRun.Job.choices:
         if job in SCHEDULED_ONLY and job not in scheduled:
             continue
-        last = SyncRun.objects.filter(job=job).order_by("-started_at").first()
+        # the latest finished run: a run still going (NeuroDB Watch's own, while it checks this) says
+        # nothing yet
+        last = (
+            SyncRun.objects.filter(job=job)
+            .exclude(status=SyncRun.Status.RUNNING)
+            .order_by("-started_at")
+            .first()
+        )
         if last and last.status == SyncRun.Status.FAILED:
             key = f"job_failed:{job}"
             text = _("The last %(job)s failed.") % {"job": label}

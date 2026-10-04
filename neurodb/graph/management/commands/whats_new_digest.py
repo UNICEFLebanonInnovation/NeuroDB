@@ -20,7 +20,7 @@ def run(triggered_by: str = "schedule") -> SyncRun:
     except Exception as exc:
         return fail(sync_run, exc)
     sync_run.rows_written = len(notes)
-    carried = bool(notes) and digest.carried_by_morning_email()
+    carried = bool(notes) and digest.carried_by_morning_email(notes[0].date)
     sync_run.finish(
         SyncRun.Status.SUCCEEDED,
         notes=[d.section_name or "all sections" for d in notes],

@@ -13,13 +13,18 @@ from a fixed list, so a field added to an item later is not sent until someone a
 - a What's new line (:func:`changes_for_model`), written by code (``graph.news.sentence``);
 - a section's counts for the whole-country note (:func:`count_for_model`), citable as
   ``count:<section id>``;
-- an Ask NeuroDB tool result, for the background look-up (:func:`for_tool`): numbers, dates and short
-  texts, without the fields that hold a person, free text or a link.
+- an Ask NeuroDB tool result, for the background look-up (:func:`for_tool`): numbers, dates and yes/no
+  under any field, and texts only under the fields of :data:`TOOL_TEXT_FIELDS` (names, codes, statuses,
+  periods: a text under any other field is left out, so a field a tool returns later is not sent until
+  someone adds it there); never the fields that hold a person, free text (a finding's ``detail``) or a
+  link, whatever they hold; never a Makani centre or a daily review finding of the knowledge hub.
 
 Never sent:
 
 - system items (they carry sync errors), Makani items and the administrators' own items (donor
   accounts, the year rollover): :func:`refused` says why, and :func:`for_model` raises :class:`Refused`;
+  the daily review's own data checks (sync failures and the like) are left out of the look-up's
+  ``daily_review`` result too (:func:`neurodb.watch.investigate.review_for_look_up`);
 - an item's detail, and its evidence records' labels and values;
 - the owner and note of a finding assignment, and people's reactions and comments;
 - any name of a person NeuroDB knows, any email address and any link: every text that goes out is
@@ -70,7 +75,20 @@ NUMBER_TEXT = re.compile(r"^-?\d[\d,]*(?:\.\d+)?%?$")
 FIELD_NAME = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 
 # What changed for an item today, as the note's writer may be told it (anything else is left out)
-CHANGES = frozenset({"new", "worse", "milestone", "overdue", "due_moved", "still_open", "closed", "gone"})
+CHANGES = frozenset(
+    {
+        "new",
+        "worse",
+        "milestone",
+        "overdue",
+        "due_moved",
+        "still_open",
+        "closed",  # ended today: done or fixed
+        "missed",  # ended today: its date passed and it was not done
+        "no_longer_followed",  # ended today for another reason (its date moved, another point follows it)
+        "gone",
+    }
+)
 # The hub kinds a situation may name
 CONNECTED_KINDS = frozenset({"partner", "programme_document", "grant", "donor", "document"})
 # The hub kinds a What's new line is never sent for
@@ -126,6 +144,8 @@ PERSON_FIELDS = frozenset(
 )
 FREE_TEXT_FIELDS = frozenset(
     {
+        "detail",
+        "details",
         "summary",
         "key_points",
         "description",
@@ -154,8 +174,105 @@ DROPPED_SUFFIXES = (
     "_owner",
     "_note",
 )
+# Tool results: the only fields whose text may be sent (a name, code, status, kind or period, never a
+# free text). Numbers, dates and yes/no pass under any field that is not dropped.
+TOOL_TEXT_FIELDS = frozenset(
+    {
+        # what a thing is
+        "name",
+        "short_name",
+        "title",
+        "kind",
+        "kind_label",
+        "key",
+        "type",
+        "cso_type",
+        "number",
+        "vendor_number",
+        "reference",
+        "engagement",
+        "awp_code",
+        "aliases",
+        "activityinfo_names",
+        "connection",
+        "through",
+        "to_kind",
+        "tool",
+        # what it belongs to
+        "partner",
+        "programme_document",
+        "pd",
+        "section",
+        "sections",
+        "donor",
+        "donors",
+        "matched_donors",
+        "grant",
+        "database",
+        "indicator",
+        "output",
+        "outcome",
+        "governorate",
+        "district",
+        "office",
+        "offices",
+        "module",
+        "country_programme",
+        "about",
+        # its state
+        "status",
+        "state",
+        "severity",
+        "rating",
+        "risk_rating",
+        "overall_rating",
+        "priority",
+        "report",
+        "report_type",
+        "based_on",
+        "unit",
+        "currency",
+        "category",
+        "label",
+        "level",
+        "job",
+        "what",
+        "says",
+        "from",
+        "to",
+        "rule",
+        "how_to_continue",
+        "error",
+        "received",
+        # when, written as text
+        "start",
+        "end",
+        "date",
+        "due",
+        "submitted",
+        "completed",
+        "period",
+        "period_start",
+        "period_end",
+        "since",
+        "when",
+        "made",
+        "expiry",
+        "last_success",
+        "last_import",
+        "hub_built",
+        "hub_last_rebuilt",
+        "year",
+        "month",
+        "months",
+        "months_used",
+        "first_month",
+        "last_month",
+    }
+)
 TOOL_LIST_MAX = 30
 TOOL_DEPTH_MAX = 6
+KEY_CHARS = 80  # a field name (or a label used as one) in a tool result
 
 
 class Refused(ValueError):
@@ -421,23 +538,64 @@ def _dropped_field(name: str) -> bool:
     return _person_field(name) or name in FREE_TEXT_FIELDS or name in LINK_FIELDS
 
 
-def for_tool(result: Any, names: Iterable[str] | None = None, _depth: int = 0) -> Any:
-    """An Ask NeuroDB tool result as the background look-up may pass it to the AI: numbers, dates and
-    yes/no kept; every text on one line, without known names, email addresses or links, and at most
+def refused_kinds() -> frozenset[str]:
+    """The knowledge hub kinds never passed to the AI from a tool (Makani centres, daily review
+    findings), as codes and as the labels the tools also write."""
+    from neurodb.graph.models import Entity
+
+    labels = dict(Entity.Kind.choices)
+    return frozenset(CHANGES_REFUSED | {str(labels[kind]) for kind in CHANGES_REFUSED if kind in labels})
+
+
+def _refused_entry(value: Any, refused: frozenset[str]) -> bool:
+    """A mapping about a refused kind of thing (a Makani centre, a daily review finding)."""
+    return isinstance(value, Mapping) and str(value.get("kind") or "") in refused
+
+
+_DROP = object()  # a value left out of a tool result
+
+
+def for_tool(result: Any, names: Iterable[str] | None = None, _depth: int = 0, _field: str = "") -> Any:
+    """An Ask NeuroDB tool result as the background look-up may pass it to the AI (an allow-list):
+    numbers, dates and yes/no kept under any field; a text kept only under a field of
+    :data:`TOOL_TEXT_FIELDS`, on one line, without known names, email addresses or links, and at most
     300 characters; the fields that hold a person, a free text or a link left out, whatever they hold;
-    at most 30 entries per list and 6 levels deep."""
+    anything about a Makani centre or a daily review finding left out; at most 30 entries per list and
+    6 levels deep."""
     names = people.known_names() if names is None else frozenset(names)
-    if _depth > TOOL_DEPTH_MAX:
-        return None
+    value = _for_tool(result, names, refused_kinds(), _depth, _field)
+    return None if value is _DROP else value
+
+
+def _for_tool(result: Any, names: frozenset[str], refused: frozenset[str], depth: int, field: str) -> Any:
+    if depth > TOOL_DEPTH_MAX:
+        return _DROP
     if isinstance(result, Mapping):
-        return {
-            str(k): for_tool(v, names, _depth + 1) for k, v in result.items() if not _dropped_field(str(k))
-        }
+        out = {}
+        for k, v in result.items():
+            name = str(k)
+            if _dropped_field(name) or name in refused or _refused_entry(v, refused):
+                continue
+            clean = _for_tool(v, names, refused, depth + 1, name)
+            if clean is not _DROP:
+                out[text(name, KEY_CHARS, names)] = clean
+        return out
     if isinstance(result, list | tuple | set | frozenset):
-        return [for_tool(v, names, _depth + 1) for v in list(result)[:TOOL_LIST_MAX]]
+        kept = (
+            _for_tool(v, names, refused, depth + 1, field)
+            for v in list(result)
+            if not _refused_entry(v, refused)
+        )
+        return [v for v in kept if v is not _DROP][:TOOL_LIST_MAX]
     if result is None or isinstance(result, bool | int):
         return result
-    number = _number(result)
-    if number is not None and not isinstance(result, str):
-        return number
-    return text(result, LINE_CHARS, names)
+    if not isinstance(result, str):
+        number = _number(result)  # a decimal, a float, a date
+        return number if number is not None else _DROP
+    if result.strip() in refused:
+        return _DROP  # a kind never passed on ("to_kind": "makani_centre")
+    if field.lower() in TOOL_TEXT_FIELDS:
+        return text(result, LINE_CHARS, names)
+    written = result.strip()
+    match = ISO_DATE.match(written)
+    return match.group(1) if match else _DROP  # any other text: not on the allow-list

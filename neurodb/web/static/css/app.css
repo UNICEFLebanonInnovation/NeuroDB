@@ -835,7 +835,7 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .watch-note__sentences { margin: 0; padding-left: 1.1rem; font-size: 0.92rem; line-height: 1.5; }
 .watch-note__sentences > li + li { margin-top: 0.35rem; }
 .watch-note__refs { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; vertical-align: baseline; }
-.watch-note__refs a { padding: 0 0.45rem; border-radius: 999px; background: var(--nd-surface-2); border: 1px solid var(--nd-border); font-size: 0.7rem; text-decoration: none; white-space: nowrap; }
+.watch-note__refs a { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; padding: 0 0.45rem; border-radius: 999px; background: var(--nd-surface-2); border: 1px solid var(--nd-border); font-size: 0.7rem; text-decoration: none; white-space: nowrap; }
 .watch-note__label { display: flex; align-items: center; gap: 0.35rem; margin: 0.6rem 0 0; font-size: 0.75rem; color: var(--nd-muted); }
 .watch-cards { list-style: none; margin: 0; padding: 0; }
 .watch-card { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.7rem 0; border-bottom: 1px solid var(--nd-border); font-size: 0.86rem; scroll-margin-top: calc(var(--nd-topbar-h) + 16px); }
@@ -852,12 +852,16 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .watch-card__chips { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.25rem; }
 .watch-chip { display: inline-block; padding: 0.05rem 0.5rem; border-radius: 999px; border: 1px solid var(--nd-border); background: var(--nd-surface-2); color: var(--nd-muted); font-size: 0.7rem; font-weight: 600; white-space: nowrap; }
 .watch-chip--reason { background: var(--nd-info-soft); color: var(--nd-info); border-color: transparent; }
+/* the long chips ("Estimate: between 62% and 78% of target") wrap on a narrow phone */
+.watch-chip { max-width: 100%; }
+.watch-chip--reason, .watch-chip--sure, .watch-chip--likely, .watch-chip--check { white-space: normal; }
 .watch-chip--sure { background: var(--nd-success-soft); color: var(--nd-success); border-color: transparent; }
 .watch-chip--likely { background: var(--nd-warning-soft); color: var(--nd-warning); border-color: transparent; }
 .watch-chip--check { background: var(--nd-neutral-soft); color: var(--nd-neutral); border-style: dashed; }
 .watch-chip--trial { background: transparent; border-style: dashed; color: var(--nd-primary); }
 .watch-chip--closed { background: var(--nd-success-soft); color: var(--nd-success); border-color: transparent; }
 .watch-card__said { margin: 0.35rem 0 0; padding: 0.3rem 0.55rem; border-radius: var(--nd-radius-sm); background: var(--nd-success-soft); color: var(--nd-text); font-size: 0.8rem; }
+.watch-card__said--refused { background: var(--nd-warning-soft); }
 .watch-card__why { margin: 0.3rem 0 0; color: var(--nd-muted); font-size: 0.8rem; }
 .watch-card__detail { margin: 0.35rem 0 0; color: var(--nd-muted); font-size: 0.82rem; line-height: 1.45; }
 .watch-card__memory, .watch-card__connected { margin: 0.3rem 0 0; font-size: 0.76rem; color: var(--nd-muted); }
@@ -870,6 +874,7 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .watch-evidence__numbers { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; margin: 0.3rem 0 0; }
 .watch-evidence__heading { margin-top: 0.35rem; font-weight: 650; }
 .watch-actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.3rem; margin-top: 0.5rem; }
+.watch-actions__form { display: contents; }
 .watch-actions .btn[aria-pressed="true"] { background: var(--nd-primary-soft); border-color: var(--nd-primary); color: var(--nd-primary); }
 .watch-menu { position: relative; }
 .watch-menu > summary { list-style: none; }
@@ -884,6 +889,7 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .watch-how > summary { cursor: pointer; font-weight: 650; font-size: 0.9rem; }
 .watch-how p { font-size: 0.84rem; color: var(--nd-muted); }
 .watch-overview { margin-bottom: 1rem; }
+.watch-overview-slot { min-height: 3.5rem; } /* room for the card's heading while it loads */
 .watch-overview .panel__title { display: flex; align-items: center; gap: 0.4rem; }
 .watch-overview__list { list-style: none; margin: 0; padding: 0; font-size: 0.86rem; }
 .watch-overview__list li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.45rem; padding: 0.25rem 0; }
