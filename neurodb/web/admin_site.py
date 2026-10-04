@@ -431,6 +431,7 @@ def _dashboard(request) -> dict[str, Any]:
     from neurodb.indicators.models import Database, MasterIndicator
     from neurodb.indicators.services.navigation import current_year
     from neurodb.library.models import Resource
+    from neurodb.watch import sections as watch_sections
 
     user_model = get_user_model()
     now = timezone.now()
@@ -528,6 +529,7 @@ def _dashboard(request) -> dict[str, Any]:
             continue
         warnings.append({"text": text, "url": reverse("admin:core_syncrun_change", args=[last.pk])})
     warnings += _schedule_warnings(now)
+    warnings += watch_sections.needs_attention()  # eTools section names NeuroDB Watch cannot route
 
     return {
         "year": year,

@@ -26,7 +26,10 @@ def _clear_cache():
     """Navigation and landing figures are cached; every test starts from an empty cache."""
     from django.core.cache import cache
 
+    from neurodb.watch import people
+
     cache.clear()
+    people.forget()  # NeuroDB Watch keeps the person names it read for a run
     yield
     cache.clear()
 

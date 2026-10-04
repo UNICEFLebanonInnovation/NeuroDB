@@ -452,8 +452,13 @@ def decision_input(review: DailyReview, findings: list[ReviewFinding]) -> dict[s
 NUMBER_IN_TEXT = re.compile(r"\d[\d,]*(?:\.\d+)?")
 
 
-def _numbers(text: str) -> set[str]:
+def numbers_in(text: str) -> set[str]:
+    """The numbers written in ``text``, without thousands separators ("12,500" gives "12500").
+    Shared with NeuroDB Watch, which checks the morning note's numbers the same way."""
     return {n.replace(",", "").rstrip(".") for n in NUMBER_IN_TEXT.findall(text or "")}
+
+
+_numbers = numbers_in  # the earlier name
 
 
 def _grounded(item: dict[str, Any], cited: list[ReviewFinding]) -> bool:
@@ -463,8 +468,8 @@ def _grounded(item: dict[str, Any], cited: list[ReviewFinding]) -> bool:
         f"{f.title} {f.detail} {f.children or ''} {json.dumps((f.evidence or {}).get('numbers', {}))}"
         for f in cited
     )
-    allowed = _numbers(source)
-    written = _numbers(f"{item['decision']} {item['why']}")
+    allowed = numbers_in(source)
+    written = numbers_in(f"{item['decision']} {item['why']}")
     return all(n in allowed or (n.isdigit() and int(n) <= 10) for n in written)
 
 
