@@ -8,8 +8,8 @@ NeuroDB Watch now" in the admin). One step after the other:
 2. **inputs**: while today's daily review or a knowledge hub build is still running, it waits, looking
    every minute, for at most 20 minutes; then it goes ahead and records what was not ready
    (``inputs_not_ready``). That input is read by the quick pass that follows when it lands;
-3. **usefulness**: checks that people found unhelpful go back to trial (``neurodb.watch.precision``,
-   once it is there), so today's announcements already follow it;
+3. **usefulness**: checks that people found unhelpful go back to trial
+   (:func:`neurodb.watch.precision.demote`), so today's announcements already follow it;
 4. **checks**: every check runs and the memory is updated (:func:`neurodb.watch.memory.run`);
 5. **connect**: the open items are connected through the knowledge hub, and the notable What's new
    changes since the watermark are added to their stories (:mod:`neurodb.watch.connect`);
@@ -17,7 +17,8 @@ NeuroDB Watch now" in the admin). One step after the other:
 7. **look_ups**: the AI looks into a few open critical items (:func:`neurodb.watch.investigate.run`),
    within the budget, and only while the time left leaves room for a whole look-up and the notes;
 8. **notes**: the morning note of each audience (:func:`neurodb.watch.explain.write_all`);
-9. **email**: the morning email (``neurodb.watch.delivery.send_daily``, once it is there);
+9. **email**: the morning email (:func:`neurodb.watch.delivery.send_daily`), once per person and day,
+   dormant until email is set up (``EMAIL_URL``);
 10. **watermark**: what was read is kept (``WatchState.last_change_id``) with the day of the pass
     (``WatchState.last_daily_on``);
 11. **retention**: receipts last told over 12 months ago, items closed over 24 months ago and the

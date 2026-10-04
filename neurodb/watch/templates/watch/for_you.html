@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block content %}
+<div class="watch-page">
+{% if banner %}
+<div class="alert alert-warning watch-banner" role="status">
+  {% include "components/icon.html" with name="alert" %}
+  <span>{{ banner }}{% if is_admin %} <a href="{% url 'admin:core_scheduledjob_changelist' %}">{% trans "Scheduled jobs" %} →</a>{% endif %}</span>
+</div>
+{% endif %}
+
+{% if is_admin %}
+<div class="watch-toolbar">
+  <form method="get" action="{% url 'watch:for_you' %}" class="watch-toolbar__picker">
+    <label class="small text-muted" for="watch-audience">{% trans "Show notes for" %}</label>
+    <select class="form-select form-select-sm" id="watch-audience" name="audience">
+      <option value="">{% trans "My page" %}</option>
+      {% for choice in picker %}<option value="{{ choice.value }}"{% if choice.value == audience %} selected{% endif %}>{{ choice.label }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="btn btn-sm btn-outline-secondary">{% trans "Show" %}</button>
+  </form>
+  <form method="post" action="{% url 'watch:check_now' %}">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-sm btn-outline-primary">{% include "components/icon.html" with name="refresh" %}<span>{% trans "Check now" %}</span></button>
+  </form>
+</div>
+{% endif %}
+
+{% if preview %}
+<p class="watch-preview" role="status">{% blocktrans with who=subtitle_for %}You are looking at what {{ who }} is shown: the note and the open points. People's own answers and reminders are never shown here.{% endblocktrans %} <a href="{% url 'watch:for_you' %}">{% trans "Back to my page" %}</a></p>
+{% endif %}
+
+{% if no_section %}
+<p class="watch-preview" role="status">{% trans "NeuroDB does not send you notes yet: ask an administrator to set your section to get notes for it. Meanwhile, here is everything open that section staff are told about." %}</p>
+{% endif %}
+
+{% for note in notes %}
+<section class="panel watch-note" aria-labelledby="watch-note-{{ forloop.counter }}">
+  <div class="panel__header">
+    <div>
+      <h2 class="panel__title" id="watch-note-{{ forloop.counter }}">{{ note.title }}</h2>
+      {% if note.old %}<div class="panel__hint">{% blocktrans with when=note.when %}No note yet today: this is the note written {{ when }}{% endblocktrans %}</div>{% endif %}
+    </div>
+  </div>
+  {% if note.sentences %}
+  <ul class="watch-note__sentences">
+    {% for s in note.sentences %}
+    <li>{{ s.text }}{% if s.links %} <span class="watch-note__refs">{% for l in s.links %}<a href="#{{ l.anchor }}" title="{{ l.label }}">{{ l.label|truncatechars:40 }}</a>{% endfor %}</span>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <p class="watch-note__label">{% if note.by_ai %}{% include "components/icon.html" with name="sparkle" %}{% endif %}<span>{{ note.label }}</span></p>
+</section>
+{% endfor %}
+
+{% if not preview and not no_section %}
+<section class="panel" aria-labelledby="watch-needs-title">
+  <div class="panel__header">
+    <h2 class="panel__title" id="watch-needs-title">{% trans "Needs you today" %}</h2>
+    <span class="panel__hint">{% blocktrans with n=needs_you_limit %}At most {{ n }} a day{% endblocktrans %}</span>
+  </div>
+  {% if needs_you %}
+  <ul class="watch-cards">{% for card in needs_you %}{% include "watch/partials/_item.html" with open=True %}{% endfor %}</ul>
+  {% else %}
+  {% if checked %}{% blocktrans with when=checked asvar checked_message %}NeuroDB checked {{ when }}.{% endblocktrans %}{% else %}{% trans "NeuroDB has not checked yet." as checked_message %}{% endif %}
+  {% include "components/empty_state.html" with icon="check" title=_("Nothing needs you today.") message=checked_message %}
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="panel" aria-labelledby="watch-coming-title">
+  <div class="panel__header"><h2 class="panel__title" id="watch-coming-title">{% trans "Coming up (next 30 days)" %}</h2></div>
+  {% if coming_up %}
+  <ul class="watch-cards watch-cards--compact">{% for card in coming_up %}{% include "watch/partials/_item.html" with open=False %}{% endfor %}</ul>
+  {% else %}
+  <p class="text-muted small mb-0">{% trans "Nothing is due in the next 30 days." %}</p>
+  {% endif %}
+</section>
+
+{% if situations %}
+<section class="panel" aria-labelledby="watch-connect-title">
+  <div class="panel__header"><h2 class="panel__title" id="watch-connect-title">{% trans "How things connect" %}</h2></div>
+  <ul class="watch-situations">
+    {% for s in situations %}
+    <li>
+      <div class="watch-situations__headline">{% if s.url %}<a href="{{ s.url }}">{{ s.headline }}</a>{% else %}{{ s.headline }}{% endif %}</div>
+      <ul>{% for p in s.points %}<li>{% if p.anchor %}<a href="#{{ p.anchor }}">{{ p.title }}</a>{% else %}{{ p.title }}{% endif %}</li>{% endfor %}</ul>
+      {% if s.changes %}<div class="small text-muted">{% trans "Recent changes" %}: {{ s.changes|join:"; " }}</div>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if good_to_know %}
+<section class="panel" aria-labelledby="watch-good-title">
+  <div class="panel__header"><h2 class="panel__title" id="watch-good-title">{% trans "Good to know" %}</h2><span class="panel__hint">{% trans "The last 7 days" %}</span></div>
+  <ul class="watch-cards watch-cards--compact">{% for card in good_to_know %}{% include "watch/partials/_item.html" with open=False %}{% endfor %}</ul>
+</section>
+{% endif %}
+
+<details class="panel watch-everything"{% if preview or no_section %} open{% endif %}>
+  <summary><h2 class="panel__title d-inline">{% blocktrans with n=everything|length %}Everything open ({{ n }}){% endblocktrans %}</h2></summary>
+  {% if everything %}
+  <ul class="watch-cards watch-cards--compact mt-2">{% for card in everything %}{% include "watch/partials/_item.html" with open=False %}{% endfor %}</ul>
+  {% else %}
+  <p class="text-muted small mt-2 mb-0">{% trans "Nothing open." %}</p>
+  {% endif %}
+</details>
+
+{% if set_aside %}
+<details class="panel watch-everything">
+  <summary><h2 class="panel__title d-inline">{% blocktrans with n=set_aside|length %}Set aside ({{ n }}){% endblocktrans %}</h2></summary>
+  <ul class="watch-cards watch-cards--compact mt-2">{% for card in set_aside %}{% include "watch/partials/_item.html" with open=False %}{% endfor %}</ul>
+</details>
+{% endif %}
+
+<details class="panel watch-how">
+  <summary>{% trans "How this works" %}</summary>
+  <p class="mt-2 mb-1">{% trans "Every morning, and when new data arrives, NeuroDB reads eTools, the daily review, the year-end forecasts, the knowledge hub and the health of its own jobs. It tells you again only when something changes or a date comes near, and at most a few things a day need you. It never changes any data." %}</p>
+  <p class="mb-1">{% trans "New checks start in a trial that only administrators and management see, and are switched on for staff once they prove useful. Your answers (Useful, Not useful, Done, Not mine, Remind me later, Something's wrong) change what you are told next; a comment on Something's wrong is read by administrators only." %}</p>
+  <p class="mb-0">{% trans "The note is written by AI (OpenAI) from the points listed, and every sentence is checked against them. Each morning NeuroDB may also look up a few urgent points with Ask NeuroDB's read-only tools: what it found is shown as “What NeuroDB looked up (AI)” and kept only when its numbers match the data. People's names and children's individual data are never sent." %}</p>
+</details>
+</div>
+{% endblock %}

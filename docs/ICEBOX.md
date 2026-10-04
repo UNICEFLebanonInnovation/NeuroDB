@@ -35,6 +35,13 @@ separate **Add a document or text** form.
   (`MAX_QUESTION_CHARS`); a pasted text would allow about 100,000, and anything longer is attached
   as a file.
 - The **Add a document or text** form stays for people who prefer it.
+- **NeuroDB Watch's memory is not a save.** The background assistant behind the *For you* page
+  (October 2026, `neurodb/watch`) keeps its own memory of what it follows: each point with its
+  evidence and dated story, what each person was told, and what its AI looked up on a critical point.
+  That memory is not the knowledge base: nothing the watch or its AI concludes is saved as a
+  document, into the knowledge hub, or into what Ask NeuroDB searches, so the rule above (a person
+  confirms every save) still holds. Should the watch ever propose a save, it goes through the same
+  confirmation.
 - The personal-data warning of the Add form is shown next to the attach button.
 
 **Work involved**: a `save_to_knowledge` proposal tool (editors only) returning a draft; a

@@ -79,10 +79,10 @@
   {% csrf_token %}
   {% if subscribed %}
   <input type="hidden" name="email" value="0">
-  <span>{% trans "You get the daily note of your section by email." %}</span> <button class="btn btn-link btn-sm p-0" type="submit">{% trans "Stop the email" %}</button>
+  <span>{% if morning_email %}{% trans "You get the morning note by email: what needs you on For you and the What's new note of your section." %}{% else %}{% trans "You get the daily note of your section by email." %}{% endif %}</span> <button class="btn btn-link btn-sm p-0" type="submit">{% trans "Stop the email" %}</button>
   {% else %}
   <input type="hidden" name="email" value="1">
-  <button class="btn btn-outline-primary btn-sm" type="submit">{% trans "Email me the daily note" %}</button>
+  <button class="btn btn-outline-primary btn-sm" type="submit">{% if morning_email %}{% trans "Email me the morning note (For you and What's new)" %}{% else %}{% trans "Email me the daily note" %}{% endif %}</button>
   {% endif %}
 </form>
 {% endif %}

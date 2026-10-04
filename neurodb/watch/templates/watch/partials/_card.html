@@ -1,0 +1,19 @@
+{% load i18n %}
+{# The Overview card of For you, loaded after the page. Context: page.card(user): shown, count, unseen, top. #}
+{% if shown %}
+<section class="panel watch-overview" aria-labelledby="watch-overview-title">
+  <div class="panel__header">
+    <h2 class="panel__title" id="watch-overview-title">{% include "components/icon.html" with name="bell" %}
+      {% if count %}{% blocktrans count counter=count %}For you: {{ counter }} thing needs you today{% plural %}For you: {{ counter }} things need you today{% endblocktrans %}{% else %}{% trans "For you: nothing needs you today" %}{% endif %}
+    </h2>
+    <a class="small" href="{% url 'watch:for_you' %}">{% trans "See all" %} →</a>
+  </div>
+  {% if top %}
+  <ul class="watch-overview__list">
+    {% for t in top %}
+    <li><span class="watch-card__sev watch-card__sev--{{ t.severity }}" aria-hidden="true"></span><a href="{% url 'watch:for_you' %}">{{ t.title }}</a>{% if t.reason %} <span class="watch-chip watch-chip--reason">{{ t.reason }}</span>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endif %}

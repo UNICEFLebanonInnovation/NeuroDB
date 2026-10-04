@@ -15,7 +15,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from neurodb.accounts.models import Section
 
-from . import news
+from . import digest, news
 from .models import Change, Digest, DigestSubscription, Entity
 
 PERIODS = {"1": 1, "7": 7, "30": 30}
@@ -72,6 +72,7 @@ def whats_new(request: HttpRequest) -> HttpResponse:
         "shown": min(total, SHOWN),
         "note": note,
         "email_enabled": settings.DIGEST_EMAIL_ENABLED,
+        "morning_email": digest.carried_by_morning_email(),  # the email is NeuroDB Watch's morning note
         "subscribed": bool(subscription and subscription.email),
         "last_build": last,
         "ops": Change.Op,
@@ -85,9 +86,13 @@ def email(request: HttpRequest) -> HttpResponse:
     DigestSubscription.objects.update_or_create(user=request.user, defaults={"email": wanted})
     if wanted and not request.user.email:
         messages.warning(request, _("Your account has no email address: ask an administrator to add one."))
-    else:
+    elif wanted:
         messages.success(
             request,
-            _("You will get the daily note by email.") if wanted else _("You will no longer get the email."),
+            _("You will get the morning note by email (For you and What's new).")
+            if digest.carried_by_morning_email()
+            else _("You will get the daily note by email."),
         )
+    else:
+        messages.success(request, _("You will no longer get the email."))
     return redirect("graph:whats_new")

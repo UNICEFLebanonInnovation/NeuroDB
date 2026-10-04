@@ -823,3 +823,71 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .cpd-indicators td:first-child { overflow-wrap: anywhere; }
 .cpd-output { border-top: 1px solid var(--nd-border); margin-top: 0.5rem; }
 .table.cpd-indicators thead th { white-space: normal; vertical-align: bottom; line-height: 1.25; }
+
+/* ------------------------------------------------------------------ For you (NeuroDB Watch) */
+.nav-count { margin-left: auto; min-width: 1.35rem; padding: 0 0.4rem; border-radius: 999px; background: var(--nd-danger); color: #fff; font-size: 0.68rem; font-weight: 700; line-height: 1.35rem; text-align: center; font-variant-numeric: tabular-nums; }
+.nav-count-slot:empty, .nav-count--none { display: none; }
+.watch-banner { display: flex; align-items: flex-start; gap: 0.5rem; }
+.watch-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 1rem; }
+.watch-toolbar__picker { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.watch-toolbar__picker .form-select { width: auto; max-width: 100%; }
+.watch-preview { padding: 0.55rem 0.8rem; border-radius: var(--nd-radius-sm); background: var(--nd-info-soft); color: var(--nd-text); font-size: 0.85rem; }
+.watch-note__sentences { margin: 0; padding-left: 1.1rem; font-size: 0.92rem; line-height: 1.5; }
+.watch-note__sentences > li + li { margin-top: 0.35rem; }
+.watch-note__refs { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; vertical-align: baseline; }
+.watch-note__refs a { padding: 0 0.45rem; border-radius: 999px; background: var(--nd-surface-2); border: 1px solid var(--nd-border); font-size: 0.7rem; text-decoration: none; white-space: nowrap; }
+.watch-note__label { display: flex; align-items: center; gap: 0.35rem; margin: 0.6rem 0 0; font-size: 0.75rem; color: var(--nd-muted); }
+.watch-cards { list-style: none; margin: 0; padding: 0; }
+.watch-card { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.7rem 0; border-bottom: 1px solid var(--nd-border); font-size: 0.86rem; scroll-margin-top: calc(var(--nd-topbar-h) + 16px); }
+.watch-card:last-child { border-bottom: 0; }
+.watch-card:target { background: var(--nd-primary-soft); border-radius: var(--nd-radius-sm); }
+.watch-cards--compact .watch-card { padding: 0.5rem 0; }
+.watch-card--aside { opacity: 0.85; }
+.watch-card__sev { flex: none; width: 9px; height: 9px; margin-top: 0.45em; border-radius: 50%; background: var(--nd-neutral); }
+.watch-card__sev--critical { background: var(--nd-danger); }
+.watch-card__sev--warning { background: var(--nd-warning); }
+.watch-card__sev--info { background: var(--nd-info); }
+.watch-card__body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.watch-card__title { font-weight: 600; line-height: 1.35; }
+.watch-card__chips { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.25rem; }
+.watch-chip { display: inline-block; padding: 0.05rem 0.5rem; border-radius: 999px; border: 1px solid var(--nd-border); background: var(--nd-surface-2); color: var(--nd-muted); font-size: 0.7rem; font-weight: 600; white-space: nowrap; }
+.watch-chip--reason { background: var(--nd-info-soft); color: var(--nd-info); border-color: transparent; }
+.watch-chip--sure { background: var(--nd-success-soft); color: var(--nd-success); border-color: transparent; }
+.watch-chip--likely { background: var(--nd-warning-soft); color: var(--nd-warning); border-color: transparent; }
+.watch-chip--check { background: var(--nd-neutral-soft); color: var(--nd-neutral); border-style: dashed; }
+.watch-chip--trial { background: transparent; border-style: dashed; color: var(--nd-primary); }
+.watch-chip--closed { background: var(--nd-success-soft); color: var(--nd-success); border-color: transparent; }
+.watch-card__said { margin: 0.35rem 0 0; padding: 0.3rem 0.55rem; border-radius: var(--nd-radius-sm); background: var(--nd-success-soft); color: var(--nd-text); font-size: 0.8rem; }
+.watch-card__why { margin: 0.3rem 0 0; color: var(--nd-muted); font-size: 0.8rem; }
+.watch-card__detail { margin: 0.35rem 0 0; color: var(--nd-muted); font-size: 0.82rem; line-height: 1.45; }
+.watch-card__memory, .watch-card__connected { margin: 0.3rem 0 0; font-size: 0.76rem; color: var(--nd-muted); }
+.watch-card__more > summary { margin-top: 0.3rem; font-size: 0.76rem; color: var(--nd-primary); cursor: pointer; }
+.watch-lookup { margin-top: 0.45rem; padding: 0.45rem 0.6rem; border-left: 3px solid var(--nd-primary); border-radius: var(--nd-radius-sm); background: var(--nd-primary-soft); font-size: 0.82rem; }
+.watch-lookup__label { display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.15rem; font-size: 0.72rem; font-weight: 700; color: var(--nd-primary); }
+.watch-evidence { margin-top: 0.35rem; font-size: 0.78rem; }
+.watch-evidence > summary { color: var(--nd-muted); cursor: pointer; }
+.watch-evidence__records, .watch-evidence__story ul { margin: 0.3rem 0 0; padding-left: 1.1rem; }
+.watch-evidence__numbers { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; margin: 0.3rem 0 0; }
+.watch-evidence__heading { margin-top: 0.35rem; font-weight: 650; }
+.watch-actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.3rem; margin-top: 0.5rem; }
+.watch-actions .btn[aria-pressed="true"] { background: var(--nd-primary-soft); border-color: var(--nd-primary); color: var(--nd-primary); }
+.watch-menu { position: relative; }
+.watch-menu > summary { list-style: none; }
+.watch-menu > summary::-webkit-details-marker { display: none; }
+.watch-menu__panel { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; min-width: 15rem; max-width: min(22rem, calc(100vw - 2rem)); padding: 0.5rem; border: 1px solid var(--nd-border); border-radius: var(--nd-radius-sm); background: var(--nd-surface); box-shadow: var(--nd-shadow-lg); }
+.watch-situations { list-style: none; margin: 0; padding: 0; font-size: 0.86rem; }
+.watch-situations > li { padding: 0.5rem 0; border-bottom: 1px solid var(--nd-border); }
+.watch-situations > li:last-child { border-bottom: 0; }
+.watch-situations__headline { font-weight: 650; }
+.watch-situations ul { margin: 0.2rem 0; padding-left: 1.1rem; }
+.watch-everything > summary { cursor: pointer; }
+.watch-how > summary { cursor: pointer; font-weight: 650; font-size: 0.9rem; }
+.watch-how p { font-size: 0.84rem; color: var(--nd-muted); }
+.watch-overview { margin-bottom: 1rem; }
+.watch-overview .panel__title { display: flex; align-items: center; gap: 0.4rem; }
+.watch-overview__list { list-style: none; margin: 0; padding: 0; font-size: 0.86rem; }
+.watch-overview__list li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.45rem; padding: 0.25rem 0; }
+.watch-overview__list .watch-card__sev { margin-top: 0; align-self: center; }
+@media (max-width: 575.98px) {
+  .watch-menu__panel { position: static; box-shadow: none; min-width: 0; }
+}

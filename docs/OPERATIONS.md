@@ -80,9 +80,12 @@ come from.
   details, such as partner names, vendor numbers, risk ratings, HACT and assurance results,
   programme document titles, library summaries and the free-text comments staff write on Neuro
   and HPM reports. When a filter matches nothing, the list of known partner, donor or office names
-  is sent too. It is organisational data: field visits are sent as counts, and no traveller names
-  or partner staff contacts are sent. Only signed-in users can ask, and the lookups can only read
-  what any signed-in user can already see. Nothing is written back. Requests are sent with
+  is sent too. It is organisational data. The summary lookups send field visits as counts; the
+  lookups that return eTools records as eTools holds them (`etools_query`, `etools_record`, and the
+  examples of `etools_search`) remove e-mail addresses and phone numbers, but names in them (action
+  point assignees, visit leads, travellers) are sent; partner staff contact lists are not synced at
+  all. NeuroDB Watch's look-ups never use those three (below). Only signed-in users can ask, and the
+  lookups can only read what any signed-in user can already see. Nothing is written back. Requests are sent with
   `store=false`, so OpenAI does not keep the responses for later retrieval through the API;
   NeuroDB keeps its own question log. Each request carries a keyed hash (HMAC-SHA-256 with the
   app's Django secret key) of the signed-in user's internal id (`safety_identifier`), never a name
@@ -93,7 +96,12 @@ come from.
   data protection focal point before switching it on; outbound HTTPS to api.openai.com must be
   allowed.
 - **Cost and review**: every question is logged in Admin → Data and sync → AI questions with the
-  lookups made, tokens used and time taken. Output tokens include the model's reasoning tokens,
+  lookups made, tokens used and time taken. Every AI feature on the key (Ask NeuroDB, the daily
+  review, What's new, document summaries, periodic figures, country programme reading, NeuroDB
+  Watch) is also counted per day in one ledger, Admin → Data and sync → **AI use** (tokens; US
+  dollars when `AI_PRICE_INPUT_PER_MTOK`, `AI_PRICE_CACHED_PER_MTOK` and `AI_PRICE_OUTPUT_PER_MTOK`
+  are set). The background features stop using AI first when all of them together pass 80% of
+  `AI_DAILY_TOKEN_SOFT_CAP` (default 3,000,000 tokens a day), so questions keep being answered. Output tokens include the model's reasoning tokens,
   which are billed as output. A typical question makes 2-4 lookups. The instructions and tool
   definitions are sent first and unchanged on every request, so OpenAI's automatic prompt caching
   (prompts of 1,024 tokens or more, no setup) bills that repeated part at the cheaper cached-input
@@ -107,6 +115,17 @@ come from.
   invalid or revoked key (401), used-up credits (429 `insufficient_quota`: buy credits, retrying
   does not help), rate limits (429) or an unknown model id (404). A question still being answered
   shows as Failed with the Error "in progress" until it ends.
+- **Background look-ups (NeuroDB Watch)**: every morning NeuroDB Watch runs this same loop on its
+  own, with no person asking, to look into at most 3 open critical points (see NeuroDB Watch, *The
+  daily look-ups*). It offers only 13 read-only tools of the 40 (`find_anything`, `entity_profile`,
+  `connected`, `programme_details`, `partner_details`, `partner_reporting`, `pd_indicator_progress`,
+  `funds_overview`, `assurance_overview`, `indicator_forecasts`, `whats_new`, `daily_review`,
+  `data_freshness`), passes every result through an allow-list that removes people's names, free
+  text and links before the model reads it, runs each tool in a read-only database transaction,
+  stops after 4 rounds or 150 seconds and keeps an answer only when its figures are in what was
+  looked up. It uses its own prompt cache key and sends no `safety_identifier`; its tokens count in
+  the watch's own daily cap, never in anyone's hourly limit. A question asked on `/ask/` is sent
+  exactly as before: same instructions, all tools, same cache key.
 - **Azure OpenAI is a different service**: Microsoft's Azure OpenAI hosts OpenAI models inside an
   Azure subscription, with its own endpoint (`https://<resource>.openai.azure.com`), its own keys
   or Entra ID sign-in, and deployment names instead of model ids. A platform.openai.com key does
@@ -306,6 +325,8 @@ Where it shows:
   for the link. People ask for it on the What's new page (*Email me the daily note*) and stop it there;
   each gets their section's note, or the note for everyone when they have no section or their section
   has no note that day. Donor accounts never get it. Without `EMAIL_URL` the button is not shown.
+  While NeuroDB Watch's morning email is on, the button reads *Email me the morning note (For you and
+  What's new)* and the note goes out inside that one email instead (see NeuroDB Watch).
 
 Changes are kept (admin → *Knowledge hub changes*); a year of them is a few tens of thousands of rows.
 
@@ -395,6 +416,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `compiler-wellbeing` | `sync_compiler_wellbeing` | `0 3 * * *`, daily 03:00: asks BMA to work out the Makani wellbeing flags, waits, then reads them; switched off until Compiler is configured |
 | `knowledge-hub` | `build_knowledge_hub` | `0 7 * * *`, daily 07:00: reads new library and CPD documents, then rebuilds the knowledge hub (it is also rebuilt after every sync) |
 | `whats-new` | `whats_new_digest` | `30 7 * * *`, daily 07:30: the what's new notes, emailed to who asked |
+| `watch` | `run_watch --daily` | `45 7 * * *`, daily 07:45: NeuroDB Watch's morning pass, the *For you* pages (see NeuroDB Watch); a quick pass also follows new data |
 | `ml-readiness` | `ml_readiness` | `45 6 * * 1`, Mondays 06:45: is the data ready for machine learning (Data health) |
 | `forecast` | `forecast_indicators` | `15 7 * * 1`, Mondays 07:15: year-end forecasts of the indicators, back-tested |
 | (inside `activityinfo-data` and `etools-datamart`) | `link_partners` | at the end of both jobs |
@@ -457,6 +479,7 @@ admin home page, *Quick actions*):
 | Run a job → *Compiler education figures* | `sync_compiler_education` | background |
 | Run a job → *Knowledge hub* | `build_knowledge_hub` | background |
 | Run a job → *What's new note* | `whats_new_digest` | background |
+| Run a job → *NeuroDB Watch* (also *Check now* on the For you page) | `run_watch --daily` | background |
 | Run a job → *Machine learning readiness* | `ml_readiness` | background |
 | Run a job → *Year-end forecast* | `forecast_indicators` | background |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
@@ -868,6 +891,303 @@ replaces its review only when the new run succeeds. `--date` only names the revi
 read today's data, so use it to re-run today's or yesterday's review, never to rebuild the past. Every run writes a `SyncRun` (job *Daily AI review*); a check that fails is listed on
 the review and the run is *partial*, the other checks still report. The scheduled job
 `daily-review` (admin → Scheduled jobs) runs it every morning.
+
+## NeuroDB Watch (`/for-you/`, the "For you" page)
+
+NeuroDB Watch is the assistant that works in the background, without anyone asking. Every morning,
+and shortly after new data arrives, it asks fixed questions of NeuroDB's own tables (code rules, no
+AI): what falls due soon, what is still open, how these things connect. It remembers each thing it
+follows from one day to the next, and tells each person once, at the right moment, on their **For
+you** page. The AI only writes a short morning note and looks into a few critical points a day; it
+never decides what is followed, how serious it is, when it is due or who is told. The code is in
+`neurodb/watch` (one module per step, each with notes at its top).
+
+**What staff see.** *For you* in the sidebar (under Ask NeuroDB), with the number of "Needs you"
+points told today and not yet seen, and a *For you* card on the overview. The page shows, in order:
+today's note (the section's, and the whole country's for the country view), *Needs you today* (at
+most 5 points), *Coming up (next 30 days)*, *How things connect* (open points that meet on one
+partner or grant), *Good to know*, *Everything open* (collapsed) and *How this works*. Each point
+says why it is shown ("New", "Due in 3 days", "Got worse", "Agreed date passed"...), how sure NeuroDB
+is (*Sure*, *Likely*, *Please check*; forecasts are worded as estimates with their range), how it
+knows (the source and when it was last synced, the records and a link), what it remembers (first
+noticed, open for, told you...), what it connects to, and, when a look-up was kept, *What NeuroDB
+looked up (AI)*. A banner says when the last morning check is more than 26 hours old. Donor accounts
+never see the page, the count or the card.
+
+### What it follows: the checks
+
+| Check | What it follows | Told to | Starts |
+|---|---|---|---|
+| `report_due_soon` | Partner progress reports (QPR) due in the next 14 days and not submitted (the rule every page uses); warning from 3 days before. Once due, it hands over to the daily review's `reports_overdue` | the PD's sections | trial |
+| `action_point_due` | Open action points due in the next 14 days, per section and partner; warning from 3 days before | the action point's section | trial |
+| `action_points_overdue_normal` | Open normal-priority action points past their date (the daily review keeps the high-priority ones) | the section | trial |
+| `pd_ending` | Every active PD ending in the next 60 days, whatever its achievement; warning from 14 days before | the PD's sections | trial |
+| `pd_awaiting_closure` | PDs ended in eTools and not closed (final report, funds liquidation); warning when ended over 60 days ago with money outstanding | the PD's sections, and the country view when late | trial |
+| `grant_expiring` | Grants expiring in the next 90 days with at least `WATCH_GRANT_MIN_UNSPENT` USD unspent (the management brief's own figure); warning from 30 days, critical from 14 | the sections of the PDs it funds, and the country view | trial |
+| `fr_expiring` | Funds reservations ending in the next 30 days with money outstanding; warning from 7 days | the PD's sections | trial |
+| `hact_assurance_gap` | From 1 October to 31 December: partners whose programmatic visits, spot checks or audits are below what HACT requires; warning from 15 November, critical from 15 December | the sections of the partner's active PDs, and the country view | trial |
+| `assignment_due` | Agreed dates on daily review findings (*Finding assignments*): 3 days before, and once passed | the finding's section, and the country view | trial |
+| `forecast_short` | Indicators the year-end forecast says are likely to fall short, only while the forecasts are shown | the forecast's section | trial |
+| `donor_account_expiring` | Donor sign-ins that stop working within 14 days | Administrators | trial |
+| `reporting_year_rollover` | 15 December to 15 January: the new year is not the current reporting year yet | Administrators | trial |
+| `daily_review` | The critical and warning findings still open in the latest daily review, under their own keys | the finding's section | on |
+| `system` | The admin home's *Needs attention* lines (failed jobs, a silent scheduler, a missing daily review, the watch's own lines below) | Administrators | on |
+| `stale_source` | A data source a check needs that has not synced within `SYNC_STALENESS_HOURS` | Administrators | on |
+| `openai_quota` | The OpenAI credit ran out (see the circuit breaker below) | Administrators | on |
+
+Looking ahead belongs to the watch and looking back to the daily review: one thing is never two
+points. A point closes at once on positive evidence (a report submitted, a forecast back on course,
+an assignment closed). Otherwise it closes only after two fresh morning passes without it, and then
+shows as *no longer seen*, never as done: data removed upstream is not taken as work done. A check
+whose source is stale is skipped (its points stay as they were) and the administrators are told. A
+point that comes back within 14 days reopens with its history. The checks read the Datamart-synced
+eTools tables, finding assignments (only whether someone owns the finding and its status, never the
+owner or the note), the latest daily review, the forecasts and the admin's health lines. They read no
+child-level data. The watch writes only its own tables, the AI use ledger and its own runs: never
+eTools, the knowledge hub, the knowledge base, the assignments or any programme data.
+
+### When it runs
+
+- **The morning pass**: the scheduled job `watch` (`run_watch --daily`, daily 07:45 Beirut), after
+  the daily review (06:00), the knowledge hub (07:00) and What's new (07:30). While today's review or
+  a hub build is still running it waits, looking every minute, for at most 20 minutes, then goes
+  ahead and notes what was not ready. Its steps: match new eTools section names, send back to trial
+  the checks people found unhelpful, run the checks and update the memory, connect the open points
+  through the hub, decide who is told what, the look-ups, the morning notes, the email, then keep
+  what it read and delete old rows. Each step commits on its own and is safe to repeat; a failing step
+  is recorded and the next ones still run.
+- **The quick pass after new data**: when a knowledge hub build finishes (it follows every sync,
+  every daily review and every document read), when any other job fails, or when a finding's
+  assignment is saved, a quick pass follows about `WATCH_SETTLE_SECONDS` (600) later, so a burst of
+  data makes one pass. It looks only at critical points, points due within 3 days and system points;
+  it never calls the AI and never sends email. At most `WATCH_QUICK_PASSES_PER_DAY` (6) a day; later
+  data waits for the next morning. When the morning pass was missed (the site was down at 07:45), the
+  next quick pass runs it instead.
+- **By hand**: admin → *Import and sync runs* → Run a job → *NeuroDB Watch*; *Scheduled jobs* →
+  `watch` → *Run now*; *Check now* on the For you page (administrators); or `python manage.py
+  run_watch --daily` (`--when-requested` for a quick pass, `--date YYYY-MM-DD` for the day the checks
+  reason from).
+
+One run at a time (a database lock): a second start does nothing. Every pass is a run in *Import and
+sync runs* (job *NeuroDB Watch*, target *daily* or *quick*) whose details say what each step did: the
+checks' counts, `inputs_not_ready`, who was told what, the notes and why the AI was or was not
+used, the look-ups, the model calls and tokens, the emails, `usefulness` (checks sent back to trial)
+and, for a step that failed, its error (the run is then *Succeeded with errors*). A run stops between
+steps when an administrator presses **Stop** or after `WATCH_TIME_LIMIT_SECONDS` (900).
+
+### Who is told what
+
+- **People**: active users with a role (or superusers), never a donor account. Each person follows
+  their own section (*Section* on their user). Administrators and members of the **Management**
+  group also get the **whole-country view**: the country's note (written from counts per section, not
+  a copy of every section's points), the country-level points (grants, year-end assurance, agreed
+  dates passed, PDs long ended with money outstanding, critical findings open a week with no one
+  assigned) and every check still in trial. The Management group gives no permission and is not a
+  role: fill it in admin → Users and access → Groups → *Management* (for example the Representative,
+  the Deputy, section chiefs). Staff without a section get no notes and no count; their page lists
+  everything open and asks them to have their section set.
+- **eTools section names** (admin → Data and sync → *eTools section names*): eTools spells sections
+  its own way, so the watch keeps a map from each eTools name to a NeuroDB section. A name that is
+  the same as a section's name or code is confirmed by itself; a name only contained in another waits
+  for an administrator (select it, action *Confirm the matched section*, or open it and choose the
+  section). A point whose eTools section name has no confirmed section goes to the Administrators
+  only, never to every section, and *Needs attention* lists the names to confirm and the sections with
+  staff that no name points to. `python manage.py map_watch_sections [--rematch]` does the matching
+  by hand. Each name shows the *Not mine* its section's staff gave in the last 30 days, per check:
+  many of them point to a wrong match.
+- **Told once.** A person is told about a point again only when it gets worse, crosses one of its
+  dates (for example 14, 7, 3, 1 and 0 days before a report is due; at most 3 reminders), becomes
+  overdue, a snooze ends, it is still open 7 days after they marked it done (once), or it closes after
+  they were told about it. What already existed before someone could hear of it (the first run of a
+  check, the day a check is switched on, a person's first day) is recorded as known and not announced,
+  unless it is critical or due within 3 days. Each person gets at most `WATCH_NEEDS_YOU_PER_DAY` (5)
+  "Needs you" and `WATCH_GOOD_TO_KNOW_PER_DAY` (10) "Good to know" points a day; the rest stays on the
+  page.
+- **Reactions**: *Useful*, *Not useful*, *Done*, *Not mine*, *Remind me later* (tomorrow, next week,
+  or 3 days before it is due), *Something's wrong* (with an optional short comment that only
+  administrators read, in *NeuroDB Watch: what people were told*) and *Look into this* (opens Ask
+  NeuroDB with the question typed, under the person's own hourly limit). Done, Not mine and
+  Something's wrong hide the point for that person; a Section editor of the point's section or an
+  Administrator marking it Done or Something's wrong hides it for the whole section (Something's wrong:
+  until its evidence changes). Three *Not useful* on one check within 30 days stop that check's
+  "to note" and warning points for that person; critical points are still told. Opening the page
+  clears the count; nothing else about browsing is recorded.
+
+### Trial, switching checks on, usefulness
+
+Every new check starts in **trial**: its points go to the whole-country view only, labelled as a
+trial, and staff are not told. The daily review findings and the system checks are on from the start.
+Admin → Data and sync → **NeuroDB Watch: checks** lists each check with its mode and its last 30
+days: the people told about its points, *Useful*, *Not useful*, *Something's wrong*, *Not mine*, and
+its **usefulness**, useful ÷ (useful + not useful + something's wrong) (*Done* and *Not mine* are left
+out: one is about the work, the other about who was told). To switch a check on for staff, open it and
+set *Mode* to *On*; the points that already exist that day are recorded as known and not announced,
+so staff are not flooded. *Off* stops the check (its points are kept, nobody is told).
+
+A check that is on goes **back to trial by itself** during the morning pass when, among at least 20
+ratings given since it was switched on (within the last 30 days), more than 40% say *Not useful* or
+*Something's wrong*. Points told to the administrators only do not count. The admin home then lists
+it under *Needs attention* ("The check “Action points due soon” went back to trial: 45% of 22
+reactions said not useful or something's wrong.") until an administrator switches it on again, uses
+the action *Keep in trial*, or switches it off. The rule is in `neurodb/watch/precision.py`.
+
+The same page shows the **usefulness gate**, for information: whether at least half of the "Needs
+you" points people rated over the last 4 weeks were useful (with at least 20 ratings, once a check has
+been on for staff for 4 weeks). The background look-ups do not wait for it.
+
+### The AI: the morning note and the daily look-ups
+
+**The morning note.** One OpenAI call per audience that has new or changed points that day: each
+section, and the whole country. The model gets the facts as JSON built by an allow-list and writes 2 to
+6 plain sentences, each citing the points it rests on. A sentence is kept only when every number,
+date and eTools reference in it is in the points it cites, and it has no link, no markup, no person's
+name or email and at most 400 characters. When no sentence passes, when the AI is off, over budget or
+paused, or when it fails, the note is listed by code from the points' own titles. The page labels
+each note *AI wrote this from the facts below* or *Listed by NeuroDB (AI not used today: ...)*. An
+unchanged input makes no new call. Low reasoning effort, at most 1,500 output tokens, no tools.
+
+**The daily look-ups.** After the checks, the watch asks the AI to look into at most
+`WATCH_INVESTIGATE_PER_DAY` (3) open critical points a day, those that became critical or got worse
+today first. It runs Ask NeuroDB's own loop with these limits:
+
+- only these read-only tools: `find_anything`, `entity_profile`, `connected`, `programme_details`,
+  `partner_details`, `partner_reporting`, `pd_indicator_progress`, `funds_overview`,
+  `assurance_overview`, `indicator_forecasts`, `whats_new`, `daily_review`, `data_freshness`. Never
+  the raw eTools queries (`etools_query`, `etools_record`, `etools_search`, `etools_datasets`), the
+  knowledge base's text (`search_knowledge`, `read_knowledge`), Makani, the management brief or
+  charts; a call to another tool goes back to the AI as an error;
+- every tool result passes an allow-list before the AI reads it: numbers, dates and short texts,
+  without the fields that hold a person, a free text or a link, and without any known person's name or
+  email;
+- the tools run inside a read-only database transaction, so a write fails;
+- at most 4 rounds and 150 seconds per look-up, low effort, its own prompt cache key;
+- the answer is strict JSON. It is kept only when every number, date and eTools reference in it is in
+  what the tools returned or in the point itself, and it names no person and has no link. It is
+  stored on the point and shown on its card as *What NeuroDB looked up (AI)*; a result not kept is
+  recorded with why. A point is looked into again only after it changed.
+
+The AI never creates or closes a point, changes a severity or a date, chooses who is told, sends
+anything, or writes to the hub or the knowledge base.
+
+### What goes to OpenAI, and what never does
+
+Sent (to api.openai.com over HTTPS, `store=false`, under the same API terms as Ask NeuroDB):
+
+- for each point in a note or a look-up: its key, check, severity and confidence, the title written
+  by code, its due date, days left and days open, the dates and numbers of its evidence, the name and
+  kind of the hub thing it is about, its section names, whether someone owns it (yes or no), the
+  assignment status, how many times it was told and whether its section marked it done;
+- the situations (the names of the partner, PD, grant, donor and documents that connect the points),
+  up to 15 What's new lines about them (written by code), and for the country note the counts per
+  section;
+- in a look-up, the allow-listed results of the tools above.
+
+Organisation names, PD numbers and grant, donor, section and document names are sent, as the daily
+review already does. Never sent: any person's name or email (the fields that hold one are never read,
+and every text is checked against the list of names NeuroDB knows, in and out), the owner and note of
+a finding assignment, people's reactions and comments, a point's detail and evidence records, system
+points (they carry error text), document summaries or text, earlier notes or anything else the AI
+wrote, the daily review's summary and decisions, figures marked for internal use, and child-level
+data. No `safety_identifier` is sent: no person asked, and one constant identifier would pool every
+background run.
+
+### Costs, limits and the circuit breaker
+
+Every AI call of every feature on the shared key is counted in one ledger: admin → Data and sync →
+**AI use**, per day, feature (Ask NeuroDB, daily review, What's new, document summaries, periodic
+figures, country programme reading, NeuroDB Watch) and model, in tokens, and in US dollars when the
+optional `AI_PRICE_INPUT_PER_MTOK`, `AI_PRICE_CACHED_PER_MTOK` and `AI_PRICE_OUTPUT_PER_MTOK` are set.
+Before every call the watch checks that:
+
+- its tokens today (notes and look-ups together) plus the call's room stay within
+  `WATCH_DAILY_TOKEN_CAP` (300,000): a note needs about 6,000, a look-up 50,000;
+- its calls today stay within `WATCH_MAX_MODEL_CALLS_PER_DAY` (24; a look-up counts its 4 rounds);
+- all AI features together stay under 80% of `AI_DAILY_TOKEN_SOFT_CAP` (3,000,000): the watch is the
+  first to stop, so Ask NeuroDB keeps working;
+- its AI is not paused.
+
+Expected use: about 10 notes of 4,000 to 5,000 input tokens and up to 1,500 output tokens, and 3
+look-ups of up to 4 rounds (each round resends Ask's instructions and the tools, most of it at the
+cheaper cached rate), together roughly 150,000 to 250,000 tokens a day, about 5 to 8 million a month.
+At example prices of $1.25 per million input tokens and $10 per million output tokens that is roughly
+$10 to $30 a month; check the price of the model in use on OpenAI's pricing page. The cap bounds the
+worst case at 9 million tokens a month. The OpenAI project budget and usage alert stay the hard outer
+limit (see *AI assistant* above).
+
+**The circuit breaker.** When OpenAI says the credit ran out (`insufficient_quota`), the watch stops
+using AI for 6 hours, and the administrators get a critical point and a *Needs attention* line ("The
+OpenAI credit ran out: Ask NeuroDB is affected too"). Three failed calls in a row pause it too. The
+notes are listed by code meanwhile, and the first call that succeeds closes the point.
+
+### The morning email
+
+Dormant until NeuroDB can send email (`EMAIL_URL`, see *What's new*; set `SITE_URL` too, for the
+link). From then on, each person who switched the email on (*Email me the morning note (For you and What's new)* on the
+What's new page) gets one plain-text email after the morning pass: up to 5 "Needs you" titles with
+their due dates, how many things are coming up, their section's What's new note (or the note for
+everyone) and the link to For you. While the `watch` scheduled job is on, it replaces the What's
+new email, so people get one email, not two (switch the job off and the What's new email goes out
+again). It is sent once per person and day, even when the pass runs again; quick passes never email. It
+never holds a point's detail or evidence, an assignment's owner or note, a comment, child-level data
+or a figure marked for internal use. `WATCH_EMAIL=false` keeps the What's new email as it was.
+
+### Switching it off, in steps
+
+| To stop | Do |
+|---|---|
+| One check | NeuroDB Watch: checks → the check → *Mode* *Trial* (country view only) or *Off* |
+| The AI only (plain notes, no look-ups) | `WATCH_AI=false` |
+| The look-ups only | `WATCH_INVESTIGATE_ENABLED=false` (or `WATCH_INVESTIGATE_PER_DAY=0`) |
+| The morning email only | `WATCH_EMAIL=false` |
+| The morning pass | Scheduled jobs → `watch` → switch off (quick passes after new data go on; the admin home then stops warning that it did not run) |
+| Everything | `WATCH_ENABLED=false`: no pass runs (a started run records only that it is switched off), no new data asks for one, and the For you page says NeuroDB is not checking |
+
+Settings are environment variables (`.env.example`); in Azure, add them to the app's settings and
+restart. Their defaults:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `WATCH_ENABLED` | `true` | The watch as a whole |
+| `WATCH_AI` | `true` | The AI for notes and look-ups (also needs the AI assistant switched on) |
+| `WATCH_MODEL` | empty: `AI_ASSISTANT_MODEL` | The model of the notes and look-ups |
+| `WATCH_DAILY_TOKEN_CAP` | `300000` | The watch's tokens a day, notes and look-ups together |
+| `WATCH_MAX_MODEL_CALLS_PER_DAY` | `24` | The watch's model calls a day |
+| `WATCH_INVESTIGATE_ENABLED` | `true` | The daily look-ups |
+| `WATCH_INVESTIGATE_PER_DAY` | `3` | Look-ups a day |
+| `WATCH_SETTLE_SECONDS` | `600` | Wait after new data before a quick pass |
+| `WATCH_QUICK_PASSES_PER_DAY` | `6` | Quick passes a day |
+| `WATCH_TIME_LIMIT_SECONDS` | `900` | A run stops between steps after this |
+| `WATCH_NEEDS_YOU_PER_DAY` | `5` | "Needs you" points per person a day |
+| `WATCH_GOOD_TO_KNOW_PER_DAY` | `10` | "Good to know" points per person a day |
+| `WATCH_GRANT_MIN_UNSPENT` | `10000` | Expiring grants are followed from this many USD unspent |
+| `WATCH_EMAIL` | `true` | The morning email, once `EMAIL_URL` is set |
+| `AI_DAILY_TOKEN_SOFT_CAP` | `3000000` | All AI features' tokens a day; background features stop at 80% |
+
+### In the admin, and when something looks wrong
+
+Admin → Data and sync: **NeuroDB Watch: things followed** (each point with its evidence, its dated
+story, its connections and its look-up; read-only), **NeuroDB Watch: what people were told** (per
+person and point: the step told, the reaction and the comment; read-only), **Morning notes (For
+you)** (each note, who wrote it, why the AI was not used, its tokens), **NeuroDB Watch: checks**,
+**eTools section names** and **AI use**. Administrators may look at what a section's staff see with
+*Show notes for* on the For you page, but never at another person's reactions there.
+
+The admin home's *Needs attention* has four lines of its own, also told to the administrators on
+their For you page:
+
+- *NeuroDB Watch has not run for more than 26 hours*: look at the `watch` scheduled job and the last
+  runs of *NeuroDB Watch* in *Import and sync runs*;
+- *NeuroDB Watch stopped using AI until ...*: the credit ran out or the AI failed three times in a
+  row; add credit to the OpenAI project or wait, nothing else to do;
+- *N eTools section names have no confirmed NeuroDB section*: confirm them (above);
+- *The check “...” went back to trial*: look at its points and reactions, then switch it on again,
+  keep it in trial or switch it off.
+
+Nothing is lost when a day is missed: what each person was told is compared with what they last
+heard, so the next pass tells what is still worth telling. Points closed or gone more than 24 months
+ago, what people were told more than 12 months ago, and answered requests are deleted by the morning
+pass. What the watch remembers is its own memory, not the knowledge base: nothing it concludes is
+saved there or in the hub (see `docs/ICEBOX.md`).
 
 ## Donor access (`/donor/`)
 

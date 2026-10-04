@@ -4,6 +4,9 @@ on the What's new page and emailed to the people who asked for it.
 
 The model reads one line per change (names, codes and figures as NeuroDB holds them; never personal
 data) and writes a few sentences; it is told to use nothing else.
+
+While NeuroDB Watch's morning email is on (``neurodb.watch.delivery``), that email carries the note
+with the person's For you points, and :func:`send` steps aside: one email a morning, not two.
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ logger = logging.getLogger(__name__)
 MAX_LINES = 80  # changes the model reads per note
 LISTED = 8  # changes listed under the note (and in the template note)
 TEMPLATE = "template"
+CARRIED = "carried by the morning note"  # why no What's new email went out: NeuroDB Watch's email has it
 INSTRUCTIONS = """\
 You write the daily "what's new" note of NeuroDB, UNICEF Lebanon's programme monitoring platform, \
 for {audience}. You get the changes NeuroDB noticed in the last 24 hours, one line each. Write two \
@@ -116,8 +120,21 @@ def recipients(digest: Digest, has_own_note: set[int]) -> list[str]:
     return sorted(set(subs.values_list("user__email", flat=True)))
 
 
+def carried_by_morning_email() -> bool:
+    """NeuroDB Watch's morning email is on and scheduled: it carries today's note to the people who
+    asked for the email, so the What's new email steps aside."""
+    from neurodb.watch import delivery
+
+    return delivery.carries_whats_new()
+
+
 def send(notes: list[Digest]) -> int:
+    """Email the notes to the people who asked; the number of emails sent, 0 while NeuroDB Watch's
+    morning email carries the note (:data:`CARRIED`)."""
     if not getattr(settings, "DIGEST_EMAIL_ENABLED", False) or not notes:
+        return 0
+    if carried_by_morning_email():
+        logger.info("what's new note: not emailed, %s", CARRIED)
         return 0
     has_own_note = {d.section_id for d in notes if d.section_id}
     link = f"{settings.SITE_URL}{reverse('graph:whats_new')}" if settings.SITE_URL else ""

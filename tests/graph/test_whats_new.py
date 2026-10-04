@@ -312,6 +312,7 @@ def test_the_daily_note_is_written_per_section_and_emailed_to_who_asked(
         "https://n.example",
         False,
     )
+    settings.WATCH_EMAIL = False  # NeuroDB Watch's morning email off: What's new sends its own
     _build()
     run = write_notes("test")
     assert run.status == SyncRun.Status.SUCCEEDED
@@ -329,6 +330,18 @@ def test_the_daily_note_is_written_per_section_and_emailed_to_who_asked(
     assert (
         write_notes("test").status == SyncRun.Status.SUCCEEDED and Digest.objects.count() == 2
     )  # same day: rewritten
+
+
+def test_the_email_steps_aside_while_the_morning_email_carries_the_note(
+    people, changed, settings, mailoutbox
+):
+    settings.DIGEST_EMAIL_ENABLED, settings.AI_ASSISTANT_ENABLED = True, False
+    settings.WATCH_ENABLED = settings.WATCH_EMAIL = True
+    _build()
+    run = write_notes("test")
+    assert run.status == SyncRun.Status.SUCCEEDED and run.rows_written == 2  # the notes are still written
+    assert run.details["emailed"] == 0 and run.details["email"] == digest.CARRIED
+    assert mailoutbox == [] and not Digest.objects.exclude(emailed_to=0).exists()
 
 
 def test_no_notable_change_no_note(world):
@@ -365,13 +378,26 @@ def test_the_assistant_writes_the_note_from_the_changes_only(changed, settings, 
     assert all(n.written_by == digest.TEMPLATE for n in notes)
 
 
-def test_people_ask_for_the_email_and_stop_it(client, viewer, settings):
+@pytest.mark.parametrize(
+    ("morning_email", "ask", "told"),
+    [
+        (
+            True,
+            "Email me the morning note (For you and What's new)",
+            "You get the morning note by email",
+        ),
+        (False, "Email me the daily note", "You get the daily note of your section by email"),
+    ],
+)
+def test_people_ask_for_the_email_and_stop_it(client, viewer, settings, morning_email, ask, told):
     settings.DIGEST_EMAIL_ENABLED = True
+    settings.WATCH_ENABLED, settings.WATCH_EMAIL = True, morning_email  # NeuroDB Watch's morning email
     client.force_login(viewer)
-    assert "Email me the daily note" in client.get(reverse("graph:whats_new")).content.decode()
+    assert ask in client.get(reverse("graph:whats_new")).content.decode()
     client.post(reverse("graph:email"), {"email": "1"})
     assert DigestSubscription.objects.get(user=viewer).email
-    assert "Stop the email" in client.get(reverse("graph:whats_new")).content.decode()
+    page = client.get(reverse("graph:whats_new")).content.decode()
+    assert "Stop the email" in page and told in page
     client.post(reverse("graph:email"), {"email": "0"})
     assert not DigestSubscription.objects.get(user=viewer).email
 
@@ -381,6 +407,7 @@ def test_donor_accounts_never_get_the_note(people, changed, settings, mailoutbox
 
     DonorAccount.objects.create(user=people.edu, name="EU", donors=["EU"], must_change_password=False)
     settings.DIGEST_EMAIL_ENABLED, settings.AI_ASSISTANT_ENABLED = True, False
+    settings.WATCH_EMAIL = False  # What's new sends its own email (the morning email: tests/watch)
     _build()
     write_notes("test")
     assert "edu@example.org" not in {m.to[0] for m in mailoutbox}

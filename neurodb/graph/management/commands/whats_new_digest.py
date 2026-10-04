@@ -1,5 +1,6 @@
 """``whats_new_digest``: write today's what's new notes (everyone and per section) and email them to
-the people who asked for them."""
+the people who asked for them (unless NeuroDB Watch's morning email carries them: "carried by the
+morning note" in the run's details)."""
 
 from __future__ import annotations
 
@@ -19,11 +20,13 @@ def run(triggered_by: str = "schedule") -> SyncRun:
     except Exception as exc:
         return fail(sync_run, exc)
     sync_run.rows_written = len(notes)
+    carried = bool(notes) and digest.carried_by_morning_email()
     sync_run.finish(
         SyncRun.Status.SUCCEEDED,
         notes=[d.section_name or "all sections" for d in notes],
         emailed=emailed,
         written_by=sorted({d.written_by for d in notes}),
+        **({"email": digest.CARRIED} if carried else {}),
     )
     return sync_run
 

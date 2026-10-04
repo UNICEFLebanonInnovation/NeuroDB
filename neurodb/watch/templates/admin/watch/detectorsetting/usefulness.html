@@ -1,0 +1,9 @@
+{% load i18n %}
+<p class="nd-list-note">
+  <span class="material-symbols-outlined" aria-hidden="true">info</span>
+  <span>{% blocktrans trimmed with days=usefulness.days n=usefulness.min_ratings pct=usefulness.demote_percent %}A new check starts in trial: its points go to the whole-country view only (Administrators and the Management group). Switch it on for staff once its points look right and useful. The columns count the last {{ days }} days: the people told about its points and how they reacted. Useful is useful ÷ (useful + not useful + something's wrong); Done and Not mine do not count in it. A check that is on goes back to trial by itself when, among at least {{ n }} ratings since it was switched on, more than {{ pct }}% say not useful or something's wrong. The admin home then lists it under Needs attention until you switch it on again, keep it in trial (action) or switch it off.{% endblocktrans %}</span>
+</p>
+<p class="nd-list-note">
+  <span class="material-symbols-outlined" aria-hidden="true">insights</span>
+  <span>{% trans "Usefulness gate, for information:" %} {{ usefulness.gate.text }} {% trans "The background look-ups do not wait for it." %}</span>
+</p>

@@ -1,0 +1,68 @@
+{% load i18n %}
+{# One point on For you. Context: card = page.point(...) (plus "why" when set aside, "said" after a button), open = show the details at once. #}
+<li class="watch-card watch-card--{{ card.severity }}{% if card.why %} watch-card--aside{% endif %}"{% if card.anchor %} id="{{ card.anchor }}"{% endif %}>
+  <span class="watch-card__sev watch-card__sev--{{ card.severity }}" role="img" aria-label="{{ card.severity_label }}"></span>
+  <div class="watch-card__body">
+    <div class="watch-card__title">{% if card.url %}<a href="{{ card.url }}">{{ card.title }}</a>{% else %}{{ card.title }}{% endif %}</div>
+    <div class="watch-card__chips">
+      {% if card.reason %}<span class="watch-chip watch-chip--reason">{{ card.reason }}</span>{% endif %}
+      {% if card.due %}<span class="watch-chip">{{ card.due }}</span>{% endif %}
+      {% if card.confidence %}<span class="watch-chip watch-chip--{{ card.item.confidence }}">{{ card.confidence }}</span>{% endif %}
+      {% if card.trial %}<span class="watch-chip watch-chip--trial" title="{% trans 'A new check on trial: only administrators and management see it until it is switched on for staff' %}">{% trans "Trial check" %}</span>{% endif %}
+      {% if card.state == "closed" %}<span class="watch-chip watch-chip--closed">{% trans "Closed" %}</span>{% elif card.state == "gone" %}<span class="watch-chip">{% trans "No longer seen" %}</span>{% endif %}
+    </div>
+    {% if card.said %}<p class="watch-card__said" role="status">{{ card.said }}</p>{% endif %}
+    {% if card.why %}<p class="watch-card__why">{{ card.why }}.</p>{% endif %}
+
+    {% if not open %}<details class="watch-card__more"><summary>{% if card.receipt %}{% trans "Details and answers" %}{% else %}{% trans "Details" %}{% endif %}</summary>{% endif %}
+    {% if card.detail %}<p class="watch-card__detail">{{ card.detail }}</p>{% endif %}
+    {% if card.looked_up %}
+    <div class="watch-lookup">
+      <div class="watch-lookup__label">{% include "components/icon.html" with name="sparkle" %}<span>{{ card.looked_up.label }}</span>{% if card.looked_up.on %} <span class="text-muted">· {{ card.looked_up.on|date:"j M" }}</span>{% endif %}</div>
+      <p class="mb-0">{{ card.looked_up.text }}</p>
+    </div>
+    {% endif %}
+    {% include "watch/partials/_evidence.html" with evidence=card.evidence %}
+    <p class="watch-card__memory">{{ card.memory }}</p>
+    {% if card.connected %}
+    <p class="watch-card__connected">{% trans "Connected to" %}: {% for c in card.connected %}{% if c.url %}<a href="{{ c.url }}">{{ c.label }}</a>{% else %}{{ c.label }}{% endif %}{% if not forloop.last %} · {% endif %}{% endfor %}</p>
+    {% endif %}
+
+    {% if card.receipt and not card.why or card.undo %}
+    {% url 'watch:react' card.receipt.pk as react_url %}
+    <form class="watch-actions" method="post" action="{{ react_url }}" hx-post="{{ react_url }}" hx-target="closest .watch-card" hx-swap="outerHTML" aria-label="{% trans 'Your answer' %}">
+      {% csrf_token %}
+      {% if card.why %}
+      <button type="submit" class="btn btn-sm btn-outline-secondary" name="reaction" value="undo">{% trans "Undo" %}</button>
+      {% else %}
+      <button type="submit" class="btn btn-sm btn-outline-secondary" name="reaction" value="useful" aria-pressed="{% if card.reaction == 'useful' %}true{% else %}false{% endif %}">{% trans "Useful" %}</button>
+      <button type="submit" class="btn btn-sm btn-outline-secondary" name="reaction" value="not_useful" aria-pressed="{% if card.reaction == 'not_useful' %}true{% else %}false{% endif %}">{% trans "Not useful" %}</button>
+      <button type="submit" class="btn btn-sm btn-outline-secondary" name="reaction" value="done" title="{% trans 'I handled it' %}">{% trans "Done" %}</button>
+      <button type="submit" class="btn btn-sm btn-outline-secondary" name="reaction" value="not_mine">{% trans "Not mine" %}</button>
+      {% if card.snoozes %}
+      <details class="watch-menu">
+        <summary class="btn btn-sm btn-outline-secondary">{% trans "Remind me later" %}</summary>
+        <div class="watch-menu__panel">
+          {% for s in card.snoozes %}<button type="submit" class="btn btn-sm btn-link" name="snooze" value="{{ s.value }}">{{ s.label }}</button>{% endfor %}
+        </div>
+      </details>
+      {% endif %}
+      <details class="watch-menu">
+        <summary class="btn btn-sm btn-outline-secondary">{% trans "Something's wrong" %}</summary>
+        <div class="watch-menu__panel">
+          <label class="form-label small mb-1 w-100">{% trans "What is wrong? Optional; read by administrators only." %}
+            <input class="form-control form-control-sm mt-1" type="text" name="comment" maxlength="300">
+          </label>
+          <button type="submit" class="btn btn-sm btn-outline-danger mt-1" name="reaction" value="wrong">{% trans "Send" %}</button>
+        </div>
+      </details>
+      {% if card.ask_url %}<a class="btn btn-sm btn-outline-primary" href="{{ card.ask_url }}">{% include "components/icon.html" with name="sparkle" %}<span>{% trans "Look into this" %}</span></a>{% endif %}
+      {% if card.reaction %}<button type="submit" class="btn btn-sm btn-link" name="reaction" value="undo">{% trans "Undo" %}</button>{% endif %}
+      {% endif %}
+    </form>
+    {% elif card.ask_url and not preview %}
+    <div class="watch-actions"><a class="btn btn-sm btn-outline-primary" href="{{ card.ask_url }}">{% include "components/icon.html" with name="sparkle" %}<span>{% trans "Look into this" %}</span></a></div>
+    {% endif %}
+    {% if not open %}</details>{% endif %}
+  </div>
+</li>

@@ -1,0 +1,21 @@
+{% load i18n %}
+{# How NeuroDB knows a point: its source and last sync, the records, the numbers and its latest story. Context: evidence = page._evidence(...). #}
+<details class="watch-evidence">
+  <summary>{% trans "How we know" %}: {{ evidence.source|default:_("NeuroDB's data") }}{% if evidence.updated %}, {% blocktrans with when=evidence.updated %}updated {{ when }}{% endblocktrans %}{% endif %}</summary>
+  {% if evidence.records %}
+  <ul class="watch-evidence__records">
+    {% for r in evidence.records %}
+    <li>{% if r.url %}<a href="{{ r.url }}">{{ r.label }}</a>{% else %}{{ r.label }}{% endif %}{% if r.date %} <span class="text-muted">· {{ r.date }}</span>{% endif %}{% if r.value %} <span class="text-muted">· {{ r.value }}</span>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if evidence.numbers %}
+  <p class="watch-evidence__numbers">{% for n in evidence.numbers %}<span>{{ n.name }}: <strong>{{ n.value }}</strong></span>{% endfor %}</p>
+  {% endif %}
+  {% if evidence.story %}
+  <div class="watch-evidence__story">
+    <div class="watch-evidence__heading">{% trans "What happened" %}</div>
+    <ul>{% for line in evidence.story %}<li><span class="text-muted">{{ line.on }}</span> {{ line.text }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+</details>

@@ -15,7 +15,8 @@ the watch follows it as the item ``system:<key>`` and closes it once the line go
 - **the schedule**: the scheduler not checking in, a switched-on job overdue or never run, no daily
   review since yesterday;
 - **NeuroDB Watch**: no successful morning run for 26 hours, its AI paused, eTools section names
-  without a confirmed NeuroDB section.
+  without a confirmed NeuroDB section, a check that went back to trial by itself because people found
+  it unhelpful (:mod:`neurodb.watch.precision`).
 
 The scheduler not checking in and a missing daily review are critical; the other lines are warnings.
 Each line also says what it rests on (``read``, ``on``, ``value``, ``numbers``), in values that stay
@@ -323,15 +324,18 @@ def watch_last_success():
 
 
 def _watch(now: datetime.datetime) -> list[Warning]:
-    """NeuroDB Watch itself: late, its AI paused, eTools section names it cannot route. Nothing while
-    it is switched off."""
+    """NeuroDB Watch itself: late, its AI paused, eTools section names it cannot route, checks that
+    went back to trial by themselves. Nothing while it is switched off."""
     if not settings.WATCH_ENABLED:
         return []
+    from neurodb.watch import precision
     from neurodb.watch import sections as watch_sections
 
     lines = [*_watch_late(now), *_watch_ai_paused(now)]
     for line in watch_sections.needs_attention():  # eTools section names NeuroDB Watch cannot route
         lines.append(Warning(key=line["key"], text=line["text"], url=line["url"], read=line["text"]))
+    for line in precision.needs_attention():  # checks people found unhelpful, back in trial
+        lines.append(Warning(**line))
     return lines
 
 

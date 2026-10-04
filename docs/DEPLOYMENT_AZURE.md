@@ -11,12 +11,17 @@ Users ────────────────────────�
    Container Apps Jobs (same image)     Existing NeuroDB PostgreSQL (unchanged schema, TLS)
    ├─ neurodb-prod-migrate       manual        ▲
    ├─ neurodb-prod-ai-structure  manual        │  DATABASE_URL, tokens, keys from Key Vault
-   ├─ neurodb-prod-ai-data       15:00 UTC, days 1–22     (user-assigned managed identity)
-   ├─ neurodb-prod-etools        17:30 UTC
-   ├─ neurodb-prod-locations     02:00 UTC                Blob storage (identity, no keys)
-   ├─ neurodb-prod-freshness     hourly                   Log Analytics + Application Insights
-   └─ neurodb-prod-daily-review  03:00 UTC
+   ├─ neurodb-prod-ai-data       manual        │  (user-assigned managed identity)
+   ├─ neurodb-prod-etools        manual
+   ├─ neurodb-prod-locations     manual                   Blob storage (identity, no keys)
+   ├─ neurodb-prod-freshness     manual                   Log Analytics + Application Insights
+   └─ neurodb-prod-daily-review  manual
 ```
+
+The jobs have no cron: the schedules (the syncs, the daily review, the knowledge hub, What's new,
+NeuroDB Watch...) are kept in the application, admin → **Scheduled jobs**, in Beirut time, and run
+by the web container's own scheduler (see the end of this page and OPERATIONS.md, Scheduled jobs).
+The Container Apps jobs stay for manual runs.
 
 Everything is described in `infra/main.bicep`. The database is **not** created: v3 attaches to
 the existing NeuroDB database and only adds three tables (`docs/DATA_MIGRATION.md`).
