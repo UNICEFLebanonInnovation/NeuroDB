@@ -2,18 +2,22 @@
 
 Every tool wraps an existing NeuroDB service, so an answer uses the same numbers as the pages. Each
 returns JSON-safe data with a ``url`` to the page it came from, so answers can link to the source.
-Nothing here writes. Signed-in users may read all of this data on the site (there are no per-section
-read restrictions), so the tools apply no extra filtering; the assistant itself requires sign-in.
+Nothing here writes; a run nobody watches (NeuroDB Watch's look-up) also runs each tool inside
+``read_only()``, where a write fails. Signed-in users may read all of this data on the site (there are
+no per-section read restrictions), so the tools apply no extra filtering; the assistant itself
+requires sign-in.
 """
 
 from __future__ import annotations
 
 import datetime
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Iterator
+from contextlib import contextmanager
 from decimal import Decimal
 from typing import Any
 
+from django.db import connection, transaction
 from django.db.models import Count, Q, Sum
 from django.urls import reverse
 
@@ -1441,9 +1445,10 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
 }
 
 
-def definitions() -> list[dict[str, Any]]:
+def definitions(names: Collection[str] | None = None) -> list[dict[str, Any]]:
     """Function tools for the OpenAI Responses API, in a fixed order (an identical prefix on every
-    request keeps the prompt cache warm).
+    request keeps the prompt cache warm). ``names`` keeps only those tools, still in that order (a
+    background run offers a few); None gives them all, as Ask NeuroDB offers them.
 
     ``strict`` is False on purpose: strict mode would need every property required (optional ones
     nullable), its schema adherence is not guaranteed with parallel tool calls, and the SDK then
@@ -1453,6 +1458,7 @@ def definitions() -> list[dict[str, Any]]:
     return [
         {"type": "function", "name": name, "description": description, "parameters": schema, "strict": False}
         for name, (_, description, schema, _) in TOOLS.items()
+        if names is None or name in names
     ]
 
 
@@ -1460,9 +1466,10 @@ _TYPES = {"string": str, "integer": int, "boolean": bool, "object": dict, "array
 _SCALARS = (str, int, float, bool)
 
 
-def validate(name: str, args: Any) -> dict[str, Any]:
-    """Check arguments against the tool schema (non-strict function calling: the API does not)."""
-    if name not in TOOLS:
+def validate(name: str, args: Any, only: Collection[str] | None = None) -> dict[str, Any]:
+    """Check arguments against the tool schema (non-strict function calling: the API does not).
+    With ``only``, a tool outside it is unknown, as a tool that does not exist is."""
+    if name not in TOOLS or (only is not None and name not in only):
         raise ToolInputError(f"Unknown tool {name}.")
     if not isinstance(args, dict):
         raise ToolInputError("Arguments must be a JSON object.")
@@ -1507,10 +1514,25 @@ def validate(name: str, args: Any) -> dict[str, Any]:
     return clean
 
 
-def run(name: str, args: dict[str, Any]) -> dict[str, Any]:
-    """Validate and run one tool. Input problems raise ToolInputError (sent back to the model)."""
-    clean = validate(name, args)
+def run(name: str, args: dict[str, Any], only: Collection[str] | None = None) -> dict[str, Any]:
+    """Validate and run one tool (with ``only``, one of those). Input problems raise ToolInputError
+    (sent back to the model)."""
+    clean = validate(name, args, only)
     return _clean(TOOLS[name][0](**clean))
+
+
+@contextmanager
+def read_only() -> Iterator[None]:
+    """Run the block in a read-only database transaction that is rolled back at the end: a tool that
+    tries to write fails instead of writing. Inside an open transaction the block is a savepoint, and
+    rolling it back leaves that transaction as it was, able to write again."""
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute("SET TRANSACTION READ ONLY")
+        try:
+            yield
+        finally:
+            transaction.set_rollback(True)
 
 
 def label(name: str) -> str:

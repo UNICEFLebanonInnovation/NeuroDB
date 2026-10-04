@@ -13,6 +13,10 @@ can stream them to the browser:
 Requests are stateless (``store=False``, nothing is kept on OpenAI's side for later retrieval): every
 round sends the conversation so far, replaying the previous rounds' output items (reasoning items
 with their encrypted content, messages and function calls) followed by the tool results.
+
+A run that no person asks for (NeuroDB Watch's look-up) passes ``RunOptions``: fewer tools, extra
+instructions after the date, its own limits and cache key, a filter on every tool result and tools
+run read-only. Without options the request is exactly the one Ask NeuroDB sends.
 """
 
 from __future__ import annotations
@@ -21,7 +25,7 @@ import json
 import logging
 import re
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -172,6 +176,39 @@ class Outcome:
         self.output_tokens += usage.output_tokens or 0  # includes the reasoning tokens
 
 
+@dataclass(frozen=True)
+class RunOptions:
+    """How a run that no person asks for differs from an Ask NeuroDB question (``answer(...,
+    options=None)`` sends Ask's request unchanged):
+
+    - ``tools``: the only tools offered, in the registry's order; a call to any other tool goes back to
+      the model as an input error, as a tool that does not exist does. Empty: no tools;
+    - ``instructions``: added after the date, so the instructions still start as Ask's do;
+    - ``max_rounds``, ``time_limit`` (seconds), ``effort`` and ``max_output_tokens`` (per call): in
+      place of the AI_ASSISTANT_* settings and MAX_OUTPUT_TOKENS;
+    - ``cache_key``: its own prompt cache key, since its tools and instructions differ from Ask's;
+    - ``model``: empty for AI_ASSISTANT_MODEL;
+    - ``text_format``: the format of the answer, e.g. a strict JSON schema;
+    - ``tool_filter``: ``(tool name, result) -> result``, through which every tool result passes before
+      the model reads it (and before its numbers count as looked up);
+    - ``read_only``: each tool runs inside a read-only database transaction, so a write fails.
+
+    Nothing here identifies a person: pass ``user`` to ``answer()`` only for a run done for someone.
+    """
+
+    tools: tuple[str, ...] = ()
+    instructions: str = ""
+    max_rounds: int = 4
+    time_limit: float = 150
+    effort: str = "low"
+    max_output_tokens: int = 8000
+    cache_key: str = "neurodb-watch-investigate"
+    model: str = ""
+    text_format: dict[str, Any] | None = None
+    tool_filter: Callable[[str, Any], Any] | None = None
+    read_only: bool = True
+
+
 def client() -> openai.OpenAI:
     if not settings.AI_ASSISTANT_ENABLED:
         raise AssistantUnavailable("The AI assistant is not configured.")
@@ -194,17 +231,19 @@ def _within(api: openai.OpenAI, remaining: float) -> openai.OpenAI:
     return api.with_options(timeout=openai.Timeout(wait, connect=CONNECT_TIMEOUT), max_retries=retries)
 
 
-def _instructions() -> str:
+def _instructions(extra: str = "") -> str:
     # Stable text first and the date last, so the cached prompt prefix (the tools and these
-    # instructions) only changes when the day does.
+    # instructions) only changes when the day does. A background run's own instructions come after
+    # the date.
     from neurodb.indicators.services.navigation import current_year
 
     today = timezone.localdate()
     year = current_year()
-    return (
+    text = (
         f"{SYSTEM_PROMPT}\nToday is {today:%A %d %B %Y}. "
         f"The current reporting year is {year.name if year else 'unknown'}."
     )
+    return f"{text}\n\n{extra.strip()}" if extra.strip() else text
 
 
 def safety_identifier(user: Any) -> str | None:
@@ -215,21 +254,47 @@ def safety_identifier(user: Any) -> str | None:
     return digest.hexdigest()  # 64 characters, the API's maximum
 
 
-def _request(user: Any) -> dict[str, Any]:
-    """The parameters shared by every model call of one answer (``input`` is added per round)."""
-    params: dict[str, Any] = {
-        "model": settings.AI_ASSISTANT_MODEL,
-        "instructions": _instructions(),
-        "tools": tools.definitions(),
-        "reasoning": {"effort": settings.AI_ASSISTANT_EFFORT},
-        "max_output_tokens": MAX_OUTPUT_TOKENS,
-        "parallel_tool_calls": True,
-        "store": False,
-        "include": ["reasoning.encrypted_content"],  # reasoning is replayed between rounds
-        "prompt_cache_key": PROMPT_CACHE_KEY,
-    }
+def _request(user: Any, options: RunOptions | None = None) -> dict[str, Any]:
+    """The parameters shared by every model call of one answer (``input`` is added per round). With
+    ``options``, a background run's (see RunOptions)."""
+    if options is not None:
+        params = _background_request(options)
+    else:
+        params = {
+            "model": settings.AI_ASSISTANT_MODEL,
+            "instructions": _instructions(),
+            "tools": tools.definitions(),
+            "reasoning": {"effort": settings.AI_ASSISTANT_EFFORT},
+            "max_output_tokens": MAX_OUTPUT_TOKENS,
+            "parallel_tool_calls": True,
+            "store": False,
+            "include": ["reasoning.encrypted_content"],  # reasoning is replayed between rounds
+            "prompt_cache_key": PROMPT_CACHE_KEY,
+        }
     if identifier := safety_identifier(user):
         params["safety_identifier"] = identifier
+    return params
+
+
+def _background_request(options: RunOptions) -> dict[str, Any]:
+    """A background run's parameters: the same shape as Ask's, with its own model, tools, effort,
+    output limit, cache key and answer format."""
+    offered = tools.definitions(options.tools)
+    params: dict[str, Any] = {
+        "model": options.model or settings.AI_ASSISTANT_MODEL,
+        "instructions": _instructions(options.instructions),
+        "tools": offered,
+        "reasoning": {"effort": options.effort},
+        "max_output_tokens": options.max_output_tokens,
+        "parallel_tool_calls": True,
+        "store": False,
+        "include": ["reasoning.encrypted_content"],
+        "prompt_cache_key": options.cache_key,
+    }
+    if not offered:  # no tools: nothing to call in parallel
+        del params["tools"], params["parallel_tool_calls"]
+    if options.text_format:
+        params["text"] = {"format": options.text_format}
     return params
 
 
@@ -381,22 +446,36 @@ def _arguments(raw: str | None) -> Any:
         raise tools.ToolInputError(f"The arguments are not valid JSON ({exc}).") from exc
 
 
-def _run_tools(calls: list[Any], outcome: Outcome) -> list[dict[str, Any]]:
+def _lookup(name: str, args: Any, options: RunOptions | None) -> Any:
+    """One tool's result as the model reads it. A background run (``options``) may only call its own
+    tools, runs them read-only when it asks to, and passes every result through its filter."""
+    if options is None:
+        return tools.run(name, args)
+    if options.read_only:
+        with tools.read_only():
+            result = tools.run(name, args, only=options.tools)
+    else:
+        result = tools.run(name, args, only=options.tools)
+    return options.tool_filter(name, result) if options.tool_filter else result
+
+
+def _run_tools(calls: list[Any], outcome: Outcome, options: RunOptions | None = None) -> list[dict[str, Any]]:
     """Run the model's function calls; each result or error goes back as a function_call_output."""
     results = []
+    only = options.tools if options is not None else None
     for call in calls:
         started = time.monotonic()
         args: Any = call.arguments
         try:
             args = _arguments(call.arguments)
             if call.name == "make_chart":  # drawn under the answer, from figures looked up
-                outcome.charts.append(charts.build(tools.validate(call.name, args), outcome.numbers))
+                outcome.charts.append(charts.build(tools.validate(call.name, args, only), outcome.numbers))
                 result = {
                     "drawn": True,
                     "note": "The chart is shown under the answer. Refer to it; do not describe how it looks.",
                 }
             else:
-                result = tools.run(call.name, args)
+                result = _lookup(call.name, args, options)
                 charts.numbers_in(result, outcome.numbers)
             output, ok = json.dumps(result, ensure_ascii=False), True
         except tools.ToolInputError as exc:
@@ -419,19 +498,26 @@ def _run_tools(calls: list[Any], outcome: Outcome) -> list[dict[str, Any]]:
 
 
 def answer(
-    question: str, history: list[dict[str, str]], outcome: Outcome, user: Any = None
+    question: str,
+    history: list[dict[str, str]],
+    outcome: Outcome,
+    user: Any = None,
+    options: RunOptions | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Run the conversation to a final answer, yielding progress events. Fills ``outcome``.
 
     ``user`` (the person asking) is only used for the hashed safety identifier sent to OpenAI.
+    ``options`` is for a run no person asks for (see RunOptions); None is Ask NeuroDB's request.
     """
     api = client()
-    deadline = time.monotonic() + settings.AI_ASSISTANT_TIME_LIMIT_SECONDS
-    request = _request(user)
+    time_limit = settings.AI_ASSISTANT_TIME_LIMIT_SECONDS if options is None else options.time_limit
+    max_rounds = settings.AI_ASSISTANT_MAX_TOOL_ROUNDS if options is None else options.max_rounds
+    deadline = time.monotonic() + time_limit
+    request = _request(user, options)
     items: list[dict[str, Any]] = [*history_messages(history), {"role": "user", "content": question}]
     final_text = ""
     round_no = 0
-    while round_no < settings.AI_ASSISTANT_MAX_TOOL_ROUNDS:
+    while round_no < max_rounds:
         remaining = deadline - time.monotonic()
         if remaining < 0:
             outcome.status, outcome.error = "failed", "time limit"
@@ -479,7 +565,7 @@ def answer(
             yield {"type": "tool", "label": tools.label(call.name), "round": round_no}
         items += _replay(output)
         drawn = len(outcome.charts)
-        items += _run_tools(calls, outcome)
+        items += _run_tools(calls, outcome, options)
         for spec in outcome.charts[drawn:]:
             yield {"type": "chart", "spec": spec}
     else:

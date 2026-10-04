@@ -8,6 +8,7 @@ import re
 import runpy
 import typing
 import uuid
+from dataclasses import replace
 from inspect import signature
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,7 +20,7 @@ import pytest
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ImproperlyConfigured
-from django.db import DatabaseError
+from django.db import DatabaseError, transaction
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -648,6 +649,166 @@ def test_the_rounds_use_the_time_left(client_viewer, db, fake):
     first, second = model.options
     assert first["max_retries"] == 1 and first["timeout"].read <= 90.0
     assert second["timeout"].read <= first["timeout"].read and second["timeout"].connect == 10.0
+
+
+# ------------------------------------------------------------------------- runs nobody asks for (RunOptions)
+
+FOUND_FORMAT = {
+    "type": "json_schema",
+    "name": "found",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {"found": {"type": "string"}},
+        "required": ["found"],
+        "additionalProperties": False,
+    },
+}
+BACKGROUND = agent.RunOptions(
+    tools=("daily_review", "data_freshness"),
+    instructions="Look into one point and reply in JSON.",
+    cache_key="test-background",
+    text_format=FOUND_FORMAT,
+)
+
+
+@override_settings(**ENABLED)
+def test_without_options_the_ask_request_is_unchanged(viewer):
+    """The request Ask NeuroDB sends, written out as it was before background runs existed: the same
+    keys in the same order, so the same bytes and the same cached prefix."""
+    expected = {
+        "model": "gpt-5.5",
+        "instructions": agent._instructions(),
+        "tools": tools.definitions(),
+        "reasoning": {"effort": "medium"},
+        "max_output_tokens": agent.MAX_OUTPUT_TOKENS,
+        "parallel_tool_calls": True,
+        "store": False,
+        "include": ["reasoning.encrypted_content"],
+        "prompt_cache_key": "neurodb-assistant",
+        "safety_identifier": agent.safety_identifier(viewer),
+    }
+    assert json.dumps(agent._request(viewer)) == json.dumps(expected)
+    assert json.dumps(agent._request(viewer, None)) == json.dumps(expected)
+    assert tools.definitions(None) == tools.definitions()
+
+
+@override_settings(**ENABLED)
+def test_options_shape_a_background_request(db, fake):
+    model = fake(reply(say('{"found": "Fresh."}', phase="final_answer")))
+    outcome = agent.Outcome()
+
+    events = list(agent.answer("Look into this point", [], outcome, options=BACKGROUND))
+
+    assert events[-1]["type"] == "done" and outcome.answer == '{"found": "Fresh."}'
+    request = model.requests[0]
+    assert request["model"] == "gpt-5.5"
+    assert [t["name"] for t in request["tools"]] == ["data_freshness", "daily_review"]  # the registry's order
+    assert request["tools"] == tools.definitions(("data_freshness", "daily_review"))
+    assert request["reasoning"] == {"effort": "low"} and request["max_output_tokens"] == 8000
+    assert request["prompt_cache_key"] == "test-background"
+    assert request["text"] == {"format": FOUND_FORMAT}
+    assert request["store"] is False and request["include"] == ["reasoning.encrypted_content"]
+    # Ask's instructions first (the cached prefix), the date, then the run's own
+    assert request["instructions"] == agent._instructions() + "\n\nLook into one point and reply in JSON."
+    assert request["instructions"].startswith(agent.SYSTEM_PROMPT)
+    assert "safety_identifier" not in request  # no person asked
+    assert request["input"] == [{"role": "user", "content": "Look into this point"}]
+    # a background model of its own; no tools at all leaves the tool keys out
+    bare = agent._request(None, agent.RunOptions(model="another-model"))
+    assert bare["model"] == "another-model" and "tools" not in bare and "parallel_tool_calls" not in bare
+    assert "text" not in bare and bare["prompt_cache_key"] == "neurodb-watch-investigate"
+
+
+@override_settings(**ENABLED)
+def test_a_background_run_calls_only_its_tools_and_reads_them_filtered(db, fake, monkeypatch):
+    ran = []
+
+    def query(**kwargs):
+        ran.append(kwargs)
+        return {"rows": [{"amount": 999}]}
+
+    def freshness():
+        return {"jobs": 4, "contact": "someone", "url": "/admin/"}
+
+    monkeypatch.setitem(tools.TOOLS, "etools_query", (query, *tools.TOOLS["etools_query"][1:]))
+    monkeypatch.setitem(tools.TOOLS, "data_freshness", (freshness, *tools.TOOLS["data_freshness"][1:]))
+    filtered = []
+
+    def keep_jobs(name, result):
+        filtered.append(name)
+        return {"jobs": result["jobs"]}
+
+    model = fake(
+        reply(call("etools_query", {"dataset": "x"}, "call_1"), call("data_freshness", {}, "call_2")),
+        reply(say('{"found": "4 jobs"}', item_id="msg_2")),
+    )
+    outcome = agent.Outcome()
+
+    list(agent.answer("Look", [], outcome, options=replace(BACKGROUND, tool_filter=keep_jobs)))
+
+    outputs = _outputs(model.requests[1])
+    # a tool that exists but is not offered is unknown to this run, and never runs
+    assert outputs["call_1"]["error"] == "Unknown tool etools_query." and ran == []
+    assert outputs["call_2"] == {"jobs": 4}  # what the filter let through, nothing else
+    assert filtered == ["data_freshness"] and outcome.numbers == {4.0}
+    assert [(t["tool"], t["ok"]) for t in outcome.tools] == [
+        ("etools_query", False),
+        ("data_freshness", True),
+    ]
+
+
+@override_settings(**ENABLED)
+def test_a_background_tool_cannot_write(db, fake, monkeypatch, caplog):
+    def writes():
+        AssistantQuestion.objects.create(question="written by a tool")
+        return {"written": True}
+
+    monkeypatch.setitem(tools.TOOLS, "data_freshness", (writes, *tools.TOOLS["data_freshness"][1:]))
+    model = fake(reply(call("data_freshness", {})), reply(say('{"found": ""}', item_id="msg_2")))
+    outcome = agent.Outcome()
+
+    list(agent.answer("Look", [], outcome, options=BACKGROUND))
+
+    assert _outputs(model.requests[1]) == {"call_1": {"error": "The lookup failed on the server."}}
+    assert outcome.tools[0]["ok"] is False and outcome.status == "answered"
+    assert "read-only transaction" in caplog.text
+    assert not AssistantQuestion.objects.exists()
+    AssistantQuestion.objects.create(question="the run's own transaction can write again")
+
+
+def test_read_only_blocks_writes_inside_an_open_transaction(db):
+    with transaction.atomic():
+        AssistantQuestion.objects.create(question="before")
+        with pytest.raises(DatabaseError, match="read-only transaction"):
+            with tools.read_only():
+                assert AssistantQuestion.objects.count() == 1  # reading works
+                AssistantQuestion.objects.create(question="inside")
+        AssistantQuestion.objects.create(question="after")  # read-write again
+    assert sorted(AssistantQuestion.objects.values_list("question", flat=True)) == ["after", "before"]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_read_only_blocks_writes_outside_a_transaction():
+    with pytest.raises(DatabaseError, match="read-only transaction"):
+        with tools.read_only():
+            AssistantQuestion.objects.create(question="inside")
+    AssistantQuestion.objects.create(question="after")
+    assert list(AssistantQuestion.objects.values_list("question", flat=True)) == ["after"]
+
+
+@override_settings(**ENABLED)
+def test_a_background_run_keeps_to_its_own_limits(db, fake):
+    model = fake(reply(call("data_freshness", {}, "call_1")), reply(call("data_freshness", {}, "call_2")))
+    outcome = agent.Outcome()
+    events = list(agent.answer("Look", [], outcome, options=replace(BACKGROUND, max_rounds=2)))
+    assert events[-1]["type"] == "error" and len(model.requests) == 2
+    assert outcome.status == "failed" and outcome.error == "too many lookups"
+
+    model = fake(reply(say("Never sent.")))
+    outcome = agent.Outcome()
+    list(agent.answer("Look", [], outcome, options=replace(BACKGROUND, time_limit=-1)))
+    assert outcome.error == "time limit" and model.requests == []
 
 
 def test_the_safety_identifier_is_a_keyed_hash_of_the_user(viewer, admin_user):
