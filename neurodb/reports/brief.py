@@ -32,7 +32,7 @@ from django.utils import timezone
 from neurodb.core.models import PopulationFigure, SyncRun
 from neurodb.datamart import models as dm
 from neurodb.datamart.children import overrides as children_overrides
-from neurodb.datamart.monitoring import SUBMITTED
+from neurodb.datamart.monitoring import is_submitted
 from neurodb.facts import queries as fact_queries
 from neurodb.facts.services.dashboard import fact_filter
 from neurodb.partnerships.models import PCA, PartnerLink
@@ -756,7 +756,7 @@ class _Builder:
             if not r["period_end"]:
                 continue
             quarter = (r["period_end"].month - 1) // 3
-            submitted = r["submission_date"] is not None or (r["report_status"] or "").lower() in SUBMITTED
+            submitted = is_submitted(r)
             due = r["due_date"]
             if submitted:
                 state = "late" if due and r["submission_date"] and r["submission_date"] > due else "on_time"
@@ -918,7 +918,7 @@ class _Builder:
         reports_by_partner: dict[int, Counter[str]] = defaultdict(Counter)
         for r in self._reports():
             due = r["due_date"]
-            submitted = r["submission_date"] is not None or (r["report_status"] or "").lower() in SUBMITTED
+            submitted = is_submitted(r)
             if not due or (not submitted and due >= self.today):
                 continue  # not yet due
             reports_by_partner[r["partner_id"]]["due"] += 1

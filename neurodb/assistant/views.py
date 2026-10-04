@@ -22,7 +22,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from neurodb.knowledge.access import can_add as can_add_knowledge
 
-from . import agent
+from . import agent, usage
 from .models import AssistantQuestion
 
 logger = logging.getLogger(__name__)
@@ -187,6 +187,8 @@ def _stream(request: HttpRequest, row: AssistantQuestion) -> Iterator[str]:
             row.save()
         except Exception:  # the answer has been sent: a failed log write must not break the stream
             logger.exception("AI assistant: could not log question %s", row.pk)
+        # the answer's model calls in the day's AI use of the shared key (never raises)
+        usage.record(usage.ASK, settings.AI_ASSISTANT_MODEL, outcome, calls=outcome.calls)
 
 
 @require_POST

@@ -3,11 +3,15 @@ base (the morning run), then rebuild the hub from every source and record what c
 
 from __future__ import annotations
 
+import logging
+
 from neurodb.core.models import SyncRun
 from neurodb.integrations.runs import fail, new_run
 
 from . import builders, refresh, store
 from .models import RefreshRequest
+
+logger = logging.getLogger(__name__)
 
 
 def run(triggered_by: str = "schedule", documents: bool = True) -> SyncRun:
@@ -29,7 +33,12 @@ def run(triggered_by: str = "schedule", documents: bool = True) -> SyncRun:
             sync_run.rows_in = len(collector.entities)
             sync_run.rows_written = counts["entities"]
             sync_run.rows_failed = len(errors) + details.get("documents", {}).get("failed", 0)
-            details.update(counts, failed_sources=errors)
+            details.update(counts, failed_sources=errors)  # suspect_removals: {kind: n} kept out of the news
+            if counts["suspect_removals"]:
+                logger.warning(
+                    "knowledge hub: many things went at once, not told as news: %s",
+                    counts["suspect_removals"],
+                )
         except Exception as exc:
             return fail(sync_run, exc)
         status = SyncRun.Status.PARTIAL if sync_run.rows_failed else SyncRun.Status.SUCCEEDED

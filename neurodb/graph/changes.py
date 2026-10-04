@@ -6,11 +6,19 @@ A change is *notable* when people would want to hear about it: a new partner, pr
 donor or document, a status that changed, a figure that moved by 10% or more, a programme document
 newly funded by a donor. The rest (a new district in the gazetteer, a document newly mentioning a
 place) is kept and searchable, but stays out of the daily note.
+
+A daily review finding is news when it appears or goes while critical, or when its severity moves. Its
+state moving from new to still open is not even recorded; its title counting the days down ("ends in 12
+days") is kept, but is not news.
+
+A build that loses more than a fifth of one kind of thing at once, with no error from its source, is more
+likely a partial read than real news: those removals are recorded but not notable, and counted as suspect.
 """
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
+from collections.abc import Collection
 from datetime import datetime
 from typing import Any
 
@@ -48,7 +56,12 @@ NOTABLE_LINKS = {
     "linked_to",
     "run_by",
 }
-IGNORED_FIELDS = {K.FINDING: {"date"}}  # a finding carries the date of the review that raised it
+# a finding carries the date of the review that raised it, and its state moves from new to still open
+IGNORED_FIELDS = {K.FINDING: {"date", "state"}}
+# for these kinds a change is news only when one of these moved (a finding's title counts days down)
+NOTABLE_FIELDS = {K.FINDING: {"severity"}}
+SUSPECT_SHARE = 0.20  # one build losing more than this share of a kind's things…
+SUSPECT_MIN_BEFORE = 10  # …out of at least this many is suspect, not news
 RELATIVE = 0.10  # a figure "moved" when it changed by at least 10%…
 MINIMUM = {"budget": 1000, "disbursed": 1000, "outstanding": 1000, "reports": 5}  # …and at least this much
 
@@ -74,6 +87,19 @@ def field_moved(field: str, before: Any, after: Any) -> bool:
 
 def _is_critical(data: dict[str, Any]) -> bool:
     return (data.get("attrs") or {}).get("severity") == "critical"
+
+
+def suspect_removals(before: dict[Ref, Any], gone: set[Ref]) -> dict[str, int]:
+    """The kinds that lost more than a fifth of their things in this build (of at least 10), with how
+    many went. A source that failed keeps its things (``store.write``), so these vanished without any
+    error: more likely a partial or empty read upstream than real news."""
+    had = Counter(kind for kind, _ in before)
+    lost = Counter(kind for kind, _ in gone)
+    return {
+        str(kind): n
+        for kind, n in sorted(lost.items())
+        if had[kind] >= SUSPECT_MIN_BEFORE and n > had[kind] * SUSPECT_SHARE
+    }
 
 
 class _Sections:
@@ -112,7 +138,10 @@ def detect(
     ids: dict[Ref, int],
     now: datetime,
     run: Any = None,
+    suspect: Collection[str] = (),
 ) -> list[Change]:
+    """The changes between the previous build (``before``, ``gone``, ``old_edges``) and this one. What
+    went of a ``suspect`` kind (see ``suspect_removals``) is recorded but not notable."""
     sections = _Sections(old_edges | new_edges)
     out: list[Change] = []
 
@@ -152,11 +181,16 @@ def detect(
         if old["name"] != data["name"]:
             fields["name"] = [old["name"], data["name"]]
         if fields:
-            notable = any(field_moved(f, b, a) for f, (b, a) in fields.items())
+            telling = NOTABLE_FIELDS.get(ref[0])
+            notable = any(
+                field_moved(f, b, a) for f, (b, a) in fields.items() if telling is None or f in telling
+            )
             change(ref, data["name"], data["url"], Change.Op.CHANGED, notable, fields=fields)
     for ref in gone:
         old = before[ref]
-        notable = ref[0] in NOTABLE_REMOVED or (ref[0] == K.FINDING and _is_critical(old))
+        notable = ref[0] not in suspect and (
+            ref[0] in NOTABLE_REMOVED or (ref[0] == K.FINDING and _is_critical(old))
+        )
         change(ref, old["name"], "", Change.Op.REMOVED, notable)
 
     names = {ref: d["name"] for ref, d in collector.entities.items()}

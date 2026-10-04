@@ -67,6 +67,11 @@ COMMANDS: dict[str, JobCommand] = {
     "whats_new": JobCommand(
         _("Write the daily what's new note (and email it)"), ("whats_new_digest",), SyncRun.Job.WHATS_NEW
     ),
+    "watch": JobCommand(
+        _("NeuroDB Watch: deadlines and concerns for each person"),
+        ("run_watch", "--daily"),
+        SyncRun.Job.WATCH,
+    ),
     "freshness": JobCommand(_("Check data freshness"), ("check_sync_freshness",), None, triggered_by=False),
 }
 

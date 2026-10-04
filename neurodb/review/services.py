@@ -353,6 +353,7 @@ def narrate(review: DailyReview, findings: list[ReviewFinding]) -> str:
         return template_summary(findings, stats)
     try:
         from neurodb.assistant import agent
+        from neurodb.assistant import usage as ai_usage
 
         response = agent.client().responses.create(
             model=settings.AI_ASSISTANT_MODEL,
@@ -362,6 +363,7 @@ def narrate(review: DailyReview, findings: list[ReviewFinding]) -> str:
             store=False,
             reasoning={"effort": "low"},
         )
+        ai_usage.record(ai_usage.REVIEW, settings.AI_ASSISTANT_MODEL, getattr(response, "usage", None))
         text = (getattr(response, "output_text", "") or "").strip()
         if not text:
             raise ValueError("the model returned no text")
@@ -502,6 +504,7 @@ def decide(review: DailyReview, findings: list[ReviewFinding]) -> list[dict[str,
         return []
     try:
         from neurodb.assistant import agent
+        from neurodb.assistant import usage as ai_usage
 
         response = agent.client().responses.create(
             model=settings.AI_ASSISTANT_MODEL,
@@ -520,6 +523,7 @@ def decide(review: DailyReview, findings: list[ReviewFinding]) -> list[dict[str,
             },
         )
         usage = getattr(response, "usage", None)
+        ai_usage.record(ai_usage.REVIEW, settings.AI_ASSISTANT_MODEL, usage)
         review.model_input_tokens += int(getattr(usage, "input_tokens", 0) or 0)
         review.model_output_tokens += int(getattr(usage, "output_tokens", 0) or 0)
         raw = json.loads(getattr(response, "output_text", "") or "{}")

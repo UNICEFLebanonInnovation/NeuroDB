@@ -91,8 +91,8 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
     (
         _("Data and sync"),
         _(
-            "Import history, scheduled jobs, the daily review, population figures, saved views, AI "
-            "questions, audit trail."
+            "Import history, scheduled jobs, the daily review, NeuroDB Watch (For you), population "
+            "figures, saved views, AI questions and AI use, audit trail."
         ),
         [
             "core.SyncRun",
@@ -100,9 +100,15 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
             "review.DailyReview",
             "review.ReviewFinding",
             "review.FindingAssignment",
+            "watch.WatchItem",
+            "watch.WatchReceipt",
+            "watch.WatchNote",
+            "watch.DetectorSetting",
+            "watch.SectionMatch",
             "core.PopulationFigure",
             "core.SavedView",
             "assistant.AssistantQuestion",
+            "assistant.AIUsage",
             "admin.LogEntry",
         ],
     ),
@@ -243,9 +249,15 @@ ICONS = {
     "review.DailyReview": "fact_check",
     "review.ReviewFinding": "checklist",
     "review.FindingAssignment": "assignment_ind",
+    "watch.WatchItem": "notifications",
+    "watch.WatchReceipt": "mark_chat_read",
+    "watch.WatchNote": "sticky_note_2",
+    "watch.DetectorSetting": "tune",
+    "watch.SectionMatch": "join_inner",
     "reports.SectionPlan": "target",
     "datamart.IndicatorFlag": "child_care",
     "assistant.AssistantQuestion": "smart_toy",
+    "assistant.AIUsage": "data_usage",
     "datamart.FundsReservation": "account_balance",
     "datamart.Grant": "redeem",
     "datamart.PDIndicator": "monitoring",

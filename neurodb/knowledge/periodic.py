@@ -250,6 +250,7 @@ def _ai_figures(
     document: Document, pages: list[str], charts: list[pdf_layout.ChartSeries]
 ) -> list[dict[str, Any]] | None:
     """The AI's list of the edition's figures; None when the assistant is not configured."""
+    from neurodb.assistant import usage
     from neurodb.assistant.agent import AssistantUnavailable, client
 
     try:
@@ -297,6 +298,7 @@ def _ai_figures(
         max_output_tokens=32000,
         store=False,
     )
+    usage.record(usage.PERIODIC, settings.AI_ASSISTANT_MODEL, getattr(response, "usage", None))
     return list(json.loads(response.output_text).get("figures") or [])
 
 

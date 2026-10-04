@@ -331,12 +331,13 @@ def check_not_reported(ctx: Context) -> list[Draft]:
 
 
 def check_reports_overdue(ctx: Context) -> list[Draft]:
-    """Progress reports past their due date and not submitted, per programme document."""
+    """Progress reports past their due date and not submitted (:func:`monitoring.pending_q`, the
+    rule every page uses), per programme document."""
     rows = (
         dm.ReportedIndicator.objects.filter(
+            monitoring.pending_q(),
             intervention_id__in=list(ctx.active_pds),
             report_type=REPORT_TYPE,
-            submission_date=None,
             due_date__lt=ctx.today,
         )
         .order_by()

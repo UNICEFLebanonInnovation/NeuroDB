@@ -36,3 +36,39 @@ class AssistantQuestion(models.Model):
 
     def __str__(self):
         return self.question[:80]
+
+
+class AIUsage(models.Model):
+    """The AI use of one feature on one day with one model: the calls made to OpenAI and the tokens
+    they used. Every feature on the shared OpenAI key adds to it after each call (``usage.record``):
+    Ask NeuroDB, the daily review, the What's new note, document summaries, periodic report figures,
+    the country programme reading and NeuroDB Watch. The day's total across features is read from it,
+    and so are the watch's own limits."""
+
+    day = models.DateField(help_text="local date of the calls")
+    feature = models.CharField(
+        max_length=20, help_text="ask, review, digest, knowledge, periodic, cpd or watch"
+    )
+    model = models.CharField(max_length=64, blank=True, help_text="the model the calls asked for")
+    calls = models.PositiveIntegerField(default=0)
+    input_tokens = models.PositiveBigIntegerField(
+        default=0, help_text="prompt tokens not read from the cache"
+    )
+    cached_tokens = models.PositiveBigIntegerField(default=0, help_text="prompt tokens read from the cache")
+    output_tokens = models.PositiveBigIntegerField(default=0, help_text="includes the reasoning tokens")
+
+    class Meta:
+        ordering = ("-day", "feature", "model")
+        constraints = [
+            models.UniqueConstraint(fields=["day", "feature", "model"], name="assistant_aiusage_one_per_day")
+        ]
+        verbose_name = "AI use"
+        verbose_name_plural = "AI use"
+
+    def __str__(self):
+        return f"{self.day} {self.feature} {self.model}"
+
+    @property
+    def total_tokens(self) -> int:
+        """The whole prompt (cached or not) and the output."""
+        return self.input_tokens + self.cached_tokens + self.output_tokens

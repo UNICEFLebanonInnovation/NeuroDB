@@ -224,6 +224,15 @@ def test_summary_and_grouping(data):
     assert len(groups[0]["pds"][0]["outputs"][0]["indicators"]) == 2
 
 
+@pytest.mark.parametrize(("status", "overdue"), [("Sent back", 0), ("submitted", 0), ("Due", 1), ("", 1)])
+def test_summary_counts_a_report_whose_status_says_submitted_as_not_overdue(data, status, overdue):
+    """The shared rule (monitoring.pending_q): no submission date is not enough to be overdue."""
+    dm.ReportedIndicator.objects.filter(progress_report="PR-3").update(report_status=status)
+    filters = monitoring.Filters(year=2026)
+    rows = monitoring.indicators(filters, today=TODAY)
+    assert monitoring.summary(rows, filters, today=datetime.date(2026, 11, 1))["overdue_reports"] == overdue
+
+
 @pytest.fixture
 def frozen_today(monkeypatch):
     monkeypatch.setattr(monitoring, "datetime", _FrozenDatetime)

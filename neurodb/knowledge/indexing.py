@@ -176,6 +176,7 @@ def _date(text: str) -> datetime.date | None:
 def summarise(document: Document) -> bool:
     """Ask the model for the summary, key points, date and names of the document; the names become
     AI-suggested links when they match NeuroDB records. False when the assistant is not configured."""
+    from neurodb.assistant import usage
     from neurodb.assistant.agent import AssistantUnavailable, client
 
     try:
@@ -209,6 +210,7 @@ def summarise(document: Document) -> bool:
         max_output_tokens=8000,
         store=False,
     )
+    usage.record(usage.KNOWLEDGE, settings.AI_ASSISTANT_MODEL, getattr(response, "usage", None))
     data = json.loads(response.output_text)
     document.summary = str(data.get("summary") or "")[:4000]
     document.key_points = [str(p)[:500] for p in (data.get("key_points") or [])][:8]

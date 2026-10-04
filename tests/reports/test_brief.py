@@ -117,6 +117,17 @@ def test_timeliness_marks_each_quarter(data, reporting_year):
     assert row["cells"][1] == "missing" and row["late"] == 1  # due ten days ago, nothing submitted
 
 
+def test_a_report_accepted_without_its_date_is_on_time_not_missing(data, reporting_year):
+    """The brief reads the shared rule (monitoring.is_submitted): the status alone is enough."""
+    dm.ReportedIndicator.objects.filter(progress_report="PR-2").update(
+        submission_date=None, report_status=" ACCEPTED ", due_date=TODAY - datetime.timedelta(days=10)
+    )
+    built = build(reporting_year)
+    (row,) = built["confidence"]["timeliness"]["rows"]
+    assert row["cells"][1] == "on_time" and row["late"] == 0
+    assert built["partners"]["scorecard"][0]["reports_on_time_percent"] == 100.0
+
+
 def test_who_and_where(data, reporting_year):
     who = build(reporting_year)["who"]
     assert who["sex_age"]["labels"] == ["Children"] and who["sex_age"]["series"]["Not named"] == [500]

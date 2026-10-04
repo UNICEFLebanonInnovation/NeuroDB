@@ -71,6 +71,7 @@ INSTALLED_APPS = [
     "neurodb.wellbeing",
     "neurodb.graph",
     "neurodb.insights",
+    "neurodb.watch",
     "neurodb.web",
 ]
 SITE_ID = 1
@@ -412,6 +413,44 @@ if AI_ASSISTANT_EFFORT not in AI_ASSISTANT_EFFORTS:
     raise ImproperlyConfigured(
         f"AI_ASSISTANT_EFFORT must be one of {AI_ASSISTANT_EFFORTS}; got {AI_ASSISTANT_EFFORT!r}"
     )
+
+
+def _optional_float(name: str) -> float | None:
+    """A number, or None when the variable is unset or empty."""
+    value = env(name, default="").strip()
+    return float(value) if value else None
+
+
+# Every AI feature shares the one OpenAI key; the AI use ledger (admin → AI use) counts their tokens per
+# day. The background features stop using AI first when all of them together pass 80% of this daily
+# total, so Ask NeuroDB keeps working. Prices in USD per million tokens are optional: when set, the
+# ledger shows the cost too (check the current OpenAI price list).
+AI_DAILY_TOKEN_SOFT_CAP = env.int("AI_DAILY_TOKEN_SOFT_CAP", default=3_000_000)
+AI_PRICE_INPUT_PER_MTOK = _optional_float("AI_PRICE_INPUT_PER_MTOK")
+AI_PRICE_CACHED_PER_MTOK = _optional_float("AI_PRICE_CACHED_PER_MTOK")
+AI_PRICE_OUTPUT_PER_MTOK = _optional_float("AI_PRICE_OUTPUT_PER_MTOK")
+
+# ---------------------------------------------------------------------------- NeuroDB Watch (For you)
+# The background assistant behind each person's "For you" page: every morning (scheduled job "watch",
+# 07:45) and shortly after new data arrives it checks what is due soon and what needs someone, then
+# tells each person once. Rules find things; the AI only writes the morning note (one call per
+# audience) and looks into a few critical items, within the caps below. Off: nothing runs.
+WATCH_ENABLED = env.bool("WATCH_ENABLED", default=True)
+WATCH_AI = env.bool("WATCH_AI", default=True)  # also needs AI_ASSISTANT_ENABLED; off: plain wording only
+WATCH_MODEL = env("WATCH_MODEL", default="").strip() or AI_ASSISTANT_MODEL  # empty: the assistant's
+WATCH_DAILY_TOKEN_CAP = env.int("WATCH_DAILY_TOKEN_CAP", default=300_000)  # input + output, notes + look-ups
+# About 10 morning notes, plus 3 look-ups of up to 4 rounds each
+WATCH_MAX_MODEL_CALLS_PER_DAY = env.int("WATCH_MAX_MODEL_CALLS_PER_DAY", default=24)
+# The background look-up: on the open critical items (newly critical or worse first), read-only tools
+WATCH_INVESTIGATE_ENABLED = env.bool("WATCH_INVESTIGATE_ENABLED", default=True)
+WATCH_INVESTIGATE_PER_DAY = env.int("WATCH_INVESTIGATE_PER_DAY", default=3)
+WATCH_SETTLE_SECONDS = env.int("WATCH_SETTLE_SECONDS", default=600)  # a burst of new data: one quick pass
+WATCH_QUICK_PASSES_PER_DAY = env.int("WATCH_QUICK_PASSES_PER_DAY", default=6)  # later ones wait for 07:45
+WATCH_TIME_LIMIT_SECONDS = env.int("WATCH_TIME_LIMIT_SECONDS", default=900)  # a run stops between steps
+WATCH_NEEDS_YOU_PER_DAY = env.int("WATCH_NEEDS_YOU_PER_DAY", default=5)  # per person; the rest stays listed
+WATCH_GOOD_TO_KNOW_PER_DAY = env.int("WATCH_GOOD_TO_KNOW_PER_DAY", default=10)
+WATCH_GRANT_MIN_UNSPENT = env.int("WATCH_GRANT_MIN_UNSPENT", default=10_000)  # USD, for expiring grants
+WATCH_EMAIL = env.bool("WATCH_EMAIL", default=True)  # one morning email, once EMAIL_URL is set
 
 # ---------------------------------------------------------------------------- logging
 LOG_FORMAT = env("LOG_FORMAT", default="plain")  # "json" in Azure so Log Analytics can parse fields

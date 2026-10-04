@@ -406,3 +406,14 @@ def test_the_week_trend_is_dated(data):
     day = TODAY.strftime("%d %b")
     assert trend[0] == f"Country-wide, reviews of {day} to {NEXT_DAY.strftime('%d %b')}."
     assert trend[1].startswith("Open critical findings: ") and f" on {day}, " in trend[1]
+
+
+def test_a_report_accepted_without_its_date_is_not_overdue(data):
+    """The review reads the shared rule (monitoring.pending_q): the status alone is enough."""
+    dm.ReportedIndicator.objects.filter(progress_report="PR-2").update(
+        submission_date=None, due_date=TODAY - datetime.timedelta(days=10)
+    )
+    assert "reports_overdue" not in by_check(run())  # still "Accepted"
+    dm.ReportedIndicator.objects.filter(progress_report="PR-2").update(report_status="Due")
+    finding = by_check(run(NEXT_DAY))["reports_overdue"]
+    assert finding.key == "reports_overdue:LEB/PD1" and finding.title.startswith("1 progress report overdue")

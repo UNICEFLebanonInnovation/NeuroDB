@@ -80,12 +80,14 @@ class Collector:
             self.edges[key] = {"origin": origin, "weight": weight, "builder": self.source}
 
 
-def write(collector: Collector, run: Any = None, failed: Iterable[str] = ()) -> dict[str, int]:
+def write(collector: Collector, run: Any = None, failed: Iterable[str] = ()) -> dict[str, Any]:
     """Replace the hub with the collected entities and edges (edges whose ends are missing are dropped)
     and record what changed since the previous build.
 
     What a ``failed`` builder added last time is kept as it was: a source that could not be read is
-    not "gone", and nothing of it is reported as changed."""
+    not "gone", and nothing of it is reported as changed. When a kind loses more than a fifth of its
+    things with no error, those removals are recorded but not notable, and counted in ``suspect_removals``
+    ({kind: how many went})."""
     from . import changes
 
     now = timezone.now()
@@ -160,8 +162,9 @@ def write(collector: Collector, run: Any = None, failed: Iterable[str] = ()) -> 
             + SearchVector("aliases", weight="B", config="simple")
             + SearchVector("description", weight="C", config="english")
         )
-        found = []
+        found, suspect = [], {}
         if before:  # the first build is the starting point: nothing is "new" yet
+            suspect = changes.suspect_removals(before, set(gone))
             found = changes.detect(
                 before=before,
                 gone=set(gone),
@@ -171,6 +174,7 @@ def write(collector: Collector, run: Any = None, failed: Iterable[str] = ()) -> 
                 ids=ids,
                 now=now,
                 run=run,
+                suspect=suspect,
             )
             changes.Change.objects.bulk_create(found, batch_size=2000)
     return {
@@ -180,4 +184,5 @@ def write(collector: Collector, run: Any = None, failed: Iterable[str] = ()) -> 
         "kept_from_failed_sources": len(kept),
         "changes": len(found),
         "notable_changes": sum(1 for c in found if c.notable),
+        "suspect_removals": suspect,
     }

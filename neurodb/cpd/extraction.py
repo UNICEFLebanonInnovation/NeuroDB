@@ -134,6 +134,7 @@ def _content(document: CPDocument, data: bytes) -> dict[str, Any]:
 
 def extract(document: CPDocument) -> dict[str, Any]:
     """The proposed framework of a PDF, Word (.docx) or text document (raises ExtractionError)."""
+    from neurodb.assistant import usage
     from neurodb.assistant.agent import AssistantUnavailable, client
 
     if not readable(document.filename):
@@ -164,6 +165,7 @@ def extract(document: CPDocument) -> dict[str, Any]:
         max_output_tokens=MAX_OUTPUT_TOKENS,
         store=False,
     )
+    usage.record(usage.CPD, settings.AI_ASSISTANT_MODEL, getattr(response, "usage", None))
     try:
         items = json.loads(response.output_text)
     except (TypeError, ValueError) as exc:

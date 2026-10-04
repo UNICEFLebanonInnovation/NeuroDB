@@ -290,16 +290,19 @@ def reports_by_year(queryset: QuerySet[dm.ReportedIndicator]) -> list[tuple[str,
 def reporting_summary(queryset: QuerySet[dm.ReportedIndicator]) -> dict[str, int]:
     today = datetime.date.today()
     reports = list(progress_reports(queryset))
+    submitted = [pd_monitoring.is_submitted(r) for r in reports]  # the rule of the review and the brief
     return {
         "reports": len(reports),
-        "submitted": sum(1 for r in reports if r["submission_date"]),
+        "submitted": sum(submitted),
         "late": sum(
             1
             for r in reports
             if r["submission_date"] and r["due_date"] and r["submission_date"] > r["due_date"]
         ),
         "overdue": sum(
-            1 for r in reports if not r["submission_date"] and r["due_date"] and r["due_date"] < today
+            1
+            for r, sent in zip(reports, submitted, strict=True)
+            if not sent and r["due_date"] and r["due_date"] < today
         ),
         "accepted": sum(1 for r in reports if "accept" in (r["report_status"] or "").lower()),
     }
@@ -787,7 +790,7 @@ def partner_reporting(params) -> dict[str, Any]:
             | _partner_q(q)
         )
     if only_overdue:
-        rows = rows.filter(submission_date=None, due_date__lt=today)
+        rows = rows.filter(pd_monitoring.pending_q(), due_date__lt=today)
     summary = reporting_summary(rows)
     reports = progress_reports(rows)
     by_status = Counter(r["report_status"] or "—" for r in reports)

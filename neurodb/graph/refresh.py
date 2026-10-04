@@ -106,6 +106,7 @@ def on_run_finished(sender, instance, update_fields=None, **kwargs) -> None:
         SyncRun.Job.WHATS_NEW,
         SyncRun.Job.ML_READINESS,
         SyncRun.Job.FORECAST,
+        SyncRun.Job.WATCH,  # it writes nothing to the hub: a rebuild after it would only loop
     ):
         return  # they bring no new data
     if instance.status not in (SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL):

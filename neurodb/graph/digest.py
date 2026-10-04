@@ -44,7 +44,7 @@ def narrate(audience: str, lines: list[str]) -> tuple[str, str]:
     if not getattr(settings, "AI_ASSISTANT_ENABLED", False):
         return _template(lines), TEMPLATE
     try:
-        from neurodb.assistant import agent
+        from neurodb.assistant import agent, usage
 
         response = agent.client().responses.create(
             model=settings.AI_ASSISTANT_MODEL,
@@ -54,6 +54,7 @@ def narrate(audience: str, lines: list[str]) -> tuple[str, str]:
             store=False,
             reasoning={"effort": "low"},
         )
+        usage.record(usage.DIGEST, settings.AI_ASSISTANT_MODEL, getattr(response, "usage", None))
         text = (getattr(response, "output_text", "") or "").strip()
         if not text:
             raise ValueError("the model returned no text")

@@ -28,7 +28,12 @@ CUT_OFF = "Cut off: the sync process stopped before this run finished (the conta
 
 
 DAILY_REVIEW_LOCK_ID = 7140429  # neurodb.review.services.LOCK_ID
-LOCK_IDS = {SyncRun.Job.ETOOLS_DATAMART: DATAMART_LOCK_ID, SyncRun.Job.DAILY_REVIEW: DAILY_REVIEW_LOCK_ID}
+WATCH_LOCK_ID = 7140431  # neurodb.watch.lock.LOCK_ID (7140430 is the scheduler's)
+LOCK_IDS = {
+    SyncRun.Job.ETOOLS_DATAMART: DATAMART_LOCK_ID,
+    SyncRun.Job.DAILY_REVIEW: DAILY_REVIEW_LOCK_ID,
+    SyncRun.Job.WATCH: WATCH_LOCK_ID,
+}
 
 
 def lock_is_held(lock_id: int) -> bool | None:

@@ -22,6 +22,7 @@ from neurodb.graph.news import sentence
 from neurodb.integrations.runs import new_run
 from neurodb.library.models import Map
 from neurodb.partnerships.models import PartnerOrganization
+from neurodb.review.models import DailyReview, ReviewFinding
 
 
 def _build():
@@ -110,6 +111,85 @@ def test_a_source_that_fails_keeps_its_things_and_reports_nothing_gone(world, mo
     assert Entity.objects.filter(kind="partner").count() == partners
     assert Edge.objects.filter(relation="implemented_by").exists()
     assert not Change.objects.exists()
+
+
+# ------------------------------------------------------------ review findings and partial builds
+PD_ENDING = "pd_ending:LEB/PCA2026005/PD2026012"  # the world's warning; "ap_overdue:CARE" is critical
+
+
+def _review(day, *findings):
+    """A later morning's review raising these findings: (key, severity, state, title)."""
+    review = DailyReview.objects.create(date=day, status="succeeded")
+    for key, severity, state, title in findings:
+        ReviewFinding.objects.create(
+            review=review, key=key, check_id=key.split(":")[0], severity=severity, state=state, title=title
+        )
+
+
+def test_a_finding_growing_older_is_kept_but_is_not_news(world):
+    _build()
+    _review(
+        datetime.date(2026, 10, 1),
+        (PD_ENDING, "warning", "still_open", "A programme document ends in 12 days"),
+        ("ap_overdue:CARE", "critical", "still_open", "Overdue"),
+    )
+    run = _build()
+    found = _changes(kind="review_finding")
+    older = found[("changed", "review_finding", PD_ENDING)]
+    assert older.fields == {
+        "name": ["A programme document ends soon", "A programme document ends in 12 days"]
+    }
+    assert not older.notable  # its title counts the days down; its state and date are not even recorded
+    assert ("changed", "review_finding", "ap_overdue:CARE") not in found  # only its state and date moved
+    assert run.details["notable_changes"] == 0
+
+
+def test_a_finding_turning_critical_or_going_while_critical_is_news(world):
+    _build()
+    _review(
+        datetime.date(2026, 10, 1),
+        (PD_ENDING, "critical", "still_open", "A programme document ends in 5 days"),
+        ("ap_overdue:CARE", "critical", "resolved", "Overdue"),  # resolved: left out of the hub
+    )
+    _build()
+    found = _changes(kind="review_finding")
+    worse = found[("changed", "review_finding", PD_ENDING)]
+    assert worse.fields["severity"] == ["warning", "critical"] and worse.notable
+    assert "state" not in worse.fields
+    assert found[("removed", "review_finding", "ap_overdue:CARE")].notable
+    _review(datetime.date(2026, 10, 2))  # the next morning finds nothing
+    _build()
+    gone = Change.objects.get(op="removed", kind="review_finding", key=PD_ENDING)
+    assert gone.notable  # it went while critical
+
+
+def test_a_warning_that_goes_is_not_news(world):
+    _build()
+    _review(datetime.date(2026, 10, 1), ("ap_overdue:CARE", "critical", "still_open", "Overdue"))
+    _build()
+    assert not Change.objects.get(op="removed", kind="review_finding", key=PD_ENDING).notable
+
+
+@pytest.fixture
+def twenty_partners(world):
+    """Twenty partners in the hub: the world's two and eighteen more without any programme document."""
+    for n in range(18):
+        PartnerOrganization.objects.create(etl_id=f"p{n}", name=f"Partner number {n}", short_name=f"P{n}")
+    run = _build()
+    assert run.details["suspect_removals"] == {}
+    return world
+
+
+@pytest.mark.parametrize("lost, suspect", [(2, False), (4, False), (5, True), (10, True)])
+def test_a_build_losing_over_a_fifth_of_one_kind_without_an_error_is_suspect(twenty_partners, lost, suspect):
+    extra = PartnerOrganization.objects.filter(etl_id__startswith="p").order_by("pk")
+    PartnerOrganization.objects.filter(pk__in=list(extra.values_list("pk", flat=True)[:lost])).delete()
+    run = _build()
+    assert run.status == SyncRun.Status.SUCCEEDED and not run.details["failed_sources"]
+    gone = Change.objects.filter(run=run, op="removed", kind="partner")
+    assert gone.count() == lost
+    assert all(c.notable != suspect for c in gone)  # recorded either way; news only when few went
+    assert run.details["suspect_removals"] == ({"partner": lost} if suspect else {})
 
 
 # ---------------------------------------------------------------------------- refresh on new data

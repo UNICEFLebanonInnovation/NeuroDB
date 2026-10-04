@@ -272,9 +272,14 @@ or one added later, is noticed without code of its own. A **change** is one of:
 
 A change is **notable** (in the daily note, the overview card and the assistant's default answer) when
 it is a new or gone thing of the main kinds, a status or date that changed, a figure that moved by at
-least 10% (and at least $1,000 for money, 5 for report counts), a funding or reporting link, or a
-critical review finding. The rest (a new district in the gazetteer, a document newly mentioning a
-place) is kept and shown with *Include minor changes*. The rules are in `neurodb/graph/changes.py`.
+least 10% (and at least $1,000 for money, 5 for report counts), a funding or reporting link, a
+critical review finding that appears or goes, or a finding whose severity changed. A finding growing
+older (new, then still open) is not news, and its title counting the days down is kept as a minor
+change. The rest (a new district in the gazetteer, a document newly mentioning a place) is kept and
+shown with *Include minor changes*. When one build loses more than a fifth of one kind of thing (of at
+least 10) with no error from its source, that is more likely a partial read upstream than news: those
+removals are kept as minor changes and counted in the build's details as `suspect_removals` (admin →
+*Import and sync runs*). The rules are in `neurodb/graph/changes.py`.
 Each change is tagged with the sections it concerns: its own (a PD's), else those of what it is linked
 to (a partner's or a donor's through their PDs). The first build is the starting point (nothing is
 "new"), and figures recorded for the first time are not changes. Youth and education figures are not

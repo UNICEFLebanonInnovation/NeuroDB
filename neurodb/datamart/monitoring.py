@@ -36,12 +36,33 @@ from .tags import TAG_FIELDS
 REPORT_TYPES = {"QPR": "Quarterly progress reports", "HR": "Humanitarian reports (monthly)"}
 DEFAULT_REPORT_TYPE = "QPR"
 ACTIVE_PD_STATUSES = ("active", "signed", "suspended")
-SUBMITTED = ("submitted", "accepted", "sent back", "sen", "sub", "acc")
+SUBMITTED = ("submitted", "accepted", "sent back", "sen", "sub", "acc")  # report_status: word or code
+# SUBMITTED as one pattern for the database: the whole status, any case, spaces around allowed
+SUBMITTED_REGEX = r"^\s*(" + "|".join(re.escape(s) for s in SUBMITTED) + r")\s*$"
 MONTHS = tuple(range(1, 13))
 NOT_REPORTED = "not_reported"  # no progress report read for the indicator: never "off track"
 LABELS = {**tracking.LABELS, NOT_REPORTED: "Not reported"}
 MAX_INDICATORS = 2000  # rows a request computes; the page shows PAGE_SIZE of them at a time
 PAGE_SIZE = 100
+
+
+# ------------------------------------------------------------------------------ report submitted
+def pending_q() -> Q:
+    """Progress report rows not submitted yet: no submission date, and a status that is not one of
+    ``SUBMITTED``. PRP can mark a report accepted without its date, so the date alone would call it
+    missing. This is the one rule behind every "overdue" and "due soon" figure (the daily review,
+    the monitoring summary, partner reporting, the brief, the watch), so they never disagree."""
+    return Q(submission_date=None) & ~Q(report_status__iregex=SUBMITTED_REGEX)
+
+
+def is_submitted(row: dict[str, Any] | dm.ReportedIndicator) -> bool:
+    """The rule of :func:`pending_q` for a row already loaded (a ``values()`` dict or a record):
+    submitted when it has a submission date or its status is one of ``SUBMITTED``."""
+    if isinstance(row, dict):
+        date, status = row.get("submission_date"), row.get("report_status")
+    else:
+        date, status = row.submission_date, row.report_status
+    return date is not None or (status or "").strip().lower() in SUBMITTED
 
 
 def norm(title: str | None) -> str:
@@ -718,9 +739,9 @@ def summary(rows: list[Indicator], filters: Filters, today: datetime.date | None
     pd_ids = {r.pd.id for r in rows}
     overdue = (
         dm.ReportedIndicator.objects.filter(
+            pending_q(),
             intervention_id__in=pd_ids,
             report_type=filters.report_type,
-            submission_date=None,
             due_date__lt=today,
         )
         .values("progress_report")

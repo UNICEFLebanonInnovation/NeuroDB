@@ -158,10 +158,12 @@ class Outcome:
     error: str = ""
     charts: list[dict[str, Any]] = field(default_factory=list)
     numbers: set[float] = field(default_factory=set)  # every number the lookups returned (charts)
+    calls: int = 0  # model calls that returned a response (for the AI use ledger)
 
     def add_usage(self, usage: Any) -> None:
-        """Add one model call's tokens. OpenAI counts cached prompt tokens inside input_tokens; they
-        are logged apart, so input_tokens + cache_read_tokens is the whole prompt."""
+        """Add one model call and its tokens. OpenAI counts cached prompt tokens inside input_tokens;
+        they are logged apart, so input_tokens + cache_read_tokens is the whole prompt."""
+        self.calls += 1
         if not usage:
             return
         cached = getattr(getattr(usage, "input_tokens_details", None), "cached_tokens", 0) or 0

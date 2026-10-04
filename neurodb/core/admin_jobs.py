@@ -210,6 +210,19 @@ BACKGROUND_JOBS = [
         ),
         "fact_check",
     ),
+    BackgroundJob(
+        "run_watch",
+        ("run_watch", "--daily"),
+        SyncRun.Job.WATCH,
+        _("NeuroDB Watch"),
+        _("Run NeuroDB Watch now"),
+        _(
+            "Runs the morning pass of NeuroDB Watch in the background: it checks what is due soon and what "
+            "needs someone, updates each person's For you page and writes the morning notes. Running it "
+            "again the same day tells nobody twice."
+        ),
+        "notifications",
+    ),
 ]
 
 
@@ -314,7 +327,8 @@ def run_check_freshness(self, request, form):
         "title": _("Repair user roles"),
         "description": _(
             "Creates the Viewer, Section editor and Administrator groups with their permissions if one "
-            "is missing or was changed. Users keep their groups. Every deployment does this too."
+            "is missing or was changed, and the Management group (who also gets the whole-country view "
+            "on For you). Users keep their groups. Every deployment does this too."
         ),
         "form_class": ConfirmJobForm,
         "form_submit_text": _("Repair"),

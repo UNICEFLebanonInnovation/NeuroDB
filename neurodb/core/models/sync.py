@@ -27,6 +27,7 @@ class SyncRun(models.Model):
         WHATS_NEW = "whats_new", "What's new note"
         ML_READINESS = "ml_readiness", "Machine learning readiness check"
         FORECAST = "forecast", "Year-end indicator forecast"
+        WATCH = "watch", "NeuroDB Watch"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"
