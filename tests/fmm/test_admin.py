@@ -9,6 +9,8 @@ import pytest
 from django.contrib.auth.models import Group
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils import timezone
+from django.utils.formats import date_format
 
 from neurodb.accounts.models import User
 from neurodb.accounts.roles import ADMIN, SECTION_EDITOR
@@ -113,6 +115,10 @@ def test_r2_cannot_be_measured_without_unanswered_questions(admin_client, fm_wor
     dm.DatamartDocument.objects.filter(dataset="fm_questions", data__answer__in=["", "n/a"]).delete()
     refresh.run(triggered_by="test", probe_only=True)
     assert "Unanswered questions seen: 0 of 204 records — R2 cannot be measured" in _page(admin_client)
+    # an administrator who turns R2's check off is not told that R2 cannot be measured
+    RuleSetting.objects.filter(code="R2").update(params={"require_unanswered_seen": False})
+    html = _page(admin_client)
+    assert "Unanswered questions seen: 0 of 204 records" in html and "R2 cannot be measured" not in html
 
 
 def test_a_failed_later_run_is_pointed_at(admin_client, fm_world):
@@ -309,6 +315,10 @@ def test_the_rule_list_and_the_last_refresh_counts(admin_client, fm_world):
     assert 'name="form-0-' not in html  # no editing in the list: every change needs a note
     html = admin_client.get(reverse("admin:fmm_rulesetting_change", args=["R6"])).content.decode()
     assert "evaluated on 2 visits, 1 of them flagged; not available on 4; does not apply to 2" in html
+    # the time of the last refresh in the local time zone, as everywhere else
+    run = SyncRun.objects.filter(job=SyncRun.Job.FMM_REFRESH).latest("finished_at")
+    local = timezone.localtime(run.finished_at)
+    assert f"Last refresh ({date_format(local, 'j M Y, H:i')}, rules v1)" in html
 
 
 def test_the_preview_shows_the_effect_before_saving(admin_client, fm_world):

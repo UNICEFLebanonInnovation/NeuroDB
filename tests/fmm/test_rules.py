@@ -430,3 +430,18 @@ def test_patterns_are_folded_not_regular_expressions():
     )  # plain words, punctuation dropped
     assert rules.matches(rules.parse.fold("Écoles visitées"), "ecoles") is True
     assert rules.matches("anything", "=") is False
+
+
+def test_answers_not_found_make_r2_r3_and_r5_not_available_and_r1_skip_q2():
+    """When the answer keys of the checklist records were not found, every answer reads as blank:
+    the rules that read answers are not available instead of failing every visit."""
+    visit = facts(
+        [entity("on_track", LONG)],
+        [answer("q1", answered=False), answer("q2", answered=False), answer("q3", answered=False)],
+        answers_available=False,
+    )
+    for code in ("R2", "R3", "R5"):
+        out = run(code, visit)
+        assert (out.status, out.detail_key) == ("na", "answers_not_found"), code
+    out = run("R1", visit)
+    assert (out.status, out.detail_key) == ("pass", "complete")  # Q2 cannot be read: not evaluated

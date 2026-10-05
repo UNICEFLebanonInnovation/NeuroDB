@@ -294,3 +294,24 @@ def test_the_built_visits_carry_their_effective_q1(fm_world):
         "constrained",
     )
     assert visits["1724"] == visits["1725"] == ""
+
+
+@pytest.mark.django_db
+def test_without_the_answer_keys_psea_is_not_known_and_the_answer_rules_are_not_available(
+    fm_world, monkeypatch
+):
+    from neurodb.fmm import fields, refresh
+    from neurodb.fmm.models import VisitRuleResult
+
+    refresh.run(triggered_by="test", today=TODAY)
+    assert dict(Visit.objects.values_list("key", "psea_flag"))["1722"] is False
+    monkeypatch.setattr(fields, "available", lambda dataset, field: False)
+    refresh.run(triggered_by="test", scores_only=True, today=TODAY)
+    flags = dict(Visit.objects.values_list("key", "psea_flag"))
+    assert flags["1722"] is None and flags["1726"] is None  # not "not flagged"
+    statuses = set(
+        VisitRuleResult.objects.filter(
+            rule__in=("R2", "R3", "R5"), visit__status_group="reported"
+        ).values_list("status", flat=True)
+    )
+    assert statuses == {"na"}

@@ -1386,8 +1386,8 @@ pattern change needs only a scores-only refresh:
   own row, or for the partner as a whole); else the one given for the whole visit. **Of a visit**: the
   worst of these and of its visit-level answers (Off track, then Constrained, then On track).
 - **PSEA flag**: a PSEA answer whose code is listed in *Answers that flag* (`yes`, `constrained`,
-  `off_track` by default) flags the visit; asked and answered otherwise: not flagged; no PSEA question:
-  not known.
+  `off_track` by default) flags the visit; asked and answered otherwise: not flagged; no PSEA question,
+  or the answer keys not found: not known.
 
 **Which visits are scored.** A reported visit (submitted or completed), or one of unknown status with
 something rated or answered. A reported visit with nothing rated (a monitoring gap) is scored; planned
@@ -1399,11 +1399,11 @@ other threshold is NeuroDB's proposal, to be confirmed by the user):
 
 | Rule | Points | Passes when | Not available (left out of the score) when |
 |---|---|---|---|
-| R1 Completeness | 15 | Every rated entity has a narrative (and at least one entity has one), and Q2 is answered (when the visit has a Q2 question). A rating on every entity and the visit's place can be required too (`required`). Points in proportion to the elements present. | never in practice |
+| R1 Completeness | 15 | Every rated entity has a narrative (and at least one entity has one), and Q2 is answered (when the visit has a Q2 question and the answer keys were found). A rating on every entity and the visit's place can be required too (`required`). Points in proportion to the elements present. | never in practice |
 | R2 Evidence sufficiency | 20 | At least 80% of the questions answered, counted once per question and entity (or partner, or the whole visit). Below it, points in proportion. | the visit has no answer; the answer keys were not found; or none of 200 or more checklist records in the data is unanswered ("cannot be measured": eTools then probably sends answered questions only; `require_unanswered_seen` turns this off) |
-| R3 HACT alignment | 20 | Every rated entity's HACT Q1 (as above) agrees with its overall finding. Only On track against Off track is a conflict; Constrained agrees with either (`strict` makes any difference a conflict). Fails when Q1 is missing or not a rating. Does not apply to a visit that is not programmatic and was asked no Q1. | the visit has no answer, or no question in the data is Q1 or flagged HACT |
+| R3 HACT alignment | 20 | Every rated entity's HACT Q1 (as above) agrees with its overall finding. Only On track against Off track is a conflict; Constrained agrees with either (`strict` makes any difference a conflict). Fails when Q1 is missing or not a rating. Does not apply to a visit that is not programmatic and was asked no Q1. | the visit has no answer, the answer keys were not found, or no question in the data is Q1 or flagged HACT |
 | R4 Narrative coherence | 15 | Every narrative has at least 25 words, is not a placeholder ("n/a", "see above"…) and is not word for word another visit's within 365 days. Points in proportion to the narratives that pass. | no entity has a narrative (R1 flags it already) |
-| R5 Q3 quality | 15 | Q3 is answered with at least 15 words (answer and summary), not a placeholder. Points in proportion to the words. Does not apply to a visit with answers but no Q3. | the visit has no answer, or no question in the data is Q3 |
+| R5 Q3 quality | 15 | Q3 is answered with at least 15 words (answer and summary), not a placeholder. Points in proportion to the words. Does not apply to a visit with answers but no Q3. | the visit has no answer, the answer keys were not found, or no question in the data is Q3 |
 | R6 Rating quality | 0 (a flag only) | No narrative contradicts its rating: On track naming 2 or more problem words (delayed, suspended…) and nothing good, or Off track naming only good points. A word with "no", "not", "without", "never" or "nor" up to 3 words before it does not count. Constrained never fails. An optional check (off) flags a Not monitored entity described at length without saying why. | no rated entity has a narrative |
 
 A rule's detail is written by NeuroDB ("Only 46.2% of monitoring questions answered (target: 80%+)",

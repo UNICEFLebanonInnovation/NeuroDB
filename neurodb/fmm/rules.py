@@ -363,7 +363,7 @@ def r1_completeness(facts: VisitFacts, rule, ctx: Context) -> RuleOutcome:
             present = any(_has_narrative(e) for e in facts.entities) and all(_has_narrative(e) for e in rated)
         elif element == "q2":
             q2 = [a for a in facts.answers if a.role == "q2"]
-            if not q2:  # evaluated only when the visit has a Q2 question
+            if not q2 or not facts.answers_available:  # only when the visit has a Q2 answer to read
                 continue
             present = any(a.answered for a in q2)
         elif element == "rating":
@@ -406,7 +406,9 @@ def questions_answered(answers: Iterable[AnswerFacts]) -> tuple[int, int]:
     return len(asked), sum(asked.values())
 
 
-def r2_evidence(facts: VisitFacts, rule, ctx: Context) -> RuleOutcome:
+def _no_answers(facts: VisitFacts, rule) -> RuleOutcome | None:
+    """``na`` when the visit has no checklist answer, or when the answers of the checklist records
+    were not found under any key (every answer would read as blank: R2, R3 and R5 cannot be told)."""
     if not facts.answers:
         return _outcome(
             rule, "na", key="no_answers", detail="No checklist answers for this visit in the eTools data."
@@ -418,6 +420,12 @@ def r2_evidence(facts: VisitFacts, rule, ctx: Context) -> RuleOutcome:
             key="answers_not_found",
             detail="The answers of the checklist records were not found (Fields found).",
         )
+    return None
+
+
+def r2_evidence(facts: VisitFacts, rule, ctx: Context) -> RuleOutcome:
+    if (missing := _no_answers(facts, rule)) is not None:
+        return missing
     if (
         param(rule, "require_unanswered_seen")
         and not facts.unanswered_seen
@@ -445,10 +453,8 @@ def r2_evidence(facts: VisitFacts, rule, ctx: Context) -> RuleOutcome:
 
 
 def r3_hact(facts: VisitFacts, rule, ctx: Context) -> RuleOutcome:
-    if not facts.answers:
-        return _outcome(
-            rule, "na", key="no_answers", detail="No checklist answers for this visit in the eTools data."
-        )
+    if (missing := _no_answers(facts, rule)) is not None:
+        return missing
     if not ({"q1", "hact"} & facts.questions_in_dataset):
         return _outcome(
             rule,
@@ -557,10 +563,8 @@ def r4_narrative(facts: VisitFacts, rule, ctx: Context) -> RuleOutcome:
 
 
 def r5_q3(facts: VisitFacts, rule, ctx: Context) -> RuleOutcome:
-    if not facts.answers:
-        return _outcome(
-            rule, "na", key="no_answers", detail="No checklist answers for this visit in the eTools data."
-        )
+    if (missing := _no_answers(facts, rule)) is not None:
+        return missing
     if "q3" not in facts.questions_in_dataset:
         return _outcome(
             rule,

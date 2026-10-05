@@ -9,7 +9,8 @@ worked out here, not when the visits are built, so a pattern change needs only a
   own or for the partner as a whole), else the one given for the whole visit (:func:`effective_q1`);
 - the **HACT Q1 of a visit**: the worst of its entities' and of its visit-level Q1 answers;
 - the **PSEA flag**: an answer to the PSEA question whose code the settings list ("yes", or a
-  Constrained or Off track rating) flags the visit; ``None`` when no PSEA question was asked.
+  Constrained or Off track rating) flags the visit; ``None`` when no PSEA question was asked, or when
+  the answers of the checklist records were not found (Fields found).
 
 **Score** (:func:`score_visit`): the points earned over the points of the rules evaluated (those that
 passed or failed), as a percentage rounded half up to one decimal. A rule never gives more than its
@@ -429,28 +430,14 @@ class BuiltSource(Source):
         self.entities = defaultdict(list)
         for entity in result.entities:
             self.entities[entity.visit.key].append(entity)
-        index = {id(e): i for rows in self.entities.values() for i, e in enumerate(rows)}
+        self._index = {id(e): i for rows in self.entities.values() for i, e in enumerate(rows)}
         self.links = dict(result.action_point_facts)
-        self._answers: dict[str, list[AnswerIn]] = defaultdict(list)
+        # the parsed answers of each visit built, turned into AnswerIn a batch at a time (answers()):
+        # a copy of the 100,000 answers of a large refresh is never held at once
+        self._answers: dict[str, list[Any]] = defaultdict(list)
         for answer in result.answers:
             if answer.visit_key in built:
-                self._answers[answer.visit_key].append(
-                    AnswerIn(
-                        answer.document_id,
-                        answer.question_key,
-                        answer.question_text,
-                        answer.is_hact,
-                        answer.applies_to,
-                        index.get(id(answer.entity)) if answer.entity is not None else None,
-                        answer.partner_id,
-                        answer.parsed.answered,
-                        answer.parsed.placeholder,
-                        answer.parsed.answer_words,
-                        answer.parsed.summary_words,
-                        answer.parsed.rating,
-                        answer.parsed.answer_code,
-                    )
-                )
+                self._answers[answer.visit_key].append(answer)
         self.answers_available = bool(
             keys.get(("fm_questions", "answer")) or keys.get(("fm_questions", "answer_label"))
         )
@@ -459,7 +446,24 @@ class BuiltSource(Source):
         self.answer_keys = {f: keys.get(("fm_questions", f)) for f in ("answer", "answer_label", "summary")}
 
     def answers(self, visits: list[Visit]) -> dict[str, list[AnswerIn]]:
-        return {visit.key: self._answers.get(visit.key, []) for visit in visits}
+        return {visit.key: [self._answer_in(a) for a in self._answers.get(visit.key, ())] for visit in visits}
+
+    def _answer_in(self, answer) -> AnswerIn:
+        return AnswerIn(
+            answer.document_id,
+            answer.question_key,
+            answer.question_text,
+            answer.is_hact,
+            answer.applies_to,
+            self._index.get(id(answer.entity)) if answer.entity is not None else None,
+            answer.partner_id,
+            answer.parsed.answered,
+            answer.parsed.placeholder,
+            answer.parsed.answer_words,
+            answer.parsed.summary_words,
+            answer.parsed.rating,
+            answer.parsed.answer_code,
+        )
 
     def question_texts(self) -> Iterable[tuple[str, bool | None]]:
         return {(a.question_text, a.is_hact) for a in self.result.answers}
@@ -792,7 +796,8 @@ def _score_one(
         question_records=source.question_records,
     )
     visit.hact_q1 = visit_q1([q for q, _ in q1], facts_answers)
-    visit.psea_flag = psea_flag(facts_answers, book.flag_codes)
+    # without the answers' key every answer reads as blank: the flag is not known, not "not flagged"
+    visit.psea_flag = psea_flag(facts_answers, book.flag_codes) if source.answers_available else None
     outcomes = rules.evaluate(facts, book.rules, ctx)
     outcome = score_visit(facts, outcomes, book.setting, total)
     visit.quality_score, visit.quality_points = outcome.score, outcome.points

@@ -32,6 +32,8 @@ from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import path, reverse
+from django.utils import timezone
+from django.utils.formats import date_format
 from django.utils.translation import gettext as _
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.decorators import action
@@ -205,7 +207,9 @@ def _r2_line(run: SyncRun | None) -> dict[str, Any] | None:
         "n": f"{unanswered:,}",
         "total": f"{total:,}",
     }
-    if unanswered == 0 and total >= R2_MIN_RECORDS:
+    r2 = RuleSetting.objects.filter(code="R2").first()
+    checked = r2 is None or (r2.enabled and rules.param(r2, "require_unanswered_seen") is not False)
+    if unanswered == 0 and total >= R2_MIN_RECORDS and checked:  # an administrator may turn the check off
         return {"text": text + _(" — R2 cannot be measured"), "warn": True}
     return {"text": text, "warn": False}
 
@@ -426,7 +430,7 @@ def _last_results(code: str) -> str:
         "Last refresh (%(when)s, rules v%(version)s): evaluated on %(evaluated)s visits, %(flagged)s of them "
         "flagged; not available on %(na)s; does not apply to %(nap)s; switched off on %(off)s."
     ) % {
-        "when": run.finished_at.strftime("%d %b %Y, %H:%M") if run.finished_at else "—",
+        "when": date_format(timezone.localtime(run.finished_at), "j M Y, H:i") if run.finished_at else "—",
         "version": (run.details or {}).get("rules_version", "—"),
         "evaluated": f"{evaluated:,}",
         "flagged": f"{counts.get('fail', 0):,}",
