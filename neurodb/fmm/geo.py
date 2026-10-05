@@ -291,6 +291,8 @@ def _active_pds(scope: Scope):
     from neurodb.partnerships.models import PCA
 
     qs = PCA.objects.filter(status__iexact="active")
+    if scope.empty:  # narrowed to nothing, as its visits are
+        return qs.none()
     if scope.sections:
         names = [s for s in scope.sections if s != NONE]
         wanted = Q(section_names__overlap=names) if names else Q(pk__in=[])
@@ -400,7 +402,10 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
         found = match(v, own, km, ancestors=_ancestors(starts[v.pk], gazetteer))
         results[v.pk] = found
         if found[1] is not None:
-            matched.add((found[1].pd_id, found[1].location_id))
+            # the place is visited for each of the visit's programme documents that planned it, not
+            # only for the one match() names: two of its PDs planning one cadaster draw no ring there
+            place_id = found[1].location_id
+            matched.update((loc.pd_id, loc.location_id) for loc in own if loc.location_id == place_id)
 
     region = scope.governorate if scope.governorate and scope.governorate != NONE else ""
     not_visited = sorted(

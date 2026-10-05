@@ -239,7 +239,12 @@ function points(map, legend, config, popup) {
   };
   const layers = [RING_LAYER, DOT_LAYER];
   hoverPopup(map, layers, popup, html);
-  layers.forEach((layer) => map.on("click", layer, (e) => openPoint(e.features[0].properties, config)));
+  // one click opens one point, the topmost: a visit drawn on a planned place's ring opens the visit
+  // (a handler per layer would open both, the visit window and the programme document's page)
+  map.on("click", (e) => {
+    const [top] = map.queryRenderedFeatures(e.point, { layers: [DOT_LAYER, RING_LAYER] });
+    if (top) openPoint(top.properties, config);
+  });
 
   const drawLegend = () => setLegend(legend, legendHTML(config, features.length, hidden));
   legend?.addEventListener("click", (e) => {

@@ -754,14 +754,17 @@ def _map_tab(request: HttpRequest, scope: Scope, when: str) -> dict[str, Any]:
             config["focus"] = row["label"]
             focus["label"] = row["label"]
         else:
-            found = Visit.objects.filter(key=focus_key).values_list("label", flat=True).first()
-            unlocated = any(r["key"] == focus_key for r in data["unlocated_rows"])
-            focus.update(
-                {
-                    "label": found or focus_key,
-                    "reason": "unlocated" if unlocated else "outside" if found else "unknown",
-                }
-            )
+            # not drawn: unknown, outside the filter, without coordinates, or past the points drawn
+            found = Visit.objects.filter(key=focus_key).values_list("label", "latitude", "longitude").first()
+            if found is None:
+                reason = "unknown"
+            elif not scope.visits().filter(key=focus_key).exists():
+                reason = "outside"
+            elif found[1] is None or found[2] is None:
+                reason = "unlocated"
+            else:
+                reason = "capped"
+            focus.update({"label": found[0] if found else focus_key, "reason": reason})
     other = "active" if pd_scope == "visited" else "visited"
     return {
         "map": data,

@@ -5,6 +5,7 @@ read the drill value of the point, and the map's points carry links, rings, opac
 toggles."""
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -243,6 +244,10 @@ def test_edumap_draws_rings_reads_opacity_and_opens_points():
     # a click opens the point: the modal through htmx, else the page
     assert 'window.htmx.ajax("GET", properties.href, { target: "#modal-content" })' in edumap
     assert "window.location.assign(properties.href)" in edumap
+    # ... one point per click, the topmost: a visit drawn on a planned place's ring never opens both
+    assert "queryRenderedFeatures(e.point, { layers: [DOT_LAYER, RING_LAYER] })" in edumap
+    assert edumap.count("openPoint(") == 2  # its definition and the one map-wide click handler
+    assert not re.search(r'map\.on\("click", (layer|DOT_LAYER|RING_LAYER)', edumap)
     # the legend toggles groups with setFilter, and config.focus centres and opens a point
     assert "map.setFilter(RING_LAYER" in edumap and "map.setFilter(DOT_LAYER" in edumap
     assert "if (config.focus && layer.focus) layer.focus(String(config.focus));" in edumap

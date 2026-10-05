@@ -1,6 +1,6 @@
 {% load i18n ui %}
-{% if not kpis.visits %}{% include "fmm/_empty_tab.html" %}{% else %}
 {% if pd_scope == "active" %}<input type="hidden" name="pd_scope" value="active" form="fmm-filters">{% endif %}
+{% if not kpis.visits %}{% include "fmm/_empty_tab.html" %}{% else %}
 {% url 'fmm:dashboard' as page_url %}
 {% with c=map.counts %}
 <div class="fmm-tab fmm-map">
@@ -25,6 +25,7 @@
   {% if map_focus.key %}
   {% if map_focus.reason == "unlocated" %}<p class="caveat" role="status">{% blocktrans with label=map_focus.label %}{{ label }} has no coordinates, so it is listed below the map only.{% endblocktrans %}</p>
   {% elif map_focus.reason == "outside" %}<p class="caveat" role="status">{% blocktrans with label=map_focus.label %}{{ label }} is not in this filter.{% endblocktrans %}</p>
+  {% elif map_focus.reason == "capped" %}<p class="caveat" role="status">{% blocktrans with label=map_focus.label %}{{ label }} is in this filter but past the points the map draws: narrow the filter to see it on the map.{% endblocktrans %}</p>
   {% elif map_focus.reason == "unknown" %}<p class="caveat" role="status">{% trans "That visit is not in NeuroDB." %}</p>{% endif %}
   {% endif %}
   {% if c.capped %}<p class="caveat">{% blocktrans with shown=c.drawn|number %}The map shows the first {{ shown }} points (the most urgent visits first). Narrow the filter to see the rest.{% endblocktrans %}</p>{% endif %}

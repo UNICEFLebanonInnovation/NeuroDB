@@ -117,7 +117,7 @@ def test_place_matches_by_location_p_code_area_and_name():
     assert found[:2] == ("place", district) and found[2] is None
     # the same name, folded (case and accents)
     assert (
-        geo.match(_visit(**nowhere, place_name="SAADNAYEL "), [loc], 2.0, ancestors=frozenset())[0] == "place"
+        geo.match(_visit(**nowhere, place_name="SAADNÂYEL "), [loc], 2.0, ancestors=frozenset())[0] == "place"
     )
     assert geo.match(_visit(**nowhere, place_name="Zahle"), [loc], 2.0, ancestors=frozenset())[0] == "none"
     assert geo.match(_visit(), [], 2.0) == ("none", None, None)
@@ -188,6 +188,27 @@ def test_planned_places_not_visited_are_counted_and_drawn_as_rings(planned):
     assert {r["place"] for r in geo.map_points(_scope())["planned_rows"]} == {"Douris", "Qalamoun"}
     bekaa = geo.map_points(_scope(governorate="Bekaa"))
     assert [r["place"] for r in bekaa["planned_rows"]] == ["Douris"] and bekaa["counts"]["planned"] == 3
+
+
+def test_a_place_two_of_the_visit_programme_documents_planned_is_visited_for_both(planned):
+    """1722 (at Zahle town) also counts for the education PD when that PD planned Zahle town too:
+    no ring is drawn under the visit for the second PD."""
+    education = planned.pds["education"]
+    education.locations.add(planned.cadasters["zahle_town"])
+    visit = Visit.objects.get(key="1722")
+    Visit.objects.filter(pk=visit.pk).update(pd_ids=[*visit.pd_ids, education.pk])
+    data = geo.map_points(_scope())
+    assert "Zahle town" not in {r["place"] for r in data["planned_rows"]}
+    assert "Zahle town" not in {p["name"] for p in _points(data, geo.PLANNED)}
+    assert data["counts"]["planned"] == 6 and data["counts"]["not_visited"] == 1  # Douris only
+
+
+def test_an_empty_scope_has_no_active_programme_document(planned):
+    from dataclasses import replace
+
+    PCA.objects.filter(pk=planned.pds["education"].pk).update(status="active")
+    assert geo._active_pds(_scope()).exists()
+    assert not geo._active_pds(replace(_scope(), empty=True)).exists()
 
 
 def test_points_that_are_not_precise_are_fainter(planned):
@@ -301,6 +322,20 @@ def test_a_visit_named_in_the_address_is_centred_and_opened(planned, client_view
     html = _map_tab(client_viewer, visit="1723")
     assert "focus" not in _config(html) and "Visit 1723 is not in this filter." in html
     assert "That visit is not in NeuroDB." in _map_tab(client_viewer, visit="nope")
+
+
+def test_a_visit_past_the_points_drawn_is_said_so(planned, client_viewer, monkeypatch):
+    monkeypatch.setattr(geo, "MAX_POINTS", 1)  # the most urgent visit only
+    drawn = geo.map_points(_scope())["visit_rows"][0]["key"]
+    other = Visit.objects.exclude(key=drawn).filter(latitude__isnull=False, end_date__year=2026).first()
+    html = _map_tab(client_viewer, visit=other.key)
+    assert f"{other.label} is in this filter but past the points the map draws" in html
+    assert "is not in this filter" not in html and "focus" not in _config(html)
+
+
+def test_the_choice_of_planned_places_survives_a_filter_without_visits(planned, client_viewer):
+    html = _map_tab(client_viewer, pd_scope="active", year="2019")
+    assert '<input type="hidden" name="pd_scope" value="active" form="fmm-filters">' in html
 
 
 def test_a_visit_without_coordinates_is_listed_below_the_map(planned, client_viewer):
