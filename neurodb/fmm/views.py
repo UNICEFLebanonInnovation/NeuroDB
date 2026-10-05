@@ -48,12 +48,13 @@ from .scope import (
     quarter_of,
 )
 
-# The tab bar: each stage appends its own tab (the Map arrives later)
+# The tab bar: each stage appends its own tab
 TABS = [
     ("insights", gettext_lazy("Insights")),
     ("quality", gettext_lazy("Quality")),
     ("analysis", gettext_lazy("Analysis")),
     ("visits", gettext_lazy("Visits")),
+    ("map", gettext_lazy("Map")),
 ]
 PAGE_SIZE = 50
 SORTS = {
@@ -411,6 +412,8 @@ def _results_context(
         context.update(_quality_tab(scope, when, limits, rules))
     elif tab == "analysis":
         context.update(_analysis_tab(request, scope, when, limits, rules))
+    elif tab == "map":
+        context.update(_map_tab(request, scope, when))
     return context
 
 
@@ -734,6 +737,41 @@ def _analysis_tab(
     }
 
 
+def _map_tab(request: HttpRequest, scope: Scope, when: str) -> dict[str, Any]:
+    """The Map tab: the visits against the planned locations of their programme documents (or of
+    every active one, ``?pd_scope=active``), with ``?visit=<key>`` centred and opened."""
+    from . import geo
+
+    pd_scope = request.GET.get("pd_scope", "")
+    pd_scope = pd_scope if pd_scope in geo.PD_SCOPES else "visited"
+    data = geo.map_points(scope, pd_scope, when=when)
+    config = dict(data["config"])  # the cached one is never changed
+    focus_key = request.GET.get("visit", "").strip()[:40]
+    focus = {"key": focus_key, "label": "", "reason": ""}
+    if focus_key:
+        row = next((r for r in data["visit_rows"] if r["key"] == focus_key), None)
+        if row is not None:
+            config["focus"] = row["label"]
+            focus["label"] = row["label"]
+        else:
+            found = Visit.objects.filter(key=focus_key).values_list("label", flat=True).first()
+            unlocated = any(r["key"] == focus_key for r in data["unlocated_rows"])
+            focus.update(
+                {
+                    "label": found or focus_key,
+                    "reason": "unlocated" if unlocated else "outside" if found else "unknown",
+                }
+            )
+    other = "active" if pd_scope == "visited" else "visited"
+    return {
+        "map": data,
+        "map_config": config,
+        "map_focus": focus,
+        "pd_scope": pd_scope,
+        "pd_scope_query": _page_query(scope, tab="map", pd_scope=other),
+    }
+
+
 DRILL_ROWS = 50
 DRILL_VALUES = {"rating": RATINGS, "status": STATUS_GROUPS, "entity_type": tuple(KIND_LABELS)}
 
@@ -994,6 +1032,7 @@ def _visit_context(request: HttpRequest, v: Visit) -> dict[str, Any]:
         "data_notes": _data_notes(v),
         "etools_url": _etools_url(v),
         "action_points_url": f"{reverse('reports:action_points')}?module=fm&visit={v.key}",
+        "map_url": _map_url(v),
         "assurance_url": (
             f"{reverse('reports:assurance')}?hact_year={v.end_date.year}"
             if v.end_date
@@ -1001,6 +1040,16 @@ def _visit_context(request: HttpRequest, v: Visit) -> dict[str, Any]:
         ),
         "limits": limits,
     }
+
+
+def _map_url(v: Visit) -> str:
+    """The Map tab centred on the visit: its year, every section, so the visit is on the map ("" when
+    it has no point or no end date, as the map would not show it)."""
+    from .scope import link
+
+    if v.latitude is None or v.longitude is None or v.end_date is None:
+        return ""
+    return link(year=v.end_date.year, tab="map", visit=v.key)
 
 
 def _located(v: Visit) -> str:

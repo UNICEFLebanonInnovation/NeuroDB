@@ -953,6 +953,15 @@ tr.row--amber { --row-tint: color-mix(in srgb, var(--nd-warning-soft) 70%, trans
 .chart--clickable .nsewdrag, .chart--clickable .draglayer .drag { cursor: pointer; }
 .fmm-tab a.mini { color: inherit; text-decoration: none; }
 .fmm-tab a.mini[href]:hover, .fmm-tab a.mini[href]:focus-visible { outline: 1px solid var(--nd-primary); }
+.map-shell--fmm { height: min(60vh, 520px); }
+.fmm-swatch { display: inline-block; width: 9px; height: 9px; margin-right: 0.35rem; border-radius: 50%; vertical-align: baseline; }
+.fmm-swatch--coords { background: var(--nd-success); }
+.fmm-swatch--place { background: var(--nd-cat-6); }
+.fmm-swatch--none { background: var(--nd-cat-2); }
+.fmm-swatch--planned, .legend__swatch--ring { background: transparent; border: 2px solid var(--nd-muted); }
+.map-legend .legend__swatch--ring { border-radius: 50%; }
+.map-legend .legend__toggle { border: 0; padding: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.map-legend .legend__toggle[aria-pressed="false"] { opacity: 0.45; text-decoration: line-through; }
 @media (max-width: 575.98px) {
   .fmm-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } /* the key figures two by two */
   /* the visit window takes the whole screen on phones */

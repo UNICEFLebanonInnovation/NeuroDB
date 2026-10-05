@@ -34,13 +34,14 @@
     </dl>
   </section>
 
-  {% comment %}2. Links: partner and PD pages, the assurance row, the visit's action points, eTools.{% endcomment %}
+  {% comment %}2. Links: partner and PD pages, the assurance row, the map, the visit's action points, eTools.{% endcomment %}
   <section class="panel" aria-labelledby="fmm-links-{{ visit.key }}">
     <h3 class="h6" id="fmm-links-{{ visit.key }}">{% trans "Links" %}</h3>
     <ul class="list-inline small mb-0">
       {% for p in partners %}<li class="list-inline-item"><a href="{% url 'reports:partner_profile' p.pk %}" data-synced>{{ p.short_name|default:p.name }}</a></li>{% endfor %}
       {% for pd in pds %}<li class="list-inline-item"><a class="mono" href="{% url 'reports:programme_detail' pd.pk %}" data-synced>{{ pd.number }}</a></li>{% endfor %}
       <li class="list-inline-item"><a href="{{ assurance_url }}">{% trans "HACT assurance" %}</a></li>
+      {% if map_url %}<li class="list-inline-item"><a href="{{ map_url }}">{% trans "On the map" %}</a></li>{% endif %}
       <li class="list-inline-item"><a href="{{ action_points_url }}">{% blocktrans count n=action_points|length %}{{ n }} action point{% plural %}{{ n }} action points{% endblocktrans %}</a></li>
       {% if etools_url %}<li class="list-inline-item"><a href="{{ etools_url }}" target="_blank" rel="noopener">{% trans "Open in eTools" %}</a></li>{% endif %}
     </ul>

@@ -4,7 +4,15 @@
 //   {"mode": "points", "points": [{name, latitude, longitude, color, group, lines: [[key, value], ...]}],
 //    "legend": [{label, color}]}
 // Colours may be hex or "var(--nd-cat-3)"; they follow the light/dark theme. A table next to the map
-// (rendered by the page) is the text alternative.
+// (rendered by the page) is the text alternative, and the keyboard route: popups open on hover or tap.
+// Points mode also reads, all optional:
+//   point.href     a click or tap opens it: into the modal when config.open (or point.open) is "modal",
+//                  else as a page (same-site addresses only)
+//   point.shape    "ring": a hollow circle in the point's colour (e.g. a planned place not yet visited)
+//   point.opacity  0..1, default 1 (e.g. 0.6 for an approximate point)
+//   legend[].toggle with legend[].group: the entry is a button that shows or hides that group's points
+//   legend[].shape "ring": a hollow swatch
+//   config.focus   a point's name: the map centres on it and opens its popup
 import { asset, cssVar, escapeHTML, fmt, isDark, loadScript, loadStyle, readJSON } from "./lib.js";
 
 const LEBANON = { center: [35.86, 33.87], zoom: 7.3 };
@@ -112,31 +120,75 @@ function choropleth(map, legend, config, popup) {
 }
 
 // ------------------------------------------------------------------ points
-function pointFeatures(points) {
+const DOT_LAYER = "points";
+const RING_LAYER = "points-ring";
+// a per-point opacity, 1 when the point gives none
+const OPACITY = ["coalesce", ["get", "opacity"], 1];
+// only addresses of this site are followed from a point
+const isLocalHref = (href) => typeof href === "string" && /^\/(?![/\\])/.test(href);
+
+/** The points with coordinates as GeoJSON features (MapLibre keeps flat properties only: the popup
+ * lines travel as JSON). */
+export function pointFeatures(points) {
   return (points || [])
     .filter((p) => numeric(p.latitude) !== null && numeric(p.longitude) !== null)
-    .map((p, i) => ({
-      type: "Feature",
-      id: i,
-      geometry: { type: "Point", coordinates: [Number(p.longitude), Number(p.latitude)] },
-      // MapLibre keeps flat properties only: the popup lines travel as JSON
-      properties: { name: p.name || "", group: p.group || "", color: p.color || "", lines: JSON.stringify(p.lines || []) },
-    }));
+    .map((p, i) => {
+      const properties = {
+        name: p.name || "",
+        group: p.group || "",
+        color: p.color || "",
+        lines: JSON.stringify(p.lines || []),
+        shape: p.shape === "ring" ? "ring" : "dot",
+      };
+      if (isLocalHref(p.href)) properties.href = p.href;
+      if (p.open === "modal" || p.open === "page") properties.open = p.open;
+      const opacity = numeric(p.opacity);
+      if (opacity !== null) properties.opacity = Math.min(1, Math.max(0, opacity));
+      return { type: "Feature", id: i, geometry: { type: "Point", coordinates: [Number(p.longitude), Number(p.latitude)] }, properties };
+    });
 }
 
-function pointsLegend(legend, config, located) {
+/** The filter of one circle layer: its shape, without the groups the legend has hidden. */
+export function layerFilter(shape, hidden = new Set()) {
+  const own = ["==", ["get", "shape"], shape];
+  return hidden.size ? ["all", own, ["!", ["in", ["get", "group"], ["literal", [...hidden]]]]] : own;
+}
+
+/** The legend's HTML: a swatch and a label per entry; an entry with toggle and group is a button
+ * that shows or hides the group (aria-pressed: shown). */
+export function legendHTML(config, located, hidden = new Set(), resolve = resolveColor) {
   const entries = config.legend || [];
-  if (!located) return setLegend(legend, nothingToMap(config));
-  if (!entries.length) return setLegend(legend, "");
+  if (!located) return nothingToMap(config);
+  if (!entries.length) return "";
   const fallback = cssVar("--nd-primary");
-  const swatches = entries
-    .map((e) => `<span class="legend__item"><span class="legend__swatch legend__swatch--dot" style="background: ${escapeHTML(resolveColor(e.color, fallback))}"></span>${escapeHTML(e.label)}</span>`)
+  const items = entries
+    .map((e) => {
+      const colour = escapeHTML(resolve(e.color, fallback));
+      const swatch =
+        e.shape === "ring"
+          ? `<span class="legend__swatch legend__swatch--ring" style="border-color: ${colour}"></span>`
+          : `<span class="legend__swatch legend__swatch--dot" style="background: ${colour}"></span>`;
+      if (e.toggle && e.group) {
+        const shown = !hidden.has(e.group);
+        return `<button type="button" class="legend__item legend__toggle" data-group="${escapeHTML(e.group)}" aria-pressed="${shown}">${swatch}${escapeHTML(e.label)}</button>`;
+      }
+      return `<span class="legend__item">${swatch}${escapeHTML(e.label)}</span>`;
+    })
     .join("");
-  return setLegend(legend, `${config.legend_title ? `<div class="map-legend__title">${escapeHTML(config.legend_title)}</div>` : ""}<div class="legend">${swatches}</div>`);
+  return `${config.legend_title ? `<div class="map-legend__title">${escapeHTML(config.legend_title)}</div>` : ""}<div class="legend">${items}</div>`;
+}
+
+/** Open a point's address: into the modal (app.js shows it) or as a page. */
+function openPoint(properties, config) {
+  if (!isLocalHref(properties.href)) return;
+  const how = properties.open || config.open;
+  if (how === "modal" && window.htmx) window.htmx.ajax("GET", properties.href, { target: "#modal-content" });
+  else window.location.assign(properties.href);
 }
 
 function points(map, legend, config, popup) {
   const features = pointFeatures(config.points);
+  const hidden = new Set();
   const colour = () => {
     const fallback = cssVar("--nd-primary") || "#446ab3";
     features.forEach((f) => {
@@ -144,17 +196,35 @@ function points(map, legend, config, popup) {
     });
     return { type: "FeatureCollection", features };
   };
+  const radius = ["interpolate", ["linear"], ["zoom"], 7, 5, 11, 8];
   map.addSource("points", { type: "geojson", data: colour() });
+  // the rings first, so a visit drawn at a planned place stays on top
   map.addLayer({
-    id: "points",
+    id: RING_LAYER,
     type: "circle",
     source: "points",
+    filter: layerFilter("ring", hidden),
     paint: {
-      "circle-radius": ["interpolate", ["linear"], ["zoom"], 7, 5, 11, 8],
+      "circle-radius": radius,
+      "circle-color": "rgba(0, 0, 0, 0)",
+      "circle-opacity": OPACITY,
+      "circle-stroke-color": ["get", "fill"],
+      "circle-stroke-width": 2,
+      "circle-stroke-opacity": OPACITY,
+    },
+  });
+  map.addLayer({
+    id: DOT_LAYER,
+    type: "circle",
+    source: "points",
+    filter: layerFilter("dot", hidden),
+    paint: {
+      "circle-radius": radius,
       "circle-color": ["get", "fill"],
-      "circle-opacity": 0.9,
+      "circle-opacity": ["*", 0.9, OPACITY],
       "circle-stroke-color": cssVar("--nd-surface") || "#ffffff",
       "circle-stroke-width": 1.5,
+      "circle-stroke-opacity": OPACITY,
     },
   });
   const html = (p) => {
@@ -167,33 +237,59 @@ function points(map, legend, config, popup) {
     const rows = (Array.isArray(lines) ? lines : []).filter(Array.isArray).map(([key, value]) => `<span class="map-popup__line"><span>${escapeHTML(key)}:</span> ${escapeHTML(value ?? "—")}</span>`).join("");
     return `<strong>${escapeHTML(p.name || "—")}</strong>${rows}`;
   };
-  hoverPopup(map, "points", popup, html);
-  pointsLegend(legend, config, features.length);
+  const layers = [RING_LAYER, DOT_LAYER];
+  hoverPopup(map, layers, popup, html);
+  layers.forEach((layer) => map.on("click", layer, (e) => openPoint(e.features[0].properties, config)));
+
+  const drawLegend = () => setLegend(legend, legendHTML(config, features.length, hidden));
+  legend?.addEventListener("click", (e) => {
+    const button = e.target.closest("[data-group]");
+    if (!button) return;
+    const group = button.dataset.group;
+    if (hidden.has(group)) hidden.delete(group);
+    else hidden.add(group);
+    map.setFilter(RING_LAYER, layerFilter("ring", hidden));
+    map.setFilter(DOT_LAYER, layerFilter("dot", hidden));
+    popup.remove();
+    drawLegend();
+    legend.querySelector(`[data-group="${CSS.escape(group)}"]`)?.focus();
+  });
+  drawLegend();
   return {
     features,
+    focus(name) {
+      const found = features.find((f) => f.properties.name === name);
+      if (!found) return;
+      map.jumpTo({ center: found.geometry.coordinates, zoom: Math.max(map.getZoom(), 11) });
+      popup.setLngLat(found.geometry.coordinates).setHTML(html(found.properties)).addTo(map);
+    },
     recolour() {
       map.getSource("points").setData(colour());
-      map.setPaintProperty("points", "circle-stroke-color", cssVar("--nd-surface") || "#ffffff");
-      pointsLegend(legend, config, features.length);
+      map.setPaintProperty(DOT_LAYER, "circle-stroke-color", cssVar("--nd-surface") || "#ffffff");
+      drawLegend();
     },
   };
 }
 
 // ------------------------------------------------------------------ shared
-/** A popup on hover, and on tap (touch screens have no hover); a tap elsewhere closes it. */
+/** A popup on hover, and on tap (touch screens have no hover); a tap elsewhere closes it. ``layer`` is
+ * one layer id or several. */
 function hoverPopup(map, layer, popup, html) {
+  const layers = Array.isArray(layer) ? layer : [layer];
   const show = (e) => {
     map.getCanvas().style.cursor = "pointer";
     popup.setLngLat(e.lngLat).setHTML(html(e.features[0].properties)).addTo(map);
   };
-  map.on("mousemove", layer, show);
-  map.on("click", layer, show);
-  map.on("mouseleave", layer, () => {
-    map.getCanvas().style.cursor = "";
-    popup.remove();
+  layers.forEach((id) => {
+    map.on("mousemove", id, show);
+    map.on("click", id, show);
+    map.on("mouseleave", id, () => {
+      map.getCanvas().style.cursor = "";
+      popup.remove();
+    });
   });
   map.on("click", (e) => {
-    if (!map.queryRenderedFeatures(e.point, { layers: [layer] }).length) popup.remove();
+    if (!map.queryRenderedFeatures(e.point, { layers }).length) popup.remove();
   });
 }
 
@@ -233,6 +329,7 @@ export async function init(el) {
     const layer = config.mode === "points" ? points(map, legend, config, popup) : choropleth(map, legend, config, popup);
     const b = bounds(layer.features);
     if (b) map.fitBounds(b, { padding: 32, maxZoom: 11, duration: 0 });
+    if (config.focus && layer.focus) layer.focus(String(config.focus));
     recolour = () => {
       // a map removed some other way stops listening and frees its canvas at the next theme change
       if (!el.isConnected) return release();

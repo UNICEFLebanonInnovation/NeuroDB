@@ -1,6 +1,8 @@
 """The small shared frontend pieces Monitoring insights adds: Copy and CSV leave out cells marked
 ``data-export="no"`` (the team names), a filter bar keeps an empty value its form marks
-``data-keep-empty`` ("section=": every section), and the HACT ratings have status colours."""
+``data-keep-empty`` ("section=": every section), the HACT ratings have status colours, chart clicks
+read the drill value of the point, and the map's points carry links, rings, opacity and legend
+toggles."""
 
 import json
 import shutil
@@ -160,3 +162,87 @@ def test_charts_bind_the_click_through_and_release_it():
     for builder in ("dist(el, data)", "hbars(el, data)", "grouped(el, data)", "monthly(el, data)"):
         body = charts.split(f"  {builder} {{", 1)[1].split("\n  },\n", 1)[0]
         assert "meta:" in body, builder
+
+
+# ------------------------------------------------------------------------------------------ edumap
+EDUMAP_SCRIPT = """
+globalThis.document = { documentElement: { getAttribute: () => "light" } };
+globalThis.getComputedStyle = () => ({ getPropertyValue: (name) => (name.startsWith("--nd-") ? "#446ab3" : "") });
+const edumap = await import(process.argv[1]);
+const features = edumap.pointFeatures([
+  { name: "Visit 1722", latitude: 33.8, longitude: 35.9, group: "coords", href: "/fmm/visits/1722/", lines: [["Date", "12 May 2026"]] },
+  { name: "Visit 1727", latitude: 34.0, longitude: 36.2, group: "place", href: "/fmm/visits/1727/", opacity: 0.6 },
+  { name: "Douris", latitude: 33.99, longitude: 36.18, group: "planned", shape: "ring", href: "/programmes/3/", open: "page" },
+  { name: "Elsewhere", latitude: 33.9, longitude: 35.5, href: "https://evil.example/x", opacity: 7, open: "popup" },
+  { name: "Protocol-relative", latitude: 33.9, longitude: 35.5, href: "//evil.example/x" },
+  { name: "No point", latitude: null, longitude: 35.5 },
+]);
+const legend = edumap.legendHTML({
+  legend_title: "Visits and planned locations",
+  legend: [
+    { label: "Matched by coordinates (4)", color: "var(--nd-success)", group: "coords", toggle: true },
+    { label: "PD location not yet visited (1)", color: "var(--nd-muted)", group: "planned", toggle: true, shape: "ring" },
+    { label: "Schools", color: "#123456" },
+  ],
+}, features.length, new Set(["planned"]));
+console.log(JSON.stringify({
+  properties: features.map((f) => f.properties),
+  dots: edumap.layerFilter("dot"),
+  ringsHidden: edumap.layerFilter("ring", new Set(["planned"])),
+  legend,
+  empty: edumap.legendHTML({ empty_title: "No visit in this filter has coordinates", legend: [] }, 0),
+}));
+"""
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_edumap_points_carry_links_rings_opacity_and_legend_toggles():
+    """edumap.js run in node: a point keeps a same-site href (never another site's), its shape, its
+    opacity (kept between 0 and 1) and where it opens; a legend entry with a group and toggle is a
+    button, and a hidden group is filtered out of its layer."""
+    out = subprocess.run(
+        [NODE, "--input-type=module", "-e", EDUMAP_SCRIPT, (STATIC / "js" / "edumap.js").as_uri()],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    )
+    data = json.loads(out.stdout)
+    props = {p["name"]: p for p in data["properties"]}
+    assert set(props) == {"Visit 1722", "Visit 1727", "Douris", "Elsewhere", "Protocol-relative"}
+    assert props["Visit 1722"]["href"] == "/fmm/visits/1722/" and props["Visit 1722"]["shape"] == "dot"
+    assert "opacity" not in props["Visit 1722"]  # the layers read 1 when a point gives none
+    assert json.loads(props["Visit 1722"]["lines"]) == [["Date", "12 May 2026"]]
+    assert props["Visit 1727"]["opacity"] == 0.6
+    assert props["Douris"]["shape"] == "ring" and props["Douris"]["open"] == "page"
+    assert "href" not in props["Elsewhere"] and "href" not in props["Protocol-relative"]
+    assert props["Elsewhere"]["opacity"] == 1 and "open" not in props["Elsewhere"]
+    assert data["dots"] == ["==", ["get", "shape"], "dot"]
+    assert data["ringsHidden"] == [
+        "all",
+        ["==", ["get", "shape"], "ring"],
+        ["!", ["in", ["get", "group"], ["literal", ["planned"]]]],
+    ]
+    legend = data["legend"]
+    assert 'data-group="coords" aria-pressed="true"' in legend
+    assert 'data-group="planned" aria-pressed="false"' in legend
+    assert legend.count("<button") == 2 and "legend__swatch--ring" in legend
+    assert '<span class="legend__item"><span class="legend__swatch legend__swatch--dot"' in legend
+    assert "No visit in this filter has coordinates" in data["empty"]
+
+
+def test_edumap_draws_rings_reads_opacity_and_opens_points():
+    edumap = (STATIC / "js" / "edumap.js").read_text()
+    opacity = '["coalesce", ["get", "opacity"], 1]'
+    assert f"const OPACITY = {opacity};" in edumap
+    assert '"circle-opacity": ["*", 0.9, OPACITY]' in edumap and '"circle-stroke-opacity": OPACITY' in edumap
+    # the ring layer: a transparent fill and a 2-pixel stroke in the point's colour
+    ring = edumap.split("id: RING_LAYER,", 1)[1].split("});", 1)[0]
+    assert '"circle-color": "rgba(0, 0, 0, 0)"' in ring and '"circle-stroke-width": 2' in ring
+    assert '"circle-stroke-color": ["get", "fill"]' in ring
+    # a click opens the point: the modal through htmx, else the page
+    assert 'window.htmx.ajax("GET", properties.href, { target: "#modal-content" })' in edumap
+    assert "window.location.assign(properties.href)" in edumap
+    # the legend toggles groups with setFilter, and config.focus centres and opens a point
+    assert "map.setFilter(RING_LAYER" in edumap and "map.setFilter(DOT_LAYER" in edumap
+    assert "if (config.focus && layer.focus) layer.focus(String(config.focus));" in edumap

@@ -1,0 +1,99 @@
+{% load i18n ui %}
+{% if not kpis.visits %}{% include "fmm/_empty_tab.html" %}{% else %}
+{% if pd_scope == "active" %}<input type="hidden" name="pd_scope" value="active" form="fmm-filters">{% endif %}
+{% url 'fmm:dashboard' as page_url %}
+{% with c=map.counts %}
+<div class="fmm-tab fmm-map">
+<section class="panel" aria-labelledby="fmm-map-title">
+  <div class="panel__header flex-wrap">
+    <h2 class="panel__title" id="fmm-map-title">{% trans "Visits and planned locations" %}</h2>
+    <nav class="segmented segmented--scroll" aria-label="{% trans 'Planned locations shown' %}">
+      {% if pd_scope == "visited" %}<a aria-current="page">{% trans "Programme documents visited" %}</a><a href="{{ page_url }}?{{ pd_scope_query }}" hx-get="{{ page_url }}?{{ pd_scope_query }}" hx-target="#fmm-results" hx-push-url="true">{% trans "Every active programme document" %}</a>
+      {% else %}<a href="{{ page_url }}?{{ pd_scope_query }}" hx-get="{{ page_url }}?{{ pd_scope_query }}" hx-target="#fmm-results" hx-push-url="true">{% trans "Programme documents visited" %}</a><a aria-current="page">{% trans "Every active programme document" %}</a>{% endif %}
+    </nav>
+  </div>
+  <p class="small text-muted mb-2">{% blocktrans with km=map.km|floatformat:"-1" %}Each visit is set against the places its own programme documents planned: matched by coordinates when both points are exact (a monitoring site, or a cadaster's own point) and less than {{ km }} km apart, else by place (the same place, or the planned area that holds it), else not linked. A grey ring is a planned place no visit of this filter reached.{% endblocktrans %}
+    {% if pd_scope == "active" %}{% trans "The rings are the planned places of every active programme document of the filter's sections, partners and governorate." %}{% else %}{% trans "The rings are the planned places of the programme documents these visits went to." %}{% endif %}</p>
+  <div class="chips mb-2" aria-label="{% trans 'What the map shows' %}">
+    <span class="chip">{% blocktrans count n=c.mapped %}{{ n }} visit mapped{% plural %}{{ n }} visits mapped{% endblocktrans %}</span>
+    <span class="chip"><span class="fmm-swatch fmm-swatch--coords" aria-hidden="true"></span>{% blocktrans count n=c.coords %}{{ n }} matched by coordinates{% plural %}{{ n }} matched by coordinates{% endblocktrans %}</span>
+    <span class="chip"><span class="fmm-swatch fmm-swatch--place" aria-hidden="true"></span>{% blocktrans count n=c.place %}{{ n }} matched by place{% plural %}{{ n }} matched by place{% endblocktrans %}</span>
+    <span class="chip"><span class="fmm-swatch fmm-swatch--none" aria-hidden="true"></span>{% blocktrans count n=c.none %}{{ n }} not linked to a PD location{% plural %}{{ n }} not linked to a PD location{% endblocktrans %}</span>
+    <span class="chip"><span class="fmm-swatch fmm-swatch--planned" aria-hidden="true"></span>{% blocktrans count n=c.not_visited %}{{ n }} PD location not yet visited{% plural %}{{ n }} PD locations not yet visited{% endblocktrans %}</span>
+    {% if c.unlocated %}<span class="chip">{% blocktrans count n=c.unlocated %}{{ n }} visit without coordinates{% plural %}{{ n }} visits without coordinates{% endblocktrans %}</span>{% endif %}
+  </div>
+  {% if map_focus.key %}
+  {% if map_focus.reason == "unlocated" %}<p class="caveat" role="status">{% blocktrans with label=map_focus.label %}{{ label }} has no coordinates, so it is listed below the map only.{% endblocktrans %}</p>
+  {% elif map_focus.reason == "outside" %}<p class="caveat" role="status">{% blocktrans with label=map_focus.label %}{{ label }} is not in this filter.{% endblocktrans %}</p>
+  {% elif map_focus.reason == "unknown" %}<p class="caveat" role="status">{% trans "That visit is not in NeuroDB." %}</p>{% endif %}
+  {% endif %}
+  {% if c.capped %}<p class="caveat">{% blocktrans with shown=c.drawn|number %}The map shows the first {{ shown }} points (the most urgent visits first). Narrow the filter to see the rest.{% endblocktrans %}</p>{% endif %}
+  {% if c.approximate %}<p class="small text-muted mb-2">{% blocktrans count n=c.approximate %}{{ n }} visit point is approximate (placed at a district or governorate, not at its site) and drawn fainter; it never matches by coordinates.{% plural %}{{ n }} visit points are approximate (placed at a district or governorate, not at their site) and drawn fainter; they never match by coordinates.{% endblocktrans %}</p>{% endif %}
+  {% if not c.mapped %}<p class="caveat" role="status">{% trans "No visit in this filter has coordinates" %}{% if c.drawn %} · {% trans "the map shows the planned places only" %}{% endif %}</p>{% endif %}
+  {% if c.drawn %}
+  <p class="small text-muted mb-1">{% trans "The table below lists every point on this map, each with its link." %}</p>
+  <section class="map-shell map-shell--fmm" data-module="edumap" data-config="fmm-map-config" aria-label="{{ map_config.aria_label }}">
+    <div class="map" data-map-canvas></div>
+    <div class="map-legend" data-map-legend hidden></div>
+  </section>
+  {% else %}
+  <div class="state state--empty">
+    {% include "components/icon.html" with name="map" class="state__icon" %}
+    <p class="state__title">{% trans "Nothing to map in this filter" %}</p>
+  </div>
+  {% endif %}
+</section>
+
+{% if map.visit_rows %}
+<section class="panel p-0" aria-labelledby="fmm-map-visits-title">
+  <div class="panel__header px-3 pt-3"><h2 class="panel__title" id="fmm-map-visits-title">{% trans "Visits on the map" %}</h2><span class="panel__hint">{% blocktrans count n=map.visit_rows|length %}{{ n }} visit{% plural %}{{ n }} visits{% endblocktrans %}</span></div>
+  <div class="table-wrap table-wrap--tall"><table class="table table-sm mb-0">
+    <thead><tr><th scope="col">{% trans "Visit" %}</th><th scope="col">{% trans "Date" %}</th><th scope="col">{% trans "Match" %}</th><th scope="col" class="num">{% trans "Distance" %}</th><th scope="col">{% trans "PD location" %}</th></tr></thead>
+    <tbody>{% for r in map.visit_rows %}<tr{% if r.key == map_focus.key %} class="table-active"{% endif %}>
+      <td><a href="{{ r.url }}" hx-get="{{ r.url }}" hx-target="#modal-content">{{ r.label }}</a></td>
+      <td class="text-nowrap">{{ r.date|date:"j M Y"|default:"—" }}</td>
+      <td><span class="fmm-swatch fmm-swatch--{{ r.match }}" aria-hidden="true"></span>{{ r.match_label }}{% if r.approximate %}<div class="small text-muted">{{ r.approximate }}</div>{% endif %}</td>
+      <td class="num text-nowrap">{{ r.distance|default:"—" }}</td>
+      <td>{% if r.pd_url %}<span data-synced>{{ r.pd_location }}</span> · <a class="mono" href="{{ r.pd_url }}" data-synced>{{ r.pd_number }}</a>{% else %}—{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}
+
+<section class="panel p-0" aria-labelledby="fmm-map-planned-title">
+  <div class="panel__header px-3 pt-3"><h2 class="panel__title" id="fmm-map-planned-title">{% trans "PD locations not yet visited" %}</h2><span class="panel__hint">{% blocktrans with n=c.not_visited total=c.planned %}{{ n }} of {{ total }} planned{% endblocktrans %}</span></div>
+  {% if map.planned_rows %}
+  <div class="table-wrap table-wrap--tall"><table class="table table-sm mb-0">
+    <thead><tr><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Partner" %}</th><th scope="col">{% trans "Place" %}</th><th scope="col">{% trans "Governorate" %}</th></tr></thead>
+    <tbody>{% for r in map.planned_rows %}<tr>
+      <td><a class="mono" href="{{ r.pd_url }}" data-synced>{{ r.pd_number }}</a></td>
+      <td data-synced>{{ r.partner|default:"—" }}</td>
+      <td><span data-synced>{{ r.place }}</span>{% if not r.located %} <span class="small text-muted">({% trans "no coordinates: not on the map" %})</span>{% elif r.approximate %} <span class="small text-muted">({% trans "approximate point" %})</span>{% endif %}</td>
+      <td data-synced>{{ r.governorate|default:"—" }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% if map.planned_more %}<p class="small text-muted px-3 pb-3 mb-0">{% blocktrans count n=map.planned_more %}{{ n }} more not listed: narrow the filter.{% plural %}{{ n }} more not listed: narrow the filter.{% endblocktrans %}</p>{% endif %}
+  {% else %}
+  <p class="small text-muted px-3 pb-3 mb-0">{% if c.planned %}{% trans "Every planned place of these programme documents was visited in this filter." %}{% else %}{% trans "These programme documents have no planned locations in eTools." %}{% endif %}</p>
+  {% endif %}
+</section>
+
+{% if map.unlocated_rows %}
+<section class="panel p-0" aria-labelledby="fmm-map-unlocated-title">
+  <div class="panel__header px-3 pt-3"><h2 class="panel__title" id="fmm-map-unlocated-title">{% trans "Visits without coordinates" %}</h2><span class="panel__hint">{% trans "not on the map" %}</span></div>
+  <div class="table-wrap"><table class="table table-sm mb-0">
+    <thead><tr><th scope="col">{% trans "Visit" %}</th><th scope="col">{% trans "Date" %}</th><th scope="col">{% trans "Place in eTools" %}</th><th scope="col">{% trans "Match" %}</th></tr></thead>
+    <tbody>{% for r in map.unlocated_rows %}<tr{% if r.key == map_focus.key %} class="table-active"{% endif %}>
+      <td><a href="{{ r.url }}" hx-get="{{ r.url }}" hx-target="#modal-content">{{ r.label }}</a></td>
+      <td class="text-nowrap">{{ r.date|date:"j M Y"|default:"—" }}</td>
+      <td data-synced>{{ r.place|default:"—" }}</td>
+      <td>{{ r.match_label }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% if map.unlocated_more %}<p class="small text-muted px-3 pb-3 mb-0">{% blocktrans count n=map.unlocated_more %}{{ n }} more not listed: narrow the filter.{% plural %}{{ n }} more not listed: narrow the filter.{% endblocktrans %}</p>{% endif %}
+</section>
+{% endif %}
+</div>
+{% endwith %}
+{{ map_config|json_script:"fmm-map-config" }}
+{% endif %}

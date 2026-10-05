@@ -158,6 +158,19 @@ def test_demo_field_monitoring_adds_without_moving_the_rest(monkeypatch):
         "off_track",
     }
 
+    # ... and maps them: a visit matched to a planned place by coordinates, a planned place not yet
+    # visited, and the visit placed at a district's own centre never matched by coordinates
+    from neurodb.fmm import geo
+    from neurodb.fmm.scope import Scope
+
+    every_date = {"period": "custom", "from": "2000-01-01", "to": "2100-12-31", "section": ""}
+    mapped = geo.map_points(Scope.from_params(every_date))
+    assert mapped["counts"]["coords"] >= 1 and mapped["counts"]["not_visited"] >= 1
+    assert any(p.get("shape") == "ring" for p in mapped["config"]["points"])
+    matches = {row["key"]: row["match"] for row in mapped["visit_rows"]}
+    centres = list(Visit.objects.filter(located_by="location", located_level=2).values_list("key", flat=True))
+    assert centres and all(key in matches and matches[key] != "coords" for key in centres)
+
     # documents in shape A
     questions = list(
         dm.DatamartDocument.objects.filter(dataset="fm_questions").values_list("data", flat=True)

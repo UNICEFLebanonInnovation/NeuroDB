@@ -81,10 +81,11 @@ TAB_MARKERS = {
     "quality": "Top recurring issues",
     "analysis": "Programmatic visits and HACT",
     "visits": "Monitoring visits — detail and flags",
+    "map": "Visits and planned locations",
 }
 
 
-@pytest.mark.parametrize("tab", ["insights", "quality", "analysis", "visits"])
+@pytest.mark.parametrize("tab", ["insights", "quality", "analysis", "visits", "map"])
 def test_each_tab_is_an_htmx_partial(built, client_viewer, tab):
     response = client_viewer.get(PAGE, {"tab": tab, "year": "2026"}, HTTP_HX_REQUEST="true")
     html = response.content.decode()
@@ -100,7 +101,7 @@ def test_each_tab_is_an_htmx_partial(built, client_viewer, tab):
 def test_the_tab_bar_lists_the_tabs_of_this_stage_with_the_scope(built, client_viewer):
     html = client_viewer.get(PAGE, {"year": "2026", "rating": "off_track"}).content.decode()
     nav = html.split('class="segmented segmented--scroll fmm-tabs"', 1)[1].split("</nav>", 1)[0]
-    assert re.findall(r">(\w+)</a>", nav) == ["Insights", "Quality", "Analysis", "Visits"]
+    assert re.findall(r">(\w+)</a>", nav) == ["Insights", "Quality", "Analysis", "Visits", "Map"]
     assert "year=2026&amp;section=&amp;rating=off_track&amp;tab=visits" in nav
     assert 'hx-target="#fmm-results"' in nav and 'hx-push-url="true"' in nav
 
@@ -343,6 +344,8 @@ def test_no_forbidden_word_none_or_nan_on_the_page(built, client_viewer):
         client_viewer.get(PAGE, {"tab": "analysis"}).content.decode(),
         client_viewer.get(PAGE, {"tab": "analysis", "entity_kind": "partner"}).content.decode(),
         client_viewer.get(PAGE, {"tab": "quality", "year": "2025"}).content.decode(),
+        client_viewer.get(PAGE, {"tab": "map"}).content.decode(),
+        client_viewer.get(PAGE, {"tab": "map", "pd_scope": "active", "visit": "1725"}).content.decode(),
         client_viewer.get(reverse("fmm:drill"), {"flag": "R1"}, HTTP_HX_REQUEST="true").content.decode(),
         client_viewer.get(reverse("fmm:visit", args=["1722"])).content.decode(),
         client_viewer.get(reverse("fmm:visit", args=["1723"])).content.decode(),
@@ -420,7 +423,7 @@ def test_each_tab_and_the_page_stay_within_their_query_budget(
 ):
     from django.core.cache import cache
 
-    for tab in ("insights", "quality", "analysis", "visits"):
+    for tab in ("insights", "quality", "analysis", "visits", "map"):
         cache.clear()
         with django_assert_max_num_queries(20):
             client_viewer.get(PAGE, {"tab": tab}, HTTP_HX_REQUEST="true")

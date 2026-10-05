@@ -483,6 +483,13 @@ if not 0 < FMM_KEY_MIN_COVERAGE <= 1:
 # The address of an activity in eTools for the visit page's "Open in eTools", with {id} for the activity
 # id (e.g. https://etools.unicef.org/fm/activities/{id}/details). Blank hides the link until it is verified.
 FMM_ETOOLS_ACTIVITY_URL = env("FMM_ETOOLS_ACTIVITY_URL", default="")
+# Map: the distance (km) below which a visit's point and a planned location's point count as the same
+# place; only precise points (a site, or a cadaster's own point) are compared this way
+FMM_MATCH_KM = env.float("FMM_MATCH_KM", default=2.0)
+if not FMM_MATCH_KM > 0:
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(f"FMM_MATCH_KM must be above 0; got {FMM_MATCH_KM}")
 
 # ---------------------------------------------------------------------------- logging
 LOG_FORMAT = env("LOG_FORMAT", default="plain")  # "json" in Azure so Log Analytics can parse fields

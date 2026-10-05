@@ -1263,8 +1263,8 @@ Monitoring insights turns the eTools field monitoring data into visits: each vis
 programme documents, place and sections, and how complete and coherent its report is. It is built in
 steps. This release has its data layer, its quality rules and the first part of its page,
 `/fmm/` (menu: *Monitoring insights*, right after *Field monitoring*): the filters, the key figures,
-the Quality, Analysis and Visits tabs, the drill-down window behind every chart and count, the visit
-page, the visit look-up and the reviews. The map and the AI brief and chat arrive in later steps; the
+the Quality, Analysis, Visits and Map tabs, the drill-down window behind every chart and count, the
+visit page, the visit look-up and the reviews. The AI brief and chat arrive in a later step; the
 Insights tab says so. The refresh builds and
 scores the visits, and the admin views under admin → *Monitoring insights* are: **Fields found**
 (which keys the field monitoring records hold, and the keys an administrator pins), **Questions
@@ -1335,10 +1335,29 @@ is hidden.
   filter with its references, dates, status, partner, programme documents, place, sections, offices,
   rating, HACT Q1, quality, flags, urgency, action point counts and review, and never the team, the
   visit lead or a narrative.
+- **Map tab**: each visit with a point, set against the places its own programme documents planned
+  (`PCA.locations`, placed through the gazetteer). A visit is *matched by coordinates* (green) when
+  it is less than `FMM_MATCH_KM` (2 km) from a planned place and **both points are exact**: the visit
+  placed by its monitoring site or by its location's own point at the gazetteer's lowest level
+  (cadasters), and the planned place a cadaster with its own point. A district's or governorate's
+  centre, its own or borrowed from an ancestor, never matches by coordinates; such a visit point is
+  drawn fainter with "approximate: placed at …". Otherwise a visit is *matched by place* (purple: the
+  same location or P-code, the planned district or governorate that holds it, or the same name), or
+  *not linked to a PD location* (blue). A grey ring is a planned place no visit of the filter reached
+  (*PD location not yet visited*; it opens the programme document). The rings are the planned places
+  of the programme documents the visits went to, or, with *Every active programme document*, those
+  of every active programme document of the filter's sections, partners and governorate. The chips
+  above the map count each group and the visits without coordinates; the legend's entries show or
+  hide their group. At most 1,000 points are drawn (the most urgent visits first), with a note when
+  there are more. The table below the map lists every point drawn with its link, the planned places
+  not visited and the visits without coordinates: it is the keyboard route, as the map's popups open
+  on hover or tap only. `?visit=<key>` centres the map on a visit and opens it (the visit page's *On
+  the map* link). Only OpenStreetMap tiles are loaded, and no point carries a team member, a visit
+  lead or a narrative.
 - **Visit page** (`/fmm/visits/<key>/`, also a window from the table; the address AI answers will
   cite): status and rating with their dates, HACT Q1, quality and its basis, urgency and its parts,
-  links (partner, programme documents, HACT assurance, the visit's action points, and *Open in
-  eTools* once `FMM_ETOOLS_ACTIVITY_URL` is set), place and how it was located, sections and offices
+  links (partner, programme documents, HACT assurance, *On the map* when the visit has a point, the
+  visit's action points, and *Open in eTools* once `FMM_ETOOLS_ACTIVITY_URL` is set), place and how it was located, sections and offices
   with their source, the team (names only, shown to NeuroDB users only), each entity with its rating,
   HACT Q1, programme document match and the narrative in full (e-mail addresses hidden), each rule's
   result, the checklist questions and answers (read from the eTools records when the page opens),
@@ -1553,6 +1572,7 @@ on, and before its figures are trusted:
 | `FMM_REFRESH_MAX_PASSES` | `3` | Passes one refresh may make to serve the rescores asked for while it runs. |
 | `FMM_KEY_MIN_COVERAGE` | `0.5` | The share of a dataset's records a candidate key must fill to be chosen before the keys listed after it (above 0, at most 1; another value stops the start-up). |
 | `FMM_ETOOLS_ACTIVITY_URL` | (blank) | The address of an activity in eTools, with `{id}` for its id (e.g. `https://etools.unicef.org/fm/activities/{id}/details`), for the visit page's *Open in eTools*. Blank hides the link until the address is verified. |
+| `FMM_MATCH_KM` | `2.0` | Map: the distance in kilometres below which a visit and a planned place of its programme document count as the same place, when both points are exact (a monitoring site, or a cadaster's own point). Above 0; another value stops the start-up. |
 
 ## Donor access (`/donor/`)
 
