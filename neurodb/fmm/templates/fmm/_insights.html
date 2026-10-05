@@ -1,0 +1,67 @@
+{% load i18n ui %}
+{% if running %}
+<section class="panel fmm-insights" id="fmm-insights" aria-labelledby="fmm-insights-title" aria-busy="true"
+  hx-get="{% url 'fmm:insights' %}?{{ scope.query }}&amp;running={{ running.pk }}" hx-trigger="every 3s" hx-swap="outerHTML">
+  <h2 class="h6" id="fmm-insights-title">{% trans "AI monitoring insights" %}</h2>
+  <p class="small text-muted mb-2" role="status">{% trans "Writing… about 30 seconds" %}</p>
+  {% include "components/skeleton.html" %}
+</section>
+{% else %}
+<section class="panel fmm-insights" id="fmm-insights" aria-labelledby="fmm-insights-title">
+  {% comment %}Header: the title, the prompt version and rules version the brief was written with, when it was
+  written and from which data, how current it is, and the person's quota with the office AI budget.{% endcomment %}
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+    <div>
+      <h2 class="h6 mb-1" id="fmm-insights-title">{% trans "AI monitoring insights" %}</h2>
+      {% if shown_version %}<p class="small text-muted mb-0">{% blocktrans with label=shown_version.profile.label n=shown_version.number %}Prompt {{ label }} v{{ n }}{% endblocktrans %}{% if shown_version.published_at %} · {% blocktrans with day=shown_version.published_at|date:"j M" who=shown_version.published_by_name %}published {{ day }} by {{ who }}{% endblocktrans %}{% endif %} · {% blocktrans with v=rules_version %}rules v{{ v }}{% endblocktrans %}{% if is_admin %} · <a href="{% url 'admin:fmm_promptversion_change' shown_version.pk %}">{% trans "Edit in admin" %}</a>{% endif %}</p>{% endif %}
+      <p class="small text-muted mb-0">{% if row %}{% blocktrans with when=row.created_at|date:"j M Y H:i" %}Written {{ when }}{% endblocktrans %}{% if row.data_as_of %} · {% blocktrans with when=row.data_as_of|date:"j M H:i" %}data of {{ when }}{% endblocktrans %}{% endif %} · {% endif %}<span class="fmm-badge">{{ brief.badge }}</span></p>
+    </div>
+    {% if quota.allowed %}<span class="pill pill--sm pill--{% if quota.used >= quota.allowed %}warning{% else %}neutral{% endif %}" title="{% trans 'Briefs you asked for today, and the share of the office budget for Monitoring insights used today' %}">{% blocktrans with used=quota.used allowed=quota.allowed %}{{ used }} of {{ allowed }} today{% endblocktrans %}{% if quota.office is not None %} · {% blocktrans with share=quota.office|number:0 %}office AI budget {{ share }}% used{% endblocktrans %}{% endif %}</span>{% endif %}
+  </div>
+  {% if row and row.called %}
+  <div class="chips mb-2" aria-label="{% trans 'How this brief was written' %}">
+    <span class="chip">{{ row.model }}</span>
+    <span class="chip">{% blocktrans with effort=row.effort %}effort {{ effort }}{% endblocktrans %}</span>
+    <span class="chip" title="{% trans 'The limit includes the model’s reasoning tokens; a limit of 1,500 would often cut the brief off.' %}">{% blocktrans with limit=row.max_output_tokens used=row.output_tokens|number %}tokens {{ limit }} · used {{ used }}{% endblocktrans %}</span>
+    {% for chip in chips %}<span class="chip{% if chip.warn %} watch-chip--likely{% endif %}" title="{{ chip.title }}">{{ chip.text }}</span>{% endfor %}
+    <span class="chip" title="{% trans 'Monitors’ notes read by the AI, of the most allowed' %}">narr {{ row.sent.narratives|default:0 }}/{{ row.sent.narratives_allowed|default:0 }}</span>
+    <span class="chip" title="{% trans 'Visits the AI read in full, of the most allowed' %}">comp {{ row.sent.visits|default:0 }}/{{ row.sent.visits_allowed|default:0 }}</span>
+    <span class="chip">{% blocktrans with n=row.version.number %}prompt v{{ n }}{% endblocktrans %}</span>
+    <span class="chip">{% blocktrans with n=row.rules_version %}rules v{{ n }}{% endblocktrans %}</span>
+  </div>
+  {% endif %}
+  {% if message %}<p class="alert alert-warning small py-2 mb-2" role="status">{{ message }}</p>{% endif %}
+  {% if fallback_note %}<p class="small text-muted mb-2">{% trans "The AI's sentences did not pass the checks: this brief is written by NeuroDB from the figures." %}{% if is_admin and row.dropped %} {% trans "Dropped:" %} {% for reason, n in row.dropped.items %}{{ reason }} {{ n }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}</p>
+  {% elif is_admin and row.dropped %}<p class="small text-muted mb-2">{% trans "Sentences dropped by the checks:" %} {% for reason, n in row.dropped.items %}{{ reason }} {{ n }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+
+  <div class="insight-grid">
+    {% for section in sections %}
+    <article class="fmm-card" aria-labelledby="fmm-brief-{{ section.key }}">
+      <h3 class="h6" id="fmm-brief-{{ section.key }}">{{ section.title }}</h3>
+      {% for sentence in section.sentences %}
+      <p class="small mb-2"><span data-synced>{{ sentence.text }}</span>{% for chip in sentence.chips %} {% url 'fmm:visit' chip.key as chip_url %}<a class="visit-chip" href="{{ chip_url }}" hx-get="{{ chip_url }}" hx-target="#modal-content" hx-push-url="false">{{ chip.label }}</a>{% endfor %}</p>
+      {% empty %}
+      <p class="small text-muted mb-0">{% if section.note %}{{ section.note }}{% else %}{% trans "Nothing written for this part." %}{% endif %}</p>
+      {% endfor %}
+    </article>
+    {% endfor %}
+  </div>
+
+  <h3 class="h6 mt-3">{% trans "Priority action points" %}</h3>
+  {% for action in actions %}
+  <div class="priority-line">
+    <span class="visually-hidden">[PRIORITY: {{ action.priority }}]</span><span aria-hidden="true">{% status_pill action.status action.priority "sm" %}</span>
+    <strong data-synced>{{ action.section }}</strong> — <span data-synced>{{ action.action }}</span> — <em data-synced>{{ action.owner_role }}</em> — <span>{{ action.timeframe }}</span>
+    {% for chip in action.chips %}{% url 'fmm:visit' chip.key as chip_url %}<a class="visit-chip" href="{{ chip_url }}" hx-get="{{ chip_url }}" hx-target="#modal-content" hx-push-url="false">{{ chip.label }}</a>{% endfor %}
+  </div>
+  {% empty %}
+  <p class="small text-muted mb-0">{% trans "No visit of this filter needs urgent follow-up." %}</p>
+  {% endfor %}
+
+  <div class="d-flex flex-wrap gap-2 align-items-center mt-3">
+    <button type="button" class="btn btn-sm btn-primary" hx-post="{% url 'fmm:insights' %}?{{ scope.query }}" hx-target="#fmm-insights" hx-swap="outerHTML"{% if disabled %} disabled aria-disabled="true"{% endif %}>{% trans "Regenerate" %}</button>
+    {% if disabled %}<span class="small text-muted">{{ disabled }}</span>{% endif %}
+    {% if row and row.sent_payload %}<button type="button" class="btn btn-sm btn-outline-secondary" hx-get="{% url 'fmm:insight_sent' row.pk %}" hx-target="#modal-content">{% trans "What was sent" %}</button>{% endif %}
+  </div>
+</section>
+{% endif %}

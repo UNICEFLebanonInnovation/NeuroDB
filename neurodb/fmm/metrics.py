@@ -406,9 +406,10 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
                 "date": v["end_date"],
             }
             for name in v["section_names"] or ["none"]:
-                s = sections.setdefault(name, {"tally": Tally(), "lines": []})
+                s = sections.setdefault(name, {"tally": Tally(), "lines": [], "flagged": 0})
                 s["tally"].add(quality, band, rating)
                 s["lines"].append(line)
+                s["flagged"] += bool(v["flags"])
             # places: the gazetteer location, else the place eTools wrote (a site or a name)
             if v["location_id"] is not None:
                 place_key: tuple | None = ("location", v["location_id"])
@@ -450,6 +451,7 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
             )
             out_sections[name] = {
                 **s["tally"].out(),
+                "flagged": s["flagged"],
                 "lines": lines[:SECTION_LINES],
                 "more": max(len(lines) - SECTION_LINES, 0),
             }
@@ -734,6 +736,7 @@ def top_issues(
                     "label": issue_label(rule, key, g["measures"], settings_.get(rule)),
                     "visits": n,
                     "urgency": int(half_up(Decimal(g["urgency"]) / n, 0)),
+                    "lowest": min(g["measures"]) if g["measures"] else None,
                     "chips": g["visits"][:CHIP_VISITS],
                     "more": max(n - CHIP_VISITS, 0),
                     "drill": drill if _ISSUE.match(drill) else "",

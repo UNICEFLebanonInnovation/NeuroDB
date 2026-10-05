@@ -420,6 +420,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 |---|---|---|
 | `locations` | `sync_locations` | `0 5 * * *`, daily 05:00: the eTools locations from the Datamart (`--source rest` for the older eTools REST API, which needs `ETOOLS_TOKEN`; its location-types endpoint is gone and is skipped) |
 | `fmm-refresh` | `fmm_refresh` | `25 5 * * *`, daily 05:25, after the locations: rebuilds and scores the Monitoring insights visits, so that overdue action points, the age of a visit and urgency are recomputed even when no data changed (it also runs after every Datamart sync) |
+| `fmm-insights` | `fmm_insights` | `40 5 * * *`, daily 05:40, after the refresh: the AI monitoring briefs of the whole country, each section people land on and the last 90 days (reused at no cost when their data has not changed); with `FMM_AI` off it writes nothing and only applies the briefs' retention |
 | `daily-review` | `daily_review` | `0 6 * * *`, daily 06:00, after the night's syncs |
 | `activityinfo-data` | `import_activityinfo_data --current-year` | `0 18 1-22 * *`, 18:00 on days 1–22 |
 | `etools-datamart` | `sync_etools_datamart` | `30 20 * * *`, daily 20:30 |
@@ -498,6 +499,7 @@ admin home page, *Quick actions*):
 | Run a job → *Machine learning readiness* | `ml_readiness` | background |
 | Run a job → *Year-end forecast* | `forecast_indicators` | background |
 | Run a job → *Monitoring insights* | `fmm_refresh` | background |
+| Run a job → *Monitoring insights (AI)* | `fmm_insights` | background |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |
@@ -1263,15 +1265,15 @@ Monitoring insights turns the eTools field monitoring data into visits: each vis
 programme documents, place and sections, and how complete and coherent its report is. It is built in
 steps. This release has its data layer, its quality rules and the first part of its page,
 `/fmm/` (menu: *Monitoring insights*, right after *Field monitoring*): the filters, the key figures,
-the Quality, Analysis, Visits and Map tabs, the drill-down window behind every chart and count, the
-visit page, the visit look-up and the reviews. The AI brief and chat arrive in a later step; the
-Insights tab says so. The refresh builds and
+the AI monitoring brief (Insights tab), the Quality, Analysis, Visits and Map tabs, the drill-down
+window behind every chart and count, the visit page, the visit look-up and the reviews. The chat
+arrives in a later step. The refresh builds and
 scores the visits, and the admin views under admin → *Monitoring insights* are: **Fields found**
 (which keys the field monitoring records hold, and the keys an administrator pins), **Questions
 found** (which checklist question is Q1, Q2, Q3 and PSEA), **Quality rules**, **Score settings**,
 **Rule versions**, **Prompt versions** and **Sampling checks** (the AI's prompts and what the model
-accepted; the AI itself is off, see below), and **Visits** (the visits built, with their rule results,
-for checking the data).
+accepted; the AI itself is off at deploy, see below), **AI briefs** (every brief written, or why none
+was), and **Visits** (the visits built, with their rule results, for checking the data).
 
 ### The page (`/fmm/`)
 
@@ -1541,10 +1543,44 @@ only grows) and rebuilds the visits when its pinned keys differ. A rescore asked
 refresh runs is served by that refresh, so none is lost (see above); each visit keeps the rules version
 it was scored with.
 
-### The AI's prompts (the AI is not switched on yet)
+### The AI brief and its prompts
 
-The AI brief and the chat arrive in later steps; this release has what they stand on. `FMM_AI` is
-`false` at deploy and stays so until go-live (below). Nothing here calls the AI.
+`FMM_AI` is `false` at deploy and stays so until go-live (below): until then the Insights tab shows a
+brief **written by NeuroDB from the figures** ("AI not used: AI is switched off") and no call is made.
+The chat arrives in a later step.
+
+- **The brief** (Insights tab, loaded after the page): four parts (coverage and quality, programmatic
+  findings, operational challenges, recommendations) and up to six priority action points. Every
+  sentence rests on the facts NeuroDB sends and names them; a sentence with a figure, date, reference
+  or name the facts it cites do not hold, a link, an e-mail address, markup or the words staff pages
+  never use is dropped before anyone reads it. An action whose owner names a person gets "Section
+  lead", and one whose section the facts do not name gets "All sections". When nothing passes, or
+  the call fails, the code-written brief (or the last brief) is shown. Under each sentence, the
+  visits it rests on open their window; the visits table's *AI* column marks them, and the visit page
+  lists the sentences of the brief of the user's own landing filter that cite it.
+- **What is sent**: the period and filter, the key figures and the previous period, the rules,
+  the recurring issues, sections, field offices, governorates, follow-up and HACT counts, up to `comp`
+  visits as cards and up to `narr` monitors' notes, each cleaned of names, e-mail addresses, phone
+  numbers and links (a note with more than 3 of them removed, or under 40 characters, is never
+  sent). The team and the visit lead are never sent. A last check refuses a brief whose facts still
+  hold a known name, an e-mail address, a phone number or a link (the brief fails with "could not be
+  written safely" and an error is logged). *What was sent* on the card shows the facts and notes
+  exactly as sent, kept `FMM_PAYLOAD_RETENTION_DAYS` (30) days.
+- **When it is written.** Every morning at 05:40 (`fmm-insights`), for the whole country this year,
+  each NeuroDB section with active users as they land on the page, and the whole country over the
+  last 90 days (at most `FMM_NIGHTLY_MAX_INSIGHTS`), so people see a brief without using their quota.
+  *Regenerate* (5 a day per person) never makes the page wait: it starts the brief in its own process
+  and the card shows "Writing… about 30 seconds" until it is done; a second click, by anyone, follows
+  the same brief. A brief whose facts have not changed since the last one is shown again with no call
+  and no quota used ("Up to date"); a brief from older data says "the data has changed since", one
+  from an older prompt version "Written with prompt v6 (now v7)". A brief left writing by a stopped
+  process is closed after `FMM_INSIGHTS_TIMEOUT_SECONDS` plus a minute ("The last attempt stopped").
+- **The chips** say what was really used: model, effort, the output limit and the tokens used,
+  temperature and top-p ("applied", "not applied" with why, "not set"), notes and visits sent of those
+  allowed (`narr`, `comp`), the prompt and rules versions, and the person's quota with the share of
+  the office AI budget used today.
+- **Retention.** The morning run also closes stopped briefs, blanks payloads older than 30 days,
+  deletes refused and skipped briefs after 30 days and every brief after `FMM_RETENTION_DAYS` (180).
 
 - **Prompt versions** (admin → *Monitoring insights* → *Prompt versions*, Administrators only; other
   staff read). A version holds the editable instructions of the brief and of the chat, the model
@@ -1567,15 +1603,26 @@ The AI brief and the chat arrive in later steps; this release has what they stan
   point counts; never a narrative, a team or a visit lead); every other visit reaches it as counts only.
 - **Preview** (on each version) shows exactly the instructions each call sends: the brief's (the
   editable text, then the fixed part) and the chat's (the same, then the date and the filter's line),
-  for the whole country, a section or a pasted `/fmm/?…` address. Ask NeuroDB's own prompt is not sent
-  to the chat. The fixed part (what the data is and the safety rules, last so that the editable text
-  cannot override them) is shown greyed out on every version, with the brief's answer format.
+  and the facts a brief would send (redacted), the notes and visit cards sent of those allowed, the
+  input tokens and, when `AI_PRICE_*` is set, the most a brief costs, for the whole country, a section
+  or a pasted `/fmm/?…` address. No call is made and nothing is saved. Ask NeuroDB's own prompt is not
+  sent to the chat. The fixed part (what the data is and the safety rules, last so that the editable
+  text cannot override them) is shown greyed out on every version, with the brief's answer format.
+- **Test run** (on each version, from its Preview): writes a brief with that version for the filter
+  shown, in the background as Regenerate does, and opens it under *AI briefs*, beside the published
+  version's latest brief of the same filter. It counts against the office budget only, never against
+  a person's quota, and is never shown on the page. Check its chips (sampling applied or not, tokens
+  used) before publishing.
+- **AI briefs** (admin, read-only): every brief, with its filter, trigger (nightly, Regenerate, test
+  run), status (written, partly written, written by NeuroDB, failed, limit reached, not written) and
+  reason, version, model, tokens, sampling, what the checks dropped and the notes and visits sent.
+  What was sent is shown to Administrators only.
 - **Sampling checks** (*Sampling checks*): reasoning models may refuse temperature or top-p. When the
   API refuses one by name, only that one is dropped and the call is made again (at most twice), and the
   refusal is kept per model and effort for `FMM_SAMPLING_RECHECK_DAYS` (30) days; the brief's chips then
   say "not applied". Deleting a row means "check again on the next call". `FMM_SAMPLING=off` never sends
   either. Ask NeuroDB and NeuroDB Watch never send them.
-- **Limits.** Every call will first check that the AI is switched on (`FMM_ENABLED`, `FMM_AI`,
+- **Limits.** Every call first checks that the AI is switched on (`FMM_ENABLED`, `FMM_AI`,
   `AI_ASSISTANT_ENABLED` and a published version), not paused (6 hours after the OpenAI credit ran out)
   and within the day's caps: Monitoring insights' own `FMM_DAILY_TOKEN_CAP` (1,200,000) and
   `FMM_MAX_CALLS_PER_DAY` (400), for the whole office, and the shared `AI_DAILY_TOKEN_SOFT_CAP`, of

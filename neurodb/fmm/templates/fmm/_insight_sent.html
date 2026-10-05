@@ -1,0 +1,21 @@
+{% load i18n ui %}
+<div class="modal-header">
+  <div>
+    <div class="small text-muted">{{ row.scope_label }}</div>
+    <h2 class="modal-title h5" id="modal-title">{% trans "What was sent to the AI" %}</h2>
+  </div>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+</div>
+<div class="modal-body">
+  {% if facts_json %}
+  <p class="small text-muted">{% blocktrans with when=row.created_at|date:"j M Y H:i" n=row.version.number %}Sent {{ when }} with prompt v{{ n }}. Names, e-mail addresses, phone numbers and links were removed before sending; the team and the visit lead are never sent.{% endblocktrans %}</p>
+  <h3 class="h6">{% blocktrans count n=narratives|length %}{{ n }} monitor's note{% plural %}{{ n }} monitors' notes{% endblocktrans %}</h3>
+  {% if narratives %}
+  <ul class="small">{% for note in narratives %}{% url 'fmm:visit' note.visit|slice:"6:" as visit_url %}<li><a href="{{ visit_url }}">{{ note.visit|slice:"6:" }}</a>{% if note.section %} · {{ note.section }}{% endif %}: <span data-synced>{{ note.text }}</span></li>{% endfor %}</ul>
+  {% else %}<p class="small text-muted">{% trans "No note was sent." %}</p>{% endif %}
+  <h3 class="h6">{% trans "Figures and visits" %}</h3>
+  <pre class="small mb-0" data-synced>{{ facts_json }}</pre>
+  {% else %}
+  <p class="mb-0">{% blocktrans with n=retention_days %}What was sent is kept for {{ n }} days only, and only for briefs the AI wrote.{% endblocktrans %}</p>
+  {% endif %}
+</div>

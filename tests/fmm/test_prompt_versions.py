@@ -365,7 +365,7 @@ def test_only_administrators_change_prompts(client, roles, v1, viewer):
             ("admin:fmm_modelcapability_changelist", []),
         ):
             assert client.get(reverse(name, args=args)).status_code in (302, 403), (user, name)
-        for name in ("preview", "publish", "roll_back"):
+        for name in ("preview", "test_run", "publish", "roll_back"):
             url = reverse(f"admin:fmm_promptversion_{name}", args=[draft.pk])
             assert client.get(url).status_code in (302, 404), (user, name)
             assert client.post(url, {"note": "x"}).status_code in (302, 404), (user, name)

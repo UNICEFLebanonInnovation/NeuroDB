@@ -1,6 +1,7 @@
 {% load i18n %}
-<section class="panel fmm-tab" aria-labelledby="fmm-insights-title">
-  <h2 class="h6" id="fmm-insights-title">{% trans "AI monitoring insights" %}</h2>
-  {% url 'fmm:dashboard' as here %}
-  <p class="text-muted small mb-0">{% blocktrans with url=here query=visits_query %}The AI brief and chat appear here once switched on. Until then, the key figures above, the Quality and Analysis tabs and the <a href="{{ url }}?{{ query }}">Visits</a> tab show every visit of this filter, its quality checks and its follow-up.{% endblocktrans %}</p>
-</section>
+<div class="fmm-tab" aria-label="{% trans 'Insights' %}">
+  <section class="panel fmm-insights" id="fmm-insights" aria-labelledby="fmm-insights-title" hx-get="{% url 'fmm:insights' %}?{{ scope.query }}" hx-trigger="load" hx-swap="outerHTML">
+    <h2 class="h6" id="fmm-insights-title">{% trans "AI monitoring insights" %}</h2>
+    {% include "components/skeleton.html" %}
+  </section>
+</div>

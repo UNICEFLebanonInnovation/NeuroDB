@@ -107,6 +107,7 @@ def on_run_finished(sender, instance, update_fields=None, **kwargs) -> None:
         SyncRun.Job.ML_READINESS,
         SyncRun.Job.FORECAST,
         SyncRun.Job.WATCH,  # it writes nothing to the hub: a rebuild after it would only loop
+        SyncRun.Job.FMM_INSIGHTS,  # the AI briefs: nothing the hub reads
     ):
         return  # they bring no new data
     if instance.status not in (SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL):

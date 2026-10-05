@@ -235,6 +235,18 @@ BACKGROUND_JOBS = [
         ),
         "monitoring",
     ),
+    BackgroundJob(
+        "run_fmm_insights",
+        ("fmm_insights",),
+        SyncRun.Job.FMM_INSIGHTS,
+        _("Monitoring insights (AI)"),
+        _("Write the AI monitoring briefs now"),
+        _(
+            "Writes the AI briefs for the country and each section, as the morning run does. Briefs whose "
+            "data has not changed are reused at no cost."
+        ),
+        "auto_awesome",
+    ),
 ]
 
 

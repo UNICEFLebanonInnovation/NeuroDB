@@ -3,8 +3,9 @@
 
 {% comment %}
   Preview of a prompt version (context: fmm.admin.PromptVersionAdmin.preview_view): exactly the
-  instructions each call sends, for the brief and for the chat (with the date and the scope line) for a
-  chosen filter. No AI call is made and nothing is saved.
+  instructions each call sends, for the brief and for the chat (with the date and the scope line), and
+  the facts a brief would send (redacted), for a chosen filter. No AI call is made and nothing is saved;
+  the Test run button starts a background brief with this version.
 {% endcomment %}
 
 {% block content %}
@@ -40,8 +41,35 @@
   {% endcomponent %}
 
   {% component "unfold/components/card.html" with title=_("The brief: its instructions") %}
-    <p class="mb-2">{% trans "The whole instructions of each brief: the editable text, then the fixed part. The facts sent with it are added below them once the brief is written." %}</p>
+    <p class="mb-2">{% trans "The whole instructions of each brief: the editable text, then the fixed part. The facts below are sent with them." %}</p>
     <pre class="nd-fixed__text nd-fixed__text--live">{{ insights_text }}</pre>
+  {% endcomponent %}
+
+  {% component "unfold/components/card.html" with title=_("The brief: the facts sent for this filter") %}
+    <div class="flex flex-col gap-3">
+      <p>
+        {% blocktrans trimmed with n=facts_sent.narratives allowed=facts_sent.narratives_allowed withheld=facts_sent.narratives_withheld cards=facts_sent.visits comp=facts_sent.visits_allowed %}
+          Monitors' notes sent: {{ n }} of {{ allowed }} allowed ({{ withheld }} withheld: too short, or naming too many people). Visits sent in full: {{ cards }} of {{ comp }}.
+        {% endblocktrans %}
+      </p>
+      <p>
+        {% blocktrans trimmed with tokens=facts_tokens|floatformat:"0g" total=facts_estimate|floatformat:"0g" %}
+          About {{ tokens }} input tokens; {{ total }} with the output limit (reasoning included).
+        {% endblocktrans %}
+        {% if facts_cost %}{% blocktrans with cost=facts_cost %}At most about US$ {{ cost }} per brief.{% endblocktrans %}{% endif %}
+      </p>
+      <pre class="nd-fixed__text nd-fixed__text--live">{{ facts_json }}</pre>
+    </div>
+  {% endcomponent %}
+
+  {% component "unfold/components/card.html" with title=_("Test run") %}
+    <form id="test-run" method="post" action="{% url 'admin:fmm_promptversion_test_run' version.pk %}" class="flex flex-wrap gap-3 items-center">
+      {% csrf_token %}
+      <input type="hidden" name="scope" value="{{ choice }}">
+      <input type="hidden" name="url" value="{{ url }}">
+      <p class="grow">{% blocktrans with label=scope_label %}Write a brief with this version for {{ label }}, in the background, as Regenerate does. It counts against the office AI budget only and is never shown on the page.{% endblocktrans %}</p>
+      {% component "unfold/components/button.html" with submit=1 %}{% trans "Start the test run" %}{% endcomponent %}
+    </form>
   {% endcomponent %}
 
   {% component "unfold/components/card.html" with title=_("The chat: its instructions") %}

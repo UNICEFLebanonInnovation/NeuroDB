@@ -130,8 +130,8 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
         _(
             "eTools field monitoring as Monitoring insights reads it: the keys its records hold and the "
             "key each field is read from (Fields found), the quality rules and score settings with their "
-            "versions, the visits built from it and their reviews, and the AI's prompt versions and "
-            "sampling checks."
+            "versions, the visits built from it and their reviews, and the AI's prompt versions, sampling "
+            "checks and briefs."
         ),
         [
             "fmm.FieldMapping",
@@ -140,6 +140,7 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
             "fmm.RuleSetVersion",
             "fmm.PromptVersion",
             "fmm.ModelCapability",
+            "fmm.Insight",
             "fmm.Visit",
             "fmm.VisitReview",
         ],
@@ -305,6 +306,7 @@ ICONS = {
     "fmm.RuleSetVersion": "history",
     "fmm.PromptVersion": "edit_note",
     "fmm.ModelCapability": "science",
+    "fmm.Insight": "auto_awesome",
     "fmm.Visit": "location_on",
     "fmm.VisitReview": "task_alt",
     "locations.Location": "location_on",

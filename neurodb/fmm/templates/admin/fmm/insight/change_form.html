@@ -1,0 +1,29 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% comment %}
+  An AI brief in the admin: its kept sentences and priority actions above the fields. While it is being
+  written the page reloads itself every 3 seconds. A test run is shown beside the published version's
+  latest brief of the same filter.
+{% endcomment %}
+
+{% block extrahead %}
+  {{ block.super }}
+  {% if brief.running %}<meta http-equiv="refresh" content="3">{% endif %}
+{% endblock %}
+
+{% block form_top %}
+  {{ block.super }}
+  {% if brief %}
+  <div class="nd-brief flex flex-col gap-4 mb-6">
+    {% if brief.running %}
+      <p class="nd-fixed__note">{% trans "Writing… about 30 seconds. This page reloads by itself." %}</p>
+    {% else %}
+      <div class="grid gap-4 {% if beside_brief %}md:grid-cols-2{% endif %}">
+        {% include "admin/fmm/insight/_brief.html" with brief=brief heading=_("This brief") %}
+        {% if beside_brief %}{% include "admin/fmm/insight/_brief.html" with brief=beside_brief heading=_("The published version's latest brief of this filter") %}{% endif %}
+      </div>
+    {% endif %}
+  </div>
+  {% endif %}
+{% endblock %}

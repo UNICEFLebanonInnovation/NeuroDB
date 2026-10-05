@@ -47,6 +47,7 @@ from . import access, fields, privacy, rules, status, versions
 from .ai import profiles
 from .models import (
     FieldMapping,
+    Insight,
     KeyProbe,
     ModelCapability,
     PromptProfile,
@@ -1126,7 +1127,7 @@ class PromptVersionAdmin(ModelAdmin):
     list_filter = ("status",)
     search_fields = ("note", "created_by_name", "published_by_name")
     ordering = ("-number",)
-    actions_detail = ("preview_version", "publish_version", "roll_back_version")
+    actions_detail = ("preview_version", "test_run_version", "publish_version", "roll_back_version")
     fieldsets = (
         (_("AI monitoring insights"), {"fields": ("insights_enabled", "instructions")}),
         (_("Chat with Data"), {"fields": ("chat_enabled", "chat_instructions")}),
@@ -1181,6 +1182,9 @@ class PromptVersionAdmin(ModelAdmin):
         return access.is_admin(request.user) and obj is not None and not self._draft(obj)
 
     def has_preview_permission(self, request, obj=None):
+        return access.is_admin(request.user)
+
+    def has_test_run_permission(self, request, obj=None):
         return access.is_admin(request.user)
 
     def get_readonly_fields(self, request, obj=None):
@@ -1288,6 +1292,7 @@ class PromptVersionAdmin(ModelAdmin):
         view = self.admin_site.admin_view
         return [
             path("<int:pk>/preview/", view(self.preview_view), name="fmm_promptversion_preview"),
+            path("<int:pk>/test-run/", view(self.test_run_view), name="fmm_promptversion_test_run"),
             path("<int:pk>/publish/", view(self.publish_view), name="fmm_promptversion_publish"),
             path("<int:pk>/roll-back/", view(self.roll_back_view), name="fmm_promptversion_roll_back"),
             *super().get_urls(),
@@ -1296,6 +1301,11 @@ class PromptVersionAdmin(ModelAdmin):
     @action(description=_("Preview"), url_path="preview-version", icon="preview", permissions=["preview"])
     def preview_version(self, request, object_id):
         return redirect("admin:fmm_promptversion_preview", object_id)
+
+    @action(description=_("Test run"), url_path="test-run-version", icon="science", permissions=["test_run"])
+    def test_run_version(self, request, object_id):
+        """A test run needs a filter: it is started from the Preview, which shows what it will send."""
+        return redirect(reverse("admin:fmm_promptversion_preview", args=[object_id]) + "#test-run")
 
     @action(description=_("Publish"), url_path="publish-version", icon="publish", permissions=["publish"])
     def publish_version(self, request, object_id):
@@ -1340,8 +1350,34 @@ class PromptVersionAdmin(ModelAdmin):
             "url": url,
             "model": profiles.model_of(version),
             "warnings": profiles.warnings(version),
+            **_preview_facts(scope, version),
         }
         return render(request, "admin/fmm/promptversion/preview.html", context)
+
+    def test_run_view(self, request, pk):
+        """Start a test run of this version for the filter chosen on the Preview (POST, Administrators
+        only): the same background run as Regenerate, counted in the office cap only; then the brief's
+        admin page, which follows it."""
+        from .ai import insights
+
+        if not access.is_admin(request.user):
+            raise Http404
+        version = get_object_or_404(PromptVersion, pk=pk)
+        if request.method != "POST":
+            return redirect("admin:fmm_promptversion_preview", version.pk)
+        scope = _preview_scope(request.POST.get("scope", ""), request.POST.get("url", ""))
+        refused = insights.gate(scope, version, request.user, Insight.Trigger.TEST)
+        if refused:
+            row = insights.record_refusal(scope, version, request.user, Insight.Trigger.TEST, refused)
+            messages.error(request, _("The test run was not started: %(why)s") % {"why": refused[1]})
+            if row.pk:
+                return redirect("admin:fmm_insight_change", row.pk)
+            return redirect("admin:fmm_promptversion_preview", version.pk)
+        row = insights.start(scope, version, request.user, Insight.Trigger.TEST)
+        messages.success(
+            request, _("The test run of prompt v%(n)s is being written.") % {"n": version.number}
+        )
+        return redirect("admin:fmm_insight_change", row.pk)
 
     def publish_view(self, request, pk):
         """Confirm publishing a draft (Administrators only), then publish it."""
@@ -1388,6 +1424,35 @@ class PromptVersionAdmin(ModelAdmin):
         return render(request, "admin/fmm/promptversion/rollback_confirm.html", context)
 
 
+def _preview_facts(scope, version) -> dict[str, Any]:
+    """The Preview's facts: the payload a brief of ``scope`` would send now (redacted), what it holds
+    against what is allowed, the input tokens it would cost and, when prices are set, the cost of a
+    brief at the version's output limit. No AI call; nothing is saved."""
+    from decimal import Decimal
+
+    from neurodb.assistant import usage
+
+    from .ai import budget
+    from .ai import facts as ai_facts
+
+    facts = ai_facts.build(scope, version)
+    estimate = budget.estimate(facts, version)
+    price = usage.prices()
+    cost = None
+    if price:
+        input_tokens = estimate - version.max_output_tokens
+        cost = (input_tokens * price["input"] + version.max_output_tokens * price["output"]) / Decimal(
+            1_000_000
+        )
+    return {
+        "facts_json": json.dumps(facts.payload, indent=2, ensure_ascii=False, sort_keys=True),
+        "facts_sent": facts.sent,
+        "facts_tokens": estimate - version.max_output_tokens,
+        "facts_estimate": estimate,
+        "facts_cost": f"{cost:.3f}" if cost is not None else "",
+    }
+
+
 def _fixed_context() -> dict[str, Any]:
     from .ai import insights, prompts
 
@@ -1422,3 +1487,137 @@ class ModelCapabilityAdmin(ModelAdmin):
         if obj.accepted is None:
             return badge(_("not known"), "muted")
         return badge(_("accepted"), "ok") if obj.accepted else badge(_("refused"), "bad")
+
+
+INSIGHT_TONES = {
+    Insight.Status.RUNNING: "info",
+    Insight.Status.OK: "ok",
+    Insight.Status.PARTIAL: "warn",
+    Insight.Status.FALLBACK: "warn",
+    Insight.Status.FAILED: "bad",
+    Insight.Status.LIMITED: "muted",
+    Insight.Status.SKIPPED: "muted",
+}
+INSIGHT_FIELDS = (
+    "scope_label",
+    "trigger",
+    "status",
+    "reason",
+    "version",
+    "rules_version",
+    "data_as_of",
+    "called",
+    "model",
+    "effort",
+    "max_output_tokens",
+    "input_tokens",
+    "cached_tokens",
+    "output_tokens",
+    "duration_ms",
+    "sampling",
+    "sent",
+    "dropped",
+    "cited_keys",
+    "input_hash",
+    "scope_hash",
+    "scope",
+    "created_by",
+    "created_at",
+)
+
+
+@admin.register(Insight)
+class InsightAdmin(ReadOnlyModelAdmin):
+    """The AI briefs: every brief written (or why none was), with the version, model, tokens, sampling,
+    what was sent and what the checks dropped. A brief being written refreshes itself; a test run is
+    shown beside the published version's latest brief of the same filter. What was sent (redacted) is
+    shown to Administrators only."""
+
+    change_form_template = "admin/fmm/insight/change_form.html"
+    list_display = (
+        "scope_label",
+        "trigger",
+        "status_shown",
+        "version_shown",
+        "model",
+        "tokens_shown",
+        "dropped_shown",
+        "sent_shown",
+        "created_by",
+        "created_at",
+    )
+    list_filter = ("status", "trigger")
+    list_select_related = ("version", "created_by")
+    search_fields = ("scope_label", "reason")
+    date_hierarchy = "created_at"
+
+    def get_fields(self, request, obj=None):
+        return (*INSIGHT_FIELDS, "sent_payload") if access.is_admin(request.user) else INSIGHT_FIELDS
+
+    def get_readonly_fields(self, request, obj=None):
+        return self.get_fields(request, obj)
+
+    @admin.display(description=_("status"), ordering="status")
+    def status_shown(self, obj):
+        return badge(obj.get_status_display(), INSIGHT_TONES.get(obj.status, "muted"))
+
+    @admin.display(description=_("prompt"), ordering="version__number")
+    def version_shown(self, obj):
+        return f"v{obj.version.number}"
+
+    @admin.display(description=_("tokens in / out"))
+    def tokens_shown(self, obj):
+        return f"{obj.input_tokens:,} / {obj.output_tokens:,}" if obj.called else "—"
+
+    @admin.display(description=_("dropped"))
+    def dropped_shown(self, obj):
+        return ", ".join(f"{k} {v}" for k, v in sorted((obj.dropped or {}).items())) or "—"
+
+    @admin.display(description=_("notes / visits sent"))
+    def sent_shown(self, obj):
+        sent = obj.sent or {}
+        if not sent:
+            return "—"
+        return (
+            f"{sent.get('narratives', 0)}/{sent.get('narratives_allowed', 0)} · "
+            f"{sent.get('visits', 0)}/{sent.get('visits_allowed', 0)}"
+        )
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        from .ai import insights
+
+        insights.expire_stale()
+        row = Insight.objects.select_related("version").filter(pk=object_id).first()
+        extra = dict(extra_context or {})
+        if row is not None:
+            extra["brief"] = _brief_lines(row)
+            if row.trigger == Insight.Trigger.TEST:
+                published = profiles.published()
+                beside = (
+                    Insight.objects.filter(
+                        scope_hash=row.scope_hash, version=published, status__in=insights.SHOWN
+                    )
+                    .exclude(pk=row.pk)
+                    .order_by("-created_at")
+                    .first()
+                    if published is not None
+                    else None
+                )
+                extra["beside"] = beside
+                extra["beside_brief"] = _brief_lines(beside) if beside is not None else None
+        return super().change_view(request, object_id, form_url, extra)
+
+
+def _brief_lines(row: Insight) -> dict[str, Any]:
+    """A brief's kept sentences and actions, as the admin lists them."""
+    from .ai import insights
+
+    return {
+        "row": row,
+        "sections": [
+            {"title": insights.SECTION_TITLES[name], "sentences": (row.sections or {}).get(name) or []}
+            for name in insights.SECTIONS
+        ],
+        "actions": row.actions or [],
+        "running": row.status == Insight.Status.RUNNING,
+    }

@@ -1,5 +1,6 @@
 """Monitoring insights' privacy rules: how a text is cleaned, which keys hold a person, what a key's
-example shows, and how a team is shown (names only). The AI payload and chat parts arrive with them."""
+example shows, and how a team is shown (names only); what an AI brief sends and keeps (stage 6b). The
+chat parts arrive with the chat."""
 
 import pytest
 
@@ -288,3 +289,144 @@ def test_a_visit_card_is_an_allow_list_copy_without_people_or_narratives(built):
     # a planned visit not rated yet carries no rating date
     planned = Visit.objects.get(key="1724")
     assert privacy.visit_card(planned, names)["rated_on"] is None
+
+
+# ------------------------------------------------------------------------------------------ the brief's payload
+SOME_PEOPLE = (
+    "Met Mrs Layla Saab: 412 children attended on 2026-05-11; 2,800 kits for PCA2023597 under "
+    "LEB/PCA2023597/PD2025123."
+)
+
+
+@pytest.fixture
+def brief_world(built, monkeypatch):
+    """The built world with one more note naming a single person (so it is sent, redacted), the AI on,
+    and a fake model that answers with a brief resting on the facts."""
+    import json
+    from types import SimpleNamespace
+
+    from django.test import override_settings
+
+    from neurodb.assistant import agent
+    from neurodb.datamart.models import MonitoringFinding
+
+    MonitoringFinding.objects.filter(datamart_id=103).update(narrative_finding=SOME_PEOPLE)
+    people.forget()
+    sent = []
+
+    def create(**params):
+        sent.append(params)
+        brief = {
+            "coverage_quality": [{"text": "Eight visits in the period.", "keys": ["kpi"]}],
+            "programmatic_findings": [],
+            "operational_challenges": [],
+            "recommendations": [],
+            "priority_actions": [],
+        }
+        return SimpleNamespace(output_text=json.dumps(brief), usage=None, status="completed", output=[])
+
+    api = SimpleNamespace(responses=SimpleNamespace(create=create))
+    api.with_options = lambda **_: api
+    monkeypatch.setattr(agent, "client", lambda: api)
+    with override_settings(FMM_AI=True, AI_ASSISTANT_ENABLED=True, OPENAI_API_KEY="x"):
+        yield sent
+
+
+def _year():
+    from django.http import QueryDict
+
+    from neurodb.fmm.scope import Scope
+
+    return Scope.from_params(QueryDict("year=2026&section="))
+
+
+def test_no_canary_reaches_the_brief_request_its_kept_payload_or_the_preview(brief_world, client, admin_user):
+    import json
+
+    from django.urls import reverse
+
+    from neurodb.fmm.ai import insights, profiles
+    from neurodb.fmm.models import Insight
+
+    row = insights.generate(_year(), trigger=Insight.Trigger.NIGHTLY)
+    assert row.status == Insight.Status.PARTIAL and len(brief_world) == 1
+    request = brief_world[0]
+    sent = request["instructions"] + json.dumps(request["input"], ensure_ascii=False)  # (a)
+    kept = json.dumps(Insight.objects.get(pk=row.pk).sent_payload, ensure_ascii=False)  # (b)
+    client.force_login(admin_user)
+    preview = client.get(
+        reverse("admin:fmm_promptversion_preview", args=[profiles.published().pk]),
+        {"url": "/fmm/?year=2026&section="},
+    ).content.decode()  # (c)
+    for blob in (sent, kept, preview):
+        for canary in (*CANARIES, LEAD, MEMBER, MEMBER_EMAIL):
+            assert canary not in blob, canary
+    for figure in (*KEPT, "LEB/PCA2023597/PD2025123"):  # the figures and references of a note go intact
+        assert figure in sent and figure in kept, figure
+    assert "[name withheld]" in sent
+
+
+def test_a_note_naming_more_than_three_people_or_contacts_is_never_sent(brief_world):
+    from neurodb.fmm.ai import facts, profiles
+
+    found = facts.build(_year(), profiles.published())
+    texts = [n["text"] for n in found.payload["narratives"].values()]
+    assert texts and not any("photos at" in t for t in texts)  # the canary note: 6 placeholders
+    assert found.sent["narratives_withheld"] == 1
+    _cleaned, placeholders = privacy.clean(CANARY_TEXT, 600, privacy.names())
+    assert placeholders > 3
+
+
+def test_narr_0_sends_no_note(brief_world):
+    from neurodb.fmm.ai import facts, profiles
+
+    none = profiles.draft_from(profiles.published(), None, "No notes", narratives_sampled=0)
+    found = facts.build(_year(), none)
+    assert found.payload["narratives"] == {} and found.sent["narratives"] == 0
+    assert found.sent["narratives_allowed"] == 0
+
+
+def test_the_last_check_stops_a_brief_when_a_canary_slips_through(brief_world, monkeypatch, caplog):
+    from neurodb.fmm.ai import insights
+    from neurodb.fmm.models import Insight
+
+    monkeypatch.setattr(privacy, "clean", lambda text, limit, names_=None: (" ".join(str(text).split()), 0))
+    with caplog.at_level("ERROR"):
+        row = insights.generate(_year(), trigger=Insight.Trigger.NIGHTLY)
+    assert (row.status, row.reason, row.called) == ("failed", "privacy", False)
+    assert brief_world == []  # no call
+    assert "a brief was not sent" in caplog.text
+    assert not any(canary in caplog.text for canary in CANARIES)
+
+
+def test_the_ai_code_never_reads_raw_records_or_people():
+    import re
+    from pathlib import Path
+
+    import neurodb.fmm.ai as ai
+
+    reads = re.compile(r"""\.data\b|\["data"\]|visit_lead|\.team\b|["']team["']""")
+    offenders = [
+        path.name for path in Path(ai.__file__).parent.glob("*.py") if reads.search(path.read_text("utf-8"))
+    ]
+    assert offenders == []
+
+
+def test_no_canary_is_kept_in_any_brief_field(brief_world, viewer):
+    from django.db import models
+
+    from neurodb.fmm.ai import insights
+    from neurodb.fmm.models import Insight
+
+    insights.generate(_year(), trigger=Insight.Trigger.NIGHTLY)
+    insights.generate(_year(), user=viewer, trigger=Insight.Trigger.USER)  # reused, a skipped row
+    text_fields = [
+        f.name
+        for f in Insight._meta.concrete_fields
+        if isinstance(f, models.CharField | models.TextField | models.JSONField)
+        or f.get_internal_type() == "ArrayField"
+    ]
+    for row in Insight.objects.values(*text_fields):
+        blob = repr(row)
+        for canary in (*CANARIES, LEAD, MEMBER, MEMBER_EMAIL):
+            assert canary not in blob, canary

@@ -1,12 +1,13 @@
-"""The Monitoring insights page (``/fmm/``): its tabs (Insights, Quality, Analysis, Visits), the
-visits table and its CSV, the visit page, the visit look-up, the reviews and the drill-down window
-that lists the visits behind a chart cell or a count.
+"""The Monitoring insights page (``/fmm/``): its tabs (Insights, Quality, Analysis, Visits, Map), the
+visits table and its CSV, the visit page, the visit look-up, the reviews, the drill-down window that
+lists the visits behind a chart cell or a count, and the AI brief's card (Regenerate starts the brief
+in a background process; the card polls it) and what was sent for it.
 
 Every view reads the stored visits through a :class:`~neurodb.fmm.scope.Scope` built from the query
 string; an HTMX request gets the partial it swaps in, a plain request the full page. With
 ``FMM_ENABLED`` off every view answers 404. The visit page reads its narratives from the findings and
-its checklist answers from their records (``fmm.parse``), for staff only; nothing here sends them
-anywhere.
+its checklist answers from their records (``fmm.parse``), for staff only; no view here sends them
+anywhere, and no view calls the AI.
 """
 
 from __future__ import annotations
@@ -21,20 +22,22 @@ from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db.models import F, Func, IntegerField, QuerySet
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBadRequest
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBadRequest, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy, ngettext
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from neurodb.core.models import SyncRun
 from neurodb.datamart import fm
 from neurodb.web.templatetags.ui import code_label
 
 from . import access, metrics, status
-from .models import RuleSetting, ScoreSetting, Visit, VisitActionPoint, VisitReview
+from .ai import budget, profiles
+from .ai import insights as ai_insights
+from .models import Insight, RuleSetting, ScoreSetting, Visit, VisitActionPoint, VisitReview
 from .scope import (
     DRILL_KEYS,
     KIND_LABELS,
@@ -298,6 +301,9 @@ def _table(
     page = paginator.get_page(request.GET.get("page"))
     visits = list(page.object_list)
     _decorate(visits, limits)
+    cited = ai_insights.cited_keys(scope)
+    for v in visits:
+        v.ai_cited = v.key in cited
     return {
         "page_obj": page,
         "visits": visits,
@@ -1002,6 +1008,8 @@ def _visit_context(request: HttpRequest, v: Visit) -> dict[str, Any]:
         "fm_questions", "answer_label"
     )
     team_known = bool(v.team or v.team_unnamed) or fields.available("field_monitoring", "team")
+    landing = Scope.from_params(QueryDict(""), request.user)  # the filter the user lands on
+    brief, cited = ai_insights.citing(v.key, landing)
     reviews = list(
         VisitReview.objects.filter(visit_key=v.key)
         .select_related("reviewed_by")
@@ -1033,6 +1041,7 @@ def _visit_context(request: HttpRequest, v: Visit) -> dict[str, Any]:
         "can_review": access.can_review(request.user, v),
         "review_choices": VisitReview.Status.choices,
         "data_notes": _data_notes(v),
+        "cited": {"lines": cited, "brief": brief, "scope_label": landing.label()} if cited else None,
         "etools_url": _etools_url(v),
         "action_points_url": f"{reverse('reports:action_points')}?module=fm&visit={v.key}",
         "map_url": _map_url(v),
@@ -1303,3 +1312,213 @@ def lookup(request: HttpRequest) -> HttpResponse:
     nearest = _nearest(scope, int(token)) if token.isdigit() and len(token) <= 18 else []
     context = {"text": text, "token": token, "found": found, "nearest": nearest, "scope": scope}
     return render(request, "fmm/_lookup_result.html", context)
+
+
+# ------------------------------------------------------------------------------------------ AI brief
+INSIGHT_MESSAGES = {
+    "stopped": gettext_lazy("The last attempt stopped; you can try again."),
+    "privacy": gettext_lazy("Insights could not be written safely; administrators have been told."),
+    "refused": gettext_lazy("The AI did not write this brief; the brief below is written by NeuroDB."),
+    "malformed": gettext_lazy("The AI's answer could not be read; the last brief is shown."),
+    "up to date": gettext_lazy("Up to date: the brief below was written from the same data."),
+}
+PRIORITY_STATUS = {"High": "off_track", "Medium": "constrained", "Low": "not_monitored"}
+SAMPLING_NAMES = {"temperature": "temp", "top_p": "top-p"}
+
+
+def _insight_message(row) -> str:
+    """What a brief that was not written says on the card."""
+    from neurodb.assistant.views import NO_CREDIT
+
+    reason = row.reason or ""
+    if reason == ai_insights.CUT_OFF:
+        return _("The brief was cut off at %(n)s tokens; an administrator can raise the limit.") % {
+            "n": f"{row.max_output_tokens:,}"
+        }
+    if reason == ai_insights.QUOTA:
+        return NO_CREDIT
+    if reason in INSIGHT_MESSAGES:
+        return str(INSIGHT_MESSAGES[reason])
+    return reason
+
+
+def _sampling_chips(row) -> list[dict[str, str]]:
+    """ "temp 0.30 · applied", "top-p · not set (API default 1.00)": what was asked and what happened."""
+    out = []
+    for parameter in ("temperature", "top_p"):
+        found = (row.sampling or {}).get(parameter) or {}
+        name = SAMPLING_NAMES[parameter]
+        asked, state = found.get("asked"), found.get("state", "not_set")
+        if state == "not_set" or asked is None:
+            text = f"{name} · " + (_("not set (API default 1.00)") if parameter == "top_p" else _("not set"))
+        elif state == "off":
+            text = f"{name} · " + _("off")
+        else:
+            words = {
+                "applied": _("applied"),
+                "not_applied": _("not applied"),
+                "known_rejected": _("not applied"),
+            }
+            text = f"{name} {asked:.2f} · {words.get(state, _('sent'))}"
+        out.append(
+            {"text": text, "title": found.get("why", ""), "warn": state in ("not_applied", "known_rejected")}
+        )
+    return out
+
+
+def _visit_names(keys: set[str]) -> dict[str, str]:
+    return dict(Visit.objects.filter(key__in=list(keys)).values_list("key", "label")) if keys else {}
+
+
+def _brief_blocks(data: dict[str, Any], actions: list[dict]) -> tuple[list[dict], list[dict]]:
+    """The four sections and the priority actions of a brief, each sentence with its visit chips."""
+    wanted: set[str] = set()
+    for entry in [s for n in ai_insights.SECTIONS for s in (data.get(n) or [])] + list(actions or []):
+        wanted.update(filter(None, (ai_insights.visit_key_of(k) for k in entry.get("keys") or ())))
+    labels = _visit_names(wanted)
+
+    def chips(keys) -> list[dict[str, str]]:
+        out, seen = [], set()
+        for key in keys or ():
+            visit = ai_insights.visit_key_of(key)
+            if visit and visit in labels and visit not in seen:
+                seen.add(visit)
+                out.append({"key": visit, "label": labels[visit]})
+        return out
+
+    notes = data.get("notes") or {}
+    sections = [
+        {
+            "key": name,
+            "title": _(ai_insights.SECTION_TITLES[name]),
+            "sentences": [
+                {"text": s.get("text", ""), "chips": chips(s.get("keys"))} for s in data.get(name) or []
+            ],
+            "note": notes.get(name, ""),
+        }
+        for name in ai_insights.SECTIONS
+    ]
+    lines = [
+        {
+            **action,
+            "status": PRIORITY_STATUS.get(action.get("priority"), "unknown"),
+            "chips": chips(action.get("keys")),
+        }
+        for action in actions or []
+    ]
+    return sections, lines
+
+
+def _insight_context(request: HttpRequest, scope: Scope, message: str = "") -> dict[str, Any]:
+    """The brief card: the brief shown (kept or code-written), its header, chips, quota and buttons."""
+    version = profiles.published()
+    brief = ai_insights.current(scope)
+    row = brief.insight
+    if row is not None:
+        sections, actions = _brief_blocks(row.sections or {}, row.actions or [])
+    else:
+        sections, actions = _brief_blocks(
+            brief.fallback or {}, (brief.fallback or {}).get("priority_actions", [])
+        )
+    used, allowed = budget.quota("insights", request.user, version)
+    on = budget.switched_on()
+    refused = ai_insights.gate(scope, version, request.user) if on and version is not None else None
+    if not on or version is None:
+        disabled = _("AI switched off")
+    elif brief.up_to_date:
+        disabled = _("Up to date")
+    elif refused:
+        disabled = refused[1]
+    else:
+        disabled = ""
+    rules_version = (row.rules_version if row else None) or ai_insights._refresh_state()[0]
+    return {
+        "scope": scope,
+        "brief": brief,
+        "row": row,
+        "sections": sections,
+        "actions": actions,
+        "version": version,
+        "shown_version": row.version if row else version,
+        "rules_version": rules_version,
+        "chips": _sampling_chips(row) if row is not None and row.called else [],
+        "quota": {"used": used, "allowed": allowed, "office": budget.office_share() if on else None},
+        "ai_on": on,
+        "disabled": disabled,
+        "message": message,
+        "is_admin": access.is_admin(request.user),
+        "fallback_note": row is not None and row.status == "fallback",
+    }
+
+
+def _insight_running(request: HttpRequest, scope: Scope, row) -> HttpResponse:
+    return render(request, "fmm/_insights.html", {"scope": scope, "running": row})
+
+
+def _running_brief(scope: Scope, version):
+    """The brief of ``scope`` being written with ``version`` now, if any."""
+    if version is None:
+        return None
+    return Insight.objects.filter(
+        scope_hash=scope.hash(), version=version, status=Insight.Status.RUNNING
+    ).first()
+
+
+@require_http_methods(["GET", "POST"])
+def insights(request: HttpRequest) -> HttpResponse:
+    """The AI brief card. GET shows it (never calls the AI); ``?running=<pk>`` polls a brief being
+    written. POST (Regenerate) runs the cheap gates, then starts the brief in a background process and
+    answers at once with the card that polls it; a second click gets the brief already being written."""
+    _enabled()
+    scope = Scope.from_params(request.GET, request.user)
+    version = profiles.published()
+    message = ""
+    if request.method == "POST":
+        busy = _running_brief(scope, version)
+        if busy is not None:
+            return _insight_running(request, scope, busy)
+        refused = ai_insights.gate(scope, version, request.user) if version is not None else None
+        if version is None:
+            message = _("AI switched off")
+        elif refused:
+            row = ai_insights.record_refusal(scope, version, request.user, Insight.Trigger.USER, refused)
+            message = _insight_message(row)
+        else:
+            row = ai_insights.start(scope, version, request.user, Insight.Trigger.USER)
+            return _insight_running(request, scope, row)
+        return render(request, "fmm/_insights.html", _insight_context(request, scope, message))
+    ai_insights.expire_stale()
+    running = request.GET.get("running", "")
+    if running.isdigit():
+        row = Insight.objects.filter(pk=int(running)).first()
+        if row is not None and row.status == Insight.Status.RUNNING:
+            return _insight_running(request, scope, row)
+        if row is not None and row.status not in ai_insights.SHOWN:
+            message = _insight_message(row)
+    else:
+        row = _running_brief(scope, version)
+        if row is not None:
+            return _insight_running(request, scope, row)
+    return render(request, "fmm/_insights.html", _insight_context(request, scope, message))
+
+
+@require_GET
+def insight_sent(request: HttpRequest, pk: int) -> HttpResponse:
+    """What was sent for a brief: the facts and the notes exactly as sent (redacted), while they are
+    kept (``FMM_PAYLOAD_RETENTION_DAYS``)."""
+    import json
+
+    _enabled()
+    row = get_object_or_404(Insight.objects.select_related("version"), pk=pk)
+    if row.trigger == Insight.Trigger.TEST and not access.is_admin(request.user):
+        raise Http404("Test runs are for administrators")
+    payload = row.sent_payload
+    narratives = list((payload or {}).get("narratives", {}).values()) if payload else []
+    facts = {k: v for k, v in (payload or {}).items() if k != "narratives"} if payload else None
+    context = {
+        "row": row,
+        "narratives": narratives,
+        "facts_json": json.dumps(facts, indent=2, ensure_ascii=False, sort_keys=True) if facts else "",
+        "retention_days": settings.FMM_PAYLOAD_RETENTION_DAYS,
+    }
+    return render(request, "fmm/_insight_sent.html", context)

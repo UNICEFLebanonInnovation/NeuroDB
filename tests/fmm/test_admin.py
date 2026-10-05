@@ -68,10 +68,17 @@ def test_fmm_icons_are_material_symbols_names_not_site_icons():
         "fmm.RuleSetVersion": "history",
         "fmm.PromptVersion": "edit_note",
         "fmm.ModelCapability": "science",
+        "fmm.Insight": "auto_awesome",
         "fmm.Visit": "location_on",
         "fmm.VisitReview": "task_alt",
     }
     for icon in icons.values():
+        assert re.fullmatch(r"[a-z0-9_]+", icon) and icon not in site_icons
+    from neurodb.core.admin_jobs import BACKGROUND_JOBS
+
+    buttons = {job.name: job.icon for job in BACKGROUND_JOBS if job.name.startswith("run_fmm_")}
+    assert buttons == {"run_fmm_refresh": "monitoring", "run_fmm_insights": "auto_awesome"}
+    for icon in buttons.values():
         assert re.fullmatch(r"[a-z0-9_]+", icon) and icon not in site_icons
 
 

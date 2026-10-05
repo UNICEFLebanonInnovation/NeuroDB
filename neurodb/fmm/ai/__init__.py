@@ -7,7 +7,10 @@
 - :mod:`.sampling`: whether temperature and top_p are sent, and what happens when the model refuses one;
 - :mod:`.budget`: whether an AI call may start (switched on, not paused, within the day's caps) and the
   per-person quotas;
-- :mod:`.insights`: the brief's strict answer format (the brief itself is written in a later step).
+- :mod:`.facts`: what a brief sends, built by code from the stored visits of a filter;
+- :mod:`.insights`: the brief: its strict answer format, where and how it is written (in a background
+  process), its checks, which brief a page shows, and the nightly briefs;
+- :mod:`.fallback`: the brief NeuroDB writes from the figures when the AI is not used.
 
 Nothing here reads an eTools record's raw data or the people who made a visit: the AI is sent only what
 :mod:`neurodb.fmm.privacy` lets out.

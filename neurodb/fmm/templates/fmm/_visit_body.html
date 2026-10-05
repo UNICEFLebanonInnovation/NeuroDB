@@ -149,6 +149,16 @@
   </section>
   {% endif %}
 
+  {% comment %}13. The sentences of the AI brief that cite this visit, in the brief of the filter the user lands
+  on.{% endcomment %}
+  {% if cited %}
+  <section class="panel" aria-labelledby="fmm-cited-{{ visit.key }}">
+    <h3 class="h6" id="fmm-cited-{{ visit.key }}">{% trans "Cited in the AI brief" %}</h3>
+    <p class="small text-muted mb-1">{% blocktrans with scope=cited.scope_label when=cited.brief.created_at|date:"j M Y" %}The brief of {{ scope }}, written {{ when }}:{% endblocktrans %}</p>
+    <ul class="small mb-0">{% for line in cited.lines %}<li><span class="text-muted">{{ line.section }}:</span> <span data-synced>{{ line.text }}</span></li>{% endfor %}</ul>
+  </section>
+  {% endif %}
+
   {% comment %}12. Review, and 14. data notes.{% endcomment %}
   <section class="panel" aria-labelledby="fmm-review-{{ visit.key }}-title">
     <h3 class="h6" id="fmm-review-{{ visit.key }}-title">{% trans "Review" %}</h3>

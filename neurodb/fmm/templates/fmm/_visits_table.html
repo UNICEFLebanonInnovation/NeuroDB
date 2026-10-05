@@ -12,6 +12,7 @@
       <th scope="col" class="d-none d-md-table-cell" data-export="no">{% trans "Team" %}</th>{% endif %}{% endfor %}
       <th scope="col">{% trans "Rating" %}</th>
       <th scope="col">{% trans "Flags" %}</th>
+      <th scope="col" class="d-none d-md-table-cell" title="{% trans 'Cited in the AI brief of this filter' %}">{% trans "AI" %}</th>
       <th scope="col" class="d-none d-md-table-cell">{% trans "Review" %}</th>
     </tr></thead>
     <tbody>{% for v in visits %}{% url 'fmm:visit' v.key as visit_url %}
@@ -28,6 +29,7 @@
       <td data-value="{{ v.urgency }}"><span class="pill pill--sm pill--{% if v.row_band == 'red' %}danger{% elif v.row_band == 'amber' %}warning{% else %}neutral{% endif %}" title="{{ v.urgency_title }}">{{ v.urgency }}</span></td>
       <td class="text-nowrap">{% status_pill v.rating v.rating_label "sm" %}<span class="cell-sub">{% if v.not_rated_yet %}{% blocktrans with day=v.end_date|date:"j M Y"|default:"—" %}ends {{ day }}{% endblocktrans %}{% else %}{% blocktrans with day=v.end_date|date:"j M Y"|default:"—" %}rated {{ day }}{% endblocktrans %}{% endif %}</span></td>
       <td>{% if v.flags %}<span class="d-inline-flex flex-wrap gap-1">{% for f in v.flags %}<span class="pill pill--sm pill--danger">{{ f }}</span>{% endfor %}</span>{% elif v.evaluated_rules %}<span class="text-success small">✓ {% trans "No flags" %}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+      <td class="d-none d-md-table-cell">{% if v.ai_cited %}<span class="text-success" title="{% trans 'Cited in the AI brief of this filter' %}">✓<span class="visually-hidden"> {% trans "cited in the AI brief" %}</span></span>{% endif %}</td>
       <td class="small text-nowrap d-none d-md-table-cell">{% if v.review %}{% status_pill v.review.status v.review.get_status_display "sm" %}<span class="cell-sub">{{ v.review.created_at|date:"j M Y" }}</span>{% else %}—{% endif %}</td>
     </tr>{% endfor %}</tbody>
   </table></div>

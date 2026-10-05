@@ -1,4 +1,4 @@
-"""A local stand-in for the OpenAI Responses API (``POST /v1/responses`` with ``stream: true``).
+"""A local stand-in for the OpenAI Responses API (``POST /v1/responses``, streamed or not).
 
 The event and object shapes were checked against the installed openai SDK: ``responses.stream()``
 iterates what this server sends and ``get_final_response()`` returns the ``response.completed``
@@ -6,6 +6,7 @@ response. The same building blocks (``done_item``, ``response_object``) give the
 test_assistant.py real SDK response objects. No network access and no real API key.
 
     server = MockResponsesServer([turn([...items]), turn([...]), http_error(429, api_error_body(...))])
+    server = MockResponsesServer([completed([message("msg_1", "{...}")])])  # a call without stream
     server.base_url    # http://127.0.0.1:<port>/v1, e.g. for OPENAI_BASE_URL
     server.requests    # [{"path", "headers" (lower-cased names), "body" (parsed JSON)}, ...]
 """
@@ -308,6 +309,29 @@ class http_error:  # noqa: N801 - reads like a marker in reply lists
     headers: dict | None = None
 
 
+@dataclass
+class json_reply:  # noqa: N801 - reads like a marker in reply lists
+    """A whole Response object as JSON: the answer to a call made without ``stream`` (the AI brief)."""
+
+    body: dict
+
+
+def completed(items: list[Item], *, usage_: dict | None = None, model: str = MODEL, status: str = "completed",
+              incomplete_reason: str | None = None) -> json_reply:  # fmt: skip
+    """The answer of a call without ``stream``: the finished response holding ``items``."""
+    resp_id = f"resp_{next(_ids):04d}"
+    return json_reply(
+        response_object(
+            resp_id,
+            status=status,
+            output=[done_item(item) for item in items],
+            usage_=usage_ if usage_ is not None else _default_usage(),
+            model=model,
+            incomplete_reason=incomplete_reason,
+        )
+    )
+
+
 def api_error_body(message: str, *, type_: str = "invalid_request_error", code: str | None = None) -> dict:
     return {"error": {"message": message, "type": type_, "param": None, "code": code}}
 
@@ -354,6 +378,8 @@ class MockResponsesServer:
                 reply = outer.replies.pop(0)
                 if isinstance(reply, http_error):
                     return self._json(reply.status, reply.body, reply.headers)
+                if isinstance(reply, json_reply):
+                    return self._json(200, reply.body)
                 payload = sse(reply)
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream; charset=utf-8")

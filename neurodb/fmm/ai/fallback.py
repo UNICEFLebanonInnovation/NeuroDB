@@ -1,0 +1,167 @@
+"""The code-written brief: what Monitoring insights shows when the AI is not used or wrote nothing that
+passed the checks.
+
+:func:`brief` writes, from the same facts the AI would read, the same shape as the AI's answer: a few
+sentences on coverage and quality, the most frequent issues, one fixed piece of advice per rule that
+flagged visits, and a priority action for each of the most urgent visits. Every sentence cites the
+entries it rests on and passes the same checks as the AI's (``watch.grounding``). Findings about
+programme delivery need the notes themselves, so that section stays empty, with a note.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from .facts import Facts
+
+FINDINGS_NOTE = "Findings need the AI or the narratives themselves; open the visits below."
+ACTION = "Follow up the visit's findings and record an action point in eTools"
+OWNER = "Section lead"
+TIMEFRAME = "within 2 weeks"
+ALL_SECTIONS = "All sections"
+ACTIONS = 3
+ISSUES = 3
+
+# One sentence of advice per rule that flagged visits (no figure in them: nothing to check)
+RULE_ADVICE = {
+    "R1": "Complete the general observation and Q2 before submitting a visit report.",
+    "R2": "Answer every checklist question that applies before submitting a visit report.",
+    "R3": "Answer HACT Q1 on programmatic visits and check it against the overall finding.",
+    "R4": "Write a specific narrative for each monitored entity rather than a placeholder or a copy.",
+    "R5": "Record the key observations and findings in Q3 with enough detail to act on.",
+    "R6": "Check that each narrative agrees with the rating given before submitting the report.",
+}
+
+
+def _plural(n: int, one: str, many: str) -> str:
+    return f"{n} {one if n == 1 else many}"
+
+
+def _coverage(facts: Facts) -> list[dict[str, Any]]:
+    k = facts.payload["kpi"]
+    out = []
+    first = (
+        f"{_plural(k['visits'], 'visit', 'visits')} and {_plural(k['entities'], 'entity', 'entities')} in "
+        f"the period"
+    )
+    if k["entities"]:
+        first += (
+            f"; {k['entities_rated']} entities were rated and {k['entities_not_monitored']} were not "
+            f"monitored ({k['entities_not_monitored_share']}%)"
+        )
+    out.append({"text": first + ".", "keys": ["kpi"]})
+    out.append(
+        {
+            "text": f"{_plural(k['visits_reported'], 'visit was', 'visits were')} reported, "
+            f"{_plural(k['visits_in_progress'], 'is', 'are')} in progress and "
+            f"{_plural(k['visits_planned'], 'is', 'are')} planned.",
+            "keys": ["kpi"],
+        }
+    )
+    if k["avg_quality"] is not None:
+        out.append(
+            {
+                "text": f"The average quality score was {k['avg_quality']}% on "
+                f"{_plural(k['scored_visits'], 'scored visit', 'scored visits')}.",
+                "keys": ["kpi"],
+            }
+        )
+    else:
+        out.append({"text": "No visit in this filter could be scored for quality.", "keys": ["kpi"]})
+    previous = facts.payload.get("previous") or {}
+    if previous.get("visits"):
+        change = previous["visits_change"]
+        if change:
+            how = f"{abs(change)} more" if change > 0 else f"{abs(change)} fewer"
+            text = f"That is {how} visits than the {previous['visits']} of the previous period."
+        else:
+            text = f"The previous period had as many visits, {previous['visits']}."
+        out.append({"text": text, "keys": ["kpi", "previous"]})
+    return out[:4]
+
+
+def _challenges(facts: Facts) -> list[dict[str, Any]]:
+    out = []
+    issues = sorted(facts.payload.get("issues", {}).values(), key=lambda i: (-i["visits"], i["key"]))
+    for issue in issues[:ISSUES]:
+        rule, _sep, words = issue["label"].partition(": ")
+        if not words:
+            rule, words = issue["key"].split(":")[1], issue["label"]
+        out.append(
+            {
+                "text": f"{rule} flagged {_plural(issue['visits'], 'visit', 'visits')}: {words}.",
+                "keys": [issue["key"]],
+            }
+        )
+    k = facts.payload["kpi"]
+    gaps = k["not_monitored_visits"]
+    if gaps:
+        what = "a monitoring gap" if gaps == 1 else "monitoring gaps"
+        out.append(
+            {
+                "text": f"{_plural(gaps, 'reported visit', 'reported visits')} had no rated entity ({what}).",
+                "keys": ["kpi"],
+            }
+        )
+    ap = facts.payload.get("action_points") or {}
+    overdue = _plural(ap.get("fm_overdue", 0), "follow-up action point is", "follow-up action points are")
+    if ap.get("fm_overdue") or ap.get("visits_without_follow_up"):
+        out.append(
+            {
+                "text": f"{overdue} overdue, and {ap['visits_without_follow_up']} visits rated off track or "
+                "constrained have no follow-up action point.",
+                "keys": [ap["key"]],
+            }
+        )
+    return out[:5]
+
+
+def _recommendations(facts: Facts) -> list[dict[str, Any]]:
+    out = []
+    for key, rule in sorted(facts.payload.get("rules", {}).items()):
+        code = key.split(":", 1)[1]
+        if rule["flagged"] and code in RULE_ADVICE:
+            out.append({"text": RULE_ADVICE[code], "keys": [key]})
+    return out[:5]
+
+
+def _section_of(card: dict[str, Any], facts: Facts) -> str:
+    known = {
+        entry["name"].casefold()
+        for group in ("sections", "offices")
+        for entry in facts.payload.get(group, {}).values()
+    }
+    return next((name for name in card.get("sections") or [] if name.casefold() in known), ALL_SECTIONS)
+
+
+def _actions(facts: Facts) -> list[dict[str, Any]]:
+    red = facts.limits.get("red", 70)
+    amber = facts.limits.get("amber", 40)
+    urgent = sorted(
+        (card for card in facts.payload.get("visits", {}).values() if (card.get("urgency") or 0) >= amber),
+        key=lambda card: (-(card.get("urgency") or 0), card["key"]),
+    )
+    return [
+        {
+            "priority": "High" if card["urgency"] >= red else "Medium",
+            "section": _section_of(card, facts),
+            "action": ACTION,
+            "owner_role": OWNER,
+            "timeframe": TIMEFRAME,
+            "keys": [card["key"]],
+        }
+        for card in urgent[:ACTIONS]
+    ]
+
+
+def brief(facts: Facts) -> dict[str, Any]:
+    """The code-written brief of ``facts``: the AI's shape (four sections of ``{"text", "keys"}``
+    sentences and the priority actions), plus ``notes`` per section left empty on purpose."""
+    return {
+        "coverage_quality": _coverage(facts),
+        "programmatic_findings": [],
+        "operational_challenges": _challenges(facts),
+        "recommendations": _recommendations(facts),
+        "priority_actions": _actions(facts),
+        "notes": {"programmatic_findings": FINDINGS_NOTE},
+    }

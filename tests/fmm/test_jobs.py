@@ -85,14 +85,61 @@ def test_the_morning_schedule_is_seeded():
     assert (job.command, job.schedule, job.enabled) == ("fmm_refresh", "25 5 * * *", True)
 
 
-def test_a_refresh_asks_for_a_hub_rebuild():
-    """The hub reads the visits from stage 8a on: a finished refresh is new data for it."""
+def test_a_refresh_asks_for_a_hub_rebuild_and_the_briefs_do_not():
+    """The hub reads the visits from stage 8a on: a finished refresh is new data for it; the AI briefs
+    bring nothing the hub reads."""
     import inspect
 
     from neurodb.graph import refresh as graph_refresh
 
     skipped = inspect.getsource(graph_refresh.on_run_finished)
-    assert "FMM_REFRESH" not in skipped
+    assert "FMM_REFRESH" not in skipped and "SyncRun.Job.FMM_INSIGHTS" in skipped
+
+
+@pytest.mark.django_db
+def test_finished_briefs_do_not_rebuild_the_hub(monkeypatch):
+    from neurodb.graph import refresh as graph_refresh
+
+    asked = []
+    monkeypatch.setattr(graph_refresh, "request", lambda why: asked.append(why))
+    for job in (SyncRun.Job.FMM_INSIGHTS, SyncRun.Job.FMM_REFRESH):
+        run = SyncRun.objects.create(job=job, target="nightly")
+        run.finish(SyncRun.Status.SUCCEEDED)
+    assert asked == ["Monitoring insights refresh"]
+
+
+# ------------------------------------------------------------------------------------------ the briefs
+def test_the_briefs_are_a_job_with_a_schedule_and_a_button():
+    from neurodb.core.admin_jobs import BACKGROUND_JOBS
+    from neurodb.core.jobs import COMMANDS
+
+    command = COMMANDS["fmm_insights"]
+    assert (command.args, command.sync_job) == (("fmm_insights",), SyncRun.Job.FMM_INSIGHTS)
+    assert str(command.label) == "Write AI monitoring briefs"
+    button = next(job for job in BACKGROUND_JOBS if job.name == "run_fmm_insights")
+    assert (button.command, button.job, button.icon) == (
+        ("fmm_insights",),
+        SyncRun.Job.FMM_INSIGHTS,
+        "auto_awesome",
+    )
+
+
+@pytest.mark.django_db
+def test_the_morning_briefs_schedule_is_seeded():
+    from neurodb.core.models import ScheduledJob
+
+    job = ScheduledJob.objects.get(key="fmm-insights")
+    assert (job.command, job.schedule, job.enabled) == ("fmm_insights", "40 5 * * *", True)
+
+
+@pytest.mark.django_db
+def test_data_health_needs_attention_lists_a_partial_night_of_briefs():
+    from neurodb.web import health
+
+    run = SyncRun.objects.create(job=SyncRun.Job.FMM_INSIGHTS, target="nightly", rows_in=4, rows_failed=3)
+    run.finish(SyncRun.Status.PARTIAL)
+    lines = {line.key: line.text for line in health._jobs()}
+    assert "3 rows failed" in lines["job_partial:fmm_insights"]
 
 
 @pytest.mark.django_db

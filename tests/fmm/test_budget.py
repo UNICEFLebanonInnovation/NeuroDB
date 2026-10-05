@@ -1,6 +1,6 @@
-"""The budget of Monitoring insights' AI (fmm.ai.budget), stage 6a part: whether a call may start
-(switched on, not paused, within the office caps and the shared soft cap) and the per-person quotas.
-The parts of the brief and the chat that use them come with those steps."""
+"""The budget of Monitoring insights' AI (fmm.ai.budget): whether a call may start (switched on, not
+paused, within the office caps and the shared soft cap) and the per-person quotas (stage 6a); how the
+brief's Regenerate meets them (stage 6b). The chat's part comes with the chat."""
 
 import datetime
 from types import SimpleNamespace
@@ -162,3 +162,96 @@ def test_the_estimate_and_the_status(ai_on, viewer):
     assert version.max_output_tokens < tokens < version.max_output_tokens + 3_000
     status = budget.status(viewer)
     assert status["on"] is True and status["insights"] == (0, 5) and status["office_share"] == 0.0
+
+
+# ------------------------------------------------------------------------------------------ the brief (6b)
+YEAR = "year=2026&section="
+
+
+def _regenerate(client):
+    from django.urls import reverse
+
+    return client.post(f"{reverse('fmm:insights')}?{YEAR}").content.decode()
+
+
+@pytest.fixture
+def started(monkeypatch):
+    from neurodb.integrations import background
+
+    calls = []
+    monkeypatch.setattr(background, "start_command", lambda *args: calls.append(args) or 1)
+    return calls
+
+
+def test_the_sixth_regenerate_of_the_day_is_refused_and_another_person_is_not(
+    built, ai_on, client, viewer, admin_user, started, django_capture_on_commit_callbacks
+):
+    for i in range(5):
+        _brief(viewer, scope=f"s{i}")
+    client.force_login(viewer)
+    html = _regenerate(client)
+    assert "5 of 5 today — resets at midnight" in html and started == []
+    limited = Insight.objects.get(status=Insight.Status.LIMITED)
+    assert (limited.created_by, limited.called) == (viewer, False)
+    assert budget.quota("insights", viewer) == (5, 5)  # the refusal does not count
+    client.force_login(admin_user)
+    with django_capture_on_commit_callbacks(execute=True):
+        html = _regenerate(client)
+    assert "every 3s" in html and len(started) == 1
+    assert budget.quota("insights", admin_user) == (1, 5)  # the brief being written counts
+
+
+def test_two_regenerates_at_once_write_one_brief_with_one_call(built, ai_on, viewer, admin_user, monkeypatch):
+    import json
+
+    from neurodb.assistant import agent
+    from neurodb.fmm.ai import facts, insights
+    from tests.fmm.test_insights import _answer, _good, _scope
+
+    first = insights.start(_scope(), ai_on, viewer)
+    second = insights.start(_scope(), ai_on, admin_user)  # its insert meets fmm_one_running_insight
+    assert first == second and Insight.objects.filter(status=Insight.Status.RUNNING).count() == 1
+    calls = []
+    found = facts.build(_scope(), ai_on)
+
+    def create(**params):
+        calls.append(params)
+        return _answer(_good(found))
+
+    api = SimpleNamespace(responses=SimpleNamespace(create=create))
+    api.with_options = lambda **_: api
+    monkeypatch.setattr(agent, "client", lambda: api)
+    row = insights.generate(_scope(), user=viewer, insight=first)
+    assert row.status == Insight.Status.OK and len(calls) == 1
+    assert json.loads(calls[0]["input"][0]["content"]) == found.payload
+
+
+def test_the_credit_running_out_fails_the_brief_and_pauses_the_next(built, ai_on, viewer, monkeypatch):
+    from neurodb.assistant import agent
+    from neurodb.fmm.ai import insights
+    from tests.fmm.test_insights import _scope
+
+    def create(**params):
+        raise _error({"message": "You exceeded your current quota.", "code": "insufficient_quota"})
+
+    api = SimpleNamespace(responses=SimpleNamespace(create=create))
+    api.with_options = lambda **_: api
+    monkeypatch.setattr(agent, "client", lambda: api)
+    row = insights.generate(_scope(), trigger=Insight.Trigger.NIGHTLY)
+    assert (row.status, row.reason, row.called) == ("failed", "quota", False)
+    assert AIState.objects.get().paused_until > timezone.now()
+    row = insights.generate(_scope(), user=viewer, trigger=Insight.Trigger.USER)
+    assert (row.status, row.reason) == (Insight.Status.LIMITED, budget.REASONS[budget.PAUSED])
+
+
+@override_settings(FMM_DAILY_TOKEN_CAP=1_000_000)
+def test_the_quota_pill_shows_the_office_budget(built, ai_on, client, viewer):
+    from django.urls import reverse
+
+    _use(usage.FMM, 620_000)
+    client.force_login(viewer)
+    html = client.get(f"{reverse('fmm:insights')}?{YEAR}").content.decode()
+    assert "0 of 5 today · office AI budget 62% used" in html
+    _use(usage.FMM, 380_001)  # the office cap is reached: Regenerate says why
+    html = client.get(f"{reverse('fmm:insights')}?{YEAR}").content.decode()
+    assert "Today&#x27;s AI budget for Monitoring insights is used; it resets at midnight." in html

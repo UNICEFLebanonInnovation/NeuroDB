@@ -73,11 +73,11 @@ def test_the_page_opens_for_a_viewer_with_its_key_figures(built, client_viewer):
     assert "scores computed" in text and "with quality rules v1" in text
     assert "How scores work" in html and "NeuroDB has no field office staff list" in html
     assert 'class="kpi kpi--off_track"' in html  # the high urgency tile is red while any visit is
-    assert "The AI brief and chat appear here once switched on" in html
+    assert 'hx-get="/fmm/insights/?section=" hx-trigger="load"' in html  # the AI brief loads on its own
 
 
 TAB_MARKERS = {
-    "insights": "The AI brief and chat appear here once switched on",
+    "insights": 'hx-get="/fmm/insights/?',
     "quality": "Top recurring issues",
     "analysis": "Programmatic visits and HACT",
     "visits": "Monitoring visits — detail and flags",
