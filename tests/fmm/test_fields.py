@@ -244,6 +244,20 @@ def test_a_team_name_written_in_a_text_is_cleaned_from_the_examples(fm_world):
     assert example == ["[name withheld] checked the registers."]
 
 
+def test_the_words_of_a_comment_are_not_taken_for_names(fm_world):
+    """Names are learnt from the keys that name people (the team), not from the comments people
+    wrote: a comment's words written elsewhere stay in the examples."""
+    row = fm_world.rows[103]
+    row.narrative_finding = "Registers kept up to date in both centres."
+    row.data = {**row.data, "narrative_finding": row.narrative_finding, "comments": [row.narrative_finding]}
+    row.save()
+    dm.MonitoringFinding.objects.exclude(pk=row.pk).update(data={})
+    _probe()
+    examples = {p.key: p.examples for p in KeyProbe.objects.filter(dataset="field_monitoring")}
+    assert examples["comments"] == [privacy.WITHHELD]
+    assert examples["narrative_finding"] == ["Registers kept up to date in both centres."]
+
+
 def test_a_record_that_is_not_an_object_counts_but_holds_no_key(db):
     dm.DatamartDocument.objects.create(dataset="offices", record_key="1", data={"name": "Zahle"})
     dm.DatamartDocument.objects.create(dataset="offices", record_key="2", data=["odd"])
@@ -255,12 +269,72 @@ def test_a_record_that_is_not_an_object_counts_but_holds_no_key(db):
 
 def test_dynamic_keys_are_capped(db, monkeypatch):
     monkeypatch.setattr(fields, "MAX_KEYS", 5)
+    for n in range(3):  # the same keys in every record: counted once each
+        dm.DatamartDocument.objects.create(
+            dataset="sections",
+            record_key=str(n),
+            data={"name": "Education", **{f"k{i}": i for i in range(9)}},
+        )
+    run = _probe()
+    # Postgres keeps an object's shorter keys first: k0-k4 fill the cap, k5-k8 are left out, and the
+    # field's own key ("name") is counted all the same
+    keys = set(KeyProbe.objects.filter(dataset="sections").values_list("key", flat=True))
+    assert keys == {"k0", "k1", "k2", "k3", "k4", "name"}
+    assert run.details["datasets"]["sections"]["keys_not_kept"] == 4
+    assert FieldMapping.objects.get(dataset="sections", field="name").chosen_key == "name"
+
+
+def test_a_fields_own_keys_are_counted_past_the_cap(db, monkeypatch):
+    """Keys written before the answer's must not push the answer out of the probe."""
+    monkeypatch.setattr(fields, "MAX_KEYS", 3)
     dm.DatamartDocument.objects.create(
-        dataset="sections", record_key="1", data={"name": "Education", **{f"k{i}": i for i in range(9)}}
+        dataset="fm_questions",
+        record_key="1",
+        data={"a1": 1, "a2": 2, "a3": 3, "a4": 4, "answer": "Yes", "question_text": "Q1"},
     )
     run = _probe()
-    assert KeyProbe.objects.filter(dataset="sections").count() == 5
-    assert run.details["datasets"]["sections"]["keys_not_kept"] == 5
+    keys = set(KeyProbe.objects.filter(dataset="fm_questions").values_list("key", flat=True))
+    assert {"answer", "question_text"} <= keys and "a4" not in keys
+    assert fields.key_for("fm_questions", "answer") == "answer"
+    assert run.details["questions"]["answered"] == 1
+
+
+def test_a_pinned_key_is_measured_like_a_candidate(fm_world):
+    """An administrator may pin a key that is not listed: its coverage counts usable values of the
+    field's kind, its answers are counted, and a pinned team key is withheld from the examples."""
+    dm.DatamartDocument.objects.filter(dataset="fm_questions").delete()
+    for n, reply in enumerate(("Yes", "n/a", "", "Off track")):
+        dm.DatamartDocument.objects.create(
+            dataset="fm_questions",
+            record_key=str(n),
+            data={"id": n, "reply_text": reply, "ref_no": "x", "question_text": "Q1"},
+        )
+    _probe()
+    FieldMapping.objects.filter(dataset="fm_questions", field="answer").update(override_key="reply_text")
+    FieldMapping.objects.filter(dataset="fm_questions", field="activity_id").update(override_key="ref_no")
+    FieldMapping.objects.filter(dataset="field_monitoring", field="team").update(override_key="crew")
+    dm.MonitoringFinding.objects.filter(datamart_id=101).update(
+        data={**fm_world.rows[101].data, "crew": "Nadia Crewmate"}
+    )
+    run = _probe()
+    answer = FieldMapping.objects.get(dataset="fm_questions", field="answer")
+    assert (answer.chosen_key, answer.state, answer.coverage) == ("reply_text", State.OVERRIDE, 0.75)
+    questions = run.details["questions"]
+    assert (questions["answered"], questions["unanswered"], questions["unanswered_seen"]) == (2, 2, True)
+    # "x" is no id: the pinned key is used, but fills no record
+    activity = FieldMapping.objects.get(dataset="fm_questions", field="activity_id")
+    assert (activity.chosen_key, activity.coverage) == ("ref_no", 0)
+    crew = KeyProbe.objects.get(dataset="field_monitoring", key="crew")
+    assert crew.examples == [privacy.WITHHELD]
+    assert "Nadia" not in str(list(KeyProbe.objects.values_list("examples", flat=True)))
+
+
+def test_answers_are_counted_over_the_records_read(fm_questions_variant):
+    fm_questions_variant("A")
+    dm.DatamartDocument.objects.create(dataset="fm_questions", record_key="odd", data=["not a record"])
+    questions = _probe().details["questions"]
+    assert questions["records"] == 7 and (questions["answered"], questions["unanswered"]) == (4, 2)
+    assert questions["answered_share"] == round(4 / 6, 4)
 
 
 # ------------------------------------------------------------------------------------------ values

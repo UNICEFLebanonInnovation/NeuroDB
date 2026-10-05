@@ -100,6 +100,24 @@ def test_keys_that_do_not_hold_a_person(key):
     assert not privacy.person_like(key)
 
 
+@pytest.mark.parametrize(
+    "key, names",
+    [
+        ("visit_lead", True),
+        ("team_members.name", True),
+        ("comments.user", True),
+        ("comment_by", True),
+        ("comments", False),
+        ("note", False),
+        ("review_note", False),
+        ("narrative_finding", False),
+    ],
+)
+def test_keys_whose_texts_are_names(key, names):
+    """Names are learnt from these keys only; a note or a comment holds a person's words, not a name."""
+    assert privacy.names_person(key) is names
+
+
 def test_person_keys_agree_with_ask():
     """Ask's eTools tools and Monitoring insights drop the same keys."""
     for key in ("visit_lead", "team", "first_name", "contacts", "comments", "answer", "monitoring_activity"):

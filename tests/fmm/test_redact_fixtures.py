@@ -96,6 +96,30 @@ def test_people_become_numbered_persons_and_texts_are_cleaned(recorded):
     assert partners.read_text(encoding="utf-8") == before  # not a dataset of Monitoring insights
 
 
+def test_the_words_of_a_comment_are_not_taken_for_a_name(tmp_path):
+    """A comment is withheld whole, but only names (here its author's) are removed from other texts:
+    a question text that repeats the comment's words stays as it is."""
+    question = "Activities monitored as planned"
+    points = _write(
+        tmp_path,
+        "action_points",
+        [
+            {
+                "id": 1,
+                "description": "Follow up with Hala Commenter on the registers.",
+                "comments": [{"comment": question, "user": {"name": "Hala Commenter", "id": 5}}],
+            }
+        ],
+    )
+    questions = _write(tmp_path, "fm_questions", [{"id": 2, "question_text": question, "answer": "Yes"}])
+    _run(tmp_path)
+    point = json.loads(points.read_text(encoding="utf-8"))["results"][0]
+    assert point["comments"][0]["comment"].startswith("Person ")
+    assert point["comments"][0]["user"] == {"name": point["comments"][0]["user"]["name"], "id": 5}
+    assert point["description"] == "Follow up with [name withheld] on the registers."
+    assert json.loads(questions.read_text(encoding="utf-8"))["results"][0]["question_text"] == question
+
+
 def test_running_it_twice_changes_nothing_more(recorded):
     folder, findings, questions, _ = recorded
     _run(folder)

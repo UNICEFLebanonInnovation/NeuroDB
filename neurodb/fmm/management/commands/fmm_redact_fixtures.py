@@ -9,8 +9,9 @@ committed, this command rewrites them in place:
   "person_responsible", "first_name"...) becomes "Person 1", "Person 2"... (the same person keeps the
   same number across the files; numbers and yes/no stay);
 - every other text is cleaned (``privacy.clean``): e-mail addresses, links, the names NeuroDB knows,
-  the names found under person keys in these files, phone numbers and names after a title are
-  replaced by placeholders, and a text longer than 300 characters is cut.
+  the names found under person keys in these files (a lead, a team, a user; not the words of a note or
+  a comment), phone numbers and names after a title are replaced by placeholders, and a text longer
+  than 300 characters is cut.
 
 With a folder (the default: ``tests/fixtures/datamart/``) it rewrites the datasets recorded for
 Monitoring insights (:data:`DATASETS`); a file named on the command line is rewritten whatever its
@@ -83,9 +84,10 @@ class Redactor:
 
 
 def person_texts(value: Any, under_person: bool = False) -> list[str]:
-    """Every text written under a key that holds a person, at any depth."""
+    """Every text written under a key that names a person, at any depth (not the notes and comments
+    people wrote: their words are no names, and would be removed from every other text)."""
     if isinstance(value, dict):
-        return [t for k, v in value.items() for t in person_texts(v, under_person or privacy.person_like(k))]
+        return [t for k, v in value.items() for t in person_texts(v, under_person or privacy.names_person(k))]
     if isinstance(value, list):
         return [t for v in value for t in person_texts(v, under_person)]
     return [value] if under_person and isinstance(value, str) and value.strip() else []

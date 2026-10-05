@@ -26,6 +26,8 @@ from neurodb.watch.people import HONORIFIC_NAME, INTL_PHONE, PHONE, PHONE_WITHHE
 WITHHELD = "(withheld)"  # the example of a key that holds a person
 EXAMPLE_CHARS = 60  # characters of a key's example (Fields found)
 NAME_CHARS = 120  # characters of a team member's display name
+# Person-like keys whose values are texts written by people, not their names (watch.redact.PERSON_FIELDS)
+WRITTEN_BY_PEOPLE = frozenset({"note", "notes", "comment", "comments"})
 PLACEHOLDERS = (people.NAME_WITHHELD, people.EMAIL_WITHHELD, redact.LINK_WITHHELD, PHONE_WITHHELD)
 # A team written as one text: "Rania Haddad, Karim Saab; Nour Khalil / Ali Hassan and Zeina Fares"
 _MEMBERS = re.compile(r"[,;/\n]|\s+and\s+", re.IGNORECASE)
@@ -47,6 +49,14 @@ def person_like(key: Any) -> bool:
     names or was written by a person (``watch.redact._person_field``)."""
     text = str(key or "")
     return catalogue.person_key(text) or any(redact._person_field(part) for part in text.split(".") if part)
+
+
+def names_person(key: Any) -> bool:
+    """A key that holds a person (:func:`person_like`) whose texts are names (a lead, a team, a user),
+    not texts a person wrote (a note, a comment): only these teach the names to remove elsewhere, so
+    that a comment's words are not taken for a name."""
+    last = str(key or "").rsplit(".", 1)[-1].lower()
+    return person_like(key) and last not in WRITTEN_BY_PEOPLE and not last.endswith("_note")
 
 
 def _placeholders(text: str) -> int:

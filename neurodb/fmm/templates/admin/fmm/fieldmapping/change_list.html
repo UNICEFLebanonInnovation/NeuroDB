@@ -28,12 +28,18 @@
     {% else %}
       <p class="mb-2">{% trans "The eTools keys have not been read yet. After an eTools Datamart sync, run python manage.py fmm_refresh --probe-only." %}</p>
     {% endif %}
-    {% if found.latest %}
+    {% if found.failed %}
       <p class="mb-2 nd-found__warn">
-        {% blocktrans trimmed with when=found.latest.started_at|date:"j M Y, H:i" status=found.latest.get_status_display %}
-          A later refresh of {{ when }} is {{ status }}.
-        {% endblocktrans %}
-        <a class="nd-link" href="{% url 'admin:core_syncrun_change' found.latest.pk %}">{% trans "Open it" %}</a>
+        {% if found.run %}
+          {% blocktrans trimmed with when=found.failed.started_at|date:"j M Y, H:i" %}
+            The refresh of {{ when }} failed: the keys below are those of the reading before it.
+          {% endblocktrans %}
+        {% else %}
+          {% blocktrans trimmed with when=found.failed.started_at|date:"j M Y, H:i" %}
+            The refresh of {{ when }} failed before it could read the keys.
+          {% endblocktrans %}
+        {% endif %}
+        <a class="nd-link" href="{% url 'admin:core_syncrun_change' found.failed.pk %}">{% trans "Open it" %}</a>
       </p>
     {% elif found.running %}
       <p class="mb-2">{% trans "A refresh is running now; this page shows the previous reading until it ends." %}</p>

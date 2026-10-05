@@ -126,6 +126,16 @@ def _types(counts: dict[str, int]) -> str:
     return " · ".join(f"{name} {n:,}" for name, n in counts.items())
 
 
+def _failed_after(latest: SyncRun | None, shown: SyncRun | None) -> SyncRun | None:
+    """The last refresh, when it failed to read the keys again after the reading shown (a refresh that
+    only recomputes the scores reads no key, and a running one is said so apart)."""
+    if latest is None or latest.status != SyncRun.Status.FAILED or latest.target not in ("full", "probe"):
+        return None
+    if shown is not None and (latest.pk == shown.pk or latest.started_at < shown.started_at):
+        return None
+    return latest
+
+
 def fields_found() -> dict[str, Any]:
     """Everything the Fields found page shows."""
     probe_run = status.last_probe()
@@ -184,7 +194,7 @@ def fields_found() -> dict[str, Any]:
     details = (probe_run.details or {}) if probe_run else {}
     return {
         "run": probe_run,
-        "latest": latest if latest and (probe_run is None or latest.pk != probe_run.pk) else None,
+        "failed": _failed_after(latest, probe_run),
         "running": background.is_running(SyncRun.Job.FMM_REFRESH),
         "rates": _rates(probe_run),
         "not_found": details.get("fields_not_found") or [],

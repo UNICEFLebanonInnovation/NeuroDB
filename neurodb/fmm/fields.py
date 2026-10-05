@@ -199,7 +199,9 @@ AMBIGUOUS_MARGIN = 0.3  # a later candidate this much fuller makes the choice "a
 MAX_EXAMPLES = 3
 MAX_EXAMPLE_TRIES = 200  # values looked at for a key's examples, at most
 EXAMPLE_RAW_CHARS = 400  # kept from a value until it is cleaned (well beyond the 60 shown)
-MAX_KEYS = 500  # distinct keys counted per dataset; a record keyed by ids would add one per id
+MAX_KEYS = 500  # distinct keys counted per dataset (a field's own keys always are); a record keyed by
+# ids would add one per id
+MAX_DROPPED = 10_000  # keys left uncounted that are remembered, to count them
 MAX_KEY_CHARS = 120  # KeyProbe.key
 MAX_PERSON_VALUES = 20_000  # values of person keys kept to clean the examples with
 CACHE_SECONDS = 60  # key_for() reads the mappings again after this
@@ -232,27 +234,34 @@ def type_name(value: Any) -> str:
 # ------------------------------------------------------------------------------------------ probing
 class Probe:
     """What the records of one dataset hold: each key (top level, and one level down as "parent.child")
-    with the records holding it, the types of its values and up to three examples; per candidate key,
-    the records with a usable value of each kind a field needs; and, for the checklist answers, how
-    many were answered under each possible choice of keys."""
+    with the records holding it, the types of its values and up to three examples; per candidate key
+    (and per key an administrator pinned), the records with a usable value of each kind a field needs;
+    and, for the checklist answers, how many were answered under each possible choice of keys."""
 
-    def __init__(self, dataset: str) -> None:
+    def __init__(self, dataset: str, overrides: Mapping[str, str] | None = None) -> None:
         self.dataset = dataset
         self.total = 0
         self.failed = 0
-        self.keys_dropped = 0
         self.records: Counter[str] = Counter()
         self.types: dict[str, Counter[str]] = defaultdict(Counter)
         self.examples: dict[str, list[Any]] = defaultdict(list)
         self.usable: Counter[tuple[str, str]] = Counter()
         self.answers: Counter[frozenset[tuple[str, str]]] = Counter()
         self.person_values: set[str] = set()
+        self._dropped: set[str] = set()  # keys not counted past MAX_KEYS (MAX_DROPPED remembered)
+        # the keys each field may be read from: its candidates, and the key an administrator pinned
+        # (``overrides``: field -> key), measured like a candidate so that its coverage and answers
+        # are known
+        fields: dict[str, tuple[str, ...]] = dict(CANDIDATES.get(dataset, {}))
+        for field, key in (overrides or {}).items():
+            if field in fields and key and key not in fields[field]:
+                fields[field] = (*fields[field], key)
+        self._wanted = {key for keys in fields.values() for key in keys}  # counted even past MAX_KEYS
         self._pairs: dict[str, set[tuple[str, str]]] = defaultdict(set)
-        for field, keys in CANDIDATES.get(dataset, {}).items():
+        for field, keys in fields.items():
             for key in keys:
                 self._pairs[key.split(".", 1)[0]].add((key, kind_of(field)))
                 self._pairs[key].add((key, kind_of(field)))
-        fields = CANDIDATES.get(dataset, {})
         self._answer_keys = (
             sorted({key for field in ANSWER_FIELDS for key in fields.get(field, ())})
             if dataset == "fm_questions"
@@ -267,6 +276,7 @@ class Probe:
                 self._answer_tops[key.split(".", 1)[0]].append(key)
         self._person_keys = {key for ds, field in PERSON_FIELDS if ds == dataset for key in fields[field]}
         self._person: dict[str, bool] = {}  # privacy.person_like per key, read once
+        self._naming: dict[str, bool] = {}  # privacy.names_person per key, read once
         self._tries: Counter[str] = Counter()  # values looked at for a key's examples
 
     # ---- reading one record
@@ -308,10 +318,16 @@ class Probe:
         if len(self.person_values) < MAX_PERSON_VALUES:
             self._people(record, depth=0)
 
+    @property
+    def keys_dropped(self) -> int:
+        """Distinct keys left uncounted because the dataset already had ``MAX_KEYS`` keys."""
+        return len(self._dropped)
+
     def _count(self, key: str, value: Any) -> None:
         key = key[:MAX_KEY_CHARS]
-        if key not in self.records and len(self.records) >= MAX_KEYS:
-            self.keys_dropped += 1
+        if key not in self.records and len(self.records) >= MAX_KEYS and key not in self._wanted:
+            if len(self._dropped) < MAX_DROPPED:
+                self._dropped.add(key)
             return
         self.records[key] += 1
         self.types[key][type_name(value)] += 1
@@ -334,14 +350,19 @@ class Probe:
             self._person[key] = privacy.person_like(key) or key in self._person_keys
         return self._person[key]
 
+    def _names_person(self, key: str) -> bool:
+        if key not in self._naming:
+            self._naming[key] = privacy.names_person(key) or key in self._person_keys
+        return self._naming[key]
+
     def _people(self, value: Any, depth: int, under_person: bool = False) -> None:
-        """Keep the texts written under keys that hold a person, so that the examples of other keys
-        are cleaned of these names too (a team member named in a narrative)."""
+        """Keep the texts written under keys that name a person (not a note or a comment), so that the
+        examples of other keys are cleaned of these names too (a team member named in a narrative)."""
         if depth > 4 or len(self.person_values) >= MAX_PERSON_VALUES:
             return
         if isinstance(value, dict):
             for key, child in value.items():
-                person = under_person or self._holds_person(str(key))
+                person = under_person or self._names_person(str(key))
                 if person or isinstance(child, dict | list):
                     self._people(child, depth + 1, person)
         elif isinstance(value, list):
@@ -377,14 +398,16 @@ class Probe:
                 "answered_share": None,
                 "unanswered_seen": False,
             }
-        answered = 0
+        answered = unanswered = 0  # over the records read (a record that is no object holds no answer)
         for states, n in self.answers.items():
             found = dict(states)
             state = next((found[k] for f in ANSWER_FIELDS if (k := keys.get(f)) and found.get(k)), "")
             if state == "text":
                 answered += n
-        unanswered = self.total - answered
-        share = round(answered / self.total, 4) if self.total else None
+            else:
+                unanswered += n
+        read = answered + unanswered
+        share = round(answered / read, 4) if read else None
         return {
             **out,
             "answered": answered,
@@ -407,10 +430,20 @@ def records(dataset: str) -> Iterator[tuple[int, Any]]:
         yield pk, catalogue.scrub(data if data is not None else {})
 
 
+def overrides(dataset: str) -> dict[str, str]:
+    """The keys administrators pinned for the fields of ``dataset``: {field: key}."""
+    pinned = FieldMapping.objects.filter(dataset=dataset).exclude(override_key="")
+    return {
+        m.field: m.override_key.strip()
+        for m in pinned
+        if m.override_key.strip() and m.field in CANDIDATES.get(dataset, {})
+    }
+
+
 def probe(dataset: str, on_error: Callable[[str, BaseException], None] | None = None) -> Probe:
     """Read every record of ``dataset`` (:class:`Probe`). A record that cannot be read is counted in
     ``Probe.failed`` and given to ``on_error``; the others are read."""
-    result = Probe(dataset)
+    result = Probe(dataset, overrides(dataset))
     for pk, record in records(dataset):
         try:
             result.add(record)
@@ -431,8 +464,9 @@ def write_probe(result: Probe, names: frozenset[str], now=None) -> int:
             records=n,
             total=result.total,
             types=dict(result.types[key].most_common()),
-            examples=[
-                privacy.example(result.dataset, key, raw, names) for raw in result.examples.get(key, [])
+            examples=[  # None: the key holds a person (the probe kept no value of it)
+                privacy.WITHHELD if raw is None else privacy.example(result.dataset, key, raw, names)
+                for raw in result.examples.get(key, [])
             ],
             refreshed_at=now,
         )

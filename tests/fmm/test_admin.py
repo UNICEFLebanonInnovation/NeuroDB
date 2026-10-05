@@ -98,7 +98,28 @@ def test_a_failed_later_run_is_pointed_at(admin_client, fm_world):
     refresh.run(triggered_by="test", probe_only=True)
     failed = SyncRun.objects.create(job=SyncRun.Job.FMM_REFRESH, target="probe", status=SyncRun.Status.FAILED)
     html = _page(admin_client)
-    assert "A later refresh of" in html and reverse("admin:core_syncrun_change", args=[failed.pk]) in html
+    assert "failed: the keys below are those of the reading before it" in html
+    assert reverse("admin:core_syncrun_change", args=[failed.pk]) in html
+
+
+def test_a_later_run_that_read_no_key_is_not_pointed_at(admin_client, fm_world):
+    """A refresh of the scores alone reads no key, and one that succeeded is no warning."""
+    refresh.run(triggered_by="test", probe_only=True)
+    for target, state in (("scores", SyncRun.Status.FAILED), ("scores", SyncRun.Status.SUCCEEDED)):
+        SyncRun.objects.create(job=SyncRun.Job.FMM_REFRESH, target=target, status=state)
+        html = _page(admin_client)
+        assert "Keys read on" in html and "The refresh of" not in html
+
+
+def test_a_first_reading_that_failed_says_so(admin_client, fm_world, monkeypatch):
+    from neurodb.fmm import fields
+
+    monkeypatch.setattr(fields, "resolve_all", lambda probes: 1 / 0)
+    failed = refresh.run(triggered_by="test", probe_only=True)
+    html = _page(admin_client)
+    assert "The eTools keys have not been read yet" in html
+    assert "failed before it could read the keys" in html
+    assert reverse("admin:core_syncrun_change", args=[failed.pk]) in html
 
 
 def test_fields_found_is_read_only(admin_client, fm_world):

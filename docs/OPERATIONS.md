@@ -591,10 +591,11 @@ The field monitoring records also name people (the visit lead, the team) and hol
 name anyone. Before committing samples of `field_monitoring`, `fm_questions`, `fm_options`,
 `fm_programme_activities`, `offices`, `sections`, `action_points`, `intervention_locations` or
 `location_sites`, run `python manage.py fmm_redact_fixtures tests/fixtures/datamart/` (`--dry-run`
-counts without writing): every text under a key that holds a person becomes "Person 1", "Person 2"...
-(the same person keeps the same number across the files), every other text loses its e-mail
-addresses, links, phone numbers, known names, the names found under those keys and names after a
-title, and a text over 300 characters is cut. Read the diff before committing: a name NeuroDB does not
+counts without writing): every text under a key that holds a person (a notes or comments key
+included) becomes "Person 1", "Person 2"... (the same person keeps the same number across the files),
+every other text loses its e-mail addresses, links, phone numbers, known names, the names found under
+the keys that name people (not the words of notes or comments) and names after a title, and a text
+over 300 characters is cut. Read the diff before committing: a name NeuroDB does not
 know, written without a title, can remain.
 
 ### When a run says "Succeeded with errors"
@@ -1274,9 +1275,9 @@ fmm_refresh --probe-only`:
 2. reads every record of the six datasets (contact keys removed first, as the Datamart store does)
    and counts each key, at the top level and one level down (`parent.child`), with the types of its
    values and up to three examples, cut to 60 characters and cleaned: e-mail addresses, links, phone
-   numbers, the names NeuroDB knows, the names written under the records' person keys and names after
-   a title are replaced, and a key that holds a person (visit lead, team, monitors, user names...)
-   shows "(withheld)";
+   numbers, the names NeuroDB knows, the names written under the records' keys that name people (not
+   the words of notes or comments) and names after a title are replaced, and a key that holds a
+   person (visit lead, team, monitors, user names, notes and comments...) shows "(withheld)";
 3. chooses the key of each field: the first listed key that fills at least `FMM_KEY_MIN_COVERAGE`
    (50%) of the records with a usable value (an id needs a number, a yes/no needs true or false),
    else the fullest one, else none: the field is *Not found* and what needs it will say "not
