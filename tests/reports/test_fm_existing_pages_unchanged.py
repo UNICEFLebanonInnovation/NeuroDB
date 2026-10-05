@@ -1,5 +1,5 @@
-"""Monitoring insights does not move the existing pages (invariant 6): on the overview fixture and a
-field monitoring fixture, the /field-monitoring/ figures, the overview's field monitoring visits and the
+"""Monitoring insights does not move the existing pages (invariant 6): on the overview fixture, the
+Datamart pages' fixture and a field monitoring fixture, the /field-monitoring/ figures, the overview's field monitoring visits and the
 partner page's visit series keep their pinned values after the programme documents are linked to the
 findings (``datamart.fm.relink_findings``). The demo's own field monitoring rows are checked in
 ``tests/core/test_demo_seed.py`` (the first 50 findings are left as they were)."""
@@ -14,6 +14,7 @@ from neurodb.datamart import models as dm
 from neurodb.partnerships.models import PCA, PartnerOrganization
 from neurodb.reports import overview
 from tests.reports.overview_fixture import TODAY, make_overview_data
+from tests.reports.test_datamart_pages import datamart  # noqa: F401
 
 pytestmark = pytest.mark.django_db
 D = datetime.date
@@ -149,3 +150,34 @@ def test_overview_field_monitoring_figures_do_not_move(hierarchy, reporting_year
     assert _overview_figures(reporting_year) == pinned
     assert page_figures("year=2026") == page
     assert services.partner_datamart(data["partner"])["monitoring_visits_by_year"] == series
+
+
+def test_datamart_pages_fixture_does_not_move(datamart):  # noqa: F811 (the imported fixture)
+    """The /field-monitoring/ fixture of ``test_datamart_pages`` (a partner row), with a row about its
+    programme document added: the page, the partner series and Ask's assurance overview are the same
+    before and after the relink links that row."""
+    from neurodb.assistant import tools
+
+    dm.MonitoringFinding.objects.create(
+        datamart_id=2,
+        partner=datamart["partner"],
+        entity="LEB/PD1",
+        entity_type="PD/SSFA",
+        overall_finding_rating="Off Track",
+        monitoring_activity="MA-2",
+        end_date=datetime.date.today(),
+    )
+
+    def snapshot():
+        year = datetime.date.today().year
+        return (
+            figures([("a", datamart["partner"])]),
+            page_figures(f"year={year}"),
+            tools.run("assurance_overview", {"partner": "Partner A"})["field_monitoring"],
+        )
+
+    before = snapshot()
+    assert before[1]["findings"] == 2 and before[1]["activities"] == 2
+    assert fm.relink_findings()["exact"] == 1
+    assert dm.MonitoringFinding.objects.get(datamart_id=2).intervention == datamart["pd"]
+    assert snapshot() == before

@@ -43,6 +43,9 @@ PHONE = re.compile(
 )
 INTL_PHONE = re.compile(r"(?<![\w/])\+\d[\d\s().-]{7,}\d(?![\w/])")
 PHONE_WITHHELD = "[phone withheld]"
+# A name written after a title ("Mrs Layla Saab", "Dr. Haddad"), known to NeuroDB or not: replaced by
+# NAME_WITHHELD in field monitoring texts. It also takes a place named after a title ("Sheikh Zennad").
+HONORIFIC_NAME = re.compile(r"\b(?:Mr|Mrs|Ms|Miss|Dr|Eng|Prof|Sheikh)\.?\s+[A-Z][\w'-]+(?:\s+[A-Z][\w'-]+)?")
 # A word: letters, with the accents and Arabic vowel marks that may sit inside it
 WORD = re.compile(r"(?:[^\W\d_]|[̀-ًͯ-ٰٟ])+")
 HONORIFICS = frozenset({"mr", "mrs", "ms", "miss", "mx", "dr", "eng", "prof", "sir", "madam", "mme", "mlle"})

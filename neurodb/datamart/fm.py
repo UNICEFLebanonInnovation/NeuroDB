@@ -118,7 +118,8 @@ def _activity_id(value: Any) -> int | None:
     if isinstance(value, int):
         return value if value > 0 else None
     text = str(value or "").strip()
-    if text.isdigit() and int(text) > 0:
+    # isdecimal, not isdigit: "²" is a digit that int() cannot read
+    if text.isdecimal() and int(text) > 0:
         return int(text)
     return None
 

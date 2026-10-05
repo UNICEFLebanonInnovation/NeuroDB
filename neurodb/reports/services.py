@@ -250,6 +250,8 @@ LEGACY_TABLES = {
     "locations": "locations.Location",
     "location_sites": "datamart.MonitoringSite",
 }
+# What a sync could not link, as the data health table names it (other codes are shown as written)
+NOT_LINKED_LABELS = {"programme_document_fm": "programme document (field monitoring)"}
 
 
 def datamart_quality() -> list[dict[str, Any]]:
@@ -274,7 +276,7 @@ def datamart_quality() -> list[dict[str, Any]]:
                 count = dmq.dataset(name).base.count()
             except Exception:  # a dataset without a table of its own
                 count = None
-        not_linked = details.get("not_linked") or {}
+        not_linked = {NOT_LINKED_LABELS.get(k, k): v for k, v in (details.get("not_linked") or {}).items()}
         rows.append(
             {
                 "name": name,

@@ -97,3 +97,15 @@ def test_etools_query_filters_field_monitoring_by_programme_document(pds):
         "LEB/PCA2023597/PD2025123-2": 1,
         None: 1,
     }
+
+
+@responses.activate
+def test_data_health_names_the_programme_documents_not_found_in_plain_words(pds):
+    from neurodb.reports.services import datamart_quality
+    from neurodb.web.templatetags.ui import code_label
+
+    page("fm-ontrack", [finding(1, "LEB/PCA9999999/PD9999999", "PD/SSFA")])
+    run_all("field_monitoring")
+    (row,) = [r for r in datamart_quality() if r["name"] == "field_monitoring"]
+    assert row["not_linked"] == {"programme document (field monitoring)": 1}
+    assert [code_label(k) for k in row["not_linked"]] == ["Programme document (field monitoring)"]

@@ -9,9 +9,9 @@ output and long values are shortened.
 The field monitoring datasets (``catalogue.FM_PRIVATE``) name the visit lead and team and hold long
 free texts. For them the keys that hold a person are dropped (and cannot be filtered, grouped, summed,
 sorted or selected on), texts longer than ``catalogue.FM_TEXT_MAX`` are withheld, the shorter ones
-are sent without e-mail addresses, links, phone numbers or known names (:func:`_fm_safe`), and a
-search for a person's name finds no field monitoring record. Monitoring insights shows those texts
-to staff.
+are sent without e-mail addresses, links, phone numbers, known names or names written after a title
+(:func:`_fm_safe`), and a search for a person's name finds no field monitoring record. Monitoring
+insights shows those texts to staff.
 """
 
 from __future__ import annotations
@@ -114,17 +114,29 @@ def public(data: dict[str, Any], fields: list[str] | None = None, dataset: str =
     return {k: shorten(v) for k, v in data.items() if k not in NOISE and v not in (None, "", [], {})}
 
 
+def _fm_person(key: Any) -> bool:
+    """A key of a field monitoring record that holds a person: ``catalogue.person_key``, or one of the
+    fields NeuroDB Watch never sends because they name or were written by a person (``first_name``,
+    ``username``, ``contacts``, ``unicef_manager``, ``comments``...), the same rule as Monitoring
+    insights' own."""
+    from neurodb.watch import redact  # lazy: watch already reads the datamart lazily
+
+    text = str(key or "")
+    return catalogue.person_key(text) or redact._person_field(text.rsplit(".", 1)[-1])
+
+
 def _fm_safe(value: Any, names: frozenset[str] | None = None) -> Any:
     """A field monitoring value as Ask may send it: dicts without the keys that hold a person
-    (``catalogue.person_key``), lists element by element, texts longer than ``FM_TEXT_MAX``
-    withheld, shorter ones without e-mail addresses, links, known person names (NeuroDB Watch's
-    ``redact.text``) and phone numbers. Numbers, dates and yes/no pass as they are."""
+    (:func:`_fm_person`), lists element by element, texts longer than ``FM_TEXT_MAX`` withheld,
+    shorter ones without e-mail addresses, links, known person names (NeuroDB Watch's
+    ``redact.text``), phone numbers and names written after a title ("Mrs Layla Saab"). Numbers,
+    dates and yes/no pass as they are."""
     from neurodb.watch import people, redact  # lazy: watch already reads the datamart lazily
 
     if names is None:
         names = people.known_names()
     if isinstance(value, dict):
-        return {k: _fm_safe(v, names) for k, v in value.items() if not catalogue.person_key(k)}
+        return {k: _fm_safe(v, names) for k, v in value.items() if not _fm_person(k)}
     if isinstance(value, list):
         return [_fm_safe(v, names) for v in value]
     if isinstance(value, str):
@@ -132,8 +144,21 @@ def _fm_safe(value: Any, names: frozenset[str] | None = None) -> Any:
             return catalogue.FM_TEXT_WITHHELD
         text = redact.text(value, catalogue.FM_TEXT_MAX, names)
         text = people.PHONE.sub(people.PHONE_WITHHELD, text)
-        return people.INTL_PHONE.sub(people.PHONE_WITHHELD, text)
+        text = people.INTL_PHONE.sub(people.PHONE_WITHHELD, text)
+        return people.HONORIFIC_NAME.sub(people.NAME_WITHHELD, text)
     return value
+
+
+def _fm_label(value: Any, names: frozenset[str]) -> Any:
+    """A group's value of a field monitoring record field, as :func:`_fm_safe` sends it. A field that
+    holds an object or a list reaches the group as its JSON text: it is read back first, so that the
+    keys holding a person inside it are dropped as in a record."""
+    if isinstance(value, str) and value.startswith(("{", "[")):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            pass
+    return _fm_safe(value, names)
 
 
 def _refuse_personal(ds: Dataset, keys: list[str], texts: list[Any]) -> None:
@@ -143,7 +168,7 @@ def _refuse_personal(ds: Dataset, keys: list[str], texts: list[Any]) -> None:
         return
     for key in keys:
         field = str(key or "").lstrip("-").partition("__")[0]
-        if field and catalogue.person_key(field):
+        if field and _fm_person(field):
             raise QueryError(
                 f"'{field}' holds personal data and cannot be queried; use the Monitoring insights page."
             )
@@ -202,7 +227,7 @@ def describe(name: str | None = None) -> dict[str, Any]:
             if key in NOISE or key in fields and fields[key] not in (None, "", [], {}):
                 continue
             if private:  # no person's key at all; example values as public() sends them
-                if not catalogue.person_key(key):
+                if not _fm_person(key):
                     fields[key] = shorten(_fm_safe(value, names))
                 continue
             fields[key] = shorten(value) if not isinstance(value, str) else value[:80]
@@ -408,7 +433,7 @@ def _groups(ds: Dataset, qs: QuerySet, group_by: str, sum_field: str | None) -> 
     names = _known_names() if private_values else frozenset()
     rows = [
         {
-            label: _fm_safe(g["_g"], names) if private_values else g["_g"],
+            label: _fm_label(g["_g"], names) if private_values else g["_g"],
             "records": g["records"],
             **({f"sum_{sum_field}": shorten(g["total"])} if sum_field else {}),
         }

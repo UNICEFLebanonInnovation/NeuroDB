@@ -84,13 +84,15 @@ come from.
   lookups that return eTools records as eTools holds them (`etools_query`, `etools_record`,
   `etools_datasets` and the examples of `etools_search`) treat the field monitoring datasets
   (findings, questions and answers, answer options, programme activities) apart: the keys that hold
-  a person (visit lead, team members, monitors, focal points, assignees, any key named like a
-  person, an e-mail or a phone) are dropped and cannot be filtered, grouped, summed, sorted or
-  picked; texts longer than 80 characters (narratives, answers, summaries) are withheld ("text
-  withheld: read it in Monitoring insights"); shorter values (ratings, statuses, references, place
-  names, "Yes") are sent without e-mail addresses, phone numbers, links and the person names
-  NeuroDB knows; a question that names a person finds no field monitoring record, and the search
-  examples show the visit reference only. For every other dataset, keys naming an e-mail address, a
+  a person (visit lead, team members, monitors, focal points, assignees, user names, contacts,
+  comments, any key named like a person, an e-mail or a phone, also inside a nested value) are
+  dropped and cannot be filtered, grouped, summed, sorted or picked; texts longer than 80 characters
+  (narratives, answers, summaries) are withheld ("text withheld: read it in Monitoring insights");
+  shorter values (ratings, statuses, references, place names, "Yes") are sent without e-mail
+  addresses, phone numbers, links, the person names NeuroDB knows and any name written after a title
+  such as Mrs, Dr or Sheikh (a place named that way, such as Sheikh Zennad, is withheld too); a
+  question that names a person finds no field monitoring record, and the search examples show the
+  visit reference only. For every other dataset, keys naming an e-mail address, a
   phone or a mobile are removed, as before, and names written in other fields (action point
   assignees, TPM report authors, travellers) are sent. Partner staff contact lists are not synced at
   all. NeuroDB Watch's look-ups never use those four (below). Only signed-in users can ask, and the

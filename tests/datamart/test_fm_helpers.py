@@ -22,7 +22,7 @@ def test_visit_key_prefers_the_activity_id_then_the_reference_then_the_row():
     assert fm.visit_key(1722, "FM-2026-022", 5) == "1722"
     assert fm.visit_key("1722", "", 5) == "1722"
     assert fm.visit_key(" 01722 ", "", 5) == "1722"
-    for not_an_id in (0, -3, None, "", "abc", True):
+    for not_an_id in (0, -3, None, "", "abc", True, "²", "1.5"):  # "²" is a digit int() cannot read
         key = fm.visit_key(not_an_id, "FM-2026-022", 5)
         assert re.fullmatch(r"r-[0-9a-f]{12}", key), not_an_id
     # stable, and the same reference however it is spaced or cased

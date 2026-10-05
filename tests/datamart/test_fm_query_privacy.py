@@ -24,8 +24,21 @@ CANARIES = (
     "https://evil.example/x",
     "evil.example",
     "Mrs Layla Saab",
+    "Layla Saab",
+    "Nour Haddad",
+    "Zeinab",
 )
-PERSON_KEYS = ("visit_lead", "team_members", "person_responsible", "focal_point", "monitors")
+PERSON_KEYS = (
+    "visit_lead",
+    "team_members",
+    "person_responsible",
+    "focal_point",
+    "monitors",
+    "team",
+    "people",
+    "unicef_manager",
+    "first_name",
+)
 FM = sorted(catalogue.FM_PRIVATE)
 LONG = (
     "The visit with Karim Canary (karim.canary@example.org, +961 3 123 456) found that Mrs Layla Saab "
@@ -55,6 +68,12 @@ def records(db):
         "team_members": [{"name": "Karim Canary", "email": "karim.canary@example.org"}],
         "person_responsible": {"name": "Rania Canary"},
         "field_office": "Tripoli",
+        # keys that hold a person without a PERSON_TOKENS word (NeuroDB Watch's person fields), and a
+        # person key inside an object held by another key
+        "people": ["Nour Haddad"],
+        "unicef_manager": "Nour Haddad",
+        "first_name": "Zeinab",
+        "visit": {"team": ["Nour Haddad"], "office": "Tripoli"},
     }
     dm.MonitoringFinding.objects.create(
         datamart_id=7,
@@ -77,6 +96,7 @@ def records(db):
         {"id": 3, "question_id": 16, "answer": "See https://evil.example/x", "summary": LONG},
         {"id": 4, "question_id": 17, "answer": "Mail karim.canary@example.org", "monitors": ["Karim Canary"]},
         {"id": 5, "question_id": 18, "answer": "Reached +961 3 123 456", "question_text": "Contact?"},
+        {"id": 6, "question_id": 19, "answer": "Met Mrs Layla Saab", "summary": "Dr. Saab was away"},
     ]
     for answer in answers:
         dm.DatamartDocument.objects.create(
@@ -191,6 +211,12 @@ def test_long_texts_are_withheld_and_short_ones_redacted(records):
     assert answers[16]["summary"] == catalogue.FM_TEXT_WITHHELD
     assert answers[17]["answer"] == "Mail [email withheld]"
     assert answers[18]["answer"] == "Reached [phone withheld]"
+    # a name after a title, known to NeuroDB or not, in a short answer
+    assert answers[19]["answer"] == "Met [name withheld]"
+    assert answers[19]["summary"] == "[name withheld] was away"
+    assert finding["visit"] == {"office": "Tripoli"}  # the person key inside an object is dropped
+    for key in ("people", "unicef_manager", "first_name"):
+        assert key not in finding, key
     assert answers[12]["entity"] == PD_NUMBER
 
 
@@ -205,10 +231,14 @@ def test_groups_and_sums_carry_no_person(records):
     ratings = tools.run("etools_query", {"dataset": "field_monitoring", "group_by": "overall_finding_rating"})
     assert ratings["groups"] == [{"overall_finding_rating": "On Track", "records": 1}]
     summed = tools.run("etools_query", {"dataset": "fm_questions", "sum": "question_id"})
-    assert summed["sum"] == {"question_id": 78.0}
+    assert summed["sum"] == {"question_id": 97.0}
     assert_clean(summed)
     by_pd = tools.run("etools_query", {"dataset": "field_monitoring", "group_by": "programme_document"})
     assert by_pd["groups"] == [{"programme_document": PD_NUMBER, "records": 1}]
+    # a field that holds an object reaches the group as its JSON text: read back, without its person keys
+    by_visit = tools.run("etools_query", {"dataset": "field_monitoring", "group_by": "visit"})
+    assert by_visit["groups"] == [{"visit": {"office": "Tripoli"}, "records": 1}]
+    assert_clean(by_visit)
 
 
 @pytest.mark.parametrize(
@@ -222,6 +252,9 @@ def test_groups_and_sums_carry_no_person(records):
         ({"sum": "team_members"}, "team_members"),
         ({"fields": ["entity", "visit_lead"]}, "visit_lead"),
         ({"order_by": "-visit_lead"}, "visit_lead"),
+        ({"group_by": "people"}, "people"),
+        ({"filters": {"first_name": "Zeinab"}}, "first_name"),
+        ({"fields": ["unicef_manager"]}, "unicef_manager"),
     ],
 )
 def test_person_keys_cannot_be_queried(records, args, field):
