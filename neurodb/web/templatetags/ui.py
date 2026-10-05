@@ -56,6 +56,15 @@ STATUS_VARIANTS = {
     "approved": "success",
     "report_submitted": "info",
     "cancelled": "neutral",
+    # field monitoring (Monitoring insights): HACT ratings, visit status groups and review marks
+    "constrained": "warning",
+    "not_monitored": "neutral",
+    "reviewed": "success",
+    "follow_up": "warning",
+    "data_issue": "danger",
+    "planned": "neutral",
+    "in_progress": "info",
+    "reported": "success",
 }
 
 

@@ -338,6 +338,14 @@ class MonitoringFinding(DatamartRecord):
     is_programmatic_visit = models.BooleanField(default=False)
     is_remote_monitoring = models.BooleanField(default=False)
     visit_lead = models.CharField(max_length=254, blank=True)
+    # the programme document the entity is (or names), found from the entity's text by
+    # datamart.fm.PDResolver at sync time and by the Monitoring insights refresh
+    intervention = _intervention("monitoring_findings")
+    pd_match = models.CharField(
+        max_length=8,
+        blank=True,
+        help_text="how the programme document was found: exact, token, base, title, or blank",
+    )
 
     class Meta:
         ordering = ("-end_date",)

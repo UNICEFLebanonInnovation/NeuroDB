@@ -1,6 +1,8 @@
 """Demo eTools records for ``seed_demo``: a gazetteer, PD indicators with partner reports, funds
 reservations, TPM visits, action points and field monitoring findings, so the overview, the partner
-monitoring pages and the assurance pages show something on a local database.
+monitoring pages and the assurance pages show something on a local database. The field monitoring
+visits of Monitoring insights (more entities, sites, question answers) are added last by
+``_demo_fmm``.
 
 Shapes follow what the Datamart sync writes (``neurodb.integrations.etools.datamart_sync``); the
 numbers are random but paced so that every status appears.
@@ -83,6 +85,10 @@ def seed_etools(rng: random.Random, today: dt.date) -> None:
     _findings(rng, pcas, gazetteer, today, year)
     _children_population(rng, gazetteer)
     _section_plans(rng, year)
+    # last, on its own random draws, so that nothing above moves (Monitoring insights' demo visits)
+    from . import _demo_fmm
+
+    _demo_fmm.seed_fmm(today)
 
 
 def _gazetteer(rng: random.Random) -> dict[str, list[Location]]:

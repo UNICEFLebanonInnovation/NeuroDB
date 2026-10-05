@@ -36,6 +36,7 @@ from django.utils import timezone
 from neurodb.core.models import SyncRun
 from neurodb.datamart import catalogue, tags
 from neurodb.datamart import models as dm
+from neurodb.datamart.fm import PDResolver, entity_kind
 from neurodb.geo.models import Location, LocationType
 from neurodb.integrations.etools.datamart import DatamartClient
 from neurodb.integrations.etools.fields import assign, coerce, parse_iso_date
@@ -121,6 +122,7 @@ class Links:
         self._sites: dict[tuple[int | None, str], int] | None = None
         self._tpm_activities: dict[str, int] | None = None
         self._tpm_visits: dict[str, int] | None = None
+        self._fm_pds: PDResolver | None = None
         self.scope: Any = None  # the CountryScope of the run, once a catalogue dataset needs it
         self.missing: dict[str, int] = defaultdict(int)
 
@@ -130,6 +132,7 @@ class Links:
         self._engagements = self._engagements_by_source = None
         self._locations_by_pcode = self._location_ids = self._sites = None
         self._tpm_activities = self._tpm_visits = None
+        self._fm_pds = None
 
     def _load_partners(self) -> None:
         self._partners_by_etl, self._partners_by_vendor = {}, {}
@@ -203,6 +206,22 @@ class Links:
         if pk is None:
             self.missing["site"] += 1
         return pk
+
+    def fm_pd(
+        self, entity: Any, entity_type: Any, partner_id: int | None, visit_date: dt.date | None
+    ) -> tuple[int | None, str]:
+        """The programme document a field monitoring finding is about, and how it was found
+        (``datamart.fm.PDResolver``: the reference, its PCA/PD pair, its base number or, for a PD
+        entity, the PD title among the partner's). A PD entity that matches none is counted missing."""
+        if self._fm_pds is None:
+            self._fm_pds = PDResolver(
+                PCA.objects.values_list("pk", "number", "title", "partner_id", "start", "end")
+            )
+        kind = entity_kind(entity_type, entity)
+        pk, how = self._fm_pds.resolve(str(entity or ""), kind, partner_id, visit_date)
+        if pk is None and kind == "pd":
+            self.missing["programme_document_fm"] += 1
+        return pk, how
 
     def tpm_activity(self, source_id: Any) -> int | None:
         if self._tpm_activities is None:
@@ -595,6 +614,10 @@ def _link_monitoring(row, item, links):
     row.location_source_id = int(source_id) if str(source_id or "").isdigit() else None
     row.location_id = links.location(source_id, p_code)
     row.monitoring_site_id = links.site(row.location_id, item.get("site"))
+    # row.end_date is already set from monitoring_activity_end_date (assign() runs before link())
+    row.intervention_id, row.pd_match = links.fm_pd(
+        item.get("entity"), item.get("entity_type"), row.partner_id, row.end_date
+    )
 
 
 def _link_finding(row, item, links):

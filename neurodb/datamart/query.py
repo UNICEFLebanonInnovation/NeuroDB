@@ -5,6 +5,13 @@ whole record in ``data``, so one query language covers all of them: filters on r
 full-text search, date range, partner and programme document (through the links made at sync time),
 grouping with counts and sums, and a field selection. Contact details are removed from every
 output and long values are shortened.
+
+The field monitoring datasets (``catalogue.FM_PRIVATE``) name the visit lead and team and hold long
+free texts. For them the keys that hold a person are dropped (and cannot be filtered, grouped, summed,
+sorted or selected on), texts longer than ``catalogue.FM_TEXT_MAX`` are withheld, the shorter ones
+are sent without e-mail addresses, links, phone numbers or known names (:func:`_fm_safe`), and a
+search for a person's name finds no field monitoring record. Monitoring insights shows those texts
+to staff.
 """
 
 from __future__ import annotations
@@ -98,11 +105,54 @@ def shorten(value: Any) -> Any:
     return value
 
 
-def public(data: dict[str, Any], fields: list[str] | None = None) -> dict[str, Any]:
+def public(data: dict[str, Any], fields: list[str] | None = None, dataset: str = "") -> dict[str, Any]:
     data = catalogue.scrub(data or {})
+    if dataset in catalogue.FM_PRIVATE:
+        data = _fm_safe(data)
     if fields:
         return {f: shorten(data.get(f)) for f in fields}
     return {k: shorten(v) for k, v in data.items() if k not in NOISE and v not in (None, "", [], {})}
+
+
+def _fm_safe(value: Any, names: frozenset[str] | None = None) -> Any:
+    """A field monitoring value as Ask may send it: dicts without the keys that hold a person
+    (``catalogue.person_key``), lists element by element, texts longer than ``FM_TEXT_MAX``
+    withheld, shorter ones without e-mail addresses, links, known person names (NeuroDB Watch's
+    ``redact.text``) and phone numbers. Numbers, dates and yes/no pass as they are."""
+    from neurodb.watch import people, redact  # lazy: watch already reads the datamart lazily
+
+    if names is None:
+        names = people.known_names()
+    if isinstance(value, dict):
+        return {k: _fm_safe(v, names) for k, v in value.items() if not catalogue.person_key(k)}
+    if isinstance(value, list):
+        return [_fm_safe(v, names) for v in value]
+    if isinstance(value, str):
+        if len(value) > catalogue.FM_TEXT_MAX:
+            return catalogue.FM_TEXT_WITHHELD
+        text = redact.text(value, catalogue.FM_TEXT_MAX, names)
+        text = people.PHONE.sub(people.PHONE_WITHHELD, text)
+        return people.INTL_PHONE.sub(people.PHONE_WITHHELD, text)
+    return value
+
+
+def _refuse_personal(ds: Dataset, keys: list[str], texts: list[Any]) -> None:
+    """A field monitoring query may not filter, group, sum, sort or select on a key that holds a
+    person, nor look for a person's name (or an e-mail address) in the records."""
+    if ds.name not in catalogue.FM_PRIVATE:
+        return
+    for key in keys:
+        field = str(key or "").lstrip("-").partition("__")[0]
+        if field and catalogue.person_key(field):
+            raise QueryError(
+                f"'{field}' holds personal data and cannot be queried; use the Monitoring insights page."
+            )
+    from neurodb.watch import people
+
+    if any(isinstance(t, str) and t.strip() and people.mentions(t) for t in texts):
+        raise QueryError(
+            "Field monitoring records cannot be searched for a person; use the Monitoring insights page."
+        )
 
 
 def _links(row: Model) -> dict[str, Any]:
@@ -145,9 +195,15 @@ def describe(name: str | None = None) -> dict[str, Any]:
         return {"datasets": rows, "not_read": catalogue.EXCLUDED}
     ds = dataset(name)
     fields: dict[str, Any] = {}
+    private = name in catalogue.FM_PRIVATE
+    names = _known_names() if private else frozenset()
     for data in ds.base.order_by("-pk").values_list("data", flat=True)[:25]:
         for key, value in catalogue.scrub(data or {}).items():
             if key in NOISE or key in fields and fields[key] not in (None, "", [], {}):
+                continue
+            if private:  # no person's key at all; example values as public() sends them
+                if not catalogue.person_key(key):
+                    fields[key] = shorten(_fm_safe(value, names))
                 continue
             fields[key] = shorten(value) if not isinstance(value, str) else value[:80]
     return {
@@ -162,6 +218,12 @@ def describe(name: str | None = None) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------------------------ filtering
+def _known_names() -> frozenset[str]:
+    from neurodb.watch import people
+
+    return people.known_names()
+
+
 def _field(name: str) -> str:
     if not FIELD.match(name or ""):
         raise QueryError(f"Invalid field name '{name}'.")
@@ -271,6 +333,12 @@ def query(
     **criteria: Any,
 ) -> dict[str, Any]:
     ds = dataset(name)
+    filters = criteria.get("filters") or {}
+    _refuse_personal(
+        ds,
+        [*filters, *(fields or []), group_by or "", sum_field or "", order_by or ""],
+        [criteria.get("search"), *filters.values()],
+    )
     qs = filtered(ds, **criteria)
     total = qs.count()
     if group_by:
@@ -290,7 +358,7 @@ def query(
     rows, size = [], 0
     selected = [_field(f) for f in fields or []] or None
     for row in qs.select_related(*related)[:limit]:
-        item = {"record": _key(row), **_links(row), **public(row.data, selected)}
+        item = {"record": _key(row), **_links(row), **public(row.data, selected, dataset=name)}
         size += len(json.dumps(item, default=str))
         if rows and size > MAX_OUTPUT_CHARS:
             break
@@ -315,6 +383,7 @@ def _sum(ds: Dataset, qs: QuerySet, field: str) -> float | None:
 
 
 def _groups(ds: Dataset, qs: QuerySet, group_by: str, sum_field: str | None) -> dict[str, Any]:
+    private_values = False
     if group_by == "partner":
         if not ds.partner_link:
             raise QueryError(f"'{ds.name}' is not linked to partners; group by a partner field instead.")
@@ -330,13 +399,16 @@ def _groups(ds: Dataset, qs: QuerySet, group_by: str, sum_field: str | None) -> 
         qs, label = qs.annotate(_g=extract), group_by
     else:
         qs, label = qs.annotate(_g=KT(f"data__{_field(group_by)}")), group_by
+        # a record field's values are the records' own words: sent as public() sends them
+        private_values = ds.name in catalogue.FM_PRIVATE
     annotations: dict[str, Any] = {"records": Count("pk", distinct=True)}
     if sum_field:
         annotations["total"] = Sum(_numeric(ds, _field(sum_field)))
     groups = list(qs.order_by().values("_g").annotate(**annotations).order_by("-records")[: MAX_GROUPS + 1])
+    names = _known_names() if private_values else frozenset()
     rows = [
         {
-            label: g["_g"],
+            label: _fm_safe(g["_g"], names) if private_values else g["_g"],
             "records": g["records"],
             **({f"sum_{sum_field}": shorten(g["total"])} if sum_field else {}),
         }
@@ -353,16 +425,36 @@ def search_all(text: str) -> dict[str, Any]:
     text = (text or "").strip()
     if len(text) < 3:
         raise QueryError("Search for at least 3 characters.")
+    from neurodb.watch import people
+
     hits = []
+    names = people.known_names()
+    # a person's name (or an e-mail address) finds no field monitoring record at all
+    person = bool(people.mentions(text, names))
     for name in catalogue.dataset_names():
+        private = name in catalogue.FM_PRIVATE
+        if private and person:
+            continue
         ds = dataset(name)
         qs = ds.base.annotate(_text=Cast("data", TextField())).filter(_text__icontains=text)
         count = qs.count()
         if count:
-            examples = [str(row) for row in qs.order_by("-pk")[:3]]
+            rows = qs.order_by("-pk")[:3]
+            examples = [_fm_example(row, names) for row in rows] if private else [str(row) for row in rows]
             hits.append({"dataset": name, "records": count, "examples": examples})
     hits.sort(key=lambda h: -h["records"])
     return {"text": text, "datasets": hits}
+
+
+def _fm_example(row: Model, names: frozenset[str]) -> str:
+    """A field monitoring record as a search example: its visit reference, else its document title,
+    never the record's text."""
+    if isinstance(row, DatamartDocument):
+        reference = (row.data or {}).get("monitoring_activity")
+        text = reference if isinstance(reference, str | int) and str(reference).strip() else row.title
+    else:
+        text = getattr(row, "monitoring_activity", "") or getattr(row, "reference_number", "")
+    return _fm_safe(str(text or "").strip(), names) or f"record {_key(row)}"
 
 
 def record(name: str, key: str) -> dict[str, Any]:
@@ -375,7 +467,7 @@ def record(name: str, key: str) -> dict[str, Any]:
         row = qs.filter(datamart_id=int(key)).first() if str(key).isdigit() else None
     if row is None:
         raise QueryError(f"No record '{key}' in '{name}'.")
-    return {"dataset": name, "record": _key(row), **_links(row), "data": public(row.data)}
+    return {"dataset": name, "record": _key(row), **_links(row), "data": public(row.data, dataset=name)}
 
 
 def linked_counts(*, partner: PartnerOrganization | None = None, pd: PCA | None = None) -> dict[str, int]:

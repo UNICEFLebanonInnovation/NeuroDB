@@ -36,6 +36,13 @@ NAME_WITHHELD = "[name withheld]"
 EMAIL_WITHHELD = "[email withheld]"
 
 EMAIL = re.compile(r"[\w.+'-]+@[\w-]+(?:\.[\w-]+)+")
+# Phone numbers written inside a text (field monitoring answers and narratives): Lebanese numbers with
+# or without +961/00961 and the leading 0 ("03-123456", "+961 3 123 456"), and any international one
+PHONE = re.compile(
+    r"(?<![\w/.-])(?:(?:\+|00)\s?961[\s.-]?)?0?(?:7[016-9]|81|[1-9])[\s.-]?\d{3}[\s.-]?\d{3}(?![\w/-])"
+)
+INTL_PHONE = re.compile(r"(?<![\w/])\+\d[\d\s().-]{7,}\d(?![\w/])")
+PHONE_WITHHELD = "[phone withheld]"
 # A word: letters, with the accents and Arabic vowel marks that may sit inside it
 WORD = re.compile(r"(?:[^\W\d_]|[̀-ًͯ-ٰٟ])+")
 HONORIFICS = frozenset({"mr", "mrs", "ms", "miss", "mx", "dr", "eng", "prof", "sir", "madam", "mme", "mlle"})

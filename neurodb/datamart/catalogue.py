@@ -12,6 +12,8 @@ The AI assistant's eTools tools (``neurodb.assistant.tools``) query any of the f
 
 from __future__ import annotations
 
+import functools
+import re
 from dataclasses import dataclass
 
 
@@ -402,6 +404,57 @@ EXCLUDED: dict[str, str] = {
 
 
 PERSONAL_KEYS = ("email", "phone", "mobile")
+
+# ---- field monitoring (FM): what Ask NeuroDB may read of these datasets (``query.public``)
+# Their records name the visit lead and team and hold long free texts (narratives, answers,
+# summaries). Ask's eTools tools drop the keys that hold a person, withhold texts longer than
+# FM_TEXT_MAX and redact the rest; Monitoring insights reads them in full for staff.
+FM_PRIVATE = frozenset({"field_monitoring", "fm_questions", "fm_options", "fm_programme_activities"})
+PERSON_TOKENS = frozenset(
+    {
+        "team",
+        "member",
+        "members",
+        "lead",
+        "leads",
+        "monitor",
+        "monitors",
+        "staff",
+        "user",
+        "users",
+        "person",
+        "persons",
+        "focal",
+        "assigned",
+        "assignee",
+        "author",
+        "traveler",
+        "traveller",
+        "reviewer",
+        "owner",
+        "email",
+        "phone",
+        "mobile",
+    }
+)
+FM_TEXT_MAX = 80  # longer strings in FM_PRIVATE datasets are withheld
+FM_TEXT_WITHHELD = "(text withheld: read it in Monitoring insights)"
+_CAMEL = re.compile(r"(?<=[a-z])(?=[A-Z])")
+_NOT_LETTERS = re.compile(r"[^a-z]+")
+
+
+@functools.lru_cache(maxsize=2048)
+def person_key(key: str) -> bool:
+    """Whether a record key holds a person: one of its words (split on anything that is not a letter,
+    "a.b" and camelCase too) is in PERSON_TOKENS, or it ends like the fields NeuroDB Watch never sends
+    (``_by``, ``_lead``, ``_email``, ``_owner``...). Whole words only: "visit_lead" and
+    "team_members" hold a person, "monitoring_activity" does not."""
+    from neurodb.watch.redact import DROPPED_SUFFIXES  # lazy: watch reads the datamart, not the reverse
+
+    text = _CAMEL.sub("_", str(key or "")).lower()
+    if any(part.endswith(DROPPED_SUFFIXES) for part in text.split(".")):
+        return True
+    return any(token in PERSON_TOKENS for token in _NOT_LETTERS.split(text) if token)
 
 
 def scrub(value):

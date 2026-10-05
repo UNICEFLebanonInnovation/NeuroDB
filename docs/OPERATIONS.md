@@ -80,11 +80,20 @@ come from.
   details, such as partner names, vendor numbers, risk ratings, HACT and assurance results,
   programme document titles, library summaries and the free-text comments staff write on Neuro
   and HPM reports. When a filter matches nothing, the list of known partner, donor or office names
-  is sent too. It is organisational data. The summary lookups send field visits as counts; the
-  lookups that return eTools records as eTools holds them (`etools_query`, `etools_record`, and the
-  examples of `etools_search`) remove e-mail addresses and phone numbers, but names in them (action
-  point assignees, visit leads, travellers) are sent; partner staff contact lists are not synced at
-  all. NeuroDB Watch's look-ups never use those three (below). Only signed-in users can ask, and the
+  is sent too. It is organisational data. The summary lookups send field visits as counts. The
+  lookups that return eTools records as eTools holds them (`etools_query`, `etools_record`,
+  `etools_datasets` and the examples of `etools_search`) treat the field monitoring datasets
+  (findings, questions and answers, answer options, programme activities) apart: the keys that hold
+  a person (visit lead, team members, monitors, focal points, assignees, any key named like a
+  person, an e-mail or a phone) are dropped and cannot be filtered, grouped, summed, sorted or
+  picked; texts longer than 80 characters (narratives, answers, summaries) are withheld ("text
+  withheld: read it in Monitoring insights"); shorter values (ratings, statuses, references, place
+  names, "Yes") are sent without e-mail addresses, phone numbers, links and the person names
+  NeuroDB knows; a question that names a person finds no field monitoring record, and the search
+  examples show the visit reference only. For every other dataset, keys naming an e-mail address, a
+  phone or a mobile are removed, as before, and names written in other fields (action point
+  assignees, TPM report authors, travellers) are sent. Partner staff contact lists are not synced at
+  all. NeuroDB Watch's look-ups never use those four (below). Only signed-in users can ask, and the
   lookups can only read what any signed-in user can already see. Nothing is written back. Requests are sent with
   `store=false`, so OpenAI does not keep the responses for later retrieval through the API;
   NeuroDB keeps its own question log. Each request carries a keyed hash (HMAC-SHA-256 with the
@@ -533,7 +542,7 @@ Datamart host (a pagination link to any other host is refused). Every request is
 | `assessments`, `psea_assessments` | `partners/assessment/`, `psea/assessments/` | HACT and PSEA assessments (partner and assurance pages) |
 | `engagements` | `audit/engagements/` | audits, special audits, spot checks, micro-assessments (assurance, partner and programme pages) |
 | `action_points` | `actionpoints/` | action points (action points, partner and programme pages) |
-| `tpm_visits`, `field_monitoring` | `tpm-visits/`, `fm-ontrack/` | TPM visits and field monitoring findings (field monitoring and partner pages) |
+| `tpm_visits`, `field_monitoring` | `tpm-visits/`, `fm-ontrack/` | TPM visits and field monitoring findings (field monitoring and partner pages); each finding is linked to the programme document its entity names, by the PCA/PD pair of the reference so that the `LEBA/` or `LEB/` prefix and the `-2` amendment do not matter (`pd_match` says how: exact, token, base or title; a PD entity that matches none is counted in `not_linked.programme_document_fm`) |
 | `hact` | `hact/aggregate/` | HACT totals per year (assurance page) |
 | `funds_reservation_headers` | `funds/fundsreservationheader/` | FRs: reserved, disbursed, outstanding (funds and programme pages) |
 | `partner_reports` | `prp/datareport/` | partner progress reports per indicator and location, periods starting in the last `ETOOLS_DATAMART_REPORTING_YEARS` years (partner reporting, programme and partner pages) |
@@ -702,8 +711,10 @@ assistant sees every field.
 
 The PRP views have no `country_name`: they are filtered by the country office's business area code,
 found from `datamart/workspaces` (or set `ETOOLS_DATAMART_BUSINESS_AREA`). A record from another
-country that an API filter let through is dropped (`details.other_country_skipped`). E-mail
-addresses and phone numbers are removed from every stored record and every assistant answer.
+country that an API filter let through is dropped (`details.other_country_skipped`). Keys naming
+an e-mail address, a phone or a mobile are removed from the records kept whole here and from every
+assistant answer; the field monitoring records reach the assistant without people and without long texts
+(see *Data leaves Azure* under Ask NeuroDB).
 
 Not read, and why:
 
@@ -718,7 +729,8 @@ Not read, and why:
 The assistant reaches all of it through four lookups: `etools_datasets` (what exists, with fields
 and example values), `etools_query` (filter by partner, PD, text, field values and dates; group,
 count and add up), `etools_search` (which datasets mention a name or reference) and
-`etools_record` (one record in full). The programme and partner lookups also count the linked
+`etools_record` (one record in full; a field monitoring record without people's names and long
+texts). The programme and partner lookups also count the linked
 records in every dataset.
 
 The older eTools REST sync (`manage sync_etools`, token `ETOOLS_TOKEN`) is still available on

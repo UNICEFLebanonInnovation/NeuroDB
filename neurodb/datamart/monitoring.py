@@ -550,12 +550,16 @@ def _gazetteer(ids: set[int]) -> dict[int, dict[str, Any]]:
 
 
 def _place(location_id: int | None, gazetteer: dict[int, dict[str, Any]]) -> dict[str, Any]:
-    """Coordinates and hierarchy of a location: its own point, else the nearest ancestor's."""
+    """Coordinates and hierarchy of a location: its own point, else the nearest ancestor's. The
+    governorate and district are given by name and by gazetteer id (``governorate_id``,
+    ``district_id``; None when the location is not under one)."""
     out: dict[str, Any] = {
         "admin_level": None,
         "level_name": "",
         "governorate": "",
         "district": "",
+        "governorate_id": None,
+        "district_id": None,
         "latitude": None,
         "longitude": None,
         "approximate": False,
@@ -569,9 +573,9 @@ def _place(location_id: int | None, gazetteer: dict[int, dict[str, Any]]) -> dic
     node, hops = row, 0
     while node is not None and hops < 8:
         if node["type__admin_level"] == LEVEL_GOVERNORATE:
-            out["governorate"] = node["name"]
+            out["governorate"], out["governorate_id"] = node["name"], node["id"]
         if node["type__admin_level"] == LEVEL_DISTRICT:
-            out["district"] = node["name"]
+            out["district"], out["district_id"] = node["name"], node["id"]
         if out["latitude"] is None and node["latitude"] is not None and node["longitude"] is not None:
             out["latitude"], out["longitude"] = node["latitude"], node["longitude"]
             out["approximate"], out["located_by"] = node is not row, node["name"]
