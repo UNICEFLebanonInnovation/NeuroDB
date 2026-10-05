@@ -25,7 +25,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext as _
-from django.utils.translation import gettext_lazy
+from django.utils.translation import gettext_lazy, ngettext
 from django.views.decorators.http import require_GET, require_POST
 
 from neurodb.core.models import SyncRun
@@ -225,7 +225,7 @@ def _decorate(visits: list[Visit], limits: dict[str, int]) -> None:
         v.rating_label = rating_label(v.rating, v.status_group)
         v.not_rated_yet = _not_rated_yet(v.rating, v.status_group)
         v.team_shown = v.team[:2]
-        v.team_more = max(len(v.team) - 2, 0)
+        v.team_more = max(len(v.team) - 2, 0) + v.team_unnamed  # the members known by e-mail only too
 
 
 def _sort(request: HttpRequest) -> str:
@@ -301,10 +301,9 @@ def _kpi_tiles(scope: Scope, k: dict[str, Any]) -> list[dict[str, Any]]:
     if k["entities_other"]:
         rated += " · " + _("%(n)s other") % {"n": number(k["entities_other"])}
     if k["avg_quality"] is not None:
-        quality_hint = _("on %(n)s scored visits · rules v%(v)s") % {
-            "n": number(k["scored"]),
-            "v": k["rules_version"],
-        }
+        quality_hint = ngettext(
+            "on %(n)s scored visit · rules v%(v)s", "on %(n)s scored visits · rules v%(v)s", k["scored"]
+        ) % {"n": number(k["scored"]), "v": k["rules_version"]}
     else:
         quality_hint = _("no visit could be scored")
     urgent = replace(scope, drill=tuple(d for d in scope.drill if d[0] != "urgency") + (("urgency", "red"),))
@@ -397,6 +396,7 @@ def _chips(scope: Scope) -> list[dict[str, str]]:
                 "label": _("Your section: %(names)s") % {"names": ", ".join(scope.sections)},
                 "remove": _page_query(replace(scope, sections=())),
                 "remove_label": _("show all"),
+                "remove_in_words": True,  # "Your section: Education · show all"
             }
         )
     if scope.pd is not None:
@@ -611,7 +611,11 @@ def _visit_context(request: HttpRequest, v: Visit) -> dict[str, Any]:
         "fm_questions", "answer_label"
     )
     team_known = bool(v.team or v.team_unnamed) or fields.available("field_monitoring", "team")
-    reviews = list(VisitReview.objects.filter(visit_key=v.key).select_related("reviewed_by")[:5])
+    reviews = list(
+        VisitReview.objects.filter(visit_key=v.key)
+        .select_related("reviewed_by")
+        .order_by("-created_at", "-pk")[:5]
+    )
     return {
         "visit": v,
         "status_label": code_label(v.status) if v.status else _(STATUS_LABELS.get(v.status_group, "")),
@@ -775,9 +779,14 @@ def _data_notes(v: Visit) -> list[str]:
             % {"n": issues["location_conflict"]}
         )
     if issues.get("pd_unresolved"):
+        n = issues["pd_unresolved"]
         notes.append(
-            _("%(n)s programme document text(s) were not matched to a programme document in NeuroDB.")
-            % {"n": issues["pd_unresolved"]}
+            ngettext(
+                "%(n)s programme document reference was not matched to a programme document in NeuroDB.",
+                "%(n)s programme document references were not matched to a programme document in NeuroDB.",
+                n,
+            )
+            % {"n": n}
         )
     if issues.get("no_date"):
         notes.append(_("No end date in eTools: the visit is left out of every period."))
@@ -789,9 +798,14 @@ def _data_notes(v: Visit) -> list[str]:
             _("Its reference is shared by %(n)s visits in eTools.") % {"n": issues["reference_conflict"]}
         )
     if issues.get("rows_without_partner"):
+        n = issues["rows_without_partner"]
         notes.append(
-            _("%(n)s finding row(s) are not linked to a partner (unknown vendor number).")
-            % {"n": issues["rows_without_partner"]}
+            ngettext(
+                "%(n)s finding row is not linked to a partner (unknown vendor number).",
+                "%(n)s finding rows are not linked to a partner (unknown vendor number).",
+                n,
+            )
+            % {"n": n}
         )
     return notes
 
@@ -820,7 +834,11 @@ def review(request: HttpRequest, key: str) -> HttpResponse:
         if error:
             return HttpResponseBadRequest(error)
         return redirect("fmm:visit", key=found.key)
-    reviews = list(VisitReview.objects.filter(visit_key=found.key).select_related("reviewed_by")[:5])
+    reviews = list(
+        VisitReview.objects.filter(visit_key=found.key)
+        .select_related("reviewed_by")
+        .order_by("-created_at", "-pk")[:5]
+    )
     context = {
         "visit": found,
         "reviews": reviews,
@@ -831,7 +849,8 @@ def review(request: HttpRequest, key: str) -> HttpResponse:
         "review_saved": not error,
         "note": note if error else "",
     }
-    return render(request, "fmm/_review_form.html", context, status=400 if error else 200)
+    # htmx swaps no 4xx answer, so the form comes back with its error and a 200 for the user to see it
+    return render(request, "fmm/_review_form.html", context)
 
 
 # ------------------------------------------------------------------------------------------ look-up

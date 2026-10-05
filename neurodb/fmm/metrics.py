@@ -51,8 +51,9 @@ def stamp(last: Any = _READ) -> str:
 
 def cached(scope: Scope, block: str, compute: Callable[[], Any], when: str | None = None) -> Any:
     """``compute()`` for ``scope``, kept ten minutes (not in DEBUG); ``when`` is :func:`stamp`, read
-    once per request by the caller."""
-    if settings.DEBUG:
+    once per request by the caller. A scope that drills into the reviews is never kept: a review
+    saved a minute ago must count at once, and no refresh marks it."""
+    if settings.DEBUG or any(key == "review" for key, _value in scope.drill):
         return compute()
     key = f"fmm:v1:{scope.hash()}:{when if when is not None else stamp()}:{block}"
     found = cache.get(key)

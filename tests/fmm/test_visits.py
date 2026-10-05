@@ -263,10 +263,12 @@ def test_a_review_through_htmx_returns_the_review_block(built, client, admin_use
     html = response.content.decode()
     assert response.status_code == 200 and 'id="fmm-review"' in html and "Review saved." in html
     assert "Needs follow-up" in html and "Call the partner." in html
+    # htmx swaps no 4xx answer: the form comes back with its error so the user sees it
     bad = client.post(reverse("fmm:review", args=["1722"]), {"status": "nope"}, HTTP_HX_REQUEST="true")
     assert (
-        bad.status_code == 400 and "Choose reviewed, needs follow-up or data issue." in bad.content.decode()
+        bad.status_code == 200 and "Choose reviewed, needs follow-up or data issue." in bad.content.decode()
     )
+    assert 'role="alert"' in bad.content.decode() and "Review saved." not in bad.content.decode()
     long = client.post(reverse("fmm:review", args=["1722"]), {"status": "reviewed", "note": "x" * 501})
     assert long.status_code == 400 and VisitReview.objects.count() == 1
 
@@ -304,3 +306,23 @@ def test_the_action_points_search_finds_module_references_and_activity_ids(built
     by_id = services.action_points({"q": "1726"})["points"]
     assert fm_world.action_points.overdue in list(by_id)
     assert services.action_points({})["visit"] is None
+
+
+def test_the_latest_of_two_reviews_saved_together_is_shown(built, client, admin_user):
+    client.force_login(admin_user)
+    VisitReview.objects.create(visit_key="1722", status="reviewed", reviewed_by=admin_user)
+    later = VisitReview.objects.create(visit_key="1722", status="data_issue", reviewed_by=admin_user)
+    VisitReview.objects.filter(visit_key="1722").update(created_at=later.created_at)  # the same instant
+    html = client.get(reverse("fmm:visit", args=["1722"])).content.decode()
+    block = html.split('id="fmm-review"', 1)[1]
+    assert block.index("Data issue") < block.index("Earlier reviews")
+
+
+def test_the_team_cell_counts_every_member_beyond_the_first_two(built, client_viewer):
+    Visit.objects.filter(key="1722").update(team=["A Name", "B Name", "C Name"], team_unnamed=2)
+    rows = dict(zip(URGENCY_ORDER, _rows(client_viewer.get(TABLE).content.decode()), strict=True))
+    cell = re.search(
+        r'<td class="small d-none d-md-table-cell" data-export="no">(.*?)</td>', rows["1722"], re.S
+    )
+    text = " ".join(re.sub(r"<[^>]+>", " ", cell.group(1)).split())
+    assert text == "A Name, B Name +3"  # one more name and two members known by e-mail only

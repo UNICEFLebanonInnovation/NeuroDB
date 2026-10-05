@@ -256,7 +256,7 @@ def test_drill_values_show_as_removable_chips_and_go_with_the_filter_bar(built, 
 def test_a_user_with_a_section_gets_it_only_on_a_bare_visit(built, client, fm_world):
     client.force_login(_section_editor(fm_world.section))
     text = " ".join(visible(client.get(PAGE).content.decode()).split())
-    assert "Monitoring visits 3" in text and "Your section: Education" in text
+    assert "Monitoring visits 3" in text and "Your section: Education · show all" in text
     text = " ".join(visible(client.get(PAGE, {"section": ""}).content.decode()).split())
     assert "Monitoring visits 8" in text and "Your section" not in text
     text = " ".join(visible(client.get(PAGE, {"year": "2026"}).content.decode()).split())
@@ -418,3 +418,34 @@ def test_the_data_note_counts_rows_without_a_reference(built, client_viewer):
     assert "1 finding row has no activity reference and counts as its own visit here" in text
     assert "1 visit has no end date and is left out of the period" in text
     assert Visit.objects.filter(end_date=None).count() == 1
+
+
+def test_a_partner_id_too_large_for_an_id_is_ignored_not_an_error(built, client_viewer, fm_world):
+    for params in ({"partner": "999999999999"}, {"partner": "2147483648", "tab": "visits"}):
+        assert client_viewer.get(PAGE, params).status_code == 200
+        assert client_viewer.get(reverse("fmm:visits"), {**params, "export": "csv"}).status_code == 200
+    assert Scope.from_params({"partner": ["999999999999", "7"]}).partners == (7,)
+    amel = fm_world.partners["amel"]
+    bound = Scope.from_params({"partner": str(amel.pk), "section": ""})
+    assert bound.narrow(partners=["999999999999"]).visits().count() == 0  # outside the bound scope
+
+
+def test_a_review_drill_counts_a_new_review_at_once(built, client_viewer, admin_user, settings):
+    from django.core.cache import cache
+
+    from neurodb.fmm import metrics
+
+    settings.DEBUG = False
+    cache.clear()
+    scope = Scope.from_params({"review": "follow_up", "section": ""})
+    assert metrics.kpis(scope)["visits"] == 0
+    VisitReview.objects.create(visit_key="1722", status="follow_up", reviewed_by=admin_user)
+    assert metrics.kpis(scope)["visits"] == 1
+    html = client_viewer.get(PAGE, {"review": "follow_up", "section": "", "tab": "visits"}).content.decode()
+    assert "Showing 1 visit ·" in html
+
+
+def test_one_scored_visit_is_written_in_the_singular(built, client_viewer):
+    Visit.objects.exclude(key="1722").update(quality_score=None)
+    html = client_viewer.get(PAGE, {"section": ""}).content.decode()
+    assert "on 1 scored visit · rules v1" in " ".join(visible(html).split())

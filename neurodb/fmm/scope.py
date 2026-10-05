@@ -167,8 +167,12 @@ def _values(params: Mapping, key: str) -> list[str]:
     return out[:MAX_VALUES]
 
 
+MAX_ID = 2**31 - 1  # partner ids are kept in an integer array: a larger number matches nothing
+
+
 def _ints(values: list[str]) -> tuple[int, ...]:
-    return tuple(sorted({int(v) for v in values if v.isdigit() and len(v) <= 12}))
+    """The ids among ``values``; a number too large for an id is left out (Postgres would refuse it)."""
+    return tuple(sorted({int(v) for v in values if v.isdigit() and len(v) <= 10 and int(v) <= MAX_ID}))
 
 
 def _same_day(year: int, day: datetime.date) -> datetime.date:
@@ -452,7 +456,7 @@ class Scope:
             if key in ("sections", "offices", "partners", "entity_types", "ratings", "statuses"):
                 given = tuple(value) if isinstance(value, list | tuple | set) else (value,)
                 if key == "partners":
-                    given = tuple(int(v) for v in given if str(v).isdigit())
+                    given = _ints([str(v) for v in given])
                 bound = getattr(self, key)
                 kept = tuple(v for v in given if not bound or v in bound)
                 empty = empty or not kept

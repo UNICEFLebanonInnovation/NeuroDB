@@ -15,7 +15,7 @@ next submission through the form attribute, so a filter change keeps them.{% end
 {% else %}
 {% if chips %}
 <div class="chips fmm-chips mb-2" aria-label="{% trans 'Filters from links' %}">
-  {% for chip in chips %}<span class="chip chip--removable">{{ chip.label }} <a class="chip__remove" href="{% url 'fmm:dashboard' %}?{{ chip.remove }}&amp;tab={{ tab }}" aria-label="{{ chip.remove_label }}" title="{{ chip.remove_label }}">&times;</a></span>{% endfor %}
+  {% for chip in chips %}<span class="chip chip--removable">{{ chip.label }}{% if chip.remove_in_words %} · <a href="{% url 'fmm:dashboard' %}?{{ chip.remove }}&amp;tab={{ tab }}">{{ chip.remove_label }}</a>{% else %} <a class="chip__remove" href="{% url 'fmm:dashboard' %}?{{ chip.remove }}&amp;tab={{ tab }}" aria-label="{{ chip.remove_label }}" title="{{ chip.remove_label }}">&times;</a>{% endif %}</span>{% endfor %}
 </div>
 {% endif %}
 {% include "fmm/_notes.html" %}
