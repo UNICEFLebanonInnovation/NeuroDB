@@ -455,8 +455,14 @@ def _chips(scope: Scope) -> list[dict[str, str]]:
 
 def _drill_value(key: str, value: str) -> str:
     """A drill-down's value in words where it is a code ("constrained" -> "Constrained")."""
-    if value == "none":
-        return _("none")
+    if value == "none":  # what "none" means for each drill-down
+        none_words = {
+            "bucket": _("not scored"),
+            "hact_q1": _("not answered"),
+            "review": _("not reviewed"),
+            "urgency": _("below amber"),
+        }
+        return str(none_words.get(key, _("none")))
     if key == "hact_q1":
         return _(RATING_LABELS.get(value, value))
     if key == "review":
@@ -542,6 +548,9 @@ def _with_urls(
     ]
 
 
+PLACES_TOP = 10  # places shown before "Show all"
+
+
 def _quality_tab(scope: Scope, when: str, limits: dict[str, int], rules: list) -> dict[str, Any]:
     """The Quality tab: quality and visits by month, HACT Q1 by month (or the overall rating when no
     visit has a Q1 answer), the score distribution, recurring issues, places, rule analysis, the
@@ -589,7 +598,7 @@ def _quality_tab(scope: Scope, when: str, limits: dict[str, int], rules: list) -
             }
             for row in metrics.top_issues(scope, 10, when, rules)
         ],
-        "places": {**places, "top": place_rows[:10], "rest": place_rows[10:]},
+        "places": {**places, "top": place_rows[:PLACES_TOP], "rest": place_rows[PLACES_TOP:]},
         "rule_rows": rule_rows,
         "issues_summary": {
             **issues,
@@ -703,7 +712,7 @@ def _analysis_tab(
         "entity_year": performance["year"],
         "office_badges": _with_urls(metrics.office_rule_badges(scope, rules, when, limits), scope, "office"),
         "section_rows": section_rows,
-        "places": {**places, "top": place_rows[:10], "rest": place_rows[10:]},
+        "places": {**places, "top": place_rows[:PLACES_TOP], "rest": place_rows[PLACES_TOP:]},
         "rating_rows": _with_urls(metrics.quality_by_rating(scope, when, limits), scope, "rating", "code"),
         "flag_frequency": flag_frequency,
         "flag_template": _drill_template(scope, "flag") + "&flag={drill}",

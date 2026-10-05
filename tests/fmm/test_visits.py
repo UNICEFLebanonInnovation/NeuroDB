@@ -461,3 +461,66 @@ def test_the_links_of_the_tabs_open_their_block_counts(built, client_viewer):
         assert links, tab
         for url, shown in links:
             assert _drill_total(client_viewer, url.replace("&amp;", "&")) == int(shown), url
+
+
+def _chip_links(html: str) -> list[tuple[str, str, int]]:
+    """The drill links whose text is a label and a figure ("On track 1", a highlight card)."""
+    out = []
+    for url, inner in re.findall(r'<a [^>]*href="(/fmm/drill/\?[^"]+)"[^>]*>(.*?)</a>', html, re.S):
+        text = " ".join(re.sub(r"<[^>]+>", " ", inner).split())
+        found = re.match(r"^(\d+) (\D+)$", text) or re.match(r"^(\D+?) (\d+)$", text)
+        if found and not text.endswith(("flag", "flags")):  # "1 flag" names its row, the count is beside it
+            label, n = (found.group(2), found.group(1)) if text[0].isdigit() else found.groups()
+            out.append((url.replace("&amp;", "&"), label, int(n)))
+    return out
+
+
+def test_the_chip_rows_and_cards_open_the_visits_they_count(built, client_viewer):
+    """The HACT Q1 chip row, the issue summary cards and the highlight cards carry their own figure:
+    their drill-down window lists exactly that many visits."""
+    links = []
+    for tab in ("quality", "analysis"):
+        html = client_viewer.get(reverse("fmm:dashboard"), {"tab": tab}).content.decode()
+        links += _chip_links(html)
+    labels = [label for _url, label, _n in links]
+    assert {"On track", "Constrained", "Reported"} <= set(labels), labels
+    assert labels.count("Off track") == 2  # the HACT Q1 chip and the highlight card
+    assert any("Monitoring gaps" in label for label in labels)
+    for url, label, shown in links:
+        assert _drill_total(client_viewer, url) == shown, (label, url)
+
+
+def test_the_overall_rating_chart_opens_the_visits_it_counts(built, client_viewer):
+    """Without Q1 answers the chart counts the overall rating: each cell and each chip of its row
+    opens the visits it counts (rating=<code>, never a label)."""
+    from django.core.cache import cache
+
+    from neurodb.fmm import metrics
+    from neurodb.fmm.scope import Scope
+
+    Visit.objects.update(hact_q1="")
+    cache.clear()
+    scope = Scope.from_params({"section": ""})
+    assert metrics.hact_q1_by_month(scope) is None
+    chart = metrics.rating_by_month(scope)
+    cells = 0
+    for name, code in chart["drill"]["series"].items():
+        for month, n in zip(chart["drill"]["labels"], chart["series"][name], strict=True):
+            if n:
+                cells += 1
+                assert _drill_total(client_viewer, f"{DRILL}?section=&month={month}&rating={code}") == n
+    assert cells >= 4
+    html = client_viewer.get(reverse("fmm:dashboard"), {"tab": "quality"}).content.decode()
+    chips = [(url, n) for url, label, n in _chip_links(html) if "rating=" in url and "status=" not in url]
+    assert len(chips) == len([t for t in chart["totals"] if t["n"]]) >= 3
+    for url, shown in chips:
+        assert _drill_total(client_viewer, url) == shown, url
+
+
+def test_the_drill_chips_say_what_none_means(built, client_viewer):
+    html = client_viewer.get(
+        DRILL, {"section": "", "bucket": "none", "hact_q1": "none", "review": "none"}, HTTP_HX_REQUEST="true"
+    ).content.decode()
+    chips = " ".join(re.sub(r"<[^>]+>", " ", html).split())
+    assert "Quality score: not scored" in chips and "HACT Q1: not answered" in chips
+    assert "Review: not reviewed" in chips and ": none" not in chips

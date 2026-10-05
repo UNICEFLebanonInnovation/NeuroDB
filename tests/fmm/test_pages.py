@@ -608,3 +608,19 @@ def test_drill_chips_name_the_place_and_the_issue(built, client_viewer):
     assert "Issue: Incomplete monitoring report — missing: General observation (narrative)" in html
     html = client_viewer.get(PAGE, {"section": "", "flags": "3+"}).content.decode()
     assert "Flags per visit: 3 or more" in html
+
+
+def test_a_capped_place_list_does_not_claim_to_show_all(built, client_viewer, monkeypatch):
+    from neurodb.fmm import metrics, views
+
+    monkeypatch.setattr(views, "PLACES_TOP", 1)
+    for tab in ("quality", "analysis"):
+        text = _text(client_viewer.get(PAGE, {"tab": tab}).content.decode())
+        assert "Show all 6 places" in text, tab
+    monkeypatch.setattr(metrics, "PLACES_MAX", 3)
+    from django.core.cache import cache
+
+    cache.clear()
+    for tab in ("quality", "analysis"):
+        text = _text(client_viewer.get(PAGE, {"tab": tab}).content.decode())
+        assert "Show the 3 most visited of 6 places" in text and "Show all" not in text, tab

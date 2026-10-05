@@ -117,7 +117,7 @@
     <thead><tr><th scope="col">{% trans "Place" %}</th><th scope="col">{% trans "Visits" %}</th><th scope="col">{% trans "Average quality" %}</th><th scope="col">{% trans "Coverage" %}</th></tr></thead>
     <tbody>{% for p in places.top %}{% include "fmm/_frequency_row.html" %}{% endfor %}</tbody>
   </table></div>
-  {% if places.rest %}<details class="px-3 pb-2"><summary class="small">{% blocktrans count n=places.rows|length %}Show all {{ n }} place{% plural %}Show all {{ n }} places{% endblocktrans %}</summary>
+  {% if places.rest %}<details class="px-3 pb-2"><summary class="small">{% if places.total > places.rows|length %}{% blocktrans with n=places.rows|length total=places.total %}Show the {{ n }} most visited of {{ total }} places{% endblocktrans %}{% else %}{% blocktrans count n=places.rows|length %}Show all {{ n }} place{% plural %}Show all {{ n }} places{% endblocktrans %}{% endif %}</summary>
     <div class="table-wrap"><table class="table table-sm"><tbody>{% for p in places.rest %}{% include "fmm/_frequency_row.html" %}{% endfor %}</tbody></table></div>
   </details>{% endif %}
   {% endif %}
