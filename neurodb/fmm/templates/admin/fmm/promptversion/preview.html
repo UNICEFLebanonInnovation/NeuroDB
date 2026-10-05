@@ -3,8 +3,8 @@
 
 {% comment %}
   Preview of a prompt version (context: fmm.admin.PromptVersionAdmin.preview_view): exactly the
-  instructions each call sends, for the brief and for the chat (with the date and the scope line), and
-  the facts a brief would send (redacted), for a chosen filter. No AI call is made and nothing is saved;
+  instructions each call sends, for the brief and for the chat (with the date and the scope line), the
+  chat's four look-ups as they are sent, and the facts a brief would send (redacted), for a chosen filter. No AI call is made and nothing is saved;
   the Test run button starts a background brief with this version.
 {% endcomment %}
 
@@ -75,6 +75,11 @@
   {% component "unfold/components/card.html" with title=_("The chat: its instructions") %}
     <p class="mb-2">{% trans "Exactly what each chat answer sends: the editable text, the fixed part, the date and the filter's line. Ask NeuroDB's own prompt is not sent to this chat." %}</p>
     <pre class="nd-fixed__text nd-fixed__text--live">{{ chat_text }}</pre>
+  {% endcomponent %}
+
+  {% component "unfold/components/card.html" with title=_("The chat: its look-ups") %}
+    <p class="mb-2">{% trans "The four look-ups the chat offers, as they are sent with each chat answer. There are no other tools." %}</p>
+    <pre class="nd-fixed__text nd-fixed__text--live">{% if chat_tools != "[]" %}{{ chat_tools }}{% else %}{% trans "Not offered: Monitoring insights is switched off." %}{% endif %}</pre>
   {% endcomponent %}
 
   <div class="flex justify-end gap-4">

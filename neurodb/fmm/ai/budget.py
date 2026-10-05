@@ -28,7 +28,6 @@ import json
 import logging
 from typing import Any, Literal
 
-from django.apps import apps
 from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
@@ -128,13 +127,14 @@ def quota(kind: Literal["insights", "chat"], user, version: PromptVersion | None
 
 
 def _chat_questions_today(user, since: datetime.datetime) -> int:
-    """The person's chat questions today, refused ones (over a limit) left out. The chat's log arrives with
-    the chat itself; before then no question was asked."""
-    try:
-        model = apps.get_model("fmm", "ChatQuestion")
-    except LookupError:
-        return 0
-    return model.objects.filter(user=user, created_at__gte=since).exclude(status="limited").count()
+    """The person's chat questions today, refused ones (over a limit) left out."""
+    from ..models import ChatQuestion
+
+    return (
+        ChatQuestion.objects.filter(user=user, created_at__gte=since)
+        .exclude(status=ChatQuestion.Status.LIMITED)
+        .count()
+    )
 
 
 def office_share() -> float:

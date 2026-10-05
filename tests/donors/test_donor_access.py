@@ -197,6 +197,12 @@ def test_the_api_the_assistant_and_htmx_are_refused(donor_client):
     assert donor_client.get(reverse("fmm:dashboard"), HTTP_HX_REQUEST="true").status_code == 403
     assert donor_client.get(reverse("fmm:visits"), HTTP_HX_REQUEST="true").status_code == 403
     assert donor_client.get(reverse("fmm:drill"), HTTP_HX_REQUEST="true").status_code == 403
+    # Monitoring insights' chat is a plain fetch (no HX header): refused, not redirected
+    chat = donor_client.post(reverse("fmm:chat_stream"), {"question": "Which visits were off track?"})
+    assert chat.status_code == 403 and chat.json() == {"detail": "Not available for donor accounts."}
+    assert donor_client.get(reverse("fmm:dashboard"))["Location"] == reverse(
+        "donors:page"
+    )  # the page: redirected
 
 
 def test_donor_page_shows_own_funds_only(data, reporting_year, donor_client):

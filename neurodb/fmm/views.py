@@ -7,7 +7,8 @@ Every view reads the stored visits through a :class:`~neurodb.fmm.scope.Scope` b
 string; an HTMX request gets the partial it swaps in, a plain request the full page. With
 ``FMM_ENABLED`` off every view answers 404. The visit page reads its narratives from the findings and
 its checklist answers from their records (``fmm.parse``), for staff only; no view here sends them
-anywhere, and no view calls the AI.
+anywhere, and no view calls the AI but the chat's (``chat_stream``), which streams the answer of a
+question about the filter's visits (``fmm.ai.chat``).
 """
 
 from __future__ import annotations
@@ -22,7 +23,15 @@ from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db.models import F, Func, IntegerField, QuerySet
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBadRequest, QueryDict
+from django.http import (
+    Http404,
+    HttpRequest,
+    HttpResponse,
+    HttpResponseBadRequest,
+    JsonResponse,
+    QueryDict,
+    StreamingHttpResponse,
+)
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -412,7 +421,9 @@ def _results_context(
             "limits": limits,
         }
     )
-    if tab == "visits":
+    if tab == "insights":
+        context["chat"] = _chat_context(request, scope)
+    elif tab == "visits":
         context.update(_table(request, scope, limits, count=kpis["visits"]))
     elif tab == "quality":
         context.update(_quality_tab(scope, when, limits, rules))
@@ -1529,3 +1540,136 @@ def insight_sent(request: HttpRequest, pk: int) -> HttpResponse:
         "retention_days": settings.FMM_PAYLOAD_RETENTION_DAYS,
     }
     return render(request, "fmm/_insight_sent.html", context)
+
+
+# ------------------------------------------------------------------------------------------ chat
+CHAT_EXAMPLES = (
+    gettext_lazy("What are the main programmatic issues in this period?"),
+    gettext_lazy("Which visits were off track and why?"),
+    gettext_lazy("Were any protection or child protection concerns raised?"),
+    gettext_lazy("Which partners have the most quality flags?"),
+)
+CHAT_OFF = gettext_lazy("Chat is not available: the AI is switched off.")
+CHAT_DISABLED = gettext_lazy("Chat is not available: switched off by an administrator.")
+CHAT_BUSY = gettext_lazy("The chat is busy; please try again in a minute.")
+MAX_RUNNING_PER_USER = 2
+
+
+def _chat_context(request: HttpRequest, scope: Scope) -> dict[str, Any]:
+    """The chat panel of the Insights tab: whether it can be used (and why not), the person's questions
+    today against the daily quota, and the example questions."""
+    version = profiles.published()
+    on = version is not None and budget.switched_on(version)
+    reason = ""
+    if not on:
+        reason = str(CHAT_OFF)
+    elif not version.chat_enabled:
+        reason = str(CHAT_DISABLED)
+    used, allowed = budget.quota("chat", request.user, version) if version is not None else (0, 0)
+    return {
+        "on": not reason,
+        "reason": reason,
+        "used": used,
+        "allowed": allowed,
+        "examples": [str(e) for e in CHAT_EXAMPLES],
+    }
+
+
+def _chat_running(version, user=None) -> int:
+    """Chat answers being written now (of ``user``, else on the whole site). A row left "in progress" by
+    a stopped server stops counting once the version's time limit has long passed."""
+    from .models import ChatQuestion
+
+    since = timezone.now() - datetime.timedelta(seconds=version.chat_time_limit + 30)
+    rows = ChatQuestion.objects.filter(status=ChatQuestion.Status.IN_PROGRESS, created_at__gte=since)
+    return rows.filter(user=user).count() if user is not None else rows.count()
+
+
+@require_POST
+def chat_stream(request: HttpRequest) -> HttpResponse:
+    """A question of Chat with Data, answered as Server-Sent Events about the visits of the page's
+    filter (``scope``: the page's query string). Checked in order: the question (1-1,000 characters),
+    the AI switched on, the person's daily quota (429), the questions being answered (at most 2 per
+    person and ``FMM_CHAT_MAX_RUNNING`` on the site: 503), the day's AI budget and the chat switched on
+    in the published prompt version. Ask NeuroDB's hourly limit and its log are not touched."""
+    import uuid
+
+    from django.contrib.auth import get_user_model
+    from django.db import transaction
+
+    from .ai import chat as ai_chat
+    from .models import AIState, ChatQuestion
+
+    _enabled()
+    question = (request.POST.get("question") or "").replace("\x00", "").strip()
+    if not question:
+        return JsonResponse({"error": _("Type a question first.")}, status=400)
+    if len(question) > ai_chat.QUESTION_CHARS:
+        return JsonResponse({"error": _("Please keep questions under 1,000 characters.")}, status=400)
+    scope = Scope.from_params(QueryDict(str(request.POST.get("scope") or "")), request.user)
+    try:
+        conversation = uuid.UUID(str(request.POST.get("conversation") or ""))
+    except ValueError:
+        conversation = uuid.uuid4()
+    version = profiles.published()
+    if version is None or not budget.switched_on(version):
+        return JsonResponse({"error": str(CHAT_OFF)}, status=503)
+
+    def limited(reason: str) -> None:
+        ChatQuestion.objects.create(
+            user=request.user,
+            conversation=conversation,
+            scope_hash=scope.hash(),
+            scope=scope.canonical(),
+            version=version,
+            question=ai_chat.clean_question(question),
+            status=ChatQuestion.Status.LIMITED,
+            error=reason,
+        )
+
+    AIState.load()
+    with transaction.atomic():
+        # One chat start at a time on the site (the AI state row) and per person: questions sent at the
+        # same time are checked one after the other, and the row written here counts at once.
+        AIState.objects.select_for_update().get(pk=1)
+        get_user_model().objects.select_for_update().get(pk=request.user.pk)
+        used, allowed = budget.quota("chat", request.user, version)
+        if used >= allowed:
+            limited("quota")
+            message = _("You have asked %(n)s questions today; the count starts again tomorrow.") % {
+                "n": allowed
+            }
+            return JsonResponse({"error": message}, status=429)
+        if (
+            _chat_running(version, request.user) >= MAX_RUNNING_PER_USER
+            or _chat_running(version) >= settings.FMM_CHAT_MAX_RUNNING
+        ):
+            return JsonResponse({"error": str(CHAT_BUSY)}, status=503)
+        ok, why = budget.allowed("chat", request.user, ai_chat.TOKENS, version=version)
+        if not ok:
+            if why == budget.BUDGET:
+                limited("budget")
+                return JsonResponse({"error": budget.REASONS[why]}, status=429)
+            return JsonResponse(
+                {"error": budget.REASONS[why] if why != budget.OFF else str(CHAT_OFF)}, status=503
+            )
+        if not version.chat_enabled:
+            return JsonResponse({"error": str(CHAT_DISABLED)}, status=503)
+        turns, seen, numbers = ai_chat.history(request.user, conversation, scope.hash())
+        row = ChatQuestion.objects.create(
+            user=request.user,
+            conversation=conversation,
+            scope_hash=scope.hash(),
+            scope=scope.canonical(),
+            version=version,
+            question=ai_chat.clean_question(question),
+            status=ChatQuestion.Status.IN_PROGRESS,
+            model=profiles.model_of(version),
+        )
+    ctx = ai_chat.context(scope, version, seen, numbers)
+    response = StreamingHttpResponse(
+        ai_chat.stream(request, row, ctx, version, turns), content_type="text/event-stream"
+    )
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"  # no proxy buffering: tokens reach the browser as they arrive
+    return response

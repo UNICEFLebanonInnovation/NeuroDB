@@ -16,8 +16,9 @@ with their encrypted content, messages and function calls) followed by the tool 
 
 A run other than an Ask NeuroDB question (NeuroDB Watch's look-up, Monitoring insights' chat) passes
 ``RunOptions``: fewer tools, extra instructions after the date (or its own whole prompt in place of
-Ask's), its own limits and cache key, sampling parameters, a filter on every tool result and tools run
-read-only. Without options the request is exactly the one Ask NeuroDB sends.
+Ask's), its own limits and cache key, sampling parameters, a filter on every tool result, a context
+entered around each tool call, and tools run read-only. Without options the request is exactly the one
+Ask NeuroDB sends.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ import logging
 import re
 import time
 from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -85,6 +87,10 @@ linked by partner and programme document. The page tools (programme_details, par
 funds_overview, partner_reporting, assurance_overview) summarise it; for anything else use \
 etools_datasets to find the dataset and its fields, then etools_query to filter, count or add up; \
 etools_search finds where a name or reference appears.
+- Field monitoring visits (eTools: visits, entities, ratings, HACT Q1, report quality, urgency and \
+follow-up) come from fm_summary (counts and groups), fm_visits (lists) and fm_visit (one visit); \
+fm_search finds visits whose notes mention a word. They give structured fields only; the visit notes \
+themselves are read in Monitoring insights.
 - What a document, study, meeting or guidance says comes from the knowledge base: search_knowledge \
 (words to look for, optionally a partner, programme document, section or year), then read_knowledge \
 for more of a document. partner_details and programme_details list the documents linked to them. \
@@ -196,7 +202,10 @@ class RunOptions:
     - ``sampling``: (name, value) pairs such as ``("temperature", 0.3)`` added to every model call, for a
       run whose model has accepted them (Monitoring insights' chat); empty: none is sent;
     - ``base_prompt``: the run's own whole prompt in place of Ask NeuroDB's (``SYSTEM_PROMPT``), followed
-      by the date and then ``instructions``; None keeps Ask's (see ``effective_instructions``).
+      by the date and then ``instructions``; None keeps Ask's (see ``effective_instructions``);
+    - ``tool_context``: a callable returning a context manager entered around **each** tool call (the
+      tool and the filter of its result), whatever thread runs the answer: Monitoring insights' chat binds
+      the page's filter and its limit of texts this way, so a tool can never read a wider scope.
 
     Nothing here identifies a person: pass ``user`` to ``answer()`` only for a run done for someone.
     """
@@ -214,6 +223,7 @@ class RunOptions:
     read_only: bool = True
     sampling: tuple[tuple[str, float], ...] = ()
     base_prompt: str | None = None
+    tool_context: Callable[[], AbstractContextManager[Any]] | None = None
 
 
 def client() -> openai.OpenAI:
@@ -467,15 +477,17 @@ def _arguments(raw: str | None) -> Any:
 
 def _lookup(name: str, args: Any, options: RunOptions | None) -> Any:
     """One tool's result as the model reads it. A background run (``options``) may only call its own
-    tools, runs them read-only when it asks to, and passes every result through its filter."""
+    tools, runs them read-only when it asks to, and passes every result through its filter, all inside
+    its ``tool_context`` when it has one (entered anew for each call)."""
     if options is None:
         return tools.run(name, args)
-    if options.read_only:
-        with tools.read_only():
+    with options.tool_context() if options.tool_context else nullcontext():
+        if options.read_only:
+            with tools.read_only():
+                result = tools.run(name, args, only=options.tools)
+        else:
             result = tools.run(name, args, only=options.tools)
-    else:
-        result = tools.run(name, args, only=options.tools)
-    return options.tool_filter(name, result) if options.tool_filter else result
+        return options.tool_filter(name, result) if options.tool_filter else result
 
 
 def _run_tools(calls: list[Any], outcome: Outcome, options: RunOptions | None = None) -> list[dict[str, Any]]:
@@ -502,7 +514,8 @@ def _run_tools(calls: list[Any], outcome: Outcome, options: RunOptions | None = 
             # A background run's filter reads the error too (it may name what the data holds).
             error: Any = {"error": str(exc), "received": args}
             if options is not None and options.tool_filter:
-                error = options.tool_filter(call.name, error)
+                with options.tool_context() if options.tool_context else nullcontext():
+                    error = options.tool_filter(call.name, error)
             output = json.dumps(error, ensure_ascii=False, default=str)
             ok = False
         except Exception:

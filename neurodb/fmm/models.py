@@ -11,11 +11,14 @@
   :class:`RuleSetVersion`) and each visit's rule results (:class:`VisitRuleResult`);
 - the AI's prompt versions (:class:`PromptProfile`, :class:`PromptVersion`, never changed once
   published), what each model accepted (:class:`ModelCapability`), its pause (:class:`AIState`) and its
-  briefs (:class:`Insight`, which keeps the payload sent, redacted, for a limited time).
+  briefs (:class:`Insight`, which keeps the payload sent, redacted, for a limited time);
+- the questions asked in Chat with Data (:class:`ChatQuestion`: the question cleaned, the answer after
+  its citations were checked).
 
 No data table here holds a narrative, an answer, a summary or a comment from eTools: those texts are
 read from their source when a page needs them. Only an AI brief keeps texts derived from them: the
-payload as sent (cleaned, and blanked after ``FMM_PAYLOAD_RETENTION_DAYS``) and its checked sentences.
+payload as sent (cleaned, and blanked after ``FMM_PAYLOAD_RETENTION_DAYS``) and its checked sentences;
+and a chat question keeps its question (cleaned) and its checked answer.
 A probe keeps at most three short redacted examples per key, and "(withheld)" for a key that holds a
 person. ``Visit.team`` holds display names only, never an e-mail address. Every link to a table of
 another app carries no database constraint, so a Datamart sync that replaces those rows never waits on
@@ -810,3 +813,53 @@ class Insight(models.Model):
 
     def __str__(self):
         return f"{self.scope_label} ({self.get_status_display()})"
+
+
+# ------------------------------------------------------------------------------------------ chat
+class ChatQuestion(models.Model):
+    """One question asked in Chat with Data (or refused at its limits): the question as sent (cleaned),
+    the answer after its citations were checked, what the check kept and removed, and what was used
+    (version, model, tokens, sampling). Kept ``FMM_RETENTION_DAYS``. Ask NeuroDB's own log
+    (``AssistantQuestion``) and its hourly limit are not touched by the chat."""
+
+    class Status(models.TextChoices):
+        IN_PROGRESS = "in_progress", "Being answered"
+        ANSWERED = "answered", "Answered"
+        REFUSED = "refused", "Declined"
+        FAILED = "failed", "Failed"
+        LIMITED = "limited", "Limit reached"
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+")
+    conversation = models.UUIDField(db_index=True)
+    scope_hash = models.CharField(max_length=64)
+    scope = models.JSONField(default=dict)  # Scope.canonical()
+    version = models.ForeignKey(PromptVersion, on_delete=models.PROTECT, related_name="+")
+    question = models.TextField()  # as sent (cleaned)
+    answer = models.TextField(blank=True)  # the checked text
+    status = models.CharField(max_length=12, choices=Status.choices)
+    # kept / removed / unchecked_numbers / numbers / privacy_blocked (the next turn starts from them)
+    checks = models.JSONField(default=dict)
+    tools = models.JSONField(default=list)
+    texts_sent = models.PositiveSmallIntegerField(default=0)
+    model = models.CharField(max_length=64, blank=True)
+    sampling = models.JSONField(default=dict)
+    input_tokens = models.PositiveIntegerField(default=0)
+    cache_read_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    duration_ms = models.PositiveIntegerField(default=0)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=["user", "created_at"]),
+            models.Index(fields=["user", "conversation", "created_at"]),
+        ]
+        verbose_name = "chat question"
+        verbose_name_plural = "chat questions"
+
+    def __str__(self):
+        return (
+            f"{self.get_status_display()} · {self.created_at:%Y-%m-%d %H:%M}" if self.created_at else "Chat"
+        )

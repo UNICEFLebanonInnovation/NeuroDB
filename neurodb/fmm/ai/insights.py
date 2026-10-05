@@ -861,7 +861,7 @@ def housekeeping(now: datetime.datetime | None = None) -> dict[str, int]:
     """Close stopped briefs, blank the payloads kept past ``FMM_PAYLOAD_RETENTION_DAYS``, delete the
     refused and skipped briefs after 30 days and every brief (and chat question) after
     ``FMM_RETENTION_DAYS``."""
-    from django.apps import apps
+    from ..models import ChatQuestion
 
     now = now or timezone.now()
     out = {"stopped": expire_stale(now)}
@@ -877,12 +877,7 @@ def housekeeping(now: datetime.datetime | None = None) -> dict[str, int]:
     ).delete()[0]
     kept_before = now - datetime.timedelta(days=settings.FMM_RETENTION_DAYS)
     out["deleted"] = Insight.objects.filter(created_at__lt=kept_before).delete()[0]
-    try:
-        chat = apps.get_model("fmm", "ChatQuestion")
-    except LookupError:  # the chat's log arrives with the chat
-        chat = None
-    if chat is not None:
-        out["chat_deleted"] = chat.objects.filter(created_at__lt=kept_before).delete()[0]
+    out["chat_deleted"] = ChatQuestion.objects.filter(created_at__lt=kept_before).delete()[0]
     return out
 
 

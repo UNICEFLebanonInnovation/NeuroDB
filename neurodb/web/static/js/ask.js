@@ -1,11 +1,14 @@
 // Ask NeuroDB: streams the assistant's answer (Server-Sent Events over a POST) into a conversation thread.
+// The Ask page starts it by itself; another page's chat (Monitoring insights' Chat with Data, an element
+// with data-module="ask", possibly swapped in by htmx) is started by app.js through init(). Such a chat
+// may send its page's filter (data-scope) with each question, and keep its own turn template inside it.
 import { init as drawChart } from "./charts.js";
 import { csrfToken, toast } from "./lib.js";
 
 let chartCount = 0;
 
-const root = document.querySelector("[data-ask]");
-if (root) init(root);
+const page = document.querySelector("[data-ask]:not([data-module])");
+if (page) init(page);
 
 function newConversationId() {
   if (window.crypto?.randomUUID) return window.crypto.randomUUID();
@@ -14,7 +17,7 @@ function newConversationId() {
   );
 }
 
-function init(root) {
+export function init(root) {
   const form = root.querySelector("#ask-form");
   const input = root.querySelector("#ask-input");
   const thread = root.querySelector("#ask-thread");
@@ -22,7 +25,7 @@ function init(root) {
   const submit = root.querySelector("#ask-submit");
   const stop = root.querySelector("#ask-stop");
   const reset = root.querySelector("#ask-new");
-  const template = document.querySelector("#ask-turn-template");
+  const template = root.querySelector("template[data-ask-turn]") ?? document.querySelector("#ask-turn-template");
   let conversation = newConversationId();
   let controller = null;
 
@@ -75,6 +78,7 @@ function init(root) {
     const body = new FormData();
     body.append("question", question);
     body.append("conversation", conversation);
+    if (root.dataset.scope !== undefined) body.append("scope", root.dataset.scope);
     try {
       const res = await fetch(root.dataset.streamUrl, {
         method: "POST",
@@ -194,6 +198,13 @@ function turnUI(turn) {
     } else if (event.type === "done") {
       settleSteps();
       bodyEl.innerHTML = event.html; // sanitized on the server (no scripts, images or styles)
+      if (event.notice) {
+        // what the server's check of the answer found (visit references, figures)
+        const notice = document.createElement("p");
+        notice.className = "source-line";
+        notice.textContent = event.notice;
+        bodyEl.append(notice);
+      }
       finalText = event.answer;
       answered = true;
     } else if (event.type === "chart") {

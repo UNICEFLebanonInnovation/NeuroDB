@@ -169,3 +169,47 @@ def test_asks_request_never_carries_sampling():
     assert "temperature" not in agent._background_request(agent.RunOptions())
     merged = agent._background_request(agent.RunOptions(sampling=(("top_p", 0.9),)))
     assert merged["top_p"] == 0.9 and "temperature" not in merged
+
+
+# ------------------------------------------------------------------------------------------ the chat
+def _chat_events(client):
+    import json
+
+    from django.urls import reverse
+
+    response = client.post(reverse("fmm:chat_stream"), {"question": "How many visits?", "scope": "section="})
+    body = b"".join(response.streaming_content).decode()
+    return [json.loads(chunk[6:]) for chunk in body.split("\n\n") if chunk.startswith("data: ")]
+
+
+@override_settings(FMM_AI=True, AI_ASSISTANT_ENABLED=True, OPENAI_API_KEY="x")
+def test_the_chat_restarts_once_before_the_first_text_event(client_viewer, monkeypatch):
+    from neurodb.fmm.models import ChatQuestion
+    from tests.assistant.test_assistant import FakeClient, reply, say
+
+    both = refusal("top_p")
+    client = FakeClient([refusal("temperature"), both, reply(say("No visits yet."))])
+    monkeypatch.setattr(agent, "client", lambda: client)
+    from neurodb.fmm.ai import profiles
+
+    draft = profiles.draft_from(profiles.published(), None, "Both", top_p=Decimal("0.9"))
+    profiles.publish(draft, None)
+    events = _chat_events(client_viewer)
+    assert events[-1]["type"] == "done"
+    sent = [(("temperature" in r), ("top_p" in r)) for r in client.requests]
+    assert sent == [(True, True), (False, True), (False, False)]  # one parameter dropped per refusal
+    assert (_accepted("temperature"), _accepted("top_p")) == (False, False)
+    row = ChatQuestion.objects.get()
+    assert row.sampling["temperature"]["state"] == row.sampling["top_p"]["state"] == "not_applied"
+
+
+@override_settings(FMM_AI=True, AI_ASSISTANT_ENABLED=True, OPENAI_API_KEY="x")
+def test_the_chat_never_restarts_for_another_400(client_viewer, monkeypatch):
+    from neurodb.fmm.models import ChatQuestion
+    from tests.assistant.test_assistant import FakeClient
+
+    client = FakeClient([refusal("input", code="invalid_value", message="Invalid input.")])
+    monkeypatch.setattr(agent, "client", lambda: client)
+    events = _chat_events(client_viewer)
+    assert events[-1]["type"] == "error" and len(client.requests) == 1
+    assert ChatQuestion.objects.get().status == "failed" and not ModelCapability.objects.exists()

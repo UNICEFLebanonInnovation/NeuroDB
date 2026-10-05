@@ -287,3 +287,78 @@ def assert_clean(payload: Any, names_: frozenset[str]) -> None:
             raise PrivacyRefused(f"a link at {where}")
         if people.mentions(text, names_):
             raise PrivacyRefused(f"a person name at {where}")
+
+
+# ------------------------------------------------------------------------------------------ the chat
+LOOKUP_WITHHELD = "This look-up could not be shared safely."
+KEPT_FIELDS = frozenset({"url", "label"})  # written by NeuroDB, kept as they are
+SITE_PATHS = ("/fmm/", "/partners/", "/programmes/")  # the only links a look-up may hand the model
+
+
+def _safe_url(value: Any) -> bool:
+    text = str(value or "")
+    return (
+        text.startswith(SITE_PATHS) and not any(c.isspace() or c == "\\" for c in text) and "//" not in text
+    )
+
+
+def _refilter(value: Any, names_: frozenset[str], urls: set[str]) -> Any:
+    """``value`` with every string cleaned again (but ``url`` and ``label``), keys that hold a person
+    dropped, and a ``url`` kept only when it is one of NeuroDB's own pages (collected in ``urls``)."""
+    if isinstance(value, Mapping):
+        out = {}
+        for key, inner in value.items():
+            name = str(key)
+            if name.lower() in redact.PERSON_FIELDS or catalogue.person_key(name):
+                continue
+            if name == "url":
+                if _safe_url(inner):
+                    out[name] = inner
+                    urls.add(str(inner))
+                continue
+            if name in KEPT_FIELDS and isinstance(inner, str):
+                out[name] = inner
+                continue
+            out[name] = _refilter(inner, names_, urls)
+        return out
+    if isinstance(value, list | tuple):
+        return [_refilter(inner, names_, urls) for inner in value]
+    if isinstance(value, str):
+        return clean(value, 3 * len(value) + 20, names_)[0]
+    return value
+
+
+def chat_filter(ctx):
+    """The filter every chat look-up's result passes through before the model reads it (defence in
+    depth, ``RunOptions.tool_filter``): every string is cleaned again (:func:`clean`; ``url`` and
+    ``label`` are NeuroDB's own), keys that hold a person are dropped, a ``url`` stays only when it is a
+    page of NeuroDB (``/fmm/``, ``/partners/``, ``/programmes/``), and the result gets the last check
+    (:func:`assert_clean`): a result that fails it is replaced by an error the model reads, counted in
+    ``ctx.privacy_blocked`` and logged. The numbers of a result that passes are added to ``ctx.numbers``
+    (the citation check), its urls to ``ctx.urls``."""
+    import json
+    import logging
+
+    from neurodb.watch import grounding
+
+    logger = logging.getLogger(__name__)
+
+    def run(name: str, result: Any) -> Any:
+        names_ = names()
+        urls: set[str] = set()
+        filtered = _refilter(result, names_, urls)
+        try:
+            assert_clean(filtered, names_)
+        except PrivacyRefused as exc:
+            ctx.privacy_blocked += 1
+            logger.error("Monitoring insights: a chat look-up (%s) was not shared: %s", name, exc)
+            return {"error": LOOKUP_WITHHELD}
+        ctx.urls |= urls
+        # the model's own arguments, echoed by an input error, are not figures of the data
+        counted = (
+            {k: v for k, v in filtered.items() if k != "received"} if isinstance(filtered, dict) else filtered
+        )
+        ctx.numbers |= grounding._allowed_numbers(json.dumps(counted, ensure_ascii=False, default=str))
+        return filtered
+
+    return run

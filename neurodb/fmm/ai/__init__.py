@@ -10,7 +10,11 @@
 - :mod:`.facts`: what a brief sends, built by code from the stored visits of a filter;
 - :mod:`.insights`: the brief: its strict answer format, where and how it is written (in a background
   process), its checks, which brief a page shows, and the nightly briefs;
-- :mod:`.fallback`: the brief NeuroDB writes from the figures when the AI is not used.
+- :mod:`.fallback`: the brief NeuroDB writes from the figures when the AI is not used;
+- :mod:`.tools`: the four field monitoring look-ups of the chat (also offered to Ask NeuroDB, without
+  any text), and the context that holds each answer to the page's filter and its limit of texts;
+- :mod:`.chat`: Chat with Data: a question answered with those look-ups, streamed to the page;
+- :mod:`.citations`: the check of a chat answer's visit links, links and figures before it is shown.
 
 Nothing here reads an eTools record's raw data or the people who made a visit: the AI is sent only what
 :mod:`neurodb.fmm.privacy` lets out.

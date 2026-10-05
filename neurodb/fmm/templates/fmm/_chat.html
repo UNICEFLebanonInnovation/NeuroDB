@@ -1,0 +1,52 @@
+{% load i18n %}
+<section class="panel fmm-chat" id="fmm-chat" aria-labelledby="fmm-chat-title">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+    <div>
+      <h2 class="h6 mb-1" id="fmm-chat-title">{% trans "Chat with Data" %}</h2>
+      <p class="small text-muted mb-0">{% trans "Questions about the visits in the current filter, answered by ChatGPT (OpenAI) from Monitoring insights' look-ups." %}</p>
+    </div>
+    <div class="chips" aria-label="{% trans 'What the chat covers' %}">
+      <span class="chip" title="{% trans 'The chat covers the visits of this filter only; change the filter above to ask about others.' %}">{{ scope.label }}</span>
+      {% if chat.allowed %}<span class="chip{% if chat.used >= chat.allowed %} watch-chip--likely{% endif %}" title="{% trans 'Your chat questions today; the count starts again at midnight' %}">{% blocktrans with used=chat.used allowed=chat.allowed %}{{ used }} of {{ allowed }} today{% endblocktrans %}</span>{% endif %}
+    </div>
+  </div>
+  {% if not chat.on %}
+  <p class="small text-muted mb-0" role="status">{{ chat.reason }}</p>
+  {% else %}
+  <div class="ask fmm-chat__ask" data-ask data-module="ask" data-stream-url="{% url 'fmm:chat_stream' %}" data-scope="{{ scope.query }}">
+    <div class="ask__thread" id="ask-thread" aria-live="polite">
+      <div class="ask__intro fmm-chat__intro" id="ask-intro">
+        <div class="ask__examples" role="list" aria-label="{% trans 'Example questions' %}">
+          {% for e in chat.examples %}<button type="button" class="chip chip--action" role="listitem" data-ask-example>{{ e }}</button>{% endfor %}
+        </div>
+      </div>
+    </div>
+    <form class="ask__form fmm-chat__form" id="ask-form" autocomplete="off">
+      <label class="visually-hidden" for="ask-input">{% trans "Your question about these visits" %}</label>
+      <textarea id="ask-input" name="question" rows="1" maxlength="1000" class="form-control ask__input" placeholder="{% trans 'Ask about the visits in this filter, e.g. which visits were off track and why?' %}" required></textarea>
+      <div class="ask__actions">
+        <button type="button" class="btn btn-link btn-sm" id="ask-new" hidden>{% trans "New conversation" %}</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="ask-stop" hidden>{% trans "Stop" %}</button>
+        <button type="submit" class="btn btn-primary btn-sm" id="ask-submit">{% include "components/icon.html" with name="sparkle" %}<span>{% trans "Ask" %}</span></button>
+      </div>
+    </form>
+    <p class="ask__note small text-muted">
+      {% blocktrans with limit=chat.allowed %}Names, emails and phone numbers are removed from your question before it is sent. Answers are written by ChatGPT (OpenAI's GPT model) from the visits of this filter and can contain mistakes: visit references are checked against the visits looked up, and figures that could not be checked are listed under the answer. Up to {{ limit }} questions a day.{% endblocktrans %}
+    </p>
+    <template data-ask-turn>
+      <article class="ask-turn">
+        <div class="ask-turn__question"></div>
+        <div class="ask-turn__answer panel">
+          <ol class="ask-turn__steps" aria-label="{% trans 'Data looked up' %}"></ol>
+          <div class="ask-turn__body"><span class="ask-turn__thinking">{% trans "Thinking…" %}</span></div>
+          <div class="ask-turn__charts"></div>
+          <div class="ask-turn__footer" hidden>
+            <span class="small text-muted ask-turn__meta"></span>
+            <button type="button" class="btn btn-link btn-sm ask-turn__copy">{% include "components/icon.html" with name="copy" %}<span>{% trans "Copy" %}</span></button>
+          </div>
+        </div>
+      </article>
+    </template>
+  </div>
+  {% endif %}
+</section>

@@ -6,6 +6,7 @@ admin's test run, Preview and brief pages, and the strict format through the rea
 
 import datetime
 import json
+import uuid
 from types import SimpleNamespace
 
 import openai
@@ -827,8 +828,26 @@ def test_housekeeping(built, ai_on):
     fresh, old, limited, ancient = brief(2), brief(31), brief(31, "limited", False), brief(181)
     stale = brief(0, "running", False)
     Insight.objects.filter(pk=stale.pk).update(created_at=now - datetime.timedelta(minutes=5))
+    from neurodb.fmm.models import ChatQuestion
+
+    def question(days):
+        row = ChatQuestion.objects.create(
+            conversation=uuid.uuid4(), scope_hash="s", version=ai_on, question="q", status="answered"
+        )
+        ChatQuestion.objects.filter(pk=row.pk).update(created_at=now - datetime.timedelta(days=days))
+        return row
+
+    kept_question, old_question = question(179), question(181)
     done = insights.housekeeping(now)
-    assert done == {"stopped": 1, "payloads_blanked": 2, "refused_deleted": 1, "deleted": 1}
+    assert done == {
+        "stopped": 1,
+        "payloads_blanked": 2,
+        "refused_deleted": 1,
+        "deleted": 1,
+        "chat_deleted": 1,
+    }
+    assert list(ChatQuestion.objects.values_list("pk", flat=True)) == [kept_question.pk]
+    assert old_question.pk != kept_question.pk
     assert Insight.objects.get(pk=fresh.pk).sent_payload == {"kpi": {}}
     assert Insight.objects.get(pk=old.pk).sent_payload is None
     assert not Insight.objects.filter(pk__in=[limited.pk, ancient.pk]).exists()

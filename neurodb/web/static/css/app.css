@@ -905,6 +905,11 @@ tr.row--amber > td { background: color-mix(in srgb, var(--nd-warning-soft) 70%, 
 tr.row--amber > td:first-child { box-shadow: inset 3px 0 0 var(--nd-warning); }
 .insight-grid { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 900px) { .insight-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* Chat with Data: Ask's conversation inside a card, under the brief */
+.fmm-chat { margin-top: 1rem; }
+.fmm-chat .ask { max-width: none; }
+.fmm-chat .ask__intro { padding: 0.25rem 0 0.5rem; text-align: left; }
+.fmm-chat .ask__examples { justify-content: flex-start; }
 .visit-chip { display: inline-block; margin: 0 0.25rem 0.25rem 0; padding: 0.05rem 0.5rem; border-radius: 999px; border: 1px solid var(--nd-border); background: var(--nd-surface-2); font-size: 0.75rem; white-space: nowrap; text-decoration: none; }
 .visit-chip:hover, .visit-chip:focus-visible { border-color: var(--nd-primary); }
 .priority-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem 0.6rem; padding: 0.35rem 0; border-bottom: 1px solid var(--nd-border); font-size: 0.86rem; }

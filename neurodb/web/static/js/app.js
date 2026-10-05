@@ -257,7 +257,14 @@ async function initSelects(root) {
 }
 
 // ------------------------------------------------------------------ page modules
-const MODULES = { charts: "charts", pivot: "pivotModule", map: "mapModule", pdmap: "pdMapModule", edumap: "eduMapModule" };
+const MODULES = {
+  charts: "charts",
+  pivot: "pivotModule",
+  map: "mapModule",
+  pdmap: "pdMapModule",
+  edumap: "eduMapModule",
+  ask: "askModule",
+};
 
 async function initModules(root) {
   const elements = [...(root.matches?.("[data-module]") ? [root] : []), ...$$("[data-module]", root)];

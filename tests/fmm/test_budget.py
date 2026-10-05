@@ -1,6 +1,7 @@
 """The budget of Monitoring insights' AI (fmm.ai.budget): whether a call may start (switched on, not
 paused, within the office caps and the shared soft cap) and the per-person quotas (stage 6a); how the
-brief's Regenerate meets them (stage 6b). The chat's part comes with the chat."""
+brief's Regenerate meets them (stage 6b); the chat's quota, its concurrency limits and the day's budget
+(stage 7)."""
 
 import datetime
 from types import SimpleNamespace
@@ -255,3 +256,71 @@ def test_the_quota_pill_shows_the_office_budget(built, ai_on, client, viewer):
     _use(usage.FMM, 380_001)  # the office cap is reached: Regenerate says why
     html = client.get(f"{reverse('fmm:insights')}?{YEAR}").content.decode()
     assert "Today&#x27;s AI budget for Monitoring insights is used; it resets at midnight." in html
+
+
+# ------------------------------------------------------------------------------------------ the chat
+def _question(user, version, status="answered", when=None):
+    import uuid
+
+    from neurodb.fmm.models import ChatQuestion
+
+    row = ChatQuestion.objects.create(
+        user=user, conversation=uuid.uuid4(), scope_hash="s", version=version, question="q", status=status
+    )
+    if when is not None:
+        ChatQuestion.objects.filter(pk=row.pk).update(created_at=when)
+    return row
+
+
+def _chat(client):
+    from django.urls import reverse
+
+    return client.post(reverse("fmm:chat_stream"), {"question": "How many visits?", "scope": "section="})
+
+
+def test_the_chat_quota_counts_todays_questions_and_not_asks(ai_on, viewer, admin_user):
+    import datetime as dt
+
+    from neurodb.assistant import views as ask_views
+    from neurodb.assistant.models import AssistantQuestion
+
+    assert budget.quota("chat", viewer) == (0, 20)
+    _question(viewer, ai_on)
+    _question(viewer, ai_on, status="limited")  # a refused question does not count
+    _question(admin_user, ai_on)  # nor another person's
+    midnight = timezone.make_aware(dt.datetime.combine(timezone.localdate(), dt.time.min))
+    _question(viewer, ai_on, when=midnight - dt.timedelta(seconds=1))  # nor yesterday's
+    assert budget.quota("chat", viewer) == (1, 20)
+    # Ask's hourly questions do not count against the chat, nor the chat's against Ask
+    for _ in range(30):
+        AssistantQuestion.objects.create(user=viewer, question="q", status="answered")
+    assert budget.quota("chat", viewer) == (1, 20)
+    AssistantQuestion.objects.all().delete()
+    for _ in range(25):
+        _question(viewer, ai_on)
+    assert not ask_views._over_limit(viewer)
+
+
+def test_the_fifth_chat_answer_at_once_on_the_site_waits(ai_on, client_viewer, admin_user):
+    from neurodb.fmm import views
+    from neurodb.fmm.models import ChatQuestion
+
+    with override_settings(FMM_CHAT_MAX_RUNNING=4):
+        for _ in range(4):
+            _question(admin_user, ai_on, status="in_progress")
+        response = _chat(client_viewer)
+        assert response.status_code == 503 and response.json()["error"] == str(views.CHAT_BUSY)
+    assert not ChatQuestion.objects.exclude(user=admin_user).exists()
+
+
+def test_the_chat_stops_when_the_days_budget_is_used(ai_on, client_viewer):
+    from neurodb.fmm.models import ChatQuestion
+
+    _use(usage.FMM, 1_200_000)
+    response = _chat(client_viewer)
+    assert response.status_code == 429 and response.json()["error"] == budget.REASONS[budget.BUDGET]
+    assert ChatQuestion.objects.get().status == "limited"
+    assert budget.quota("chat", ChatQuestion.objects.get().user)[0] == 0  # a refused question does not count
+    budget.pause()
+    response = _chat(client_viewer)
+    assert response.status_code == 503 and response.json()["error"] == budget.REASONS[budget.PAUSED]

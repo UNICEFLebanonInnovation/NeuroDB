@@ -93,7 +93,13 @@ come from.
   included, once Monitoring insights has built its visits) and any name written after a title
   such as Mrs, Dr or Sheikh (a place named that way, such as Sheikh Zennad, is withheld too); a
   question that names a person finds no field monitoring record, and the search examples show the
-  visit reference only. For every other dataset, keys naming an e-mail address, a
+  visit reference only. The four field monitoring look-ups (`fm_summary`, `fm_visits`, `fm_visit`,
+  `fm_search`, registered by Monitoring insights when `FMM_ENABLED` is on) give Ask the visits,
+  entities, ratings, HACT Q1, report quality, urgency and follow-up of this calendar year in the whole
+  country as **structured fields only**: no monitors' note, no checklist answer and no search snippet
+  ("narratives are available in Monitoring insights"), and never a visit lead or a team; `fm_search`
+  says which visits mention a word, and refuses a search for a person NeuroDB knows. For every other
+  dataset, keys naming an e-mail address, a
   phone or a mobile are removed, as before, and names written in other fields (action point
   assignees, TPM report authors, travellers) are sent. Partner staff contact lists are not synced at
   all. NeuroDB Watch's look-ups never use those four (below). Only signed-in users can ask, and the
@@ -129,7 +135,7 @@ come from.
   shows as Failed with the Error "in progress" until it ends.
 - **Background look-ups (NeuroDB Watch)**: every morning NeuroDB Watch runs this same loop on its
   own, with no person asking, to look into at most 3 open critical points (see NeuroDB Watch, *The
-  daily look-ups*). It offers only 13 read-only tools of the 40 (`find_anything`, `entity_profile`,
+  daily look-ups*). It offers only 13 read-only tools of the 44 (`find_anything`, `entity_profile`,
   `connected`, `programme_details`, `partner_details`, `partner_reporting`, `pd_indicator_progress`,
   `funds_overview`, `assurance_overview`, `indicator_forecasts`, `whats_new`, `daily_review`,
   `data_freshness`), passes every result and every tool error through an allow-list (texts only
@@ -1266,14 +1272,14 @@ programme documents, place and sections, and how complete and coherent its repor
 steps. This release has its data layer, its quality rules and the first part of its page,
 `/fmm/` (menu: *Monitoring insights*, right after *Field monitoring*): the filters, the key figures,
 the AI monitoring brief (Insights tab), the Quality, Analysis, Visits and Map tabs, the drill-down
-window behind every chart and count, the visit page, the visit look-up and the reviews. The chat
-arrives in a later step. The refresh builds and
+window behind every chart and count, the visit page, the visit look-up, the reviews and Chat with
+Data (Insights tab). The refresh builds and
 scores the visits, and the admin views under admin → *Monitoring insights* are: **Fields found**
 (which keys the field monitoring records hold, and the keys an administrator pins), **Questions
 found** (which checklist question is Q1, Q2, Q3 and PSEA), **Quality rules**, **Score settings**,
 **Rule versions**, **Prompt versions** and **Sampling checks** (the AI's prompts and what the model
 accepted; the AI itself is off at deploy, see below), **AI briefs** (every brief written, or why none
-was), and **Visits** (the visits built, with their rule results, for checking the data).
+was), **Chat questions** (every question asked in the chat, with what its check found), and **Visits** (the visits built, with their rule results, for checking the data).
 
 ### The page (`/fmm/`)
 
@@ -1546,8 +1552,8 @@ it was scored with.
 ### The AI brief and its prompts
 
 `FMM_AI` is `false` at deploy and stays so until go-live (below): until then the Insights tab shows a
-brief **written by NeuroDB from the figures** ("AI not used: AI is switched off") and no call is made.
-The chat arrives in a later step.
+brief **written by NeuroDB from the figures** ("AI not used: AI is switched off") and no call is made,
+and the chat reads "Chat is not available: the AI is switched off."
 
 - **The brief** (Insights tab, loaded after the page): four parts (coverage and quality, programmatic
   findings, operational challenges, recommendations) and up to six priority action points. Every
@@ -1629,6 +1635,54 @@ The chat arrives in a later step.
   which nightly briefs and test runs may use 80% and people's Regenerates and questions 100%. Its use
   is counted under *Monitoring insights* in *AI use*. The per-person quotas start again at midnight
   (Beirut); a brief found up to date and a test run do not count against them.
+
+### Chat with Data
+
+Under the brief on the Insights tab, staff ask questions about the visits **of the page's filter**
+("Which visits were off track and why?"). ChatGPT answers with four look-ups of Monitoring insights
+and nothing else: `fm_summary` (counts, optionally by section, governorate, office, partner, month,
+rating, rule, entity type or status), `fm_visits` (visit cards), `fm_visit` (one visit: its entities
+and their notes, rule results, urgency, action points, HACT context and checklist answers) and
+`fm_search` (visits whose notes or answers hold a word, with a snippet).
+
+- **The filter is fixed by the page.** Each look-up runs within the filter the question was asked
+  from; the model can narrow it (one section, a governorate, a partner, a period) but never widen it,
+  and a visit outside it is not read ("Visit 1722 is not in the current filter"). Changing the filter
+  starts a fresh conversation.
+- **Its own prompt.** The chat sends the published prompt version's chat instructions, then the fixed
+  part, the date and the filter's line; Ask NeuroDB's prompt is not sent (Preview shows exactly what is,
+  with the four look-ups as they are sent).
+- **Texts.** At most `narr` texts (monitors' notes, checklist answers, search snippets) per answer,
+  across all its look-ups, each cleaned of names, e-mail addresses, phone numbers and links and cut to
+  `FMM_NARRATIVE_CHARS`; a text naming more than 3 people or contacts is not sent. When the limit is
+  reached the look-up says so. The team and the visit lead are never sent. The question itself is
+  cleaned before it is sent and kept ("Names, emails and phone numbers are removed from your question
+  before it is sent"). A follow-up re-sends the conversation's last 6 questions and checked answers,
+  each cleaned again and cut to `FMM_HISTORY_ANSWER_CHARS` (1,500); nothing from one conversation or
+  filter reaches another.
+- **Last check on every look-up.** Every look-up's result is cleaned once more, keys that hold a
+  person are dropped, links stay only to NeuroDB's own pages, and a result that still holds a known
+  name, an e-mail address, a phone number or a link is not shown to the model ("This look-up could not
+  be shared safely"); the answer goes on without it, the question's checks count it and an error is
+  logged.
+- **Checked answers.** A link to a visit stays only when a look-up of this conversation returned that
+  visit; otherwise it becomes "Visit 1722 (not checked)". Figures that no look-up returned (dates,
+  references and small counts aside) are listed under the answer ("These figures could not be checked
+  against the data: 444."). The answer is kept only as checked.
+- **Limits.** 20 questions a day per person (the published version's `chat_per_user_per_day`; refused
+  questions do not count; 429 "You have asked 20 questions today"), at most 2 answers being written per
+  person and `FMM_CHAT_MAX_RUNNING` (4) on the whole site ("The chat is busy; please try again in a
+  minute."), each answer at most `chat_max_rounds` look-up rounds and `chat_time_limit` seconds, and
+  the day's AI budget (above). Each answer holds a web thread while it streams: 4 of the 12 (3 gunicorn
+  workers × 4 threads) at most, so pages and Ask NeuroDB always have 8; raising `FMM_CHAT_MAX_RUNNING`
+  needs more threads (`GUNICORN_THREADS`) or instances. Ask NeuroDB's hourly limit and its question log
+  are not touched: the chat has its own log, **Chat questions** (admin, read-only: status, filter,
+  visit references kept and removed, figures not checked, tokens and who asked; the question and the
+  answer on a question's own page), kept `FMM_RETENTION_DAYS` (180) days. A sampling parameter the
+  model refuses before it writes anything is dropped and the answer starts again (Sampling checks).
+- **Switching it off.** Untick *chat enabled* in a new prompt version and publish it ("Chat is not
+  available: switched off by an administrator"), or set `FMM_AI=false` for every AI call of Monitoring
+  insights.
 
 ### Before go-live: confirm the real keys
 

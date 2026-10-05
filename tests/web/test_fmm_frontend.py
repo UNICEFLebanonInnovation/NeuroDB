@@ -251,3 +251,38 @@ def test_edumap_draws_rings_reads_opacity_and_opens_points():
     # the legend toggles groups with setFilter, and config.focus centres and opens a point
     assert "map.setFilter(RING_LAYER" in edumap and "map.setFilter(DOT_LAYER" in edumap
     assert "if (config.focus && layer.focus) layer.focus(String(config.focus));" in edumap
+
+
+def test_ask_js_starts_the_ask_page_itself_and_other_chats_through_app_js():
+    """Monitoring insights' Chat with Data reuses ask.js inside an htmx-swapped tab (stage 7)."""
+    from neurodb.web.templatetags.ui import ASSETS
+
+    ask = (STATIC / "js" / "ask.js").read_text()
+    assert "export function init(root)" in ask
+    assert 'document.querySelector("[data-ask]:not([data-module])")' in ask  # the Ask page only
+    assert (
+        'root.querySelector("template[data-ask-turn]") ?? document.querySelector("#ask-turn-template")' in ask
+    )
+    assert 'if (root.dataset.scope !== undefined) body.append("scope", root.dataset.scope);' in ask
+    assert 'notice.className = "source-line";' in ask and "notice.textContent = event.notice;" in ask
+    assert ASSETS["askModule"] == "js/ask.js"
+    assert re.search(r"const MODULES = \{[^}]*\bask: \"askModule\"", (STATIC / "js" / "app.js").read_text())
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_ask_js_loads_as_a_module_without_a_page():
+    """Imported where no element carries data-ask (as app.js does), it starts nothing and exports init."""
+    script = """
+globalThis.document = { querySelector: () => null };
+globalThis.window = {};
+const mod = await import(process.argv[1]);
+console.log(typeof mod.init);
+"""
+    out = subprocess.run(
+        [NODE, "--input-type=module", "-e", script, (STATIC / "js" / "ask.js").as_uri()],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "function"

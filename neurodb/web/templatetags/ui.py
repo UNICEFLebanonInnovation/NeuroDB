@@ -229,6 +229,7 @@ ASSETS = {
     "mapModule": "js/map.js",
     "pdMapModule": "js/pdmap.js",
     "eduMapModule": "js/edumap.js",
+    "askModule": "js/ask.js",
 }
 
 

@@ -46,6 +46,7 @@ from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 from . import access, fields, privacy, rules, status, versions
 from .ai import profiles
 from .models import (
+    ChatQuestion,
     FieldMapping,
     Insight,
     KeyProbe,
@@ -1338,12 +1339,14 @@ class PromptVersionAdmin(ModelAdmin):
         choice = request.GET.get("scope", "")
         url = request.GET.get("url", "")
         scope = _preview_scope(choice, url)
+        from .ai import tools as chat_tools
         from .scope import options
 
         context = {
             **self._context(request, version, _("Preview prompt v%(n)s") % {"n": version.number}),
             "insights_text": profiles.compose(version, "insights"),
             "chat_text": profiles.chat_instructions(version, scope),
+            "chat_tools": json.dumps(chat_tools.definitions(), indent=2, ensure_ascii=False),
             "scope_label": scope.label(),
             "sections": options()["sections"],
             "choice": choice,
@@ -1606,6 +1609,94 @@ class InsightAdmin(ReadOnlyModelAdmin):
                 extra["beside"] = beside
                 extra["beside_brief"] = _brief_lines(beside) if beside is not None else None
         return super().change_view(request, object_id, form_url, extra)
+
+
+CHAT_TONES = {
+    ChatQuestion.Status.IN_PROGRESS: "info",
+    ChatQuestion.Status.ANSWERED: "ok",
+    ChatQuestion.Status.REFUSED: "warn",
+    ChatQuestion.Status.FAILED: "bad",
+    ChatQuestion.Status.LIMITED: "muted",
+}
+CHAT_FIELDS = (
+    "status",
+    "error",
+    "user",
+    "created_at",
+    "version",
+    "scope_hash",
+    "scope",
+    "conversation",
+    "checks",
+    "tools",
+    "texts_sent",
+    "model",
+    "sampling",
+    "input_tokens",
+    "cache_read_tokens",
+    "output_tokens",
+    "duration_ms",
+)
+
+
+@admin.register(ChatQuestion)
+class ChatQuestionAdmin(ReadOnlyModelAdmin):
+    """The questions asked in Chat with Data: status, filter, what the citation check kept and removed,
+    tokens and who asked. The question (cleaned when asked) and the checked answer are shown on a
+    question's own page only."""
+
+    list_display = (
+        "created_at",
+        "status_shown",
+        "user",
+        "scope_shown",
+        "checks_shown",
+        "tokens_shown",
+        "version_shown",
+    )
+    list_filter = ("status",)
+    list_select_related = ("version", "user")
+    date_hierarchy = "created_at"
+
+    def get_fields(self, request, obj=None):
+        return (*CHAT_FIELDS[:4], "question", "answer", *CHAT_FIELDS[4:])
+
+    def get_readonly_fields(self, request, obj=None):
+        return self.get_fields(request, obj)
+
+    @admin.display(description=_("status"), ordering="status")
+    def status_shown(self, obj):
+        return badge(obj.get_status_display(), CHAT_TONES.get(obj.status, "muted"))
+
+    @admin.display(description=_("filter"))
+    def scope_shown(self, obj):
+        scope = obj.scope or {}
+        parts = [str(scope.get("year") or scope.get("preset") or "")]
+        parts += list(scope.get("sections") or [])
+        if scope.get("governorate"):
+            parts.append(scope["governorate"])
+        return " · ".join(p for p in parts if p) or "—"
+
+    @admin.display(description=_("visit references kept / removed · figures not checked"))
+    def checks_shown(self, obj):
+        checks = obj.checks or {}
+        if obj.status != ChatQuestion.Status.ANSWERED:
+            return "—"
+        text = (
+            f"{len(checks.get('kept') or [])} / {len(checks.get('removed') or [])} · "
+            f"{len(checks.get('unchecked_numbers') or [])}"
+        )
+        if checks.get("privacy_blocked"):
+            text += " · " + _("%(n)s look-ups not shared") % {"n": checks["privacy_blocked"]}
+        return text
+
+    @admin.display(description=_("tokens in / out"))
+    def tokens_shown(self, obj):
+        return f"{obj.input_tokens + obj.cache_read_tokens:,} / {obj.output_tokens:,}" if obj.model else "—"
+
+    @admin.display(description=_("prompt"), ordering="version__number")
+    def version_shown(self, obj):
+        return f"v{obj.version.number}"
 
 
 def _brief_lines(row: Insight) -> dict[str, Any]:

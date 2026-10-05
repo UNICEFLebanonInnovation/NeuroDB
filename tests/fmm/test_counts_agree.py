@@ -86,3 +86,9 @@ def test_the_average_quality_tile_equals_the_analysis_highlight(built, client_vi
 
     sent = facts.build(scope, narratives=False).payload["kpi"]["avg_quality"]
     assert sent == (float(expected) if expected is not None else None)
+    # and so does the chat's fm_summary, bound to the same filter (stage 7)
+    from neurodb.fmm.ai import tools
+
+    with tools.bind(tools.ChatContext(scope=scope, texts_left=0, cards_max=15)):
+        counted = tools.fm_summary()
+    assert counted["avg_quality"] == sent and counted["visits"] == metrics.kpis(scope)["visits"]

@@ -1332,7 +1332,8 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         "micro-assessments, findings, action points; HACT; field and third-party monitoring; staff trips; "
         "partner reporting and satisfaction (PRP); attachments; locations, offices, sections) with their "
         "size and links. Give a dataset name to see its fields with example values before querying it. "
-        "Field monitoring records come without people's names and without long texts.",
+        "Field monitoring records come without people's names and without long texts; for visits use "
+        "fm_visits / fm_visit.",
         _schema({"dataset": {"type": "string"}}),
         "Listing eTools datasets",
     ),
@@ -1345,7 +1346,7 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         "(choose fields to keep answers short) or, with group_by (a field, or partner, programme_document, "
         "year, month), counts per group, with sum to add up a numeric field. Records carry links to the "
         "NeuroDB partner and programme document pages. Field monitoring records come without people's "
-        "names and without long texts.",
+        "names and without long texts; for visits use fm_visits / fm_visit.",
         _schema(
             {
                 "dataset": {"type": "string", "description": "A name from etools_datasets."},
@@ -1372,14 +1373,15 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         etools_search,
         "Find which eTools datasets mention a word, name, place or reference number, with a few examples "
         "each. Use it when unsure where information lives. Field monitoring records come without people's "
-        "names and without long texts.",
+        "names and without long texts; for visits use fm_visits / fm_visit.",
         _schema({"text": {"type": "string"}}, ["text"]),
         "Searching eTools data",
     ),
     "etools_record": (
         etools_record,
         "One eTools record in full, by dataset and the record value returned by etools_query. Field "
-        "monitoring records come without people's names and without long texts.",
+        "monitoring records come without people's names and without long texts; for visits use fm_visits / "
+        "fm_visit.",
         _schema({"dataset": {"type": "string"}, "record": {"type": "string"}}, ["dataset", "record"]),
         "Opening an eTools record",
     ),

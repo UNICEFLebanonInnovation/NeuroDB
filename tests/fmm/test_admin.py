@@ -1,6 +1,7 @@
 """Monitoring insights in the admin: its group, Fields found and the keys pinned there, Questions
 found, the quality rules and score settings (saved with a note, previewed, versioned) and the rule
-versions with their restore. Administrators change them; other staff read them or are refused."""
+versions with their restore; the chat's questions (read-only). Administrators change them; other staff
+read them or are refused."""
 
 import json
 import re
@@ -69,6 +70,7 @@ def test_fmm_icons_are_material_symbols_names_not_site_icons():
         "fmm.PromptVersion": "edit_note",
         "fmm.ModelCapability": "science",
         "fmm.Insight": "auto_awesome",
+        "fmm.ChatQuestion": "forum",
         "fmm.Visit": "location_on",
         "fmm.VisitReview": "task_alt",
     }
@@ -449,3 +451,33 @@ def test_the_visit_admin_shows_the_rule_results(admin_client, fm_world):
     html = admin_client.get(reverse("admin:fmm_visit_change", args=[visit.pk])).content.decode()
     assert "quality rules (pass, fail" in html.lower() and "contradiction" in html and "too_short" in html
     assert "Narrative contradicts the rating (rated On track; it mentions: delayed, suspended)" in html
+
+
+# ------------------------------------------------------------------------------------------ chat questions
+def test_chat_questions_are_read_only_with_the_text_on_their_own_page(admin_client, admin_user):
+    import uuid
+
+    from neurodb.fmm.ai import profiles
+    from neurodb.fmm.models import ChatQuestion
+
+    row = ChatQuestion.objects.create(
+        user=admin_user,
+        conversation=uuid.uuid4(),
+        scope_hash="s",
+        scope={"preset": "year", "year": 2026, "sections": ["Education"], "governorate": ""},
+        version=profiles.published(),
+        question="Which visits were off track?",
+        answer="[Visit 1722](/fmm/visits/1722/) (not checked)",
+        status="answered",
+        checks={"kept": [], "removed": ["1722"], "unchecked_numbers": ["444"], "privacy_blocked": 1},
+        model="gpt-5.5",
+        input_tokens=1000,
+        output_tokens=200,
+    )
+    listing = admin_client.get(reverse("admin:fmm_chatquestion_changelist")).content.decode()
+    assert "2026 · Education" in listing and "0 / 1 · 1 · 1 look-ups not shared" in listing
+    assert "Which visits were off track?" not in listing  # the question on its own page only
+    detail = admin_client.get(reverse("admin:fmm_chatquestion_change", args=[row.pk])).content.decode()
+    assert "Which visits were off track?" in detail
+    assert admin_client.get(reverse("admin:fmm_chatquestion_add")).status_code == 403
+    assert "Chat questions" in admin_client.get(reverse("admin:index")).content.decode()

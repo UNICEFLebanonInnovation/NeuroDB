@@ -1,6 +1,6 @@
 """Monitoring insights' privacy rules: how a text is cleaned, which keys hold a person, what a key's
-example shows, and how a team is shown (names only); what an AI brief sends and keeps (stage 6b). The
-chat parts arrive with the chat."""
+example shows, and how a team is shown (names only); what an AI brief sends and keeps (stage 6b); what
+the chat's look-ups, its requests and its log carry (stage 7)."""
 
 import pytest
 
@@ -430,3 +430,193 @@ def test_no_canary_is_kept_in_any_brief_field(brief_world, viewer):
         blob = repr(row)
         for canary in (*CANARIES, LEAD, MEMBER, MEMBER_EMAIL):
             assert canary not in blob, canary
+
+
+# ------------------------------------------------------------------------------------------ the chat
+CHAT_ON = {"FMM_AI": True, "AI_ASSISTANT_ENABLED": True, "OPENAI_API_KEY": "x"}
+
+
+def _chat_scope():
+    from django.http import QueryDict
+
+    from neurodb.fmm.scope import Scope
+
+    return Scope.from_params(QueryDict("year=2026&section="))
+
+
+def _canary_free(value) -> None:
+    import json
+
+    blob = json.dumps(value, ensure_ascii=False, default=str)
+    for canary in (*CANARIES, LEAD, MEMBER, MEMBER_EMAIL):
+        assert canary not in blob, canary
+
+
+@pytest.fixture
+def chat_world(built, monkeypatch):
+    """The built world with the names known, the AI on and a scripted streaming model."""
+    from django.test import override_settings
+
+    from neurodb.assistant import agent
+    from tests.assistant.test_assistant import FakeClient
+
+    people.forget()
+
+    def install(*script):
+        client = FakeClient(script)
+        monkeypatch.setattr(agent, "client", lambda: client)
+        return client
+
+    with override_settings(**CHAT_ON):
+        yield install
+
+
+def _look_ups():
+    return (
+        ("fm_summary", {"group_by": "partner"}),
+        ("fm_visits", {"limit": 30}),
+        ("fm_visit", {"visit": "1722"}),
+        ("fm_visit", {"visit": "1723"}),
+        ("fm_visit", {"visit": "1726"}),
+        ("fm_search", {"text": "registers"}),
+        ("fm_search", {"text": "children"}),
+        ("fm_search", {"text": "PSEA"}),
+    )
+
+
+def test_no_canary_reaches_a_look_up_of_the_chat_or_of_ask(chat_world, monkeypatch):
+    """(d): every look-up, through the chat's filter (bound) and as Ask runs it (unbound)."""
+    from neurodb.assistant import tools as assistant_tools
+    from neurodb.fmm import scope as scope_module
+    from neurodb.fmm.ai import tools
+
+    ctx = tools.ChatContext(scope=_chat_scope(), texts_left=50, cards_max=15)
+    run = privacy.chat_filter(ctx)
+    texts = []
+    for name, args in _look_ups():
+        with tools.bind(ctx):
+            result = run(name, assistant_tools.run(name, args))
+        assert "error" not in result, (name, result)
+        _canary_free(result)
+        texts.append(result)
+    assert ctx.privacy_blocked == 0 and ctx.texts_sent > 0
+    one = texts[2]
+    notes = [e["narrative"] for e in one["entities"]]
+    assert notes[0].startswith("Classes held as planned. Visit led by [name withheld]")
+    assert notes[1] == tools.TOO_MANY_NAMES  # the canary note names too many people and contacts
+    assert any(m.get("snippet") for m in texts[5]["matches"])
+    monkeypatch.setattr(
+        scope_module, "_today", lambda today=None: today or __import__("datetime").date(2026, 10, 5)
+    )
+    for name, args in _look_ups():
+        _canary_free(assistant_tools.run(name, args))
+
+
+def test_the_limit_of_texts_holds_across_the_look_ups_of_one_answer(chat_world):
+    from neurodb.fmm.ai import tools
+
+    ctx = tools.ChatContext(scope=_chat_scope(), texts_left=2, cards_max=15)
+    with tools.bind(ctx):
+        one = tools.fm_visit("1722")
+        found = tools.fm_search("delayed")
+        other = tools.fm_visit("1726")
+    notes = [e["narrative"] for e in one["entities"]]
+    assert notes[0] and notes[0] not in (tools.LIMIT_REACHED, tools.TOO_MANY_NAMES)
+    assert notes[1] == tools.TOO_MANY_NAMES and notes[2] and notes[2] != tools.LIMIT_REACHED  # 2 read
+    answers = {a["answer"] for a in one["answers"] if a["answered"]}
+    assert tools.LIMIT_REACHED in answers and answers <= {tools.LIMIT_REACHED, tools.TOO_MANY_NAMES}
+    assert found["matches"] and not any("snippet" in m for m in found["matches"])
+    assert {e["narrative"] for e in other["entities"]} == {tools.LIMIT_REACHED}
+    assert (ctx.texts_left, ctx.texts_sent) == (0, 2)
+    # narr = 0 (or the AI's texts off): no text at all
+    none = tools.ChatContext(scope=_chat_scope(), texts_left=0, cards_max=15)
+    with tools.bind(none):
+        assert {e["narrative"] for e in tools.fm_visit("1726")["entities"]} == {tools.LIMIT_REACHED}
+    assert none.texts_sent == 0
+
+
+def test_a_question_naming_someone_is_cleaned_before_it_is_sent_and_kept(chat_world, client_viewer):
+    """(e): the chat request carries no canary, nor does any field of its log, whatever the model writes."""
+    import json
+
+    from django.db import models
+    from django.urls import reverse
+
+    from neurodb.fmm.models import ChatQuestion
+    from tests.assistant.test_assistant import call, reply, say
+
+    fake = chat_world(
+        reply(call("fm_visit", {"visit": "1722"})),
+        reply(say(f"{MEMBER} wrote to {MEMBER_EMAIL} and +961 3 123 456: [Visit 1722](/fmm/visits/1722/).")),
+    )
+    response = client_viewer.post(
+        reverse("fmm:chat_stream"),
+        {"question": f"What did {MEMBER} ({MEMBER_EMAIL}) find?", "scope": "year=2026&section="},
+    )
+    body = b"".join(response.streaming_content).decode()
+    for request in fake.requests:
+        _canary_free(request["input"])
+        _canary_free(request["instructions"])
+    events = [json.loads(chunk[6:]) for chunk in body.split("\n\n") if chunk.startswith("data: ")]
+    done = next(e for e in events if e["type"] == "done")  # the checked answer shown and kept
+    _canary_free(done)
+    assert 'href="/fmm/visits/1722/"' in done["html"]
+    text_fields = [
+        f.name
+        for f in ChatQuestion._meta.concrete_fields
+        if isinstance(f, models.CharField | models.TextField | models.JSONField)
+    ]
+    row = ChatQuestion.objects.values(*text_fields).get()
+    _canary_free(row)
+    assert row["question"].startswith("What did [name withheld]")
+
+
+def test_a_look_up_holding_a_canary_is_stopped_before_the_model_reads_it(
+    chat_world, client_viewer, monkeypatch, caplog
+):
+    import json
+
+    from django.urls import reverse
+
+    from neurodb.fmm.models import ChatQuestion
+    from tests.assistant.test_assistant import call, reply, say
+
+    monkeypatch.setattr(privacy, "clean", lambda text, limit, names_=None: (" ".join(str(text).split()), 0))
+    fake = chat_world(reply(call("fm_visit", {"visit": "1722"})), reply(say("Nothing to share.")))
+    with caplog.at_level("ERROR"):
+        response = client_viewer.post(
+            reverse("fmm:chat_stream"), {"question": "Tell me about 1722", "scope": "year=2026&section="}
+        )
+        b"".join(response.streaming_content)
+    outputs = [
+        json.loads(i["output"]) for i in fake.requests[1]["input"] if i.get("type") == "function_call_output"
+    ]
+    assert outputs == [{"error": privacy.LOOKUP_WITHHELD}]
+    assert ChatQuestion.objects.get().checks["privacy_blocked"] == 1
+    assert "was not shared" in caplog.text
+    assert not any(canary in caplog.text for canary in CANARIES)
+
+
+def test_earlier_answers_are_cleaned_and_cut_when_sent_again(built, viewer):
+    import uuid
+
+    from neurodb.fmm.ai import chat, profiles
+    from neurodb.fmm.models import ChatQuestion
+
+    people.forget()
+    conversation = uuid.uuid4()
+    ChatQuestion.objects.create(
+        user=viewer,
+        conversation=conversation,
+        scope_hash="s",
+        version=profiles.published(),
+        question="Who?",
+        answer=f"{MEMBER_EMAIL} and {LEAD} noted " + "x" * 2000,
+        status="answered",
+        checks={"kept": ["1722"], "numbers": ["412"]},
+    )
+    turns, seen, numbers = chat.history(viewer, conversation, "s")
+    assert len(turns) == 1 and len(turns[0]["answer"]) <= 1500
+    _canary_free(turns)
+    assert (seen, numbers) == ({"1722"}, {"412"})
+    assert chat.history(viewer, conversation, "another filter") == ([], set(), set())

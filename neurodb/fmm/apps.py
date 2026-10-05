@@ -15,3 +15,15 @@ class FmmConfig(AppConfig):
 
         if privacy.team_names not in people.EXTRA_SOURCES:
             people.EXTRA_SOURCES.append(privacy.team_names)
+
+        # Ask NeuroDB can count, list and search the visits too (structured fields only: without a chat's
+        # context the look-ups read no note, answer or snippet). Registered here, so the assistant's
+        # tools never import this app.
+        from django.conf import settings
+
+        if settings.FMM_ENABLED:
+            from neurodb.assistant import tools as assistant_tools
+
+            from .ai.tools import FMM_TOOLS
+
+            assistant_tools.TOOLS.update(FMM_TOOLS)
