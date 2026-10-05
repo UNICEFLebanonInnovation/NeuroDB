@@ -12,6 +12,8 @@ def site(request):
         "SUPPORT_EMAIL": settings.SUPPORT_EMAIL,
         "USER_GUIDE_URL": settings.USER_GUIDE_URL,
         "AI_ASSISTANT_ENABLED": settings.AI_ASSISTANT_ENABLED,
+        # Monitoring insights (/fmm/): its menu item shows only while the page is on
+        "fmm_enabled": getattr(settings, "FMM_ENABLED", False),
     }
 
 

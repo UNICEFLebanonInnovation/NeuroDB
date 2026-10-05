@@ -1,0 +1,15 @@
+{% load i18n %}
+<div class="fmm-lookup__result small">
+  {% if not text %}
+  <p class="text-muted mb-0">{% trans "Type a visit id (1722, #1722 or Visit 1722) or an eTools reference." %}</p>
+  {% elif found %}
+  <p class="mb-1">{% blocktrans count n=found|length %}{{ n }} visit matches “{{ text }}”:{% plural %}{{ n }} visits match “{{ text }}”:{% endblocktrans %}</p>
+  <ul class="list-unstyled mb-0">{% for v in found %}{% url 'fmm:visit' v.key as visit_url %}
+    <li><a href="{{ visit_url }}" hx-get="{{ visit_url }}" hx-target="#modal-content" hx-push-url="false">{{ v.label }}</a> <span class="text-muted">· <span data-synced>{{ v.reference|default:"—" }}</span> · {{ v.end_date|date:"j M Y"|default:"—" }}</span></li>
+  {% endfor %}</ul>
+  {% else %}
+  <p class="mb-1">{% blocktrans with token=token|default:text %}No visit {{ token }} in NeuroDB — eTools field monitoring syncs nightly.{% endblocktrans %}</p>
+  {% if nearest %}<p class="mb-0 text-muted">{% trans "Nearest ids in this filter:" %}
+    {% for v in nearest %}{% url 'fmm:visit' v.key as visit_url %}<a class="visit-chip" href="{{ visit_url }}" hx-get="{{ visit_url }}" hx-target="#modal-content" hx-push-url="false">{{ v.label }}</a>{% endfor %}</p>{% endif %}
+  {% endif %}
+</div>

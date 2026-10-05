@@ -1,0 +1,11 @@
+{% load i18n %}
+<section class="panel fmm-lookup" aria-labelledby="fmm-lookup-title">
+  <form class="fmm-lookup__form" method="get" action="{% url 'fmm:lookup' %}" hx-get="{% url 'fmm:lookup' %}" hx-target="#fmm-lookup-result" role="search">
+    <label class="form-label h6 mb-0" id="fmm-lookup-title" for="fmm-lookup-id">{% trans "Find a visit" %}</label>
+    {% for key, value in scope.pairs %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+    <input class="form-control form-control-sm" type="search" id="fmm-lookup-id" name="id" placeholder="{% trans 'Visit id, #1722 or reference' %}" autocomplete="off">
+    <button type="submit" class="btn btn-outline-primary btn-sm">{% trans "Find" %}</button>
+  </form>
+  <div id="fmm-lookup-result" aria-live="polite"></div>
+</section>
+<div id="fmm-visits">{% include "fmm/_visits_table.html" %}</div>

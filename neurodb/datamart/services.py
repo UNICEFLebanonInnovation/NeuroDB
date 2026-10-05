@@ -607,17 +607,25 @@ def action_points(params) -> dict[str, Any]:
     overdue = Q(status__in=dm.ActionPoint.OPEN_STATUSES, due_date__lt=today)
     if only_overdue:
         points = points.filter(overdue)
+    visit = _fm_visit(params)
+    if visit is not None:
+        points = points.filter(pk__in=visit["ids"])
     if q:
-        points = points.filter(
+        match = (
             Q(reference_number__icontains=q)
             | Q(description__icontains=q)
             | Q(partner_name__icontains=q)
             | Q(assigned_to_name__icontains=q)
             | Q(intervention_number__icontains=q)
+            | Q(module_reference_number__icontains=q)  # a visit's reference finds its action points
             | _partner_q(q)
         )
+        if q.isdigit() and len(q) <= 18:
+            match |= Q(related_module_id=int(q))  # ... and so does an eTools activity id
+        points = points.filter(match)
     return {
         "points": points.order_by("-high_priority", "due_date", "-datamart_id"),
+        "visit": visit,
         "open": points.filter(status__in=dm.ActionPoint.OPEN_STATUSES).count(),
         "overdue": points.filter(overdue).count(),
         "high_priority": points.filter(high_priority=True, status__in=dm.ActionPoint.OPEN_STATUSES).count(),
@@ -633,6 +641,25 @@ def action_points(params) -> dict[str, Any]:
                 if x
             ),
         },
+    }
+
+
+def _fm_visit(params) -> dict[str, Any] | None:
+    """``?visit=<key>``: the action points linked to one field monitoring visit of Monitoring insights
+    (the same set its visit page lists), read through a lazy import when that app is installed and on.
+    ``{"key", "label", "ids"}``, or None without the parameter."""
+    from django.apps import apps
+    from django.conf import settings
+
+    key = (params.get("visit") or "").strip()[:40]
+    if not key or not apps.is_installed("neurodb.fmm") or not getattr(settings, "FMM_ENABLED", False):
+        return None
+    from neurodb.fmm import services as fmm_services
+
+    return {
+        "key": key,
+        "label": fmm_services.visit_label(key) or key,
+        "ids": fmm_services.action_point_ids(key),
     }
 
 

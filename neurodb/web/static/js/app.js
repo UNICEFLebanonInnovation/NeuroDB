@@ -104,7 +104,16 @@ function initFilterBar(form) {
   if (!target || !window.htmx) return;
   const submit = () => {
     const params = new URLSearchParams(new FormData(form));
-    for (const [key, value] of [...params.entries()]) if (!value) params.delete(key);
+    // A field marked data-keep-empty keeps its key when nothing is chosen ("section=": every section,
+    // which is not the same as no section key at all, where a page applies the user's default)
+    const keep = new Set($$("[data-keep-empty]", form).map((el) => el.name));
+    for (const [key, value] of [...params.entries()]) if (!value && !keep.has(key)) params.delete(key);
+    for (const name of keep) {
+      const values = params.getAll(name).filter(Boolean);
+      params.delete(name);
+      if (values.length) values.forEach((v) => params.append(name, v));
+      else params.append(name, "");
+    }
     const url = `${form.getAttribute("action") || window.location.pathname}${params.size ? `?${params}` : ""}`;
     window.htmx.ajax("GET", url, { target, swap: "innerHTML" }).then(() => {
       window.history.replaceState({}, "", url);

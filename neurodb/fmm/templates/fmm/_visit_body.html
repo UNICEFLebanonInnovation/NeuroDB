@@ -1,0 +1,169 @@
+{% load i18n ui %}
+{% if modal %}
+<div class="modal-header visit-modal">
+  <div>
+    <div class="small text-muted">{% trans "eTools field monitoring visit" %}</div>
+    <h2 class="modal-title h5" id="modal-title">{{ visit.label }}</h2>
+  </div>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+</div>
+<div class="modal-body">
+{% endif %}
+<div class="fmm-visit">
+  {% comment %}1. Header: reference and dates, status and rating with their dates, HACT Q1, quality, urgency
+  and its parts, programmatic and remote tags.{% endcomment %}
+  <section class="panel fmm-visit__header" aria-label="{% trans 'Summary' %}">
+    <p class="mb-2">{% if visit.reference %}<span class="mono" data-synced>{{ visit.reference }}</span>{% endif %}{% if visit.reference_number and visit.reference_number != visit.reference %} · <span class="mono" data-synced>{{ visit.reference_number }}</span>{% endif %}
+      · {% if visit.start_date and visit.start_date != visit.end_date %}{{ visit.start_date|date:"j M Y" }} – {% endif %}{{ visit.end_date|date:"j M Y"|default:_("no end date") }}</p>
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+      {% status_pill visit.status_group status_label %}<span class="small text-muted">{% if status_as_of %}{% blocktrans with day=status_as_of|date:"j M Y" %}as of eTools sync {{ day }}{% endblocktrans %}{% else %}{% trans "as of the last eTools sync" %}{% endif %}</span>
+      {% status_pill visit.rating visit.rating_label %}<span class="small text-muted">{% if visit.not_rated_yet %}{% blocktrans with day=visit.end_date|date:"j M Y"|default:"—" %}ends {{ day }}{% endblocktrans %}{% else %}{% blocktrans with day=visit.end_date|date:"j M Y"|default:"—" %}rated {{ day }}{% endblocktrans %}{% endif %}</span>
+      {% if visit.is_programmatic %}<span class="chip">{% trans "Programmatic visit" %}</span>{% endif %}
+      {% if visit.is_remote %}<span class="chip">{% trans "Remote monitoring" %}</span>{% endif %}
+    </div>
+    <dl class="row small mb-0">
+      <dt class="col-sm-3 text-muted">{% trans "HACT Q1" %}</dt>
+      <dd class="col-sm-9">{% if visit.hact_q1 %}{% status_pill visit.hact_q1 hact_q1_label "sm" %}{% elif answers_available %}{% trans "No HACT Q1 answer for this visit" %}{% else %}{% trans "Not available — the checklist answers were not found in the eTools data" %}{% endif %}</dd>
+      <dt class="col-sm-3 text-muted">{% trans "Quality" %}</dt>
+      <dd class="col-sm-9">{% if visit.quality_score is not None %}<span class="fmm-score fmm-score--{{ visit.score_band|default:'none' }}">{{ visit.quality_score|percent }}</span> ({{ band_label }})
+        <span class="text-muted">· {% blocktrans with rules=visit.evaluated_rules|join:", " points=visit.quality_max total=total_points %}scored on {{ rules }} ({{ points }} of {{ total }} points){% endblocktrans %}</span>
+        {% else %}— <span class="text-muted">{{ visit.not_scored_reason|default:_("not scored") }}</span>{% endif %}</dd>
+      <dt class="col-sm-3 text-muted">{% trans "Urgency" %}</dt>
+      <dd class="col-sm-9"><span class="pill pill--sm pill--{% if visit.row_band == 'red' %}danger{% elif visit.row_band == 'amber' %}warning{% else %}neutral{% endif %}">{{ visit.urgency }}</span>
+        <span class="text-muted">{% blocktrans with n=visit.urgency parts=visit.urgency_title %}Why urgency {{ n }}: {{ parts }}{% endblocktrans %}</span></dd>
+    </dl>
+  </section>
+
+  {% comment %}2. Links: partner and PD pages, the assurance row, the visit's action points, eTools.{% endcomment %}
+  <section class="panel" aria-labelledby="fmm-links-{{ visit.key }}">
+    <h3 class="h6" id="fmm-links-{{ visit.key }}">{% trans "Links" %}</h3>
+    <ul class="list-inline small mb-0">
+      {% for p in partners %}<li class="list-inline-item"><a href="{% url 'reports:partner_profile' p.pk %}" data-synced>{{ p.short_name|default:p.name }}</a></li>{% endfor %}
+      {% for pd in pds %}<li class="list-inline-item"><a class="mono" href="{% url 'reports:programme_detail' pd.pk %}" data-synced>{{ pd.number }}</a></li>{% endfor %}
+      <li class="list-inline-item"><a href="{{ assurance_url }}">{% trans "HACT assurance" %}</a></li>
+      <li class="list-inline-item"><a href="{{ action_points_url }}">{% blocktrans count n=action_points|length %}{{ n }} action point{% plural %}{{ n }} action points{% endblocktrans %}</a></li>
+      {% if etools_url %}<li class="list-inline-item"><a href="{{ etools_url }}" target="_blank" rel="noopener">{% trans "Open in eTools" %}</a></li>{% endif %}
+    </ul>
+  </section>
+
+  {% comment %}3-5. Where, sections and offices with their source, team names.{% endcomment %}
+  <section class="panel" aria-labelledby="fmm-where-{{ visit.key }}">
+    <h3 class="h6" id="fmm-where-{{ visit.key }}">{% trans "Where and who" %}</h3>
+    <dl class="row small mb-0">
+      <dt class="col-sm-3 text-muted">{% trans "Place" %}</dt>
+      <dd class="col-sm-9"><span data-synced>{% if visit.site %}{{ visit.site.name }} › {% endif %}{% if visit.location %}{{ visit.location.name }}{% elif not visit.site %}{{ visit.place_name|default:"—" }}{% endif %}{% if visit.district_name %} › {{ visit.district_name }}{% endif %}{% if visit.governorate_name %} › {{ visit.governorate_name }}{% endif %}</span>
+        <span class="text-muted">· {{ located }}</span></dd>
+      <dt class="col-sm-3 text-muted">{% trans "Sections" %}</dt>
+      <dd class="col-sm-9">{% if visit.section_names %}<span data-synced>{{ visit.section_names|join:", " }}</span> <span class="text-muted">· {{ sections_source }}</span>{% else %}{% trans "No section" %}{% endif %}</dd>
+      <dt class="col-sm-3 text-muted">{% trans "Field offices" %}</dt>
+      <dd class="col-sm-9">{% if visit.offices %}<span data-synced>{{ visit.offices|join:", " }}</span> <span class="text-muted">· {{ offices_source }}</span>{% else %}{% trans "Office not known" %}{% endif %}</dd>
+      <dt class="col-sm-3 text-muted">{% trans "Team" %}</dt>
+      <dd class="col-sm-9">{% if visit.team or visit.team_unnamed %}{% if visit.team %}<span data-synced>{{ visit.team|join:", " }}</span>{% endif %}{% if visit.team_unnamed %} {% blocktrans count n=visit.team_unnamed %}(+{{ n }} member known by e-mail only){% plural %}(+{{ n }} members known by e-mail only){% endblocktrans %}{% endif %}
+        <span class="d-block text-muted">{% trans "Shown to NeuroDB users only; never sent to the AI." %}</span>
+        {% elif team_known %}{% trans "No team recorded for this visit." %}{% else %}{% trans "Team members are not in the eTools data NeuroDB reads." %}{% endif %}</dd>
+    </dl>
+  </section>
+
+  {% comment %}6. Entities: kind, entity, rating (normalised and as written), Q1, PD match and the narrative.{% endcomment %}
+  <section class="panel p-0" aria-labelledby="fmm-entities-{{ visit.key }}">
+    <div class="table-toolbar"><div class="table-toolbar__title"><h3 class="h6 mb-0" id="fmm-entities-{{ visit.key }}">{% trans "Monitored entities" %}</h3></div></div>
+    <div class="table-wrap"><table class="table table-sm">
+      <thead><tr><th>{% trans "Entity" %}</th><th>{% trans "Rating" %}</th><th>{% trans "HACT Q1" %}</th><th>{% trans "Narrative" %}</th></tr></thead>
+      <tbody>{% for e in entities %}<tr>
+        <td><span class="small text-muted">{{ e.kind_label }}</span><br>
+          {% if e.pd %}<a class="mono" href="{% url 'reports:programme_detail' e.pd_id %}" data-synced>{{ e.entity|default:e.pd.number }}</a>{% elif e.kind == "partner" and e.partner %}<a href="{% url 'reports:partner_profile' e.partner_id %}" data-synced>{{ e.entity|default:e.partner.name }}</a>{% else %}<span data-synced>{{ e.entity|default:"—" }}</span>{% endif %}
+          {% if e.kind == "pd" %}<span class="cell-sub">{% if e.match_label %}{{ e.match_label }}{% else %}{% trans "programme document not found in NeuroDB" %}{% endif %}</span>{% endif %}</td>
+        <td class="text-nowrap">{% status_pill e.rating e.rating_label "sm" %}{% if e.rating_raw and e.rating_raw|lower != e.rating_label|lower %}<span class="cell-sub" data-synced>{{ e.rating_raw }}</span>{% endif %}<span class="cell-sub">{% if e.not_rated_yet %}{% blocktrans with day=visit.end_date|date:"j M Y"|default:"—" %}ends {{ day }}{% endblocktrans %}{% else %}{% blocktrans with day=visit.end_date|date:"j M Y"|default:"—" %}rated {{ day }}{% endblocktrans %}{% endif %}</span></td>
+        <td class="small">{% if e.hact_q1 %}{% status_pill e.hact_q1 e.hact_q1_label "sm" %}{% if e.hact_q1_from != "entity" %}<span class="cell-sub">{{ e.hact_q1_from_label }}</span>{% endif %}{% else %}—{% endif %}</td>
+        <td class="small">{% if e.narrative %}<details><summary>{% blocktrans count n=e.narrative_words %}{{ n }} word{% plural %}{{ n }} words{% endblocktrans %}</summary><p class="mb-0 fmm-narrative" data-synced>{{ e.narrative|linebreaksbr }}</p></details>{% else %}<span class="text-muted">{% trans "No narrative" %}</span>{% endif %}</td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+
+  {% comment %}7. Quality: each rule's result, then the score with its basis.{% endcomment %}
+  <section class="panel p-0" aria-labelledby="fmm-quality-{{ visit.key }}">
+    <div class="table-toolbar"><div class="table-toolbar__title"><h3 class="h6 mb-0" id="fmm-quality-{{ visit.key }}">{% trans "Quality checks" %}</h3>
+      <span class="small text-muted">{% blocktrans with version=visit.rules_version when=visit.refreshed_at|date:"j M Y H:i" %}rules v{{ version }} · as of {{ when }}{% endblocktrans %}</span></div></div>
+    {% if results %}
+    <div class="table-wrap"><table class="table table-sm">
+      <thead><tr><th>{% trans "Rule" %}</th><th>{% trans "Result" %}</th><th>{% trans "Points" %}</th><th>{% trans "Detail" %}</th></tr></thead>
+      <tbody>{% for r in results %}<tr>
+        <td class="text-nowrap">{{ r.rule }} {{ r.label }}{% if r.threshold is not None %}<span class="cell-sub">{% blocktrans with t=r.threshold|number %}threshold {{ t }}{% endblocktrans %}</span>{% endif %}</td>
+        <td class="text-nowrap"><span class="pill pill--sm pill--{% if r.status == 'fail' %}danger{% elif r.status == 'pass' %}success{% else %}neutral{% endif %}">{{ r.state_label }}</span></td>
+        <td class="text-nowrap">{% if r.max_points %}{{ r.points|number }}/{{ r.max_points }}{% else %}{% trans "a flag only" %}{% endif %}</td>
+        <td class="small">{{ r.detail|default:"—" }}{% if r.measure is not None %}<span class="cell-sub">{% blocktrans with m=r.measure|number %}measured: {{ m }}{% endblocktrans %}</span>{% endif %}</td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}
+    <p class="small text-muted px-3 pb-3 mb-0">{{ visit.not_scored_reason|default:_("The quality rules have not run on this visit yet.") }}</p>
+    {% endif %}
+  </section>
+
+  {% comment %}8. Questions and answers, read from the checklist records on demand.{% endcomment %}
+  <section class="panel" aria-labelledby="fmm-answers-{{ visit.key }}">
+    <h3 class="h6" id="fmm-answers-{{ visit.key }}">{% trans "Questions and answers" %}
+      {% if answers and answers.asked %}<span class="small text-muted fw-normal">· {% blocktrans with a=answers.answered|default:0 n=answers.asked %}{{ a }} of {{ n }} answered{% endblocktrans %}</span>{% endif %}</h3>
+    {% if not answers_available %}
+    <p class="small text-muted mb-0">{% trans "Not available — the answers of the checklist records were not found in the eTools data (Fields found)." %}{% if user_role == "Administrator" %} <a href="{% url 'admin:fmm_fieldmapping_changelist' %}">{% trans "Open Fields found" %}</a>{% endif %}</p>
+    {% elif answers.groups %}
+    {% for g in answers.groups %}<div class="fmm-question mb-2">
+      <p class="small fw-semibold mb-1">{% if g.role %}<span class="pill pill--sm pill--info">{{ g.role }}</span> {% endif %}<span data-synced>{{ g.question|default:_("Question without a text") }}</span></p>
+      <ul class="list-unstyled small mb-0 ps-2">{% for a in g.items %}<li><span class="text-muted" data-synced>{{ a.target }}:</span> {% if a.answered %}<span data-synced>{{ a.answer|default:"—" }}</span>{% elif a.placeholder %}<span class="text-muted">{% trans "placeholder" %}</span> <span data-synced>{{ a.answer }}</span>{% else %}<span class="text-muted">{% trans "not answered" %}</span>{% endif %}{% if a.summary %}<span class="d-block text-muted" data-synced>{{ a.summary }}</span>{% endif %}</li>{% endfor %}</ul>
+    </div>{% endfor %}
+    {% else %}
+    <p class="small text-muted mb-0">{% trans "No question answers in the eTools data for this visit." %}</p>
+    {% endif %}
+  </section>
+
+  {% comment %}9. Programme activities and CP outputs (linked to the country programme when they match).{% endcomment %}
+  {% if activities or cp_outputs %}
+  <section class="panel" aria-labelledby="fmm-activities-{{ visit.key }}">
+    <h3 class="h6" id="fmm-activities-{{ visit.key }}">{% trans "Programme activities and CP outputs" %}</h3>
+    {% if activities %}<p class="small mb-1"><span data-synced>{{ activities|join:" · " }}</span></p>{% endif %}
+    {% if cp_outputs %}<ul class="list-unstyled small mb-0">{% for o in cp_outputs %}<li><span data-synced>{{ o.name }}</span>{% if o.url %} · <a href="{{ o.url }}">{% blocktrans with code=o.code %}Country programme output {{ code }}{% endblocktrans %}</a>{% endif %}</li>{% endfor %}</ul>{% endif %}
+  </section>
+  {% endif %}
+
+  {% comment %}10. The FM action points raised from the visit and how each was matched.{% endcomment %}
+  <section class="panel" aria-labelledby="fmm-aps-{{ visit.key }}">
+    <h3 class="h6" id="fmm-aps-{{ visit.key }}">{% trans "Action points" %}</h3>
+    {% if action_points %}
+    <ul class="list-unstyled small mb-0">{% for link in action_points %}{% with a=link.action_point %}<li class="mb-1">
+      <span class="mono">{{ a.reference_number|default:"—" }}</span>{% if a.category %} · <span data-synced>{{ a.category }}</span>{% endif %}{% if a.high_priority %} <span class="chip">{% trans "High priority" %}</span>{% endif %}
+      {% status_pill a.status|status_key a.status|code_label "sm" %}<span class="text-muted">{% if a.due_date %}{% blocktrans with day=a.due_date|date:"j M Y" %}due {{ day }}{% endblocktrans %}{% else %}{% trans "no due date" %}{% endif %} · {{ link.match_label }}</span>
+    </li>{% endwith %}{% endfor %}</ul>
+    {% else %}
+    <p class="small text-muted mb-0">{% trans "No eTools action point is linked to this visit." %}</p>
+    {% endif %}
+  </section>
+
+  {% comment %}11. HACT context: programmatic visits of the partner this year, planned visits of each PD.{% endcomment %}
+  {% if hact and hact.partners or hact and hact.pds %}
+  <section class="panel" aria-labelledby="fmm-hact-{{ visit.key }}">
+    <h3 class="h6" id="fmm-hact-{{ visit.key }}">{% trans "HACT context" %}</h3>
+    <ul class="list-unstyled small mb-0">
+      {% for p in hact.partners %}<li><span data-synced>{{ p.partner }}</span> {{ hact.year }}: {% if p.required is not None %}{% blocktrans with done=p.completed|default:0 needed=p.required %}{{ done }} of {{ needed }} programmatic visits completed in eTools{% endblocktrans %}{% else %}{% trans "no HACT requirement in eTools" %}{% endif %}; {% blocktrans count n=p.neurodb %}NeuroDB counts {{ n }} FM programmatic visit{% plural %}NeuroDB counts {{ n }} FM programmatic visits{% endblocktrans %}</li>{% endfor %}
+      {% for line in hact.pds %}<li><span class="mono" data-synced>{{ line.pd.number }}</span>: {% if line.planned is not None %}{% blocktrans with q=hact.quarter count planned=line.planned %}{{ planned }} programmatic visit planned in Q{{ q }}{% plural %}{{ planned }} programmatic visits planned in Q{{ q }}{% endblocktrans %}{% else %}{% blocktrans with q=hact.quarter %}no visits planned in Q{{ q }}{% endblocktrans %}{% endif %}; {% blocktrans count n=line.done %}{{ n }} FM visit that quarter{% plural %}{{ n }} FM visits that quarter{% endblocktrans %}</li>{% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  {% comment %}12. Review, and 14. data notes.{% endcomment %}
+  <section class="panel" aria-labelledby="fmm-review-{{ visit.key }}-title">
+    <h3 class="h6" id="fmm-review-{{ visit.key }}-title">{% trans "Review" %}</h3>
+    {% include "fmm/_review_form.html" %}
+  </section>
+  {% if data_notes %}
+  <section class="panel" aria-labelledby="fmm-notes-{{ visit.key }}">
+    <h3 class="h6" id="fmm-notes-{{ visit.key }}">{% trans "Data notes" %}</h3>
+    <ul class="small mb-0">{% for note in data_notes %}<li>{{ note }}</li>{% endfor %}</ul>
+  </section>
+  {% endif %}
+</div>
+{% if modal %}
+</div>
+<div class="modal-footer">
+  <a class="btn btn-link btn-sm me-auto" href="{% url 'fmm:visit' visit.key %}">{% trans "Open as page" %}</a>
+  <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">{% trans "Close" %}</button>
+</div>
+{% endif %}

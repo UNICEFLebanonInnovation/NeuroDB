@@ -1,0 +1,25 @@
+{% load i18n ui %}
+<div id="fmm-review" class="fmm-review">
+  {% if review %}
+  <p class="mb-2">{% status_pill review.status review.get_status_display %}
+    <span class="small text-muted">{% blocktrans with who=review.reviewed_by.get_full_name|default:review.reviewed_by.get_username|default:_("someone no longer in NeuroDB") when=review.created_at|date:"j M Y H:i" %}by {{ who }} on {{ when }}{% endblocktrans %}</span></p>
+  {% if review.note %}<p class="small mb-2">{{ review.note }}</p>{% endif %}
+  {% if reviews|length > 1 %}<details class="small mb-2"><summary>{% trans "Earlier reviews" %}</summary><ul class="list-unstyled mb-0">{% for r in reviews|slice:"1:" %}<li>{{ r.get_status_display }} · {{ r.created_at|date:"j M Y" }}{% if r.note %} — {{ r.note }}{% endif %}</li>{% endfor %}</ul></details>{% endif %}
+  {% else %}
+  <p class="small text-muted mb-2">{% trans "Not reviewed yet." %}</p>
+  {% endif %}
+  {% if review_saved %}<p class="small text-success mb-2" role="status">{% trans "Review saved." %}</p>{% endif %}
+  {% if can_review %}
+  <form method="post" action="{% url 'fmm:review' visit.key %}" hx-post="{% url 'fmm:review' visit.key %}" hx-target="#fmm-review" hx-swap="outerHTML" class="fmm-review__form">
+    {% csrf_token %}
+    <fieldset class="mb-2">
+      <legend class="form-label small fw-semibold">{% trans "Mark this visit" %}</legend>
+      {% for value, label in review_choices %}<label class="form-check form-check-inline small"><input class="form-check-input" type="radio" name="status" value="{{ value }}" required {% if review.status == value and not review_saved %}checked{% endif %}> {{ label }}</label>{% endfor %}
+    </fieldset>
+    <label class="form-label small" for="fmm-review-note-{{ visit.key }}">{% trans "Note (optional, kept in NeuroDB, never sent to the AI)" %}</label>
+    <textarea class="form-control form-control-sm mb-2" id="fmm-review-note-{{ visit.key }}" name="note" rows="2" maxlength="500">{{ note }}</textarea>
+    {% if review_error %}<p class="small text-danger mb-2" role="alert">{{ review_error }}</p>{% endif %}
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Save review" %}</button>
+  </form>
+  {% endif %}
+</div>

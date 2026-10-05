@@ -332,13 +332,21 @@ def visit_answers(visit) -> list[tuple[str, str, str]]:
     """(question, answer, summary) of each checklist answer of ``visit``, in the checklist's order, read
     from the answer records: the answer shown is its option's label, else its label, else as written.
     For the visit page and the chat only, which clean what they show or send."""
+    return [(answer.question_text, shown, summary) for answer, shown, summary in visit_answer_rows(visit)]
+
+
+def visit_answer_rows(visit) -> list[tuple[Any, str, str]]:
+    """As :func:`visit_answers`, with each answer's ``QuestionAnswer`` row (its role, the entity or
+    partner it applies to) in place of the question text: for the visit page's grouped answers."""
     from neurodb.datamart.models import DatamartDocument
 
     from . import fields
     from .models import QuestionAnswer
 
     answers = list(
-        QuestionAnswer.objects.filter(visit=visit).order_by("question_order", "question_key", "document_id")
+        QuestionAnswer.objects.filter(visit=visit)
+        .select_related("entity", "partner")
+        .order_by("question_order", "question_key", "document_id")
     )
     if not answers:
         return []
@@ -360,7 +368,7 @@ def visit_answers(visit) -> list[tuple[str, str, str]]:
         shown = options.get((answer.question_key, written or ""), "") if written else ""
         shown = shown or (value(record, label_key) if label_key else None) or written or ""
         summary = (value(record, summary_key) if summary_key else None) or ""
-        out.append((answer.question_text, shown, summary))
+        out.append((answer, shown, summary))
     return out
 
 

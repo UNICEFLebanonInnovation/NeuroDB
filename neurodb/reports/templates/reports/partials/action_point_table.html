@@ -1,4 +1,10 @@
 {% load i18n ui %}
+{% if data.visit %}
+<div class="chips mb-2" aria-label="{% trans 'Filtered by visit' %}">
+  <span class="chip chip--removable">{% blocktrans with label=data.visit.label %}From {{ label }}{% endblocktrans %}
+    <a href="?{% qs_replace visit=None page=None %}" class="chip__remove" aria-label="{% trans 'Show the action points of every visit' %}">&times;</a></span>
+</div>
+{% endif %}
 <div class="kpi-grid">
   {% trans "Action points" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=page_obj.paginator.count|number %}
   {% trans "Open" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.open|number %}

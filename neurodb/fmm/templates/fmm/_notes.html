@@ -1,0 +1,12 @@
+{% load i18n %}
+<ul class="fmm-notes">
+  {% for note in notes %}
+  {% if note.key == "section" %}<li>{% trans "Section here is each visit's programme-document section. The overview counts every visit of a partner with indicators in the section, so its figure can differ." %}</li>
+  {% elif note.key == "via_site" %}<li>{% blocktrans count n=note.n %}{{ n }} visit is placed in this governorate through its monitoring site only. The overview places visits by their location and leaves it out.{% plural %}{{ n }} visits are placed in this governorate through their monitoring site only. The overview places visits by their location and leaves these out.{% endblocktrans %}</li>
+  {% elif note.key == "no_reference" %}<li>{% blocktrans count n=note.n %}{{ n }} finding row has no activity reference and counts as its own visit here. The overview does not count it.{% plural %}{{ n }} finding rows have no activity reference and count as their own visits here. The overview does not count them.{% endblocktrans %}</li>
+  {% elif note.key == "no_date" %}<li>{% blocktrans count n=note.n %}{{ n }} visit has no end date and is left out of the period.{% plural %}{{ n }} visits have no end date and are left out of the period.{% endblocktrans %}</li>
+  {% elif note.key == "entity_filter" %}<li>{% trans "Monitored entities counts only the finding rows that match the entity type or partner chosen; the visits are those with at least one of them." %}</li>
+  {% endif %}
+  {% endfor %}
+  <li>{% trans "eTools sends field monitoring rows once an activity has entities to monitor; planned activities without entities are not in NeuroDB." %}</li>
+</ul>

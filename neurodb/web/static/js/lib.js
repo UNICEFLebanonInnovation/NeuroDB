@@ -112,10 +112,13 @@ export function isDark() {
   return document.documentElement.getAttribute("data-bs-theme") === "dark";
 }
 
-/** Plain-text table extraction used by the copy/CSV buttons and the pivot export. */
+/** Plain-text table extraction used by the copy/CSV buttons and the pivot export. A cell marked
+ * data-export="no" (e.g. the team names of Monitoring insights) is never copied or exported. */
 export function tableRows(table) {
   return [...table.querySelectorAll("tr")].map((tr) =>
-    [...tr.children].map((cell) => (cell.dataset.value ?? cell.innerText).replace(/\s+/g, " ").trim()),
+    [...tr.children]
+      .filter((cell) => cell.dataset.export !== "no")
+      .map((cell) => (cell.dataset.value ?? cell.innerText).replace(/\s+/g, " ").trim()),
   );
 }
 

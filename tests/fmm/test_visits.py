@@ -1,0 +1,306 @@
+"""The Visits tab of Monitoring insights: the table (order, urgency rows, pages, CSV, team cells), the
+visit page and its window, the look-up, the reviews, and the action points of a visit."""
+
+from __future__ import annotations
+
+import csv
+import datetime
+import io
+import re
+
+import pytest
+from django.urls import reverse
+
+from neurodb.accounts.models import Section, User
+from neurodb.accounts.roles import SECTION_EDITOR, ensure_groups
+from neurodb.datamart import fm
+from neurodb.fmm import refresh, views
+from neurodb.fmm import scope as scope_module
+from neurodb.fmm.models import ScoreSetting, Visit, VisitActionPoint, VisitReview
+
+from .conftest import CANARY_TEXT, LEAD, MEMBER, MEMBER_EMAIL
+
+pytestmark = pytest.mark.django_db
+TODAY = datetime.date(2026, 10, 5)
+TABLE = reverse("fmm:visits")
+REFERENCE_KEY = fm.visit_key(None, "FM/2026/9", 0)
+# by urgency (72, 59, 52, 50, 35, 16), then the two at 0 by end date, newest first
+URGENCY_ORDER = [REFERENCE_KEY, "1722", "1727", "1723", "1726", "1728", "1724", "1725"]
+
+
+@pytest.fixture(autouse=True)
+def _today(monkeypatch):
+    monkeypatch.setattr(scope_module, "_today", lambda today: today or TODAY)
+
+
+def _rows(html: str) -> list[str]:
+    body = html.split('id="fmm-visits-table"', 1)[1].split("</table>", 1)[0]
+    return re.findall(r"<tr data-href.*?</tr>", body, re.S)
+
+
+def _keys(html: str) -> list[str]:
+    return [re.search(r'data-href="/fmm/visits/([^/]+)/"', row).group(1) for row in _rows(html)]
+
+
+def _user(username: str, role: str, section=None) -> User:
+    user = User.objects.create_user(
+        username=username, email=f"{username}@example.org", password="x-pass-123456", section=section
+    )
+    user.groups.add(ensure_groups()[role])
+    return user
+
+
+# ------------------------------------------------------------------------------------------ the table
+def test_the_table_is_sorted_by_urgency_then_date(built, client_viewer):
+    html = client_viewer.get(TABLE).content.decode()
+    assert _keys(html) == URGENCY_ORDER
+    assert _keys(client_viewer.get(TABLE, {"sort": "-date"}).content.decode())[:3] == ["1724", "1727", "1726"]
+    assert _keys(client_viewer.get(TABLE, {"sort": "quality"}).content.decode())[:2] == ["1723", "1728"]
+    assert _keys(client_viewer.get(TABLE, {"sort": "nonsense"}).content.decode()) == URGENCY_ORDER
+
+
+def test_red_and_amber_rows_follow_the_configured_thresholds(built, client_viewer):
+    rows = dict(zip(URGENCY_ORDER, _rows(client_viewer.get(TABLE).content.decode()), strict=True))
+    assert 'class="row--red"' in rows[REFERENCE_KEY]
+    assert all('class="row--amber"' in rows[k] for k in ("1722", "1727", "1723"))
+    assert "row--" not in rows["1726"]
+    html = client_viewer.get(TABLE).content.decode()
+    assert "Red rows = high urgency (≥ 70) · Amber rows = medium (40–69)" in html
+    ScoreSetting.objects.filter(pk=1).update(urgency_red=55, urgency_amber=30)
+    rows = dict(zip(URGENCY_ORDER, _rows(client_viewer.get(TABLE).content.decode()), strict=True))
+    assert 'class="row--red"' in rows["1722"] and 'class="row--amber"' in rows["1726"]
+    assert (
+        "Red rows = high urgency (≥ 55) · Amber rows = medium (30–54)"
+        in client_viewer.get(TABLE).content.decode()
+    )
+
+
+def test_the_urgency_pill_explains_its_parts(built, client_viewer):
+    rows = dict(zip(URGENCY_ORDER, _rows(client_viewer.get(TABLE).content.decode()), strict=True))
+    title = re.search(r'title="([^"]*)">72<', rows[REFERENCE_KEY]).group(1)
+    assert "rating 40" in title and "pill--danger" in rows[REFERENCE_KEY]
+
+
+def test_pages_of_the_table(built, client_viewer, monkeypatch):
+    monkeypatch.setattr(views, "PAGE_SIZE", 3)
+    first = client_viewer.get(TABLE).content.decode()
+    assert _keys(first) == URGENCY_ORDER[:3]
+    assert _keys(client_viewer.get(TABLE, {"page": 2}).content.decode()) == URGENCY_ORDER[3:6]
+    # page links fetch the table and put the page's own address in the history
+    link = re.search(
+        r'<a class="page-link" href="([^"]+page=2)" hx-get="([^"]+)"[^>]*hx-push-url="([^"]+)"', first
+    )
+    assert link.group(1).startswith("/fmm/?") and "tab=visits" in link.group(1)
+    assert link.group(2).startswith("/fmm/visits/?") and "section=" in link.group(2)
+    assert link.group(3) == link.group(1)
+
+
+def test_the_table_inside_the_page_uses_the_key_figures_count(built, client_viewer):
+    html = client_viewer.get(reverse("fmm:dashboard"), {"tab": "visits"}).content.decode()
+    assert _keys(html) == URGENCY_ORDER and "8 visits" in html
+
+
+def test_team_cells_are_never_exported_and_show_names_only(built, client_viewer):
+    html = client_viewer.get(TABLE).content.decode()
+    table = html.split('id="fmm-visits-table"', 1)[1].split("</table>", 1)[0]
+    headers = re.findall(r"<th\b[^>]*>", table)
+    team_header = [h for h in headers if 'data-export="no"' in h]
+    assert len(team_header) == 1 and "d-none d-md-table-cell" in team_header[0]
+    for row in _rows(html):
+        cells = re.findall(r"<td\b[^>]*>", row)
+        assert sum('data-export="no"' in c for c in cells) == 1, row
+    assert MEMBER in html and LEAD in html  # names, shown to staff
+    assert MEMBER_EMAIL not in html  # never an e-mail address
+
+
+def test_the_csv_has_every_row_and_no_team_lead_or_narrative(built, client_viewer):
+    response = client_viewer.get(TABLE, {"export": "csv", "section": ""})
+    assert response.status_code == 200 and response["Content-Type"].startswith("text/csv")
+    text = response.content.decode("utf-8-sig")
+    rows = list(csv.reader(io.StringIO(text)))
+    assert tuple(rows[0]) == views.CSV_HEADER
+    assert rows[0] == [
+        "Visit", "Key", "eTools activity id", "Reference", "Reference number", "Start date", "End date",
+        "Status", "Status group", "Partner", "Programme documents", "CP outputs", "Place", "Governorate",
+        "District", "Sections", "Field offices", "Rating", "HACT Q1", "Quality score", "Score band", "Flags",
+        "Urgency", "Action points", "Open action points", "Overdue action points", "Review", "Reviewed on",
+    ]  # fmt: skip
+    assert [r[1] for r in rows[1:]] == URGENCY_ORDER
+    for word in ("team", "lead", "narrative", "member"):
+        assert word not in rows[0][0].lower() and all(word not in h.lower() for h in rows[0])
+    for canary in (LEAD, MEMBER, MEMBER_EMAIL, "Classes held as planned", "Met Mrs Layla Saab"):
+        assert canary not in text
+    one = dict(zip(rows[0], next(r for r in rows if r[1] == "1722"), strict=True))
+    assert (one["Rating"], one["Quality score"], one["Flags"], one["Urgency"]) == (
+        "off_track",
+        "64.7",
+        "R3 R4",
+        "59",
+    )
+    filtered = client_viewer.get(
+        TABLE, {"export": "csv", "rating": "off_track", "section": ""}
+    ).content.decode("utf-8-sig")
+    assert len(list(csv.reader(io.StringIO(filtered)))) == 3
+
+
+# ------------------------------------------------------------------------------------------ visit page
+def test_the_visit_page_shows_narratives_in_full_without_emails(built, client_viewer):
+    response = client_viewer.get(reverse("fmm:visit", args=["1722"]))
+    html = response.content.decode()
+    assert response.status_code == 200 and "<html" in html
+    expected = CANARY_TEXT.replace(MEMBER_EMAIL, "[email withheld]")
+    assert expected.replace("&", "&amp;") in html or expected in html.replace("&#x27;", "'")
+    assert MEMBER_EMAIL not in html
+    assert "matched by PCA/PD number" in html
+    assert "Shown to NeuroDB users only; never sent to the AI." in html
+    assert "Why urgency 59" in html and "scored on R1, R2, R3, R4, R5 (85 of 85 points)" in html
+    assert "/action-points/?module=fm&amp;visit=1722" in html or "module=fm&amp;visit=1722" in html
+    assert "HACT Q1 not answered" in html  # the rule's own sentence
+    assert "Questions and answers" in html and "5 of 5 answered" in html
+    assert "Open in eTools" not in html  # no address configured
+
+
+def test_open_in_etools_appears_once_its_address_is_set(built, client_viewer, settings):
+    settings.FMM_ETOOLS_ACTIVITY_URL = "https://etools.example.org/fm/activities/{id}/details"
+    html = client_viewer.get(reverse("fmm:visit", args=["1722"])).content.decode()
+    assert "https://etools.example.org/fm/activities/1722/details" in html
+    other = client_viewer.get(reverse("fmm:visit", args=[REFERENCE_KEY])).content.decode()
+    assert "Open in eTools" not in other  # no activity id
+
+
+def test_the_visit_window_is_a_partial(built, client_viewer):
+    response = client_viewer.get(reverse("fmm:visit", args=["1726"]), HTTP_HX_REQUEST="true")
+    html = response.content.decode()
+    assert response.status_code == 200 and "<html" not in html
+    assert 'class="modal-header visit-modal"' in html and "Open as page" in html
+
+
+def test_an_unknown_visit_is_404(built, client_viewer):
+    assert client_viewer.get(reverse("fmm:visit", args=["9999"])).status_code == 404
+
+
+def test_the_visit_page_lists_its_action_points_and_hact_context(built, client_viewer):
+    html = client_viewer.get(reverse("fmm:visit", args=["1726"])).content.decode()
+    assert "due 1 Sep 2026" in html and "linked to the activity in eTools" in html
+    html = client_viewer.get(reverse("fmm:visit", args=["1722"])).content.decode()
+    assert "1 of 2 programmatic visits completed in eTools; NeuroDB counts 2 FM programmatic visits" in html
+
+
+# ------------------------------------------------------------------------------------------ look-up
+@pytest.mark.parametrize(
+    "text", ["1722", "#1722", "Visit 1722", "visit #1722", "FM-2026-022", "fm-2026-022", " FM-2026-022 "]
+)
+def test_the_look_up_finds_a_visit(built, client_viewer, text):
+    response = client_viewer.get(reverse("fmm:lookup"), {"id": text})
+    assert response.status_code == 302 and response["Location"] == "/fmm/visits/1722/"
+    response = client_viewer.get(reverse("fmm:lookup"), {"id": text}, HTTP_HX_REQUEST="true")
+    assert response["HX-Redirect"] == "/fmm/visits/1722/"
+
+
+def test_the_look_up_finds_keys_and_reference_numbers(built, client_viewer):
+    found = client_viewer.get(reverse("fmm:lookup"), {"id": REFERENCE_KEY})
+    assert found["Location"] == f"/fmm/visits/{REFERENCE_KEY}/"
+    Visit.objects.filter(key="1723").update(reference_number="REF-NUMBER-7")
+    assert client_viewer.get(reverse("fmm:lookup"), {"id": "ref-number-7"})["Location"] == "/fmm/visits/1723/"
+
+
+def test_a_visit_not_found_offers_the_nearest_ids(built, client_viewer):
+    response = client_viewer.get(reverse("fmm:lookup"), {"id": "1799", "section": ""})
+    html = response.content.decode()
+    assert response.status_code == 200
+    assert "No visit 1799 in NeuroDB — eTools field monitoring syncs nightly." in html
+    assert re.findall(r">(Visit \d+)</a>", html) == ["Visit 1728", "Visit 1727", "Visit 1726"]
+    # only the ids of the filter
+    html = client_viewer.get(
+        reverse("fmm:lookup"), {"id": "#1799", "governorate": "north", "section": ""}
+    ).content.decode()
+    assert re.findall(r">(Visit \d+)</a>", html) == ["Visit 1726", "Visit 1724"]
+
+
+# ------------------------------------------------------------------------------------------ reviews
+def _post(client, key="1726", **data):
+    return client.post(reverse("fmm:review", args=[key]), {"status": "reviewed", "note": "Checked.", **data})
+
+
+def test_an_administrator_can_review_any_visit(built, client, admin_user):
+    client.force_login(admin_user)
+    response = _post(client, "1722")
+    assert response.status_code == 302 and response["Location"] == "/fmm/visits/1722/"
+    review = VisitReview.objects.get()
+    assert (review.visit_key, review.status, review.note, review.reviewed_by) == (
+        "1722",
+        "reviewed",
+        "Checked.",
+        admin_user,
+    )
+
+
+def test_a_section_editor_reviews_the_visits_of_their_section_only(built, client, fm_world):
+    editor = _user("edu", SECTION_EDITOR, fm_world.section)
+    client.force_login(editor)
+    assert _post(client, "1726").status_code == 302  # an Education visit
+    other = _user("cp", SECTION_EDITOR, Section.objects.create(name="Child Protection", code="CP"))
+    client.force_login(other)
+    assert _post(client, "1726").status_code == 403
+    assert VisitReview.objects.count() == 1
+    html = client.get(reverse("fmm:visit", args=["1726"])).content.decode()
+    assert "Reviewed" in html and 'name="status"' not in html  # no form for them
+
+
+def test_a_viewer_cannot_review(built, client_viewer):
+    assert _post(client_viewer, "1726").status_code == 403
+    html = client_viewer.get(reverse("fmm:visit", args=["1726"])).content.decode()
+    assert "Not reviewed yet." in html and "Save review" not in html
+
+
+def test_a_review_through_htmx_returns_the_review_block(built, client, admin_user):
+    client.force_login(admin_user)
+    response = client.post(
+        reverse("fmm:review", args=["1722"]),
+        {"status": "follow_up", "note": "Call the partner."},
+        HTTP_HX_REQUEST="true",
+    )
+    html = response.content.decode()
+    assert response.status_code == 200 and 'id="fmm-review"' in html and "Review saved." in html
+    assert "Needs follow-up" in html and "Call the partner." in html
+    bad = client.post(reverse("fmm:review", args=["1722"]), {"status": "nope"}, HTTP_HX_REQUEST="true")
+    assert (
+        bad.status_code == 400 and "Choose reviewed, needs follow-up or data issue." in bad.content.decode()
+    )
+    long = client.post(reverse("fmm:review", args=["1722"]), {"status": "reviewed", "note": "x" * 501})
+    assert long.status_code == 400 and VisitReview.objects.count() == 1
+
+
+def test_a_review_survives_a_refresh_and_shows_in_the_table(built, client, admin_user):
+    client.force_login(admin_user)
+    _post(client, "1722", status="data_issue")
+    refresh.run(triggered_by="test", today=TODAY)
+    assert VisitReview.objects.get().visit_key == "1722"
+    rows = dict(zip(URGENCY_ORDER, _rows(client.get(TABLE).content.decode()), strict=True))
+    assert 'data-status="data_issue"' in rows["1722"] and "Data issue" in rows["1722"]
+    text = client.get(TABLE, {"export": "csv"}).content.decode("utf-8-sig")
+    assert "data_issue" in text
+
+
+# ------------------------------------------------------------------------------------------ action points
+def test_the_action_points_page_lists_the_visits_action_points(built, client_viewer, fm_world):
+    linked = set(VisitActionPoint.objects.filter(visit__key="1722").values_list("action_point_id", flat=True))
+    assert linked == {fm_world.action_points.by_id.pk}
+    response = client_viewer.get(reverse("reports:action_points"), {"module": "fm", "visit": "1722"})
+    html = response.content.decode()
+    assert response.status_code == 200
+    assert "From Visit 1722" in html
+    assert re.search(r'class="kpi__label">Action points</div>\s*<div class="kpi__value">1<', html)
+    assert '<input type="hidden" name="visit" value="1722">' in html  # kept by the filter bar
+    empty = client_viewer.get(reverse("reports:action_points"), {"visit": "no-such-visit"}).content.decode()
+    assert re.search(r'class="kpi__label">Action points</div>\s*<div class="kpi__value">0<', empty)
+
+
+def test_the_action_points_search_finds_module_references_and_activity_ids(built, client_viewer, fm_world):
+    from neurodb.datamart import services
+
+    by_reference = services.action_points({"q": "FM-2026-023"})["points"]
+    assert list(by_reference) == [fm_world.action_points.by_reference]
+    by_id = services.action_points({"q": "1726"})["points"]
+    assert fm_world.action_points.overdue in list(by_id)
+    assert services.action_points({})["visit"] is None

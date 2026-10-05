@@ -1,0 +1,36 @@
+{% load i18n ui %}
+<p class="fmm-reference small text-muted">
+  {% blocktrans with label=reference.label %}Showing {{ label }}{% endblocktrans %}
+  · {% if reference.synced %}{% blocktrans with when=reference.synced|date:"j M Y H:i" %}eTools field monitoring synced {{ when }}{% endblocktrans %}{% else %}{% trans "eTools field monitoring not synced yet" %}{% endif %}
+  · {% if reference.refresh %}{% blocktrans with when=reference.refresh.finished_at|date:"j M Y H:i" version=reference.rules_version|default:"—" %}scores computed {{ when }} with quality rules v{{ version }}{% endblocktrans %}{% else %}{% trans "scores not computed yet" %}{% endif %}
+  {% if reference.pending_version %}· <span class="text-warning-emphasis">{% blocktrans with version=reference.pending_version %}recomputing with rules v{{ version }}{% endblocktrans %}</span>{% endif %}
+  · <button type="button" class="btn btn-link btn-sm p-0 align-baseline fmm-how-link" data-bs-toggle="modal" data-bs-target="#fmm-how">{% trans "How scores work" %}</button>
+</p>
+{% if reference.failed %}
+<div class="alert alert-warning py-2 small" role="alert">{% blocktrans with when=reference.failed.started_at|date:"j M Y H:i" %}The last refresh of Monitoring insights failed ({{ when }}). The figures below are those of the refresh before it.{% endblocktrans %}</div>
+{% endif %}
+<div class="modal fade" id="fmm-how" tabindex="-1" aria-hidden="true" aria-labelledby="fmm-how-title">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title h5" id="fmm-how-title">{% trans "How scores work" %}</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+      </div>
+      <div class="modal-body small">
+        <p>{% blocktrans with floor=how.setting.min_evaluated_points %}Each reported visit is checked against the quality rules below. Its score is the points it earned over the points of the rules that could be checked, as a percentage. A rule whose data is not in eTools is "not available" and left out; with fewer than {{ floor }} points checked the visit is not scored.{% endblocktrans %}</p>
+        <div class="table-wrap"><table class="table table-sm">
+          <thead><tr><th>{% trans "Rule" %}</th><th>{% trans "Points" %}</th><th>{% trans "What it checks" %}</th></tr></thead>
+          <tbody>{% for rule in how.rules %}<tr>
+            <td class="text-nowrap">{{ rule.code }} {{ rule.label }}{% if not rule.enabled %} <span class="pill pill--sm pill--neutral">{% trans "off" %}</span>{% endif %}</td>
+            <td>{% if rule.points %}{{ rule.points }}{% else %}{% trans "a flag only" %}{% endif %}</td>
+            <td>{{ rule.description|default:"—" }}</td>
+          </tr>{% endfor %}</tbody>
+        </table></div>
+        <p>{% blocktrans with high=how.setting.band_high medium=how.setting.band_medium %}Bands: High from {{ high }}%, Medium from {{ medium }}%, Low below.{% endblocktrans %}
+        {% blocktrans with red=how.setting.urgency_red amber=how.setting.urgency_amber %}Urgency (0–100) adds up the worse of the overall rating and HACT Q1, the quality gap, the flags, a missing or overdue follow-up action point and a late report: red from {{ red }}, amber from {{ amber }}.{% endblocktrans %}</p>
+        <p class="mb-0">{% trans "Planned and in-progress visits are not scored yet. NeuroDB has no field office staff list, so no rule checks who made the visit." %}
+        {% if user_role == "Administrator" %}<a href="{% url 'admin:fmm_rulesetting_changelist' %}">{% trans "Quality rules" %}</a> · <a href="{% url 'admin:fmm_scoresetting_changelist' %}">{% trans "Score settings" %}</a> · <a href="{% url 'admin:fmm_fieldmapping_changelist' %}">{% trans "Fields found" %}</a>{% endif %}</p>
+      </div>
+    </div>
+  </div>
+</div>

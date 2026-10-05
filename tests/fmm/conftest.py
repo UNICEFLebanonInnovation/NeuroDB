@@ -455,6 +455,17 @@ def fm_world(db):
     )
 
 
+@pytest.fixture
+def built(fm_world):
+    """``fm_world`` with its visits built and scored by a full refresh on 5 October 2026."""
+    from neurodb.core.models import SyncRun
+    from neurodb.fmm import refresh
+
+    run = refresh.run(triggered_by="test", today=datetime.date(2026, 10, 5))
+    assert run.status == SyncRun.Status.SUCCEEDED, run.error
+    return run
+
+
 # ------------------------------------------------------------------------------------------ shapes
 def _shape_a(n: int, question: tuple[int, str], answer, summary="") -> dict:
     question_id, text = question

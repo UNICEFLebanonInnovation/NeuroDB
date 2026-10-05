@@ -1,0 +1,4 @@
+{% load i18n %}
+<nav class="segmented segmented--scroll fmm-tabs" aria-label="{% trans 'Monitoring insights views' %}">
+  {% for t in tabs %}<a href="{% url 'fmm:dashboard' %}?{{ t.query }}" hx-get="{% url 'fmm:dashboard' %}?{{ t.query }}" hx-target="#fmm-results" hx-push-url="true" {% if t.key == tab %}aria-current="page"{% endif %}>{{ t.label }}</a>{% endfor %}
+</nav>

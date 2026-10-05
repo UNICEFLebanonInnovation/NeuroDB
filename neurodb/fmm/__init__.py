@@ -12,7 +12,9 @@ records may take.
 
 From those records the refresh builds the visits (:mod:`neurodb.fmm.build`): one per eTools monitoring
 activity, linked to partners, programme documents, places, sections, offices, action points and
-checklist answers, without keeping any narrative or answer text. Their quality rules, the page and
-its AI arrive in later steps. This app imports ``neurodb.datamart`` and ``neurodb.watch``; neither
+checklist answers, without keeping any narrative or answer text, and scores them with the quality
+rules (:mod:`neurodb.fmm.score`). The page (``/fmm/``, :mod:`neurodb.fmm.views`) reads the stored
+visits through a filter (:mod:`neurodb.fmm.scope`) and its figures (:mod:`neurodb.fmm.metrics`); its
+charts, map and AI arrive in later steps. This app imports ``neurodb.datamart`` and ``neurodb.watch``; neither
 imports it at module level.
 """

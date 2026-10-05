@@ -480,6 +480,9 @@ if not 0 < FMM_KEY_MIN_COVERAGE <= 1:
     raise ImproperlyConfigured(
         f"FMM_KEY_MIN_COVERAGE must be above 0 and at most 1; got {FMM_KEY_MIN_COVERAGE}"
     )
+# The address of an activity in eTools for the visit page's "Open in eTools", with {id} for the activity
+# id (e.g. https://etools.unicef.org/fm/activities/{id}/details). Blank hides the link until it is verified.
+FMM_ETOOLS_ACTIVITY_URL = env("FMM_ETOOLS_ACTIVITY_URL", default="")
 
 # ---------------------------------------------------------------------------- logging
 LOG_FORMAT = env("LOG_FORMAT", default="plain")  # "json" in Azure so Log Analytics can parse fields

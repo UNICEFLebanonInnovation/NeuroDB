@@ -1261,12 +1261,70 @@ saved there or in the hub (see `docs/ICEBOX.md`).
 
 Monitoring insights turns the eTools field monitoring data into visits: each visit's partners,
 programme documents, place and sections, and how complete and coherent its report is. It is built in
-steps. This release adds its data layer and its quality rules, with no page and nothing in the menu
-yet: the refresh that builds and scores the visits, and the admin views under admin → *Monitoring
-insights*: **Fields found** (which keys the field monitoring records hold, and the keys an
-administrator pins), **Questions found** (which checklist question is Q1, Q2, Q3 and PSEA), **Quality
-rules**, **Score settings**, **Rule versions**, and **Visits** (the visits built, with their rule
-results, for checking the data).
+steps. This release has its data layer, its quality rules and the first part of its page,
+`/fmm/` (menu: *Monitoring insights*, right after *Field monitoring*): the filters, the key figures,
+the Visits tab, the visit page, the visit look-up and the reviews. The Quality and Analysis tabs, the
+map and the AI brief and chat arrive in later steps; the Insights tab says so. The refresh builds and
+scores the visits, and the admin views under admin → *Monitoring insights* are: **Fields found**
+(which keys the field monitoring records hold, and the keys an administrator pins), **Questions
+found** (which checklist question is Q1, Q2, Q3 and PSEA), **Quality rules**, **Score settings**,
+**Rule versions**, and **Visits** (the visits built, with their rule results, for checking the data).
+
+### The page (`/fmm/`)
+
+Every signed-in user but a donor can read it; with `FMM_ENABLED` off it answers 404 and its menu item
+is hidden.
+
+- **Filters.** Period (this year by default; last year, a calendar year, this or last quarter, the
+  last 30 or 90 days, or two dates), section, governorate ("Not located" too), field office, partner,
+  entity type, rating, status, "Programmatic visits only" and a search on the visit, its references,
+  partners, programme documents and place. `?year=Y` means 1 January to 31 December Y, so the year
+  menu keeps the page. Periods read the visit's end date only; a visit without one is left out and
+  counted in a data note. A user with a section sees it by default, as on the overview, but only on a
+  bare visit to `/fmm/`: every link the page writes carries `section` (empty for every section), and a
+  chip "Your section: … ×" shows every section. A governorate can be given as its gazetteer name
+  ("Beqaa") or its key ("bekaa"). The entity type and partner filters keep a visit when one of its
+  entities matches; the entity figure then counts the matching rows only. Links from charts add
+  drill-downs (month, HACT Q1, score band, flag, flag count, urgency band, rule, review), shown as
+  removable chips.
+- **Reference line**: the filter, when the field monitoring rows were synced, when the scores were
+  computed and with which rules version ("recomputing with rules v8" while a rescore waits), a warning
+  when the last refresh failed, and *How scores work* (the rules, bands and urgency, as set in the
+  admin).
+- **Data notes**, each only when it applies: the section rule differs from the overview's, visits
+  placed in the governorate through their monitoring site only, finding rows without an activity
+  reference (counted as their own visits here, not by the overview), visits without an end date.
+  With no filter, the visits of a year equal the overview's field monitoring visits and the field
+  monitoring page's "Monitoring activities", and the monitored entities its "Findings".
+- **Key figures**: monitoring visits (whatever their status, with the breakdown), monitored entities
+  (rated / not monitored), the average quality score of the scored visits, and the visits of high
+  urgency (red, with the amber ones). Each links to the Visits tab. Figures are kept 10 minutes, and a
+  refresh or a new day shows at once.
+- **Visits tab**: *Find a visit* (an id, "#1722", "Visit 1722", a key, a reference or a reference
+  number; a miss offers the three nearest ids of the filter), then the table, 50 rows a page, most
+  urgent first (sortable by date, partner, quality and urgency). Red rows are at or above the red
+  urgency threshold, amber rows between amber and red (Score settings). The Team column shows names
+  only, is hidden on phones and is never copied or exported. *All rows (CSV)* gives every visit of the
+  filter with its references, dates, status, partner, programme documents, place, sections, offices,
+  rating, HACT Q1, quality, flags, urgency, action point counts and review, and never the team, the
+  visit lead or a narrative.
+- **Visit page** (`/fmm/visits/<key>/`, also a window from the table; the address AI answers will
+  cite): status and rating with their dates, HACT Q1, quality and its basis, urgency and its parts,
+  links (partner, programme documents, HACT assurance, the visit's action points, and *Open in
+  eTools* once `FMM_ETOOLS_ACTIVITY_URL` is set), place and how it was located, sections and offices
+  with their source, the team (names only, shown to NeuroDB users only), each entity with its rating,
+  HACT Q1, programme document match and the narrative in full (e-mail addresses hidden), each rule's
+  result, the checklist questions and answers (read from the eTools records when the page opens),
+  programme activities and CP outputs (linked to the country programme when they match), the action
+  points, the partner's programmatic visits for HACT and each programme document's planned visits of
+  the quarter, the review and the data notes.
+- **Reviews**: an Administrator, or a Section editor of one of the visit's sections, marks a visit
+  *Reviewed*, *Needs follow-up* or *Data issue*, with an optional note (500 characters, kept in
+  NeuroDB, never sent to the AI). Reviews are kept by visit key, so a refresh never loses them.
+- **Action points of a visit**: the visit page links to `/action-points/?module=fm&visit=<key>`, which
+  lists exactly the action points matched to that visit, with a chip "From Visit 1722 ×". The action
+  points search also finds an action point by its module reference (a visit reference) and, for a
+  number, by its eTools activity id.
 
 ### Data and its keys
 
@@ -1463,10 +1521,11 @@ on, and before its figures are trusted:
 
 | Setting | Default | What it does |
 |---|---|---|
-| `FMM_ENABLED` | `true` | Monitoring insights. Off: its refresh does nothing. |
+| `FMM_ENABLED` | `true` | Monitoring insights. Off: its page and every address under `/fmm/` answer 404, the menu item is hidden, and its refresh does nothing. |
 | `FMM_REFRESH_AFTER_SYNC` | `inline` | At the end of every eTools Datamart sync: `inline` runs the refresh in the sync's process, `background` starts it as its own process, `off` does not run it (the 05:25 run still does; `false` also means `off`). Another value stops the start-up. |
 | `FMM_REFRESH_MAX_PASSES` | `3` | Passes one refresh may make to serve the rescores asked for while it runs. |
 | `FMM_KEY_MIN_COVERAGE` | `0.5` | The share of a dataset's records a candidate key must fill to be chosen before the keys listed after it (above 0, at most 1; another value stops the start-up). |
+| `FMM_ETOOLS_ACTIVITY_URL` | (blank) | The address of an activity in eTools, with `{id}` for its id (e.g. `https://etools.unicef.org/fm/activities/{id}/details`), for the visit page's *Open in eTools*. Blank hides the link until the address is verified. |
 
 ## Donor access (`/donor/`)
 

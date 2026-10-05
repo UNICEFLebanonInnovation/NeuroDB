@@ -21,6 +21,7 @@ urlpatterns = [
     path("for-you/", include("neurodb.watch.urls")),
     path("insights/", include("neurodb.insights.urls")),
     path("makani/wellbeing/", include("neurodb.wellbeing.urls")),
+    path("fmm/", include("neurodb.fmm.urls")),
     path("", include("neurodb.reports.urls")),
 ]
 

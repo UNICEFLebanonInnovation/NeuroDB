@@ -256,6 +256,7 @@ YEAR_PAGES = frozenset(
         "reports:population",
         "reports:search",
         "knowledge:index",
+        "fmm:dashboard",
     }
 )
 YEAR_LIST_PAGES = frozenset(

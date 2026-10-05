@@ -15,6 +15,7 @@
       <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="priority" value="1" {% if priority %}checked{% endif %}> {% trans "High priority" %}</label>
     </div>
   </div>
+  {% if request.GET.visit %}<input type="hidden" name="visit" value="{{ request.GET.visit }}">{% endif %}
   <div class="filter-bar__actions">
     <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
     <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
