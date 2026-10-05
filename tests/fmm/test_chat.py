@@ -17,7 +17,7 @@ from django.urls import reverse
 from neurodb.assistant import agent, usage
 from neurodb.assistant import tools as assistant_tools
 from neurodb.assistant.models import AssistantQuestion
-from neurodb.fmm import views
+from neurodb.fmm import privacy, views
 from neurodb.fmm.ai import chat, citations, profiles, sampling, tools
 from neurodb.fmm.models import ChatQuestion, ModelCapability
 from neurodb.fmm.scope import Scope
@@ -162,6 +162,41 @@ def test_a_look_up_can_narrow_the_filter_never_widen_it(built, ai_on):
     assert bound.narrow(programmatic=False).programmatic is False
 
 
+def test_a_visit_is_read_by_the_key_its_card_gives(built, ai_on):
+    """The model passes on the "key" a list returned ("visit:1722", "visit:r-…"): it must read that visit."""
+    ctx = chat.context(_scope(), ai_on)
+    with tools.bind(ctx):
+        cards = tools.fm_visits(limit=30)["visits"]
+        assert cards and all(c["key"].startswith("visit:") for c in cards)
+        for c in cards:
+            one = tools.fm_visit(c["key"])
+            assert "error" not in one, c["key"]
+            assert (one["key"], one["url"]) == (c["key"], c["url"])
+        assert tools.fm_visit("Visit: 1722")["url"] == "/fmm/visits/1722/"
+
+
+def test_the_last_check_keeps_every_field_a_look_up_returns(built, ai_on):
+    """chat_filter drops keys that hold a person; none of the look-ups' own keys may look like one."""
+
+    def keys(value, path=""):
+        if isinstance(value, dict):
+            return {
+                k for key, inner in value.items() for k in {f"{path}.{key}"} | keys(inner, f"{path}.{key}")
+            }
+        if isinstance(value, list):
+            return {k for inner in value for k in keys(inner, f"{path}[]")}
+        return set()
+
+    ctx = chat.context(_scope(), ai_on)
+    check = privacy.chat_filter(ctx)
+    with tools.bind(ctx):
+        results = [tools.fm_summary(group_by=group) for group in ("none", "partner", "rule", "month")]
+        results += [tools.fm_visits(limit=30), tools.fm_visit("1722"), tools.fm_search("classes")]
+    for result in results:
+        assert keys(check("fm_x", result)) == keys(result)
+    assert results[1]["grouping"] == "partner" and ctx.privacy_blocked == 0
+
+
 # ------------------------------------------------------------------------------------------ citations
 def test_citations_of_visits_not_looked_up_are_unlinked_and_figures_listed(
     built, ai_on, model, client_viewer
@@ -199,6 +234,29 @@ def test_a_fully_checked_answer_says_so():
     # e-mail addresses, phones and known names are replaced, line by line
     named = citations.verify("Ask Karim Canary\n- karim.canary@example.org", ctx, frozenset({"karim canary"}))
     assert "Karim" not in named.text and "@" not in named.text and "\n- " in named.text
+
+
+def test_a_link_written_another_way_is_checked_too():
+    """A titled link, a reference link or raw HTML must not carry an unseen visit past the check."""
+    ctx = tools.ChatContext(
+        scope=_scope(), texts_left=0, cards_max=15, seen={"1722"}, urls={"/fmm/?year=2026"}
+    )
+    answer = (
+        '[Visit 9999](/fmm/visits/9999/ "Visit 9999") and [Visit 1722](</fmm/visits/1722/>).\n\n'
+        'See [Visit 8888][a] and <a href="/fmm/visits/7777/">Visit 7777</a>, '
+        '[the page](/fmm/?year=2026) and <a href="/partners/1/">a partner</a>.\n\n'
+        "[a]: /fmm/visits/8888/\n"
+    )
+    checked = citations.verify(answer, ctx, frozenset())
+    for key in ("9999", "8888", "7777"):
+        assert f"/fmm/visits/{key}/" not in checked.html, key
+        assert key in checked.removed, key
+    assert 'href="/fmm/visits/1722/"' in checked.html and checked.kept == ["1722"]
+    assert 'href="/fmm/?year=2026"' in checked.html  # a url a look-up returned
+    assert "/partners/1/" not in checked.html and "a partner" in checked.html
+    assert "Visit 9999 (not checked)" in checked.text and "Visit 7777 (not checked)" in checked.html
+    # a name after a title is withheld even when NeuroDB does not know it
+    assert "Layla" not in citations.verify("Mrs Layla Saab called.", ctx, frozenset()).text
 
 
 # ------------------------------------------------------------------------------------------ history

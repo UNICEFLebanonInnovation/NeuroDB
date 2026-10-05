@@ -25,6 +25,7 @@ reads an eTools record's raw data or the people of a visit.
 from __future__ import annotations
 
 import datetime
+import re
 from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -399,7 +400,7 @@ def fm_summary(
         out["hint"] = "What was asked is outside the page's filter, so no visit matches."
     if group_by and group_by != "none":
         rows, total = _groups(scope, group_by, limits)
-        out["group_by"] = group_by
+        out["grouping"] = group_by  # not "group_by": the look-up filter drops keys ending in "_by"
         out["groups"] = rows
         if total > len(rows):
             out["groups_total"] = total
@@ -488,10 +489,13 @@ def _text(ctx: ChatContext, raw: str, elsewhere: str, names_: frozenset[str]) ->
     return cleaned
 
 
+CARD_KEY = re.compile(r"^\s*visit\s*:\s*", re.IGNORECASE)  # a card's "key" ("visit:1722", "visit:r-…")
+
+
 def _find(text: str):
     from ..views import _find as find  # "1722", "#1722", "Visit 1722", a key, a reference
 
-    return find(text)
+    return find(CARD_KEY.sub("", text))
 
 
 def _hact(visit) -> dict[str, Any] | None:
@@ -747,9 +751,10 @@ FMM_TOOLS: dict[str, tuple[Any, str, dict, str]] = {
     ),
     "fm_visit": (
         fm_visit,
-        'One field monitoring visit in full, by its id (1722), "Visit 1722" or its reference: its card, '
-        "its entities with their ratings and notes, the quality rules' results, its urgency, action points, "
-        "HACT context and checklist answers. A visit outside the filter is not read.",
+        'One field monitoring visit in full, by its id (1722), "Visit 1722", its reference or the key a '
+        "list returned (visit:1722): its card, its entities with their ratings and notes, the quality "
+        "rules' results, its urgency, action points, HACT context and checklist answers. A visit outside "
+        "the filter is not read.",
         _schema({"visit": {"type": "string"}}, ["visit"]),
         "Reading a monitoring visit",
     ),

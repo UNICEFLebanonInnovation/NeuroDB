@@ -286,3 +286,41 @@ console.log(typeof mod.init);
     )
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == "function"
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_a_chat_inside_a_page_does_not_take_the_focus_on_load():
+    """The chat sits under the brief: starting it must not focus its box (the page would jump to it);
+    the Ask page's own box still gets the focus."""
+    script = """
+globalThis.window = { crypto: { randomUUID: () => "00000000-0000-4000-8000-000000000000" } };
+const focused = [];
+const element = (id) => ({
+  id, style: {}, value: "", hidden: false, dataset: {}, scrollHeight: 20,
+  addEventListener() {}, focus() { focused.push(id); }, setSelectionRange() {},
+  querySelectorAll: () => [], querySelector: () => null, classList: { toggle() {} },
+});
+const root = (module) => {
+  const parts = {};
+  return {
+    dataset: module ? { module: "ask", scope: "section=" } : {},
+    querySelector: (sel) => (sel.startsWith("#") ? (parts[sel] ??= element(sel)) : null),
+    querySelectorAll: () => [],
+    classList: { toggle() {} },
+  };
+};
+globalThis.document = { querySelector: () => null };
+const mod = await import(process.argv[1]);
+mod.init(root(true));
+const inChat = focused.length;
+mod.init(root(false));
+console.log(JSON.stringify([inChat, focused.length]));
+"""
+    out = subprocess.run(
+        [NODE, "--input-type=module", "-e", script, (STATIC / "js" / "ask.js").as_uri()],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "[0,1]"

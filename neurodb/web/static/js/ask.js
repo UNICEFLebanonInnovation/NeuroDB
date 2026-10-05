@@ -123,6 +123,7 @@ export function init(root) {
   // A question from /ask/?q= (the search box's link) is only filled in: the user presses Ask, so a
   // crawler following the link or a page reload never sends it.
   autosize();
+  if (root.dataset.module) return; // a chat inside another page: never take the focus (or scroll) on load
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
 }

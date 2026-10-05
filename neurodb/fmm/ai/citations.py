@@ -8,8 +8,10 @@ and the people or contacts it may name.
 - Figures: references and dates are set aside first (``watch.grounding``); every other number must be
   one the look-ups returned (``ctx.numbers``, with one-decimal and whole roundings), or a whole number up
   to 10 (a count of what is cited). The others are listed under the answer as not checked.
-- E-mail addresses, phone numbers, links outside NeuroDB and the names NeuroDB knows are replaced by
-  placeholders, line by line, so the answer keeps its Markdown.
+- E-mail addresses, phone numbers, links outside NeuroDB, the names NeuroDB knows and any name written
+  after a title ("Mrs ...") are replaced by placeholders, line by line, so the answer keeps its Markdown.
+- The rendered answer gets the same link check once more, so a link written another way (a reference
+  link, raw HTML) cannot slip past it.
 
 The notice under the answer says what was done: "All visit references were checked against the visits
 looked up." or "1 visit reference was removed (not among the visits looked up). These figures could not
@@ -18,6 +20,7 @@ be checked against the data: 444, 1004."
 
 from __future__ import annotations
 
+import html
 import re
 from dataclasses import dataclass, field
 
@@ -30,8 +33,13 @@ from neurodb.watch import grounding, people, redact
 
 from .. import privacy
 
-# [text](url): a Markdown link (the url without spaces)
-LINK = re.compile(r"\[([^\]\n]{0,300})\]\(\s*([^)\s]+)\s*\)")
+# [text](url), [text](<url>) or [text](url "title"): a Markdown link (the url without spaces)
+LINK = re.compile(
+    r"\[([^\]\n]{0,300})\]\(\s*<?([^)\s<>]+)>?(?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^)\n]*\)))?\s*\)"
+)
+# <a href="...">...</a> in the rendered answer: a link written another way (a reference link, raw HTML)
+ANCHOR = re.compile(r"<a\b([^>]*)>(.*?)</a>", re.DOTALL)
+HREF = re.compile(r'\bhref="([^"]*)"')
 VISIT_URL = re.compile(r"^/fmm/visits/([A-Za-z0-9_-]{1,40})/?(?:[?#].*)?$")
 # "Visit 1722", "#1722": a visit named in the text, not a figure
 VISIT_NAMED = re.compile(r"\b[Vv]isits?\s+#?\d+\b|#\d+\b")
@@ -81,6 +89,7 @@ def _scrub(text: str, names_: frozenset[str]) -> str:
         line = redact.LINK.sub(redact.LINK_WITHHELD, line)
         line = privacy.PHONE.sub(privacy.PHONE_WITHHELD, line)
         line = privacy.INTL_PHONE.sub(privacy.PHONE_WITHHELD, line)
+        line = privacy.HONORIFIC_NAME.sub(people.NAME_WITHHELD, line)
         lines.append(people.scrub(line, names_))
     return "\n".join(lines)
 
@@ -133,9 +142,26 @@ def verify(answer: str, ctx, names_: frozenset[str] | None = None) -> Checked:
             return match.group(0)
         return label
 
+    def anchor(match: re.Match) -> str:
+        # The last guard, on the HTML shown: a link the Markdown check did not see (a reference link,
+        # raw HTML) stays only on the same terms.
+        href = HREF.search(match.group(1))
+        inner = match.group(2)
+        url = html.unescape(href.group(1)) if href else ""
+        visit = VISIT_URL.match(url)
+        if visit:
+            key = visit.group(1)
+            if key in ctx.seen:
+                if key not in kept:
+                    kept.append(key)
+                return match.group(0)
+            if key not in removed:
+                removed.append(key)
+            return f"{inner} {NOT_CHECKED}"
+        return match.group(0) if url and url in ctx.urls else inner
+
     text = LINK.sub(link, str(answer or ""))
     text = _scrub(text, names_)
     unchecked = _unchecked(text, ctx.numbers)
-    return Checked(
-        text=text, html=agent.render(text), kept=kept, removed=removed, unchecked_numbers=unchecked
-    )
+    shown = ANCHOR.sub(anchor, agent.render(text))
+    return Checked(text=text, html=shown, kept=kept, removed=removed, unchecked_numbers=unchecked)
