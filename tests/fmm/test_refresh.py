@@ -485,13 +485,55 @@ def test_a_failed_pass_leaves_its_request(fm_world, versions, monkeypatch, start
 
 def test_a_served_request_is_cleared(fm_world, versions, started):
     refresh.request("scores", "admin:3")
+    _full(scores_only=True)
+    assert RefreshRequest.load().scores_requested_at is None and not status.rescore_pending()
+    refresh.request("scores", "admin:3")
     refresh.request("full", "admin:3")
-    _full(scores_only=True)  # serves the scores request only
-    row = RefreshRequest.load()
-    assert row.scores_requested_at is None and row.full_requested_at is not None
-    _full()
+    _full()  # a full pass serves both
     row = RefreshRequest.load()
     assert row.scores_requested_at is None and row.full_requested_at is None
+    assert [target for target, _, _ in _passes()] == ["scores", "full"]
+
+
+def test_a_full_request_left_by_a_scores_only_pass_is_served_by_the_same_run(fm_world, versions, started):
+    """A key pinned just before a scores-only run took the lock: its own full command found the lock
+    held and stopped. The scores-only pass does not serve it, so the same run makes the full pass
+    after it, instead of leaving it to the next morning."""
+    _full()
+    refresh.request("scores", "admin:3")
+    refresh.request("full", "admin:4")
+    last = _full(scores_only=True)
+    assert [(target, who) for target, who, _ in _passes()] == [
+        ("full", "test"),
+        ("scores", "test"),
+        ("full", "admin:4"),
+    ]
+    assert last.target == "full" and not status.rescore_pending()
+
+
+def test_a_request_left_by_the_key_probe_is_served_by_the_same_run(fm_world, versions, started):
+    refresh.request("scores", "admin:3")
+    _probe()
+    assert [target for target, _, _ in _passes()] == ["probe", "scores"]
+    assert RefreshRequest.load().scores_requested_at is None
+
+
+def test_a_request_committed_after_a_pass_read_the_settings_is_not_lost(
+    fm_world, versions, started, django_capture_on_commit_callbacks
+):
+    """A save stamps its request inside its own transaction. A pass that starts before the commit reads
+    the old settings, and then clears that stamp as served; the stamp written again at the commit is
+    newer than that pass, so the request waits for (and gets) a pass of its own."""
+    with django_capture_on_commit_callbacks() as callbacks:  # the save, not committed yet
+        refresh.request("full", "admin:6")
+    _full()  # started before the commit
+    assert RefreshRequest.load().full_requested_at is None
+    for callback in callbacks:  # the commit
+        callback()
+    assert RefreshRequest.load().full_requested_at is not None and status.rescore_pending()
+    assert started == [("fmm_refresh", "--triggered-by", "admin:6")]
+    _full()  # the command it started
+    assert RefreshRequest.load().full_requested_at is None and not status.rescore_pending()
 
 
 def test_scores_are_pending_while_a_visit_has_an_older_rules_version(fm_world, versions):
@@ -568,6 +610,19 @@ def test_the_refresh_after_a_sync_can_run_in_the_background_or_not_at_all(
     settings.FMM_REFRESH_AFTER_SYNC, settings.FMM_ENABLED = "inline", False
     datamart_sync("field_monitoring")
     assert len(started) == 1 and not _refreshes().exists()
+
+
+def test_a_refresh_that_cannot_start_never_fails_the_sync(
+    fm_world, datamart_sync, settings, monkeypatch, caplog
+):
+    def broken(*args):
+        raise OSError("cannot start a process")
+
+    settings.FMM_REFRESH_AFTER_SYNC = "background"
+    monkeypatch.setattr(background, "start_command", broken)
+    out = datamart_sync("field_monitoring")  # no CommandError, no traceback
+    assert "could not be started after this sync" in out and "could not start" in caplog.text
+    assert not _refreshes().exists()
 
 
 def test_a_request_made_during_the_key_probe_is_served_too(fm_world, versions, monkeypatch, started):

@@ -23,6 +23,11 @@ def last_refresh() -> SyncRun | None:
     return _last("full", "scores")
 
 
+def last_build() -> SyncRun | None:
+    """The last full refresh that finished: the one that built the visits now shown."""
+    return _last("full")
+
+
 def last_probe() -> SyncRun | None:
     """The last refresh that read the eTools keys (a full one, or the key probe alone)."""
     return _last("full", "probe")

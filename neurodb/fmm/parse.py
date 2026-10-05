@@ -275,7 +275,7 @@ def search_texts(visit_keys: Collection[str], needle: str, limit: int) -> list[T
     case and accents do not matter), newest visits first, at most ``limit``. An answer record counts
     only when the needle is in the value of its answer, answer label or summary: a record that holds
     it in a key's name, in a value that holds a person or in any other field does not."""
-    from django.db.models import TextField
+    from django.db.models import F, TextField
     from django.db.models.functions import Cast
 
     from neurodb.datamart.models import DatamartDocument, MonitoringFinding
@@ -289,7 +289,7 @@ def search_texts(visit_keys: Collection[str], needle: str, limit: int) -> list[T
         key: rank
         for rank, key in enumerate(
             Visit.objects.filter(key__in=list(visit_keys))
-            .order_by("-end_date", "key")
+            .order_by(F("end_date").desc(nulls_last=True), "key")  # a visit without a date last
             .values_list("key", flat=True)
         )
     }

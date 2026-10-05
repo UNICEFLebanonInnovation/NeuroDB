@@ -28,8 +28,11 @@ records. ``--probe-only`` (target "probe") runs steps 1-3 alone.
 **Requests are never lost.** A saved rule asks for a scores-only pass and a pinned key for a full one
 (:func:`request`): it stamps ``RefreshRequest`` and starts the command in the background, which does
 nothing when another refresh holds the lock. So every run looks at the requests before it releases
-the lock (and once more after): one newer than its last pass, or a rules version that changed while it
-ran, gets another pass, up to ``FMM_REFRESH_MAX_PASSES``. The pass that serves a request clears it.
+the lock (and once more after): one newer than its last pass or that pass did not serve (a full
+request after a scores-only pass), or a rules version that changed while it ran, gets another pass, up
+to ``FMM_REFRESH_MAX_PASSES``. The pass that serves a request clears it; a request is stamped again
+when the save that made it is committed, so a pass that read the settings before the commit never
+clears it.
 """
 
 from __future__ import annotations
@@ -190,25 +193,41 @@ def request(kind: Literal["scores", "full"], who: str) -> None:
     refresh holds the lock, that command does nothing and the running refresh serves the request."""
     if kind not in ("scores", "full"):
         raise ValueError(f"unknown refresh kind {kind!r}")
+    stamped = f"{kind}_requested_at"
     RefreshRequest.load()
-    RefreshRequest.objects.filter(pk=1).update(
-        **{f"{kind}_requested_at": timezone.now()}, requested_by=(who or "")[:150]
-    )
+    RefreshRequest.objects.filter(pk=1).update(**{stamped: timezone.now()}, requested_by=(who or "")[:150])
     args = ("--scores-only",) if kind == "scores" else ()
-    transaction.on_commit(lambda: background.start_command("fmm_refresh", *args, "--triggered-by", who))
+
+    def start() -> None:
+        # Stamped again once the save is committed: a pass that started before the commit read the
+        # old settings, and may already have cleared the first stamp as served. This one is newer than
+        # that pass's start, so it is served after it.
+        RefreshRequest.objects.filter(pk=1).update(**{stamped: timezone.now()})
+        background.start_command("fmm_refresh", *args, "--triggered-by", who)
+
+    transaction.on_commit(start)
 
 
 def _wanted(since: datetime, last: SyncRun, triggered_by: str) -> tuple[Kind | None, str]:
     """The pass the requests ask for after a pass that started at ``since``: a full one, a scores-only
-    one, or none; and who asked. A rules version saved while that pass ran asks for a scores-only one."""
+    one, or none; and who asked. A request is waiting when it is newer than that pass's start, or when
+    that pass did not fail and did not serve it (a scores-only pass or the key probe leaves a full
+    request, made before it started, whose own command found the lock held). A rules version saved
+    while that pass ran asks for a scores-only one."""
     row = RefreshRequest.objects.filter(pk=1).first()
     who = (row.requested_by if row else "") or triggered_by
-    if row and row.full_requested_at and row.full_requested_at > since:
+    # a pass that did not fail cleared what it served: what is left of the requests is waiting
+    finished = last.status != SyncRun.Status.FAILED
+
+    def waiting(at: datetime | None) -> bool:
+        return at is not None and (at > since or finished)
+
+    if row and waiting(row.full_requested_at):
         return "full", who
-    if row and row.scores_requested_at and row.scores_requested_at > since:
+    if row and waiting(row.scores_requested_at):
         return "scores", who
     version = (last.details or {}).get("rules_version")
-    if last.status != SyncRun.Status.FAILED and version is not None and version != current_rules_version():
+    if finished and version is not None and version != current_rules_version():
         return "scores", who
     return None, ""
 

@@ -1328,8 +1328,9 @@ errors*), and Data health lists both. It runs:
 what changes with the day or the rules (for now the action point counts); `--probe-only` runs steps
 1-3 alone. A saved rule (a later step) asks for a scores-only refresh and a pinned key for a full one:
 the request is kept (`RefreshRequest`), and a refresh that is running when it arrives looks at it
-before it releases its lock and runs the pass asked for, at most `FMM_REFRESH_MAX_PASSES` passes, so a
-request is never lost. `FMM_ENABLED=false` makes the refresh do nothing.
+before it releases its lock and runs the pass asked for (a scores-only run that finds a full refresh
+asked for runs it too), at most `FMM_REFRESH_MAX_PASSES` passes, so a request is never lost; one left
+over waits for the next run. `FMM_ENABLED=false` makes the refresh do nothing.
 
 The team names of the visits join the names NeuroDB removes from every text it sends (NeuroDB Watch,
 Ask NeuroDB, the AI checks), and the section names written on visits join the eTools section names an
@@ -1344,6 +1345,10 @@ Fields found shows, above the keys of each dataset:
 - the share of checklist answer records that hold an answer, and "Unanswered questions seen: n of N
   records": none among 200 or more means eTools exports answered questions only, so the share of
   questions answered (quality rule R2) cannot be measured;
+- from the last full refresh: the share of checklist answer records that matched a visit, and how the
+  FM action points were matched to theirs (by the activity id, the activity reference or its reference
+  number, or not at all). Under 50% is flagged: for the action points, it means eTools' related
+  module id is probably not the activity id;
 - the fields not found, the choices to look at, and the rating, status and entity type values the
   findings hold with how NeuroDB reads each ("not recognised" ones need a change in the code).
 
@@ -1364,10 +1369,11 @@ on, and before its figures are trusted:
 1. After a nightly Datamart sync in production (the refresh runs after it; `python manage.py
    fmm_refresh --probe-only` reads the keys alone), read Fields found: the activity id coverage; the
    keys chosen for the activity id and reference, the question id and text, the answer, its label and
-   summary, the entity and its type and
-   `is_hact`; whether unanswered questions are exported; the Q1, Q2, Q3 and PSEA question texts as
-   written; the option labels of Q1; the rating and status values; any team, office or section key;
-   and whether the FM action points' `related_module_id` is the activity id.
+   summary, the entity and its type and `is_hact`; whether unanswered questions are exported; the Q1,
+   Q2, Q3 and PSEA question texts as written; the option labels of Q1; the rating and status values;
+   any team, office or section key; the share of checklist records that matched a visit; and whether
+   the FM action points' `related_module_id` is the activity id (the share matched by the activity
+   id).
 2. Record real samples: `python manage.py record_datamart_samples --only
    field_monitoring,fm_questions,fm_options,fm_programme_activities,offices,sections,intervention_locations,location_sites,action_points`,
    then `python manage.py fmm_redact_fixtures tests/fixtures/datamart/`; read the diff by eye and

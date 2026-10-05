@@ -6,6 +6,8 @@ its own run: its failure never fails this command."""
 
 from __future__ import annotations
 
+import logging
+
 from django.apps import apps
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -18,8 +20,14 @@ from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS, sync_all
 from neurodb.integrations.management.commands._base import add_triggered_by, exit_on_failure, write_summary
 from neurodb.partnerships.linking import link_activityinfo_partners
 
+logger = logging.getLogger(__name__)
+
 FAILED = "failed"
 CORE = ("locations", "partners", "interventions", "intervention_budgets", "agreements")
+FMM_NOT_STARTED = (
+    "The Monitoring insights refresh could not be started after this sync (see the log); "
+    "it runs again at 05:25."
+)
 
 
 class Command(BaseCommand):
@@ -56,18 +64,24 @@ class Command(BaseCommand):
 
     def _monitoring_insights(self, runs, triggered_by: str):
         """Rebuild the Monitoring insights visits when a dataset they read was synced (the Datamart lock
-        is released by now). Never raises: a failure is its own failed run."""
+        is released by now). Never raises: a failure is its own failed run, and a refresh that cannot
+        even start is logged (the 05:25 run catches up)."""
         mode = settings.FMM_REFRESH_AFTER_SYNC  # "inline" (default) | "background" | "off"
         if not (settings.FMM_ENABLED and mode != "off" and apps.is_installed("neurodb.fmm")):
             return None
-        from neurodb.fmm import refresh as fmm_refresh  # lazy: no module-level dependency
+        try:
+            from neurodb.fmm import refresh as fmm_refresh  # lazy: no module-level dependency
 
-        if not fmm_refresh.wanted_after(runs):
+            if not fmm_refresh.wanted_after(runs):
+                return None
+            if mode == "background":
+                background.start_command("fmm_refresh", "--triggered-by", triggered_by)
+                return None
+            return fmm_refresh.run_safely(triggered_by=triggered_by)
+        except Exception:  # e.g. the background process could not be started
+            logger.exception("The Monitoring insights refresh after the Datamart sync could not start")
+            self.stdout.write(self.style.WARNING(FMM_NOT_STARTED))
             return None
-        if mode == "background":
-            background.start_command("fmm_refresh", "--triggered-by", triggered_by)
-            return None
-        return fmm_refresh.run_safely(triggered_by=triggered_by)
 
     def _lock(self) -> bool:
         if connection.vendor != "postgresql":

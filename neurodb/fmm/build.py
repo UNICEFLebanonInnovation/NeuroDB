@@ -346,7 +346,6 @@ class _Builder:
             "offices_from": Counter(),
             "action_points": Counter(),
             "questions": Counter(),
-            "applies_to": Counter(),
         }
 
     def failed(self, label: str, exc: BaseException) -> None:
@@ -499,12 +498,9 @@ class _Builder:
             if answer is None:
                 counts["no_question"] += 1
                 continue
-            self.result.answers.append(answer)
+            self.result.answers.append(answer)  # counted as linked once its visit is built
             if answer.visit_key:
-                counts["linked"] += 1
                 self.answers_by_key[answer.visit_key].append(answer)
-            else:
-                counts["unlinked"] += 1
 
     def _answer(self, pk: int, record: Any, keys: Mapping[str, str | None], options) -> _Answer | None:
         if not isinstance(record, dict):
@@ -660,6 +656,10 @@ class _Builder:
                 visit, entities = self._visit(key, self.rows[key])
             except Exception as exc:
                 self.failed(f"visit {key}", exc)
+                # its answers are kept as joining no visit: none may point at an entity row of a visit
+                # that is not written, or the whole swap would fail on it
+                for answer in self.answers_by_key.get(key, ()):
+                    answer.entity, answer.partner_id, answer.applies_to = None, None, "visit"
                 continue
             self.result.visits.append(visit)
             self.result.entities += entities
@@ -960,7 +960,6 @@ class _Builder:
                 answer.partner_id, answer.applies_to, unit = pid, "partner", f"p{pid}"
             else:
                 answer.applies_to, unit = "visit", "v"
-            self.counts["applies_to"][answer.applies_to] += 1
             pair = (answer.question_key, unit)
             asked[pair] = asked.get(pair, False) or answer.parsed.answered
         visit.questions_asked = min(len(asked), 32767)
@@ -971,6 +970,10 @@ class _Builder:
         visits = self.result.visits
         counts = self.counts
         questions = counts["questions"]
+        # the answers that join a visit written (not one whose build failed), by what they apply to
+        built = {v.key for v in visits}
+        joined = Counter(a.applies_to for a in self.result.answers if a.visit_key in built)
+        linked = sum(joined.values())
         self.result.details = {
             "visits": len(visits),
             "findings": self.result.findings,
@@ -996,11 +999,11 @@ class _Builder:
             },
             "questions": {
                 "parsed": self.result.questions,
-                "linked": questions.get("linked", 0),
-                "unlinked": questions.get("unlinked", 0),
+                "linked": linked,
+                "unlinked": len(self.result.answers) - linked,
                 "no_question": questions.get("no_question", 0),
                 "visits_with_questions": sum(1 for v in visits if v.questions_asked is not None),
-                "applies_to": {k: counts["applies_to"].get(k, 0) for k in ("entity", "partner", "visit")},
+                "applies_to": {k: joined.get(k, 0) for k in ("entity", "partner", "visit")},
             },
         }
 

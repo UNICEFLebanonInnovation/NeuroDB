@@ -175,3 +175,26 @@ def test_the_visits_admin_is_read_only_and_shows_the_links(admin_client, fm_worl
         assert canary not in html
     assert admin_client.get(reverse("admin:fmm_visit_add")).status_code == 403
     assert admin_client.get(reverse("admin:fmm_visitreview_changelist")).status_code == 200
+
+
+def test_fields_found_shows_how_the_records_matched_their_visits(admin_client, fm_world):
+    from neurodb.datamart import models as dm
+
+    assert "matched a visit" not in _page(admin_client)  # no full refresh yet
+    refresh.run(triggered_by="test")
+    html = _page(admin_client)
+    assert "100% of the checklist answer records matched a visit (13 of 13)." in html
+    assert (
+        "FM action points: 50% matched to their visit by the activity id, 25% by the activity reference, "
+        "0% by the reference number, 25% not matched (4 in all)." in html
+    )
+    assert "Under half match by the activity id" not in html
+    # few action points match by the activity id: eTools' related module id may be something else
+    dm.ActionPoint.objects.filter(datamart_id__in=(8001, 8004)).update(related_module_id=99999)
+    refresh.run(triggered_by="test")
+    html = _page(admin_client)
+    assert "FM action points: 0% matched to their visit by the activity id" in html
+    assert "Under half match by the activity id" in html
+    # a key probe alone does not hide the last build's rates
+    refresh.run(triggered_by="test", probe_only=True)
+    assert "FM action points: 0% matched" in _page(admin_client)

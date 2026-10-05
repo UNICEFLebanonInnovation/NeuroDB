@@ -413,6 +413,31 @@ def test_an_answer_of_no_visit_is_kept_unlinked(fm_world):
     assert run.details["questions"]["unlinked"] == 1
 
 
+def test_a_visit_that_cannot_be_built_is_skipped_and_its_answers_kept_unlinked(fm_world, monkeypatch):
+    """A visit that fails after its answers were matched to its entity rows: those rows are never
+    written, so its answers must not point at them (the whole swap would fail on it)."""
+    search = build.search_text
+
+    def flaky(*parts):
+        if "Visit 1722" in parts:
+            raise ValueError("unreadable visit")
+        return search(*parts)
+
+    monkeypatch.setattr(build, "search_text", flaky)
+    run = _refresh()
+    assert (run.status, run.rows_failed) == (SyncRun.Status.PARTIAL, 1), run.error
+    assert not Visit.objects.filter(key="1722").exists() and Visit.objects.count() == 7
+    documents = dm.DatamartDocument.objects.filter(dataset="fm_questions", data__monitoring_activity_id=1722)
+    kept = QuestionAnswer.objects.filter(document_id__in=documents.values("pk"))
+    assert kept.count() == 5
+    assert set(kept.values_list("visit", "visit_key", "entity", "partner", "applies_to")) == {
+        (None, "", None, None, "")
+    }
+    questions = run.details["questions"]
+    assert (questions["linked"], questions["unlinked"]) == (8, 5)
+    assert sum(questions["applies_to"].values()) == 8
+
+
 # ------------------------------------------------------------------------------------------ never kept
 TEXTS = (
     CANARY_TEXT,

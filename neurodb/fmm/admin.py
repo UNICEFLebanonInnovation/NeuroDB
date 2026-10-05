@@ -33,6 +33,7 @@ STATE_TONES = {
 }
 PD_TARGET = 0.9  # the share of programme document rows that should be linked (go-live checklist)
 R2_MIN_RECORDS = 200  # below this, no answers left blank says nothing about the export
+MATCH_TARGET = 0.5  # below this share of records joined to their visit, Fields found warns
 
 
 def _pct(share: float | None) -> str:
@@ -106,6 +107,57 @@ def _rates(run: SyncRun | None) -> list[dict[str, Any]]:
                 % {"total": f"{questions['records']:,}"},
                 "hint": _("Rules R2, R3 and R5 and the HACT Q1 and PSEA figures are not available."),
                 "warn": True,
+            }
+        )
+    return lines
+
+
+def _match_rates(run: SyncRun | None) -> list[dict[str, Any]]:
+    """How well the last build joined the records to visits: the checklist answer records that found
+    their visit, and how the FM action points were matched (few by the activity id means eTools'
+    related module id may not be the activity id)."""
+    details = (run.details or {}) if run else {}
+    lines: list[dict[str, Any]] = []
+    questions = details.get("questions") or {}
+    linked = questions.get("linked") or 0
+    read = linked + (questions.get("unlinked") or 0)
+    if read:
+        share = linked / read
+        lines.append(
+            {
+                "text": _("%(pct)s of the checklist answer records matched a visit (%(n)s of %(total)s).")
+                % {"pct": _pct(share), "n": f"{linked:,}", "total": f"{read:,}"},
+                "hint": _("Check the keys of the activity id and reference of the checklist answers.")
+                if share < MATCH_TARGET
+                else "",
+                "warn": share < MATCH_TARGET,
+            }
+        )
+    points = details.get("action_points") or {}
+    total = points.get("fm_total") or 0
+    if total:
+        share = (points.get("related_id") or 0) / total
+        lines.append(
+            {
+                "text": _(
+                    "FM action points: %(id)s matched to their visit by the activity id, %(ref)s by the "
+                    "activity reference, %(number)s by the reference number, %(none)s not matched "
+                    "(%(total)s in all)."
+                )
+                % {
+                    "id": _pct(share),
+                    "ref": _pct((points.get("reference") or 0) / total),
+                    "number": _pct((points.get("reference_number") or 0) / total),
+                    "none": _pct((points.get("unlinked") or 0) / total),
+                    "total": f"{total:,}",
+                },
+                "hint": _(
+                    "Under half match by the activity id: check whether eTools' related module id of "
+                    "an action point is the activity id."
+                )
+                if share < MATCH_TARGET
+                else "",
+                "warn": share < MATCH_TARGET,
             }
         )
     return lines
@@ -200,7 +252,7 @@ def fields_found() -> dict[str, Any]:
         "run": probe_run,
         "failed": _failed_after(latest, probe_run),
         "running": background.is_running(SyncRun.Job.FMM_REFRESH),
-        "rates": _rates(probe_run),
+        "rates": _rates(probe_run) + _match_rates(status.last_build()),
         "not_found": details.get("fields_not_found") or [],
         "ambiguous": details.get("fields_ambiguous") or [],
         "overrides_missing": details.get("overrides_missing") or [],
@@ -270,6 +322,9 @@ class VisitEntityInline(_ReadOnlyInline):
         "narrative_placeholder",
     )
     verbose_name_plural = "monitored entities (finding rows)"
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("pd", "partner")
 
 
 class VisitActionPointInline(_ReadOnlyInline):
@@ -388,6 +443,7 @@ class VisitReviewAdmin(ReadOnlyModelAdmin):
     """The marks sections put on visits (reviewed, needs follow-up, data issue)."""
 
     list_display = ("visit_key", "status", "reviewed_by", "created_at")
+    list_select_related = ("reviewed_by",)
     list_filter = ("status",)
     search_fields = ("visit_key",)
     readonly_fields = ("visit_key", "status", "note", "reviewed_by", "created_at")
