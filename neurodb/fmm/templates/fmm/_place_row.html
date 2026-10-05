@@ -1,0 +1,6 @@
+{% load i18n %}<tr>
+  <td><span data-synced>{{ p.name }}</span></td>
+  <td class="small"><span data-synced>{{ p.governorate|default:"—" }}</span></td>
+  <td>{% if p.url %}<a href="{{ p.url }}" hx-get="{{ p.url }}" hx-target="#modal-content">{{ p.visits }}</a>{% else %}{{ p.visits }}{% endif %}</td>
+  <td class="small text-nowrap" data-value="{{ p.last|date:'Y-m-d' }}">{{ p.last|date:"j M Y"|default:"—" }}</td>
+</tr>

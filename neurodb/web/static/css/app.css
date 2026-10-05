@@ -930,6 +930,29 @@ tr.row--amber > td:first-child { box-shadow: inset 3px 0 0 var(--nd-warning); }
 tr.row--red > td:first-child, tr.row--amber > td:first-child { background: var(--nd-surface); background-image: linear-gradient(var(--row-tint), var(--row-tint)); }
 tr.row--red { --row-tint: color-mix(in srgb, var(--nd-danger-soft) 70%, transparent); }
 tr.row--amber { --row-tint: color-mix(in srgb, var(--nd-warning-soft) 70%, transparent); }
+.meter__fill--success { --meter-color: var(--nd-success); }
+.meter__fill--info { --meter-color: var(--nd-info); }
+.meter__fill--warning, .meter__fill--constrained { --meter-color: var(--nd-warning); }
+.meter__fill--danger { --meter-color: var(--nd-danger); }
+.meter__fill--not_monitored { --meter-color: var(--nd-muted); }
+.fmm-tab > .panel, .fmm-tab > .grid { margin-bottom: 1rem; }
+.fmm-meter-row { padding: 0.4rem 0; border-bottom: 1px solid var(--nd-border); }
+.fmm-meter-row:last-of-type { border-bottom: 0; }
+.fmm-meter-row__head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0.15rem 0.75rem; font-size: 0.86rem; margin-bottom: 0.2rem; }
+.fmm-meter-row .meter__track, .fmm-section .meter__track { height: 8px; }
+.fmm-meter-row details { margin-top: 0.2rem; }
+.fmm-cards { display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
+.fmm-card { padding: 0.55rem 0.7rem; border: 1px solid var(--nd-border); border-radius: var(--nd-radius-sm); background: var(--nd-surface); min-width: 0; }
+.fmm-badges { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.fmm-section { padding: 0.4rem 0; border-bottom: 1px solid var(--nd-border); }
+.fmm-section > summary { cursor: pointer; list-style: none; }
+.fmm-section > summary::-webkit-details-marker { display: none; }
+.fmm-section > summary .meter { display: flex; }
+.fmm-visit-lines { list-style: none; margin: 0.35rem 0 0; padding: 0; font-size: 0.8rem; columns: 2 18rem; column-gap: 1.5rem; }
+.fmm-visit-lines li { break-inside: avoid; padding: 0.05rem 0; }
+.chart--clickable .nsewdrag, .chart--clickable .draglayer .drag { cursor: pointer; }
+.fmm-tab a.mini { color: inherit; text-decoration: none; }
+.fmm-tab a.mini[href]:hover, .fmm-tab a.mini[href]:focus-visible { outline: 1px solid var(--nd-primary); }
 @media (max-width: 575.98px) {
   .fmm-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } /* the key figures two by two */
   /* the visit window takes the whole screen on phones */

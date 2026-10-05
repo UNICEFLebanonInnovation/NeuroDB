@@ -1,5 +1,6 @@
-"""The Monitoring insights page (``/fmm/``): its tabs, the visits table and its CSV, the visit page, the
-visit look-up and the reviews.
+"""The Monitoring insights page (``/fmm/``): its tabs (Insights, Quality, Analysis, Visits), the
+visits table and its CSV, the visit page, the visit look-up, the reviews and the drill-down window
+that lists the visits behind a chart cell or a count.
 
 Every view reads the stored visits through a :class:`~neurodb.fmm.scope.Scope` built from the query
 string; an HTMX request gets the partial it swaps in, a plain request the full page. With
@@ -34,10 +35,26 @@ from neurodb.web.templatetags.ui import code_label
 
 from . import access, metrics, status
 from .models import RuleSetting, ScoreSetting, Visit, VisitActionPoint, VisitReview
-from .scope import KIND_LABELS, RATING_LABELS, STATUS_LABELS, Scope, options, quarter_of
+from .scope import (
+    DRILL_KEYS,
+    KIND_LABELS,
+    RATING_LABELS,
+    RATINGS,
+    STATUS_GROUPS,
+    STATUS_LABELS,
+    Scope,
+    _drill_ok,
+    options,
+    quarter_of,
+)
 
-# The tab bar: each stage appends its own tab (Quality and Analysis, then Map, arrive later)
-TABS = [("insights", gettext_lazy("Insights")), ("visits", gettext_lazy("Visits"))]
+# The tab bar: each stage appends its own tab (the Map arrives later)
+TABS = [
+    ("insights", gettext_lazy("Insights")),
+    ("quality", gettext_lazy("Quality")),
+    ("analysis", gettext_lazy("Analysis")),
+    ("visits", gettext_lazy("Visits")),
+]
 PAGE_SIZE = 50
 SORTS = {
     "-urgency": (F("urgency").desc(), F("end_date").desc(nulls_last=True)),
@@ -185,9 +202,12 @@ def _reference(scope: Scope, snap: status.Snapshot) -> dict[str, Any]:
     }
 
 
-def _how(setting: ScoreSetting) -> dict[str, Any]:
+def _how(setting: ScoreSetting, rules: list[RuleSetting] | None = None) -> dict[str, Any]:
     """What the "How scores work" window lists: each rule as administrators set it and the thresholds."""
-    return {"rules": list(RuleSetting.objects.order_by("code")), "setting": setting}
+    return {
+        "rules": rules if rules is not None else list(RuleSetting.objects.order_by("code")),
+        "setting": setting,
+    }
 
 
 def urgency_text(parts: dict[str, Any] | None) -> str:
@@ -255,14 +275,20 @@ def _sort_next(sort: str) -> dict[str, str]:
     }
 
 
-def _table(
-    request: HttpRequest, scope: Scope, limits: dict[str, int], count: int | None = None
-) -> dict[str, Any]:
-    """The visits table: one page of the scope's visits in the chosen order."""
+def _this_year_query(scope: Scope) -> str:
+    """The scope's filters over this calendar year ("Try this year" of an empty filter)."""
     from dataclasses import replace
 
     from .scope import period
 
+    start, end = period("this_year", timezone.localdate())
+    return replace(scope, preset="this_year", start=start, end=end, year=None, drill=()).query
+
+
+def _table(
+    request: HttpRequest, scope: Scope, limits: dict[str, int], count: int | None = None
+) -> dict[str, Any]:
+    """The visits table: one page of the scope's visits in the chosen order."""
     sort = _sort(request)
     qs = scope.visits().select_related("partner").order_by(*SORTS[sort], "key")
     paginator = Paginator(qs, PAGE_SIZE)
@@ -271,8 +297,6 @@ def _table(
     page = paginator.get_page(request.GET.get("page"))
     visits = list(page.object_list)
     _decorate(visits, limits)
-    start, end = period("this_year", timezone.localdate())
-    this_year = replace(scope, preset="this_year", start=start, end=end, year=None)
     return {
         "page_obj": page,
         "visits": visits,
@@ -280,7 +304,7 @@ def _table(
         "limits": limits,
         "sort_columns": SORT_COLUMNS,
         "sort_next": _sort_next(sort),
-        "this_year_query": this_year.query,
+        "this_year_query": _this_year_query(scope),
         "downloads": [
             {"label": _("All rows (CSV)"), "url": f"{reverse('fmm:visits')}?{scope.query}&export=csv"}
         ],
@@ -354,13 +378,14 @@ def _results_context(
     request: HttpRequest, scope: Scope, tab: str, snap: status.Snapshot, when: str
 ) -> dict[str, Any]:
     setting = ScoreSetting.objects.filter(pk=1).first() or ScoreSetting()
+    rules = list(RuleSetting.objects.order_by("code"))
     context: dict[str, Any] = {
         "scope": scope,
         "tab": tab,
         "tabs": [{"key": k, "label": label, "query": _page_query(scope, tab=k)} for k, label in TABS],
         "has_visits": bool(snap.visits),
         "reference": _reference(scope, snap),
-        "how": _how(setting),
+        "how": _how(setting, rules),
     }
     if not snap.visits:
         from neurodb.datamart.models import MonitoringFinding
@@ -376,11 +401,16 @@ def _results_context(
             "notes": metrics.notes(scope, when),
             "chips": _chips(scope),
             "visits_query": _page_query(scope, tab="visits"),
+            "this_year_query": _this_year_query(scope),
             "limits": limits,
         }
     )
     if tab == "visits":
         context.update(_table(request, scope, limits, count=kpis["visits"]))
+    elif tab == "quality":
+        context.update(_quality_tab(scope, when, limits, rules))
+    elif tab == "analysis":
+        context.update(_analysis_tab(request, scope, when, limits, rules))
     return context
 
 
@@ -440,12 +470,323 @@ def _drill_value(key: str, value: str) -> str:
             return datetime.date.fromisoformat(f"{value}-01").strftime("%b %Y")
         except ValueError:
             return value
+    if key == "location":  # the place, not its id
+        from neurodb.geo.models import Location
+
+        return Location.objects.filter(pk=int(value)).values_list("name", flat=True).first() or value
+    if key == "issue":  # the issue in words, as the recurring issues list writes it
+        rule, detail_key = value.split(":", 1)
+        label = metrics.issue_label(rule, detail_key, [], RuleSetting.objects.filter(code=rule).first())
+        return label.split(": ", 1)[1] if label.startswith(f"{rule}: ") else label
+    if key == "flags":
+        return _("%(n)s or more") % {"n": value[:-1]} if value.endswith("+") else value
     return value
 
 
 def _tab(request: HttpRequest) -> str:
     wanted = request.GET.get("tab", "")
     return wanted if wanted in dict(TABS) else "insights"
+
+
+# ------------------------------------------------------------------------------------------ drill-downs
+# Filters a drill-down may narrow (a block offers only values the filter already keeps, so replacing
+# the filter's values by one of them narrows the scope)
+DRILL_FILTERS = {
+    "rating": "ratings",
+    "status": "statuses",
+    "office": "offices",
+    "section": "sections",
+    "entity_type": "entity_types",
+}
+
+
+def _narrowed(scope: Scope, params: dict[str, str]) -> Scope:
+    from dataclasses import replace
+
+    drill = [d for d in scope.drill if d[0] not in params]
+    changes: dict[str, Any] = {}
+    for key, value in params.items():
+        if key in DRILL_FILTERS:
+            changes[DRILL_FILTERS[key]] = (value,)
+        else:
+            drill.append((key, value))
+    return replace(scope, drill=tuple(drill), default_section=False, **changes)
+
+
+def drill_url(scope: Scope, **params: str) -> str:
+    """The drill-down window of the visits of ``scope`` narrowed by ``params`` (drill codes, or one
+    value of a filter: rating, status, office, section, entity type)."""
+    return f"{reverse('fmm:drill')}?{_narrowed(scope, params).query}"
+
+
+def _drill_template(scope: Scope, *keys: str) -> str:
+    """The address a chart fills in per point: the scope without ``keys`` (the chart's own drill-downs
+    and filters, which every bar already lies within), then ``key={drill}``-style placeholders."""
+    from dataclasses import replace
+
+    clear = {DRILL_FILTERS[k]: () for k in keys if k in DRILL_FILTERS}
+    base = replace(
+        scope, drill=tuple(d for d in scope.drill if d[0] not in keys), default_section=False, **clear
+    )
+    return f"{reverse('fmm:drill')}?{base.query}"
+
+
+def _with_urls(
+    rows: list[dict[str, Any]], scope: Scope, key: str, field: str = "drill"
+) -> list[dict[str, Any]]:
+    """Copies of ``rows`` (kept in the cache: never changed in place), each with the drill-down window
+    of its ``field`` value as ``url`` ("" when it has none)."""
+    return [
+        {**row, "url": drill_url(scope, **{key: str(row[field])}) if row.get(field) not in (None, "") else ""}
+        for row in rows
+    ]
+
+
+def _quality_tab(scope: Scope, when: str, limits: dict[str, int], rules: list) -> dict[str, Any]:
+    """The Quality tab: quality and visits by month, HACT Q1 by month (or the overall rating when no
+    visit has a Q1 answer), the score distribution, recurring issues, places, rule analysis, the
+    issues summary and the flags per visit."""
+    q1 = metrics.hact_q1_by_month(scope, when, limits)
+    q1_question = metrics.q1_question(when)
+    if q1 is None:
+        q1_key, q1 = "rating", metrics.rating_by_month(scope, when, limits)
+    else:
+        q1_key = "hact_q1"
+    q1_template = _drill_template(scope, "month", q1_key) + f"&month={{drill}}&{q1_key}={{series_drill}}"
+    buckets = metrics.score_buckets(scope, when, limits)
+    issues = metrics.issues_summary(scope, when, limits)
+    places = metrics.locations(scope, when, limits)
+    place_rows = _with_urls(places["rows"], scope, "location")
+    rule_rows = [
+        {**r, "url": drill_url(scope, flag=r["code"]) if r["flagged"] else ""}
+        for r in metrics.rule_analysis(scope, rules, when)
+    ]
+    flags = metrics.flag_distribution(scope, when, limits)
+    narrow = _narrowed(scope, {"rating": "not_monitored", "status": "reported"})
+    return {
+        "chart_data": {
+            "monthly_quality": metrics.monthly_quality(scope, when, limits),
+            "monthly_volume": metrics.monthly_volume(scope, when, limits),
+            "q1": {k: v for k, v in (q1 or {}).items() if k != "totals"},
+            "buckets": buckets["items"],
+        },
+        "month_template": _drill_template(scope, "month") + "&month={drill}",
+        "q1_key": q1_key,
+        "q1_template": q1_template,
+        "q1_question": q1_question,
+        "q1_totals": [
+            {**t, "url": f"{_drill_template(scope, q1_key)}&{q1_key}={t['code']}" if t["n"] else ""}
+            for t in (q1 or {}).get("totals", ())
+        ],
+        "bucket_template": _drill_template(scope, "bucket") + "&bucket={drill}",
+        "not_scored": buckets["not_scored"],
+        "not_scored_url": drill_url(scope, bucket="none") if buckets["not_scored"] else "",
+        "issues": [
+            {
+                **row,
+                "url": drill_url(scope, issue=row["drill"]) if row["drill"] else "",
+                "chips": [{**c, "url": reverse("fmm:visit", args=[c["key"]])} for c in row["chips"]],
+            }
+            for row in metrics.top_issues(scope, 10, when, rules)
+        ],
+        "places": {**places, "top": place_rows[:10], "rest": place_rows[10:]},
+        "rule_rows": rule_rows,
+        "issues_summary": {
+            **issues,
+            "r6_url": drill_url(scope, flag="R6") if issues["r6"]["n"] else "",
+            "gaps_url": f"{reverse('fmm:drill')}?{narrow.query}" if issues["gaps"]["n"] else "",
+            "high_flag_url": drill_url(scope, flags=f"{issues['high_flag']['at']}+")
+            if issues["high_flag"]["n"]
+            else "",
+        },
+        "flag_rows": [
+            {**r, "url": drill_url(scope, flags=r["drill"]) if r["n"] else ""} for r in flags["rows"]
+        ],
+        "flags_scored": flags["scored"],
+        "fields_found_url": reverse("admin:fmm_fieldmapping_changelist"),
+    }
+
+
+ENTITY_ROWS = 25
+
+
+def _entity_kind(request: HttpRequest) -> str:
+    wanted = request.GET.get("entity_kind", "")
+    return wanted if wanted in KIND_LABELS else "pd"
+
+
+def _entity_link(link: tuple[str, int] | None) -> str:
+    if not link:
+        return ""
+    kind, pk = link
+    return (
+        reverse("reports:programme_detail", args=[pk])
+        if kind == "pd"
+        else reverse("reports:partner_profile", args=[pk])
+    )
+
+
+def _analysis_tab(
+    request: HttpRequest, scope: Scope, when: str, limits: dict[str, int], rules: list
+) -> dict[str, Any]:
+    """The Analysis tab: highlights, governorates not visited, field offices, entity performance,
+    quality by field office, sections, visit frequency by place, quality by rating, flags by rule,
+    points by rule, programmatic visits and HACT, and follow-up."""
+    highlights = metrics.highlights(scope, when, limits)
+    kind = _entity_kind(request)
+    show_all = request.GET.get("entity_all") == "1"
+    performance = metrics.entities_performance(scope, kind, when)
+    entity_rows = [
+        {
+            **row,
+            "url": _entity_link(row["link"]),
+            "last_label": rating_label(row["last"]["rating"])
+            if not row["last"]["not_rated_yet"]
+            else _("Not rated yet"),
+        }
+        for row in (performance["rows"] if show_all else performance["rows"][:ENTITY_ROWS])
+    ]
+    offices = metrics.offices(scope, when, limits)
+    flag_frequency = metrics.flag_frequency(scope, rules, when)
+    follow_up = metrics.action_points(scope, when, limits)
+    hact = metrics.hact_programmatic(scope, when, limits)
+    places = metrics.locations(scope, when, limits)
+    place_rows = _with_urls(places["rows"], scope, "location")
+    section_rows = []
+    for row in metrics.sections(scope, when, limits):
+        lines = [
+            {
+                **line,
+                "url": reverse("fmm:visit", args=[line["key"]]),
+                "rating_label": _("Not rated yet") if line["not_rated_yet"] else rating_label(line["rating"]),
+            }
+            for line in row["lines"]
+        ]
+        section_rows.append({**row, "lines": lines, "url": drill_url(scope, section=row["drill"])})
+    return {
+        "chart_data": {
+            "bands": highlights["bands"],
+            "flags": flag_frequency["pairs"],
+        },
+        "highlights": {
+            **highlights,
+            "reported_url": drill_url(scope, status="reported") if highlights["reported"] else "",
+            "off_track_url": drill_url(scope, rating="off_track") if highlights["off_track"] else "",
+            "kinds": [
+                {
+                    **k,
+                    "url": f"{reverse('fmm:dashboard')}?"
+                    + _page_query(_narrowed(scope, {"entity_type": k["kind"]}), tab="analysis"),
+                }
+                for k in highlights["kinds"]
+            ],
+        },
+        "gaps": metrics.governorate_gaps(scope, when, limits),
+        "offices": {
+            **offices,
+            "rows": _with_urls(offices["rows"], scope, "office"),
+            "unknown": _with_urls([offices["unknown"]], scope, "office")[0] if offices["unknown"] else None,
+        },
+        "entity_kind": kind,
+        "entity_kinds": [
+            {
+                "key": k,
+                "label": label,
+                "n": performance["kinds"].get(k, 0),
+                "query": _page_query(scope, tab="analysis", entity_kind=k),
+            }
+            for k, label in KIND_LABELS.items()
+        ],
+        "entity_rows": entity_rows,
+        "entity_total": len(performance["rows"]),
+        "entity_all_query": _page_query(scope, tab="analysis", entity_kind=kind, entity_all="1"),
+        "entity_year": performance["year"],
+        "office_badges": _with_urls(metrics.office_rule_badges(scope, rules, when, limits), scope, "office"),
+        "section_rows": section_rows,
+        "places": {**places, "top": place_rows[:10], "rest": place_rows[10:]},
+        "rating_rows": _with_urls(metrics.quality_by_rating(scope, when, limits), scope, "rating", "code"),
+        "flag_frequency": flag_frequency,
+        "flag_template": _drill_template(scope, "flag") + "&flag={drill}",
+        "dimensions": metrics.dimension_breakdown(scope, rules, when),
+        "hact": hact,
+        "follow_up": {
+            **follow_up,
+            "overdue_list": [
+                {**p, "visits": [{**v, "url": reverse("fmm:visit", args=[v["key"]])} for v in p["visits"]]}
+                for p in follow_up["overdue_list"]
+            ],
+            "without_visits": [
+                {"key": key, "name": name, "url": reverse("fmm:visit", args=[key])}
+                for key, name in follow_up["without"]["visits"]
+            ],
+        },
+        "assurance_url": f"{reverse('reports:assurance')}?hact_year={hact['year']}",
+        "action_points_url": f"{reverse('reports:action_points')}?module=fm",
+    }
+
+
+DRILL_ROWS = 50
+DRILL_VALUES = {"rating": RATINGS, "status": STATUS_GROUPS, "entity_type": tuple(KIND_LABELS)}
+
+
+def _drill_error(params) -> str:
+    """Why a drill-down address is refused: a value that is not a code (a label as a chart draws it,
+    "May 2026" or "80–100", is never read back)."""
+    for key in DRILL_KEYS:
+        for value in params.getlist(key):
+            if value.strip() and not _drill_ok(key, value.strip()):
+                return _("“%(value)s” is not a value of %(key)s.") % {"value": value[:40], "key": key}
+    for key, allowed in DRILL_VALUES.items():
+        for value in params.getlist(key):
+            if value.strip() and value.strip() not in allowed:
+                return _("“%(value)s” is not a value of %(key)s.") % {"value": value[:40], "key": key}
+    return ""
+
+
+@require_GET
+def drill(request: HttpRequest) -> HttpResponse:
+    """The visits behind a chart cell or a count: the scope plus the drill codes of the address, most
+    urgent first, ending with a link to the same list in the Visits tab. A value that is not a code
+    is refused (400)."""
+    _enabled()
+    error = _drill_error(request.GET)
+    if error:  # plain text: the refused value is echoed back
+        return HttpResponseBadRequest(error, content_type="text/plain; charset=utf-8")
+    scope = Scope.from_params(request.GET, request.user)
+    visits_url = f"{reverse('fmm:dashboard')}?{_page_query(scope, tab='visits')}"
+    if not request.htmx:
+        return redirect(visits_url)
+    limits = metrics.thresholds()
+    qs = scope.visits().select_related("partner").order_by(*SORTS[DEFAULT_SORT], "key")
+    total = qs.count()
+    rows = list(qs[:DRILL_ROWS])
+    _decorate(rows, limits)
+    context = {
+        "scope": scope,
+        "visits": rows,
+        "total": total,
+        "more": max(total - len(rows), 0),
+        "chips": [c for c in _chips(scope) if not c.get("remove_in_words")] + _filter_chips(scope),
+        "visits_url": visits_url,
+        "limits": limits,
+    }
+    return render(request, "fmm/_drill.html", context)
+
+
+def _filter_chips(scope: Scope) -> list[dict[str, str]]:
+    """The filters a drill-down narrowed, in words (rating, status, office, section, entity type)."""
+    out = []
+    for value in scope.ratings:
+        out.append({"label": f"{_('Rating')}: {rating_label(value)}"})
+    for value in scope.statuses:
+        out.append({"label": f"{_('Status')}: {_(STATUS_LABELS.get(value, value))}"})
+    for value in scope.offices:
+        out.append({"label": f"{_('Field office')}: {_('Office not known') if value == 'none' else value}"})
+    for value in scope.sections:
+        out.append({"label": f"{_('Section')}: {_('No section') if value == 'none' else value}"})
+    for value in scope.entity_types:
+        out.append({"label": f"{_('Entity type')}: {KIND_LABELS.get(value, value)}"})
+    return out
 
 
 # ------------------------------------------------------------------------------------------ pages

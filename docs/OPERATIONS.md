@@ -1263,8 +1263,9 @@ Monitoring insights turns the eTools field monitoring data into visits: each vis
 programme documents, place and sections, and how complete and coherent its report is. It is built in
 steps. This release has its data layer, its quality rules and the first part of its page,
 `/fmm/` (menu: *Monitoring insights*, right after *Field monitoring*): the filters, the key figures,
-the Visits tab, the visit page, the visit look-up and the reviews. The Quality and Analysis tabs, the
-map and the AI brief and chat arrive in later steps; the Insights tab says so. The refresh builds and
+the Quality, Analysis and Visits tabs, the drill-down window behind every chart and count, the visit
+page, the visit look-up and the reviews. The map and the AI brief and chat arrive in later steps; the
+Insights tab says so. The refresh builds and
 scores the visits, and the admin views under admin → *Monitoring insights* are: **Fields found**
 (which keys the field monitoring records hold, and the keys an administrator pins), **Questions
 found** (which checklist question is Q1, Q2, Q3 and PSEA), **Quality rules**, **Score settings**,
@@ -1285,8 +1286,8 @@ is hidden.
   chip "Your section: … ×" shows every section. A governorate can be given as its gazetteer name
   ("Beqaa") or its key ("bekaa"). The entity type and partner filters keep a visit when one of its
   entities matches; the entity figure then counts the matching rows only. Links from charts add
-  drill-downs (month, HACT Q1, score band, flag, flag count, urgency band, rule, review), shown as
-  removable chips.
+  drill-downs (month, HACT Q1, score band, flag, flag count, urgency band, place, recurring issue,
+  rule, review), shown as removable chips.
 - **Reference line**: the filter, when the field monitoring rows were synced, when the scores were
   computed and with which rules version ("recomputing with rules v8" while a rescore waits), a warning
   when the last refresh failed, and *How scores work* (the rules, bands and urgency, as set in the
@@ -1300,6 +1301,32 @@ is hidden.
   (rated / not monitored), the average quality score of the scored visits, and the visits of high
   urgency (red, with the amber ones). Each links to the Visits tab. Figures are kept 10 minutes, and a
   refresh or a new day shows at once.
+- **Quality tab**: the average quality by month (with the reported visits), the visits by month
+  (with their average quality), the HACT Q1 rating by month (visits, each counted once with its worst
+  Q1 answer; the overall finding rating instead, with a note, when no visit of the filter has a Q1
+  answer), the quality score distribution (five bands of 20 points, 100 in the top one, and the visits
+  not scored), the top recurring issues (flags grouped by rule and reason, with their visits and mean
+  urgency), the places visited (top 10, *Show all*), each rule's visits flagged out of the visits it
+  checked ("not available" when the checklist answers are missing, see Fields found), the quality
+  issues summary (rating-quality flags, monitoring gaps: reported visits with no entity rated, and
+  visits with three or more flags) and the flags per visit.
+- **Analysis tab**: highlights (visits, reported, governorates covered out of the gazetteer's,
+  average quality: the same figure as the key figure, off-track visits, PSEA-flagged visits out of
+  those with a PSEA question, the High / Medium / Low shares, the monitored entities by type), the
+  governorates not visited, the field offices (a visit to a PD with two offices counts in both) and
+  each office's flags per rule, entity performance (PDs, CP outputs, partners or other entities,
+  worst average quality first, unscored last; a PD shows its planned visits for the year), the
+  sections with their visits, the visit frequency and coverage (rated ÷ monitored entities) by place,
+  the quality by overall rating, the flags by rule, the points earned per rule (weakest first; a rule
+  at 0 points is a flag only), the HACT programmatic visits of the partners of the filter (required,
+  planned and completed in eTools next to NeuroDB's count of completed programmatic FM visits; gap =
+  required − completed in eTools) and the follow-up (FM action points of these visits: open, overdue,
+  high priority; the off-track or constrained visits without one).
+- **Drill-down window** (`/fmm/drill/`): a chart bar, a chip or a count opens the visits behind it,
+  most urgent first (50 at most), with *Open in the Visits tab* for the rest. Charts carry codes
+  (`month=2026-05`, `bucket=80-100`, `hact_q1=constrained`, `flag=R1`); an address with a label as a
+  chart draws it ("May 2026", "80–100", "On track") is refused, so a cut or translated label can never
+  open the wrong visits.
 - **Visits tab**: *Find a visit* (an id, "#1722", "Visit 1722", a key, a reference or a reference
   number; a miss offers the three nearest ids of the filter), then the table, 50 rows a page, most
   urgent first (sortable by date, partner, quality and urgency). Red rows are at or above the red

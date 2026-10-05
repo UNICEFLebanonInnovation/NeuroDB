@@ -1,0 +1,6 @@
+{% load i18n ui %}<tr>
+  <td><span data-synced>{{ p.name }}</span>{% if p.governorate %}<span class="cell-sub" data-synced>{{ p.governorate }}</span>{% endif %}</td>
+  <td>{% if p.url %}<a class="pill pill--sm pill--info" href="{{ p.url }}" hx-get="{{ p.url }}" hx-target="#modal-content">{{ p.visits }}</a>{% else %}<span class="pill pill--sm pill--info">{{ p.visits }}</span>{% endif %}</td>
+  <td class="text-nowrap" data-value="{{ p.avg|default_if_none:'' }}">{% if p.avg is not None %}{{ p.avg|percent }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+  <td data-value="{{ p.coverage|default_if_none:'' }}">{% if p.coverage is not None %}<div class="meter"><div class="meter__track"><span class="meter__fill meter__fill--{% if p.coverage >= 80 %}success{% elif p.coverage >= 50 %}warning{% else %}danger{% endif %}" style="width: {{ p.coverage|floatformat:0 }}%"></span></div><span class="meter__value">{{ p.coverage|percent:0 }}</span></div>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+</tr>

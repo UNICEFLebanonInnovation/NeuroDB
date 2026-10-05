@@ -2,5 +2,5 @@
 <section class="panel fmm-tab" aria-labelledby="fmm-insights-title">
   <h2 class="h6" id="fmm-insights-title">{% trans "AI monitoring insights" %}</h2>
   {% url 'fmm:dashboard' as here %}
-  <p class="text-muted small mb-0">{% blocktrans with url=here query=visits_query %}The AI brief and chat appear here once switched on. Until then, the key figures above and the <a href="{{ url }}?{{ query }}">Visits</a> tab show every visit of this filter, its quality checks and its follow-up.{% endblocktrans %}</p>
+  <p class="text-muted small mb-0">{% blocktrans with url=here query=visits_query %}The AI brief and chat appear here once switched on. Until then, the key figures above, the Quality and Analysis tabs and the <a href="{{ url }}?{{ query }}">Visits</a> tab show every visit of this filter, its quality checks and its follow-up.{% endblocktrans %}</p>
 </section>

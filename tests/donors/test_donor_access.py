@@ -175,6 +175,7 @@ def test_sign_in_lands_on_the_donor_page_whatever_next_says(client, donor):
         "fmm:dashboard",
         "fmm:visits",
         "fmm:lookup",
+        "fmm:drill",
     ],
 )
 def test_every_other_page_redirects_to_the_donor_page(donor_client, name):
@@ -195,6 +196,7 @@ def test_the_api_the_assistant_and_htmx_are_refused(donor_client):
     assert donor_client.get(reverse("reports:overview"), HTTP_HX_REQUEST="true").status_code == 403
     assert donor_client.get(reverse("fmm:dashboard"), HTTP_HX_REQUEST="true").status_code == 403
     assert donor_client.get(reverse("fmm:visits"), HTTP_HX_REQUEST="true").status_code == 403
+    assert donor_client.get(reverse("fmm:drill"), HTTP_HX_REQUEST="true").status_code == 403
 
 
 def test_donor_page_shows_own_funds_only(data, reporting_year, donor_client):

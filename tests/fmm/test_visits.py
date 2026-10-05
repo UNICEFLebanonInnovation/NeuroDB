@@ -7,6 +7,7 @@ import csv
 import datetime
 import io
 import re
+from urllib.parse import urlencode
 
 import pytest
 from django.urls import reverse
@@ -326,3 +327,137 @@ def test_the_team_cell_counts_every_member_beyond_the_first_two(built, client_vi
     )
     text = " ".join(re.sub(r"<[^>]+>", " ", cell.group(1)).split())
     assert text == "A Name, B Name +3"  # one more name and two members known by e-mail only
+
+
+# ------------------------------------------------------------------------------------------ drill-downs
+DRILL = reverse("fmm:drill")
+
+
+def _drill_total(client, url: str) -> int:
+    response = client.get(url, HTTP_HX_REQUEST="true")
+    assert response.status_code == 200, url
+    html = response.content.decode()
+    total = int(re.search(r'id="modal-title">(\d+) visits?</h2>', html).group(1))
+    rows = re.findall(r"<tr data-key=", html)
+    assert len(rows) == min(total, views.DRILL_ROWS)
+    return total
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"month": "2026-05"},
+        {"bucket": "80-100"},
+        {"bucket": "none"},
+        {"hact_q1": "constrained"},
+        {"flag": "R1"},
+        {"flags": "3+"},
+        {"issue": "R1:missing:narrative"},
+        {"rating": "not_monitored", "status": "reported"},
+        {"office": "none"},
+        {"location": "30"},
+    ],
+)
+def test_the_drill_view_reads_codes(built, client_viewer, params):
+    assert _drill_total(client_viewer, f"{DRILL}?section=&{urlencode(params)}") >= 0
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"bucket": "80–100"},
+        {"month": "May 2026"},
+        {"hact_q1": "On track"},
+        {"flag": "R1 Completeness"},
+        {"rating": "On track"},
+        {"status": "Reported"},
+        {"flags": "3 or more"},
+        {"issue": "R1: Incomplete monitoring report"},
+    ],
+)
+def test_the_drill_view_refuses_a_display_label(built, client_viewer, params):
+    response = client_viewer.get(DRILL, {"section": "", **params}, HTTP_HX_REQUEST="true")
+    assert response.status_code == 400
+
+
+def test_a_refused_drill_value_is_echoed_as_plain_text(built, client_viewer):
+    response = client_viewer.get(DRILL, {"month": "<script>x</script>"}, HTTP_HX_REQUEST="true")
+    assert response.status_code == 400 and response["Content-Type"].startswith("text/plain")
+
+
+def test_a_drill_without_htmx_opens_the_visits_tab(built, client_viewer):
+    response = client_viewer.get(DRILL, {"section": "", "flag": "R1"})
+    assert response.status_code == 302
+    assert response["Location"] == "/fmm/?section=&flag=R1&tab=visits"
+
+
+def test_the_drill_window_lists_the_visits_and_links_the_visits_tab(built, client_viewer):
+    html = client_viewer.get(
+        DRILL, {"section": "", "hact_q1": "constrained"}, HTTP_HX_REQUEST="true"
+    ).content.decode()
+    assert "<html" not in html and 'id="modal-title">2 visits</h2>' in html
+    assert "HACT Q1: Constrained" in html
+    assert re.findall(r'<tr data-key="([^"]+)"', html) == ["1727", "1723"]  # most urgent first
+    assert 'href="/fmm/?section=&amp;hact_q1=constrained&amp;tab=visits"' in html
+    assert "Open in the Visits tab" in html
+
+
+def test_each_drill_type_lists_what_its_block_counts(built, client_viewer):
+    """Every link and chart cell of the Quality and Analysis tabs opens exactly the visits its block
+    counted."""
+    from django.core.cache import cache
+
+    from neurodb.fmm import metrics
+    from neurodb.fmm.models import RuleSetting
+    from neurodb.fmm.scope import Scope
+
+    cache.clear()
+    scope = Scope.from_params({"section": ""})
+    rules = list(RuleSetting.objects.order_by("code"))
+    checks: list[tuple[str, int]] = []
+    volume = metrics.monthly_volume(scope)
+    for month, n in zip(volume["drill"]["labels"], volume["indicators"][0]["values"], strict=True):
+        checks.append((f"month={month}", n))
+    q1 = metrics.hact_q1_by_month(scope)
+    for name, code in q1["drill"]["series"].items():
+        for month, n in zip(q1["drill"]["labels"], q1["series"][name], strict=True):
+            if n:
+                checks.append((f"month={month}&hact_q1={code}", n))
+    for item in metrics.score_buckets(scope)["items"]:
+        checks.append((f"bucket={item['drill']}", item["value"]))
+    checks.append(("bucket=none", metrics.score_buckets(scope)["not_scored"]))
+    for row in metrics.top_issues(scope, 10):
+        checks.append((f"issue={row['drill']}", row["visits"]))
+    for row in metrics.rule_analysis(scope, rules):
+        checks.append((f"flag={row['code']}", row["flagged"]))
+    for row in metrics.flag_distribution(scope)["rows"]:
+        checks.append((f"flags={row['drill']}".replace("+", "%2B"), row["n"]))
+    summary = metrics.issues_summary(scope)
+    checks.append(("rating=not_monitored&status=reported", summary["gaps"]["n"]))
+    checks.append((f"flags={summary['high_flag']['at']}%2B", summary["high_flag"]["n"]))
+    for row in metrics.locations(scope)["rows"]:
+        if row["drill"]:
+            checks.append((f"location={row['drill']}", row["visits"]))
+    offices = metrics.offices(scope)
+    for row in offices["rows"] + [offices["unknown"]]:
+        checks.append((f"office={row['name']}", row["visits"]))
+    for row in metrics.sections(scope):
+        checks.append((f"section={row['name']}", row["visits"]))
+    for row in metrics.quality_by_rating(scope):
+        checks.append((f"rating={row['code']}", row["visits"]))
+    assert len(checks) > 40
+    for query, expected in checks:
+        url = f"{DRILL}?{query}" if query.startswith("section=") else f"{DRILL}?section=&{query}"
+        assert _drill_total(client_viewer, url) == expected, query
+
+
+def test_the_links_of_the_tabs_open_their_block_counts(built, client_viewer):
+    """The drill links the Quality and Analysis tabs draw carry the figure they show."""
+    for tab in ("quality", "analysis"):
+        html = client_viewer.get(reverse("fmm:dashboard"), {"tab": tab}).content.decode()
+        links = re.findall(
+            r'<a href="(/fmm/drill/\?[^"]+)" hx-get="[^"]+" hx-target="#modal-content">(\d+)</a>', html
+        )
+        assert links, tab
+        for url, shown in links:
+            assert _drill_total(client_viewer, url.replace("&amp;", "&")) == int(shown), url

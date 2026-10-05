@@ -70,7 +70,8 @@ KIND_LABELS = {"pd": "PD/SSFA", "cp_output": "CP output", "partner": "Partner", 
 RULES = ("R1", "R2", "R3", "R4", "R5", "R6")
 RULE_STATES = ("pass", "fail", "na", "nap", "off")
 BUCKETS = {"0-20": (0, 20), "20-40": (20, 40), "40-60": (40, 60), "60-80": (60, 80), "80-100": (80, 100)}
-FLAG_COUNTS = ("0", "1", "2", "3+")
+FLAG_COUNTS = ("0", "1", "2", "3+")  # the flags-per-visit rows; "N+" (N or more) is read for any N
+_FLAGS = re.compile(r"^(\d)(\+?)$")
 URGENCY_BANDS = ("red", "amber", NONE)
 REVIEW_STATES = ("reviewed", "follow_up", "data_issue", NONE)
 # The drill-downs of chart cells and links, in the order the address carries them
@@ -104,7 +105,7 @@ def _drill_ok(key: str, value: str) -> bool:
     if key in ("flag", "rule"):
         return value in RULES
     if key == "flags":
-        return value in FLAG_COUNTS
+        return bool(_FLAGS.match(value))
     if key == "urgency":
         return value in URGENCY_BANDS
     if key == "location":
@@ -533,8 +534,9 @@ def _drill(qs: QuerySet, key: str, value: str, drill: tuple[tuple[str, str], ...
     if key == "flag":
         return qs.filter(flags__contains=[value])
     if key == "flags":
-        qs = qs.exclude(quality_score=None)
-        return qs.filter(flag_count__gte=3) if value == "3+" else qs.filter(flag_count=int(value))
+        count, more = _FLAGS.match(value).groups()
+        qs = qs.exclude(quality_score=None)  # flags per visit count the scored visits
+        return qs.filter(flag_count__gte=int(count)) if more else qs.filter(flag_count=int(count))
     if key == "urgency":
         return qs.filter(urgency_band="" if value == NONE else value)
     if key == "location":

@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.utils.functional import SimpleLazyObject
 
 from neurodb.accounts.roles import role_of
 
@@ -73,4 +74,6 @@ def navigation(request):
     from neurodb.indicators.services.navigation import build_navigation
 
     active = _active_item(request)
-    return {"nav": build_navigation(_page_year(request, active)), "nav_active": active}
+    # Read when a template uses it: the partials HTMX swaps into a page never draw the sidebar
+    nav = SimpleLazyObject(lambda: build_navigation(_page_year(request, active)))
+    return {"nav": nav, "nav_active": active}

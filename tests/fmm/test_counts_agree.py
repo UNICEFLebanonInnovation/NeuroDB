@@ -60,3 +60,24 @@ def test_the_average_quality_is_one_definition(built):
     scope = Scope.from_params({"year": "2026", "section": ""})
     scores = list(Visit.objects.values_list("quality_score", flat=True))
     assert _fmm()["avg_quality"] == metrics.avg_quality(scope.visits()) == average_quality(scores)
+
+
+@pytest.mark.parametrize(
+    "params", [{}, {"governorate": "north"}, {"rating": "on_track"}, {"status": "reported"}]
+)
+def test_the_average_quality_tile_equals_the_analysis_highlight(built, client_viewer, params):
+    """Invariant 5: the key figure and the Analysis tab's highlight show one average quality."""
+    import re
+
+    from django.urls import reverse
+
+    scope = Scope.from_params({"year": "2026", "section": "", **params})
+    html = client_viewer.get(
+        reverse("fmm:dashboard"), {"tab": "analysis", "year": "2026", "section": "", **params}
+    )
+    text = " ".join(re.sub(r"<[^>]+>", " ", html.content.decode()).split())
+    tile = re.search(r"Average quality score ([\d.]+%|—)", text).group(1)
+    highlight = re.search(r"([\d.]+%|—) Average quality · \d+ scored visits?", text).group(1)
+    expected = metrics.kpis(scope)["avg_quality"]
+    assert tile == highlight == (f"{expected}%" if expected is not None else "—")
+    assert metrics.highlights(scope)["avg_quality"] == expected == metrics.avg_quality(scope.visits())

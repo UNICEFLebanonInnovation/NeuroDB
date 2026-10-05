@@ -76,20 +76,31 @@ def test_the_page_opens_for_a_viewer_with_its_key_figures(built, client_viewer):
     assert "The AI brief and chat appear here once switched on" in html
 
 
-@pytest.mark.parametrize("tab", ["insights", "visits"])
+TAB_MARKERS = {
+    "insights": "The AI brief and chat appear here once switched on",
+    "quality": "Top recurring issues",
+    "analysis": "Programmatic visits and HACT",
+    "visits": "Monitoring visits — detail and flags",
+}
+
+
+@pytest.mark.parametrize("tab", ["insights", "quality", "analysis", "visits"])
 def test_each_tab_is_an_htmx_partial(built, client_viewer, tab):
     response = client_viewer.get(PAGE, {"tab": tab, "year": "2026"}, HTTP_HX_REQUEST="true")
     html = response.content.decode()
     assert response.status_code == 200
     assert "<html" not in html and 'id="fmm-filters"' not in html
     assert f'name="tab" value="{tab}" form="fmm-filters"' in html  # the filter bar keeps the tab
-    assert ("Monitoring visits — detail and flags" in html) == (tab == "visits")
+    for key, marker in TAB_MARKERS.items():
+        assert (marker in html) == (key == tab), (key, tab)
+    # one chart data block per tab that draws charts
+    assert html.count('id="fmm-chart-data"') == (1 if tab in ("quality", "analysis") else 0)
 
 
 def test_the_tab_bar_lists_the_tabs_of_this_stage_with_the_scope(built, client_viewer):
     html = client_viewer.get(PAGE, {"year": "2026", "rating": "off_track"}).content.decode()
     nav = html.split('class="segmented segmented--scroll fmm-tabs"', 1)[1].split("</nav>", 1)[0]
-    assert re.findall(r">(\w+)</a>", nav) == ["Insights", "Visits"]
+    assert re.findall(r">(\w+)</a>", nav) == ["Insights", "Quality", "Analysis", "Visits"]
     assert "year=2026&amp;section=&amp;rating=off_track&amp;tab=visits" in nav
     assert 'hx-target="#fmm-results"' in nav and 'hx-push-url="true"' in nav
 
@@ -135,6 +146,9 @@ def test_switched_off_every_view_is_404_and_the_menu_item_hidden(built, client_v
         reverse("fmm:visits"),
         reverse("fmm:visit", args=["1722"]),
         reverse("fmm:lookup") + "?id=1722",
+        reverse("fmm:drill") + "?flag=R1",
+        PAGE + "?tab=quality",
+        PAGE + "?tab=analysis",
     ):
         assert client_viewer.get(url).status_code == 404, url
     assert client_viewer.post(reverse("fmm:review", args=["1722"])).status_code == 404
@@ -193,6 +207,7 @@ def test_the_year_menu_keeps_the_page_and_its_filters(built, client_viewer, repo
         ({"flag": "R1"}, {"1723", "1727", "1728", REFERENCE_KEY}),
         ({"flags": "1"}, {"1727", "1728", REFERENCE_KEY}),
         ({"flags": "3+"}, {"1723"}),
+        ({"flags": "1+"}, {"1722", "1723", "1726", "1727", "1728", REFERENCE_KEY}),
         ({"urgency": "red"}, {REFERENCE_KEY}),
         ({"urgency": "amber"}, {"1722", "1723", "1727"}),
         ({"rule": "R3", "rule_state": "fail"}, {"1722"}),
@@ -324,12 +339,18 @@ def test_no_forbidden_word_none_or_nan_on_the_page(built, client_viewer):
     pages = [
         client_viewer.get(PAGE).content.decode(),
         client_viewer.get(PAGE, {"tab": "visits"}).content.decode(),
+        client_viewer.get(PAGE, {"tab": "quality"}).content.decode(),
+        client_viewer.get(PAGE, {"tab": "analysis"}).content.decode(),
+        client_viewer.get(PAGE, {"tab": "analysis", "entity_kind": "partner"}).content.decode(),
+        client_viewer.get(PAGE, {"tab": "quality", "year": "2025"}).content.decode(),
+        client_viewer.get(reverse("fmm:drill"), {"flag": "R1"}, HTTP_HX_REQUEST="true").content.decode(),
         client_viewer.get(reverse("fmm:visit", args=["1722"])).content.decode(),
         client_viewer.get(reverse("fmm:visit", args=["1723"])).content.decode(),
         client_viewer.get(reverse("fmm:lookup"), {"id": "1799"}).content.decode(),
     ]
     for html in pages:
         main = html.split('<main id="main"', 1)[-1]
+        main = re.sub(r'<script id="fmm-chart-data".*?</script>', " ", main, flags=re.S)
         text = visible(main)
         assert not FORBIDDEN.search(text), FORBIDDEN.search(text)
         assert not re.search(r"\b(None|nan)\b", text)
@@ -399,7 +420,7 @@ def test_each_tab_and_the_page_stay_within_their_query_budget(
 ):
     from django.core.cache import cache
 
-    for tab in ("insights", "visits"):
+    for tab in ("insights", "quality", "analysis", "visits"):
         cache.clear()
         with django_assert_max_num_queries(20):
             client_viewer.get(PAGE, {"tab": tab}, HTTP_HX_REQUEST="true")
@@ -449,3 +470,141 @@ def test_one_scored_visit_is_written_in_the_singular(built, client_viewer):
     Visit.objects.exclude(key="1722").update(quality_score=None)
     html = client_viewer.get(PAGE, {"section": ""}).content.decode()
     assert "on 1 scored visit · rules v1" in " ".join(visible(html).split())
+
+
+# ------------------------------------------------------------------------------------------ Quality and Analysis
+def _text(html: str) -> str:
+    return " ".join(visible(html).split())
+
+
+def test_the_quality_tab_shows_its_blocks(built, client_viewer):
+    html = client_viewer.get(PAGE, {"tab": "quality"}).content.decode()
+    text = _text(html)
+    for title in (
+        "Quality score by month",
+        "Visits by month",
+        "HACT Q1 rating by month",
+        "Quality score distribution",
+        "Top recurring issues",
+        "Geographic coverage",
+        "Quality rules",
+        "Quality issues summary",
+        "Flags per visit",
+    ):
+        assert title in text, title
+    assert "R1 Completeness" in text and "4 / 6 visits flagged" in text
+    assert "On track 1" in text and "Constrained 2" in text and "Off track 2" in text  # the chip row
+    assert "Not scored: 2 visits" in text
+    assert "Green = no issues · Blue = minor · Amber = moderate · Red = critical attention needed" in text
+    # the charts open the drill-down window with codes, never labels
+    assert 'data-href-template="/fmm/drill/?section=&amp;month={drill}"' in html
+    assert "&amp;month={drill}&amp;hact_q1={series_drill}" in html
+    assert 'data-barmode="stack"' in html and "&amp;bucket={drill}" in html
+    assert 'hx-target="#modal-content"' in html
+
+
+def test_the_analysis_tab_shows_its_blocks(built, client_viewer):
+    html = client_viewer.get(PAGE, {"tab": "analysis"}).content.decode()
+    text = _text(html)
+    for title in (
+        "Highlights",
+        "Governorates not visited",
+        "Field offices",
+        "Quality by field office",
+        "Entity performance",
+        "Sections",
+        "Visit frequency by location",
+        "Quality by rating",
+        "Flags by rule",
+        "Points by rule",
+        "Programmatic visits and HACT (2026)",
+        "Follow-up",
+    ):
+        assert title in text, title
+    assert "2 of 2 Governorates covered" in text
+    assert "1 PSEA flagged · of 2 visits with a PSEA question" in text
+    assert "Every governorate was visited in this period." in text
+    assert "office from: activity 1 · PD 3 · action points 0" in text
+    assert "R6 is a flag only (0 points)." in text
+    assert "&amp;flag={drill}" in html and 'data-suffix=" visits"' in html
+    assert 'id="fmm-entities"' in html and 'hx-select="#fmm-entities"' in html
+
+
+def test_the_entity_kind_chips_switch_the_table(built, client_viewer):
+    html = client_viewer.get(PAGE, {"tab": "analysis", "entity_kind": "partner"}).content.decode()
+    table = html.split('id="fmm-entities"', 1)[1].split("</section>", 1)[0]
+    assert "AMEL" in table and "MCL" in table and "LEB/SSFA2024001" not in table
+    assert "Planned visits" not in table
+    html = client_viewer.get(PAGE, {"tab": "analysis", "entity_kind": "other"}).content.decode()
+    assert "No entities of this type" in html.split('id="fmm-entities"', 1)[1]
+
+
+def test_the_psea_tile_says_when_no_question_exists(built, client_viewer):
+    Visit.objects.update(psea_flag=None)
+    text = _text(client_viewer.get(PAGE, {"tab": "analysis"}).content.decode())
+    assert "PSEA: not available — no PSEA question in the visit data" in text
+    assert "PSEA assessments" in text
+
+
+def test_a_reference_date_next_to_every_rating_in_the_lists(built, client_viewer):
+    html = client_viewer.get(PAGE, {"tab": "analysis"}).content.decode()
+    sections = html.split('id="fmm-sections-title"', 1)[1].split("</section>", 1)[0]
+    lines = re.findall(r"<li>.*?</li>", sections, re.S)
+    assert len(lines) == 8  # 3 Education visits, 5 without a section
+    for line in lines:
+        assert re.search(r"\((rated|ends) \d{1,2} \w{3} 2026\)", visible(line)), line
+    entities = html.split('id="fmm-entities"', 1)[1].split("</table>", 1)[0]
+    for row in re.findall(r"<tr>.*?</tr>", entities.split("<tbody>", 1)[1], re.S):
+        assert re.search(r"(rated|ends) \d{1,2} \w{3} 2026", visible(row)), row
+    drill = client_viewer.get(reverse("fmm:drill"), {"section": ""}, HTTP_HX_REQUEST="true").content.decode()
+    rows = re.findall(r"<tr data-key.*?</tr>", drill, re.S)
+    assert len(rows) == 8
+    for row in rows:
+        assert re.search(r"(rated|ends) \d{1,2} \w{3} 2026", visible(row)), row
+
+
+def test_the_hact_q1_chart_switches_to_overall_ratings_without_q1(built, client_viewer):
+    from neurodb.fmm.models import QuestionAnswer
+
+    html = client_viewer.get(PAGE, {"tab": "quality"}).content.decode()
+    assert "HACT Q1 rating by month" in html and "Overall finding rating by month" not in html
+    assert "Have the activities been implemented as planned" in html  # the Q1 question quoted
+    # no visit of the filter has a Q1 answer, but other visits do
+    Visit.objects.filter(end_date__month__in=(3, 5, 6, 7, 8)).update(hact_q1="")
+    from django.core.cache import cache
+
+    cache.clear()
+    html = client_viewer.get(PAGE, {"tab": "quality"}).content.decode()
+    assert "Overall finding rating by month" in html and "HACT Q1 rating by month" not in html
+    assert "No visit in this filter has a HACT Q1 answer" in html
+    assert "&amp;month={drill}&amp;rating={series_drill}" in html
+    # no Q1 in the data at all
+    QuestionAnswer.objects.filter(role="q1").update(role="")
+    cache.clear()
+    html = client_viewer.get(PAGE, {"tab": "quality"}).content.decode()
+    assert "HACT Q1 answers are not in the eTools data NeuroDB reads yet" in html
+
+
+def test_the_quality_tab_says_what_is_not_available_without_the_checklist_answers(fm_world, client_viewer):
+    dm.DatamartDocument.objects.filter(dataset__in=("fm_questions", "fm_options")).delete()
+    refresh.run(triggered_by="test", today=TODAY)
+    text = _text(client_viewer.get(PAGE, {"tab": "quality"}).content.decode())
+    assert text.count("Not available — needs question answers (fm_questions); see Fields found") == 3
+    assert "HACT Q1 answers are not in the eTools data NeuroDB reads yet" in text
+
+
+def test_an_empty_filter_on_the_new_tabs(built, client_viewer):
+    for tab in ("quality", "analysis"):
+        html = client_viewer.get(PAGE, {"tab": tab, "year": "2025"}).content.decode()
+        assert "No visits in this filter — widen the period" in html and "Try this year" in html
+        assert 'id="fmm-chart-data"' not in html
+
+
+def test_drill_chips_name_the_place_and_the_issue(built, client_viewer):
+    html = client_viewer.get(
+        PAGE, {"section": "", "location": "30", "issue": "R1:missing:narrative"}
+    ).content.decode()
+    assert "Location: Zahle town" in html
+    assert "Issue: Incomplete monitoring report — missing: General observation (narrative)" in html
+    html = client_viewer.get(PAGE, {"section": "", "flags": "3+"}).content.decode()
+    assert "Flags per visit: 3 or more" in html

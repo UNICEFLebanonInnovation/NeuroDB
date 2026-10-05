@@ -21,5 +21,5 @@ next submission through the form attribute, so a filter change keeps them.{% end
 {% include "fmm/_notes.html" %}
 {% include "fmm/_kpis.html" %}
 {% include "fmm/_tabs.html" %}
-{% if tab == "visits" %}{% include "fmm/tabs/visits.html" %}{% else %}{% include "fmm/tabs/insights.html" %}{% endif %}
+{% if tab == "visits" %}{% include "fmm/tabs/visits.html" %}{% elif tab == "quality" %}{% include "fmm/tabs/quality.html" %}{% elif tab == "analysis" %}{% include "fmm/tabs/analysis.html" %}{% else %}{% include "fmm/tabs/insights.html" %}{% endif %}
 {% endif %}

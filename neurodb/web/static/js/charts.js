@@ -98,10 +98,51 @@ function resolveColor(value) {
   return token ? cssVar(token) : text;
 }
 
-/** pairs, keeping the colour an item may carry ([{label, value, color}]); a value that is not a number counts 0. */
+/** pairs, keeping the colour and the drill value an item may carry ([{label, value, color, drill}]); a value
+ * that is not a number counts 0. */
 function items(data) {
-  const colors = Array.isArray(data) ? data.map((d) => (d && typeof d === "object" && !Array.isArray(d) ? d.color : null)) : [];
-  return pairs(data).map(([label, value], i) => ({ label, value: Number.isFinite(value) ? value : 0, color: colors[i] || null }));
+  const own = (d, key) => (d && typeof d === "object" && !Array.isArray(d) ? d[key] : null);
+  const colors = Array.isArray(data) ? data.map((d) => own(d, "color")) : [];
+  const drills = Array.isArray(data) ? data.map((d) => own(d, "drill")) : [];
+  return pairs(data).map(([label, value], i) => ({ label, value: Number.isFinite(value) ? value : 0, color: colors[i] || null, drill: drills[i] ?? null }));
+}
+
+// ---- click-through (data-href-template): the drill value travels with each point, never read back from a
+// drawn label (dist draws categories by index, hbars cuts long labels, grouped series carry display names)
+
+/** trace.meta for a builder fed {drill: {labels: [per x], series: {name: code}}}: undefined without drill values. */
+function drillMeta(data, name) {
+  const labels = Array.isArray(data?.drill?.labels) ? data.drill.labels.map((v) => (v == null ? null : String(v))) : null;
+  const series = data?.drill?.series?.[name];
+  if (!labels && series == null) return undefined;
+  return { drill: labels || [], series: series == null ? null : String(series) };
+}
+
+/** trace.meta from one drill value per point, in the order the points are drawn; undefined when none has one. */
+const pointMeta = (drills) => (drills.some((d) => d != null && d !== "") ? { drill: drills.map((d) => (d == null ? null : String(d))) } : undefined);
+
+/** The address a click on ``point`` opens: the template with {drill} (the point's own drill value), {series_drill}
+ * (its trace's code) and, only when the chart carries no drill values, {label} and {series} (the trace name), all
+ * URI-encoded; null when a placeholder has no value, so a point without a drill value is not clickable. */
+export function drillUrl(template, point) {
+  const meta = point?.data?.meta || {};
+  const carried = Array.isArray(meta.drill) && meta.drill.length > 0;
+  const values = {
+    drill: carried ? point.data.meta.drill[point.pointIndex ?? point.pointNumber] : undefined,
+    series_drill: meta.series,
+    label: carried ? undefined : point?.label ?? point?.x,
+    series: carried ? undefined : point?.data?.name,
+  };
+  let missing = false;
+  const url = String(template).replace(/\{(drill|series_drill|label|series)\}/g, (_, key) => {
+    const value = values[key];
+    if (value === undefined || value === null || value === "") {
+      missing = true;
+      return "";
+    }
+    return encodeURIComponent(String(value));
+  });
+  return missing ? null : url;
 }
 
 /** Each item its own colour, else the next categorical slot; data-palette="single" paints all in --nd-primary.
@@ -207,7 +248,7 @@ function legendUnderHeight(entries, width) {
   return rows.reduce((sum, lines) => sum + lines * 15 + 6, 0);
 }
 
-const BUILDERS = {
+export const BUILDERS = {
   "status-donut"(el, data, labels) {
     const keys = STATUS_ORDER.filter((k) => num(data[k]) > 0);
     return {
@@ -263,7 +304,8 @@ const BUILDERS = {
     };
   },
   monthly(el, data) {
-    // {months, indicators: [{id, label, unit, values, reports}], default}: one indicator at a time
+    // {months, indicators: [{id, label, unit, values, reports}], default, bar_name?, line_name?, line_unit?,
+    // drill?: {labels, series}}: one indicator at a time
     // (the indicator picked in the <select> named by data-select), as adding indicators with
     // different units gave a meaningless total. The records line shares the months, on its own axis.
     const select = el.dataset.select ? document.getElementById(el.dataset.select) : null;
@@ -275,7 +317,12 @@ const BUILDERS = {
       el.innerHTML = `<div class="state state--empty"><p class="state__title">${el.dataset.emptyTitle || "No data yet"}</p></div>`;
       return null;
     }
-    const unit = series.unit ? ` ${series.unit}` : "";
+    const unit = series.unit ? (series.unit === "%" ? "%" : ` ${series.unit}`) : "";
+    // optional names of the bars and the line, and the line's unit ("%" draws one decimal)
+    const barName = data.bar_name || "Reported in the month";
+    const lineName = data.line_name || "Records";
+    const lineUnit = data.line_unit || "records";
+    const lineHover = lineUnit === "%" ? "%{x}: %{y:,.1~f}%<extra></extra>" : `%{x}: %{y:,} ${plotlyText(lineUnit)}<extra></extra>`;
     return {
       traces: [
         {
@@ -284,18 +331,20 @@ const BUILDERS = {
           y: series.values.map((v) => (v === null ? null : num(v))),
           marker: { color: cssVar("--nd-primary"), line: { width: 0 } },
           hovertemplate: `%{x}: %{y:,.1~f}${unit}<extra></extra>`,
-          name: "Reported in the month",
+          name: barName,
+          meta: drillMeta(data, barName),
         },
         {
           type: "scatter",
           mode: "lines+markers",
           x: months,
-          y: series.reports.map(num),
+          y: series.reports.map((v) => (v === null ? null : num(v))),
           yaxis: "y2",
           line: { color: cssVar("--nd-warning"), width: 2 },
           marker: { size: 5 },
-          hovertemplate: "%{x}: %{y:,} records<extra></extra>",
-          name: "Records",
+          hovertemplate: lineHover,
+          name: lineName,
+          meta: drillMeta(data, lineName),
         },
       ],
       layout: {
@@ -538,7 +587,8 @@ const BUILDERS = {
     };
   },
   grouped(el, data) {
-    // {labels, series: {name: [...]}, colors?: {name: "--nd-token"}} -> grouped vertical bars
+    // {labels, series: {name: [...]}, colors?: {name: "--nd-token"}, drill?: {labels, series: {name: code}}}
+    // -> grouped vertical bars; data-barmode="stack" stacks them
     const { labels, series, colors } = seriesOf(data);
     return {
       traces: series.map(([name, values], i) => ({
@@ -548,9 +598,10 @@ const BUILDERS = {
         y: values,
         marker: { color: seriesColor(name, i, colors), line: { width: 0 } },
         hovertemplate: `%{x} · ${name}: %{y:,}<extra></extra>`,
+        meta: drillMeta(data, name),
       })),
       layout: {
-        barmode: "group",
+        barmode: el.dataset.barmode === "stack" ? "stack" : "group",
         bargap: 0.25,
         bargroupgap: 0.06,
         xaxis: { type: "category" },
@@ -754,8 +805,12 @@ const BUILDERS = {
   },
   hbars(el, data) {
     // pairs -> horizontal bars, first pair at the top; data-prefix/data-suffix decorate the hover value,
-    // data-color-by="status" colours each bar by its label ("On Track" -> success)
-    const rows = pairs(data).slice().reverse();
+    // data-color-by="status" colours each bar by its label ("On Track" -> success); a third element of a
+    // pair ([label, value, drill]) is the bar's drill value
+    const drills = Array.isArray(data) ? data.map((d) => (Array.isArray(d) ? d[2] : d?.drill) ?? null) : [];
+    const rows = pairs(data)
+      .map((r, i) => [r[0], r[1], drills[i] ?? null])
+      .reverse();
     const prefix = el.dataset.prefix || "";
     const suffix = el.dataset.suffix || "";
     const byStatus = el.dataset.colorBy === "status";
@@ -773,6 +828,7 @@ const BUILDERS = {
             line: { width: 0 },
           },
           hovertemplate: `%{customdata}: ${prefix}%{x:,.0f}${suffix}<extra></extra>`,
+          meta: pointMeta(rows.map((r) => r[2])),
         },
       ],
       layout: {
@@ -837,6 +893,7 @@ const BUILDERS = {
           customdata: rows.map((r) => hoverData(r, total)),
           marker: { color: itemColors(el, rows), line: { width: 0 }, cornerradius: 3 },
           hovertemplate: HOVER,
+          meta: pointMeta(rows.map((r) => r.drill)),
         },
       ],
       layout: {
@@ -986,21 +1043,62 @@ function render(el) {
   window.Plotly.react(el, traces, baseLayout(el, layout), CONFIG);
 }
 
+let hints = 0;
+
+/** A chart with data-href-template opens the visits behind a bar: a click fills the template from the point's
+ * drill value (drillUrl) and loads it into data-href-target (default the modal, which app.js opens). */
+function clickThrough(el) {
+  const template = el.dataset.hrefTemplate;
+  if (!template) return null;
+  const onClick = (event) => {
+    const point = event?.points?.[0];
+    const url = point ? drillUrl(template, point) : null;
+    if (url && window.htmx) window.htmx.ajax("GET", url, { target: el.dataset.hrefTarget || "#modal-content" });
+  };
+  el.classList.add("chart--clickable");
+  const hint = document.createElement("span");
+  hint.className = "visually-hidden";
+  hint.id = `chart-drill-hint-${++hints}`;
+  hint.textContent = "Click a bar to list its visits";
+  el.after(hint);
+  el.setAttribute("aria-describedby", hint.id);
+  // bound once per plot: a plot purged (an empty state) and drawn again gets a new emitter
+  let boundTo = null;
+  return {
+    bind() {
+      if (typeof el.on === "function" && boundTo !== el.on) {
+        el.on("plotly_click", onClick);
+        boundTo = el.on;
+      }
+    },
+    release() {
+      el.removeListener?.("plotly_click", onClick);
+      boundTo = null;
+    },
+  };
+}
+
 export async function init(el) {
   el.setAttribute("role", el.getAttribute("role") || "img");
   await loadScript("plotly");
   if (!el.isConnected) return; // swapped out while Plotly loaded
-  render(el);
+  const click = clickThrough(el);
+  const draw = () => {
+    render(el);
+    click?.bind();
+  };
+  draw();
   let observer = null;
   const select = el.dataset.select ? document.getElementById(el.dataset.select) : null;
-  const redrawTheme = () => (el.isConnected ? render(el) : release());
-  const redrawSelect = () => render(el);
+  const redrawTheme = () => (el.isConnected ? draw() : release());
+  const redrawSelect = () => draw();
   // A chart swapped out by HTMX (a filter change) stops listening and frees its plot; one removed some
   // other way does so at the next theme change.
   function release() {
     document.removeEventListener("nd:themechange", redrawTheme);
     select?.removeEventListener("change", redrawSelect);
     observer?.disconnect();
+    click?.release();
     window.Plotly?.purge(el);
   }
   el.addEventListener("htmx:beforeCleanupElement", (e) => e.target === el && release());
@@ -1016,7 +1114,7 @@ export async function init(el) {
       const crossed = el.clientWidth < NARROW !== width < NARROW;
       if (!crossed && Math.abs(el.clientWidth - width) < 24) return;
       width = el.clientWidth;
-      render(el);
+      draw();
     }, 200);
     observer = new ResizeObserver(redraw);
     observer.observe(el);
