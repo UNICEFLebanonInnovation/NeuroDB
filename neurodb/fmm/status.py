@@ -1,6 +1,9 @@
-"""Where Monitoring insights stands: its last refresh and its last reading of the eTools keys."""
+"""Where Monitoring insights stands: its last refresh, its last reading of the eTools keys, and whether
+its scores are being recomputed."""
 
 from __future__ import annotations
+
+from django.db.models import Q
 
 from neurodb.core.models import SyncRun
 
@@ -28,3 +31,18 @@ def last_probe() -> SyncRun | None:
 def last_run() -> SyncRun | None:
     """The last refresh of any kind, finished or not (a failed one included)."""
     return SyncRun.objects.filter(job=SyncRun.Job.FMM_REFRESH).order_by("-started_at").first()
+
+
+def rescore_pending() -> bool:
+    """Scores are being recomputed: a visit carries an older rules version than the current one, or a
+    refresh someone asked for has not run yet."""
+    from .models import RefreshRequest, Visit
+    from .refresh import current_rules_version
+
+    if Visit.objects.filter(rules_version__lt=current_rules_version()).exists():
+        return True
+    return (
+        RefreshRequest.objects.filter(pk=1)
+        .filter(Q(scores_requested_at__isnull=False) | Q(full_requested_at__isnull=False))
+        .exists()
+    )

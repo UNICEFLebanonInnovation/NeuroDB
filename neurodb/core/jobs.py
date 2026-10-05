@@ -72,6 +72,7 @@ COMMANDS: dict[str, JobCommand] = {
         ("run_watch", "--daily"),
         SyncRun.Job.WATCH,
     ),
+    "fmm_refresh": JobCommand(_("Refresh monitoring insights"), ("fmm_refresh",), SyncRun.Job.FMM_REFRESH),
     "freshness": JobCommand(_("Check data freshness"), ("check_sync_freshness",), None, triggered_by=False),
 }
 

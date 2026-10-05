@@ -26,7 +26,7 @@
         <a class="nd-link" href="{% url 'admin:core_syncrun_change' found.run.pk %}">{% trans "Open the run" %}</a>
       </p>
     {% else %}
-      <p class="mb-2">{% trans "The eTools keys have not been read yet. After an eTools Datamart sync, run python manage.py fmm_refresh --probe-only." %}</p>
+      <p class="mb-2">{% trans "The eTools keys have not been read yet. They are read by the Monitoring insights refresh, after every eTools Datamart sync and each morning (or run python manage.py fmm_refresh)." %}</p>
     {% endif %}
     {% if found.failed %}
       <p class="mb-2 nd-found__warn">

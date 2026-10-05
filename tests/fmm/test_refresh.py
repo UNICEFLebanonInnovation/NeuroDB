@@ -1,6 +1,9 @@
-"""The Monitoring insights refresh: so far its key probe (``fmm_refresh --probe-only``): relink, probe,
-choose, one run at a time, recorded as a run with meaningful counts."""
+"""The Monitoring insights refresh (``fmm_refresh``): the key probe (``--probe-only``), the full pass
+that builds the visits and swaps them in, the scores-only pass, the requests that are never lost, the
+run after every Datamart sync, one run at a time, recorded with meaningful counts."""
 
+import datetime
+import threading
 from io import StringIO
 
 import pytest
@@ -10,9 +13,18 @@ from django.db import connections
 
 from neurodb.core.models import SyncRun
 from neurodb.datamart import models as dm
-from neurodb.fmm import fields, refresh
+from neurodb.fmm import fields, refresh, status
 from neurodb.fmm.management.commands import fmm_refresh as command
-from neurodb.fmm.models import FieldMapping, KeyProbe
+from neurodb.fmm.models import (
+    FieldMapping,
+    KeyProbe,
+    QuestionAnswer,
+    RefreshRequest,
+    Visit,
+    VisitActionPoint,
+    VisitEntity,
+    VisitReview,
+)
 from neurodb.integrations import background
 
 pytestmark = pytest.mark.django_db
@@ -111,10 +123,9 @@ def test_two_probes_give_the_same_rows(fm_world):
 
 
 def test_the_probe_builds_no_visit(fm_world):
-    from django.apps import apps
-
-    _probe()
-    assert {m.__name__ for m in apps.get_app_config("fmm").get_models()} == {"KeyProbe", "FieldMapping"}
+    run = _probe()
+    assert KeyProbe.objects.exists() and FieldMapping.objects.exists()
+    assert not Visit.objects.exists() and run.target == "probe"
 
 
 def test_a_record_that_cannot_be_read_is_counted_and_the_others_are_read(fm_world, monkeypatch):
@@ -161,15 +172,6 @@ def test_switched_off_it_does_nothing(fm_world, settings):
     assert command.SWITCHED_OFF in _command("--probe-only")
 
 
-def test_only_the_probe_exists_so_far(db):
-    with pytest.raises(NotImplementedError):
-        refresh.run(triggered_by="test")
-    run = refresh.run_safely(triggered_by="test")
-    assert (run.status, run.target) == (SyncRun.Status.FAILED, "full") and "NotImplementedError" in run.error
-    with pytest.raises(CommandError, match="--probe-only"):
-        _command()
-
-
 def test_the_command_writes_a_summary(fm_world):
     out = _command("--probe-only", "--triggered-by", "admin")
     assert "Monitoring insights refresh [probe] succeeded" in out
@@ -190,3 +192,408 @@ def test_the_refresh_is_wanted_after_a_sync_of_its_sources():
     assert refresh.wanted_after([ran("field_monitoring", SyncRun.Status.PARTIAL)])
     assert not refresh.wanted_after([ran("grants"), ran("field_monitoring", SyncRun.Status.FAILED)])
     assert not refresh.wanted_after([])
+
+
+# ------------------------------------------------------------------------------------------ full pass
+TODAY = datetime.date(2026, 10, 5)
+
+
+def _full(**kw):
+    return refresh.run(triggered_by="test", today=kw.pop("today", TODAY), **kw)
+
+
+def _snapshot() -> dict:
+    visit_fields = [f.name for f in Visit._meta.concrete_fields if f.name != "refreshed_at"]
+    return {
+        "visits": list(Visit.objects.order_by("key").values_list(*visit_fields)),
+        "entities": sorted(
+            VisitEntity.objects.values_list(
+                "visit__key", "datamart_id", "kind", "pd_id", "rating", "cp_output"
+            )
+        ),
+        "answers": sorted(
+            QuestionAnswer.objects.values_list(
+                "document_id", "visit_key", "entity__datamart_id", "partner_id", "applies_to", "answer_code"
+            )
+        ),
+        "links": sorted(VisitActionPoint.objects.values_list("visit__key", "action_point_id", "matched_by")),
+    }
+
+
+def test_a_full_refresh_builds_the_visits_with_meaningful_counts(fm_world):
+    run = _full()
+    assert (run.target, run.status, run.triggered_by) == ("full", SyncRun.Status.SUCCEEDED, "test")
+    findings = dm.MonitoringFinding.objects.count()
+    questions = dm.DatamartDocument.objects.filter(dataset="fm_questions").count()
+    assert run.rows_in == findings + questions and run.rows_written == Visit.objects.count() == 8
+    assert run.rows_failed == 0
+    assert KeyProbe.objects.exists() and FieldMapping.objects.exists()  # steps 1-3 too
+    details = run.details
+    for key in ("visits", "findings", "pd_resolved", "location", "governorate", "sections_from",
+                "offices_from", "action_points", "questions", "fields_not_found", "activity_ids"):  # fmt: skip
+        assert key in details, key
+    assert details["rules_version"] == 0 and details["scored"] == 0 and details["duration_ms"] >= 0
+    questions_details = details["questions"]
+    assert questions_details["records"] == questions == questions_details["parsed"]
+    assert questions_details["unanswered_seen"] is True and questions_details["linked"] == questions
+    pd = details["pd_resolved"]
+    assert pd["pd_kind_rows"] == pd["exact"] + pd["token"] + pd["base"] + pd["title"] + pd["unresolved"]
+    # nothing is scored yet: the quality rules come later
+    assert not Visit.objects.exclude(quality_score=None).exists()
+    assert set(Visit.objects.values_list("urgency", "hact_q1", "psea_flag")) == {(0, "", None)}
+
+
+def test_two_refreshes_give_the_same_rows_and_keep_the_visit_pks(fm_world):
+    _full()
+    first = _snapshot()
+    _full()
+    assert _snapshot() == first
+
+
+def test_a_visit_gone_from_the_data_is_removed_and_reviews_stay(fm_world):
+    _full()
+    VisitReview.objects.create(visit_key="1725", status=VisitReview.Status.DATA_ISSUE)
+    kept = Visit.objects.get(key="1722").pk
+    dm.MonitoringFinding.objects.filter(monitoring_activity_id=1725).delete()
+    _full()
+    assert not Visit.objects.filter(key="1725").exists() and Visit.objects.get(key="1722").pk == kept
+    assert VisitReview.objects.filter(visit_key="1725").exists()
+
+
+def test_a_record_that_cannot_be_read_is_skipped_and_counted_once(fm_world, monkeypatch):
+    from neurodb.fmm import build
+
+    row = build._Builder._row
+    add = fields.Probe.add
+
+    def flaky_row(self, record):
+        if record["datamart_id"] == 102:
+            raise ValueError("unreadable finding")
+        return row(self, record)
+
+    def flaky_add(self, record):
+        if isinstance(record, dict) and record.get("id") == 102:
+            raise ValueError("unreadable finding")
+        add(self, record)
+
+    monkeypatch.setattr(build._Builder, "_row", flaky_row)
+    monkeypatch.setattr(fields.Probe, "add", flaky_add)
+    run = _full()
+    assert run.status == SyncRun.Status.PARTIAL and run.rows_failed == 1  # met twice, counted once
+    assert run.details["errors"][0]["count"] == 2
+    assert Visit.objects.get(key="1722").entities == 2
+
+
+def test_a_failed_build_or_swap_keeps_the_previous_visits_and_keys(fm_world, monkeypatch):
+    from neurodb.fmm import build
+
+    _full()
+    before, probes = _snapshot(), KeyProbe.objects.count()
+    dm.DatamartDocument.objects.filter(dataset="offices").delete()
+    dm.MonitoringFinding.objects.filter(datamart_id=103).update(overall_finding_rating="Off Track")
+
+    def broken(self, visits_by_key):
+        raise RuntimeError("the swap failed")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(build.BuildResult, "question_answers", broken)
+    run = _full()
+    assert (run.status, run.error, run.rows_failed) == (
+        SyncRun.Status.FAILED,
+        "RuntimeError: the swap failed",
+        0,
+    )
+    assert _snapshot() == before  # the deletes of the swap were rolled back
+    assert KeyProbe.objects.count() == probes and KeyProbe.objects.filter(dataset="offices").exists()
+
+    monkeypatch.setattr(build, "build_visits", lambda ctx: 1 / 0)
+    run = _full()
+    assert run.status == SyncRun.Status.FAILED and "ZeroDivisionError" in run.error
+    assert _snapshot() == before
+
+
+def test_one_full_refresh_at_a_time(fm_world, held_elsewhere):
+    assert _full() is None and _full(scores_only=True) is None
+    assert not SyncRun.objects.filter(job=SyncRun.Job.FMM_REFRESH).exists()
+    assert command.BUSY in _command()
+
+
+def test_the_command_runs_each_kind(fm_world):
+    assert "Monitoring insights refresh [full] succeeded" in _command()
+    assert Visit.objects.count() == 8
+    assert "Monitoring insights refresh [scores] succeeded" in _command("--scores-only")
+    with pytest.raises(CommandError):
+        _command("--scores-only", "--probe-only")
+
+
+# ------------------------------------------------------------------------------------------ scores only
+def test_scores_only_reads_no_record_and_keeps_the_answers(fm_world, monkeypatch):
+    from neurodb.fmm import build
+
+    _full()
+    before = _snapshot()
+
+    def no_records(*args, **kwargs):
+        raise AssertionError("a scores-only pass read the records")
+
+    for target, name in (
+        (fields, "records"),
+        (fields, "probe"),
+        (build, "build_visits"),
+        (refresh.fm, "relink_findings"),
+    ):
+        monkeypatch.setattr(target, name, no_records)
+    run = _full(scores_only=True)
+    assert (run.target, run.status) == ("scores", SyncRun.Status.SUCCEEDED)
+    assert run.rows_in == run.rows_written == 8 and run.rows_failed == 0
+    assert _snapshot() == before  # answers, entities, links and pks in place
+
+
+def test_a_later_day_recounts_the_overdue_action_points(fm_world):
+    _full(today=datetime.date(2026, 8, 1))
+    assert Visit.objects.get(key="1726").action_points_overdue == 0  # due 1 Sep 2026
+    _full(scores_only=True, today=TODAY)  # no data changed
+    visit = Visit.objects.get(key="1726")
+    assert (visit.action_points_open, visit.action_points_overdue, visit.action_points_high_open) == (1, 1, 1)
+
+
+# ------------------------------------------------------------------------------------------ requests
+@pytest.fixture
+def started(monkeypatch):
+    calls = []
+    monkeypatch.setattr(background, "start_command", lambda *args: calls.append(args) or 1)
+    return calls
+
+
+@pytest.fixture
+def versions(monkeypatch):
+    """The current rules version, as a test sets it (the rules arrive in a later stage)."""
+    current = {"n": 1}
+    monkeypatch.setattr(refresh, "current_rules_version", lambda: current["n"])
+    return current
+
+
+def _passes() -> list[tuple[str, str, int]]:
+    return list(
+        SyncRun.objects.filter(job=SyncRun.Job.FMM_REFRESH)
+        .order_by("started_at", "pk")
+        .values_list("target", "triggered_by", "details__rules_version")
+    )
+
+
+def test_a_request_starts_the_command_on_commit_with_varargs(db, started, django_capture_on_commit_callbacks):
+    with django_capture_on_commit_callbacks(execute=True):
+        refresh.request("scores", "admin:5")
+        assert started == []  # not before the save is committed
+    assert started == [("fmm_refresh", "--scores-only", "--triggered-by", "admin:5")]
+    with django_capture_on_commit_callbacks(execute=True):
+        refresh.request("full", "admin:5")
+    assert started[-1] == ("fmm_refresh", "--triggered-by", "admin:5")
+    row = RefreshRequest.load()
+    assert row.scores_requested_at and row.full_requested_at and row.requested_by == "admin:5"
+    assert status.rescore_pending()
+    with pytest.raises(ValueError):
+        refresh.request("everything", "admin:5")
+
+
+def _in_another_process(**kw):
+    """Run a refresh in another database connection, as the command a save starts would."""
+    out = {}
+
+    def target():
+        try:
+            out["run"] = refresh.run(**kw)
+        finally:
+            connections.close_all()
+
+    thread = threading.Thread(target=target)
+    thread.start()
+    thread.join()
+    return out["run"]
+
+
+def test_a_rescore_asked_while_a_refresh_runs_is_served_by_that_refresh(fm_world, versions, monkeypatch):
+    """A rule saved while a full refresh holds the lock: its command finds the lock held and stops; the
+    refresh sees the request before it releases the lock and runs the scores-only pass."""
+    calls = []
+
+    def scorer(visits, today, version):  # stands for the scoring step; the save lands during the first
+        calls.append(version)
+        if len(calls) == 1:
+            versions["n"] = 2
+            refresh.request("scores", "admin:7")  # the save (its command starts after the commit:)
+            assert _in_another_process(triggered_by="admin:7", scores_only=True) is None  # lock held
+
+    monkeypatch.setattr(refresh, "_score", scorer)
+    last = _full()
+    assert _passes() == [("full", "test", 1), ("scores", "admin:7", 2)] and last.target == "scores"
+    assert calls == [1, 2]
+    assert set(Visit.objects.values_list("rules_version", flat=True)) == {2}
+    assert RefreshRequest.load().scores_requested_at is None and not status.rescore_pending()
+
+
+def test_a_request_written_just_before_the_lock_is_released_is_served_after(
+    fm_world, versions, monkeypatch, started
+):
+    wanted = refresh._wanted
+    looks = []
+
+    def late(since, last, triggered_by):
+        answer = wanted(since, last, triggered_by)
+        looks.append(answer)
+        if len(looks) == 1:  # the request lands right after the end-of-run look
+            versions["n"] = 2
+            refresh.request("scores", "admin:8")
+        return answer
+
+    monkeypatch.setattr(refresh, "_wanted", late)
+    _full()
+    assert looks[0] == (None, "")  # nothing yet at the end-of-run look; the look after release saw it
+    assert _passes() == [("full", "test", 1), ("scores", "admin:8", 2)]
+    assert set(Visit.objects.values_list("rules_version", flat=True)) == {2}
+
+
+def test_a_rules_version_saved_during_a_full_run_gives_a_second_pass(fm_world, versions, monkeypatch):
+    def scorer(visits, today, version):
+        versions["n"] = version + 1  # saved after this pass read the version
+
+    monkeypatch.setattr(refresh, "_score", scorer)
+    monkeypatch.setattr(refresh.settings, "FMM_REFRESH_MAX_PASSES", 2)
+    _full()
+    assert [(target, version) for target, _, version in _passes()] == [("full", 1), ("scores", 2)]
+
+
+def test_the_passes_of_one_run_are_bounded(fm_world, versions, monkeypatch, settings, started):
+    settings.FMM_REFRESH_MAX_PASSES = 3
+
+    def scorer(visits, today, version):
+        refresh.request("scores", "admin:9")  # every pass sees a newer request
+
+    monkeypatch.setattr(refresh, "_score", scorer)
+    _full()
+    assert [target for target, _, _ in _passes()] == ["full", "scores", "scores"]
+    assert status.rescore_pending()  # the last request waits for the next run
+
+
+def test_a_failed_pass_leaves_its_request(fm_world, versions, monkeypatch, started):
+    refresh.request("full", "admin:3")
+    monkeypatch.setattr(refresh.build, "build_visits", lambda ctx: 1 / 0)
+    run = _full()
+    assert run.status == SyncRun.Status.FAILED and len(_passes()) == 1
+    assert RefreshRequest.load().full_requested_at is not None and status.rescore_pending()
+
+
+def test_a_served_request_is_cleared(fm_world, versions, started):
+    refresh.request("scores", "admin:3")
+    refresh.request("full", "admin:3")
+    _full(scores_only=True)  # serves the scores request only
+    row = RefreshRequest.load()
+    assert row.scores_requested_at is None and row.full_requested_at is not None
+    _full()
+    row = RefreshRequest.load()
+    assert row.scores_requested_at is None and row.full_requested_at is None
+
+
+def test_scores_are_pending_while_a_visit_has_an_older_rules_version(fm_world, versions):
+    _full()
+    assert not status.rescore_pending()
+    versions["n"] = 2
+    assert status.rescore_pending()
+
+
+# ------------------------------------------------------------------------------------------ after a sync
+@pytest.fixture
+def datamart_sync(monkeypatch):
+    """``sync_etools_datamart`` with its sync replaced: ``targets`` are the datasets it says it synced."""
+    from neurodb.integrations.management.commands import sync_etools_datamart as sync_command
+
+    targets = []
+
+    def fake_sync_all(only=None, triggered_by="command"):
+        return [
+            SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target=t, status=SyncRun.Status.SUCCEEDED)
+            for t in targets
+        ]
+
+    monkeypatch.setattr(sync_command, "sync_all", fake_sync_all)
+
+    def run(*names) -> str:
+        targets[:] = names
+        out = StringIO()
+        call_command("sync_etools_datamart", stdout=out)
+        return out.getvalue()
+
+    return run
+
+
+def _refreshes():
+    return SyncRun.objects.filter(job=SyncRun.Job.FMM_REFRESH)
+
+
+def test_the_refresh_runs_after_a_sync_of_its_sources_once_the_datamart_lock_is_released(
+    fm_world, datamart_sync, monkeypatch
+):
+    inner = refresh.run
+    held = []
+
+    def watched(**kw):
+        held.append(background.datamart_lock_is_held())
+        return inner(**kw)
+
+    monkeypatch.setattr(refresh, "run", watched)
+    datamart_sync("grants")
+    assert not _refreshes().exists()
+    out = datamart_sync("field_monitoring")
+    assert held == [False]
+    assert _refreshes().get().target == "full" and Visit.objects.count() == 8
+    assert "Monitoring insights refresh [full] succeeded" in out
+
+
+def test_a_refresh_that_fails_never_fails_the_sync(fm_world, datamart_sync, monkeypatch):
+    monkeypatch.setattr(refresh, "_full", lambda triggered_by, today: 1 / 0)
+    out = datamart_sync("fm_questions")  # no CommandError
+    run = _refreshes().get()
+    assert run.status == SyncRun.Status.FAILED and "ZeroDivisionError" in run.error
+    assert "Monitoring insights refresh [full] failed" in out
+
+
+def test_the_refresh_after_a_sync_can_run_in_the_background_or_not_at_all(
+    fm_world, datamart_sync, settings, started
+):
+    settings.FMM_REFRESH_AFTER_SYNC = "background"
+    datamart_sync("field_monitoring")
+    assert started == [("fmm_refresh", "--triggered-by", "command")] and not _refreshes().exists()
+    settings.FMM_REFRESH_AFTER_SYNC = "off"
+    datamart_sync("field_monitoring")
+    settings.FMM_REFRESH_AFTER_SYNC, settings.FMM_ENABLED = "inline", False
+    datamart_sync("field_monitoring")
+    assert len(started) == 1 and not _refreshes().exists()
+
+
+def test_a_request_made_during_the_key_probe_is_served_too(fm_world, versions, monkeypatch, started):
+    probe = refresh._probe
+
+    def probing(triggered_by):
+        refresh.request("full", "admin:4")  # a key pinned while the probe runs
+        return probe(triggered_by)
+
+    monkeypatch.setattr(refresh, "_probe", probing)
+    refresh.run(triggered_by="test", probe_only=True)
+    monkeypatch.setattr(refresh, "_probe", probe)
+    assert [(target, who) for target, who, _ in _passes()] == [("probe", "test"), ("full", "admin:4")]
+    assert Visit.objects.exists() and RefreshRequest.load().full_requested_at is None
+
+
+def test_rows_that_all_fail_never_empty_the_visits(fm_world, monkeypatch):
+    from neurodb.fmm import build
+
+    _full()
+    before = _snapshot()
+
+    def broken(self, record):
+        raise ValueError("unreadable finding")
+
+    monkeypatch.setattr(build._Builder, "_row", broken)
+    run = _full()
+    assert run.status == SyncRun.Status.FAILED and "none of the" in run.error
+    assert _snapshot() == before

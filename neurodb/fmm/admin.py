@@ -1,7 +1,11 @@
-"""Monitoring insights in the admin. For now **Fields found**: which keys the eTools field monitoring
-records hold and which key each field is read from, as the last refresh found them, with the rates
-that tell whether the data can be trusted. Read-only: pinning a key (an override, versioned with the
-quality rules) arrives with the rules."""
+"""Monitoring insights in the admin, read-only for now:
+
+- **Fields found**: which keys the eTools field monitoring records hold and which key each field is read
+  from, as the last refresh found them, with the rates that tell whether the data can be trusted.
+  Pinning a key (an override, versioned with the quality rules) arrives with the rules;
+- **Visits**: the visits the refresh built, with their entity rows, action points and data problems,
+  for checking the data;
+- **Visit reviews**: the marks sections put on visits."""
 
 from __future__ import annotations
 
@@ -11,14 +15,14 @@ from typing import Any
 from django.conf import settings
 from django.contrib import admin
 from django.utils.translation import gettext as _
-from unfold.admin import ModelAdmin
+from unfold.admin import ModelAdmin, TabularInline
 
 from neurodb.core.models import SyncRun
 from neurodb.integrations import background
-from neurodb.web.admin_helpers import badge
+from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
 from . import fields, status
-from .models import FieldMapping, KeyProbe
+from .models import FieldMapping, KeyProbe, Visit, VisitActionPoint, VisitEntity, VisitReview
 
 STATE_TONES = {
     FieldMapping.State.FOUND: "ok",
@@ -232,3 +236,158 @@ class FieldMappingAdmin(ModelAdmin):
     def changelist_view(self, request, extra_context=None):
         extra_context = {**(extra_context or {}), "found": fields_found()}
         return super().changelist_view(request, extra_context)
+
+
+# ------------------------------------------------------------------------------------------ visits
+class _ReadOnlyInline(TabularInline):
+    extra = 0
+    can_delete = False
+    show_change_link = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class VisitEntityInline(_ReadOnlyInline):
+    model = VisitEntity
+    fields = readonly_fields = (
+        "datamart_id",
+        "kind",
+        "entity",
+        "entity_type_raw",
+        "pd",
+        "pd_match",
+        "partner",
+        "rating",
+        "rating_raw",
+        "narrative_words",
+        "narrative_placeholder",
+    )
+    verbose_name_plural = "monitored entities (finding rows)"
+
+
+class VisitActionPointInline(_ReadOnlyInline):
+    model = VisitActionPoint
+    fields = readonly_fields = ("action_point", "matched_by")
+    verbose_name_plural = "action points raised from the visit"
+
+
+@admin.register(Visit)
+class VisitAdmin(ReadOnlyModelAdmin):
+    """The visits the refresh built, for checking the data: links, place, data problems."""
+
+    list_display = (
+        "label",
+        "end_date",
+        "status_shown",
+        "rating_shown",
+        "partner",
+        "entities",
+        "place_name",
+        "governorate_name",
+    )
+    list_filter = ("status_group", "rating", "located_by", "sections_from", "is_programmatic")
+    search_fields = ("key", "reference", "reference_number", "partner__name", "partner__short_name")
+    list_select_related = ("partner",)
+    view_on_site = False
+    inlines = (VisitEntityInline, VisitActionPointInline)
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "key",
+                    "label",
+                    "activity_id",
+                    "reference",
+                    "reference_number",
+                    ("start_date", "end_date", "last_modified"),
+                    ("status", "status_raw", "status_group"),
+                    ("rating", "rating_counts"),
+                    ("is_programmatic", "is_remote"),
+                )
+            },
+        ),
+        (
+            "Links",
+            {
+                "fields": (
+                    "partner",
+                    "partner_ids",
+                    "pd",
+                    "pd_ids",
+                    "pd_numbers",
+                    "cp_outputs",
+                    "programme_activities",
+                    ("section_names", "sections_from", "section_ids"),
+                    ("offices", "offices_from"),
+                    ("team", "team_unnamed"),
+                )
+            },
+        ),
+        (
+            "Place",
+            {
+                "fields": (
+                    ("place_name", "place_pcode"),
+                    ("location", "site"),
+                    ("governorate_name", "governorate_key", "district_name"),
+                    ("latitude", "longitude"),
+                    ("located_by", "located_level", "point_precise"),
+                    ("approximate", "approximate_from"),
+                )
+            },
+        ),
+        (
+            "Answers, action points and scores",
+            {
+                "fields": (
+                    ("questions_asked", "questions_answered"),
+                    (
+                        "action_points",
+                        "action_points_open",
+                        "action_points_overdue",
+                        "action_points_high_open",
+                    ),
+                    ("hact_q1", "psea_flag"),
+                    ("quality_score", "quality_points", "quality_max", "score_band"),
+                    ("evaluated_rules", "flags", "not_scored_reason"),
+                    ("urgency", "urgency_band", "urgency_parts"),
+                    ("rules_version", "refreshed_at"),
+                )
+            },
+        ),
+        ("Data problems", {"fields": ("issues",)}),
+    )
+
+    def get_readonly_fields(self, request, obj=None):
+        return [f.name for f in Visit._meta.concrete_fields]
+
+    @admin.display(description=_("status"), ordering="status_group")
+    def status_shown(self, obj):
+        text = (obj.status or obj.status_raw or _("unknown")).replace("_", " ").capitalize()
+        return badge(text, GROUP_TONES.get(obj.status_group, "warn"))
+
+    @admin.display(description=_("rating"), ordering="rating")
+    def rating_shown(self, obj):
+        return badge(obj.rating.replace("_", " ").capitalize(), RATING_TONES.get(obj.rating))
+
+
+RATING_TONES = {"on_track": "ok", "constrained": "warn", "off_track": "bad", "not_monitored": "muted"}
+GROUP_TONES = {"reported": "ok", "in_progress": "info", "planned": "muted", "cancelled": "muted"}
+
+
+@admin.register(VisitReview)
+class VisitReviewAdmin(ReadOnlyModelAdmin):
+    """The marks sections put on visits (reviewed, needs follow-up, data issue)."""
+
+    list_display = ("visit_key", "status", "reviewed_by", "created_at")
+    list_filter = ("status",)
+    search_fields = ("visit_key",)
+    readonly_fields = ("visit_key", "status", "note", "reviewed_by", "created_at")

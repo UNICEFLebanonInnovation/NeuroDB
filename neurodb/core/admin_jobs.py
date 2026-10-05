@@ -223,6 +223,18 @@ BACKGROUND_JOBS = [
         ),
         "notifications",
     ),
+    BackgroundJob(
+        "run_fmm_refresh",
+        ("fmm_refresh",),
+        SyncRun.Job.FMM_REFRESH,
+        _("Monitoring insights"),
+        _("Refresh monitoring insights now"),
+        _(
+            "Rebuilds the visits, links and quality scores of Monitoring insights from the synced eTools "
+            "data. It runs by itself after every eTools Datamart sync and each morning."
+        ),
+        "monitoring",
+    ),
 ]
 
 

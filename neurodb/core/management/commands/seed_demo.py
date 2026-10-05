@@ -137,6 +137,7 @@ class Command(BaseCommand):
         with transaction.atomic():
             self._seed(rng, password, months)
         invalidate_navigation()
+        self._monitoring_insights()
         self.stdout.write(
             self.style.SUCCESS(
                 "Demo data created. Users: demo-admin, demo-editor, demo-viewer, and demo-donor (the donor "
@@ -147,6 +148,21 @@ class Command(BaseCommand):
             self.stdout.write(f"Generated password for the demo users: {password}")
 
     # ------------------------------------------------------------------ steps
+    def _monitoring_insights(self) -> None:
+        """Build the Monitoring insights visits from the demo's field monitoring data, as the refresh
+        after a Datamart sync would."""
+        from django.apps import apps
+
+        if not (settings.FMM_ENABLED and apps.is_installed("neurodb.fmm")):
+            return
+        from neurodb.fmm import refresh
+
+        done = refresh.run(triggered_by="demo")
+        if done is not None:
+            self.stdout.write(
+                f"Monitoring insights: {done.rows_written} visits built ({done.get_status_display()})."
+            )
+
     def _seed(self, rng: random.Random, password: str, months: int) -> None:
         groups = ensure_groups()
         year = ReportingYear.objects.create(name="2026", year="2026", current=True)

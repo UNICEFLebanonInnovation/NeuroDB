@@ -454,10 +454,24 @@ WATCH_GRANT_MIN_UNSPENT = env.int("WATCH_GRANT_MIN_UNSPENT", default=10_000)  # 
 WATCH_EMAIL = env.bool("WATCH_EMAIL", default=True)  # one morning email, once EMAIL_URL is set
 
 # ---------------------------------------------------------------------------- Monitoring insights (FMM)
-# The eTools field monitoring visits, their links and their quality (/fmm/, built in steps). So far the
-# refresh only reads which keys the field monitoring records hold (`manage.py fmm_refresh --probe-only`,
-# shown in the admin as Monitoring insights > Fields found). Off: the refresh does nothing.
+# The eTools field monitoring visits, their links and their quality (/fmm/, built in steps). The refresh
+# (`manage.py fmm_refresh`) builds the visits after every Datamart sync and each morning, and reads which
+# keys the field monitoring records hold (admin: Monitoring insights > Fields found). Off: the refresh
+# does nothing.
 FMM_ENABLED = env.bool("FMM_ENABLED", default=True)
+# At the end of every eTools Datamart sync: "inline" runs the refresh in the sync's process,
+# "background" starts it as its own process, "off" leaves it to the morning run ("false" means "off")
+FMM_REFRESH_AFTER_SYNC = env("FMM_REFRESH_AFTER_SYNC", default="inline").strip().lower()
+if FMM_REFRESH_AFTER_SYNC == "false":
+    FMM_REFRESH_AFTER_SYNC = "off"
+if FMM_REFRESH_AFTER_SYNC not in ("inline", "background", "off"):
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(
+        f"FMM_REFRESH_AFTER_SYNC must be inline, background or off; got {FMM_REFRESH_AFTER_SYNC!r}"
+    )
+# Passes one refresh may make to serve the rescores asked for while it runs
+FMM_REFRESH_MAX_PASSES = env.int("FMM_REFRESH_MAX_PASSES", default=3)
 # Share of a dataset's records a candidate key must fill to be chosen before the keys listed after it
 FMM_KEY_MIN_COVERAGE = env.float("FMM_KEY_MIN_COVERAGE", default=0.5)
 if not 0 < FMM_KEY_MIN_COVERAGE <= 1:

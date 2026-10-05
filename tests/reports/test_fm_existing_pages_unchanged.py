@@ -1,8 +1,10 @@
 """Monitoring insights does not move the existing pages (invariant 6): on the overview fixture, the
 Datamart pages' fixture and a field monitoring fixture, the /field-monitoring/ figures, the overview's field monitoring visits and the
 partner page's visit series keep their pinned values after the programme documents are linked to the
-findings (``datamart.fm.relink_findings``). The demo's own field monitoring rows are checked in
-``tests/core/test_demo_seed.py`` (the first 50 findings are left as they were)."""
+findings (``datamart.fm.relink_findings``), and after the Monitoring insights refresh has built its
+visits from them (``fmm_refresh``), which never writes to the findings beyond that link. The demo's own
+field monitoring rows are checked in ``tests/core/test_demo_seed.py`` (the first 50 findings are left as
+they were)."""
 
 import datetime
 
@@ -11,6 +13,8 @@ from django.http import QueryDict
 
 from neurodb.datamart import fm, services
 from neurodb.datamart import models as dm
+from neurodb.fmm import refresh
+from neurodb.fmm.models import Visit
 from neurodb.partnerships.models import PCA, PartnerOrganization
 from neurodb.reports import overview
 from tests.reports.overview_fixture import TODAY, make_overview_data
@@ -52,6 +56,17 @@ def field_monitoring(db):
             end_date=end,
         )
     return {"a": a, "b": b}
+
+
+def _refresh():
+    run = refresh.run(triggered_by="test")
+    assert run.status == "succeeded", run.error
+
+
+def _findings() -> list[tuple]:
+    """Every column of every finding row, to show the refresh changes none."""
+    names = [f.attname for f in dm.MonitoringFinding._meta.concrete_fields if f.name != "synced_at"]
+    return list(dm.MonitoringFinding.objects.order_by("pk").values_list(*names))
 
 
 def page_figures(params: str) -> dict:
@@ -113,6 +128,10 @@ def test_field_monitoring_page_and_partner_series_do_not_move(field_monitoring):
     assert (counts["exact"], counts["token"]) == (1, 1)  # the PD rows are now linked
     assert dm.MonitoringFinding.objects.exclude(intervention=None).count() == 2
     assert figures(partners) == PINNED
+    findings = _findings()
+    _refresh()
+    assert Visit.objects.count() == 5 and _findings() == findings
+    assert figures(partners) == PINNED
 
 
 def _overview_figures(reporting_year) -> dict:
@@ -150,6 +169,12 @@ def test_overview_field_monitoring_figures_do_not_move(hierarchy, reporting_year
     assert _overview_figures(reporting_year) == pinned
     assert page_figures("year=2026") == page
     assert services.partner_datamart(data["partner"])["monitoring_visits_by_year"] == series
+    findings = _findings()
+    _refresh()
+    assert Visit.objects.count() == 1 and _findings() == findings
+    assert _overview_figures(reporting_year) == pinned
+    assert page_figures("year=2026") == page
+    assert services.partner_datamart(data["partner"])["monitoring_visits_by_year"] == series
 
 
 def test_datamart_pages_fixture_does_not_move(datamart):  # noqa: F811 (the imported fixture)
@@ -180,4 +205,8 @@ def test_datamart_pages_fixture_does_not_move(datamart):  # noqa: F811 (the impo
     assert before[1]["findings"] == 2 and before[1]["activities"] == 2
     assert fm.relink_findings()["exact"] == 1
     assert dm.MonitoringFinding.objects.get(datamart_id=2).intervention == datamart["pd"]
+    assert snapshot() == before
+    findings = _findings()
+    _refresh()
+    assert Visit.objects.count() == 2 and _findings() == findings
     assert snapshot() == before

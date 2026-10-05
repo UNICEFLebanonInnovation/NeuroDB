@@ -129,9 +129,9 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
         _("Monitoring insights"),
         _(
             "eTools field monitoring as Monitoring insights reads it: the keys its records hold and the "
-            "key each field is read from (Fields found)."
+            "key each field is read from (Fields found), the visits built from it and their reviews."
         ),
-        ["fmm.FieldMapping"],
+        ["fmm.FieldMapping", "fmm.Visit", "fmm.VisitReview"],
     ),
     (
         _("Compiler (youth and education)"),
@@ -289,6 +289,8 @@ ICONS = {
     "etools.TravelActivity": "route",
     "etools.ActionPoint": "task_alt",
     "fmm.FieldMapping": "data_object",
+    "fmm.Visit": "location_on",
+    "fmm.VisitReview": "task_alt",
     "locations.Location": "location_on",
     "locations.LocationType": "layers",
     "pivoting.GovernorateLocation": "location_city",

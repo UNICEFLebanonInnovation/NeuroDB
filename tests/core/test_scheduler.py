@@ -64,6 +64,7 @@ def test_default_schedules_exist():
     assert jobs["etools-datamart"] == "30 20 * * *" and jobs["daily-review"] == "0 6 * * *"
     assert jobs["activityinfo-data"] == "0 18 1-22 * *" and jobs["freshness"] == "15 * * * *"
     assert jobs["whats-new"] == "30 7 * * *" and jobs["watch"] == "45 7 * * *"  # the watch after the note
+    assert jobs["fmm-refresh"] == "25 5 * * *"  # after the 05:00 locations sync
     assert not ScheduledJob.objects.get(key="activityinfo-structure").enabled
 
 

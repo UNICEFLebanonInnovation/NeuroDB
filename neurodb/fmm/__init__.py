@@ -10,6 +10,9 @@ it (:class:`~neurodb.fmm.models.FieldMapping`, :mod:`neurodb.fmm.fields`); the a
 "Fields found". Values are read through :mod:`neurodb.fmm.parse`, which tolerates the shapes the
 records may take.
 
-The visits, their quality rules, the page and its AI arrive in later steps; this app imports
-``neurodb.datamart`` and ``neurodb.watch``, and neither imports it.
+From those records the refresh builds the visits (:mod:`neurodb.fmm.build`): one per eTools monitoring
+activity, linked to partners, programme documents, places, sections, offices, action points and
+checklist answers, without keeping any narrative or answer text. Their quality rules, the page and
+its AI arrive in later steps. This app imports ``neurodb.datamart`` and ``neurodb.watch``; neither
+imports it at module level.
 """

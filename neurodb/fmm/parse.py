@@ -15,17 +15,24 @@ replaced by its label (``fm_options``); an answer that is blank, or a placeholde
 "see above", is not answered. Only the answer's code (a rating, yes or no) and word counts leave this
 module, never its text.
 
+For the pages and the chat, it reads the texts of a visit's answers back from their records
+(:func:`visit_answers`) and searches the narratives and answers of a set of visits
+(:func:`search_texts`): only the values of the answer, its label and its summary are searched, never a
+key's name, another field or a value that holds a person.
+
 Only this module, ``fields``, the visit builder and the visit page read records' ``data``.
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from neurodb.datamart import fm
+from neurodb.watch import people
 
 KINDS = ("text", "id", "int", "bool")
 TEXT_KEYS = ("text", "title", "name", "label", "value", "reference_number", "id")
@@ -51,6 +58,7 @@ PLACEHOLDERS = frozenset(
 )
 _INTEGER = re.compile(r"^-?\d+$")
 _WORD = re.compile(r"[^\W_]+")
+_NOT_WORD = re.compile(r"[^\w\s]|_")
 
 
 # ------------------------------------------------------------------------------------------ values
@@ -98,6 +106,35 @@ def as_kind(raw: Any, kind: str = "text") -> Any:
             return as_kind(raw[0], "bool") if raw else None
         return raw if isinstance(raw, bool) else None
     raise ValueError(f"unknown kind {kind!r}")
+
+
+def text_list(raw: Any) -> list[str]:
+    """``raw`` as a list of texts, once each in their first order: a list gives each element's text
+    (an object its name, label...), anything else its one text. Blank values are left out."""
+    if raw is None:
+        return []
+    elements = raw[:MAX_LIST] if isinstance(raw, list) else [raw]
+    out: list[str] = []
+    for element in elements:
+        text = _text(element)
+        if text is not None and text not in out:
+            out.append(text)
+    return out
+
+
+def fold(text: Any) -> str:
+    """A text as the quality rules compare it: lower case, without accents, every character other than
+    a letter, a digit or a space turned into a space, and runs of spaces made one."""
+    return " ".join(_NOT_WORD.sub(" ", people.fold(str(text or ""))).split())
+
+
+def question_key(question_id: Any, text: Any) -> str:
+    """How a question is told apart: its id, else the sha1 of its folded text ("" when it has neither)."""
+    number = as_kind(question_id, "id")
+    if number is not None:
+        return str(number)
+    folded = fold(text)
+    return hashlib.sha1(folded.encode(), usedforsecurity=False).hexdigest() if folded else ""
 
 
 def _text(raw: Any) -> str | None:
@@ -201,3 +238,163 @@ def read_answer(
         answer_words=word_count(shown),
         summary_words=word_count(summary_text),
     )
+
+
+# ------------------------------------------------------------------------------------------ texts
+@dataclass(frozen=True)
+class TextHit:
+    """A narrative or an answer value of a visit holding the text searched for (the value only, raw)."""
+
+    visit_key: str
+    where: Literal["narrative", "answer", "summary"]
+    text: str
+
+
+ANSWER_TEXT_FIELDS = (("answer", "answer"), ("answer_label", "answer"), ("summary", "summary"))
+
+
+def _folded(text: Any) -> str:
+    return " ".join(people.fold(str(text or "")).split())
+
+
+def _answer_keys() -> list[tuple[str, str]]:
+    """(key, where) of the answer, answer label and summary fields of the checklist answers, as the
+    last refresh chose them; a key that holds a person is never read."""
+    from . import fields, privacy
+
+    keys = []
+    for field, where in ANSWER_TEXT_FIELDS:
+        key = fields.key_for("fm_questions", field)
+        if key and not privacy.person_like(key) and key not in {k for k, _ in keys}:
+            keys.append((key, where))
+    return keys
+
+
+def search_texts(visit_keys: Collection[str], needle: str, limit: int) -> list[TextHit]:
+    """The narratives and the answer values of the visits ``visit_keys`` that hold ``needle`` (folded:
+    case and accents do not matter), newest visits first, at most ``limit``. An answer record counts
+    only when the needle is in the value of its answer, answer label or summary: a record that holds
+    it in a key's name, in a value that holds a person or in any other field does not."""
+    from django.db.models import TextField
+    from django.db.models.functions import Cast
+
+    from neurodb.datamart.models import DatamartDocument, MonitoringFinding
+
+    from .models import QuestionAnswer, Visit, VisitEntity
+
+    wanted = _folded(needle)
+    if not wanted or limit <= 0 or not visit_keys:
+        return []
+    order = {
+        key: rank
+        for rank, key in enumerate(
+            Visit.objects.filter(key__in=list(visit_keys))
+            .order_by("-end_date", "key")
+            .values_list("key", flat=True)
+        )
+    }
+    if not order:
+        return []
+    hits: list[tuple[int, int, TextHit]] = []
+    # 1. narratives
+    rows = VisitEntity.objects.filter(visit__key__in=list(order)).exclude(finding_id=None)
+    finding_keys = dict(rows.values_list("finding_id", "visit__key"))
+    narratives = MonitoringFinding.objects.filter(
+        pk__in=list(finding_keys), narrative_finding__icontains=needle.strip()
+    ).values_list("pk", "narrative_finding")
+    for pk, narrative in narratives:
+        if wanted in _folded(narrative):
+            key = finding_keys[pk]
+            hits.append((order[key], 0, TextHit(key, "narrative", narrative)))
+    # 2. answers: a cheap filter on the record's text, then the value itself
+    keys = _answer_keys()
+    if keys:
+        answers = QuestionAnswer.objects.filter(visit__key__in=list(order))
+        document_keys = dict(answers.values_list("document_id", "visit_key"))
+        documents = DatamartDocument.objects.filter(dataset="fm_questions", pk__in=list(document_keys))
+        if '"' not in needle and "\\" not in needle:
+            documents = documents.annotate(text=Cast("data", TextField())).filter(
+                text__icontains=needle.strip()
+            )
+        for pk, data in documents.values_list("pk", "data").iterator(chunk_size=2000):
+            seen: set[str] = set()
+            for key, where in keys:
+                value = as_kind(walk(data, key) if isinstance(data, dict) else None, "text")
+                if value and value not in seen and wanted in _folded(value):
+                    seen.add(value)
+                    visit_key = document_keys[pk]
+                    hits.append((order[visit_key], 1, TextHit(visit_key, where, value)))
+    hits.sort(key=lambda hit: (hit[0], hit[1]))
+    return [hit for _, _, hit in hits[:limit]]
+
+
+def visit_answers(visit) -> list[tuple[str, str, str]]:
+    """(question, answer, summary) of each checklist answer of ``visit``, in the checklist's order, read
+    from the answer records: the answer shown is its option's label, else its label, else as written.
+    For the visit page and the chat only, which clean what they show or send."""
+    from neurodb.datamart.models import DatamartDocument
+
+    from . import fields
+    from .models import QuestionAnswer
+
+    answers = list(
+        QuestionAnswer.objects.filter(visit=visit).order_by("question_order", "question_key", "document_id")
+    )
+    if not answers:
+        return []
+    records = dict(
+        DatamartDocument.objects.filter(
+            dataset="fm_questions", pk__in=[a.document_id for a in answers]
+        ).values_list("pk", "data")
+    )
+    answer_key = fields.key_for("fm_questions", "answer")
+    label_key = fields.key_for("fm_questions", "answer_label")
+    summary_key = fields.key_for("fm_questions", "summary")
+    options = option_labels({a.question_key for a in answers})
+    out = []
+    for answer in answers:
+        record = records.get(answer.document_id)
+        if not isinstance(record, dict):
+            continue
+        written = value(record, answer_key) if answer_key else None
+        shown = options.get((answer.question_key, written or ""), "") if written else ""
+        shown = shown or (value(record, label_key) if label_key else None) or written or ""
+        summary = (value(record, summary_key) if summary_key else None) or ""
+        out.append((answer.question_text, shown, summary))
+    return out
+
+
+def option_labels(question_keys: Collection[str] | None = None) -> dict[tuple[str, str], str]:
+    """{(question key, option value): label} of the answer options (``fm_options``), for the questions
+    given (every question when None)."""
+    from . import fields
+
+    question = fields.key_for("fm_options", "question_id")
+    code = fields.key_for("fm_options", "value")
+    label = fields.key_for("fm_options", "label")
+    if not (question and code and label):
+        return {}
+    wanted = set(question_keys) if question_keys is not None else None
+    out: dict[tuple[str, str], str] = {}
+    for _pk, record in fields.records("fm_options"):
+        options_entry(record, question, code, label, out, wanted)
+    return out
+
+
+def options_entry(
+    record: Any,
+    question: str,
+    code: str,
+    label: str,
+    into: dict[tuple[str, str], str],
+    wanted: set[str] | None = None,
+) -> None:
+    """Add one answer option record to ``into`` ({(question key, option value): label})."""
+    question_id = value(record, question, "id")
+    option = value(record, code, "text")
+    text = value(record, label, "text")
+    if question_id is None or option is None or text is None:
+        return
+    key = str(question_id)
+    if wanted is None or key in wanted:
+        into.setdefault((key, option), text)

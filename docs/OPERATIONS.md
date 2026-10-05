@@ -89,7 +89,8 @@ come from.
   dropped and cannot be filtered, grouped, summed, sorted or picked; texts longer than 80 characters
   (narratives, answers, summaries) are withheld ("text withheld: read it in Monitoring insights");
   shorter values (ratings, statuses, references, place names, "Yes") are sent without e-mail
-  addresses, phone numbers, links, the person names NeuroDB knows and any name written after a title
+  addresses, phone numbers, links, the person names NeuroDB knows (the field monitoring team members
+  included, once Monitoring insights has built its visits) and any name written after a title
   such as Mrs, Dr or Sheikh (a place named that way, such as Sheikh Zennad, is withheld too); a
   question that names a person finds no field monitoring record, and the search examples show the
   visit reference only. For every other dataset, keys naming an e-mail address, a
@@ -418,6 +419,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | Job | Runs | Default schedule (Beirut) |
 |---|---|---|
 | `locations` | `sync_locations` | `0 5 * * *`, daily 05:00: the eTools locations from the Datamart (`--source rest` for the older eTools REST API, which needs `ETOOLS_TOKEN`; its location-types endpoint is gone and is skipped) |
+| `fmm-refresh` | `fmm_refresh` | `25 5 * * *`, daily 05:25, after the locations: rebuilds the Monitoring insights visits, so that overdue action points and the age of a visit are recomputed even when no data changed (it also runs after every Datamart sync) |
 | `daily-review` | `daily_review` | `0 6 * * *`, daily 06:00, after the night's syncs |
 | `activityinfo-data` | `import_activityinfo_data --current-year` | `0 18 1-22 * *`, 18:00 on days 1–22 |
 | `etools-datamart` | `sync_etools_datamart` | `30 20 * * *`, daily 20:30 |
@@ -432,6 +434,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `ml-readiness` | `ml_readiness` | `45 6 * * 1`, Mondays 06:45: is the data ready for machine learning (Data health) |
 | `forecast` | `forecast_indicators` | `15 7 * * 1`, Mondays 07:15: year-end forecasts of the indicators, back-tested |
 | (inside `activityinfo-data` and `etools-datamart`) | `link_partners` | at the end of both jobs |
+| (inside `etools-datamart`) | `fmm_refresh` | at the end of the sync, when it synced a dataset Monitoring insights reads (`FMM_REFRESH_AFTER_SYNC`); its failure never fails the sync |
 
 On the page: switch a job on or off (the toggle saves at once), open it to change its schedule (five
 cron fields: minute hour day-of-month month day-of-week; the form refuses a schedule it cannot read),
@@ -494,6 +497,7 @@ admin home page, *Quick actions*):
 | Run a job → *NeuroDB Watch* (also *Check now* on the For you page) | `run_watch --daily` | background |
 | Run a job → *Machine learning readiness* | `ml_readiness` | background |
 | Run a job → *Year-end forecast* | `forecast_indicators` | background |
+| Run a job → *Monitoring insights* | `fmm_refresh` | background |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |
@@ -506,8 +510,8 @@ A background job runs as its own process (it survives the web worker that starte
 as a run in this list like a scheduled run, and does not start while a run of the same job is in
 progress. Not available as buttons, on purpose: `migrate_locked` and `ensure_legacy_tables` (every
 deployment runs them), `seed_demo` (local databases only), and `record_datamart_samples` and
-`fmm_redact_fixtures` (they write test fixtures into the source code). Monitoring insights' key check,
-`fmm_refresh --probe-only`, has no button yet: run it from a shell (see Monitoring insights).
+`fmm_redact_fixtures` (they write test fixtures into the source code). Monitoring insights' key check
+alone, `fmm_refresh --probe-only`, has no button: the full refresh reads the keys too.
 
 ## eTools Datamart
 
@@ -1257,9 +1261,9 @@ saved there or in the hub (see `docs/ICEBOX.md`).
 
 Monitoring insights turns the eTools field monitoring data into visits: each visit's partners,
 programme documents, place and sections, and how complete and coherent its report is. It is built in
-steps. This release adds its data layer only, with no page and nothing in the menu: the first part of its
-refresh, which reads which keys the field monitoring records hold, shown to administrators as
-**Fields found** (admin → *Monitoring insights* → *Fields found*).
+steps. This release adds its data layer, with no page and nothing in the menu yet: the refresh that
+builds the visits, and two admin views, **Fields found** (which keys the field monitoring records hold)
+and **Visits** (the visits built, for checking the data), both under admin → *Monitoring insights*.
 
 ### Data and its keys
 
@@ -1267,8 +1271,8 @@ eTools never documented the keys of its field monitoring records: the findings (
 checklist answers (`fm-questions`), the answer options (`fm-options`), the programme activities of
 each visit (`fm-programme-activities`), and the office and section lists. For each field Monitoring
 insights reads (a checklist answer, the activity it belongs to, the question's text, the team...) the
-code lists candidate keys, most likely first (`neurodb/fmm/fields.py`). `python manage.py
-fmm_refresh --probe-only`:
+code lists candidate keys, most likely first (`neurodb/fmm/fields.py`). The refresh,
+`python manage.py fmm_refresh`:
 
 1. links the findings not linked yet to the programme document their entity names, as the Datamart
    sync does;
@@ -1282,13 +1286,54 @@ fmm_refresh --probe-only`:
    (50%) of the records with a usable value (an id needs a number, a yes/no needs true or false),
    else the fullest one, else none: the field is *Not found* and what needs it will say "not
    available". A later key filling at least 30 points more marks the choice *Found, another key is
-   fuller*: look at it.
+   fuller*: look at it;
+4. builds the visits: the finding rows of one eTools monitoring activity make one visit (its activity
+   id, else its activity reference, else the row alone). Each visit gets its partners, its programme
+   documents (the row's own link, else a PD reference in its record or its programme activities, by
+   the PCA/PD pair first so that the amendment covering the visit is found), its CP outputs and
+   programme activities, its place (the monitoring site, else the location; the governorate and
+   district from the gazetteer, through the site's location when the visit has none), its point (the
+   site's, else the location's own, else its nearest ancestor's, marked approximate), its sections
+   (written on the visit, else its programme documents', else its action points', else, with no
+   programme document, the partner's programme documents running on the visit date, marked
+   "inferred from the partner"), its field offices (the same order, without the partner step), its
+   team (names only, never e-mail addresses), the FM action points raised from it (by the activity
+   id, else the activity reference, else its reference number) with their open, overdue and
+   high-priority counts, and its checklist answers (joined by the activity id, else the reference;
+   each applies to one entity row, to every row of a partner, or to the whole visit). Only whether an
+   answer was given, its code (a rating, yes or no) and word counts are kept: the texts of answers and
+   narratives stay where eTools put them. Problems (several statuses or places, an unlinked programme
+   document, no date, an unknown rating, one reference under several activities) are recorded on the
+   visit as counts;
+5. writes the keys and the visits together in one transaction: the pages see the old visits until it
+   commits, a visit keeps its id while its key stays, and the section reviews are never touched.
 
-Each run is one line in *Import and sync runs* (*Monitoring insights refresh*, target `probe`), one at
-a time (a database lock: a second start does nothing). A failure keeps the previous keys and marks the
-run *Failed*; a record that cannot be read is counted as a failed row (*Succeeded with errors*). The
-run is not scheduled yet and has no button: run it from a shell after a Datamart sync.
-`FMM_ENABLED=false` makes it do nothing.
+The quality scores, HACT Q1, the PSEA flag and urgency come with the quality rules, in a later step;
+until then they are empty.
+
+Each run is one line in *Import and sync runs* (*Monitoring insights refresh*, target `full`): rows
+read are the finding rows and checklist records, rows written the visits. One runs at a time (a
+database lock: a second start does nothing). A failure keeps the previous visits and keys and marks
+the run *Failed*; a record that cannot be read is skipped and counted as a failed row (*Succeeded with
+errors*), and Data health lists both. It runs:
+
+- at the end of every eTools Datamart sync that synced a dataset it reads, in the sync's process
+  (`FMM_REFRESH_AFTER_SYNC=inline`; `background` starts it as its own process, `off` leaves it to the
+  morning run); its failure never fails the sync;
+- every day at 05:25 (`fmm-refresh` on the Scheduled jobs page), so that what changes with the day
+  (overdue action points) is recomputed even when no data changed;
+- from Run a job → *Monitoring insights*, or a shell.
+
+`fmm_refresh --scores-only` recomputes, from the visits already built and without reading the records,
+what changes with the day or the rules (for now the action point counts); `--probe-only` runs steps
+1-3 alone. A saved rule (a later step) asks for a scores-only refresh and a pinned key for a full one:
+the request is kept (`RefreshRequest`), and a refresh that is running when it arrives looks at it
+before it releases its lock and runs the pass asked for, at most `FMM_REFRESH_MAX_PASSES` passes, so a
+request is never lost. `FMM_ENABLED=false` makes the refresh do nothing.
+
+The team names of the visits join the names NeuroDB removes from every text it sends (NeuroDB Watch,
+Ask NeuroDB, the AI checks), and the section names written on visits join the eTools section names an
+administrator confirms (Section matches).
 
 Fields found shows, above the keys of each dataset:
 
@@ -1305,7 +1350,9 @@ Fields found shows, above the keys of each dataset:
 Per field: the key used, its state, the share of records it fills, every listed key found with its
 share, and what the field is needed for. Pinning another key by hand (an override, versioned with the
 quality rules, with who, when and why) arrives with the quality rules; the *Pinned key* column shows
-"auto" until then.
+"auto" until then. The last refresh's details (its line in *Import and sync runs*) also give how the
+visits were placed, where their sections and offices came from, how the FM action points were
+matched, and how many checklist records joined a visit.
 
 ### Before go-live: confirm the real keys
 
@@ -1314,9 +1361,10 @@ invented (shapes A to D of the specification): no production sample could be rea
 built, so the check of the real keys moved to go-live. Before the Monitoring insights AI is switched
 on, and before its figures are trusted:
 
-1. After a nightly Datamart sync in production, run `python manage.py fmm_refresh --probe-only` and
-   read Fields found: the activity id coverage; the keys chosen for the activity id and reference,
-   the question id and text, the answer, its label and summary, the entity and its type and
+1. After a nightly Datamart sync in production (the refresh runs after it; `python manage.py
+   fmm_refresh --probe-only` reads the keys alone), read Fields found: the activity id coverage; the
+   keys chosen for the activity id and reference, the question id and text, the answer, its label and
+   summary, the entity and its type and
    `is_hact`; whether unanswered questions are exported; the Q1, Q2, Q3 and PSEA question texts as
    written; the option labels of Q1; the rating and status values; any team, office or section key;
    and whether the FM action points' `related_module_id` is the activity id.
@@ -1333,6 +1381,8 @@ on, and before its figures are trusted:
 | Setting | Default | What it does |
 |---|---|---|
 | `FMM_ENABLED` | `true` | Monitoring insights. Off: its refresh does nothing. |
+| `FMM_REFRESH_AFTER_SYNC` | `inline` | At the end of every eTools Datamart sync: `inline` runs the refresh in the sync's process, `background` starts it as its own process, `off` does not run it (the 05:25 run still does; `false` also means `off`). Another value stops the start-up. |
+| `FMM_REFRESH_MAX_PASSES` | `3` | Passes one refresh may make to serve the rescores asked for while it runs. |
 | `FMM_KEY_MIN_COVERAGE` | `0.5` | The share of a dataset's records a candidate key must fill to be chosen before the keys listed after it (above 0, at most 1; another value stops the start-up). |
 
 ## Donor access (`/donor/`)

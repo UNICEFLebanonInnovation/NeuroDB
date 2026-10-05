@@ -49,7 +49,8 @@ rest of the demo does not move; the 50 findings ``_demo_etools`` wrote stay exac
   activity reference only, and 1 that matches no visit.
 
 The new findings are linked to their programme documents as the Datamart sync would link them
-(``datamart.fm.relink_findings``).
+(``datamart.fm.relink_findings``); the 50 findings of ``_demo_etools`` are linked by the Monitoring
+insights refresh that ``seed_demo`` runs at its end, which also builds the visits.
 """
 
 from __future__ import annotations

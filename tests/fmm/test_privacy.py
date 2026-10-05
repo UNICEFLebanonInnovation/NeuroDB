@@ -187,3 +187,29 @@ def test_person_display_gives_names_never_emails(value, names, unnamed):
     shown, count = privacy.person_display(value)
     assert (shown, count) == (names, unnamed)
     assert not any("@" in name for name in shown)
+
+
+# ------------------------------------------------------------------------------------------ team names
+def test_the_team_names_join_the_names_neurodb_removes(fm_world):
+    """A team member who is on no other list (here only in a record's team) is known once the visits are
+    built: Watch, Ask and Monitoring insights then remove the name from every text they send."""
+    assert privacy.team_names in people.EXTRA_SOURCES  # registered when the app started
+    people.forget()
+    assert "karim canary" not in people.known_names()  # only in the team, not built yet
+    refresh.run(triggered_by="test")
+    assert MEMBER in privacy.team_names() and not any("@" in n for n in privacy.team_names())
+    people.forget()
+    assert "karim canary" in people.known_names()
+    assert privacy.clean(f"Met {MEMBER} at the centre", 100)[0] == "Met [name withheld] at the centre"
+    people.forget()
+
+
+def test_a_source_of_names_that_fails_is_skipped(db, monkeypatch, caplog):
+    def broken():
+        raise RuntimeError("no such table")
+
+    monkeypatch.setattr(people, "EXTRA_SOURCES", [broken, lambda: ["Nour Khalil"]])
+    people.forget()
+    assert "nour khalil" in people.known_names()  # the other sources are read
+    assert "could not be read" in caplog.text
+    people.forget()

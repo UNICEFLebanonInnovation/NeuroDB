@@ -14,8 +14,11 @@ from neurodb.datamart import models as dm
 def test_demo_seed_is_self_consistent():
     call_command("seed_demo", password="test-only-pass", months=1)
 
-    # a run's rows read = rows written + rows failed
-    runs = SyncRun.objects.exclude(rows_in=F("rows_written") + F("rows_failed"))
+    # a run's rows read = rows written + rows failed (except the Monitoring insights refresh, which reads
+    # finding rows and answer records and writes visits: several rows make one visit)
+    runs = SyncRun.objects.exclude(rows_in=F("rows_written") + F("rows_failed")).exclude(
+        job=SyncRun.Job.FMM_REFRESH
+    )
     assert not runs.exists(), list(runs.values("job", "status", "rows_in", "rows_written", "rows_failed"))
     # national population = the sum of the governorates (and of the age bands)
     for category in ("total", "children"):
@@ -96,6 +99,12 @@ def test_demo_field_monitoring_adds_without_moving_the_rest(monkeypatch):
         "datamart.MonitoringSite",
         "datamart.DatamartDocument",
         PCA.locations.through._meta.label,
+        # the visits seed_demo's Monitoring insights refresh builds from them, and what it reads
+        "fmm.Visit",
+        "fmm.VisitEntity",
+        "fmm.QuestionAnswer",
+        "fmm.VisitActionPoint",
+        "fmm.KeyProbe",
     }
     assert dm.ActionPoint.objects.filter(datamart_id__gt=8000).count() == (
         counts["datamart.ActionPoint"] - counts_without["datamart.ActionPoint"]
@@ -119,10 +128,15 @@ def test_demo_field_monitoring_adds_without_moving_the_rest(monkeypatch):
     assert all(
         "team_members" in data and "field_office" in data for data in new.values_list("data", flat=True)
     )
-    assert (
-        new.exclude(intervention=None).exists()
-        and not findings.filter(datamart_id__lte=50).exclude(intervention=None).exists()
-    )
+    # seed_demo ends with the Monitoring insights refresh: every visit built, nothing failed
+    from neurodb.fmm.models import Visit
+
+    refreshed = SyncRun.objects.get(job=SyncRun.Job.FMM_REFRESH)
+    assert (refreshed.status, refreshed.target, refreshed.triggered_by) == ("succeeded", "full", "demo")
+    assert Visit.objects.count() == fm.count_visits(findings) == refreshed.rows_written
+    # the new rows are linked by the FM demo; the first 50 by the refresh, the same with or without it
+    assert new.exclude(intervention=None).exists()
+    assert findings.filter(datamart_id__lte=50).exclude(intervention=None).count() == 50
 
     # documents in shape A
     questions = list(

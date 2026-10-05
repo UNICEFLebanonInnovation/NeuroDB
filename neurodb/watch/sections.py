@@ -70,8 +70,25 @@ def _distinct(model, field: str = "section") -> list[str]:
     return list(model.objects.exclude(**{field: ""}).order_by().values_list(field, flat=True).distinct())
 
 
+def _fm_names() -> list[str]:
+    """The section names written on field monitoring visits themselves (Monitoring insights), when that
+    app is installed: the visits that take their sections from a programme document or an action point
+    bring no new spelling."""
+    from django.apps import apps
+
+    if not apps.is_installed("neurodb.fmm"):
+        return []
+    visits = apps.get_model("fmm", "Visit").objects.filter(sections_from="activity")
+    return list(
+        visits.annotate(name=Func(F("section_names"), function="unnest", output_field=CharField()))
+        .order_by()
+        .values_list("name", flat=True)
+        .distinct()
+    )
+
+
 # Where eTools section names appear: PDs, action points, progress reports, the daily review's
-# findings and their assignments, and the section plans of the brief.
+# findings and their assignments, the section plans of the brief and field monitoring visits.
 SOURCES = (
     _pd_names,
     lambda: _distinct(dm.ActionPoint),
@@ -79,6 +96,7 @@ SOURCES = (
     lambda: _distinct(ReviewFinding),
     lambda: _distinct(FindingAssignment),
     lambda: _distinct(SectionPlan),
+    _fm_names,
 )
 
 

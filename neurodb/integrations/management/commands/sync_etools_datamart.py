@@ -1,10 +1,17 @@
-"""``sync_etools_datamart [--only partners,interventions,...]``: the eTools Datamart (basic auth)."""
+"""``sync_etools_datamart [--only partners,interventions,...]``: the eTools Datamart (basic auth).
+
+After the sync (and its lock) is done, the partners are linked to ActivityInfo, and Monitoring insights
+rebuilds its visits when a dataset it reads was synced (``FMM_REFRESH_AFTER_SYNC``). That refresh is
+its own run: its failure never fails this command."""
 
 from __future__ import annotations
 
+from django.apps import apps
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
+from neurodb.integrations import background
 from neurodb.integrations.background import DATAMART_LOCK_ID as LOCK_ID
 from neurodb.integrations.etools.datamart import DatamartNotConfigured
 from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS, sync_all
@@ -43,7 +50,24 @@ class Command(BaseCommand):
             self._unlock()
         if any(run.target in ("partners", "interventions") and run.status != FAILED for run in runs):
             runs.append(link_activityinfo_partners(triggered_by=options["triggered_by"]))
-        exit_on_failure(write_summary(self, runs))
+        fmm_run = self._monitoring_insights(runs, options["triggered_by"])
+        write_summary(self, runs + ([fmm_run] if fmm_run else []))
+        exit_on_failure(runs)  # not the Monitoring insights run: its failure never fails the sync
+
+    def _monitoring_insights(self, runs, triggered_by: str):
+        """Rebuild the Monitoring insights visits when a dataset they read was synced (the Datamart lock
+        is released by now). Never raises: a failure is its own failed run."""
+        mode = settings.FMM_REFRESH_AFTER_SYNC  # "inline" (default) | "background" | "off"
+        if not (settings.FMM_ENABLED and mode != "off" and apps.is_installed("neurodb.fmm")):
+            return None
+        from neurodb.fmm import refresh as fmm_refresh  # lazy: no module-level dependency
+
+        if not fmm_refresh.wanted_after(runs):
+            return None
+        if mode == "background":
+            background.start_command("fmm_refresh", "--triggered-by", triggered_by)
+            return None
+        return fmm_refresh.run_safely(triggered_by=triggered_by)
 
     def _lock(self) -> bool:
         if connection.vendor != "postgresql":

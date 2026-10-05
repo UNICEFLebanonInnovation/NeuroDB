@@ -11,6 +11,8 @@ in and what comes out:
   progress report submitters and staff travellers (eTools Datamart), PD focal points, partner staff;
 - NeuroDB users' first and last names, and their full name;
 - the owners typed on finding assignments (meant to be a role or a team, but a name may be typed);
+- the names other apps register in :data:`EXTRA_SOURCES` (Monitoring insights: the members of the
+  field monitoring teams);
 - the email addresses found in those fields. Any email address is treated as a person's, listed or not.
 
 A name is compared in lower case and without accents, word by word: "Jane Doe", "JANE DOE" and "Jane
@@ -25,10 +27,13 @@ section's name is not a person and is left out.
 from __future__ import annotations
 
 import functools
+import logging
 import re
 import time
 import unicodedata
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+
+logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 600  # a run reads the names once; a long-lived process reads them again after this
 LONGEST = 6  # words of a name compared at most
@@ -59,6 +64,11 @@ DATAMART_FIELDS = (
     ("ReportedIndicator", "submitted_by"),
     ("ProgrammaticVisit", "primary_traveler"),
 )
+
+# More places that hold people's names, added by other apps when they start (Monitoring insights adds
+# the field monitoring teams). Each gives raw names or e-mail addresses; one that fails is logged and
+# skipped, so a missing table never empties the list.
+EXTRA_SOURCES: list[Callable[[], Iterable[str]]] = []
 
 _cache: tuple[float, frozenset[str]] | None = None
 
@@ -120,6 +130,8 @@ def forget() -> None:
 
 
 def _read() -> set[str]:
+    from django.db import transaction
+
     from neurodb.accounts.models import Section, User
     from neurodb.datamart import models as dm
     from neurodb.partnerships.models import PCA, PartnerStaffMember
@@ -142,6 +154,12 @@ def _read() -> set[str]:
     ):
         raw += [f"{first or ''} {last or ''}", email or ""]
     raw += FindingAssignment.objects.exclude(owner="").order_by().values_list("owner", flat=True).distinct()
+    for source in EXTRA_SOURCES:
+        try:
+            with transaction.atomic():  # a failed query must not break the caller's transaction
+                raw += [str(name) for name in source() if name]
+        except Exception:
+            logger.exception("people: the names of %s could not be read", getattr(source, "__name__", source))
     known: set[str] = set()
     for text in set(raw):
         known |= name_forms(text) | emails_in(text)

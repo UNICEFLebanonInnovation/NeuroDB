@@ -320,9 +320,49 @@ class PDResolver:
             return self._pick(found, visit_date), "title"
         return None, ""
 
+    def resolve_reference(self, reference: str, visit_date: datetime.date | None) -> tuple[int | None, str]:
+        """A programme document *reference* written in a record (not an entity): by the PCA/PD pair first
+        (a base number then finds the amendment that covers the visit), then 'exact', then 'base'.
+        (None, '') when none."""
+        folded = norm_reference(reference)
+        if not folded:
+            return None, ""
+        token = pd_token(folded)
+        if token and (found := self._token.get(token)):
+            return self._pick(found, visit_date), "token"
+        if found := self._exact.get(folded):
+            return self._pick(found, visit_date), "exact"
+        if found := self._base.get(_base(folded)):
+            return self._pick(found, visit_date), "base"
+        return None, ""
+
+
+def update_rows(model: type, rows: list, names: Iterable[str], batch_size: int = 2000) -> None:
+    """Write the fields ``names`` of ``rows`` (saved model instances): ``bulk_update`` without its CASE
+    expressions, which grow too slow with thousands of rows and several columns. One prepared UPDATE
+    per row, sent in batches (``executemany``)."""
+    from django.db import connection
+
+    fields = [model._meta.get_field(name) for name in names]
+    quote = connection.ops.quote_name
+    sql = "UPDATE {} SET {} WHERE {} = %s".format(  # noqa: S608 - quoted model names; values are parameters
+        quote(model._meta.db_table),
+        ", ".join(f"{quote(f.column)} = %s" for f in fields),
+        quote(model._meta.pk.column),
+    )
+    with connection.cursor() as cursor:
+        for start in range(0, len(rows), batch_size):
+            cursor.executemany(
+                sql,
+                [
+                    [f.get_db_prep_save(getattr(row, f.attname), connection) for f in fields] + [row.pk]
+                    for row in rows[start : start + batch_size]
+                ],
+            )
+
 
 def relink_findings(rows: QuerySet | None = None) -> dict[str, int]:
-    """Resolve intervention/pd_match for rows with intervention_id NULL (or `rows`), bulk_update in 2,000s.
+    """Resolve intervention/pd_match for rows with intervention_id NULL (or `rows`), written in 2,000s.
     Returns {'exact','token','base','title','unresolved','pd_kind_rows'} counts."""
     from neurodb.datamart.models import MonitoringFinding
 
@@ -345,10 +385,10 @@ def relink_findings(rows: QuerySet | None = None) -> dict[str, int]:
             row.intervention_id, row.pd_match = pk, how
             changed.append(row)
         if len(changed) >= 2000:
-            MonitoringFinding.objects.bulk_update(changed, ["intervention", "pd_match"])
+            update_rows(MonitoringFinding, changed, ["intervention", "pd_match"])
             changed = []
     if changed:
-        MonitoringFinding.objects.bulk_update(changed, ["intervention", "pd_match"])
+        update_rows(MonitoringFinding, changed, ["intervention", "pd_match"])
     return counts
 
 

@@ -11,7 +11,7 @@ from neurodb.accounts.models import User
 from neurodb.accounts.roles import ADMIN, SECTION_EDITOR
 from neurodb.core.models import SyncRun
 from neurodb.fmm import access, refresh
-from neurodb.fmm.models import FieldMapping
+from neurodb.fmm.models import FieldMapping, Visit
 from neurodb.web import admin_site
 
 from .conftest import CANARIES
@@ -45,14 +45,18 @@ def test_fmm_icons_are_material_symbols_names_not_site_icons():
     sprite = render_to_string("components/icons.html")
     site_icons = set(re.findall(r'<symbol id="i-([\w-]+)"', sprite))
     icons = {key: icon for key, icon in admin_site.ICONS.items() if key.startswith("fmm.")}
-    assert icons == {"fmm.FieldMapping": "data_object"}
+    assert icons == {
+        "fmm.FieldMapping": "data_object",
+        "fmm.Visit": "location_on",
+        "fmm.VisitReview": "task_alt",
+    }
     for icon in icons.values():
         assert re.fullmatch(r"[a-z0-9_]+", icon) and icon not in site_icons
 
 
 def test_before_the_first_reading_it_says_how_to_start(admin_client):
     html = _page(admin_client)
-    assert "The eTools keys have not been read yet" in html and "fmm_refresh --probe-only" in html
+    assert "The eTools keys have not been read yet" in html and "manage.py fmm_refresh" in html
     assert "Checklist answers (fm-questions)" in html
 
 
@@ -155,3 +159,19 @@ def test_is_admin_is_the_administrator_role(roles, admin_user, viewer):
     from django.contrib.auth.models import AnonymousUser
 
     assert not access.is_admin(AnonymousUser()) and not access.is_admin(None)
+
+
+def test_the_visits_admin_is_read_only_and_shows_the_links(admin_client, fm_world):
+    refresh.run(triggered_by="test")
+    html = admin_client.get(reverse("admin:fmm_visit_changelist") + "?q=amel").content.decode()
+    assert "Visit 1722" in html and "Visit 1723" not in html  # by partner name
+    visit = Visit.objects.get(key="1722")
+    page = admin_client.get(reverse("admin:fmm_visit_change", args=[visit.pk]))
+    assert page.status_code == 200
+    html = page.content.decode()
+    assert "Zahle town" in html and "monitored entities" in html.lower() and "FM-2026-022" in html
+    assert 'name="_save"' not in html and "View on site" not in html
+    for canary in CANARIES[2:]:  # never an e-mail address, phone, link or narrative
+        assert canary not in html
+    assert admin_client.get(reverse("admin:fmm_visit_add")).status_code == 403
+    assert admin_client.get(reverse("admin:fmm_visitreview_changelist")).status_code == 200

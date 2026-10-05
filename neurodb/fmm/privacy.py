@@ -10,7 +10,9 @@ Field monitoring records name people (the visit lead, the team) and hold free te
 - a text is cleaned before it goes anywhere (:func:`clean`): e-mail addresses, links and the person
   names NeuroDB knows (``watch.redact.text``), then phone numbers and names written after a title
   ("Mrs Layla Saab", ``watch.people``), each replaced by a placeholder;
-- a team is shown by its members' names only, never their e-mail addresses (:func:`person_display`).
+- a team is shown by its members' names only, never their e-mail addresses (:func:`person_display`),
+  and those names join the names NeuroDB removes from every text it sends (:func:`team_names`,
+  registered into ``watch.people.EXTRA_SOURCES`` when the app starts).
 """
 
 from __future__ import annotations
@@ -176,6 +178,23 @@ def person_display(value: Any) -> tuple[list[str], int]:
 
     from_value(value)
     return found, unnamed
+
+
+def team_names() -> list[str]:
+    """Every team member's display name on the visits (``Visit.team``, which holds names only). Read by
+    ``watch.people.known_names`` (``EXTRA_SOURCES``), so that NeuroDB Watch, Ask NeuroDB, the AI checks
+    and Monitoring insights all remove these names from the texts they send."""
+    from django.db.models import CharField, F, Func
+
+    from .models import Visit
+
+    names = (
+        Visit.objects.annotate(name=Func(F("team"), function="unnest", output_field=CharField()))
+        .order_by()
+        .values_list("name", flat=True)
+        .distinct()
+    )
+    return sorted(name for name in names if name)
 
 
 def name_forms(values: Iterable[Any]) -> set[str]:

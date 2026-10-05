@@ -9,8 +9,9 @@ from django.conf import settings
 
 from neurodb.datamart import models as dm
 from neurodb.fmm import fields, parse, privacy, refresh
-from neurodb.fmm.models import FieldMapping, KeyProbe
+from neurodb.fmm.models import FieldMapping, KeyProbe, QuestionAnswer, Visit
 
+from . import conftest
 from .conftest import CANARIES, MEMBER, MEMBER_EMAIL
 
 pytestmark = pytest.mark.django_db
@@ -432,3 +433,101 @@ def test_only_the_readers_read_the_records_data():
             offenders.append(str(relative))
     assert offenders == []
     assert DATA_READS.search((FMM / "fields.py").read_text(encoding="utf-8"))  # the pattern still matches
+
+
+# ------------------------------------------------------------------------------------------ answers built
+def _answers_of(visit_key: str) -> list[tuple]:
+    return list(
+        QuestionAnswer.objects.filter(visit_key=visit_key)
+        .order_by("document_id")
+        .values_list("answered", "placeholder", "answer_code", "applies_to")
+    )
+
+
+ANSWERED = [True, True, True, True, False, False]  # Q1 code, Q2, Q3, PSEA, "n/a", blank
+PLACEHOLDER = [False, False, False, False, True, False]
+
+
+@pytest.mark.parametrize(
+    "shape, codes, applies_to, ids",
+    [
+        # flat: the option code "2" is Constrained; the entity is the PD row
+        ("A", ["constrained", "", "", "no", "", ""], "entity", True),
+        # other names: no question id, so the option code cannot be looked up; the partner's row
+        ("B", ["", "", "", "no", "", ""], "entity", False),
+        # nested: the answer object's label; no entity, so the visit
+        ("C", ["constrained", "", "", "no", "", ""], "visit", True),
+    ],
+)
+def test_each_shape_gives_its_answers(fm_world, fm_questions_variant, shape, codes, applies_to, ids):
+    fm_questions_variant(shape)
+    run = refresh.run(triggered_by="test")
+    answers = _answers_of("1722")
+    assert [a[0] for a in answers] == ANSWERED and [a[1] for a in answers] == PLACEHOLDER
+    assert [a[2] for a in answers] == codes and {a[3] for a in answers} == {applies_to}
+    keys = list(QuestionAnswer.objects.order_by("document_id").values_list("question_key", flat=True))
+    assert (keys[:2] == ["12", "13"]) is ids and len(set(keys)) == 6
+    visit = Visit.objects.get(key="1722")
+    assert (visit.questions_asked, visit.questions_answered) == (6, 4)
+    assert run.details["questions"]["linked"] == 6
+
+
+def test_shape_d_gives_no_answers_and_says_why(fm_world, fm_questions_variant):
+    fm_questions_variant("D")
+    run = refresh.run(triggered_by="test")
+    assert run.status == "succeeded" and not QuestionAnswer.objects.exists()
+    assert "fm_questions.question_text" in run.details["fields_not_found"]
+    assert set(Visit.objects.values_list("questions_asked", flat=True)) == {None}
+
+
+# ------------------------------------------------------------------------------------------ texts
+def test_search_texts_finds_narratives_and_answer_values_only(fm_world):
+    refresh.run(triggered_by="test")
+    keys = list(Visit.objects.values_list("key", flat=True))
+    hits = parse.search_texts(keys, "REGISTERS", 10)
+    assert [(h.visit_key, h.where) for h in hits] == [("1722", "narrative"), ("1722", "answer")]
+    assert hits[1].text == "Registers checked."
+    summary = parse.search_texts(keys, "psea channel", 10)
+    assert [(h.visit_key, h.where, h.text) for h in summary] == [
+        ("1726", "summary", "Referred through the PSEA channel.")
+    ]
+    # in a key's name only, in another field, or in a person: nothing
+    assert parse.search_texts(keys, "method", 10) == []  # a key name
+    assert parse.search_texts(keys, "Interview", 10) == []  # the method's value
+    assert parse.search_texts(keys, "Lebanon", 10) == []  # the country
+    assert [h.where for h in parse.search_texts(keys, "Rania", 10)] == ["narrative"]  # written in one
+    assert parse.search_texts(keys, "team", 10) == []
+    # newest visits first, at most the limit, only the visits asked
+    assert [h.visit_key for h in parse.search_texts(keys, "a", 50)][:2] == ["1726", "1726"]
+    assert len(parse.search_texts(keys, "registers", 1)) == 1
+    assert parse.search_texts(["1723"], "registers", 10) == []
+
+
+def test_a_person_like_answer_key_is_never_searched(fm_world, monkeypatch):
+    refresh.run(triggered_by="test")
+    FieldMapping.objects.filter(dataset="fm_questions", field="summary").update(chosen_key="comment")
+    fields.forget()
+    doc = dm.DatamartDocument.objects.filter(dataset="fm_questions").first()
+    doc.data["comment"] = "Spoke with the headmaster"
+    doc.save()
+    assert parse.search_texts(["1722"], "headmaster", 10) == []
+
+
+def test_visit_answers_read_the_texts_back_with_option_labels(fm_world):
+    refresh.run(triggered_by="test")
+    answers = parse.visit_answers(Visit.objects.get(key="1727"))
+    assert answers == [(conftest.Q1_TEXT, "Constrained", "")]  # the option code "2"
+    first = parse.visit_answers(Visit.objects.get(key="1722"))
+    assert first[0] == (conftest.Q1_TEXT, "On track", "") and first[1][1] == "Off track"
+    assert parse.visit_answers(Visit.objects.get(key="1724")) == []
+
+
+def test_question_keys_and_folding():
+    assert parse.question_key(12, "anything") == "12" and parse.question_key("12", "") == "12"
+    assert parse.question_key(None, "Q2 – Activities monitored") == parse.question_key(
+        None, "q2 activities  MONITORED"
+    )
+    assert len(parse.question_key(None, "x")) == 40 and parse.question_key(None, "") == ""
+    assert parse.fold("Écoles: À l'heure!") == "ecoles a l heure"
+    assert parse.text_list([{"name": "Education"}, "WASH", "", "WASH", None]) == ["Education", "WASH"]
+    assert parse.text_list("Health") == ["Health"] and parse.text_list(None) == []
