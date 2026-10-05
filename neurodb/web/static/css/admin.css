@@ -80,3 +80,13 @@
 /* Import and sync runs: the plain-words meaning of an error, above the raw message. */
 .nd-error-hint { display: block; min-width: 11rem; font-weight: 500; color: var(--color-red-700, #b91c1c); }
 .dark .nd-error-hint { color: var(--color-red-400, #f87171); }
+/* Monitoring insights > Fields found: the keys of the eTools field monitoring records. */
+.nd-found__table td, .nd-found__table th[scope="row"] { white-space: normal; vertical-align: top; }
+.nd-found__table code { font-size: 12px; }
+.nd-found__example { overflow-wrap: anywhere; }
+.nd-found__rates { list-style: none; margin: 0 0 .75rem; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.nd-found__rates li { display: flex; gap: 8px; align-items: flex-start; }
+.nd-found__rates .material-symbols-outlined { font-size: 18px; color: var(--color-green-700, #15803d); }
+.nd-found__warn, .nd-found__rates .nd-found__warn .material-symbols-outlined { color: var(--color-orange-700, #c2410c); }
+.dark .nd-found__warn, .dark .nd-found__rates .nd-found__warn .material-symbols-outlined { color: var(--color-orange-400, #fb923c); }
+.nd-found__values { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 24px; }

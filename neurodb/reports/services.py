@@ -191,8 +191,16 @@ def data_health() -> dict[str, Any]:
     staleness = datetime.timedelta(hours=settings.SYNC_STALENESS_HOURS)
     jobs = []
     for job, label in SyncRun.Job.choices:
-        if job in (SyncRun.Job.ML_READINESS, SyncRun.Job.FORECAST, SyncRun.Job.WATCH):
-            continue  # weekly analyses and NeuroDB Watch, shown on their own pages: not syncs that go stale
+        if job in (
+            SyncRun.Job.ML_READINESS,
+            SyncRun.Job.FORECAST,
+            SyncRun.Job.WATCH,
+            SyncRun.Job.FMM_REFRESH,
+            SyncRun.Job.FMM_INSIGHTS,
+        ):
+            # weekly analyses, NeuroDB Watch and Monitoring insights, shown on their own pages: jobs
+            # worked out from the synced data, not syncs that go stale
+            continue
         last_ok = SyncRun.last_success(job)
         last_run = SyncRun.objects.filter(job=job).order_by("-started_at").first()
         age = (now - last_ok.finished_at) if last_ok and last_ok.finished_at else None

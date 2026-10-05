@@ -29,7 +29,7 @@ from neurodb.watch.services import NOTHING_WAITING
 
 ROOT = Path(__file__).resolve().parents[2]
 SETTINGS_FILE = ROOT / "config" / "settings.py"
-NEW_SETTINGS = re.compile(r"^((?:WATCH|AI_PRICE|AI_DAILY)_[A-Z_]+) = ", re.M)
+NEW_SETTINGS = re.compile(r"^((?:WATCH|AI_PRICE|AI_DAILY|FMM)_[A-Z_]+) = ", re.M)
 
 
 @pytest.fixture

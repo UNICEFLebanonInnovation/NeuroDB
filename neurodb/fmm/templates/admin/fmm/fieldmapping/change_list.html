@@ -1,0 +1,166 @@
+{% extends "admin/change_list.html" %}
+{% load i18n humanize unfold %}
+
+{% comment %}
+  Fields found: the keys the eTools field monitoring records hold and the key each field of
+  Monitoring insights is read from, as the last refresh found them (context: fmm.admin.fields_found).
+  It replaces the list: a field's row says more here than a list column could.
+{% endcomment %}
+
+{% block content %}
+<div id="content-main" class="nd-found">
+  <p class="nd-list-note">
+    <span class="material-symbols-outlined" aria-hidden="true">info</span>
+    <span>{% blocktrans trimmed with pct=found.min_coverage %}
+      eTools never documented the keys of its field monitoring records, so Monitoring insights reads every record and chooses, for each field it needs, the first listed key that fills at least {{ pct }} of the records (else the fullest one). A field marked "Found, another key is fuller" deserves a look. Examples are shortened and cleaned: e-mail addresses, links, phone numbers and names are removed, and a key that holds a person shows "(withheld)".
+    {% endblocktrans %}</span>
+  </p>
+
+  {% trans "Last reading of the eTools keys" as reading_title %}
+  {% component "unfold/components/card.html" with title=reading_title title_icon="data_object" %}
+    {% if found.run %}
+      <p class="mb-2">
+        {% blocktrans trimmed with when=found.run.finished_at|date:"j M Y, H:i" status=found.run.get_status_display by=found.run.triggered_by %}
+          Keys read on {{ when }} ({{ status }}, started by {{ by }}).
+        {% endblocktrans %}
+        <a class="nd-link" href="{% url 'admin:core_syncrun_change' found.run.pk %}">{% trans "Open the run" %}</a>
+      </p>
+    {% else %}
+      <p class="mb-2">{% trans "The eTools keys have not been read yet. After an eTools Datamart sync, run python manage.py fmm_refresh --probe-only." %}</p>
+    {% endif %}
+    {% if found.latest %}
+      <p class="mb-2 nd-found__warn">
+        {% blocktrans trimmed with when=found.latest.started_at|date:"j M Y, H:i" status=found.latest.get_status_display %}
+          A later refresh of {{ when }} is {{ status }}.
+        {% endblocktrans %}
+        <a class="nd-link" href="{% url 'admin:core_syncrun_change' found.latest.pk %}">{% trans "Open it" %}</a>
+      </p>
+    {% elif found.running %}
+      <p class="mb-2">{% trans "A refresh is running now; this page shows the previous reading until it ends." %}</p>
+    {% endif %}
+    {% if found.rates %}
+      <ul class="nd-found__rates">
+        {% for line in found.rates %}
+          <li{% if line.warn %} class="nd-found__warn"{% endif %}>
+            <span class="material-symbols-outlined" aria-hidden="true">{% if line.warn %}warning{% else %}check_circle{% endif %}</span>
+            <span>{{ line.text }}{% if line.hint %} {{ line.hint }}{% endif %}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+    {% if found.not_found %}
+      <p class="mb-1"><strong>{% trans "Not found:" %}</strong> {{ found.not_found|join:", " }}</p>
+    {% endif %}
+    {% if found.ambiguous %}
+      <p class="mb-1 nd-found__warn"><strong>{% trans "Found, another key is fuller:" %}</strong> {{ found.ambiguous|join:", " }}</p>
+    {% endif %}
+    {% if found.overrides_missing %}
+      <p class="mb-1 nd-found__warn"><strong>{% trans "Set by an administrator but not in the data:" %}</strong> {{ found.overrides_missing|join:", " }}</p>
+    {% endif %}
+  {% endcomponent %}
+
+  {% for ds in found.datasets %}
+    {% component "unfold/components/card.html" with title=ds.label description=ds.name class="mt-6" %}
+      <p class="mb-3">
+        {% if ds.total is not None %}
+          {% blocktrans trimmed with shown=ds.total|intcomma count n=ds.total %}{{ shown }} record read.{% plural %}{{ shown }} records read.{% endblocktrans %}
+        {% else %}
+          {% trans "Not read yet." %}
+        {% endif %}
+        {% if ds.r2 %}<span class="{% if ds.r2.warn %}nd-found__warn{% endif %}">{{ ds.r2.text }}</span>{% endif %}
+      </p>
+      <div class="nd-scroll">
+        <table class="nd-jobs nd-found__table">
+          <thead>
+            <tr>
+              <th scope="col">{% trans "Field" %}</th>
+              <th scope="col">{% trans "Key used" %}</th>
+              <th scope="col">{% trans "State" %}</th>
+              <th scope="col">{% trans "Filled" %}</th>
+              <th scope="col">{% trans "Keys listed, as found" %}</th>
+              <th scope="col">{% trans "Needed for" %}</th>
+              <th scope="col">{% trans "Pinned key" %}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in ds.fields %}
+              <tr>
+                <th scope="row"><code>{{ row.field }}</code>{% if row.person %}<br><small>{% trans "a person: names only, never sent" %}</small>{% endif %}</th>
+                <td>{% if row.key %}<code>{{ row.key }}</code>{% else %}—{% endif %}</td>
+                <td>{{ row.state }}</td>
+                <td>{{ row.coverage }}</td>
+                <td>
+                  {% for c in row.candidates %}<code>{{ c.key }}</code> {{ c.pct }}{% if not forloop.last %} · {% endif %}{% empty %}<small>{% trans "none of" %} {{ row.listed|join:", " }}</small>{% endfor %}
+                </td>
+                <td><small>{{ row.needed_by }}</small></td>
+                <td>{% if row.override %}<code>{{ row.override }}</code>{% else %}{% trans "auto" %}{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if ds.keys %}
+        <details class="mt-4">
+          <summary class="nd-link">{% blocktrans trimmed count n=ds.keys|length %}The {{ n }} key found in these records{% plural %}The {{ n }} keys found in these records{% endblocktrans %}</summary>
+          <div class="nd-scroll mt-2">
+            <table class="nd-jobs nd-found__table">
+              <thead>
+                <tr>
+                  <th scope="col">{% trans "Key" %}</th>
+                  <th scope="col">{% trans "Records" %}</th>
+                  <th scope="col">{% trans "Value types" %}</th>
+                  <th scope="col">{% trans "Examples (cleaned)" %}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for key in ds.keys %}
+                  <tr>
+                    <th scope="row"><code>{{ key.key }}</code></th>
+                    <td>{{ key.records|intcomma }} / {{ key.total|intcomma }}</td>
+                    <td><small>{{ key.types }}</small></td>
+                    <td><small>{% for e in key.examples %}<span class="nd-found__example">{{ e }}</span>{% if not forloop.last %} · {% endif %}{% empty %}—{% endfor %}</small></td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      {% endif %}
+    {% endcomponent %}
+  {% endfor %}
+
+  {% trans "Values seen in the findings" as values_title %}
+  {% trans "How NeuroDB reads each rating, status and entity type eTools wrote" as values_description %}
+  {% component "unfold/components/card.html" with title=values_title description=values_description class="mt-6" %}
+    {% if found.run %}
+      <div class="nd-found__values">
+        {% for title, rows in found.values %}
+          <div>
+            <h3 class="font-semibold mb-2">{{ title }}</h3>
+            {% if rows %}
+              <table class="nd-jobs nd-found__table">
+                <thead><tr><th scope="col">{% trans "As written" %}</th><th scope="col">{% trans "Read as" %}</th><th scope="col">{% trans "Rows" %}</th></tr></thead>
+                <tbody>
+                  {% for raw, code, n in rows %}
+                    <tr>
+                      <td>{% if raw %}{{ raw }}{% else %}<em>{% trans "blank" %}</em>{% endif %}</td>
+                      <td>{% if code and code != "other" %}<code>{{ code }}</code>{% else %}<span class="nd-found__warn">{% trans "not recognised" %}</span>{% endif %}</td>
+                      <td>{{ n|intcomma }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% else %}
+              <p>—</p>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p>{% trans "Shown after the first reading of the keys." %}</p>
+    {% endif %}
+  {% endcomponent %}
+</div>
+{% endblock %}
+
+{% block footer %}{% endblock %}

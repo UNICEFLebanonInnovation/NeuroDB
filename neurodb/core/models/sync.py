@@ -28,6 +28,8 @@ class SyncRun(models.Model):
         ML_READINESS = "ml_readiness", "Machine learning readiness check"
         FORECAST = "forecast", "Year-end indicator forecast"
         WATCH = "watch", "NeuroDB Watch"
+        FMM_REFRESH = "fmm_refresh", "Monitoring insights refresh"
+        FMM_INSIGHTS = "fmm_insights", "Monitoring insights (AI briefs)"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"

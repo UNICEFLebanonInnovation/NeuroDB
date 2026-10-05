@@ -126,6 +126,14 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
         ],
     ),
     (
+        _("Monitoring insights"),
+        _(
+            "eTools field monitoring as Monitoring insights reads it: the keys its records hold and the "
+            "key each field is read from (Fields found)."
+        ),
+        ["fmm.FieldMapping"],
+    ),
+    (
         _("Compiler (youth and education)"),
         _(
             "Counts read from Compiler (no personal data): youth figures and the links between its youth "
@@ -280,6 +288,7 @@ ICONS = {
     "etools.Travel": "flight",
     "etools.TravelActivity": "route",
     "etools.ActionPoint": "task_alt",
+    "fmm.FieldMapping": "data_object",
     "locations.Location": "location_on",
     "locations.LocationType": "layers",
     "pivoting.GovernorateLocation": "location_city",

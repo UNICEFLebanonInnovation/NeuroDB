@@ -505,8 +505,9 @@ population figures also have their button on their own admin pages.
 A background job runs as its own process (it survives the web worker that started it), is recorded
 as a run in this list like a scheduled run, and does not start while a run of the same job is in
 progress. Not available as buttons, on purpose: `migrate_locked` and `ensure_legacy_tables` (every
-deployment runs them), `seed_demo` (local databases only) and `record_datamart_samples` (writes test
-fixtures into the source code).
+deployment runs them), `seed_demo` (local databases only), and `record_datamart_samples` and
+`fmm_redact_fixtures` (they write test fixtures into the source code). Monitoring insights' key check,
+`fmm_refresh --probe-only`, has no button yet: run it from a shell (see Monitoring insights).
 
 ## eTools Datamart
 
@@ -585,6 +586,16 @@ them to `tests/fixtures/datamart/<dataset>.json`; commit the files. The test
 `tests/integrations/test_recorded_samples.py` replays every recorded file through its sync and
 fails when a record cannot be written, so a Datamart change is caught by the test suite rather than
 by the nightly job. Re-record after a Datamart release.
+
+The field monitoring records also name people (the visit lead, the team) and hold free texts that can
+name anyone. Before committing samples of `field_monitoring`, `fm_questions`, `fm_options`,
+`fm_programme_activities`, `offices`, `sections`, `action_points`, `intervention_locations` or
+`location_sites`, run `python manage.py fmm_redact_fixtures tests/fixtures/datamart/` (`--dry-run`
+counts without writing): every text under a key that holds a person becomes "Person 1", "Person 2"...
+(the same person keeps the same number across the files), every other text loses its e-mail
+addresses, links, phone numbers, known names, the names found under those keys and names after a
+title, and a text over 300 characters is cut. Read the diff before committing: a name NeuroDB does not
+know, written without a title, can remain.
 
 ### When a run says "Succeeded with errors"
 Open the run: **Why rows failed** lists each error message with the number of records it hit and a
@@ -709,7 +720,8 @@ status, FM questions, options and programme activities, staff trips, PRP indicat
 programme documents and progress reports (with partner satisfaction), locations, sites, offices,
 sections, eTools usage, the workspace and the Datamart ETL status. The raw records behind the
 partner, programme document, budget, agreement and audit-detail tables are kept there too, so the
-assistant sees every field.
+assistant sees every field. The FM questions, options and programme activities, the offices and the
+sections also feed Monitoring insights, which reads their keys first (see Monitoring insights).
 
 The PRP views have no `country_name`: they are filtered by the country office's business area code,
 found from `datamart/workspaces` (or set `ETOOLS_DATAMART_BUSINESS_AREA`). A record from another
@@ -1239,6 +1251,88 @@ heard, so the next pass tells what is still worth telling. Points closed or gone
 ago, what people were told more than 12 months ago, and answered requests are deleted by the morning
 pass. What the watch remembers is its own memory, not the knowledge base: nothing it concludes is
 saved there or in the hub (see `docs/ICEBOX.md`).
+
+## Monitoring insights (eTools field monitoring)
+
+Monitoring insights turns the eTools field monitoring data into visits: each visit's partners,
+programme documents, place and sections, and how complete and coherent its report is. It is built in
+steps. This release adds its data layer only, with no page and nothing in the menu: the first part of its
+refresh, which reads which keys the field monitoring records hold, shown to administrators as
+**Fields found** (admin → *Monitoring insights* → *Fields found*).
+
+### Data and its keys
+
+eTools never documented the keys of its field monitoring records: the findings (`fm-ontrack`), the
+checklist answers (`fm-questions`), the answer options (`fm-options`), the programme activities of
+each visit (`fm-programme-activities`), and the office and section lists. For each field Monitoring
+insights reads (a checklist answer, the activity it belongs to, the question's text, the team...) the
+code lists candidate keys, most likely first (`neurodb/fmm/fields.py`). `python manage.py
+fmm_refresh --probe-only`:
+
+1. links the findings not linked yet to the programme document their entity names, as the Datamart
+   sync does;
+2. reads every record of the six datasets (contact keys removed first, as the Datamart store does)
+   and counts each key, at the top level and one level down (`parent.child`), with the types of its
+   values and up to three examples, cut to 60 characters and cleaned: e-mail addresses, links, phone
+   numbers, the names NeuroDB knows, the names written under the records' person keys and names after
+   a title are replaced, and a key that holds a person (visit lead, team, monitors, user names...)
+   shows "(withheld)";
+3. chooses the key of each field: the first listed key that fills at least `FMM_KEY_MIN_COVERAGE`
+   (50%) of the records with a usable value (an id needs a number, a yes/no needs true or false),
+   else the fullest one, else none: the field is *Not found* and what needs it will say "not
+   available". A later key filling at least 30 points more marks the choice *Found, another key is
+   fuller*: look at it.
+
+Each run is one line in *Import and sync runs* (*Monitoring insights refresh*, target `probe`), one at
+a time (a database lock: a second start does nothing). A failure keeps the previous keys and marks the
+run *Failed*; a record that cannot be read is counted as a failed row (*Succeeded with errors*). The
+run is not scheduled yet and has no button: run it from a shell after a Datamart sync.
+`FMM_ENABLED=false` makes it do nothing.
+
+Fields found shows, above the keys of each dataset:
+
+- the share of findings that carry an eTools activity id: aim for 95% or more (below it, a visit is
+  told apart by its activity reference, which is right but changes how visits are cited);
+- the share of the findings about a programme document that are linked to it, and how (full
+  reference, PCA/PD pair, without the amendment, title): aim for 90% or more;
+- the share of checklist answer records that hold an answer, and "Unanswered questions seen: n of N
+  records": none among 200 or more means eTools exports answered questions only, so the share of
+  questions answered (quality rule R2) cannot be measured;
+- the fields not found, the choices to look at, and the rating, status and entity type values the
+  findings hold with how NeuroDB reads each ("not recognised" ones need a change in the code).
+
+Per field: the key used, its state, the share of records it fills, every listed key found with its
+share, and what the field is needed for. Pinning another key by hand (an override, versioned with the
+quality rules, with who, when and why) arrives with the quality rules; the *Pinned key* column shows
+"auto" until then.
+
+### Before go-live: confirm the real keys
+
+The checklist answer, option and programme activity records of the demo and of the tests are
+invented (shapes A to D of the specification): no production sample could be read when this was
+built, so the check of the real keys moved to go-live. Before the Monitoring insights AI is switched
+on, and before its figures are trusted:
+
+1. After a nightly Datamart sync in production, run `python manage.py fmm_refresh --probe-only` and
+   read Fields found: the activity id coverage; the keys chosen for the activity id and reference,
+   the question id and text, the answer, its label and summary, the entity and its type and
+   `is_hact`; whether unanswered questions are exported; the Q1, Q2, Q3 and PSEA question texts as
+   written; the option labels of Q1; the rating and status values; any team, office or section key;
+   and whether the FM action points' `related_module_id` is the activity id.
+2. Record real samples: `python manage.py record_datamart_samples --only
+   field_monitoring,fm_questions,fm_options,fm_programme_activities,offices,sections,intervention_locations,location_sites,action_points`,
+   then `python manage.py fmm_redact_fixtures tests/fixtures/datamart/`; read the diff by eye and
+   commit the files.
+3. Put the real key names first in `CANDIDATES` (`neurodb/fmm/fields.py`), make the demo's shape
+   mirror the real one, and add the recorded shape to the tests (the invented shapes stay as
+   tolerance tests).
+
+### Settings
+
+| Setting | Default | What it does |
+|---|---|---|
+| `FMM_ENABLED` | `true` | Monitoring insights. Off: its refresh does nothing. |
+| `FMM_KEY_MIN_COVERAGE` | `0.5` | The share of a dataset's records a candidate key must fill to be chosen before the keys listed after it (above 0, at most 1; another value stops the start-up). |
 
 ## Donor access (`/donor/`)
 

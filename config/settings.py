@@ -72,6 +72,7 @@ INSTALLED_APPS = [
     "neurodb.graph",
     "neurodb.insights",
     "neurodb.watch",
+    "neurodb.fmm",
     "neurodb.web",
 ]
 SITE_ID = 1
@@ -451,6 +452,20 @@ WATCH_NEEDS_YOU_PER_DAY = env.int("WATCH_NEEDS_YOU_PER_DAY", default=5)  # per p
 WATCH_GOOD_TO_KNOW_PER_DAY = env.int("WATCH_GOOD_TO_KNOW_PER_DAY", default=10)
 WATCH_GRANT_MIN_UNSPENT = env.int("WATCH_GRANT_MIN_UNSPENT", default=10_000)  # USD, for expiring grants
 WATCH_EMAIL = env.bool("WATCH_EMAIL", default=True)  # one morning email, once EMAIL_URL is set
+
+# ---------------------------------------------------------------------------- Monitoring insights (FMM)
+# The eTools field monitoring visits, their links and their quality (/fmm/, built in steps). So far the
+# refresh only reads which keys the field monitoring records hold (`manage.py fmm_refresh --probe-only`,
+# shown in the admin as Monitoring insights > Fields found). Off: the refresh does nothing.
+FMM_ENABLED = env.bool("FMM_ENABLED", default=True)
+# Share of a dataset's records a candidate key must fill to be chosen before the keys listed after it
+FMM_KEY_MIN_COVERAGE = env.float("FMM_KEY_MIN_COVERAGE", default=0.5)
+if not 0 < FMM_KEY_MIN_COVERAGE <= 1:
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(
+        f"FMM_KEY_MIN_COVERAGE must be above 0 and at most 1; got {FMM_KEY_MIN_COVERAGE}"
+    )
 
 # ---------------------------------------------------------------------------- logging
 LOG_FORMAT = env("LOG_FORMAT", default="plain")  # "json" in Azure so Log Analytics can parse fields
