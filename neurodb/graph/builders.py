@@ -513,6 +513,20 @@ def add_review(c: Collector, names: Names) -> None:
                 c.edge(ref, "about", partner, "daily review")
 
 
+# ------------------------------------------------------------------------- field monitoring
+def _add_field_monitoring(c: Collector, names: Names) -> None:
+    """The field monitoring visits of Monitoring insights (``neurodb.fmm.hub``), read through a lazy
+    import; nothing when that app is not installed or switched off."""
+    from django.apps import apps
+    from django.conf import settings
+
+    if not apps.is_installed("neurodb.fmm") or not getattr(settings, "FMM_ENABLED", False):
+        return
+    from neurodb.fmm import hub
+
+    hub.add_field_monitoring(c, names)
+
+
 SOURCES: list[tuple[str, Callable[[Collector, Names], None]]] = [
     ("sections", add_sections),
     ("places", add_places),
@@ -524,6 +538,7 @@ SOURCES: list[tuple[str, Callable[[Collector, Names], None]]] = [
     ("Compiler", add_compiler),
     ("documents", add_documents),
     ("daily review", add_review),
+    ("field monitoring", _add_field_monitoring),
 ]
 
 

@@ -1043,6 +1043,7 @@ def _visit_context(request: HttpRequest, v: Visit) -> dict[str, Any]:
         "activities": v.programme_activities,
         "cp_outputs": _cp_outputs(v.cp_outputs),
         "hact": _hact(v, partners, pds),
+        "pd_context": _pd_context(v),
         "sections_source": SOURCES.get(v.sections_from, ""),
         "offices_source": SOURCES.get(v.offices_from, ""),
         "located": _located(v),
@@ -1063,6 +1064,16 @@ def _visit_context(request: HttpRequest, v: Visit) -> dict[str, Any]:
         ),
         "limits": limits,
     }
+
+
+def _pd_context(v: Visit) -> list[dict[str, Any]]:
+    """Item 11a: for each programme document of the visit, what the partner reported and the other
+    visits to it within 90 days of the visit (``services.pd_context``)."""
+    from . import services
+
+    if not v.pd_ids:
+        return []
+    return services.pd_context(v.pd_ids, around=v.end_date, exclude_key=v.key)
 
 
 def _map_url(v: Visit) -> str:

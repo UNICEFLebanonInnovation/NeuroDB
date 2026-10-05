@@ -11,6 +11,10 @@ A daily review finding is news when it appears or goes while critical, or when i
 state moving from new to still open is not even recorded; its title counting the days down ("ends in 12
 days") is kept, but is not news.
 
+A field monitoring visit is news when it comes in rated off track or constrained having ended in the last
+``FMM_NEWS_DAYS`` days, or when its rating moves later; its quality and urgency moving are kept, not told.
+The first build that brings field monitoring visits into the hub tells none of them.
+
 A build that loses more than a fifth of one kind of thing at once, with no error from its source, is more
 likely a partial read than real news: those removals are recorded but not notable, and counted as suspect.
 """
@@ -18,9 +22,12 @@ likely a partial read than real news: those removals are recorded but not notabl
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Collection
-from datetime import datetime
+from collections.abc import Callable, Collection
+from datetime import date, datetime, timedelta
 from typing import Any
+
+from django.conf import settings
+from django.utils import timezone
 
 from .models import Change, Entity
 from .query import RELATION_LABELS
@@ -56,10 +63,28 @@ NOTABLE_LINKS = {
     "linked_to",
     "run_by",
 }
-# a finding carries the date of the review that raised it, and its state moves from new to still open
-IGNORED_FIELDS = {K.FINDING: {"date", "state"}}
+# a finding carries the date of the review that raised it, and its state moves from new to still open;
+# a field monitoring visit's quality, urgency and status move with every rescore and sync
+IGNORED_FIELDS = {K.FINDING: {"date", "state"}, K.FM_VISIT: {"quality", "urgency_band", "status_group"}}
 # for these kinds a change is news only when one of these moved (a finding's title counts days down)
-NOTABLE_FIELDS = {K.FINDING: {"severity"}}
+NOTABLE_FIELDS = {K.FINDING: {"severity"}, K.FM_VISIT: {"rating"}}
+
+
+def _fm_visit_news(attrs: dict[str, Any], today: date) -> bool:
+    """A field monitoring visit newly in the hub is news when it was rated off track or constrained and
+    ended within ``FMM_NEWS_DAYS`` days: a backlog of older visits synced late is recorded, not told."""
+    days = int(getattr(settings, "FMM_NEWS_DAYS", 30))
+    ended = str(attrs.get("date") or "")
+    return (
+        attrs.get("rating") in ("off_track", "constrained")
+        and bool(ended)
+        and (ended >= (today - timedelta(days=days)).isoformat())
+    )
+
+
+# kinds whose new things are news only when this says so (consulted next to NOTABLE_ADDED), and only once
+# the kind was in the hub before this build: the first build that brings a kind marks none of it notable
+NOTABLE_ADDED_WHEN: dict[str, Callable[[dict[str, Any], date], bool]] = {K.FM_VISIT: _fm_visit_news}
 SUSPECT_SHARE = 0.20  # one build losing more than this share of a kind's things…
 SUSPECT_MIN_BEFORE = 10  # …out of at least this many is suspect, not news
 RELATIVE = 0.10  # a figure "moved" when it changed by at least 10%…
@@ -144,6 +169,8 @@ def detect(
     went of a ``suspect`` kind (see ``suspect_removals``) is recorded but not notable."""
     sections = _Sections(old_edges | new_edges)
     out: list[Change] = []
+    kinds_before = {ref[0] for ref in before}
+    today = timezone.localdate(now) if timezone.is_aware(now) else now.date()
 
     def change(ref: Ref, name: str, url: str, op: str, notable: bool, **extra: Any) -> None:
         out.append(
@@ -166,6 +193,9 @@ def detect(
         old = before.get(ref)
         if old is None:
             notable = ref[0] in NOTABLE_ADDED or (ref[0] == K.FINDING and _is_critical(data))
+            when = NOTABLE_ADDED_WHEN.get(ref[0])
+            if not notable and when is not None and ref[0] in kinds_before:
+                notable = when(data["attrs"], today)
             change(ref, data["name"], data["url"], Change.Op.ADDED, notable)
             continue
         ignored = IGNORED_FIELDS.get(ref[0], set())

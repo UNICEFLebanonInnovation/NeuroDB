@@ -1,7 +1,9 @@
-"""Monitoring insights counts as the overview and the field monitoring page do (§0.4, invariants 1-2):
+"""Monitoring insights counts as the overview and the field monitoring page do (§0.4, invariants 1-5):
 the visits of a calendar year with no filter equal the overview's field monitoring visits and the
 field monitoring page's "Monitoring activities"; the monitored entities equal its "Findings". A row
-without an activity reference is the one known difference, and the page's data note says so."""
+without an activity reference is the one known difference, and the page's data note says so. The
+average quality is one figure everywhere, and the partner and PD pages' panels equal the page their
+link opens, for every user."""
 
 from __future__ import annotations
 
@@ -92,3 +94,60 @@ def test_the_average_quality_tile_equals_the_analysis_highlight(built, client_vi
     with tools.bind(tools.ChatContext(scope=scope, texts_left=0, cards_max=15)):
         counted = tools.fm_summary()
     assert counted["avg_quality"] == sent and counted["visits"] == metrics.kpis(scope)["visits"]
+
+
+# ---------------------------------------------------------------------- invariants 3 and 4 (stage 8a)
+@pytest.fixture
+def _this_year(monkeypatch):
+    """The partner and PD pages read 2026 as this year, whatever day the tests run."""
+    monkeypatch.setattr("neurodb.reports.views._this_year", lambda: 2026)
+
+
+def _users(fm_world):
+    from neurodb.accounts.models import User
+    from tests.fmm.test_pages import _section_editor
+
+    viewer = User.objects.create_user(username="plain", email="plain@example.org", password="x-pass-123456")
+    return [viewer, _section_editor(fm_world.section)]  # one without a section, one with Education
+
+
+def _page_visits(client, url: str) -> int:
+    import re
+
+    from tests.fmm.test_pages import visible
+
+    text = " ".join(visible(client.get(url).content.decode()).split())
+    return int(re.search(r"Monitoring visits (\d+)", text).group(1))
+
+
+def test_the_partner_panel_equals_fmm_for_every_user(built, fm_world, client, _this_year):
+    """Invariant 3: the partner page's panel = FMM ?partner=<id>&year=Y&section=, for every user."""
+    from neurodb.fmm import services
+
+    for user in _users(fm_world):
+        client.force_login(user)
+        for partner in fm_world.partners.values():
+            panel = services.partner_summary(partner.pk, 2026)
+            assert _page_visits(client, panel["url"]) == panel["visits"]
+            assert panel["visits"] == _fmm_with(partner=partner.pk)["visits"]
+            assert panel["avg_quality"] == _fmm_with(partner=partner.pk)["avg_quality"]
+
+
+def test_the_pd_panel_equals_fmm_for_every_user(built, fm_world, client, _this_year):
+    """Invariant 4: the PD page's FMM row = FMM ?pd=<id>&year=Y&section=, for every user."""
+    from neurodb.fmm import services
+
+    for user in _users(fm_world):
+        client.force_login(user)
+        for pd in fm_world.pds.values():
+            panel = services.pd_summary(pd.pk, 2026)
+            if panel is None:
+                continue
+            assert _page_visits(client, panel["url"]) == panel["visits"] == _fmm_with(pd=pd.pk)["visits"]
+            assert sum(q["visits"] for q in panel["quarters"]) == panel["visits"]
+
+
+def _fmm_with(**params) -> dict:
+    return metrics.kpis(
+        Scope.from_params({"year": "2026", "section": "", **{k: str(v) for k, v in params.items()}})
+    )

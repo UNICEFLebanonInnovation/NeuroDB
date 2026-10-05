@@ -16,6 +16,8 @@ checklist answers, without keeping any narrative or answer text, and scores them
 rules (:mod:`neurodb.fmm.score`). The page (``/fmm/``, :mod:`neurodb.fmm.views`) reads the stored
 visits through a filter (:mod:`neurodb.fmm.scope`) and its figures (:mod:`neurodb.fmm.metrics`). The AI
 (:mod:`neurodb.fmm.ai`: prompt versions, the sampling guard and the budget so far) stays switched off
-until go-live. This app imports ``neurodb.datamart`` and ``neurodb.watch``; neither imports it at module
+until go-live. Other pages read their panels and links from :mod:`neurodb.fmm.services`, and the
+knowledge hub its visits from :mod:`neurodb.fmm.hub`. This app imports ``neurodb.datamart`` and
+``neurodb.watch``; neither of them, nor ``neurodb.reports`` or ``neurodb.graph``, imports it at module
 level.
 """

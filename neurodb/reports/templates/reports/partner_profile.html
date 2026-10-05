@@ -29,6 +29,7 @@
     <div class="chips mt-2">{% for kind, n in datamart.engagement_counts.items|default:profile.engagement_counts.items %}<span class="chip">{{ kind|default:"—" }} · {{ n }}</span>{% empty %}<span class="text-muted small">{% trans "No audits, spot checks or micro-assessments." %}</span>{% endfor %}</div>
   </section>
 </div>
+{% if fmm_partner %}{% include "fmm/_partner_panel.html" %}{% endif %}
 <h2 class="section-heading">{% trans "Partner reporting" %} <span class="small text-muted fw-normal">{% trans "eTools (current) and ActivityInfo (historical), brought together for this partner" %}</span></h2>
 <div class="grid grid--2 mb-3">
   <section class="panel" aria-labelledby="etools-reporting-title" id="etools-reporting">

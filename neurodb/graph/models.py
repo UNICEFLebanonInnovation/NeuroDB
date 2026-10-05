@@ -2,10 +2,10 @@
 
 An ``Entity`` is a partner, a programme document, a donor, a grant, a section, a place, an
 ActivityInfo database or master indicator, a Neuro report, a country programme result, a youth
-indicator, a Makani centre, a document… An ``Edge`` says how two are linked ("implemented by",
-"funded by", "takes place in", "mentions"…) and which source says so. The hub holds names and links;
-the figures are read live by the assistant's lookups, so they are always exact (a few headline figures
-are kept in ``snapshot`` only to notice when they move).
+indicator, a Makani centre, a document, a field monitoring visit… An ``Edge`` says how two are linked
+("implemented by", "funded by", "takes place in", "mentions"…) and which source says so. The hub holds
+names and links; the figures are read live by the assistant's lookups, so they are always exact (a few
+headline figures are kept in ``snapshot`` only to notice when they move).
 
 It is rebuilt every morning and whenever a sync brings new data (``build_knowledge_hub``). Each build
 is compared with the previous one: what is new, gone, newly linked or moved becomes a ``Change``, the
@@ -41,6 +41,7 @@ class Entity(models.Model):
         DOCUMENT = "document", "Document (knowledge base, library, CPD)"
         MAP = "map", "Map"
         FINDING = "review_finding", "Daily review finding"
+        FM_VISIT = "fm_visit", "Field monitoring visit"
 
     kind = models.CharField(max_length=24, choices=Kind.choices)
     key = models.CharField(max_length=120, help_text="the id in its source")

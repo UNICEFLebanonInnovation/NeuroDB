@@ -12,6 +12,7 @@ from django.db.models.functions import ExtractYear
 
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
+from . import fm
 from . import models as dm
 from . import monitoring as pd_monitoring
 
@@ -140,8 +141,9 @@ def workplan(queryset: QuerySet[dm.PDActivity]) -> list[dict[str, Any]]:
 
 
 def visits_by_year(pd: PCA) -> list[dict[str, Any]]:
-    """Programmatic visits planned (eTools PD plan) and done (staff trips, TPM visits) per year."""
-    years: dict[int, dict[str, int]] = defaultdict(lambda: {"planned": 0, "staff": 0, "tpm": 0})
+    """Programmatic visits planned (eTools PD plan) and done (staff trips, TPM visits) per year, and
+    the field monitoring visits that monitored the PD (one per visit, by the year of its end date)."""
+    years: dict[int, dict[str, int]] = defaultdict(lambda: {"planned": 0, "staff": 0, "tpm": 0, "fm": 0})
     for plan in pd.planned_visits_by_year.exclude(year=None):
         years[plan.year]["planned"] += plan.total
     for day in (
@@ -157,6 +159,8 @@ def visits_by_year(pd: PCA) -> list[dict[str, Any]]:
         .distinct()
     ):
         years[day.year]["tpm"] += 1
+    for year, n in fm.visits_by_year(dm.MonitoringFinding.objects.filter(intervention=pd)).items():
+        years[year]["fm"] += n
     return [{"year": y, **v} for y, v in sorted(years.items(), reverse=True)]
 
 
@@ -626,6 +630,7 @@ def action_points(params) -> dict[str, Any]:
     return {
         "points": points.order_by("-high_priority", "due_date", "-datamart_id"),
         "visit": visit,
+        "visit_links": _fm_visit_links(points),
         "open": points.filter(status__in=dm.ActionPoint.OPEN_STATUSES).count(),
         "overdue": points.filter(overdue).count(),
         "high_priority": points.filter(high_priority=True, status__in=dm.ActionPoint.OPEN_STATUSES).count(),
@@ -642,6 +647,20 @@ def action_points(params) -> dict[str, Any]:
             ),
         },
     }
+
+
+def _fm_visit_links(points: QuerySet[dm.ActionPoint]) -> dict[int, tuple[str, str]]:
+    """``{action point id: (visit key, label)}`` for the field monitoring action points of ``points``
+    linked to a visit of Monitoring insights (``fmm.services.visits_for_action_points``, read through
+    a lazy import in one query); empty when that app is not installed or switched off."""
+    from django.apps import apps
+    from django.conf import settings
+
+    if not apps.is_installed("neurodb.fmm") or not getattr(settings, "FMM_ENABLED", False):
+        return {}
+    from neurodb.fmm import services as fmm_services
+
+    return fmm_services.visits_for_action_points(points.filter(related_module="fm").order_by().values("pk"))
 
 
 def _fm_visit(params) -> dict[str, Any] | None:
@@ -695,6 +714,19 @@ def _action_point_ids(engagement: dm.AuditEngagement) -> list[int]:
     return ids
 
 
+def _fm_links(year: int | None, partner_ids: list[int]) -> dict[int, str]:
+    """``{partner id: the partner's programmatic visits of the HACT year in Monitoring insights}``,
+    built by ``fmm.scope.link`` through a lazy import; empty when that app is not installed or off."""
+    from django.apps import apps
+    from django.conf import settings
+
+    if not year or not apps.is_installed("neurodb.fmm") or not getattr(settings, "FMM_ENABLED", False):
+        return {}
+    from neurodb.fmm.scope import link
+
+    return {pk: link(partner=pk, programmatic=1, year=year) for pk in partner_ids}
+
+
 def hact_compliance(year: int | None = None) -> dict[str, Any]:
     """Assurance done against assurance required, per partner, for one HACT year (latest by default)."""
     years = sorted({y for y in dm.PartnerHACTYear.objects.values_list("year", flat=True) if y}, reverse=True)
@@ -702,13 +734,19 @@ def hact_compliance(year: int | None = None) -> dict[str, Any]:
     rows = list(
         dm.PartnerHACTYear.objects.filter(year=year).select_related("partner").order_by("-cash_transfers")
     )
+    # NeuroDB's own count of completed programmatic field monitoring visits, per partner of each row
+    fm_pv = fm.programmatic_visits_by_partner(year) if year else {}
+    fm_links = _fm_links(year, [row.partner_id for row in rows if row.partner_id])
     for row in rows:
         row.pv_gap = max((row.pv_required or 0) - (row.pv_completed or 0), 0)
         row.sc_gap = max((row.sc_required or 0) - (row.sc_completed or 0), 0)
+        row.fm_pv = fm_pv.get(row.partner_id, 0) if row.partner_id else None
+        row.fm_url = fm_links.get(row.partner_id, "")
     return {
         "year": year,
         "years": years,
         "rows": rows,
+        "fm_pv": fm_pv,
         "partners_behind": sum(1 for r in rows if r.pv_gap or r.sc_gap),
         "cash_transfers": sum((r.cash_transfers or 0) for r in rows),
     }

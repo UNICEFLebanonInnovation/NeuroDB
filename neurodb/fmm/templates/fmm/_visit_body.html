@@ -149,6 +149,13 @@
   </section>
   {% endif %}
 
+  {% if pd_context %}
+  <section class="panel" aria-labelledby="fmm-pd-context-{{ visit.key }}">
+    <h3 class="h6" id="fmm-pd-context-{{ visit.key }}">{% trans "What the partner reported, and other visits to the same programme document" %}</h3>
+    {% include "fmm/_pd_context.html" with blocks=pd_context %}
+  </section>
+  {% endif %}
+
   {% comment %}13. The sentences of the AI brief that cite this visit, in the brief of the filter the user lands
   on.{% endcomment %}
   {% if cited %}

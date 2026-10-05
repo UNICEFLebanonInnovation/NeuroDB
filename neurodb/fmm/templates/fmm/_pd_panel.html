@@ -1,0 +1,23 @@
+{% load i18n ui %}
+{% comment %}The programme document page's "Field monitoring visits" panel (fmm.services.pd_summary): FM visits per
+quarter against the visits planned in eTools, the latest visits, then block 11a. Its visits equal the Monitoring
+insights page its link opens (/fmm/?pd=<id>&year=Y&section=), for every user.{% endcomment %}
+{% with s=fmm_pd %}
+<div class="fmm-pd-panel" id="fmm-pd">
+<h3 class="h6 mt-3">{% trans "Field monitoring visits" %} <span class="text-muted small">{% blocktrans with year=s.year count n=s.visits %}{{ n }} visit in {{ year }}{% plural %}{{ n }} visits in {{ year }}{% endblocktrans %}{% if s.avg_quality is not None %} · {% blocktrans with q=s.avg_quality|percent %}average quality {{ q }}{% endblocktrans %}{% endif %}</span>
+  <a class="small ms-2" href="{{ s.url }}">{% trans "Open in Monitoring insights" %}</a></h3>
+<div class="table-wrap"><table class="table table-sm"><thead><tr><th>{{ s.year }}</th>{% for q in s.quarters %}<th class="num">Q{{ q.quarter }}</th>{% endfor %}<th class="num">{% trans "Year" %}</th></tr></thead>
+<tbody>
+  <tr><th scope="row" class="small fw-normal">{% trans "Planned in eTools" %}</th>{% for q in s.quarters %}<td class="num">{% if q.planned is not None %}{{ q.planned }}{% else %}—{% endif %}</td>{% endfor %}<td class="num">{% if s.planned is not None %}{{ s.planned }}{% else %}—{% endif %}</td></tr>
+  <tr><th scope="row" class="small fw-normal">{% trans "Field monitoring visits" %}</th>{% for q in s.quarters %}<td class="num">{{ q.visits }}</td>{% endfor %}<td class="num">{{ s.visits }}</td></tr>
+</tbody></table></div>
+<p class="small text-muted mb-2">{% trans "Visits by the quarter of their end date, whatever their status. Planned visits are the programmatic visits of the eTools plan." %}</p>
+{% if s.latest %}
+<ul class="list-unstyled small mb-2">{% for v in s.latest %}<li class="mb-1"><a href="{{ v.url }}" hx-get="{{ v.url }}" hx-target="#modal-content" hx-push-url="false">{{ v.label }}</a> · {% status_pill v.rating v.rating_label "sm" %} <span class="text-muted">{% if v.not_rated_yet %}{% blocktrans with day=v.end_date|date:"j M Y" %}ends {{ day }}{% endblocktrans %}{% else %}{% blocktrans with day=v.end_date|date:"j M Y" %}rated {{ day }}{% endblocktrans %}{% endif %}</span>
+  · {% trans "quality" %} {% if v.quality is not None %}<span class="fmm-score fmm-score--{{ v.score_band|default:'none' }}">{{ v.quality|percent }}</span>{% else %}—{% endif %}
+  · {% trans "urgency" %} <span class="pill pill--sm pill--{% if v.urgency_band == 'red' %}danger{% elif v.urgency_band == 'amber' %}warning{% else %}neutral{% endif %}">{{ v.urgency }}</span></li>{% endfor %}</ul>
+{% endif %}
+<h4 class="small fw-semibold mt-3 mb-1">{% trans "What the partner reported, and other visits" %}</h4>
+{% include "fmm/_pd_context.html" with blocks=s.context %}
+</div>
+{% endwith %}

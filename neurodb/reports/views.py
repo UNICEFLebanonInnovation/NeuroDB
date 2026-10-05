@@ -13,6 +13,7 @@ import mimetypes
 from typing import Any
 from urllib.parse import urlsplit
 
+from django.apps import apps
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_not_required
@@ -897,9 +898,25 @@ def programme_detail(request: HttpRequest, pk: int) -> HttpResponse:
         "past_end": partnerships.past_end_date(pd.status, pd.end),
         "datamart": datamart.programme_datamart(pd),
         "knowledge_documents": linked_documents("programme_document", pd.pk),
+        "fmm_pd": _fmm_panel("pd_summary", pd.pk),
     }
     template = "reports/partials/programme_detail.html" if request.htmx else "reports/programme_detail.html"
     return render(request, template, context)
+
+
+def _fmm_panel(name: str, pk: int) -> dict[str, Any] | None:
+    """The Monitoring insights panel of a partner or programme document page for this calendar year
+    (``fmm.services.partner_summary`` or ``pd_summary``), read through a lazy import; None when that
+    app is not installed or switched off, or has nothing on it."""
+    if not apps.is_installed("neurodb.fmm") or not getattr(settings, "FMM_ENABLED", False):
+        return None
+    from neurodb.fmm import services as fmm_services
+
+    return getattr(fmm_services, name)(pk, _this_year())
+
+
+def _this_year() -> int:
+    return datetime.date.today().year
 
 
 DONOR_PAGE_PDS = 10  # the Donors page lists the largest ones and links to Programmes for the rest
@@ -973,6 +990,7 @@ def partner_profile(request: HttpRequest, pk: int) -> HttpResponse:
         "action_points_url": reverse("reports:action_points")
         + "?"
         + urlencode({"q": partner.vendor_number or partner.name}),
+        "fmm_partner": _fmm_panel("partner_summary", partner.pk),
         "labels": LABELS,
         "chart_data": {
             # staff trips from eTools Trips in the Datamart when synced, else the v2 travel tables,

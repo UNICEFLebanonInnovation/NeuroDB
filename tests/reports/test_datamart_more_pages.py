@@ -225,7 +225,7 @@ def test_programme_page_shows_funds_workplan_reporting_and_visits(client_viewer,
 
     detail = programme_datamart(data["pd"])
     assert (detail["fr_count"], detail["fr_actual"]) == (1, Decimal("400"))
-    assert detail["visits"] == [{"year": TODAY.year, "planned": 2, "staff": 1, "tpm": 1}]
+    assert detail["visits"] == [{"year": TODAY.year, "planned": 2, "staff": 1, "tpm": 1, "fm": 0}]
     assert len(workplan(data["pd"].workplan_activities.all())[0]["activities"]) == 1
     assert [p["progress"] for p in detail["latest_progress"]] == ["60"]
 

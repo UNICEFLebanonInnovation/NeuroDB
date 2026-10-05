@@ -264,6 +264,7 @@ do the evaluations say about them?"), NeuroDB keeps one index of everything it h
 | Youth indicators, Makani and Dirasa, Makani centres | Compiler | PDs, partners, governorates |
 | Documents and maps | Knowledge base, library, country programme | the partners, PDs, sections and places they name |
 | Open daily review findings | Daily review | the PD or partner they are about, section |
+| Field monitoring visits | Monitoring insights (visits that ended in the last `FMM_HUB_MONTHS`, 24, months) | the PDs, partners and country programme outputs they are about, their sections, governorate and district |
 
 The hub holds **names and links** (plus a few headline figures, kept only to notice what changed): every figure the assistant gives is read live. Each thing carries a *lookup*,
 the assistant tool and arguments that give its current figures (e.g. `partner_details`,
@@ -311,7 +312,11 @@ or one added later, is noticed without code of its own. A **change** is one of:
 A change is **notable** (in the daily note, the overview card and the assistant's default answer) when
 it is a new or gone thing of the main kinds, a status or date that changed, a figure that moved by at
 least 10% (and at least $1,000 for money, 5 for report counts), a funding or reporting link, a
-critical review finding that appears or goes, or a finding whose severity changed. A finding growing
+critical review finding that appears or goes, or a finding whose severity changed. A field
+monitoring visit is news when it comes in rated off track or constrained having ended in the last
+`FMM_NEWS_DAYS` (30) days, or when its rating changes later; its quality, urgency and status moving
+are kept, not told, and the first build that brings visits into the hub tells none of them (so the
+24 months of visits added at once are not news). A finding growing
 older (new, then still open) is not news, and its title counting the days down is kept as a minor
 change. The rest (a new district in the gazetteer, a document newly mentioning a place) is kept and
 shown with *Include minor changes*. When one build loses more than a fifth of one kind of thing (of at
@@ -972,6 +977,7 @@ readers. Donor accounts never see the page, the count or the card.
 | `fr_expiring` | Funds reservations ending in the next 30 days with money outstanding; warning from 7 days | the PD's sections | trial |
 | `hact_assurance_gap` | From 1 October to 31 December: partners whose programmatic visits, spot checks or audits are below what HACT requires; warning from 15 November, critical from 15 December | the sections of the partner's active PDs, and the country view | trial |
 | `assignment_due` | Agreed dates on daily review findings (*Finding assignments*): 3 days before, and once passed | the finding's section, and the country view | trial |
+| `fm_follow_up` | Field monitoring visits (Monitoring insights) reported, rated off track or constrained (the worse of the overall rating and HACT Q1), ended 14 (Score settings *follow-up days*) to 120 days ago, with no eTools action point linked; critical when off track and ended over 30 days ago. Closes when an action point is linked or the rating changes. Reads the Datamart sync and the Monitoring insights refresh; finds nothing while `FMM_ENABLED` is off (switch the check off then, or its source shows as not refreshed) | the visit's sections | trial |
 | `forecast_short` | Indicators the year-end forecast says are likely to fall short, only while the forecasts are shown | the forecast's section | trial |
 | `donor_account_expiring` | Donor sign-ins that stop working within 14 days | Administrators | trial |
 | `reporting_year_rollover` | 15 December to 15 January: the new year is not the current reporting year yet | Administrators | trial |
@@ -1280,6 +1286,8 @@ found** (which checklist question is Q1, Q2, Q3 and PSEA), **Quality rules**, **
 **Rule versions**, **Prompt versions** and **Sampling checks** (the AI's prompts and what the model
 accepted; the AI itself is off at deploy, see below), **AI briefs** (every brief written, or why none
 was), **Chat questions** (every question asked in the chat, with what its check found), and **Visits** (the visits built, with their rule results, for checking the data).
+The partner, programme document, overview, assurance and action points pages link into it, and its
+visits are in the knowledge hub, What's new and NeuroDB Watch (*Links into the rest of NeuroDB*, below).
 
 ### The page (`/fmm/`)
 
@@ -1373,7 +1381,11 @@ is hidden.
   result, the checklist questions and answers (read from the eTools records when the page opens),
   programme activities and CP outputs (linked to the country programme when they match), the action
   points, the partner's programmatic visits for HACT and each programme document's planned visits of
-  the quarter, the review and the data notes.
+  the quarter, then, for each programme document, *what the partner reported, and other visits*: its
+  indicators with the tracking status of the latest period the partner reported ("On track · reported
+  for Jun 2026"), the TPM activities, UNICEF staff programmatic trips (never the traveller) and other
+  FM visits to it within 90 days of the visit, and the knowledge base documents that mention it (else
+  its partner); then the review and the data notes.
 - **Reviews**: an Administrator, or a Section editor of one of the visit's sections, marks a visit
   *Reviewed*, *Needs follow-up* or *Data issue*, with an optional note (500 characters, kept in
   NeuroDB, never sent to the AI). Reviews are kept by visit key, so a refresh never loses them.
@@ -1381,6 +1393,45 @@ is hidden.
   lists exactly the action points matched to that visit, with a chip "From Visit 1722 ×". The action
   points search also finds an action point by its module reference (a visit reference) and, for a
   number, by its eTools activity id.
+
+### Links into the rest of NeuroDB
+
+Every link into Monitoring insights carries `section=` (empty when it shows every section), so a user
+whose own section would otherwise apply sees the same figures as the panel the link came from.
+
+- **Partner page**: a *Monitoring insights* panel for this calendar year: the partner's FM visits
+  (every status), the average quality, the visits rated off track and constrained, the open and
+  overdue FM action points of those visits, and the last visit (rating and date). Its link
+  `/fmm/?partner=<id>&year=<year>&section=` opens the page with the same figures. The partner page's
+  existing visits chart does not change. No panel for a partner no visit ever monitored.
+- **Programme document page**: the *Programmatic visits* table gains a *Field monitoring* column (FM
+  visits that monitored the PD, by the year of their end date), and a *Field monitoring visits* panel
+  shows this year's FM visits per quarter (by end date) against the visits eTools plans (`PlannedVisits`),
+  the three latest visits with their rating, quality and urgency, a link
+  `/fmm/?pd=<id>&year=<year>&section=` with the same count, and the PD's *what the partner reported,
+  and other visits* for the year (as on the visit page; the page already lists its knowledge base
+  documents).
+- **Overview**: under the assurance card's figures, *Field monitoring visits in Monitoring insights*
+  opens the page for the overview's year, sections and governorate (`section=` empty when every
+  section is shown; the governorate as the overview names it, which the page reads). The overview's
+  own figures and links do not change. Its section filter counts every visit of a partner with
+  indicators in the section, Monitoring insights each visit's programme document section: the page's
+  data note says so.
+- **Assurance (HACT by partner)**: a column *FM programmatic visits (NeuroDB)*: the completed
+  programmatic FM visits that ended in the HACT year, one per visit for each partner of its rows,
+  next to eTools' own done / required. It links to that partner's programmatic visits of the year in
+  Monitoring insights.
+- **Action points**: an FM action point matched to a visit shows *Visit 1722* under *Raised from*,
+  opening the visit.
+- **Knowledge hub and What's new**: every visit that ended in the last `FMM_HUB_MONTHS` (24) months
+  is a *Field monitoring visit* (`fm_visit`) in the hub: "Visit 1722 · AMEL · 12 May 2026", with its
+  date, status group, rating, quality and urgency band only (never a narrative, an answer or a team),
+  linked *about* its programme documents, partners and the country programme outputs its CP outputs
+  match, *in section* and *takes place in* its governorate and district; its lookup is `fm_visit`.
+  What's new tells a visit only as described under *What's new* above.
+- **NeuroDB Watch**: the check `fm_follow_up` (trial; see *What it follows*).
+- **Sections**: the section names written on visits themselves join the eTools spellings
+  Administrators confirm in *Section matches*.
 
 ### Data and its keys
 
@@ -1718,6 +1769,8 @@ on, and before its figures are trusted:
 | `FMM_KEY_MIN_COVERAGE` | `0.5` | The share of a dataset's records a candidate key must fill to be chosen before the keys listed after it (above 0, at most 1; another value stops the start-up). |
 | `FMM_ETOOLS_ACTIVITY_URL` | (blank) | The address of an activity in eTools, with `{id}` for its id (e.g. `https://etools.unicef.org/fm/activities/{id}/details`), for the visit page's *Open in eTools*. Blank hides the link until the address is verified. |
 | `FMM_MATCH_KM` | `2.0` | Map: the distance in kilometres below which a visit and a planned place of its programme document count as the same place, when both points are exact (a monitoring site, or a cadaster's own point). Above 0; another value stops the start-up. |
+| `FMM_HUB_MONTHS` | `24` | The visits that ended within this many months are in the knowledge hub. |
+| `FMM_NEWS_DAYS` | `30` | A visit rated off track or constrained that comes into the knowledge hub is news in What's new only when it ended within this many days. |
 | `FMM_AI` | `false` | The AI brief and chat. They also need `AI_ASSISTANT_ENABLED` and a published prompt version. Off at deploy; switched on at go-live once the real keys are confirmed (above) and a Preview and a Test run look right. |
 | `FMM_MODEL` | (blank) | The model of a prompt version that names none; blank: `AI_ASSISTANT_MODEL`. |
 | `FMM_SAMPLING` | `auto` | `auto`: send temperature/top-p when a version sets them and the model has not refused them; `off`: never send them. Another value stops the start-up. |

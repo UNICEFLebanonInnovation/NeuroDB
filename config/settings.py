@@ -490,6 +490,10 @@ if not FMM_MATCH_KM > 0:
     from django.core.exceptions import ImproperlyConfigured
 
     raise ImproperlyConfigured(f"FMM_MATCH_KM must be above 0; got {FMM_MATCH_KM}")
+# Knowledge hub: the visits that ended within this many months are added to it; an off-track or constrained
+# visit added to it is news in What's new only when it ended within FMM_NEWS_DAYS days
+FMM_HUB_MONTHS = env.int("FMM_HUB_MONTHS", default=24)
+FMM_NEWS_DAYS = env.int("FMM_NEWS_DAYS", default=30)
 # The AI brief and the chat of Monitoring insights. Off at deploy: switched on at go-live (docs/OPERATIONS.md)
 # once the keys are checked in Fields found and a Preview and a Test run look right. It also needs
 # AI_ASSISTANT_ENABLED and a published prompt version. The prompts, the per-person quotas, "narr", "comp" and
