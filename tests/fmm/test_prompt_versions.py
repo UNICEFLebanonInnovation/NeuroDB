@@ -386,3 +386,53 @@ def test_sampling_checks_are_listed_and_deleting_one_means_check_again(admin_cli
         == 302
     )
     assert not ModelCapability.objects.exists()
+
+
+# ------------------------------------------------------------------------------------------ stage 6a check
+def test_a_new_draft_is_based_on_the_version_it_was_prefilled_from(admin_client, admin_user, v1):
+    page = admin_client.get(reverse("admin:fmm_promptversion_add")).content.decode()
+    assert f'name="from_version" value="{v1.pk}"' in page
+    # another version is published while the form is open: the draft stays based on v1, as shown
+    profiles.publish(profiles.draft_from(v1, admin_user, "v2"), admin_user)
+    data = {**_form(v1, narratives_sampled="12"), "from_version": str(v1.pk)}
+    assert admin_client.post(reverse("admin:fmm_promptversion_add"), data).status_code == 302
+    draft = PromptVersion.objects.get(number=3)
+    assert draft.based_on == v1 and draft.status == "draft"
+
+
+def test_publishing_a_version_published_meanwhile_says_so(admin_client, admin_user, v1, monkeypatch):
+    draft = profiles.draft_from(v1, admin_user, "v2")
+    url = reverse("admin:fmm_promptversion_publish", args=[draft.pk])
+    assert admin_client.get(url).status_code == 200
+    profiles.publish(draft, admin_user)  # someone else published it since the page was opened
+    response = admin_client.post(url, follow=True)
+    assert response.status_code == 200 and "Only a draft can be published." in response.content.decode()
+
+    # ... or between the view's own check and the publish (profiles.publish re-checks under a lock)
+    def published_meanwhile(version, user):
+        raise ValueError(f"Prompt v{version.number} is published: only a draft can be published.")
+
+    monkeypatch.setattr(profiles, "publish", published_meanwhile)
+    other = profiles.draft_from(v1, admin_user, "v3")
+    response = admin_client.post(reverse("admin:fmm_promptversion_publish", args=[other.pk]), follow=True)
+    assert response.status_code == 200 and "Only a draft can be published." in response.content.decode()
+
+
+def test_the_publish_confirmation_says_the_published_version_will_be_retired(admin_client, admin_user, v1):
+    draft = profiles.draft_from(v1, admin_user, "v2")
+    html = admin_client.get(reverse("admin:fmm_promptversion_publish", args=[draft.pk])).content.decode()
+    assert "v1, published now, will be retired" in html
+
+
+def test_bulk_delete_lists_published_versions_as_kept_and_deletes_drafts_only(admin_client, admin_user, v1):
+    draft = profiles.draft_from(v1, admin_user, "Try")
+    _test_run(draft)
+    changelist = reverse("admin:fmm_promptversion_changelist")
+    data = {"action": "delete_selected", "_selected_action": [v1.pk, draft.pk]}
+    html = admin_client.post(changelist, data).content.decode()
+    assert "Prompt v1 (published: kept, never deleted)" in html
+    assert "Prompt v2 (this also deletes its test run)" in html
+    response = admin_client.post(changelist, {**data, "post": "yes"}, follow=True)
+    assert "never deleted: 1 kept" in response.content.decode()
+    assert list(PromptVersion.objects.values_list("number", flat=True)) == [1]
+    assert not Insight.objects.exists()

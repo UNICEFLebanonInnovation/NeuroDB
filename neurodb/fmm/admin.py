@@ -1201,7 +1201,7 @@ class PromptVersionAdmin(ModelAdmin):
 
     # adding a draft
     def _source(self, request) -> PromptVersion | None:
-        pk = request.GET.get("from") or request.POST.get("from_version")
+        pk = request.POST.get("from_version") or request.GET.get("from")
         if pk and str(pk).isdigit():
             found = PromptVersion.objects.filter(pk=int(pk)).first()
             if found is not None:
@@ -1260,6 +1260,13 @@ class PromptVersionAdmin(ModelAdmin):
         Published and retired versions are never deleted, so their briefs are never listed."""
         listed, counts = [], {}
         for version in objs:
+            if version.status != PromptVersion.Status.DRAFT:  # kept by delete_queryset
+                listed.append(
+                    f"{version} "
+                    + _("(%(status)s: kept, never deleted)")
+                    % {"status": version.get_status_display().lower()}
+                )
+                continue
             runs = profiles.test_runs(version)
             line = str(version)
             if runs:
@@ -1345,7 +1352,11 @@ class PromptVersionAdmin(ModelAdmin):
             messages.error(request, _("Only a draft can be published."))
             return redirect("admin:fmm_promptversion_change", version.pk)
         if request.method == "POST":
-            profiles.publish(version, request.user)
+            try:
+                profiles.publish(version, request.user)
+            except ValueError:  # published or retired by someone else since the page was opened
+                messages.error(request, _("Only a draft can be published."))
+                return redirect("admin:fmm_promptversion_change", version.pk)
             messages.success(request, _("Prompt v%(n)s is published.") % {"n": version.number})
             return redirect("admin:fmm_promptversion_change", version.pk)
         return render(

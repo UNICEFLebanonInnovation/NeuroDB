@@ -10,6 +10,8 @@
   {{ block.super }}
   {% if add and from_version %}
     <p class="nd-fixed__note">{% blocktrans with n=from_version.number status=from_version.get_status_display %}A new draft, prefilled from v{{ n }} ({{ status }}). Nothing is used until you publish it.{% endblocktrans %}</p>
+    {# the version the form was prefilled from: the new draft is based on it, even if another is published meanwhile #}
+    <input type="hidden" name="from_version" value="{{ from_version.pk }}">
   {% elif original and original.status != "draft" %}
     <p class="nd-fixed__note">
       {% blocktrans with n=original.number status=original.get_status_display|lower %}v{{ n }} is {{ status }} and never changes.{% endblocktrans %}
