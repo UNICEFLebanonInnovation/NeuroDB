@@ -23,6 +23,7 @@ from django.db.models import Q
 from django.http import FileResponse, Http404, HttpRequest, HttpResponse, JsonResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.http import urlencode
 from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_sameorigin
@@ -916,7 +917,8 @@ def _fmm_panel(name: str, pk: int) -> dict[str, Any] | None:
 
 
 def _this_year() -> int:
-    return datetime.date.today().year
+    """This calendar year in Beirut, as the Monitoring insights page reads "this year"."""
+    return timezone.localdate().year
 
 
 DONOR_PAGE_PDS = 10  # the Donors page lists the largest ones and links to Programmes for the rest

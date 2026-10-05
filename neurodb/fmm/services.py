@@ -202,6 +202,48 @@ def pd_summary(pd_id: int, year: int) -> dict[str, Any] | None:
     }
 
 
+def _synced(target: str) -> datetime.date | None:
+    """The day the eTools Datamart dataset ``target`` was last synced: the reference date of the
+    statuses read from it."""
+    from neurodb.core.models import SyncRun
+
+    from .status import DONE
+
+    when = (
+        SyncRun.objects.filter(job=SyncRun.Job.ETOOLS_DATAMART, target=target, status__in=DONE)
+        .exclude(finished_at=None)
+        .order_by("-finished_at")
+        .values_list("finished_at", flat=True)
+        .first()
+    )
+    return timezone.localtime(when).date() if when else None
+
+
+def _cp_outputs(pds: Iterable[Any]) -> dict[int, list[dict[str, Any]]]:
+    """``{PD id: the country programme outputs it contributes to}``: the outputs of the current country
+    programme (the latest one when none is marked current) that ``cpd.services.output_matches`` finds
+    in the PD's eTools CP outputs, with their code, title and the country programme dashboard's link."""
+    from neurodb.cpd.models import CountryProgramme, Output
+    from neurodb.cpd.services import output_matches
+
+    out: dict[int, list[dict[str, Any]]] = {pd.pk: [] for pd in pds}
+    if not any(pd.cp_outputs for pd in pds):
+        return out
+    programme = CountryProgramme.objects.filter(current=True).first() or CountryProgramme.objects.first()
+    if programme is None:
+        return out
+    outputs = list(Output.objects.filter(outcome__programme=programme).order_by("code", "pk"))
+    url = f"{reverse('cpd:dashboard')}?cycle={programme.pk}"
+    for pd in pds:
+        names = [name for name in pd.cp_outputs or [] if name]
+        out[pd.pk] = [
+            {"code": o.code, "title": o.title, "url": url}
+            for o in outputs
+            if any(output_matches(o, name) for name in names)
+        ]
+    return out
+
+
 def pd_context(
     pd_ids: Iterable[int],
     around: datetime.date | None = None,
@@ -214,8 +256,8 @@ def pd_context(
     """One block per programme document of ``pd_ids``: what the partner reported on it (its indicators
     with the tracking status of the latest period reported, ``datamart.monitoring.indicators``), the
     other visits to it (TPM activities, UNICEF staff programmatic trips, never the traveller's name,
-    and FM visits) and, with ``knowledge``, the knowledge base documents that mention it (else those
-    that mention its partner).
+    and FM visits), the country programme outputs it contributes to and, with ``knowledge``, the
+    knowledge base documents that mention it (else those that mention its partner).
 
     The visits are those within ``AROUND_DAYS`` of ``around`` (the visit page, ``exclude_key`` leaving
     the visit itself out), else those of the calendar year ``year`` (the PD page; this year by
@@ -243,6 +285,8 @@ def pd_context(
         return []
     limits = limits or metrics.thresholds()
     found = list(pds)
+    outputs = _cp_outputs(pds.values())
+    tpm_as_of = _synced("tpm_activities")
 
     reported: dict[int, list] = {pk: [] for pk in pds}
     for row in monitoring.indicators(monitoring.Filters(pd_ids=found, year=year, scope="all"), today):
@@ -325,10 +369,12 @@ def pd_context(
                 ),
                 "tpm": tpm[pk][:SHOWN],
                 "tpm_count": len(tpm[pk]),
+                "tpm_as_of": tpm_as_of,
                 "trips": trips[pk][:SHOWN],
                 "trips_count": len(trips[pk]),
                 "visits": visits[pk][:SHOWN],
                 "visits_count": len(visits[pk]),
+                "outputs": outputs.get(pk, []),
                 "documents": documents,
                 "start": start,
                 "end": end,

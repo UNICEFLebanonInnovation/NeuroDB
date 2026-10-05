@@ -291,6 +291,47 @@ def test_the_action_points_page_shows_the_visit(built, fm_world, client_viewer):
     assert 'hx-get="/fmm/visits/1722/"' in html and ">Visit 1722</a>" in html
 
 
+def test_the_action_points_page_shows_the_visit_whatever_the_case_of_the_module(
+    built, fm_world, client_viewer
+):
+    """The refresh matches FM action points by ``related_module`` in any case; the page's link too."""
+    dm.ActionPoint.objects.filter(pk=fm_world.action_points.by_id.pk).update(related_module="FM")
+    html = client_viewer.get(reverse("reports:action_points")).content.decode()
+    assert 'hx-get="/fmm/visits/1722/"' in html and ">Visit 1722</a>" in html
+
+
+def test_the_pd_panel_lists_the_country_programme_outputs_and_the_tpm_status_date(built, fm_world, client):
+    """Block 11a on the PD page: the CPD outputs the PD contributes to (``output_matches``, linked to
+    the country programme dashboard), and a TPM status dated by the eTools sync, not the visit date."""
+    pd = _pd_extras(fm_world)
+    output = _cp_output()
+    pd.cp_outputs = ["2.2 INCREASED ACCESS TO EDUCATION", "9.9 Something else"]
+    pd.save(update_fields=["cp_outputs"])
+    SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART,
+        target="tpm_activities",
+        status=SyncRun.Status.SUCCEEDED,
+        started_at=datetime.datetime(2026, 10, 4, 3, 0, tzinfo=datetime.UTC),
+        finished_at=datetime.datetime(2026, 10, 4, 3, 30, tzinfo=datetime.UTC),
+    )
+    block = services.pd_summary(pd.pk, YEAR)["context"][0]
+    assert block["outputs"] == [
+        {
+            "code": "2.2",
+            "title": output.title,
+            "url": f"{reverse('cpd:dashboard')}?cycle={output.outcome.programme_id}",
+        }
+    ]
+    client.force_login(_section_editor(fm_world.section))
+    text = _text(client.get(reverse("reports:programme_detail", args=[pd.pk])))
+    assert "Country programme outputs Output 2.2" in text
+    assert "Completed as of eTools sync 4 Oct 2026" in text and "as of 20 Jul 2026" not in text
+    # a PD with no matching CP output lists none
+    pd.cp_outputs = ["9.9 Something else"]
+    pd.save(update_fields=["cp_outputs"])
+    assert services.pd_summary(pd.pk, YEAR)["context"][0]["outputs"] == []
+
+
 # ------------------------------------------------------------------------------------ knowledge hub
 def _cp_output() -> Output:
     cycle = CountryProgramme.objects.create(

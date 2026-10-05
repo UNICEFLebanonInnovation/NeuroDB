@@ -1384,8 +1384,9 @@ is hidden.
   the quarter, then, for each programme document, *what the partner reported, and other visits*: its
   indicators with the tracking status of the latest period the partner reported ("On track · reported
   for Jun 2026"), the TPM activities, UNICEF staff programmatic trips (never the traveller) and other
-  FM visits to it within 90 days of the visit, and the knowledge base documents that mention it (else
-  its partner); then the review and the data notes.
+  FM visits to it within 90 days of the visit, the country programme outputs it contributes to (its
+  eTools CP outputs matched to the current country programme), and the knowledge base documents that
+  mention it (else its partner); then the review and the data notes.
 - **Reviews**: an Administrator, or a Section editor of one of the visit's sections, marks a visit
   *Reviewed*, *Needs follow-up* or *Data issue*, with an optional note (500 characters, kept in
   NeuroDB, never sent to the AI). Reviews are kept by visit key, so a refresh never loses them.
@@ -1409,8 +1410,9 @@ whose own section would otherwise apply sees the same figures as the panel the l
   shows this year's FM visits per quarter (by end date) against the visits eTools plans (`PlannedVisits`),
   the three latest visits with their rating, quality and urgency, a link
   `/fmm/?pd=<id>&year=<year>&section=` with the same count, and the PD's *what the partner reported,
-  and other visits* for the year (as on the visit page; the page already lists its knowledge base
-  documents).
+  and other visits* for the year (as on the visit page, with the country programme outputs the PD
+  contributes to; the page already lists its knowledge base documents). A TPM activity's status is
+  dated by the eTools sync that brought it.
 - **Overview**: under the assurance card's figures, *Field monitoring visits in Monitoring insights*
   opens the page for the overview's year, sections and governorate (`section=` empty when every
   section is shown; the governorate as the overview names it, which the page reads). The overview's

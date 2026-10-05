@@ -660,7 +660,9 @@ def _fm_visit_links(points: QuerySet[dm.ActionPoint]) -> dict[int, tuple[str, st
         return {}
     from neurodb.fmm import services as fmm_services
 
-    return fmm_services.visits_for_action_points(points.filter(related_module="fm").order_by().values("pk"))
+    # the refresh matches FM action points whatever the case of their module ("fm", "FM")
+    fm_points = points.filter(related_module__iexact="fm").order_by().values("pk")
+    return fmm_services.visits_for_action_points(fm_points)
 
 
 def _fm_visit(params) -> dict[str, Any] | None:
