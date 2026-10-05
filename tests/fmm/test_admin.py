@@ -66,6 +66,8 @@ def test_fmm_icons_are_material_symbols_names_not_site_icons():
         "fmm.RuleSetting": "rule",
         "fmm.ScoreSetting": "tune",
         "fmm.RuleSetVersion": "history",
+        "fmm.PromptVersion": "edit_note",
+        "fmm.ModelCapability": "science",
         "fmm.Visit": "location_on",
         "fmm.VisitReview": "task_alt",
     }

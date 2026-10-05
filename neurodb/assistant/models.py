@@ -42,12 +42,12 @@ class AIUsage(models.Model):
     """The AI use of one feature on one day with one model: the calls made to OpenAI and the tokens
     they used. Every feature on the shared OpenAI key adds to it after each call (``usage.record``):
     Ask NeuroDB, the daily review, the What's new note, document summaries, periodic report figures,
-    the country programme reading and NeuroDB Watch. The day's total across features is read from it,
-    and so are the watch's own limits."""
+    the country programme reading, NeuroDB Watch and Monitoring insights. The day's total across
+    features is read from it, and so are the watch's and Monitoring insights' own limits."""
 
     day = models.DateField(help_text="local date of the calls")
     feature = models.CharField(
-        max_length=20, help_text="ask, review, digest, knowledge, periodic, cpd or watch"
+        max_length=20, help_text="ask, review, digest, knowledge, periodic, cpd, watch or fmm"
     )
     model = models.CharField(max_length=64, blank=True, help_text="the model the calls asked for")
     calls = models.PositiveIntegerField(default=0)

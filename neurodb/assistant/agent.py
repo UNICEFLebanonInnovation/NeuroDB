@@ -14,9 +14,10 @@ Requests are stateless (``store=False``, nothing is kept on OpenAI's side for la
 round sends the conversation so far, replaying the previous rounds' output items (reasoning items
 with their encrypted content, messages and function calls) followed by the tool results.
 
-A run that no person asks for (NeuroDB Watch's look-up) passes ``RunOptions``: fewer tools, extra
-instructions after the date, its own limits and cache key, a filter on every tool result and tools
-run read-only. Without options the request is exactly the one Ask NeuroDB sends.
+A run other than an Ask NeuroDB question (NeuroDB Watch's look-up, Monitoring insights' chat) passes
+``RunOptions``: fewer tools, extra instructions after the date (or its own whole prompt in place of
+Ask's), its own limits and cache key, sampling parameters, a filter on every tool result and tools run
+read-only. Without options the request is exactly the one Ask NeuroDB sends.
 """
 
 from __future__ import annotations
@@ -191,7 +192,11 @@ class RunOptions:
     - ``text_format``: the format of the answer, e.g. a strict JSON schema;
     - ``tool_filter``: ``(tool name, result) -> result``, through which every tool result passes before
       the model reads it (and before its numbers count as looked up);
-    - ``read_only``: each tool runs inside a read-only database transaction, so a write fails.
+    - ``read_only``: each tool runs inside a read-only database transaction, so a write fails;
+    - ``sampling``: (name, value) pairs such as ``("temperature", 0.3)`` added to every model call, for a
+      run whose model has accepted them (Monitoring insights' chat); empty: none is sent;
+    - ``base_prompt``: the run's own whole prompt in place of Ask NeuroDB's (``SYSTEM_PROMPT``), followed
+      by the date and then ``instructions``; None keeps Ask's (see ``effective_instructions``).
 
     Nothing here identifies a person: pass ``user`` to ``answer()`` only for a run done for someone.
     """
@@ -207,6 +212,8 @@ class RunOptions:
     text_format: dict[str, Any] | None = None
     tool_filter: Callable[[str, Any], Any] | None = None
     read_only: bool = True
+    sampling: tuple[tuple[str, float], ...] = ()
+    base_prompt: str | None = None
 
 
 def client() -> openai.OpenAI:
@@ -231,19 +238,29 @@ def _within(api: openai.OpenAI, remaining: float) -> openai.OpenAI:
     return api.with_options(timeout=openai.Timeout(wait, connect=CONNECT_TIMEOUT), max_retries=retries)
 
 
-def _instructions(extra: str = "") -> str:
+def _instructions(extra: str = "", base: str | None = None) -> str:
     # Stable text first and the date last, so the cached prompt prefix (the tools and these
     # instructions) only changes when the day does. A background run's own instructions come after
-    # the date.
+    # the date. A run with its own prompt (``base``) sends it in place of Ask's, without the reporting
+    # year (an ActivityInfo notion).
+    today = timezone.localdate()
+    if base is not None:
+        text = f"{base}\nToday is {today:%A %d %B %Y}."
+        return f"{text}\n\n{extra.strip()}" if extra.strip() else text
+
     from neurodb.indicators.services.navigation import current_year
 
-    today = timezone.localdate()
     year = current_year()
     text = (
         f"{SYSTEM_PROMPT}\nToday is {today:%A %d %B %Y}. "
         f"The current reporting year is {year.name if year else 'unknown'}."
     )
     return f"{text}\n\n{extra.strip()}" if extra.strip() else text
+
+
+def effective_instructions(options: RunOptions) -> str:
+    """The exact ``instructions`` a run with ``options`` sends (what the admin's Preview shows)."""
+    return _instructions(options.instructions, options.base_prompt)
 
 
 def safety_identifier(user: Any) -> str | None:
@@ -278,11 +295,11 @@ def _request(user: Any, options: RunOptions | None = None) -> dict[str, Any]:
 
 def _background_request(options: RunOptions) -> dict[str, Any]:
     """A background run's parameters: the same shape as Ask's, with its own model, tools, effort,
-    output limit, cache key and answer format."""
+    output limit, cache key, answer format, prompt and sampling parameters."""
     offered = tools.definitions(options.tools)
     params: dict[str, Any] = {
         "model": options.model or settings.AI_ASSISTANT_MODEL,
-        "instructions": _instructions(options.instructions),
+        "instructions": effective_instructions(options),
         "tools": offered,
         "reasoning": {"effort": options.effort},
         "max_output_tokens": options.max_output_tokens,
@@ -295,6 +312,8 @@ def _background_request(options: RunOptions) -> dict[str, Any]:
         del params["tools"], params["parallel_tool_calls"]
     if options.text_format:
         params["text"] = {"format": options.text_format}
+    if options.sampling:
+        params.update({name: float(value) for name, value in options.sampling})
     return params
 
 

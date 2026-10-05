@@ -1,0 +1,32 @@
+{% extends "admin/base_site.html" %}
+{% load i18n unfold %}
+
+{% comment %}
+  Confirm a rollback with a note (context: fmm.admin.PromptVersionAdmin.roll_back_view): the version's
+  content is copied into a new version, which is published. The old row is never published again.
+{% endcomment %}
+
+{% block content %}
+<form method="post" class="max-w-5xl">
+  {% csrf_token %}
+  {% component "unfold/components/card.html" with title=title %}
+    <div class="flex flex-col gap-4">
+      <p>
+        {% blocktrans trimmed with n=version.number note=version.note who=version.created_by_name when=version.created_at|date:"j M Y" %}
+          The content of v{{ n }} ("{{ note }}", by {{ who }} on {{ when }}) will be copied into a new version, which is published at once.
+        {% endblocktrans %}
+        {% if current %}{% blocktrans with c=current.number %}v{{ c }} is then retired.{% endblocktrans %}{% endif %}
+      </p>
+      {% if error %}<p class="nd-found__warn">{{ error }}</p>{% endif %}
+      <div class="flex flex-col gap-2">
+        <label class="font-semibold text-important" for="id_note">{% trans "Note (why)" %}</label>
+        <input id="id_note" name="note" type="text" maxlength="250" required class="border border-base-200 rounded-default px-3 py-2 dark:border-base-700 dark:bg-base-900">
+      </div>
+    </div>
+  {% endcomponent %}
+  <div class="flex justify-end gap-4 mt-6">
+    <a class="px-3 py-2" href="{% url 'admin:fmm_promptversion_change' version.pk %}">{% trans "Cancel" %}</a>
+    {% component "unfold/components/button.html" with submit=1 %}{% trans "Roll back to this version" %}{% endcomponent %}
+  </div>
+</form>
+{% endblock %}

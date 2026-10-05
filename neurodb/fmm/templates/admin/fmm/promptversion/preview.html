@@ -1,0 +1,56 @@
+{% extends "admin/base_site.html" %}
+{% load i18n unfold %}
+
+{% comment %}
+  Preview of a prompt version (context: fmm.admin.PromptVersionAdmin.preview_view): exactly the
+  instructions each call sends, for the brief and for the chat (with the date and the scope line) for a
+  chosen filter. No AI call is made and nothing is saved.
+{% endcomment %}
+
+{% block content %}
+<div class="max-w-5xl flex flex-col gap-6">
+  {% component "unfold/components/card.html" with title=title %}
+    <div class="flex flex-col gap-3">
+      <p>
+        {% blocktrans trimmed with status=version.get_status_display|lower model=model effort=version.effort %}
+          This version is {{ status }}. It calls {{ model }} at effort {{ effort }}. No AI call is made here and nothing is saved.
+        {% endblocktrans %}
+      </p>
+      {% for warning in warnings %}<p class="nd-found__warn">{{ warning }}</p>{% endfor %}
+      <form method="get" class="flex flex-wrap gap-3 items-end">
+        <label class="flex flex-col gap-1">
+          <span class="font-semibold text-important">{% trans "Filter" %}</span>
+          <select name="scope" class="border border-base-200 rounded-default px-3 py-2 dark:border-base-700 dark:bg-base-900">
+            <option value="">{% trans "The whole country, this year" %}</option>
+            {% for name in sections %}
+              {% with value="section:"|add:name %}
+                <option value="{{ value }}"{% if choice == value %} selected{% endif %}>{{ name }}</option>
+              {% endwith %}
+            {% endfor %}
+          </select>
+        </label>
+        <label class="flex flex-col gap-1 grow">
+          <span class="font-semibold text-important">{% trans "or an address of the page (/fmm/?…)" %}</span>
+          <input name="url" type="text" value="{{ url }}" class="border border-base-200 rounded-default px-3 py-2 dark:border-base-700 dark:bg-base-900">
+        </label>
+        {% component "unfold/components/button.html" with submit=1 %}{% trans "Show" %}{% endcomponent %}
+      </form>
+      <p>{% blocktrans with label=scope_label %}Shown for: {{ label }}.{% endblocktrans %}</p>
+    </div>
+  {% endcomponent %}
+
+  {% component "unfold/components/card.html" with title=_("The brief: its instructions") %}
+    <p class="mb-2">{% trans "The whole instructions of each brief: the editable text, then the fixed part. The facts sent with it are added below them once the brief is written." %}</p>
+    <pre class="nd-fixed__text nd-fixed__text--live">{{ insights_text }}</pre>
+  {% endcomponent %}
+
+  {% component "unfold/components/card.html" with title=_("The chat: its instructions") %}
+    <p class="mb-2">{% trans "Exactly what each chat answer sends: the editable text, the fixed part, the date and the filter's line. Ask NeuroDB's own prompt is not sent to this chat." %}</p>
+    <pre class="nd-fixed__text nd-fixed__text--live">{{ chat_text }}</pre>
+  {% endcomponent %}
+
+  <div class="flex justify-end gap-4">
+    <a class="px-3 py-2" href="{% url 'admin:fmm_promptversion_change' version.pk %}">{% trans "Back to the version" %}</a>
+  </div>
+</div>
+{% endblock %}

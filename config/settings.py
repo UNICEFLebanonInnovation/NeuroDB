@@ -490,6 +490,39 @@ if not FMM_MATCH_KM > 0:
     from django.core.exceptions import ImproperlyConfigured
 
     raise ImproperlyConfigured(f"FMM_MATCH_KM must be above 0; got {FMM_MATCH_KM}")
+# The AI brief and the chat of Monitoring insights. Off at deploy: switched on at go-live (docs/OPERATIONS.md)
+# once the keys are checked in Fields found and a Preview and a Test run look right. It also needs
+# AI_ASSISTANT_ENABLED and a published prompt version. The prompts, the per-person quotas, "narr", "comp" and
+# the model parameters are not settings: they live in the versioned prompt (admin: Prompt versions).
+FMM_AI = env.bool("FMM_AI", default=False)
+# The model of a prompt version that names none; empty: the assistant's
+FMM_MODEL = env("FMM_MODEL", default="").strip() or AI_ASSISTANT_MODEL
+# "auto": send temperature/top-p when a version sets them and the model has not refused them; "off": never
+FMM_SAMPLING = env("FMM_SAMPLING", default="auto").strip().lower()
+if FMM_SAMPLING not in ("auto", "off"):
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(f"FMM_SAMPLING must be auto or off; got {FMM_SAMPLING!r}")
+FMM_SAMPLING_RECHECK_DAYS = env.int(
+    "FMM_SAMPLING_RECHECK_DAYS", default=30
+)  # a refused parameter is tried again
+# Monitoring insights' own daily tokens and model calls for the whole office: about 30-40 chat answers and 10
+# Regenerates a day plus the nightly briefs. Raise AI_DAILY_TOKEN_SOFT_CAP with it.
+FMM_DAILY_TOKEN_CAP = env.int("FMM_DAILY_TOKEN_CAP", default=1_200_000)
+FMM_MAX_CALLS_PER_DAY = env.int("FMM_MAX_CALLS_PER_DAY", default=400)
+FMM_CHAT_MAX_RUNNING = env.int("FMM_CHAT_MAX_RUNNING", default=4)  # chat answers at once on the whole site
+FMM_HISTORY_ANSWER_CHARS = env.int("FMM_HISTORY_ANSWER_CHARS", default=1500)  # per earlier answer re-sent
+FMM_NIGHTLY_MAX_INSIGHTS = env.int("FMM_NIGHTLY_MAX_INSIGHTS", default=12)  # briefs written per night at most
+FMM_NIGHTLY_MIN_VISITS = env.int("FMM_NIGHTLY_MIN_VISITS", default=3)  # a section's nightly brief needs these
+FMM_MIN_VISITS_FOR_AI = env.int("FMM_MIN_VISITS_FOR_AI", default=3)  # no AI call for a filter with fewer
+FMM_NARRATIVE_CHARS = env.int(
+    "FMM_NARRATIVE_CHARS", default=600
+)  # per text sent (narrative, answer, snippet)
+FMM_INSIGHTS_TIMEOUT_SECONDS = env.int("FMM_INSIGHTS_TIMEOUT_SECONDS", default=90)  # per brief call
+FMM_PAYLOAD_RETENTION_DAYS = env.int(
+    "FMM_PAYLOAD_RETENTION_DAYS", default=30
+)  # then a brief's payload is blanked
+FMM_RETENTION_DAYS = env.int("FMM_RETENTION_DAYS", default=180)  # briefs and chat questions kept
 
 # ---------------------------------------------------------------------------- logging
 LOG_FORMAT = env("LOG_FORMAT", default="plain")  # "json" in Azure so Log Analytics can parse fields

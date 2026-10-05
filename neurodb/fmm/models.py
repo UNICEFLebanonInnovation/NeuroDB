@@ -1,4 +1,4 @@
-"""Monitoring insights' own tables, all rebuilt by the refresh (``fmm_refresh``) except the reviews:
+"""Monitoring insights' own tables, the data ones rebuilt by the refresh (``fmm_refresh``):
 
 - what the eTools field monitoring records hold (:class:`KeyProbe`) and which key each logical field
   is read from (:class:`FieldMapping`), shown in the admin as "Fields found";
@@ -6,21 +6,37 @@
   (:class:`VisitEntity`), its checklist answers (:class:`QuestionAnswer`) and the action points raised
   from it (:class:`VisitActionPoint`);
 - the reviews sections put on visits (:class:`VisitReview`, kept across rebuilds) and the refreshes
-  someone asked for that have not run yet (:class:`RefreshRequest`).
+  someone asked for that have not run yet (:class:`RefreshRequest`);
+- the quality rules, score settings and their versions (:class:`RuleSetting`, :class:`ScoreSetting`,
+  :class:`RuleSetVersion`) and each visit's rule results (:class:`VisitRuleResult`);
+- the AI's prompt versions (:class:`PromptProfile`, :class:`PromptVersion`, never changed once
+  published), what each model accepted (:class:`ModelCapability`), its pause (:class:`AIState`) and its
+  briefs (:class:`Insight`, which keeps the payload sent, redacted, for a limited time).
 
-No table here holds a narrative, an answer, a summary or a comment from eTools: those texts are read
-from their source when a page needs them. A probe keeps at most three short redacted examples per
-key, and "(withheld)" for a key that holds a person. ``Visit.team`` holds display names only, never an
-e-mail address. Every link to a table of another app carries no database constraint, so a Datamart
-sync that replaces those rows never waits on these.
+No data table here holds a narrative, an answer, a summary or a comment from eTools: those texts are
+read from their source when a page needs them. Only an AI brief keeps texts derived from them: the
+payload as sent (cleaned, and blanked after ``FMM_PAYLOAD_RETENTION_DAYS``) and its checked sentences.
+A probe keeps at most three short redacted examples per key, and "(withheld)" for a key that holds a
+person. ``Visit.team`` holds display names only, never an e-mail address. Every link to a table of
+another app carries no database constraint, so a Datamart sync that replaces those rows never waits on
+these.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
+from decimal import Decimal
+
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
-from django.core.validators import MaxValueValidator
+from django.core.validators import (
+    MaxLengthValidator,
+    MaxValueValidator,
+    MinLengthValidator,
+    MinValueValidator,
+)
 from django.db import models
 from django.urls import reverse
 
@@ -483,3 +499,314 @@ class VisitRuleResult(models.Model):
 
     def __str__(self):
         return f"{self.visit_id} {self.rule} {self.status}"
+
+
+# ------------------------------------------------------------------------------------------ AI
+class PromptProfile(models.Model):
+    """The prompt of the AI brief and the chat for one audience (Release 1: one, "lebanon"), and which of
+    its versions is published. Its versions are never edited once published (``PromptVersion``)."""
+
+    key = models.SlugField(max_length=20, unique=True)  # "lebanon" (later: one per section)
+    label = models.CharField(max_length=80)  # "Lebanon"
+    published = models.ForeignKey(
+        "PromptVersion", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "prompt profile"
+        verbose_name_plural = "prompt profiles"
+
+    def __str__(self):
+        return self.label
+
+
+NARR_HELP = (
+    "narr: the most texts (narratives, question answers and search snippets) the AI may read per brief, "
+    "and per chat answer across all of its look-ups. Each is cleaned of names, e-mail addresses, phone "
+    "numbers and links first. 0 sends no text at all."
+)
+COMP_HELP = (
+    "comp: how many visits the AI sees in full, as a card (dates, partner, programme document, place, "
+    "sections, rating with its date, HACT Q1, quality, flags, urgency, action point counts; never a "
+    "narrative). In the chat, the most visit cards one look-up returns. Every other visit reaches the AI "
+    "as counts only; the previous period is sent as key figures only."
+)
+
+
+class PromptVersion(models.Model):
+    """One version of a profile's prompt and parameters. A draft can be edited; once published (and later
+    retired) it never changes, so every brief and chat answer says exactly which version it ran with.
+    A rollback publishes a new copy (``restored_from``); an old row is never published again."""
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        PUBLISHED = "published", "Published"
+        RETIRED = "retired", "Retired"
+
+    profile = models.ForeignKey(PromptProfile, on_delete=models.PROTECT, related_name="versions")
+    number = models.PositiveIntegerField()
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
+    # the AI brief
+    insights_enabled = models.BooleanField(default=True)
+    instructions = models.TextField(  # the editable part only; the fixed safety text follows it
+        validators=[MinLengthValidator(200), MaxLengthValidator(8000)]
+    )
+    max_output_tokens = models.PositiveIntegerField(  # INCLUDES the reasoning tokens
+        default=4000, validators=[MinValueValidator(1000), MaxValueValidator(32000)]
+    )
+    narratives_sampled = models.PositiveSmallIntegerField(  # "narr"
+        default=20, validators=[MaxValueValidator(50)], help_text=NARR_HELP
+    )
+    comparison_visits = models.PositiveSmallIntegerField(  # "comp"
+        default=15, validators=[MaxValueValidator(40)], help_text=COMP_HELP
+    )
+    insights_per_user_per_day = models.PositiveSmallIntegerField(
+        default=5, validators=[MaxValueValidator(50)]
+    )
+    # the chat
+    chat_enabled = models.BooleanField(default=True)
+    chat_instructions = models.TextField(validators=[MinLengthValidator(100), MaxLengthValidator(6000)])
+    chat_max_output_tokens = models.PositiveIntegerField(  # per model call
+        default=6000, validators=[MinValueValidator(1000), MaxValueValidator(32000)]
+    )
+    chat_per_user_per_day = models.PositiveSmallIntegerField(default=20, validators=[MaxValueValidator(200)])
+    chat_max_rounds = models.PositiveSmallIntegerField(
+        default=4, validators=[MinValueValidator(1), MaxValueValidator(8)]
+    )
+    chat_time_limit = models.PositiveSmallIntegerField(  # seconds
+        default=120, validators=[MinValueValidator(30), MaxValueValidator(180)]
+    )
+    # both
+    model = models.CharField(max_length=64, blank=True)  # blank: settings.FMM_MODEL
+    effort = models.CharField(max_length=8, default="low")  # one of settings.AI_ASSISTANT_EFFORTS
+    temperature = models.DecimalField(  # None: not set (not sent)
+        max_digits=3,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("2"))],
+    )
+    top_p = models.DecimalField(  # None: not set (the API's default, 1.00)
+        max_digits=3,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("1"))],
+    )
+    # history
+    note = models.CharField(max_length=300)  # required: what changed and why
+    based_on = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    restored_from = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    content_hash = models.CharField(max_length=64)  # sha256 of the content, the safety text and the schema
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_by_name = models.CharField(max_length=150)  # kept when the user is deleted
+    created_at = models.DateTimeField(auto_now_add=True)
+    published_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    published_by_name = models.CharField(max_length=150, blank=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+
+    CONTENT_FIELDS = (
+        "insights_enabled",
+        "instructions",
+        "max_output_tokens",
+        "narratives_sampled",
+        "comparison_visits",
+        "insights_per_user_per_day",
+        "chat_enabled",
+        "chat_instructions",
+        "chat_max_output_tokens",
+        "chat_per_user_per_day",
+        "chat_max_rounds",
+        "chat_time_limit",
+        "model",
+        "effort",
+        "temperature",
+        "top_p",
+    )
+
+    class Meta:
+        ordering = ("profile", "-number")
+        constraints = [
+            models.UniqueConstraint(fields=["profile", "number"], name="fmm_prompt_number"),
+            models.UniqueConstraint(
+                fields=["profile"], condition=models.Q(status="published"), name="fmm_one_published_version"
+            ),
+        ]
+        verbose_name = "prompt version"
+        verbose_name_plural = "prompt versions"
+
+    def __str__(self):
+        return f"Prompt v{self.number}"
+
+    def save(self, *args, **kwargs):
+        """Refuses (ValueError) any change to the content of a version that is not a draft, and a
+        published or retired version turned back into a draft."""
+        stored = None
+        if self.pk:
+            stored = type(self).objects.filter(pk=self.pk).values("status", *self.CONTENT_FIELDS).first()
+        if stored is not None and stored["status"] != self.Status.DRAFT:
+            changed = [
+                n
+                for n in self.CONTENT_FIELDS
+                if self._plain(n, stored[n]) != self._plain(n, getattr(self, n))
+            ]
+            if changed:
+                raise ValueError(
+                    f"Prompt v{self.number} is {stored['status']} and cannot change ({', '.join(changed)}); "
+                    "make a new draft from it instead."
+                )
+            if self.status == self.Status.DRAFT:
+                raise ValueError(
+                    f"Prompt v{self.number} is {stored['status']} and cannot become a draft again."
+                )
+        else:
+            self.content_hash = self.compute_hash()
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = {*update_fields, "content_hash"}
+        super().save(*args, **kwargs)
+
+    SAMPLING_FIELDS = ("temperature", "top_p")
+
+    @classmethod
+    def _plain(cls, name: str, value):
+        """A content value in one written form (a sampling value 0.3, "0.3" and Decimal 0.30 are all
+        "0.30")."""
+        if name in cls.SAMPLING_FIELDS and value not in (None, ""):
+            return f"{Decimal(str(value)):.2f}"
+        return value
+
+    def content(self) -> dict:
+        """The content fields as plain values, for comparisons and the hash."""
+        return {name: self._plain(name, getattr(self, name)) for name in self.CONTENT_FIELDS}
+
+    def compute_hash(self) -> str:
+        """sha256 of the content, the version of the fixed safety text and the version of the brief's
+        schema: a change to any of them gives another hash."""
+        from .ai.insights import SCHEMA_VERSION
+        from .ai.prompts import SAFETY_VERSION
+
+        blob = json.dumps(
+            {"content": self.content(), "safety": SAFETY_VERSION, "schema": SCHEMA_VERSION},
+            sort_keys=True,
+            default=str,
+        )
+        return hashlib.sha256(blob.encode()).hexdigest()
+
+
+class ModelCapability(models.Model):
+    """Whether a model, at one reasoning effort, accepted a sampling parameter (temperature or top_p) the
+    last time it was sent: kept in the database so that every process knows it. Deleting a row means
+    "check again on the next call"."""
+
+    model = models.CharField(max_length=64)
+    effort = models.CharField(max_length=8)
+    parameter = models.CharField(max_length=16)  # temperature | top_p
+    accepted = models.BooleanField(null=True)
+    checked_at = models.DateTimeField()
+    detail = models.CharField(max_length=300, blank=True)  # the API's message, cut
+
+    class Meta:
+        ordering = ("model", "effort", "parameter")
+        constraints = [
+            models.UniqueConstraint(fields=["model", "effort", "parameter"], name="fmm_model_capability")
+        ]
+        verbose_name = "sampling check"
+        verbose_name_plural = "sampling checks"
+
+    def __str__(self):
+        return f"{self.model} · {self.effort} · {self.parameter}"
+
+
+class AIState(models.Model):
+    """The one row (pk=1) of Monitoring insights' AI pause: after the OpenAI credit ran out, its AI is
+    not used until ``paused_until``."""
+
+    paused_until = models.DateTimeField(null=True, blank=True)
+    reason = models.CharField(max_length=200, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "AI pause"
+        verbose_name_plural = "AI pause"
+
+    def __str__(self):
+        return "AI pause"
+
+    @classmethod
+    def load(cls) -> AIState:
+        return cls.objects.get_or_create(pk=1)[0]
+
+
+class Insight(models.Model):
+    """One AI brief of a filter (or why none was written): the sentences kept, the priority actions, what
+    was sent and what was used (version, model, tokens, sampling). A row in ``running`` is a brief being
+    written in a background process; only one may run per filter and version."""
+
+    class Trigger(models.TextChoices):
+        NIGHTLY = "nightly", "Nightly"
+        USER = "user", "Regenerate"
+        TEST = "test", "Test run"
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "Writing"
+        OK = "ok", "Written"
+        PARTIAL = "partial", "Partly written"
+        FALLBACK = "fallback", "Written by NeuroDB"
+        FAILED = "failed", "Failed"
+        LIMITED = "limited", "Limit reached"
+        SKIPPED = "skipped", "Not written"
+
+    scope_hash = models.CharField(max_length=64, db_index=True)
+    scope = models.JSONField()  # Scope.canonical()
+    scope_label = models.CharField(max_length=300)
+    trigger = models.CharField(max_length=8, choices=Trigger.choices)
+    version = models.ForeignKey(PromptVersion, on_delete=models.PROTECT, related_name="insights")
+    rules_version = models.PositiveIntegerField()
+    input_hash = models.CharField(max_length=64, db_index=True)
+    data_as_of = models.DateTimeField(null=True)  # the last fmm_refresh's finished_at
+    called = models.BooleanField(default=False)  # an AI call was made (the quota counts these)
+    status = models.CharField(max_length=8, choices=Status.choices)
+    reason = models.CharField(max_length=200, blank=True)
+    sections = models.JSONField(default=dict)  # {"coverage_quality": [{"text", "keys"}], ...}
+    actions = models.JSONField(default=list)  # [{"priority", "section", "action", "owner_role", ...}]
+    dropped = models.JSONField(default=dict)  # {"number": 3, "person": 1}
+    cited_keys = ArrayField(models.CharField(max_length=40), default=list)  # the visit keys cited
+    sent = models.JSONField(default=dict)  # narr and comp sent and allowed
+    # the payload as sent (redacted); blanked after FMM_PAYLOAD_RETENTION_DAYS
+    sent_payload = models.JSONField(null=True, blank=True)
+    model = models.CharField(max_length=64, blank=True)
+    effort = models.CharField(max_length=8, blank=True)
+    max_output_tokens = models.PositiveIntegerField(default=0)
+    # {"temperature": {"asked": 0.3, "state": "not_applied", "why": "..."}, "top_p": {...}}
+    sampling = models.JSONField(default=dict)
+    input_tokens = models.PositiveIntegerField(default=0)
+    cached_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    duration_ms = models.PositiveIntegerField(default=0)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=["scope_hash", "version"],
+                condition=models.Q(status="running"),
+                name="fmm_one_running_insight",
+            )
+        ]
+        verbose_name = "AI brief"
+        verbose_name_plural = "AI briefs"
+
+    def __str__(self):
+        return f"{self.scope_label} ({self.get_status_display()})"

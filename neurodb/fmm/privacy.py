@@ -12,13 +12,17 @@ Field monitoring records name people (the visit lead, the team) and hold free te
   ("Mrs Layla Saab", ``watch.people``), each replaced by a placeholder;
 - a team is shown by its members' names only, never their e-mail addresses (:func:`person_display`),
   and those names join the names NeuroDB removes from every text it sends (:func:`team_names`,
-  registered into ``watch.people.EXTRA_SOURCES`` when the app starts).
+  registered into ``watch.people.EXTRA_SOURCES`` when the app starts);
+- the AI sees a visit as a card copied from an allow-list of its fields (:func:`visit_card`): never its
+  team, visit lead or narrative;
+- everything about to be sent to the AI is checked one last time (:func:`assert_clean`): a known person
+  name, an e-mail address, a phone number or a link anywhere in it stops the call.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
 
 from neurodb.datamart import catalogue
@@ -203,3 +207,83 @@ def name_forms(values: Iterable[Any]) -> set[str]:
     for text in values:
         forms |= people.name_forms(str(text)) | people.emails_in(str(text))
     return forms
+
+
+# ------------------------------------------------------------------------------------------ the AI
+CARD_TEXT_CHARS = 200  # characters of a name on a visit card (partner, place, section)
+_PATH_KEY = re.compile(r"[A-Za-z0-9_:.-]{1,60}")  # a key written in a refusal's path ("visits.visit:1722")
+
+
+class PrivacyRefused(Exception):
+    """Something about to be sent to the AI holds a person name, an e-mail address, a phone number or a
+    link. The message says what was found and where (the path of keys), never the text itself."""
+
+
+def _card_text(value: Any, names_: frozenset[str]) -> str:
+    return redact.text(value, CARD_TEXT_CHARS, names_)
+
+
+def visit_card(visit, names_: frozenset[str] | None = None) -> dict[str, Any]:
+    """A visit as the AI may read it "in full": an allow-list copy of its structured fields (dates,
+    partner, programme document, place, sections, rating with its date, HACT Q1, quality, flags, urgency
+    and action point counts). Never its team, visit lead, narratives or answers. Names pass through
+    ``watch.redact.text`` (e-mail addresses, links and known person names removed). Reads
+    ``visit.partner`` and ``visit.pd``: select them with the visits."""
+    names_ = names() if names_ is None else names_
+    not_rated_yet = visit.rating == "not_monitored" and visit.status_group in ("planned", "in_progress")
+    end = visit.end_date.isoformat() if visit.end_date else None
+    pd_number = (visit.pd.number if visit.pd_id and visit.pd else "") or next(
+        iter(visit.pd_numbers or []), ""
+    )
+    return {
+        "key": f"visit:{visit.key}",
+        "label": _card_text(visit.label, names_),
+        "date": end,
+        "start": visit.start_date.isoformat() if visit.start_date else None,
+        "status": visit.status or visit.status_group,
+        "partner": _card_text(visit.partner.name if visit.partner_id and visit.partner else "", names_),
+        "pd": _card_text(pd_number, names_),
+        "sections": [_card_text(name, names_) for name in visit.section_names or []],
+        "governorate": _card_text(visit.governorate_name, names_),
+        "place": _card_text(visit.place_name, names_),
+        "rating": visit.rating,
+        "rated_on": None if not_rated_yet else end,
+        "hact_q1": visit.hact_q1 or None,
+        "quality": float(visit.quality_score) if visit.quality_score is not None else None,
+        "flags": list(visit.flags or []),
+        "urgency": visit.urgency,
+        "action_points_open": visit.action_points_open,
+        "action_points_overdue": visit.action_points_overdue,
+    }
+
+
+def _strings(value: Any, names_: frozenset[str], path: str = "") -> Iterator[tuple[str, str]]:
+    """Every string in ``value`` (keys included) with the path of keys that leads to it; a key that is
+    not a plain field name, or that names someone, shows as "?" in the path."""
+    if isinstance(value, str):
+        yield path or "(root)", value
+    elif isinstance(value, Mapping):
+        for key, inner in value.items():
+            plain = _PATH_KEY.fullmatch(str(key)) and not people.mentions(str(key), names_)
+            shown = str(key) if plain else "?"
+            where = f"{path}.{shown}" if path else shown
+            yield where, str(key)
+            yield from _strings(inner, names_, where)
+    elif isinstance(value, list | tuple | set | frozenset):
+        for index, inner in enumerate(value):
+            yield from _strings(inner, names_, f"{path}[{index}]")
+
+
+def assert_clean(payload: Any, names_: frozenset[str]) -> None:
+    """The last check before anything is sent to the AI (a brief's payload, a chat look-up's result):
+    raises :class:`PrivacyRefused` when any string in ``payload`` holds an e-mail address, a phone
+    number, a link or a person name in ``names_`` (``watch.people.mentions``)."""
+    for where, text in _strings(payload, names_):
+        if people.EMAIL.search(text):
+            raise PrivacyRefused(f"an e-mail address at {where}")
+        if PHONE.search(text) or INTL_PHONE.search(text):
+            raise PrivacyRefused(f"a phone number at {where}")
+        if redact.LINK.search(text):
+            raise PrivacyRefused(f"a link at {where}")
+        if people.mentions(text, names_):
+            raise PrivacyRefused(f"a person name at {where}")

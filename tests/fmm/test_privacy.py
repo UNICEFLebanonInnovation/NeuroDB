@@ -213,3 +213,78 @@ def test_a_source_of_names_that_fails_is_skipped(db, monkeypatch, caplog):
     assert "nour khalil" in people.known_names()  # the other sources are read
     assert "could not be read" in caplog.text
     people.forget()
+
+
+# ------------------------------------------------------------------------------------------ the AI (stage 6a)
+CARD_KEYS = {
+    "key",
+    "label",
+    "date",
+    "start",
+    "status",
+    "partner",
+    "pd",
+    "sections",
+    "governorate",
+    "place",
+    "rating",
+    "rated_on",
+    "hact_q1",
+    "quality",
+    "flags",
+    "urgency",
+    "action_points_open",
+    "action_points_overdue",
+}
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"narratives": {"narr:1:1": {"text": "Rania Canary met the partner."}}},
+        {"visits": [{"partner": "Write to karim.canary@example.org"}]},
+        {"text": "Call +961 3 123 456 for access."},
+        {"text": "Call 03-123456."},
+        {"text": "See https://evil.example/x"},
+        {"Karim Canary": 1},  # keys are checked too
+        {"visits": {"karim.canary": {"x": 1}}},
+    ],
+)
+def test_assert_clean_stops_a_payload_holding_a_person_or_a_contact(payload):
+    with pytest.raises(privacy.PrivacyRefused) as refused:
+        privacy.assert_clean(payload, NAMES)
+    message = str(refused.value)
+    for canary in CANARIES:
+        assert canary not in message  # it says what and where, never the text
+
+
+def test_assert_clean_lets_figures_references_and_placeholders_through():
+    payload = {
+        "kpi": {"key": "kpi", "visits": 33, "avg_quality": 94.7, "from": "2026-05-11"},
+        "visits": {
+            "visit:1722": {"pd": "LEB/PCA2023597/PD2025123", "flags": ["R1"], "url": "/fmm/visits/1722/"}
+        },
+        "narratives": {
+            "narr:1722:1": {"text": f"{' '.join(KEPT)} [name withheld] [phone withheld] [link withheld]"}
+        },
+    }
+    privacy.assert_clean(payload, NAMES)
+
+
+def test_a_visit_card_is_an_allow_list_copy_without_people_or_narratives(built):
+    from neurodb.fmm.models import Visit
+
+    names = privacy.names()
+    visit = Visit.objects.select_related("partner", "pd").get(key="1722")
+    card = privacy.visit_card(visit, names)
+    assert set(card) == CARD_KEYS
+    assert card["key"] == "visit:1722" and card["date"] == visit.end_date.isoformat()
+    assert card["rated_on"] == card["date"] and card["urgency"] == visit.urgency
+    assert card["pd"] and card["partner"]
+    blob = repr(card)
+    for canary in (*CANARIES, LEAD, MEMBER):
+        assert canary not in blob, canary
+    privacy.assert_clean(card, names)
+    # a planned visit not rated yet carries no rating date
+    planned = Visit.objects.get(key="1724")
+    assert privacy.visit_card(planned, names)["rated_on"] is None

@@ -27,6 +27,7 @@ from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -43,9 +44,13 @@ from neurodb.integrations import background
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
 from . import access, fields, privacy, rules, status, versions
+from .ai import profiles
 from .models import (
     FieldMapping,
     KeyProbe,
+    ModelCapability,
+    PromptProfile,
+    PromptVersion,
     QuestionAnswer,
     RuleSetting,
     RuleSetVersion,
@@ -1011,3 +1016,398 @@ class VisitReviewAdmin(ReadOnlyModelAdmin):
     list_filter = ("status",)
     search_fields = ("visit_key",)
     readonly_fields = ("visit_key", "status", "note", "reviewed_by", "created_at")
+
+
+# ------------------------------------------------------------------------------------------ prompts
+STATUS_TONES = {
+    PromptVersion.Status.DRAFT: "info",
+    PromptVersion.Status.PUBLISHED: "ok",
+    PromptVersion.Status.RETIRED: "muted",
+}
+PROMPT_INFO = (
+    "status",
+    "number",
+    "based_on",
+    "restored_from",
+    "content_hash",
+    "created_by_name",
+    "created_at",
+    "published_by_name",
+    "published_at",
+)
+
+
+class PromptVersionForm(forms.ModelForm):
+    """A draft's content. Blocks an effort the assistant does not know and any e-mail address, link or
+    known person name in the editable texts (prompts name roles and sections, never people)."""
+
+    effort = forms.ChoiceField(
+        choices=[(e, e) for e in settings.AI_ASSISTANT_EFFORTS],
+        help_text=_("How much the model reasons before it writes; higher costs more output tokens."),
+    )
+
+    class Meta:
+        model = PromptVersion
+        fields = (*PromptVersion.CONTENT_FIELDS, "note")
+        widgets = {
+            "instructions": forms.Textarea(attrs={"rows": 14}),
+            "chat_instructions": forms.Textarea(attrs={"rows": 8}),
+        }
+        help_texts = {
+            "max_output_tokens": _(
+                "Output tokens of one brief. Max output tokens include reasoning tokens: below 2,500 at "
+                "effort medium or higher the brief may be cut off."
+            ),
+            "chat_max_output_tokens": _(
+                "Output tokens of each model call of a chat answer, reasoning included."
+            ),
+            "temperature": _(
+                "Empty: not sent. Temperature/top-p are sent only when the model accepts them (Sampling "
+                "checks); OpenAI advises setting one of the two only."
+            ),
+            "top_p": _("Empty: not sent (the API's default is 1.00)."),
+            "model": _("Empty: the default model (FMM_MODEL)."),
+            "note": _("Required: what changed and why. Kept with the version, with your name and the time."),
+        }
+
+    def clean(self):
+        cleaned = super().clean()
+        effort = cleaned.get("effort")
+        if effort and effort not in settings.AI_ASSISTANT_EFFORTS:
+            self.add_error(
+                "effort",
+                _("Choose one of %(efforts)s.") % {"efforts": ", ".join(settings.AI_ASSISTANT_EFFORTS)},
+            )
+        known = privacy.names()
+        for name in ("instructions", "chat_instructions"):
+            for problem in profiles.text_problems(cleaned.get(name) or "", known):
+                self.add_error(name, problem)
+        return cleaned
+
+
+def _preview_scope(choice: str = "", url: str = ""):
+    """The filter a Preview is shown for: a pasted ``/fmm/?…`` address, else a section, else the whole
+    country this year (the scope of someone who chose "All sections")."""
+    from urllib.parse import urlsplit
+
+    from django.http import QueryDict
+
+    from .scope import Scope
+
+    if url.strip():
+        params = QueryDict(urlsplit(url.strip()).query)
+    elif choice.startswith("section:"):
+        params = QueryDict(mutable=True)
+        params["section"] = choice.split(":", 1)[1]
+    else:
+        params = QueryDict("section=")
+    return Scope.from_params(params, None)
+
+
+@admin.register(PromptVersion)
+class PromptVersionAdmin(ModelAdmin):
+    """The prompt versions of the AI brief and the chat. Administrators add drafts (prefilled from the
+    published version, or ``?from=<pk>``), edit them, preview what each call sends, publish one and roll
+    back to an older one; published and retired versions are read-only, and only drafts can be deleted
+    (with their test runs). Other staff read."""
+
+    form = PromptVersionForm
+    change_form_template = "admin/fmm/promptversion/change_form.html"
+    list_display = (
+        "number",
+        "status_shown",
+        "note",
+        "created_by_name",
+        "created_at",
+        "published_by_name",
+        "published_at",
+        "hash_shown",
+    )
+    list_filter = ("status",)
+    search_fields = ("note", "created_by_name", "published_by_name")
+    ordering = ("-number",)
+    actions_detail = ("preview_version", "publish_version", "roll_back_version")
+    fieldsets = (
+        (_("AI monitoring insights"), {"fields": ("insights_enabled", "instructions")}),
+        (_("Chat with Data"), {"fields": ("chat_enabled", "chat_instructions")}),
+        (
+            _("Model and parameters"),
+            {
+                "fields": (
+                    "model",
+                    "effort",
+                    "max_output_tokens",
+                    "chat_max_output_tokens",
+                    "temperature",
+                    "top_p",
+                )
+            },
+        ),
+        (_("Data sent (narr, comp)"), {"fields": ("narratives_sampled", "comparison_visits")}),
+        (
+            _("Limits"),
+            {
+                "fields": (
+                    "insights_per_user_per_day",
+                    "chat_per_user_per_day",
+                    "chat_max_rounds",
+                    "chat_time_limit",
+                )
+            },
+        ),
+        (_("Version"), {"fields": ("note", *PROMPT_INFO)}),
+        (_("Fixed safety text"), {"fields": ("fixed_text",), "classes": ("nd-fixed",)}),
+    )
+
+    # permissions: Administrators change drafts only, and delete drafts only
+    def has_add_permission(self, request):
+        return access.is_admin(request.user)
+
+    def _draft(self, obj) -> bool:
+        if obj is not None and not isinstance(obj, PromptVersion):
+            obj = PromptVersion.objects.filter(pk=obj).first()
+        return obj is None or obj.status == PromptVersion.Status.DRAFT
+
+    def has_change_permission(self, request, obj=None):
+        return access.is_admin(request.user) and self._draft(obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return access.is_admin(request.user) and self._draft(obj)
+
+    def has_publish_permission(self, request, obj=None):
+        return access.is_admin(request.user) and obj is not None and self._draft(obj)
+
+    def has_roll_back_permission(self, request, obj=None):
+        return access.is_admin(request.user) and obj is not None and not self._draft(obj)
+
+    def has_preview_permission(self, request, obj=None):
+        return access.is_admin(request.user)
+
+    def get_readonly_fields(self, request, obj=None):
+        return (*PROMPT_INFO, "fixed_text")
+
+    # columns
+    @admin.display(description=_("status"), ordering="status")
+    def status_shown(self, obj):
+        return badge(obj.get_status_display(), STATUS_TONES.get(obj.status, "muted"))
+
+    @admin.display(description=_("content hash"))
+    def hash_shown(self, obj):
+        return (obj.content_hash or "")[:10]
+
+    @admin.display(description=_("added to every prompt, after the text above"))
+    def fixed_text(self, obj):
+        return render_to_string("admin/fmm/promptversion/_fixed_text.html", _fixed_context())
+
+    # adding a draft
+    def _source(self, request) -> PromptVersion | None:
+        pk = request.GET.get("from") or request.POST.get("from_version")
+        if pk and str(pk).isdigit():
+            found = PromptVersion.objects.filter(pk=int(pk)).first()
+            if found is not None:
+                return found
+        return profiles.published() or PromptVersion.objects.order_by("-number").first()
+
+    def get_changeform_initial_data(self, request):
+        source = self._source(request)
+        if source is None:
+            return super().get_changeform_initial_data(request)
+        return {name: getattr(source, name) for name in PromptVersion.CONTENT_FIELDS}
+
+    def add_view(self, request, form_url="", extra_context=None):
+        source = self._source(request)
+        if source is None:
+            messages.error(request, _("There is no prompt version to start a draft from."))
+            return redirect("admin:fmm_promptversion_changelist")
+        extra = {**(extra_context or {}), "from_version": source}
+        return super().add_view(request, form_url, extra)
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            source = self._source(request)
+            with transaction.atomic():
+                profile = PromptProfile.objects.select_for_update().get(pk=source.profile_id)
+                obj.profile = profile
+                obj.number = profiles.next_number(profile)
+                obj.status = PromptVersion.Status.DRAFT
+                obj.based_on = source
+                obj.created_by = request.user
+                obj.created_by_name = profiles.user_name(request.user)
+                obj.save()
+        else:
+            super().save_model(request, obj, form, change)
+        for warning in profiles.warnings(obj):
+            messages.warning(request, warning)
+
+    # deleting drafts (with their test runs)
+    def delete_model(self, request, obj):
+        profiles.delete_draft(obj, request.user)
+
+    def delete_queryset(self, request, queryset):
+        kept = 0
+        for version in queryset:
+            if version.status == PromptVersion.Status.DRAFT:
+                profiles.delete_draft(version, request.user)
+            else:
+                kept += 1
+        if kept:
+            messages.warning(
+                request, _("Published and retired versions are never deleted: %(n)s kept.") % {"n": kept}
+            )
+
+    def get_deleted_objects(self, objs, request):
+        """What deleting drafts removes: each draft and its test runs (the only briefs a draft has).
+        Published and retired versions are never deleted, so their briefs are never listed."""
+        listed, counts = [], {}
+        for version in objs:
+            runs = profiles.test_runs(version)
+            line = str(version)
+            if runs:
+                line += " " + (
+                    _("(this also deletes its test run)")
+                    if runs == 1
+                    else _("(this also deletes its %(n)s test runs)") % {"n": runs}
+                )
+            listed.append(line)
+            counts[str(PromptVersion._meta.verbose_name_plural)] = (
+                counts.get(str(PromptVersion._meta.verbose_name_plural), 0) + 1
+            )
+            if runs:
+                counts[_("test runs")] = counts.get(_("test runs"), 0) + runs
+        return listed, counts, set(), []
+
+    # the detail actions and their pages
+    def get_urls(self):
+        view = self.admin_site.admin_view
+        return [
+            path("<int:pk>/preview/", view(self.preview_view), name="fmm_promptversion_preview"),
+            path("<int:pk>/publish/", view(self.publish_view), name="fmm_promptversion_publish"),
+            path("<int:pk>/roll-back/", view(self.roll_back_view), name="fmm_promptversion_roll_back"),
+            *super().get_urls(),
+        ]
+
+    @action(description=_("Preview"), url_path="preview-version", icon="preview", permissions=["preview"])
+    def preview_version(self, request, object_id):
+        return redirect("admin:fmm_promptversion_preview", object_id)
+
+    @action(description=_("Publish"), url_path="publish-version", icon="publish", permissions=["publish"])
+    def publish_version(self, request, object_id):
+        return redirect("admin:fmm_promptversion_publish", object_id)
+
+    @action(
+        description=_("Roll back to this version"),
+        url_path="roll-back-version",
+        icon="history",
+        permissions=["roll_back"],
+    )
+    def roll_back_version(self, request, object_id):
+        return redirect("admin:fmm_promptversion_roll_back", object_id)
+
+    def _context(self, request, version, title: str) -> dict[str, Any]:
+        return {
+            **self.admin_site.each_context(request),
+            "title": title,
+            "version": version,
+            "opts": self.model._meta,
+            "current": profiles.published(),
+        }
+
+    def preview_view(self, request, pk):
+        """Exactly what each call of this version sends as its instructions, for a chosen filter: the
+        brief's and the chat's (with the date and scope lines). No AI call; nothing is saved."""
+        if not access.is_admin(request.user):
+            raise Http404
+        version = get_object_or_404(PromptVersion, pk=pk)
+        choice = request.GET.get("scope", "")
+        url = request.GET.get("url", "")
+        scope = _preview_scope(choice, url)
+        from .scope import options
+
+        context = {
+            **self._context(request, version, _("Preview prompt v%(n)s") % {"n": version.number}),
+            "insights_text": profiles.compose(version, "insights"),
+            "chat_text": profiles.chat_instructions(version, scope),
+            "scope_label": scope.label(),
+            "sections": options()["sections"],
+            "choice": choice,
+            "url": url,
+            "model": profiles.model_of(version),
+            "warnings": profiles.warnings(version),
+        }
+        return render(request, "admin/fmm/promptversion/preview.html", context)
+
+    def publish_view(self, request, pk):
+        """Confirm publishing a draft (Administrators only), then publish it."""
+        if not access.is_admin(request.user):
+            raise Http404
+        version = get_object_or_404(PromptVersion, pk=pk)
+        if version.status != PromptVersion.Status.DRAFT:
+            messages.error(request, _("Only a draft can be published."))
+            return redirect("admin:fmm_promptversion_change", version.pk)
+        if request.method == "POST":
+            profiles.publish(version, request.user)
+            messages.success(request, _("Prompt v%(n)s is published.") % {"n": version.number})
+            return redirect("admin:fmm_promptversion_change", version.pk)
+        return render(
+            request,
+            "admin/fmm/promptversion/publish_confirm.html",
+            self._context(request, version, _("Publish prompt v%(n)s") % {"n": version.number}),
+        )
+
+    def roll_back_view(self, request, pk):
+        """Confirm a rollback with a note (Administrators only), then publish a copy of the version."""
+        if not access.is_admin(request.user):
+            raise Http404
+        version = get_object_or_404(PromptVersion, pk=pk)
+        if version.status == PromptVersion.Status.DRAFT:
+            messages.error(request, _("A draft is published, not rolled back to."))
+            return redirect("admin:fmm_promptversion_change", version.pk)
+        context = self._context(request, version, _("Roll back to prompt v%(n)s") % {"n": version.number})
+        if request.method == "POST":
+            note = request.POST.get("note", "").strip()
+            if note:
+                new = profiles.roll_back(version, request.user, note)
+                messages.success(
+                    request,
+                    _("Prompt v%(new)s is published, a copy of v%(old)s.")
+                    % {"new": new.number, "old": version.number},
+                )
+                return redirect("admin:fmm_promptversion_change", new.pk)
+            context["error"] = _("Write why you roll back: the note is kept with the new version.")
+        return render(request, "admin/fmm/promptversion/rollback_confirm.html", context)
+
+
+def _fixed_context() -> dict[str, Any]:
+    from .ai import insights, prompts
+
+    return {
+        "insights": prompts.fixed_text("insights"),
+        "chat": prompts.fixed_text("chat"),
+        "schema": json.dumps(insights.SCHEMA, indent=2, ensure_ascii=False),
+    }
+
+
+@admin.register(ModelCapability)
+class ModelCapabilityAdmin(ModelAdmin):
+    """Whether each model, at each effort, accepted temperature and top-p when last sent. Kept by the AI
+    calls themselves; deleting a row (Administrators) means "check again on the next call"."""
+
+    list_display = ("model", "effort", "parameter", "accepted_shown", "checked_at", "detail")
+    list_filter = ("parameter", "accepted")
+    search_fields = ("model",)
+    readonly_fields = ("model", "effort", "parameter", "accepted", "checked_at", "detail")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return access.is_admin(request.user)
+
+    @admin.display(description=_("accepted"), ordering="accepted")
+    def accepted_shown(self, obj):
+        if obj.accepted is None:
+            return badge(_("not known"), "muted")
+        return badge(_("accepted"), "ok") if obj.accepted else badge(_("refused"), "bad")

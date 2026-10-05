@@ -1,0 +1,17 @@
+{% load i18n %}
+{% comment %}
+  The fixed part every prompt ends with (context: fmm.admin._fixed_context): what the data is and the
+  safety rules, for the brief and for the chat, and the brief's answer format. Shown greyed out: it is
+  not edited here; it changes with NeuroDB itself.
+{% endcomment %}
+<div class="nd-fixed__body">
+  <p>{% trans "Added after the editable text of every call, so that it cannot be overridden. It is also enforced in code: a prompt that ignores it only loses sentences." %}</p>
+  <h4 class="font-semibold">{% trans "The brief" %}</h4>
+  <pre class="nd-fixed__text">{{ insights }}</pre>
+  <h4 class="font-semibold">{% trans "The chat" %}</h4>
+  <pre class="nd-fixed__text">{{ chat }}</pre>
+  <details>
+    <summary>{% trans "The brief's answer format (JSON schema)" %}</summary>
+    <pre class="nd-fixed__text">{{ schema }}</pre>
+  </details>
+</div>

@@ -110,7 +110,7 @@ come from.
 - **Cost and review**: every question is logged in Admin → Data and sync → AI questions with the
   lookups made, tokens used and time taken. Every AI feature on the key (Ask NeuroDB, the daily
   review, What's new, document summaries, periodic figures, country programme reading, NeuroDB
-  Watch) is also counted per day in one ledger, Admin → Data and sync → **AI use** (tokens; US
+  Watch, Monitoring insights) is also counted per day in one ledger, Admin → Data and sync → **AI use** (tokens; US
   dollars when `AI_PRICE_INPUT_PER_MTOK`, `AI_PRICE_CACHED_PER_MTOK` and `AI_PRICE_OUTPUT_PER_MTOK`
   are set). The background features stop using AI first when all of them together pass 80% of
   `AI_DAILY_TOKEN_SOFT_CAP` (default 3,000,000 tokens a day), so questions keep being answered. Output tokens include the model's reasoning tokens,
@@ -1161,7 +1161,7 @@ background run.
 
 Every AI call of every feature on the shared key is counted in one ledger: admin → Data and sync →
 **AI use**, per day, feature (Ask NeuroDB, daily review, What's new, document summaries, periodic
-figures, country programme reading, NeuroDB Watch) and model, in tokens, and in US dollars when the
+figures, country programme reading, NeuroDB Watch, Monitoring insights) and model, in tokens, and in US dollars when the
 optional `AI_PRICE_INPUT_PER_MTOK`, `AI_PRICE_CACHED_PER_MTOK` and `AI_PRICE_OUTPUT_PER_MTOK` are set.
 Before every call the watch checks that:
 
@@ -1269,7 +1269,9 @@ Insights tab says so. The refresh builds and
 scores the visits, and the admin views under admin → *Monitoring insights* are: **Fields found**
 (which keys the field monitoring records hold, and the keys an administrator pins), **Questions
 found** (which checklist question is Q1, Q2, Q3 and PSEA), **Quality rules**, **Score settings**,
-**Rule versions**, and **Visits** (the visits built, with their rule results, for checking the data).
+**Rule versions**, **Prompt versions** and **Sampling checks** (the AI's prompts and what the model
+accepted; the AI itself is off, see below), and **Visits** (the visits built, with their rule results,
+for checking the data).
 
 ### The page (`/fmm/`)
 
@@ -1539,6 +1541,48 @@ only grows) and rebuilds the visits when its pinned keys differ. A rescore asked
 refresh runs is served by that refresh, so none is lost (see above); each visit keeps the rules version
 it was scored with.
 
+### The AI's prompts (the AI is not switched on yet)
+
+The AI brief and the chat arrive in later steps; this release has what they stand on. `FMM_AI` is
+`false` at deploy and stays so until go-live (below). Nothing here calls the AI.
+
+- **Prompt versions** (admin → *Monitoring insights* → *Prompt versions*, Administrators only; other
+  staff read). A version holds the editable instructions of the brief and of the chat, the model
+  (blank: `FMM_MODEL`), the effort, the output limits (they **include the reasoning tokens**: 4,000 for
+  a brief, 6,000 per chat call), temperature and top-p (empty: not sent), `narr`, `comp` and the
+  per-person limits (5 briefs and 20 questions a day, 4 chat rounds, 120 seconds). v1 is seeded and
+  published by "NeuroDB (default)" with temperature 0.30 and top-p not set. *Add* starts a **draft**
+  prefilled from the published version (or `?from=<id>`), with a required note; only drafts can be
+  changed or deleted (a draft's test runs are deleted with it). *Publish* retires the published
+  version; briefs already written stay until the next night's run or a Regenerate. Published and
+  retired versions never change: *Roll back to this version* publishes a new copy of it (with a note),
+  so the history only grows ("v9 = rolled back to v6"). The form refuses an e-mail address, a link or
+  the name of a person NeuroDB knows in the instructions, and warns (without refusing) about effort
+  medium or higher under 2,500 output tokens, about temperature and top-p both set, and about a
+  parameter the model refused.
+- **`narr`** is the most texts (narratives, checklist answers, search snippets) the AI may read per
+  brief and per chat answer, each cleaned of names, e-mail addresses, phone numbers and links first;
+  `narr = 0` sends none. **`comp`** is how many visits the AI sees in full, as a card (dates, partner,
+  programme document, place, sections, rating with its date, HACT Q1, quality, flags, urgency, action
+  point counts; never a narrative, a team or a visit lead); every other visit reaches it as counts only.
+- **Preview** (on each version) shows exactly the instructions each call sends: the brief's (the
+  editable text, then the fixed part) and the chat's (the same, then the date and the filter's line),
+  for the whole country, a section or a pasted `/fmm/?…` address. Ask NeuroDB's own prompt is not sent
+  to the chat. The fixed part (what the data is and the safety rules, last so that the editable text
+  cannot override them) is shown greyed out on every version, with the brief's answer format.
+- **Sampling checks** (*Sampling checks*): reasoning models may refuse temperature or top-p. When the
+  API refuses one by name, only that one is dropped and the call is made again (at most twice), and the
+  refusal is kept per model and effort for `FMM_SAMPLING_RECHECK_DAYS` (30) days; the brief's chips then
+  say "not applied". Deleting a row means "check again on the next call". `FMM_SAMPLING=off` never sends
+  either. Ask NeuroDB and NeuroDB Watch never send them.
+- **Limits.** Every call will first check that the AI is switched on (`FMM_ENABLED`, `FMM_AI`,
+  `AI_ASSISTANT_ENABLED` and a published version), not paused (6 hours after the OpenAI credit ran out)
+  and within the day's caps: Monitoring insights' own `FMM_DAILY_TOKEN_CAP` (1,200,000) and
+  `FMM_MAX_CALLS_PER_DAY` (400), for the whole office, and the shared `AI_DAILY_TOKEN_SOFT_CAP`, of
+  which nightly briefs and test runs may use 80% and people's Regenerates and questions 100%. Its use
+  is counted under *Monitoring insights* in *AI use*. The per-person quotas start again at midnight
+  (Beirut); a brief found up to date and a test run do not count against them.
+
 ### Before go-live: confirm the real keys
 
 The checklist answer, option and programme activity records of the demo and of the tests are
@@ -1573,6 +1617,21 @@ on, and before its figures are trusted:
 | `FMM_KEY_MIN_COVERAGE` | `0.5` | The share of a dataset's records a candidate key must fill to be chosen before the keys listed after it (above 0, at most 1; another value stops the start-up). |
 | `FMM_ETOOLS_ACTIVITY_URL` | (blank) | The address of an activity in eTools, with `{id}` for its id (e.g. `https://etools.unicef.org/fm/activities/{id}/details`), for the visit page's *Open in eTools*. Blank hides the link until the address is verified. |
 | `FMM_MATCH_KM` | `2.0` | Map: the distance in kilometres below which a visit and a planned place of its programme document count as the same place, when both points are exact (a monitoring site, or a cadaster's own point). Above 0; another value stops the start-up. |
+| `FMM_AI` | `false` | The AI brief and chat. They also need `AI_ASSISTANT_ENABLED` and a published prompt version. Off at deploy; switched on at go-live once the real keys are confirmed (above) and a Preview and a Test run look right. |
+| `FMM_MODEL` | (blank) | The model of a prompt version that names none; blank: `AI_ASSISTANT_MODEL`. |
+| `FMM_SAMPLING` | `auto` | `auto`: send temperature/top-p when a version sets them and the model has not refused them; `off`: never send them. Another value stops the start-up. |
+| `FMM_SAMPLING_RECHECK_DAYS` | `30` | Days after which a refused temperature or top-p is tried again. |
+| `FMM_DAILY_TOKEN_CAP` | `1200000` | Monitoring insights' own tokens a day for the whole office (briefs, test runs and chat): about 30-40 chat answers and 10 Regenerates a day plus the nightly briefs. Raise `AI_DAILY_TOKEN_SOFT_CAP` with it. |
+| `FMM_MAX_CALLS_PER_DAY` | `400` | Monitoring insights' own model calls a day (brief calls plus chat rounds). |
+| `FMM_CHAT_MAX_RUNNING` | `4` | Chat answers streaming at once on the whole site. Raising it needs more web threads (`GUNICORN_THREADS`) or instances. |
+| `FMM_HISTORY_ANSWER_CHARS` | `1500` | Characters of each earlier chat answer re-sent with a follow-up question. |
+| `FMM_NIGHTLY_MAX_INSIGHTS` | `12` | Briefs written per night at most. |
+| `FMM_NIGHTLY_MIN_VISITS` | `3` | A section gets a nightly brief from this many visits this year. |
+| `FMM_MIN_VISITS_FOR_AI` | `3` | No AI call for a filter with fewer visits. |
+| `FMM_NARRATIVE_CHARS` | `600` | Characters per text sent to the AI (narrative, answer, snippet). |
+| `FMM_INSIGHTS_TIMEOUT_SECONDS` | `90` | Seconds per brief call. |
+| `FMM_PAYLOAD_RETENTION_DAYS` | `30` | After this many days a brief's sent payload is blanked. |
+| `FMM_RETENTION_DAYS` | `180` | Briefs and chat questions are kept this many days. |
 
 ## Donor access (`/donor/`)
 

@@ -192,8 +192,12 @@ def _allowed_dates(blob: str) -> tuple[set, set, set]:
     return whole, day_month, month_year
 
 
-def _names_of(cited: list[Any], today: datetime.date | None) -> str:
-    """The names and titles in the cited facts (where a word like "items" may be part of a name)."""
+def _names_of(
+    cited: list[Any], today: datetime.date | None, named_fields: Iterable[str] = NAMED_FIELDS
+) -> str:
+    """The names and titles in the cited facts (where a word like "items" may be part of a name): the
+    values of the ``named_fields``."""
+    named_fields = frozenset(named_fields)
     found: list[str] = []
 
     def walk(value: Any, field: str = "") -> None:
@@ -203,7 +207,7 @@ def _names_of(cited: list[Any], today: datetime.date | None) -> str:
         elif isinstance(value, list | tuple):
             for inner in value:
                 walk(inner, field)
-        elif isinstance(value, str) and field in NAMED_FIELDS:
+        elif isinstance(value, str) and field in named_fields:
             found.append(value)
 
     for fact in cited:
@@ -223,10 +227,13 @@ def check(
     cited: Iterable[WatchItem | Mapping[str, Any]],
     today: datetime.date | None = None,
     names: Iterable[str] | None = None,
+    named_fields: Iterable[str] = NAMED_FIELDS,
 ) -> Verdict:
     """Whether ``sentence`` may be kept, resting on the ``cited`` facts: items, or the entries the AI
     read (an item, a situation or a section's counts as :mod:`neurodb.watch.redact` writes them).
-    ``names`` are the known person names (default :func:`neurodb.watch.people.known_names`)."""
+    ``names`` are the known person names (default :func:`neurodb.watch.people.known_names`).
+    ``named_fields`` are the fields of the facts whose words a sentence may repeat even when they are
+    system words ("non-food items" in a cited title)."""
     sentence = " ".join(str(sentence or "").split())
     if not sentence:
         return Verdict(False, EMPTY)
@@ -245,7 +252,7 @@ def check(
         return Verdict(False, NO_KEYS)
     words = SYSTEM_WORDS.findall(sentence)
     if words:
-        named = _names_of(cited, today)
+        named = _names_of(cited, today, named_fields)
         for word in words:
             if not re.search(rf"\b{re.escape(word.casefold())}\b", named):
                 return Verdict(False, WORDING, word)
@@ -306,13 +313,15 @@ def validate(
     max_sentences: int = MAX_SENTENCES,
     today: datetime.date | None = None,
     names: Iterable[str] | None = None,
+    named_fields: Iterable[str] = NAMED_FIELDS,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """The sentences of an answer (``{"sentences": [{"text", "keys"}]}``, or the list) that may be
     kept, as ``[{"text", "keys"}]``, and why each other one was dropped. ``citable`` maps each key the
     audience may read to its fact (an item, or an entry the AI read); any other key drops the
-    sentence. At most ``max_sentences`` are looked at."""
+    sentence. At most ``max_sentences`` are looked at. ``named_fields`` as in :func:`check`."""
     entries = raw.get("sentences") if isinstance(raw, Mapping) else raw
     names = people.known_names() if names is None else frozenset(names)
+    named_fields = tuple(named_fields)
     kept: list[dict[str, Any]] = []
     dropped: list[str] = []
     for entry in list(entries if isinstance(entries, list | tuple) else [])[:max_sentences]:
@@ -327,7 +336,7 @@ def validate(
         if any(k not in citable for k in keys):
             dropped.append(UNKNOWN_KEY)
             continue
-        verdict = check(entry["text"], _cited(keys, citable), today, names)
+        verdict = check(entry["text"], _cited(keys, citable), today, names, named_fields)
         if not verdict:
             dropped.append(verdict.reason)
             continue

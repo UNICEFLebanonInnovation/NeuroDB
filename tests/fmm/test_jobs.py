@@ -45,6 +45,23 @@ def test_the_settings_and_their_defaults(monkeypatch):
             _load(monkeypatch, FMM_KEY_MIN_COVERAGE=wrong)
 
 
+def test_the_ai_settings_and_their_defaults(monkeypatch):
+    loaded = _load(monkeypatch)
+    assert loaded["FMM_AI"] is False  # off at deploy, switched on at go-live
+    assert loaded["FMM_MODEL"] == loaded["AI_ASSISTANT_MODEL"]
+    assert loaded["FMM_SAMPLING"] == "auto" and loaded["FMM_SAMPLING_RECHECK_DAYS"] == 30
+    assert loaded["FMM_DAILY_TOKEN_CAP"] == 1_200_000 and loaded["FMM_MAX_CALLS_PER_DAY"] == 400
+    assert loaded["FMM_CHAT_MAX_RUNNING"] == 4 and loaded["FMM_HISTORY_ANSWER_CHARS"] == 1500
+    assert loaded["FMM_NIGHTLY_MAX_INSIGHTS"] == 12 and loaded["FMM_NIGHTLY_MIN_VISITS"] == 3
+    assert loaded["FMM_MIN_VISITS_FOR_AI"] == 3 and loaded["FMM_NARRATIVE_CHARS"] == 600
+    assert loaded["FMM_INSIGHTS_TIMEOUT_SECONDS"] == 90
+    assert loaded["FMM_PAYLOAD_RETENTION_DAYS"] == 30 and loaded["FMM_RETENTION_DAYS"] == 180
+    changed = _load(monkeypatch, FMM_AI="true", FMM_MODEL="gpt-x", FMM_SAMPLING="OFF")
+    assert changed["FMM_AI"] is True and changed["FMM_MODEL"] == "gpt-x" and changed["FMM_SAMPLING"] == "off"
+    with pytest.raises(ImproperlyConfigured, match="FMM_SAMPLING"):
+        _load(monkeypatch, FMM_SAMPLING="sometimes")
+
+
 # ------------------------------------------------------------------------------------------ the refresh
 def test_the_refresh_is_a_job_with_a_schedule_and_a_button():
     from neurodb.core.admin_jobs import BACKGROUND_JOBS

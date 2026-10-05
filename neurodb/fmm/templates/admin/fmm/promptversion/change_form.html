@@ -1,0 +1,19 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% comment %}
+  A prompt version's form: a new draft says which version it was prefilled from; a published or
+  retired version is shown read-only, with a line that says how to change it.
+{% endcomment %}
+
+{% block form_top %}
+  {{ block.super }}
+  {% if add and from_version %}
+    <p class="nd-fixed__note">{% blocktrans with n=from_version.number status=from_version.get_status_display %}A new draft, prefilled from v{{ n }} ({{ status }}). Nothing is used until you publish it.{% endblocktrans %}</p>
+  {% elif original and original.status != "draft" %}
+    <p class="nd-fixed__note">
+      {% blocktrans with n=original.number status=original.get_status_display|lower %}v{{ n }} is {{ status }} and never changes.{% endblocktrans %}
+      {% if has_add_permission %}<a class="underline" href="{% url 'admin:fmm_promptversion_add' %}?from={{ original.pk }}">{% trans "Start a new draft from it" %}</a>.{% endif %}
+    </p>
+  {% endif %}
+{% endblock %}

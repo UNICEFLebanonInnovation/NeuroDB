@@ -96,3 +96,10 @@
 .nd-preview__button { align-self: flex-start; }
 .nd-preview__result p { margin: .15rem 0; }
 .nd-preview__errors { margin: .25rem 0 0 1.25rem; list-style: disc; }
+/* Monitoring insights: the fixed part of the prompts, greyed out; the prompts as sent (Preview) */
+.nd-fixed__body { display: flex; flex-direction: column; gap: .5rem; max-width: 60rem; }
+.nd-fixed__text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5; padding: .75rem; border-radius: 6px; background: var(--color-base-50, #f9fafb); color: var(--color-base-500, #6b7280); }
+.dark .nd-fixed__text { background: var(--color-base-800, #1f2937); color: var(--color-base-400, #9ca3af); }
+.nd-fixed__text--live { color: inherit; }
+.dark .nd-fixed__text--live { color: inherit; }
+.nd-fixed__note { margin: 0 0 1rem; padding: .5rem .75rem; border-left: 3px solid var(--color-primary-500, #6366f1); font-size: .875rem; }
