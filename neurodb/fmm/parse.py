@@ -364,6 +364,30 @@ def visit_answers(visit) -> list[tuple[str, str, str]]:
     return out
 
 
+def answer_texts(document_ids: Collection[int], keys: Mapping[str, str | None]) -> dict[int, str]:
+    """{record pk: the answer as written (its label first)} of the checklist answer records given, read
+    under the answer and answer label keys of ``keys``; for the quality rules' placeholder check of
+    the Q3 answers (R5). Kept in memory while a visit is scored, never stored or sent."""
+    from neurodb.datamart.models import DatamartDocument
+
+    label_key, answer_key = keys.get("answer_label"), keys.get("answer")
+    if not document_ids or not (label_key or answer_key):
+        return {}
+    rows = DatamartDocument.objects.filter(dataset="fm_questions", pk__in=list(document_ids)).values_list(
+        "pk", "data"
+    )
+    out: dict[int, str] = {}
+    for pk, data in rows.iterator(chunk_size=2000):
+        if not isinstance(data, dict):
+            continue
+        text = (value(data, label_key) if label_key else None) or (
+            value(data, answer_key) if answer_key else None
+        )
+        if text:
+            out[pk] = text
+    return out
+
+
 def option_labels(question_keys: Collection[str] | None = None) -> dict[tuple[str, str], str]:
     """{(question key, option value): label} of the answer options (``fm_options``), for the questions
     given (every question when None)."""

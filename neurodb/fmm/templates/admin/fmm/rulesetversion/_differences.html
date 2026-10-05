@@ -1,0 +1,29 @@
+{% load i18n %}
+{% comment %}
+  A rules version's settings beside their values now (context: fmm.admin._difference_rows). Changed
+  rows are marked.
+{% endcomment %}
+<div class="nd-scroll">
+  <table class="nd-jobs nd-found__table">
+    <thead>
+      <tr>
+        <th scope="col">{% trans "Of" %}</th>
+        <th scope="col">{% trans "Setting" %}</th>
+        <th scope="col">{% trans "In this version" %}</th>
+        <th scope="col">{% trans "Now" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        <tr{% if row.changed %} class="nd-found__warn"{% endif %}>
+          <td>{{ row.group }}</td>
+          <th scope="row"><code>{{ row.name }}</code>{% if row.changed %} <small>{% trans "(differs)" %}</small>{% endif %}</th>
+          <td><small class="nd-found__example">{{ row.then }}</small></td>
+          <td><small class="nd-found__example">{{ row.now }}</small></td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4">{% trans "This version holds no settings." %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

@@ -1,0 +1,41 @@
+{% extends "admin/base_site.html" %}
+{% load i18n unfold %}
+
+{% comment %}
+  Restore a rules version (context: fmm.admin.RuleSetVersionAdmin.restore_view): what restoring changes,
+  a note, and the button. Restoring writes the version back as a new version; nothing is deleted.
+{% endcomment %}
+
+{% block content %}
+<form method="post" class="max-w-5xl">
+  {% csrf_token %}
+  {% component "unfold/components/card.html" with title=title %}
+    <div class="flex flex-col gap-4">
+      <p>
+        {% blocktrans trimmed with n=version.number note=version.note who=version.created_by_name when=version.created_at|date:"j M Y, H:i" %}
+          Rules v{{ n }} ("{{ note }}", saved by {{ who }} on {{ when }}) will be written back as a new
+          version. The history keeps every version, so this can be undone the same way. Scores are then
+          recomputed in the background.
+        {% endblocktrans %}
+      </p>
+      {% if keys_change %}
+        <p class="nd-found__warn">{% trans "The pinned keys differ: the visits will be rebuilt, not only rescored." %}</p>
+      {% endif %}
+      <h3 class="font-semibold">{% trans "What restoring changes" %}</h3>
+      {% if rows %}
+        {% include "admin/fmm/rulesetversion/_differences.html" with rows=rows %}
+      {% else %}
+        <p>{% trans "Nothing: the settings now are those of this version. Restoring it only records it again." %}</p>
+      {% endif %}
+      <div class="flex flex-col gap-2">
+        <label class="font-semibold text-important" for="id_note">{% trans "Note (why)" %}</label>
+        <input id="id_note" name="note" type="text" maxlength="{{ note_chars }}" class="border border-base-200 rounded-default px-3 py-2 dark:border-base-700 dark:bg-base-900">
+      </div>
+    </div>
+  {% endcomponent %}
+  <div class="flex justify-end gap-4 mt-6">
+    <a class="px-3 py-2" href="{% url 'admin:fmm_rulesetversion_change' version.pk %}">{% trans "Cancel" %}</a>
+    {% component "unfold/components/button.html" with submit=1 %}{% trans "Restore this version" %}{% endcomponent %}
+  </div>
+</form>
+{% endblock %}

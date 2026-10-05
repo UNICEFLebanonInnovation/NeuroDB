@@ -13,7 +13,7 @@ from django.db import connections
 
 from neurodb.core.models import SyncRun
 from neurodb.datamart import models as dm
-from neurodb.fmm import fields, refresh, status
+from neurodb.fmm import fields, refresh, score, status
 from neurodb.fmm.management.commands import fmm_refresh as command
 from neurodb.fmm.models import (
     FieldMapping,
@@ -24,8 +24,11 @@ from neurodb.fmm.models import (
     VisitActionPoint,
     VisitEntity,
     VisitReview,
+    VisitRuleResult,
 )
 from neurodb.integrations import background
+
+from .conftest import OTHER_TEXT
 
 pytestmark = pytest.mark.django_db
 
@@ -208,15 +211,35 @@ def _snapshot() -> dict:
         "visits": list(Visit.objects.order_by("key").values_list(*visit_fields)),
         "entities": sorted(
             VisitEntity.objects.values_list(
-                "visit__key", "datamart_id", "kind", "pd_id", "rating", "cp_output"
+                "visit__key",
+                "datamart_id",
+                "kind",
+                "pd_id",
+                "rating",
+                "cp_output",
+                "hact_q1",
+                "hact_q1_from",
+                "narrative_hash",
+                "narrative_placeholder",
             )
         ),
         "answers": sorted(
             QuestionAnswer.objects.values_list(
-                "document_id", "visit_key", "entity__datamart_id", "partner_id", "applies_to", "answer_code"
+                "document_id",
+                "visit_key",
+                "entity__datamart_id",
+                "partner_id",
+                "applies_to",
+                "answer_code",
+                "role",
             )
         ),
         "links": sorted(VisitActionPoint.objects.values_list("visit__key", "action_point_id", "matched_by")),
+        "rules": sorted(
+            VisitRuleResult.objects.values_list(
+                "visit__key", "rule", "status", "points", "max_points", "detail_key", "detail", "measure"
+            )
+        ),
     }
 
 
@@ -232,15 +255,20 @@ def test_a_full_refresh_builds_the_visits_with_meaningful_counts(fm_world):
     for key in ("visits", "findings", "pd_resolved", "location", "governorate", "sections_from",
                 "offices_from", "action_points", "questions", "fields_not_found", "activity_ids"):  # fmt: skip
         assert key in details, key
-    assert details["rules_version"] == 0 and details["scored"] == 0 and details["duration_ms"] >= 0
+    assert details["rules_version"] == 1 and details["duration_ms"] >= 0
     questions_details = details["questions"]
     assert questions_details["records"] == questions == questions_details["parsed"]
     assert questions_details["unanswered_seen"] is True and questions_details["linked"] == questions
     pd = details["pd_resolved"]
     assert pd["pd_kind_rows"] == pd["exact"] + pd["token"] + pd["base"] + pd["title"] + pd["unresolved"]
-    # nothing is scored yet: the quality rules come later
-    assert not Visit.objects.exclude(quality_score=None).exists()
-    assert set(Visit.objects.values_list("urgency", "hact_q1", "psea_flag")) == {(0, "", None)}
+    # step 6: the visits scored (1724 is in progress and 1725 cancelled), the roles, the rule results
+    assert details["scored"] == Visit.objects.exclude(quality_score=None).count() == 6
+    assert questions_details["roles"] == {"q1": 6, "q2": 1, "q3": 2, "psea": 2}
+    assert questions_details["q1_applies_to"] == {"entity": 4, "partner": 1, "visit": 1}
+    assert details["rule_results"]["R6"] == {"pass": 1, "fail": 1, "na": 4, "nap": 2}
+    assert VisitRuleResult.objects.count() == 6 * Visit.objects.count()
+    assert set(Visit.objects.values_list("rules_version", flat=True)) == {1}
+    assert set(QuestionAnswer.objects.values_list("role", flat=True)) == {"q1", "q2", "q3", "psea", ""}
 
 
 def test_two_refreshes_give_the_same_rows_and_keep_the_visit_pks(fm_world):
@@ -357,6 +385,105 @@ def test_a_later_day_recounts_the_overdue_action_points(fm_world):
     assert (visit.action_points_open, visit.action_points_overdue, visit.action_points_high_open) == (1, 1, 1)
 
 
+# ------------------------------------------------------------------------------------------ scoring
+def test_scores_only_reads_the_narratives_but_never_a_finding_record(fm_world, monkeypatch):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    _full()
+
+    def refused(self, value=None):
+        raise AssertionError("a scores-only pass read MonitoringFinding.data")
+
+    monkeypatch.setattr(dm.MonitoringFinding, "data", property(refused, refused))
+    with CaptureQueriesContext(connection) as queries:
+        run = _full(scores_only=True)
+    assert run.status == SyncRun.Status.SUCCEEDED
+    sql = [q["sql"] for q in queries.captured_queries]
+    assert not [q for q in sql if '"datamart_monitoringfinding"."data"' in q]
+    assert any('"datamart_monitoringfinding"."narrative_finding"' in q for q in sql)
+
+
+def test_a_later_day_raises_urgency_with_no_data_change(fm_world):
+    _full(today=datetime.date(2026, 8, 10))
+    early = {v.key: v for v in Visit.objects.all()}
+    assert early["1727"].urgency_parts["follow_up"] == 0  # 9 days after an off-plan visit: not yet
+    assert early["1726"].urgency_parts["follow_up"] == 5  # a high-priority action point due 1 Sep
+    _full(scores_only=True, today=TODAY)
+    late = {v.key: v for v in Visit.objects.all()}
+    assert late["1727"].urgency_parts["follow_up"] == 20  # no follow-up action point after 14 days
+    assert late["1727"].urgency == early["1727"].urgency + 20
+    assert late["1726"].urgency_parts["follow_up"] == 20  # now overdue: 12, and high priority: 8
+    assert late["1726"].urgency == early["1726"].urgency + 15
+
+
+def test_a_q1_pattern_change_rescored_updates_q1_psea_r3_and_urgency(fm_world):
+    from neurodb.fmm.models import ScoreSetting
+
+    _full()
+    before = {v.key: v for v in Visit.objects.all()}
+    assert (before["1722"].hact_q1, before["1726"].psea_flag, before["1727"].hact_q1) == (
+        "off_track",
+        True,
+        "constrained",
+    )
+    assert VisitRuleResult.objects.get(visit__key="1728", rule="R3").status == "nap"
+    setting = ScoreSetting.load()  # Q1 is now the attendance question, and no question is PSEA
+    setting.question_patterns = {**setting.question_patterns, "q1": ["attendance registers"], "psea": []}
+    setting.save()
+    run = _full(scores_only=True)
+    after = {v.key: v for v in Visit.objects.all()}
+    assert after["1722"].hact_q1 == "" and VisitEntity.objects.get(datamart_id=101).hact_q1 == ""
+    assert after["1726"].psea_flag is None
+    assert after["1728"].hact_q1 == "other"  # its attendance answer is "Yes", not a rating
+    r3 = dict(VisitRuleResult.objects.filter(rule="R3").values_list("visit__key", "detail_key"))
+    assert (r3["1722"], r3["1728"]) == ("q1_missing", "q1_unrecognised")
+    assert after["1727"].urgency_parts["rating"] == 0 and after["1727"].urgency < before["1727"].urgency
+    roles = set(QuestionAnswer.objects.filter(question_text=OTHER_TEXT).values_list("role", flat=True))
+    assert roles == {"q1"} and not QuestionAnswer.objects.filter(role="psea").exists()
+    assert run.details["questions"]["roles"] == {"q1": 2, "q2": 1, "q3": 2, "psea": 0}
+
+
+def test_a_visit_that_cannot_be_scored_is_counted_and_the_others_are_scored(fm_world, monkeypatch):
+    one = score._score_one
+
+    def flaky(visit, *args):
+        if visit.key == "1722":
+            raise ValueError("cannot score")
+        return one(visit, *args)
+
+    monkeypatch.setattr(score, "_score_one", flaky)
+    for kw in ({}, {"scores_only": True}):
+        run = _full(**kw)
+        assert (run.status, run.rows_failed) == (SyncRun.Status.PARTIAL, 1), kw
+        visit = Visit.objects.get(key="1722")
+        assert (visit.quality_score, visit.not_scored_reason, visit.hact_q1, visit.urgency) == (
+            None,
+            "could not be scored",
+            "",
+            0,
+        )
+        assert not VisitRuleResult.objects.filter(visit=visit).exists()
+        assert Visit.objects.exclude(quality_score=None).count() == 5
+
+
+def test_a_rules_version_saved_during_a_full_pass_with_the_real_scorer(fm_world, monkeypatch, started):
+    from neurodb.fmm import versions as rule_versions
+
+    load, saved = score.Rulebook.load, []
+
+    def load_then_save():
+        book = load()
+        if not saved:  # saved after this pass read the version, without a request
+            saved.append(rule_versions.record_rules(None, "saved meanwhile"))
+        return book
+
+    monkeypatch.setattr(score.Rulebook, "load", staticmethod(load_then_save))
+    _full()
+    assert [(target, version) for target, _, version in _passes()] == [("full", 1), ("scores", 2)]
+    assert set(Visit.objects.values_list("rules_version", flat=True)) == {2}
+
+
 # ------------------------------------------------------------------------------------------ requests
 @pytest.fixture
 def started(monkeypatch):
@@ -367,7 +494,7 @@ def started(monkeypatch):
 
 @pytest.fixture
 def versions(monkeypatch):
-    """The current rules version, as a test sets it (the rules arrive in a later stage)."""
+    """The current rules version, as a test sets it (without saving a rule)."""
     current = {"n": 1}
     monkeypatch.setattr(refresh, "current_rules_version", lambda: current["n"])
     return current
@@ -417,12 +544,13 @@ def test_a_rescore_asked_while_a_refresh_runs_is_served_by_that_refresh(fm_world
     refresh sees the request before it releases the lock and runs the scores-only pass."""
     calls = []
 
-    def scorer(visits, today, version):  # stands for the scoring step; the save lands during the first
+    def scorer(visits, today, version, **kw):  # the scoring step; the save lands during the first
         calls.append(version)
         if len(calls) == 1:
             versions["n"] = 2
             refresh.request("scores", "admin:7")  # the save (its command starts after the commit:)
             assert _in_another_process(triggered_by="admin:7", scores_only=True) is None  # lock held
+        return score.Scored()
 
     monkeypatch.setattr(refresh, "_score", scorer)
     last = _full()
@@ -454,8 +582,9 @@ def test_a_request_written_just_before_the_lock_is_released_is_served_after(
 
 
 def test_a_rules_version_saved_during_a_full_run_gives_a_second_pass(fm_world, versions, monkeypatch):
-    def scorer(visits, today, version):
+    def scorer(visits, today, version, **kw):
         versions["n"] = version + 1  # saved after this pass read the version
+        return score.Scored()
 
     monkeypatch.setattr(refresh, "_score", scorer)
     monkeypatch.setattr(refresh.settings, "FMM_REFRESH_MAX_PASSES", 2)
@@ -466,8 +595,9 @@ def test_a_rules_version_saved_during_a_full_run_gives_a_second_pass(fm_world, v
 def test_the_passes_of_one_run_are_bounded(fm_world, versions, monkeypatch, settings, started):
     settings.FMM_REFRESH_MAX_PASSES = 3
 
-    def scorer(visits, today, version):
+    def scorer(visits, today, version, **kw):
         refresh.request("scores", "admin:9")  # every pass sees a newer request
+        return score.Scored()
 
     monkeypatch.setattr(refresh, "_score", scorer)
     _full()

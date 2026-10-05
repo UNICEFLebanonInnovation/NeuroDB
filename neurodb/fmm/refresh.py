@@ -12,18 +12,21 @@ Each pass is one ``SyncRun`` (job "Monitoring insights refresh") under its own d
 4. and 5. **Builds the visits** (``fmm.build``): the findings grouped into visits and linked to
    partners, programme documents, places, sections, offices, teams, action points and checklist
    answers. Records are read one at a time, and only small parsed values are kept.
-6. **Scores** them: the quality rules, HACT Q1, the PSEA flag and urgency (``_score``). They need the
-   question roles of the quality rules, which arrive with the rules; until then nothing is scored.
+6. **Scores** them (``fmm.score``): the question roles, HACT Q1 and the PSEA flag, the quality rules
+   R1-R6, the score, its band and flags, and urgency, with the rules as they are when the pass
+   starts (the rules version is read first and stamped on every visit).
 7. **Swaps** the new visits in, in one transaction: readers see the old ones until it commits, a
-   visit keeps its pk while its key stays, and the reviews (``VisitReview``) are never touched.
+   visit keeps its pk while its key stays, its rows, answers, action point links and rule results are
+   replaced, and the reviews (``VisitReview``) are never touched.
 8. **Finishes** the run with its counts: ``rows_in`` the finding rows and answer records read,
    ``rows_written`` the visits written, ``rows_failed`` the records or visits skipped by an error
    (the run then *Succeeded with errors*). A step that fails as a whole fails the run and keeps the
    previous visits.
 
 A **scores-only** pass (target "scores", ``--scores-only``) recomputes what changes with the day or
-the rules (the action point counts, then the scores) from the stored visits, without reading the
-records. ``--probe-only`` (target "probe") runs steps 1-3 alone.
+the rules (the action point counts, the question roles, HACT Q1, PSEA, the rule results, the scores
+and urgency) from the stored visits and the narratives, without reading the records; it writes them
+in one transaction. ``--probe-only`` (target "probe") runs steps 1-3 alone.
 
 **Requests are never lost.** A saved rule asks for a scores-only pass and a pinned key for a full one
 (:func:`request`): it stamps ``RefreshRequest`` and starts the command in the background, which does
@@ -39,7 +42,6 @@ from __future__ import annotations
 
 import logging
 import time
-from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -57,8 +59,16 @@ from neurodb.integrations.background import FMM_REFRESH_LOCK_ID
 from neurodb.integrations.runs import fail, finish_by_counts, new_run, note_error
 from neurodb.watch import people
 
-from . import build, fields, privacy
-from .models import FieldMapping, QuestionAnswer, RefreshRequest, Visit, VisitActionPoint, VisitEntity
+from . import build, fields, privacy, score, versions
+from .models import (
+    FieldMapping,
+    QuestionAnswer,
+    RefreshRequest,
+    Visit,
+    VisitActionPoint,
+    VisitEntity,
+    VisitRuleResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +117,9 @@ SCORE_FIELDS = (
     "rules_version",
     "refreshed_at",
 )
+# What a scores-only pass writes on each entity row (the effective HACT Q1, and the narrative's measures
+# under the narrative rule's settings)
+ENTITY_SCORE_FIELDS = ("hact_q1", "hact_q1_from", "narrative_hash", "narrative_placeholder")
 # What a full pass writes on a visit that exists already (everything but its pk and key)
 UPSERT_FIELDS = [f.name for f in Visit._meta.concrete_fields if f.name not in ("id", "key")]
 Kind = Literal["full", "scores", "probe"]
@@ -118,8 +131,8 @@ def wanted_after(runs: Iterable[SyncRun]) -> bool:
 
 
 def current_rules_version() -> int:
-    """The version of the quality rules the scores are computed with; 0 until the rules exist."""
-    return 0
+    """The version of the quality rules the scores are computed with (``versions``)."""
+    return versions.current_rules_version()
 
 
 @contextmanager
@@ -314,26 +327,32 @@ def _full(triggered_by: str, today: date) -> SyncRun:
     clock = time.monotonic()
     failed = _Failures(sync_run)
     try:
+        # read before any setting, the keys pinned with the rules included: a save landing later in the
+        # pass is then newer than this version, and gets a pass of its own
+        version_used = current_rules_version()
         relinked, probes = _read_keys(failed)
         keys = _chosen_keys(probes)
-        version_used = current_rules_version()  # before any setting is read
         result = build.build_visits(build.Context(today=today, keys=keys, on_error=failed))
         if result.findings and not result.visits:  # every row failed: never swap in an empty set
             raise RuntimeError(f"none of the {result.findings} finding rows could be read")
-        _score(result.visits, today, version_used)
+        answer_keys = {field: keys.get(("fm_questions", field)) for field in fields.ANSWER_FIELDS}
+        source = score.BuiltSource(result, keys, probes["fm_questions"].answer_counts(answer_keys))
+        scored = _score(result.visits, today, version_used, source=source, on_error=failed)
         with transaction.atomic():
             _written, mappings = _write_keys(probes)
-            sync_run.rows_written = _swap(result, version_used)
+            sync_run.rows_written = _swap(result, version_used, scored)
         details = _details(probes, mappings, relinked)
     except Exception as exc:
         return fail(sync_run, exc, duration_ms=_ms(clock))
     sync_run.rows_in = result.findings + result.questions
     built = result.details
-    questions = {**details.pop("questions"), **built.pop("questions")}
+    scoring = dict(scored.details)
+    questions = {**details.pop("questions"), **built.pop("questions"), **scoring.pop("questions", {})}
     return finish_by_counts(
         sync_run,
         **details,
         **built,
+        **scoring,
         questions=questions,
         rules_version=version_used,
         scored=sum(1 for v in result.visits if v.quality_score is not None),
@@ -346,43 +365,75 @@ def _scores(triggered_by: str, today: date) -> SyncRun:
     stored visits, without reading the records."""
     sync_run = new_run(SyncRun.Job.FMM_REFRESH, "scores", triggered_by)
     clock = time.monotonic()
+    failed = _Failures(sync_run)
     try:
         version_used = current_rules_version()  # before any setting is read
-        visits = list(Visit.objects.order_by("pk"))
-        links: dict[int, list[build.ActionPointFacts]] = defaultdict(list)
-        rows = VisitActionPoint.objects.values_list(
-            "visit_id",
-            "action_point_id",
-            "action_point__status",
-            "action_point__due_date",
-            "action_point__high_priority",
-        )
-        for visit_id, pk, status, due, high in rows:
-            links[visit_id].append(build.ActionPointFacts(pk, status or "", due, bool(high)))
+        source = score.StoredSource()
+        visits = source.visits
         for visit in visits:
-            for name, n in build.ap_counts(links.get(visit.pk, ()), today).items():
+            for name, n in build.ap_counts(source.links.get(visit.key, ()), today).items():
                 setattr(visit, name, min(n, 32767))
-        _score(visits, today, version_used)
+        before = {entity.pk: _entity_scores(entity) for rows in source.entities.values() for entity in rows}
+        scored = _score(visits, today, version_used, source=source, on_error=failed)
         now = timezone.now()
         for visit in visits:
             visit.rules_version, visit.refreshed_at = version_used, now
         with transaction.atomic():
             fm.update_rows(Visit, visits, SCORE_FIELDS)
+            changed = [
+                entity
+                for rows in source.entities.values()
+                for entity in rows
+                if _entity_scores(entity) != before.get(entity.pk)
+            ]
+            fm.update_rows(VisitEntity, changed, ENTITY_SCORE_FIELDS)
+            _write_roles(scored.roles)
+            VisitRuleResult.objects.all().delete()
+            copy_rows(VisitRuleResult, scored.results)
     except Exception as exc:
         return fail(sync_run, exc, duration_ms=_ms(clock))
     sync_run.rows_in = sync_run.rows_written = len(visits)
+    scoring = dict(scored.details)
     return finish_by_counts(
         sync_run,
         visits=len(visits),
+        **scoring,
         rules_version=version_used,
         scored=sum(1 for v in visits if v.quality_score is not None),
         duration_ms=_ms(clock),
     )
 
 
-def _score(visits: list[Visit], today: date, version: int) -> None:
-    """Step 6: the quality rules, HACT Q1, the PSEA flag and urgency of each visit. They need the
-    question roles that come with the quality rules; until those exist, the visits are not scored."""
+def _score(
+    visits: list[Visit],
+    today: date,
+    version: int,
+    *,
+    source: score.Source | None = None,
+    on_error=None,
+) -> score.Scored:
+    """Step 6: the question roles, HACT Q1, the PSEA flag, the quality rules, the score and urgency of
+    each visit (``score.score_visits``), with the rules and settings as they are now (``version`` was
+    read before them). The visits and their entity rows are updated in place; the rule results and the
+    roles are returned to be written."""
+    source = source if source is not None else score.StoredSource(visits)
+    scored = score.score_visits(source, score.Rulebook.load(), today, on_error=on_error)
+    if isinstance(source, score.BuiltSource):
+        source.set_roles(scored.roles)
+    return scored
+
+
+def _entity_scores(entity: VisitEntity) -> tuple:
+    return tuple(getattr(entity, name) for name in ENTITY_SCORE_FIELDS)
+
+
+def _write_roles(roles: dict[tuple[str, bool | None], str]) -> None:
+    """The role of every stored answer, one update per question whose role changed."""
+    current = QuestionAnswer.objects.order_by().values_list("question_text", "is_hact", "role").distinct()
+    for text, is_hact, role in list(current):
+        wanted = roles.get((text, is_hact), "")
+        if role != wanted:
+            QuestionAnswer.objects.filter(question_text=text, is_hact=is_hact, role=role).update(role=wanted)
 
 
 def copy_rows(model, rows: Iterable) -> int:
@@ -407,13 +458,15 @@ def copy_rows(model, rows: Iterable) -> int:
     return written
 
 
-def _swap(result: build.BuildResult, version: int) -> int:
+def _swap(result: build.BuildResult, version: int, scored: score.Scored | None = None) -> int:
     """Step 7: the new visits in place of the old ones, in one transaction. A visit whose key stays
-    keeps its pk; its rows, answers and action point links are replaced; the reviews stay."""
+    keeps its pk; its rows, answers, action point links and rule results are replaced; the reviews
+    stay."""
     visits = result.visits
     for visit in visits:
         visit.rules_version = version
     with transaction.atomic():
+        VisitRuleResult.objects.all().delete()
         QuestionAnswer.objects.all().delete()
         VisitActionPoint.objects.all().delete()
         VisitEntity.objects.all().delete()
@@ -428,6 +481,8 @@ def _swap(result: build.BuildResult, version: int) -> int:
         VisitEntity.objects.bulk_create(result.entities, batch_size=BATCH)
         copy_rows(QuestionAnswer, result.question_answers({v.key: v for v in visits}))
         VisitActionPoint.objects.bulk_create(result.links, batch_size=BATCH)
+        if scored is not None:
+            copy_rows(VisitRuleResult, scored.results)
         transaction.on_commit(people.forget)  # the team names, read again by the next look-up
     return len(visits)
 

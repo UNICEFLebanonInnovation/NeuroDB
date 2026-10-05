@@ -19,6 +19,7 @@ from neurodb.fmm.models import (
     Visit,
     VisitActionPoint,
     VisitEntity,
+    VisitRuleResult,
 )
 from neurodb.geo.models import Location
 from neurodb.reports.overview import governorate_key
@@ -451,7 +452,15 @@ TEXTS = (
     "Referred through the PSEA channel",
     "BLN classes, Homework support",
 )
-DATA_TABLES = (Visit, VisitEntity, QuestionAnswer, VisitActionPoint, FieldMapping, RefreshRequest)
+DATA_TABLES = (
+    Visit,
+    VisitEntity,
+    QuestionAnswer,
+    VisitActionPoint,
+    VisitRuleResult,
+    FieldMapping,
+    RefreshRequest,
+)
 
 
 def _stored_texts():
@@ -469,7 +478,7 @@ def test_no_data_table_holds_a_narrative_or_an_answer(fm_world, monkeypatch):
     monkeypatch.setattr(refresh.background, "start_command", lambda *args: 1)
     refresh.request("scores", "test")  # a request row too
     _refresh()
-    assert Visit.objects.exists() and QuestionAnswer.objects.exists()
+    assert Visit.objects.exists() and QuestionAnswer.objects.exists() and VisitRuleResult.objects.exists()
     for model, text in _stored_texts():
         for canary in TEXTS:
             assert canary not in text, (model, canary)

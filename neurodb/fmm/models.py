@@ -20,6 +20,7 @@ from __future__ import annotations
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
+from django.core.validators import MaxValueValidator
 from django.db import models
 from django.urls import reverse
 
@@ -331,3 +332,154 @@ class RefreshRequest(models.Model):
     @classmethod
     def load(cls) -> RefreshRequest:
         return cls.objects.get_or_create(pk=1)[0]
+
+
+# ------------------------------------------------------------------------------------------ quality rules
+class RuleSetting(models.Model):
+    """One quality rule (R1-R6) as administrators set it: on or off, its points, its threshold and its
+    parameters (``fmm.rules``). Every save is recorded as a new rules version (``RuleSetVersion``) and
+    the scores are recomputed in the background."""
+
+    code = models.CharField(max_length=4, primary_key=True)  # R1..R6
+    label = models.CharField(max_length=60)  # "Completeness", ...
+    enabled = models.BooleanField(default=True)
+    points = models.PositiveSmallIntegerField(validators=[MaxValueValidator(50)])
+    threshold = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    params = models.JSONField(default=dict, blank=True)  # checked per rule in clean()
+    description = models.TextField(blank=True)  # plain words: what the rule checks
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("code",)
+        verbose_name = "quality rule"
+        verbose_name_plural = "quality rules"
+
+    def __str__(self):
+        return f"{self.code} {self.label}"
+
+    def clean(self):
+        from . import rules
+
+        self.params = rules.validate_rule(self.code, self.points, self.threshold, self.params)
+
+
+def default_urgency_weights() -> dict:
+    return {
+        "off_track": 40,
+        "constrained": 20,
+        "quality_gap": 25,
+        "unscored_reported": 10,
+        "per_flag": 5,
+        "flags_max": 15,
+        "no_follow_up": 20,
+        "ap_overdue": 12,
+        "ap_high_overdue": 8,
+        "ap_high_open": 5,
+        "follow_up_max": 20,
+        "report_late": 15,
+    }
+
+
+def default_role_flag_answers() -> dict:
+    # answer codes (QuestionAnswer.answer_code) that flag a visit for a role
+    return {"psea": ["yes", "constrained", "off_track"]}
+
+
+def default_question_patterns() -> dict:
+    return {
+        "q1": ["implemented as planned", "activities been implemented"],
+        "q2": ["^q2", "^q 2", "activities monitored"],
+        "q3": ["^q3", "^q 3"],
+        "psea": ["psea", "sexual exploitation", "sexual abuse"],
+    }
+
+
+class ScoreSetting(models.Model):
+    """The one row (pk=1) of how scores, bands, urgency and the question roles are worked out
+    (``fmm.score``). Versioned and rescored like the rules."""
+
+    min_evaluated_points = models.PositiveSmallIntegerField(default=30)
+    band_high = models.PositiveSmallIntegerField(default=80)  # High >= 80
+    band_medium = models.PositiveSmallIntegerField(default=50)  # Medium 50-79, Low < 50
+    high_flag_count = models.PositiveSmallIntegerField(default=3)
+    urgency_red = models.PositiveSmallIntegerField(default=70)
+    urgency_amber = models.PositiveSmallIntegerField(default=40)
+    urgency_weights = models.JSONField(default=default_urgency_weights)  # a new dict for every row
+    follow_up_days = models.PositiveSmallIntegerField(default=14)
+    report_late_days = models.PositiveSmallIntegerField(default=30)
+    question_patterns = models.JSONField(default=default_question_patterns)
+    role_flag_answers = models.JSONField(default=default_role_flag_answers)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "score settings"
+        verbose_name_plural = "score settings"
+
+    def __str__(self):
+        return "Score settings"
+
+    @classmethod
+    def load(cls) -> ScoreSetting:
+        return cls.objects.get_or_create(pk=1)[0]
+
+    def clean(self):
+        from . import score
+
+        score.validate_settings(self)
+
+
+class RuleSetVersion(models.Model):
+    """One saved state of the quality rules, the score settings and the keys administrators pinned:
+    who saved it, when and why. A rollback writes a new version (``restored_from``); none is edited."""
+
+    number = models.PositiveIntegerField(unique=True)
+    # {"rules": [...], "score": {...}, "mappings": {"fm_questions.answer": "value", ...}}
+    snapshot = models.JSONField()
+    note = models.CharField(max_length=200)  # what changed and why
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_by_name = models.CharField(max_length=150)  # kept when the user is deleted
+    created_at = models.DateTimeField(auto_now_add=True)
+    restored_from = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        ordering = ("-number",)
+        verbose_name = "rules version"
+        verbose_name_plural = "rule versions"
+
+    def __str__(self):
+        return f"Rules v{self.number}"
+
+
+class VisitRuleResult(models.Model):
+    """What one quality rule found on one visit: passed, failed (a flag), not available, not
+    applicable or switched off, with the points earned and a code-written sentence (never text from
+    the data)."""
+
+    visit = models.ForeignKey(Visit, on_delete=models.CASCADE, related_name="rule_results")
+    rule = models.CharField(max_length=4)  # R1..R6
+    status = models.CharField(max_length=4, db_index=True)  # pass | fail | na | nap | off
+    points = models.DecimalField(max_digits=4, decimal_places=1, default=0)  # earned, never above max
+    max_points = models.PositiveSmallIntegerField(default=0)
+    detail_key = models.CharField(max_length=40, blank=True)  # "missing:narrative,q2", "below_threshold"
+    detail = models.CharField(max_length=300, blank=True)  # code-written; never text from the data
+    measure = models.FloatField(null=True, blank=True)  # 46.2 (% answered), 9 (words), 2 (cues)
+
+    class Meta:
+        ordering = ("visit", "rule")
+        constraints = [models.UniqueConstraint(fields=["visit", "rule"], name="fmm_visit_rule")]
+        indexes = [models.Index(fields=["rule", "status"])]
+        verbose_name = "rule result"
+        verbose_name_plural = "rule results"
+
+    def __str__(self):
+        return f"{self.visit_id} {self.rule} {self.status}"

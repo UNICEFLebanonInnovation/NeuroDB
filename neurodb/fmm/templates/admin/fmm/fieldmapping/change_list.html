@@ -12,7 +12,7 @@
   <p class="nd-list-note">
     <span class="material-symbols-outlined" aria-hidden="true">info</span>
     <span>{% blocktrans trimmed with pct=found.min_coverage %}
-      eTools never documented the keys of its field monitoring records, so Monitoring insights reads every record and chooses, for each field it needs, the first listed key that fills at least {{ pct }} of the records (else the fullest one). A field marked "Found, another key is fuller" deserves a look. Examples are shortened and cleaned: e-mail addresses, links, phone numbers and names are removed, and a key that holds a person shows "(withheld)".
+      eTools never documented the keys of its field monitoring records, so Monitoring insights reads every record and chooses, for each field it needs, the first listed key that fills at least {{ pct }} of the records (else the fullest one). A field marked "Found, another key is fuller" deserves a look. An administrator can pin another key the data shows (Change, in the Pinned key column), with a note: the pin is versioned with the quality rules (Rule versions) and the visits are rebuilt in the background. Examples are shortened and cleaned: e-mail addresses, links, phone numbers and names are removed, and a key that holds a person shows "(withheld)".
     {% endblocktrans %}</span>
   </p>
 
@@ -74,6 +74,7 @@
           {% trans "Not read yet." %}
         {% endif %}
         {% if ds.r2 %}<span class="{% if ds.r2.warn %}nd-found__warn{% endif %}">{{ ds.r2.text }}</span>{% endif %}
+        {% if ds.name == "fm_questions" and can_pin %}<a class="nd-link" href="{% url 'admin:fmm_questions' %}">{% trans "Questions found: which question is Q1, Q2, Q3 and PSEA" %}</a>{% endif %}
       </p>
       <div class="nd-scroll">
         <table class="nd-jobs nd-found__table">
@@ -99,7 +100,10 @@
                   {% for c in row.candidates %}<code>{{ c.key }}</code> {{ c.pct }}{% if not forloop.last %} · {% endif %}{% empty %}<small>{% trans "none of" %} {{ row.listed|join:", " }}</small>{% endfor %}
                 </td>
                 <td><small>{{ row.needed_by }}</small></td>
-                <td>{% if row.override %}<code>{{ row.override }}</code>{% else %}{% trans "auto" %}{% endif %}</td>
+                <td>
+                  {% if row.override %}<code>{{ row.override }}</code>{% else %}{% trans "auto" %}{% endif %}
+                  {% if can_pin and row.pk %}<br><a class="nd-link" href="{% url 'admin:fmm_fieldmapping_change' row.pk %}">{% trans "Change" %}</a>{% endif %}
+                </td>
               </tr>
             {% endfor %}
           </tbody>

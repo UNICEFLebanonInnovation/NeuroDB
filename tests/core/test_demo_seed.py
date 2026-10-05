@@ -104,6 +104,7 @@ def test_demo_field_monitoring_adds_without_moving_the_rest(monkeypatch):
         "fmm.VisitEntity",
         "fmm.QuestionAnswer",
         "fmm.VisitActionPoint",
+        "fmm.VisitRuleResult",
         "fmm.KeyProbe",
     }
     assert dm.ActionPoint.objects.filter(datamart_id__gt=8000).count() == (
@@ -137,6 +138,25 @@ def test_demo_field_monitoring_adds_without_moving_the_rest(monkeypatch):
     # the new rows are linked by the FM demo; the first 50 by the refresh, the same with or without it
     assert new.exclude(intervention=None).exists()
     assert findings.filter(datamart_id__lte=50).exclude(intervention=None).count() == 50
+    # ... which scores them: red and amber visits, every rule evaluated somewhere, a reported visit with
+    # nothing rated (a monitoring gap) and a PSEA-flagged visit
+    from neurodb.fmm.models import VisitRuleResult
+
+    assert refreshed.details["rules_version"] == 1 and refreshed.details["scored"] > 0
+    assert (
+        Visit.objects.filter(urgency_band="red").exists()
+        and Visit.objects.filter(urgency_band="amber").exists()
+    )
+    evaluated = VisitRuleResult.objects.filter(status__in=("pass", "fail")).values_list("rule", flat=True)
+    assert set(evaluated) == {"R1", "R2", "R3", "R4", "R5", "R6"}
+    assert VisitRuleResult.objects.filter(status="fail").values("rule").distinct().count() >= 5
+    assert Visit.objects.filter(status_group="reported", entities_rated=0).exists()
+    assert Visit.objects.filter(psea_flag=True).exists() and Visit.objects.filter(psea_flag=False).exists()
+    assert set(Visit.objects.exclude(hact_q1="").values_list("hact_q1", flat=True)) == {
+        "on_track",
+        "constrained",
+        "off_track",
+    }
 
     # documents in shape A
     questions = list(

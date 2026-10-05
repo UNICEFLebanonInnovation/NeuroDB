@@ -252,6 +252,7 @@ class _Answer:
         "entity",
         "partner_id",
         "applies_to",
+        "role",
     )
 
     def __init__(
@@ -269,6 +270,7 @@ class _Answer:
         self.entity: VisitEntity | None = None
         self.partner_id: int | None = None
         self.applies_to = "visit"
+        self.role = ""  # given by the scoring step (score.score_visits)
 
     def as_model(self, visit: Visit | None) -> QuestionAnswer:
         parsed = self.parsed
@@ -282,6 +284,7 @@ class _Answer:
             question_text=self.question_text,
             question_order=self.question_order,
             is_hact=self.is_hact,
+            role=self.role,
             applies_to=self.applies_to if visit is not None else "",
             answer_code=parsed.answer_code,
             answered=parsed.answered,
@@ -312,6 +315,8 @@ class BuildResult:
     entities: list[VisitEntity] = field(default_factory=list)
     answers: list[_Answer] = field(default_factory=list)
     links: list[VisitActionPoint] = field(default_factory=list)
+    # the action points of each visit (by key), for urgency
+    action_point_facts: dict[str, list[ActionPointFacts]] = field(default_factory=dict)
     findings: int = 0  # finding rows read
     questions: int = 0  # answer records read
     failed: int = 0  # rows, records or visits skipped by an error
@@ -643,6 +648,7 @@ class _Builder:
             self.result.links.append(VisitActionPoint(visit=visit, action_point_id=pk, matched_by=how))
             self.links_by_key[visit.key].append(facts)
         today = self.ctx.today
+        self.result.action_point_facts = dict(self.links_by_key)
         for visit in self.result.visits:
             for name, n in ap_counts(self.links_by_key.get(visit.key, ()), today).items():
                 setattr(visit, name, min(n, 32767))

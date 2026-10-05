@@ -89,6 +89,20 @@ def test_shape_d_finds_nothing_and_says_so(fm_questions_variant):
     assert questions["unanswered_seen"] is False
 
 
+def test_shape_d_leaves_r2_r3_and_r5_not_available_not_failed(fm_world, fm_questions_variant):
+    """Nothing read from the checklist answers: the rules that need them say "not available", they do
+    not flag the visits."""
+    from neurodb.fmm.models import VisitRuleResult
+
+    fm_questions_variant("D")
+    run = refresh.run(triggered_by="test")
+    assert not QuestionAnswer.objects.exists() and "fm_questions.answer" in run.details["fields_not_found"]
+    results = VisitRuleResult.objects.filter(rule__in=("R2", "R3", "R5"))
+    assert set(results.filter(visit__status_group="reported").values_list("status", flat=True)) == {"na"}
+    assert not results.filter(status="fail").exists()
+    assert Visit.objects.filter(status_group="reported").exclude(quality_score=None).exists()  # R1 and R4
+
+
 def test_the_probe_measures_the_answers_given(fm_questions_variant):
     fm_questions_variant("A")
     questions = _probe().details["questions"]

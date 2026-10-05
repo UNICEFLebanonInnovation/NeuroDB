@@ -1,0 +1,71 @@
+{% extends "admin/base_site.html" %}
+{% load i18n humanize unfold %}
+
+{% comment %}
+  Questions found (context: fmm.admin.questions_view, Administrators only): the checklist questions
+  the answers hold, with their records, the HACT flag, the role the score settings give each now and
+  the share answered; "Use as" buttons give a question a role (a pattern of its whole text), recorded
+  as a rules version, and the scores are recomputed in the background.
+{% endcomment %}
+
+{% block content %}
+<div id="content-main" class="nd-found">
+  <p class="nd-list-note">
+    <span class="material-symbols-outlined" aria-hidden="true">info</span>
+    <span>{% blocktrans trimmed with fields_url=fields_url settings_url=settings_url %}
+      The quality rules and the HACT Q1 and PSEA figures need to know which checklist question is Q1 (activities implemented as planned), Q2 (activities monitored), Q3 (key observations) and the PSEA question. The score settings find them by words of their text. When a question has the wrong role or none, "Use as" gives it the right one: its whole text becomes a pattern of that role, recorded as a new rules version, and the scores are recomputed in the background. Back to <a class="nd-link" href="{{ fields_url }}">Fields found</a> · <a class="nd-link" href="{{ settings_url }}">Score settings</a>.
+    {% endblocktrans %}</span>
+  </p>
+
+  {% trans "Checklist questions in the answers" as card_title %}
+  {% component "unfold/components/card.html" with title=card_title title_icon="quiz" %}
+    {% if run %}
+      <p class="mb-3">{% blocktrans trimmed with when=run.finished_at|date:"j M Y, H:i" %}As the visits were built on {{ when }}; the roles are those the settings give now.{% endblocktrans %}</p>
+    {% endif %}
+    {% if questions %}
+      <div class="nd-scroll">
+        <table class="nd-jobs nd-found__table">
+          <thead>
+            <tr>
+              <th scope="col">{% trans "Question, as written" %}</th>
+              <th scope="col">{% trans "Records" %}</th>
+              <th scope="col">{% trans "Visits" %}</th>
+              <th scope="col">{% trans "HACT" %}</th>
+              <th scope="col">{% trans "Answered" %}</th>
+              <th scope="col">{% trans "Role now" %}</th>
+              <th scope="col">{% trans "Give it a role" %}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for q in questions %}
+              <tr>
+                <th scope="row">{{ q.question_text|default:_("(no question text)") }}</th>
+                <td>{{ q.records|intcomma }}</td>
+                <td>{{ q.visits|intcomma }}</td>
+                <td>{% if q.is_hact %}{% trans "yes" %}{% elif q.is_hact is None %}—{% else %}{% trans "no" %}{% endif %}</td>
+                <td>{{ q.share }}</td>
+                <td>{% if q.role_label %}<strong>{{ q.role_label }}</strong>{% if q.pinned %} <small>{% trans "(set here)" %}</small>{% endif %}{% else %}—{% endif %}</td>
+                <td>
+                  {% if q.question_text %}
+                    <form method="post" class="flex flex-wrap gap-1">
+                      {% csrf_token %}
+                      <input type="hidden" name="question_text" value="{{ q.question_text }}">
+                      {% for code, label in roles %}
+                        {% if code != q.role %}
+                          <button type="submit" name="role" value="{{ code }}" class="nd-link px-1">{% blocktrans trimmed %}Use as {{ label }}{% endblocktrans %}</button>
+                        {% endif %}
+                      {% endfor %}
+                    </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p>{% trans "No checklist answer has been read yet: the questions appear after a refresh of Monitoring insights that finds the checklist answers (fm-questions)." %}</p>
+    {% endif %}
+  {% endcomponent %}
+</div>
+{% endblock %}

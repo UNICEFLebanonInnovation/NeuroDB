@@ -1,28 +1,60 @@
-"""Monitoring insights in the admin, read-only for now:
+"""Monitoring insights in the admin. Administrators change the settings; other staff read them.
 
 - **Fields found**: which keys the eTools field monitoring records hold and which key each field is read
-  from, as the last refresh found them, with the rates that tell whether the data can be trusted.
-  Pinning a key (an override, versioned with the quality rules) arrives with the rules;
-- **Visits**: the visits the refresh built, with their entity rows, action points and data problems,
-  for checking the data;
-- **Visit reviews**: the marks sections put on visits."""
+  from, as the last refresh found them, with the rates that tell whether the data can be trusted. An
+  administrator can pin another key the data shows (an override), with a note;
+- **Questions found**: the checklist questions the answers hold, the role each one has (Q1, Q2, Q3,
+  PSEA) and buttons that give a question its role;
+- **Quality rules** and **Score settings**: R1-R6, the score bands, urgency and the question roles,
+  each save with a note, with a preview of its effect before it is saved;
+- **Rule versions**: every saved state of the rules, the score settings and the pinned keys, with who,
+  when and why, and "Restore this version";
+- **Visits**: the visits the refresh built, with their entity rows, action points, rule results and
+  data problems, for checking the data;
+- **Visit reviews**: the marks sections put on visits.
+
+Every save of a rule, a score setting, a question's role, a pinned key or a restore records a new rules
+version (``fmm.versions``) and asks for the scores (or, for a key, the visits) to be recomputed in the
+background; the admin request never waits for it."""
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from typing import Any
 
+from django import forms
 from django.conf import settings
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.core.exceptions import ValidationError
+from django.db.models import Count, Q
+from django.http import Http404, HttpResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
+from django.urls import path, reverse
 from django.utils.translation import gettext as _
 from unfold.admin import ModelAdmin, TabularInline
+from unfold.decorators import action
 
 from neurodb.core.models import SyncRun
 from neurodb.integrations import background
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
-from . import fields, status
-from .models import FieldMapping, KeyProbe, Visit, VisitActionPoint, VisitEntity, VisitReview
+from . import access, fields, privacy, rules, status, versions
+from .models import (
+    FieldMapping,
+    KeyProbe,
+    QuestionAnswer,
+    RuleSetting,
+    RuleSetVersion,
+    ScoreSetting,
+    Visit,
+    VisitActionPoint,
+    VisitEntity,
+    VisitReview,
+    VisitRuleResult,
+    default_urgency_weights,
+)
 
 STATE_TONES = {
     FieldMapping.State.FOUND: "ok",
@@ -222,6 +254,7 @@ def fields_found() -> dict[str, Any]:
                     "listed": fields.CANDIDATES[name][field],
                     "needed_by": fields.NEEDED_BY.get((name, field), ""),
                     "override": mapping.override_key if mapping else "",
+                    "pk": mapping.pk if mapping else None,
                 }
             )
         keys = [
@@ -266,28 +299,547 @@ def fields_found() -> dict[str, Any]:
     }
 
 
-@admin.register(FieldMapping)
-class FieldMappingAdmin(ModelAdmin):
-    """Fields found: the keys the eTools field monitoring records hold, the key each field is read
-    from and why, and the rates of the last reading. Read-only for now."""
+# ------------------------------------------------------------------------------------------ editing
+class JSONTextField(forms.JSONField):
+    """A JSON setting in a textarea, laid out on several lines so that it can be read and edited."""
 
-    change_list_template = "admin/fmm/fieldmapping/change_list.html"
-    list_display = ("dataset", "field", "chosen_key", "state", "coverage")
-    list_filter = ("dataset", "state")
-    search_fields = ("field", "chosen_key")
+    widget = forms.Textarea(attrs={"rows": 10, "class": "font-mono", "spellcheck": "false"})
+
+    def __init__(self, *args, order: tuple[str, ...] = (), **kwargs):
+        self.order = order  # the keys of an object shown first, in this order (the database keeps none)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+        if isinstance(value, str):  # what was typed, shown back as it was when it is not valid
+            return value
+        if isinstance(value, dict) and self.order:
+            first = {key: value[key] for key in self.order if key in value}
+            value = {**first, **{key: v for key, v in value.items() if key not in first}}
+        return json.dumps(value, ensure_ascii=False, indent=2)
+
+
+class _NoteForm(forms.ModelForm):
+    """A change form that asks why: the note is kept with the rules version the save records."""
+
+    change_note = forms.CharField(
+        label=_("Change note"),
+        max_length=versions.NOTE_CHARS,
+        help_text=_(
+            "Required: what changed and why. It is kept with the new rules version, with your name and the "
+            "time, and the change can be rolled back from Rule versions."
+        ),
+    )
+
+
+class _VersionedAdmin(ModelAdmin):
+    """Settings that are versioned with the quality rules (rules, score settings, pinned keys).
+    Administrators change them, never add or delete them; every save records a rules version and asks
+    for the scores (``full_refresh``: the visits) to be recomputed in the background. A *Preview effect*
+    button (``preview_url``) scores this year's visits in memory with the form's values, unsaved."""
+
+    full_refresh = False
+    preview = True  # the Preview effect button
+    change_form_template = "admin/fmm/versioned_change_form.html"
 
     def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
         return False
 
     def has_delete_permission(self, request, obj=None):
         return False
 
+    def has_change_permission(self, request, obj=None):
+        return access.is_admin(request.user)
+
+    def version_note(self, obj, form) -> str:
+        return form.cleaned_data["change_note"]
+
+    def save_model(self, request, obj, form, change):
+        obj.updated_by = request.user
+        super().save_model(request, obj, form, change)
+        version = versions.record_rules(request.user, self.version_note(obj, form))
+        versions.start_rescore(request.user, full=self.full_refresh)
+        request._fmm_saved = True
+        messages.success(request, versions.saved_message(version, full=self.full_refresh))
+
+    def message_user(self, request, message, level=messages.INFO, *args, **kwargs):
+        if getattr(request, "_fmm_saved", False) and level == messages.SUCCESS:
+            return  # the rules version's message says it already
+        super().message_user(request, message, level, *args, **kwargs)
+
+    # the preview of a change, before it is saved
+    def preview_changes(self, obj) -> tuple[dict, dict]:
+        """(rule changes, score changes) of ``obj`` as the form left it, for ``versions.preview``."""
+        return {}, {}
+
+    def get_urls(self):
+        if not self.preview:
+            return super().get_urls()
+        return [
+            path(
+                "<path:object_id>/preview/",
+                self.admin_site.admin_view(self.preview_view),
+                name=f"{self.opts.app_label}_{self.opts.model_name}_preview",
+            ),
+            *super().get_urls(),
+        ]
+
+    def preview_view(self, request, object_id):
+        """The effect of the form's values (posted by the *Preview effect* button), scored in memory over
+        this year's visits; nothing is saved. Administrators only."""
+        if not access.is_admin(request.user) or request.method != "POST":
+            raise Http404
+        obj = self.get_object(request, object_id)
+        if obj is None:
+            raise Http404
+        data = request.POST.copy()
+        data["change_note"] = data.get("change_note") or "preview"  # the note is asked for at the save
+        form = self.get_form(request, obj, change=True)(data, request.FILES, instance=obj)
+        context: dict[str, Any] = {"errors": [], "sentence": "", "result": None}
+        if form.is_valid():
+            rule_changes, score_changes = self.preview_changes(form.instance)
+            result = versions.preview(rule_changes, score_changes)
+            codes = list(rule_changes) or None
+            context.update(result=result, sentence=versions.describe(result, codes))
+        else:
+            context["errors"] = [
+                f"{form.fields[name].label if name in form.fields else ''}: {message}".lstrip(": ")
+                for name, errors in form.errors.items()
+                for message in errors
+            ]
+        return HttpResponse(render_to_string("admin/fmm/_preview.html", context, request=request))
+
+    def render_change_form(self, request, context, add=False, change=False, form_url="", obj=None):
+        if self.preview and obj is not None and access.is_admin(request.user):
+            name = f"admin:{self.opts.app_label}_{self.opts.model_name}_preview"
+            context["preview_url"] = reverse(name, args=[obj.pk])
+        return super().render_change_form(request, context, add, change, form_url, obj)
+
+
+def _last_results(code: str) -> str:
+    """What the last refresh found for one rule, in plain words."""
+    run = status.last_refresh()
+    counts = (((run.details or {}) if run else {}).get("rule_results") or {}).get(code)
+    if run is None or counts is None:
+        return _("Not computed yet: shown after the next refresh of Monitoring insights.")
+    evaluated = counts.get("pass", 0) + counts.get("fail", 0)
+    return _(
+        "Last refresh (%(when)s, rules v%(version)s): evaluated on %(evaluated)s visits, %(flagged)s of them "
+        "flagged; not available on %(na)s; does not apply to %(nap)s; switched off on %(off)s."
+    ) % {
+        "when": run.finished_at.strftime("%d %b %Y, %H:%M") if run.finished_at else "—",
+        "version": (run.details or {}).get("rules_version", "—"),
+        "evaluated": f"{evaluated:,}",
+        "flagged": f"{counts.get('fail', 0):,}",
+        "na": f"{counts.get('na', 0):,}",
+        "nap": f"{counts.get('nap', 0):,}",
+        "off": f"{counts.get('off', 0):,}",
+    }
+
+
+# ------------------------------------------------------------------------------------------ fields found
+class FieldMappingForm(_NoteForm):
+    """Pin a key the data shows to a field, or leave the choice to the refresh ("auto")."""
+
+    override_key = forms.ChoiceField(
+        label=_("Pinned key"),
+        required=False,
+        help_text=_(
+            "Auto: the refresh chooses the key (the first listed key that fills enough records). A pinned "
+            "key is used as long as the data shows it. The visits are rebuilt in the background after the "
+            "save."
+        ),
+    )
+
+    class Meta:
+        model = FieldMapping
+        fields = ("override_key",)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        mapping = self.instance
+        person_field = (mapping.dataset, mapping.field) in fields.PERSON_FIELDS
+        choices = [("", _("auto (the refresh chooses)"))]
+        shown = set()
+        for key, records, total in KeyProbe.objects.filter(dataset=mapping.dataset).values_list(
+            "key", "records", "total"
+        ):
+            if privacy.person_like(key) and not person_field:
+                continue  # a key that holds a person is never read as another field
+            shown.add(key)
+            label = _("%(key)s (%(n)s of %(total)s records)") % {
+                "key": key,
+                "n": f"{records:,}",
+                "total": f"{total:,}",
+            }
+            choices.append((key, label))
+        if mapping.override_key and mapping.override_key not in shown:
+            choices.append(
+                (mapping.override_key, _("%(key)s (not in the data)") % {"key": mapping.override_key})
+            )
+        self.fields["override_key"].choices = choices
+
+
+@admin.register(FieldMapping)
+class FieldMappingAdmin(_VersionedAdmin):
+    """Fields found: the keys the eTools field monitoring records hold, the key each field is read
+    from and why, and the rates of the last reading. Administrators pin another key (an override),
+    versioned with the quality rules; a pinned key rebuilds the visits in the background."""
+
+    full_refresh = True
+    preview = False  # a key changes the visits, not only their scores: nothing to score in memory
+    form = FieldMappingForm
+    change_list_template = "admin/fmm/fieldmapping/change_list.html"
+    change_form_template = None
+    list_display = ("dataset", "field", "chosen_key", "state", "coverage")
+    list_filter = ("dataset", "state")
+    search_fields = ("field", "chosen_key")
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "dataset",
+                    "field",
+                    "chosen_key",
+                    "state_shown",
+                    "coverage_shown",
+                    "candidates_shown",
+                )
+            },
+        ),
+        (_("Pinned key"), {"fields": ("override_key", "change_note")}),
+        (None, {"fields": ("needed_by", "updated_by", "updated_at")}),
+    )
+    readonly_fields = (
+        "dataset",
+        "field",
+        "chosen_key",
+        "state_shown",
+        "coverage_shown",
+        "candidates_shown",
+        "needed_by",
+        "updated_by",
+        "updated_at",
+    )
+
     def changelist_view(self, request, extra_context=None):
-        extra_context = {**(extra_context or {}), "found": fields_found()}
+        extra_context = {
+            **(extra_context or {}),
+            "found": fields_found(),
+            "can_pin": access.is_admin(request.user),
+        }
         return super().changelist_view(request, extra_context)
+
+    def version_note(self, obj, form) -> str:
+        key = obj.override_key or "auto"
+        return f"Field override: {obj.dataset}.{obj.field} → {key}: {form.cleaned_data['change_note']}"
+
+    def save_model(self, request, obj, form, change):
+        if "override_key" not in form.changed_data:
+            request._fmm_saved = True
+            messages.info(request, _("The pinned key did not change: nothing was recorded."))
+            return
+        super().save_model(request, obj, form, change)
+
+    def site_urls(self):
+        """Questions found, at admin/fmm/questions/ (``NeuroDBAdminSite.get_urls``)."""
+        return [path("fmm/questions/", self.admin_site.admin_view(questions_view), name="fmm_questions")]
+
+    @admin.display(description=_("state"))
+    def state_shown(self, obj):
+        return badge(FieldMapping.State(obj.state).label, STATE_TONES.get(obj.state))
+
+    @admin.display(description=_("records filled"))
+    def coverage_shown(self, obj):
+        return _pct(obj.coverage) if obj.chosen_key else "—"
+
+    @admin.display(description=_("keys listed, as found"))
+    def candidates_shown(self, obj):
+        found = [f"{c['key']} {_pct(c.get('coverage'))}" for c in obj.candidates or []]
+        return " · ".join(found) or _("none of %(keys)s") % {
+            "keys": ", ".join(fields.CANDIDATES.get(obj.dataset, {}).get(obj.field, ()))
+        }
+
+    @admin.display(description=_("needed for"))
+    def needed_by(self, obj):
+        return fields.NEEDED_BY.get((obj.dataset, obj.field), "")
+
+
+# ------------------------------------------------------------------------------------------ questions found
+def questions_found() -> list[dict[str, Any]]:
+    """Every checklist question the answers hold, with its records, whether eTools flags it as HACT,
+    the role the score settings give it now and the share of its records answered."""
+    patterns = ScoreSetting.load().question_patterns
+    patterns = patterns if isinstance(patterns, dict) else {}
+    rows = (
+        QuestionAnswer.objects.order_by()
+        .values("question_text", "is_hact")
+        .annotate(
+            records=Count("pk"),
+            answered=Count("pk", filter=Q(answered=True)),
+            visits=Count("visit_id", distinct=True),
+        )
+        .order_by("-records", "question_text")
+    )
+    out = []
+    for row in rows:
+        role = rules.assign_roles(row["question_text"], row["is_hact"], patterns)
+        out.append(
+            {
+                **row,
+                "role": role,
+                "role_label": versions.ROLE_LABELS.get(role, ""),
+                "share": _pct(row["answered"] / row["records"] if row["records"] else None),
+                "pinned": versions.question_pattern(row["question_text"]) in (patterns.get(role) or ()),
+            }
+        )
+    return out
+
+
+def questions_view(request):
+    """Questions found (Administrators only): the checklist questions, their roles, and buttons that
+    give a question a role (Q1, Q2, Q3 or PSEA), recorded as a rules version."""
+    if not access.is_admin(request.user):
+        raise Http404
+    if request.method == "POST":
+        role, text = request.POST.get("role", ""), request.POST.get("question_text", "")
+        if role not in versions.ROLE_LABELS or not text.strip():
+            messages.error(request, _("Choose a question and a role."))
+        else:
+            try:
+                version = versions.pin_question(role, text, request.user)
+            except (ValidationError, ValueError) as exc:
+                problems = exc.messages if isinstance(exc, ValidationError) else [str(exc)]
+                messages.error(request, _("Not saved: %(why)s") % {"why": " ".join(problems)})
+            else:
+                messages.success(request, versions.saved_message(version))
+        return redirect("admin:fmm_questions")
+    run = status.last_build()
+    context = {
+        **admin.site.each_context(request),
+        "title": _("Questions found"),
+        "subtitle": None,
+        "questions": questions_found(),
+        "roles": list(versions.ROLE_LABELS.items()),
+        "run": run,
+        "patterns": ScoreSetting.load().question_patterns,
+        "opts": FieldMapping._meta,
+        "fields_url": reverse("admin:fmm_fieldmapping_changelist"),
+        "settings_url": reverse("admin:fmm_scoresetting_changelist"),
+    }
+    return render(request, "admin/fmm/questions.html", context)
+
+
+# ------------------------------------------------------------------------------------------ quality rules
+class RuleSettingForm(_NoteForm):
+    params = JSONTextField(
+        label=_("Parameters"),
+        required=False,
+        help_text=_(
+            'The rule\'s settings as JSON, e.g. {"strict": false}. Lists of words are compared in lower '
+            "case, without accents or punctuation; each list holds at most 60 entries of 1 to 80 characters."
+        ),
+    )
+
+    class Meta:
+        model = RuleSetting
+        fields = ("enabled", "points", "threshold", "params", "description")
+
+    def clean_params(self):
+        return self.cleaned_data.get("params") or {}
+
+
+@admin.register(RuleSetting)
+class RuleSettingAdmin(_VersionedAdmin):
+    """The quality rules R1-R6: points, threshold and parameters, each save with a note and a rules
+    version, previewed before it is saved."""
+
+    form = RuleSettingForm
+    list_display = ("code", "label", "enabled", "points", "threshold", "updated_by", "updated_at")
+    list_select_related = ("updated_by",)
+    ordering = ("code",)
+    fieldsets = (
+        (None, {"fields": ("code", "label", "last_results")}),
+        (_("Settings"), {"fields": ("enabled", "points", "threshold", "params", "description")}),
+        (_("Why"), {"fields": ("change_note",)}),
+        (None, {"fields": ("updated_by", "updated_at")}),
+    )
+    readonly_fields = ("code", "label", "last_results", "updated_by", "updated_at")
+
+    def preview_changes(self, obj) -> tuple[dict, dict]:
+        values = {name: getattr(obj, name) for name in ("enabled", "points", "threshold", "params")}
+        return {obj.code: values}, {}
+
+    @admin.display(description=_("last refresh"))
+    def last_results(self, obj):
+        return _last_results(obj.code)
+
+
+class ScoreSettingForm(_NoteForm):
+    urgency_weights = JSONTextField(
+        order=tuple(default_urgency_weights()),
+        label=_("Urgency weights"),
+        help_text=_(
+            "Points each part of urgency adds (whole numbers from 0 to 100): off_track and constrained (the "
+            "worse of the rating and HACT Q1), quality_gap (times the share of the score missing), "
+            "unscored_reported, per_flag up to flags_max, no_follow_up, ap_overdue, ap_high_overdue and "
+            "ap_high_open up to follow_up_max, report_late."
+        ),
+    )
+    question_patterns = JSONTextField(
+        order=rules.ROLES,
+        label=_("Question patterns"),
+        help_text=_(
+            "How Q1, Q2, Q3 and the PSEA question are found among the checklist questions: words the "
+            'question contains, "^words" for the words it starts with, "=text" for its whole text '
+            "(Questions found writes these). At most 20 per role, 2 to 200 characters each."
+        ),
+    )
+    role_flag_answers = JSONTextField(
+        order=rules.ROLES,
+        label=_("Answers that flag"),
+        help_text=_(
+            'The answer codes that flag a visit for a question role, e.g. {"psea": ["yes"]}. Codes: '
+            "on_track, constrained, off_track, yes, no."
+        ),
+    )
+
+    class Meta:
+        model = ScoreSetting
+        fields = (
+            "min_evaluated_points",
+            "band_high",
+            "band_medium",
+            "high_flag_count",
+            "urgency_red",
+            "urgency_amber",
+            "urgency_weights",
+            "follow_up_days",
+            "report_late_days",
+            "question_patterns",
+            "role_flag_answers",
+        )
+
+
+@admin.register(ScoreSetting)
+class ScoreSettingAdmin(_VersionedAdmin):
+    """The one row of score settings: bands, urgency and the question roles. Its list opens the row."""
+
+    form = ScoreSettingForm
+    fieldsets = (
+        (
+            _("Score and bands"),
+            {"fields": ("min_evaluated_points", ("band_high", "band_medium"), "high_flag_count")},
+        ),
+        (
+            _("Urgency"),
+            {
+                "fields": (
+                    ("urgency_red", "urgency_amber"),
+                    "urgency_weights",
+                    ("follow_up_days", "report_late_days"),
+                )
+            },
+        ),
+        (_("Question roles"), {"fields": ("question_patterns", "role_flag_answers")}),
+        (_("Why"), {"fields": ("change_note",)}),
+        (None, {"fields": ("updated_by", "updated_at")}),
+    )
+    readonly_fields = ("updated_by", "updated_at")
+
+    def changelist_view(self, request, extra_context=None):
+        return redirect("admin:fmm_scoresetting_change", ScoreSetting.load().pk)
+
+    def preview_changes(self, obj) -> tuple[dict, dict]:
+        return {}, {name: getattr(obj, name) for name in versions.SCORE_FIELDS}
+
+
+# ------------------------------------------------------------------------------------------ versions
+def _shown(value: Any) -> str:
+    """A setting's value in a table: lists joined, objects as JSON, nothing as a dash."""
+    if value is None or value == "":
+        return "—"
+    if isinstance(value, bool):
+        return _("yes") if value else _("no")
+    if isinstance(value, list):
+        return ", ".join(_shown(v) for v in value) or "—"
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+def _difference_rows(version: RuleSetVersion, changed_only: bool = False) -> list[dict[str, Any]]:
+    rows = versions.differences(version.snapshot or {})
+    return [
+        {**row, "then": _shown(row["then"]), "now": _shown(row["now"])}
+        for row in rows
+        if row["changed"] or not changed_only
+    ]
+
+
+@admin.register(RuleSetVersion)
+class RuleSetVersionAdmin(ReadOnlyModelAdmin):
+    """Every saved state of the rules, the score settings and the pinned keys. Read-only: restoring a
+    version writes it back as a new version (Administrators only)."""
+
+    list_display = ("number", "note", "created_by_name", "created_at", "restored_from")
+    list_select_related = ("restored_from",)
+    search_fields = ("note", "created_by_name")
+    fields = ("number", "note", "created_by_name", "created_at", "restored_from", "differences_table")
+    readonly_fields = fields
+    actions_detail = ("restore_version",)
+
+    def has_restore_permission(self, request, obj=None):
+        return access.is_admin(request.user)
+
+    @admin.display(description=_("settings then and now"))
+    def differences_table(self, obj):
+        return render_to_string("admin/fmm/rulesetversion/_differences.html", {"rows": _difference_rows(obj)})
+
+    def get_urls(self):
+        return [
+            path(
+                "<int:pk>/restore/",
+                self.admin_site.admin_view(self.restore_view),
+                name="fmm_rulesetversion_restore",
+            ),
+            *super().get_urls(),
+        ]
+
+    @action(
+        description=_("Restore this version"),
+        url_path="restore-version",
+        icon="history",
+        permissions=["restore"],
+    )
+    def restore_version(self, request, object_id):
+        return redirect("admin:fmm_rulesetversion_restore", object_id)
+
+    def restore_view(self, request, pk):
+        """Confirm a restore with a note (Administrators only), then write the version back as a new one."""
+        if not access.is_admin(request.user):
+            raise Http404
+        version = get_object_or_404(RuleSetVersion, pk=pk)
+        note = request.POST.get("note", "").strip() if request.method == "POST" else ""
+        if request.method == "POST":
+            new = versions.restore_rules(version, request.user, note)
+            messages.success(
+                request,
+                _("Restored v%(old)s as rules v%(new)s. Scores will be recomputed in the background.")
+                % {"old": version.number, "new": new.number},
+            )
+            return redirect("admin:fmm_rulesetversion_change", new.pk)
+        rows = _difference_rows(version, changed_only=True)
+        context = {
+            **self.admin_site.each_context(request),
+            "title": _("Restore rules v%(n)s") % {"n": version.number},
+            "version": version,
+            "rows": rows,
+            "keys_change": any(row["group"] == "Pinned keys" for row in rows),
+            "opts": self.model._meta,
+            "note_chars": versions.NOTE_CHARS,
+        }
+        return render(request, "admin/fmm/rulesetversion/restore_confirm.html", context)
 
 
 # ------------------------------------------------------------------------------------------ visits
@@ -318,6 +870,8 @@ class VisitEntityInline(_ReadOnlyInline):
         "partner",
         "rating",
         "rating_raw",
+        "hact_q1",
+        "hact_q1_from",
         "narrative_words",
         "narrative_placeholder",
     )
@@ -331,6 +885,12 @@ class VisitActionPointInline(_ReadOnlyInline):
     model = VisitActionPoint
     fields = readonly_fields = ("action_point", "matched_by")
     verbose_name_plural = "action points raised from the visit"
+
+
+class VisitRuleResultInline(_ReadOnlyInline):
+    model = VisitRuleResult
+    fields = readonly_fields = ("rule", "status", "points", "max_points", "detail_key", "detail", "measure")
+    verbose_name_plural = "quality rules (pass, fail, na: not available, nap: does not apply, off)"
 
 
 @admin.register(Visit)
@@ -351,7 +911,7 @@ class VisitAdmin(ReadOnlyModelAdmin):
     search_fields = ("key", "reference", "reference_number", "partner__name", "partner__short_name")
     list_select_related = ("partner",)
     view_on_site = False
-    inlines = (VisitEntityInline, VisitActionPointInline)
+    inlines = (VisitRuleResultInline, VisitEntityInline, VisitActionPointInline)
     fieldsets = (
         (
             None,

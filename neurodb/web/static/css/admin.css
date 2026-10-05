@@ -90,3 +90,9 @@
 .nd-found__warn, .nd-found__rates .nd-found__warn .material-symbols-outlined { color: var(--color-orange-700, #c2410c); }
 .dark .nd-found__warn, .dark .nd-found__rates .nd-found__warn .material-symbols-outlined { color: var(--color-orange-400, #fb923c); }
 .nd-found__values { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 24px; }
+/* Monitoring insights > a quality rule or the score settings: "Preview effect" before saving. */
+.nd-preview { display: flex; flex-direction: column; gap: .5rem; margin: 1rem 0; padding: .75rem 1rem; border: 1px dashed var(--color-base-300); border-radius: 8px; font-size: .875rem; }
+.dark .nd-preview { border-color: var(--color-base-700); }
+.nd-preview__button { align-self: flex-start; }
+.nd-preview__result p { margin: .15rem 0; }
+.nd-preview__errors { margin: .25rem 0 0 1.25rem; list-style: disc; }

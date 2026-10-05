@@ -1,0 +1,23 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% comment %}
+  The change form of a quality rule or of the score settings: below the fields, a "Preview effect"
+  button that posts the form's values (not saved) to the preview view and shows how many visits each
+  rule would flag, the average quality and the visits scored, now and with the change.
+{% endcomment %}
+
+{% block after_field_sets %}
+  {{ block.super }}
+  {% if preview_url %}
+    <div class="nd-preview">
+      <button type="button" class="nd-preview__button font-medium inline-flex items-center gap-1 rounded-default border border-base-200 bg-white px-3 py-2 shadow-xs text-important cursor-pointer dark:border-base-700 dark:bg-transparent"
+              hx-post="{{ preview_url }}" hx-include="closest form" hx-target="#nd-preview-result" hx-swap="innerHTML">
+        <span class="material-symbols-outlined" aria-hidden="true">preview</span>{% trans "Preview effect" %}
+      </button>
+      <div id="nd-preview-result" class="nd-preview__result" aria-live="polite">
+        <p>{% trans "Before you save: see how many visits each rule would flag with these values, and the average quality, over this year's visits. Nothing is saved." %}</p>
+      </div>
+    </div>
+  {% endif %}
+{% endblock %}

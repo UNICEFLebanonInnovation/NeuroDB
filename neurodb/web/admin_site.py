@@ -129,9 +129,17 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
         _("Monitoring insights"),
         _(
             "eTools field monitoring as Monitoring insights reads it: the keys its records hold and the "
-            "key each field is read from (Fields found), the visits built from it and their reviews."
+            "key each field is read from (Fields found), the quality rules and score settings with their "
+            "versions, the visits built from it and their reviews."
         ),
-        ["fmm.FieldMapping", "fmm.Visit", "fmm.VisitReview"],
+        [
+            "fmm.FieldMapping",
+            "fmm.RuleSetting",
+            "fmm.ScoreSetting",
+            "fmm.RuleSetVersion",
+            "fmm.Visit",
+            "fmm.VisitReview",
+        ],
     ),
     (
         _("Compiler (youth and education)"),
@@ -289,6 +297,9 @@ ICONS = {
     "etools.TravelActivity": "route",
     "etools.ActionPoint": "task_alt",
     "fmm.FieldMapping": "data_object",
+    "fmm.RuleSetting": "rule",
+    "fmm.ScoreSetting": "tune",
+    "fmm.RuleSetVersion": "history",
     "fmm.Visit": "location_on",
     "fmm.VisitReview": "task_alt",
     "locations.Location": "location_on",
@@ -363,6 +374,17 @@ class NeuroDBAdminSite(UnfoldAdminSite):
     def index(self, request, extra_context=None):
         extra_context = {**(extra_context or {}), "dashboard": dashboard(request)}
         return super().index(request, extra_context)
+
+    def get_urls(self):
+        # An admin may add pages of its own at the root of the admin (``site_urls()``), such as
+        # Monitoring insights' Questions found at admin/fmm/questions/; they come before the catch-all.
+        extra = [url for model_admin in self._registry.values() for url in self._site_urls(model_admin)]
+        return extra + super().get_urls()
+
+    @staticmethod
+    def _site_urls(model_admin) -> list:
+        site_urls = getattr(model_admin, "site_urls", None)
+        return list(site_urls()) if callable(site_urls) else []
 
 
 def _developer_only(key: str) -> bool:

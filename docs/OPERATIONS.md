@@ -419,7 +419,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | Job | Runs | Default schedule (Beirut) |
 |---|---|---|
 | `locations` | `sync_locations` | `0 5 * * *`, daily 05:00: the eTools locations from the Datamart (`--source rest` for the older eTools REST API, which needs `ETOOLS_TOKEN`; its location-types endpoint is gone and is skipped) |
-| `fmm-refresh` | `fmm_refresh` | `25 5 * * *`, daily 05:25, after the locations: rebuilds the Monitoring insights visits, so that overdue action points and the age of a visit are recomputed even when no data changed (it also runs after every Datamart sync) |
+| `fmm-refresh` | `fmm_refresh` | `25 5 * * *`, daily 05:25, after the locations: rebuilds and scores the Monitoring insights visits, so that overdue action points, the age of a visit and urgency are recomputed even when no data changed (it also runs after every Datamart sync) |
 | `daily-review` | `daily_review` | `0 6 * * *`, daily 06:00, after the night's syncs |
 | `activityinfo-data` | `import_activityinfo_data --current-year` | `0 18 1-22 * *`, 18:00 on days 1–22 |
 | `etools-datamart` | `sync_etools_datamart` | `30 20 * * *`, daily 20:30 |
@@ -1261,9 +1261,12 @@ saved there or in the hub (see `docs/ICEBOX.md`).
 
 Monitoring insights turns the eTools field monitoring data into visits: each visit's partners,
 programme documents, place and sections, and how complete and coherent its report is. It is built in
-steps. This release adds its data layer, with no page and nothing in the menu yet: the refresh that
-builds the visits, and two admin views, **Fields found** (which keys the field monitoring records hold)
-and **Visits** (the visits built, for checking the data), both under admin → *Monitoring insights*.
+steps. This release adds its data layer and its quality rules, with no page and nothing in the menu
+yet: the refresh that builds and scores the visits, and the admin views under admin → *Monitoring
+insights*: **Fields found** (which keys the field monitoring records hold, and the keys an
+administrator pins), **Questions found** (which checklist question is Q1, Q2, Q3 and PSEA), **Quality
+rules**, **Score settings**, **Rule versions**, and **Visits** (the visits built, with their rule
+results, for checking the data).
 
 ### Data and its keys
 
@@ -1305,11 +1308,11 @@ code lists candidate keys, most likely first (`neurodb/fmm/fields.py`). The refr
    narratives stay where eTools put them. Problems (several statuses or places, an unlinked programme
    document, no date, an unknown rating, one reference under several activities) are recorded on the
    visit as counts;
-5. writes the keys and the visits together in one transaction: the pages see the old visits until it
+5. scores the visits with the quality rules as they are when it starts (see *Quality rules, scores
+   and urgency* below): the question roles, HACT Q1, the PSEA flag, R1-R6, the score, its band and
+   flags, and urgency. Each visit keeps the rules version it was scored with;
+6. writes the keys and the visits together in one transaction: the pages see the old visits until it
    commits, a visit keeps its id while its key stays, and the section reviews are never touched.
-
-The quality scores, HACT Q1, the PSEA flag and urgency come with the quality rules, in a later step;
-until then they are empty.
 
 Each run is one line in *Import and sync runs* (*Monitoring insights refresh*, target `full`): rows
 read are the finding rows and checklist records, rows written the visits. One runs at a time (a
@@ -1324,9 +1327,12 @@ errors*), and Data health lists both. It runs:
   (overdue action points) is recomputed even when no data changed;
 - from Run a job → *Monitoring insights*, or a shell.
 
-`fmm_refresh --scores-only` recomputes, from the visits already built and without reading the records,
-what changes with the day or the rules (for now the action point counts); `--probe-only` runs steps
-1-3 alone. A saved rule (a later step) asks for a scores-only refresh and a pinned key for a full one:
+`fmm_refresh --scores-only` recomputes, from the visits already built and without reading the finding
+records, what changes with the day or the rules: the action point counts, the question roles, HACT Q1,
+the PSEA flag, the rule results, the scores and urgency. It reads the narratives (that column only, a
+thousand visits at a time, never kept) and the Q3 answer records (for R5's list of placeholders);
+`--probe-only` runs steps 1-3 alone. A saved rule asks for a scores-only refresh and a pinned key for a
+full one:
 the request is kept (`RefreshRequest`), and a refresh that is running when it arrives looks at it
 before it releases its lock and runs the pass asked for (a scores-only run that finds a full refresh
 asked for runs it too), at most `FMM_REFRESH_MAX_PASSES` passes, so a request is never lost; one left
@@ -1353,11 +1359,81 @@ Fields found shows, above the keys of each dataset:
   findings hold with how NeuroDB reads each ("not recognised" ones need a change in the code).
 
 Per field: the key used, its state, the share of records it fills, every listed key found with its
-share, and what the field is needed for. Pinning another key by hand (an override, versioned with the
-quality rules, with who, when and why) arrives with the quality rules; the *Pinned key* column shows
-"auto" until then. The last refresh's details (its line in *Import and sync runs*) also give how the
-visits were placed, where their sections and offices came from, how the FM action points were
-matched, and how many checklist records joined a visit.
+share, and what the field is needed for. An administrator can pin another key the data shows
+(*Change* in the *Pinned key* column: a list of the keys found, or "auto"; a key that holds a person is
+offered only for the team). The pin needs a note, is recorded as a new rules version (so it has who,
+when and why, and can be rolled back with the rules) and rebuilds the visits in the background. A
+pinned key the data no longer shows is flagged (*Set key not in the data*) and the listed keys are used
+instead. The last refresh's details (its line in *Import and sync runs*) also give how the visits were
+placed, where their sections and offices came from, how the FM action points were matched, how many
+checklist records joined a visit, the question roles found, how the Q1 answers applied (to an entity,
+a partner or the whole visit), and how many visits each rule passed, flagged, could not evaluate or
+did not apply to.
+
+### Quality rules, scores and urgency
+
+**Question roles.** The rules need to know which checklist question is Q1 ("Have the activities been
+implemented as planned…"), Q2 (activities monitored), Q3 (key observations) and the PSEA question.
+*Score settings → Question patterns* finds them by the words of their text (`"^q2"`: starts with
+"q2"; `"=…"`: the whole text; anything else: contains). *Questions found* (linked from Fields found)
+lists every question of the answers with its records, its HACT flag, the role it has now and the share
+answered; *Use as Q1 / Q2 / Q3 / PSEA* pins a question's whole text to a role (a pinned text wins over
+the other patterns) and is recorded as a rules version. With no Q1 pattern at all, the question eTools
+flags as HACT is Q1. Everything that depends on a role is worked out when the visits are scored, so a
+pattern change needs only a scores-only refresh:
+
+- **HACT Q1 of an entity**: its own Q1 answer; else the one given for its partner (on the partner's
+  own row, or for the partner as a whole); else the one given for the whole visit. **Of a visit**: the
+  worst of these and of its visit-level answers (Off track, then Constrained, then On track).
+- **PSEA flag**: a PSEA answer whose code is listed in *Answers that flag* (`yes`, `constrained`,
+  `off_track` by default) flags the visit; asked and answered otherwise: not flagged; no PSEA question:
+  not known.
+
+**Which visits are scored.** A reported visit (submitted or completed), or one of unknown status with
+something rated or answered. A reported visit with nothing rated (a monitoring gap) is scored; planned
+and in-progress visits are "not reported yet" and cancelled ones "cancelled". For those, every rule
+reads "does not apply".
+
+**The rules** (admin → *Quality rules*; the points and R2's 80% follow the reference dashboard, every
+other threshold is NeuroDB's proposal, to be confirmed by the user):
+
+| Rule | Points | Passes when | Not available (left out of the score) when |
+|---|---|---|---|
+| R1 Completeness | 15 | Every rated entity has a narrative (and at least one entity has one), and Q2 is answered (when the visit has a Q2 question). A rating on every entity and the visit's place can be required too (`required`). Points in proportion to the elements present. | never in practice |
+| R2 Evidence sufficiency | 20 | At least 80% of the questions answered, counted once per question and entity (or partner, or the whole visit). Below it, points in proportion. | the visit has no answer; the answer keys were not found; or none of 200 or more checklist records in the data is unanswered ("cannot be measured": eTools then probably sends answered questions only; `require_unanswered_seen` turns this off) |
+| R3 HACT alignment | 20 | Every rated entity's HACT Q1 (as above) agrees with its overall finding. Only On track against Off track is a conflict; Constrained agrees with either (`strict` makes any difference a conflict). Fails when Q1 is missing or not a rating. Does not apply to a visit that is not programmatic and was asked no Q1. | the visit has no answer, or no question in the data is Q1 or flagged HACT |
+| R4 Narrative coherence | 15 | Every narrative has at least 25 words, is not a placeholder ("n/a", "see above"…) and is not word for word another visit's within 365 days. Points in proportion to the narratives that pass. | no entity has a narrative (R1 flags it already) |
+| R5 Q3 quality | 15 | Q3 is answered with at least 15 words (answer and summary), not a placeholder. Points in proportion to the words. Does not apply to a visit with answers but no Q3. | the visit has no answer, or no question in the data is Q3 |
+| R6 Rating quality | 0 (a flag only) | No narrative contradicts its rating: On track naming 2 or more problem words (delayed, suspended…) and nothing good, or Off track naming only good points. A word with "no", "not", "without", "never" or "nor" up to 3 words before it does not count. Constrained never fails. An optional check (off) flags a Not monitored entity described at length without saying why. | no rated entity has a narrative |
+
+A rule's detail is written by NeuroDB ("Only 46.2% of monitoring questions answered (target: 80%+)",
+"Narrative identical to Visit 1588"); R6 names only words of its own lists, never words of the
+narrative.
+
+**Score.** The points earned over the points of the rules evaluated (passed or failed), as a
+percentage rounded half up to one decimal; a rule never gives more than its points. No score when fewer
+than 30 points could be evaluated ("too few rules (15 of 85 points)"). Bands: High from 80, Medium from
+50, else Low. The flags are the rules failed, R6 included at 0 points; 3 flags or more is a high-flag
+visit.
+
+**Urgency**, 0 to 100, with every part kept to explain it: the worse of the rating and HACT Q1 (Off
+track 40, Constrained 20); the quality gap (25 × the share of the score missing; 10 for a reported visit
+that could not be scored); 5 per flag, at most 15; follow-up: 20 when an Off track or Constrained
+reported visit has no action point 14 days after it ended, else 12 for an overdue open action point, 8
+more when it is high priority, 5 for an open high-priority one, at most 20; and 15 for a planned or
+in-progress visit that ended more than 30 days ago. Red from 70, amber from 40. The daily 05:25 refresh
+recomputes it, so a visit grows more urgent while nothing is done.
+
+**Changing the rules.** Administrators only: other staff can read the rules, the settings and the
+versions. Each rule, the score settings and every pinned key are saved with a required note; the
+*Preview effect* button first shows what the change would do over this year's visits ("R2 would flag 7
+visits (now 3); average quality 91.2% (now 94.7%); scored visits 29 (now 29)") without saving anything.
+Each save records a new rules version (*Rule versions*: who, when, the note, and every setting beside
+its value now) and asks for a scores-only refresh in the background (a full one for a pinned key); the
+admin never waits for it. *Restore this version* writes an older version back as a new one (the history
+only grows) and rebuilds the visits when its pinned keys differ. A rescore asked for while another
+refresh runs is served by that refresh, so none is lost (see above); each visit keeps the rules version
+it was scored with.
 
 ### Before go-live: confirm the real keys
 
@@ -1373,7 +1449,8 @@ on, and before its figures are trusted:
    Q2, Q3 and PSEA question texts as written; the option labels of Q1; the rating and status values;
    any team, office or section key; the share of checklist records that matched a visit; and whether
    the FM action points' `related_module_id` is the activity id (the share matched by the activity
-   id).
+   id). In Questions found, check that Q1, Q2, Q3 and the PSEA question have their roles (else give
+   them with *Use as*), and that "Unanswered questions seen" is not 0 (else R2 cannot be measured).
 2. Record real samples: `python manage.py record_datamart_samples --only
    field_monitoring,fm_questions,fm_options,fm_programme_activities,offices,sections,intervention_locations,location_sites,action_points`,
    then `python manage.py fmm_redact_fixtures tests/fixtures/datamart/`; read the diff by eye and
