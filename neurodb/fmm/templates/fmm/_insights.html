@@ -55,7 +55,7 @@
     {% for chip in action.chips %}{% url 'fmm:visit' chip.key as chip_url %}<a class="visit-chip" href="{{ chip_url }}" hx-get="{{ chip_url }}" hx-target="#modal-content" hx-push-url="false">{{ chip.label }}</a>{% endfor %}
   </div>
   {% empty %}
-  <p class="small text-muted mb-0">{% trans "No visit of this filter needs urgent follow-up." %}</p>
+  <p class="small text-muted mb-0">{% if row and row.status != "fallback" %}{% trans "No priority action of the AI passed the checks; see the visits table, sorted by urgency." %}{% else %}{% trans "No visit of this filter needs urgent follow-up." %}{% endif %}</p>
   {% endfor %}
 
   <div class="d-flex flex-wrap gap-2 align-items-center mt-3">

@@ -81,3 +81,8 @@ def test_the_average_quality_tile_equals_the_analysis_highlight(built, client_vi
     expected = metrics.kpis(scope)["avg_quality"]
     assert tile == highlight == (f"{expected}%" if expected is not None else "—")
     assert metrics.highlights(scope)["avg_quality"] == expected == metrics.avg_quality(scope.visits())
+    # the AI brief's facts, sent and checked against, carry the same figure (stage 6b)
+    from neurodb.fmm.ai import facts
+
+    sent = facts.build(scope, narratives=False).payload["kpi"]["avg_quality"]
+    assert sent == (float(expected) if expected is not None else None)

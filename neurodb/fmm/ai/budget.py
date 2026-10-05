@@ -52,11 +52,12 @@ REASONS = {
 }
 
 
-def switched_on() -> bool:
-    """Monitoring insights, its AI and the assistant are switched on, and a prompt version is published."""
+def switched_on(version: PromptVersion | None = None) -> bool:
+    """Monitoring insights, its AI and the assistant are switched on, and a prompt version is published
+    (``version``: the published one, when the caller has already read it)."""
     if not (settings.FMM_ENABLED and settings.FMM_AI and settings.AI_ASSISTANT_ENABLED):
         return False
-    return profiles.published() is not None
+    return version is not None or profiles.published() is not None
 
 
 def paused_until(now: datetime.datetime | None = None) -> datetime.datetime | None:
@@ -69,14 +70,18 @@ def paused_until(now: datetime.datetime | None = None) -> datetime.datetime | No
 
 
 def allowed(
-    kind: Literal["user", "nightly", "test", "chat"], user=None, tokens: int = 0, now=None
+    kind: Literal["user", "nightly", "test", "chat"],
+    user=None,
+    tokens: int = 0,
+    now=None,
+    version: PromptVersion | None = None,
 ) -> tuple[bool, str]:
     """Whether a call of ``kind`` needing ``tokens`` may start now, and why not (``off``, ``paused`` or
     ``budget``; see the module's notes). ``(True, "")`` when it may. ``user`` is the person asking, if
-    any (their own quota is :func:`quota`)."""
+    any (their own quota is :func:`quota`); ``version`` as in :func:`switched_on`."""
     if kind not in ("user", "nightly", "test", "chat"):
         raise ValueError(f"unknown kind of AI call {kind!r}")
-    if not switched_on():
+    if not switched_on(version):
         return False, OFF
     if paused_until(now) is not None:
         return False, PAUSED

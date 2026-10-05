@@ -231,7 +231,9 @@ def _rules(scope: Scope, when: str, rules: list) -> dict[str, dict[str, Any]]:
     return out
 
 
-def _issues(scope: Scope, when: str, rules: list) -> dict[str, dict[str, Any]]:
+def _issues(scope: Scope, when: str, rules: list, carded: set[str]) -> dict[str, dict[str, Any]]:
+    """The most frequent issues, each with the keys of its visits among those sent in full
+    (``carded``): a visit key the payload names is always one a sentence may cite."""
     out = {}
     for row in metrics.top_issues(scope, ISSUES, when, rules):
         if not row["drill"]:
@@ -243,7 +245,9 @@ def _issues(scope: Scope, when: str, rules: list) -> dict[str, dict[str, Any]]:
             "visits": row["visits"],
             "mean_urgency": row["urgency"],
             "lowest": _num(row["lowest"]),
-            "visit_keys": [f"visit:{chip['key']}" for chip in row["chips"][:ISSUE_VISITS]],
+            "visit_keys": [key for key in (f"visit:{chip['key']}" for chip in row["chips"]) if key in carded][
+                :ISSUE_VISITS
+            ],
         }
     return out
 
@@ -611,12 +615,13 @@ def build(
     comp = version.comparison_visits if version is not None else DEFAULT_COMP
 
     kpi = _kpi(scope, when, limits)
+    visit_cards = cards(scope, comp, names_, limits)
     payload: dict[str, Any] = {
         "scope": _scope_entry(scope, names_),
         "kpi": kpi,
         "previous": _previous(scope, kpi, when, limits),
         "rules": _rules(scope, when, rules),
-        "issues": _issues(scope, when, rules),
+        "issues": _issues(scope, when, rules, {card["key"] for card in visit_cards}),
         "sections": _sections(scope, when, limits, names_),
         "offices": _offices(scope, when, limits, names_),
         "places": _places(scope, when, limits, names_),
@@ -625,7 +630,6 @@ def build(
     hact = _hact(scope, when, limits)
     if hact is not None:
         payload["hact"] = hact
-    visit_cards = cards(scope, comp, names_, limits)
     payload["visits"] = {card["key"]: card for card in visit_cards}
     notes, withheld = _sample(scope, narr, names_, limits)
     payload["narratives"] = {note["key"]: note for note in notes}

@@ -49,7 +49,12 @@ def published(key: str = DEFAULT_PROFILE) -> PromptVersion | None:
     profile = PromptProfile.objects.select_related("published").filter(key=key).first()
     version = profile.published if profile else None
     if version is None or version.status != PromptVersion.Status.PUBLISHED:
-        return PromptVersion.objects.filter(profile__key=key, status=PromptVersion.Status.PUBLISHED).first()
+        return (
+            PromptVersion.objects.select_related("profile")
+            .filter(profile__key=key, status=PromptVersion.Status.PUBLISHED)
+            .first()
+        )
+    version.profile = profile  # the same row: its label is shown with the version
     return version
 
 

@@ -1412,7 +1412,7 @@ def _brief_blocks(data: dict[str, Any], actions: list[dict]) -> tuple[list[dict]
 def _insight_context(request: HttpRequest, scope: Scope, message: str = "") -> dict[str, Any]:
     """The brief card: the brief shown (kept or code-written), its header, chips, quota and buttons."""
     version = profiles.published()
-    brief = ai_insights.current(scope)
+    brief = ai_insights.current(scope, version)
     row = brief.insight
     if row is not None:
         sections, actions = _brief_blocks(row.sections or {}, row.actions or [])
@@ -1421,16 +1421,19 @@ def _insight_context(request: HttpRequest, scope: Scope, message: str = "") -> d
             brief.fallback or {}, (brief.fallback or {}).get("priority_actions", [])
         )
     used, allowed = budget.quota("insights", request.user, version)
-    on = budget.switched_on()
-    refused = ai_insights.gate(scope, version, request.user) if on and version is not None else None
-    if not on or version is None:
+    on = version is not None and budget.switched_on(version)
+    # a brief the AI wrote from the very same input would be reused, so Regenerate has nothing to do;
+    # a code-written one (the AI's sentences did not pass) may be tried again
+    reused = brief.up_to_date and row is not None and row.status in ai_insights.WRITTEN
+    if not on:
         disabled = _("AI switched off")
-    elif brief.up_to_date:
+    elif reused:
         disabled = _("Up to date")
-    elif refused:
-        disabled = refused[1]
+    elif brief.reason and brief.reason != ai_insights.NOT_YET:  # paused, switched off or too few visits
+        disabled = brief.reason
     else:
-        disabled = ""
+        refused = ai_insights.gate(scope, version, request.user)
+        disabled = refused[1] if refused else ""
     rules_version = (row.rules_version if row else None) or ai_insights._refresh_state()[0]
     return {
         "scope": scope,
@@ -1489,8 +1492,12 @@ def insights(request: HttpRequest) -> HttpResponse:
         return render(request, "fmm/_insights.html", _insight_context(request, scope, message))
     ai_insights.expire_stale()
     running = request.GET.get("running", "")
-    if running.isdigit():
-        row = Insight.objects.filter(pk=int(running)).first()
+    if running.isdigit():  # only a brief of this filter, and never an administrator's test run
+        row = (
+            Insight.objects.filter(pk=int(running), scope_hash=scope.hash())
+            .exclude(trigger=Insight.Trigger.TEST)
+            .first()
+        )
         if row is not None and row.status == Insight.Status.RUNNING:
             return _insight_running(request, scope, row)
         if row is not None and row.status not in ai_insights.SHOWN:

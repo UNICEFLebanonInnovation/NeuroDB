@@ -1597,7 +1597,7 @@ class InsightAdmin(ReadOnlyModelAdmin):
                     Insight.objects.filter(
                         scope_hash=row.scope_hash, version=published, status__in=insights.SHOWN
                     )
-                    .exclude(pk=row.pk)
+                    .exclude(trigger=Insight.Trigger.TEST)  # the brief people see, not another test run
                     .order_by("-created_at")
                     .first()
                     if published is not None

@@ -322,6 +322,53 @@ def test_grounding_drops_what_the_facts_do_not_say_and_keeps_named_words(built, 
     }
 
 
+def _strings(value):
+    if isinstance(value, dict):
+        return [s for v in value.values() for s in _strings(v)]
+    if isinstance(value, list):
+        return [s for v in value for s in _strings(v)]
+    return [value] if isinstance(value, str) else []
+
+
+def test_every_visit_the_payload_names_can_be_cited_or_rides_on_its_note(built, ai_on):
+    few = profiles.draft_from(ai_on, None, "One card", comparison_visits=1)
+    found = facts.build(_scope(), few, TODAY)
+    carded = set(found.payload["visits"])
+    assert len(carded) == 1
+    # the issues list only visits sent in full: every visit key among them can be cited
+    listed = {k for issue in found.payload["issues"].values() for k in issue["visit_keys"]}
+    assert listed <= carded and all(k in found.citable for k in listed)
+    # a note's visit not sent in full: citing it beside its note keeps the sentence, on the note alone
+    note = next(n for n in found.payload["narratives"].values() if n["visit"] not in carded)
+    raw = {
+        "programmatic_findings": [
+            {"text": "A visit noted how the classes went.", "keys": [note["key"], note["visit"]]},
+            {"text": "A visit was made.", "keys": [note["visit"]]},  # on its own: still unknown
+        ],
+        "priority_actions": [
+            {
+                "priority": "High",
+                "section": "All sections",
+                "action": "Follow up the visit's findings with the partner",
+                "owner_role": "Section lead",
+                "timeframe": "within 2 weeks",
+                "keys": [note["visit"], note["key"]],
+            }
+        ],
+    }
+    sections, actions, dropped = insights.validate(raw, found, TODAY)
+    assert sections["programmatic_findings"] == [
+        {"text": "A visit noted how the classes went.", "keys": [note["key"]]}
+    ]
+    assert [a["keys"] for a in actions] == [[note["key"]]]
+    assert dropped == {"unknown_key": 1}
+    assert insights.cited_visits(sections, actions) == [note["visit"][6:]]
+    # with every visit sent in full, no string of the payload names a visit that cannot be cited
+    whole = facts.build(_scope(), ai_on, TODAY)
+    named = {s for s in _strings(whole.payload) if s.startswith("visit:")}
+    assert named and named <= set(whole.citable)
+
+
 def test_priority_actions_keep_their_enums_and_replace_unknown_sections_and_named_owners(built, ai_on):
     found = facts.build(_scope(), ai_on, TODAY)
     visit = sorted(found.payload["visits"])[0]
@@ -604,6 +651,47 @@ def test_the_card_without_the_ai_shows_the_code_written_brief(built, client_view
     ]
 
 
+def test_the_card_follows_only_a_brief_of_its_own_filter(built, ai_on, client_viewer, viewer, admin_user):
+    other = insights.start(_scope("year=2026&section=Education"), ai_on, viewer)
+    test = insights.start(_scope(), ai_on, admin_user, Insight.Trigger.TEST)
+    for row in (other, test):
+        html = client_viewer.get(f"{reverse('fmm:insights')}?{YEAR}&running={row.pk}").content.decode()
+        assert "every 3s" not in html and "Written by NeuroDB from the figures" in html
+
+
+def test_a_code_written_brief_from_the_same_data_may_be_regenerated(
+    built, ai_on, client_viewer, fake_insights_client
+):
+    fake_insights_client(_answer({name: [] for name in [*insights.SECTIONS, "priority_actions"]}))
+    row = insights.generate(_scope(), trigger=Insight.Trigger.NIGHTLY, today=TODAY)
+    assert row.status == Insight.Status.FALLBACK
+    html = client_viewer.get(f"{reverse('fmm:insights')}?{YEAR}").content.decode()
+    assert "Up to date" in html  # the badge: written from the same data
+    assert "disabled" not in html.split("Regenerate")[0].rsplit("<button", 1)[1]
+    # the AI's brief from the same data: nothing to regenerate
+    Insight.objects.filter(pk=row.pk).update(status=Insight.Status.PARTIAL, actions=[])
+    html = client_viewer.get(f"{reverse('fmm:insights')}?{YEAR}").content.decode()
+    assert "disabled" in html.split("Regenerate")[0].rsplit("<button", 1)[1]
+    assert "No priority action of the AI passed the checks" in html
+    assert "No visit of this filter needs urgent follow-up" not in html
+
+
+def test_the_brief_card_stays_within_its_queries(
+    built, ai_on, client_viewer, fake_insights_client, django_assert_max_num_queries
+):
+    url = f"{reverse('fmm:insights')}?{YEAR}"
+    client_viewer.get(url)  # warm the figures
+    # the AI on, no brief yet: the code-written one, and every gate of Regenerate (quota, budget)
+    with django_assert_max_num_queries(28):
+        client_viewer.get(url)
+    found = facts.build(_scope(), ai_on, TODAY)
+    fake_insights_client(_answer(_good(found)))
+    insights.generate(_scope(), trigger=Insight.Trigger.NIGHTLY, today=TODAY)
+    client_viewer.get(url)
+    with django_assert_max_num_queries(20):  # a brief up to date
+        assert "Up to date" in client_viewer.get(url).content.decode()
+
+
 def test_a_regenerate_over_the_quota_is_refused_and_kept(built, ai_on, client_viewer, viewer, started):
     for _ in range(5):
         Insight.objects.create(
@@ -772,6 +860,20 @@ def test_a_test_run_starts_in_the_background_and_its_page_follows_it(
 
     assert budget.quota("insights", admin_user) == (0, 5)  # nor counted in a person's quota
     assert draft.status == "draft" and profiles.published() == ai_on
+
+
+def test_a_test_run_is_shown_beside_the_brief_people_see(built, ai_on, admin_client, fake_insights_client):
+    found = facts.build(_scope(), ai_on, TODAY)
+    fake_insights_client(_answer(_good(found)), _answer(_good(found)), _answer(_good(found)))
+    seen = insights.generate(_scope(), trigger=Insight.Trigger.NIGHTLY, today=TODAY)
+    other_test = insights.generate(
+        _scope(), trigger=Insight.Trigger.TEST, today=TODAY
+    )  # of the published one
+    draft = profiles.draft_from(ai_on, None, "Try")
+    row = insights.generate(_scope(), version=draft, trigger=Insight.Trigger.TEST, today=TODAY)
+    assert seen.status == other_test.status == row.status == Insight.Status.OK
+    response = admin_client.get(reverse("admin:fmm_insight_change", args=[row.pk]))
+    assert response.context["beside"] == seen
 
 
 def test_the_preview_shows_the_facts_without_a_call(built, ai_on, admin_client, monkeypatch):

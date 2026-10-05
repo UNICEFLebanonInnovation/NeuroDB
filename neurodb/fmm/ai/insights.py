@@ -136,6 +136,9 @@ QUOTA = "quota"
 NOTHING_KEPT = "The AI's sentences did not pass the checks"
 BUSY_YOURS = "another brief of yours is being written"
 ERROR = "error"
+NOT_YET = "no brief has been written for this filter yet"
+
+PUBLISHED = object()  # "the published version, read here" (a version argument not given)
 
 KINDS = {Insight.Trigger.USER: "user", Insight.Trigger.NIGHTLY: "nightly", Insight.Trigger.TEST: "test"}
 SHOWN = (Insight.Status.OK, Insight.Status.PARTIAL, Insight.Status.FALLBACK)
@@ -216,6 +219,13 @@ def _rough_estimate(version: PromptVersion) -> int:
     return int(len(instructions) / budget.CHARS_PER_TOKEN) + ROUGH_PAYLOAD_TOKENS + version.max_output_tokens
 
 
+def _visits(scope) -> int:
+    """The visits of ``scope`` (the key figure, kept ten minutes per refresh)."""
+    from .. import metrics
+
+    return metrics.kpis(scope)["visits"]
+
+
 def _user(user):
     return user if getattr(user, "pk", None) else None
 
@@ -228,12 +238,13 @@ def gate(
     version's brief switched on, enough visits, and for a person's Regenerate their quota and no other
     brief of theirs being written (``insight``, their own running row, does not count)."""
     user = _user(user)
-    ok, why = budget.allowed(KINDS.get(trigger, "user"), user, _rough_estimate(version))
+    published = version if version.status == PromptVersion.Status.PUBLISHED else None
+    ok, why = budget.allowed(KINDS.get(trigger, "user"), user, _rough_estimate(version), version=published)
     if not ok:
         return (Insight.Status.SKIPPED if why == budget.OFF else Insight.Status.LIMITED), budget.REASONS[why]
     if not version.insights_enabled:
         return Insight.Status.SKIPPED, DISABLED
-    if scope.visits().count() < settings.FMM_MIN_VISITS_FOR_AI:
+    if _visits(scope) < settings.FMM_MIN_VISITS_FOR_AI:
         return Insight.Status.SKIPPED, TOO_FEW.format(n=settings.FMM_MIN_VISITS_FOR_AI)
     if trigger == Insight.Trigger.USER and user is not None:
         running = getattr(insight, "status", "") == Insight.Status.RUNNING
@@ -392,6 +403,33 @@ def _check_action(entry: Any, facts, today, names_, dropped: Counter, known: set
     }
 
 
+def _fold_visit_keys(entries: list, citable: dict[str, Any]) -> list:
+    """The entries with a redundant visit key set aside: ``visit:1722`` when the visit was not sent in
+    full but the same entry cites a note of that visit (``narr:1722:1``, whose ``visit`` it names). The
+    entry is then checked against the note alone; a visit key cited on its own still has to be citable."""
+    out = []
+    for entry in entries:
+        keys = entry.get("keys") if isinstance(entry, dict) else None
+        if isinstance(keys, list):
+            noted = {
+                visit_key_of(k) for k in keys if isinstance(k, str) and k.startswith("narr:") and k in citable
+            }
+            kept = [
+                k
+                for k in keys
+                if not (
+                    isinstance(k, str)
+                    and k.startswith("visit:")
+                    and k not in citable
+                    and visit_key_of(k) in noted
+                )
+            ]
+            if len(kept) != len(keys):
+                entry = {**entry, "keys": kept}
+        out.append(entry)
+    return out
+
+
 def validate(
     raw: Any, facts, today: datetime.date | None = None, names_: frozenset[str] | None = None
 ) -> tuple[dict[str, list[dict]], list[dict], dict[str, int]]:
@@ -406,7 +444,7 @@ def validate(
     sections: dict[str, list[dict]] = {}
     for name in SECTIONS:
         entries = raw.get(name)
-        entries = entries if isinstance(entries, list) else []
+        entries = _fold_visit_keys(entries if isinstance(entries, list) else [], facts.citable)
         kept, reasons = grounding.validate(
             entries, facts.citable, LIMITS[name], today, names_, named_fields=FMM_NAMED_FIELDS
         )
@@ -417,7 +455,7 @@ def validate(
     known = _known_sections(facts)
     actions = []
     entries = raw.get("priority_actions")
-    entries = entries if isinstance(entries, list) else []
+    entries = _fold_visit_keys(entries if isinstance(entries, list) else [], facts.citable)
     for entry in entries[: LIMITS["priority_actions"]]:
         kept_action = _check_action(entry, facts, today, names_, dropped, known)
         if kept_action is not None:
@@ -704,15 +742,15 @@ def current_hash(scope, version: PromptVersion) -> str:
 
 def why_not(scope, version: PromptVersion | None) -> str:
     """Why the page shows the code-written brief."""
-    if version is None or not budget.switched_on():
+    if version is None or not budget.switched_on(version):
         return OFF
     if budget.paused_until() is not None:
         return budget.REASONS[budget.PAUSED]
     if not version.insights_enabled:
         return DISABLED
-    if scope.visits().count() < settings.FMM_MIN_VISITS_FOR_AI:
+    if _visits(scope) < settings.FMM_MIN_VISITS_FOR_AI:
         return TOO_FEW.format(n=settings.FMM_MIN_VISITS_FOR_AI)
-    return "no brief has been written for this filter yet"
+    return NOT_YET
 
 
 def code_written(scope) -> dict[str, Any]:
@@ -724,9 +762,10 @@ def code_written(scope) -> dict[str, Any]:
     return metrics.cached(scope, "fallback", lambda: fallback.brief(build(scope, None, narratives=False)))
 
 
-def current(scope) -> CurrentBrief:
-    """What the page shows for ``scope`` (see the module's notes)."""
-    version = profiles.published()
+def current(scope, version: Any = PUBLISHED) -> CurrentBrief:
+    """What the page shows for ``scope`` (see the module's notes); ``version`` is the published one
+    when the caller has already read it."""
+    version = profiles.published() if version is PUBLISHED else version
     found = shown(scope, version)
     if found is not None and version is not None and found.version_id == version.pk:
         if found.input_hash and found.input_hash == current_hash(scope, version):
