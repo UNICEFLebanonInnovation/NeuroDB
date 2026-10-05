@@ -448,3 +448,24 @@ def test_the_gate_needs_20_ratings_and_a_check_on_for_4_weeks(staff):
     gate = precision.gate(TODAY)
     assert not gate and gate.rated == 24
     assert gate.text.endswith("(no check has been on for staff for 4 weeks yet).")
+
+
+def test_opening_the_checks_lists_every_check_before_the_first_run(client, admin_user):
+    """Each check has its row, in its starting mode, before NeuroDB Watch has run once; opening the
+    list again changes nothing an administrator set."""
+    from neurodb.watch import detectors
+    from neurodb.watch.budget import QUOTA_CHECK
+
+    assert not DetectorSetting.objects.exists()
+    client.force_login(admin_user)
+    url = reverse("admin:watch_detectorsetting_changelist")
+    assert client.get(url).status_code == 200
+    modes = dict(DetectorSetting.objects.values_list("detector", "mode"))
+    expected = {d.id: d.default_mode for d in detectors.registered()}
+    assert {k: modes[k] for k in expected} == expected
+    assert modes[STALE_DETECTOR] == ON and modes[QUOTA_CHECK] == ON
+    assert modes[CHECK] == TRIAL
+    DetectorSetting.objects.filter(detector=CHECK).update(mode=ON)
+    assert client.get(url).status_code == 200
+    assert DetectorSetting.objects.get(detector=CHECK).mode == ON
+    assert DetectorSetting.objects.count() == len(modes)

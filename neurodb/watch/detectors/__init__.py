@@ -292,6 +292,22 @@ def registered() -> list[Detector]:
     return list(REGISTRY.values())
 
 
+def ensure_settings() -> int:
+    """Give every check its row, in its starting mode, before its first run, so an administrator
+    can switch it on or off from the start. Rows already there are not touched. Returns how many
+    were added."""
+    from neurodb.watch.budget import QUOTA_CHECK  # budget reads the models only: no cycle, but kept lazy
+
+    wanted = {detector.id: detector.default_mode for detector in registered()}
+    wanted.setdefault(STALE_DETECTOR, ON)
+    wanted.setdefault(QUOTA_CHECK, ON)
+    known = set(DetectorSetting.objects.filter(detector__in=wanted).values_list("detector", flat=True))
+    for detector_id, mode in wanted.items():
+        if detector_id not in known:
+            DetectorSetting.ensure(detector_id, mode)
+    return len(wanted.keys() - known)
+
+
 def get(detector_id: str) -> Detector | None:
     _discover()
     return REGISTRY.get(detector_id)

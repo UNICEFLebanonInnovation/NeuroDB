@@ -17,7 +17,7 @@ from unfold.admin import ModelAdmin
 
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
-from . import precision
+from . import detectors, precision, sections
 from .models import DetectorSetting, SectionMatch, WatchItem, WatchNote, WatchReceipt
 
 SEVERITY_TONES = {"critical": "bad", "warning": "warn", "info": "info"}
@@ -272,6 +272,8 @@ class DetectorSettingAdmin(ModelAdmin):
         return queryset.annotate(score=_per_row("detector", rated, FloatField()))
 
     def changelist_view(self, request, extra_context=None):
+        if request.method == "GET":
+            detectors.ensure_settings()  # every check listed from the start, not after its first run
         extra_context = {
             "usefulness": {
                 "days": precision.WINDOW_DAYS,
@@ -393,6 +395,36 @@ class SectionMatchAdmin(ModelAdmin):
     list_select_related = ("section",)
     fields = ("etools_name", "section", "confirmed", "how", "not_mine_display", "updated_by", "updated_at")
     actions = ("confirm",)
+
+    def changelist_view(self, request, extra_context=None):
+        """The names are added when the list is opened, not only by NeuroDB Watch's run, so they can
+        be confirmed before its first morning."""
+        if request.method == "GET":
+            counts = sections.seed()
+            if counts["added"]:
+                self.message_user(
+                    request,
+                    _(
+                        "%(added)s eTools section names added: %(confirmed)s matched by their name or "
+                        "code, %(waiting)s waiting for you to choose or confirm their NeuroDB section."
+                    )
+                    % {
+                        "added": counts["added"],
+                        "confirmed": counts["confirmed"],
+                        "waiting": counts["added"] - counts["confirmed"],
+                    },
+                    messages.SUCCESS,
+                )
+            elif not counts["names"]:
+                self.message_user(
+                    request,
+                    _(
+                        "No eTools section names in NeuroDB yet: they come from the eTools (Datamart) "
+                        "data. Run the eTools sync first, then open this page again."
+                    ),
+                    messages.WARNING,
+                )
+        return super().changelist_view(request, extra_context)
 
     def get_readonly_fields(self, request, obj=None):
         fixed = ("how", "not_mine_display", "updated_by", "updated_at")

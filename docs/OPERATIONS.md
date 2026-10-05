@@ -1009,8 +1009,9 @@ steps when an administrator presses **Stop** or after `WATCH_TIME_LIMIT_SECONDS`
   for an administrator (select it, action *Confirm the matched section*, or open it and choose the
   section). A point whose eTools section name has no confirmed section goes to the Administrators
   only, never to every section, and *Needs attention* lists the names to confirm and the sections with
-  staff that no name points to. `python manage.py map_watch_sections [--rematch]` does the matching
-  by hand. Each name shows the *Not mine* its section's staff gave in the last 30 days, per check:
+  staff that no name points to. Opening the list adds the eTools names not in it yet (so they can be
+  confirmed before the first morning check; it says so when no eTools data is synced yet), and
+  `python manage.py map_watch_sections [--rematch]` does the matching by hand. Each name shows the *Not mine* its section's staff gave in the last 30 days, per check:
   many of them point to a wrong match.
 - **Told once.** A person is told about a point again only when it gets worse than what they were
   last told (kept on their receipt, so a rise later the same day is told the next morning), crosses
@@ -1045,7 +1046,8 @@ its **usefulness**, useful ÷ (useful + not useful + something's wrong) (*Done* 
 out: one is about the work, the other about who was told). To switch a check on for staff, open it and
 set *Mode* to *On*; the points that already exist that day are recorded as known and not announced,
 so staff are not flooded. The same holds for the whole-country view on the day a check goes into
-trial (*Trial since*: its first run, an administrator's change or going back by itself); saving a check
+trial (*Trial since*: the day it was first listed, an administrator's change or going back by itself;
+opening the list of checks lists every check, in its starting mode, before the first morning check); saving a check
 without changing its mode, or *Keep in trial*, changes nothing. *Off* stops the check (its points are
 kept, nobody is told).
 

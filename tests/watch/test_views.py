@@ -560,6 +560,7 @@ def test_the_banner_when_it_never_ran_and_the_link_for_administrators(team):
     assert "has not finished a morning check yet" in login(team.edu).get(FOR_YOU).content.decode()
     html = login(team.admin).get(FOR_YOU).content.decode()
     assert reverse("admin:core_scheduledjob_changelist") in html
+    assert "Press Check now to run the first one" in html  # an administrator is told what to press
 
 
 def test_a_card_says_how_we_know_what_it_remembers_and_what_it_connects_to(team):

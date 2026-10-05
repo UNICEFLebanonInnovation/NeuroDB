@@ -259,14 +259,19 @@ def last_check(target: str = "") -> SyncRun | None:
     return SyncRun.last_success(SyncRun.Job.WATCH, target)
 
 
-def banner(now: datetime.datetime | None = None) -> str:
+def banner(now: datetime.datetime | None = None, admin: bool = False) -> str:
     """The warning at the top of the page when the morning check has not succeeded for 26 hours
-    (or NeuroDB Watch is switched off); empty otherwise."""
+    (or NeuroDB Watch is switched off); empty otherwise. An administrator is told what to press."""
     now = now or timezone.now()
     if not settings.WATCH_ENABLED:
         return "NeuroDB is not checking at the moment: an administrator switched these checks off."
     last = last_check(DAILY)
     if last is None or last.finished_at is None:
+        if admin:
+            return (
+                "NeuroDB has not finished a morning check yet. Press Check now to run the first one "
+                "(it takes a few minutes); after that it runs every morning by itself."
+            )
         return (
             "NeuroDB has not finished a morning check yet. If nothing appears by tomorrow, ask an "
             "administrator to look at Scheduled jobs."
@@ -718,7 +723,7 @@ def build(
     last = last_check()
     context: dict[str, Any] = {
         "today": today,
-        "banner": banner(now),
+        "banner": banner(now, admin=is_admin),
         "checked": moment_words(last.finished_at, today) if last and last.finished_at else "",
         "is_admin": is_admin,
         "picker": audiences_for_picker() if is_admin else [],

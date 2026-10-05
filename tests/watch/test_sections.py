@@ -303,3 +303,24 @@ def test_the_command_matches_by_hand_and_says_what_is_left(named_everywhere, edu
     out = StringIO()
     call_command("map_watch_sections", "--rematch", stdout=out)
     assert "7 seen, 0 added" in out.getvalue() and SectionMatch.objects.count() == 7
+
+
+def test_opening_the_list_adds_the_names_before_the_first_run(
+    client_admin, named_everywhere, education, wash
+):
+    """The names are there to confirm before NeuroDB Watch has run once."""
+    assert not SectionMatch.objects.exists()
+    response = client_admin.get(reverse("admin:watch_sectionmatch_changelist"), follow=True)
+    assert response.status_code == 200
+    assert set(_rows()) == set(sections.etools_names())
+    assert "eTools section names added" in response.content.decode()
+    # opened again: nothing added twice, no message
+    response = client_admin.get(reverse("admin:watch_sectionmatch_changelist"))
+    assert SectionMatch.objects.count() == len(sections.etools_names())
+    assert "eTools section names added" not in response.content.decode()
+
+
+def test_opening_the_list_without_etools_data_says_where_the_names_come_from(client_admin):
+    response = client_admin.get(reverse("admin:watch_sectionmatch_changelist"))
+    assert response.status_code == 200 and not SectionMatch.objects.exists()
+    assert "Run the eTools sync first" in response.content.decode()
