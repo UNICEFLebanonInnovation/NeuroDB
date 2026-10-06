@@ -994,6 +994,11 @@ tr.row--amber { --row-tint: color-mix(in srgb, var(--nd-warning-soft) 70%, trans
   .fmm-report .table-wrap { overflow: visible; max-height: none; }
   .fmm-report .grid--2 { grid-template-columns: 1fr 1fr; }
   .fmm-report .kpi-grid { grid-template-columns: repeat(4, 1fr); }
+  /* A4 is narrower than the screen: the long column headings wrap and the grid cells may shrink. */
+  .fmm-report .grid--2 > * { min-width: 0; }
+  .fmm-report .table { font-size: 0.72rem; }
+  .fmm-report .table thead th { white-space: normal; font-size: 0.62rem; letter-spacing: 0; }
+  .fmm-report .table td, .fmm-report .table th { padding: 0.2rem 0.3rem; }
 }
 
 /* ---------------------------------------------------------------------------- Help (/help/, the Help assistant panel) */
