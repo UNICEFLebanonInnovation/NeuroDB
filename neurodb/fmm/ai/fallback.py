@@ -167,7 +167,7 @@ def _actions(facts: Facts) -> list[dict[str, Any]]:
 def brief(facts: Facts, parts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """The code-written brief of ``facts`` in ``parts`` (a prompt version's; the defaults when not
     given): ``{"sections": {key: [{"text", "keys"}], "notes": {key: why it is empty}}, "actions":
-    [...]}``, each part cut to its ``max_items``."""
+    [...]}``, each part cut to its ``limit``."""
     parts = parts if parts is not None else sections_module.of(None)
     writers = {
         "coverage": lambda: _coverage(facts),
@@ -179,10 +179,10 @@ def brief(facts: Facts, parts: list[dict[str, Any]] | None = None) -> dict[str, 
     notes: dict[str, str] = {}
     for part in sections_module.text_parts(parts):
         role = sections_module.ROLES.get(part["key"], "")
-        out[part["key"]] = writers[role]()[: part["max_items"]] if role in writers else []
+        out[part["key"]] = writers[role]()[: part["limit"]] if role in writers else []
         if not out[part["key"]]:
             notes[part["key"]] = FINDINGS_NOTE if role == "findings" else OTHER_NOTE if not role else ""
     action = sections_module.action_part(parts)
-    actions = _actions(facts)[: action["max_items"]] if action is not None else []
+    actions = _actions(facts)[: action["limit"]] if action is not None else []
     out["notes"] = {key: note for key, note in notes.items() if note}
     return {"sections": out, "actions": actions}

@@ -423,7 +423,7 @@ def validate(
 ) -> tuple[dict[str, list[dict]], list[dict], dict[str, int]]:
     """What may be kept of the AI's answer ``raw``, part by part (``parts``: the version's, the defaults
     when not given): each part's sentences that pass ``watch.grounding`` against the facts they cite (at
-    most the part's ``max_items``), the priority action points whose keys exist and whose action passes
+    most the part's ``limit``), the priority action points whose keys exist and whose action passes
     the same checks (an owner naming a person, or a section the facts do not name, is replaced; a
     partner the facts do not name is left out), and why the rest was dropped (counts per reason)."""
     today = today or timezone.localdate()
@@ -433,7 +433,7 @@ def validate(
     dropped: Counter = Counter()
     sections: dict[str, list[dict]] = {}
     for part in sections_module.text_parts(parts):
-        name, limit = part["key"], part["max_items"]
+        name, limit = part["key"], part["limit"]
         entries = raw.get(name)
         entries = _fold_visit_keys(entries if isinstance(entries, list) else [], facts.citable)
         kept, reasons = grounding.validate(
@@ -448,7 +448,7 @@ def validate(
     actions = []
     part = sections_module.action_part(parts)
     if part is not None:
-        limit = part["max_items"]
+        limit = part["limit"]
         entries = raw.get(part["key"])
         entries = _fold_visit_keys(entries if isinstance(entries, list) else [], facts.citable)
         for entry in entries[:limit]:

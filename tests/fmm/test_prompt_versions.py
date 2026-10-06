@@ -103,7 +103,7 @@ def test_v2_is_seeded_from_fms_lebanon_prompt():
     assert (v1.status, v2.status) == ("retired", "published") and profiles.published() == v2
     assert v2.content_hash == v2.compute_hash()  # the migration's literal hash is the model's
     assert v2.based_on == v1 and v2.created_by_name == v2.published_by_name == "NeuroDB (default)"
-    assert [(s["key"], s["format"], s["max_items"]) for s in v2.sections] == [
+    assert [(s["key"], s["format"], s["limit"]) for s in v2.sections] == [
         ("coverage_summary", "paragraph", 5),
         ("key_findings", "bullets", 20),
         ("challenges", "bullets", 4),
@@ -126,17 +126,17 @@ def test_the_parts_of_a_draft_are_checked(v1, admin_user):
     draft = profiles.draft_from(v1, admin_user, "parts", sections=list(sections.LEGACY))
     for bad, words in (
         ([], "List the parts"),
-        ([{"key": "A b", "label": "x", "format": "bullets", "max_items": 3}], "lower-case"),
-        ([{"key": "ab", "label": "x", "format": "table", "max_items": 3}], "paragraph or bullets"),
-        ([{"key": "ab", "label": "x", "format": "bullets", "max_items": 31}], "from 1 to 30"),
-        ([{"key": "action_points", "label": "x", "format": "paragraph", "max_items": 3}], "are bullets"),
-        ([{"key": "ab", "label": "", "format": "bullets", "max_items": 3}] * 2, "used twice"),
+        ([{"key": "A b", "label": "x", "format": "bullets", "limit": 3}], "lower-case"),
+        ([{"key": "ab", "label": "x", "format": "table", "limit": 3}], "paragraph or bullets"),
+        ([{"key": "ab", "label": "x", "format": "bullets", "limit": 31}], "from 1 to 30"),
+        ([{"key": "action_points", "label": "x", "format": "paragraph", "limit": 3}], "are bullets"),
+        ([{"key": "ab", "label": "", "format": "bullets", "limit": 3}] * 2, "used twice"),
     ):
         draft.sections = bad
         with pytest.raises(ValidationError) as caught:
             draft.full_clean()
         assert any(words in m for m in caught.value.message_dict["sections"]), (bad, caught.value)
-    draft.sections = [{"key": "summary", "label": " Summary ", "format": "paragraph", "max_items": 3}]
+    draft.sections = [{"key": "summary", "label": " Summary ", "format": "paragraph", "limit": 3}]
     draft.chat_examples = ["  Which visits were late?  ", ""]
     draft.full_clean()
     assert draft.sections[0]["label"] == "Summary" and draft.chat_examples == ["Which visits were late?"]

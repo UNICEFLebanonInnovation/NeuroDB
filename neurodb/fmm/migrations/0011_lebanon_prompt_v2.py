@@ -28,23 +28,23 @@ BY = "NeuroDB (default)"
 NOTE = "FMS Lebanon prompt (Release 2): the brief's five parts, Not monitored, thresholds and priority flags"
 
 LEGACY_SECTIONS = [
-    {"key": "coverage_quality", "label": "Coverage and quality", "format": "paragraph", "max_items": 4},
-    {"key": "programmatic_findings", "label": "Programmatic findings", "format": "bullets", "max_items": 6},
-    {"key": "operational_challenges", "label": "Operational challenges", "format": "bullets", "max_items": 5},
-    {"key": "recommendations", "label": "Recommendations", "format": "bullets", "max_items": 5},
-    {"key": "priority_actions", "label": "Priority action points", "format": "bullets", "max_items": 6},
+    {"key": "coverage_quality", "label": "Coverage and quality", "format": "paragraph", "limit": 4},
+    {"key": "programmatic_findings", "label": "Programmatic findings", "format": "bullets", "limit": 6},
+    {"key": "operational_challenges", "label": "Operational challenges", "format": "bullets", "limit": 5},
+    {"key": "recommendations", "label": "Recommendations", "format": "bullets", "limit": 5},
+    {"key": "priority_actions", "label": "Priority action points", "format": "bullets", "limit": 6},
 ]
 SECTIONS = [
     {
         "key": "coverage_summary",
         "label": "Coverage and Quality Summary",
         "format": "paragraph",
-        "max_items": 5,
+        "limit": 5,
     },
-    {"key": "key_findings", "label": "Key Programmatic Findings", "format": "bullets", "max_items": 20},
-    {"key": "challenges", "label": "Operational Challenges", "format": "bullets", "max_items": 4},
-    {"key": "recommendations", "label": "Recommendations", "format": "bullets", "max_items": 5},
-    {"key": "action_points", "label": "Priority Action Points", "format": "bullets", "max_items": 5},
+    {"key": "key_findings", "label": "Key Programmatic Findings", "format": "bullets", "limit": 20},
+    {"key": "challenges", "label": "Operational Challenges", "format": "bullets", "limit": 4},
+    {"key": "recommendations", "label": "Recommendations", "format": "bullets", "limit": 5},
+    {"key": "action_points", "label": "Priority Action Points", "format": "bullets", "limit": 5},
 ]
 CHAT_EXAMPLES = [
     "What are the main programmatic issues in this period?",

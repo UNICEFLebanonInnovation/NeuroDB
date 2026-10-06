@@ -547,9 +547,9 @@ COMP_HELP = (
 )
 SECTIONS_HELP = (
     "The parts of the brief, in order: each with its key (what the AI writes under; never shown), its "
-    "label (the heading on the page), its format (paragraph or bullets) and the most sentences or "
-    "bullets it may hold. The key action_points holds the priority action points (priority, section, "
-    "partner, action, responsible party, timeframe)."
+    "label (the heading on the page), its format (paragraph or bullets) and its limit: the most "
+    "sentences or bullets it may hold. The key action_points holds the priority action points "
+    "(priority, section, partner, action, responsible party, timeframe)."
 )
 CHAT_EXAMPLES_HELP = "The starter questions Chat with Data offers, one per line (at most 8)."
 
@@ -563,7 +563,7 @@ def default_insight_sections() -> list:
         ("recommendations", "Recommendations", "bullets", 5),
         ("action_points", "Priority Action Points", "bullets", 5),
     )
-    return [{"key": k, "label": label, "format": f, "max_items": n} for k, label, f, n in parts]
+    return [{"key": k, "label": label, "format": f, "limit": n} for k, label, f, n in parts]
 
 
 def default_chat_examples() -> list:

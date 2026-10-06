@@ -25,7 +25,7 @@ class Migration(migrations.Migration):
             name="sections",
             field=models.JSONField(
                 default=neurodb.fmm.models.default_insight_sections,
-                help_text="The parts of the brief, in order: each with its key (what the AI writes under; never shown), its label (the heading on the page), its format (paragraph or bullets) and the most sentences or bullets it may hold. The key action_points holds the priority action points (priority, section, partner, action, responsible party, timeframe).",
+                help_text="The parts of the brief, in order: each with its key (what the AI writes under; never shown), its label (the heading on the page), its format (paragraph or bullets) and its limit: the most sentences or bullets it may hold. The key action_points holds the priority action points (priority, section, partner, action, responsible party, timeframe).",
             ),
         ),
         migrations.AlterField(

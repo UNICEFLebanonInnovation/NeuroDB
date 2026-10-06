@@ -1,7 +1,7 @@
 """The parts of an AI brief, as each prompt version lists them (``PromptVersion.sections``), like FMS's
 ``[meta:insights_sections]``: a key (what the AI writes under; never shown), a label (the heading on the
-page), a format (``paragraph``: sentences read as one paragraph; ``bullets``: a list) and the most
-sentences or bullets it may hold.
+page), a format (``paragraph``: sentences read as one paragraph; ``bullets``: a list) and a limit: the
+most sentences or bullets it may hold.
 
 The brief's strict JSON schema is built from the list (:func:`schema`): the keys are exactly the list's.
 Every part is a list of sentences, each with the keys of the facts it rests on, but the priority action
@@ -26,7 +26,7 @@ from ..models import default_insight_sections
 FORMATS = ("paragraph", "bullets")
 ACTION_KEYS = ("action_points", "priority_actions")  # the structured part (Release 2, Release 1)
 MAX_SECTIONS = 8
-MAX_ITEMS = 30
+MAX_LIMIT = 30
 LABEL_CHARS = 80
 KEY = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
 MAX_EXAMPLES = 8
@@ -34,11 +34,11 @@ EXAMPLE_CHARS = 200
 
 # The parts of the briefs written before Release 2 (prompt version 1 and its copies)
 LEGACY = [
-    {"key": "coverage_quality", "label": "Coverage and quality", "format": "paragraph", "max_items": 4},
-    {"key": "programmatic_findings", "label": "Programmatic findings", "format": "bullets", "max_items": 6},
-    {"key": "operational_challenges", "label": "Operational challenges", "format": "bullets", "max_items": 5},
-    {"key": "recommendations", "label": "Recommendations", "format": "bullets", "max_items": 5},
-    {"key": "priority_actions", "label": "Priority action points", "format": "bullets", "max_items": 6},
+    {"key": "coverage_quality", "label": "Coverage and quality", "format": "paragraph", "limit": 4},
+    {"key": "programmatic_findings", "label": "Programmatic findings", "format": "bullets", "limit": 6},
+    {"key": "operational_challenges", "label": "Operational challenges", "format": "bullets", "limit": 5},
+    {"key": "recommendations", "label": "Recommendations", "format": "bullets", "limit": 5},
+    {"key": "priority_actions", "label": "Priority action points", "format": "bullets", "limit": 6},
 ]
 # What the brief NeuroDB writes from the figures puts in each part, by key (Release 2's and Release 1's)
 ROLES = {
@@ -124,7 +124,7 @@ def instructions(sections: list[dict[str, Any]]) -> str:
     """The parts to write, in words, as the prompt gives them to the AI after the editable text."""
     lines = ["The brief's parts (JSON keys), in order:"]
     for s in sections:
-        n = s["max_items"]
+        n = s["limit"]
         if is_action(s):
             what = f"at most {n} priority action points, most urgent first"
         elif s["format"] == "paragraph":
@@ -155,13 +155,13 @@ def validate(value: Any) -> list[dict[str, Any]]:
     out, seen, problems = [], set(), []
     for n, raw in enumerate(value, 1):
         if not isinstance(raw, dict):
-            problems.append(f"Part {n} must be an object with key, label, format and max_items.")
+            problems.append(f"Part {n} must be an object with key, label, format and limit.")
             continue
-        unknown = sorted(set(raw) - {"key", "label", "format", "max_items"})
+        unknown = sorted(set(raw) - {"key", "label", "format", "limit"})
         if unknown:
             problems.append(f"Part {n} has unknown settings: {', '.join(unknown)}.")
         key, label = str(raw.get("key") or "").strip(), " ".join(str(raw.get("label") or "").split())
-        form, items = raw.get("format"), raw.get("max_items")
+        form, limit = raw.get("format"), raw.get("limit")
         if not KEY.match(key):
             problems.append(f"Part {n}: the key is 2 to 40 lower-case letters, digits or _ (not “{key}”).")
         elif key in seen:
@@ -172,10 +172,10 @@ def validate(value: Any) -> list[dict[str, Any]]:
             problems.append(f"Part {n}: the format is paragraph or bullets.")
         elif key in ACTION_KEYS and form != "bullets":
             problems.append("The action points are bullets.")
-        if isinstance(items, bool) or not isinstance(items, int) or not 1 <= items <= MAX_ITEMS:
-            problems.append(f"Part {n}: max_items is a whole number from 1 to {MAX_ITEMS}.")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= MAX_LIMIT:
+            problems.append(f"Part {n}: the limit is a whole number from 1 to {MAX_LIMIT}.")
         seen.add(key)
-        out.append({"key": key, "label": label, "format": form, "max_items": items})
+        out.append({"key": key, "label": label, "format": form, "limit": limit})
     if sum(1 for s in out if s["key"] in ACTION_KEYS) > 1:
         problems.append("Only one part holds the action points.")
     if problems:
