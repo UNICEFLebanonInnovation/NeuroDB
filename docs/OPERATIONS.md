@@ -434,6 +434,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `fmm-insights` | `fmm_insights` | `40 5 * * *`, daily 05:40, after the refresh: the AI monitoring briefs of the whole country, each section people land on and the last 90 days (reused at no cost when their data has not changed); with `FMM_AI` off it writes nothing and only applies the briefs' retention |
 | `fmm-ai-checks` | `fmm_ai_checks` | `50 5 * * *`, daily 05:50, after the refresh and the briefs: the AI checks of the quality rules on the visits not checked yet (newest first, within `FMM_RULES_DAILY_TOKEN_CAP`), then the scores are recomputed; with the AI or the AI checks off it checks nothing |
 | `daily-review` | `daily_review` | `0 6 * * *`, daily 06:00, after the night's syncs |
+| `fmm-ap-review` | `fmm_ap_review` | `10 6 * * *`, daily 06:10, after the AI checks: the AI review of the completed eTools action points not reviewed yet or whose texts changed (most recently completed first, within `FMM_AP_REVIEW_DAILY_TOKEN_CAP`); with the AI or the review off it reviews nothing |
 | `activityinfo-data` | `import_activityinfo_data --current-year` | `0 18 1-22 * *`, 18:00 on days 1–22 |
 | `etools-datamart` | `sync_etools_datamart` | `30 20 * * *`, daily 20:30 |
 | `freshness` | `check_sync_freshness` | `15 * * * *`, hourly; a stale source is logged as an error |
@@ -513,6 +514,7 @@ admin home page, *Quick actions*):
 | Run a job → *Monitoring insights* | `fmm_refresh` | background |
 | Run a job → *Monitoring insights (AI)* | `fmm_insights` | background |
 | Run a job → *Monitoring insights (AI checks)* | `fmm_ai_checks` | background |
+| Run a job → *Action points (AI review)* (also *Run AI review* on the action points page, with a batch size) | `fmm_ap_review` (`--limit N` from the page) | background |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |
@@ -988,7 +990,7 @@ readers. Donor accounts never see the page, the count or the card.
 | `fr_expiring` | Funds reservations ending in the next 30 days with money outstanding; warning from 7 days | the PD's sections | trial |
 | `hact_assurance_gap` | From 1 October to 31 December: partners whose programmatic visits, spot checks or audits are below what HACT requires; warning from 15 November, critical from 15 December | the sections of the partner's active PDs, and the country view | trial |
 | `assignment_due` | Agreed dates on daily review findings (*Finding assignments*): 3 days before, and once passed | the finding's section, and the country view | trial |
-| `fm_follow_up` | Field monitoring visits (Monitoring insights) reported, rated off track or constrained (the worse of the overall rating and HACT Q1), ended 14 (Score settings *follow-up days*) to 120 days ago, with no eTools action point linked; critical when off track and ended over 30 days ago. Closes when an action point is linked or the rating changes. Reads the Datamart sync and the Monitoring insights refresh; finds nothing while `FMM_ENABLED` is off (switch the check off then, or its source shows as not refreshed) | the visit's sections | trial |
+| `fm_follow_up` | Field monitoring visits (Monitoring insights) reported, rated off track or constrained (the worse of the overall rating and HACT Q1), ended 14 (Score settings *follow-up days*) to 120 days ago, with no eTools action point linked and no NeuroDB action point following them up (one added by hand, or one NeuroDB made and someone marked done); critical when off track and ended over 30 days ago. Closes when an action point is linked (or a NeuroDB one follows the visit up) or the rating changes. Reads the Datamart sync and the Monitoring insights refresh; finds nothing while `FMM_ENABLED` is off (switch the check off then, or its source shows as not refreshed) | the visit's sections | trial |
 | `forecast_short` | Indicators the year-end forecast says are likely to fall short, only while the forecasts are shown | the forecast's section | trial |
 | `donor_account_expiring` | Donor sign-ins that stop working within 14 days | Administrators | trial |
 | `reporting_year_rollover` | 15 December to 15 January: the new year is not the current reporting year yet | Administrators | trial |
@@ -1302,7 +1304,9 @@ Q1, Q2, Q3 and PSEA), **Quality rules**, **Score settings**, **Rule versions**, 
 lists** (rule R19), **AI checks** (each visit's AI check answers), **Prompt versions** and
 **Sampling checks** (the AI's prompts and what the model accepted), **AI briefs** (every brief written,
 or why none was), **Chat questions** (every chat question, with what its check found), **Visits** (the
-visits built, with their rule results, for checking the data) and **Visit reviews**.
+visits built, with their rule results, for checking the data) and **Visit reviews**; and for the
+action points page **Action point settings**, **AI reviews of action points**, **Action point
+verifications**, **AI content summaries** and **NeuroDB action points** (see *Action points*).
 
 The AI is **off at deploy** (`FMM_AI=false`): the page then shows a brief written by NeuroDB from the
 figures, and the chat says it is switched off. It is switched on at step 7 of the go-live checklist
@@ -1717,8 +1721,8 @@ whose own section would otherwise apply sees the same figures as the panel the l
   programmatic FM visits that ended in the HACT year, one per visit for each partner of its rows,
   next to eTools' own done / required. It links to that partner's programmatic visits of the year in
   Monitoring insights.
-- **Action points**: an FM action point matched to a visit shows *Visit 1722* under *Raised from*,
-  opening the visit.
+- **Action points**: an FM action point matched to a visit shows *Visit 1722* under *Raised from* with
+  its link confidence, opening the visit; see *Action points* below for the page.
 - **Knowledge hub and What's new**: every visit that ended in the last `FMM_HUB_MONTHS` (24) months
   is a *Field monitoring visit* (`fm_visit`) in the hub: "Visit 1722 · AMEL · 12 May 2026", with its
   date, status group, rating, quality and urgency band only (never a narrative, an answer or a team),
@@ -2065,6 +2069,94 @@ and their notes, rule results, urgency, action points, HACT context and checklis
   available: switched off by an administrator"), or set `FMM_AI=false` for every AI call of Monitoring
   insights.
 
+### Action points (`/action-points/`, FMS §10)
+
+The action points page (menu: *Action points*) lists the **eTools action points** (from the Datamart:
+audits, spot checks, TPM, trips and field monitoring), and under them the **NeuroDB action points**,
+kept in NeuroDB only. What comes from Monitoring insights (the visit link, the AI review, the PME
+verification and the NeuroDB action points) shows while `FMM_ENABLED` is on; with it off the page lists
+the eTools action points as before.
+
+- **Filters**: search (reference, description, action taken, partner, PD, status, a person's name, a
+  visit's reference or an eTools activity id), status, *Raised from* (module), office, section, partner,
+  *Assigned to* (part of a name), *Changed in eTools* from / to (the Datamart's last change), AI verdict,
+  PME verification, visit link, and *Show only* overdue, high priority or field monitoring. On the first
+  visit a person with a section sees that section's action points (as the other pages); *Reset* comes
+  back to it, and clearing the Section filter shows every one. The toolbar's **CSV** copies the rows on
+  screen; **CSV of the filter** downloads every action point of the filter (all pages) and **CSV of every
+  action point** all of them, with the visit, link confidence, AI verdict and PME verification.
+- **Columns**: reference and description, partner and PD, office and section, who it is assigned to
+  (shown to staff only; never sent to the AI), due date, status and completion date, *Raised from* with
+  the **visit** of a field monitoring action point and its **link confidence**: *High* when the refresh
+  matched it by the visit's eTools activity id (`related_module_id`), *Medium* by the visit's reference,
+  *Unmatched* when no visit matches; blank for the other modules. Then the **AI verdict** and the **PME
+  verification**. The reference opens the action point's details: every field, the action taken, the
+  AI's verdict and why, and the verifications (with the form, for who may verify).
+- **Charts** (over the filter; each has *Download PNG*, and a bar opens its action points): by status;
+  the due dates of the open ones (Overdue, due within 30 days, On track, No due date); raised and
+  completed by month (the last 24 months; *raised* is the eTools record's creation date); whether the
+  completed ones were completed on time (On time, Late 1-30 days, Late 31-90 days, Late > 90 days, No
+  dates) with the average days late of the late ones; and the open ones by office and by section. FMS
+  ranks the people with the most open action points ("Top assignees"); NeuroDB never ranks staff by
+  name, so offices and sections stand in its place.
+- **AI adequacy review** (`fmm.ai.ap_review`): for each **completed** action point (completed, closed or
+  resolved) with an action taken written in eTools, one OpenAI call reads the description (the issue)
+  and the action taken, cleaned of names, e-mail addresses, phone numbers and links, and answers
+  *Adequately addressed*, *Partially addressed*, *Not addressed* or *Generic/vague* with one sentence
+  why (cleaned, and left out when it names a figure neither text holds). Its instructions are the
+  published prompt version's `ap_adequacy_review` (from FMS Lebanon's prompt file; editable and
+  versioned in *AI checks' instructions*), followed by NeuroDB's fixed rules. The model, temperature,
+  effort and output limit are the AI checks' (Score settings). Each verdict is kept per action point and
+  shown while the description, the action taken and the instructions are those it was made with: a
+  changed description makes it out of date at once (it is no longer shown, and the next refresh or
+  review deletes it). The review runs every morning at 06:10 (`fmm_ap_review`) on the points not
+  reviewed yet, most recently completed first, within `FMM_AP_REVIEW_DAILY_TOKEN_CAP`; Administrators
+  also start it from the page (**Run AI review**, batch size 20, 50, 100 or 200, default 50) or from
+  *Run a job → Action points (AI review)*. The status line says "Last run: n reviewed, n skipped, n
+  errors" (skipped: completed with no action taken, or texts that could not be sent safely). Admin →
+  *Action point settings* switches the review off.
+- **PME verification**: in the details, *Verified*, *Rejected* or *Pending* with an optional note (never
+  sent to the AI); who and when are recorded, and every decision is kept (*Earlier verifications*).
+  Administrators and the Section editors of the action point's section (its eTools section, as *Section
+  matches* confirms it) may verify. The *PME verification* filter finds each state, or *Not verified yet*.
+- **AI content summary** (`fmm.ai.ap_summary`): a button that reads the action points of the filter (at
+  most *Points read by a summary*, 150, the most recent; their reference and cleaned description, never
+  who they are assigned to) and shows up to 5 dominant themes (name, how many action points, one example
+  by its reference) and one sentence on the overall pattern, as a card with *Dismiss*. Checked before it
+  is shown: a theme whose example was not sent is left out, and a summary whose counts add up to more
+  than the action points read is refused. Each person may ask *Summaries per person per day* (5); the
+  summary is not cached (another filter, another summary) and never kept (admin → *AI content
+  summaries* records who asked, when and the tokens). Its instructions are the prompt version's
+  `ap_content_summary` (NeuroDB's own text).
+- **NeuroDB action points** (FMS's "local action points"; admin → *NeuroDB action points*): never sent to
+  eTools. Administrators and Section editors add one with **New action point** (title, description, an
+  optional visit, priority High / Medium / Low, due date, a responsible role or section, or a person in
+  NeuroDB), also from a visit's page; the person who added it, an Administrator or a Section editor (of
+  the visit's sections) marks it done, dropped or open again. **NeuroDB makes one at each refresh** for a
+  scored visit whose quality is Low (below the Medium band, 50) with at least one of the AI's action point
+  flags (R7, R8 or R32), unless one is open on the visit, or NeuroDB already made one since the visit
+  last changed in eTools: below 30 it is *High* and due in 5 working days, else *Medium* and due in 10
+  (Monday to Friday); its title names the flag that took the most points ("Follow up on R8 — FM/2026/23"),
+  its description lists the visit's flags (never a narrative or a person) and it is assigned to the role
+  "PME focal point". The list has its own search (title, description, assignee), status, priority and
+  programme filters (Health, Nutrition, WASH, Education, Child Protection, Cash, MHPSS, Social Policy,
+  SBC, read from keywords in the title and description, offered when some action point matches).
+- **Follow-up**: a visit counts as followed up by an eTools action point linked to it, or by a NeuroDB
+  action point added by hand (not dropped), or one NeuroDB made that someone marked done (an automatic
+  one alone is only a reminder). The follow-up block of the Analysis tab (and its count of open NeuroDB
+  action points) and the Watch check `fm_follow_up` read it at once.
+- **The visit page** lists its eTools action points with their link confidence, AI verdict and PME
+  verification (each opens its details) and its NeuroDB action points, with *New NeuroDB action point on
+  this visit*.
+- **Ask NeuroDB** counts the action points by status, AI verdict and PME verification, and the NeuroDB
+  action points by status (`fm_action_points`): counts only, never a text or a person.
+- **Costs.** A review uses about 1,000-2,500 tokens (input about 300-900, output with reasoning at most
+  2,000): `FMM_AP_REVIEW_DAILY_TOKEN_CAP` (300,000 tokens a day, counted under *Action points (AI review
+  and summaries)* in *AI use*) is about 150-250 reviews a night, and a back-log is reviewed over several
+  nights; the nightly review also stops at 80% of `AI_DAILY_TOKEN_SOFT_CAP`. A summary of 150 action
+  points uses about 10,000-20,000 tokens and counts against the same cap (and 100% of the shared cap).
+  When OpenAI says the credit ran out, the AI of Monitoring insights pauses for 6 hours.
+
 ### What goes to OpenAI, and what never does
 
 Nothing goes while `FMM_AI` is off. Once it is on, the brief and the chat send:
@@ -2092,6 +2184,10 @@ Nothing goes while `FMM_AI` is off. Once it is on, the brief and the chat send:
 - **Ask NeuroDB** reads field monitoring without these limits on texts per answer, so it gets none:
   its `fm_*` look-ups return structured fields only (no notes, answers or snippets), and its generic
   eTools look-ups drop person keys and withhold long texts (see *AI assistant*, above).
+- **The action points' AI** (review and summary) sends only an action point's description and action
+  taken (the review), or the references and descriptions of the action points of the filter (the
+  summary), each cleaned and checked like the briefs': never who an action point is assigned to, its
+  office or partner, or a PME note.
 - **The hub, Watch and the CSV** carry no narrative, answer, visit lead or team: the hub's visits hold
   their date, status, rating, quality and urgency band; Watch's records the visit's label, date and
   rating; the CSV every column but the team.
@@ -2107,7 +2203,8 @@ every call.
 
 Every brief, test run and chat round is counted under *Monitoring insights* in Admin → Data and sync →
 *AI use*; the AI checks of the quality rules under *Monitoring insights (AI checks)*, with their own cap
-(see *AI checks of the quality rules*). Before each call NeuroDB checks, in order: the AI is switched on (`FMM_ENABLED`, `FMM_AI`,
+(see *AI checks of the quality rules*); the action points' AI review and summaries under *Action points
+(AI review and summaries)*, with their own cap (see *Action points*). Before each call NeuroDB checks, in order: the AI is switched on (`FMM_ENABLED`, `FMM_AI`,
 `AI_ASSISTANT_ENABLED` and a published prompt version); it is not paused (6 hours after OpenAI said
 the credit ran out); Monitoring insights' own caps for the whole office, `FMM_DAILY_TOKEN_CAP`
 (1,200,000 tokens) and `FMM_MAX_CALLS_PER_DAY` (400 calls); and the shared `AI_DAILY_TOKEN_SOFT_CAP`
@@ -2172,6 +2269,8 @@ Both are edited by Administrators only; other staff can read them. Neither is ev
 | The AI briefs | A new prompt version with *insights enabled* unticked, published (the brief written by NeuroDB is shown) |
 | The chat | A new prompt version with *chat enabled* unticked, published |
 | The AI checks of the quality rules | *Score settings → AI checks* unticked (the AI rules then count as switched off; no visit is provisional), or one rule switched off |
+| The AI review of action points | Admin → *Action point settings* → *AI review* unticked (the verdicts kept stay hidden while out of date) |
+| The AI content summary of action points | A new prompt version without `ap_content_summary` in *AI checks' instructions*, published (the button goes) |
 | Every AI call of Monitoring insights | `FMM_AI=false` (no restart of the data or pages needed beyond the setting) |
 | The refresh after each Datamart sync | `FMM_REFRESH_AFTER_SYNC=off` (or `false`); the 05:25 run still refreshes |
 | Everything | `FMM_ENABLED=false`: the page and every `/fmm/` address answer 404, the menu item and panels are hidden, the refresh and the briefs do nothing, the look-ups say Monitoring insights is off (switch off the Watch check `fm_follow_up` too) |
@@ -2271,6 +2370,15 @@ on, and before its figures are trusted:
    nights check the newest visits within `FMM_RULES_DAILY_TOKEN_CAP`, and the older ones over the next
    nights; until a visit's checks are done it is provisional. *Run the AI checks of the quality rules
    now* (Import and sync runs → Run a job) starts a run at once.
+11. **Action points (Release 2, stage C).** The migration publishes a new prompt version with the
+   review's and the summary's instructions (the one before it is retired). With the AI on, the 06:10
+   review back-fills the completed action points within `FMM_AP_REVIEW_DAILY_TOKEN_CAP`; check the
+   first run's status line on the action points page and a few verdicts against the action taken. Read
+   which keys the action points' records hold for the action taken and the creation date (`action_taken`
+   or `actions_taken`; `created`): a key NeuroDB does not know leaves the review and the monthly trend
+   empty. Confirm with the user: the follow-up rule (an automatic NeuroDB action point counts once marked
+   done), the role "PME focal point" of the automatic ones, offices and sections in place of FMS's top
+   assignees, and the 300,000-token cap.
 
 ### Settings
 
@@ -2301,6 +2409,8 @@ on, and before its figures are trusted:
 | `FMM_RETENTION_DAYS` | `180` | Briefs and chat questions are kept this many days. |
 | `FMM_RULES_DAILY_TOKEN_CAP` | `2000000` | The AI checks' own tokens a day (about 700-1,000 checks); what is left waits for the next night. They also stop at 80% of `AI_DAILY_TOKEN_SOFT_CAP` across every feature. |
 | `FMM_RULES_TIMEOUT_SECONDS` | `60` | Seconds per AI check. |
+| `FMM_AP_REVIEW_DAILY_TOKEN_CAP` | `300000` | The action points' AI review and summaries: their own tokens a day (about 150-250 reviews); the nightly review also stops at 80% of `AI_DAILY_TOKEN_SOFT_CAP`. |
+| `FMM_AP_REVIEW_TIMEOUT_SECONDS` | `60` | Seconds per action point review or summary call. |
 
 Release 2's other settings are kept in the admin, versioned with the rules (*Quality rules*, *Score
 settings*) or with the prompts (*Prompt versions*):
@@ -2320,7 +2430,10 @@ settings*) or with the prompts (*Prompt versions*):
 | Score settings › *AI text characters* | `1500` | Each text a check sends is cut to this (200-6,000). |
 | Quality rules › each rule | FMS Lebanon's 32 rules | On or off, category, group, deduction, flag template and parameters (see *Rules of this page*). |
 | Field office staff lists | Beirut, Zahle, Tripoli, Beirut/Mount Lebanon, empty | Rule R19's staff e-mail addresses per field office (Administrators only; never shown or sent). |
-| Prompt version › *AI checks' instructions* | FMS Lebanon's six check prompts (v3) | The instructions of each AI check, by prompt key. |
+| Prompt version › *AI checks' instructions* | FMS Lebanon's six check prompts (v3), and the action points' `ap_adequacy_review` and `ap_content_summary` (v4) | The instructions of each AI check, by prompt key, and of the action points' AI review and content summary. |
+| Action point settings › *AI review* | on | The AI review of completed action points; off: it reviews nothing. |
+| Action point settings › *Summary points* | `150` | The most action points one AI content summary reads (10-500). |
+| Action point settings › *Summaries per person per day* | `5` | AI content summaries one person may ask for a day (0-50). |
 | Prompt version › *Parts of the brief* | FMS's five Lebanon parts (v2) | Key, label, paragraph or bullets, and the limit (the most sentences or bullets, 1-30) of each part, at most 8 parts; the brief's answer format is built from it. |
 | Prompt version › *Chat starter questions* | the four FMS questions | One per line, at most 8, each at most 200 characters. |
 | Prompt version › *Compliance depth* (`comp`) | `15` | How many of the most frequent quality flags the AI receives (0-40). |
