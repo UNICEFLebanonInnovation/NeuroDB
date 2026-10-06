@@ -73,7 +73,9 @@
     </nav>
   </div>
   <p class="small text-muted px-3 mb-2">{% trans "Monitored entities, worst average quality first, so the ones that need closer monitoring come first. Unscored entities come last." %}</p>
-  {% if entity_rows %}
+  {% if entity_lazy_query %}
+  <p class="px-3 pb-3 mb-0 small" hx-get="{{ page_url }}?{{ entity_lazy_query }}" hx-trigger="revealed" hx-target="#fmm-entities" hx-select="#fmm-entities" hx-swap="outerHTML"><a href="{{ page_url }}?{{ entity_lazy_query }}">{% trans "Loading the entities…" %}</a></p>
+  {% elif entity_rows %}
   <div class="table-wrap"><table class="table table-sm">
     <thead><tr><th scope="col">{% trans "Entity" %}</th><th scope="col">{% trans "Visits" %}</th><th scope="col">{% trans "Average quality" %}</th><th scope="col">{% trans "High / Medium / Low" %}</th><th scope="col">{% trans "Top issue" %}</th><th scope="col">{% trans "Last rating" %}</th>{% if entity_kind == "pd" %}<th scope="col">{% blocktrans with year=entity_year %}Planned visits {{ year }}{% endblocktrans %}</th>{% endif %}</tr></thead>
     <tbody>{% for e in entity_rows %}<tr>
@@ -102,7 +104,7 @@
       <span class="meter"><span class="meter__track"><span class="meter__fill meter__fill--{% if s.avg is None %}not_reported{% elif s.avg >= limits.band_high %}success{% elif s.avg >= limits.band_medium %}warning{% else %}danger{% endif %}" style="width: {{ s.avg|default_if_none:0|floatformat:0 }}%"></span></span></span>
     </summary>
     <ul class="fmm-visit-lines">
-      {% for line in s.lines %}<li><a href="{{ line.url }}" hx-get="{{ line.url }}" hx-target="#modal-content" class="mono">{{ line.name }}</a> · {% if line.quality is not None %}<span class="fmm-score fmm-score--{{ line.band|default:'none' }}">{{ line.quality|percent:0 }}</span>{% else %}<span class="text-muted">—</span>{% endif %} · {{ line.rating_label }} ({% if line.not_rated_yet %}{% blocktrans with day=line.date|date:"j M Y" %}ends {{ day }}{% endblocktrans %}{% else %}{% blocktrans with day=line.date|date:"j M Y" %}rated {{ day }}{% endblocktrans %}{% endif %})</li>{% endfor %}
+      {% for line in s.lines %}<li><a href="{{ line.url }}" hx-get="{{ line.url }}" hx-target="#modal-content" class="mono">{{ line.name }}</a> · {% if line.quality is not None %}<span class="fmm-score fmm-score--{{ line.band|default:'none' }}">{{ line.quality|percent:0 }}</span>{% else %}<span class="text-muted">—</span>{% endif %} · {{ line.rating_label }} ({{ line.when }})</li>{% endfor %}
       {% if s.more %}<li><a href="{{ s.url }}" hx-get="{{ s.url }}" hx-target="#modal-content">{% blocktrans count n=s.more %}+{{ n }} more visit{% plural %}+{{ n }} more visits{% endblocktrans %}</a></li>{% endif %}
     </ul>
   </details>
@@ -115,10 +117,10 @@
   {% if places.rows %}
   <div class="table-wrap"><table class="table table-sm">
     <thead><tr><th scope="col">{% trans "Place" %}</th><th scope="col">{% trans "Visits" %}</th><th scope="col">{% trans "Average quality" %}</th><th scope="col">{% trans "Coverage" %}</th></tr></thead>
-    <tbody>{% for p in places.top %}{% include "fmm/_frequency_row.html" %}{% endfor %}</tbody>
+    <tbody>{% include "fmm/_frequency_row.html" with rows=places.top %}</tbody>
   </table></div>
-  {% if places.rest %}<details class="px-3 pb-2"><summary class="small">{% if places.total > places.rows|length %}{% blocktrans with n=places.rows|length total=places.total %}Show the {{ n }} most visited of {{ total }} places{% endblocktrans %}{% else %}{% blocktrans count n=places.rows|length %}Show all {{ n }} place{% plural %}Show all {{ n }} places{% endblocktrans %}{% endif %}</summary>
-    <div class="table-wrap"><table class="table table-sm"><tbody>{% for p in places.rest %}{% include "fmm/_frequency_row.html" %}{% endfor %}</tbody></table></div>
+  {% if places.rest_count %}<details class="px-3 pb-2"{% if places.rest %} open{% else %} hx-get="{% url 'fmm:dashboard' %}?{{ places.all_query }}" hx-trigger="toggle once" hx-select="#fmm-frequency-rest" hx-target="find #fmm-frequency-rest" hx-swap="outerHTML"{% endif %}><summary class="small">{% if places.total > places.rows|length %}{% blocktrans with n=places.rows|length total=places.total %}Show the {{ n }} most visited of {{ total }} places{% endblocktrans %}{% else %}{% blocktrans count n=places.rows|length %}Show all {{ n }} place{% plural %}Show all {{ n }} places{% endblocktrans %}{% endif %}</summary>
+    <div class="table-wrap" id="fmm-frequency-rest">{% if places.rest %}<table class="table table-sm"><tbody>{% include "fmm/_frequency_row.html" with rows=places.rest %}</tbody></table>{% else %}<p class="small text-muted mb-0"><a href="{% url 'fmm:dashboard' %}?{{ places.all_query }}">{% trans "Loading the list…" %}</a></p>{% endif %}</div>
   </details>{% endif %}
   {% endif %}
   <p class="small text-muted px-3 pb-3 mb-0">{% trans "Coverage = rated entities ÷ monitored entities of the visits to the place." %}{% if places.unlinked %} {% blocktrans count n=places.unlinked %}{{ n }} visit has no linked location.{% plural %}{{ n }} visits have no linked location.{% endblocktrans %}{% endif %}</p>

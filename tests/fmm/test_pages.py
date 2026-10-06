@@ -550,7 +550,7 @@ def test_the_psea_tile_says_when_no_question_exists(built, client_viewer):
 
 
 def test_a_reference_date_next_to_every_rating_in_the_lists(built, client_viewer):
-    html = client_viewer.get(PAGE, {"tab": "analysis"}).content.decode()
+    html = client_viewer.get(PAGE, {"tab": "analysis", "entity_kind": "pd"}).content.decode()
     sections = html.split('id="fmm-sections-title"', 1)[1].split("</section>", 1)[0]
     lines = re.findall(r"<li>.*?</li>", sections, re.S)
     assert len(lines) == 8  # 3 Education visits, 5 without a section

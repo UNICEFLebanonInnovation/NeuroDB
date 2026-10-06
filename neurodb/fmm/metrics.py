@@ -32,7 +32,9 @@ from django.db.models import Count, Max, Q, QuerySet, Sum
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
-from .scope import Scope
+from neurodb.datamart.fm import RATING_ORDER
+
+from .scope import BUCKETS, Scope
 
 CACHE_SECONDS = 600
 RATED = ("on_track", "constrained", "off_track")
@@ -123,6 +125,9 @@ def urgency_counts(visits_qs: QuerySet, limits: dict[str, int] | None = None) ->
     )
 
 
+COUNTED_KINDS = ("pd", "cp_output", "partner")  # the kinds counted by name; the rest is "other"
+
+
 def kpis(scope: Scope, when: str | None = None, limits: dict[str, int] | None = None) -> dict[str, Any]:
     """The four key figures: visits (with the status breakdown), monitored entities (rated / not
     monitored), the average quality (with the scored visits and the rules version) and the visits
@@ -145,7 +150,10 @@ def kpis(scope: Scope, when: str | None = None, limits: dict[str, int] | None = 
             total=Count("pk"),
             rated=Count("pk", filter=Q(rating__in=RATED)),
             not_monitored=Count("pk", filter=Q(rating="not_monitored")),
+            **{f"kind_{kind}": Count("pk", filter=Q(kind=kind)) for kind in COUNTED_KINDS},
         )
+        by_kind = {kind: entities[f"kind_{kind}"] for kind in COUNTED_KINDS}
+        by_kind["other"] = entities["total"] - sum(by_kind.values())  # "other", or no kind at all
         breakdown = [
             {"group": g, "n": counts[g], "label": STATUS_WORDS[g]}
             for g in STATUS_ORDER
@@ -158,6 +166,7 @@ def kpis(scope: Scope, when: str | None = None, limits: dict[str, int] | None = 
             "entities_rated": entities["rated"],
             "entities_not_monitored": entities["not_monitored"],
             "entities_other": entities["total"] - entities["rated"] - entities["not_monitored"],
+            "entity_kinds": {kind: n for kind, n in by_kind.items() if n},
             "avg_quality": mean_quality(counts["quality_sum"], counts["quality_n"]),
             "scored": counts["scored"],
             "rules_version": counts["version"] or 0,
@@ -235,7 +244,9 @@ def _today():
 
 
 def _quality(value: Any) -> Decimal | None:
-    return None if value is None else Decimal(str(value))
+    if value is None or isinstance(value, Decimal):  # a DecimalField reads as a Decimal already
+        return value
+    return Decimal(str(value))
 
 
 def _float(value: Any) -> float | None:
@@ -291,8 +302,6 @@ class Tally:
 
 def _bucket(quality: Decimal) -> str:
     """The score bucket of a score, as the ``bucket`` drill-down reads it (80-100 holds 100)."""
-    from .scope import BUCKETS
-
     for drill, (low, high) in BUCKETS.items():
         if quality >= low and (quality < high or (high == 100 and quality <= high)):
             return drill
@@ -352,107 +361,138 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
         partners: set[int] = set()
         no_follow_up: list[tuple[str, str]] = []
         counts: Counter = Counter()
+        # read at once: a year of visits is a few thousand rows, and a server-side cursor's round
+        # trips cost more than the rows
         rows = scope.visits().order_by("end_date", "key").values_list(*SUMMARY_COLUMNS)
-        for row in rows.iterator(chunk_size=2000):
-            v = dict(zip(SUMMARY_COLUMNS, row, strict=True))
-            quality = _quality(v["quality_score"])
-            band, rating, group = v["score_band"], v["rating"] or "not_monitored", v["status_group"]
-            everyone.add(quality, band, rating)
+        add_everyone = everyone.add
+        last_day, month = None, ""
+        for row in rows:
+            (key, label, activity_id, end_date, group, rating, hact_q1, quality, band, flags, flag_count,
+             visit_offices, offices_from, section_names, governorate_key, location_id, location_name, site_id,
+             place_name, governorate_name, partner_ids, psea_flag, entities, entities_rated,
+             action_points) = row  # fmt: skip
+            quality = _quality(quality)
+            rating = rating or "not_monitored"
+            reported = group == "reported"
+            add_everyone(quality, band, rating)
             if rating in by_rating:
                 by_rating[rating].add(quality, band, rating)
-            counts["reported"] += group == "reported"
+            counts["reported"] += reported
             counts["off_track"] += rating == "off_track"
-            counts["gaps"] += group == "reported" and not v["entities_rated"]
-            counts["psea_asked"] += v["psea_flag"] is not None
-            counts["psea_flagged"] += v["psea_flag"] is True
-            counts["no_place"] += v["location_id"] is None and v["site_id"] is None
-            counts["unlocated"] += not v["governorate_key"]
-            for code in v["flags"] or ():
+            counts["gaps"] += reported and not entities_rated
+            counts["psea_asked"] += psea_flag is not None
+            counts["psea_flagged"] += psea_flag is True
+            counts["no_place"] += location_id is None and site_id is None
+            counts["unlocated"] += not governorate_key
+            for code in flags or ():
                 rule_flags[code] += 1
             if quality is None:
                 buckets["none"] += 1
             else:
                 buckets[_bucket(quality)] += 1
-                count = v["flag_count"] or 0
+                count = flag_count or 0
                 flags_dist["3+" if count >= 3 else str(count)] += 1
                 counts["high_flag"] += count >= high_flag
-            # by month (the end date: every visit here has one)
-            month = v["end_date"].strftime("%Y-%m")
-            m = months.setdefault(month, {"visits": 0, "reported": 0, "q_sum": Decimal(0), "q_n": 0})
+            # by month (the end date: every visit here has one; the rows come in date order)
+            if end_date != last_day:
+                last_day, month = end_date, f"{end_date.year:04d}-{end_date.month:02d}"
+            m = months.get(month)
+            if m is None:
+                m = months[month] = {"visits": 0, "reported": 0, "q_sum": Decimal(0), "q_n": 0}
             m["visits"] += 1
-            m["reported"] += group == "reported"
+            m["reported"] += reported
             if quality is not None:
                 m["q_sum"] += quality
                 m["q_n"] += 1
-            if v["hact_q1"]:
-                m[f"q1:{v['hact_q1']}"] = m.get(f"q1:{v['hact_q1']}", 0) + 1
+            if hact_q1:
+                m[f"q1:{hact_q1}"] = m.get(f"q1:{hact_q1}", 0) + 1
             m[f"rating:{rating}"] = m.get(f"rating:{rating}", 0) + 1
             # field offices ("none": office not known); a visit counts in each of its offices
-            office_sources[v["offices_from"] or "none"] += 1
-            for name in v["offices"] or ["none"]:
-                o = offices.setdefault(name, {"tally": Tally(), "from": Counter(), "flags": Counter()})
+            office_from = offices_from or "none"
+            office_sources[office_from] += 1
+            for name in visit_offices or ["none"]:
+                o = offices.get(name)
+                if o is None:  # (not setdefault: its default would be built for every visit)
+                    o = offices[name] = {"tally": Tally(), "from": Counter(), "flags": Counter()}
                 o["tally"].add(quality, band, rating)
-                o["from"][v["offices_from"] or "none"] += 1
-                if quality is not None:
-                    o["flags"].update(v["flags"] or ())
-            # sections ("none": no section); a visit counts in each of its sections
-            line = {
-                "key": v["key"],
-                "name": _visit_name(v["key"], v["label"], v["activity_id"]),
-                "quality": quality,
-                "band": band,
-                "rating": rating,
-                "not_rated_yet": _not_rated_yet(rating, group),
-                "date": v["end_date"],
-            }
-            for name in v["section_names"] or ["none"]:
-                s = sections.setdefault(name, {"tally": Tally(), "lines": [], "flagged": 0})
+                o["from"][office_from] += 1
+                if quality is not None and flags:
+                    o["flags"].update(flags)
+            # sections ("none": no section); a visit counts in each of its sections (its line is a
+            # tuple: only the first SECTION_LINES of a section are written out)
+            line = (
+                quality is None,
+                quality or 0,
+                end_date,
+                key,
+                quality,
+                activity_id,
+                label,
+                band,
+                rating,
+                group,
+            )
+            for name in section_names or ["none"]:
+                s = sections.get(name)
+                if s is None:
+                    s = sections[name] = {"tally": Tally(), "lines": [], "flagged": 0}
                 s["tally"].add(quality, band, rating)
                 s["lines"].append(line)
-                s["flagged"] += bool(v["flags"])
+                s["flagged"] += bool(flags)
             # places: the gazetteer location, else the place eTools wrote (a site or a name)
-            if v["location_id"] is not None:
-                place_key: tuple | None = ("location", v["location_id"])
-                name = v["location__name"] or v["place_name"]
-            elif v["place_name"]:
-                place_key, name = ("place", v["place_name"]), v["place_name"]
+            if location_id is not None:
+                place_key: tuple | None = ("location", location_id)
+                name = location_name or place_name
+            elif place_name:
+                place_key, name = ("place", place_name), place_name
             else:
                 place_key = None
             if place_key is not None:
-                p = places.setdefault(
-                    place_key,
-                    {
+                p = places.get(place_key)
+                if p is None:
+                    p = places[place_key] = {
                         "name": name,
-                        "location_id": v["location_id"],
-                        "governorate": v["governorate_name"],
+                        "location_id": location_id,
+                        "governorate": governorate_name,
                         "tally": Tally(),
                         "last": None,
                         "entities": 0,
                         "rated": 0,
-                    },
-                )
+                    }
                 p["tally"].add(quality, band, rating)
-                p["last"] = max(p["last"] or v["end_date"], v["end_date"])
-                p["entities"] += v["entities"] or 0
-                p["rated"] += v["entities_rated"] or 0
-                p["governorate"] = p["governorate"] or v["governorate_name"]
-            if v["governorate_key"]:
-                governorates.add(v["governorate_key"])
-            partners.update(v["partner_ids"] or ())
-            worse = max([rating, v["hact_q1"] or "not_monitored"], key=_rating_rank)
-            if group == "reported" and worse in ("off_track", "constrained") and not v["action_points"]:
-                no_follow_up.append((v["key"], _visit_name(v["key"], v["label"], v["activity_id"])))
+                p["last"] = max(p["last"] or end_date, end_date)
+                p["entities"] += entities or 0
+                p["rated"] += entities_rated or 0
+                p["governorate"] = p["governorate"] or governorate_name
+            if governorate_key:
+                governorates.add(governorate_key)
+            if partner_ids:
+                partners.update(partner_ids)
+            if reported and not action_points:
+                worse = max([rating, hact_q1 or "not_monitored"], key=_rating_rank)
+                if worse in ("off_track", "constrained"):
+                    no_follow_up.append((key, _visit_name(key, label, activity_id)))
 
         out_sections = {}
         for name, s in sections.items():
-            lines = sorted(
-                s["lines"],
-                key=lambda ln: (ln["quality"] is None, ln["quality"] or 0, ln["date"], ln["key"]),
-            )
+            lines = sorted(s["lines"], key=lambda ln: ln[:4])  # lowest score first, unscored last
             out_sections[name] = {
                 **s["tally"].out(),
                 "flagged": s["flagged"],
-                "lines": lines[:SECTION_LINES],
+                "lines": [
+                    {
+                        "key": key,
+                        "name": f"#{activity_id}" if activity_id else label,  # _visit_name
+                        "quality": quality,
+                        "band": band,
+                        "rating": rating,
+                        "not_rated_yet": _not_rated_yet(rating, group),
+                        "date": end_date,
+                    }
+                    for *_sort, end_date, key, quality, activity_id, label, band, rating, group in (
+                        ln[2:] for ln in lines[:SECTION_LINES]
+                    )
+                ],
                 "more": max(len(lines) - SECTION_LINES, 0),
             }
         out_places = sorted(
@@ -503,8 +543,6 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
 
 
 def _rating_rank(code: str) -> int:
-    from neurodb.datamart.fm import RATING_ORDER
-
     return RATING_ORDER.get(code, 0)
 
 
@@ -706,9 +744,9 @@ def top_issues(
 
     def compute() -> list[dict[str, Any]]:
         settings_ = {r.code: r for r in (rules if rules is not None else RuleSetting.objects.all())}
-        rows = (
+        rows = list(
             VisitRuleResult.objects.filter(status="fail", visit__in=scope.visits().values("pk"))
-            .order_by("-visit__urgency", "-visit__end_date", "visit__key")
+            .order_by()
             .values_list(
                 "rule",
                 "detail_key",
@@ -717,18 +755,26 @@ def top_issues(
                 "visit__label",
                 "visit__activity_id",
                 "visit__urgency",
+                "visit__end_date",
             )
         )
+        # most urgent visit first, then the latest, then by key: sorted here, where it costs a third of
+        # what the database took to sort the joined rows
+        rows.sort(key=lambda r: (-(r[6] or 0), -(r[7].toordinal() if r[7] else 0), r[3]))
         groups: dict[tuple[str, str], dict[str, Any]] = {}
-        for rule, key, measure, visit_key, label, activity_id, urgency in rows:
-            g = groups.setdefault((rule, key), {"visits": [], "urgency": 0, "measures": []})
-            g["visits"].append({"key": visit_key, "name": _visit_name(visit_key, label, activity_id)})
+        for rule, key, measure, visit_key, label, activity_id, urgency, _end in rows:
+            g = groups.get((rule, key))
+            if g is None:  # (not setdefault: its default would be built for every flag)
+                g = groups[(rule, key)] = {"visits": [], "n": 0, "urgency": 0, "measures": []}
+            g["n"] += 1
+            if len(g["visits"]) < CHIP_VISITS:  # the first visits (most urgent) are the chips
+                g["visits"].append({"key": visit_key, "name": _visit_name(visit_key, label, activity_id)})
             g["urgency"] += urgency or 0
             if measure is not None:
                 g["measures"].append(measure)
         out = []
         for (rule, key), g in groups.items():
-            n = len(g["visits"])
+            n = g["n"]
             drill = f"{rule}:{key}"
             out.append(
                 {
@@ -1054,7 +1100,7 @@ def highlights(scope: Scope, when: str | None = None, limits: dict | None = None
     definition), off-track visits, PSEA-flagged visits out of those with a PSEA question, the share
     of High / Medium / Low scores and the monitored entities by kind."""
     data = summary(scope, when, limits)
-    kinds = entity_rows(scope, when)["kinds"]
+    kinds = entity_kinds(scope, when)
     from .scope import KIND_LABELS
 
     return {
@@ -1095,7 +1141,8 @@ ENTITY_COLUMNS = (
     "visit__score_band",
     "visit__flags",
     "visit__status_group",
-    "planned",
+    "visit__urgency",
+    "datamart_id",
 )
 
 
@@ -1104,56 +1151,79 @@ def _year(scope: Scope) -> int:
     return scope.year if scope.preset == "year" and scope.year else scope.end.year
 
 
-def entity_rows(scope: Scope, when: str | None = None) -> dict[str, Any]:
+def entity_kinds(scope: Scope, when: str | None = None) -> dict[str, int]:
+    """The monitored entities of the scope (the finding rows; an entity filter keeps the matching rows
+    only) counted by kind: the key figures' own count (:func:`kpis`), so no query of its own."""
+    return kpis(scope, when)["entity_kinds"]
+
+
+def entity_rows(scope: Scope, when: str | None = None, kind: str | None = None) -> dict[str, Any]:
     """The monitored entities of the scope (the finding rows; an entity filter keeps the matching rows
     only): their count by kind, and per kind each entity with its visits, average quality, bands, most
-    frequent flag and latest rating; PD rows add the visits planned for the year."""
-    from django.db.models import F, OuterRef, Subquery
+    frequent flag and latest rating; PD rows add the visits planned for the year. With ``kind``, only
+    the entities of that kind are worked out (the table shows one kind at a time)."""
+    from django.db.models import F
 
     from neurodb.datamart.models import PlannedVisits
 
     def compute() -> dict[str, Any]:
         year = _year(scope)
+        # the visits planned for the year per programme document (only the PD table shows them), read
+        # once: a subquery per entity row cost a third of the block at 15,000 rows
         planned = (
-            PlannedVisits.objects.filter(intervention_id=OuterRef("pd_id"), year=year)
-            .order_by()
-            .values("intervention_id")
-            .annotate(total=Sum(F("q1") + F("q2") + F("q3") + F("q4")))
-            .values("total")[:1]
+            dict(
+                PlannedVisits.objects.filter(year=year, intervention_id__isnull=False)
+                .order_by()
+                .values("intervention_id")
+                .annotate(total=Sum(F("q1") + F("q2") + F("q3") + F("q4")))
+                .values_list("intervention_id", "total")
+            )
+            if kind in (None, "pd")
+            else {}
         )
-        rows = scope.entities().annotate(planned=Subquery(planned)).values_list(*ENTITY_COLUMNS)
-        kinds: Counter = Counter()
+        # the rows in the entities' own order (most urgent visit first), sorted here rather than by the
+        # database, which sorted the whole joined rows (a third of the block at 15,000 rows)
+        found = scope.entities().order_by()
+        if kind == "other":
+            found = found.filter(Q(kind="other") | Q(kind=""))
+        elif kind:
+            found = found.filter(kind=kind)
+        rows = list(found.values_list(*ENTITY_COLUMNS))
+        rows.sort(key=lambda r: (-r[15], -(r[10].toordinal() if r[10] else 10**9), r[16]))
         groups: dict[str, dict[tuple, dict[str, Any]]] = {}
-        for row in rows.iterator(chunk_size=2000):
-            e = dict(zip(ENTITY_COLUMNS, row, strict=True))
-            kind = e["kind"] or "other"
-            kinds[kind] += 1
-            text = (e["entity"] or "").strip()
-            if kind == "pd" and e["pd_id"]:
-                key, name, link = ("pd", e["pd_id"]), e["pd__number"] or text, ("pd", e["pd_id"])
-            elif kind == "partner" and e["partner_id"]:
-                name = e["partner__short_name"] or e["partner__name"] or text
-                key, link = ("partner", e["partner_id"]), ("partner", e["partner_id"])
-            elif kind == "cp_output":
-                name = (e["cp_output"] or text).strip()
+        for row in rows:
+            row_kind, entity, pd_id, pd_number, partner_id, partner_short, partner_name = row[:7]
+            cp_output, rating, visit_id, end_date, quality, band, flags, status_group = row[7:15]
+            row_kind = row_kind or "other"
+            text = (entity or "").strip()
+            if row_kind == "pd" and pd_id:
+                key, name, link = ("pd", pd_id), pd_number or text, ("pd", pd_id)
+            elif row_kind == "partner" and partner_id:
+                name = partner_short or partner_name or text
+                key, link = ("partner", partner_id), ("partner", partner_id)
+            elif row_kind == "cp_output":
+                name = (cp_output or text).strip()
                 key, link = ("text", name.casefold()), None
             else:
                 key, name, link = ("text", text.casefold()), text, None
             if not name:
                 continue
-            g = groups.setdefault(kind, {}).setdefault(
-                key, {"name": name, "link": link, "visits": {}, "planned": e["planned"]}
-            )
-            g["visits"][e["visit_id"]] = (
-                e["visit__end_date"],
-                _quality(e["visit__quality_score"]),
-                e["visit__score_band"],
-                tuple(e["visit__flags"] or ()),
-                e["visit__status_group"],
-                e["rating"],
+            of_kind = groups.get(row_kind)
+            if of_kind is None:
+                of_kind = groups[row_kind] = {}
+            g = of_kind.get(key)
+            if g is None:  # (not setdefault: its default would be built for every row)
+                g = of_kind[key] = {"name": name, "link": link, "visits": {}, "planned": planned.get(pd_id)}
+            g["visits"][visit_id] = (
+                end_date,
+                _quality(quality),
+                band,
+                tuple(flags or ()),
+                status_group,
+                rating,
             )
         out: dict[str, list[dict[str, Any]]] = {}
-        for kind, entities in groups.items():
+        for group_kind, entities in groups.items():
             rows_out = []
             for g in entities.values():
                 tally, flags = Tally(), Counter()
@@ -1177,15 +1247,15 @@ def entity_rows(scope: Scope, when: str | None = None) -> dict[str, Any]:
                     }
                 )
             rows_out.sort(key=lambda r: (r["avg"] is None, r["avg"] or 0, -r["visits"], r["name"].casefold()))
-            out[kind] = rows_out
-        return {"kinds": dict(kinds), "entities": out, "year": year}
+            out[group_kind] = rows_out
+        return {"kinds": entity_kinds(scope, when), "entities": out, "year": year}
 
-    return cached(scope, "entities", compute, when)
+    return cached(scope, f"entities:{kind or 'all'}", compute, when)
 
 
 def entities_performance(scope: Scope, kind: str = "pd", when: str | None = None) -> dict[str, Any]:
     """Block 16: the entities of one kind, worst average quality first, unscored last."""
-    data = entity_rows(scope, when)
+    data = entity_rows(scope, when, kind)
     return {
         "kind": kind,
         "rows": data["entities"].get(kind, []),

@@ -76,7 +76,10 @@ _cache: tuple[float, frozenset[str]] | None = None
 # ---------------------------------------------------------------------------- comparing names
 def fold(text: str) -> str:
     """``text`` in lower case and without accents, for comparing names."""
-    decomposed = unicodedata.normalize("NFKD", str(text or ""))
+    text = str(text or "")
+    if text.isascii():  # nothing to take off (the common case, and a character-by-character walk)
+        return text.casefold()
+    decomposed = unicodedata.normalize("NFKD", text)
     return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
 
 

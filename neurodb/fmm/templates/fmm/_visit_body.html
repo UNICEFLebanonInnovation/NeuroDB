@@ -92,7 +92,7 @@
         <td class="text-nowrap">{{ r.rule }} {{ r.label }}{% if r.threshold is not None %}<span class="cell-sub">{% blocktrans with t=r.threshold|number %}threshold {{ t }}{% endblocktrans %}</span>{% endif %}</td>
         <td class="text-nowrap"><span class="pill pill--sm pill--{% if r.status == 'fail' %}danger{% elif r.status == 'pass' %}success{% else %}neutral{% endif %}">{{ r.state_label }}</span></td>
         <td class="text-nowrap">{% if r.max_points %}{{ r.points|number }}/{{ r.max_points }}{% else %}{% trans "a flag only" %}{% endif %}</td>
-        <td class="small">{{ r.detail|default:"—" }}{% if r.measure is not None %}<span class="cell-sub">{% blocktrans with m=r.measure|number %}measured: {{ m }}{% endblocktrans %}</span>{% endif %}</td>
+        <td class="small fmm-detail">{{ r.detail|default:"—" }}{% if r.measure is not None %}<span class="cell-sub">{% blocktrans with m=r.measure|number %}measured: {{ m }}{% endblocktrans %}</span>{% endif %}</td>
       </tr>{% endfor %}</tbody>
     </table></div>
     {% else %}

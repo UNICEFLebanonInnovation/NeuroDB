@@ -25,6 +25,7 @@ narrative.
 
 from __future__ import annotations
 
+import functools
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -56,6 +57,45 @@ POINT_KEYS = frozenset(
 CONFIG_KEYS = frozenset(
     {"mode", "open", "points", "legend", "legend_title", "empty_title", "aria_label", "focus"}
 )
+# the visit columns the map reads (as plain values: a model instance per visit cost more than all the
+# matching of 5,000 visits)
+MAP_COLUMNS = (
+    "pk",
+    "key",
+    "label",
+    "end_date",
+    "status_group",
+    "rating",
+    "quality_score",
+    "urgency",
+    "latitude",
+    "longitude",
+    "located_by",
+    "located_level",
+    "point_precise",
+    "district_name",
+    "governorate_name",
+    "approximate_from",
+    "place_name",
+    "place_pcode",
+    "location_id",
+    "site_id",
+    "pd_ids",
+    "partner__short_name",
+    "partner__name",
+    "site__parent_id",
+)
+
+
+class MapVisit:
+    """A visit as the map reads it: the values of ``MAP_COLUMNS`` as attributes ("partner__name" is
+    ``partner_name``), which :func:`match` reads as it reads a ``Visit``."""
+
+    __slots__ = tuple(column.replace("__", "_") for column in MAP_COLUMNS)
+
+    def __init__(self, row: tuple) -> None:
+        for name, value in zip(self.__slots__, row, strict=True):
+            setattr(self, name, value)
 
 
 @dataclass(frozen=True)
@@ -204,8 +244,6 @@ def match(
     ``km``; else ``("place", the planned location, the distance or None)`` by the same location or
     P-code, the visit's location lying under the planned one, or the same name; else ``("none", None,
     None)``. ``ancestors`` (the visit's location and those above it) is read when not given."""
-    from .parse import fold
-
     if visit.point_precise and visit.latitude is not None and visit.longitude is not None:
         best: tuple[PdLocation, float] | None = None
         for loc in pd_locations:
@@ -221,13 +259,13 @@ def match(
     if ancestors is None:
         ancestors = _visit_ancestors(visit)
     pcode = (visit.place_pcode or "").strip().upper()
-    name = fold(visit.place_name)
+    name = _folded(visit.place_name or "")
     # the same place first (location id or P-code), then the planned area that holds the visit, then
     # the same name
     for found in (
         lambda loc: loc.location_id == visit.location_id or bool(pcode and loc.p_code.upper() == pcode),
         lambda loc: loc.location_id in ancestors,
-        lambda loc: bool(name and fold(loc.name) == name),
+        lambda loc: bool(name and _folded(loc.name or "") == name),
     ):
         hits = [loc for loc in pd_locations if found(loc)]
         if hits:
@@ -236,22 +274,34 @@ def match(
     return "none", None, None
 
 
+@functools.lru_cache(maxsize=8192)
+def _folded(text: str) -> str:
+    """A place name folded as the matching compares names (kept: one name is compared many times)."""
+    from .parse import fold
+
+    return fold(text)
+
+
 # ------------------------------------------------------------------------------------------ the map
 def _day(value) -> str:
     return date_format(value, "j M Y") if value else ""
 
 
-def _rating_text(v: Visit) -> str:
+def _rating_text(v: Visit | MapVisit) -> str:
     """ "On track · rated 12 May 2026"; "Not rated yet · ends 30 Sep 2026" for a planned or in-progress
     visit without a rating."""
-    if v.rating == "not_monitored" and v.status_group in ("planned", "in_progress"):
+    return _rating_words(v.rating, v.status_group, v.end_date)
+
+
+def _rating_words(rating: str, status_group: str, end_date) -> str:
+    if rating == "not_monitored" and status_group in ("planned", "in_progress"):
         text = _("Not rated yet")
-        return f"{text} · {_('ends %(date)s') % {'date': _day(v.end_date)}}" if v.end_date else text
-    text = _(RATING_LABELS.get(v.rating, "Other"))
-    return f"{text} · {_('rated %(date)s') % {'date': _day(v.end_date)}}" if v.end_date else text
+        return f"{text} · {_('ends %(date)s') % {'date': _day(end_date)}}" if end_date else text
+    text = _(RATING_LABELS.get(rating, "Other"))
+    return f"{text} · {_('rated %(date)s') % {'date': _day(end_date)}}" if end_date else text
 
 
-def _approximate_text(v: Visit) -> str:
+def _approximate_text(v: Visit | MapVisit) -> str:
     """Why a visit point is not precise: placed at an ancestor's point, or at a larger area's own."""
     from neurodb.datamart.monitoring import LEVEL_DISTRICT, LEVEL_GOVERNORATE
 
@@ -328,36 +378,12 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
 
     from neurodb.partnerships.models import PCA
 
-    visits = list(
-        scope.visits()
-        .select_related("partner", "site")
-        .only(
-            "key",
-            "label",
-            "end_date",
-            "status_group",
-            "rating",
-            "quality_score",
-            "urgency",
-            "latitude",
-            "longitude",
-            "located_by",
-            "located_level",
-            "point_precise",
-            "district_name",
-            "governorate_name",
-            "approximate_from",
-            "place_name",
-            "place_pcode",
-            "location_id",
-            "site_id",
-            "pd_ids",
-            "partner__name",
-            "partner__short_name",
-            "site__parent_id",
-        )
+    visits = [
+        MapVisit(row)
+        for row in scope.visits()
         .order_by("-urgency", F("end_date").desc(nulls_last=True), "key")
-    )
+        .values_list(*MAP_COLUMNS)
+    ]
 
     # the programme documents whose planned locations are drawn, and those the visits are matched to
     visit_pds = {pk for v in visits for pk in v.pd_ids}
@@ -384,7 +410,7 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
 
     # the gazetteer of every planned location and visit place (a site's parent when the visit has no
     # location), with their ancestors
-    starts = {v.pk: v.location_id or (v.site.parent_id if v.site_id and v.site else None) for v in visits}
+    starts = {v.pk: v.location_id or v.site_parent_id for v in visits}
     gazetteer, lowest = gazetteer_with_lowest({loc for _pd, loc in pairs} | {s for s in starts.values() if s})
     by_pd: dict[int, list[PdLocation]] = defaultdict(list)
     for pd_id, location_id in pairs:
@@ -421,6 +447,17 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
         1 for pk in shown for loc in by_pd.get(pk, ()) if not region or loc.governorate_key == region
     )
 
+    # what every point repeats is worked out once: the labels, the dates, the ratings and the links
+    words = {
+        key: _(key)
+        for key in ("Partner", "Date", "Rating", "Quality", "Match", "Distance", "PD location", "Where")
+    }
+    matches = {kind: match_label(kind) for kind in MATCHES}
+    rating_words = functools.lru_cache(maxsize=None)(_rating_words)
+    day = functools.lru_cache(maxsize=None)(_day)
+    visit_url = _url_maker("fmm:visit")
+    pd_url = _url_maker("reports:programme_detail")
+
     mapped = [v for v in visits if v.latitude is not None and v.longitude is not None]
     unlocated = [v for v in visits if v.latitude is None or v.longitude is None]
     points: list[dict[str, Any]] = []
@@ -431,21 +468,21 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
         counts[kind] += 1
         if len(points) >= MAX_POINTS:
             continue
-        url = reverse("fmm:visit", args=[v.key])
+        url = visit_url(v.key)
         approximate = _approximate_text(v)
         lines = [
-            [_("Partner"), (v.partner.short_name or v.partner.name) if v.partner else "—"],
-            [_("Date"), _day(v.end_date) or "—"],
-            [_("Rating"), _rating_text(v)],
-            [_("Quality"), _percent(v.quality_score)],
-            [_("Match"), match_label(kind)],
+            [words["Partner"], v.partner_short_name or v.partner_name or "—"],
+            [words["Date"], day(v.end_date) or "—"],
+            [words["Rating"], rating_words(v.rating, v.status_group, v.end_date)],
+            [words["Quality"], _percent(v.quality_score)],
+            [words["Match"], matches[kind]],
         ]
         if distance is not None:
-            lines.append([_("Distance"), _km(distance)])
+            lines.append([words["Distance"], _km(distance)])
         if loc is not None:
-            lines.append([_("PD location"), f"{loc.name} · {loc.pd_number}"])
+            lines.append([words["PD location"], f"{loc.name} · {loc.pd_number}"])
         if approximate:
-            lines.append([_("Where"), approximate])
+            lines.append([words["Where"], approximate])
         point = {
             "name": v.label,
             "latitude": v.latitude,
@@ -465,11 +502,11 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
                 "url": url,
                 "date": v.end_date,
                 "match": kind,
-                "match_label": match_label(kind),
+                "match_label": matches[kind],
                 "distance": _km(distance),
                 "pd_location": loc.name if loc else "",
                 "pd_number": loc.pd_number if loc else "",
-                "pd_url": reverse("reports:programme_detail", args=[loc.pd_id]) if loc else "",
+                "pd_url": pd_url(loc.pd_id) if loc else "",
                 "approximate": approximate,
             }
         )
@@ -508,7 +545,7 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
                 "group": PLANNED,
                 "shape": "ring",
                 "lines": lines,
-                "href": reverse("reports:programme_detail", args=[first.pd_id]),
+                "href": pd_url(first.pd_id),
                 "open": "page",
             }
         )
@@ -517,7 +554,7 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
     planned_rows = [
         {
             "pd_number": loc.pd_number,
-            "pd_url": reverse("reports:programme_detail", args=[loc.pd_id]),
+            "pd_url": pd_url(loc.pd_id),
             "partner": pds[loc.pd_id]["partner__short_name"] or pds[loc.pd_id]["partner__name"] or "",
             "place": loc.name,
             "governorate": loc.governorate,
@@ -530,10 +567,10 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
         {
             "key": v.key,
             "label": v.label,
-            "url": reverse("fmm:visit", args=[v.key]),
+            "url": visit_url(v.key),
             "date": v.end_date,
             "place": v.place_name,
-            "match_label": match_label(results[v.pk][0]),
+            "match_label": matches[results[v.pk][0]],
         }
         for v in unlocated[:MAX_POINTS]
     ]
@@ -584,6 +621,14 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
         "pd_scope": pd_scope,
         "km": km,
     }
+
+
+def _url_maker(name: str):
+    """``lambda arg: reverse(name, args=[arg])``, reversing once: the link of each of up to a thousand
+    points differs only by its key or id."""
+    sentinel = "__key__" if name == "fmm:visit" else 2_147_483_647
+    template = reverse(name, args=[sentinel])
+    return lambda arg: template.replace(str(sentinel), str(arg))
 
 
 def _percent(value) -> str:

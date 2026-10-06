@@ -41,6 +41,11 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
   and the plan, a confidence signal per section, the two sources per partner, equity of reach,
   district gaps, a partner scorecard, donor-to-child money flows, grants at risk, and whether the
   daily review's findings are owned and closed; the brief as text for the minutes.
+- **Monitoring insights**: eTools field monitoring as visits, at `/fmm/`: report quality rules
+  and scores, urgency and follow-up, charts with drill-down, a visit page, a map of visits against
+  planned locations, and an AI brief and chat over the filter's visits (off until go-live). How it
+  counts, what goes to OpenAI, how to switch it off and the go-live checklist are in
+  `docs/OPERATIONS.md`, *Monitoring insights*.
 
 ## Documents
 

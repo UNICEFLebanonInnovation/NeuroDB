@@ -72,8 +72,13 @@ function seriesOf(data) {
 
 const seriesColor = (name, i, colors) => (colors[name] ? cssVar(colors[name]) : i === 0 ? cssVar("--nd-primary") : PALETTE[i % PALETTE.length]);
 
-/** A legend under the plot when the chart has two or more series, none otherwise. */
-const legendFor = (count) => (count >= 2 ? { showlegend: true, legend: { orientation: "h", y: -0.24, x: 0, font: { size: 11 } } } : { showlegend: false });
+/** A legend under the plot when the chart has two or more series, none otherwise. It sits at the foot of the
+ * whole chart (container coordinates), so Plotly makes room for it under the axis labels: placed under the
+ * plot area instead, it covered the labels where a narrow chart turns them on their side. */
+const legendFor = (count) =>
+  count >= 2
+    ? { showlegend: true, legend: { orientation: "h", x: 0, yref: "container", y: 0, yanchor: "bottom", font: { size: 11 } } }
+    : { showlegend: false };
 
 /** Height for horizontal category charts: the declared minimum, or one row per category. */
 const rowsHeight = (el, count, row = 28, extra = 84) => Math.max(Number(el.dataset.height) || 0, count * row + extra);
@@ -350,7 +355,8 @@ export const BUILDERS = {
       layout: {
         bargap: 0.35,
         showlegend: true,
-        legend: { orientation: "h", y: 1.12, x: 0 },
+        // at the top of the whole chart, so Plotly makes room for it: above the plot area, it covered the bars
+        legend: { orientation: "h", x: 0, yref: "container", y: 1, yanchor: "top" },
         yaxis: { rangemode: "tozero" },
         yaxis2: { overlaying: "y", side: "right", showgrid: false, rangemode: "tozero", tickfont: { color: cssVar("--nd-muted") } },
         margin: { t: 24, r: 44, b: 36, l: 56 },

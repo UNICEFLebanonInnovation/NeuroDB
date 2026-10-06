@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import csv
 import datetime
+import functools
 import re
 from collections import OrderedDict
 from typing import Any
@@ -35,6 +36,7 @@ from django.http import (
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateformat import format as date_format
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy, ngettext
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
@@ -426,7 +428,7 @@ def _results_context(
     elif tab == "visits":
         context.update(_table(request, scope, limits, count=kpis["visits"]))
     elif tab == "quality":
-        context.update(_quality_tab(scope, when, limits, rules))
+        context.update(_quality_tab(scope, when, limits, rules, places_all=_places_all(request)))
     elif tab == "analysis":
         context.update(_analysis_tab(request, scope, when, limits, rules))
     elif tab == "map":
@@ -557,24 +559,75 @@ def _drill_template(scope: Scope, *keys: str) -> str:
     return f"{reverse('fmm:drill')}?{base.query}"
 
 
+DRILL_SENTINEL = "fmm-drill-value"
+
+
 def _with_urls(
     rows: list[dict[str, Any]], scope: Scope, key: str, field: str = "drill"
 ) -> list[dict[str, Any]]:
     """Copies of ``rows`` (kept in the cache: never changed in place), each with the drill-down window
-    of its ``field`` value as ``url`` ("" when it has none)."""
+    of its ``field`` value as ``url`` ("" when it has none). The address is built once and each row's
+    value put in it (a table of 500 places built 500 scopes)."""
+    from urllib.parse import quote_plus
+
+    template = drill_url(scope, **{key: DRILL_SENTINEL})
     return [
-        {**row, "url": drill_url(scope, **{key: str(row[field])}) if row.get(field) not in (None, "") else ""}
+        {
+            **row,
+            "url": template.replace(DRILL_SENTINEL, quote_plus(str(row[field])))
+            if row.get(field) not in (None, "")
+            else "",
+        }
         for row in rows
     ]
+
+
+def _day_text(day) -> str:
+    """ "12 May 2026", or "—" without a date."""
+    return date_format(day, "j M Y") if day else "—"
+
+
+def _visit_url():
+    """``lambda key: reverse("fmm:visit", args=[key])``, reversing once for a list of visits."""
+    template = reverse("fmm:visit", args=["visit-key"])
+    return lambda key: template.replace("visit-key", str(key))
 
 
 PLACES_TOP = 10  # places shown before "Show all"
 
 
-def _quality_tab(scope: Scope, when: str, limits: dict[str, int], rules: list) -> dict[str, Any]:
+def _places_all(request: HttpRequest) -> bool:
+    """``?places=all``: the places table's rows beyond the first ``PLACES_TOP`` are wanted (opening
+    "Show all" asks for them; they are not sent with every tab)."""
+    return request.GET.get("places") == "all"
+
+
+def _shown_places(places: dict[str, Any], show_all: bool) -> list[dict[str, Any]]:
+    """The rows of a places table that are written out: the first ``PLACES_TOP``, or all of them when
+    asked for (each written row costs its links and dates)."""
+    return places["rows"] if show_all else places["rows"][:PLACES_TOP]
+
+
+def _places(scope: Scope, tab: str, places: dict[str, Any], rows: list, show_all: bool) -> dict[str, Any]:
+    """A places table: its first ``PLACES_TOP`` rows, and the rest only when asked for (``?places=all``):
+    up to 500 rows, most of the tab's weight, that only a reader who opens "Show all" reads. ``rows``
+    are the rows written out (:func:`_shown_places`)."""
+    return {
+        **places,
+        "top": rows[:PLACES_TOP],
+        "rest": rows[PLACES_TOP:] if show_all else [],
+        "rest_count": max(len(places["rows"]) - PLACES_TOP, 0),
+        "all_query": _page_query(scope, tab=tab, places="all"),
+    }
+
+
+def _quality_tab(
+    scope: Scope, when: str, limits: dict[str, int], rules: list, places_all: bool = False
+) -> dict[str, Any]:
     """The Quality tab: quality and visits by month, HACT Q1 by month (or the overall rating when no
     visit has a Q1 answer), the score distribution, recurring issues, places, rule analysis, the
     issues summary and the flags per visit."""
+    visit_url = _visit_url()
     q1 = metrics.hact_q1_by_month(scope, when, limits)
     q1_question = metrics.q1_question(when)
     if q1 is None:
@@ -585,7 +638,10 @@ def _quality_tab(scope: Scope, when: str, limits: dict[str, int], rules: list) -
     buckets = metrics.score_buckets(scope, when, limits)
     issues = metrics.issues_summary(scope, when, limits)
     places = metrics.locations(scope, when, limits)
-    place_rows = _with_urls(places["rows"], scope, "location")
+    place_rows = [  # the last visit's date, written once per place shown
+        {**p, "last_iso": p["last"].isoformat() if p["last"] else "", "last_text": _day_text(p["last"])}
+        for p in _with_urls(_shown_places(places, places_all), scope, "location")
+    ]
     rule_rows = [
         {**r, "url": drill_url(scope, flag=r["code"]) if r["flagged"] else ""}
         for r in metrics.rule_analysis(scope, rules, when)
@@ -614,11 +670,11 @@ def _quality_tab(scope: Scope, when: str, limits: dict[str, int], rules: list) -
             {
                 **row,
                 "url": drill_url(scope, issue=row["drill"]) if row["drill"] else "",
-                "chips": [{**c, "url": reverse("fmm:visit", args=[c["key"]])} for c in row["chips"]],
+                "chips": [{**c, "url": visit_url(c["key"])} for c in row["chips"]],
             }
             for row in metrics.top_issues(scope, 10, when, rules)
         ],
-        "places": {**places, "top": place_rows[:PLACES_TOP], "rest": place_rows[PLACES_TOP:]},
+        "places": _places(scope, "quality", places, place_rows, places_all),
         "rule_rows": rule_rows,
         "issues_summary": {
             **issues,
@@ -661,10 +717,18 @@ def _analysis_tab(
     """The Analysis tab: highlights, governorates not visited, field offices, entity performance,
     quality by field office, sections, visit frequency by place, quality by rating, flags by rule,
     points by rule, programmatic visits and HACT, and follow-up."""
+    visit_url = _visit_url()
     highlights = metrics.highlights(scope, when, limits)
     kind = _entity_kind(request)
     show_all = request.GET.get("entity_all") == "1"
-    performance = metrics.entities_performance(scope, kind, when)
+    # the entity table is worked out when its chips ask for it (``entity_kind``), else when it scrolls
+    # into view: it is a whole pass over the entity rows, low on the tab
+    eager = "entity_kind" in request.GET or show_all
+    performance = (
+        metrics.entities_performance(scope, kind, when)
+        if eager
+        else {"rows": [], "kinds": metrics.entity_kinds(scope, when), "year": None}
+    )
     entity_rows = [
         {
             **row,
@@ -680,14 +744,19 @@ def _analysis_tab(
     follow_up = metrics.action_points(scope, when, limits)
     hact = metrics.hact_programmatic(scope, when, limits)
     places = metrics.locations(scope, when, limits)
-    place_rows = _with_urls(places["rows"], scope, "location")
+    place_rows = _with_urls(_shown_places(places, _places_all(request)), scope, "location")
     section_rows = []
+    day = functools.lru_cache(maxsize=None)(lambda d: date_format(d, "j M Y") if d else "")
     for row in metrics.sections(scope, when, limits):
         lines = [
             {
                 **line,
-                "url": reverse("fmm:visit", args=[line["key"]]),
+                "url": visit_url(line["key"]),
                 "rating_label": _("Not rated yet") if line["not_rated_yet"] else rating_label(line["rating"]),
+                # the date beside the rating, written here once per line (a translated block per line
+                # of up to 50 lines per section cost as much as the rest of the block)
+                "when": (_("ends %(day)s") if line["not_rated_yet"] else _("rated %(day)s"))
+                % {"day": day(line["date"])},
             }
             for line in row["lines"]
         ]
@@ -729,10 +798,11 @@ def _analysis_tab(
         "entity_rows": entity_rows,
         "entity_total": len(performance["rows"]),
         "entity_all_query": _page_query(scope, tab="analysis", entity_kind=kind, entity_all="1"),
+        "entity_lazy_query": "" if eager else _page_query(scope, tab="analysis", entity_kind=kind),
         "entity_year": performance["year"],
         "office_badges": _with_urls(metrics.office_rule_badges(scope, rules, when, limits), scope, "office"),
         "section_rows": section_rows,
-        "places": {**places, "top": place_rows[:PLACES_TOP], "rest": place_rows[PLACES_TOP:]},
+        "places": _places(scope, "analysis", places, place_rows, _places_all(request)),
         "rating_rows": _with_urls(metrics.quality_by_rating(scope, when, limits), scope, "rating", "code"),
         "flag_frequency": flag_frequency,
         "flag_template": _drill_template(scope, "flag") + "&flag={drill}",

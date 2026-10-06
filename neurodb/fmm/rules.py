@@ -27,6 +27,7 @@ versioned (``fmm.versions``).
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date
@@ -591,14 +592,28 @@ def r5_q3(facts: VisitFacts, rule, ctx: Context) -> RuleOutcome:
     )
 
 
+@functools.lru_cache(maxsize=4096)
+def _folded_words(phrase: str) -> tuple[str, ...]:
+    """A cue or a negation, folded into words (kept: the same few dozen are read for every narrative,
+    and folding them again for each one took most of a rescore)."""
+    return tuple(parse.fold(phrase).split())
+
+
+@functools.lru_cache(maxsize=64)
+def _text_words(text: str) -> list[str]:
+    """A narrative's folded words (kept for the next call: each narrative is searched for its
+    negative, its positive and its access cues in turn). Callers only read the list."""
+    return parse.fold(text).split()
+
+
 def cues_found(text: str, cues: Iterable[str], negations: Iterable[str], window: int) -> list[str]:
     """The cues of ``cues`` (in their list order) that ``text`` holds as whole words at least once
     without a negation in the ``window`` words before them."""
-    words = parse.fold(text).split()
-    negating = {parse.fold(n) for n in negations if parse.fold(n)}
+    words = _text_words(str(text or ""))
+    negating = {" ".join(folded) for n in negations if (folded := _folded_words(str(n)))}
     found = []
     for cue in cues:
-        cue_words = parse.fold(cue).split()
+        cue_words = list(_folded_words(str(cue)))
         if not cue_words or cue in found:
             continue
         size = len(cue_words)

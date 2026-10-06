@@ -8,14 +8,14 @@
       <h2 class="panel__title" id="fmm-q-month-title">{% trans "Quality score by month" %}</h2>
       <span class="panel__hint">{% trans "Average quality of the visits that ended each month; line: reported visits" %}</span>
     </div>
-    <div class="chart chart--sm" data-module="charts" data-chart="monthly" data-source="fmm-chart-data" data-key="monthly_quality" data-href-template="{{ month_template }}" data-empty-title="{% trans 'No visit in this filter is scored' %}" aria-label="{% trans 'Quality score by month' %}"></div>
+    <div class="chart" data-module="charts" data-chart="monthly" data-source="fmm-chart-data" data-key="monthly_quality" data-href-template="{{ month_template }}" data-empty-title="{% trans 'No visit in this filter is scored' %}" aria-label="{% trans 'Quality score by month' %}"></div>
   </section>
   <section class="panel" aria-labelledby="fmm-v-month-title">
     <div class="panel__header">
       <h2 class="panel__title" id="fmm-v-month-title">{% trans "Visits by month" %}</h2>
       <span class="panel__hint">{% trans "Visits that ended each month, whatever their status; line: average quality" %}</span>
     </div>
-    <div class="chart chart--sm" data-module="charts" data-chart="monthly" data-source="fmm-chart-data" data-key="monthly_volume" data-href-template="{{ month_template }}" data-empty-title="{% trans 'No visits in this filter' %}" aria-label="{% trans 'Visits by month' %}"></div>
+    <div class="chart" data-module="charts" data-chart="monthly" data-source="fmm-chart-data" data-key="monthly_volume" data-href-template="{{ month_template }}" data-empty-title="{% trans 'No visits in this filter' %}" aria-label="{% trans 'Visits by month' %}"></div>
   </section>
 </div>
 
@@ -32,7 +32,7 @@
     {% else %}
     <p class="small text-muted mb-2">{% trans "HACT Q1 answers are not in the eTools data NeuroDB reads yet; the chart shows each visit's overall finding rating instead." %}{% if user_role == "Administrator" %} <a href="{{ fields_found_url }}">{% trans "Fields found" %}</a>{% endif %}</p>
     {% endif %}
-    <div class="chart chart--sm" data-module="charts" data-chart="grouped" data-barmode="stack" data-source="fmm-chart-data" data-key="q1" data-href-template="{{ q1_template }}" data-empty-title="{% trans 'No rated visits in this filter' %}" aria-label="{% if q1_key == 'hact_q1' %}{% trans 'HACT Q1 rating by month' %}{% else %}{% trans 'Overall finding rating by month' %}{% endif %}"></div>
+    <div class="chart" data-module="charts" data-chart="grouped" data-barmode="stack" data-source="fmm-chart-data" data-key="q1" data-href-template="{{ q1_template }}" data-empty-title="{% trans 'No rated visits in this filter' %}" aria-label="{% if q1_key == 'hact_q1' %}{% trans 'HACT Q1 rating by month' %}{% else %}{% trans 'Overall finding rating by month' %}{% endif %}"></div>
     {% if q1_totals %}<div class="chips mt-2" aria-label="{% trans 'Visits by rating' %}">{% for t in q1_totals %}{% if t.url %}<a class="chip" href="{{ t.url }}" hx-get="{{ t.url }}" hx-target="#modal-content">{{ t.label }} {{ t.n }}</a>{% else %}<span class="chip">{{ t.label }} {{ t.n }}</span>{% endif %}{% endfor %}</div>{% endif %}
   </section>
   <section class="panel" aria-labelledby="fmm-dist-title">
@@ -69,10 +69,10 @@
   {% if places.rows %}
   <div class="table-wrap"><table class="table table-sm">
     <thead><tr><th scope="col">{% trans "Place" %}</th><th scope="col">{% trans "Governorate" %}</th><th scope="col">{% trans "Visits" %}</th><th scope="col">{% trans "Last visit" %}</th></tr></thead>
-    <tbody>{% for p in places.top %}{% include "fmm/_place_row.html" %}{% endfor %}</tbody>
+    <tbody>{% include "fmm/_place_row.html" with rows=places.top %}</tbody>
   </table></div>
-  {% if places.rest %}<details class="px-3 pb-2"><summary class="small">{% if places.total > places.rows|length %}{% blocktrans with n=places.rows|length total=places.total %}Show the {{ n }} most visited of {{ total }} places{% endblocktrans %}{% else %}{% blocktrans count n=places.rows|length %}Show all {{ n }} place{% plural %}Show all {{ n }} places{% endblocktrans %}{% endif %}</summary>
-    <div class="table-wrap"><table class="table table-sm"><tbody>{% for p in places.rest %}{% include "fmm/_place_row.html" %}{% endfor %}</tbody></table></div>
+  {% if places.rest_count %}<details class="px-3 pb-2"{% if places.rest %} open{% else %} hx-get="{% url 'fmm:dashboard' %}?{{ places.all_query }}" hx-trigger="toggle once" hx-select="#fmm-places-rest" hx-target="find #fmm-places-rest" hx-swap="outerHTML"{% endif %}><summary class="small">{% if places.total > places.rows|length %}{% blocktrans with n=places.rows|length total=places.total %}Show the {{ n }} most visited of {{ total }} places{% endblocktrans %}{% else %}{% blocktrans count n=places.rows|length %}Show all {{ n }} place{% plural %}Show all {{ n }} places{% endblocktrans %}{% endif %}</summary>
+    <div class="table-wrap" id="fmm-places-rest">{% if places.rest %}<table class="table table-sm"><tbody>{% include "fmm/_place_row.html" with rows=places.rest %}</tbody></table>{% else %}<p class="small text-muted mb-0"><a href="{% url 'fmm:dashboard' %}?{{ places.all_query }}">{% trans "Loading the list…" %}</a></p>{% endif %}</div>
   </details>{% endif %}
   {% endif %}
   <p class="small text-muted px-3 pb-3 mb-0">{% if places.unlinked %}{% blocktrans count n=places.unlinked %}{{ n }} visit has no linked location.{% plural %}{{ n }} visits have no linked location.{% endblocktrans %}{% else %}{% trans "Every visit in this filter has a place." %}{% endif %}</p>

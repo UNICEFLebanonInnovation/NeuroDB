@@ -903,6 +903,8 @@ tr.row--red > td { background: color-mix(in srgb, var(--nd-danger-soft) 70%, tra
 tr.row--red > td:first-child { box-shadow: inset 3px 0 0 var(--nd-danger); }
 tr.row--amber > td { background: color-mix(in srgb, var(--nd-warning-soft) 70%, transparent); }
 tr.row--amber > td:first-child { box-shadow: inset 3px 0 0 var(--nd-warning); }
+/* a rule's detail keeps a readable width: squeezed on a phone, it made every row of the table tall */
+.fmm-detail { min-width: 15rem; }
 .insight-grid { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 900px) { .insight-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 /* Chat with Data: Ask's conversation inside a card, under the brief */

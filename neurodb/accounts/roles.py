@@ -14,9 +14,14 @@ MANAGEMENT = "Management"
 def role_of(user):
     if not user.is_authenticated:
         return None
-    if user.is_superuser or user.groups.filter(name=ADMIN).exists():
+    if user.is_superuser:
         return ADMIN
-    if user.groups.filter(name=SECTION_EDITOR).exists():
+    held = set(
+        user.groups.filter(name__in=(ADMIN, SECTION_EDITOR)).values_list("name", flat=True)
+    )  # one query
+    if ADMIN in held:
+        return ADMIN
+    if SECTION_EDITOR in held:
         return SECTION_EDITOR
     return VIEWER
 
