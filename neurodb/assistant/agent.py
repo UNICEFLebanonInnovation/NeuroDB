@@ -90,7 +90,9 @@ etools_search finds where a name or reference appears.
 - Field monitoring visits (eTools: visits, entities, ratings, HACT Q1, report quality, urgency and \
 follow-up) come from fm_summary (counts and groups), fm_visits (lists) and fm_visit (one visit); \
 fm_search finds visits whose notes mention a word. They give structured fields only; the visit notes \
-themselves are read in Monitoring insights.
+themselves are read in Monitoring insights. fm_action_points counts the eTools action points by status, \
+by the AI's verdict on the completed ones and by PME verification, and the NeuroDB action points (counts \
+only).
 - What a document, study, meeting or guidance says comes from the knowledge base: search_knowledge \
 (words to look for, optionally a partner, programme document, section or year), then read_knowledge \
 for more of a document. partner_details and programme_details list the documents linked to them. \

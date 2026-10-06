@@ -1,0 +1,31 @@
+{% load i18n ui %}
+{% comment %}The AI adequacy review (FMS §10.3) and the AI content summary (FMS §10.6) of the eTools action
+points: the verdicts so far, the last run's status line, Run AI review (Administrators) and the summary
+button. Inside the results, so a new filter gives the summary button its new filter.{% endcomment %}
+<section class="panel mb-3" aria-labelledby="ap-ai-title">
+  <div class="panel__header"><h2 class="panel__title" id="ap-ai-title">{% trans "AI adequacy review" %}</h2></div>
+  <p class="small text-muted mb-2">{% trans "Checks whether the action taken on each completed action point actually resolves the issue it raised. The AI reads the description and the action taken only, with names, e-mail addresses, phone numbers and links removed; never who the action point is assigned to." %}</p>
+  {% if verdict_counts %}
+  <div class="chips mb-2" aria-label="{% trans 'AI verdicts' %}">{% for value, label in verdicts %}{% with n=verdict_counts|get_item:value %}{% if n %}<a class="chip" href="?{% qs_replace verdict=value page=None %}" hx-get="?{% qs_replace verdict=value page=None %}" hx-target="#action-point-results">{% status_pill value label "sm" %} {{ n|number }}</a>{% endif %}{% endwith %}{% endfor %}</div>
+  {% endif %}
+  <p class="small mb-2" role="status">{% if review_status %}{% if review_status.running %}{% trans "Running now…" %}{% else %}{% blocktrans with reviewed=review_status.reviewed skipped=review_status.skipped errors=review_status.errors when=review_status.run.started_at|date:"j M Y H:i" %}Last run ({{ when }}): {{ reviewed }} reviewed, {{ skipped }} skipped, {{ errors }} errors.{% endblocktrans %}{% if review_status.stopped %} <span class="text-muted">{{ review_status.stopped|capfirst }}.</span>{% endif %}{% endif %}{% else %}{% trans "Not run yet." %}{% endif %}{% if not review_on %} <span class="text-muted">{% trans "The AI review is switched off." %}</span>{% endif %}</p>
+  <div class="d-flex flex-wrap gap-2 align-items-end">
+    {% if can_run_review %}
+    <form method="post" action="{% url 'reports:action_points_review' %}" class="d-flex gap-2 align-items-end">
+      {% csrf_token %}<input type="hidden" name="query" value="{{ query }}">
+      <div><label class="form-label small mb-0" for="ap-batch">{% trans "Batch size" %}</label>
+        <select class="form-select form-select-sm" id="ap-batch" name="batch">{% for n in batch_sizes %}<option value="{{ n }}" {% if n == default_batch %}selected{% endif %}>{{ n }}</option>{% endfor %}</select></div>
+      <button type="submit" class="btn btn-primary btn-sm" {% if not review_on %}disabled{% endif %}>{% trans "Run AI review" %}</button>
+    </form>
+    {% endif %}
+    {% if summary_on %}
+    <form method="post" action="{% url 'reports:action_points_summary' %}" hx-post="{% url 'reports:action_points_summary' %}" hx-target="#ap-summary" hx-disabled-elt="find button">
+      {% csrf_token %}<input type="hidden" name="query" value="{{ query }}">
+      <button type="submit" class="btn btn-outline-primary btn-sm">{% trans "AI content summary" %}</button>
+      <span class="htmx-indicator small" role="status">{% trans "Summarising…" %}</span>
+      <span class="small text-muted">{% blocktrans with used=summary_quota.used allowed=summary_quota.allowed %}{{ used }} of {{ allowed }} used today{% endblocktrans %}</span>
+    </form>
+    {% endif %}
+  </div>
+  <div id="ap-summary" aria-live="polite"></div>
+</section>

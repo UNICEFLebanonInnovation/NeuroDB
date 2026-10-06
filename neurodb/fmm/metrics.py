@@ -55,13 +55,16 @@ _READ = object()
 
 def stamp(last: Any = _READ) -> str:
     """What every cached figure depends on besides its scope: the last refresh that finished (given,
-    or read), the rules version it computed the scores with, and the day (rolling periods move at
-    midnight)."""
+    or read), the rules version it computed the scores with, the day (rolling periods move at
+    midnight) and the last change to the NeuroDB action points (they count as follow-up at once)."""
     from . import status
+    from .models import LocalActionPoint
 
     last = status.last_refresh() if last is _READ else last
     version = (last.details or {}).get("rules_version", 0) if last else 0
-    return f"{last.pk if last else 0}:{version}:{timezone.localdate().isoformat()}"
+    local = LocalActionPoint.objects.aggregate(n=Count("pk"), at=Max("updated_at"))
+    changed = f"{local['n']}.{local['at'].timestamp():.0f}" if local["at"] else "0"
+    return f"{last.pk if last else 0}:{version}:{timezone.localdate().isoformat()}:{changed}"
 
 
 def cached(scope: Scope, block: str, compute: Callable[[], Any], when: str | None = None) -> Any:
@@ -482,6 +485,9 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
         governorates: set[str] = set()
         partners: set[int] = set()
         no_follow_up: list[tuple[str, str]] = []
+        from .action_points import followed_up_keys
+
+        followed = followed_up_keys()  # visits a NeuroDB action point follows up
         counts: Counter = Counter()
         # read at once: a year of visits is a few thousand rows, and a server-side cursor's round
         # trips cost more than the rows
@@ -593,7 +599,7 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
                 governorates.add(governorate_key)
             if partner_ids:
                 partners.update(partner_ids)
-            if reported and not action_points:
+            if reported and not action_points and key not in followed:
                 worse = max([rating, hact_q1 or "not_monitored"], key=_rating_rank)
                 if worse in ("off_track", "constrained"):
                     no_follow_up.append((key, _visit_name(key, label, activity_id)))
@@ -1557,11 +1563,11 @@ def hact_programmatic(scope: Scope, when: str | None = None, limits: dict | None
 
 def action_points(scope: Scope, when: str | None = None, limits: dict | None = None) -> dict[str, Any]:
     """Follow-up: the FM action points linked to the scope's visits (open, overdue, high priority and
-    open), the reported off-track or constrained visits without one, and the overdue ones, oldest
-    due date first, with their visits."""
+    open), the NeuroDB action points on them (open, and overdue), the reported off-track or constrained
+    visits without either, and the overdue FM ones, oldest due date first, with their visits."""
     from neurodb.datamart.models import ActionPoint
 
-    from .models import VisitActionPoint
+    from .models import LocalActionPoint, VisitActionPoint
 
     def compute() -> dict[str, Any]:
         today = _today()
@@ -1597,7 +1603,12 @@ def action_points(scope: Scope, when: str | None = None, limits: dict | None = N
         open_ = [p for p in points.values() if p["open"]]
         overdue = [p for p in open_ if p["due"] and p["due"] < today]
         overdue.sort(key=lambda p: (p["due"], p["reference"]))
+        local = LocalActionPoint.objects.filter(
+            visit_key__in=scope.visits().values("key"), status=LocalActionPoint.Status.OPEN
+        ).aggregate(open=Count("pk"), overdue=Count("pk", filter=Q(due_date__lt=today)))
         return {
+            "local_open": local["open"],
+            "local_overdue": local["overdue"],
             "linked": len(points),
             "open": len(open_),
             "overdue": len(overdue),

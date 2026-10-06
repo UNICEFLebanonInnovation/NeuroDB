@@ -272,7 +272,7 @@ BACKGROUND_JOBS = [
             "recently completed first, within the day's budget for this review. Action points already "
             "reviewed are skipped unless their texts changed. It runs by itself each morning."
         ),
-        "rule",
+        "playlist_add_check",
     ),
 ]
 

@@ -182,7 +182,9 @@
     <div class="mini{% if f.overdue %} mini--danger{% endif %}"><div class="mini__value">{{ f.overdue|number }}</div><div class="mini__label">{% trans "Overdue" %}</div></div>
     <div class="mini{% if f.high_open %} mini--warning{% endif %}"><div class="mini__value">{{ f.high_open|number }}</div><div class="mini__label">{% trans "High priority, open" %}</div></div>
     <div class="mini{% if f.without.n %} mini--danger{% endif %}"><div class="mini__value">{{ f.without.n|number }}</div><div class="mini__label">{% trans "Off-track or constrained visits without an action point" %}</div></div>
+    <div class="mini{% if f.local_overdue %} mini--warning{% endif %}"><div class="mini__value">{{ f.local_open|number }}</div><div class="mini__label">{% trans "NeuroDB action points open" %}{% if f.local_overdue %} · {% blocktrans with n=f.local_overdue %}{{ n }} overdue{% endblocktrans %}{% endif %}</div></div>
   </div>
+  <p class="small text-muted mb-2">{% trans "A visit counts as followed up by an eTools action point, or by a NeuroDB action point added by hand (or one NeuroDB made and someone marked done)." %}</p>
   {% if f.without_visits %}<p class="small mb-2">{% trans "Without an action point:" %} {% for v in f.without_visits %}<a class="visit-chip" href="{{ v.url }}" hx-get="{{ v.url }}" hx-target="#modal-content">{{ v.name }}</a>{% endfor %}{% if f.without.n > f.without_visits|length %} <span class="small text-muted">{% blocktrans with n=f.without.n %}(latest of {{ n }}){% endblocktrans %}</span>{% endif %}</p>{% endif %}
   {% if f.overdue_list %}
   <div class="table-wrap"><table class="table table-sm">

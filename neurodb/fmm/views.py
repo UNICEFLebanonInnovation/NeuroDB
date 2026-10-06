@@ -46,9 +46,10 @@ from neurodb.datamart import fm
 from neurodb.web.templatetags.ui import code_label
 
 from . import access, metrics, status
+from . import action_points as ap_module
 from .ai import budget, profiles
 from .ai import insights as ai_insights
-from .models import Insight, RuleSetting, ScoreSetting, Visit, VisitActionPoint, VisitReview
+from .models import Insight, LocalActionPoint, RuleSetting, ScoreSetting, Visit, VisitActionPoint, VisitReview
 from .scope import (
     DRILL_KEYS,
     KIND_LABELS,
@@ -1337,8 +1338,21 @@ def _visit_context(request: HttpRequest, v: Visit) -> dict[str, Any]:
     partners = list(PartnerOrganization.objects.filter(pk__in=v.partner_ids).only("pk", "name", "short_name"))
     pds = list(PCA.objects.filter(pk__in=v.pd_ids).only("pk", "number", "title"))
     links = list(VisitActionPoint.objects.filter(visit=v).select_related("action_point").order_by("pk"))
+    reviews = ap_module.current_reviews([link.action_point for link in links])
+    checks = ap_module.latest_verifications([link.action_point.datamart_id for link in links])
     for link in links:
         link.match_label = AP_MATCH.get(link.matched_by, link.matched_by)
+        link.confidence_label = ap_module.CONFIDENCE_LABELS[
+            ap_module.CONFIDENCE.get(link.matched_by, "medium")
+        ]
+        link.review = reviews.get(link.action_point.datamart_id)
+        link.check = checks.get(link.action_point.datamart_id)
+    local_points = ap_module.visit_local_points(v.key)
+    for point in local_points:
+        point.can_change = ap_module.can_change_local(request.user, point, v)
+    if any(point.is_follow_up for point in local_points) and "no_follow_up" in (v.signals or {}):
+        # a NeuroDB action point follows the visit up: the signal no longer holds
+        v.signal_lines = signal_lines({k: val for k, val in v.signals.items() if k != "no_follow_up"})
 
     answers_available = fields.available("fm_questions", "answer") or fields.available(
         "fm_questions", "answer_label"
@@ -1368,6 +1382,9 @@ def _visit_context(request: HttpRequest, v: Visit) -> dict[str, Any]:
         "partners": partners,
         "pds": pds,
         "action_points": links,
+        "local_action_points": local_points,
+        "local_statuses": LocalActionPoint.Status.choices,
+        "can_add_local": ap_module.can_add_local(request.user),
         "answers": _answers(v, entities, people) if answers_available else None,
         "answers_available": answers_available,
         "activities": v.programme_activities,

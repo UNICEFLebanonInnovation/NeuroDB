@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import ap_views, views
 
 app_name = "reports"
 
@@ -37,7 +37,18 @@ urlpatterns = [
     path("partner-reporting/", views.partner_reporting, name="partner_reporting"),
     path("partner-reporting/report/", views.progress_report, name="progress_report"),
     path("field-monitoring/", views.monitoring, name="monitoring"),
-    path("action-points/", views.action_points, name="action_points"),
+    path("action-points/", ap_views.action_points, name="action_points"),
+    path("action-points/<int:pk>/", ap_views.action_point, name="action_point"),
+    path("action-points/<int:pk>/verify/", ap_views.action_point_verify, name="action_point_verify"),
+    path("action-points/review/", ap_views.action_points_review, name="action_points_review"),
+    path("action-points/summary/", ap_views.action_points_summary, name="action_points_summary"),
+    path("action-points/neurodb/", ap_views.local_action_points, name="local_action_points"),
+    path("action-points/neurodb/new/", ap_views.local_action_point_new, name="local_action_point_new"),
+    path(
+        "action-points/neurodb/<int:pk>/status/",
+        ap_views.local_action_point_status,
+        name="local_action_point_status",
+    ),
     path("population/", views.population, name="population"),
     path("library/", views.library, name="library"),
     path("library/<int:pk>/", views.library_item, name="library_item"),

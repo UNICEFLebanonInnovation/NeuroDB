@@ -1,0 +1,16 @@
+{% load i18n ui %}
+{% if modal %}
+<div class="modal-header">
+  <div>
+    <div class="small text-muted">{% trans "eTools action point" %}</div>
+    <h2 class="modal-title h5" id="modal-title">{{ a.reference_number|default:_("Action point") }}</h2>
+  </div>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+</div>
+<div class="modal-body">
+{% endif %}
+{% include "reports/partials/_ap_detail_body.html" %}
+{% if modal %}
+</div>
+<div class="modal-footer"><a class="btn btn-link btn-sm" href="{% url 'reports:action_point' a.pk %}">{% trans "Open as a page" %}</a></div>
+{% endif %}

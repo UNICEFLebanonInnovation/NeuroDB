@@ -1,0 +1,44 @@
+{% load i18n ui %}
+{% comment %}One eTools action point (FMS §10.3 "Action Point Details"): every field, the action taken, the AI's
+verdict and why, and the PME verifications.{% endcomment %}
+<section class="panel" aria-label="{% trans 'Action point' %}">
+  <p class="mb-2">{% status_pill a.status|status_key a.status|code_label %}{% if a.high_priority %} <span class="chip">{% trans "High priority" %}</span>{% endif %}{% if a.status == "open" and a.due_date and a.due_date < today %} {% status_pill "off_track" _("Overdue") %}{% endif %}</p>
+  <h3 class="h6">{% trans "Description" %}</h3>
+  <p class="small" data-synced>{{ a.description|default:"—"|linebreaksbr }}</p>
+  <h3 class="h6">{% trans "Action taken" %}</h3>
+  <p class="small" data-synced>{{ action_taken|default:_("Nothing written in eTools yet.") }}</p>
+  <dl class="row small mb-0">
+    <dt class="col-sm-4">{% trans "Reference" %}</dt><dd class="col-sm-8 mono">{{ a.reference_number|default:"—" }}</dd>
+    <dt class="col-sm-4">{% trans "Partner" %}</dt><dd class="col-sm-8">{% if a.partner %}<a href="{% url 'reports:partner_profile' a.partner.id %}">{{ a.partner_name|default:a.partner.name }}</a>{% else %}{{ a.partner_name|default:"—" }}{% endif %}</dd>
+    <dt class="col-sm-4">{% trans "Programme document" %}</dt><dd class="col-sm-8">{% if a.intervention %}<a href="{% url 'reports:programme_detail' a.intervention.id %}">{{ a.intervention.number }}</a>{% else %}{{ a.intervention_number|default:"—" }}{% endif %}</dd>
+    <dt class="col-sm-4">{% trans "Office" %}</dt><dd class="col-sm-8">{{ a.office|default:"—" }}</dd>
+    <dt class="col-sm-4">{% trans "Section" %}</dt><dd class="col-sm-8">{{ a.section|default:"—" }}</dd>
+    <dt class="col-sm-4">{% trans "Category" %}</dt><dd class="col-sm-8">{{ a.category|default:"—" }}</dd>
+    <dt class="col-sm-4">{% trans "Assigned to" %}</dt><dd class="col-sm-8">{{ a.assigned_to_name|default:"—" }}</dd>
+    <dt class="col-sm-4">{% trans "Due" %}</dt><dd class="col-sm-8">{{ a.due_date|date:"j M Y"|default:"—" }}</dd>
+    <dt class="col-sm-4">{% trans "Completed" %}</dt><dd class="col-sm-8">{{ a.date_of_completion|date:"j M Y"|default:"—" }}</dd>
+    <dt class="col-sm-4">{% trans "Raised from" %}</dt><dd class="col-sm-8">{{ a.related_module|default:"—" }}{% if a.module_reference_number %} · <span class="mono">{{ a.module_reference_number }}</span>{% endif %}</dd>
+    <dt class="col-sm-4">{% trans "Location" %}</dt><dd class="col-sm-8">{{ a.location_name|default:"—" }}{% if a.location_pcode %} · <span class="mono">{{ a.location_pcode }}</span>{% endif %}</dd>
+    <dt class="col-sm-4">{% trans "Changed in eTools" %}</dt><dd class="col-sm-8">{{ a.last_modify_date|date:"j M Y"|default:"—" }}</dd>
+    {% if fmm_on and confidence %}
+    <dt class="col-sm-4">{% trans "Field monitoring visit" %}</dt><dd class="col-sm-8">{% if visit_link %}{% url 'fmm:visit' visit_link.key as visit_url %}<a href="{{ visit_url }}">{{ visit_link.label }}</a> · {% endif %}<span title="{{ confidence_help }}">{% blocktrans with level=confidence_label %}link confidence: {{ level }}{% endblocktrans %}</span><span class="d-block text-muted">{{ confidence_help }}</span></dd>
+    {% endif %}
+  </dl>
+</section>
+{% if fmm_on %}
+<section class="panel" aria-labelledby="ap-verdict-{{ a.pk }}">
+  <h3 class="h6" id="ap-verdict-{{ a.pk }}">{% trans "AI verdict" %}</h3>
+  {% if review %}
+  <p class="mb-1">{% status_pill review.verdict review.get_verdict_display %} <span class="small text-muted">{% blocktrans with when=review.reviewed_at|date:"j M Y" %}reviewed on {{ when }}{% endblocktrans %}</span></p>
+  {% if review.explanation %}<p class="small mb-0">{{ review.explanation }}</p>{% endif %}
+  {% elif completed %}
+  <p class="small text-muted mb-0">{% if action_taken %}{% trans "Not reviewed yet: the next AI review reads it." %}{% else %}{% trans "Nothing to review: no action taken is written in eTools." %}{% endif %}</p>
+  {% else %}
+  <p class="small text-muted mb-0">{% trans "The AI reviews completed action points only." %}</p>
+  {% endif %}
+</section>
+<section class="panel" aria-labelledby="ap-pme-{{ a.pk }}">
+  <h3 class="h6" id="ap-pme-{{ a.pk }}">{% trans "PME verification" %}</h3>
+  {% include "reports/partials/_ap_verification.html" %}
+</section>
+{% endif %}

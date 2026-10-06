@@ -141,17 +141,30 @@
   </section>
   {% endif %}
 
-  {% comment %}10. The FM action points raised from the visit and how each was matched.{% endcomment %}
+  {% comment %}10. The FM action points raised from the visit and how each was matched (with the AI's verdict and
+  the PME verification), then the NeuroDB action points kept on it.{% endcomment %}
   <section class="panel" aria-labelledby="fmm-aps-{{ visit.key }}">
     <h3 class="h6" id="fmm-aps-{{ visit.key }}">{% trans "Action points" %}</h3>
     {% if action_points %}
     <ul class="list-unstyled small mb-0">{% for link in action_points %}{% with a=link.action_point %}<li class="mb-1">
-      <span class="mono">{{ a.reference_number|default:"—" }}</span>{% if a.category %} · <span data-synced>{{ a.category }}</span>{% endif %}{% if a.high_priority %} <span class="chip">{% trans "High priority" %}</span>{% endif %}
-      {% status_pill a.status|status_key a.status|code_label "sm" %}<span class="text-muted">{% if a.due_date %}{% blocktrans with day=a.due_date|date:"j M Y" %}due {{ day }}{% endblocktrans %}{% else %}{% trans "no due date" %}{% endif %} · {{ link.match_label }}</span>
+      {% url 'reports:action_point' a.pk as ap_url %}<a class="mono" href="{{ ap_url }}" hx-get="{{ ap_url }}" hx-target="#modal-content" hx-push-url="false">{{ a.reference_number|default:_("Details") }}</a>{% if a.category %} · <span data-synced>{{ a.category }}</span>{% endif %}{% if a.high_priority %} <span class="chip">{% trans "High priority" %}</span>{% endif %}
+      {% status_pill a.status|status_key a.status|code_label "sm" %}<span class="text-muted">{% if a.due_date %}{% blocktrans with day=a.due_date|date:"j M Y" %}due {{ day }}{% endblocktrans %}{% else %}{% trans "no due date" %}{% endif %} · {{ link.match_label }} ({% blocktrans with level=link.confidence_label %}link {{ level }}{% endblocktrans %})</span>
+      {% if link.review %} · {% trans "AI:" %} {% status_pill link.review.verdict link.review.get_verdict_display "sm" %}{% endif %}{% if link.check %} · {% trans "PME:" %} {% status_pill link.check.state link.check.get_state_display "sm" %}{% endif %}
     </li>{% endwith %}{% endfor %}</ul>
     {% else %}
     <p class="small text-muted mb-0">{% trans "No eTools action point is linked to this visit." %}</p>
     {% endif %}
+    <h4 class="h6 mt-3">{% trans "NeuroDB action points" %}</h4>
+    {% if local_action_points %}
+    <ul class="list-unstyled small mb-0">{% for p in local_action_points %}<li class="mb-1">
+      <strong>{{ p.title }}</strong> {% status_pill p.status p.get_status_display "sm" %}
+      <span class="text-muted">{{ p.get_priority_display }} · {% if p.due_date %}{% blocktrans with day=p.due_date|date:"j M Y" %}due {{ day }}{% endblocktrans %}{% else %}{% trans "no due date" %}{% endif %} · {{ p.get_source_display }}</span>
+      {% if p.can_change %}<form method="post" action="{% url 'reports:local_action_point_status' p.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="next" value="{{ visit.get_absolute_url }}">{% for value, label in local_statuses %}{% if value != p.status %} <button type="submit" name="status" value="{{ value }}" class="btn btn-link btn-sm p-0">{% blocktrans with label=label|lower %}Mark {{ label }}{% endblocktrans %}</button>{% endif %}{% endfor %}</form>{% endif %}
+    </li>{% endfor %}</ul>
+    {% else %}
+    <p class="small text-muted mb-0">{% trans "No NeuroDB action point on this visit." %}</p>
+    {% endif %}
+    {% if can_add_local %}{% url 'reports:local_action_point_new' as new_url %}<p class="small mt-2 mb-0"><a href="{{ new_url }}?visit={{ visit.key }}&amp;next={{ visit.get_absolute_url|urlencode }}">{% trans "New NeuroDB action point on this visit" %}</a></p>{% endif %}
   </section>
 
   {% comment %}11. HACT context: programmatic visits of the partner this year, planned visits of each PD.{% endcomment %}

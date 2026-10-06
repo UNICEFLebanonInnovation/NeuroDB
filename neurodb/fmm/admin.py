@@ -56,11 +56,16 @@ from .models import (
     CHAT_EXAMPLES_HELP,
     RULE_PROMPTS_HELP,
     SECTIONS_HELP,
+    ActionPointReview,
+    ActionPointSetting,
+    ActionPointSummary,
+    ActionPointVerification,
     ChatQuestion,
     FieldMapping,
     FieldOfficeStaff,
     Insight,
     KeyProbe,
+    LocalActionPoint,
     ModelCapability,
     PromptProfile,
     PromptVersion,
@@ -2045,3 +2050,130 @@ def _brief_lines(row: Insight) -> dict[str, Any]:
         "actions": [{**a, "line": sections.action_line(a)} for a in row.actions or []],
         "running": row.status == Insight.Status.RUNNING,
     }
+
+
+# ------------------------------------------------------------------------------------------ action points
+@admin.register(ActionPointSetting)
+class ActionPointSettingAdmin(ModelAdmin):
+    """The action points page's AI settings (one row): the AI review switched on or off, how many action
+    points one AI content summary reads and how many summaries a person may ask for a day.
+    Administrators change them; the review's model and temperature are the AI checks' (Score settings)."""
+
+    fields = ("ai_review", "summary_points", "summary_per_user_per_day", "updated_by", "updated_at")
+    readonly_fields = ("updated_by", "updated_at")
+    list_display = ("__str__", "ai_review", "summary_points", "summary_per_user_per_day", "updated_at")
+
+    def has_add_permission(self, request):
+        return access.is_admin(request.user) and not ActionPointSetting.objects.exists()
+
+    def has_change_permission(self, request, obj=None):
+        return access.is_admin(request.user)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def changelist_view(self, request, extra_context=None):
+        setting = ActionPointSetting.load()  # the one row: open it
+        return redirect(reverse("admin:fmm_actionpointsetting_change", args=[setting.pk]))
+
+    def save_model(self, request, obj, form, change):
+        obj.updated_by = request.user
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(ActionPointReview)
+class ActionPointReviewAdmin(ReadOnlyModelAdmin):
+    """The AI's verdicts on completed eTools action points, kept until the description, the action taken
+    or the instructions change. Read-only; deleting one makes it be reviewed again."""
+
+    list_display = ("datamart_id", "verdict", "model", "tokens", "reviewed_at")
+    list_filter = ("verdict", "model")
+    search_fields = ("=datamart_id",)
+    fields = (
+        "datamart_id",
+        "verdict",
+        "explanation",
+        "model",
+        "input_tokens",
+        "output_tokens",
+        "reviewed_at",
+        "input_hash",
+        "prompt_hash",
+    )
+    readonly_fields = fields
+
+    def has_delete_permission(self, request, obj=None):
+        return access.is_admin(request.user)
+
+    @admin.display(description=_("tokens"))
+    def tokens(self, obj):
+        return f"{obj.input_tokens + obj.output_tokens:,}"
+
+
+@admin.register(ActionPointVerification)
+class ActionPointVerificationAdmin(ReadOnlyModelAdmin):
+    """The PME verifications of eTools action points, every decision kept (made on the action points
+    page)."""
+
+    list_display = ("datamart_id", "state", "verified_by_name", "created_at")
+    list_filter = ("state",)
+    search_fields = ("=datamart_id", "verified_by_name")
+    readonly_fields = ("datamart_id", "state", "note", "verified_by", "verified_by_name", "created_at")
+
+
+@admin.register(ActionPointSummary)
+class ActionPointSummaryAdmin(ReadOnlyModelAdmin):
+    """The AI content summaries asked for on the action points page: who, when, how many action points
+    were read and what it cost. The summaries themselves are never kept."""
+
+    list_display = ("created_at", "user", "status", "points", "model", "input_tokens", "output_tokens")
+    list_select_related = ("user",)
+    list_filter = ("status",)
+    readonly_fields = (
+        "user",
+        "status",
+        "called",
+        "points",
+        "reason",
+        "model",
+        "input_tokens",
+        "output_tokens",
+        "created_at",
+    )
+
+
+@admin.register(LocalActionPoint)
+class LocalActionPointAdmin(ModelAdmin):
+    """The NeuroDB action points (kept here only, never pushed to eTools): added on the action points
+    page or a visit's page, or made by the refresh. Administrators may correct or delete them here."""
+
+    list_display = ("title", "visit_key", "priority", "due_date", "status", "source", "created_at")
+    list_filter = ("status", "priority", "source")
+    search_fields = ("title", "description", "visit_key", "assignee_role")
+    fields = (
+        "title",
+        "description",
+        "visit_key",
+        "priority",
+        "due_date",
+        "status",
+        "assignee_role",
+        "assignee",
+        "source",
+        "rule",
+        "created_by_name",
+        "created_at",
+        "updated_at",
+        "closed_at",
+    )
+    readonly_fields = ("source", "rule", "created_by_name", "created_at", "updated_at", "closed_at")
+    autocomplete_fields = ()
+
+    def has_add_permission(self, request):
+        return False  # added on the action points page, with who added it
+
+    def has_change_permission(self, request, obj=None):
+        return access.is_admin(request.user)
+
+    def has_delete_permission(self, request, obj=None):
+        return access.is_admin(request.user)

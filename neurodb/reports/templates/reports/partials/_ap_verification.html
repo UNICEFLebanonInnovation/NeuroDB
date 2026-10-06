@@ -1,0 +1,26 @@
+{% load i18n ui %}
+<div id="ap-verification-{{ a.pk }}">
+  {% if check %}
+  <p class="mb-2">{% status_pill check.state check.get_state_display %}
+    <span class="small text-muted">{% blocktrans with who=check.verified_by_name|default:_("someone no longer in NeuroDB") when=check.created_at|date:"j M Y H:i" %}by {{ who }} on {{ when }}{% endblocktrans %}</span></p>
+  {% if check.note %}<p class="small mb-2">{{ check.note }}</p>{% endif %}
+  {% if history|length > 1 %}<details class="small mb-2"><summary>{% trans "Earlier verifications" %}</summary><ul class="list-unstyled mb-0">{% for h in history|slice:"1:" %}<li>{{ h.get_state_display }} · {{ h.verified_by_name|default:"—" }} · {{ h.created_at|date:"j M Y H:i" }}{% if h.note %} — {{ h.note }}{% endif %}</li>{% endfor %}</ul></details>{% endif %}
+  {% else %}
+  <p class="small text-muted mb-2">{% trans "Not verified yet." %}</p>
+  {% endif %}
+  {% if verify_saved %}<p class="small text-success mb-2" role="status">{% trans "Verification saved." %}</p>{% endif %}
+  {% if can_verify %}
+  <form method="post" action="{% url 'reports:action_point_verify' a.pk %}" hx-post="{% url 'reports:action_point_verify' a.pk %}" hx-target="#ap-verification-{{ a.pk }}" hx-swap="outerHTML">
+    {% csrf_token %}
+    <fieldset class="mb-2">
+      <legend class="form-label small fw-semibold">{% trans "Does the action taken genuinely address the issue?" %}</legend>
+      {% for value, label in pme_choices %}<label class="form-check form-check-inline small"><input class="form-check-input" type="radio" name="state" value="{{ value }}" required> {{ label }}</label>{% endfor %}
+    </fieldset>
+    <label class="form-label small" for="ap-note-{{ a.pk }}">{% trans "Note (optional, kept in NeuroDB, never sent to the AI)" %}</label>
+    <textarea class="form-control form-control-sm mb-2" id="ap-note-{{ a.pk }}" name="note" rows="2" maxlength="500">{{ note }}</textarea>
+    {% if verify_error %}<p class="small text-danger mb-2" role="alert">{{ verify_error }}</p>{% endif %}
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Save verification" %}</button>
+    <p class="small text-muted mt-1 mb-0">{% trans "Your name and the time are recorded with it." %}</p>
+  </form>
+  {% endif %}
+</div>

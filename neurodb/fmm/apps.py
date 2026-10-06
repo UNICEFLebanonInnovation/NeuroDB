@@ -24,6 +24,9 @@ class FmmConfig(AppConfig):
         if settings.FMM_ENABLED:
             from neurodb.assistant import tools as assistant_tools
 
+            from .ai.ap_tools import ASK_TOOLS
             from .ai.tools import FMM_TOOLS
 
             assistant_tools.TOOLS.update(FMM_TOOLS)
+            # ... and count the action points by the AI's verdict and the PME verification (Ask only)
+            assistant_tools.TOOLS.update(ASK_TOOLS)

@@ -1,8 +1,10 @@
 {% load i18n ui %}
-{% if data.visit %}
-<div class="chips mb-2" aria-label="{% trans 'Filtered by visit' %}">
-  <span class="chip chip--removable">{% blocktrans with label=data.visit.label %}From {{ label }}{% endblocktrans %}
-    <a href="?{% qs_replace visit=None page=None %}" class="chip__remove" aria-label="{% trans 'Show the action points of every visit' %}">&times;</a></span>
+{% if data.visit or drills %}
+<div class="chips mb-2" aria-label="{% trans 'More filters' %}">
+  {% if data.visit %}<span class="chip chip--removable">{% blocktrans with label=data.visit.label %}From {{ label }}{% endblocktrans %}
+    <a href="?{% qs_replace visit=None page=None %}" class="chip__remove" aria-label="{% trans 'Show the action points of every visit' %}">&times;</a></span>{% endif %}
+  {% for d in drills %}<span class="chip chip--removable">{{ d.label }}
+    <a href="{{ d.url }}" hx-get="{{ d.url }}" hx-target="#action-point-results" class="chip__remove" aria-label="{% blocktrans with label=d.label %}Remove {{ label }}{% endblocktrans %}">&times;</a></span>{% endfor %}
 </div>
 {% endif %}
 <div class="kpi-grid">
@@ -10,19 +12,50 @@
   {% trans "Open" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.open|number %}
   {% trans "Overdue" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.overdue|number status=data.overdue|yesno:"off_track," %}
   {% trans "Open, high priority" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.high_priority|number %}
+  {% trans "Completed" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=data.completed|number %}
+</div>
+{% if fmm_on %}{% include "reports/partials/_ap_ai_panel.html" %}{% endif %}
+{% comment %}FMS §10's charts, over the filter; a bar opens its action points (the filter with the bar's value).
+Open points by office and by section stand where FMS ranks the people with the most open points: NeuroDB
+never ranks staff by name.{% endcomment %}
+<div class="grid grid--3 mb-3">
+  <section class="panel"><div class="panel__header"><h2 class="panel__title" id="ap-chart-status-title">{% trans "By status" %}</h2></div>
+    <div class="chart chart--sm" id="ap-chart-status" data-module="charts" data-chart="hbars" data-source="ap-chart-data" data-key="by_status" data-href-template="{{ chart_hrefs.status }}" data-href-target="#action-point-results" data-empty-title="{% trans 'No action points' %}" aria-labelledby="ap-chart-status-title"></div>
+    <div class="text-end"><button type="button" class="btn btn-link btn-sm p-0" data-chart-png="#ap-chart-status" data-filename="action-points-status">{% trans "Download PNG" %}</button></div></section>
+  <section class="panel"><div class="panel__header"><h2 class="panel__title" id="ap-chart-due-title">{% trans "Due dates of the open ones" %}</h2></div>
+    <div class="chart chart--sm" id="ap-chart-due" data-module="charts" data-chart="hbars" data-source="ap-chart-data" data-key="due" data-href-template="{{ chart_hrefs.due }}" data-href-target="#action-point-results" data-empty-title="{% trans 'No open action points' %}" aria-labelledby="ap-chart-due-title"></div>
+    <div class="text-end"><button type="button" class="btn btn-link btn-sm p-0" data-chart-png="#ap-chart-due" data-filename="action-points-due-dates">{% trans "Download PNG" %}</button></div></section>
+  <section class="panel"><div class="panel__header"><h2 class="panel__title" id="ap-chart-time-title">{% trans "Completed on time?" %}</h2>{% if chart_data.late_average is not None %}<span class="panel__hint">{% blocktrans with days=chart_data.late_average|number n=chart_data.late_count %}{{ n }} late, {{ days }} days late on average{% endblocktrans %}</span>{% endif %}</div>
+    <div class="chart chart--sm" id="ap-chart-time" data-module="charts" data-chart="hbars" data-source="ap-chart-data" data-key="timeliness" data-href-template="{{ chart_hrefs.timeliness }}" data-href-target="#action-point-results" data-empty-title="{% trans 'No completed action points' %}" aria-labelledby="ap-chart-time-title"></div>
+    <div class="text-end"><button type="button" class="btn btn-link btn-sm p-0" data-chart-png="#ap-chart-time" data-filename="action-points-timeliness">{% trans "Download PNG" %}</button></div></section>
+  <section class="panel"><div class="panel__header"><h2 class="panel__title" id="ap-chart-month-title">{% trans "Raised and completed by month" %}</h2></div>
+    <div class="chart chart--sm" id="ap-chart-month" data-module="charts" data-chart="grouped" data-source="ap-chart-data" data-key="monthly" data-href-template="{{ chart_hrefs.monthly }}" data-href-target="#action-point-results" data-empty-title="{% trans 'No dates' %}" aria-labelledby="ap-chart-month-title"></div>
+    <div class="text-end"><button type="button" class="btn btn-link btn-sm p-0" data-chart-png="#ap-chart-month" data-filename="action-points-by-month">{% trans "Download PNG" %}</button></div></section>
+  <section class="panel"><div class="panel__header"><h2 class="panel__title" id="ap-chart-office-title">{% trans "Open, by office" %}</h2></div>
+    <div class="chart chart--sm" id="ap-chart-office" data-module="charts" data-chart="hbars" data-source="ap-chart-data" data-key="by_office" data-href-template="{{ chart_hrefs.office }}" data-href-target="#action-point-results" data-empty-title="{% trans 'No open action points' %}" aria-labelledby="ap-chart-office-title"></div>
+    <div class="text-end"><button type="button" class="btn btn-link btn-sm p-0" data-chart-png="#ap-chart-office" data-filename="action-points-by-office">{% trans "Download PNG" %}</button></div></section>
+  <section class="panel"><div class="panel__header"><h2 class="panel__title" id="ap-chart-section-title">{% trans "Open, by section" %}</h2></div>
+    <div class="chart chart--sm" id="ap-chart-section" data-module="charts" data-chart="hbars" data-source="ap-chart-data" data-key="by_section" data-href-template="{{ chart_hrefs.section }}" data-href-target="#action-point-results" data-empty-title="{% trans 'No open action points' %}" aria-labelledby="ap-chart-section-title"></div>
+    <div class="text-end"><button type="button" class="btn btn-link btn-sm p-0" data-chart-png="#ap-chart-section" data-filename="action-points-by-section">{% trans "Download PNG" %}</button></div></section>
 </div>
 <section class="panel p-0">
-  {% include "components/table_toolbar.html" with title=_("Action points") count=page_obj.paginator.count table_id="action-points" filename="action-points" %}
-  {% if page_obj.object_list %}
+  {% include "components/table_toolbar.html" with title=_("eTools action points") count=page_obj.paginator.count table_id="action-points" filename="action-points" downloads=downloads %}
+  {% if rows %}
   <div class="table-wrap"><table class="table table-hover" id="action-points" data-sortable>
-    <thead><tr><th>{% trans "Action point" %}</th><th>{% trans "Partner / PD" %}</th><th>{% trans "Raised from" %}</th><th>{% trans "Assigned to" %}</th><th>{% trans "Status" %}</th><th>{% trans "Due" %}</th></tr></thead>
-    <tbody>{% for a in page_obj %}<tr>
-      <td><span class="mono small">{{ a.reference_number|default:"—" }}</span>{% if a.high_priority %} <span class="chip">{% trans "High priority" %}</span>{% endif %}<span class="cell-sub">{{ a.description|truncatechars:160 }}</span></td>
+    <thead><tr><th>{% trans "Action point" %}</th><th>{% trans "Partner / PD" %}</th><th>{% trans "Office / section" %}</th><th>{% trans "Assigned to" %}</th><th>{% trans "Due" %}</th><th>{% trans "Status" %}</th><th>{% trans "Raised from" %}</th>{% if fmm_on %}<th>{% trans "AI verdict" %}</th><th>{% trans "PME verification" %}</th>{% endif %}</tr></thead>
+    <tbody>{% for a in rows %}<tr>
+      {% url 'reports:action_point' a.pk as detail_url %}
+      <td><a class="mono small" href="{{ detail_url }}" hx-get="{{ detail_url }}" hx-target="#modal-content" hx-push-url="false">{{ a.reference_number|default:_("Details") }}</a>{% if a.high_priority %} <span class="chip">{% trans "High priority" %}</span>{% endif %}<span class="cell-sub">{{ a.description|truncatechars:160 }}</span></td>
       <td>{% if a.partner %}<a href="{% url 'reports:partner_profile' a.partner.id %}">{{ a.partner_name|default:a.partner.name }}</a>{% else %}{{ a.partner_name|default:"—" }}{% endif %}{% if a.intervention %}<span class="cell-sub"><a href="{% url 'reports:programme_detail' a.intervention.id %}">{{ a.intervention.number }}</a></span>{% elif a.intervention_number %}<span class="cell-sub mono">{{ a.intervention_number }}</span>{% endif %}</td>
-      <td>{{ a.related_module|default:"—" }}{% if a.module_reference_number %}<span class="cell-sub mono">{{ a.module_reference_number }}</span>{% endif %}{% with link=data.visit_links|get_item:a.pk %}{% if link %}{% url 'fmm:visit' link.0 as visit_url %}<span class="cell-sub"><a href="{{ visit_url }}" hx-get="{{ visit_url }}" hx-target="#modal-content" hx-push-url="false">{{ link.1 }}</a></span>{% endif %}{% endwith %}</td>
-      <td>{{ a.assigned_to_name|default:"—" }}{% if a.office %}<span class="cell-sub">{{ a.office }}</span>{% endif %}</td>
-      <td>{% status_pill a.status|status_key a.status|code_label "sm" %}</td>
+      <td>{{ a.office|default:"—" }}{% if a.section %}<span class="cell-sub">{{ a.section }}</span>{% endif %}</td>
+      <td>{{ a.assigned_to_name|default:"—" }}</td>
       <td class="small text-nowrap" data-value="{{ a.due_date|date:'Y-m-d' }}">{{ a.due_date|date:"j M Y"|default:"—" }}{% if a.status == "open" and a.due_date and a.due_date < data.today %}<span class="cell-sub text-danger">{% trans "Overdue" %}</span>{% endif %}</td>
+      <td>{% status_pill a.status|status_key a.status|code_label "sm" %}{% if a.date_of_completion %}<span class="cell-sub">{% blocktrans with day=a.date_of_completion|date:"j M Y" %}completed {{ day }}{% endblocktrans %}</span>{% endif %}</td>
+      <td>{{ a.related_module|default:"—" }}{% if a.module_reference_number %}<span class="cell-sub mono">{{ a.module_reference_number }}</span>{% endif %}{% if fmm_on %}{% if a.visit_link %}{% url 'fmm:visit' a.visit_link.key as visit_url %}<span class="cell-sub"><a href="{{ visit_url }}" hx-get="{{ visit_url }}" hx-target="#modal-content" hx-push-url="false">{{ a.visit_link.label }}</a> · <span title="{{ a.confidence_help }}">{% blocktrans with level=a.confidence_label %}link {{ level }}{% endblocktrans %}</span></span>{% elif a.confidence %}<span class="cell-sub text-muted" title="{{ a.confidence_help }}">{% trans "No visit found (Unmatched)" %}</span>{% endif %}{% else %}{% with link=data.visit_links|get_item:a.pk %}{% if link %}{% url 'fmm:visit' link.0 as visit_url %}<span class="cell-sub"><a href="{{ visit_url }}" hx-get="{{ visit_url }}" hx-target="#modal-content" hx-push-url="false">{{ link.1 }}</a></span>{% endif %}{% endwith %}{% endif %}</td>
+      {% if fmm_on %}
+      <td>{% if a.review %}{% status_pill a.review.verdict a.review.get_verdict_display "sm" %}{% elif a.completed %}<span class="small text-muted">{% trans "Not reviewed yet" %}</span>{% else %}<span class="small text-muted">—</span>{% endif %}</td>
+      <td>{% if a.check %}{% status_pill a.check.state a.check.get_state_display "sm" %}{% else %}<span class="small text-muted">—</span>{% endif %}</td>
+      {% endif %}
     </tr>{% endfor %}</tbody>
   </table></div>
   {% include "components/pagination.html" with hx_target="#action-point-results" %}
@@ -30,3 +63,4 @@
   {% include "reports/partials/_datamart_empty.html" with icon="check" title=_("No action points match") empty_title=_("No action points synced yet") %}
   {% endif %}
 </section>
+{{ chart_data|json_script:"ap-chart-data" }}

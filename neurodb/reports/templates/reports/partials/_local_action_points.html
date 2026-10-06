@@ -1,0 +1,22 @@
+{% load i18n ui %}
+{% if local.rows %}
+<div class="table-wrap"><table class="table table-sm" id="local-action-points-table">
+  <thead><tr><th scope="col">{% trans "Action point" %}</th><th scope="col">{% trans "Visit" %}</th><th scope="col">{% trans "Priority" %}</th><th scope="col">{% trans "Due" %}</th><th scope="col">{% trans "Assigned to" %}</th><th scope="col">{% trans "Status" %}</th></tr></thead>
+  <tbody>{% for p in local.rows %}<tr>
+    <td><strong>{{ p.title }}</strong>{% if p.description %}<span class="cell-sub">{{ p.description|truncatechars:240|linebreaksbr }}</span>{% endif %}<span class="cell-sub text-muted">{{ p.get_source_display }}{% if p.created_by_name and p.source == "manual" %} · {{ p.created_by_name }}{% endif %} · {{ p.created_at|date:"j M Y" }}{% if p.programmes %} · {{ p.programmes|join:", " }}{% endif %}</span></td>
+    <td>{% if p.visit_key %}{% url 'fmm:visit' p.visit_key as visit_url %}<a href="{{ visit_url }}" hx-get="{{ visit_url }}" hx-target="#modal-content" hx-push-url="false">{{ p.visit_label }}</a>{% else %}—{% endif %}</td>
+    <td>{{ p.get_priority_display }}</td>
+    <td class="small text-nowrap">{{ p.due_date|date:"j M Y"|default:"—" }}{% if p.overdue %}<span class="cell-sub text-danger">{% trans "Overdue" %}</span>{% endif %}</td>
+    <td>{{ p.assignee_role|default:"" }}{% if p.assignee %}{% if p.assignee_role %}<span class="cell-sub">{% endif %}{{ p.assignee.get_full_name|default:p.assignee.get_username }}{% if p.assignee_role %}</span>{% endif %}{% endif %}{% if not p.assignee_role and not p.assignee %}—{% endif %}</td>
+    <td>{% status_pill p.status p.get_status_display "sm" %}
+      {% if p.can_change %}<form method="post" action="{% url 'reports:local_action_point_status' p.pk %}" hx-post="{% url 'reports:local_action_point_status' p.pk %}" hx-target="#local-action-points" class="d-inline-flex gap-1 mt-1">
+        {% csrf_token %}<input type="hidden" name="query" value="lq={{ local.q|urlencode }}&lstatus={{ local.status }}&lpriority={{ local.priority }}&lprogramme={{ local.programme }}">
+        {% for value, label in local.statuses %}{% if value != p.status %}<button type="submit" name="status" value="{{ value }}" class="btn btn-link btn-sm p-0">{% blocktrans with label=label|lower %}Mark {{ label }}{% endblocktrans %}</button>{% endif %}{% endfor %}
+      </form>{% endif %}</td>
+  </tr>{% endfor %}</tbody>
+</table></div>
+{% elif local.filtered %}
+<p class="small text-muted mb-0">{% trans "No NeuroDB action points match your filters." %} <a href="{% url 'reports:local_action_points' %}" hx-get="{% url 'reports:local_action_points' %}" hx-target="#local-action-points">{% trans "Clear filters" %}</a></p>
+{% else %}
+<p class="small text-muted mb-0">{% trans "No NeuroDB action point yet." %}</p>
+{% endif %}

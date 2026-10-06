@@ -1,0 +1,30 @@
+{% load i18n ui %}
+{% if modal %}
+<div class="modal-header">
+  <h2 class="modal-title h5" id="modal-title">{% trans "New NeuroDB action point" %}</h2>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+</div>
+<div class="modal-body">
+{% endif %}
+<form method="post" action="{% url 'reports:local_action_point_new' %}"{% if modal %} hx-post="{% url 'reports:local_action_point_new' %}" hx-target="#modal-content"{% endif %}>
+  {% csrf_token %}<input type="hidden" name="next" value="{{ next }}">
+  <p class="small text-muted">{% trans "Kept in NeuroDB only: it is never sent to eTools. Name roles or sections rather than people where you can." %}</p>
+  <div class="mb-2"><label class="form-label small" for="lap-title">{% trans "Title" %}</label>
+    <input class="form-control form-control-sm" id="lap-title" name="title" maxlength="200" required value="{{ values.title }}">{% if errors.title %}<p class="small text-danger mb-0" role="alert">{{ errors.title }}</p>{% endif %}</div>
+  <div class="mb-2"><label class="form-label small" for="lap-description">{% trans "Description" %}</label>
+    <textarea class="form-control form-control-sm" id="lap-description" name="description" rows="3" maxlength="2000">{{ values.description }}</textarea>{% if errors.description %}<p class="small text-danger mb-0" role="alert">{{ errors.description }}</p>{% endif %}</div>
+  <div class="row g-2">
+    <div class="col-sm-6 mb-2"><label class="form-label small" for="lap-visit">{% trans "Visit (optional)" %}</label>
+      <input class="form-control form-control-sm" id="lap-visit" name="visit" value="{{ values.visit }}" placeholder="{% trans 'Visit id or reference' %}">{% if errors.visit %}<p class="small text-danger mb-0" role="alert">{{ errors.visit }}</p>{% endif %}</div>
+    <div class="col-sm-3 mb-2"><label class="form-label small" for="lap-priority">{% trans "Priority" %}</label>
+      <select class="form-select form-select-sm" id="lap-priority" name="priority">{% for value, label in priorities %}<option value="{{ value }}" {% if values.priority == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="col-sm-3 mb-2"><label class="form-label small" for="lap-due">{% trans "Due date" %}</label>
+      <input class="form-control form-control-sm" type="date" id="lap-due" name="due_date" value="{{ values.due_date }}">{% if errors.due_date %}<p class="small text-danger mb-0" role="alert">{{ errors.due_date }}</p>{% endif %}</div>
+    <div class="col-sm-6 mb-2"><label class="form-label small" for="lap-role">{% trans "Responsible role or section" %}</label>
+      <input class="form-control form-control-sm" id="lap-role" name="assignee_role" maxlength="150" value="{{ values.assignee_role }}" placeholder="{% trans 'e.g. Education section lead' %}">{% if errors.assignee_role %}<p class="small text-danger mb-0" role="alert">{{ errors.assignee_role }}</p>{% endif %}</div>
+    <div class="col-sm-6 mb-2"><label class="form-label small" for="lap-assignee">{% trans "Or a person in NeuroDB" %}</label>
+      <select class="form-select form-select-sm" id="lap-assignee" name="assignee"><option value="">—</option>{% for u in users %}<option value="{{ u.pk }}" {% if values.assignee == u.pk|stringformat:"s" %}selected{% endif %}>{{ u.get_full_name|default:u.get_username }}</option>{% endfor %}</select>{% if errors.assignee %}<p class="small text-danger mb-0" role="alert">{{ errors.assignee }}</p>{% endif %}</div>
+  </div>
+  <button type="submit" class="btn btn-primary btn-sm">{% trans "Save" %}</button>
+</form>
+{% if modal %}</div>{% endif %}

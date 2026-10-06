@@ -75,6 +75,11 @@ def test_fmm_icons_are_material_symbols_names_not_site_icons():
         "fmm.ChatQuestion": "forum",
         "fmm.Visit": "location_on",
         "fmm.VisitReview": "task_alt",
+        "fmm.ActionPointSetting": "settings_suggest",
+        "fmm.ActionPointReview": "rate_review",
+        "fmm.ActionPointVerification": "verified_user",
+        "fmm.ActionPointSummary": "notes",
+        "fmm.LocalActionPoint": "add_task",
     }
     for icon in icons.values():
         assert re.fullmatch(r"[a-z0-9_]+", icon) and icon not in site_icons
@@ -85,6 +90,7 @@ def test_fmm_icons_are_material_symbols_names_not_site_icons():
         "run_fmm_refresh": "monitoring",
         "run_fmm_insights": "auto_awesome",
         "run_fmm_ai_checks": "fact_check",
+        "run_fmm_ap_review": "playlist_add_check",
     }
     for icon in buttons.values():
         assert re.fullmatch(r"[a-z0-9_]+", icon) and icon not in site_icons

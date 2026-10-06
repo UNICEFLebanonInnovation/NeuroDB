@@ -65,6 +65,15 @@ STATUS_VARIANTS = {
     "planned": "neutral",
     "in_progress": "info",
     "reported": "success",
+    # action points: the AI's verdict, the PME verification, a NeuroDB action point's status
+    "adequate": "success",
+    "not_addressed": "danger",
+    "vague": "warning",
+    "verified": "success",
+    "rejected": "danger",
+    "pending": "neutral",
+    "done": "success",
+    "dropped": "neutral",
 }
 
 

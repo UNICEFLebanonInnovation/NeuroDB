@@ -300,9 +300,10 @@ def programme_q(key: str) -> Q | None:
     return match
 
 
-def local_points(params) -> dict[str, Any]:
+def local_points(params, user=None) -> dict[str, Any]:
     """The NeuroDB action points of the action points page with its own filters: ``lq`` (title,
-    description, the role or person it is assigned to), ``lstatus``, ``lpriority``, ``lprogramme``."""
+    description, the role or person it is assigned to), ``lstatus``, ``lpriority``, ``lprogramme``;
+    each row says whether ``user`` may change its status."""
     points = LocalActionPoint.objects.select_related("assignee", "created_by")
     q = (params.get("lq") or "").strip()[:100]
     status = params.get("lstatus") or ""
@@ -332,6 +333,7 @@ def local_points(params) -> dict[str, Any]:
         p.visit_label = labels.get(p.visit_key, p.visit_key)
         p.overdue = p.status == LocalActionPoint.Status.OPEN and p.due_date is not None and p.due_date < today
         p.programmes = [PROGRAMMES[k][0] for k in programme_of(p)]
+        p.can_change = can_change_local(user, p) if user is not None else False
     every = LocalActionPoint.objects.all()
     present = {k for p in every.only("title", "description") for k in programme_of(p)}
     return {

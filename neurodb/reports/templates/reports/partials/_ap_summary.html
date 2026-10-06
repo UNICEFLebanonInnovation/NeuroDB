@@ -1,0 +1,15 @@
+{% load i18n ui %}
+{% if summary.ok %}
+<div class="alert alert-info alert-dismissible mt-2" role="region" aria-label="{% trans 'AI content summary' %}">
+  <h3 class="h6">{% blocktrans count n=summary.points %}AI content summary of {{ n }} action point{% plural %}AI content summary of {{ n }} action points{% endblocktrans %}{% if summary.total > summary.points %} <span class="small text-muted">{% blocktrans with total=summary.total|number %}(the most recent of {{ total }}){% endblocktrans %}</span>{% endif %}</h3>
+  <ol class="small mb-2">{% for t in summary.themes %}<li><strong>{{ t.name }}</strong> · {% blocktrans count n=t.count %}{{ n }} action point{% plural %}{{ n }} action points{% endblocktrans %} · {% trans "for example" %} <a class="mono" href="{{ base }}?q={{ t.example|urlencode }}">{{ t.example }}</a></li>{% endfor %}</ol>
+  {% if summary.pattern %}<p class="small mb-1">{{ summary.pattern }}</p>{% endif %}
+  <p class="small text-muted mb-0">{% trans "Written by AI from the descriptions, without names; counts checked against the action points read. Not kept: a new filter gives a new summary." %} {% blocktrans with used=quota.used allowed=quota.allowed %}{{ used }} of {{ allowed }} used today.{% endblocktrans %}</p>
+  <button type="button" class="btn btn-link btn-sm p-0 mt-1" data-bs-dismiss="alert">{% trans "Dismiss" %}</button>
+</div>
+{% else %}
+<div class="alert alert-warning alert-dismissible mt-2" role="status">
+  <p class="small mb-0">{{ summary.message }}</p>
+  <button type="button" class="btn btn-link btn-sm p-0 mt-1" data-bs-dismiss="alert">{% trans "Dismiss" %}</button>
+</div>
+{% endif %}

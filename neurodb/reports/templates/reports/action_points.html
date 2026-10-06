@@ -4,15 +4,59 @@
 <form method="get" class="filter-bar" data-filter-bar data-hx-target="#action-point-results" role="search" aria-label="{% trans 'Action point filters' %}">
   <div class="filter-bar__field">
     <label class="form-label" for="f-q">{% trans "Search" %}</label>
-    <input class="form-control form-control-sm" type="search" id="f-q" name="q" value="{{ q }}" placeholder="{% trans 'Reference, text, partner, PD or person' %}">
+    <input class="form-control form-control-sm" type="search" id="f-q" name="q" value="{{ q }}" placeholder="{% trans 'Reference, text, action taken, partner, PD, status or person' %}">
   </div>
   {% trans "Status" as l %}{% include "reports/_multiselect.html" with name="status" label=l options=data.options.statuses values=selected.status %}
   {% trans "Raised from" as l %}{% include "reports/_multiselect.html" with name="module" label=l options=data.options.modules values=selected.module %}
+  {% trans "Office" as l %}{% include "reports/_multiselect.html" with name="office" label=l options=data.options.offices values=selected.office %}
+  {% trans "Section" as l %}{% include "reports/_multiselect.html" with name="section" label=l options=data.options.sections values=selected.section %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-partner">{% trans "Partner" %}</label>
+    <select class="form-select form-select-sm" id="f-partner" name="partner" multiple data-tom placeholder="{% trans 'All' %}">
+      {% for pk, name in data.options.partners %}<option value="{{ pk }}" {% if pk|stringformat:"s" in selected.partner %}selected{% endif %}>{{ name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-assignee">{% trans "Assigned to" %}</label>
+    <input class="form-control form-control-sm" type="search" id="f-assignee" name="assignee" value="{{ f.assignee }}" placeholder="{% trans 'Part of a name' %}">
+  </div>
+  <div class="filter-bar__field">
+    <span class="form-label">{% trans "Changed in eTools" %}</span>
+    <div class="d-flex gap-1">
+      <label class="visually-hidden" for="f-changed-from">{% trans "Changed from" %}</label><input class="form-control form-control-sm" type="date" id="f-changed-from" name="changed_from" value="{{ f.changed_from|date:'Y-m-d' }}">
+      <label class="visually-hidden" for="f-changed-to">{% trans "Changed to" %}</label><input class="form-control form-control-sm" type="date" id="f-changed-to" name="changed_to" value="{{ f.changed_to|date:'Y-m-d' }}">
+    </div>
+  </div>
+  {% if fmm_on %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-verdict">{% trans "AI verdict" %}</label>
+    <select class="form-select form-select-sm" id="f-verdict" name="verdict">
+      <option value="">{% trans "All" %}</option>
+      {% for value, label in verdicts %}<option value="{{ value }}" {% if f.verdict == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      <option value="none" {% if f.verdict == "none" %}selected{% endif %}>{% trans "Completed, not reviewed yet" %}</option>
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-pme">{% trans "PME verification" %}</label>
+    <select class="form-select form-select-sm" id="f-pme" name="pme">
+      <option value="">{% trans "All" %}</option>
+      {% for value, label in pme_states %}<option value="{{ value }}" {% if f.pme == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-link">{% trans "Visit link" %}</label>
+    <select class="form-select form-select-sm" id="f-link" name="link">
+      <option value="">{% trans "All" %}</option>
+      {% for value, label in link_levels %}<option value="{{ value }}" {% if f.link == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  {% endif %}
   <div class="filter-bar__field">
     <span class="form-label">{% trans "Show only" %}</span>
     <div class="d-flex gap-3 small">
       <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="overdue" value="1" {% if overdue %}checked{% endif %}> {% trans "Overdue" %}</label>
       <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="priority" value="1" {% if priority %}checked{% endif %}> {% trans "High priority" %}</label>
+      <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="fm" value="1" {% if f.fm %}checked{% endif %}> {% trans "Field monitoring only" %}</label>
     </div>
   </div>
   {% if request.GET.visit %}<input type="hidden" name="visit" value="{{ request.GET.visit }}">{% endif %}
@@ -21,5 +65,37 @@
     <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
   </div>
 </form>
+{% if own_section %}<p class="small text-muted mb-2">{% blocktrans with names=own_section|join:", " %}Your section first: {{ names }}. Clear the Section filter and apply to see every action point.{% endblocktrans %}</p>{% endif %}
 <div id="action-point-results" aria-live="polite">{% include "reports/partials/action_point_table.html" %}</div>
+{% if fmm_on %}
+<section class="panel mt-3" id="neurodb-action-points" aria-labelledby="neurodb-ap-title">
+  <div class="panel__header">
+    <h2 class="panel__title" id="neurodb-ap-title">{% trans "NeuroDB action points" %}</h2>
+    {% if can_add_local %}<a class="btn btn-primary btn-sm" href="{% url 'reports:local_action_point_new' %}" hx-get="{% url 'reports:local_action_point_new' %}" hx-target="#modal-content">{% trans "New action point" %}</a>{% endif %}
+  </div>
+  <p class="small text-muted">{% trans "Kept in NeuroDB only, never sent to eTools: added by hand, or made by NeuroDB when a visit's report quality is Low and the AI found its action points missing, vague or not matching its challenges (rules R7, R8, R32). The formal record stays the eTools action points above." %}</p>
+  <form method="get" action="{% url 'reports:local_action_points' %}" class="filter-bar" hx-get="{% url 'reports:local_action_points' %}" hx-target="#local-action-points" hx-trigger="submit, change from:select, search from:input" role="search" aria-label="{% trans 'NeuroDB action point filters' %}">
+    <div class="filter-bar__field">
+      <label class="form-label" for="l-q">{% trans "Search" %}</label>
+      <input class="form-control form-control-sm" type="search" id="l-q" name="lq" value="{{ local.q }}" placeholder="{% trans 'Title, description or assignee' %}">
+    </div>
+    <div class="filter-bar__field">
+      <label class="form-label" for="l-status">{% trans "Status" %}</label>
+      <select class="form-select form-select-sm" id="l-status" name="lstatus"><option value="">{% trans "All" %}</option>{% for value, label in local.statuses %}<option value="{{ value }}" {% if local.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    </div>
+    <div class="filter-bar__field">
+      <label class="form-label" for="l-priority">{% trans "Priority" %}</label>
+      <select class="form-select form-select-sm" id="l-priority" name="lpriority"><option value="">{% trans "All" %}</option>{% for value, label in local.priorities %}<option value="{{ value }}" {% if local.priority == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    </div>
+    {% if local.programmes %}
+    <div class="filter-bar__field">
+      <label class="form-label" for="l-programme">{% trans "Programme" %}</label>
+      <select class="form-select form-select-sm" id="l-programme" name="lprogramme"><option value="">{% trans "All" %}</option>{% for value, label in local.programmes %}<option value="{{ value }}" {% if local.programme == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    </div>
+    {% endif %}
+    <div class="filter-bar__actions"><button type="submit" class="btn btn-outline-secondary btn-sm">{% trans "Apply" %}</button></div>
+  </form>
+  <div id="local-action-points" aria-live="polite">{% include "reports/partials/_local_action_points.html" %}</div>
+</section>
+{% endif %}
 {% endblock %}

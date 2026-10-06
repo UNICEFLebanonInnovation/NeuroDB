@@ -1167,27 +1167,6 @@ def monitoring(request: HttpRequest) -> HttpResponse:
     return render(request, template, context)
 
 
-@require_GET
-def action_points(request: HttpRequest) -> HttpResponse:
-    data = datamart.action_points(request.GET)
-    page_obj = _paginate(request, data["points"])
-    context = {
-        "page_title": _("Action points"),
-        "page_subtitle": _(
-            "Follow-up actions from audits, spot checks, visits and monitoring, from the eTools Datamart"
-        ),
-        "breadcrumbs": [_crumb(_("Action points"))],
-        "data": data,
-        "page_obj": page_obj,
-        "selected": {key: request.GET.getlist(key) for key in ("status", "module")},
-        "q": request.GET.get("q", ""),
-        "overdue": request.GET.get("overdue") == "1",
-        "priority": request.GET.get("priority") == "1",
-    }
-    template = "reports/partials/action_point_table.html" if request.htmx else "reports/action_points.html"
-    return render(request, template, context)
-
-
 # ------------------------------------------------------------------------- partner monitoring (eTools)
 
 

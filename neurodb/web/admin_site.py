@@ -131,7 +131,8 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
             "eTools field monitoring as Monitoring insights reads it: the keys its records hold and the "
             "key each field is read from (Fields found), the quality rules and score settings with their "
             "versions, the field offices' staff lists, the AI checks of the visits, the visits built from it "
-            "and their reviews, and the AI's prompt versions, sampling checks and briefs."
+            "and their reviews, the AI's prompt versions, sampling checks and briefs, and the action points' "
+            "AI settings, AI reviews, PME verifications, AI summaries and NeuroDB action points."
         ),
         [
             "fmm.FieldMapping",
@@ -146,6 +147,11 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
             "fmm.ChatQuestion",
             "fmm.Visit",
             "fmm.VisitReview",
+            "fmm.ActionPointSetting",
+            "fmm.ActionPointReview",
+            "fmm.ActionPointVerification",
+            "fmm.ActionPointSummary",
+            "fmm.LocalActionPoint",
         ],
     ),
     (
@@ -309,6 +315,11 @@ ICONS = {
     "fmm.RuleSetVersion": "history",
     "fmm.FieldOfficeStaff": "badge",
     "fmm.VisitAICheck": "fact_check",
+    "fmm.ActionPointSetting": "settings_suggest",
+    "fmm.ActionPointReview": "rate_review",
+    "fmm.ActionPointVerification": "verified_user",
+    "fmm.ActionPointSummary": "notes",
+    "fmm.LocalActionPoint": "add_task",
     "fmm.PromptVersion": "edit_note",
     "fmm.ModelCapability": "science",
     "fmm.Insight": "auto_awesome",
