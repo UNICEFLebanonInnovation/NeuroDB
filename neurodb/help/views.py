@@ -113,8 +113,9 @@ def _refused(row: HelpQuestion, reason: str) -> StreamingHttpResponse:
 def stream(request: HttpRequest) -> HttpResponse:
     """A question to the Help assistant, answered as Server-Sent Events. Checked in order: the question
     (1-1,000 characters), the assistant switched on (503), a question asking for a secret or a way around
-    access (declined at once, no quota used), the person's daily quota (429), their questions being
-    answered (at most 2: 429), the pause and the day's shared AI budget (503)."""
+    access (declined at once, no quota used), the person's daily quota and as many questions declined by
+    the model (429), their questions being answered (at most 2: 429), the pause and the day's shared AI
+    budget (503)."""
     question = (request.POST.get("question") or "").replace("\x00", "").strip()
     if not question:
         return JsonResponse({"error": _("Type a question first.")}, status=400)
@@ -153,6 +154,16 @@ def stream(request: HttpRequest) -> HttpResponse:
             message = _("You have asked %(n)s help questions today; the count starts again tomorrow.") % {
                 "n": allowed
             }
+            return JsonResponse({"error": message}, status=429)
+        if assistant.declined_today(request.user) >= allowed:
+            # declined questions cost no quota, but each was a model call: no endless free calls
+            HelpQuestion.objects.create(
+                **fields, question=asked, status=HelpQuestion.Status.LIMITED, error="declined"
+            )
+            message = _(
+                "The Help assistant has declined %(n)s of your questions today; it can take questions "
+                "again tomorrow."
+            ) % {"n": allowed}
             return JsonResponse({"error": message}, status=429)
         if assistant.running(request.user) >= assistant.MAX_RUNNING_PER_USER:
             return JsonResponse({"error": assistant.BUSY}, status=429)

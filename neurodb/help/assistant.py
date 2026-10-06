@@ -12,7 +12,8 @@ settings, streamed to the panel opened with Ctrl+Shift+H (``help.views.stream``)
   before any call (:func:`screen`); the model declines the others with ``decline_question``. Either way
   NeuroDB's own message is shown, and a declined question costs no quota.
 - **Limits**: ``HELP_PER_USER_PER_DAY`` questions a day per person (declined and refused-over-a-limit
-  questions do not count; one being answered does), at most 2 at once per person, the shared
+  questions do not count; one being answered does; as many questions declined by the model again, as
+  each was a call), at most 2 at once per person, the shared
   ``AI_DAILY_TOKEN_SOFT_CAP`` (100%: a person asks) and the OpenAI credit pause (Monitoring insights'
   ``AIState``: a run that finds the credit gone pauses it for 6 hours). Every answer's calls are recorded
   in the AI use ledger under ``help``.
@@ -133,11 +134,14 @@ _SCREEN = (
     (
         "access",
         re.compile(
-            r"\b(bypass\w*|circumvent\w*|impersonat\w*|"
-            r"get around (?:the )?(?:sign[ -]?in|log[ -]?in|access|permissions?|roles?|restrictions?|"
-            r"lock[ -]?down)|"
+            r"\b(impersonat\w*|"
+            # "bypass" alone is also said of rules and visits ("do provisional visits bypass the score?")
+            r"(?:bypass\w*|circumvent\w*|get(?:ting)? around|go(?:ing)? around|work(?:ing)? around|"
+            r"get(?:ting)? past)\s+(?:[\w'-]+\s+){0,3}?"
+            r"(?:sign[ -]?in|log[ -]?in|access|permissions?|roles?|restrictions?|lock[ -]?down|security|"
+            r"authentication|two[ -]factor|2fa|mfa)|"
             r"make (?:me|myself) (?:an? )?(?:admin|administrator|superuser|section editor)|"
-            r"without (?:signing in|logging in|a login|permission|being allowed)|"
+            r"without (?:signing in|logging in|a login|being allowed)|"
             r"escalat\w* (?:my )?(?:role|privileges?|access)|elevate (?:my )?(?:role|privileges?|access))\b",
             re.IGNORECASE,
         ),
@@ -167,6 +171,17 @@ def quota(user) -> tuple[int, int]:
         .count()
     )
     return used, allowed
+
+
+def declined_today(user) -> int:
+    """The person's questions the model declined today. Each was a model call, so they are free only up
+    to the daily quota: past it, the person waits for tomorrow as for answered ones (questions refused
+    before any call cost nothing and are not counted)."""
+    return (
+        HelpQuestion.objects.filter(user=user, created_at__gte=_today_start(), refused=True)
+        .exclude(model="")
+        .count()
+    )
 
 
 def running(user) -> int:

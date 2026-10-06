@@ -5,7 +5,8 @@
   <a class="btn btn-outline-primary btn-sm" href="{% url 'help:index' %}">{% trans "Browse the help pages" %}</a>
 </div>
 {% else %}
-<div class="ask help-panel__ask" data-ask data-module="ask" data-stream-url="{% url 'help:stream' %}" data-page-context data-history-key="neurodb-help">
+{# the thread kept for the tab is keyed by the person: whoever signs in next on it never sees it #}
+<div class="ask help-panel__ask" data-ask data-module="ask" data-stream-url="{% url 'help:stream' %}" data-page-context data-history-key="neurodb-help-{{ user.pk }}">
   <div class="help-panel__bar">
     <span class="chip{% if help.used >= help.allowed %} watch-chip--likely{% endif %}" data-ask-quota title="{% trans 'Your help questions today; the count starts again at midnight. A declined question does not count.' %}">{% blocktrans with used=help.used allowed=help.allowed %}{{ used }} of {{ allowed }} today{% endblocktrans %}</span>
     <button type="button" class="btn btn-link btn-sm" id="help-clear" data-ask-part="new" hidden>{% trans "Clear chat" %}</button>

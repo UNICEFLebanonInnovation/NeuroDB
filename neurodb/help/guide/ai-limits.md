@@ -10,7 +10,7 @@ are the defaults; administrators can change them.
 | Feature | Limit | At the limit |
 |---|---|---|
 | Ask NeuroDB | 30 questions an hour; at most 2 being answered at the same time | "You have asked 30 questions in the last hour. Please try again later." |
-| Help assistant | 20 questions a day; at most 2 at the same time. A question it declines does not count. | "You have asked 20 help questions today; the count starts again tomorrow." The [help pages](/help/) stay open. |
+| Help assistant | 20 questions a day; at most 2 at the same time. A question it declines does not count, up to 20 declined a day. | "You have asked 20 help questions today; the count starts again tomorrow." The [help pages](/help/) stay open. |
 | Chat with Data (Monitoring insights) | 20 questions a day; at most 2 at the same time, and 4 on the whole site | "You have asked 20 questions today; the count starts again tomorrow." or "The chat is busy; please try again in a minute." |
 | Regenerate (AI monitoring brief) | 5 a day | Regenerate is refused until midnight; the latest brief stays. A brief found up to date costs nothing and uses no quota. |
 | AI content summary (action points) | 5 a day | The summary is refused until midnight. |

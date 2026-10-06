@@ -473,7 +473,9 @@ with a link. Every signed-in person but a donor has it. The code is in `neurodb/
   data (pointed to Ask NeuroDB) or not about NeuroDB. Either way NeuroDB's own message is shown.
 - **Limits**: `HELP_PER_USER_PER_DAY` (20) questions a day per person, counted from local midnight;
   declined questions do not count, and one being answered does (429 "You have asked 20 help questions
-  today; the count starts again tomorrow."). At most 2 being answered per person. The shared
+  today; the count starts again tomorrow."). Questions the model declines were calls all the same, so
+  only as many as the quota are free each day; past that the person waits for tomorrow (429). At most 2
+  being answered per person. The shared
   `AI_DAILY_TOKEN_SOFT_CAP` at 100% (a person asks), and the OpenAI credit pause of Monitoring insights
   (6 hours after OpenAI says the credit ran out; a help answer that meets it starts the pause too). Its
   calls are counted under *Help assistant* in *AI use*. One answer is usually 2-3 model calls of about

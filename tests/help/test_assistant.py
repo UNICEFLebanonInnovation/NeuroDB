@@ -181,6 +181,34 @@ def test_a_question_the_model_declines_shows_neurodbs_message_and_costs_no_quota
 
 
 # ------------------------------------------------------------------------------------------ limits
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Do provisional visits bypass the quality score?",
+        "Why does R23 bypass cancelled visits?",
+        "Why is the visit page without permission to edit?",
+    ],
+)
+def test_questions_about_rules_that_say_bypass_are_not_declined_before_the_call(question):
+    assert assistant.screen(question) is None
+
+
+def test_questions_the_model_declines_are_free_only_up_to_the_daily_quota(on, model, client_viewer, viewer):
+    for _ in range(20):
+        HelpQuestion.objects.create(user=viewer, question="q", status="refused", refused=True, model="m")
+    for _ in range(5):  # refused before any call: no call made, never counted
+        HelpQuestion.objects.create(user=viewer, question="q", status="refused", refused=True)
+    assert assistant.quota(viewer) == (0, 20) and assistant.declined_today(viewer) == 20
+    client = model()
+    response = _ask(client_viewer, "How many visits were off track?")
+    assert response.status_code == 429 and "declined 20 of your questions" in response.json()["error"]
+    assert client.requests == []
+    assert HelpQuestion.objects.filter(status="limited", error="declined").count() == 1
+    HelpQuestion.objects.update(created_at=timezone.now() - datetime.timedelta(days=1))
+    model(reply(say("Yes.")))
+    assert _ask(client_viewer, "One more?").status_code == 200
+
+
 def test_the_21st_question_of_the_day_is_refused_and_declined_ones_do_not_count(
     on, model, client_viewer, viewer
 ):
@@ -252,7 +280,7 @@ def test_the_panel_shows_the_quota_and_the_starters(on, client_viewer, viewer):
     for starter in assistant.STARTERS:
         assert starter in html
     assert 'data-module="ask"' in html and 'data-stream-url="/help/stream/"' in html
-    assert "data-page-context" in html and 'data-history-key="neurodb-help"' in html
+    assert "data-page-context" in html and f'data-history-key="neurodb-help-{viewer.pk}"' in html
     assert 'data-ask-part="new"' in html and "Clear chat" in html
     assert "<script>" not in html
 
