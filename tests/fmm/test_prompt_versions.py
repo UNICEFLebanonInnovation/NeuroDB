@@ -2,11 +2,13 @@
 and deleting drafts with their test runs; published versions never change; the admin's form checks and
 warnings, its Preview (exactly what each call sends, no AI call, nothing saved) and who may do what."""
 
+import json
 import re
 
 import pytest
 from django.conf import settings
 from django.contrib.auth.models import Group
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.urls import reverse
 from django.utils.html import escape
@@ -14,7 +16,7 @@ from django.utils.html import escape
 from neurodb.accounts.models import User
 from neurodb.accounts.roles import SECTION_EDITOR
 from neurodb.assistant import agent
-from neurodb.fmm.ai import profiles, prompts, sampling
+from neurodb.fmm.ai import profiles, prompts, sampling, sections
 from neurodb.fmm.models import Insight, ModelCapability, PromptProfile, PromptVersion
 from neurodb.fmm.scope import Scope
 from tests.assistant.test_assistant import ENABLED, FakeClient, reply, say
@@ -30,7 +32,13 @@ def admin_client(client, admin_user):
 
 @pytest.fixture
 def v1():
-    return PromptVersion.objects.get(number=1)
+    """Version 1 published again, as before Release 2 seeded version 2: the lifecycle tests count from
+    it (``test_v2_is_seeded_from_fms_lebanon_prompt`` covers the seed)."""
+    PromptVersion.objects.filter(number__gt=1).delete()
+    PromptVersion.objects.filter(number=1).update(status="published")
+    version = PromptVersion.objects.get(number=1)
+    PromptProfile.objects.filter(pk=version.profile_id).update(published=version)
+    return version
 
 
 def _test_run(version, n=1):
@@ -56,7 +64,12 @@ def _form(version, **changes):
             if value:
                 data[name] = "on"
             continue
-        data[name] = "" if value is None else str(value)
+        if name == "sections":
+            data[name] = json.dumps(value)
+        elif name == "chat_examples":
+            data[name] = "\n".join(value)
+        else:
+            data[name] = "" if value is None else str(value)
     data["note"] = "Shorter brief"
     data.update(changes)
     return data
@@ -76,10 +89,60 @@ def test_v1_is_seeded_published_with_the_defaults(v1):
     assert v1.instructions.startswith("You write the field monitoring brief for UNICEF Lebanon")
     assert "priority_actions: 3 to 6 actions" in v1.instructions
     assert v1.chat_instructions.startswith("You answer questions from UNICEF Lebanon staff")
-    assert v1.content_hash == v1.compute_hash()  # the migration's literal hash is the model's
+    # Release 2: version 1 keeps the four parts its briefs were written in, and its hash of that day
+    assert v1.sections == sections.LEGACY and len(v1.content_hash) == 64
     assert profiles.published() == v1
     assert profiles.model_of(v1) == settings.FMM_MODEL  # a blank model: the setting's
     assert profiles.warnings(v1) == []  # temperature only: the "both set" warning does not fire
+
+
+def test_v2_is_seeded_from_fms_lebanon_prompt():
+    """Release 2 (A7): version 2 is published from the [insights] part of FMS's Lebanon prompt, with its
+    five parts and their limits; version 1 is retired; NeuroDB's fixed text stays in code."""
+    v1, v2 = PromptVersion.objects.get(number=1), PromptVersion.objects.get(number=2)
+    assert (v1.status, v2.status) == ("retired", "published") and profiles.published() == v2
+    assert v2.content_hash == v2.compute_hash()  # the migration's literal hash is the model's
+    assert v2.based_on == v1 and v2.created_by_name == v2.published_by_name == "NeuroDB (default)"
+    assert [(s["key"], s["format"], s["max_items"]) for s in v2.sections] == [
+        ("coverage_summary", "paragraph", 5),
+        ("key_findings", "bullets", 20),
+        ("challenges", "bullets", 4),
+        ("recommendations", "bullets", 5),
+        ("action_points", "bullets", 5),
+    ]
+    assert [s["label"] for s in v2.sections][0] == "Coverage and Quality Summary"
+    for words in ("LEBANON FMM MONITORING CONTEXT", 'DEFINITION OF "NOT MONITORED"', "PRIORITY FLAGS"):
+        assert words in v2.instructions
+    assert "planned but did not take place" in v2.instructions and "Off track above 15%" in v2.instructions
+    assert prompts.SAFETY_COMMON not in v2.instructions  # the fixed text is added in code
+    assert v2.chat_examples[0] == "What are the main programmatic issues in this period?"
+    assert len(v2.chat_examples) == 4 and v2.max_output_tokens == 8000
+    assert v2.chat_instructions == v1.chat_instructions and v2.comparison_visits == v1.comparison_visits
+    assert profiles.text_problems(v2.instructions) == []  # no person, address or link
+    v2.clean()  # its parts and starter questions pass the admin's checks
+
+
+def test_the_parts_of_a_draft_are_checked(v1, admin_user):
+    draft = profiles.draft_from(v1, admin_user, "parts", sections=list(sections.LEGACY))
+    for bad, words in (
+        ([], "List the parts"),
+        ([{"key": "A b", "label": "x", "format": "bullets", "max_items": 3}], "lower-case"),
+        ([{"key": "ab", "label": "x", "format": "table", "max_items": 3}], "paragraph or bullets"),
+        ([{"key": "ab", "label": "x", "format": "bullets", "max_items": 31}], "from 1 to 30"),
+        ([{"key": "action_points", "label": "x", "format": "paragraph", "max_items": 3}], "are bullets"),
+        ([{"key": "ab", "label": "", "format": "bullets", "max_items": 3}] * 2, "used twice"),
+    ):
+        draft.sections = bad
+        with pytest.raises(ValidationError) as caught:
+            draft.full_clean()
+        assert any(words in m for m in caught.value.message_dict["sections"]), (bad, caught.value)
+    draft.sections = [{"key": "summary", "label": " Summary ", "format": "paragraph", "max_items": 3}]
+    draft.chat_examples = ["  Which visits were late?  ", ""]
+    draft.full_clean()
+    assert draft.sections[0]["label"] == "Summary" and draft.chat_examples == ["Which visits were late?"]
+    draft.chat_examples = ["q"] * 9
+    with pytest.raises(ValidationError):
+        draft.full_clean()
 
 
 def test_the_content_hash_changes_with_the_safety_text_version(v1, monkeypatch):
@@ -172,10 +235,12 @@ def test_a_draft_with_test_runs_is_deleted_with_them(v1, admin_user):
 # ------------------------------------------------------------------------------------------ prompts sent
 def test_compose_puts_the_fixed_text_last(v1):
     brief = profiles.compose(v1, "insights")
-    assert (
-        brief
-        == f"{v1.instructions.strip()}\n\n---\n{prompts.DATA_GUIDE_INSIGHTS}\n{prompts.SAFETY_COMMON}\n{prompts.SAFETY_INSIGHTS}"
+    parts = sections.instructions(v1.sections)
+    assert brief == (
+        f"{v1.instructions.strip()}\n\n---\n{parts}\n{prompts.DATA_GUIDE_INSIGHTS}\n{prompts.SAFETY_COMMON}\n"
+        f"{prompts.SAFETY_INSIGHTS}"
     )
+    assert "- coverage_quality (Coverage and quality): one paragraph of at most 4 sentences." in parts
     chat = profiles.compose(v1, "chat")
     assert chat.startswith(v1.chat_instructions.strip()) and chat.endswith(prompts.SAFETY_CHAT)
     assert prompts.DATA_GUIDE_CHAT in chat and prompts.SAFETY_INSIGHTS not in chat

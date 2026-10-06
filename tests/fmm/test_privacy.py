@@ -317,11 +317,11 @@ def brief_world(built, monkeypatch):
     def create(**params):
         sent.append(params)
         brief = {
-            "coverage_quality": [{"text": "Eight visits in the period.", "keys": ["kpi"]}],
-            "programmatic_findings": [],
-            "operational_challenges": [],
+            "coverage_summary": [{"text": "Eight visits in the period.", "keys": ["kpi"]}],
+            "key_findings": [],
+            "challenges": [],
             "recommendations": [],
-            "priority_actions": [],
+            "action_points": [],
         }
         return SimpleNamespace(output_text=json.dumps(brief), usage=None, status="completed", output=[])
 

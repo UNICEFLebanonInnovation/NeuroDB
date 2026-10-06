@@ -8,14 +8,16 @@
       <h2 class="panel__title" id="fmm-q-month-title">{% trans "Quality score by month" %}</h2>
       <span class="panel__hint">{% trans "Average quality of the visits that ended each month; line: reported visits" %}</span>
     </div>
-    <div class="chart" data-module="charts" data-chart="monthly" data-source="fmm-chart-data" data-key="monthly_quality" data-href-template="{{ month_template }}" data-empty-title="{% trans 'No visit in this filter is scored' %}" aria-label="{% trans 'Quality score by month' %}"></div>
+    <div class="text-end"><button type="button" class="btn btn-link btn-sm p-0 fmm-png" data-chart-png="#fmm-chart-monthly-quality" data-filename="monitoring-monthly-quality">{% trans "Download PNG" %}</button></div>
+    <div id="fmm-chart-monthly-quality" class="chart" data-module="charts" data-chart="monthly" data-source="fmm-chart-data" data-key="monthly_quality" data-href-template="{{ month_template }}" data-empty-title="{% trans 'No visit in this filter is scored' %}" aria-label="{% trans 'Quality score by month' %}"></div>
   </section>
   <section class="panel" aria-labelledby="fmm-v-month-title">
     <div class="panel__header">
       <h2 class="panel__title" id="fmm-v-month-title">{% trans "Visits by month" %}</h2>
       <span class="panel__hint">{% trans "Visits that ended each month, whatever their status; line: average quality" %}</span>
     </div>
-    <div class="chart" data-module="charts" data-chart="monthly" data-source="fmm-chart-data" data-key="monthly_volume" data-href-template="{{ month_template }}" data-empty-title="{% trans 'No visits in this filter' %}" aria-label="{% trans 'Visits by month' %}"></div>
+    <div class="text-end"><button type="button" class="btn btn-link btn-sm p-0 fmm-png" data-chart-png="#fmm-chart-monthly-volume" data-filename="monitoring-monthly-volume">{% trans "Download PNG" %}</button></div>
+    <div id="fmm-chart-monthly-volume" class="chart" data-module="charts" data-chart="monthly" data-source="fmm-chart-data" data-key="monthly_volume" data-href-template="{{ month_template }}" data-empty-title="{% trans 'No visits in this filter' %}" aria-label="{% trans 'Visits by month' %}"></div>
   </section>
 </div>
 
@@ -32,7 +34,8 @@
     {% else %}
     <p class="small text-muted mb-2">{% trans "HACT Q1 answers are not in the eTools data NeuroDB reads yet; the chart shows each visit's overall finding rating instead." %}{% if user_role == "Administrator" %} <a href="{{ fields_found_url }}">{% trans "Fields found" %}</a>{% endif %}</p>
     {% endif %}
-    <div class="chart" data-module="charts" data-chart="grouped" data-barmode="stack" data-source="fmm-chart-data" data-key="q1" data-href-template="{{ q1_template }}" data-empty-title="{% trans 'No rated visits in this filter' %}" aria-label="{% if q1_key == 'hact_q1' %}{% trans 'HACT Q1 rating by month' %}{% else %}{% trans 'Overall finding rating by month' %}{% endif %}"></div>
+    <div class="text-end"><button type="button" class="btn btn-link btn-sm p-0 fmm-png" data-chart-png="#fmm-chart-q1" data-filename="monitoring-q1">{% trans "Download PNG" %}</button></div>
+    <div id="fmm-chart-q1" class="chart" data-module="charts" data-chart="grouped" data-barmode="stack" data-source="fmm-chart-data" data-key="q1" data-href-template="{{ q1_template }}" data-empty-title="{% trans 'No rated visits in this filter' %}" aria-label="{% if q1_key == 'hact_q1' %}{% trans 'HACT Q1 rating by month' %}{% else %}{% trans 'Overall finding rating by month' %}{% endif %}"></div>
     {% if q1_totals %}<div class="chips mt-2" aria-label="{% trans 'Visits by rating' %}">{% for t in q1_totals %}{% if t.url %}<a class="chip" href="{{ t.url }}" hx-get="{{ t.url }}" hx-target="#modal-content">{{ t.label }} {{ t.n }}</a>{% else %}<span class="chip">{{ t.label }} {{ t.n }}</span>{% endif %}{% endfor %}</div>{% endif %}
   </section>
   <section class="panel" aria-labelledby="fmm-dist-title">
@@ -40,10 +43,20 @@
       <h2 class="panel__title" id="fmm-dist-title">{% trans "Quality score distribution" %}</h2>
       <span class="panel__hint">{% trans "Scored visits by score; a bar opens its visits" %}</span>
     </div>
-    <div class="chart chart--sm" data-module="charts" data-chart="dist" data-orientation="h" data-show="value" data-source="fmm-chart-data" data-key="buckets" data-href-template="{{ bucket_template }}" data-empty-title="{% trans 'No visit in this filter is scored' %}" aria-label="{% trans 'Quality score distribution' %}"></div>
+    <div class="text-end"><button type="button" class="btn btn-link btn-sm p-0 fmm-png" data-chart-png="#fmm-chart-buckets" data-filename="monitoring-buckets">{% trans "Download PNG" %}</button></div>
+    <div id="fmm-chart-buckets" class="chart chart--sm" data-module="charts" data-chart="dist" data-orientation="h" data-show="value" data-source="fmm-chart-data" data-key="buckets" data-href-template="{{ bucket_template }}" data-empty-title="{% trans 'No visit in this filter is scored' %}" aria-label="{% trans 'Quality score distribution' %}"></div>
     <p class="small text-muted mb-0">{% if not_scored_url %}<a href="{{ not_scored_url }}" hx-get="{{ not_scored_url }}" hx-target="#modal-content">{% blocktrans count n=not_scored %}Not scored: {{ n }} visit{% plural %}Not scored: {{ n }} visits{% endblocktrans %}</a>{% else %}{% trans "Every visit in this filter is scored." %}{% endif %}</p>
   </section>
 </div>
+
+<section class="panel" aria-labelledby="fmm-rule-trends-title">
+  <div class="panel__header">
+    <h2 class="panel__title" id="fmm-rule-trends-title">{% trans "Rule score trends over time" %}</h2>
+    <span class="panel__hint">{% trans "Per rule, the share of its maximum points the visits that ended each month earned; a point opens the visits it flagged that month" %}</span>
+  </div>
+  <div class="text-end"><button type="button" class="btn btn-link btn-sm p-0 fmm-png" data-chart-png="#fmm-chart-rule-trends" data-filename="monitoring-rule-trends">{% trans "Download PNG" %}</button></div>
+  <div id="fmm-chart-rule-trends" class="chart" data-module="charts" data-chart="share-lines" data-source="fmm-chart-data" data-key="rule_trends" data-href-template="{{ rule_trend_template }}" data-empty-title="{% trans 'No rule checked a visit in this filter' %}" aria-label="{% trans 'Rule score trends over time' %}"></div>
+</section>
 
 <section class="panel p-0" aria-label="{% trans 'Top recurring issues' %}">
   {% trans "Top recurring issues" as issues_title %}
@@ -103,7 +116,7 @@
     <div class="mini-grid">
       {% with s=issues_summary %}
       <a class="mini{% if s.r6.n %} mini--warning{% endif %}" {% if s.r6_url %}href="{{ s.r6_url }}" hx-get="{{ s.r6_url }}" hx-target="#modal-content"{% endif %}><div class="mini__value">{{ s.r6.n }}</div><div class="mini__label">{% trans "Rating quality (R6) flags" %}{% if s.r6.pct is not None %} · {% blocktrans with pct=s.r6.pct|percent %}{{ pct }} of scored visits{% endblocktrans %}{% endif %}</div></a>
-      <a class="mini{% if s.gaps.n %} mini--danger{% endif %}" {% if s.gaps_url %}href="{{ s.gaps_url }}" hx-get="{{ s.gaps_url }}" hx-target="#modal-content"{% endif %}><div class="mini__value">{{ s.gaps.n }}</div><div class="mini__label">{% trans "Monitoring gaps: reported visits with no entity rated" %}</div></a>
+      <a class="mini{% if s.gaps.n %} mini--danger{% endif %}" {% if s.gaps_url %}href="{{ s.gaps_url }}" hx-get="{{ s.gaps_url }}" hx-target="#modal-content"{% endif %}><div class="mini__value">{{ s.gaps.n }}</div><div class="mini__label">{% trans "Not monitored (planned, not conducted): reported visits with nothing rated, a count apart from the rated visits" %}</div></a>
       <a class="mini{% if s.high_flag.n %} mini--danger{% endif %}" {% if s.high_flag_url %}href="{{ s.high_flag_url }}" hx-get="{{ s.high_flag_url }}" hx-target="#modal-content"{% endif %}><div class="mini__value">{{ s.high_flag.n }}</div><div class="mini__label">{% blocktrans with at=s.high_flag.at %}Visits with {{ at }} or more flags{% endblocktrans %}{% if s.high_flag.pct is not None %} · {% blocktrans with pct=s.high_flag.pct|percent %}{{ pct }} of scored visits{% endblocktrans %}{% endif %}</div></a>
       {% endwith %}
     </div>

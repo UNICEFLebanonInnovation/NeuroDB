@@ -28,9 +28,14 @@
       <dd class="col-sm-9">{% if visit.quality_score is not None %}<span class="fmm-score fmm-score--{{ visit.score_band|default:'none' }}">{{ visit.quality_score|percent }}</span> ({{ band_label }})
         <span class="text-muted">· {% blocktrans with rules=visit.evaluated_rules|join:", " points=visit.quality_max total=total_points %}scored on {{ rules }} ({{ points }} of {{ total }} points){% endblocktrans %}</span>
         {% else %}— <span class="text-muted">{{ visit.not_scored_reason|default:_("not scored") }}</span>{% endif %}</dd>
+      {% for label, text in visit_texts %}<dt class="col-sm-3 text-muted">{{ label }}</dt>
+      <dd class="col-sm-9" data-synced>{{ text|linebreaksbr }}</dd>{% endfor %}
       <dt class="col-sm-3 text-muted">{% trans "Urgency" %}</dt>
-      <dd class="col-sm-9"><span class="pill pill--sm pill--{% if visit.row_band == 'red' %}danger{% elif visit.row_band == 'amber' %}warning{% else %}neutral{% endif %}">{{ visit.urgency }}</span>
-        <span class="text-muted">{% blocktrans with n=visit.urgency parts=visit.urgency_title %}Why urgency {{ n }}: {{ parts }}{% endblocktrans %}</span></dd>
+      <dd class="col-sm-9">{% if visit.urgency is not None %}<span class="pill pill--sm pill--{% if visit.row_band == 'red' %}danger{% elif visit.row_band == 'amber' %}warning{% else %}neutral{% endif %}">{{ visit.urgency }}</span>
+        <span class="text-muted">{% blocktrans with n=visit.urgency parts=visit.urgency_title %}Why urgency {{ n }}: {{ parts }}{% endblocktrans %}</span>{% else %}— <span class="text-muted">{% trans "no urgency: the visit has no score" %}</span>{% endif %}</dd>
+      <dt class="col-sm-3 text-muted">{% trans "Follow-up" %}</dt>
+      <dd class="col-sm-9">{% if visit.signal_lines %}<ul class="list-unstyled mb-0">{% for line in visit.signal_lines %}<li><span class="pill pill--sm pill--warning">!</span> {{ line }}</li>{% endfor %}</ul>{% else %}<span class="text-muted">{% trans "Nothing late or missing" %}</span>{% endif %}
+        <span class="d-block text-muted">{% trans "Signals of follow-up and late reports; they are not part of urgency." %}</span></dd>
     </dl>
   </section>
 
@@ -54,6 +59,10 @@
       <dt class="col-sm-3 text-muted">{% trans "Place" %}</dt>
       <dd class="col-sm-9"><span data-synced>{% if visit.site %}{{ visit.site.name }} › {% endif %}{% if visit.location %}{{ visit.location.name }}{% elif not visit.site %}{{ visit.place_name|default:"—" }}{% endif %}{% if visit.district_name %} › {{ visit.district_name }}{% endif %}{% if visit.governorate_name %} › {{ visit.governorate_name }}{% endif %}</span>
         <span class="text-muted">· {{ located }}</span></dd>
+      {% if visit.modality %}<dt class="col-sm-3 text-muted">{% trans "Modality" %}</dt>
+      <dd class="col-sm-9" data-synced>{{ visit.modality }}</dd>{% endif %}
+      {% if visit.programme_areas %}<dt class="col-sm-3 text-muted">{% trans "Programme areas" %}</dt>
+      <dd class="col-sm-9" data-synced>{{ visit.programme_areas|join:", " }}</dd>{% endif %}
       <dt class="col-sm-3 text-muted">{% trans "Sections" %}</dt>
       <dd class="col-sm-9">{% if visit.section_names %}<span data-synced>{{ visit.section_names|join:", " }}</span> <span class="text-muted">· {{ sections_source }}</span>{% else %}{% trans "No section" %}{% endif %}</dd>
       <dt class="col-sm-3 text-muted">{% trans "Field offices" %}</dt>
@@ -76,7 +85,8 @@
           {% if e.kind == "pd" %}<span class="cell-sub">{% if e.match_label %}{{ e.match_label }}{% else %}{% trans "programme document not found in NeuroDB" %}{% endif %}</span>{% endif %}</td>
         <td class="text-nowrap">{% status_pill e.rating e.rating_label "sm" %}{% if e.rating_raw and e.rating_raw|lower != e.rating_label|lower %}<span class="cell-sub" data-synced>{{ e.rating_raw }}</span>{% endif %}<span class="cell-sub">{% if e.not_rated_yet %}{% blocktrans with day=visit.end_date|date:"j M Y"|default:"—" %}ends {{ day }}{% endblocktrans %}{% else %}{% blocktrans with day=visit.end_date|date:"j M Y"|default:"—" %}rated {{ day }}{% endblocktrans %}{% endif %}</span></td>
         <td class="small">{% if e.hact_q1 %}{% status_pill e.hact_q1 e.hact_q1_label "sm" %}{% if e.hact_q1_from != "entity" %}<span class="cell-sub">{{ e.hact_q1_from_label }}</span>{% endif %}{% else %}—{% endif %}</td>
-        <td class="small">{% if e.narrative %}<details><summary>{% blocktrans count n=e.narrative_words %}{{ n }} word{% plural %}{{ n }} words{% endblocktrans %}</summary><p class="mb-0 fmm-narrative" data-synced>{{ e.narrative|linebreaksbr }}</p></details>{% else %}<span class="text-muted">{% trans "No narrative" %}</span>{% endif %}</td>
+        <td class="small">{% if e.narrative %}<details><summary>{% blocktrans count n=e.narrative_words %}{{ n }} word{% plural %}{{ n }} words{% endblocktrans %}</summary><p class="mb-0 fmm-narrative" data-synced>{{ e.narrative|linebreaksbr }}</p></details>{% else %}<span class="text-muted">{% trans "No narrative" %}</span>{% endif %}
+          {% if e.row_texts %}<details class="mt-1"><summary>{% trans "Answers on this row" %}</summary><dl class="mb-0">{% for name, label, text in e.row_texts %}<dt class="text-muted fw-normal">{{ label }}</dt><dd class="mb-1" data-synced>{{ text|linebreaksbr }}</dd>{% endfor %}</dl></details>{% endif %}</td>
       </tr>{% endfor %}</tbody>
     </table></div>
   </section>

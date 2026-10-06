@@ -25,8 +25,9 @@ pytestmark = pytest.mark.django_db
 TODAY = datetime.date(2026, 10, 5)
 TABLE = reverse("fmm:visits")
 REFERENCE_KEY = fm.visit_key(None, "FM/2026/9", 0)
-# by urgency (72, 59, 52, 50, 35, 16), then the two at 0 by end date, newest first
-URGENCY_ORDER = [REFERENCE_KEY, "1722", "1727", "1723", "1726", "1728", "1724", "1725"]
+# by urgency (FMS's formula: 57, 38, 37, 33, 26, 19), then the two without a score (and so without
+# urgency) by end date, newest first
+URGENCY_ORDER = ["1723", "1727", "1726", "1722", "1728", REFERENCE_KEY, "1724", "1725"]
 
 
 @pytest.fixture(autouse=True)
@@ -62,14 +63,14 @@ def test_the_table_is_sorted_by_urgency_then_date(built, client_viewer):
 
 def test_red_and_amber_rows_follow_the_configured_thresholds(built, client_viewer):
     rows = dict(zip(URGENCY_ORDER, _rows(client_viewer.get(TABLE).content.decode()), strict=True))
-    assert 'class="row--red"' in rows[REFERENCE_KEY]
-    assert all('class="row--amber"' in rows[k] for k in ("1722", "1727", "1723"))
-    assert "row--" not in rows["1726"]
+    assert 'class="row--amber"' in rows["1723"]
+    assert not [k for k in URGENCY_ORDER if k != "1723" and "row--" in rows[k]]
     html = client_viewer.get(TABLE).content.decode()
     assert "Red rows = high urgency (≥ 70) · Amber rows = medium (40–69)" in html
     ScoreSetting.objects.filter(pk=1).update(urgency_red=55, urgency_amber=30)
     rows = dict(zip(URGENCY_ORDER, _rows(client_viewer.get(TABLE).content.decode()), strict=True))
-    assert 'class="row--red"' in rows["1722"] and 'class="row--amber"' in rows["1726"]
+    assert 'class="row--red"' in rows["1723"] and 'class="row--amber"' in rows["1722"]
+    assert "row--" not in rows["1728"] and "row--" not in rows["1724"]  # 26; no urgency
     assert (
         "Red rows = high urgency (≥ 55) · Amber rows = medium (30–54)"
         in client_viewer.get(TABLE).content.decode()
@@ -78,8 +79,9 @@ def test_red_and_amber_rows_follow_the_configured_thresholds(built, client_viewe
 
 def test_the_urgency_pill_explains_its_parts(built, client_viewer):
     rows = dict(zip(URGENCY_ORDER, _rows(client_viewer.get(TABLE).content.decode()), strict=True))
-    title = re.search(r'title="([^"]*)">72<', rows[REFERENCE_KEY]).group(1)
-    assert "rating 40" in title and "pill--danger" in rows[REFERENCE_KEY]
+    title = re.search(r'title="([^"]*)">57<', rows["1723"]).group(1)
+    assert title == "quality gap 29.8 · recency 12.2 · red flags 15" and "pill--warning" in rows["1723"]
+    assert "No urgency: the visit has no score" in rows["1724"] and ">—<" in rows["1724"]
 
 
 def test_pages_of_the_table(built, client_viewer, monkeypatch):
@@ -136,7 +138,7 @@ def test_the_csv_has_every_row_and_no_team_lead_or_narrative(built, client_viewe
         "off_track",
         "64.7",
         "R3 R4",
-        "59",
+        "33",
     )
     filtered = client_viewer.get(
         TABLE, {"export": "csv", "rating": "off_track", "section": ""}
@@ -154,7 +156,7 @@ def test_the_visit_page_shows_narratives_in_full_without_emails(built, client_vi
     assert MEMBER_EMAIL not in html
     assert "matched by PCA/PD number" in html
     assert "Shown to NeuroDB users only; never sent to the AI." in html
-    assert "Why urgency 59" in html and "scored on R1, R2, R3, R4, R5 (85 of 85 points)" in html
+    assert "Why urgency 33" in html and "scored on R1, R2, R3, R4, R5 (85 of 85 points)" in html
     assert "/action-points/?module=fm&amp;visit=1722" in html or "module=fm&amp;visit=1722" in html
     assert "HACT Q1 not answered" in html  # the rule's own sentence
     assert "Questions and answers" in html and "5 of 5 answered" in html
@@ -397,7 +399,7 @@ def test_the_drill_window_lists_the_visits_and_links_the_visits_tab(built, clien
     ).content.decode()
     assert "<html" not in html and 'id="modal-title">2 visits</h2>' in html
     assert "HACT Q1: Constrained" in html
-    assert re.findall(r'<tr data-key="([^"]+)"', html) == ["1727", "1723"]  # most urgent first
+    assert re.findall(r'<tr data-key="([^"]+)"', html) == ["1723", "1727"]  # most urgent first
     assert 'href="/fmm/?section=&amp;hact_q1=constrained&amp;tab=visits"' in html
     assert "Open in the Visits tab" in html
 
@@ -485,7 +487,8 @@ def test_the_chip_rows_and_cards_open_the_visits_they_count(built, client_viewer
     labels = [label for _url, label, _n in links]
     assert {"On track", "Constrained", "Reported"} <= set(labels), labels
     assert labels.count("Off track") == 2  # the HACT Q1 chip and the highlight card
-    assert any("Monitoring gaps" in label for label in labels)
+    assert any("Not monitored (planned, not conducted)" in label for label in labels)
+    assert "Not Monitored" in labels  # the HACT Q1 chart's own chip
     for url, label, shown in links:
         assert _drill_total(client_viewer, url) == shown, (label, url)
 
@@ -511,7 +514,8 @@ def test_the_overall_rating_chart_opens_the_visits_it_counts(built, client_viewe
                 assert _drill_total(client_viewer, f"{DRILL}?section=&month={month}&rating={code}") == n
     assert cells >= 4
     html = client_viewer.get(reverse("fmm:dashboard"), {"tab": "quality"}).content.decode()
-    chips = [(url, n) for url, label, n in _chip_links(html) if "rating=" in url and "status=" not in url]
+    # the chart's chips (not the quality issues summary's Not monitored card)
+    chips = [(url, n) for url, label, n in _chip_links(html) if "rating=" in url and "planned" not in label]
     assert len(chips) == len([t for t in chart["totals"] if t["n"]]) >= 3
     for url, shown in chips:
         assert _drill_total(client_viewer, url) == shown, url

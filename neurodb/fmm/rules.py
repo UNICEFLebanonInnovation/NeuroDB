@@ -11,8 +11,9 @@ rule's own settings (``RuleSetting``: on or off, points, threshold, parameters),
 - ``nap``: the rule does not apply to this visit ("n/a");
 - ``off``: the rule is switched off.
 
-Only reported visits (and visits of unknown status with something rated or answered) are scored
-(``score.scorable``); for the others every rule is ``nap``. The points earned are never above the
+Only the visits whose eTools status is one of the scored statuses (Score settings: report
+finalization and completed by default) are scored (``score.scorable``); for the others ("pending",
+or cancelled) every rule is ``nap``. The points earned are never above the
 rule's maximum. A detail sentence is written by the code, never copied from the data: a cue named by
 R6 is a word of the rule's own list.
 
@@ -218,6 +219,9 @@ class AnswerFacts:
     applies_to: str = "visit"  # entity | partner | visit
     entity: int | None = None  # index in VisitFacts.entities (applies_to "entity")
     partner_id: int | None = None  # the partner (applies_to "partner")
+    from_row: bool = (
+        False  # the HACT answer written on the finding row (hact_q1_answer...), not a checklist one
+    )
 
 
 @dataclass(frozen=True)
@@ -364,7 +368,8 @@ def r1_completeness(facts: VisitFacts, rule, ctx: Context) -> RuleOutcome:
             present = any(_has_narrative(e) for e in facts.entities) and all(_has_narrative(e) for e in rated)
         elif element == "q2":
             q2 = [a for a in facts.answers if a.role == "q2"]
-            if not q2 or not facts.answers_available:  # only when the visit has a Q2 answer to read
+            # only when the visit has a Q2 answer to read: on its rows, or among its checklist answers
+            if not q2 or not (facts.answers_available or any(a.from_row for a in q2)):
                 continue
             present = any(a.answered for a in q2)
         elif element == "rating":
@@ -398,19 +403,25 @@ def _unit(answer: AnswerFacts) -> str:
 
 
 def questions_answered(answers: Iterable[AnswerFacts]) -> tuple[int, int]:
-    """(asked, answered): one per question and entity (or partner, or the visit), answered when one of
-    its records is."""
+    """(asked, answered): one per checklist question and entity (or partner, or the visit), answered
+    when one of its records is. The HACT answers written on the finding rows are not checklist
+    questions and are not counted."""
     asked: dict[tuple[str, str], bool] = {}
     for answer in answers:
+        if answer.from_row:
+            continue
         pair = (answer.question_key, _unit(answer))
         asked[pair] = asked.get(pair, False) or answer.answered
     return len(asked), sum(asked.values())
 
 
-def _no_answers(facts: VisitFacts, rule) -> RuleOutcome | None:
+def _no_answers(facts: VisitFacts, rule, role: str = "") -> RuleOutcome | None:
     """``na`` when the visit has no checklist answer, or when the answers of the checklist records
-    were not found under any key (every answer would read as blank: R2, R3 and R5 cannot be told)."""
-    if not facts.answers:
+    were not found under any key (every answer would read as blank: R2, R3 and R5 cannot be told).
+    With ``role``, the answers of that question written on the finding rows are enough."""
+    if role and any(a.from_row and a.role == role for a in facts.answers):
+        return None
+    if not any(not a.from_row for a in facts.answers):
         return _outcome(
             rule, "na", key="no_answers", detail="No checklist answers for this visit in the eTools data."
         )
@@ -454,7 +465,7 @@ def r2_evidence(facts: VisitFacts, rule, ctx: Context) -> RuleOutcome:
 
 
 def r3_hact(facts: VisitFacts, rule, ctx: Context) -> RuleOutcome:
-    if (missing := _no_answers(facts, rule)) is not None:
+    if (missing := _no_answers(facts, rule, "q1")) is not None:
         return missing
     if not ({"q1", "hact"} & facts.questions_in_dataset):
         return _outcome(
@@ -564,7 +575,7 @@ def r4_narrative(facts: VisitFacts, rule, ctx: Context) -> RuleOutcome:
 
 
 def r5_q3(facts: VisitFacts, rule, ctx: Context) -> RuleOutcome:
-    if (missing := _no_answers(facts, rule)) is not None:
+    if (missing := _no_answers(facts, rule, "q3")) is not None:
         return missing
     if "q3" not in facts.questions_in_dataset:
         return _outcome(
@@ -686,7 +697,7 @@ def evaluate(facts: VisitFacts, rules: Mapping[str, Any], ctx: Context) -> list[
             detail = (
                 "The visit was cancelled."
                 if facts.status_group == "cancelled"
-                else "The visit is not reported yet."
+                else "Pending: the visit's status is not one of the scored statuses (Score settings)."
             )
             out.append(RuleOutcome(code, "nap", 0.0, rule.points, "not_scorable", detail))
         else:

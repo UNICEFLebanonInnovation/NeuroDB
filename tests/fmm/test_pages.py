@@ -68,11 +68,12 @@ def test_the_page_opens_for_a_viewer_with_its_key_figures(built, client_viewer):
     assert "Monitoring visits 8 6 reported · 1 in progress · 0 planned · 1 cancelled" in text
     assert "Monitored entities 12 8 rated · 4 not monitored" in text
     assert "Average quality score 64.4% on 6 scored visits · rules v1" in text
-    assert "High urgency 1 ≥ 70 · 3 amber (40–69)" in text
+    assert "High urgency 0 ≥ 70 · 1 amber (40–69)" in text
     assert "Showing 1 Jan – 31 Dec 2026 · Lebanon" in text
     assert "scores computed" in text and "with quality rules v1" in text
     assert "How scores work" in html and "NeuroDB has no field office staff list" in html
-    assert 'class="kpi kpi--off_track"' in html  # the high urgency tile is red while any visit is
+    assert 'class="kpi kpi--off_track"' not in html  # the high urgency tile is red while any visit is
+    assert "View urgent visits →" in html
     assert 'hx-get="/fmm/insights/?section=" hx-trigger="load"' in html  # the AI brief loads on its own
 
 
@@ -192,7 +193,7 @@ def test_the_year_menu_keeps_the_page_and_its_filters(built, client_viewer, repo
         ({"entity_type": "cp_output"}, {"1722"}),
         ({"entity_type": "partner"}, {"1722", "1723"}),
         ({"rating": "off_track"}, {"1722", REFERENCE_KEY}),
-        ({"rating": "not_monitored"}, {"1723", "1724", "1725"}),
+        ({"rating": "not_monitored"}, {"1723"}),  # planned, not conducted: reported, nothing rated
         ({"status": "in_progress"}, {"1724"}),
         ({"status": "cancelled"}, {"1725"}),
         ({"status": "planned"}, set()),
@@ -209,8 +210,20 @@ def test_the_year_menu_keeps_the_page_and_its_filters(built, client_viewer, repo
         ({"flags": "1"}, {"1727", "1728", REFERENCE_KEY}),
         ({"flags": "3+"}, {"1723"}),
         ({"flags": "1+"}, {"1722", "1723", "1726", "1727", "1728", REFERENCE_KEY}),
-        ({"urgency": "red"}, {REFERENCE_KEY}),
-        ({"urgency": "amber"}, {"1722", "1723", "1727"}),
+        ({"urgency": "red"}, set()),  # FMS's urgency: 1723 57, 1727 38, 1726 37, 1722 33, 1728 26, ref 19
+        ({"urgency": "amber"}, {"1723"}),
+        ({"urgency": "none"}, {"1722", "1726", "1727", "1728", REFERENCE_KEY}),  # unscored ones have none
+        ({"modality": "none"}, ALL),
+        ({"modality": "TPM - iAPS"}, set()),
+        ({"quality": "medium"}, {"1722", "1726", "1727", "1728", REFERENCE_KEY}),
+        ({"quality": "low"}, {"1723"}),
+        ({"quality": "pending"}, {"1724", "1725"}),
+        ({"quality": ["low", "pending"]}, {"1723", "1724", "1725"}),
+        ({"quality": "excellent"}, ALL),  # not a band: ignored
+        ({"urgency_level": "medium"}, {"1723"}),
+        ({"urgency_level": "low"}, {"1722", "1726", "1727", "1728", REFERENCE_KEY}),
+        ({"urgency_level": "high"}, set()),
+        ({"preset": "all_time"}, ALL),
         ({"rule": "R3", "rule_state": "fail"}, {"1722"}),
         ({"issue": "R3:q1_missing"}, {"1722"}),
         ({"month": "May 2026"}, ALL),  # a drawn label is not a drill value: ignored
@@ -265,7 +278,7 @@ def test_drill_values_show_as_removable_chips_and_go_with_the_filter_bar(built, 
     html = client_viewer.get(PAGE, {"urgency": "amber", "section": ""}).content.decode()
     assert "Urgency: amber" in html
     assert '<input type="hidden" name="urgency" value="amber" form="fmm-filters">' in html
-    assert "Monitoring visits 3" in " ".join(visible(html).split())
+    assert "Monitoring visits 1" in " ".join(visible(html).split())
 
 
 # ------------------------------------------------------------------------------------------ sections
@@ -529,7 +542,7 @@ def test_the_analysis_tab_shows_its_blocks(built, client_viewer):
         "Entity performance",
         "Sections",
         "Visit frequency by location",
-        "Quality by rating",
+        "Quality by finding rating",
         "Flags by rule",
         "Points by rule",
         "Programmatic visits and HACT (2026)",

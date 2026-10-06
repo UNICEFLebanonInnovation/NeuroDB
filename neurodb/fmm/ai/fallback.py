@@ -1,26 +1,33 @@
 """The code-written brief: what Monitoring insights shows when the AI is not used or wrote nothing that
 passed the checks.
 
-:func:`brief` writes, from the same facts the AI would read, the same shape as the AI's answer: a few
-sentences on coverage and quality, the most frequent issues, one fixed piece of advice per rule that
-flagged visits, and a priority action for each of the most urgent visits. Every sentence cites the
-entries it rests on and passes the same checks as the AI's (``watch.grounding``). Findings about
-programme delivery need the notes themselves, so that section stays empty, with a note.
+:func:`brief` writes, from the same facts the AI would read, the parts the prompt version lists (each
+by what it is for: coverage, findings, challenges, recommendations, action points): a few sentences on
+coverage and quality (the shares of ratings over the rated visits only, the Not monitored visits a
+count apart), the most frequent quality flags, one fixed piece of advice per rule that flagged visits,
+and a priority action point for each of the most urgent visits. Every sentence cites the entries it
+rests on and passes the same checks as the AI's (``watch.grounding``). Findings about programme
+delivery need the notes themselves, so that part stays empty, with a note; so does a part the
+administrators added that NeuroDB has nothing to write in.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from . import sections as sections_module
 from .facts import Facts
 
 FINDINGS_NOTE = "Findings need the AI or the narratives themselves; open the visits below."
+OTHER_NOTE = "Written by the AI only."
 ACTION = "Follow up the visit's findings and record an action point in eTools"
 OWNER = "Section lead"
 TIMEFRAME = "within 2 weeks"
 ALL_SECTIONS = "All sections"
 ACTIONS = 3
 ISSUES = 3
+COVERAGE = 5  # sentences
+RATINGS = (("on_track", "were On track"), ("constrained", "Constrained"), ("off_track", "Off track"))
 
 # One sentence of advice per rule that flagged visits (no figure in them: nothing to check)
 RULE_ADVICE = {
@@ -38,18 +45,30 @@ def _plural(n: int, one: str, many: str) -> str:
 
 
 def _coverage(facts: Facts) -> list[dict[str, Any]]:
+    """Coverage and quality. Shares of ratings are over the rated visits only; the Not monitored
+    visits (planned, not conducted) are a count apart, never a share of all visits."""
     k = facts.payload["kpi"]
-    out = []
-    first = (
-        f"{_plural(k['visits'], 'visit', 'visits')} and {_plural(k['entities'], 'entity', 'entities')} in "
-        f"the period"
-    )
-    if k["entities"]:
-        first += (
-            f"; {k['entities_rated']} entities were rated and {k['entities_not_monitored']} were not "
-            f"monitored ({k['entities_not_monitored_share']}%)"
+    out = [
+        {
+            "text": f"{_plural(k['visits'], 'visit', 'visits')} and "
+            f"{_plural(k['entities'], 'entity', 'entities')} in the period.",
+            "keys": ["kpi"],
+        }
+    ]
+    if k["rated_visits"]:
+        on, con, off = (f"{k[f'{c}_visits']} {label} ({k[f'{c}_share_of_rated']}%)" for c, label in RATINGS)
+        rated = _plural(k["rated_visits"], "rated visit", "rated visits")
+        out.append({"text": f"Of the {rated}, {on}, {con} and {off}.", "keys": ["kpi"]})
+    if k["not_monitored_visits"]:
+        n = k["not_monitored_visits"]
+        verb = "was" if n == 1 else "were"
+        out.append(
+            {
+                "text": f"{_plural(n, 'visit', 'visits')} {verb} Not monitored (planned, not conducted), "
+                "counted apart from the rated visits.",
+                "keys": ["kpi"],
+            }
         )
-    out.append({"text": first + ".", "keys": ["kpi"]})
     out.append(
         {
             "text": f"{_plural(k['visits_reported'], 'visit was', 'visits were')} reported, "
@@ -77,7 +96,7 @@ def _coverage(facts: Facts) -> list[dict[str, Any]]:
         else:
             text = f"The previous period had as many visits, {previous['visits']}."
         out.append({"text": text, "keys": ["kpi", "previous"]})
-    return out[:4]
+    return out[:COVERAGE]
 
 
 def _challenges(facts: Facts) -> list[dict[str, Any]]:
@@ -91,16 +110,6 @@ def _challenges(facts: Facts) -> list[dict[str, Any]]:
             {
                 "text": f"{rule} flagged {_plural(issue['visits'], 'visit', 'visits')}: {words}.",
                 "keys": [issue["key"]],
-            }
-        )
-    k = facts.payload["kpi"]
-    gaps = k["not_monitored_visits"]
-    if gaps:
-        what = "a monitoring gap" if gaps == 1 else "monitoring gaps"
-        out.append(
-            {
-                "text": f"{_plural(gaps, 'reported visit', 'reported visits')} had no rated entity ({what}).",
-                "keys": ["kpi"],
             }
         )
     ap = facts.payload.get("action_points") or {}
@@ -145,6 +154,7 @@ def _actions(facts: Facts) -> list[dict[str, Any]]:
         {
             "priority": "High" if card["urgency"] >= red else "Medium",
             "section": _section_of(card, facts),
+            "partner": card.get("partner") or "",
             "action": ACTION,
             "owner_role": OWNER,
             "timeframe": TIMEFRAME,
@@ -154,14 +164,25 @@ def _actions(facts: Facts) -> list[dict[str, Any]]:
     ]
 
 
-def brief(facts: Facts) -> dict[str, Any]:
-    """The code-written brief of ``facts``: the AI's shape (four sections of ``{"text", "keys"}``
-    sentences and the priority actions), plus ``notes`` per section left empty on purpose."""
-    return {
-        "coverage_quality": _coverage(facts),
-        "programmatic_findings": [],
-        "operational_challenges": _challenges(facts),
-        "recommendations": _recommendations(facts),
-        "priority_actions": _actions(facts),
-        "notes": {"programmatic_findings": FINDINGS_NOTE},
+def brief(facts: Facts, parts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """The code-written brief of ``facts`` in ``parts`` (a prompt version's; the defaults when not
+    given): ``{"sections": {key: [{"text", "keys"}], "notes": {key: why it is empty}}, "actions":
+    [...]}``, each part cut to its ``max_items``."""
+    parts = parts if parts is not None else sections_module.of(None)
+    writers = {
+        "coverage": lambda: _coverage(facts),
+        "findings": list,
+        "challenges": lambda: _challenges(facts),
+        "recommendations": lambda: _recommendations(facts),
     }
+    out: dict[str, Any] = {}
+    notes: dict[str, str] = {}
+    for part in sections_module.text_parts(parts):
+        role = sections_module.ROLES.get(part["key"], "")
+        out[part["key"]] = writers[role]()[: part["max_items"]] if role in writers else []
+        if not out[part["key"]]:
+            notes[part["key"]] = FINDINGS_NOTE if role == "findings" else OTHER_NOTE if not role else ""
+    action = sections_module.action_part(parts)
+    actions = _actions(facts)[: action["max_items"]] if action is not None else []
+    out["notes"] = {key: note for key, note in notes.items() if note}
+    return {"sections": out, "actions": actions}

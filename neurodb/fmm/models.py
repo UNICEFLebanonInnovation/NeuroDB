@@ -135,6 +135,9 @@ class Visit(models.Model):
     psea_flag = models.BooleanField(null=True)  # set at scoring; None = no PSEA question
     is_programmatic = models.BooleanField(default=False)
     is_remote = models.BooleanField(default=False)
+    # eTools' monitoring modality ("UNICEF Staff", "TPM - iAPS"...), the most frequent of its rows
+    modality = models.CharField(max_length=100, blank=True, db_index=True)
+    programme_areas = ArrayField(models.CharField(max_length=200), default=list)
     entities = models.PositiveSmallIntegerField(default=0)
     entities_rated = models.PositiveSmallIntegerField(default=0)
     entity_kinds = ArrayField(models.CharField(max_length=12), default=list)
@@ -181,9 +184,14 @@ class Visit(models.Model):
     score_band = models.CharField(max_length=8, blank=True)  # high | medium | low | ""
     flags = ArrayField(models.CharField(max_length=4), default=list)  # the rules failed
     flag_count = models.PositiveSmallIntegerField(default=0, db_index=True)
-    urgency = models.PositiveSmallIntegerField(default=0, db_index=True)
+    urgency = models.PositiveSmallIntegerField(null=True, blank=True, db_index=True)  # None: not scored
     urgency_band = models.CharField(max_length=6, blank=True)  # red | amber | ""
-    urgency_parts = models.JSONField(default=dict)  # {"rating": 40, "quality": 8, ...}
+    urgency_parts = models.JSONField(
+        default=dict
+    )  # {"quality_gap": 30.0, "recency": 25.0, "red_flags": 10.0}
+    # the follow-up and late-report signals, shown on the visit page (not part of urgency):
+    # {"no_follow_up": true, "ap_overdue": 1, "ap_high_overdue": 0, "ap_high_open": 1, "report_late_days": 45}
+    signals = models.JSONField(default=dict)
     action_points = models.PositiveSmallIntegerField(default=0)
     action_points_open = models.PositiveSmallIntegerField(default=0)
     action_points_overdue = models.PositiveSmallIntegerField(default=0)
@@ -195,7 +203,7 @@ class Visit(models.Model):
     refreshed_at = models.DateTimeField()
 
     class Meta:
-        ordering = ("-urgency", "-end_date")
+        ordering = (models.F("urgency").desc(nulls_last=True), models.F("end_date").desc(nulls_last=True))
         indexes = [
             models.Index(fields=["end_date", "status_group"]),
             GinIndex(fields=["section_names"]),
@@ -242,6 +250,10 @@ class VisitEntity(models.Model):
     narrative_words = models.PositiveIntegerField(default=0)
     narrative_hash = models.CharField(max_length=40, blank=True)  # sha1 of the folded text, long ones only
     narrative_placeholder = models.BooleanField(default=False)
+    # the HACT answers written on the finding row (hact_q1_answer...), measured, never their text:
+    # {"q1": {"answered", "placeholder", "rating", "code", "words", "short"}, ...}, one entry per answer
+    # whose key the records hold ("short": sha1 of a short answer's folded text, for R5's placeholders)
+    row_answers = models.JSONField(default=dict)
 
     class Meta:
         ordering = ("visit", "datamart_id")
@@ -386,20 +398,13 @@ class RuleSetting(models.Model):
 
 
 def default_urgency_weights() -> dict:
-    return {
-        "off_track": 40,
-        "constrained": 20,
-        "quality_gap": 25,
-        "unscored_reported": 10,
-        "per_flag": 5,
-        "flags_max": 15,
-        "no_follow_up": 20,
-        "ap_overdue": 12,
-        "ap_high_overdue": 8,
-        "ap_high_open": 5,
-        "follow_up_max": 20,
-        "report_late": 15,
-    }
+    # FMS's urgency: 50% the gap from the maximum quality score, 30% recency, 20% red flags (sum 1)
+    return {"quality_gap": 0.5, "recency": 0.3, "red_flags": 0.2}
+
+
+def default_scored_statuses() -> list:
+    # eTools statuses (datamart.fm.STATUSES) whose visits get a quality score; the others are "pending"
+    return ["report_finalization", "completed"]
 
 
 def default_role_flag_answers() -> dict:
@@ -418,7 +423,8 @@ def default_question_patterns() -> dict:
 
 class ScoreSetting(models.Model):
     """The one row (pk=1) of how scores, bands, urgency and the question roles are worked out
-    (``fmm.score``). Versioned and rescored like the rules."""
+    (``fmm.score``): which statuses are scored, the bands, urgency's weights and recency window, the
+    follow-up and late-report signals. Versioned and rescored like the rules."""
 
     min_evaluated_points = models.PositiveSmallIntegerField(default=30)
     band_high = models.PositiveSmallIntegerField(default=80)  # High >= 80
@@ -427,7 +433,11 @@ class ScoreSetting(models.Model):
     urgency_red = models.PositiveSmallIntegerField(default=70)
     urgency_amber = models.PositiveSmallIntegerField(default=40)
     urgency_weights = models.JSONField(default=default_urgency_weights)  # a new dict for every row
-    follow_up_days = models.PositiveSmallIntegerField(default=14)
+    recency_days = models.PositiveSmallIntegerField(  # a visit this old adds nothing for recency
+        default=180, validators=[MinValueValidator(1), MaxValueValidator(3650)]
+    )
+    scored_statuses = models.JSONField(default=default_scored_statuses)
+    follow_up_days = models.PositiveSmallIntegerField(default=14)  # signals shown on the visit page
     report_late_days = models.PositiveSmallIntegerField(default=30)
     question_patterns = models.JSONField(default=default_question_patterns)
     role_flag_answers = models.JSONField(default=default_role_flag_answers)
@@ -525,16 +535,44 @@ class PromptProfile(models.Model):
 
 
 NARR_HELP = (
-    "narr: the most texts (narratives, question answers and search snippets) the AI may read per brief, "
-    "and per chat answer across all of its look-ups. Each is cleaned of names, e-mail addresses, phone "
-    "numbers and links first. 0 sends no text at all."
+    "narr: the most monitors' narratives the AI may read per brief, each with its Q1, Q2 and Q3 answers; "
+    "and per chat answer, the most texts (narratives, question answers and search snippets) across all "
+    "of its look-ups. Each is cleaned of names, e-mail addresses, phone numbers and links first. 0 sends "
+    "no text at all."
 )
 COMP_HELP = (
-    "comp: how many visits the AI sees in full, as a card (dates, partner, programme document, place, "
-    "sections, rating with its date, HACT Q1, quality, flags, urgency, action point counts; never a "
-    "narrative). In the chat, the most visit cards one look-up returns. Every other visit reaches the AI "
-    "as counts only; the previous period is sent as key figures only."
+    "comp (compliance depth): how many of the most frequent quality flags the AI receives with each "
+    "brief, each with its rule, its number of visits and a few example visits. Higher gives more "
+    "nuanced findings and a longer prompt."
 )
+SECTIONS_HELP = (
+    "The parts of the brief, in order: each with its key (what the AI writes under; never shown), its "
+    "label (the heading on the page), its format (paragraph or bullets) and the most sentences or "
+    "bullets it may hold. The key action_points holds the priority action points (priority, section, "
+    "partner, action, responsible party, timeframe)."
+)
+CHAT_EXAMPLES_HELP = "The starter questions Chat with Data offers, one per line (at most 8)."
+
+
+def default_insight_sections() -> list:
+    # FMS Lebanon's [meta:insights_sections] and the limits of its [insights] guidance
+    parts = (
+        ("coverage_summary", "Coverage and Quality Summary", "paragraph", 5),
+        ("key_findings", "Key Programmatic Findings", "bullets", 20),
+        ("challenges", "Operational Challenges", "bullets", 4),
+        ("recommendations", "Recommendations", "bullets", 5),
+        ("action_points", "Priority Action Points", "bullets", 5),
+    )
+    return [{"key": k, "label": label, "format": f, "max_items": n} for k, label, f, n in parts]
+
+
+def default_chat_examples() -> list:
+    return [
+        "What are the main programmatic issues in this period?",
+        "List the reports that mention supply or stock-out issues.",
+        "Which partners or governorates have the most quality concerns?",
+        "Tell me more about the low-quality visits and why they scored low.",
+    ]
 
 
 class PromptVersion(models.Model):
@@ -561,15 +599,17 @@ class PromptVersion(models.Model):
     narratives_sampled = models.PositiveSmallIntegerField(  # "narr"
         default=20, validators=[MaxValueValidator(50)], help_text=NARR_HELP
     )
-    comparison_visits = models.PositiveSmallIntegerField(  # "comp"
-        default=15, validators=[MaxValueValidator(40)], help_text=COMP_HELP
+    comparison_visits = models.PositiveSmallIntegerField(  # "comp": the compliance depth (top quality flags)
+        "compliance depth", default=15, validators=[MaxValueValidator(40)], help_text=COMP_HELP
     )
+    sections = models.JSONField(default=default_insight_sections, help_text=SECTIONS_HELP)
     insights_per_user_per_day = models.PositiveSmallIntegerField(
         default=5, validators=[MaxValueValidator(50)]
     )
     # the chat
     chat_enabled = models.BooleanField(default=True)
     chat_instructions = models.TextField(validators=[MinLengthValidator(100), MaxLengthValidator(6000)])
+    chat_examples = models.JSONField(default=default_chat_examples, blank=True, help_text=CHAT_EXAMPLES_HELP)
     chat_max_output_tokens = models.PositiveIntegerField(  # per model call
         default=6000, validators=[MinValueValidator(1000), MaxValueValidator(32000)]
     )
@@ -621,9 +661,11 @@ class PromptVersion(models.Model):
         "max_output_tokens",
         "narratives_sampled",
         "comparison_visits",
+        "sections",
         "insights_per_user_per_day",
         "chat_enabled",
         "chat_instructions",
+        "chat_examples",
         "chat_max_output_tokens",
         "chat_per_user_per_day",
         "chat_max_rounds",
@@ -677,6 +719,24 @@ class PromptVersion(models.Model):
         super().save(*args, **kwargs)
 
     SAMPLING_FIELDS = ("temperature", "top_p")
+
+    def clean(self):
+        """The parts of the brief and the chat's starter questions checked (``ai.sections``)."""
+        from django.core.exceptions import ValidationError
+
+        from .ai import sections
+
+        errors: dict[str, list[str]] = {}
+        try:
+            self.sections = sections.validate(self.sections)
+        except ValidationError as exc:
+            errors["sections"] = exc.messages
+        try:
+            self.chat_examples = sections.validate_examples(self.chat_examples)
+        except ValidationError as exc:
+            errors["chat_examples"] = exc.messages
+        if errors:
+            raise ValidationError(errors)
 
     @classmethod
     def _plain(cls, name: str, value):
@@ -778,11 +838,11 @@ class Insight(models.Model):
     called = models.BooleanField(default=False)  # an AI call was made (the quota counts these)
     status = models.CharField(max_length=8, choices=Status.choices)
     reason = models.CharField(max_length=200, blank=True)
-    sections = models.JSONField(default=dict)  # {"coverage_quality": [{"text", "keys"}], ...}
+    sections = models.JSONField(default=dict)  # {"coverage_summary": [{"text", "keys"}], ...}: its version's
     actions = models.JSONField(default=list)  # [{"priority", "section", "action", "owner_role", ...}]
     dropped = models.JSONField(default=dict)  # {"number": 3, "person": 1}
     cited_keys = ArrayField(models.CharField(max_length=40), default=list)  # the visit keys cited
-    sent = models.JSONField(default=dict)  # narr and comp sent and allowed
+    sent = models.JSONField(default=dict)  # narr and comp (the quality flags) sent and allowed
     # the payload as sent (redacted); blanked after FMM_PAYLOAD_RETENTION_DAYS
     sent_payload = models.JSONField(null=True, blank=True)
     model = models.CharField(max_length=64, blank=True)

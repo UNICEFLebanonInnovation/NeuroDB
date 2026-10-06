@@ -5,6 +5,9 @@ rules, the score with its band and flags, and urgency.
 the patterns of the score settings (``rules.assign_roles``). Everything that depends on a role is
 worked out here, not when the visits are built, so a pattern change needs only a scores-only refresh:
 
+- the **HACT answers written on a finding row** (``hact_q1_answer``, ``hact_q2_answer``,
+  ``hact_q3_answer``) come first: a row's own answer replaces the checklist answers of that question
+  given for that row; a row whose answer is blank keeps them (:func:`with_row_answers`);
 - the **HACT Q1 of an entity**: its own Q1 answer, else the one given for its partner (on a row of its
   own or for the partner as a whole), else the one given for the whole visit (:func:`effective_q1`);
 - the **HACT Q1 of a visit**: the worst of its entities' and of its visit-level Q1 answers;
@@ -14,16 +17,21 @@ worked out here, not when the visits are built, so a pattern change needs only a
 
 **Score** (:func:`score_visit`): the points earned over the points of the rules evaluated (those that
 passed or failed), as a percentage rounded half up to one decimal. A rule never gives more than its
-points. A visit that is not reported yet (or cancelled) gets no score, and neither does one with fewer
-evaluated points than the settings' minimum (30). Bands: High from 80, Medium from 50, else Low. The
-flags are the rules failed, R6 included even at 0 points.
+points. Only the visits whose eTools status is one of the settings' *scored statuses* (report
+finalization and completed by default) are scored: the others are "pending" (band ``pending``, no
+score), a cancelled one "cancelled"; and a visit with fewer evaluated points than the settings'
+minimum (30) gets no score either. Bands: High from 80, Medium from 50, else Low. The flags are the
+rules failed, R6 included even at 0 points.
 
-**Urgency** (:func:`urgency`), 0 to 100: the worse of the visit's rating and its HACT Q1 (Off track 40,
-Constrained 20), the quality gap (or 10 for a reported visit that could not be scored), 5 per flag (at
-most 15), follow-up (20 when an Off track or Constrained reported visit has no action point after 14
-days; else 12 for an overdue action point, 8 more when it is high priority, 5 for an open high
-priority one, at most 20) and 15 for a report still not in 30 days after the visit. Red from 70, amber
-from 40. Each part is kept (``urgency_parts``) to explain it.
+**Urgency** (:func:`urgency`), FMS's formula, 0 to 100: 50% the gap from the maximum score
+(100 − score), 30% recency (100 on the day the visit ended, falling to 0 at ``recency_days``, 180)
+and 20% red flags (25 per failed rule, at most 100); the weights are the settings' and sum to 1. A
+visit with no score has no urgency (``None``) and is left out of every urgency figure. Red from 70,
+amber from 40. Each weighted part is kept (``urgency_parts``) to explain it.
+
+**Signals** (:func:`signals`), shown on the visit page and never part of urgency: no follow-up action
+point 14 days after an Off track or Constrained reported visit; overdue or high-priority open action
+points; a planned or in-progress visit that ended more than 30 days ago (a late report).
 
 The step reads the narratives from the findings in batches of 1,000 visits (``narrative_finding``
 only, never the records), twice: first to find the narratives copied between visits (R4; only their
@@ -48,7 +56,7 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 
-from neurodb.datamart.fm import RATING_ORDER
+from neurodb.datamart.fm import RATING_ORDER, STATUSES
 
 from . import parse, rules
 from .models import (
@@ -60,6 +68,7 @@ from .models import (
     VisitRuleResult,
     default_question_patterns,
     default_role_flag_answers,
+    default_scored_statuses,
     default_urgency_weights,
 )
 from .rules import AnswerFacts, Context, EntityFacts, RuleOutcome, VisitFacts, half_up, q1_value, worst
@@ -69,8 +78,10 @@ logger = logging.getLogger(__name__)
 NARRATIVE_BATCH = 1000  # visits whose narratives are read at once
 ANSWER_CODES = ("on_track", "constrained", "off_track", "yes", "no")
 MAX_PATTERNS = 20
-NOT_REPORTED = "not reported yet"
+PENDING = "pending: its status is not scored"
 CANCELLED = "cancelled"
+WEIGHT_NAMES = ("quality_gap", "recency", "red_flags")
+FLAG_POINTS = 25  # each red flag (a failed rule) adds this to the flags part, at most 100
 NOT_SCORED_ERROR = "could not be scored"
 
 
@@ -129,9 +140,12 @@ class Rulebook:
         return frozenset(flags.get("psea") or ())
 
     @property
-    def weights(self) -> dict[str, int]:
-        weights = self.setting.urgency_weights
-        return {**default_urgency_weights(), **(weights if isinstance(weights, dict) else {})}
+    def weights(self) -> dict[str, float]:
+        return weights_of(self.setting)
+
+    @property
+    def scored_statuses(self) -> frozenset[str]:
+        return scored_statuses_of(self.setting)
 
     def narrative_minimum(self) -> int:
         return round(rules.threshold(self.rules["R4"]))
@@ -141,6 +155,33 @@ class Rulebook:
 
     def q3_placeholders(self) -> frozenset[str]:
         return frozenset(rules.param(self.rules["R5"], "placeholders") or ())
+
+
+def valid_weights(weights: Any) -> bool:
+    """Urgency's three weights (quality_gap, recency, red_flags), numbers from 0 to 1 that sum to 1."""
+    if not isinstance(weights, dict) or set(weights) != set(WEIGHT_NAMES):
+        return False
+    values = list(weights.values())
+    if not all(isinstance(v, int | float) and not isinstance(v, bool) and 0 <= v <= 1 for v in values):
+        return False
+    return abs(sum(values) - 1) < 0.001
+
+
+def weights_of(setting: ScoreSetting) -> dict[str, float]:
+    """Urgency's weights as the settings hold them; the defaults (0.5, 0.3, 0.2) when they are not
+    valid (:func:`valid_weights`: a rules version saved before Release 2 held others)."""
+    weights = setting.urgency_weights
+    if valid_weights(weights):
+        return {k: float(weights[k]) for k in WEIGHT_NAMES}
+    return default_urgency_weights()
+
+
+def scored_statuses_of(setting: ScoreSetting) -> frozenset[str]:
+    """The eTools statuses whose visits are scored; the defaults when the setting holds none."""
+    found = setting.scored_statuses
+    if isinstance(found, list) and found and all(isinstance(v, str) for v in found):
+        return frozenset(found)
+    return frozenset(default_scored_statuses())
 
 
 def validate_settings(setting: ScoreSetting) -> None:
@@ -157,12 +198,14 @@ def validate_settings(setting: ScoreSetting) -> None:
     if not 0 <= setting.min_evaluated_points <= 100:
         error("min_evaluated_points", "The fewest evaluated points go from 0 to 100.")
     weights = setting.urgency_weights
-    known = default_urgency_weights()
     if not isinstance(weights, dict):
-        error("urgency_weights", 'The weights must be an object, e.g. {"off_track": 40, ...}.')
+        error(
+            "urgency_weights",
+            'The weights must be an object, e.g. {"quality_gap": 0.5, "recency": 0.3, ...}.',
+        )
     else:
-        unknown = sorted(set(weights) - set(known))
-        missing = sorted(set(known) - set(weights))
+        unknown = sorted(set(weights) - set(WEIGHT_NAMES))
+        missing = sorted(set(WEIGHT_NAMES) - set(weights))
         if unknown:
             error("urgency_weights", f"Unknown weights: {', '.join(unknown)}.")
         if missing:
@@ -170,13 +213,26 @@ def validate_settings(setting: ScoreSetting) -> None:
         bad = [
             k
             for k, v in weights.items()
-            if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= 100
+            if isinstance(v, bool) or not isinstance(v, int | float) or not 0 <= v <= 1
         ]
         if bad:
-            error(
-                "urgency_weights",
-                f"Each weight is a whole number from 0 to 100 (not: {', '.join(sorted(bad))}).",
-            )
+            error("urgency_weights", f"Each weight is a number from 0 to 1 (not: {', '.join(sorted(bad))}).")
+        elif not unknown and not missing and abs(sum(weights.values()) - 1) >= 0.001:
+            total = round(sum(weights.values()), 3)
+            error("urgency_weights", f"The three weights must add up to 1 (they add up to {total}).")
+    if setting.recency_days is None or not 1 <= setting.recency_days <= 3650:
+        error("recency_days", "The recency window goes from 1 to 3,650 days.")
+    statuses = setting.scored_statuses
+    allowed = [code for code in STATUSES if code != "cancelled"]
+    if not isinstance(statuses, list) or not statuses or not all(isinstance(v, str) for v in statuses):
+        error("scored_statuses", "Choose at least one status whose visits are scored.")
+    elif unknown_statuses := sorted(set(statuses) - set(allowed)):
+        error(
+            "scored_statuses",
+            f"Unknown or unscorable statuses: {', '.join(unknown_statuses)} (they are {', '.join(allowed)}).",
+        )
+    else:
+        setting.scored_statuses = [code for code in allowed if code in statuses]
     patterns = setting.question_patterns
     if not isinstance(patterns, dict):
         error("question_patterns", 'The patterns must be an object, e.g. {"q1": ["implemented as planned"]}.')
@@ -222,11 +278,10 @@ def validate_settings(setting: ScoreSetting) -> None:
 
 
 # ------------------------------------------------------------------------------------------ Q1 and PSEA
-def scorable(status_group: str, entities_rated: int, answered: bool) -> bool:
-    """A reported visit, or one of unknown status with a rated entity or an answered question."""
-    if status_group == "reported":
-        return True
-    return status_group == "unknown" and (entities_rated > 0 or answered)
+def scorable(status: str, scored: Iterable[str]) -> bool:
+    """A visit whose eTools status is one of the scored statuses (Score settings); the others are
+    "pending" (a cancelled one: "cancelled")."""
+    return bool(status) and status in set(scored)
 
 
 def effective_q1(entities: Sequence[Any], answers: Sequence[AnswerFacts]) -> list[tuple[str, str]]:
@@ -277,6 +332,57 @@ def visit_q1(entity_q1: Iterable[str], answers: Sequence[AnswerFacts]) -> str:
     return worst(list(entity_q1) + visit_level)
 
 
+ROW_ROLES = ("q1", "q2", "q3")
+
+
+def with_row_answers(
+    entities: Sequence[Any], answers: Sequence[AnswerFacts], q3_placeholders: frozenset[str] = frozenset()
+) -> list[AnswerFacts]:
+    """A visit's checklist answers with the HACT answers written on its finding rows
+    (``VisitEntity.row_answers``, measured at the build). A row's own answer to Q1, Q2 or Q3, when it
+    is written (a placeholder too), replaces the checklist answers of that question given for that row;
+    a blank one adds an unanswered answer and keeps them, as the fallback. ``q3_placeholders`` are the
+    sha1 of R5's placeholders (folded): a short Q3 answer that is one of them is a placeholder."""
+    added: list[AnswerFacts] = []
+    replaced: set[tuple[int, str]] = set()
+    for index, entity in enumerate(entities):
+        for role, measured in (getattr(entity, "row_answers", None) or {}).items():
+            if role not in ROW_ROLES or not isinstance(measured, dict):
+                continue
+            answered = bool(measured.get("answered"))
+            placeholder = bool(measured.get("placeholder"))
+            if role == "q3" and answered and measured.get("short") in q3_placeholders:
+                answered, placeholder = False, True
+            if answered or placeholder:
+                replaced.add((index, role))
+            added.append(
+                AnswerFacts(
+                    question_key=f"row:{role}",
+                    role=role,
+                    answered=answered,
+                    placeholder=placeholder,
+                    words=int(measured.get("words") or 0),
+                    rating=str(measured.get("rating") or ""),
+                    answer_code=str(measured.get("code") or ""),
+                    applies_to="entity",
+                    entity=index,
+                    from_row=True,
+                )
+            )
+    kept = [a for a in answers if not (a.applies_to == "entity" and (a.entity, a.role) in replaced)]
+    return kept + added
+
+
+def row_roles(entities: Iterable[Any]) -> set[str]:
+    """The questions (q1, q2, q3) whose answers the finding rows carry."""
+    return {
+        role
+        for entity in entities
+        for role in (getattr(entity, "row_answers", None) or {})
+        if role in ROW_ROLES
+    }
+
+
 def psea_flag(answers: Sequence[AnswerFacts], flagging: Iterable[str]) -> bool | None:
     """True when an answer to a PSEA question has a flagging code, False when PSEA was asked and not
     flagged, None when the visit has no PSEA question."""
@@ -309,8 +415,9 @@ def score_visit(
     flags = tuple(o.rule for o in outcomes if o.status == "fail")
     codes = tuple(o.rule for o in evaluated)
     if not facts.scorable:
-        reason = CANCELLED if facts.status_group == "cancelled" else NOT_REPORTED
-        return ScoreOutcome(None, None, 0, (), "", (), reason)
+        if facts.status_group == "cancelled":
+            return ScoreOutcome(None, None, 0, (), "", (), CANCELLED)
+        return ScoreOutcome(None, None, 0, (), "pending", (), PENDING)
     if total is None:
         total = sum(o.max_points for o in outcomes if o.status != "off")
     if max_points < s.min_evaluated_points or max_points == 0:
@@ -327,25 +434,45 @@ def high_flag(flag_count: int, s: ScoreSetting) -> bool:
     return flag_count >= s.high_flag_count
 
 
-def urgency(
-    visit: Visit, score: ScoreOutcome, links: Sequence[Any], s: ScoreSetting, today: date
-) -> tuple[int, str, dict[str, int]]:
-    """The visit's urgency, 0-100, its band (red, amber or "") and its parts. ``links`` are the visit's
-    action points (``build.ActionPointFacts``)."""
+def recency(end_date: date | None, today: date, days: int) -> float:
+    """100 on the day a visit ended (and for a visit that ends later), falling to 0 at ``days`` days
+    after it; 0 for a visit without an end date."""
+    if end_date is None or days <= 0:
+        return 0.0
+    since = (today - end_date).days
+    return max(0.0, min(100.0, 100.0 * (1 - since / days)))
+
+
+def urgency(visit: Visit, score: ScoreOutcome, s: ScoreSetting, today: date) -> tuple[int | None, str, dict]:
+    """The visit's urgency (FMS's formula, see the module's description), its band (red, amber or "")
+    and its weighted parts; ``(None, "", {})`` for a visit without a score."""
+    if score.score is None:
+        return None, "", {}
+    w = weights_of(s)
+    gap = 100.0 - float(score.score)
+    recent = recency(visit.end_date, today, s.recency_days)
+    flags = float(min(100, FLAG_POINTS * len(score.flags)))
+    parts = {
+        "quality_gap": w["quality_gap"] * gap,
+        "recency": w["recency"] * recent,
+        "red_flags": w["red_flags"] * flags,
+    }
+    total = int(half_up(Decimal(str(sum(parts.values()))), 0))
+    total = max(0, min(100, total))
+    band = "red" if total >= s.urgency_red else "amber" if total >= s.urgency_amber else ""
+    return total, band, {name: float(half_up(Decimal(str(value)), 1)) for name, value in parts.items()}
+
+
+def signals(visit: Visit, links: Sequence[Any], s: ScoreSetting, today: date) -> dict[str, Any]:
+    """The visit's follow-up and late-report signals (shown on the visit page, never part of urgency):
+    ``no_follow_up`` (an Off track or Constrained reported visit with no action point more than
+    ``follow_up_days`` after it ended), its overdue, high-priority overdue and high-priority open action
+    points, and ``report_late_days`` (a planned or in-progress visit that ended more than
+    ``report_late_days`` ago). Only what applies is kept. ``links``: ``build.ActionPointFacts``."""
     from neurodb.datamart.models import ActionPoint
 
-    w = {**default_urgency_weights(), **(s.urgency_weights if isinstance(s.urgency_weights, dict) else {})}
+    out: dict[str, Any] = {}
     worse = max([visit.rating, visit.hact_q1 or "not_monitored"], key=lambda v: RATING_ORDER.get(v, 0))
-    rating = w["off_track"] if worse == "off_track" else w["constrained"] if worse == "constrained" else 0
-    if score.score is not None:
-        quality = int(half_up(Decimal(w["quality_gap"]) * (Decimal(100) - score.score) / Decimal(100), 0))
-    elif visit.status_group == "reported":
-        quality = w["unscored_reported"]
-    else:
-        quality = 0
-    flags = min(w["flags_max"], w["per_flag"] * len(score.flags))
-    open_ = [a for a in links if a.status in ActionPoint.OPEN_STATUSES]
-    overdue = [a for a in open_ if a.due_date and a.due_date < today]
     if (
         worse in ("off_track", "constrained")
         and visit.status_group == "reported"
@@ -353,28 +480,22 @@ def urgency(
         and visit.end_date
         and (today - visit.end_date).days > s.follow_up_days
     ):
-        follow = w["no_follow_up"]
-    else:
-        follow = (
-            (w["ap_overdue"] if overdue else 0)
-            + (w["ap_high_overdue"] if any(a.high_priority for a in overdue) else 0)
-            + (w["ap_high_open"] if not overdue and any(a.high_priority for a in open_) else 0)
-        )
-    follow = min(w["follow_up_max"], follow)
-    late = (
-        w["report_late"]
-        if visit.status_group in ("planned", "in_progress")
+        out["no_follow_up"] = True
+    open_ = [a for a in links if a.status in ActionPoint.OPEN_STATUSES]
+    overdue = [a for a in open_ if a.due_date and a.due_date < today]
+    if overdue:
+        out["ap_overdue"] = len(overdue)
+    if high := sum(1 for a in overdue if a.high_priority):
+        out["ap_high_overdue"] = high
+    if high_open := sum(1 for a in open_ if a.high_priority and not (a.due_date and a.due_date < today)):
+        out["ap_high_open"] = high_open
+    if (
+        visit.status_group in ("planned", "in_progress")
         and visit.end_date
         and visit.end_date < today - timedelta(days=s.report_late_days)
-        else 0
-    )
-    total = min(100, rating + quality + flags + follow + late)
-    band = "red" if total >= s.urgency_red else "amber" if total >= s.urgency_amber else ""
-    return (
-        total,
-        band,
-        {"rating": rating, "quality": quality, "flags": flags, "follow_up": follow, "report_late": late},
-    )
+    ):
+        out["report_late_days"] = (today - visit.end_date).days
+    return out
 
 
 # ------------------------------------------------------------------------------------------ the step
@@ -636,6 +757,7 @@ def score_visits(
     in_dataset = {role for role in roles.values() if role}
     if any(is_hact for _text, is_hact in roles):
         in_dataset.add("hact")
+    in_dataset |= row_roles(e for rows in source.entities.values() for e in rows)
     minimum = book.narrative_minimum()
     placeholders = book.narrative_placeholders()
 
@@ -718,7 +840,7 @@ def _not_scored(visit: Visit) -> None:
     visit.quality_score = visit.quality_points = None
     visit.quality_max, visit.evaluated_rules, visit.flags, visit.flag_count = 0, [], [], 0
     visit.score_band, visit.not_scored_reason = "", NOT_SCORED_ERROR
-    visit.urgency, visit.urgency_band, visit.urgency_parts = 0, "", {}
+    visit.urgency, visit.urgency_band, visit.urgency_parts, visit.signals = None, "", {}, {}
 
 
 def _score_one(
@@ -736,6 +858,9 @@ def _score_one(
     total: int,
 ) -> list[VisitRuleResult]:
     q3_placeholders = book.q3_placeholders()
+    q3_hashes = frozenset(
+        hashlib.sha1(p.encode(), usedforsecurity=False).hexdigest() for p in q3_placeholders
+    )
     facts_answers = []
     for a in answers:
         role = roles.get((a.question_text, a.is_hact), "")
@@ -757,6 +882,7 @@ def _score_one(
                 partner_id=a.partner_id,
             )
         )
+    facts_answers = with_row_answers(entities, facts_answers, q3_hashes)
     q1 = effective_q1(entities, facts_answers)
     minimum = book.narrative_minimum()
     placeholders = book.narrative_placeholders()
@@ -779,12 +905,10 @@ def _score_one(
                 narrative_hash=digest,
             )
         )
-    rated = sum(1 for e in entities if e.rating in rules.RATED)
-    answered = any(a.answered for a in facts_answers)
     facts = VisitFacts(
         key=visit.key,
         status_group=visit.status_group,
-        scorable=scorable(visit.status_group, rated, answered),
+        scorable=scorable(visit.status, book.scored_statuses),
         is_programmatic=visit.is_programmatic,
         end_date=visit.end_date,
         has_place=bool(visit.location_id or visit.site_id),
@@ -804,9 +928,8 @@ def _score_one(
     visit.quality_max, visit.evaluated_rules = min(outcome.max_points, 32767), list(outcome.evaluated)
     visit.not_scored_reason, visit.score_band = outcome.not_scored_reason, outcome.band
     visit.flags, visit.flag_count = list(outcome.flags), len(outcome.flags)
-    visit.urgency, visit.urgency_band, visit.urgency_parts = urgency(
-        visit, outcome, links, book.setting, ctx.today
-    )
+    visit.urgency, visit.urgency_band, visit.urgency_parts = urgency(visit, outcome, book.setting, ctx.today)
+    visit.signals = signals(visit, links, book.setting, ctx.today)
     return [
         VisitRuleResult(
             visit=visit,

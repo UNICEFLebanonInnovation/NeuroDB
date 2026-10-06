@@ -9,10 +9,15 @@ A visit is the finding rows that share a ``datamart.fm.visit_key``. For each vis
   refresh's first step), else the PD reference its record or its programme activities give;
 - **CP outputs and programme activities**: the rows about an output, their records, and the visit's
   programme activity records;
-- **place**: the most frequent location and monitoring site; the governorate and district from the
-  gazetteer (starting at the site's location when the visit has none); the point of the site, else of
-  the location, else of its nearest ancestor that has one (approximate). Only a site's point or a
-  location's own point at the gazetteer's lowest level is precise (``fmm.place``);
+- **place**: the most frequent location (a row whose location is not linked is matched to the
+  gazetteer by its P-code) and monitoring site; the governorate and district from the gazetteer
+  (starting at the site's location when the visit has none); the point of the site, else the
+  coordinates eTools wrote on the rows (``location_lat``/``location_lon``), else the location's own
+  point, else its nearest ancestor's (approximate). Only a site's point, coordinates at the lowest
+  admin level or away from the gazetteer's centre, or a location's own point at the gazetteer's lowest
+  level is precise (``fmm.place``);
+- **modality and programme areas**: the most frequent monitoring modality of the rows ("UNICEF Staff",
+  "TPM - iAPS"...), and every programme area they name;
 - **sections**: written on the visit (its records or its answers), else its programme documents',
   else its action points', else, with no programme document, those of the partner's programme
   documents running on the visit date ("inferred from the partner"); NeuroDB sections through the
@@ -25,7 +30,13 @@ A visit is the finding rows that share a ``datamart.fm.visit_key``. For each vis
 - **checklist answers**: joined by the activity id, else by the activity reference; each applies to
   one entity row (same entity text or programme document), to every row of a partner (the answer names
   the partner), or to the visit as a whole. Only whether an answer was given, its code (a rating, yes
-  or no) and word counts are kept, never its text.
+  or no) and word counts are kept, never its text;
+- **HACT answers of a row** (``hact_q1_answer``, ``hact_q2_answer``, ``hact_q3_answer`` in eTools' FMM
+  export): measured like a checklist answer, never kept as text (``VisitEntity.row_answers``); the
+  scoring prefers them to the checklist answers of the same question for that row.
+
+Several field offices, sections or programme areas written as one text ("Zahle; Tripoli") are split at
+their semicolons.
 
 Data problems are recorded on the visit (``Visit.issues``) as counts and codes, never as free text.
 Every string written from eTools data is cut to its column (:func:`fit`, :func:`fit_list`), so an
@@ -56,6 +67,8 @@ from . import fields, parse, place, privacy
 from .models import QuestionAnswer, Visit, VisitActionPoint, VisitEntity
 
 NARRATIVE_MIN_WORDS = 25  # a narrative this long gets a hash (copies: quality rule R4's default minimum)
+ROW_ROLES = ("q1", "q2", "q3")  # the HACT answers a finding row may carry (fields q1_answer...)
+SHORT_WORDS = 12  # a row answer this short keeps the hash of its folded text (R5's placeholder list)
 MAX_ITEMS = 50  # elements kept in a list column (sections, team...)
 RAW_CHARS = 40  # characters of a raw rating or status kept in Visit.issues
 FINDING_FIELDS = (
@@ -147,6 +160,33 @@ def visit_rating(codes: Iterable[str]) -> str:
     return max(rated, key=fm.RATING_ORDER.get) if rated else "not_monitored"
 
 
+def row_answer(raw: Any) -> dict[str, Any]:
+    """What NeuroDB keeps of a HACT answer written on a finding row: whether it was given (a placeholder
+    such as "n/a" is not), its rating or yes/no code, its words and, for a short answer, the sha1 of its
+    folded text (so that R5's placeholder list can be checked without the text). Never the text."""
+    parsed = parse.read_answer(raw)
+    text = parse.as_kind(raw, "text") or ""
+    short = ""
+    if text and parsed.answer_words <= SHORT_WORDS:
+        short = hashlib.sha1(parse.fold(text).encode(), usedforsecurity=False).hexdigest()
+    return {
+        "answered": parsed.answered,
+        "placeholder": parsed.placeholder,
+        "rating": parsed.rating,
+        "code": parsed.answer_code,
+        "words": min(parsed.answer_words, 1_000_000),
+        "short": short,
+    }
+
+
+def coordinates(latitude: Any, longitude: Any) -> tuple[float, float] | None:
+    """A point written on a row, when both values are numbers on the globe (0, 0 is no point)."""
+    lat, lon = parse.as_kind(latitude, "number"), parse.as_kind(longitude, "number")
+    if lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180) or (lat, lon) == (0, 0):
+        return None
+    return lat, lon
+
+
 def narrative_facts(text: Any, min_words: int = NARRATIVE_MIN_WORDS) -> tuple[int, str, bool]:
     """(words, hash, placeholder) of a narrative: the hash (sha1 of the folded text) only for one of
     ``min_words`` words or more, so that copies can be found without keeping the text."""
@@ -234,6 +274,11 @@ class _Row:
     cp_output: str
     team: list[str]
     team_unnamed: int
+    modality: str = ""
+    programme_areas: list[str] = field(default_factory=list)
+    point: tuple[float, float] | None = None  # location_lat / location_lon
+    location_type: str = ""
+    row_answers: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 class _Answer:
@@ -404,6 +449,11 @@ class _Builder:
         lead, lead_unnamed = privacy.person_display(r["visit_lead"] or None)
         words, digest, placeholder = narrative_facts(r["narrative_finding"])
         status_raw = (r["status"] or "").strip() or (parse.as_kind(read("status"), "text") or "")
+        answers = {
+            role: row_answer(read(f"{role}_answer"))
+            for role in ROW_ROLES
+            if ctx.key("field_monitoring", f"{role}_answer")
+        }
         return _Row(
             pk=r["pk"],
             datamart_id=r["datamart_id"],
@@ -418,8 +468,8 @@ class _Builder:
             end_date=r["end_date"],
             last_modified=r["last_modify_date"],
             location_id=r["location_id"],
-            location_name=r["location_name"] or "",
-            location_pcode=r["location_pcode"] or "",
+            location_name=r["location_name"] or parse.as_kind(read("location_name"), "text") or "",
+            location_pcode=r["location_pcode"] or parse.as_kind(read("location_pcode"), "text") or "",
             site_id=r["monitoring_site_id"],
             partner_id=r["partner_id"],
             pd_id=r["intervention_id"],
@@ -429,12 +479,17 @@ class _Builder:
             words=words,
             narrative_hash=digest,
             placeholder=placeholder,
-            sections=parse.text_list(read("sections"))[:MAX_ITEMS],
-            offices=parse.text_list(read("offices"))[:MAX_ITEMS],
+            sections=parse.split_list(read("sections"))[:MAX_ITEMS],
+            offices=parse.split_list(read("offices"))[:MAX_ITEMS],
             pd_reference=parse.as_kind(read("pd_reference"), "text") or "",
             cp_output=parse.as_kind(read("cp_output"), "text") or "",
             team=_unique(lead + team),
             team_unnamed=lead_unnamed + unnamed,
+            modality=parse.as_kind(read("modality"), "text") or "",
+            programme_areas=parse.split_list(read("programme_areas"))[:MAX_ITEMS],
+            point=coordinates(read("latitude"), read("longitude")),
+            location_type=parse.as_kind(read("location_type"), "text") or "",
+            row_answers=answers,
         )
 
     # ------------------------------------------------------------------ joining records to visits
@@ -470,7 +525,7 @@ class _Builder:
                 _add(extra.programme_activities, parse.text_list(read["programme_activity"]))
                 _add(extra.cp_outputs, parse.text_list(read["cp_output"]))
                 _add(extra.pd_references, parse.text_list(read["pd_reference"]))
-                _add(extra.sections, parse.text_list(read["section"]))
+                _add(extra.sections, parse.split_list(read["section"]))
             except Exception as exc:
                 self.failed(f"fm_programme_activities {pk}", exc)
 
@@ -531,8 +586,8 @@ class _Builder:
         is_hact = read("is_hact", "bool")
         if visit_key:
             extra = self.extra[visit_key]
-            _add(extra.sections, parse.text_list(raw("sections")))
-            _add(extra.offices, parse.text_list(raw("offices")))
+            _add(extra.sections, parse.split_list(raw("sections")))
+            _add(extra.offices, parse.split_list(raw("offices")))
         order = read("order", "int")
         return _Answer(
             document_id=pk,
@@ -584,6 +639,7 @@ class _Builder:
                 "pk", "name", "short_name", "vendor_number"
             )
         }
+        self._locations_by_pcode()
         site_ids = {row.site_id for rows in self.rows.values() for row in rows if row.site_id}
         self.sites = {
             s["pk"]: s
@@ -595,8 +651,33 @@ class _Builder:
         location_ids |= {s["parent_id"] for s in self.sites.values() if s["parent_id"]}
         self.gazetteer = _gazetteer(location_ids)
         self.lowest = place.lowest_admin_level()
+        self.lowest_types = place.lowest_type_names(self.lowest)
         self.section_map = sections.confirmed_map()
         self.action_points = self._read_action_points()
+
+    def _locations_by_pcode(self) -> None:
+        """Link to the gazetteer, by their P-code, the rows whose location eTools did not link (the
+        FMM export writes ``location_pcode`` beside the location)."""
+        from neurodb.geo.models import Location
+
+        wanted = {
+            row.location_pcode.strip()
+            for rows in self.rows.values()
+            for row in rows
+            if row.location_id is None and row.location_pcode.strip()
+        }
+        if not wanted:
+            return
+        found = dict(
+            Location.objects.filter(p_code__in=wanted, is_active=True)
+            .order_by("p_code", "pk")
+            .values_list("p_code", "pk")
+        )
+        for rows in self.rows.values():
+            for row in rows:
+                if row.location_id is None and row.location_pcode.strip() in found:
+                    row.location_id = found[row.location_pcode.strip()]
+                    self.counts["location"]["by_pcode"] += 1
 
     def _read_action_points(self) -> dict[int, tuple[ActionPointFacts, Any, str]]:
         from neurodb.datamart.models import ActionPoint
@@ -704,6 +785,12 @@ class _Builder:
         visit.team_unnamed = min(max((r.team_unnamed for r in rows), default=0), 32767)
         visit.is_programmatic = any(r.programmatic for r in rows)
         visit.is_remote = any(r.remote for r in rows)
+        visit.modality = fit(
+            Visit, "modality", _most_frequent(" ".join(r.modality.split()) for r in rows) or ""
+        )
+        visit.programme_areas = fit_list(
+            Visit, "programme_areas", _unique(a for r in rows for a in r.programme_areas)
+        )
         shared = max(
             (len(self.by_reference.get(fm.norm_reference(r.reference), ())) for r in rows), default=0
         )
@@ -769,6 +856,7 @@ class _Builder:
                     narrative_words=row.words,
                     narrative_hash=row.narrative_hash,
                     narrative_placeholder=row.placeholder,
+                    row_answers=row.row_answers,
                 )
             )
         if unknown:
@@ -843,13 +931,30 @@ class _Builder:
             self.counts["governorate"]["linked"] += 1
         else:
             self.counts["governorate"]["via_site_only"] += 1
-        self._point(visit, site, start)
+        self._point(visit, site, start, rows)
 
-    def _point(self, visit: Visit, site: dict | None, start: int | None) -> None:
-        """The visit's point: its site's, else its location's own, else its nearest ancestor's."""
+    def _point(self, visit: Visit, site: dict | None, start: int | None, rows: list[_Row]) -> None:
+        """The visit's point: its site's, else the coordinates written on its rows, else its location's
+        own, else its nearest ancestor's."""
         located_by, level = "", None
+        written = _most_frequent(r.point for r in rows)
         if site and site["latitude"] is not None and site["longitude"] is not None:
             visit.latitude, visit.longitude, located_by = site["latitude"], site["longitude"], "site"
+        elif written is not None:
+            visit.latitude, visit.longitude = written
+            located_by = "location"
+            node = self.gazetteer.get(start) if start else None
+            level = node["type__admin_level"] if node else None
+            kind = _most_frequent(r.location_type for r in rows if r.point == written) or ""
+            visit.located_by, visit.located_level = located_by, level
+            visit.point_precise = place.written_point_precise(
+                written, kind, node, self.gazetteer, self.lowest, self.lowest_types
+            )
+            self.counts["location"]["location"] += 1
+            self.counts["location"]["written"] += 1
+            if visit.point_precise:
+                self.counts["location"]["precise"] += 1
+            return
         else:
             node, hops = self.gazetteer.get(start) if start else None, 0
             first = node
@@ -987,7 +1092,8 @@ class _Builder:
             "reference_conflicts": sum(1 for keys in self.by_reference.values() if len(keys) > 1),
             "rows_without_reference": sum(1 for v in visits if v.key.startswith("f-")),
             "location": {
-                k: counts["location"].get(k, 0) for k in ("site", "location", "ancestor", "none", "precise")
+                k: counts["location"].get(k, 0)
+                for k in ("site", "location", "ancestor", "none", "precise", "written", "by_pcode")
             },
             "governorate": {
                 k: counts["governorate"].get(k, 0) for k in ("linked", "via_site_only", "unlinked")

@@ -23,7 +23,7 @@ from neurodb.assistant.models import AIUsage
 from neurodb.core.models import SyncRun
 from neurodb.datamart.models import MonitoringFinding
 from neurodb.fmm import privacy
-from neurodb.fmm.ai import FMM_NAMED_FIELDS, facts, fallback, insights, profiles
+from neurodb.fmm.ai import FMM_NAMED_FIELDS, facts, fallback, insights, profiles, sections
 from neurodb.fmm.models import Insight, Visit
 from neurodb.fmm.scope import Scope
 from neurodb.integrations import background
@@ -35,6 +35,9 @@ TODAY = datetime.date(2026, 10, 5)
 YEAR = "year=2026&section="
 AI_ON = {"FMM_AI": True, "AI_ASSISTANT_ENABLED": True, "OPENAI_API_KEY": "x"}
 NON_FOOD = "The partner distributed non-food items to families in both centres during the visit."
+PARTS = sections.of(None)  # the parts of the published version (FMS's Lebanon parts)
+SECTIONS = [part["key"] for part in sections.text_parts(PARTS)]
+SCHEMA = sections.schema(PARTS)
 
 
 @pytest.fixture
@@ -119,20 +122,19 @@ def _good(found: facts.Facts) -> dict:
     visit = sorted(found.payload["visits"])[0]
     section = next(iter(found.payload["sections"].values()))["name"]
     return {
-        "coverage_quality": [
+        "coverage_summary": [
             {"text": f"{k['visits']} visits and {k['entities']} entities in the period.", "keys": ["kpi"]}
         ],
-        "programmatic_findings": [{"text": "A visit noted how the classes went.", "keys": [narrative]}],
-        "operational_challenges": [
-            {"text": "One follow-up action point is overdue.", "keys": ["ap:summary"]}
-        ],
+        "key_findings": [{"text": "A visit noted how the classes went.", "keys": [narrative]}],
+        "challenges": [{"text": "One follow-up action point is overdue.", "keys": ["ap:summary"]}],
         "recommendations": [
             {"text": "Complete the general observation before submitting a report.", "keys": ["rule:R1"]}
         ],
-        "priority_actions": [
+        "action_points": [
             {
                 "priority": "High",
                 "section": section,
+                "partner": "",
                 "action": "Follow up the visit's findings with the partner",
                 "owner_role": "Education section lead",
                 "timeframe": "within 2 weeks",
@@ -156,13 +158,27 @@ def test_every_entry_of_the_payload_is_citable_and_shares_are_precomputed(built,
     payload = found.payload
     for name in ("scope", "kpi", "previous", "action_points", "hact"):
         assert payload[name]["key"] in found.citable
-    for name in ("rules", "issues", "sections", "offices", "places", "visits", "narratives"):
+    for name in (
+        "rules",
+        "issues",
+        "sections",
+        "offices",
+        "partners",
+        "modalities",
+        "places",
+        "visits",
+        "narratives",
+    ):
         for key, entry in payload[name].items():
             assert entry["key"] == key and found.citable[key] is entry
     assert set(found.citable) >= {"scope", "kpi", "previous", "ap:summary", "hact:2026", "gap:governorates"}
     kpi = payload["kpi"]
     assert (kpi["visits"], kpi["entities"], kpi["entities_rated"]) == (8, 12, 8)
-    assert kpi["entities_not_monitored_share"] == 33.3 and kpi["avg_quality"] == 64.4
+    assert "entities_not_monitored_share" not in kpi and kpi["avg_quality"] == 64.4
+    # every share of ratings is over the rated visits (entities); Not monitored is a count apart
+    assert (kpi["rated_visits"], kpi["on_track_visits"], kpi["off_track_visits"]) == (5, 3, 2)
+    assert (kpi["on_track_share_of_rated"], kpi["off_track_share_of_rated"]) == (60.0, 40.0)
+    assert kpi["not_monitored_visits"] == 1 and kpi["entities_off_track_share_of_rated"] == 25.0
     assert payload["rules"]["rule:R1"]["flagged_share"] is not None
     assert payload["previous"]["visits_change"] == kpi["visits"] - payload["previous"]["visits"]
     assert (
@@ -177,8 +193,9 @@ def test_every_entry_of_the_payload_is_citable_and_shares_are_precomputed(built,
         "narratives": 3,
         "narratives_allowed": 20,
         "narratives_withheld": 1,  # the note naming people, with contacts and a link
+        "flags": len(payload["issues"]),
+        "flags_allowed": 15,  # comp: the compliance depth
         "visits": 8,
-        "visits_allowed": 15,
     }
 
 
@@ -207,9 +224,7 @@ def test_notes_off_track_first_then_urgent_visits_and_never_the_same_text_twice(
 
 def test_visit_cards_red_first_with_a_cap_per_section(built, ai_on):
     order = facts.card_order(_scope(), 3)
-    visits = {v.pk: v for v in Visit.objects.all()}
-    red = [pk for pk, v in visits.items() if v.urgency >= 70]
-    assert order[0] in red and len(order) == 3
+    assert order[0] == Visit.objects.get(key="1723").pk and len(order) == 3  # the most urgent (amber) first
     cards = facts.cards(_scope(), 15)
     assert len(cards) == 8 and {"team", "visit_lead", "narrative"}.isdisjoint(_keys(cards))
 
@@ -238,12 +253,12 @@ def test_the_request_is_strict_unstored_and_identifies_only_a_person(
         "type": "json_schema",
         "name": "fmm_brief",
         "strict": True,
-        "schema": insights.SCHEMA,
+        "schema": SCHEMA,
     }
-    schema = json.dumps(insights.SCHEMA)
+    schema = json.dumps(SCHEMA)
     assert "$defs" not in schema and "maxItems" not in schema
     assert sent["store"] is False and sent["prompt_cache_key"] == "neurodb-fmm-insights"
-    assert sent["reasoning"] == {"effort": "low"} and sent["max_output_tokens"] == 4000
+    assert sent["reasoning"] == {"effort": "low"} and sent["max_output_tokens"] == 8000
     assert sent["model"] == profiles.model_of(ai_on) and sent["instructions"] == profiles.compose(
         ai_on, "insights"
     )
@@ -268,7 +283,7 @@ def test_a_brief_is_kept_with_what_was_used(built, ai_on, fake_insights_client):
     assert (row.model, row.effort, row.max_output_tokens, row.rules_version) == (
         profiles.model_of(ai_on),
         "low",
-        4000,
+        8000,
         built.details["rules_version"],
     )
     narrative = sorted(found.payload["narratives"])[0]
@@ -290,25 +305,25 @@ def test_grounding_drops_what_the_facts_do_not_say_and_keeps_named_words(built, 
     found = facts.build(_scope(), ai_on, TODAY)
     narrative = next(k for k, n in found.payload["narratives"].items() if "non-food" in n["text"])
     raw = {
-        "coverage_quality": [
+        "coverage_summary": [
             {"text": "There were 777 visits in the period.", "keys": ["kpi"]},
             {"text": "Eight visits were made.", "keys": ["nowhere:1"]},
             {"text": "Karim Canary led most visits.", "keys": ["kpi"]},
             {"text": "Write to karim@example.org for more.", "keys": ["kpi"]},
         ],
-        "programmatic_findings": [
+        "key_findings": [
             {"text": "See https://evil.example/x for the photos.", "keys": ["kpi"]},
             {"text": "**Classes** were full.", "keys": ["kpi"]},
             {"text": "Some items arrived late.", "keys": ["kpi"]},
             {"text": "A visit noted that non-food items reached families.", "keys": [narrative]},
         ],
-        "operational_challenges": [],
+        "challenges": [],
         "recommendations": [{"text": "Keep it up.", "keys": []}],
-        "priority_actions": [],
+        "action_points": [],
     }
     sections, actions, dropped = insights.validate(raw, found, TODAY)
-    assert sections["coverage_quality"] == []
-    assert [s["text"] for s in sections["programmatic_findings"]] == [
+    assert sections["coverage_summary"] == []
+    assert [s["text"] for s in sections["key_findings"]] == [
         "A visit noted that non-food items reached families."
     ]
     assert dropped == {
@@ -331,25 +346,28 @@ def _strings(value):
     return [value] if isinstance(value, str) else []
 
 
-def test_every_visit_the_payload_names_can_be_cited_or_rides_on_its_note(built, ai_on):
-    few = profiles.draft_from(ai_on, None, "One card", comparison_visits=1)
+def test_every_visit_the_payload_names_can_be_cited_or_rides_on_its_note(built, ai_on, monkeypatch):
+    monkeypatch.setattr(facts, "VISIT_CARDS", 1)
+    few = profiles.draft_from(ai_on, None, "One flag", comparison_visits=1)
     found = facts.build(_scope(), few, TODAY)
     carded = set(found.payload["visits"])
-    assert len(carded) == 1
-    # the issues list only visits sent in full: every visit key among them can be cited
+    # comp (the compliance depth) is the number of quality flags; the flag's examples are sent in full
+    assert len(found.payload["issues"]) == 1 and found.sent["flags"] == 1
     listed = {k for issue in found.payload["issues"].values() for k in issue["visit_keys"]}
-    assert listed <= carded and all(k in found.citable for k in listed)
+    assert listed and listed <= carded and all(k in found.citable for k in listed)
+    assert len(carded) <= 1 + len(listed)
     # a note's visit not sent in full: citing it beside its note keeps the sentence, on the note alone
     note = next(n for n in found.payload["narratives"].values() if n["visit"] not in carded)
     raw = {
-        "programmatic_findings": [
+        "key_findings": [
             {"text": "A visit noted how the classes went.", "keys": [note["key"], note["visit"]]},
             {"text": "A visit was made.", "keys": [note["visit"]]},  # on its own: still unknown
         ],
-        "priority_actions": [
+        "action_points": [
             {
                 "priority": "High",
                 "section": "All sections",
+                "partner": "",
                 "action": "Follow up the visit's findings with the partner",
                 "owner_role": "Section lead",
                 "timeframe": "within 2 weeks",
@@ -358,7 +376,7 @@ def test_every_visit_the_payload_names_can_be_cited_or_rides_on_its_note(built, 
         ],
     }
     sections, actions, dropped = insights.validate(raw, found, TODAY)
-    assert sections["programmatic_findings"] == [
+    assert sections["key_findings"] == [
         {"text": "A visit noted how the classes went.", "keys": [note["key"]]}
     ]
     assert [a["keys"] for a in actions] == [[note["key"]]]
@@ -386,7 +404,7 @@ def test_priority_actions_keep_their_enums_and_replace_unknown_sections_and_name
         }
 
     raw = {
-        "priority_actions": [
+        "action_points": [
             action(),
             action(section="Nowhere office", owner_role="Karim Canary"),
             action(owner_role="The 25 monitors"),
@@ -407,10 +425,9 @@ def test_priority_actions_keep_their_enums_and_replace_unknown_sections_and_name
         "section_replaced": 1,
         "owner_replaced": 2,
         "malformed": 2,
-        "no_keys": 1,
-        "too_many": 2,  # at most 6 actions are read
+        "too_many": 3,  # at most 5 action points are read (the version's limit)
     }
-    raw["priority_actions"] = raw["priority_actions"][4:]
+    raw["action_points"] = raw["action_points"][4:]
     _sections, actions, dropped = insights.validate(raw, found, TODAY)
     assert actions == [] and dropped == {"malformed": 1, "no_keys": 1, "unknown_key": 1, "number": 1}
 
@@ -418,7 +435,7 @@ def test_priority_actions_keep_their_enums_and_replace_unknown_sections_and_name
 @pytest.mark.parametrize(
     ("answer", "reason"),
     [
-        (_answer({"coverage_quality": []}, status="incomplete", reason="max_output_tokens"), "cut off"),
+        (_answer({"coverage_summary": []}, status="incomplete", reason="max_output_tokens"), "cut off"),
         (_answer("", output=[SimpleNamespace(content=[SimpleNamespace(type="refusal")])]), "refused"),
         (_answer("this is not JSON"), "malformed"),
     ],
@@ -435,7 +452,7 @@ def test_a_cut_off_refused_or_malformed_answer_fails_and_the_earlier_brief_stays
         rules_version=1,
         input_hash="older data",
         status=Insight.Status.OK,
-        sections={"coverage_quality": [{"text": "Earlier.", "keys": ["kpi"]}]},
+        sections={"coverage_summary": [{"text": "Earlier.", "keys": ["kpi"]}]},
     )
     fake_insights_client(answer)
     row = insights.generate(_scope(), trigger=Insight.Trigger.NIGHTLY, today=TODAY)
@@ -445,18 +462,16 @@ def test_a_cut_off_refused_or_malformed_answer_fails_and_the_earlier_brief_stays
 
 def test_nothing_kept_gives_the_code_written_brief(built, ai_on, fake_insights_client):
     found = facts.build(_scope(), ai_on, TODAY)
-    fake_insights_client(
-        _answer({name: [{"text": "777 visits.", "keys": ["kpi"]}] for name in insights.SECTIONS})
-    )
+    fake_insights_client(_answer({name: [{"text": "777 visits.", "keys": ["kpi"]}] for name in SECTIONS}))
     row = insights.generate(_scope(), trigger=Insight.Trigger.NIGHTLY, today=TODAY)
     assert row.status == Insight.Status.FALLBACK and row.reason == insights.NOTHING_KEPT
     assert row.dropped["number"] == 4
-    written = fallback.brief(found)
+    written = fallback.brief(found, PARTS)
     assert (
-        row.sections["coverage_quality"] == written["coverage_quality"]
-        and row.actions == written["priority_actions"]
+        row.sections["coverage_summary"] == written["sections"]["coverage_summary"]
+        and row.actions == written["actions"]
     )
-    assert row.sections["notes"]["programmatic_findings"] == fallback.FINDINGS_NOTE
+    assert row.sections["notes"]["key_findings"] == fallback.FINDINGS_NOTE
 
 
 def test_every_sentence_of_the_code_written_brief_passes_the_checks(built, ai_on):
@@ -468,33 +483,39 @@ def test_every_sentence_of_the_code_written_brief_passes_the_checks(built, ai_on
     ):
         found = facts.build(_scope(query), None, TODAY, narratives=False)
         written = fallback.brief(found)
-        assert written["programmatic_findings"] == [] and written["coverage_quality"]
-        for name in insights.SECTIONS:
-            for sentence in written[name]:
+        parts = written["sections"]
+        assert parts["key_findings"] == [] and parts["coverage_summary"]
+        for name in SECTIONS:
+            for sentence in parts[name]:
                 cited = [found.citable[k] for k in sentence["keys"]]
                 verdict = grounding.check(sentence["text"], cited, TODAY, privacy.names(), FMM_NAMED_FIELDS)
                 assert verdict, (query, sentence, verdict)
-        sections, actions, dropped = insights.validate(written, found, TODAY)
-        assert actions == written["priority_actions"] and dropped == {}, (query, dropped)
-        assert all(sections[n] == written[n] for n in insights.SECTIONS)
+        raw = {**parts, "action_points": written["actions"]}
+        kept, actions, dropped = insights.validate(raw, found, TODAY)
+        assert actions == written["actions"] and dropped == {}, (query, dropped)
+        assert all(kept[n] == parts[n] for n in SECTIONS)
 
 
 def test_the_code_written_brief_words(built):
     written = fallback.brief(facts.build(_scope(), None, TODAY, narratives=False))
-    texts = [s["text"] for s in written["coverage_quality"]]
-    assert (
-        texts[0]
-        == "8 visits and 12 entities in the period; 8 entities were rated and 4 were not monitored (33.3%)."
-    )
-    assert texts[1] == "6 visits were reported, 1 is in progress and 0 are planned."
-    assert texts[2] == "The average quality score was 64.4% on 6 scored visits."
-    challenges = [s["text"] for s in written["operational_challenges"]]
+    actions = written["actions"]
+    written = written["sections"]
+    texts = [s["text"] for s in written["coverage_summary"]]
+    assert texts[:3] == [
+        "8 visits and 12 entities in the period.",
+        # shares of the rated visits only; Not monitored (planned, not conducted) apart, never a share
+        "Of the 5 rated visits, 3 were On track (60.0%), 0 Constrained (0.0%) and 2 Off track (40.0%).",
+        "1 visit was Not monitored (planned, not conducted), counted apart from the rated visits.",
+    ]
+    assert texts[3] == "6 visits were reported, 1 is in progress and 0 are planned."
+    assert texts[4] == "The average quality score was 64.4% on 6 scored visits."
+    challenges = [s["text"] for s in written["challenges"]]
     assert challenges[0].startswith("R1 flagged 4 visits: Incomplete monitoring report")
-    assert "1 reported visit had no rated entity (a monitoring gap)." in challenges
+    assert not [t for t in texts + challenges if "monitoring gap" in t or "not monitored (" in t]
     assert written["recommendations"][0]["text"] == fallback.RULE_ADVICE["R1"]
-    action = written["priority_actions"][0]
+    action = actions[0]
     assert (action["priority"], action["owner_role"], action["timeframe"]) == (
-        "High",
+        "Medium",
         "Section lead",
         "within 2 weeks",
     )
@@ -578,7 +599,7 @@ def test_the_effort_or_the_service_failing_is_kept_with_a_reason(built, ai_on, f
 def test_the_badges(built, ai_on, fake_insights_client):
     with override_settings(FMM_AI=False):
         shown = insights.current(_scope())
-    assert shown.insight is None and shown.fallback["coverage_quality"]
+    assert shown.insight is None and shown.fallback["sections"]["coverage_summary"]
     assert shown.badge == "Written by NeuroDB from the figures — AI not used: AI is switched off"
     found = facts.build(_scope(), ai_on, TODAY)
     fake_insights_client(_answer(_good(found)))
@@ -593,7 +614,7 @@ def test_the_badges(built, ai_on, fake_insights_client):
     )
     profiles.publish(profiles.draft_from(ai_on, None, "v2"), None)
     shown = insights.current(_scope())
-    assert shown.insight.pk == row.pk and shown.badge == "Written with prompt v1 (now v2)"
+    assert shown.insight.pk == row.pk and shown.badge == "Written with prompt v2 (now v3)"
 
 
 def test_regenerate_starts_a_background_brief_and_the_card_polls_it(
@@ -623,11 +644,11 @@ def test_regenerate_starts_a_background_brief_and_the_card_polls_it(
     assert row.status == Insight.Status.OK
     card = client_viewer.get(f"{url}&running={row.pk}").content.decode()
     assert "every 3s" not in card and "AI monitoring insights" in card
-    assert "A visit noted how the classes went." in card and "Priority action points" in card
+    assert "A visit noted how the classes went." in card and "Priority Action Points" in card
     assert "[PRIORITY: High]" in card and "What was sent" in card
     assert "Up to date" in card and "1 of 5 today" in card and 'class="visit-chip"' in card
     assert "temp 0.30 · applied" in card and "top-p · not set (API default 1.00)" in card
-    assert "narr 3/20" in card and "comp 8/15" in card and "prompt v1" in card
+    assert "narr 3/20" in card and f"comp {row.sent['flags']}/15" in card and "prompt v2" in card
 
 
 def test_a_stopped_brief_is_shown_as_stopped(built, ai_on, client_viewer, viewer):
@@ -663,7 +684,7 @@ def test_the_card_follows_only_a_brief_of_its_own_filter(built, ai_on, client_vi
 def test_a_code_written_brief_from_the_same_data_may_be_regenerated(
     built, ai_on, client_viewer, fake_insights_client
 ):
-    fake_insights_client(_answer({name: [] for name in [*insights.SECTIONS, "priority_actions"]}))
+    fake_insights_client(_answer({name: [] for name in [*SECTIONS, "action_points"]}))
     row = insights.generate(_scope(), trigger=Insight.Trigger.NIGHTLY, today=TODAY)
     assert row.status == Insight.Status.FALLBACK
     html = client_viewer.get(f"{reverse('fmm:insights')}?{YEAR}").content.decode()
@@ -903,7 +924,9 @@ def test_the_preview_shows_the_facts_without_a_call(built, ai_on, admin_client, 
     ).content.decode()
     assert "The brief: the facts sent for this filter" in html and "&quot;key&quot;: &quot;kpi&quot;" in html
     assert (
-        "Monitors' notes sent: 3 of 20 allowed (1 withheld" in html and "Visits sent in full: 8 of 15" in html
+        "Monitors' notes sent: 3 of 20 allowed (1 withheld" in html
+        and "Quality flags sent (compliance depth): " in html
+        and "Visits sent in full: 8" in html
     )
     assert "input tokens" in html and "Start the test run" in html
     assert Insight.objects.count() == before
@@ -953,7 +976,7 @@ def test_the_strict_format_goes_through_the_real_sdk(built, ai_on, monkeypatch):
         "type": "json_schema",
         "name": "fmm_brief",
         "strict": True,
-        "schema": insights.SCHEMA,
+        "schema": SCHEMA,
     }
 
     def strict(node):  # what strict mode requires of every object: closed, every property required

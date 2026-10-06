@@ -17,8 +17,8 @@
       <td class="small text-nowrap">{{ v.end_date|date:"j M Y"|default:"—" }}</td>
       <td>{% if v.partner %}<span data-synced>{{ v.partner.short_name|default:v.partner.name }}</span>{% else %}—{% endif %}</td>
       <td class="text-nowrap">{% status_pill v.rating v.rating_label "sm" %}<span class="cell-sub">{% if v.not_rated_yet %}{% blocktrans with day=v.end_date|date:"j M Y"|default:"—" %}ends {{ day }}{% endblocktrans %}{% else %}{% blocktrans with day=v.end_date|date:"j M Y"|default:"—" %}rated {{ day }}{% endblocktrans %}{% endif %}</span></td>
-      <td class="text-nowrap">{% if v.quality_score is not None %}<span class="fmm-score fmm-score--{{ v.score_band|default:'none' }}">{{ v.quality_score|percent }}</span>{% else %}<span class="text-muted" title="{{ v.not_scored_reason }}">—</span>{% endif %}</td>
-      <td><span class="pill pill--sm pill--{% if v.row_band == 'red' %}danger{% elif v.row_band == 'amber' %}warning{% else %}neutral{% endif %}" title="{{ v.urgency_title }}">{{ v.urgency }}</span></td>
+      <td class="text-nowrap">{% if v.quality_score is not None %}<span class="fmm-score fmm-score--{{ v.score_band|default:'none' }}">{{ v.quality_score|percent }}</span>{% elif v.score_band == "pending" %}<span class="pill pill--sm pill--neutral" title="{{ v.not_scored_reason }}">{% trans "Pending" %}</span>{% else %}<span class="text-muted" title="{{ v.not_scored_reason }}">—</span>{% endif %}</td>
+      <td><span class="pill pill--sm pill--{% if v.row_band == 'red' %}danger{% elif v.row_band == 'amber' %}warning{% else %}neutral{% endif %}" title="{{ v.urgency_title }}">{{ v.urgency|default_if_none:"—" }}</span></td>
       <td>{% if v.flags %}{% for f in v.flags %}<span class="pill pill--sm pill--danger">{{ f }}</span> {% endfor %}{% elif v.evaluated_rules %}<span class="text-success small">✓ {% trans "No flags" %}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
     </tr>{% endfor %}</tbody>
   </table></div>

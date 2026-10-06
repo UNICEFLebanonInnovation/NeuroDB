@@ -1,4 +1,4 @@
 {% load i18n ui %}
 <div class="kpi-grid fmm-kpis">
-  {% for tile in kpi_tiles %}{% include "components/kpi_tile.html" with label=tile.label value=tile.value hint=tile.hint href=tile.href status=tile.status unit=tile.unit %}{% endfor %}
+  {% for tile in kpi_tiles %}{% include "components/kpi_tile.html" with label=tile.label value=tile.value hint=tile.hint href=tile.href status=tile.status unit=tile.unit more_href=tile.more_href more_label=tile.more_label %}{% endfor %}
 </div>

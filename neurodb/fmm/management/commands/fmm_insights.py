@@ -106,6 +106,6 @@ class Command(BaseCommand):
                 f"{scope.label()}: {len(dump(facts.payload)):,} characters, about "
                 f"{budget.estimate(facts, version):,} tokens with the output; notes "
                 f"{facts.sent['narratives']}/{facts.sent['narratives_allowed']} "
-                f"({facts.sent['narratives_withheld']} withheld), visits "
-                f"{facts.sent['visits']}/{facts.sent['visits_allowed']}"
+                f"({facts.sent['narratives_withheld']} withheld), quality flags "
+                f"{facts.sent['flags']}/{facts.sent['flags_allowed']}, visits {facts.sent['visits']}"
             )

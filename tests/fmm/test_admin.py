@@ -366,6 +366,8 @@ def test_score_settings_open_their_one_row_and_save_as_a_version(admin_client, a
             "urgency_red",
             "urgency_amber",
             "urgency_weights",
+            "recency_days",
+            "scored_statuses",
             "follow_up_days",
             "report_late_days",
             "question_patterns",
@@ -381,6 +383,43 @@ def test_score_settings_open_their_one_row_and_save_as_a_version(admin_client, a
     assert response.status_code == 302 and ScoreSetting.load().urgency_red == 75
     assert RuleSetVersion.objects.get(number=2).snapshot["score"]["urgency_red"] == 75
     assert admin_client.get(reverse("admin:fmm_scoresetting_add")).status_code == 403
+
+
+def test_score_settings_take_fms_urgency_weights_and_scored_statuses(admin_client):
+    """Release 2 (A3, A4): the weights are three numbers that add up to 1, the scored statuses a choice
+    of eTools statuses; both are versioned with the other settings."""
+    setting = ScoreSetting.load()
+    assert setting.urgency_weights == {"quality_gap": 0.5, "recency": 0.3, "red_flags": 0.2}
+    assert setting.scored_statuses == ["report_finalization", "completed"] and setting.recency_days == 180
+    url = reverse("admin:fmm_scoresetting_change", args=[setting.pk])
+    data = {
+        "min_evaluated_points": 30,
+        "band_high": 80,
+        "band_medium": 50,
+        "high_flag_count": 3,
+        "urgency_red": 70,
+        "urgency_amber": 40,
+        "urgency_weights": json.dumps({"quality_gap": 0.5, "recency": 0.3, "red_flags": 0.3}),
+        "recency_days": 90,
+        "scored_statuses": ["submitted", "completed"],
+        "follow_up_days": 14,
+        "report_late_days": 30,
+        "question_patterns": json.dumps(setting.question_patterns),
+        "role_flag_answers": json.dumps(setting.role_flag_answers),
+        "change_note": "Submitted reports scored too",
+    }
+    html = admin_client.post(url, data).content.decode()
+    assert "add up to 1" in html
+    html = admin_client.post(url, {**data, "scored_statuses": ["cancelled"]}).content.decode()
+    assert "cancelled" in html and ScoreSetting.load().recency_days == 180
+    weights = {"quality_gap": 0.6, "recency": 0.2, "red_flags": 0.2}
+    response = admin_client.post(url, {**data, "urgency_weights": json.dumps(weights)})
+    assert response.status_code == 302
+    setting = ScoreSetting.load()
+    assert setting.urgency_weights == weights and setting.recency_days == 90
+    assert setting.scored_statuses == ["submitted", "completed"]
+    snapshot = RuleSetVersion.objects.order_by("-number").first().snapshot["score"]
+    assert snapshot["scored_statuses"] == ["submitted", "completed"] and snapshot["recency_days"] == 90
 
 
 def test_staff_who_may_only_view_read_the_rules(client, roles):

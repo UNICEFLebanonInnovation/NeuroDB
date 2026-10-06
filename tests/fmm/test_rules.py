@@ -382,7 +382,9 @@ def test_evaluate_gives_off_and_not_applicable():
     assert out["R2"].status == "off" and out["R1"].status == "pass"
     planned = rules.evaluate(facts([entity()], status_group="planned", scorable=False), book, CTX)
     assert {o.status for o in planned if o.rule != "R2"} == {"nap"}
-    assert {o.detail for o in planned if o.status == "nap"} == {"The visit is not reported yet."}
+    assert {o.detail for o in planned if o.status == "nap"} == {
+        "Pending: the visit's status is not one of the scored statuses (Score settings)."
+    }
     cancelled = rules.evaluate(facts([entity()], status_group="cancelled", scorable=False), book, CTX)
     assert {o.detail for o in cancelled if o.status == "nap"} == {"The visit was cancelled."}
 

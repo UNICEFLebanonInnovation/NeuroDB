@@ -27,7 +27,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Max
 from django.utils import timezone
 
-from . import fields, parse, rules
+from . import fields, parse, rules, score
 from .models import FieldMapping, RuleSetting, RuleSetVersion, ScoreSetting, Visit
 
 ROLE_LABELS = {"q1": "Q1", "q2": "Q2", "q3": "Q3", "psea": "PSEA"}
@@ -40,6 +40,8 @@ SCORE_FIELDS = (
     "urgency_red",
     "urgency_amber",
     "urgency_weights",
+    "recency_days",
+    "scored_statuses",
     "follow_up_days",
     "report_late_days",
     "question_patterns",
@@ -140,9 +142,12 @@ def restore_rules(version: RuleSetVersion, user, note: str = "") -> RuleSetVersi
                 values["threshold"] = Decimal(str(values["threshold"]))
             RuleSetting.objects.update_or_create(code=code, defaults={**values, "updated_by": _user(user)})
         setting = ScoreSetting.load()
+        weights = setting.urgency_weights
         for name, value in (snapshot.get("score") or {}).items():
             if name in SCORE_FIELDS:
                 setattr(setting, name, value)
+        if not score.valid_weights(setting.urgency_weights):  # a version saved before Release 2's urgency
+            setting.urgency_weights = weights
         setting.updated_by = _user(user)
         setting.save()
         changed = _restore_mappings(snapshot.get("mappings") or {}, user)

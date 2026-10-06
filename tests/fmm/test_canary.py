@@ -101,11 +101,11 @@ def _brief(monkeypatch) -> list[dict]:
         sent.append(params)
         sentence = {"text": echo, "keys": ["kpi"]}
         answer = {
-            "coverage_quality": [sentence, {"text": "Eight visits in the period.", "keys": ["kpi"]}],
-            "programmatic_findings": [sentence],
-            "operational_challenges": [sentence],
+            "coverage_summary": [sentence, {"text": "Eight visits in the period.", "keys": ["kpi"]}],
+            "key_findings": [sentence],
+            "challenges": [sentence],
             "recommendations": [sentence],
-            "priority_actions": [
+            "action_points": [
                 {
                     "priority": "High",
                     "section": "Education",
@@ -117,6 +117,7 @@ def _brief(monkeypatch) -> list[dict]:
                 {
                     "priority": "High",
                     "section": LEAD,
+                    "partner": MEMBER,  # a person is never a partner the facts name: left out
                     "action": "Follow up the visits rated off track",
                     "owner_role": f"{LEAD}, {MEMBER_EMAIL}",
                     "timeframe": "within 2 weeks",

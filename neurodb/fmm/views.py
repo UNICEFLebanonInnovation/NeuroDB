@@ -52,10 +52,14 @@ from .models import Insight, RuleSetting, ScoreSetting, Visit, VisitActionPoint,
 from .scope import (
     DRILL_KEYS,
     KIND_LABELS,
+    QUALITY_BANDS,
+    QUALITY_LABELS,
     RATING_LABELS,
     RATINGS,
     STATUS_GROUPS,
     STATUS_LABELS,
+    URGENCY_LABELS,
+    URGENCY_LEVELS,
     Scope,
     _drill_ok,
     options,
@@ -71,13 +75,13 @@ TABS = [
     ("map", gettext_lazy("Map")),
 ]
 PAGE_SIZE = 50
-SORTS = {
-    "-urgency": (F("urgency").desc(), F("end_date").desc(nulls_last=True)),
-    "urgency": (F("urgency").asc(), F("end_date").desc(nulls_last=True)),
+SORTS = {  # a visit without a score has no urgency: it comes after every urgency, either way
+    "-urgency": (F("urgency").desc(nulls_last=True), F("end_date").desc(nulls_last=True)),
+    "urgency": (F("urgency").asc(nulls_last=True), F("end_date").desc(nulls_last=True)),
     "-date": (F("end_date").desc(nulls_last=True),),
     "date": (F("end_date").asc(nulls_last=True),),
-    "-quality": (F("quality_score").desc(nulls_last=True), F("urgency").desc()),
-    "quality": (F("quality_score").asc(nulls_last=True), F("urgency").desc()),
+    "-quality": (F("quality_score").desc(nulls_last=True), F("urgency").desc(nulls_last=True)),
+    "quality": (F("quality_score").asc(nulls_last=True), F("urgency").desc(nulls_last=True)),
     "partner": (F("partner__short_name").asc(nulls_last=True), F("end_date").desc(nulls_last=True)),
 }
 DEFAULT_SORT = "-urgency"
@@ -112,11 +116,9 @@ CSV_HEADER = (
     "Reviewed on",
 )
 URGENCY_PARTS = {
-    "rating": gettext_lazy("rating"),
-    "quality": gettext_lazy("quality"),
-    "flags": gettext_lazy("flags"),
-    "follow_up": gettext_lazy("follow-up"),
-    "report_late": gettext_lazy("report late"),
+    "quality_gap": gettext_lazy("quality gap"),
+    "recency": gettext_lazy("recency"),
+    "red_flags": gettext_lazy("red flags"),
 }
 RULE_STATES = {
     "pass": gettext_lazy("Passed"),
@@ -147,11 +149,25 @@ LOCATED = {
     "location": gettext_lazy("placed by its location"),
 }
 ROLE_LABELS = {"q1": "HACT Q1", "q2": "Q2", "q3": "Q3", "psea": "PSEA"}
+# The answers eTools writes on a finding row (its FMM export), shown under each entity of the visit page
+ROW_TEXTS = (
+    ("q1_answer", gettext_lazy("Q1 – Implementation status")),
+    ("q2_answer", gettext_lazy("Q2 – Activities monitored")),
+    ("q3_answer", gettext_lazy("Q3 – Observations and action points")),
+    ("supplies", gettext_lazy("Supplies")),
+    ("psea", gettext_lazy("PSEA")),
+)
+VISIT_TEXTS = (("visit_goals", gettext_lazy("Visit goals")), ("objective", gettext_lazy("Objective")))
 Q1_FROM = {
     "partner": gettext_lazy("given for the partner"),
     "visit": gettext_lazy("given for the whole visit"),
 }
-BANDS = {"high": gettext_lazy("High"), "medium": gettext_lazy("Medium"), "low": gettext_lazy("Low")}
+BANDS = {
+    "high": gettext_lazy("High"),
+    "medium": gettext_lazy("Medium"),
+    "low": gettext_lazy("Low"),
+    "pending": gettext_lazy("Pending"),
+}
 APPLIES = {"partner": gettext_lazy("for the partner"), "visit": gettext_lazy("for the whole visit")}
 DRILL_LABELS = {
     "month": gettext_lazy("Month"),
@@ -209,6 +225,8 @@ def _reference(scope: Scope, snap: status.Snapshot) -> dict[str, Any]:
     refresh = snap.last_refresh
     return {
         "label": scope.label(),
+        # "Data available from X to Y": the visits' dates, for all time and custom dates
+        "window": metrics.data_window(scope) if scope.preset in ("all_time", "custom") else None,
         "synced": snap.fm_synced,
         "refresh": refresh,
         "rules_version": (refresh.details or {}).get("rules_version") if refresh else None,
@@ -219,16 +237,50 @@ def _reference(scope: Scope, snap: status.Snapshot) -> dict[str, Any]:
 
 def _how(setting: ScoreSetting, rules: list[RuleSetting] | None = None) -> dict[str, Any]:
     """What the "How scores work" window lists: each rule as administrators set it and the thresholds."""
+    from .score import scored_statuses_of, weights_of
+
     return {
         "rules": rules if rules is not None else list(RuleSetting.objects.order_by("code")),
         "setting": setting,
+        "scored": [code_label(code) for code in fm.STATUSES if code in scored_statuses_of(setting)],
+        "weights": {name: round(100 * value) for name, value in weights_of(setting).items()},
     }
 
 
 def urgency_text(parts: dict[str, Any] | None) -> str:
-    """ "rating 40 · quality 8 · flags 5 · follow-up 20": the parts of an urgency that count."""
-    out = [f"{URGENCY_PARTS.get(k, k)} {v}" for k, v in (parts or {}).items() if v]
+    """ "quality gap 30 · recency 25 · red flags 10": the weighted parts of an urgency that count."""
+    from neurodb.web.templatetags.ui import number
+
+    parts = parts or {}
+    names = [k for k in URGENCY_PARTS if k in parts] + [k for k in parts if k not in URGENCY_PARTS]
+    out = [f"{URGENCY_PARTS.get(k, k)} {number(parts[k], 1)}" for k in names if parts[k]]
     return " · ".join(out) or _("nothing adds to it")
+
+
+def urgency_band(urgency: int | None, limits: dict[str, int]) -> str:
+    """red, amber or "" for an urgency under the thresholds set now; "" for a visit without one."""
+    if urgency is None:
+        return ""
+    return "red" if urgency >= limits["red"] else "amber" if urgency >= limits["amber"] else ""
+
+
+SIGNALS = {
+    "no_follow_up": gettext_lazy("No follow-up action point yet for an off-track or constrained visit"),
+    "ap_overdue": gettext_lazy("Overdue action points: %(n)s"),
+    "ap_high_overdue": gettext_lazy("of them high priority: %(n)s"),
+    "ap_high_open": gettext_lazy("High-priority action points open: %(n)s"),
+    "report_late_days": gettext_lazy("Report late: the visit ended %(n)s days ago and is not reported"),
+}
+
+
+def signal_lines(signals: dict[str, Any] | None) -> list[str]:
+    """The visit's follow-up and late-report signals in words (they are not part of its urgency)."""
+    out = []
+    for key, text in SIGNALS.items():
+        value = (signals or {}).get(key)
+        if value:
+            out.append(str(text) % {"n": value} if "%(n)s" in str(text) else str(text))
+    return out
 
 
 def _not_rated_yet(code: str, status_group: str) -> bool:
@@ -256,7 +308,7 @@ def _decorate(visits: list[Visit], limits: dict[str, int]) -> None:
     for v in visits:
         v.review = reviews.get(v.key)
         v.urgency_title = urgency_text(v.urgency_parts)
-        v.row_band = "red" if v.urgency >= limits["red"] else "amber" if v.urgency >= limits["amber"] else ""
+        v.row_band = urgency_band(v.urgency, limits)
         v.rating_label = rating_label(v.rating, v.status_group)
         v.not_rated_yet = _not_rated_yet(v.rating, v.status_group)
         v.team_shown = v.team[:2]
@@ -380,8 +432,112 @@ def _kpi_tiles(scope: Scope, k: dict[str, Any]) -> list[dict[str, Any]]:
             },
             "href": f"{reverse('fmm:dashboard')}?{_page_query(urgent, tab='visits')}",
             "status": "off_track" if k["high_urgency"] else "",
+            "more_href": f"{reverse('fmm:dashboard')}?{_page_query(urgent, tab='visits')}",
+            "more_label": _("View urgent visits →"),
         },
     ]
+
+
+BRIEFING_TILES = (  # (key, label, definition): the morning briefing (FMS §7.1), in its order
+    ("critical", gettext_lazy("Critical flags"), gettext_lazy("Visits with urgency %(red)s or more.")),
+    (
+        "avg_quality",
+        gettext_lazy("Avg quality"),
+        gettext_lazy("The mean quality score (0–100) of the scored visits."),
+    ),
+    ("low", gettext_lazy("Low quality visits"), gettext_lazy("Scored visits below %(low)s.")),
+    (
+        "critical_partners",
+        gettext_lazy("Critical partners"),
+        gettext_lazy("Partners with at least one visit of urgency %(red)s or more."),
+    ),
+    ("visits", gettext_lazy("Monitoring visits"), gettext_lazy("Visits, whatever their status.")),
+    (
+        "review",
+        gettext_lazy("Pending report review"),
+        gettext_lazy("Visits at review status only: reports awaiting the reviewer's sign-off."),
+    ),
+    ("submitted", gettext_lazy("Submitted"), gettext_lazy("Visits at submitted status.")),
+    (
+        "data_collection",
+        gettext_lazy("Data collection"),
+        gettext_lazy("Visits at data collection status: monitors collecting data."),
+    ),
+    (
+        "assigned",
+        gettext_lazy("Assigned"),
+        gettext_lazy("Visits at assigned status: data collection not started."),
+    ),
+    ("completed", gettext_lazy("Completed"), gettext_lazy("Visits at completed status.")),
+)
+
+
+def _briefing(scope: Scope, when: str, limits: dict[str, int]) -> dict[str, Any]:
+    """The morning briefing's tiles, each with its definition and the visits behind it, the top
+    critical partners (each opening the page filtered on it) and the quality by governorate."""
+    from dataclasses import replace
+
+    from neurodb.web.templatetags.ui import number, percent
+
+    data = metrics.briefing(scope, when, limits)
+    year = metrics.briefing_scope(scope)
+    words = {"red": data["red_at"], "low": data["low_below"]}
+    urgent = drill_url(year, urgency_level="high")
+    values = {
+        "critical": (number(data["critical"]), urgent if data["critical"] else ""),
+        "avg_quality": (
+            percent(data["avg_quality"]) if data["avg_quality"] is not None else "—",
+            f"{reverse('fmm:dashboard')}?{_page_query(year, tab='visits', sort='quality')}",
+        ),
+        "low": (number(data["low"]), drill_url(year, quality="low") if data["low"] else ""),
+        "critical_partners": (number(data["critical_partners"]), urgent if data["critical_partners"] else ""),
+        "visits": (number(data["visits"]), drill_url(year) if data["visits"] else ""),
+    }
+    for code, n in data["statuses"].items():
+        values[code] = (number(n), drill_url(year, visit_status=code) if n else "")
+    tiles = [
+        {
+            "key": key,
+            "label": label,
+            "info": str(info) % words,
+            "value": values[key][0],
+            "url": values[key][1],
+        }
+        for key, label, info in BRIEFING_TILES
+    ]
+    partners = [
+        {
+            **p,
+            "url": f"{reverse('fmm:dashboard')}?"
+            + _page_query(replace(year, partners=(p["id"],)), tab="visits"),
+        }
+        for p in data["top_partners"]
+    ]
+    governorates = [
+        {
+            **g,
+            "url": f"{reverse('fmm:dashboard')}?"
+            + _page_query(replace(year, governorate=g["key"]), tab="visits"),
+        }
+        for g in data["governorates"]
+    ]
+    return {
+        "tiles": tiles,
+        "partners": partners,
+        "governorates": governorates,
+        "start": data["start"],
+        "end": data["end"],
+        "filters": _filters_in_words(replace(scope, drill=())),
+    }
+
+
+def _filters_in_words(scope: Scope) -> str:
+    """The page's filters besides the period, in words ("" when there is none): the briefing keeps
+    them."""
+    from .ai.facts import filters_text
+
+    text = filters_text(scope, frozenset())
+    return "" if text == "All visits" else text
 
 
 def _page_query(scope: Scope, **extra: Any) -> str:
@@ -424,6 +580,7 @@ def _results_context(
         }
     )
     if tab == "insights":
+        context["briefing"] = _briefing(scope, when, limits)
         context["chat"] = _chat_context(request, scope)
     elif tab == "visits":
         context.update(_table(request, scope, limits, count=kpis["visits"]))
@@ -525,6 +682,9 @@ DRILL_FILTERS = {
     "office": "offices",
     "section": "sections",
     "entity_type": "entity_types",
+    "modality": "modalities",
+    "quality": "quality_bands",
+    "urgency_level": "urgency_levels",
 }
 
 
@@ -647,14 +807,19 @@ def _quality_tab(
         for r in metrics.rule_analysis(scope, rules, when)
     ]
     flags = metrics.flag_distribution(scope, when, limits)
-    narrow = _narrowed(scope, {"rating": "not_monitored", "status": "reported"})
+    # Not monitored: planned, not conducted (a reported visit with nothing rated), a count apart
+    narrow = _narrowed(scope, {"rating": "not_monitored"})
+    not_monitored = issues["gaps"]["n"]
+    not_monitored_url = f"{reverse('fmm:drill')}?{narrow.query}" if not_monitored else ""
     return {
         "chart_data": {
             "monthly_quality": metrics.monthly_quality(scope, when, limits),
             "monthly_volume": metrics.monthly_volume(scope, when, limits),
             "q1": {k: v for k, v in (q1 or {}).items() if k != "totals"},
             "buckets": buckets["items"],
+            "rule_trends": metrics.rule_trends(scope, rules, when),
         },
+        "rule_trend_template": _drill_template(scope, "month", "rule") + "&month={drill}&rule={series_drill}",
         "month_template": _drill_template(scope, "month") + "&month={drill}",
         "q1_key": q1_key,
         "q1_template": q1_template,
@@ -662,6 +827,15 @@ def _quality_tab(
         "q1_totals": [
             {**t, "url": f"{_drill_template(scope, q1_key)}&{q1_key}={t['code']}" if t["n"] else ""}
             for t in (q1 or {}).get("totals", ())
+            if t["code"] != "not_monitored"
+        ]
+        + [
+            {
+                "code": "not_monitored",
+                "label": _("Not Monitored"),
+                "n": not_monitored,
+                "url": not_monitored_url,
+            }
         ],
         "bucket_template": _drill_template(scope, "bucket") + "&bucket={drill}",
         "not_scored": buckets["not_scored"],
@@ -679,7 +853,7 @@ def _quality_tab(
         "issues_summary": {
             **issues,
             "r6_url": drill_url(scope, flag="R6") if issues["r6"]["n"] else "",
-            "gaps_url": f"{reverse('fmm:drill')}?{narrow.query}" if issues["gaps"]["n"] else "",
+            "gaps_url": not_monitored_url,
             "high_flag_url": drill_url(scope, flags=f"{issues['high_flag']['at']}+")
             if issues["high_flag"]["n"]
             else "",
@@ -803,7 +977,7 @@ def _analysis_tab(
         "office_badges": _with_urls(metrics.office_rule_badges(scope, rules, when, limits), scope, "office"),
         "section_rows": section_rows,
         "places": _places(scope, "analysis", places, place_rows, _places_all(request)),
-        "rating_rows": _with_urls(metrics.quality_by_rating(scope, when, limits), scope, "rating", "code"),
+        "rating_rows": _rating_rows(scope, when, limits),
         "flag_frequency": flag_frequency,
         "flag_template": _drill_template(scope, "flag") + "&flag={drill}",
         "dimensions": metrics.dimension_breakdown(scope, rules, when),
@@ -822,6 +996,12 @@ def _analysis_tab(
         "assurance_url": f"{reverse('reports:assurance')}?hact_year={hact['year']}",
         "action_points_url": f"{reverse('reports:action_points')}?module=fm",
     }
+
+
+def _rating_rows(scope: Scope, when: str, limits: dict[str, int]) -> list[dict[str, Any]]:
+    """Quality by finding rating, each row opening its visits (a row of no visit opens nothing)."""
+    rows = _with_urls(metrics.quality_by_rating(scope, when, limits), scope, "rating", "code")
+    return [{**row, "url": row["url"] if row["visits"] else ""} for row in rows]
 
 
 def _map_tab(request: HttpRequest, scope: Scope, when: str) -> dict[str, Any]:
@@ -863,7 +1043,13 @@ def _map_tab(request: HttpRequest, scope: Scope, when: str) -> dict[str, Any]:
 
 
 DRILL_ROWS = 50
-DRILL_VALUES = {"rating": RATINGS, "status": STATUS_GROUPS, "entity_type": tuple(KIND_LABELS)}
+DRILL_VALUES = {
+    "rating": RATINGS,
+    "status": STATUS_GROUPS,
+    "entity_type": tuple(KIND_LABELS),
+    "quality": QUALITY_BANDS,
+    "urgency_level": URGENCY_LEVELS,
+}
 
 
 def _drill_error(params) -> str:
@@ -911,7 +1097,8 @@ def drill(request: HttpRequest) -> HttpResponse:
 
 
 def _filter_chips(scope: Scope) -> list[dict[str, str]]:
-    """The filters a drill-down narrowed, in words (rating, status, office, section, entity type)."""
+    """The filters a drill-down narrowed, in words (rating, status, office, section, entity type,
+    modality, quality band, urgency level)."""
     out = []
     for value in scope.ratings:
         out.append({"label": f"{_('Rating')}: {rating_label(value)}"})
@@ -923,6 +1110,12 @@ def _filter_chips(scope: Scope) -> list[dict[str, str]]:
         out.append({"label": f"{_('Section')}: {_('No section') if value == 'none' else value}"})
     for value in scope.entity_types:
         out.append({"label": f"{_('Entity type')}: {KIND_LABELS.get(value, value)}"})
+    for value in scope.modalities:
+        out.append({"label": f"{_('Modality')}: {_('Modality not known') if value == 'none' else value}"})
+    for value in scope.quality_bands:
+        out.append({"label": f"{_('Quality')}: {_(QUALITY_LABELS.get(value, value))}"})
+    for value in scope.urgency_levels:
+        out.append({"label": f"{_('Urgency')}: {_(URGENCY_LABELS.get(value, value))}"})
     return out
 
 
@@ -949,6 +1142,8 @@ def dashboard(request: HttpRequest) -> HttpResponse:
             "kind_labels": KIND_LABELS,
             "rating_labels": RATING_LABELS,
             "status_labels": STATUS_LABELS,
+            "quality_labels": QUALITY_LABELS,
+            "urgency_labels": URGENCY_LABELS,
         }
     )
     return render(request, "fmm/dashboard.html", context)
@@ -1051,16 +1246,20 @@ def _visit_context(request: HttpRequest, v: Visit) -> dict[str, Any]:
     v.rating_label = rating_label(v.rating, v.status_group)
     v.not_rated_yet = _not_rated_yet(v.rating, v.status_group)
     v.urgency_title = urgency_text(v.urgency_parts)
-    v.row_band = "red" if v.urgency >= limits["red"] else "amber" if v.urgency >= limits["amber"] else ""
+    v.row_band = urgency_band(v.urgency, limits)
+    v.signal_lines = signal_lines(v.signals)
     status_as_of = _day(v.last_modified) or _day(_last_fm_sync())
 
     entities = list(v.entity_rows.select_related("pd", "partner").order_by("datamart_id"))
-    texts = dict(
-        MonitoringFinding.objects.filter(pk__in=[e.finding_id for e in entities if e.finding_id]).values_list(
-            "pk", "narrative_finding"
-        )
-    )
+    found_rows = MonitoringFinding.objects.filter(pk__in=[e.finding_id for e in entities if e.finding_id])
+    texts, records = {}, {}
+    for pk, narrative, data in found_rows.values_list("pk", "narrative_finding", "data"):
+        texts[pk], records[pk] = narrative, data
+    visit_texts: dict[str, str] = {}
     for e in entities:
+        e.row_texts = _row_texts(records.get(e.finding_id), ROW_TEXTS, people)
+        for _name, label, text in _row_texts(records.get(e.finding_id), VISIT_TEXTS, people):
+            visit_texts.setdefault(str(label), text)
         e.kind_label = KIND_LABELS.get(e.kind, e.kind)
         e.rating_label = rating_label(e.rating, v.status_group)
         e.not_rated_yet = _not_rated_yet(e.rating, v.status_group)
@@ -1098,6 +1297,7 @@ def _visit_context(request: HttpRequest, v: Visit) -> dict[str, Any]:
     )
     return {
         "visit": v,
+        "visit_texts": list(visit_texts.items()),
         "status_label": code_label(v.status) if v.status else _(STATUS_LABELS.get(v.status_group, "")),
         "hact_q1_label": _(RATING_LABELS.get(v.hact_q1, "Other")) if v.hact_q1 else "",
         "band_label": BANDS.get(v.score_band, ""),
@@ -1134,6 +1334,25 @@ def _visit_context(request: HttpRequest, v: Visit) -> dict[str, Any]:
         ),
         "limits": limits,
     }
+
+
+def _row_texts(record: Any, wanted, people) -> list[tuple[str, Any, str]]:
+    """(field, label, text) of each answer of ``wanted`` that a finding row's record holds, read under
+    the key Fields found chose, e-mail addresses hidden; for staff, on the visit page only."""
+    from neurodb.datamart import catalogue
+
+    from . import fields, parse
+
+    if not isinstance(record, dict):
+        return []
+    data = catalogue.scrub(record)
+    out = []
+    for name, label in wanted:
+        key = fields.key_for("field_monitoring", name)
+        text = parse.value(data, key, "text") if key else None
+        if text:
+            out.append((name, label, people.EMAIL.sub(people.EMAIL_WITHHELD, text)))
+    return out
 
 
 def _pd_context(v: Visit) -> list[dict[str, Any]]:
@@ -1462,10 +1681,21 @@ def _visit_names(keys: set[str]) -> dict[str, str]:
     return dict(Visit.objects.filter(key__in=list(keys)).values_list("key", "label")) if keys else {}
 
 
-def _brief_blocks(data: dict[str, Any], actions: list[dict]) -> tuple[list[dict], list[dict]]:
-    """The four sections and the priority actions of a brief, each sentence with its visit chips."""
+def _brief_blocks(
+    data: dict[str, Any], actions: list[dict], parts: list[dict[str, Any]]
+) -> tuple[list[dict], list[dict]]:
+    """The parts of a brief (its version's: label, paragraph or bullets) and its priority action
+    points, each sentence and action with its visit chips; an action written out as
+    "[PRIORITY: High] Section / Partner — action — responsible — timeframe"."""
+    from .ai import sections as sections_module
+
     wanted: set[str] = set()
-    for entry in [s for n in ai_insights.SECTIONS for s in (data.get(n) or [])] + list(actions or []):
+    for name, entries in data.items():
+        if name == "notes" or not isinstance(entries, list):
+            continue
+        for entry in entries:
+            wanted.update(filter(None, (ai_insights.visit_key_of(k) for k in entry.get("keys") or ())))
+    for entry in actions or []:
         wanted.update(filter(None, (ai_insights.visit_key_of(k) for k in entry.get("keys") or ())))
     labels = _visit_names(wanted)
 
@@ -1481,18 +1711,22 @@ def _brief_blocks(data: dict[str, Any], actions: list[dict]) -> tuple[list[dict]
     notes = data.get("notes") or {}
     sections = [
         {
-            "key": name,
-            "title": _(ai_insights.SECTION_TITLES[name]),
+            "key": part["key"],
+            "title": part["label"],
+            "format": part["format"],
             "sentences": [
-                {"text": s.get("text", ""), "chips": chips(s.get("keys"))} for s in data.get(name) or []
+                {"text": s.get("text", ""), "chips": chips(s.get("keys"))}
+                for s in data.get(part["key"]) or []
             ],
-            "note": notes.get(name, ""),
+            "note": notes.get(part["key"], ""),
         }
-        for name in ai_insights.SECTIONS
+        for part in sections_module.text_parts(parts)
     ]
     lines = [
         {
             **action,
+            "line": sections_module.action_line(action),
+            "where": " / ".join(p for p in (action.get("section"), action.get("partner")) if p),
             "status": PRIORITY_STATUS.get(action.get("priority"), "unknown"),
             "chips": chips(action.get("keys")),
         }
@@ -1503,15 +1737,17 @@ def _brief_blocks(data: dict[str, Any], actions: list[dict]) -> tuple[list[dict]
 
 def _insight_context(request: HttpRequest, scope: Scope, message: str = "") -> dict[str, Any]:
     """The brief card: the brief shown (kept or code-written), its header, chips, quota and buttons."""
+    from .ai import sections as sections_module
+
     version = profiles.published()
     brief = ai_insights.current(scope, version)
     row = brief.insight
+    parts = sections_module.of(row.version if row is not None else version)
     if row is not None:
-        sections, actions = _brief_blocks(row.sections or {}, row.actions or [])
+        sections, actions = _brief_blocks(row.sections or {}, row.actions or [], parts)
     else:
-        sections, actions = _brief_blocks(
-            brief.fallback or {}, (brief.fallback or {}).get("priority_actions", [])
-        )
+        written = brief.fallback or {}
+        sections, actions = _brief_blocks(written.get("sections") or {}, written.get("actions") or [], parts)
     used, allowed = budget.quota("insights", request.user, version)
     on = version is not None and budget.switched_on(version)
     # a brief the AI wrote from the very same input would be reused, so Regenerate has nothing to do;
@@ -1533,6 +1769,7 @@ def _insight_context(request: HttpRequest, scope: Scope, message: str = "") -> d
         "row": row,
         "sections": sections,
         "actions": actions,
+        "actions_title": (sections_module.action_part(parts) or {}).get("label", ""),
         "version": version,
         "shown_version": row.version if row else version,
         "rules_version": rules_version,
@@ -1624,12 +1861,8 @@ def insight_sent(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 # ------------------------------------------------------------------------------------------ chat
-CHAT_EXAMPLES = (
-    gettext_lazy("What are the main programmatic issues in this period?"),
-    gettext_lazy("Which visits were off track and why?"),
-    gettext_lazy("Were any protection or child protection concerns raised?"),
-    gettext_lazy("Which partners have the most quality flags?"),
-)
+# the starter questions are the published prompt version's (an administrator edits them); these defaults
+# serve while no version is published
 CHAT_OFF = gettext_lazy("Chat is not available: the AI is switched off.")
 CHAT_DISABLED = gettext_lazy("Chat is not available: switched off by an administrator.")
 CHAT_BUSY = gettext_lazy("The chat is busy; please try again in a minute.")
@@ -1638,7 +1871,9 @@ MAX_RUNNING_PER_USER = 2
 
 def _chat_context(request: HttpRequest, scope: Scope) -> dict[str, Any]:
     """The chat panel of the Insights tab: whether it can be used (and why not), the person's questions
-    today against the daily quota, and the example questions."""
+    today against the daily quota, and the starter questions (the published version's)."""
+    from .models import default_chat_examples
+
     version = profiles.published()
     on = version is not None and budget.switched_on(version)
     reason = ""
@@ -1652,7 +1887,7 @@ def _chat_context(request: HttpRequest, scope: Scope) -> dict[str, Any]:
         "reason": reason,
         "used": used,
         "allowed": allowed,
-        "examples": [str(e) for e in CHAT_EXAMPLES],
+        "examples": list(version.chat_examples if version is not None else default_chat_examples()),
     }
 
 

@@ -8,6 +8,6 @@
     {% else %}<p class="text-sm text-base-400">—</p>{% endif %}
   {% endfor %}
   <h4 class="font-semibold text-sm mt-2">{% trans "Priority action points" %}</h4>
-  {% if brief.actions %}<ul class="list-disc ml-5 text-sm">{% for a in brief.actions %}<li>[{{ a.priority }}] {{ a.section }} — {{ a.action }} — {{ a.owner_role }} — {{ a.timeframe }} <span class="text-base-400">({{ a.keys|join:", " }})</span></li>{% endfor %}</ul>
+  {% if brief.actions %}<ul class="list-disc ml-5 text-sm">{% for a in brief.actions %}<li>{{ a.line }} <span class="text-base-400">({{ a.keys|join:", " }})</span></li>{% endfor %}</ul>
   {% else %}<p class="text-sm text-base-400">—</p>{% endif %}
 </section>

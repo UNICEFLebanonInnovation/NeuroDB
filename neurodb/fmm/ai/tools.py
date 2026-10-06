@@ -47,6 +47,7 @@ from .. import metrics, privacy
 from ..scope import KIND_LABELS, NONE, RATING_LABELS, RATINGS, RULES, STATUS_GROUPS, STATUS_LABELS, Scope
 
 ASK_CARDS = 20  # visit cards per look-up when no chat is bound (Ask NeuroDB)
+CHAT_CARDS = 15  # visit cards per look-up of Chat with Data (comp is the brief's compliance depth)
 GROUPS_MAX = 40  # groups one summary returns
 SNIPPET_CHARS = 200  # characters of a search snippet, cut around the word found
 SEARCH_MIN, SEARCH_MAX = 3, 80  # characters of a search text
@@ -258,7 +259,7 @@ class _Group:
         if quality is not None:
             self.q_sum += Decimal(str(quality))
             self.q_n += 1
-        self.ratings[rating or "not_monitored"] += 1
+        self.ratings[rating] += 1  # metrics.counted_rating: Not monitored for reported visits only
         self.high += urgent
 
 
@@ -292,8 +293,8 @@ def _group_codes(group_by: str, row: dict[str, Any]) -> list[tuple[str, str]]:
         day = row["end_date"]
         return [(day.strftime("%Y-%m"), date_format(day, "M Y"))]
     if group_by == "rating":
-        code = row["rating"] or "not_monitored"
-        return [(code, RATING_LABELS.get(code, code))]
+        code = metrics.counted_rating(row["rating"] or "not_monitored", row["status_group"])
+        return [(code, RATING_LABELS.get(code, code))] if code else [(NONE, "Not rated yet")]
     if group_by == "entity_type":
         return [(kind, KIND_LABELS.get(kind, kind)) for kind in row["entity_kinds"] or ()] or [(NONE, "None")]
     if group_by == "status":
@@ -311,9 +312,10 @@ def _groups(scope: Scope, group_by: str, limits: dict[str, int]) -> tuple[list[d
     labels: dict[str, str] = {}
     for values in scope.visits().order_by().values_list(*GROUP_COLUMNS).iterator(chunk_size=2000):
         row = dict(zip(GROUP_COLUMNS, values, strict=True))
-        urgent = row["urgency"] >= limits["red"]
+        urgent = row["urgency"] is not None and row["urgency"] >= limits["red"]
         for code, label in _group_codes(group_by, row):
-            groups.setdefault(code, _Group()).add(row["quality_score"], row["rating"], urgent)
+            rating = metrics.counted_rating(row["rating"] or "not_monitored", row["status_group"])
+            groups.setdefault(code, _Group()).add(row["quality_score"], rating, urgent)
             labels[code] = label
     if group_by == "partner":
         from neurodb.partnerships.models import PartnerOrganization
@@ -377,6 +379,9 @@ def fm_summary(
     )
     limits = metrics.thresholds()
     k = metrics.kpis(scope, limits=limits)
+    data = metrics.summary(scope, limits=limits)
+    rated = {code: data["by_rating"][code]["visits"] for code in metrics.RATED}
+    total = sum(rated.values())
     out: dict[str, Any] = {
         "label": "Monitoring visits",
         "filter": scope.label(),
@@ -384,6 +389,13 @@ def fm_summary(
         "period_to": scope.end.isoformat(),
         "visits": k["visits"],
         "visits_by_status": {row["group"]: row["n"] for row in k["by_status"]},
+        # every share of ratings is over the rated visits; Not monitored (planned, not conducted) apart
+        "rated_visits": total,
+        "rated_visits_by_rating": rated,
+        "rating_shares_of_rated": {
+            code: (float(metrics._pct(n, total)) if total else None) for code, n in rated.items()
+        },
+        "not_monitored_visits": data["gaps"],
         "entities": k["entities"],
         "entities_rated": k["entities_rated"],
         "entities_not_monitored": k["entities_not_monitored"],
@@ -411,7 +423,7 @@ def fm_summary(
 
 # ------------------------------------------------------------------------------------------ fm_visits
 SORTS = {
-    "urgency": (F("urgency").desc(), F("end_date").desc(nulls_last=True), "key"),
+    "urgency": (F("urgency").desc(nulls_last=True), F("end_date").desc(nulls_last=True), "key"),
     "date": (F("end_date").desc(nulls_last=True), "key"),
     "quality": (F("quality_score").asc(nulls_last=True), F("end_date").desc(nulls_last=True), "key"),
 }
@@ -694,10 +706,11 @@ def _schema(properties: dict, required: list[str] | None = None) -> dict:
 FMM_TOOLS: dict[str, tuple[Any, str, dict, str]] = {
     "fm_summary": (
         fm_summary,
-        "Field monitoring visits (eTools) counted: visits by status, monitored entities, entities rated and "
-        "not monitored, the average report quality score, and visits of high and amber urgency, for the "
-        "filter, optionally grouped by section, governorate, office, partner, month, rating, quality rule, "
-        "entity type or status. Arguments can only narrow the filter.",
+        "Field monitoring visits (eTools) counted: visits by status, the rated visits by rating with each "
+        "rating's share of the rated visits, the Not monitored visits (planned, not conducted: a count "
+        "apart, never in a share), monitored entities, the average report quality score, and visits of "
+        "high and amber urgency, for the filter, optionally grouped by section, governorate, office, "
+        "partner, month, rating, quality rule, entity type or status. Arguments can only narrow the filter.",
         _schema(
             {
                 "group_by": {

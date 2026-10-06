@@ -9,6 +9,7 @@
     {% if status_label %}{% status_pill status status_label %}{% endif %}
     {% if hint %}<span class="kpi__hint">{{ hint }}</span>{% endif %}
   </div>
-  {% endif %}{% if icon %}
+  {% endif %}{% if more_href %}
+  <a class="kpi__more small" href="{{ more_href }}">{{ more_label }}</a>{% endif %}{% if icon %}
   </div>{% endif %}
 </div>

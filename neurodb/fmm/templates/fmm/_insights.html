@@ -24,8 +24,9 @@
     <span class="chip">{% blocktrans with effort=row.effort %}effort {{ effort }}{% endblocktrans %}</span>
     <span class="chip" title="{% trans 'The limit includes the model’s reasoning tokens; a limit of 1,500 would often cut the brief off.' %}">{% blocktrans with limit=row.max_output_tokens used=row.output_tokens|number %}tokens {{ limit }} · used {{ used }}{% endblocktrans %}</span>
     {% for chip in chips %}<span class="chip{% if chip.warn %} watch-chip--likely{% endif %}" title="{{ chip.title }}">{{ chip.text }}</span>{% endfor %}
-    <span class="chip" title="{% trans 'Monitors’ notes read by the AI, of the most allowed' %}">narr {{ row.sent.narratives|default:0 }}/{{ row.sent.narratives_allowed|default:0 }}</span>
-    <span class="chip" title="{% trans 'Visits the AI read in full, of the most allowed' %}">comp {{ row.sent.visits|default:0 }}/{{ row.sent.visits_allowed|default:0 }}</span>
+    <span class="chip" title="{% trans 'Monitors’ narratives (each with its Q1, Q2 and Q3 answers) read by the AI, of the most allowed' %}">narr {{ row.sent.narratives|default:0 }}/{{ row.sent.narratives_allowed|default:0 }}</span>
+    {% if "flags_allowed" in row.sent %}<span class="chip" title="{% trans 'Compliance depth: the most frequent quality flags the AI read (rule, visits, example visits), of the most allowed' %}">comp {{ row.sent.flags|default:0 }}/{{ row.sent.flags_allowed|default:0 }}</span>
+    {% else %}<span class="chip" title="{% trans 'Visits the AI read in full, of the most allowed (a brief written before Release 2)' %}">comp {{ row.sent.visits|default:0 }}/{{ row.sent.visits_allowed|default:0 }}</span>{% endif %}
     <span class="chip">{% blocktrans with n=row.version.number %}prompt v{{ n }}{% endblocktrans %}</span>
     <span class="chip">{% blocktrans with n=row.rules_version %}rules v{{ n }}{% endblocktrans %}</span>
   </div>
@@ -34,29 +35,35 @@
   {% if fallback_note %}<p class="small text-muted mb-2">{% trans "The AI's sentences did not pass the checks: this brief is written by NeuroDB from the figures." %}{% if is_admin and row.dropped %} {% trans "Dropped:" %} {% for reason, n in row.dropped.items %}{{ reason }} {{ n }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}</p>
   {% elif is_admin and row.dropped %}<p class="small text-muted mb-2">{% trans "Sentences dropped by the checks:" %} {% for reason, n in row.dropped.items %}{{ reason }} {{ n }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
 
+  {% comment %}The parts of the brief, as its prompt version lists them: a paragraph (its sentences read
+  on, each with its visit chips) or bullets.{% endcomment %}
   <div class="insight-grid">
     {% for section in sections %}
     <article class="fmm-card" aria-labelledby="fmm-brief-{{ section.key }}">
       <h3 class="h6" id="fmm-brief-{{ section.key }}">{{ section.title }}</h3>
-      {% for sentence in section.sentences %}
-      <p class="small mb-2"><span data-synced>{{ sentence.text }}</span>{% for chip in sentence.chips %} {% url 'fmm:visit' chip.key as chip_url %}<a class="visit-chip" href="{{ chip_url }}" hx-get="{{ chip_url }}" hx-target="#modal-content" hx-push-url="false">{{ chip.label }}</a>{% endfor %}</p>
-      {% empty %}
+      {% if not section.sentences %}
       <p class="small text-muted mb-0">{% if section.note %}{{ section.note }}{% else %}{% trans "Nothing written for this part." %}{% endif %}</p>
-      {% endfor %}
+      {% elif section.format == "paragraph" %}
+      <p class="small mb-2">{% for sentence in section.sentences %}<span data-synced>{{ sentence.text }}</span>{% for chip in sentence.chips %} {% url 'fmm:visit' chip.key as chip_url %}<a class="visit-chip" href="{{ chip_url }}" hx-get="{{ chip_url }}" hx-target="#modal-content" hx-push-url="false">{{ chip.label }}</a>{% endfor %}{% if not forloop.last %} {% endif %}{% endfor %}</p>
+      {% else %}
+      <ul class="small mb-0 ps-3">{% for sentence in section.sentences %}<li class="mb-1"><span data-synced>{{ sentence.text }}</span>{% for chip in sentence.chips %} {% url 'fmm:visit' chip.key as chip_url %}<a class="visit-chip" href="{{ chip_url }}" hx-get="{{ chip_url }}" hx-target="#modal-content" hx-push-url="false">{{ chip.label }}</a>{% endfor %}</li>{% endfor %}</ul>
+      {% endif %}
     </article>
     {% endfor %}
   </div>
 
-  <h3 class="h6 mt-3">{% trans "Priority action points" %}</h3>
+  {% if actions_title %}
+  <h3 class="h6 mt-3">{{ actions_title }}</h3>
   {% for action in actions %}
   <div class="priority-line">
     <span class="visually-hidden">[PRIORITY: {{ action.priority }}]</span><span aria-hidden="true">{% status_pill action.status action.priority "sm" %}</span>
-    <strong data-synced>{{ action.section }}</strong> — <span data-synced>{{ action.action }}</span> — <em data-synced>{{ action.owner_role }}</em> — <span>{{ action.timeframe }}</span>
+    <strong data-synced>{{ action.where }}</strong> — <span data-synced>{{ action.action }}</span> — <em data-synced>{{ action.owner_role }}</em> — <span>{{ action.timeframe }}</span>
     {% for chip in action.chips %}{% url 'fmm:visit' chip.key as chip_url %}<a class="visit-chip" href="{{ chip_url }}" hx-get="{{ chip_url }}" hx-target="#modal-content" hx-push-url="false">{{ chip.label }}</a>{% endfor %}
   </div>
   {% empty %}
   <p class="small text-muted mb-0">{% if row and row.status != "fallback" %}{% trans "No priority action of the AI passed the checks; see the visits table, sorted by urgency." %}{% else %}{% trans "No visit of this filter needs urgent follow-up." %}{% endif %}</p>
   {% endfor %}
+  {% endif %}
 
   <div class="d-flex flex-wrap gap-2 align-items-center mt-3">
     <button type="button" class="btn btn-sm btn-primary" hx-post="{% url 'fmm:insights' %}?{{ scope.query }}" hx-target="#fmm-insights" hx-swap="outerHTML"{% if disabled %} disabled aria-disabled="true"{% endif %}>{% trans "Regenerate" %}</button>

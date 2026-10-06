@@ -1,10 +1,11 @@
 """The AI monitoring brief of a filter: written in a background process, checked, kept, shown.
 
-The brief is one call without tools whose answer must follow :data:`SCHEMA` (strict JSON schema mode):
-four sections of sentences, each sentence with the keys of the facts it rests on, and up to six
-priority actions with fixed priorities and timeframes. The schema has no ``$defs`` and no ``maxItems``
-(strict mode refuses them); the most sentences per section are :data:`LIMITS`, enforced in code.
-:data:`SCHEMA_VERSION` is part of every prompt version's content hash.
+The brief is one call without tools whose answer must follow the strict JSON schema built from the
+parts its prompt version lists (:mod:`.sections`, like FMS's insight sections): each part a list of
+sentences (a paragraph or bullets), each sentence with the keys of the facts it rests on, and the
+priority action points, structured, with fixed priorities and timeframes. The schema has no ``$defs``
+and no ``maxItems`` (strict mode refuses them); the most sentences or bullets of each part are the
+version's, enforced in code. :data:`SCHEMA_VERSION` is part of every prompt version's content hash.
 
 **Where it runs.** A person's Regenerate and an administrator's test run never call the AI inside a web
 request: :func:`start` inserts a ``running`` brief (one per filter and version: a second click gets the
@@ -52,68 +53,20 @@ from neurodb.watch import grounding, people, redact
 from .. import privacy
 from ..models import Insight, PromptVersion
 from . import FMM_NAMED_FIELDS, budget, profiles, prompts, sampling
+from . import sections as sections_module
 
 logger = logging.getLogger(__name__)
 
 LOCK_ID = FMM_INSIGHTS_LOCK_ID  # 7_140_433, the nightly briefs
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 2: the parts of the brief are the version's (sections), action points name a partner
 
-PRIORITIES = ["High", "Medium", "Low"]
-TIMEFRAMES = [
-    "within 1 week",
-    "within 2 weeks",
-    "within 4 weeks",
-    "within 6 weeks",
-    "before the next reporting cycle",
-    "ongoing",
-]
-SECTIONS = ("coverage_quality", "programmatic_findings", "operational_challenges", "recommendations")
-SECTION_TITLES = {
-    "coverage_quality": "Coverage and quality",
-    "programmatic_findings": "Programmatic findings",
-    "operational_challenges": "Operational challenges",
-    "recommendations": "Recommendations",
-}
-
-SENTENCE = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["text", "keys"],
-    "properties": {"text": {"type": "string"}, "keys": {"type": "array", "items": {"type": "string"}}},
-}
-ACTION = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["priority", "section", "action", "owner_role", "timeframe", "keys"],
-    "properties": {
-        "priority": {"type": "string", "enum": PRIORITIES},
-        "section": {"type": "string"},
-        "action": {"type": "string"},
-        "owner_role": {"type": "string"},
-        "timeframe": {"type": "string", "enum": TIMEFRAMES},
-        "keys": {"type": "array", "items": {"type": "string"}},
-    },
-}
-SCHEMA = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": [*SECTIONS, "priority_actions"],
-    "properties": {
-        **{name: {"type": "array", "items": SENTENCE} for name in SECTIONS},
-        "priority_actions": {"type": "array", "items": ACTION},
-    },
-}
-LIMITS = {
-    "coverage_quality": 4,
-    "programmatic_findings": 6,
-    "operational_challenges": 5,
-    "recommendations": 5,
-    "priority_actions": 6,
-}
+PRIORITIES = sections_module.PRIORITIES
+TIMEFRAMES = sections_module.TIMEFRAMES
 CACHE_KEY = "neurodb-fmm-insights"
 FORMAT_NAME = "fmm_brief"
 ACTION_CHARS = 300
 OWNER_CHARS = 80
+PARTNER_CHARS = 120
 OWNER_DEFAULT = "Section lead"
 SECTION_DEFAULT = "All sections"
 SECTIONS_ALWAYS = ("Field operations", "All sections")
@@ -172,6 +125,9 @@ def scope_of(canonical: dict[str, Any], today: datetime.date | None = None):
         entity_types=tuple(canonical.get("entity_types") or ()),
         ratings=tuple(canonical.get("ratings") or ()),
         statuses=tuple(canonical.get("statuses") or ()),
+        modalities=tuple(canonical.get("modalities") or ()),
+        quality_bands=tuple(canonical.get("quality_bands") or ()),
+        urgency_levels=tuple(canonical.get("urgency_levels") or ()),
         programmatic=bool(canonical.get("programmatic")),
         q=canonical.get("q") or "",
         drill=tuple((k, v) for k, v in canonical.get("drill") or ()),
@@ -205,7 +161,14 @@ def request(facts, version: PromptVersion, user=None) -> dict[str, Any]:
         "max_output_tokens": version.max_output_tokens,
         "store": False,
         "prompt_cache_key": CACHE_KEY,
-        "text": {"format": {"type": "json_schema", "name": FORMAT_NAME, "strict": True, "schema": SCHEMA}},
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": FORMAT_NAME,
+                "strict": True,
+                "schema": sections_module.schema(sections_module.of(version)),
+            }
+        },
     }
     identifier = agent.safety_identifier(user) if user is not None else None
     if identifier:
@@ -337,6 +300,18 @@ def _fold(text: Any) -> str:
     return " ".join(str(text or "").casefold().split())
 
 
+def _known_partners(facts) -> dict[str, str]:
+    """The partners the facts name (the partner breakdown and the visit cards), folded -> as written."""
+    names: dict[str, str] = {}
+    for entry in (facts.payload.get("partners") or {}).values():
+        if entry.get("name"):
+            names.setdefault(_fold(entry["name"]), entry["name"])
+    for card in (facts.payload.get("visits") or {}).values():
+        if card.get("partner"):
+            names.setdefault(_fold(card["partner"]), card["partner"])
+    return names
+
+
 def _known_sections(facts) -> set[str]:
     names = {_fold(s) for s in SECTIONS_ALWAYS}
     for group in ("sections", "offices"):
@@ -360,7 +335,9 @@ def _owner_ok(owner: str, names_: frozenset[str]) -> bool:
     return not any(float(n) > 10 for n in numbers_in(owner))
 
 
-def _check_action(entry: Any, facts, today, names_, dropped: Counter, known: set[str]) -> dict | None:
+def _check_action(
+    entry: Any, facts, today, names_, dropped: Counter, known: set[str], partners: dict[str, str]
+) -> dict | None:
     if not isinstance(entry, dict) or not isinstance(entry.get("keys"), list):
         dropped[grounding.MALFORMED] += 1
         return None
@@ -393,9 +370,16 @@ def _check_action(entry: Any, facts, today, names_, dropped: Counter, known: set
     if _fold(section) not in known:
         section = SECTION_DEFAULT
         dropped["section_replaced"] += 1
+    # the partner: one the facts name, written as they write it; any other text is left out
+    partner = " ".join(str(entry.get("partner") or "").split())[:PARTNER_CHARS]
+    if partner and _fold(partner) not in partners:
+        partner = ""
+        dropped["partner_removed"] += 1
+    partner = partners.get(_fold(partner), "") if partner else ""
     return {
         "priority": priority,
         "section": section,
+        "partner": partner,
         "action": action,
         "owner_role": owner,
         "timeframe": timeframe,
@@ -431,37 +415,48 @@ def _fold_visit_keys(entries: list, citable: dict[str, Any]) -> list:
 
 
 def validate(
-    raw: Any, facts, today: datetime.date | None = None, names_: frozenset[str] | None = None
+    raw: Any,
+    facts,
+    today: datetime.date | None = None,
+    names_: frozenset[str] | None = None,
+    parts: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, list[dict]], list[dict], dict[str, int]]:
-    """What may be kept of the AI's answer ``raw``: each section's sentences that pass
-    ``watch.grounding`` against the facts they cite (at most :data:`LIMITS` per section), the priority
-    actions whose keys exist and whose action passes the same checks (an owner naming a person, or a
-    section the facts do not name, is replaced), and why the rest was dropped (counts per reason)."""
+    """What may be kept of the AI's answer ``raw``, part by part (``parts``: the version's, the defaults
+    when not given): each part's sentences that pass ``watch.grounding`` against the facts they cite (at
+    most the part's ``max_items``), the priority action points whose keys exist and whose action passes
+    the same checks (an owner naming a person, or a section the facts do not name, is replaced; a
+    partner the facts do not name is left out), and why the rest was dropped (counts per reason)."""
     today = today or timezone.localdate()
     names_ = privacy.names() if names_ is None else names_
+    parts = parts if parts is not None else sections_module.of(None)
     raw = raw if isinstance(raw, dict) else {}
     dropped: Counter = Counter()
     sections: dict[str, list[dict]] = {}
-    for name in SECTIONS:
+    for part in sections_module.text_parts(parts):
+        name, limit = part["key"], part["max_items"]
         entries = raw.get(name)
         entries = _fold_visit_keys(entries if isinstance(entries, list) else [], facts.citable)
         kept, reasons = grounding.validate(
-            entries, facts.citable, LIMITS[name], today, names_, named_fields=FMM_NAMED_FIELDS
+            entries, facts.citable, limit, today, names_, named_fields=FMM_NAMED_FIELDS
         )
         dropped.update(reasons)
-        if len(entries) > LIMITS[name]:
-            dropped["too_many"] += len(entries) - LIMITS[name]
+        if len(entries) > limit:
+            dropped["too_many"] += len(entries) - limit
         sections[name] = kept
     known = _known_sections(facts)
+    partners = _known_partners(facts)
     actions = []
-    entries = raw.get("priority_actions")
-    entries = _fold_visit_keys(entries if isinstance(entries, list) else [], facts.citable)
-    for entry in entries[: LIMITS["priority_actions"]]:
-        kept_action = _check_action(entry, facts, today, names_, dropped, known)
-        if kept_action is not None:
-            actions.append(kept_action)
-    if len(entries) > LIMITS["priority_actions"]:
-        dropped["too_many"] += len(entries) - LIMITS["priority_actions"]
+    part = sections_module.action_part(parts)
+    if part is not None:
+        limit = part["max_items"]
+        entries = raw.get(part["key"])
+        entries = _fold_visit_keys(entries if isinstance(entries, list) else [], facts.citable)
+        for entry in entries[:limit]:
+            kept_action = _check_action(entry, facts, today, names_, dropped, known, partners)
+            if kept_action is not None:
+                actions.append(kept_action)
+        if len(entries) > limit:
+            dropped["too_many"] += len(entries) - limit
     return sections, actions, dict(dropped)
 
 
@@ -478,7 +473,12 @@ def visit_key_of(key: str) -> str | None:
 def cited_visits(sections: dict[str, Any], actions: list[dict]) -> list[str]:
     """The visit keys every kept sentence and action cites, in order, once each."""
     out: list[str] = []
-    entries = [s for name in SECTIONS for s in (sections.get(name) or [])] + list(actions or [])
+    entries = [
+        s
+        for name, kept in (sections or {}).items()
+        if name != "notes" and isinstance(kept, list)
+        for s in kept
+    ] + list(actions or [])
     for entry in entries:
         for key in entry.get("keys") or ():
             visit = visit_key_of(key)
@@ -679,17 +679,17 @@ def _generate(scope, version, user, trigger, insight, today) -> Insight:
         return _save(row)
 
     # 8-9. the checks, then what is kept
-    sections, actions, dropped = validate(raw, facts, today, names_)
+    parts = sections_module.of(version)
+    sections, actions, dropped = validate(raw, facts, today, names_, parts)
     row.dropped = dropped
-    if all(sections[name] for name in SECTIONS) and actions:
+    wants_actions = sections_module.action_part(parts) is not None
+    if all(sections.values()) and (actions or not wants_actions):
         row.status, row.reason = Insight.Status.OK, ""
     elif any(sections.values()) or actions:
         row.status, row.reason = Insight.Status.PARTIAL, ""
     else:
-        written = fallback.brief(facts)
-        sections = {name: written[name] for name in SECTIONS}
-        sections["notes"] = written["notes"]
-        actions = written["priority_actions"]
+        written = fallback.brief(facts, parts)
+        sections, actions = written["sections"], written["actions"]
         row.status, row.reason = Insight.Status.FALLBACK, NOTHING_KEPT
     row.sections, row.actions = sections, actions
     row.cited_keys = cited_visits(sections, actions)
@@ -753,13 +753,16 @@ def why_not(scope, version: PromptVersion | None) -> str:
     return NOT_YET
 
 
-def code_written(scope) -> dict[str, Any]:
-    """The code-written brief of ``scope``, from its figures (kept ten minutes per refresh)."""
+def code_written(scope, version=None) -> dict[str, Any]:
+    """The code-written brief of ``scope``, from its figures, in the parts of ``version`` (the
+    defaults without one); kept ten minutes per refresh."""
     from .. import metrics
     from . import fallback
     from .facts import build
 
-    return metrics.cached(scope, "fallback", lambda: fallback.brief(build(scope, None, narratives=False)))
+    parts = sections_module.of(version)
+    block = "fallback:" + ",".join(p["key"] for p in parts)
+    return metrics.cached(scope, block, lambda: fallback.brief(build(scope, None, narratives=False), parts))
 
 
 def current(scope, version: Any = PUBLISHED) -> CurrentBrief:
@@ -783,7 +786,7 @@ def current(scope, version: Any = PUBLISHED) -> CurrentBrief:
     return CurrentBrief(
         None,
         f"Written by NeuroDB from the figures — AI not used: {reason}",
-        code_written(scope),
+        code_written(scope, version),
         reason=reason,
     )
 
@@ -801,13 +804,15 @@ def citing(visit_key: str, scope) -> tuple[Insight | None, list[dict[str, Any]]]
     if found is None or visit_key not in (found.cited_keys or []):
         return found, []
     out = []
-    for name in SECTIONS:
-        for sentence in (found.sections or {}).get(name) or []:
+    parts = sections_module.of(found.version)
+    for part in sections_module.text_parts(parts):
+        for sentence in (found.sections or {}).get(part["key"]) or []:
             if any(visit_key_of(k) == visit_key for k in sentence.get("keys") or ()):
-                out.append({"section": SECTION_TITLES[name], "text": sentence.get("text", "")})
+                out.append({"section": part["label"], "text": sentence.get("text", "")})
+    label = (sections_module.action_part(parts) or {}).get("label") or "Priority action points"
     for action in found.actions or []:
         if any(visit_key_of(k) == visit_key for k in action.get("keys") or ()):
-            out.append({"section": "Priority action points", "text": action.get("action", "")})
+            out.append({"section": label, "text": sections_module.action_line(action)})
     return found, out
 
 

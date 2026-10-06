@@ -141,11 +141,14 @@ def test_the_value_readers_never_raise(seed):
         for key in (*rng.sample(ALL_KEYS, 8), *ODD_KEYS):
             for kind in parse.KINDS:
                 found = parse.value(record, key, kind)
-                assert found is None or isinstance(found, str | int | bool)
+                assert found is None or isinstance(found, str | int | bool | float)
+                if kind == "number" and found is not None:
+                    assert isinstance(found, float) and math.isfinite(found)
                 if kind == "id" and found is not None:
                     assert isinstance(found, int) and found > 0
             parse.walk(record, key)
         assert all(isinstance(text, str) and text for text in parse.text_list(raw))
+        assert all(isinstance(text, str) and text and ";" not in text for text in parse.split_list(raw))
         assert isinstance(parse.fold(raw), str)
         assert isinstance(parse.question_key(raw, _value(rng, json_safe=False)), str)
         assert parse.text_state(raw) in ("", "placeholder", "text")

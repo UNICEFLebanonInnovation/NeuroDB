@@ -209,6 +209,7 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .kpi__unit { font-size: 0.85rem; color: var(--nd-muted); font-weight: 500; }
 .kpi__meta { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem; }
 .kpi__hint { font-size: 0.78rem; color: var(--nd-muted); }
+.kpi__more { display: inline-block; margin-top: 0.3rem; }
 
 /* ------------------------------------------------------------------ status pills & progress */
 .pill { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.12rem 0.55rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; white-space: nowrap; background: var(--pill-bg); color: var(--pill-fg); }
@@ -975,3 +976,6 @@ tr.row--amber { --row-tint: color-mix(in srgb, var(--nd-warning-soft) 70%, trans
   .modal-dialog:has(.visit-modal) { max-width: none; width: 100vw; height: 100%; margin: 0; }
   .modal-dialog:has(.visit-modal) .modal-content { height: 100%; border: 0; border-radius: 0; }
 }
+.fmm-info { cursor: help; color: var(--nd-muted); font-weight: 400; }
+.fmm-briefing__tiles { grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); }
+.fmm-png { font-size: 0.75rem; }

@@ -35,18 +35,20 @@ from . import parse, privacy
 from .models import FieldMapping, KeyProbe
 
 CANDIDATES: dict[str, dict[str, tuple[str, ...]]] = {
-    "field_monitoring": {  # extra keys in MonitoringFinding.data (after catalogue.scrub)
+    # extra keys in MonitoringFinding.data (after catalogue.scrub). eTools' FMM export names come first
+    # (the FMS user manual, §13.2: hact_q1_answer, field_offices, sections_names, monitoring_modality...)
+    "field_monitoring": {
         "sections": (
+            "sections_names",  # "Education; WASH"
             "sections",
             "section",
             "section_names",
-            "sections_names",
             "monitoring_activity_sections",
             "sections.name",
         ),
         "offices": (
+            "field_offices",  # "Zahle; Tripoli"
             "field_office",
-            "field_offices",
             "offices",
             "office",
             "office_name",
@@ -70,7 +72,23 @@ CANDIDATES: dict[str, dict[str, tuple[str, ...]]] = {
             "intervention.number",
         ),
         "cp_output": ("cp_output", "cp_output_name", "output", "result", "cp_output.name"),
-        "status": ("monitoring_activity_status", "activity_status", "status"),
+        "status": ("status", "monitoring_activity_status", "activity_status"),
+        # the HACT answers written on the finding row: they take precedence over the checklist answers
+        # (fm-questions) of the same question for that row
+        "q1_answer": ("hact_q1_answer", "q1_answer", "hact_q1"),
+        "q2_answer": ("hact_q2_answer", "q2_answer", "hact_q2"),
+        "q3_answer": ("hact_q3_answer", "q3_answer", "hact_q3"),
+        "modality": ("monitoring_modality", "modality", "monitoring_type"),
+        "programme_areas": ("programme_areas", "programme_area"),
+        "location_name": ("location_name", "location.name"),
+        "location_pcode": ("location_pcode", "location.p_code", "location.pcode"),
+        "latitude": ("location_lat", "latitude", "location.latitude", "location.lat"),
+        "longitude": ("location_lon", "longitude", "location.longitude", "location.lon", "location.lng"),
+        "location_type": ("location_type", "location.admin_level_name", "location.type"),
+        "visit_goals": ("visit_goals", "goals"),
+        "objective": ("objective", "objectives", "visit_objective"),
+        "supplies": ("dim_supplies", "supplies"),
+        "psea": ("dim_psea", "psea"),
     },
     "fm_questions": {
         "activity_id": ("monitoring_activity_id", "activity_id", "monitoring_activity.id", "activity.id"),
@@ -147,7 +165,14 @@ CANDIDATES: dict[str, dict[str, tuple[str, ...]]] = {
     "sections": {"name": ("name",)},
 }
 PERSON_FIELDS = {("field_monitoring", "team")}
-KINDS = {"activity_id": "id", "question_id": "id", "is_hact": "bool", "order": "int"}  # others: "text"
+KINDS = {  # others: "text"
+    "activity_id": "id",
+    "question_id": "id",
+    "is_hact": "bool",
+    "order": "int",
+    "latitude": "number",
+    "longitude": "number",
+}
 DATASETS = tuple(CANDIDATES)
 DATASET_LABELS = {
     "field_monitoring": "Field monitoring findings (fm-ontrack)",
@@ -168,6 +193,20 @@ NEEDED_BY: dict[tuple[str, str], str] = {
     ): "The programme document of a visit when the entity does not name it",
     ("field_monitoring", "cp_output"): "The CP outputs of a visit",
     ("field_monitoring", "status"): "The visit status when the record's own status column is empty",
+    ("field_monitoring", "q1_answer"): "HACT Q1 of the finding row, before its checklist answers (R3)",
+    ("field_monitoring", "q2_answer"): "Q2 of the finding row, before its checklist answers (R1)",
+    ("field_monitoring", "q3_answer"): "Q3 of the finding row, before its checklist answers (R5)",
+    ("field_monitoring", "modality"): "The monitoring modality of a visit (UNICEF staff, TPM...): a filter",
+    ("field_monitoring", "programme_areas"): "The programme areas of a visit (visit page)",
+    ("field_monitoring", "location_name"): "The place of a visit when its location is not linked",
+    ("field_monitoring", "location_pcode"): "The place of a visit, matched to the gazetteer by P-code",
+    ("field_monitoring", "latitude"): "The point of a visit on the map (with the longitude)",
+    ("field_monitoring", "longitude"): "The point of a visit on the map (with the latitude)",
+    ("field_monitoring", "location_type"): "Whether a visit's point is at the lowest admin level (map)",
+    ("field_monitoring", "visit_goals"): "The goals of a visit (visit page)",
+    ("field_monitoring", "objective"): "The objective of a visit (visit page)",
+    ("field_monitoring", "supplies"): "The supplies answer of a finding row (visit page)",
+    ("field_monitoring", "psea"): "The PSEA answer of a finding row (visit page)",
     ("fm_questions", "activity_id"): "Which visit an answer belongs to (R2, R3, R5, HACT Q1, PSEA)",
     ("fm_questions", "activity_ref"): "Which visit an answer belongs to, when no activity id is given",
     ("fm_questions", "question_id"): "Telling the questions apart (R2) and their answer options",

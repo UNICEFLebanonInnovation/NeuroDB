@@ -74,18 +74,24 @@ def test_too_few_points_evaluated_gives_no_score():
     assert score.score_visit(facts([entity()]), outcomes, setting(min_evaluated_points=15)).score == 50
 
 
-def test_visits_not_reported_are_not_scored():
+def test_visits_in_other_statuses_are_pending():
     planned = score.score_visit(facts([entity()], status_group="planned", scorable=False), [], setting())
-    assert (planned.score, planned.not_scored_reason) == (None, "not reported yet")
+    assert (planned.score, planned.band, planned.not_scored_reason) == (None, "pending", score.PENDING)
     cancelled = score.score_visit(facts([entity()], status_group="cancelled", scorable=False), [], setting())
-    assert cancelled.not_scored_reason == "cancelled"
+    assert (cancelled.band, cancelled.not_scored_reason) == ("", "cancelled")
 
 
-def test_scorable_visits():
-    assert score.scorable("reported", 0, False)  # a not-monitored reported visit is scored
-    assert score.scorable("unknown", 1, False) and score.scorable("unknown", 0, True)
-    assert not score.scorable("unknown", 0, False)
-    assert not score.scorable("in_progress", 3, True) and not score.scorable("planned", 0, False)
+def test_scorable_visits_follow_the_scored_statuses():
+    scored_statuses = score.scored_statuses_of(setting())
+    assert scored_statuses == {"report_finalization", "completed"}  # FMS's default
+    assert score.scorable("completed", scored_statuses) and score.scorable(
+        "report_finalization", scored_statuses
+    )
+    for status in ("submitted", "review", "data_collection", "assigned", "cancelled", ""):
+        assert not score.scorable(status, scored_statuses), status
+    assert score.scorable("submitted", score.scored_statuses_of(setting(scored_statuses=["submitted"])))
+    # a setting that holds nothing usable falls back to the defaults
+    assert score.scored_statuses_of(setting(scored_statuses=[])) == scored_statuses
 
 
 @pytest.mark.parametrize(
@@ -131,80 +137,108 @@ def open_point(due=None, high=False) -> ActionPointFacts:
     ("case", "args", "total", "band", "parts"),
     [
         (
-            "off track, reported 20 days ago, no action point, score 70, 1 flag",
-            (visit("off_track", end=days_ago(20)), scored(70, 1), []),
-            73,
+            "score 70, ended today, 1 flag: 0.5 × 30 + 0.3 × 100 + 0.2 × 25",
+            (visit(end=TODAY), scored(70, 1)),
+            50,
+            "amber",
+            {"quality_gap": 15.0, "recency": 30.0, "red_flags": 5.0},
+        ),
+        (
+            "score 40, ended 90 days ago (recency 50), 3 flags",
+            (visit(end=days_ago(90)), scored(40, 3)),
+            60,
+            "amber",
+            {"quality_gap": 30.0, "recency": 15.0, "red_flags": 15.0},
+        ),
+        (
+            "score 20, ended 10 days ago, 4 flags (flags at most 100)",
+            (visit(end=days_ago(10)), scored(20, 4)),
+            88,
             "red",
-            {"rating": 40, "quality": 8, "flags": 5, "follow_up": 20, "report_late": 0},
+            {"quality_gap": 40.0, "recency": 28.3, "red_flags": 20.0},
         ),
         (
-            "off track, an open action point not overdue, score 90, no flag",
-            (visit("off_track", end=days_ago(20)), scored(90), [open_point(days_ago(-10))]),
-            43,
-            "amber",
-            {"rating": 40, "quality": 3, "flags": 0, "follow_up": 0, "report_late": 0},
-        ),
-        (
-            "on track but HACT Q1 constrained, reported 30 days ago, no action point, score 85, 1 flag",
-            (visit("on_track", "constrained", end=days_ago(30)), scored(85, 1), []),
-            49,
-            "amber",
-            {"rating": 20, "quality": 4, "flags": 5, "follow_up": 20, "report_late": 0},
-        ),
-        (
-            "on track, score 90, 3 flags (the reference's typical visit)",
-            (visit("on_track", "on_track", end=days_ago(30)), scored(90, 3), []),
-            18,
+            "score 100, ended 200 days ago, no flag",
+            (visit(end=days_ago(200)), scored(100)),
+            0,
             "",
-            {"rating": 0, "quality": 3, "flags": 15, "follow_up": 0, "report_late": 0},
+            {"quality_gap": 0.0, "recency": 0.0, "red_flags": 0.0},
         ),
         (
-            "in progress, end date 45 days ago",
-            (visit("not_monitored", group="in_progress", end=days_ago(45)), scored(None), []),
-            15,
+            "a visit that ends later counts as recent",
+            (visit(end=days_ago(-10)), scored(100)),
+            30,
             "",
-            {"rating": 0, "quality": 0, "flags": 0, "follow_up": 0, "report_late": 15},
+            {"quality_gap": 0.0, "recency": 30.0, "red_flags": 0.0},
         ),
+        ("no score: no urgency", (visit(end=days_ago(5)), scored(None, 2)), None, "", {}),
     ],
 )
 def test_urgency_worked_examples(case, args, total, band, parts):
     assert score.urgency(*args, setting(), TODAY) == (total, band, parts), case
 
 
-def test_urgency_follow_up_parts():
-    off = visit("off_track", end=days_ago(20))
-    overdue_high = [open_point(days_ago(3), high=True)]
-    assert score.urgency(off, scored(100), overdue_high, setting(), TODAY)[2]["follow_up"] == 20  # 12 + 8
-    assert score.urgency(off, scored(100), [open_point(days_ago(3))], setting(), TODAY)[2]["follow_up"] == 12
-    high_open = [open_point(days_ago(-3), high=True)]
-    assert score.urgency(off, scored(100), high_open, setting(), TODAY)[2]["follow_up"] == 5
-    done = [ActionPointFacts(1, "completed", days_ago(3), True)]  # closed: a follow-up, nothing open
-    assert score.urgency(off, scored(100), done, setting(), TODAY)[2]["follow_up"] == 0
-    # within the 14 days, no follow-up is expected yet
-    assert (
-        score.urgency(visit("off_track", end=days_ago(14)), scored(100), [], setting(), TODAY)[2]["follow_up"]
-        == 0
-    )
-    # a reported visit that could not be scored
-    assert score.urgency(visit(), scored(None), [], setting(), TODAY)[2]["quality"] == 10
+def test_recency_falls_from_100_to_0_over_the_window():
+    assert score.recency(TODAY, TODAY, 180) == 100
+    assert score.recency(days_ago(45), TODAY, 180) == 75
+    assert score.recency(days_ago(180), TODAY, 180) == 0 and score.recency(days_ago(400), TODAY, 180) == 0
+    assert score.recency(days_ago(45), TODAY, 90) == 50
+    assert score.recency(None, TODAY, 180) == 0
 
 
-def test_urgency_is_capped_and_its_bands_follow_the_settings():
-    heavy = setting(urgency_weights={**default_urgency_weights(), "off_track": 100})
-    assert score.urgency(visit("off_track", end=days_ago(20)), scored(0, 3), [], heavy, TODAY)[0] == 100
+def test_urgency_weights_are_editable_and_bands_follow_the_settings():
+    weights = {"quality_gap": 0.6, "recency": 0.2, "red_flags": 0.2}
+    assert score.urgency(visit(end=TODAY), scored(70, 1), setting(urgency_weights=weights), TODAY)[0] == 43
 
-    def late(points: int) -> tuple[int, str]:
-        weights = dict.fromkeys(default_urgency_weights(), 0) | {"report_late": points}
+    def by_gap(value: str) -> tuple[int, str]:
+        only_gap = {"quality_gap": 1, "recency": 0, "red_flags": 0}
         total, band, _parts = score.urgency(
-            visit(group="planned", end=days_ago(45)),
-            scored(None),
-            [],
-            setting(urgency_weights=weights),
-            TODAY,
+            visit(end=days_ago(400)), scored(value), setting(urgency_weights=only_gap), TODAY
         )
         return total, band
 
-    assert [late(n) for n in (39, 40, 69, 70)] == [(39, ""), (40, "amber"), (69, "amber"), (70, "red")]
+    assert [by_gap(s) for s in ("61", "60", "31", "30")] == [
+        (39, ""),
+        (40, "amber"),
+        (69, "amber"),
+        (70, "red"),
+    ]
+    assert by_gap("30.5") == (70, "red")  # 69.5, half up
+    stricter = setting(urgency_weights={"quality_gap": 1, "recency": 0, "red_flags": 0}, urgency_red=80)
+    assert score.urgency(visit(end=days_ago(400)), scored(25), stricter, TODAY)[1] == "amber"
+
+
+def test_invalid_weights_fall_back_to_fms_defaults():
+    release_1 = {"off_track": 40, "quality_gap": 25}
+    assert score.weights_of(setting(urgency_weights=release_1)) == default_urgency_weights()
+    assert score.weights_of(
+        setting(urgency_weights={"quality_gap": 0.5, "recency": 0.5, "red_flags": 0.5})
+    ) == (default_urgency_weights())
+    assert score.valid_weights({"quality_gap": 0.2, "recency": 0.3, "red_flags": 0.5})
+    assert not score.valid_weights({"quality_gap": True, "recency": 0, "red_flags": 0})
+
+
+def test_signals_are_kept_apart_from_urgency():
+    off = visit("off_track", end=days_ago(20))
+    assert score.signals(off, [], setting(), TODAY) == {"no_follow_up": True}
+    overdue_high = [open_point(days_ago(3), high=True)]
+    assert score.signals(off, overdue_high, setting(), TODAY) == {"ap_overdue": 1, "ap_high_overdue": 1}
+    high_open = [open_point(days_ago(-3), high=True)]
+    assert score.signals(off, high_open, setting(), TODAY) == {"ap_high_open": 1}
+    done = [ActionPointFacts(1, "completed", days_ago(3), True)]  # closed: a follow-up, nothing open
+    assert score.signals(off, done, setting(), TODAY) == {}
+    # within the 14 days, no follow-up is expected yet; HACT Q1 constrained counts like the rating
+    assert score.signals(visit("off_track", end=days_ago(14)), [], setting(), TODAY) == {}
+    assert score.signals(visit("on_track", "constrained", end=days_ago(30)), [], setting(), TODAY) == {
+        "no_follow_up": True
+    }
+    late = visit("not_monitored", group="in_progress", end=days_ago(45))
+    assert score.signals(late, [], setting(), TODAY) == {"report_late_days": 45}
+    assert score.signals(late, [], setting(report_late_days=60), TODAY) == {}
+    # none of it moves urgency
+    assert score.urgency(off, scored(70, 1), setting(), TODAY) == score.urgency(
+        visit(end=days_ago(20)), scored(70, 1), setting(), TODAY
+    )
 
 
 # ------------------------------------------------------------------------------------------ Q1 and PSEA

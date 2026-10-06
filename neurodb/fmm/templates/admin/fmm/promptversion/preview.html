@@ -48,8 +48,8 @@
   {% component "unfold/components/card.html" with title=_("The brief: the facts sent for this filter") %}
     <div class="flex flex-col gap-3">
       <p>
-        {% blocktrans trimmed with n=facts_sent.narratives allowed=facts_sent.narratives_allowed withheld=facts_sent.narratives_withheld cards=facts_sent.visits comp=facts_sent.visits_allowed %}
-          Monitors' notes sent: {{ n }} of {{ allowed }} allowed ({{ withheld }} withheld: too short, or naming too many people). Visits sent in full: {{ cards }} of {{ comp }}.
+        {% blocktrans trimmed with n=facts_sent.narratives allowed=facts_sent.narratives_allowed withheld=facts_sent.narratives_withheld flags=facts_sent.flags comp=facts_sent.flags_allowed cards=facts_sent.visits %}
+          Monitors' notes sent: {{ n }} of {{ allowed }} allowed ({{ withheld }} withheld: too short, or naming too many people), each with its Q1, Q2 and Q3 answers. Quality flags sent (compliance depth): {{ flags }} of {{ comp }}. Visits sent in full: {{ cards }} (the most urgent, and the flags' examples).
         {% endblocktrans %}
       </p>
       <p>

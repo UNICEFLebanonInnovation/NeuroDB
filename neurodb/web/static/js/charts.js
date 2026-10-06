@@ -617,6 +617,36 @@ export const BUILDERS = {
       },
     };
   },
+  "share-lines"(el, data) {
+    // {labels, series: {name: [share or null]}, drill?: {labels, series: {name: code}}} -> one line per series
+    // on a 0-100 % axis; a month without a value is a gap, never a 0 (Monitoring insights' rule trends)
+    const labels = Array.isArray(data?.labels) ? data.labels.map(String) : [];
+    const series = Object.entries(data?.series || {}).map(([name, values]) => [name, (values || []).map((v) => (v === null || v === undefined ? null : Number(v)))]);
+    if (!labels.length || !series.some(([, values]) => values.some((v) => v !== null))) return emptyState(el);
+    return {
+      traces: series.map(([name, values], i) => {
+        const color = PALETTE[i % PALETTE.length];
+        return {
+          type: "scatter",
+          mode: "lines+markers",
+          name: plotlyText(name),
+          x: labels,
+          y: values,
+          connectgaps: false,
+          line: { color, width: 2 },
+          marker: { size: 6, color },
+          hovertemplate: `%{x} · ${plotlyText(name)}: %{y:.1f}%<extra></extra>`,
+          meta: drillMeta(data, name),
+        };
+      }),
+      layout: {
+        xaxis: { type: "category" },
+        yaxis: { range: [0, 105], ticksuffix: "%" },
+        margin: { t: 8, r: 12, b: 56, l: 48 },
+        ...legendFor(series.length),
+      },
+    };
+  },
   "scatter-xy"(el, data) {
     // [{name, x, y, ahead}] -> markers coloured by ahead/behind, a diagonal reference line, both axes in percent
     const rows = (Array.isArray(data) ? data : []).filter((r) => r.x != null && r.y != null);
@@ -1050,6 +1080,22 @@ function render(el) {
 }
 
 let hints = 0;
+
+/** A button with data-chart-png="#chart-id" saves that chart as a PNG (Plotly's own downloadImage: no other
+ * library); data-filename names the file. One listener for the page, as the buttons come and go with HTMX. */
+function savePng(event) {
+  const button = event.target.closest?.("[data-chart-png]");
+  if (!button) return;
+  const el = document.querySelector(button.dataset.chartPng);
+  if (!el || !window.Plotly || !el.data) return;
+  const width = Math.max(el.clientWidth || 0, 640);
+  const height = Math.max(el.clientHeight || 0, 360);
+  window.Plotly.downloadImage(el, { format: "png", filename: button.dataset.filename || "chart", width, height });
+}
+if (typeof document !== "undefined" && typeof document.addEventListener === "function" && !window.__ndChartPng) {
+  window.__ndChartPng = true;
+  document.addEventListener("click", savePng);
+}
 
 /** A chart with data-href-template opens the visits behind a bar: a click fills the template from the point's
  * drill value (drillUrl) and loads it into data-href-target (default the modal, which app.js opens). */

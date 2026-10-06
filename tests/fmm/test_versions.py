@@ -49,7 +49,18 @@ def test_version_1_holds_the_defaults():
         None,
         "NeuroDB (default)",
     )
-    assert v1.snapshot == versions.snapshot_rules()
+    # version 1 holds Release 1's settings: Release 2 changed urgency's weights (FMS's formula) and added
+    # the scored statuses and the recency window, which a restore of version 1 leaves as they are
+    now = versions.snapshot_rules()
+    release_2 = {"urgency_weights", "scored_statuses", "recency_days"}
+    assert v1.snapshot["rules"] == now["rules"] and v1.snapshot["mappings"] == now["mappings"]
+    assert {k: v for k, v in v1.snapshot["score"].items() if k not in release_2} == {
+        k: v for k, v in now["score"].items() if k not in release_2
+    }
+    assert (
+        "off_track" in v1.snapshot["score"]["urgency_weights"]
+        and "scored_statuses" not in v1.snapshot["score"]
+    )
     assert (
         v1.snapshot["mappings"] == {}
         and versions.current_rules_version() == refresh.current_rules_version() == 1
@@ -72,10 +83,12 @@ def test_version_1_holds_the_defaults():
 
 def test_the_default_settings_are_new_objects_for_every_row():
     a, b = ScoreSetting(), ScoreSetting()
-    a.urgency_weights["off_track"] = 1
+    a.urgency_weights["quality_gap"] = 1
+    a.scored_statuses.append("submitted")
     a.question_patterns["q1"].append("x")
     a.role_flag_answers["psea"].append("no")
-    assert b.urgency_weights == default_urgency_weights() and b.urgency_weights["off_track"] == 40
+    assert b.urgency_weights == default_urgency_weights() and b.urgency_weights["quality_gap"] == 0.5
+    assert b.scored_statuses == ["report_finalization", "completed"]
     assert b.question_patterns == default_question_patterns()
     assert b.role_flag_answers == default_role_flag_answers()
 
@@ -159,7 +172,12 @@ def test_restore_writes_a_version_back_as_a_new_one(admin_user, started, django_
     rule = RuleSetting.objects.get(code="R2")
     assert (rule.threshold, rule.enabled, rule.updated_by) == (Decimal(80), True, admin_user)
     assert ScoreSetting.load().urgency_red == 70
-    assert v3.snapshot == v1.snapshot and not [r for r in versions.differences(v1.snapshot) if r["changed"]]
+    # version 1 is from before Release 2: its urgency weights (points per part) are not FMS's, so the
+    # weights are kept, as are the scored statuses and the recency window it does not hold
+    changed = {(r["group"], r["name"]) for r in versions.differences(v1.snapshot) if r["changed"]}
+    assert changed == {("Score", "urgency_weights"), ("Score", "scored_statuses"), ("Score", "recency_days")}
+    assert ScoreSetting.load().urgency_weights == default_urgency_weights()
+    assert v3.snapshot["rules"] == v1.snapshot["rules"]
     assert started == [("fmm_refresh", "--scores-only", "--triggered-by", f"admin:{admin_user.pk}")]
     # the history only grows: v2 is still there, and can be restored in turn
     assert list(RuleSetVersion.objects.values_list("number", flat=True)) == [3, 2, 1]
@@ -336,9 +354,18 @@ def _score_errors(**values) -> dict[str, list[str]]:
             "urgency_weights",
             "Unknown weights: mood",
         ),
-        ({"urgency_weights": {"off_track": 40}}, "urgency_weights", "Missing weights"),
-        ({"urgency_weights": {**default_urgency_weights(), "per_flag": 101}}, "urgency_weights", "0 to 100"),
-        ({"urgency_weights": {**default_urgency_weights(), "per_flag": "5"}}, "urgency_weights", "0 to 100"),
+        ({"urgency_weights": {"quality_gap": 1}}, "urgency_weights", "Missing weights"),
+        ({"urgency_weights": {**default_urgency_weights(), "recency": 1.5}}, "urgency_weights", "0 to 1"),
+        ({"urgency_weights": {**default_urgency_weights(), "recency": "0.3"}}, "urgency_weights", "0 to 1"),
+        (
+            {"urgency_weights": {**default_urgency_weights(), "recency": 0.4}},
+            "urgency_weights",
+            "add up to 1",
+        ),
+        ({"scored_statuses": []}, "scored_statuses", "at least one status"),
+        ({"scored_statuses": ["completed", "cancelled"]}, "scored_statuses", "cancelled"),
+        ({"scored_statuses": ["done"]}, "scored_statuses", "Unknown"),
+        ({"recency_days": 0}, "recency_days", "from 1 to 3,650"),
         ({"question_patterns": {"q7": ["x"]}}, "question_patterns", "Unknown role"),
         ({"question_patterns": {"q1": "implemented"}}, "question_patterns", "must be a list"),
         ({"question_patterns": {"q1": ["x"]}}, "question_patterns", "2 to 200 characters"),

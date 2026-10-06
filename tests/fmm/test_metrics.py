@@ -49,7 +49,9 @@ def test_key_figures_and_the_status_breakdown(built):
         "planned": 0,
         "cancelled": 1,
     }
-    assert (k["avg_quality"], k["scored"], k["high_urgency"], k["amber"]) == (Decimal("64.4"), 6, 1, 3)
+    assert (k["avg_quality"], k["scored"], k["high_urgency"], k["amber"]) == (Decimal("64.4"), 6, 0, 1)
+    # the rated entities by rating: shares of ratings are over these only
+    assert k["entity_ratings"] == {"on_track": 6, "constrained": 0, "off_track": 2}
 
 
 def test_one_average_quality_in_the_key_figure_and_the_highlights(built):
@@ -100,26 +102,32 @@ def test_without_q1_answers_the_chart_counts_the_overall_rating(built):
         "on_track": 3,
         "constrained": 0,
         "off_track": 2,
-        "not_monitored": 3,
+        "not_monitored": 1,  # Not monitored: reported visits with nothing rated (planned, not conducted)
     }
     assert data["key"] == "rating"
 
 
-def test_score_buckets_hold_100_in_the_top_bucket(built):
+def test_score_buckets_hold_100_in_the_top_bucket_and_take_their_band_colour(built):
     data = metrics.score_buckets(_scope())
-    assert [(i["drill"], i["value"]) for i in data["items"]] == [
-        ("0-20", 0),
-        ("20-40", 0),
-        ("40-60", 2),
-        ("60-80", 4),
-        ("80-100", 0),
+    assert [(i["drill"], i["value"]) for i in data["items"] if i["value"]] == [
+        ("40-50", 1),
+        ("50-60", 1),
+        ("60-70", 1),
+        ("70-80", 3),
     ]
-    assert data["not_scored"] == 2
+    assert len(data["items"]) == 10 and data["not_scored"] == 2
+    bands = {i["drill"]: (i["band"], i["color"]) for i in data["items"]}
+    assert bands["40-50"] == ("low", "--nd-danger") and bands["50-60"] == ("medium", "--nd-warning")
+    assert bands["70-80"] == ("medium", "--nd-warning") and bands["80-90"] == ("high", "--nd-success")
     Visit.objects.filter(key="1722").update(quality_score=Decimal("100.0"))
-    Visit.objects.filter(key="1723").update(quality_score=Decimal("80.0"))
+    Visit.objects.filter(key="1723").update(quality_score=Decimal("90.0"))
     cache.clear()
     top = metrics.score_buckets(_scope())["items"][-1]
-    assert top["value"] == 2 == len(_keys(_scope(bucket="80-100")))
+    assert top["value"] == 2 == len(_keys(_scope(bucket="90-100")))
+    assert len(_keys(_scope(bucket="80-100"))) == 2  # a bucket of Release 1's links still opens its visits
+    # the colours follow the bands as Score settings set them
+    limits = {**metrics.thresholds(), "band_medium": 40}
+    assert metrics.score_buckets(_scope(), limits=limits)["items"][4]["band"] == "medium"
 
 
 def test_top_issues_are_grouped_by_rule_and_detail(built):
@@ -228,7 +236,7 @@ def test_offices_sections_and_ratings_count_each_visit_in_each_of_its_groups(bui
     lines = sections["Education"]["lines"]
     assert [ln["key"] for ln in lines] == [REFERENCE_KEY, "1726", "1724"]  # worst first, unscored last
     ratings = {r["code"]: r["visits"] for r in metrics.quality_by_rating(_scope())}
-    assert ratings == {"on_track": 3, "off_track": 2, "not_monitored": 3}
+    assert ratings == {"on_track": 3, "off_track": 2, "not_monitored": 1}
     # a filter keeps its own rows only
     assert [s["name"] for s in metrics.sections(_scope(section="Education"))] == ["Education"]
 

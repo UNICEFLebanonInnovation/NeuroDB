@@ -1,6 +1,7 @@
 {% load i18n ui %}
 <p class="fmm-reference small text-muted">
   {% blocktrans with label=reference.label %}Showing {{ label }}{% endblocktrans %}
+  {% if reference.window %}· {% if reference.window.first %}{% blocktrans with first=reference.window.first|date:"j M Y" last=reference.window.last|date:"j M Y" %}Data available from {{ first }} to {{ last }}{% endblocktrans %}{% else %}{% trans "No visit with an end date matches these filters" %}{% endif %}{% endif %}
   · {% if reference.synced %}{% blocktrans with when=reference.synced|date:"j M Y H:i" %}eTools field monitoring synced {{ when }}{% endblocktrans %}{% else %}{% trans "eTools field monitoring not synced yet" %}{% endif %}
   · {% if reference.refresh %}{% blocktrans with when=reference.refresh.finished_at|date:"j M Y H:i" version=reference.rules_version|default:"—" %}scores computed {{ when }} with quality rules v{{ version }}{% endblocktrans %}{% else %}{% trans "scores not computed yet" %}{% endif %}
   {% if reference.pending_version %}· <span class="text-warning-emphasis">{% blocktrans with version=reference.pending_version %}recomputing with rules v{{ version }}{% endblocktrans %}</span>{% endif %}
@@ -17,7 +18,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
       </div>
       <div class="modal-body small">
-        <p>{% blocktrans with floor=how.setting.min_evaluated_points %}Each reported visit is checked against the quality rules below. Its score is the points it earned over the points of the rules that could be checked, as a percentage. A rule whose data is not in eTools is "not available" and left out; with fewer than {{ floor }} points checked the visit is not scored.{% endblocktrans %}</p>
+        <p>{% blocktrans with floor=how.setting.min_evaluated_points statuses=how.scored|join:", " %}Each visit in a scored status ({{ statuses }}) is checked against the quality rules below; a visit in any other status is "pending", without a score. Its score is the points it earned over the points of the rules that could be checked, as a percentage. A rule whose data is not in eTools is "not available" and left out; with fewer than {{ floor }} points checked the visit is not scored.{% endblocktrans %}</p>
         <div class="table-wrap"><table class="table table-sm">
           <thead><tr><th>{% trans "Rule" %}</th><th>{% trans "Points" %}</th><th>{% trans "What it checks" %}</th></tr></thead>
           <tbody>{% for rule in how.rules %}<tr>
@@ -27,8 +28,8 @@
           </tr>{% endfor %}</tbody>
         </table></div>
         <p>{% blocktrans with high=how.setting.band_high medium=how.setting.band_medium %}Bands: High from {{ high }}%, Medium from {{ medium }}%, Low below.{% endblocktrans %}
-        {% blocktrans with red=how.setting.urgency_red amber=how.setting.urgency_amber %}Urgency (0–100) adds up the worse of the overall rating and HACT Q1, the quality gap, the flags, a missing or overdue follow-up action point and a late report: red from {{ red }}, amber from {{ amber }}.{% endblocktrans %}</p>
-        <p class="mb-0">{% trans "Planned and in-progress visits are not scored yet. NeuroDB has no field office staff list, so no rule checks who made the visit." %}
+        {% blocktrans with red=how.setting.urgency_red amber=how.setting.urgency_amber gap=how.weights.quality_gap recency=how.weights.recency flags=how.weights.red_flags days=how.setting.recency_days %}Urgency (0–100) = {{ gap }}% the gap from the maximum score + {{ recency }}% recency (100 on the day the visit ended, 0 after {{ days }} days) + {{ flags }}% red flags (25 per failed rule, at most 100). A visit without a score has no urgency. Red from {{ red }}, amber from {{ amber }}.{% endblocktrans %}</p>
+        <p class="mb-0">{% trans "Missing follow-up action points and late reports are shown on each visit's page; they are not part of urgency. NeuroDB has no field office staff list, so no rule checks who made the visit." %}
         {% if user_role == "Administrator" %}<a href="{% url 'admin:fmm_rulesetting_changelist' %}">{% trans "Quality rules" %}</a> · <a href="{% url 'admin:fmm_scoresetting_changelist' %}">{% trans "Score settings" %}</a> · <a href="{% url 'admin:fmm_fieldmapping_changelist' %}">{% trans "Fields found" %}</a>{% endif %}</p>
       </div>
     </div>

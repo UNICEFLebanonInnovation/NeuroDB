@@ -110,6 +110,7 @@ SCORE_FIELDS = (
     "urgency",
     "urgency_band",
     "urgency_parts",
+    "signals",
     "action_points",
     "action_points_open",
     "action_points_overdue",

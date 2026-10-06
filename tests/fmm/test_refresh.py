@@ -404,17 +404,19 @@ def test_scores_only_reads_the_narratives_but_never_a_finding_record(fm_world, m
     assert any('"datamart_monitoringfinding"."narrative_finding"' in q for q in sql)
 
 
-def test_a_later_day_raises_urgency_with_no_data_change(fm_world):
+def test_a_later_day_moves_recency_and_the_signals_with_no_data_change(fm_world):
     _full(today=datetime.date(2026, 8, 10))
     early = {v.key: v for v in Visit.objects.all()}
-    assert early["1727"].urgency_parts["follow_up"] == 0  # 9 days after an off-plan visit: not yet
-    assert early["1726"].urgency_parts["follow_up"] == 5  # a high-priority action point due 1 Sep
+    assert early["1727"].signals == {}  # 9 days after a constrained visit: no follow-up expected yet
+    assert early["1726"].signals == {"ap_high_open": 1}  # a high-priority action point due 1 Sep
     _full(scores_only=True, today=TODAY)
     late = {v.key: v for v in Visit.objects.all()}
-    assert late["1727"].urgency_parts["follow_up"] == 20  # no follow-up action point after 14 days
-    assert late["1727"].urgency == early["1727"].urgency + 20
-    assert late["1726"].urgency_parts["follow_up"] == 20  # now overdue: 12, and high priority: 8
-    assert late["1726"].urgency == early["1726"].urgency + 15
+    assert late["1727"].signals == {"no_follow_up": True}  # no follow-up action point after 14 days
+    assert late["1726"].signals == {"ap_overdue": 1, "ap_high_overdue": 1}
+    # FMS's urgency: an older visit is less recent, so less urgent; the signals are not part of it
+    assert late["1727"].urgency_parts["recency"] < early["1727"].urgency_parts["recency"]
+    assert late["1727"].urgency_parts["quality_gap"] == early["1727"].urgency_parts["quality_gap"]
+    assert late["1727"].urgency < early["1727"].urgency
 
 
 def test_a_q1_pattern_change_rescored_updates_q1_psea_r3_and_urgency(fm_world):
@@ -438,7 +440,8 @@ def test_a_q1_pattern_change_rescored_updates_q1_psea_r3_and_urgency(fm_world):
     assert after["1728"].hact_q1 == "other"  # its attendance answer is "Yes", not a rating
     r3 = dict(VisitRuleResult.objects.filter(rule="R3").values_list("visit__key", "detail_key"))
     assert (r3["1722"], r3["1728"]) == ("q1_missing", "q1_unrecognised")
-    assert after["1727"].urgency_parts["rating"] == 0 and after["1727"].urgency < before["1727"].urgency
+    # 1727's Q1 was Constrained: no follow-up action point was a signal; without its Q1 it is not
+    assert before["1727"].signals == {"no_follow_up": True} and after["1727"].signals == {}
     roles = set(QuestionAnswer.objects.filter(question_text=OTHER_TEXT).values_list("role", flat=True))
     assert roles == {"q1"} and not QuestionAnswer.objects.filter(role="psea").exists()
     assert run.details["questions"]["roles"] == {"q1": 2, "q2": 1, "q3": 2, "psea": 0}
@@ -461,7 +464,7 @@ def test_a_visit_that_cannot_be_scored_is_counted_and_the_others_are_scored(fm_w
             None,
             "could not be scored",
             "",
-            0,
+            None,
         )
         assert not VisitRuleResult.objects.filter(visit=visit).exists()
         assert Visit.objects.exclude(quality_score=None).count() == 5

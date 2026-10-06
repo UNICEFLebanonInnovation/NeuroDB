@@ -26,6 +26,7 @@ Only this module, ``fields``, the visit builder and the visit page read records'
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
@@ -34,7 +35,7 @@ from typing import Any, Literal
 from neurodb.datamart import fm
 from neurodb.watch import people
 
-KINDS = ("text", "id", "int", "bool")
+KINDS = ("text", "id", "int", "bool", "number")
 TEXT_KEYS = ("text", "title", "name", "label", "value", "reference_number", "id")
 ID_KEYS = ("id", "text", "title", "name", "label", "value", "reference_number")  # an id prefers "id"
 INT_KEYS = ("value", "id", "text", "title", "name", "label", "reference_number")
@@ -63,8 +64,9 @@ _NOT_WORD = re.compile(r"[^\w\s]|_")
 
 # ------------------------------------------------------------------------------------------ values
 def value(record: Any, key: str, kind: str = "text") -> Any:
-    """The value of ``record`` under ``key`` read as ``kind`` (text, id, int or bool), or ``None``.
-    A text is a non-blank ``str``; an id a positive ``int``; an int any ``int``; a bool a ``bool``."""
+    """The value of ``record`` under ``key`` read as ``kind`` (text, id, int, bool or number), or
+    ``None``. A text is a non-blank ``str``; an id a positive ``int``; an int any ``int``; a bool a
+    ``bool``; a number a finite ``float`` (a coordinate, also written as text)."""
     if not isinstance(record, dict) or not key:
         return None
     return as_kind(walk(record, key), kind)
@@ -96,6 +98,8 @@ def as_kind(raw: Any, kind: str = "text") -> Any:
         return None
     if kind == "text":
         return _text(raw)
+    if kind == "number":
+        return _number(raw)
     if kind == "id":
         number = _integer(raw, ID_KEYS)
         return number if number is not None and number > 0 else None
@@ -106,6 +110,18 @@ def as_kind(raw: Any, kind: str = "text") -> Any:
             return as_kind(raw[0], "bool") if raw else None
         return raw if isinstance(raw, bool) else None
     raise ValueError(f"unknown kind {kind!r}")
+
+
+def split_list(raw: Any) -> list[str]:
+    """:func:`text_list`, with each text also split at its semicolons: eTools' FMM export writes several
+    field offices or sections as one text ("Zahle; Tripoli")."""
+    out: list[str] = []
+    for text in text_list(raw):
+        for part in text.split(";"):
+            part = part.strip()
+            if part and part not in out:
+                out.append(part)
+    return out
 
 
 def text_list(raw: Any) -> list[str]:
@@ -156,6 +172,25 @@ def _text(raw: Any) -> str | None:
         texts = [t for t in (_text(element) for element in raw[:MAX_LIST]) if t is not None]
         return ", ".join(texts) or None
     return None
+
+
+def _number(raw: Any) -> float | None:
+    """A finite number (a coordinate): an int, a float or a number written as text; the first element
+    of a list. True and false are not numbers."""
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int | float):
+        value = float(raw)
+    elif isinstance(raw, str):
+        try:
+            value = float(raw.strip().replace(",", "."))
+        except ValueError:
+            return None
+    elif isinstance(raw, list):
+        return _number(raw[0]) if raw else None
+    else:
+        return None
+    return value if math.isfinite(value) else None
 
 
 def _integer(raw: Any, keys: tuple[str, ...]) -> int | None:
@@ -369,6 +404,31 @@ def visit_answer_rows(visit) -> list[tuple[Any, str, str]]:
         shown = shown or (value(record, label_key) if label_key else None) or written or ""
         summary = (value(record, summary_key) if summary_key else None) or ""
         out.append((answer, shown, summary))
+    return out
+
+
+def row_texts(finding_ids: Collection[int], names: Collection[str]) -> dict[int, dict[str, str]]:
+    """{finding pk: {field: text}} of the fields ``names`` of ``fields.CANDIDATES["field_monitoring"]``
+    (the HACT answers, the visit goals...) that the finding rows' records hold, read under the keys
+    Fields found chose, without contact keys (``catalogue.scrub``). For the visit page and the AI's
+    narratives, which clean what they show or send."""
+    from neurodb.datamart import catalogue
+    from neurodb.datamart.models import MonitoringFinding
+
+    from . import fields
+
+    keys = {name: fields.key_for("field_monitoring", name) for name in names}
+    keys = {name: key for name, key in keys.items() if key}
+    out: dict[int, dict[str, str]] = {pk: {} for pk in finding_ids}
+    if not keys or not finding_ids:
+        return out
+    rows = MonitoringFinding.objects.filter(pk__in=list(finding_ids)).values_list("pk", "data")
+    for pk, data in rows.iterator(chunk_size=2000):
+        record = catalogue.scrub(data) if isinstance(data, dict) else {}
+        for name, key in keys.items():
+            text = value(record, key, "text")
+            if text:
+                out[pk][name] = text
     return out
 
 

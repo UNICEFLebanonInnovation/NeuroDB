@@ -381,7 +381,7 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
     visits = [
         MapVisit(row)
         for row in scope.visits()
-        .order_by("-urgency", F("end_date").desc(nulls_last=True), "key")
+        .order_by(F("urgency").desc(nulls_last=True), F("end_date").desc(nulls_last=True), "key")
         .values_list(*MAP_COLUMNS)
     ]
 

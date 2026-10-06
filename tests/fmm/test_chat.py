@@ -365,7 +365,7 @@ def test_the_panel_sits_under_the_brief_with_the_page_filter(built, ai_on, clien
     html = client_viewer.get(reverse("fmm:dashboard"), {"year": "2026", "section": ""}).content.decode()
     assert 'data-module="ask"' in html and 'data-stream-url="/fmm/chat/stream/"' in html
     assert 'data-scope="year=2026&amp;section="' in html and "<template data-ask-turn>" in html
-    assert "0 of 20 today" in html and "Which visits were off track and why?" in html
+    assert "0 of 20 today" in html and "What are the main programmatic issues in this period?" in html
     assert "Names, emails and phone numbers are removed from your question before it is sent." in html
     for element in ("ask-form", "ask-input", "ask-thread", "ask-intro", "ask-submit", "ask-stop", "ask-new"):
         assert html.count(f'id="{element}"') == 1, element

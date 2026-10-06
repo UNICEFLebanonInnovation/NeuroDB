@@ -1,0 +1,29 @@
+{% load i18n ui %}
+{% comment %}The morning briefing (FMS §7.1): ten tiles over this year so far (1 January to today, whatever
+the page's period; the page's other filters kept), each with its definition and the visits behind it, the
+top critical partners and the quality by governorate.{% endcomment %}
+<section class="panel fmm-briefing" id="fmm-briefing" aria-labelledby="fmm-briefing-title">
+  <div class="panel__header">
+    <h2 class="panel__title" id="fmm-briefing-title">{% trans "Morning briefing" %}</h2>
+    <span class="panel__hint">{% blocktrans with start=briefing.start|date:"j M" end=briefing.end|date:"j M Y" %}This year: {{ start }} – {{ end }}{% endblocktrans %}{% if briefing.filters %} · <span data-synced>{{ briefing.filters }}</span>{% endif %}</span>
+  </div>
+  <div class="kpi-grid fmm-briefing__tiles">
+    {% for tile in briefing.tiles %}
+    <div class="kpi{% if tile.key == 'critical' and tile.value != '0' %} kpi--off_track{% endif %}" data-tile="{{ tile.key }}">
+      <div class="kpi__label">{{ tile.label }} <span class="fmm-info" tabindex="0" role="note" title="{{ tile.info }}" aria-label="{{ tile.info }}">ⓘ</span></div>
+      <div class="kpi__value">{% if tile.url %}<a href="{{ tile.url }}"{% if "/drill/" in tile.url %} hx-get="{{ tile.url }}" hx-target="#modal-content"{% endif %}>{{ tile.value }}</a>{% else %}{{ tile.value }}{% endif %}</div>
+      <div class="kpi__meta"><span class="kpi__hint">{% trans "This year" %}</span></div>
+    </div>
+    {% endfor %}
+  </div>
+  {% if briefing.partners %}
+  <div class="chips mb-2" aria-label="{% trans 'Top critical partners' %}"><span class="small fw-semibold me-1">{% trans "Top critical partners" %}</span>
+    {% for p in briefing.partners %}<a class="chip" href="{{ p.url }}"><span data-synced>{{ p.name }}</span> <strong>{{ p.visits }}</strong></a>{% endfor %}
+  </div>
+  {% endif %}
+  {% if briefing.governorates %}
+  <div class="chips mb-0" aria-label="{% trans 'Quality by governorate' %}"><span class="small fw-semibold me-1">{% trans "Quality by governorate" %}</span>
+    {% for g in briefing.governorates %}<a class="chip" href="{{ g.url }}" title="{% blocktrans count n=g.visits %}{{ n }} visit this year{% plural %}{{ n }} visits this year{% endblocktrans %}"><span data-synced>{{ g.name }}</span> · {% if g.avg_quality is not None %}{{ g.avg_quality|percent }}{% else %}—{% endif %} · {% blocktrans count n=g.visits %}{{ n }} visit{% plural %}{{ n }} visits{% endblocktrans %}</a>{% endfor %}
+  </div>
+  {% endif %}
+</section>

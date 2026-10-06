@@ -1,10 +1,12 @@
 """The filter of the Monitoring insights page (:class:`Scope`): which visits a page, a link, a chart cell
 or a chat answer is about.
 
-A scope is a period (a preset such as "this year", a calendar year or two dates) and filters on the
-visits: sections, governorate, field offices, partners, a programme document, entity types, ratings,
-status groups, programmatic visits only, a search text, and the drill-downs that charts and links add.
-Periods read the visit's end date only; a visit without one is left out of every period.
+A scope is a period (a preset such as "this year" or "all time", a calendar year or two dates) and
+filters on the visits: sections, governorate, field offices, partners, a programme document, entity
+types, ratings, status groups, monitoring modalities, quality bands (High, Medium, Low, Pending: no
+score), urgency levels (High, Medium, Low; a visit without a score has none), programmatic visits only,
+a search text, and the drill-downs that charts and links add. Periods read the visit's end date only;
+a visit without one is left out of every period.
 
 **Sections.** A user with a section sees it by default, as on the overview, but only on a bare visit
 to the page (no ``section`` key in the address). Every link FMM writes carries ``section`` explicitly
@@ -39,7 +41,17 @@ from django.utils.translation import gettext as _
 
 from neurodb.datamart import fm
 
-PRESETS = ("this_year", "last_year", "year", "this_quarter", "last_quarter", "last_30", "last_90", "custom")
+PRESETS = (
+    "this_year",
+    "last_year",
+    "year",
+    "this_quarter",
+    "last_quarter",
+    "last_30",
+    "last_90",
+    "all_time",
+    "custom",
+)
 PRESET_LABELS = {
     "this_year": "This year",
     "last_year": "Last year",
@@ -48,8 +60,14 @@ PRESET_LABELS = {
     "last_quarter": "Last quarter",
     "last_30": "Last 30 days",
     "last_90": "Last 90 days",
+    "all_time": "All time",
     "custom": "Custom dates",
 }
+ALL_TIME_START = datetime.date(1990, 1, 1)  # "all time": every visit, whatever its end date
+QUALITY_BANDS = ("high", "medium", "low", "pending")
+QUALITY_LABELS = {"high": "High", "medium": "Medium", "low": "Low", "pending": "Pending (no score)"}
+URGENCY_LEVELS = ("high", "medium", "low")
+URGENCY_LABELS = {"high": "High", "medium": "Medium", "low": "Low"}
 NONE = "none"  # "visits without a section / governorate / office"
 RATINGS = ("on_track", "constrained", "off_track", "not_monitored")
 RATING_LABELS = {
@@ -69,7 +87,13 @@ STATUS_LABELS = {
 KIND_LABELS = {"pd": "PD/SSFA", "cp_output": "CP output", "partner": "Partner", "other": "Other"}
 RULES = ("R1", "R2", "R3", "R4", "R5", "R6")
 RULE_STATES = ("pass", "fail", "na", "nap", "off")
-BUCKETS = {"0-20": (0, 20), "20-40": (20, 40), "40-60": (40, 60), "60-80": (60, 80), "80-100": (80, 100)}
+# the score distribution's buckets of 10 points (90-100 holds 100); the buckets of 20 points of Release 1
+# are still read, so an older link keeps opening its visits
+CHART_BUCKETS = {f"{low}-{low + 10}": (low, low + 10) for low in range(0, 100, 10)}
+BUCKETS = {
+    **CHART_BUCKETS,
+    **{"0-20": (0, 20), "20-40": (20, 40), "40-60": (40, 60), "60-80": (60, 80), "80-100": (80, 100)},
+}
 FLAG_COUNTS = ("0", "1", "2", "3+")  # the flags-per-visit rows; "N+" (N or more) is read for any N
 _FLAGS = re.compile(r"^(\d)(\+?)$")
 URGENCY_BANDS = ("red", "amber", NONE)
@@ -77,6 +101,7 @@ REVIEW_STATES = ("reviewed", "follow_up", "data_issue", NONE)
 # The drill-downs of chart cells and links, in the order the address carries them
 DRILL_KEYS = (
     "month",
+    "visit_status",
     "hact_q1",
     "bucket",
     "flag",
@@ -98,6 +123,8 @@ def _drill_ok(key: str, value: str) -> bool:
     """A drill value the scope understands: codes only, never a label as a chart draws it."""
     if key == "month":
         return bool(_MONTH.match(value))
+    if key == "visit_status":  # an eTools status (the morning briefing's tiles)
+        return value in fm.STATUSES
     if key == "hact_q1":
         return value in ("on_track", "constrained", "off_track", NONE)
     if key == "bucket":
@@ -145,6 +172,8 @@ def period(preset: str, today: datetime.date, year: int | None = None) -> tuple[
     if preset in ("last_30", "last_90"):
         days = 30 if preset == "last_30" else 90
         return today - datetime.timedelta(days=days - 1), today
+    if preset == "all_time":
+        return ALL_TIME_START, datetime.date(today.year + 10, 12, 31)
     return datetime.date(today.year, 1, 1), datetime.date(today.year, 12, 31)
 
 
@@ -200,6 +229,9 @@ class Scope:
     entity_types: tuple[str, ...] = ()  # pd | cp_output | partner | other
     ratings: tuple[str, ...] = ()  # visit rating: on_track | constrained | off_track | not_monitored
     statuses: tuple[str, ...] = ()  # status groups
+    modalities: tuple[str, ...] = ()  # eTools' monitoring modality; "none" = not known
+    quality_bands: tuple[str, ...] = ()  # high | medium | low | pending (no score)
+    urgency_levels: tuple[str, ...] = ()  # high (red) | medium (amber) | low (below amber, scored)
     programmatic: bool = False
     q: str = ""  # matches Visit.search (folded)
     drill: tuple[tuple[str, str], ...] = ()  # (key, value) of DRILL_KEYS
@@ -277,6 +309,9 @@ class Scope:
             entity_types=tuple(sorted(set(_values(params, "entity_type")) & set(fm.KINDS))),
             ratings=tuple(sorted(set(_values(params, "rating")) & set(RATINGS))),
             statuses=tuple(sorted(set(_values(params, "status")) & set(STATUS_GROUPS))),
+            modalities=tuple(_values(params, "modality")),
+            quality_bands=tuple(b for b in QUALITY_BANDS if b in _values(params, "quality")),
+            urgency_levels=tuple(u for u in URGENCY_LEVELS if u in _values(params, "urgency_level")),
             programmatic=str(params.get("programmatic") or "").lower() in ("1", "true", "on", "yes"),
             q=" ".join(str(params.get("q") or "").split())[:Q_CHARS],
             drill=drill,
@@ -319,9 +354,36 @@ class Scope:
         if self.pd is not None:
             qs = qs.filter(pd_ids__contains=[self.pd])
         if self.ratings:
-            qs = qs.filter(rating__in=self.ratings)
+            # Not monitored (planned, not conducted) is a reported visit with nothing rated; a planned or
+            # in-progress one is not rated yet (metrics.counted_rating)
+            rated = [r for r in self.ratings if r != "not_monitored"]
+            match = Q(rating__in=rated) if rated else Q(pk__in=[])
+            if "not_monitored" in self.ratings:
+                match |= Q(rating="not_monitored", status_group="reported")
+            qs = qs.filter(match)
         if self.statuses:
             qs = qs.filter(status_group__in=self.statuses)
+        if self.modalities:
+            names = [m for m in self.modalities if m != NONE]
+            match = Q(modality__in=names) if names else Q(pk__in=[])
+            if NONE in self.modalities:
+                match |= Q(modality="")
+            qs = qs.filter(match)
+        if self.quality_bands:
+            match = Q(pk__in=[])
+            for band in self.quality_bands:
+                match |= Q(quality_score__isnull=True) if band == "pending" else Q(score_band=band)
+            qs = qs.filter(match)
+        if self.urgency_levels:  # the bands the scoring gave, from the urgency thresholds (Score settings)
+            levels = {
+                "high": Q(urgency_band="red"),
+                "medium": Q(urgency_band="amber"),
+                "low": Q(urgency_band="", urgency__isnull=False),
+            }
+            match = Q(pk__in=[])
+            for level in self.urgency_levels:
+                match |= levels[level]
+            qs = qs.filter(match)
         if self.programmatic:
             qs = qs.filter(is_programmatic=True)
         if self.q:
@@ -385,6 +447,10 @@ class Scope:
                 "empty": self.empty,
             }
         )
+        # Release 2's filters only when set, so that a scope without them keeps its hash (and its brief)
+        for name in ("modalities", "quality_bands", "urgency_levels"):
+            if getattr(self, name):
+                out[name] = sorted(getattr(self, name))
         return out
 
     def hash(self) -> str:
@@ -409,6 +475,9 @@ class Scope:
         out += [("entity_type", k) for k in self.entity_types]
         out += [("rating", r) for r in self.ratings]
         out += [("status", s) for s in self.statuses]
+        out += [("modality", m) for m in self.modalities]
+        out += [("quality", b) for b in self.quality_bands]
+        out += [("urgency_level", u) for u in self.urgency_levels]
         if self.programmatic:
             out.append(("programmatic", "1"))
         if self.q:
@@ -440,6 +509,8 @@ class Scope:
             end = datetime.date(self.start.year - 1, 12, 31)
         elif self.preset in ("this_quarter", "last_quarter"):
             start, end = quarter_of(self.start - datetime.timedelta(days=1))
+        elif self.preset == "all_time":  # nothing before all time
+            return replace(self, preset="custom", year=None, default_section=False, empty=True)
         else:
             days = (self.end - self.start).days + 1
             end = self.start - datetime.timedelta(days=1)
@@ -454,7 +525,17 @@ class Scope:
         for key, value in kw.items():
             if value in (None, "", (), []):
                 continue
-            if key in ("sections", "offices", "partners", "entity_types", "ratings", "statuses"):
+            if key in (
+                "sections",
+                "offices",
+                "partners",
+                "entity_types",
+                "ratings",
+                "statuses",
+                "modalities",
+                "quality_bands",
+                "urgency_levels",
+            ):
                 given = tuple(value) if isinstance(value, list | tuple | set) else (value,)
                 if key == "partners":
                     given = _ints([str(v) for v in given])
@@ -493,6 +574,8 @@ class Scope:
 
     # -------------------------------------------------------------------------------- wording
     def period_label(self) -> str:
+        if self.preset == "all_time":
+            return _("All time")
         if self.start.year == self.end.year:
             return f"{date_format(self.start, 'j M')} – {_day(self.end)}"
         return f"{_day(self.start)} – {_day(self.end)}"
@@ -523,6 +606,8 @@ def _drill(qs: QuerySet, key: str, value: str, drill: tuple[tuple[str, str], ...
     if key == "month":
         year, month = (int(part) for part in value.split("-"))
         return qs.filter(end_date__year=year, end_date__month=month)
+    if key == "visit_status":
+        return qs.filter(status=value)
     if key == "hact_q1":
         return qs.filter(hact_q1="" if value == NONE else value)
     if key == "bucket":
@@ -537,8 +622,10 @@ def _drill(qs: QuerySet, key: str, value: str, drill: tuple[tuple[str, str], ...
         count, more = _FLAGS.match(value).groups()
         qs = qs.exclude(quality_score=None)  # flags per visit count the scored visits
         return qs.filter(flag_count__gte=int(count)) if more else qs.filter(flag_count=int(count))
-    if key == "urgency":
-        return qs.filter(urgency_band="" if value == NONE else value)
+    if key == "urgency":  # "none": below amber; a visit without urgency (not scored) is in no band
+        if value == NONE:
+            return qs.filter(urgency_band="", urgency__isnull=False)
+        return qs.filter(urgency_band=value)
     if key == "location":
         return qs.filter(location_id=int(value))
     if key == "issue":
@@ -579,9 +666,10 @@ def link(**params: Any) -> str:
 
 
 def options(when: str | None = None) -> dict[str, list]:
-    """The filter bar's choices: the eTools section names and field offices of the visits, the
-    gazetteer's governorates (``[key, name]``), the partners with visits (``[id, name]``) and the
-    years of the visits' end dates. Kept ten minutes per refresh (``when``: ``metrics.stamp``)."""
+    """The filter bar's choices: the eTools section names, field offices and monitoring modalities of
+    the visits, the gazetteer's governorates (``[key, name]``), the partners with visits (``[id,
+    name]``) and the years of the visits' end dates. Kept ten minutes per refresh (``when``:
+    ``metrics.stamp``)."""
     from django.core.cache import cache
     from django.db import connection
 
@@ -594,7 +682,7 @@ def options(when: str | None = None) -> dict[str, list]:
         from .metrics import stamp
 
         when = stamp()
-    key = f"fmm:v1:options:{when}"
+    key = f"fmm:v2:options:{when}"
     found = cache.get(key)
     if found is not None:
         return found
@@ -604,9 +692,11 @@ def options(when: str | None = None) -> dict[str, list]:
             f"SELECT ARRAY(SELECT DISTINCT unnest(section_names) FROM {table}), "  # noqa: S608
             f"ARRAY(SELECT DISTINCT unnest(offices) FROM {table}), "
             f"ARRAY(SELECT DISTINCT unnest(partner_ids) FROM {table}), "
-            f"ARRAY(SELECT DISTINCT EXTRACT(YEAR FROM end_date)::int FROM {table} WHERE end_date IS NOT NULL)"
+            f"ARRAY(SELECT DISTINCT EXTRACT(YEAR FROM end_date)::int FROM {table} "
+            "WHERE end_date IS NOT NULL), "
+            f"ARRAY(SELECT DISTINCT modality FROM {table} WHERE modality <> '')"
         )
-        sections, offices, partner_ids, years = cursor.fetchone()
+        sections, offices, partner_ids, years, modalities = cursor.fetchone()
 
     def names(values) -> list[str]:
         return sorted({v.strip() for v in values or () if v and v.strip()}, key=str.casefold)
@@ -623,6 +713,7 @@ def options(when: str | None = None) -> dict[str, list]:
         "governorates": [[k, name] for k, name in governorate_names().items()],
         "partners": sorted(partners, key=lambda p: str(p[1]).casefold()),
         "years": sorted({int(y) for y in years or ()}, reverse=True),
+        "modalities": names(modalities),
     }
     cache.set(key, found, 600)
     return found

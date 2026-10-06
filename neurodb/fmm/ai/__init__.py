@@ -8,8 +8,10 @@
 - :mod:`.budget`: whether an AI call may start (switched on, not paused, within the day's caps) and the
   per-person quotas;
 - :mod:`.facts`: what a brief sends, built by code from the stored visits of a filter;
-- :mod:`.insights`: the brief: its strict answer format, where and how it is written (in a background
-  process), its checks, which brief a page shows, and the nightly briefs;
+- :mod:`.sections`: the parts of a brief as each prompt version lists them (FMS's insight sections), the
+  strict answer format built from them, and how a priority action point is written out;
+- :mod:`.insights`: the brief: where and how it is written (in a background process), its checks, which
+  brief a page shows, and the nightly briefs;
 - :mod:`.fallback`: the brief NeuroDB writes from the figures when the AI is not used;
 - :mod:`.tools`: the four field monitoring look-ups of the chat (also offered to Ask NeuroDB, without
   any text), and the context that holds each answer to the page's filter and its limit of texts;
@@ -34,4 +36,8 @@ FMM_NAMED_FIELDS = (
     "issue",
     "cp_outputs",
     "programme_activities",
+    "q1",
+    "q2",
+    "q3",
+    "rule",
 )

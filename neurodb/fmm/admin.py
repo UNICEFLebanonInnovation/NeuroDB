@@ -40,12 +40,16 @@ from unfold.admin import ModelAdmin, TabularInline
 from unfold.decorators import action
 
 from neurodb.core.models import SyncRun
+from neurodb.datamart.fm import STATUSES
 from neurodb.integrations import background
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
+from neurodb.web.templatetags.ui import code_label
 
 from . import access, fields, privacy, rules, samples, status, versions
 from .ai import profiles
 from .models import (
+    CHAT_EXAMPLES_HELP,
+    SECTIONS_HELP,
     ChatQuestion,
     FieldMapping,
     Insight,
@@ -724,10 +728,19 @@ class ScoreSettingForm(_NoteForm):
         order=tuple(default_urgency_weights()),
         label=_("Urgency weights"),
         help_text=_(
-            "Points each part of urgency adds (whole numbers from 0 to 100): off_track and constrained (the "
-            "worse of the rating and HACT Q1), quality_gap (times the share of the score missing), "
-            "unscored_reported, per_flag up to flags_max, no_follow_up, ap_overdue, ap_high_overdue and "
-            "ap_high_open up to follow_up_max, report_late."
+            "Urgency = quality_gap × (100 − score) + recency × recency (100 on the day the visit ended, 0 "
+            "after the recency days) + red_flags × (25 per failed rule, at most 100). Three numbers from 0 "
+            'to 1 that add up to 1; the default is {"quality_gap": 0.5, "recency": 0.3, "red_flags": 0.2}. '
+            "A visit without a score has no urgency."
+        ),
+    )
+    scored_statuses = forms.MultipleChoiceField(
+        label=_("Scored statuses"),
+        choices=[(code, code_label(code)) for code in STATUSES if code != "cancelled"],
+        widget=forms.CheckboxSelectMultiple,
+        help_text=_(
+            "The eTools statuses whose visits get a quality score and urgency. The visits in any other "
+            "status are shown as “pending”, without a score. Default: report finalization and completed."
         ),
     )
     question_patterns = JSONTextField(
@@ -758,11 +771,27 @@ class ScoreSettingForm(_NoteForm):
             "urgency_red",
             "urgency_amber",
             "urgency_weights",
+            "recency_days",
+            "scored_statuses",
             "follow_up_days",
             "report_late_days",
             "question_patterns",
             "role_flag_answers",
         )
+        help_texts = {
+            "recency_days": _("Days after which a visit adds nothing to urgency for its recency (FMS: 180)."),
+            "follow_up_days": _(
+                "Days after an off-track or constrained visit without an action point before the visit "
+                "page shows “no follow-up” (a signal, not part of urgency)."
+            ),
+            "report_late_days": _(
+                "Days after its end before a planned or in-progress visit shows “report late” on its "
+                "page (a signal, not part of urgency)."
+            ),
+        }
+
+    def clean_scored_statuses(self):
+        return list(self.cleaned_data.get("scored_statuses") or [])
 
 
 @admin.register(ScoreSetting)
@@ -773,18 +802,17 @@ class ScoreSettingAdmin(_VersionedAdmin):
     fieldsets = (
         (
             _("Score and bands"),
-            {"fields": ("min_evaluated_points", ("band_high", "band_medium"), "high_flag_count")},
-        ),
-        (
-            _("Urgency"),
             {
                 "fields": (
-                    ("urgency_red", "urgency_amber"),
-                    "urgency_weights",
-                    ("follow_up_days", "report_late_days"),
+                    "scored_statuses",
+                    "min_evaluated_points",
+                    ("band_high", "band_medium"),
+                    "high_flag_count",
                 )
             },
         ),
+        (_("Urgency"), {"fields": (("urgency_red", "urgency_amber"), "urgency_weights", "recency_days")}),
+        (_("Signals on the visit page"), {"fields": (("follow_up_days", "report_late_days"),)}),
         (_("Question roles"), {"fields": ("question_patterns", "role_flag_answers")}),
         (_("Why"), {"fields": ("change_note",)}),
         (None, {"fields": ("updated_by", "updated_at")}),
@@ -1080,6 +1108,23 @@ class PromptVersionForm(forms.ModelForm):
         choices=[(e, e) for e in settings.AI_ASSISTANT_EFFORTS],
         help_text=_("How much the model reasons before it writes; higher costs more output tokens."),
     )
+    sections = JSONTextField(label=_("Parts of the brief"), help_text=SECTIONS_HELP)
+    chat_examples = forms.CharField(
+        label=_("Starter questions"),
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 4}),
+        help_text=CHAT_EXAMPLES_HELP,
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        examples = self.initial.get("chat_examples")
+        if isinstance(examples, list):  # one question per line
+            self.initial["chat_examples"] = "\n".join(str(e) for e in examples)
+
+    def clean_chat_examples(self):
+        text = self.cleaned_data.get("chat_examples") or ""
+        return [line.strip() for line in text.splitlines() if line.strip()]
 
     class Meta:
         model = PromptVersion
@@ -1117,6 +1162,8 @@ class PromptVersionForm(forms.ModelForm):
         for name in ("instructions", "chat_instructions"):
             for problem in profiles.text_problems(cleaned.get(name) or "", known):
                 self.add_error(name, problem)
+        for problem in profiles.text_problems("\n".join(cleaned.get("chat_examples") or []), known):
+            self.add_error("chat_examples", problem)
         return cleaned
 
 
@@ -1163,8 +1210,8 @@ class PromptVersionAdmin(ModelAdmin):
     ordering = ("-number",)
     actions_detail = ("preview_version", "test_run_version", "publish_version", "roll_back_version")
     fieldsets = (
-        (_("AI monitoring insights"), {"fields": ("insights_enabled", "instructions")}),
-        (_("Chat with Data"), {"fields": ("chat_enabled", "chat_instructions")}),
+        (_("AI monitoring insights"), {"fields": ("insights_enabled", "instructions", "sections")}),
+        (_("Chat with Data"), {"fields": ("chat_enabled", "chat_instructions", "chat_examples")}),
         (
             _("Model and parameters"),
             {
@@ -1235,7 +1282,7 @@ class PromptVersionAdmin(ModelAdmin):
 
     @admin.display(description=_("added to every prompt, after the text above"))
     def fixed_text(self, obj):
-        return render_to_string("admin/fmm/promptversion/_fixed_text.html", _fixed_context())
+        return render_to_string("admin/fmm/promptversion/_fixed_text.html", _fixed_context(obj))
 
     # adding a draft
     def _source(self, request) -> PromptVersion | None:
@@ -1489,13 +1536,16 @@ def _preview_facts(scope, version) -> dict[str, Any]:
     }
 
 
-def _fixed_context() -> dict[str, Any]:
-    from .ai import insights, prompts
+def _fixed_context(version=None) -> dict[str, Any]:
+    """The fixed texts, the parts of the brief as ``version`` lists them (the defaults without one) and
+    the answer format built from them."""
+    from .ai import prompts, sections
 
+    parts = sections.of(version)
     return {
-        "insights": prompts.fixed_text("insights"),
+        "insights": f"{sections.instructions(parts)}\n{prompts.fixed_text('insights')}",
         "chat": prompts.fixed_text("chat"),
-        "schema": json.dumps(insights.SCHEMA, indent=2, ensure_ascii=False),
+        "schema": json.dumps(sections.schema(parts), indent=2, ensure_ascii=False),
     }
 
 
@@ -1609,15 +1659,16 @@ class InsightAdmin(ReadOnlyModelAdmin):
     def dropped_shown(self, obj):
         return ", ".join(f"{k} {v}" for k, v in sorted((obj.dropped or {}).items())) or "—"
 
-    @admin.display(description=_("notes / visits sent"))
+    @admin.display(description=_("narr / comp sent"))
     def sent_shown(self, obj):
         sent = obj.sent or {}
         if not sent:
             return "—"
-        return (
-            f"{sent.get('narratives', 0)}/{sent.get('narratives_allowed', 0)} · "
-            f"{sent.get('visits', 0)}/{sent.get('visits_allowed', 0)}"
-        )
+        if "flags_allowed" in sent:  # comp: the quality flags (Release 2)
+            comp = f"{sent.get('flags', 0)}/{sent.get('flags_allowed', 0)}"
+        else:  # comp: the visits sent in full (a brief of Release 1)
+            comp = f"{sent.get('visits', 0)}/{sent.get('visits_allowed', 0)}"
+        return f"{sent.get('narratives', 0)}/{sent.get('narratives_allowed', 0)} · {comp}"
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
         from .ai import insights
@@ -1733,15 +1784,17 @@ class ChatQuestionAdmin(ReadOnlyModelAdmin):
 
 
 def _brief_lines(row: Insight) -> dict[str, Any]:
-    """A brief's kept sentences and actions, as the admin lists them."""
-    from .ai import insights
+    """A brief's kept sentences and action points, in the parts of its version, as the admin lists
+    them."""
+    from .ai import sections
 
+    parts = sections.of(row.version)
     return {
         "row": row,
         "sections": [
-            {"title": insights.SECTION_TITLES[name], "sentences": (row.sections or {}).get(name) or []}
-            for name in insights.SECTIONS
+            {"title": part["label"], "sentences": (row.sections or {}).get(part["key"]) or []}
+            for part in sections.text_parts(parts)
         ],
-        "actions": row.actions or [],
+        "actions": [{**a, "line": sections.action_line(a)} for a in row.actions or []],
         "running": row.status == Insight.Status.RUNNING,
     }

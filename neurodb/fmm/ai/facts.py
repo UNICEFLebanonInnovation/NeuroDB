@@ -1,18 +1,23 @@
 """The facts of an AI monitoring brief: what is sent, built by code from the stored visits of a filter.
 
 :func:`build` gathers, for one :class:`~neurodb.fmm.scope.Scope`, the figures the page shows (the key
-figures and the previous period, the quality rules, the recurring issues, sections, field offices,
-governorates, follow-up and HACT), up to ``comp`` visits "in full" (their structured cards, never a
-narrative) and up to ``narr`` monitors' notes, each cleaned (``privacy.clean``). Every entry carries a
-``key`` the brief's sentences cite, and :attr:`Facts.citable` maps each key to its entry, so that every
-number and date of a kept sentence can be checked against the entries it cites.
+figures with the rating distribution over the rated visits, the previous period, the quality rules,
+the breakdowns per section, field office, partner, modality and governorate, follow-up and HACT); the
+``comp`` most frequent quality flags (the compliance depth: rule, visits, example visits); the cards of
+the most urgent visits and of the flags' examples (structured, never a narrative); and up to ``narr``
+monitors' notes with their Q1, Q2 and Q3 answers, each cleaned (``privacy.clean``). Every share of
+ratings is over the rated visits only; Not monitored (planned, not conducted) is a count apart. Every
+entry carries a ``key`` the brief's sentences cite, and :attr:`Facts.citable` maps each key to its
+entry, so that every number and date of a kept sentence can be checked against the entries it cites.
 
 Everything here is computed by code: shares and changes are worked out before they are sent, floats are
 rounded to one decimal, and the selection of notes and visits is deterministic, so the same data gives
 the same payload, the same :attr:`Facts.input_hash` and a cached brief instead of a new call.
 
-Nothing here reads an eTools record's raw data or the people who made a visit: the notes come from the
-findings' narrative column, the visits from :func:`neurodb.fmm.privacy.visit_card` (an allow-list).
+Nothing here sends the people who made a visit: the notes come from the findings' narrative column and
+their answers from the finding rows' HACT answer keys (a record read for those keys only, without
+contact keys) or the checklist answers, all cleaned; the visits from
+:func:`neurodb.fmm.privacy.visit_card` (an allow-list).
 """
 
 from __future__ import annotations
@@ -28,24 +33,36 @@ from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Q
 from django.utils.dateformat import format as date_format
 from django.utils.text import slugify
 
 from neurodb.watch import redact
 
 from .. import metrics, privacy
-from ..scope import KIND_LABELS, NONE, RATING_LABELS, STATUS_LABELS, Scope
+from ..scope import (
+    KIND_LABELS,
+    NONE,
+    QUALITY_LABELS,
+    RATING_LABELS,
+    STATUS_LABELS,
+    URGENCY_LABELS,
+    Scope,
+)
 from . import prompts
 
+RATED = ("on_track", "constrained", "off_track")
 NARRATIVE_MIN_CHARS = 40  # a shorter note says too little to be worth a place among the few sent
 NARRATIVE_MAX_PLACEHOLDERS = 3  # a note with more names, contacts or links removed is never sent
 TEXT_BATCH = 200  # narratives read from the findings at once
-ISSUES = 10  # recurring issues sent
-ISSUE_VISITS = 6  # visit keys listed per issue
+ISSUE_VISITS = 3  # example visits listed per quality flag
+EXAMPLE_CARDS = 30  # visit cards added for the flags' examples, at most (beyond VISIT_CARDS)
+VISIT_CARDS = 15  # the most urgent visits sent as cards
+PARTNERS = 30  # partners in the breakdown, most visits first
+ANSWER_CHARS = 400  # characters of a Q1, Q2 or Q3 answer sent with a narrative
 FILTER_CHARS = 300
 NAME_CHARS = 200
-DEFAULT_COMP = 15  # the visit cards of a code-written brief (no version to read them from)
+DEFAULT_COMP = 15  # the quality flags of a code-written brief (no version to read them from)
 
 
 @dataclass
@@ -142,6 +159,12 @@ def filters_text(scope: Scope, names_: frozenset[str]) -> str:
         parts.append("Rating: " + ", ".join(RATING_LABELS.get(r, r) for r in scope.ratings))
     if scope.statuses:
         parts.append("Status: " + ", ".join(STATUS_LABELS.get(s, s) for s in scope.statuses))
+    if scope.modalities:
+        parts.append("Modality: " + ", ".join("not known" if m == NONE else m for m in scope.modalities))
+    if scope.quality_bands:
+        parts.append("Quality: " + ", ".join(QUALITY_LABELS.get(b, b) for b in scope.quality_bands))
+    if scope.urgency_levels:
+        parts.append("Urgency: " + ", ".join(URGENCY_LABELS.get(u, u) for u in scope.urgency_levels))
     if scope.programmatic:
         parts.append("Programmatic visits only")
     if scope.q:
@@ -165,12 +188,16 @@ def _scope_entry(scope: Scope, names_: frozenset[str]) -> dict[str, Any]:
 
 # ------------------------------------------------------------------------------------------ figures
 def _kpi(scope: Scope, when: str, limits: dict[str, int]) -> dict[str, Any]:
+    """The key figures. Every share of ratings is over the rated visits (or entities) only; "Not
+    monitored" (planned, not conducted) is a count apart, never a share of all visits."""
     k = metrics.kpis(scope, when, limits)
     data = metrics.summary(scope, when, limits)
     covered = metrics.coverage(scope, when, limits)
     groups = {row["group"]: row["n"] for row in k["by_status"]}
-    by_rating = data["by_rating"]
-    return {
+    by_rating = {code: data["by_rating"][code]["visits"] for code in RATED}
+    rated = sum(by_rating.values())
+    entity_ratings = k["entity_ratings"]
+    out = {
         "key": "kpi",
         "visits": k["visits"],
         "visits_reported": groups.get("reported", 0),
@@ -178,22 +205,38 @@ def _kpi(scope: Scope, when: str, limits: dict[str, int]) -> dict[str, Any]:
         "visits_planned": groups.get("planned", 0),
         "visits_cancelled": groups.get("cancelled", 0),
         "visits_status_unknown": groups.get("unknown", 0),
-        "entities": k["entities"],
-        "entities_rated": k["entities_rated"],
-        "entities_not_monitored": k["entities_not_monitored"],
-        "entities_not_monitored_share": _share(k["entities_not_monitored"], k["entities"]),
-        "avg_quality": _num(k["avg_quality"]),
-        "scored_visits": k["scored"],
-        "high_urgency": k["high_urgency"],
-        "amber_urgency": k["amber"],
-        "off_track_visits": by_rating["off_track"]["visits"],
-        "constrained_visits": by_rating["constrained"]["visits"],
-        "not_monitored_visits": data["gaps"],  # reported visits none of whose entities is rated (§0.3)
-        "psea_flagged_visits": data["psea_flagged"],
-        "governorates_covered": covered["covered"],
-        "governorates_total": covered["total"],
-        "rules_version": k["rules_version"],
+        "rated_visits": rated,
+        "not_monitored_visits": data["gaps"],  # reported, nothing rated: planned, not conducted
     }
+    for code in RATED:
+        out[f"{code}_visits"] = by_rating[code]
+        out[f"{code}_share_of_rated"] = _share(by_rating[code], rated)
+    out["off_track_or_constrained_share_of_rated"] = _share(
+        by_rating["off_track"] + by_rating["constrained"], rated
+    )
+    out.update(
+        {
+            "entities": k["entities"],
+            "entities_rated": k["entities_rated"],
+            "entities_not_monitored": k["entities_not_monitored"],
+        }
+    )
+    for code in RATED:
+        out[f"entities_{code}"] = entity_ratings[code]
+        out[f"entities_{code}_share_of_rated"] = _share(entity_ratings[code], k["entities_rated"])
+    out.update(
+        {
+            "avg_quality": _num(k["avg_quality"]),
+            "scored_visits": k["scored"],
+            "high_urgency": k["high_urgency"],
+            "amber_urgency": k["amber"],
+            "psea_flagged_visits": data["psea_flagged"],
+            "governorates_covered": covered["covered"],
+            "governorates_total": covered["total"],
+            "rules_version": k["rules_version"],
+        }
+    )
+    return out
 
 
 def _previous(scope: Scope, kpi: dict[str, Any], when: str, limits: dict[str, int]) -> dict[str, Any]:
@@ -231,25 +274,95 @@ def _rules(scope: Scope, when: str, rules: list) -> dict[str, dict[str, Any]]:
     return out
 
 
-def _issues(scope: Scope, when: str, rules: list, carded: set[str]) -> dict[str, dict[str, Any]]:
-    """The most frequent issues, each with the keys of its visits among those sent in full
-    (``carded``): a visit key the payload names is always one a sentence may cite."""
+def _issues(scope: Scope, when: str, rules: list, comp: int) -> dict[str, dict[str, Any]]:
+    """The ``comp`` most frequent quality flags (the compliance depth), each with its rule, label,
+    visits and up to three example visits (``visit:<key>``: their cards are sent too)."""
     out = {}
-    for row in metrics.top_issues(scope, ISSUES, when, rules):
+    for row in metrics.top_issues(scope, comp, when, rules):
         if not row["drill"]:
             continue
         key = f"issue:{row['drill']}"
         out[key] = {
             "key": key,
+            "rule": row["rule"],
             "label": row["label"],
             "visits": row["visits"],
             "mean_urgency": row["urgency"],
             "lowest": _num(row["lowest"]),
-            "visit_keys": [key for key in (f"visit:{chip['key']}" for chip in row["chips"]) if key in carded][
-                :ISSUE_VISITS
-            ],
+            "visit_keys": [f"visit:{chip['key']}" for chip in row["chips"][:ISSUE_VISITS]],
         }
     return out
+
+
+class _Tally:
+    """Visits of a group: their average quality and their ratings (Not monitored counted apart)."""
+
+    def __init__(self, name: str) -> None:
+        self.name, self.visits, self.q_sum, self.q_n = name, 0, Decimal(0), 0
+        self.ratings: Counter = Counter()
+
+    def add(self, quality: Any, rating: str) -> None:
+        self.visits += 1
+        if quality is not None:
+            self.q_sum += Decimal(str(quality))
+            self.q_n += 1
+        self.ratings[rating] += 1
+
+    def entry(self, key: str) -> dict[str, Any]:
+        rated = sum(self.ratings[code] for code in RATED)
+        return {
+            "key": key,
+            "name": self.name,
+            "visits": self.visits,
+            "avg_quality": _num(metrics.mean_quality(self.q_sum, self.q_n)),
+            "rated": rated,
+            **{code: self.ratings[code] for code in RATED},
+            "off_track_or_constrained_share_of_rated": _share(
+                self.ratings["off_track"] + self.ratings["constrained"], rated
+            ),
+            "not_monitored": self.ratings["not_monitored"],
+        }
+
+
+BREAKDOWN_COLUMNS = (
+    "partner_id",
+    "partner__name",
+    "partner__short_name",
+    "modality",
+    "governorate_key",
+    "quality_score",
+    "rating",
+    "status_group",
+)
+
+
+def _breakdowns(scope: Scope, names_) -> dict[str, dict[str, dict[str, Any]]]:
+    """Per partner (the visit's main partner; the most visited first, at most ``PARTNERS``), per
+    monitoring modality and per governorate: visits, average quality, the rated visits by rating with
+    the share Off track or Constrained of the rated ones, and the Not monitored ones apart."""
+    partners: dict[int, _Tally] = {}
+    modalities: dict[str, _Tally] = {}
+    governorates: dict[str, _Tally] = {}
+    for row in scope.visits().order_by().values_list(*BREAKDOWN_COLUMNS):
+        pid, name, short, modality, gov, quality, rating, group = row
+        counted = metrics.counted_rating(rating or "not_monitored", group)
+        if pid:
+            partners.setdefault(pid, _Tally(_text(short or name, names_))).add(quality, counted)
+        modalities.setdefault(modality or "", _Tally(_text(modality, names_) or "Modality not known")).add(
+            quality, counted
+        )
+        if gov:
+            governorates.setdefault(gov, _Tally("")).add(quality, counted)
+    top = sorted(partners.items(), key=lambda kv: (-kv[1].visits, kv[1].name.casefold()))[:PARTNERS]
+    taken: set[str] = set()
+    return {
+        "partners": {f"partner:{pid}": tally.entry(f"partner:{pid}") for pid, tally in top},
+        "modalities": {
+            (key := f"modality:{_slug(name, taken) if name else 'none'}"): tally.entry(key)
+            for name, tally in sorted(modalities.items(), key=lambda kv: (-kv[1].visits, kv[0]))
+        },
+        "governorates": {gov: tally.entry(f"gov:{gov}") for gov, tally in governorates.items()},
+    }
 
 
 def _sections(scope: Scope, when: str, limits: dict[str, int], names_) -> dict[str, dict[str, Any]]:
@@ -263,10 +376,11 @@ def _sections(scope: Scope, when: str, limits: dict[str, int], names_) -> dict[s
             "name": name,
             "visits": row["visits"],
             "avg_quality": _num(row["avg"]),
+            "rated": sum(ratings[code] for code in RATED),
             "on_track": ratings["on_track"],
             "constrained": ratings["constrained"],
             "off_track": ratings["off_track"],
-            "not_monitored": ratings["not_monitored"],
+            "not_monitored": ratings["not_monitored"],  # planned, not conducted: never in a share
             "flagged": row["flagged"],
         }
     return out
@@ -288,7 +402,9 @@ def _offices(scope: Scope, when: str, limits: dict[str, int], names_) -> dict[st
     return out
 
 
-def _places(scope: Scope, when: str, limits: dict[str, int], names_) -> dict[str, dict[str, Any]]:
+def _places(
+    scope: Scope, when: str, limits: dict[str, int], names_, governorates: dict[str, dict[str, Any]]
+) -> dict[str, dict[str, Any]]:
     from neurodb.reports.overview import governorate_names
 
     gaps = metrics.governorate_gaps(scope, when, limits)
@@ -310,7 +426,9 @@ def _places(scope: Scope, when: str, limits: dict[str, int], names_) -> dict[str
     )
     for row in rows:
         key = f"gov:{row['governorate_key']}"
+        figures = governorates.get(row["governorate_key"]) or {}
         out[key] = {
+            **figures,
             "key": key,
             "name": _text(known.get(row["governorate_key"]) or row["name"], names_),
             "visits": row["n"],
@@ -361,7 +479,9 @@ def _notes(scope: Scope, kpi: dict[str, Any], when: str) -> list[str]:
         elif note["key"] == "entity_filter":
             lines.append("An entity filter is on: the entity figures count the matching entities only.")
     if kpi["visits_planned"] or kpi["visits_in_progress"]:
-        lines.append("Planned and in-progress visits are not rated yet; they are not monitoring gaps.")
+        lines.append(
+            "Planned and in-progress visits are not rated yet; they are not counted as Not monitored."
+        )
     return lines
 
 
@@ -388,8 +508,13 @@ def _pick(
         chosen.append(row["pk"])
 
 
+def _urgency(value: int | None) -> int:
+    """An urgency to sort by: a visit without one (not scored) after every visit that has one."""
+    return -1 if value is None else value
+
+
 def _by_urgency(row: dict[str, Any]) -> tuple:
-    return (-row["urgency"], -row["end_date"].toordinal(), row["key"])
+    return (-_urgency(row["urgency"]), -row["end_date"].toordinal(), row["key"])
 
 
 def _newest(row: dict[str, Any]) -> tuple:
@@ -407,8 +532,10 @@ def card_order(scope: Scope, limit: int, limits: dict[str, int] | None = None) -
     cap = math.ceil(limit / 3)
     bad = ("off_track", "constrained")
     passes = [
-        sorted((r for r in rows if r["urgency"] >= limits["red"]), key=_by_urgency),
-        sorted((r for r in rows if limits["amber"] <= r["urgency"] < limits["red"]), key=_by_urgency),
+        sorted((r for r in rows if _urgency(r["urgency"]) >= limits["red"]), key=_by_urgency),
+        sorted(
+            (r for r in rows if limits["amber"] <= _urgency(r["urgency"]) < limits["red"]), key=_by_urgency
+        ),
         sorted((r for r in rows if r["rating"] in bad or r["hact_q1"] in bad), key=_by_urgency),
         sorted(rows, key=_newest),
     ]
@@ -420,13 +547,24 @@ def card_order(scope: Scope, limit: int, limits: dict[str, int] | None = None) -
     return chosen
 
 
-def cards(scope: Scope, limit: int, names_: frozenset[str] | None = None, limits=None) -> list[dict]:
+def cards(
+    scope: Scope,
+    limit: int,
+    names_: frozenset[str] | None = None,
+    limits=None,
+    examples: Iterable[str] = (),
+) -> list[dict]:
     """Up to ``limit`` visits as the AI reads them "in full" (``privacy.visit_card``), in the order of
-    :func:`card_order`. Deterministic."""
+    :func:`card_order`, then the visits ``examples`` names (the quality flags' examples, keys) not among
+    them, at most ``EXAMPLE_CARDS``. Deterministic."""
     from ..models import Visit
 
     names_ = privacy.names() if names_ is None else names_
     order = card_order(scope, limit, limits)
+    wanted = [key for key in dict.fromkeys(examples)]
+    extra = list(scope.visits().filter(key__in=wanted).exclude(pk__in=order).values_list("pk", "key"))
+    rank = {key: i for i, key in enumerate(wanted)}
+    order += [pk for pk, _key in sorted(extra, key=lambda e: rank[e[1]])][:EXAMPLE_CARDS]
     found = {v.pk: v for v in Visit.objects.filter(pk__in=order).select_related("partner", "pd")}
     return [privacy.visit_card(found[pk], names_) for pk in order if pk in found]
 
@@ -470,7 +608,7 @@ def narrative_order(scope: Scope, limits: dict[str, int] | None = None) -> list[
 
     def urgent(row):
         return (
-            -row["visit__urgency"],
+            -_urgency(row["visit__urgency"]),
             -row["visit__end_date"].toordinal(),
             row["visit__key"],
             row["datamart_id"],
@@ -482,7 +620,8 @@ def narrative_order(scope: Scope, limits: dict[str, int] | None = None) -> list[
     first = sorted((r for r in rows if r["rating"] in ("off_track", "constrained")), key=urgent)
     used = {id(r) for r in first}
     second = sorted(
-        (r for r in rows if id(r) not in used and r["visit__urgency"] >= limits["amber"]), key=urgent
+        (r for r in rows if id(r) not in used and _urgency(r["visit__urgency"]) >= limits["amber"]),
+        key=urgent,
     )
     used |= {id(r) for r in second}
     sections: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
@@ -496,14 +635,23 @@ def narrative_order(scope: Scope, limits: dict[str, int] | None = None) -> list[
 def _sample(
     scope: Scope, limit: int, names_: frozenset[str], limits: dict[str, int]
 ) -> tuple[list[dict[str, Any]], int]:
-    """The notes sent (at most ``limit``, never the same text twice), and how many were withheld (more
-    than 3 placeholders after cleaning, or too short)."""
-    from neurodb.datamart.models import MonitoringFinding
-
+    """The notes sent (at most ``limit``, never the same text twice), each with the Q1, Q2 and Q3
+    answers of its finding row (:func:`_with_answers`), and how many were withheld (more than 3
+    placeholders after cleaning, or too short)."""
     if limit <= 0:
         return [], 0
+    out, findings, withheld = _notes_sampled(scope, limit, names_, limits)
+    return _with_answers(out, findings, names_), withheld
+
+
+def _notes_sampled(
+    scope: Scope, limit: int, names_: frozenset[str], limits: dict[str, int]
+) -> tuple[list[dict[str, Any]], list[int], int]:
+    from neurodb.datamart.models import MonitoringFinding
+
     order = narrative_order(scope, limits)
     out: list[dict[str, Any]] = []
+    findings: list[int] = []
     withheld = 0
     seen_texts: set[str] = set()
     per_visit: Counter = Counter()
@@ -544,9 +692,59 @@ def _sample(
                     "text": text,
                 }
             )
+            findings.append(row["finding_id"])
             if len(out) >= limit:
-                return out, withheld
-    return out, withheld
+                return out, findings, withheld
+    return out, findings, withheld
+
+
+ROLES = ("q1", "q2", "q3")
+
+
+def _with_answers(notes: list[dict[str, Any]], findings: list[int], names_) -> list[dict[str, Any]]:
+    """Each note with its finding row's Q1, Q2 and Q3 answers (``q1``...), cleaned like the note and
+    cut to ``ANSWER_CHARS``: the answers written on the row (``hact_q1_answer``...) first, else the
+    checklist answers of that question given for that row, else for the whole visit. An answer with more
+    than three names, contacts or links removed is left out."""
+    from .. import fields, parse
+    from ..models import QuestionAnswer
+
+    if not notes:
+        return notes
+    written = parse.row_texts(findings, [f"{role}_answer" for role in ROLES])
+    found = {
+        pk: {name.split("_", 1)[0]: text for name, text in texts.items()} for pk, texts in written.items()
+    }
+    visits = {pk: note["visit"].split(":", 1)[1] for pk, note in zip(findings, notes, strict=True)}
+    answers = QuestionAnswer.objects.filter(role__in=ROLES, answered=True).filter(
+        Q(entity__finding_id__in=findings) | Q(visit__key__in=set(visits.values()), applies_to="visit")
+    )
+    rows = list(answers.values_list("document_id", "role", "entity__finding_id", "visit_key", "applies_to"))
+    texts = parse.answer_texts(
+        [r[0] for r in rows], {f: fields.key_for("fm_questions", f) for f in ("answer", "answer_label")}
+    )
+    by_entity: dict[tuple[int, str], str] = {}
+    by_visit: dict[tuple[str, str], str] = {}
+    for document, role, finding, visit_key, applies_to in sorted(rows):
+        text = texts.get(document)
+        if not text:
+            continue
+        if finding is not None and applies_to == "entity":
+            by_entity.setdefault((finding, role), text)
+        elif applies_to == "visit":
+            by_visit.setdefault((visit_key, role), text)
+    out = []
+    for pk, note in zip(findings, notes, strict=True):
+        note = dict(note)
+        for role in ROLES:
+            raw = found[pk].get(role) or by_entity.get((pk, role)) or by_visit.get((visits[pk], role))
+            if not raw:
+                continue
+            text, placeholders = privacy.clean(raw, ANSWER_CHARS, names_)
+            if text and placeholders <= NARRATIVE_MAX_PLACEHOLDERS:
+                note[role] = text
+        out.append(note)
+    return out
 
 
 def sample_narratives(scope: Scope, limit: int, names_: frozenset[str] | None = None) -> list[dict]:
@@ -603,8 +801,10 @@ def build(
     narratives: bool = True,
     names_: frozenset[str] | None = None,
 ) -> Facts:
-    """The facts of a brief of ``scope`` written with ``version`` (its ``narr`` and ``comp``; without a
-    version, for a code-written brief: no notes and 15 visits). ``narratives=False`` sends no note."""
+    """The facts of a brief of ``scope`` written with ``version``: its ``narr`` (the narratives, each with
+    its Q1, Q2 and Q3 answers) and its ``comp`` (the compliance depth: how many of the most frequent
+    quality flags); without a version, for a code-written brief: no notes and 15 flags.
+    ``narratives=False`` sends no note."""
     from ..models import RuleSetting
 
     names_ = privacy.names() if names_ is None else names_
@@ -615,16 +815,24 @@ def build(
     comp = version.comparison_visits if version is not None else DEFAULT_COMP
 
     kpi = _kpi(scope, when, limits)
-    visit_cards = cards(scope, comp, names_, limits)
+    issues = _issues(scope, when, rules, comp)
+    examples = [k.split(":", 1)[1] for issue in issues.values() for k in issue["visit_keys"]]
+    visit_cards = cards(scope, VISIT_CARDS, names_, limits, examples)
+    carded = {card["key"] for card in visit_cards}
+    for issue in issues.values():  # a visit key the payload names is always one a sentence may cite
+        issue["visit_keys"] = [k for k in issue["visit_keys"] if k in carded]
+    breakdowns = _breakdowns(scope, names_)
     payload: dict[str, Any] = {
         "scope": _scope_entry(scope, names_),
         "kpi": kpi,
-        "previous": _previous(scope, kpi, when, limits),
+        **({"previous": _previous(scope, kpi, when, limits)} if scope.preset != "all_time" else {}),
         "rules": _rules(scope, when, rules),
-        "issues": _issues(scope, when, rules, {card["key"] for card in visit_cards}),
+        "issues": issues,
         "sections": _sections(scope, when, limits, names_),
         "offices": _offices(scope, when, limits, names_),
-        "places": _places(scope, when, limits, names_),
+        "partners": breakdowns["partners"],
+        "modalities": breakdowns["modalities"],
+        "places": _places(scope, when, limits, names_, breakdowns["governorates"]),
         "action_points": _action_points(scope, when, limits),
     }
     hact = _hact(scope, when, limits)
@@ -643,8 +851,9 @@ def build(
             "narratives": len(notes),
             "narratives_allowed": narr,
             "narratives_withheld": withheld,
+            "flags": len(issues),
+            "flags_allowed": comp,
             "visits": len(visit_cards),
-            "visits_allowed": comp,
         },
         input_hash=input_hash(payload, version),
         limits=limits,

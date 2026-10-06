@@ -85,9 +85,9 @@ def _scope(**params: Any):
 
 def _visit_line(v, limits: dict[str, int]) -> dict[str, Any]:
     """A visit as the panels list it: label, date, rating (or "not rated yet"), quality, urgency."""
-    from .views import _not_rated_yet, rating_label
+    from .views import _not_rated_yet, rating_label, urgency_band
 
-    band = "red" if v.urgency >= limits["red"] else "amber" if v.urgency >= limits["amber"] else ""
+    band = urgency_band(v.urgency, limits)
     return {
         "key": v.key,
         "label": v.label,

@@ -89,11 +89,12 @@ def history(
 
 def context(scope, version: PromptVersion, seen: set[str] = frozenset(), numbers: set[str] = frozenset()):
     """The context of one answer: the page's filter, the texts it may read (``narr``; none while the AI's
-    texts are off) and the visit cards per look-up (``comp``), seeded with the earlier turns."""
+    texts are off) and the visit cards per look-up (``tools.CHAT_CARDS``), seeded with the earlier
+    turns."""
     return tools.ChatContext(
         scope=scope,
         texts_left=version.narratives_sampled if settings.FMM_AI else 0,
-        cards_max=version.comparison_visits or tools.ASK_CARDS,
+        cards_max=tools.CHAT_CARDS,
         seen=set(seen),
         numbers=set(numbers),
     )

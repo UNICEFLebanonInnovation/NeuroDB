@@ -20,7 +20,8 @@
   </div>
   <h3 class="small fw-semibold mb-1">{% trans "Quality distribution" %}</h3>
   {% if h.bands %}
-  <div class="chart chart--share" data-module="charts" data-chart="share-bar" data-source="fmm-chart-data" data-key="bands" aria-label="{% trans 'Scored visits by band: High, Medium, Low' %}"></div>
+  <div class="text-end"><button type="button" class="btn btn-link btn-sm p-0 fmm-png" data-chart-png="#fmm-chart-bands" data-filename="monitoring-bands">{% trans "Download PNG" %}</button></div>
+    <div id="fmm-chart-bands" class="chart chart--share" data-module="charts" data-chart="share-bar" data-source="fmm-chart-data" data-key="bands" aria-label="{% trans 'Scored visits by band: High, Medium, Low' %}"></div>
   <p class="small text-muted">{% blocktrans with high=limits.band_high medium=limits.band_medium %}High from {{ high }}% · Medium from {{ medium }}% · Low below {{ medium }}%{% endblocktrans %}</p>
   {% else %}<p class="small text-muted">{% trans "No visit in this filter is scored." %}</p>{% endif %}
   <div class="chips" aria-label="{% trans 'Monitored entities by type' %}">{% for k in h.kinds %}<a class="chip" href="{{ k.url }}" hx-get="{{ k.url }}" hx-target="#fmm-results" hx-push-url="true">{{ k.label }} <strong>{{ k.n|number }}</strong></a>{% endfor %}</div>
@@ -128,17 +129,18 @@
 
 <div class="grid grid--2">
   <section class="panel" aria-labelledby="fmm-by-rating-title">
-    <div class="panel__header"><h2 class="panel__title" id="fmm-by-rating-title">{% trans "Quality by rating" %}</h2><span class="panel__hint">{% trans "Average quality of the visits with each overall rating" %}</span></div>
+    <div class="panel__header"><h2 class="panel__title" id="fmm-by-rating-title">{% trans "Quality by finding rating" %}</h2><span class="panel__hint">{% trans "Average quality of the visits with each overall rating" %}</span></div>
     {% for r in rating_rows %}
     <div class="fmm-meter-row">
-      <div class="fmm-meter-row__head"><span><a href="{{ r.url }}" hx-get="{{ r.url }}" hx-target="#modal-content">{{ r.label }}</a></span><span class="small text-muted">{% blocktrans count n=r.visits %}{{ n }} visit{% plural %}{{ n }} visits{% endblocktrans %} · {% if r.avg is not None %}{% blocktrans with avg=r.avg|percent %}avg {{ avg }}{% endblocktrans %}{% else %}{% trans "not scored" %}{% endif %} · {% trans "H/M/L" %} {{ r.bands.high }}/{{ r.bands.medium }}/{{ r.bands.low }}</span></div>
+      <div class="fmm-meter-row__head"><span>{% if r.url %}<a href="{{ r.url }}" hx-get="{{ r.url }}" hx-target="#modal-content">{{ r.label }}</a>{% else %}{{ r.label }}{% endif %}{% if r.code == "not_monitored" %} <span class="small text-muted">{% trans "(planned, not conducted)" %}</span>{% endif %}</span><span class="small text-muted">{% blocktrans count n=r.visits %}{{ n }} visit{% plural %}{{ n }} visits{% endblocktrans %} · {% if r.avg is not None %}{% blocktrans with avg=r.avg|percent %}avg {{ avg }}{% endblocktrans %}{% else %}{% trans "not scored" %}{% endif %} · {% trans "H/M/L" %} {{ r.bands.high }}/{{ r.bands.medium }}/{{ r.bands.low }}</span></div>
       <div class="meter"><div class="meter__track"><span class="meter__fill meter__fill--{{ r.code }}" style="width: {{ r.fill|floatformat:0 }}%"></span></div></div>
     </div>
     {% endfor %}
   </section>
   <section class="panel" aria-labelledby="fmm-flag-rule-title">
     <div class="panel__header"><h2 class="panel__title" id="fmm-flag-rule-title">{% trans "Flags by rule" %}</h2><span class="panel__hint">{% trans "Visits each rule flagged; a bar opens its visits" %}</span></div>
-    <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-suffix=" visits" data-source="fmm-chart-data" data-key="flags" data-href-template="{{ flag_template }}" data-empty-title="{% trans 'No quality flags in this period' %}" aria-label="{% trans 'Flags by rule' %}"></div>
+    <div class="text-end"><button type="button" class="btn btn-link btn-sm p-0 fmm-png" data-chart-png="#fmm-chart-flags" data-filename="monitoring-flags">{% trans "Download PNG" %}</button></div>
+    <div id="fmm-chart-flags" class="chart chart--sm" data-module="charts" data-chart="hbars" data-suffix=" visits" data-source="fmm-chart-data" data-key="flags" data-href-template="{{ flag_template }}" data-empty-title="{% trans 'No quality flags in this period' %}" aria-label="{% trans 'Flags by rule' %}"></div>
     <ul class="small text-muted mb-0 ps-3">{% for r in flag_frequency.rows %}<li>{{ r.label }}: {% blocktrans count n=r.n %}{{ n }} visit{% plural %}{{ n }} visits{% endblocktrans %}{% if r.pct is not None %} ({% blocktrans with pct=r.pct|percent evaluated=r.evaluated %}{{ pct }} of the {{ evaluated }} it checked{% endblocktrans %}){% endif %}</li>{% endfor %}</ul>
   </section>
 </div>

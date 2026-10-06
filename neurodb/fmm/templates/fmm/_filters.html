@@ -68,6 +68,25 @@
     </select>
   </div>
   <div class="filter-bar__field">
+    <label class="form-label" for="f-modality">{% trans "Modality" %}</label>
+    <select class="form-select form-select-sm" id="f-modality" name="modality" multiple data-tom placeholder="{% trans 'All' %}">
+      {% for name in options.modalities %}<option value="{{ name }}" {% if name in scope.modalities %}selected{% endif %}>{{ name }}</option>{% endfor %}
+      <option value="none" {% if "none" in scope.modalities %}selected{% endif %}>{% trans "Modality not known" %}</option>
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-quality">{% trans "Quality" %}</label>
+    <select class="form-select form-select-sm" id="f-quality" name="quality" multiple data-tom placeholder="{% trans 'All' %}">
+      {% for key, label in quality_labels.items %}<option value="{{ key }}" {% if key in scope.quality_bands %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-urgency-level">{% trans "Urgency" %}</label>
+    <select class="form-select form-select-sm" id="f-urgency-level" name="urgency_level" multiple data-tom placeholder="{% trans 'All' %}">
+      {% for key, label in urgency_labels.items %}<option value="{{ key }}" {% if key in scope.urgency_levels %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__field">
     <label class="form-label" for="f-q">{% trans "Search" %}</label>
     <input class="form-control form-control-sm" type="search" id="f-q" name="q" value="{{ scope.q }}" placeholder="{% trans 'Visit, reference, partner, PD or place' %}">
   </div>
