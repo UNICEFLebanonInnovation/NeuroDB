@@ -15,6 +15,7 @@ import openai
 import pytest
 from django.conf import settings
 from django.core.management import call_command
+from django.db.models import Q
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -42,6 +43,7 @@ from neurodb.fmm.models import (
 )
 from neurodb.integrations import background
 from neurodb.partnerships.models import PartnerOrganization
+from neurodb.watch import people
 from neurodb.watch.models import SectionMatch
 
 from .conftest import LEAD, MEMBER, MEMBER_EMAIL
@@ -344,7 +346,7 @@ def test_the_charts(points):
     assert (charts["late_average"], charts["late_count"]) == (22.7, 3)
     monthly = charts["monthly"]
     assert monthly["labels"] == ["2026-01", "2026-05", "2026-06", "2026-09"]
-    assert monthly["series"] == {"Raised": [1, 2, 1, 0], "Completed": [0, 0, 0, 3]}
+    assert monthly["series"] == {"Raised": [1, 1, 1, 0], "Completed": [0, 0, 0, 3]}
     assert monthly["drill"]["series"] == {"Raised": "raised", "Completed": "completed"}
     assert charts["by_office"] == [["Tripoli", 1, "Tripoli"]]
     assert charts["by_section"] == [["Health", 1, "Health"]]
@@ -446,10 +448,12 @@ def test_the_review_stops_at_its_limit_its_cap_failures_and_the_pause(points, ai
     fake(errors=[RuntimeError("down")] * 3)
     run = ap_review.run("test")
     assert run.rows_failed == 3 and run.details["stopped"] == "3 failed reviews in a row"
+    import httpx2
+
+    request = httpx2.Request("POST", "https://api.openai.com/v1/responses")
     error = openai.RateLimitError(
-        "quota", response=SimpleNamespace(status_code=429, headers={}, request=None), body=None
+        "You exceeded your current quota", response=httpx2.Response(429, request=request), body=None
     )
-    error.code = "insufficient_quota"
     fake(errors=[error])
     run = ap_review.run("test")
     assert "credit" in run.details["stopped"] and budget.paused_until() is not None
@@ -558,13 +562,13 @@ def test_the_summary_reads_the_filter_and_is_checked(client, points, viewer, ai_
         reverse("reports:action_points_summary"), {"query": "section=Education"}, HTTP_HX_REQUEST="true"
     ).content.decode()
     sent = found.sent()[0]
-    assert sent["count"] == 4 and len(sent["points"]) == 4  # the Education points of the filter
+    assert sent["count"] == 3 and len(sent["points"]) == 3  # the Education points of the filter
     _no_assignee(json.dumps(found.requests[0]["input"], ensure_ascii=False))
     assert "Stock and supplies" in html and "Water supply" not in html
-    assert "Most of the 4 action points ask partners to restock supplies." in html
+    assert "Most of the 3 action points ask partners to restock supplies." in html
     assert "Dismiss" in html and 'data-bs-dismiss="alert"' in html
     row = ActionPointSummary.objects.get()
-    assert (row.status, row.points, row.called) == ("done", 4, True)
+    assert (row.status, row.points, row.called) == ("done", 3, True)
     assert AIUsage.objects.get(feature=usage.FMM_AP_REVIEW).calls == 1
 
 
@@ -592,11 +596,11 @@ def test_each_person_has_a_daily_quota_of_summaries(points, viewer, ai_on, fake)
 
 
 # ------------------------------------------------------------------------------------------ C7 NeuroDB points
-def test_adding_a_neurodb_action_point_by_hand(client, education, built, viewer):
+def test_adding_a_neurodb_action_point_by_hand(client, fm_world, built, viewer):
     url = reverse("reports:local_action_point_new")
     client.force_login(viewer)
     assert client.get(url).status_code == 403
-    editor = _user("editor2", SECTION_EDITOR, education)
+    editor = _user("editor2", SECTION_EDITOR, fm_world.section)
     client.force_login(editor)
     response = client.post(
         url,
@@ -617,7 +621,8 @@ def test_adding_a_neurodb_action_point_by_hand(client, education, built, viewer)
         "manual",
         editor,
     )
-    assert client.post(url, {"title": "", "visit": "nowhere"}).context["errors"].keys() == {"title", "visit"}
+    refused = client.post(url, {"title": "", "visit": "nowhere", "priority": "medium"})
+    assert refused.context["errors"].keys() == {"title", "visit"}
     page = client.get(reverse(PAGE)).content.decode()
     assert "NeuroDB action points" in page and "Check the attendance registers" in page
     # its status: the person who added it may change it
@@ -650,7 +655,7 @@ def test_the_neurodb_list_filters(client_viewer, db):
 def _low(visit_key: str, score: float, *codes: str) -> Visit:
     visit = Visit.objects.get(key=visit_key)
     Visit.objects.filter(pk=visit.pk).update(quality_score=score, flags=list(codes))
-    VisitRuleResult.objects.filter(visit=visit, rule__in=codes).delete()
+    VisitRuleResult.objects.filter(visit=visit).filter(Q(status="fail") | Q(rule__in=codes)).delete()
     for n, code in enumerate(codes):
         VisitRuleResult.objects.create(
             visit=visit,
@@ -658,7 +663,7 @@ def _low(visit_key: str, score: float, *codes: str) -> Visit:
             status="fail",
             points=0,
             max_points=5 + n,
-            detail=f"{code}: the action points do not answer the delays — said {LEAD}.",
+            detail=f"{code}: the action points do not answer the delays — said {MEMBER}.",
         )
     return Visit.objects.get(pk=visit.pk)
 
@@ -668,6 +673,7 @@ def test_neurodb_makes_an_action_point_for_a_low_visit_flagged_for_its_action_po
     _low("1723", 25.0, "R3", "R8")
     _low("1726", 40.0, "R7", "R32")
     _low("1728", 45.0, "R3")  # Low, but no action point flag
+    people.forget()  # the team names, read again (the refresh's commit does it in production)
     assert action_points.create_automatic(friday) == 2
     made = {p.visit_key: p for p in LocalActionPoint.objects.all()}
     high, medium = made["1723"], made["1726"]
@@ -675,7 +681,10 @@ def test_neurodb_makes_an_action_point_for_a_low_visit_flagged_for_its_action_po
     assert (medium.priority, medium.due_date) == ("medium", datetime.date(2026, 10, 16))  # 10 working days
     assert high.title.startswith("Follow up on R8 — ") and medium.title.startswith("Follow up on R32 — ")
     assert high.source == "auto" and "Other flags: R3." in high.description
-    assert LEAD not in high.description and "Classes held" not in high.description  # no person, no narrative
+    assert (
+        MEMBER not in high.description and "Classes held" not in high.description
+    )  # no person, no narrative
+    assert "R8: the action points do not answer the delays" in high.description
     # one open per visit: nothing more
     assert action_points.create_automatic(friday) == 0
     # marked done: not made again until the visit changes in eTools

@@ -445,12 +445,14 @@ def test_each_tab_and_the_page_stay_within_their_query_budget(
 ):
     from django.core.cache import cache
 
+    # stage C: +2, +3 for the extras (the NeuroDB action points in the cache stamp, the visits they follow
+    # up)
     for tab in ("insights", "quality", "analysis", "visits", "map"):
         cache.clear()
-        with django_assert_max_num_queries(20):
+        with django_assert_max_num_queries(22):
             client_viewer.get(PAGE, {"tab": tab}, HTTP_HX_REQUEST="true")
         cache.clear()
-        with django_assert_max_num_queries(30):
+        with django_assert_max_num_queries(32):
             client_viewer.get(PAGE, {"tab": tab})
     # the parts a tab loads when they are reached or opened (the entity table, a place list's "Show
     # all") are tab partials too, within the same budget
@@ -462,7 +464,7 @@ def test_each_tab_and_the_page_stay_within_their_query_budget(
     ):
         cache.clear()
         # the entity table's own queries on top of the tab's
-        with django_assert_max_num_queries(21):
+        with django_assert_max_num_queries(24):
             response = client_viewer.get(PAGE, extra, HTTP_HX_REQUEST="true")
         assert response.status_code == 200, extra
 

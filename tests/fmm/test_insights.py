@@ -615,7 +615,7 @@ def test_the_badges(built, ai_on, fake_insights_client):
     )
     profiles.publish(profiles.draft_from(ai_on, None, "v2"), None)
     shown = insights.current(_scope())
-    assert shown.insight.pk == row.pk and shown.badge == "Written with prompt v3 (now v4)"
+    assert shown.insight.pk == row.pk and shown.badge == "Written with prompt v4 (now v5)"
 
 
 def test_regenerate_starts_a_background_brief_and_the_card_polls_it(
@@ -649,7 +649,7 @@ def test_regenerate_starts_a_background_brief_and_the_card_polls_it(
     assert "[PRIORITY: High]" in card and "What was sent" in card
     assert "Up to date" in card and "1 of 5 today" in card and 'class="visit-chip"' in card
     assert "temp 0.30 · applied" in card and "top-p · not set (API default 1.00)" in card
-    assert "narr 3/20" in card and f"comp {row.sent['flags']}/15" in card and "prompt v3" in card
+    assert "narr 3/20" in card and f"comp {row.sent['flags']}/15" in card and "prompt v4" in card
 
 
 def test_a_stopped_brief_is_shown_as_stopped(built, ai_on, client_viewer, viewer):

@@ -100,10 +100,13 @@ def test_v2_is_seeded_from_fms_lebanon_prompt():
     """Release 2 (A7): version 2 is published from the [insights] part of FMS's Lebanon prompt, with its
     five parts and their limits; version 1 is retired; NeuroDB's fixed text stays in code."""
     v1, v2 = PromptVersion.objects.get(number=1), PromptVersion.objects.get(number=2)
-    # stage B's version 3 copies it with the AI checks' instructions added, and is published in its place
-    v3 = PromptVersion.objects.get(number=3)
-    assert (v1.status, v2.status, v3.status) == ("retired", "retired", "published")
-    assert profiles.published() == v3 and v3.based_on == v2 and v3.instructions == v2.instructions
+    # stage B's version 3 copies it with the AI checks' instructions added; stage C's version 4 copies v3
+    # with the action points' instructions added, and is published in its place
+    v3, v4 = PromptVersion.objects.get(number=3), PromptVersion.objects.get(number=4)
+    assert (v1.status, v2.status, v3.status, v4.status) == ("retired", "retired", "retired", "published")
+    assert v3.based_on == v2 and v3.instructions == v2.instructions
+    assert profiles.published() == v4 and v4.based_on == v3 and v4.instructions == v3.instructions
+    assert v4.content_hash == v4.compute_hash()
     assert v3.content_hash == v3.compute_hash() and v3.rule_prompts and not v2.rule_prompts
     assert v2.content_hash == v2.compute_hash()  # the migration's literal hash is the model's
     assert v2.based_on == v1 and v2.created_by_name == v2.published_by_name == "NeuroDB (default)"

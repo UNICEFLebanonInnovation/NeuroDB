@@ -88,7 +88,8 @@ def test_the_lebanon_rule_set_is_seeded():
         lebanon.STAFF_OFFICES, ""
     )
     version = profiles.published()
-    assert set(version.rule_prompts) == set(lebanon.RULE_PROMPTS)
+    # stage C's version adds the action points' review and summary to the six AI check prompts
+    assert set(version.rule_prompts) == {*lebanon.RULE_PROMPTS, *lebanon.AP_PROMPTS}
     assert RuleSetVersion.objects.order_by("-number").first().note.startswith("FMS Lebanon rule set")
 
 

@@ -63,7 +63,7 @@ def stamp(last: Any = _READ) -> str:
     last = status.last_refresh() if last is _READ else last
     version = (last.details or {}).get("rules_version", 0) if last else 0
     local = LocalActionPoint.objects.aggregate(n=Count("pk"), at=Max("updated_at"))
-    changed = f"{local['n']}.{local['at'].timestamp():.0f}" if local["at"] else "0"
+    changed = f"{local['n']}.{local['at'].timestamp():.6f}" if local["at"] else "0"
     return f"{last.pk if last else 0}:{version}:{timezone.localdate().isoformat()}:{changed}"
 
 
