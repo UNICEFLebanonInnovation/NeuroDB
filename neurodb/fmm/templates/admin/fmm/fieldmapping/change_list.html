@@ -26,7 +26,17 @@
         <a class="nd-link" href="{% url 'admin:core_syncrun_change' found.run.pk %}">{% trans "Open the run" %}</a>
       </p>
     {% else %}
-      <p class="mb-2">{% trans "The eTools keys have not been read yet. They are read by the Monitoring insights refresh, after every eTools Datamart sync and each morning (or run python manage.py fmm_refresh)." %}</p>
+      <p class="mb-2">{% trans "The eTools keys have not been read yet. They are read by the Monitoring insights refresh, after every eTools Datamart sync and each morning, or now with the button below." %}</p>
+    {% endif %}
+    {% if can_pin %}
+      <div class="nd-found__actions mb-2">
+        <form method="post" action="{% url 'admin:fmm_refresh' %}" class="inline">
+          {% csrf_token %}
+          <button type="submit" class="nd-found__button">{% trans "Refresh now" %}</button>
+        </form>
+        <a class="nd-link" href="{% url 'admin:fmm_samples' %}">{% trans "Download samples (redacted)" %}</a>
+        <span class="nd-found__hint">{% trans "A ZIP of a few stored records per dataset, people and contact details removed: send it to whoever checks the keys." %}</span>
+      </div>
     {% endif %}
     {% if found.failed %}
       <p class="mb-2 nd-found__warn">

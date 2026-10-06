@@ -521,10 +521,18 @@ population figures also have their button on their own admin pages.
 
 A background job runs as its own process (it survives the web worker that started it), is recorded
 as a run in this list like a scheduled run, and does not start while a run of the same job is in
-progress. Not available as buttons, on purpose: `migrate_locked` and `ensure_legacy_tables` (every
-deployment runs them), `seed_demo` (local databases only), and `record_datamart_samples` and
-`fmm_redact_fixtures` (they write test fixtures into the source code). Monitoring insights' key check
-alone, `fmm_refresh --probe-only`, has no button: the full refresh reads the keys too.
+progress.
+
+**Rule: an administrator never needs the command line.** NeuroDB runs on App Service with no shell
+for its administrators, so every operation they need is a button here, a scheduled job, or an action
+on its own admin page; a new command that an administrator would have to run gets its button in the
+same change. Developer-only commands are the exception, and each has an admin equivalent where it
+matters: `migrate_locked` and `ensure_legacy_tables` (every deployment runs them), `seed_demo` (local
+databases only), `record_datamart_samples` and `fmm_redact_fixtures` (they write test fixtures into
+the source code: the administrator's equivalent is *Download samples (redacted)* on *Fields found*),
+`fmm_refresh --probe-only` (the full refresh, *Refresh now* on *Fields found* or *Run a job →
+Monitoring insights*, reads the keys too) and `map_watch_sections` (*Match again* on *eTools section
+names*).
 
 ## eTools Datamart
 
@@ -1057,7 +1065,8 @@ steps when an administrator presses **Stop** or after `WATCH_TIME_LIMIT_SECONDS`
   only, never to every section, and *Needs attention* lists the names to confirm and the sections with
   staff that no name points to. Opening the list adds the eTools names not in it yet (so they can be
   confirmed before the first morning check; it says so when no eTools data is synced yet), and
-  `python manage.py map_watch_sections [--rematch]` does the matching by hand. Each name shows the *Not mine* its section's staff gave in the last 30 days, per check:
+  *Match again* (top of the list) matches again the names matched automatically and not confirmed yet,
+  after a NeuroDB section was added, renamed or deleted (a name set by hand is never changed). Each name shows the *Not mine* its section's staff gave in the last 30 days, per check:
   many of them point to a wrong match.
 - **Told once.** A person is told about a point again only when it gets worse than what they were
   last told (kept on their receipt, so a rise later the same day is told the next morning), crosses
@@ -1631,8 +1640,9 @@ eTools never documented the keys of its field monitoring records: the findings (
 checklist answers (`fm-questions`), the answer options (`fm-options`), the programme activities of
 each visit (`fm-programme-activities`), and the office and section lists. For each field Monitoring
 insights reads (a checklist answer, the activity it belongs to, the question's text, the team...) the
-code lists candidate keys, most likely first (`neurodb/fmm/fields.py`). The refresh,
-`python manage.py fmm_refresh`:
+code lists candidate keys, most likely first (`neurodb/fmm/fields.py`). The refresh (after every
+Datamart sync, each morning at 05:25, *Run a job → Monitoring insights* or *Refresh now* on *Fields
+found*):
 
 1. links the findings not linked yet to the programme document their entity names, as the Datamart
    sync does;
@@ -1986,8 +1996,8 @@ invented (shapes A to D of the specification): no production sample could be rea
 built, so the check of the real keys moved to go-live. Before the Monitoring insights AI is switched
 on, and before its figures are trusted:
 
-1. After a nightly Datamart sync in production (the refresh runs after it; `python manage.py
-   fmm_refresh --probe-only` reads the keys alone), read Fields found: the activity id coverage; the
+1. After a nightly Datamart sync in production (the refresh runs after it; *Refresh now* on Fields
+   found runs it at once), read Fields found: the activity id coverage; the
    keys chosen for the activity id and reference, the question id and text, the answer, its label and
    summary, the entity and its type and `is_hact`; whether unanswered questions are exported; the Q1,
    Q2, Q3 and PSEA question texts as written; the option labels of Q1; the rating and status values;
@@ -1995,18 +2005,18 @@ on, and before its figures are trusted:
    the FM action points' `related_module_id` is the activity id (the share matched by the activity
    id). In Questions found, check that Q1, Q2, Q3 and the PSEA question have their roles (else give
    them with *Use as*), and that "Unanswered questions seen" is not 0 (else R2 cannot be measured).
-2. Record real samples: `python manage.py record_datamart_samples --only
-   field_monitoring,fm_questions,fm_options,fm_programme_activities,offices,sections,intervention_locations,location_sites,action_points`,
-   then `python manage.py fmm_redact_fixtures tests/fixtures/datamart/`; read the diff by eye and
-   commit the files.
-3. Put the real key names first in `CANDIDATES` (`neurodb/fmm/fields.py`), make the demo's shape
-   mirror the real one, and add the recorded shape to the tests (the invented shapes stay as
-   tolerance tests).
+2. Press *Download samples (redacted)* on Fields found: a ZIP of a few stored records per dataset,
+   with people replaced by "Person N" and contact details removed. Read it, then hand it to the
+   developers.
+3. The developers put the files in `tests/fixtures/datamart/`, put the real key names first in
+   `CANDIDATES` (`neurodb/fmm/fields.py`), make the demo's shape mirror the real one, and add the
+   recorded shape to the tests (the invented shapes stay as tolerance tests).
 
 ### Go-live checklist
 
 1. **Deploy with `FMM_AI=false`.** Let one nightly eTools Datamart sync and the refresh after it run
-   (or run `python manage.py fmm_refresh` once the sync has finished).
+   (or press *Refresh now* on *Fields found*, or *Run a job → Monitoring insights* in *Import and sync
+   runs*, once the sync has finished).
 2. **Confirm the real keys in Fields found** (the steps of *Before go-live: confirm the real keys*,
    above: this was not possible while Monitoring insights was built, so it is a go-live step):
    - the activity id coverage (`monitoring_activity_id`) is 95% or more; otherwise visits are told
@@ -2022,11 +2032,12 @@ on, and before its figures are trusted:
 4. **Compare the figures**: Monitoring insights this year against the overview and `/field-monitoring/`
    (equal, or different only by the data notes), then against the eTools field monitoring dashboard for
    one month.
-5. **Record the real samples** with `record_datamart_samples` and `fmm_redact_fixtures` (step 2 of
-   *Before go-live*), read the diff, commit them, put the real keys first in `CANDIDATES`, and run
-   `tests/integrations/test_recorded_samples.py`. Re-record them whenever Fields found later shows a key
-   change.
-6. **Section matches**: confirm the field monitoring section spellings in *Section matches*.
+5. **Pass on the real samples**: *Download samples (redacted)* on Fields found (step 2 of *Before
+   go-live*), read the ZIP, and hand it to the developers, who commit it, put the real keys first in
+   `CANDIDATES` and run `tests/integrations/test_recorded_samples.py`. Download it again whenever
+   Fields found later shows a key change.
+6. **Section matches**: confirm the field monitoring section spellings in *eTools section names*
+   (*Match again* there after a NeuroDB section was added or renamed).
 7. **Switch the AI on**, as the user chose (by default the user's decision that redacted notes, at most
    `narr` per run, may go to the AI is the clearance; the user may also ask for a written OK from the
    data protection focal point first). Open *Preview* on the published prompt version (the exact

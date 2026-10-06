@@ -9,11 +9,13 @@ import json
 
 from django.contrib import admin, messages
 from django.db.models import Case, CharField, FloatField, IntegerField, Value, When
+from django.shortcuts import redirect
 from django.utils import timezone
 from django.utils.html import format_html, format_html_join
 from django.utils.text import Truncator
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
+from unfold.decorators import action
 
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
@@ -395,6 +397,28 @@ class SectionMatchAdmin(ModelAdmin):
     list_select_related = ("section",)
     fields = ("etools_name", "section", "confirmed", "how", "not_mine_display", "updated_by", "updated_at")
     actions = ("confirm",)
+    actions_list = ("match_again",)
+
+    @action(description=_("Match again"), url_path="match-again", icon="sync", permissions=["change"])
+    def match_again(self, request):
+        """Matches again the names matched automatically and not confirmed yet (after a NeuroDB section
+        was added, renamed or deleted); a name set by hand or confirmed is never changed. The admin
+        button for ``map_watch_sections --rematch``."""
+        counts = sections.seed(rematch=True)
+        self.message_user(
+            request,
+            _(
+                "%(added)s new name(s) added, %(rematched)s matched again; %(waiting)s still waiting for "
+                "you to choose or confirm their section."
+            )
+            % {
+                "added": counts["added"],
+                "rematched": counts["rematched"],
+                "waiting": sections.waiting().count(),
+            },
+            messages.SUCCESS,
+        )
+        return redirect("admin:watch_sectionmatch_changelist")
 
     def changelist_view(self, request, extra_context=None):
         """The names are added when the list is opened, not only by NeuroDB Watch's run, so they can

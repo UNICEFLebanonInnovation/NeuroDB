@@ -103,3 +103,12 @@
 .nd-fixed__text--live { color: inherit; }
 .dark .nd-fixed__text--live { color: inherit; }
 .nd-fixed__note { margin: 0 0 1rem; padding: .5rem .75rem; border-left: 3px solid var(--color-primary-500, #6366f1); font-size: .875rem; }
+
+/* Fields found (Monitoring insights): the refresh button and the samples download */
+.nd-found__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
+.nd-found__button {
+  background: var(--color-primary-600, #2563eb); color: #fff; border-radius: 0.375rem;
+  padding: 0.375rem 0.75rem; font-weight: 600; font-size: 0.875rem;
+}
+.nd-found__button:hover { filter: brightness(1.08); }
+.nd-found__hint { color: var(--color-base-500, #6b7280); font-size: 0.8125rem; }

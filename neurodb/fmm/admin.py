@@ -43,7 +43,7 @@ from neurodb.core.models import SyncRun
 from neurodb.integrations import background
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
-from . import access, fields, privacy, rules, status, versions
+from . import access, fields, privacy, rules, samples, status, versions
 from .ai import profiles
 from .models import (
     ChatQuestion,
@@ -553,8 +553,14 @@ class FieldMappingAdmin(_VersionedAdmin):
         super().save_model(request, obj, form, change)
 
     def site_urls(self):
-        """Questions found, at admin/fmm/questions/ (``NeuroDBAdminSite.get_urls``)."""
-        return [path("fmm/questions/", self.admin_site.admin_view(questions_view), name="fmm_questions")]
+        """Questions found, at admin/fmm/questions/, the refresh button and the samples download of
+        Fields found (``NeuroDBAdminSite.get_urls``)."""
+        view = self.admin_site.admin_view
+        return [
+            path("fmm/questions/", view(questions_view), name="fmm_questions"),
+            path("fmm/refresh/", view(refresh_view), name="fmm_refresh"),
+            path("fmm/samples.zip", view(samples_view), name="fmm_samples"),
+        ]
 
     @admin.display(description=_("state"))
     def state_shown(self, obj):
@@ -605,6 +611,33 @@ def questions_found() -> list[dict[str, Any]]:
             }
         )
     return out
+
+
+def refresh_view(request):
+    """Fields found's "Refresh now" (Administrators, POST): starts the Monitoring insights refresh in
+    the background, as the "Run a job" button and the schedule do. No shell is needed."""
+    if not access.is_admin(request.user) or request.method != "POST":
+        raise Http404
+    if background.is_running(SyncRun.Job.FMM_REFRESH):
+        messages.warning(request, _("A Monitoring insights refresh is already running."))
+    else:
+        background.start_command("fmm_refresh", "--triggered-by", request.user.get_username())
+        messages.success(
+            request,
+            _("The Monitoring insights refresh started. Reload this page in a minute or two."),
+        )
+    return redirect("admin:fmm_fieldmapping_changelist")
+
+
+def samples_view(request):
+    """Fields found's "Download samples" (Administrators): a ZIP of a few stored field monitoring
+    records per dataset, redacted (``fmm.samples``), to check or pass on the real key names."""
+    if not access.is_admin(request.user):
+        raise Http404
+    response = HttpResponse(samples.zip_bytes(), content_type="application/zip")
+    stamp = timezone.localdate().isoformat()
+    response["Content-Disposition"] = f'attachment; filename="field-monitoring-samples-{stamp}.zip"'
+    return response
 
 
 def questions_view(request):
