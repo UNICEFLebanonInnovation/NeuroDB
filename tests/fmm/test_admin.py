@@ -86,7 +86,8 @@ def test_fmm_icons_are_material_symbols_names_not_site_icons():
 
 def test_before_the_first_reading_it_says_how_to_start(admin_client):
     html = _page(admin_client)
-    assert "The eTools keys have not been read yet" in html and "manage.py fmm_refresh" in html
+    assert "The eTools keys have not been read yet" in html and "Refresh now" in html
+    assert reverse("admin:fmm_refresh") in html and "manage.py" not in html
     assert "Checklist answers (fm-questions)" in html
 
 
