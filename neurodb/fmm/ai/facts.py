@@ -219,6 +219,7 @@ def _kpi(scope: Scope, when: str, limits: dict[str, int]) -> dict[str, Any]:
             "entities": k["entities"],
             "entities_rated": k["entities_rated"],
             "entities_not_monitored": k["entities_not_monitored"],
+            "entities_not_rated_yet": k["entities_not_rated_yet"],
         }
     )
     for code in RATED:

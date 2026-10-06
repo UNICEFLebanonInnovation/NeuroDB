@@ -14,7 +14,7 @@ queries whatever the number of visits; the rule results, entity rows, HACT figur
 have one query each. Every drill value a block gives (``drill``) is a code the scope parses, and the
 visits a drill-down lists are exactly those the block counted.
 
-Every block is cached for ten minutes under ``fmm:v2:<scope hash>:<last refresh run>:<rules
+Every block is cached for ten minutes under ``fmm:v3:<scope hash>:<last refresh run>:<rules
 version>:<day>:<block>`` (:func:`cached`), so a refresh, a rescore or a new day shows at once.
 """
 
@@ -68,7 +68,7 @@ def cached(scope: Scope, block: str, compute: Callable[[], Any], when: str | Non
     saved a minute ago must count at once, and no refresh marks it."""
     if settings.DEBUG or any(key == "review" for key, _value in scope.drill):
         return compute()
-    key = f"fmm:v2:{scope.hash()}:{when if when is not None else stamp()}:{block}"
+    key = f"fmm:v3:{scope.hash()}:{when if when is not None else stamp()}:{block}"
     found = cache.get(key)
     if found is not None:
         return found
@@ -81,7 +81,7 @@ def kept(scope: Scope, block: str, when: str | None = None) -> Any:
     """What :func:`cached` keeps for ``scope``'s ``block`` (None when nothing is kept), never computed."""
     if settings.DEBUG or any(key == "review" for key, _value in scope.drill):
         return None
-    return cache.get(f"fmm:v2:{scope.hash()}:{when if when is not None else stamp()}:{block}")
+    return cache.get(f"fmm:v3:{scope.hash()}:{when if when is not None else stamp()}:{block}")
 
 
 # The aggregates the average quality is computed from, so a block that aggregates the visits anyway
@@ -157,7 +157,13 @@ def kpis(scope: Scope, when: str | None = None, limits: dict[str, int] | None = 
         entities = scope.entities().aggregate(
             total=Count("pk"),
             rated=Count("pk", filter=Q(rating__in=RATED)),
-            not_monitored=Count("pk", filter=Q(rating="not_monitored")),
+            # Not monitored (planned, not conducted) on a reported visit only; on a planned or
+            # in-progress visit a blank rating is "not rated yet", as for the visits (``counted_rating``)
+            not_monitored=Count("pk", filter=Q(rating="not_monitored", visit__status_group="reported")),
+            not_rated_yet=Count(
+                "pk",
+                filter=Q(rating="not_monitored", visit__status_group__in=("planned", "in_progress")),
+            ),
             **{f"rating_{code}": Count("pk", filter=Q(rating=code)) for code in RATED},
             **{f"kind_{kind}": Count("pk", filter=Q(kind=kind)) for kind in COUNTED_KINDS},
         )
@@ -176,7 +182,11 @@ def kpis(scope: Scope, when: str | None = None, limits: dict[str, int] | None = 
             "entities_not_monitored": entities["not_monitored"],
             # the rated entities by rating: every share of ratings is over the rated ones only
             "entity_ratings": {code: entities[f"rating_{code}"] for code in RATED},
-            "entities_other": entities["total"] - entities["rated"] - entities["not_monitored"],
+            "entities_not_rated_yet": entities["not_rated_yet"],
+            "entities_other": entities["total"]
+            - entities["rated"]
+            - entities["not_monitored"]
+            - entities["not_rated_yet"],
             "entity_kinds": {kind: n for kind, n in by_kind.items() if n},
             "avg_quality": mean_quality(counts["quality_sum"], counts["quality_n"]),
             "scored": counts["scored"],
@@ -780,7 +790,7 @@ def q1_question(when: str | None = None) -> str:
     is Q1, in the whole data), "" when no Q1 question was found. Kept ten minutes per refresh."""
     from .models import QuestionAnswer
 
-    key = f"fmm:v2:q1:{when if when is not None else stamp()}"
+    key = f"fmm:v3:q1:{when if when is not None else stamp()}"
     found = None if settings.DEBUG else cache.get(key)
     if found is not None:
         return found
@@ -888,11 +898,13 @@ def top_issues(
         for rule, key, measure, visit_key, label, activity_id, urgency, _end in rows:
             g = groups.get((rule, key))
             if g is None:  # (not setdefault: its default would be built for every flag)
-                g = groups[(rule, key)] = {"visits": [], "n": 0, "urgency": 0, "measures": []}
+                g = groups[(rule, key)] = {"visits": [], "n": 0, "urgency": 0, "urgent_n": 0, "measures": []}
             g["n"] += 1
             if len(g["visits"]) < CHIP_VISITS:  # the first visits (most urgent) are the chips
                 g["visits"].append({"key": visit_key, "name": _visit_name(visit_key, label, activity_id)})
-            g["urgency"] += urgency or 0
+            if urgency is not None:  # a visit without a score has no urgency: left out of the mean
+                g["urgency"] += urgency
+                g["urgent_n"] += 1
             if measure is not None:
                 g["measures"].append(measure)
         out = []
@@ -904,14 +916,16 @@ def top_issues(
                     "rule": rule,
                     "label": issue_label(rule, key, g["measures"], settings_.get(rule)),
                     "visits": n,
-                    "urgency": int(half_up(Decimal(g["urgency"]) / n, 0)),
+                    "urgency": int(half_up(Decimal(g["urgency"]) / g["urgent_n"], 0))
+                    if g["urgent_n"]
+                    else None,
                     "lowest": min(g["measures"]) if g["measures"] else None,
                     "chips": g["visits"][:CHIP_VISITS],
                     "more": max(n - CHIP_VISITS, 0),
                     "drill": drill if _ISSUE.match(drill) else "",
                 }
             )
-        out.sort(key=lambda r: (-r["visits"], -r["urgency"], r["rule"], r["label"]))
+        out.sort(key=lambda r: (-r["visits"], -(r["urgency"] or 0), r["rule"], r["label"]))
         return out
 
     return cached(scope, "issues", compute, when)[:limit]

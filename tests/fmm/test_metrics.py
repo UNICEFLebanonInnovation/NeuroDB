@@ -42,7 +42,7 @@ def _keys(scope: Scope) -> set[str]:
 # ------------------------------------------------------------------------------------------ key figures
 def test_key_figures_and_the_status_breakdown(built):
     k = metrics.kpis(_scope())
-    assert (k["visits"], k["entities"], k["entities_rated"], k["entities_not_monitored"]) == (8, 12, 8, 4)
+    assert (k["visits"], k["entities"], k["entities_rated"], k["entities_not_monitored"]) == (8, 12, 8, 2)
     assert {row["group"]: row["n"] for row in k["by_status"]} == {
         "reported": 6,
         "in_progress": 1,

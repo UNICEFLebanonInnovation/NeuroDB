@@ -66,7 +66,7 @@ def test_the_page_opens_for_a_viewer_with_its_key_figures(built, client_viewer):
     assert "<title>Monitoring insights ·" in html
     text = " ".join(visible(html).split())
     assert "Monitoring visits 8 6 reported · 1 in progress · 0 planned · 1 cancelled" in text
-    assert "Monitored entities 12 8 rated · 4 not monitored" in text
+    assert "Monitored entities 12 8 rated · 2 not monitored · 1 not rated yet · 1 other" in text
     assert "Average quality score 64.4% on 6 scored visits · rules v1" in text
     assert "High urgency 0 ≥ 70 · 1 amber (40–69)" in text
     assert "Showing 1 Jan – 31 Dec 2026 · Lebanon" in text

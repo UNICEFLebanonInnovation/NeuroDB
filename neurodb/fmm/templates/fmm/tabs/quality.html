@@ -75,7 +75,7 @@
     <tbody>{% for row in issues %}<tr>
       <td>{{ row.label }}<span class="cell-sub">{% trans "Quality flag" %}</span></td>
       <td>{% if row.url %}<a href="{{ row.url }}" hx-get="{{ row.url }}" hx-target="#modal-content">{{ row.visits }}</a>{% else %}{{ row.visits }}{% endif %}</td>
-      <td><span class="pill pill--sm pill--{% if row.urgency >= limits.red %}danger{% elif row.urgency >= limits.amber %}warning{% else %}neutral{% endif %}">{{ row.urgency }}</span></td>
+      <td>{% if row.urgency is None %}<span class="pill pill--sm pill--neutral" title="{% trans 'No visit of this issue has an urgency: none is scored' %}">—</span>{% else %}<span class="pill pill--sm pill--{% if row.urgency >= limits.red %}danger{% elif row.urgency >= limits.amber %}warning{% else %}neutral{% endif %}">{{ row.urgency }}</span>{% endif %}</td>
       <td>{% for c in row.chips %}<a class="visit-chip" href="{{ c.url }}" hx-get="{{ c.url }}" hx-target="#modal-content">{{ c.name }}</a>{% endfor %}{% if row.more %}{% if row.url %}<a class="visit-chip" href="{{ row.url }}" hx-get="{{ row.url }}" hx-target="#modal-content">+{{ row.more }}</a>{% else %}<span class="visit-chip">+{{ row.more }}</span>{% endif %}{% endif %}</td>
     </tr>{% endfor %}</tbody>
   </table></div>

@@ -392,6 +392,8 @@ def _kpi_tiles(scope: Scope, k: dict[str, Any]) -> list[dict[str, Any]]:
         "rated": number(k["entities_rated"]),
         "nm": number(k["entities_not_monitored"]),
     }
+    if k["entities_not_rated_yet"]:
+        rated += " · " + _("%(n)s not rated yet") % {"n": number(k["entities_not_rated_yet"])}
     if k["entities_other"]:
         rated += " · " + _("%(n)s other") % {"n": number(k["entities_other"])}
     if k["avg_quality"] is not None:
