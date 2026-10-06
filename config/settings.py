@@ -72,6 +72,7 @@ INSTALLED_APPS = [
     "neurodb.graph",
     "neurodb.insights",
     "neurodb.watch",
+    "neurodb.help",
     "neurodb.fmm",
     "neurodb.web",
 ]
@@ -430,6 +431,15 @@ AI_DAILY_TOKEN_SOFT_CAP = env.int("AI_DAILY_TOKEN_SOFT_CAP", default=3_000_000)
 AI_PRICE_INPUT_PER_MTOK = _optional_float("AI_PRICE_INPUT_PER_MTOK")
 AI_PRICE_CACHED_PER_MTOK = _optional_float("AI_PRICE_CACHED_PER_MTOK")
 AI_PRICE_OUTPUT_PER_MTOK = _optional_float("AI_PRICE_OUTPUT_PER_MTOK")
+
+# ---------------------------------------------------------------------------- Help assistant
+# The in-app help chat (Ctrl+Shift+H on every page, and /help/): answers how NeuroDB works from the help
+# guide (neurodb/help/guide) and the live settings of Monitoring insights, never programme data. On by
+# default when an OpenAI key is set (it also needs AI_ASSISTANT_ENABLED); the help pages work without it.
+# Questions per person per day (a declined question does not count); the shared AI_DAILY_TOKEN_SOFT_CAP
+# and the OpenAI credit pause apply.
+HELP_ENABLED = env.bool("HELP_ENABLED", default=bool(OPENAI_API_KEY))
+HELP_PER_USER_PER_DAY = env.int("HELP_PER_USER_PER_DAY", default=20)
 
 # ---------------------------------------------------------------------------- NeuroDB Watch (For you)
 # The background assistant behind each person's "For you" page: every morning (scheduled job "watch",

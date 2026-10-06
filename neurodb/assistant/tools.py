@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import datetime
 from collections import Counter
-from collections.abc import Callable, Collection, Iterator
+from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import contextmanager
 from decimal import Decimal
 from typing import Any
@@ -1451,10 +1451,13 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
 }
 
 
-def definitions(names: Collection[str] | None = None) -> list[dict[str, Any]]:
+def definitions(
+    names: Collection[str] | None = None, registry: Mapping[str, tuple] | None = None
+) -> list[dict[str, Any]]:
     """Function tools for the OpenAI Responses API, in a fixed order (an identical prefix on every
     request keeps the prompt cache warm). ``names`` keeps only those tools, still in that order (a
-    background run offers a few); None gives them all, as Ask NeuroDB offers them.
+    background run offers a few); None gives them all, as Ask NeuroDB offers them. ``registry``: a
+    run's own tools in place of the shared ``TOOLS`` (the Help assistant's).
 
     ``strict`` is False on purpose: strict mode would need every property required (optional ones
     nullable), its schema adherence is not guaranteed with parallel tool calls, and the SDK then
@@ -1463,7 +1466,7 @@ def definitions(names: Collection[str] | None = None) -> list[dict[str, Any]]:
     """
     return [
         {"type": "function", "name": name, "description": description, "parameters": schema, "strict": False}
-        for name, (_, description, schema, _) in TOOLS.items()
+        for name, (_, description, schema, _) in (TOOLS if registry is None else registry).items()
         if names is None or name in names
     ]
 
@@ -1472,14 +1475,21 @@ _TYPES = {"string": str, "integer": int, "boolean": bool, "object": dict, "array
 _SCALARS = (str, int, float, bool)
 
 
-def validate(name: str, args: Any, only: Collection[str] | None = None) -> dict[str, Any]:
+def validate(
+    name: str,
+    args: Any,
+    only: Collection[str] | None = None,
+    registry: Mapping[str, tuple] | None = None,
+) -> dict[str, Any]:
     """Check arguments against the tool schema (non-strict function calling: the API does not).
-    With ``only``, a tool outside it is unknown, as a tool that does not exist is."""
-    if name not in TOOLS or (only is not None and name not in only):
+    With ``only``, a tool outside it is unknown, as a tool that does not exist is; with ``registry``,
+    a tool outside that registry too."""
+    known = TOOLS if registry is None else registry
+    if name not in known or (only is not None and name not in only):
         raise ToolInputError(f"Unknown tool {name}.")
     if not isinstance(args, dict):
         raise ToolInputError("Arguments must be a JSON object.")
-    schema = TOOLS[name][2]
+    schema = known[name][2]
     props = schema["properties"]
     for key in schema["required"]:
         if args.get(key) is None:  # null counts as missing: optional nulls are dropped below
@@ -1520,11 +1530,16 @@ def validate(name: str, args: Any, only: Collection[str] | None = None) -> dict[
     return clean
 
 
-def run(name: str, args: dict[str, Any], only: Collection[str] | None = None) -> dict[str, Any]:
-    """Validate and run one tool (with ``only``, one of those). Input problems raise ToolInputError
-    (sent back to the model)."""
-    clean = validate(name, args, only)
-    return _clean(TOOLS[name][0](**clean))
+def run(
+    name: str,
+    args: dict[str, Any],
+    only: Collection[str] | None = None,
+    registry: Mapping[str, tuple] | None = None,
+) -> dict[str, Any]:
+    """Validate and run one tool (with ``only``, one of those; with ``registry``, one of a run's own
+    tools). Input problems raise ToolInputError (sent back to the model)."""
+    clean = validate(name, args, only, registry)
+    return _clean((TOOLS if registry is None else registry)[name][0](**clean))
 
 
 @contextmanager
@@ -1541,8 +1556,9 @@ def read_only() -> Iterator[None]:
             transaction.set_rollback(True)
 
 
-def label(name: str) -> str:
-    return TOOLS[name][3] if name in TOOLS else "Looking up data"
+def label(name: str, registry: Mapping[str, tuple] | None = None) -> str:
+    known = TOOLS if registry is None else registry
+    return known[name][3] if name in known else "Looking up data"
 
 
 # The knowledge hub and the other sources (defined apart; registered here, after the first tools, so

@@ -116,7 +116,7 @@ come from.
 - **Cost and review**: every question is logged in Admin → Data and sync → AI questions with the
   lookups made, tokens used and time taken. Every AI feature on the key (Ask NeuroDB, the daily
   review, What's new, document summaries, periodic figures, country programme reading, NeuroDB
-  Watch, Monitoring insights) is also counted per day in one ledger, Admin → Data and sync → **AI use** (tokens; US
+  Watch, Monitoring insights, the Help assistant) is also counted per day in one ledger, Admin → Data and sync → **AI use** (tokens; US
   dollars when `AI_PRICE_INPUT_PER_MTOK`, `AI_PRICE_CACHED_PER_MTOK` and `AI_PRICE_OUTPUT_PER_MTOK`
   are set). The background features stop using AI first when all of them together pass 80% of
   `AI_DAILY_TOKEN_SOFT_CAP` (default 3,000,000 tokens a day), so questions keep being answered. Output tokens include the model's reasoning tokens,
@@ -423,6 +423,71 @@ the overview (the chosen sections) and on each database dashboard, and Ask Neuro
 forecast*). Each run replaces the forecasts; the back-test is in the run's details (admin → Import
 and sync runs). Reading every year's monthly sums takes a few minutes on the production data.
 
+## Help assistant (`/help/`, Ctrl+Shift+H)
+
+An in-app help chat that answers **how NeuroDB works** (what a page shows, what a rule checks, where a
+number comes from, why a visit scored what it scored, which job refreshes a page and when), never
+questions about the programme data: those go to Ask NeuroDB and Chat with Data, and the panel says so
+with a link. Every signed-in person but a donor has it. The code is in `neurodb/help`.
+
+- **The help pages** (`/help/`, sidebar: *Help*, at the bottom): the help guide, written for staff (not
+  this runbook), one page per area: *Getting around NeuroDB* (the sidebar, roles, data sources and refresh
+  times), *Monitoring insights* (filters, every tab and card and what it counts from which eTools data,
+  Not monitored, the quality score's categories, weights and bands, the rules switched on and what each
+  checks, the AI checks, urgency, the AI brief, Chat with Data and the map), *Action points*, *Exports*,
+  *Knowledge base and documents*, *Ask NeuroDB*, *For you and What's new*, *Overview, management brief and
+  daily review*, *AI limits* and a *Glossary*. Each heading has its own address
+  (`/help/monitoring-insights/#urgency`); the search box searches every section. The guide is Markdown in
+  `neurodb/help/guide/*.md`, packaged with the code (the `docs` folder is not in the image), rendered and
+  sanitised as Ask's answers are (`markdown` + `nh3`, links only to NeuroDB's own pages). It holds no
+  command, no setting's name, no address of another site, no secret and no person (a test checks every
+  file), and a test checks that its list of the rules switched on, the score categories and weights,
+  the bands and urgency's weights and thresholds are those NeuroDB seeds. When a rule or a setting is
+  changed in the admin, the guide keeps describing the defaults; the assistant reads the live values.
+- **The panel**: the **?** button in the top bar, or **Ctrl+Shift+H** (Cmd+Shift+H on a Mac) on any page,
+  opens a small panel at the bottom right headed *Help assistant*; Esc, the × or the shortcut again closes
+  it, and the keyboard focus stays inside while it is open. Its body (the quota chip and four starter
+  questions) is loaded the first time it opens, so pages carry no extra query. Each question is sent with
+  the page's address (path only, no query string) and title, so "this chart" can be resolved; the
+  conversation is kept for the browser tab (`sessionStorage`), *Clear chat* starts a new one, and the
+  server sends at most the last 6 turns to the model. It streams like Ask NeuroDB (the same `ask.js`).
+- **What it reads** (its own look-ups, offered to it alone, never to Ask NeuroDB): `search_help` and
+  `read_help` (the guide, searched in memory, no database), `list_quality_rules` and `get_quality_rule`
+  (the live quality rules, score settings and urgency settings of Monitoring insights; a rule's reference
+  lists only as a count, as R19's hold e-mail addresses; an AI rule's instructions only for an
+  Administrator, for that rule), `explain_visit_score` (a visit's score, band, deductions per category,
+  each rule's result and points lost, and urgency's parts: never a narrative, an answer, a team, a
+  monitor, nor an AI check's explanation; the same access as the visit page, nothing while
+  `FMM_ENABLED` is off) and `list_jobs` (the scheduled jobs, what each does, its schedule and its last
+  run's status and time: never who ran it or its error text). Each look-up runs in a read-only
+  transaction. Answers cite the guide sections (`/help/<page>/#<slug>`) and, for an Administrator only,
+  the admin page a setting lives on.
+- **What it sends to OpenAI**: the question (names NeuroDB knows, e-mail addresses, phone numbers and links
+  removed before it is sent and kept), the page's path and cleaned title, up to 6 earlier questions and
+  answers of the conversation, and what its look-ups return. Its own prompt (not Ask's), the model
+  `AI_ASSISTANT_MODEL` at low effort, at most 4 rounds and 90 seconds, `store=false`, a keyed hash of the
+  person (`safety_identifier`).
+- **What it refuses** (a refusal costs no quota): passwords, API keys, secrets, connection strings and
+  environment variables, and ways around sign-in or access rules are refused before any call (a fixed list
+  of words, `help.assistant.screen`); the model declines the subtler ones and questions about programme
+  data (pointed to Ask NeuroDB) or not about NeuroDB. Either way NeuroDB's own message is shown.
+- **Limits**: `HELP_PER_USER_PER_DAY` (20) questions a day per person, counted from local midnight;
+  declined questions do not count, and one being answered does (429 "You have asked 20 help questions
+  today; the count starts again tomorrow."). At most 2 being answered per person. The shared
+  `AI_DAILY_TOKEN_SOFT_CAP` at 100% (a person asks), and the OpenAI credit pause of Monitoring insights
+  (6 hours after OpenAI says the credit ran out; a help answer that meets it starts the pause too). Its
+  calls are counted under *Help assistant* in *AI use*. One answer is usually 2-3 model calls of about
+  4,000-10,000 tokens each, mostly the cached prompt and look-ups.
+- **Switching it off**: `HELP_ENABLED=false` (default: on when `OPENAI_API_KEY` is set; it also needs
+  `AI_ASSISTANT_ENABLED`). The help pages stay; the panel says the assistant is switched off and links them.
+- **The log**: Admin → Data and sync → **Help questions** (read-only): who asked, from which page, the
+  question as sent, the answer, answered / declined (and why) / failed / over a limit, the look-ups, the
+  tokens and the time. Kept 90 days: each run of the daily review job (`daily-review`, 06:00) first
+  deletes the older ones; nothing to run by hand.
+- **Updating the guide**: edit the Markdown in `neurodb/help/guide/` with the change it describes (a
+  developer change, deployed like code). The tests in `tests/help/` check the rules list against the
+  seeded rules, every link and anchor, and the words a guide must not hold.
+
 ## Scheduled jobs
 The periodic jobs are managed in the admin: **Data and sync → Scheduled jobs**. Each row is one
 command on one schedule, in **Beirut time** (summer time is followed automatically):
@@ -433,7 +498,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `fmm-refresh` | `fmm_refresh` | `25 5 * * *`, daily 05:25, after the locations: rebuilds and scores the Monitoring insights visits, so that overdue action points, the age of a visit and urgency are recomputed even when no data changed (it also runs after every Datamart sync) |
 | `fmm-insights` | `fmm_insights` | `40 5 * * *`, daily 05:40, after the refresh: the AI monitoring briefs of the whole country, each section people land on and the last 90 days (reused at no cost when their data has not changed); with `FMM_AI` off it writes nothing and only applies the briefs' retention |
 | `fmm-ai-checks` | `fmm_ai_checks` | `50 5 * * *`, daily 05:50, after the refresh and the briefs: the AI checks of the quality rules on the visits not checked yet (newest first, within `FMM_RULES_DAILY_TOKEN_CAP`), then the scores are recomputed; with the AI or the AI checks off it checks nothing |
-| `daily-review` | `daily_review` | `0 6 * * *`, daily 06:00, after the night's syncs |
+| `daily-review` | `daily_review` | `0 6 * * *`, daily 06:00, after the night's syncs; it first deletes the Help assistant's questions older than 90 days |
 | `fmm-ap-review` | `fmm_ap_review` | `10 6 * * *`, daily 06:10, after the AI checks: the AI review of the completed eTools action points not reviewed yet or whose texts changed (most recently completed first, within `FMM_AP_REVIEW_DAILY_TOKEN_CAP`); with the AI or the review off it reviews nothing |
 | `activityinfo-data` | `import_activityinfo_data --current-year` | `0 18 1-22 * *`, 18:00 on days 1–22 |
 | `etools-datamart` | `sync_etools_datamart` | `30 20 * * *`, daily 20:30 |

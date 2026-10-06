@@ -88,7 +88,7 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
         _("Data and sync"),
         _(
             "Import history, scheduled jobs, the daily review, NeuroDB Watch (For you), population "
-            "figures, saved views, AI questions and AI use, audit trail."
+            "figures, saved views, AI questions, help questions and AI use, audit trail."
         ),
         [
             "core.SyncRun",
@@ -104,6 +104,7 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
             "core.PopulationFigure",
             "core.SavedView",
             "assistant.AssistantQuestion",
+            "help.HelpQuestion",
             "assistant.AIUsage",
             "admin.LogEntry",
         ],
@@ -283,6 +284,7 @@ ICONS = {
     "reports.SectionPlan": "target",
     "datamart.IndicatorFlag": "child_care",
     "assistant.AssistantQuestion": "smart_toy",
+    "help.HelpQuestion": "help",
     "assistant.AIUsage": "data_usage",
     "datamart.FundsReservation": "account_balance",
     "datamart.Grant": "redeem",

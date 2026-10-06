@@ -1,0 +1,13 @@
+{% load i18n %}
+<nav class="help-nav panel" aria-label="{% trans 'Help pages' %}">
+  <form class="help-search" method="get" action="{% url 'help:index' %}" role="search">
+    <label class="visually-hidden" for="help-search-input">{% trans "Search the help" %}</label>
+    <input type="search" class="form-control form-control-sm" id="help-search-input" name="q" value="{{ query|default:'' }}" maxlength="100" placeholder="{% trans 'Search the help' %}">
+  </form>
+  <ul class="list-unstyled help-nav__list">
+    {% for p in guide_pages %}
+    <li><a class="help-nav__link{% if p.active %} is-active{% endif %}" href="{{ p.url }}"{% if p.active %} aria-current="page"{% endif %}>{{ p.title }}</a></li>
+    {% endfor %}
+  </ul>
+  <p class="small text-muted mb-0">{% trans "Questions about how something works: press Ctrl+Shift+H (Cmd+Shift+H on a Mac) on any page for the Help assistant." %}</p>
+</nav>

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block content %}
+<div class="help-layout">
+  {% include "help/_nav.html" %}
+  <section class="help-doc panel" aria-labelledby="help-results-title">
+    <h2 class="h5" id="help-results-title">{% blocktrans %}Sections about “{{ query }}”{% endblocktrans %}</h2>
+    {% if results %}
+    <ol class="help-results">
+      {% for r in results %}
+      <li>
+        <a href="{{ r.url }}">{{ r.heading }}</a> <span class="small text-muted">· {{ r.page_title }}</span>
+        <p class="small mb-0">{{ r.snippet }}</p>
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}
+    <p class="text-muted mb-0">{% trans "No section of the guide matches these words. Try other words, or ask the Help assistant (Ctrl+Shift+H)." %}</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

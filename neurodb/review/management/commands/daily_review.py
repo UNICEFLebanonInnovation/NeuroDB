@@ -1,18 +1,23 @@
 """``daily_review [--date YYYY-MM-DD] [--no-narration]``: run the day's review and store it.
 
 Scheduled every morning after the night's eTools sync (the ``daily-review`` job); the admin can also
-start it from *Daily reviews*. Re-running a date replaces that day's review.
+start it from *Daily reviews*. Re-running a date replaces that day's review. Each run first deletes the
+Help assistant's questions older than 90 days (``help.assistant.prune``): the nightly clean-up of its
+log, which never fails the review.
 """
 
 from __future__ import annotations
 
 import datetime
+import logging
 
 from django.core.management.base import BaseCommand, CommandError
 
 from neurodb.integrations.management.commands._base import add_triggered_by
 from neurodb.review import services
 from neurodb.review.models import DailyReview
+
+logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
@@ -28,6 +33,7 @@ class Command(BaseCommand):
         add_triggered_by(parser)
 
     def handle(self, *args, **options):
+        self._prune_help()
         date = None
         if options["date"]:
             try:
@@ -57,3 +63,15 @@ class Command(BaseCommand):
         if review.summary:
             self.stdout.write("")
             self.stdout.write(review.summary)
+
+    def _prune_help(self) -> None:
+        """The Help assistant's questions older than 90 days are deleted (never fails the review)."""
+        from neurodb.help.assistant import prune
+
+        try:
+            deleted = prune()
+        except Exception:
+            logger.exception("The Help assistant's old questions could not be deleted")
+            return
+        if deleted:
+            self.stdout.write(f"Deleted {deleted} help questions older than 90 days.")

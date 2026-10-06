@@ -1,7 +1,12 @@
 // Ask NeuroDB: streams the assistant's answer (Server-Sent Events over a POST) into a conversation thread.
-// The Ask page starts it by itself; another page's chat (Monitoring insights' Chat with Data, an element
-// with data-module="ask", possibly swapped in by htmx) is started by app.js through init(). Such a chat
-// may send its page's filter (data-scope) with each question, and keep its own turn template inside it.
+// The Ask page starts it by itself; another page's chat (Monitoring insights' Chat with Data, the Help
+// assistant's panel: an element with data-module="ask", possibly swapped in by htmx) is started by app.js
+// through init(). Such a chat may send its page's filter (data-scope) or the page it is on (data-page-context:
+// the path and title) with each question, keep its own turn template inside it, name its parts with
+// data-ask-part (form, input, thread, intro, submit, stop, new) instead of the Ask page's ids, show the
+// day's quota the server sends (data-ask-quota), and keep its conversation for the browser tab
+// (data-history-key: sessionStorage, so it follows the person from page to page; the server keeps the
+// conversation itself and sends at most 6 earlier turns to the model).
 import { init as drawChart } from "./charts.js";
 import { csrfToken, toast } from "./lib.js";
 
@@ -17,16 +22,41 @@ function newConversationId() {
   );
 }
 
+const MAX_KEPT_TURNS = 20; // turns of a panel's conversation kept for the tab (the server sends at most 6)
+
+function readKept(key) {
+  if (!key) return null;
+  try {
+    const kept = JSON.parse(window.sessionStorage.getItem(key) || "null");
+    return kept && typeof kept.conversation === "string" && Array.isArray(kept.turns) ? kept : null;
+  } catch {
+    return null; // storage unavailable or unreadable: start afresh
+  }
+}
+
+function writeKept(key, kept) {
+  if (!key) return;
+  try {
+    if (kept) window.sessionStorage.setItem(key, JSON.stringify(kept));
+    else window.sessionStorage.removeItem(key);
+  } catch {
+    /* storage unavailable or full: the conversation lasts as long as the page */
+  }
+}
+
 export function init(root) {
-  const form = root.querySelector("#ask-form");
-  const input = root.querySelector("#ask-input");
-  const thread = root.querySelector("#ask-thread");
-  const intro = root.querySelector("#ask-intro");
-  const submit = root.querySelector("#ask-submit");
-  const stop = root.querySelector("#ask-stop");
-  const reset = root.querySelector("#ask-new");
+  const part = (name) => root.querySelector(`[data-ask-part="${name}"]`) ?? root.querySelector(`#ask-${name}`);
+  const form = part("form");
+  const input = part("input");
+  const thread = part("thread");
+  const intro = part("intro");
+  const submit = part("submit");
+  const stop = part("stop");
+  const reset = part("new");
   const template = root.querySelector("template[data-ask-turn]") ?? document.querySelector("#ask-turn-template");
-  let conversation = newConversationId();
+  const keptKey = root.dataset.historyKey || "";
+  const kept = readKept(keptKey) ?? { conversation: newConversationId(), turns: [] };
+  let conversation = kept.conversation;
   let controller = null;
 
   const autosize = () => {
@@ -50,11 +80,26 @@ export function init(root) {
   stop.addEventListener("click", () => controller?.abort());
   reset.addEventListener("click", () => {
     conversation = newConversationId();
+    kept.conversation = conversation;
+    kept.turns = [];
+    writeKept(keptKey, null);
     thread.querySelectorAll(".ask-turn").forEach((el) => el.remove());
     intro.hidden = false;
     reset.hidden = true;
     input.focus();
   });
+
+  // A panel's conversation of this tab, drawn again on the next page (answers as the server sanitized them)
+  for (const turn of kept.turns) {
+    const el = template.content.firstElementChild.cloneNode(true);
+    el.querySelector(".ask-turn__question").textContent = turn.question;
+    el.querySelector(".ask-turn__body").innerHTML = turn.html;
+    thread.append(el);
+  }
+  if (kept.turns.length) {
+    intro.hidden = true;
+    reset.hidden = false;
+  }
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -79,6 +124,10 @@ export function init(root) {
     body.append("question", question);
     body.append("conversation", conversation);
     if (root.dataset.scope !== undefined) body.append("scope", root.dataset.scope);
+    if (root.dataset.pageContext !== undefined) {
+      body.append("page", window.location.pathname);
+      body.append("title", document.title);
+    }
     try {
       const res = await fetch(root.dataset.streamUrl, {
         method: "POST",
@@ -101,7 +150,19 @@ export function init(root) {
         ui.error(message);
         return;
       }
-      await readEvents(res.body, ui.handle);
+      await readEvents(res.body, (event) => {
+        ui.handle(event);
+        if (event.type === "done") {
+          if (event.quota) {
+            const chip = root.querySelector("[data-ask-quota]");
+            if (chip) chip.textContent = event.quota;
+          }
+          if (keptKey) {
+            kept.turns = [...kept.turns, { question, html: event.html }].slice(-MAX_KEPT_TURNS);
+            writeKept(keptKey, kept);
+          }
+        }
+      });
       ui.finish();
     } catch (err) {
       if (err.name === "AbortError") ui.error("Stopped.", "muted");

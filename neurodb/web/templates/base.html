@@ -56,6 +56,9 @@
     </ul>
   </div>
   {% endif %}
+  {% if user.is_authenticated and not is_donor %}
+  <button class="btn btn-icon help-trigger" type="button" id="help-trigger" aria-haspopup="dialog" aria-controls="help-panel" aria-expanded="false" aria-label="{% trans 'Help assistant (Ctrl+Shift+H)' %}" title="{% trans 'Help assistant (Ctrl+Shift+H)' %}"><span aria-hidden="true">?</span></button>
+  {% endif %}
   <button class="btn btn-icon" type="button" id="theme-toggle" aria-pressed="false" aria-label="{% trans 'Toggle dark mode' %}" title="{% trans 'Toggle dark mode' %}">
     <span class="theme-toggle__light">{% include "components/icon.html" with name="sun" %}</span>
     <span class="theme-toggle__dark">{% include "components/icon.html" with name="moon" %}</span>
@@ -198,6 +201,7 @@
       <a class="nav-item-link {% active_if 'knowledge:index' 'knowledge:detail' 'knowledge:add' %}" href="{% url 'knowledge:index' %}" {% aria_current 'knowledge:index' %}>{% include "components/icon.html" with name="layers" %}<span>{% trans "Knowledge base" %}</span></a>
       <a class="nav-item-link {% active_if 'reports:maps' %}" href="{% url 'reports:maps' %}" {% aria_current 'reports:maps' %}>{% include "components/icon.html" with name="map" %}<span>{% trans "Maps" %}</span></a>
       <a class="nav-item-link {% active_if 'reports:data_health' %}" href="{% url 'reports:data_health' %}" {% aria_current 'reports:data_health' %}>{% include "components/icon.html" with name="pulse" %}<span>{% trans "Data health" %}</span></a>
+      <a class="nav-item-link nav-item-link--help {% active_if 'help:index' 'help:page' %}" href="{% url 'help:index' %}" {% aria_current 'help:index' %}>{% include "components/icon.html" with name="info" %}<span>{% trans "Help" %}</span></a>
       {% endif %}
     </div>
   </nav>
@@ -236,6 +240,7 @@
 <div class="toast-region" id="toasts" aria-live="polite" aria-atomic="false"></div>
 {% include "components/modal.html" %}
 {% include "components/search_modal.html" %}
+{% if user.is_authenticated and not is_donor %}{% include "help/_panel.html" %}{% endif %}
 
 {% asset_urls %}
 <script src="{% static 'vendor/bootstrap/bootstrap.bundle.min.js' %}" nonce="{{ request.csp_nonce }}"></script>

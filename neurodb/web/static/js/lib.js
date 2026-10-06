@@ -148,3 +148,28 @@ export function debounce(fn, wait = 250) {
 export function escapeHTML(value) {
   return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
+
+// The Help assistant's shortcut: Ctrl+Shift+H, or Cmd+Shift+H on a Mac (Alt is left to the browser and
+// the system). e.code covers keyboards whose H key gives another letter.
+export function isHelpShortcut(e) {
+  if (!e || !e.shiftKey || e.altKey || !(e.ctrlKey || e.metaKey) || e.isComposing) return false;
+  return String(e.key || "").toLowerCase() === "h" || e.code === "KeyH";
+}
+
+const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// Keep Tab and Shift+Tab inside ``container`` (a dialog open over the page): from the last focusable
+// element Tab goes to the first, from the first Shift+Tab goes to the last. Returns the element to focus,
+// or null when the browser's own move stays inside.
+export function trapFocus(container, e) {
+  if (!container || e.key !== "Tab") return null;
+  const items = [...container.querySelectorAll(FOCUSABLE)].filter((el) => !el.hidden && !el.closest("[hidden]"));
+  if (!items.length) return null;
+  const first = items[0];
+  const last = items[items.length - 1];
+  const active = globalThis.document?.activeElement;
+  const inside = typeof container.contains === "function" ? container.contains(active) : false;
+  if (e.shiftKey && (active === first || !inside)) return last;
+  if (!e.shiftKey && (active === last || !inside)) return first;
+  return null;
+}

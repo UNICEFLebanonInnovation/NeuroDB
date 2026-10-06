@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block content %}
+<div class="help-layout">
+  {% include "help/_nav.html" %}
+  <article class="help-doc panel">
+    {% if contents|length > 2 %}
+    <details class="help-contents">
+      <summary>{% trans "On this page" %}</summary>
+      <ul>
+        {% for s in contents %}<li><a href="#{{ s.slug }}">{{ s.heading }}</a></li>{% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+    {{ html|safe }}
+  </article>
+</div>
+{% endblock %}

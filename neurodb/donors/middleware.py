@@ -2,10 +2,11 @@
 
 A user with a ``DonorAccount`` reaches the donor page, the password change page and sign out, and
 nothing else: any other page (or an address that matches none) redirects to the donor page, and the
-internal API, the assistant and HTMX requests are refused with 403 (a redirect would hand them a
-page they did not ask for). An account that is switched off or past its end date is signed out. Until
-the donor replaces the temporary password, every page leads to the password change page. The Power BI
-feed, read with a key and never with a session, is left out.
+internal API, the assistants (Ask NeuroDB, Chat with Data, the Help assistant) and HTMX requests are
+refused with 403 (a redirect would hand them a page they did not ask for). An account that is switched
+off or past its end date is signed out. Until the donor replaces the temporary password, every page
+leads to the password change page. The Power BI feed, read with a key and never with a session, is left
+out.
 """
 
 from __future__ import annotations
@@ -84,7 +85,7 @@ class DonorScopeMiddleware:
     @staticmethod
     def _is_api(request) -> bool:
         return (
-            request.path.startswith(("/api/", "/ask/", "/fmm/chat/"))
+            request.path.startswith(("/api/", "/ask/", "/fmm/chat/", "/help/stream/"))
             or request.headers.get("HX-Request") == "true"
             or "application/json" in request.headers.get("Accept", "")
         )

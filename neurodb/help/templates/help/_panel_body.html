@@ -1,0 +1,46 @@
+{% load i18n %}
+{% if not help.on %}
+<div class="help-panel__off" role="status">
+  <p class="small mb-2">{{ help.reason }}</p>
+  <a class="btn btn-outline-primary btn-sm" href="{% url 'help:index' %}">{% trans "Browse the help pages" %}</a>
+</div>
+{% else %}
+<div class="ask help-panel__ask" data-ask data-module="ask" data-stream-url="{% url 'help:stream' %}" data-page-context data-history-key="neurodb-help">
+  <div class="help-panel__bar">
+    <span class="chip{% if help.used >= help.allowed %} watch-chip--likely{% endif %}" data-ask-quota title="{% trans 'Your help questions today; the count starts again at midnight. A declined question does not count.' %}">{% blocktrans with used=help.used allowed=help.allowed %}{{ used }} of {{ allowed }} today{% endblocktrans %}</span>
+    <button type="button" class="btn btn-link btn-sm" id="help-clear" data-ask-part="new" hidden>{% trans "Clear chat" %}</button>
+  </div>
+  <div class="ask__thread help-panel__thread" id="help-thread" data-ask-part="thread" aria-live="polite">
+    <div class="help-panel__intro" id="help-intro" data-ask-part="intro">
+      <p class="mb-2">{% trans "Ask how a page, rule, chart or number works." %}</p>
+      <div class="ask__examples help-panel__starters" role="list" aria-label="{% trans 'Example questions' %}">
+        {% for e in help.starters %}<button type="button" class="chip chip--action" role="listitem" data-ask-example>{{ e }}</button>{% endfor %}
+      </div>
+      <p class="small text-muted mt-2 mb-0">{% blocktrans with url="/ask/" %}Questions about the data itself (figures, partners, visits) go to <a href="{{ url }}">Ask NeuroDB</a>.{% endblocktrans %}</p>
+    </div>
+  </div>
+  <form class="ask__form help-panel__form" id="help-form" data-ask-part="form" autocomplete="off">
+    <label class="visually-hidden" for="help-input">{% trans "Your question about how NeuroDB works" %}</label>
+    <textarea id="help-input" data-ask-part="input" name="question" rows="1" maxlength="1000" class="form-control ask__input" placeholder="{% trans 'e.g. What does this chart count?' %}" required></textarea>
+    <div class="ask__actions">
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="help-stop" data-ask-part="stop" hidden>{% trans "Stop" %}</button>
+      <button type="submit" class="btn btn-primary btn-sm" id="help-submit" data-ask-part="submit"><span>{% trans "Ask" %}</span></button>
+    </div>
+  </form>
+  <p class="ask__note small text-muted mb-0">{% blocktrans with limit=help.allowed %}Answers come from the help guide and the live settings, written by ChatGPT (OpenAI's GPT model), and can contain mistakes. Names, emails and phone numbers are removed from your question, which is sent with the page you are on. Up to {{ limit }} questions a day.{% endblocktrans %}</p>
+  <template data-ask-turn>
+    <article class="ask-turn">
+      <div class="ask-turn__question"></div>
+      <div class="ask-turn__answer panel">
+        <ol class="ask-turn__steps" aria-label="{% trans 'Help looked up' %}"></ol>
+        <div class="ask-turn__body"><span class="ask-turn__thinking">{% trans "Thinking…" %}</span></div>
+        <div class="ask-turn__charts"></div>
+        <div class="ask-turn__footer" hidden>
+          <span class="small text-muted ask-turn__meta"></span>
+          <button type="button" class="btn btn-link btn-sm ask-turn__copy">{% include "components/icon.html" with name="copy" %}<span>{% trans "Copy" %}</span></button>
+        </div>
+      </div>
+    </article>
+  </template>
+</div>
+{% endif %}

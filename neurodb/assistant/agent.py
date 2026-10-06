@@ -27,7 +27,7 @@ import json
 import logging
 import re
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from typing import Any
@@ -207,7 +207,10 @@ class RunOptions:
       by the date and then ``instructions``; None keeps Ask's (see ``effective_instructions``);
     - ``tool_context``: a callable returning a context manager entered around **each** tool call (the
       tool and the filter of its result), whatever thread runs the answer: Monitoring insights' chat binds
-      the page's filter and its limit of texts this way, so a tool can never read a wider scope.
+      the page's filter and its limit of texts this way, so a tool can never read a wider scope;
+    - ``registry``: the run's own tools (name -> the entries of ``tools.TOOLS``), offered and run in place
+      of the shared ones, so tools that only this run may call are never offered to Ask NeuroDB (the
+      Help assistant's); None: the shared registry.
 
     Nothing here identifies a person: pass ``user`` to ``answer()`` only for a run done for someone.
     """
@@ -226,6 +229,7 @@ class RunOptions:
     sampling: tuple[tuple[str, float], ...] = ()
     base_prompt: str | None = None
     tool_context: Callable[[], AbstractContextManager[Any]] | None = None
+    registry: Mapping[str, tuple] | None = None
 
 
 def client() -> openai.OpenAI:
@@ -308,7 +312,7 @@ def _request(user: Any, options: RunOptions | None = None) -> dict[str, Any]:
 def _background_request(options: RunOptions) -> dict[str, Any]:
     """A background run's parameters: the same shape as Ask's, with its own model, tools, effort,
     output limit, cache key, answer format, prompt and sampling parameters."""
-    offered = tools.definitions(options.tools)
+    offered = tools.definitions(options.tools, options.registry)
     params: dict[str, Any] = {
         "model": options.model or settings.AI_ASSISTANT_MODEL,
         "instructions": effective_instructions(options),
@@ -486,9 +490,9 @@ def _lookup(name: str, args: Any, options: RunOptions | None) -> Any:
     with options.tool_context() if options.tool_context else nullcontext():
         if options.read_only:
             with tools.read_only():
-                result = tools.run(name, args, only=options.tools)
+                result = tools.run(name, args, only=options.tools, registry=options.registry)
         else:
-            result = tools.run(name, args, only=options.tools)
+            result = tools.run(name, args, only=options.tools, registry=options.registry)
         return options.tool_filter(name, result) if options.tool_filter else result
 
 
@@ -496,13 +500,16 @@ def _run_tools(calls: list[Any], outcome: Outcome, options: RunOptions | None = 
     """Run the model's function calls; each result or error goes back as a function_call_output."""
     results = []
     only = options.tools if options is not None else None
+    registry = options.registry if options is not None else None
     for call in calls:
         started = time.monotonic()
         args: Any = call.arguments
         try:
             args = _arguments(call.arguments)
             if call.name == "make_chart":  # drawn under the answer, from figures looked up
-                outcome.charts.append(charts.build(tools.validate(call.name, args, only), outcome.numbers))
+                outcome.charts.append(
+                    charts.build(tools.validate(call.name, args, only, registry), outcome.numbers)
+                )
                 result = {
                     "drawn": True,
                     "note": "The chart is shown under the answer. Refer to it; do not describe how it looks.",
@@ -600,7 +607,11 @@ def answer(
         if not calls:
             break
         for call in calls:
-            yield {"type": "tool", "label": tools.label(call.name), "round": round_no}
+            yield {
+                "type": "tool",
+                "label": tools.label(call.name, options and options.registry),
+                "round": round_no,
+            }
         items += _replay(output)
         drawn = len(outcome.charts)
         items += _run_tools(calls, outcome, options)

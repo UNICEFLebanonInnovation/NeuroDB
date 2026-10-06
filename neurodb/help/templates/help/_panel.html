@@ -1,0 +1,17 @@
+{% load i18n %}
+{% comment %}
+The Help assistant's panel, on every page of a signed-in person who is not a donor (base.html). Only its
+frame is drawn with the page: app.js loads its body (help:panel, with the person's quota) the first time
+it opens (the "?" button or Ctrl+Shift+H / Cmd+Shift+H), keeps the focus inside while it is open, and
+closes it with Esc, the × or the shortcut again.
+{% endcomment %}
+<section class="help-panel" id="help-panel" role="dialog" aria-modal="true" aria-labelledby="help-panel-title" data-help-panel data-src="{% url 'help:panel' %}" hidden>
+  <header class="help-panel__head">
+    <h2 class="help-panel__title" id="help-panel-title">{% include "components/icon.html" with name="info" %}<span>{% trans "Help assistant" %}</span></h2>
+    <a class="btn btn-link btn-sm" href="{% url 'help:index' %}">{% trans "Help pages" %}</a>
+    <button type="button" class="btn-close" data-help-close aria-label="{% trans 'Close the Help assistant' %}"></button>
+  </header>
+  <div class="help-panel__body" data-help-body>
+    <p class="small text-muted m-3" role="status">{% trans "Loading…" %}</p>
+  </div>
+</section>

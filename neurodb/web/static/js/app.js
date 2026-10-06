@@ -1,5 +1,5 @@
 // NeuroDB application shell: theme, command palette, HTMX glue, tables, filters and page modules.
-import { asset, debounce, download, loadScript, loadStyle, tableRows, toast, toCSV, csrfToken } from "./lib.js";
+import { asset, debounce, download, isHelpShortcut, loadScript, loadStyle, tableRows, toast, toCSV, trapFocus, csrfToken } from "./lib.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -72,6 +72,67 @@ function initSearch() {
       if (active) {
         e.preventDefault();
         window.location.assign(active.href);
+      }
+    }
+  });
+}
+
+// ------------------------------------------------------------------ Help assistant (Ctrl/Cmd + Shift + H)
+// The panel's frame is on every page (help/_panel.html); its body is loaded the first time it opens, then
+// started by initModules like any other chat (data-module="ask"). While it is open the focus stays inside
+// it; Esc, the × or the shortcut again closes it and gives the focus back to where it was.
+function initHelp() {
+  const panel = $("#help-panel");
+  if (!panel) return;
+  const trigger = $("#help-trigger");
+  const body = $("[data-help-body]", panel);
+  let loaded = null;
+  let before = null;
+  const isOpen = () => !panel.hidden;
+  const focusInput = () => ($("[data-ask-part='input']", panel) || $("[data-help-close]", panel))?.focus();
+  const load = () => {
+    if (!loaded) {
+      loaded = window.htmx
+        ? window.htmx.ajax("GET", panel.dataset.src, { target: body, swap: "innerHTML" })
+        : Promise.reject(new Error("htmx is not loaded"));
+      loaded.catch(() => {
+        loaded = null;
+        body.innerHTML = '<p class="small m-3" role="alert">The Help assistant could not be loaded. <a href="/help/">Open the help pages</a>.</p>';
+      });
+    }
+    return loaded;
+  };
+  const open = () => {
+    if (isOpen()) return;
+    before = document.activeElement;
+    panel.hidden = false;
+    trigger?.setAttribute("aria-expanded", "true");
+    document.body.classList.add("has-help-panel");
+    load().then(focusInput, () => {});
+    focusInput();
+  };
+  const close = () => {
+    if (!isOpen()) return;
+    panel.hidden = true;
+    trigger?.setAttribute("aria-expanded", "false");
+    document.body.classList.remove("has-help-panel");
+    (before && document.contains(before) ? before : trigger)?.focus();
+  };
+  trigger?.addEventListener("click", () => (isOpen() ? close() : open()));
+  $("[data-help-close]", panel)?.addEventListener("click", close);
+  document.addEventListener("keydown", (e) => {
+    if (isHelpShortcut(e)) {
+      e.preventDefault();
+      if (isOpen()) close();
+      else open();
+    } else if (e.key === "Escape" && isOpen()) {
+      e.preventDefault();
+      close();
+    } else if (e.key === "Tab" && isOpen()) {
+      const next = trapFocus(panel, e);
+      if (next) {
+        e.preventDefault();
+        next.focus();
       }
     }
   });
@@ -336,6 +397,7 @@ function enhance(root = document) {
 
 initTheme();
 initSearch();
+initHelp();
 initHtmx();
 document.addEventListener("click", followQuery);
 document.addEventListener("auxclick", followQuery);

@@ -995,3 +995,45 @@ tr.row--amber { --row-tint: color-mix(in srgb, var(--nd-warning-soft) 70%, trans
   .fmm-report .grid--2 { grid-template-columns: 1fr 1fr; }
   .fmm-report .kpi-grid { grid-template-columns: repeat(4, 1fr); }
 }
+
+/* ---------------------------------------------------------------------------- Help (/help/, the Help assistant panel) */
+.help-trigger span { font-weight: 700; font-size: 1.05rem; line-height: 1; }
+.help-layout { display: grid; grid-template-columns: minmax(200px, 240px) minmax(0, 1fr); gap: 1rem; align-items: start; }
+.help-nav { position: sticky; top: 1rem; }
+.help-nav__list { margin: 0.75rem 0; }
+.help-nav__link { display: block; padding: 0.3rem 0.5rem; border-radius: var(--nd-radius-sm); color: var(--nd-text); text-decoration: none; font-size: 0.9rem; }
+.help-nav__link:hover, .help-nav__link:focus-visible { background: var(--nd-surface-2); }
+.help-nav__link.is-active { background: var(--nd-primary-soft); color: var(--nd-primary); font-weight: 600; }
+.help-doc { max-width: 900px; line-height: 1.6; overflow-wrap: anywhere; }
+.help-doc h2 { font-size: 1.2rem; margin: 1.6rem 0 0.6rem; scroll-margin-top: 80px; }
+.help-doc h3 { font-size: 1.02rem; margin: 1.2rem 0 0.4rem; scroll-margin-top: 80px; }
+.help-doc h2:first-of-type { margin-top: 0.5rem; }
+.help-doc table { display: block; max-width: 100%; overflow-x: auto; margin: 0.5rem 0 1rem; font-size: 0.88rem; border-collapse: collapse; overflow-wrap: normal; }
+.help-doc th, .help-doc td { padding: 0.35rem 0.75rem; border-bottom: 1px solid var(--nd-border); text-align: left; vertical-align: top; }
+.help-doc th { background: var(--nd-surface-2); font-weight: 600; white-space: nowrap; }
+.help-doc .headerlink { margin-left: 0.35rem; color: var(--nd-muted); text-decoration: none; opacity: 0; font-weight: 400; }
+.help-doc :is(h2, h3):hover .headerlink, .help-doc .headerlink:focus-visible { opacity: 1; }
+.help-contents { margin-bottom: 1rem; font-size: 0.9rem; }
+.help-contents summary { cursor: pointer; color: var(--nd-muted); }
+.help-results { padding-left: 1.2rem; }
+.help-results li + li { margin-top: 0.75rem; }
+@media (max-width: 767.98px) {
+  .help-layout { grid-template-columns: minmax(0, 1fr); }
+  .help-nav { position: static; }
+}
+.help-panel { position: fixed; right: 1rem; bottom: 1rem; z-index: 1040; width: min(440px, calc(100vw - 2rem)); max-height: min(78vh, 720px); display: flex; flex-direction: column; background: var(--nd-surface); border: 1px solid var(--nd-border); border-radius: var(--nd-radius); box-shadow: var(--nd-shadow-lg); }
+.help-panel[hidden] { display: none; }
+.help-panel__head { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--nd-border); }
+.help-panel__title { display: flex; align-items: center; gap: 0.4rem; flex: 1; margin: 0; font-size: 1rem; font-weight: 700; }
+.help-panel__body { display: flex; flex-direction: column; min-height: 0; flex: 1; overflow: hidden; }
+.help-panel__off { padding: 1rem; }
+.help-panel__ask { max-width: none; flex: 1; min-height: 0; gap: 0.5rem; padding: 0.5rem 0.75rem 0.75rem; }
+.help-panel__bar { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.help-panel__thread { flex: 1; min-height: 6rem; overflow-y: auto; gap: 0.75rem; }
+.help-panel__intro { padding: 0.25rem 0; }
+.help-panel__starters { justify-content: flex-start; }
+.help-panel__form { position: static; box-shadow: none; border: 1px solid var(--nd-border); border-radius: var(--nd-radius-sm); }
+.help-panel .ask-turn__answer { padding: 0.6rem 0.75rem; }
+.help-panel .ask-turn__question { max-width: 92%; }
+@media (max-width: 575.98px) { .help-panel { right: 0.5rem; bottom: 0.5rem; width: calc(100vw - 1rem); max-height: 85vh; } }
+@media print { .help-panel, .help-trigger { display: none !important; } }
