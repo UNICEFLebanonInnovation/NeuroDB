@@ -485,9 +485,20 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
         governorates: set[str] = set()
         partners: set[int] = set()
         no_follow_up: list[tuple[str, str]] = []
-        from .action_points import followed_up_keys
+        from .action_points import is_follow_up
+        from .models import LocalActionPoint
 
-        followed = followed_up_keys()  # visits a NeuroDB action point follows up
+        # the NeuroDB action points of visits, read once: the visits they follow up, the open ones
+        followed: set[str] = set()
+        local_open: dict[str, list] = {}
+        for local_key, source, local_status, due in LocalActionPoint.objects.exclude(
+            visit_key=""
+        ).values_list("visit_key", "source", "status", "due_date"):
+            if is_follow_up(source, local_status):
+                followed.add(local_key)
+            if local_status == LocalActionPoint.Status.OPEN:
+                local_open.setdefault(local_key, []).append(due)
+        today = _today()
         counts: Counter = Counter()
         # read at once: a year of visits is a few thousand rows, and a server-side cursor's round
         # trips cost more than the rows
@@ -599,6 +610,9 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
                 governorates.add(governorate_key)
             if partner_ids:
                 partners.update(partner_ids)
+            if local_open and key in local_open:
+                counts["local_open"] += len(local_open[key])
+                counts["local_overdue"] += sum(1 for due in local_open[key] if due and due < today)
             if reported and not action_points and key not in followed:
                 worse = max([rating, hact_q1 or "not_monitored"], key=_rating_rank)
                 if worse in ("off_track", "constrained"):
@@ -668,6 +682,8 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
             "governorates": sorted(governorates),
             "partners": sorted(partners),
             "no_follow_up": {"n": len(no_follow_up), "visits": no_follow_up[-FOLLOW_UP_LIST:][::-1]},
+            "local_open": counts["local_open"],
+            "local_overdue": counts["local_overdue"],
         }
 
     return cached(scope, "summary", compute, when)
@@ -1567,7 +1583,7 @@ def action_points(scope: Scope, when: str | None = None, limits: dict | None = N
     visits without either, and the overdue FM ones, oldest due date first, with their visits."""
     from neurodb.datamart.models import ActionPoint
 
-    from .models import LocalActionPoint, VisitActionPoint
+    from .models import VisitActionPoint
 
     def compute() -> dict[str, Any]:
         today = _today()
@@ -1603,18 +1619,16 @@ def action_points(scope: Scope, when: str | None = None, limits: dict | None = N
         open_ = [p for p in points.values() if p["open"]]
         overdue = [p for p in open_ if p["due"] and p["due"] < today]
         overdue.sort(key=lambda p: (p["due"], p["reference"]))
-        local = LocalActionPoint.objects.filter(
-            visit_key__in=scope.visits().values("key"), status=LocalActionPoint.Status.OPEN
-        ).aggregate(open=Count("pk"), overdue=Count("pk", filter=Q(due_date__lt=today)))
+        found = summary(scope, when, limits)
         return {
-            "local_open": local["open"],
-            "local_overdue": local["overdue"],
+            "local_open": found["local_open"],
+            "local_overdue": found["local_overdue"],
             "linked": len(points),
             "open": len(open_),
             "overdue": len(overdue),
             "high_open": sum(p["high"] for p in open_),
             "overdue_list": overdue[:10],
-            "without": summary(scope, when, limits)["no_follow_up"],
+            "without": found["no_follow_up"],
         }
 
     return cached(scope, "action_points", compute, when)

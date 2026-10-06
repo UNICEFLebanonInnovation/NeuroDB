@@ -106,6 +106,7 @@ def test_demo_field_monitoring_adds_without_moving_the_rest(monkeypatch):
         "fmm.VisitActionPoint",
         "fmm.VisitRuleResult",
         "fmm.VisitAICheck",  # the demo's AI check answers, written without any AI call
+        "fmm.LocalActionPoint",  # the refresh's NeuroDB action points for the Low visits it flags
         "fmm.KeyProbe",
     }
     assert dm.ActionPoint.objects.filter(datamart_id__gt=8000).count() == (

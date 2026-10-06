@@ -359,6 +359,13 @@ def visit_local_points(key: str) -> list[LocalActionPoint]:
     )
 
 
+def is_follow_up(source: str, status: str) -> bool:
+    """A NeuroDB action point counts as its visit's follow-up (as :func:`followed_up_q` selects)."""
+    if status == LocalActionPoint.Status.DROPPED:
+        return False
+    return source == LocalActionPoint.Source.MANUAL or status == LocalActionPoint.Status.DONE
+
+
 def followed_up_q() -> Q:
     """The NeuroDB action points that count as a visit's follow-up: added by hand and not dropped, or
     made by NeuroDB and marked done."""

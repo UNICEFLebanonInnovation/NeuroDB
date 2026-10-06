@@ -15,7 +15,11 @@
   published), what each model accepted (:class:`ModelCapability`), its pause (:class:`AIState`) and its
   briefs (:class:`Insight`, which keeps the payload sent, redacted, for a limited time);
 - the questions asked in Chat with Data (:class:`ChatQuestion`: the question cleaned, the answer after
-  its citations were checked).
+  its citations were checked);
+- the action points module (FMS §10): the AI's verdicts on completed eTools action points
+  (:class:`ActionPointReview`), their PME verifications (:class:`ActionPointVerification`), the AI
+  content summaries asked for (:class:`ActionPointSummary`, no text kept), the action points kept in
+  NeuroDB only (:class:`LocalActionPoint`) and the page's AI settings (:class:`ActionPointSetting`).
 
 No data table here holds a narrative, an answer, a summary or a comment from eTools: those texts are
 read from their source when a page needs them. Only an AI brief keeps texts derived from them: the
