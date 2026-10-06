@@ -1,48 +1,39 @@
-"""The quality rules R1-R6 (``fmm.rules``), each a pure function of a visit's facts and its settings:
-pass, fail (with its detail and measure), not available, does not apply, off; partial points, never
-above the rule's maximum; and the question roles."""
+"""The quality rules (``fmm.rules``), FMS's model: completeness, deterministic (scoring bands),
+AI checks and reference checks; the entity type filter; the flags they write; the checks of a rule's
+settings; Rebalance; and the question roles (Q1, Q2, Q3, PSEA)."""
 
 from __future__ import annotations
 
 import copy
-import datetime
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
+from django.core.exceptions import ValidationError
 
-from neurodb.fmm import refresh, rules, score
-from neurodb.fmm.models import RuleSetting, Visit, VisitRuleResult
-from neurodb.fmm.rules import AnswerFacts, Context, EntityFacts, VisitFacts
+from neurodb.fmm import lebanon, rules, score
+from neurodb.fmm.models import RuleSetting
+from neurodb.fmm.rules import AnswerFacts, Context, Record
 
 from .conftest import Q1_TEXT, Q2_TEXT, Q3_TEXT
 
-TODAY = datetime.date(2026, 10, 5)
-CTX = Context(today=TODAY)
-LONG = (
-    "Activities at the Saadnayel centre were implemented as planned. Two hundred children attended the four "
-    "sessions observed and the attendance registers matched the figures reported."
-)  # 26 words
+FMS = {rule["id"]: rule for rule in lebanon.RULE_SET["rules"]}
+CTX = Context()
 
 
 def rule(code: str, **changes) -> RuleSetting:
-    """A rule as seeded (not saved), with ``changes``."""
-    default = rules.DEFAULTS[code]
-    values = {
-        "label": default["label"],
-        "points": default["points"],
-        "threshold": default["threshold"],
-        "params": copy.deepcopy(default["params"]),
-        "enabled": True,
-    }
+    """A rule of FMS Lebanon's set as seeded (not saved), with ``changes`` (``params`` merged)."""
+    values = copy.deepcopy(lebanon.model_values(FMS[code]))
+    params = changes.pop("params", None)
+    if params is not None:
+        values["params"] = {**values["params"], **params}
+    values["deduction"] = Decimal(str(values["deduction"]))
     return RuleSetting(code=code, **{**values, **changes})
 
 
-def entity(rating="on_track", narrative="", *, kind="pd", partner=1, q1="", raw=None) -> EntityFacts:
-    placeholders = frozenset(rules.PLACEHOLDERS)
-    words, placeholder, digest = score.narrative_measures(narrative, 25, placeholders)
-    written = {"on_track": "On Track", "off_track": "Off Track", "not_monitored": ""}.get(rating, rating)
-    written = written if raw is None else raw
-    return EntityFacts(kind, rating, written, partner, q1, narrative, words, placeholder, digest)
+def entity(rating="on_track", *, kind="pd", partner=1, **kw) -> SimpleNamespace:
+    """A finding row as the scoring reads it (Q1, roles)."""
+    return SimpleNamespace(rating=rating, kind=kind, partner_id=partner, **kw)
 
 
 def answer(role="", answered=True, **kw) -> AnswerFacts:
@@ -56,342 +47,276 @@ def answer(role="", answered=True, **kw) -> AnswerFacts:
     return AnswerFacts(**{**values, **kw})
 
 
-def facts(entities=(), answers=(), **kw) -> VisitFacts:
-    values = {
-        "key": "1722",
-        "status_group": "reported",
-        "scorable": True,
-        "is_programmatic": True,
-        "end_date": datetime.date(2026, 5, 12),
-        "has_place": True,
-        "entities": tuple(entities),
-        "answers": tuple(answers),
-        "questions_in_dataset": frozenset({"q1", "q2", "q3", "psea", "hact"}),
-        "answers_available": True,
-        "unanswered_seen": True,
-        "question_records": 1000,
+def record(**kw) -> Record:
+    values = {"key": "1722", "scorable": True, "kinds": frozenset({"pd"})}
+    return Record(**{**values, **kw})
+
+
+def run(code: str, visit: Record, ctx: Context = CTX, **changes) -> rules.Outcome:
+    return rules.evaluate(visit, {code: rule(code, **changes)}, ctx)[0]
+
+
+# ------------------------------------------------------------------------------------------ the set
+def test_the_lebanon_set_is_fms_file_with_no_staff_address():
+    assert len(FMS) == 32
+    enabled = {code for code, r in FMS.items() if r["enabled"]}
+    assert enabled == {"R1", "R2", "R3", "R5", "R6", "R7", "R8", "R32", "R19", "R20", "R21", "R23"}
+    text = str(lebanon.RULE_SET) + str(lebanon.RULE_PROMPTS)
+    assert "@" not in text and "staff email" not in text
+    assert all(v == [] for v in FMS["R19"]["reference_map"].values()) and FMS["R22"]["reference_list"] == []
+    assert lebanon.STAFF_OFFICES == ("Beirut", "Zahle", "Tripoli", "Beirut/Mount Lebanon")
+    weights = {c["key"]: c["weight"] for c in lebanon.categories()}
+    assert weights == {
+        "completeness": 30,
+        "evidence": 20,
+        "alignment": 20,
+        "coherence": 15,
+        "q3_quality": 10,
+        "actionability": 5,
     }
-    return VisitFacts(**{**values, **kw})
+    assert set(lebanon.RULE_PROMPTS) == {
+        rules.param(rule(code), "ai_prompt_key") for code in enabled if FMS[code]["type"] == "narrative"
+    }
 
 
-def run(code: str, visit: VisitFacts, ctx: Context = CTX, **changes) -> rules.RuleOutcome:
-    return rules.RULES[code](visit, rule(code, **changes), ctx)
-
-
-# ------------------------------------------------------------------------------------------ R1
-def test_r1_passes_with_a_narrative_on_every_rated_entity_and_q2_answered():
-    out = run("R1", facts([entity(narrative="Seen."), entity("not_monitored")], [answer("q2")]))
-    assert (out.status, out.points, out.max_points, out.detail_key, out.measure) == (
-        "pass",
-        15,
-        15,
-        "complete",
-        100,
+def test_the_lebanon_deductions_add_up_to_each_categorys_weight():
+    seeded = [rule(code) for code in FMS]
+    weights = {c["key"]: Decimal(c["weight"]) for c in lebanon.categories()}
+    sums = {row["key"]: row for row in rules.category_sums(seeded, weights)}
+    assert {key: row["sum"] for key, row in sums.items() if key in weights} == weights
+    assert all(sums[key]["matches"] for key in weights)
+    assert (
+        rule("R1").deduction == 11
+        and rules.nominal(rule("R2")) == 8
+        and rules.max_deduction(rule("R2")) == 10
     )
+    changes, categories = rules.rebalance(seeded, lebanon.categories())
+    assert changes == {} and categories == lebanon.categories()  # nothing to rebalance
 
 
-def test_r1_fails_with_what_is_missing():
-    out = run("R1", facts([entity(), entity(narrative="Seen.")], [answer("q2", answered=False)]))
-    assert (out.status, out.points, out.detail_key) == ("fail", 0, "missing:narrative,q2")
+# ------------------------------------------------------------------------------------------ types
+def test_completeness_takes_each_missing_fields_deduction():
+    present = {
+        "narrative_finding": False,
+        "overall_finding_rating": True,
+        "hact_q1_answer": True,
+        "hact_q2_answer": False,
+        "fmq_answered_categories": None,  # not in the data: not checked
+    }
+    out = run("R1", record(present=present))
+    assert (out.status, out.deduction, out.max_deduction) == ("fail", Decimal(5), Decimal(11))
     assert out.detail == (
-        "Incomplete monitoring report — missing: General observation (narrative), Q2 – Activities monitored"
+        "R1: Incomplete monitoring report — missing: General Observation (narrative), Q2 – Activities monitored"
     )
-
-
-def test_r1_gives_points_for_the_elements_present():
-    out = run("R1", facts([entity(narrative="Seen.")], [answer("q2", answered=False)]))
-    assert (out.status, out.points, out.detail_key, out.measure) == ("fail", 7.5, "missing:q2", 50.0)
-    # q2 is evaluated only when the visit has a Q2 question
-    assert run("R1", facts([entity(narrative="Seen.")], [answer("q3")])).status == "pass"
-
-
-def test_r1_optional_elements_and_not_available():
-    visit = facts([entity(narrative="Seen.", raw="")], has_place=False)
-    out = run("R1", visit, params={"required": ["narrative", "rating", "location"]})
-    assert (out.status, out.points, out.detail_key) == ("fail", 5.0, "missing:rating,location")
-    assert "a rating for every entity, the place of the visit" in out.detail
-    assert run("R1", facts([entity()]), params={"required": ["q2"]}).status == "na"
-
-
-# ------------------------------------------------------------------------------------------ R2
-def test_r2_counts_question_and_entity_pairs():
-    """A question asked for 3 entities and answered for 2 gives 2 of 3."""
-    answers = [answer(question_key="12", applies_to="entity", entity=i, answered=i < 2) for i in range(3)]
-    out = run("R2", facts([entity()] * 3, answers))
-    assert (out.status, out.detail_key, out.measure) == ("fail", "below_threshold", 66.7)
-    assert out.points == 16.7  # 20 x 66.7 / 80
-    assert out.detail == "Only 66.7% of monitoring questions answered (target: 80%+)"
-    assert rules.questions_answered(answers) == (3, 2)
-
-
-def test_r2_partner_and_visit_level_answers_count_once_each():
-    answers = [
-        answer(question_key="12", applies_to="visit", answered=False),
-        answer(question_key="12", applies_to="visit"),  # the same question for the visit, answered once
-        answer(question_key="12", applies_to="partner", partner_id=7, answered=False),
-        answer(question_key="12", applies_to="partner", partner_id=7),
-        answer(question_key="13", applies_to="partner", partner_id=7, answered=False),
-    ]
-    assert rules.questions_answered(answers) == (3, 2)
-
-
-def test_r2_passes_at_the_threshold_and_never_gives_more_than_its_points():
-    answers = [answer(question_key=str(n), answered=n < 4) for n in range(5)]  # 80%
-    out = run("R2", facts([entity()], answers))
-    assert (out.status, out.points, out.detail_key) == ("pass", 20, "answered")
-    out = run("R2", facts([entity()], answers), threshold=Decimal(50))
-    assert out.points == 20 == out.max_points  # 80% against a 50% target: still 20
-
-
-def test_r2_is_not_available_without_answers_or_when_it_cannot_be_measured():
-    assert run("R2", facts([entity()])).detail_key == "no_answers"
-    answers = [answer(question_key="12")]
-    assert run("R2", facts([entity()], answers, answers_available=False)).detail_key == "answers_not_found"
-    # >= 200 records and none unanswered: eTools sends answered questions only
-    out = run("R2", facts([entity()], answers, unanswered_seen=False, question_records=200))
-    assert (out.status, out.detail_key) == ("na", "cannot_be_measured")
-    assert "none of the 200 checklist records" in out.detail
-    # under 200 records, or with the check switched off, it is measured
-    assert run("R2", facts([entity()], answers, unanswered_seen=False, question_records=199)).status == "pass"
-    out = run(
-        "R2",
-        facts([entity()], answers, unanswered_seen=False, question_records=500),
-        params={"require_unanswered_seen": False},
-    )
-    assert out.status == "pass"
-
-
-# ------------------------------------------------------------------------------------------ R3
-def q1(value="on_track", **kw) -> AnswerFacts:
-    return answer("q1", rating=value if value in rules.RATED else "", answer_code=value, is_hact=True, **kw)
+    assert (out.detail_key, out.category) == ("missing:0,3", "completeness")
+    full = run("R1", record(present={k: True for k in present}))
+    assert (full.status, full.deduction) == ("pass", 0)
+    assert run("R1", record(present={})).status == "na"
 
 
 @pytest.mark.parametrize(
-    ("rating", "said", "status"),
-    [
-        ("on_track", "constrained", "pass"),
-        ("off_track", "constrained", "pass"),
-        ("constrained", "on_track", "pass"),
-        ("on_track", "on_track", "pass"),
-        ("on_track", "off_track", "fail"),
-        ("off_track", "on_track", "fail"),
-    ],
+    ("value", "status", "deduction"),
+    [(90, "pass", 0), (80, "pass", 0), (79.9, "fail", 5), (50, "fail", 5), (12.5, "fail", 10)],
 )
-def test_r3_only_on_track_against_off_track_is_a_conflict(rating, said, status):
-    out = run("R3", facts([entity(rating, q1=said)], [q1(said)]))
-    assert out.status == status
+def test_r2_scores_the_share_answered_by_its_bands(value, status, deduction):
+    out = run("R2", record(values={"fmq_answered_pct": Decimal(str(value))}))
+    assert (out.status, out.deduction) == (status, Decimal(deduction))
     if status == "fail":
-        assert out.detail_key == "conflict" and out.points == 0
-    else:
-        assert out.points == 20
-
-
-def test_r3_conflict_detail_and_strict_mode():
-    out = run("R3", facts([entity("on_track", q1="off_track")], [q1("off_track")]))
-    assert out.detail == "HACT Q1 says Off track but the overall finding is On track"
-    strict = run(
-        "R3", facts([entity("on_track", q1="constrained")], [q1("constrained")]), params={"strict": True}
-    )
-    assert (strict.status, strict.detail_key) == ("fail", "conflict")
-    assert "says Constrained but the overall finding is On track" in strict.detail
-
-
-def test_r3_missing_unrecognised_not_applicable_and_not_available():
-    other_question = [answer(question_key="16")]
-    # a programmatic visit without any Q1 fails; a non-programmatic one without a Q1 question: n/a
-    out = run("R3", facts([entity()], other_question))
-    assert (out.status, out.detail_key, out.detail) == ("fail", "q1_missing", "HACT Q1 not answered")
-    assert run("R3", facts([entity()], other_question, is_programmatic=False)).status == "nap"
-    # a Q1 answered with something that is not a rating
-    out = run("R3", facts([entity(q1="other")], [q1("yes")]))
-    assert (out.status, out.detail_key) == ("fail", "q1_unrecognised")
-    # no question data for the visit, or no Q1 / HACT question anywhere in the data
-    assert run("R3", facts([entity()])).status == "na"
-    out = run("R3", facts([entity()], other_question, questions_in_dataset=frozenset({"q2"})))
-    assert (out.status, out.detail_key) == ("na", "no_q1_question")
-
-
-def _with_effective_q1(entities: list[EntityFacts], answers: list[AnswerFacts]) -> list[EntityFacts]:
-    """The entities with their effective Q1 (``score.effective_q1``), as the scoring gives them."""
-    effective = score.effective_q1(entities, answers)
-    return [
-        EntityFacts(e.kind, e.rating, e.rating_raw, e.partner_id, value, e.narrative)
-        for e, (value, _from) in zip(entities, effective, strict=True)
-    ]
-
-
-def test_r3_uses_the_effective_q1_of_each_entity():
-    """A Q1 answered once for the visit, or once for the partner, satisfies every entity."""
-    entities = [entity("on_track", partner=1), entity("on_track", partner=1)]
-    for given in (
-        q1("on_track", applies_to="visit"),
-        q1("on_track", applies_to="partner", partner_id=1),
-    ):
-        assert run("R3", facts(_with_effective_q1(entities, [given]), [given])).status == "pass"
-    # another partner's Q1 does not count
-    other = q1("on_track", applies_to="partner", partner_id=2)
-    assert run("R3", facts(_with_effective_q1(entities, [other]), [other])).detail_key == "q1_missing"
-
-
-def test_r3_on_the_built_visits(fm_world):
-    """1726: Q1 answered once for the partner; 1727: once for the visit. Both satisfy every entity."""
-    refresh.run(triggered_by="test", today=TODAY)
-    results = dict(VisitRuleResult.objects.filter(rule="R3").values_list("visit__key", "status"))
-    assert results["1726"] == results["1727"] == "pass"
-    assert dict(Visit.objects.values_list("key", "hact_q1"))["1727"] == "constrained"
-    # 1722's partner row has no Q1 of its own, for its partner or for the visit
-    assert VisitRuleResult.objects.get(visit__key="1722", rule="R3").detail_key == "q1_missing"
-    assert results["1728"] == "nap"  # not programmatic, no Q1 asked
-
-
-# ------------------------------------------------------------------------------------------ R4
-def test_r4_passes_long_narratives_and_fails_short_ones():
-    assert run("R4", facts([entity(narrative=LONG)])).status == "pass"
-    out = run("R4", facts([entity(narrative="Classes were held in two rooms with nine children present.")]))
-    assert (out.status, out.detail_key, out.measure, out.points) == ("fail", "too_short", 10.0, 0)
-    assert out.detail == "Narrative has 10 words (minimum 25)"
-
-
-def test_r4_partial_points_per_narrated_entity_and_placeholders():
-    out = run("R4", facts([entity(narrative=LONG), entity(narrative="n/a"), entity()]))  # 1 of 2 narrated
-    assert (out.status, out.points, out.detail_key, out.detail) == (
-        "fail",
-        7.5,
-        "placeholder",
-        "Narrative is a placeholder",
-    )
-
-
-def test_r4_copies_within_the_window_only():
-    copied = entity(narrative=LONG)
-    visit = facts([copied], key="1722", end_date=datetime.date(2026, 5, 12))
-    near = Context(
-        TODAY, copies={copied.narrative_hash: [("1722", visit.end_date), ("1588", datetime.date(2025, 6, 1))]}
-    )
-    out = run("R4", visit, near)
-    assert (out.status, out.detail_key, out.detail) == ("fail", "copied", "Narrative identical to Visit 1588")
-    labelled = Context(TODAY, copies=near.copies, labels={"1588": "FM-2025-588"})
-    assert run("R4", visit, labelled).detail == "Narrative identical to FM-2025-588"
-    far = Context(
-        TODAY,
-        copies={copied.narrative_hash: [("1722", visit.end_date), ("1588", datetime.date(2025, 5, 11))]},
-    )
-    assert run("R4", visit, far).status == "pass"  # 366 days apart
-    assert run("R4", visit, near, params={"check_copies": False}).status == "pass"
-    assert run("R4", visit, near, params={"check_copies": True, "copy_window_days": 300}).status == "pass"
-
-
-def test_r4_reads_its_threshold_and_is_not_available_without_a_narrative():
-    short = facts([entity(narrative="Classes were held in two rooms with nine children present.")])
-    assert run("R4", short, threshold=Decimal(10)).status == "pass"
-    out = run("R4", facts([entity(), entity("not_monitored")]))
-    assert (out.status, out.detail_key) == ("na", "no_narrative")
-
-
-# ------------------------------------------------------------------------------------------ R5
-def test_r5_points_by_words():
-    out = run("R5", facts([entity()], [answer("q3", words=6)]))
-    assert (out.status, out.detail_key, out.points, out.measure) == ("fail", "q3_short", 6.0, 6.0)
-    assert out.detail == "Q3 answer has 6 words (minimum 15)"
-    out = run("R5", facts([entity()], [answer("q3", words=40)]))
-    assert (out.status, out.points, out.max_points) == ("pass", 15, 15)  # never above its points
-
-
-def test_r5_missing_placeholder_not_applicable_and_not_available():
-    out = run("R5", facts([entity()], [answer("q3", answered=False)]))
-    assert (out.status, out.detail_key, out.detail, out.points) == (
-        "fail",
-        "q3_missing",
-        "Q3 not answered",
-        0,
-    )
-    out = run("R5", facts([entity()], [answer("q3", answered=True, placeholder=True, words=1)]))
-    assert (out.detail_key, out.detail, out.points) == ("q3_placeholder", "Q3 answer is a placeholder", 0)
-    assert run("R5", facts([entity()], [answer("q2")])).status == "nap"  # question data, no Q3 asked
-    assert run("R5", facts([entity()])).status == "na"  # no question data
-    out = run("R5", facts([entity()], [answer("q2")], questions_in_dataset=frozenset({"q1"})))
-    assert (out.status, out.detail_key) == ("na", "no_q3_question")
-    assert run("R5", facts([entity()], [answer("q3", words=8)]), threshold=Decimal(8)).status == "pass"
-
-
-# ------------------------------------------------------------------------------------------ R6
-DELAYED = "The sessions were delayed and then suspended for two weeks."
-
-
-def test_r6_on_track_with_two_problem_words_fails_with_one_passes():
-    out = run("R6", facts([entity("on_track", DELAYED)]))
-    assert (out.status, out.detail_key, out.points, out.max_points, out.measure) == (
-        "fail",
-        "contradiction",
-        0,
-        0,
-        2.0,
-    )
-    assert out.detail == "Narrative contradicts the rating (rated On track; it mentions: delayed, suspended)"
-    assert run("R6", facts([entity("on_track", "The sessions were delayed by a week.")])).status == "pass"
-    # a good word as well: no contradiction
-    assert (
-        run("R6", facts([entity("on_track", DELAYED + " The partner made good progress.")])).status == "pass"
-    )
-
-
-def test_r6_negated_words_do_not_count():
-    assert (
-        run("R6", facts([entity("on_track", "There was no delay and nothing was not suspended.")])).status
-        == "pass"
-    )
-    assert (
-        rules.cues_found(
-            "Sessions were not delayed, without shortage.", rules.NEGATIVE_CUES, rules.NEGATIONS, 3
+        assert (
+            out.detail == f"R2: Only {rules.number(value)}% of monitoring questions answered (target: 80%+)"
         )
-        == []
+
+
+def test_a_missing_value_takes_the_missing_value_deduction_or_skips():
+    out = run("R2", record(values={"fmq_answered_pct": None}))
+    assert (out.status, out.deduction, out.detail_key) == ("fail", Decimal(3), "missing")
+    out = run("R14", record(values={"red_flag_count": None}), enabled=True)
+    assert out.status == "na"  # missing_value_deduction 0: the rule skips
+    # a column NeuroDB cannot read at all (the checklist answers not found): not available, no deduction
+    out = run(
+        "R2", record(values={"fmq_answered_pct": None}, unreadable=score.unreadable(False, True, True, True))
     )
-    assert rules.cues_found("Not on track at all.", rules.POSITIVE_CUES, rules.NEGATIONS, 3) == []
+    assert (out.status, out.deduction, out.detail_key) == ("na", Decimal(0), "unreadable")
 
 
-def test_r6_off_track_with_only_good_words_fails_and_constrained_never_does():
-    out = run("R6", facts([entity("off_track", "The partner successfully reached every child.")]))
-    assert (out.status, out.detail) == (
-        "fail",
-        "Narrative contradicts the rating (rated Off track; it mentions: successfully)",
-    )
-    mixed = "The partner successfully reached some children but sessions were delayed."
-    assert run("R6", facts([entity("off_track", mixed)])).status == "pass"
-    assert run("R6", facts([entity("constrained", DELAYED)])).status == "pass"
-
-
-def test_r6_threshold_points_and_the_not_monitored_check():
-    assert run("R6", facts([entity("on_track", DELAYED)]), threshold=Decimal(3)).status == "pass"
-    out = run("R6", facts([entity("on_track", DELAYED)]), points=15)
-    assert (out.status, out.points, out.max_points) == ("fail", 0, 15)
-    # not monitored, described at length without saying why: flagged only when the check is on
-    described = entity("not_monitored", LONG, raw="Not Monitored")
-    assert run("R6", facts([described])).status == "na"  # off by default: nothing rated to compare
-    params = {**rules.DEFAULTS["R6"]["params"], "check_not_monitored": True}
-    out = run("R6", facts([described]), params=params)
-    assert (out.status, out.detail_key) == ("fail", "not_monitored_described")
-    no_access = entity("not_monitored", LONG + " The team could not reach the site.", raw="Not Monitored")
-    assert run("R6", facts([no_access]), params=params).status == "pass"
-
-
-# ------------------------------------------------------------------------------------------ all rules
-def test_evaluate_gives_off_and_not_applicable():
-    book = {code: rule(code) for code in rules.CODES}
-    book["R2"] = rule("R2", enabled=False)
-    out = {o.rule: o for o in rules.evaluate(facts([entity(narrative=LONG)], [answer("q2")]), book, CTX)}
-    assert out["R2"].status == "off" and out["R1"].status == "pass"
-    planned = rules.evaluate(facts([entity()], status_group="planned", scorable=False), book, CTX)
-    assert {o.status for o in planned if o.rule != "R2"} == {"nap"}
-    assert {o.detail for o in planned if o.status == "nap"} == {
-        "Pending: the visit's status is not one of the scored statuses (Score settings)."
+def test_the_columns_that_cannot_be_read_follow_the_keys_found():
+    assert score.unreadable(True, True, True, True) == frozenset()
+    assert score.unreadable(True, False, True, False) == {
+        "fmq_answered_categories",
+        "attachments_count",
+        "attachment_count",
     }
-    cancelled = rules.evaluate(facts([entity()], status_group="cancelled", scorable=False), book, CTX)
-    assert {o.detail for o in cancelled if o.status == "nap"} == {"The visit was cancelled."}
+    assert {"fmq_answered_pct", "method_count", "red_flag_count"} <= score.unreadable(False, True, True, True)
 
 
-def test_points_are_never_above_the_maximum():
-    over = rules._outcome(rule("R5"), "pass", 40)
-    assert over.points == 15 and rules._outcome(rule("R5"), "fail", -3).points == 0
+def test_bands_with_maximums_and_lists_with_required_categories():
+    r14 = [run("R14", record(values={"red_flag_count": n}), enabled=True).deduction for n in (0, 2, 3, 6)]
+    assert r14 == [0, 3, 6, 10]
+    r31 = [run("R31", record(values={"method_count": n}), enabled=True).deduction for n in (0, 1, 2)]
+    assert r31 == [8, 5, 0]
+    cp = record(kinds=frozenset({"cp_output"}), values={"fmq_answered_categories": "Reach; Equity"})
+    out = run("R10", cp, enabled=True)
+    assert (out.status, out.deduction) == ("fail", 8)  # 2 categories but not Reach and Quality: the 1+ band
+    met = record(kinds=frozenset({"cp_output"}), values={"fmq_answered_categories": "Reach; Quality"})
+    assert run("R10", met, enabled=True).deduction == 5
+    assert "for CP Output — categories covered: Reach; Quality" in run("R10", met, enabled=True).detail
+
+
+def test_an_ai_check_is_off_pending_passed_or_flagged_with_its_explanation():
+    prompts = frozenset(lebanon.RULE_PROMPTS)
+    assert run("R3", record()).status == "off"  # AI checks off
+    assert run("R3", record(), Context(ai_on=True)).detail_key == "no_prompt"
+    on = Context(ai_on=True, prompt_keys=prompts)
+    assert run("R3", record(), on).status == "pending"
+    passed = run("R3", record(checks={"R3": (True, "Q2 names what was observed.")}), on)
+    assert (passed.status, passed.deduction) == ("pass", 0)
+    flagged = run("R3", record(checks={"R3": (False, "Q2 restates the partner's report.")}), on)
+    assert (flagged.status, flagged.deduction, flagged.category) == ("fail", Decimal(20), "evidence")
+    assert flagged.detail == (
+        "R3: Q2 lacks specific or disaggregated activity evidence — Q2 restates the partner's report."
+    )
+    assert run("R3", record(checks={"R3": (False, "")}), on).detail == (
+        "R3: Q2 lacks specific or disaggregated activity evidence"
+    )
+    # the AI switched off: an answer kept still counts, one never made is not pending
+    off = Context(ai_on=False, prompt_keys=prompts)
+    assert run("R3", record(checks={"R3": (False, "")}), off).status == "fail"
+    assert run("R3", record(), off).status == "off"
+    # the AI checks switched off in Score settings: none counts
+    unticked = Context(ai_on=True, ai_checks=False, prompt_keys=prompts)
+    assert run("R3", record(checks={"R3": (False, "")}), unticked).status == "off"
+
+
+def test_r19_compares_the_monitors_addresses_and_never_writes_one():
+    staff = Context(staff={"zahle": frozenset({"lead@unicef.example"})})
+    visit = record(
+        values={"field_offices": ["Zahle"]}, refs={"people": {"team_members": {"x@partner.example"}}}
+    )
+    assert run("R19", visit).status == "nap"  # no list yet: skipped silently
+    out = run("R19", visit, staff)
+    assert (out.status, out.deduction) == ("fail", 3)
+    assert "@" not in out.detail
+    assert out.detail == "R19: Monitor is not listed as staff for field office 'Zahle' — verify assignment"
+    listed = record(
+        values={"field_offices": ["Zahle"]}, refs={"people": {"team_members": {"lead@unicef.example"}}}
+    )
+    assert run("R19", listed, staff).status == "pass"
+    nobody = record(values={"field_offices": ["Zahle"]}, refs={"people": {"team_members": set()}})
+    assert run("R19", nobody, staff).status == "na"
+    elsewhere = record(
+        values={"field_offices": ["Tripoli"]}, refs={"people": {"team_members": {"x@y.example"}}}
+    )
+    assert run("R19", elsewhere, staff).status == "nap"
+
+
+def test_r20_the_visited_place_among_the_programme_documents_locations():
+    refs = {"pd_locations": {"LEB/PCA1/PD2": frozenset({"lb30"})}, "pd_numbers": ["LEB/PCA1/PD2"]}
+    there = record(refs={**refs, "place_pcodes": ["lbs9", "lb30", "lb20"]}, values={"location_pcode": "LBS9"})
+    assert run("R20", there).status == "pass"  # the site lies in the registered cadaster
+    away = record(refs={**refs, "place_pcodes": ["lb31", "lb20"]}, values={"location_pcode": "LB31"})
+    out = run("R20", away)
+    assert (out.status, out.deduction) == ("fail", 5)
+    assert (
+        out.detail == "R20: Location pcode 'LB31' is not a registered PD/SSFA site for partner 'LEB/PCA1/PD2'"
+    )
+    added = run("R20", away, params={"reference_map": {"LEB/PCA1/PD2": ["LB31"]}})
+    assert added.status == "pass"  # the rule's own map adds to what eTools holds
+    assert run("R20", record(refs={"place_pcodes": ["lb30"]})).status == "nap"  # nothing registered
+    assert run("R20", record(kinds=frozenset({"partner"}), refs=refs)).detail_key == "entity_type"
+
+
+def test_r23_falls_back_to_the_partners_running_documents_and_flags_without_points():
+    refs = {"partner_pd_locations": {"LEB/PCA1/PD9": frozenset({"lb30"})}, "place_pcodes": ["lb31"]}
+    out = run("R23", record(kinds=frozenset({"partner"}), refs=refs))
+    assert (out.status, out.deduction, out.max_deduction) == ("fail", 0, 0)
+
+
+def test_r21_sections_of_a_cp_output_visit():
+    refs = {"cp_outputs": ["2.2 EDUCATION"], "cp_output_sections": {"2.2 EDUCATION": {"Education"}}}
+    good = record(kinds=frozenset({"cp_output"}), refs=refs, values={"sections_names": ["Education"]})
+    assert run("R21", good).status == "pass"
+    bad = record(kinds=frozenset({"cp_output"}), refs=refs, values={"sections_names": ["Education", "WASH"]})
+    out = run("R21", bad)
+    assert out.status == "fail" and out.detail == (
+        "R21: Section 'WASH' does not match expected sections for CP output '2.2 EDUCATION'"
+    )
+    coded = {"cp_outputs": ["2490/A0/08/302/002 Access"], "cp_output_sections": {}}
+    mapped = record(kinds=frozenset({"cp_output"}), refs=coded, values={"sections_names": ["Education"]})
+    assert run("R21", mapped).status == "pass"  # FMS's map, keyed by the output's code
+
+
+def test_string_contains_and_the_entity_type_filter():
+    pd = record(values={"fmq_answered_categories": "Reach; Supplies"})
+    assert run("R29", pd, enabled=True).status == "pass"
+    assert run("R29", record(values={"fmq_answered_categories": "Reach"}), enabled=True).deduction == 5
+    assert run("R26", pd, enabled=True).status == "nap"  # partner visits only
+
+
+def test_switched_off_and_not_scored_visits():
+    # a rule switched off has no outcome (no row kept); the others keep theirs
+    assert rules.evaluate(record(), {"R1": rule("R1", enabled=False)}, CTX) == []
+    both = rules.evaluate(record(), {"R2": rule("R2"), "R1": rule("R1", enabled=False)}, CTX)
+    assert [o.rule for o in both] == ["R2"]
+    out = run("R1", record(scorable=False, status_group="cancelled"))
+    assert (out.status, out.detail) == ("nap", rules.CANCELLED_DETAIL)
+    assert run("R1", record(scorable=False)).detail == rules.PENDING_DETAIL
+
+
+def test_rules_run_in_the_order_of_their_ids():
+    found = {c: rule(c, enabled=True) for c in ("R10", "R2", "R32", "R1")}
+    codes = [o.rule for o in rules.evaluate(record(), found, CTX)]
+    assert codes == ["R1", "R2", "R10", "R32"]
+
+
+# ------------------------------------------------------------------------------------------ settings
+@pytest.mark.django_db
+def test_a_rules_settings_are_checked():
+    params, deduction = rules.validate_rule(rule("R2"))
+    assert deduction == 8 and params["field"] == "fmq_answered_pct"
+    with pytest.raises(ValidationError) as staff:
+        rules.validate_rule(rule("R19", params={"reference_map": {"Zahle": ["someone@unicef.example"]}}))
+    assert "Field office staff lists" in str(staff.value)
+    with pytest.raises(ValidationError):
+        rules.validate_rule(rule("R2", params={"strict": True}))  # not a setting of its type
+    with pytest.raises(ValidationError) as category:
+        rules.validate_rule(rule("R12", enabled=True))  # its category has no weight
+    assert "compliance" in str(category.value)
+    with pytest.raises(ValidationError):
+        rules.validate_rule(rule("R3", params={"ai_prompt_key": ""}))
+    fields = [{"name": "entity", "label": "Entity", "deduction": 4}]
+    assert rules.validate_rule(rule("R1", params={"fields": fields}))[1] == 4  # the sum of its fields
+
+
+def _category_total(seeded: list, changes: dict, category: str) -> Decimal:
+    total = Decimal(0)
+    for r in seeded:
+        if r.enabled and r.category == category:
+            params, deduction = changes.get(r.code, (r.params, r.deduction))
+            total += rules.nominal(rules.SimpleRule(params, r.type, deduction))
+    return total
+
+
+def test_rebalance_scales_deductions_to_the_weights():
+    seeded = [rule(code) for code in FMS]
+    by_code = {r.code: r for r in seeded}
+    by_code["R3"].deduction = Decimal(10)  # evidence: 10 of 20
+    by_code["R7"].deduction = Decimal(15)  # q3_quality: R7 15 + R8 5 of 10
+    categories = [{**c, "weight": c["weight"] * 2} for c in lebanon.categories()]  # sum 200
+    changes, new = rules.rebalance(seeded, categories)
+    assert [c["weight"] for c in new] == [30, 20, 20, 15, 10, 5]
+    assert changes["R3"][1] == 20
+    assert _category_total(seeded, changes, "q3_quality") == 10
+    assert set(changes) == {"R3", "R7", "R8"}  # the categories already at their weight are left
+    assert "R12" not in changes  # a rule switched off is never touched
+
+
+def test_rebalance_scales_a_completeness_rules_fields():
+    seeded = [rule(code) for code in FMS]
+    r1 = next(r for r in seeded if r.code == "R1")
+    r1.params["fields"][0]["deduction"] = 14  # completeness: 22 + 8 + 3 + 5 + 3 = 41 of 30
+    changes, _new = rules.rebalance(seeded, lebanon.categories())
+    assert _category_total(seeded, changes, "completeness") == 30
+    assert sum(Decimal(str(f["deduction"])) for f in changes["R1"][0]["fields"]) == changes["R1"][1]
 
 
 # ------------------------------------------------------------------------------------------ roles
@@ -427,35 +352,13 @@ def test_without_q1_patterns_the_hact_question_is_q1():
 
 
 def test_patterns_are_folded_not_regular_expressions():
-    assert (
-        rules.matches(rules.parse.fold("Is (a+)+ here?"), "(a+)+") is True
-    )  # plain words, punctuation dropped
+    assert rules.matches(rules.parse.fold("Is (a+)+ here?"), "(a+)+") is True  # plain words
     assert rules.matches(rules.parse.fold("Écoles visitées"), "ecoles") is True
     assert rules.matches("anything", "=") is False
 
 
-def test_answers_not_found_make_r2_r3_and_r5_not_available_and_r1_skip_q2():
-    """When the answer keys of the checklist records were not found, every answer reads as blank:
-    the rules that read answers are not available instead of failing every visit."""
-    visit = facts(
-        [entity("on_track", LONG)],
-        [answer("q1", answered=False), answer("q2", answered=False), answer("q3", answered=False)],
-        answers_available=False,
+def test_render_leaves_out_what_has_no_value():
+    assert rules.render("R3: Q2 lacks evidence — {ai_detail}") == "R3: Q2 lacks evidence"
+    assert rules.render("Monitor {value} is not listed for '{key_value}'", key_value="Zahle") == (
+        "Monitor is not listed for 'Zahle'"
     )
-    for code in ("R2", "R3", "R5"):
-        out = run(code, visit)
-        assert (out.status, out.detail_key) == ("na", "answers_not_found"), code
-    out = run("R1", visit)
-    assert (out.status, out.detail_key) == ("pass", "complete")  # Q2 cannot be read: not evaluated
-
-
-def test_cue_words_kept_between_calls_cannot_be_changed_and_a_blank_entry_is_no_word():
-    """The folded words kept between calls (stage 8b) are read-only, and a blank cue or negation (an
-    empty list entry an administrator left) is no word: it never turns into "none"."""
-    assert isinstance(rules._text_words("Classes were delayed."), tuple)
-    text = "There were none delayed this month."
-    assert rules.cues_found(text, ["delayed"], [None, ""], 3) == ["delayed"]
-    assert rules.cues_found(text, [None, "", "delayed"], [], 3) == ["delayed"]
-    # the same text read twice (the second from what was kept) finds the same cues
-    assert rules.cues_found(text, ["delayed"], ["none"], 3) == []
-    assert rules.cues_found(text, ["delayed"], ["none"], 3) == []

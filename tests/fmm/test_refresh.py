@@ -255,7 +255,7 @@ def test_a_full_refresh_builds_the_visits_with_meaningful_counts(fm_world):
     for key in ("visits", "findings", "pd_resolved", "location", "governorate", "sections_from",
                 "offices_from", "action_points", "questions", "fields_not_found", "activity_ids"):  # fmt: skip
         assert key in details, key
-    assert details["rules_version"] == 1 and details["duration_ms"] >= 0
+    assert details["rules_version"] == 2 and details["duration_ms"] >= 0
     questions_details = details["questions"]
     assert questions_details["records"] == questions == questions_details["parsed"]
     assert questions_details["unanswered_seen"] is True and questions_details["linked"] == questions
@@ -265,9 +265,14 @@ def test_a_full_refresh_builds_the_visits_with_meaningful_counts(fm_world):
     assert details["scored"] == Visit.objects.exclude(quality_score=None).count() == 6
     assert questions_details["roles"] == {"q1": 6, "q2": 1, "q3": 2, "psea": 2}
     assert questions_details["q1_applies_to"] == {"entity": 4, "partner": 1, "visit": 1}
-    assert details["rule_results"]["R6"] == {"pass": 1, "fail": 1, "na": 4, "nap": 2}
-    assert VisitRuleResult.objects.count() == 6 * Visit.objects.count()
-    assert set(Visit.objects.values_list("rules_version", flat=True)) == {1}
+    # R6 is an AI check, switched off here with none made yet; 1724 and 1725 are not scored
+    assert details["rule_results"]["R6"] == {"off": 6, "nap": 2}
+    assert details["rule_results"]["R2"] == {"pass": 5, "fail": 1, "nap": 2}
+    # a row per visit for each of the 12 rules switched on, none for the 20 switched off
+    assert (
+        VisitRuleResult.objects.count() == 12 * Visit.objects.count() and "R4" not in details["rule_results"]
+    )
+    assert set(Visit.objects.values_list("rules_version", flat=True)) == {2}
     assert set(QuestionAnswer.objects.values_list("role", flat=True)) == {"q1", "q2", "q3", "psea", ""}
 
 
@@ -390,7 +395,11 @@ def test_scores_only_reads_the_narratives_but_never_a_finding_record(fm_world, m
     from django.db import connection
     from django.test.utils import CaptureQueriesContext
 
+    from neurodb.fmm.ai import checks
+
     _full()
+    # an AI check's answer kept: the pass reads the narratives to know whether it is still up to date
+    assert checks.store_answers({("1722", "R3"): (True, "")}, "test") == 1
 
     def refused(self, value=None):
         raise AssertionError("a scores-only pass read MonitoringFinding.data")
@@ -419,7 +428,7 @@ def test_a_later_day_moves_recency_and_the_signals_with_no_data_change(fm_world)
     assert late["1727"].urgency < early["1727"].urgency
 
 
-def test_a_q1_pattern_change_rescored_updates_q1_psea_r3_and_urgency(fm_world):
+def test_a_q1_pattern_change_rescored_updates_q1_psea_r1_and_urgency(fm_world):
     from neurodb.fmm.models import ScoreSetting
 
     _full()
@@ -429,7 +438,8 @@ def test_a_q1_pattern_change_rescored_updates_q1_psea_r3_and_urgency(fm_world):
         True,
         "constrained",
     )
-    assert VisitRuleResult.objects.get(visit__key="1728", rule="R3").status == "nap"
+    r1 = dict(VisitRuleResult.objects.filter(rule="R1").values_list("visit__key", "detail_key"))
+    assert (r1["1726"], r1["1728"]) == ("missing:3", "missing:0,2,3")  # R1's field 2 is Q1
     setting = ScoreSetting.load()  # Q1 is now the attendance question, and no question is PSEA
     setting.question_patterns = {**setting.question_patterns, "q1": ["attendance registers"], "psea": []}
     setting.save()
@@ -438,8 +448,8 @@ def test_a_q1_pattern_change_rescored_updates_q1_psea_r3_and_urgency(fm_world):
     assert after["1722"].hact_q1 == "" and VisitEntity.objects.get(datamart_id=101).hact_q1 == ""
     assert after["1726"].psea_flag is None
     assert after["1728"].hact_q1 == "other"  # its attendance answer is "Yes", not a rating
-    r3 = dict(VisitRuleResult.objects.filter(rule="R3").values_list("visit__key", "detail_key"))
-    assert (r3["1722"], r3["1728"]) == ("q1_missing", "q1_unrecognised")
+    r1 = dict(VisitRuleResult.objects.filter(rule="R1").values_list("visit__key", "detail_key"))
+    assert (r1["1726"], r1["1728"]) == ("missing:2,3", "missing:0,3")  # 1728's attendance answer is its Q1
     # 1727's Q1 was Constrained: no follow-up action point was a signal; without its Q1 it is not
     assert before["1727"].signals == {"no_follow_up": True} and after["1727"].signals == {}
     roles = set(QuestionAnswer.objects.filter(question_text=OTHER_TEXT).values_list("role", flat=True))
@@ -483,8 +493,8 @@ def test_a_rules_version_saved_during_a_full_pass_with_the_real_scorer(fm_world,
 
     monkeypatch.setattr(score.Rulebook, "load", staticmethod(load_then_save))
     _full()
-    assert [(target, version) for target, _, version in _passes()] == [("full", 1), ("scores", 2)]
-    assert set(Visit.objects.values_list("rules_version", flat=True)) == {2}
+    assert [(target, version) for target, _, version in _passes()] == [("full", 2), ("scores", 3)]
+    assert set(Visit.objects.values_list("rules_version", flat=True)) == {3}
 
 
 # ------------------------------------------------------------------------------------------ requests

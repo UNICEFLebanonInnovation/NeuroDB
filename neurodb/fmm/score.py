@@ -15,13 +15,23 @@ worked out here, not when the visits are built, so a pattern change needs only a
   Constrained or Off track rating) flags the visit; ``None`` when no PSEA question was asked, or when
   the answers of the checklist records were not found (Fields found).
 
-**Score** (:func:`score_visit`): the points earned over the points of the rules evaluated (those that
-passed or failed), as a percentage rounded half up to one decimal. A rule never gives more than its
-points. Only the visits whose eTools status is one of the settings' *scored statuses* (report
-finalization and completed by default) are scored: the others are "pending" (band ``pending``, no
-score), a cancelled one "cancelled"; and a visit with fewer evaluated points than the settings'
-minimum (30) gets no score either. Bands: High from 80, Medium from 50, else Low. The flags are the
-rules failed, R6 included even at 0 points.
+**The rules** (``fmm.rules``, FMS's model) read what the visit's report holds (:func:`record`): whether
+each field is filled (the narrative, the rating, Q1, Q2 and Q3 of every rated row, or of every row when
+none is rated), the columns derived at the build (the share of questions answered, the categories
+answered, the methods...), the reference facts eTools holds (:class:`References`: the programme
+documents' registered locations, the CP outputs' sections) and the answers of the AI checks
+(``VisitAICheck``, used only while the visit's inputs and the rule's prompt are those it was checked
+with: ``fmm.ai.checks``). The monitors' e-mail addresses R19 compares are read from the records in code
+and dropped at once.
+
+**Score** (:func:`score_visit`), FMS's: 100 less the deductions of the rules that fired, each score
+category's deductions at most its weight (Score settings: categories), never below 0, rounded half up to
+one decimal. Only the visits whose eTools status is one of the settings' *scored statuses* (report
+finalization and completed by default) are scored: the others are "pending" (band ``pending``, no score),
+a cancelled one "cancelled". A visit whose AI checks are not all done is **provisional**: its score so
+far is kept apart (``provisional_score``, with ``ai_pending``) and it counts as not scored, so it never
+gets full marks for checks not made. Bands: High from 80, Medium from 50, else Low. The flags are the
+rules that fired.
 
 **Urgency** (:func:`urgency`), FMS's formula, 0 to 100: 50% the gap from the maximum score
 (100 − score), 30% recency (100 on the day the visit ended, falling to 0 at ``recency_days``, 180)
@@ -33,19 +43,14 @@ amber from 40. Each weighted part is kept (``urgency_parts``) to explain it.
 point 14 days after an Off track or Constrained reported visit; overdue or high-priority open action
 points; a planned or in-progress visit that ended more than 30 days ago (a late report).
 
-The step reads the narratives from the findings in batches of 1,000 visits (``narrative_finding``
-only, never the records), twice: first to find the narratives copied between visits (R4; only their
-hashes are kept), then to apply the rules. The texts stay in memory while a batch is scored and are
-never stored. Q3 answers are read back from their records (through ``parse``) for R5's placeholder
-list. A full refresh scores the visits it has just built (:class:`BuiltSource`); a scores-only one the
-visits stored (:class:`StoredSource`), which is also what the admin's *Preview effect* scores in
-memory without writing anything.
+The visits are scored in batches of 500. A full refresh scores the visits it has just built
+(:class:`BuiltSource`); a scores-only one the visits stored (:class:`StoredSource`), which is also what
+the admin's *Preview effect* scores in memory without writing anything.
 """
 
 from __future__ import annotations
 
 import copy
-import hashlib
 import logging
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -54,79 +59,139 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 
 from neurodb.datamart.fm import RATING_ORDER, STATUSES
 
 from . import parse, rules
 from .models import (
+    FieldOfficeStaff,
     QuestionAnswer,
     RuleSetting,
     ScoreSetting,
     Visit,
+    VisitAICheck,
     VisitEntity,
     VisitRuleResult,
+    default_categories,
     default_question_patterns,
     default_role_flag_answers,
     default_scored_statuses,
     default_urgency_weights,
 )
-from .rules import AnswerFacts, Context, EntityFacts, RuleOutcome, VisitFacts, half_up, q1_value, worst
+from .rules import AnswerFacts, Outcome, half_up, q1_value, worst
 
 logger = logging.getLogger(__name__)
 
-NARRATIVE_BATCH = 1000  # visits whose narratives are read at once
+BATCH = 500  # visits scored at once (their texts are read together for the AI checks)
 ANSWER_CODES = ("on_track", "constrained", "off_track", "yes", "no")
 MAX_PATTERNS = 20
+MAX_CATEGORIES = 20
 PENDING = "pending: its status is not scored"
 CANCELLED = "cancelled"
+PROVISIONAL = "provisional: {n} AI checks pending"
 WEIGHT_NAMES = ("quality_gap", "recency", "red_flags")
 FLAG_POINTS = 25  # each red flag (a failed rule) adds this to the flags part, at most 100
 NOT_SCORED_ERROR = "could not be scored"
+HUNDRED = Decimal(100)
+PLACE_CHECKS = ("value_in_mapped_list", "pd_reference_locations", "section_in_cp_output")
 
 
 # ------------------------------------------------------------------------------------------ settings
 @dataclass
 class Rulebook:
-    """The quality rules and score settings one scoring reads, loaded once."""
+    """The quality rules, the score settings, the AI check prompts of the published prompt version and
+    the field offices' staff lists one scoring reads, loaded once."""
 
     rules: dict[str, RuleSetting]
     setting: ScoreSetting
+    prompts: dict[str, str] = field(default_factory=dict)
+    staff: dict[str, frozenset[str]] = field(default_factory=dict)
+    ai_enabled: bool = False  # Monitoring insights, its AI and the assistant are switched on
 
     @classmethod
     def load(cls) -> Rulebook:
-        """The rules as administrators set them (a rule missing from the table is written back with its
-        defaults) and the score settings."""
-        found = {rule.code: rule for rule in RuleSetting.objects.all()}
-        for code in rules.CODES:
-            if code not in found:
-                default = rules.DEFAULTS[code]
-                found[code] = RuleSetting.objects.get_or_create(
-                    code=code,
-                    defaults={
-                        "label": default["label"],
-                        "points": default["points"],
-                        "threshold": default["threshold"],
-                        "params": copy.deepcopy(default["params"]),
-                        "description": default["description"],
-                    },
-                )[0]
-        return cls({code: found[code] for code in rules.CODES}, ScoreSetting.load())
+        from .ai import profiles
 
-    def total_points(self) -> int:
-        """The points of the rules switched on (the reference's 85)."""
-        return sum(rule.points for rule in self.rules.values() if rule.enabled)
+        version = profiles.published()
+        prompts = {
+            key: text
+            for key, text in ((version.rule_prompts if version else None) or {}).items()
+            if isinstance(text, str) and text.strip()
+        }
+        staff = {}
+        for row in FieldOfficeStaff.objects.all():
+            if addresses := row.addresses():
+                staff[parse.fold(row.office)] = frozenset(addresses)
+        return cls(
+            {rule.code: rule for rule in RuleSetting.objects.all()},
+            ScoreSetting.load(),
+            prompts,
+            staff,
+            bool(settings.FMM_ENABLED and settings.FMM_AI and settings.AI_ASSISTANT_ENABLED),
+        )
 
     def with_changes(self, rule_changes: Mapping[str, Mapping], score_changes: Mapping) -> Rulebook:
         """A copy with some settings changed (for a preview); nothing is saved."""
         changed = {code: copy.copy(rule) for code, rule in self.rules.items()}
         for code, values in (rule_changes or {}).items():
+            if code not in changed:
+                continue
             for name, value in values.items():
                 setattr(changed[code], name, value)
         setting = copy.copy(self.setting)
         for name, value in (score_changes or {}).items():
             setattr(setting, name, value)
-        return Rulebook(changed, setting)
+        return Rulebook(changed, setting, dict(self.prompts), dict(self.staff), self.ai_enabled)
+
+    @property
+    def categories(self) -> dict[str, Decimal]:
+        return categories_of(self.setting)
+
+    @property
+    def ai_on(self) -> bool:
+        return self.ai_enabled and bool(self.setting.ai_checks)
+
+    def ai_rules(self) -> list[RuleSetting]:
+        """The AI checks that count: the narrative rules switched on whose prompt key has instructions
+        (none while the AI checks are switched off in Score settings)."""
+        if not self.setting.ai_checks:
+            return []
+        return [
+            rule
+            for code, rule in sorted(self.rules.items(), key=lambda kv: rules.code_order(kv[0]))
+            if rule.enabled
+            and rule.type == "narrative"
+            and rules.param(rule, "ai_prompt_key") in self.prompts
+        ]
+
+    def context(self) -> rules.Context:
+        return rules.Context(
+            ai_on=self.ai_on,
+            ai_checks=bool(self.setting.ai_checks),
+            prompt_keys=frozenset(self.prompts),
+            staff=self.staff,
+        )
+
+    def _checks(self, *names: str) -> list[RuleSetting]:
+        return [
+            rule
+            for rule in self.rules.values()
+            if rule.enabled and rule.type == "reference_check" and rules.param(rule, "check_type") in names
+        ]
+
+    def needs_people(self) -> bool:
+        """A rule that compares the monitors' e-mail addresses is on and has something to compare with."""
+        if self.staff and self._checks("member_in_mapped_list"):
+            return True
+        return any(
+            rules.param(rule, "field") in rules.PERSON_COLUMNS and rules.param(rule, "reference_list")
+            for rule in self._checks("value_in_list")
+        )
+
+    def needs_places(self) -> bool:
+        return bool(self._checks(*PLACE_CHECKS))
 
     @property
     def patterns(self) -> Mapping[str, list[str]]:
@@ -146,15 +211,6 @@ class Rulebook:
     @property
     def scored_statuses(self) -> frozenset[str]:
         return scored_statuses_of(self.setting)
-
-    def narrative_minimum(self) -> int:
-        return round(rules.threshold(self.rules["R4"]))
-
-    def narrative_placeholders(self) -> frozenset[str]:
-        return frozenset(rules.param(self.rules["R4"], "placeholders") or ())
-
-    def q3_placeholders(self) -> frozenset[str]:
-        return frozenset(rules.param(self.rules["R5"], "placeholders") or ())
 
 
 def valid_weights(weights: Any) -> bool:
@@ -184,6 +240,53 @@ def scored_statuses_of(setting: ScoreSetting) -> frozenset[str]:
     return frozenset(default_scored_statuses())
 
 
+def categories_of(setting: ScoreSetting) -> dict[str, Decimal]:
+    """The score categories and their weights, in their order; FMS Lebanon's when the settings hold
+    none that can be read."""
+    found = setting.categories if isinstance(setting.categories, list) else []
+    out = {
+        str(c["key"]): rules.dec(c.get("weight"))
+        for c in found
+        if isinstance(c, dict) and c.get("key") and isinstance(c.get("weight"), int | float)
+    }
+    return out or {c["key"]: Decimal(c["weight"]) for c in default_categories()}
+
+
+def category_labels(setting: ScoreSetting) -> dict[str, str]:
+    found = setting.categories if isinstance(setting.categories, list) else default_categories()
+    return {str(c.get("key")): str(c.get("label") or c.get("key")) for c in found if isinstance(c, dict)}
+
+
+def _validate_categories(value: Any, error: Callable[[str, str], None]) -> list[dict] | None:
+    if not isinstance(value, list) or not value or len(value) > MAX_CATEGORIES:
+        error(
+            "categories",
+            f'List 1 to {MAX_CATEGORIES} categories, e.g. [{{"key": "completeness", "weight": 30}}].',
+        )
+        return None
+    out, seen = [], set()
+    for entry in value:
+        if not isinstance(entry, dict) or set(entry) - {"key", "label", "weight"}:
+            error("categories", "Each category has a key, a label and a weight.")
+            return None
+        key = str(entry.get("key") or "")
+        weight = entry.get("weight")
+        if not rules._KEY.match(key) or key in seen:
+            error("categories", f"Each key is written once, in lower case (not “{key}”).")
+            return None
+        if isinstance(weight, bool) or not isinstance(weight, int | float) or not 0 <= weight <= 100:
+            error("categories", f"The weight of {key} is a number from 0 to 100.")
+            return None
+        seen.add(key)
+        label = str(entry.get("label") or key.replace("_", " ").capitalize())[:60]
+        out.append({"key": key, "label": label, "weight": weight})
+    total = sum(entry["weight"] for entry in out)
+    if abs(total - 100) > 0.05:
+        error("categories", f"The weights add up to 100 (they add up to {round(total, 1)}): use Rebalance.")
+        return None
+    return out
+
+
 def validate_settings(setting: ScoreSetting) -> None:
     """The score settings checked (``ScoreSetting.clean``); the question patterns are stored folded."""
     errors: dict[str, list[str]] = {}
@@ -195,8 +298,15 @@ def validate_settings(setting: ScoreSetting) -> None:
         error("urgency_red", "Amber must be below red, and red at most 100.")
     if not setting.band_medium < setting.band_high <= 100:
         error("band_high", "The Medium band must start below the High band, and High at most 100.")
-    if not 0 <= setting.min_evaluated_points <= 100:
-        error("min_evaluated_points", "The fewest evaluated points go from 0 to 100.")
+    categories = _validate_categories(setting.categories, error)
+    if categories is not None:
+        setting.categories = categories
+        enabled = RuleSetting.objects.filter(enabled=True).exclude(
+            category__in=[c["key"] for c in categories]
+        )
+        if enabled.exists():
+            codes = ", ".join(sorted(enabled.values_list("code", flat=True), key=rules.code_order))
+            error("categories", f"Rules that are on use a category left out ({codes}): keep it.")
     weights = setting.urgency_weights
     if not isinstance(weights, dict):
         error(
@@ -233,37 +343,7 @@ def validate_settings(setting: ScoreSetting) -> None:
         )
     else:
         setting.scored_statuses = [code for code in allowed if code in statuses]
-    patterns = setting.question_patterns
-    if not isinstance(patterns, dict):
-        error("question_patterns", 'The patterns must be an object, e.g. {"q1": ["implemented as planned"]}.')
-    else:
-        cleaned: dict[str, list[str]] = {}
-        for role, values in patterns.items():
-            if role not in rules.ROLES:
-                error("question_patterns", f"Unknown role “{role}”: the roles are {', '.join(rules.ROLES)}.")
-                continue
-            if not isinstance(values, list) or not all(isinstance(v, str) for v in values):
-                error("question_patterns", f"The patterns of {role} must be a list of texts.")
-                continue
-            if len(values) > MAX_PATTERNS:
-                error("question_patterns", f"{role} has {len(values)} patterns; at most {MAX_PATTERNS}.")
-                continue
-            out: list[str] = []
-            for value in values:
-                text = value.strip()
-                prefix = text[0] if text[:1] in ("=", "^") else ""
-                body = parse.fold(text[len(prefix) :])
-                if not 2 <= len(text) <= 200 or not body:
-                    error(
-                        "question_patterns",
-                        f"Each pattern has 2 to 200 characters with a letter or digit (not “{value}”).",
-                    )
-                    continue
-                if prefix + body not in out:
-                    out.append(prefix + body)
-            cleaned[role] = out
-        if "question_patterns" not in errors:
-            setting.question_patterns = cleaned
+    _validate_patterns(setting, error)
     flags = setting.role_flag_answers
     if not isinstance(flags, dict):
         error("role_flag_answers", 'The flagging answers must be an object, e.g. {"psea": ["yes"]}.')
@@ -275,6 +355,45 @@ def validate_settings(setting: ScoreSetting) -> None:
                 error("role_flag_answers", f"The answers of {role} can only be {', '.join(ANSWER_CODES)}.")
     if errors:
         raise ValidationError(errors)
+
+
+def _validate_patterns(setting: ScoreSetting, error: Callable[[str, str], None]) -> None:
+    patterns = setting.question_patterns
+    if not isinstance(patterns, dict):
+        error("question_patterns", 'The patterns must be an object, e.g. {"q1": ["implemented as planned"]}.')
+        return
+    cleaned: dict[str, list[str]] = {}
+    failed = False
+    for role, values in patterns.items():
+        if role not in rules.ROLES:
+            error("question_patterns", f"Unknown role “{role}”: the roles are {', '.join(rules.ROLES)}.")
+            failed = True
+            continue
+        if not isinstance(values, list) or not all(isinstance(v, str) for v in values):
+            error("question_patterns", f"The patterns of {role} must be a list of texts.")
+            failed = True
+            continue
+        if len(values) > MAX_PATTERNS:
+            error("question_patterns", f"{role} has {len(values)} patterns; at most {MAX_PATTERNS}.")
+            failed = True
+            continue
+        out: list[str] = []
+        for value in values:
+            text = value.strip()
+            prefix = text[0] if text[:1] in ("=", "^") else ""
+            body = parse.fold(text[len(prefix) :])
+            if not 2 <= len(text) <= 200 or not body:
+                error(
+                    "question_patterns",
+                    f"Each pattern has 2 to 200 characters with a letter or digit (not “{value}”).",
+                )
+                failed = True
+                continue
+            if prefix + body not in out:
+                out.append(prefix + body)
+        cleaned[role] = out
+    if not failed:
+        setting.question_patterns = cleaned
 
 
 # ------------------------------------------------------------------------------------------ Q1 and PSEA
@@ -335,14 +454,11 @@ def visit_q1(entity_q1: Iterable[str], answers: Sequence[AnswerFacts]) -> str:
 ROW_ROLES = ("q1", "q2", "q3")
 
 
-def with_row_answers(
-    entities: Sequence[Any], answers: Sequence[AnswerFacts], q3_placeholders: frozenset[str] = frozenset()
-) -> list[AnswerFacts]:
+def with_row_answers(entities: Sequence[Any], answers: Sequence[AnswerFacts]) -> list[AnswerFacts]:
     """A visit's checklist answers with the HACT answers written on its finding rows
     (``VisitEntity.row_answers``, measured at the build). A row's own answer to Q1, Q2 or Q3, when it
     is written (a placeholder too), replaces the checklist answers of that question given for that row;
-    a blank one adds an unanswered answer and keeps them, as the fallback. ``q3_placeholders`` are the
-    sha1 of R5's placeholders (folded): a short Q3 answer that is one of them is a placeholder."""
+    a blank one adds an unanswered answer and keeps them, as the fallback."""
     added: list[AnswerFacts] = []
     replaced: set[tuple[int, str]] = set()
     for index, entity in enumerate(entities):
@@ -351,8 +467,6 @@ def with_row_answers(
                 continue
             answered = bool(measured.get("answered"))
             placeholder = bool(measured.get("placeholder"))
-            if role == "q3" and answered and measured.get("short") in q3_placeholders:
-                answered, placeholder = False, True
             if answered or placeholder:
                 replaced.add((index, role))
             added.append(
@@ -397,8 +511,9 @@ def psea_flag(answers: Sequence[AnswerFacts], flagging: Iterable[str]) -> bool |
 @dataclass(frozen=True)
 class ScoreOutcome:
     score: Decimal | None
-    points: Decimal | None
-    max_points: int
+    provisional: Decimal | None
+    pending: int
+    deductions: dict[str, float]  # per category, each at most its weight
     evaluated: tuple[str, ...]
     band: str
     flags: tuple[str, ...]
@@ -406,27 +521,32 @@ class ScoreOutcome:
 
 
 def score_visit(
-    facts: VisitFacts, outcomes: list[RuleOutcome], s: ScoreSetting, total: int | None = None
+    outcomes: Sequence[Outcome], s: ScoreSetting, scorable_: bool = True, status_group: str = ""
 ) -> ScoreOutcome:
-    """The visit's score from its rule outcomes (see the module's description). ``total`` is the points
-    of the rules switched on, for the reason given when too few could be evaluated."""
-    evaluated = [o for o in outcomes if o.status in ("pass", "fail") and o.max_points > 0]
-    max_points = sum(o.max_points for o in evaluated)
+    """The visit's score from its rules' outcomes (see the module's description)."""
     flags = tuple(o.rule for o in outcomes if o.status == "fail")
-    codes = tuple(o.rule for o in evaluated)
-    if not facts.scorable:
-        if facts.status_group == "cancelled":
-            return ScoreOutcome(None, None, 0, (), "", (), CANCELLED)
-        return ScoreOutcome(None, None, 0, (), "pending", (), PENDING)
-    if total is None:
-        total = sum(o.max_points for o in outcomes if o.status != "off")
-    if max_points < s.min_evaluated_points or max_points == 0:
-        reason = f"too few rules ({max_points} of {total} points)"
-        return ScoreOutcome(None, None, max_points, codes, "", flags, reason)
-    earned = sum((min(Decimal(str(o.points)), Decimal(o.max_points)) for o in evaluated), Decimal(0))
-    score = half_up(Decimal(100) * earned / Decimal(max_points), 1)
-    band = "high" if score >= s.band_high else "medium" if score >= s.band_medium else "low"
-    return ScoreOutcome(score, half_up(earned, 1), max_points, codes, band, flags, "")
+    evaluated = tuple(o.rule for o in outcomes if o.status in ("pass", "fail"))
+    if not scorable_:
+        if status_group == "cancelled":
+            return ScoreOutcome(None, None, 0, {}, (), "", (), CANCELLED)
+        return ScoreOutcome(None, None, 0, {}, (), "pending", (), PENDING)
+    weights = categories_of(s)
+    taken: dict[str, Decimal] = defaultdict(Decimal)
+    for outcome in outcomes:
+        if outcome.status == "fail":
+            taken[outcome.category] += outcome.deduction
+    capped = {
+        category: min(total, weights[category]) if category in weights else total
+        for category, total in taken.items()
+    }
+    value = half_up(max(Decimal(0), HUNDRED - sum(capped.values(), Decimal(0))), 1)
+    deductions = {category: float(half_up(total, 1)) for category, total in capped.items() if total}
+    pending = sum(1 for o in outcomes if o.status == "pending")
+    if pending:
+        reason = PROVISIONAL.format(n=pending)
+        return ScoreOutcome(None, value, pending, deductions, evaluated, "", flags, reason)
+    band = "high" if value >= s.band_high else "medium" if value >= s.band_medium else "low"
+    return ScoreOutcome(value, None, 0, deductions, evaluated, band, flags, "")
 
 
 def high_flag(flag_count: int, s: ScoreSetting) -> bool:
@@ -498,6 +618,118 @@ def signals(visit: Visit, links: Sequence[Any], s: ScoreSetting, today: date) ->
     return out
 
 
+# ------------------------------------------------------------------------------------------ references
+class References:
+    """What eTools holds that the reference checks compare a visit with (R20, R21, R23), read once per
+    scoring: the registered locations of every programme document (``PCA.location_p_codes`` and its
+    locations' P-codes), the programme documents of each partner, the sections of each CP output (the
+    programme documents that name it), the partners' names and the P-codes of the places holding each
+    place (a visit at a cadaster lies in its district)."""
+
+    def __init__(self, load: bool = True) -> None:
+        self.pd_codes: dict[int, frozenset[str]] = {}
+        self.pd_numbers: dict[int, str] = {}
+        self.partner_pds: dict[int, list[tuple[int, date | None, date | None]]] = defaultdict(list)
+        self.output_sections: dict[str, set[str]] = defaultdict(set)
+        self.partner_names: dict[int, list[str]] = {}
+        self.parents: dict[int, tuple[int | None, str]] = {}
+        self.site_parents: dict[int, int | None] = {}
+        if load:
+            self._load()
+
+    def _load(self) -> None:
+        from neurodb.datamart.models import MonitoringSite
+        from neurodb.geo.models import Location
+        from neurodb.partnerships.models import PCA, PartnerOrganization
+
+        codes: dict[int, set[str]] = defaultdict(set)
+        rows = PCA.objects.values_list(
+            "pk", "number", "partner_id", "start", "end", "location_p_codes", "cp_outputs", "section_names"
+        )
+        for pk, number, partner, start, end, pcodes, outputs, sections in rows:
+            self.pd_numbers[pk] = number or ""
+            codes[pk] |= {str(c).strip().casefold() for c in pcodes or () if str(c).strip()}
+            if partner:
+                self.partner_pds[partner].append((pk, start, end))
+            for output in outputs or ():
+                self.output_sections[parse.fold(output)] |= {s for s in sections or () if s}
+        through = PCA.locations.through.objects.values_list("pca_id", "location__p_code")
+        for pk, pcode in through:
+            if pcode:
+                codes[pk].add(pcode.strip().casefold())
+        self.pd_codes = {pk: frozenset(found) for pk, found in codes.items() if found}
+        self.partner_names = {
+            pk: [n for n in (name, short) if n]
+            for pk, name, short in PartnerOrganization.objects.values_list("pk", "name", "short_name")
+        }
+        self.parents = {
+            pk: (parent, (pcode or "").strip().casefold())
+            for pk, parent, pcode in Location.objects.values_list("pk", "parent_id", "p_code")
+        }
+        self.site_parents = dict(MonitoringSite.objects.values_list("pk", "parent_id"))
+
+    def place_codes(self, visit: Visit) -> list[str]:
+        """The visit's P-code and those of the places holding its place, nearest first."""
+        out = [visit.place_pcode.strip().casefold()] if visit.place_pcode.strip() else []
+        node = visit.location_id or (self.site_parents.get(visit.site_id) if visit.site_id else None)
+        hops = 0
+        while node and hops < 10:
+            parent, pcode = self.parents.get(node, (None, ""))
+            if pcode and pcode not in out:
+                out.append(pcode)
+            node, hops = parent, hops + 1
+        return out
+
+    def facts(self, visit: Visit) -> dict[str, Any]:
+        """The reference facts of one visit, for the rules (``rules.Record.refs``)."""
+        pd_locations = {
+            self.pd_numbers.get(pk) or str(pk): self.pd_codes[pk]
+            for pk in visit.pd_ids or ()
+            if pk in self.pd_codes
+        }
+        partner_pd_locations = {}
+        day = visit.end_date
+        for partner in visit.partner_ids or ():
+            for pk, start, end in self.partner_pds.get(partner, ()):
+                running = day is None or ((start is None or start <= day) and (end is None or day <= end))
+                if running and pk in self.pd_codes:
+                    partner_pd_locations[self.pd_numbers.get(pk) or str(pk)] = self.pd_codes[pk]
+        outputs = list(visit.cp_outputs or [])
+        return {
+            "pd_locations": pd_locations,
+            "partner_pd_locations": partner_pd_locations,
+            "pd_numbers": list(visit.pd_numbers or []),
+            "partner_names": [n for pid in visit.partner_ids or () for n in self.partner_names.get(pid, ())],
+            "cp_outputs": outputs,
+            "cp_output_sections": {o: self.output_sections.get(parse.fold(o), set()) for o in outputs},
+            "place_pcodes": self.place_codes(visit),
+        }
+
+
+def monitor_emails(finding_ids: Iterable[int | None]) -> dict[int, set[str]]:
+    """{finding pk: the e-mail addresses of its visit lead and team members}, read from the records for
+    rule R19 and compared in code: never kept, shown or sent."""
+    from neurodb.datamart.models import MonitoringFinding
+    from neurodb.watch.people import EMAIL
+
+    from . import fields
+
+    ids = [pk for pk in set(finding_ids) if pk]
+    key = fields.key_for("field_monitoring", "team")
+    out: dict[int, set[str]] = defaultdict(set)
+    if not ids:
+        return out
+    for pk, lead, data in MonitoringFinding.objects.filter(pk__in=ids).values_list(
+        "pk", "visit_lead", "data"
+    ):
+        found = [lead or ""]
+        if key and isinstance(data, dict):
+            found.append(str(parse.walk(data, key) or ""))
+        for text in found:
+            out[pk] |= {match.strip("'.-").casefold() for match in EMAIL.findall(text)}
+    return out
+
+
 # ------------------------------------------------------------------------------------------ the step
 @dataclass(frozen=True)
 class AnswerIn:
@@ -520,15 +752,13 @@ class AnswerIn:
 
 class Source:
     """What one scoring reads: the visits, their entity rows and action points, their answers (a batch
-    at a time) and what the checklist records hold as a whole."""
+    at a time) and whether the answers of the checklist records were found."""
 
     visits: list[Visit]
     entities: dict[str, list[VisitEntity]]  # by visit key, in the order the answers point into
     links: dict[str, list[Any]]  # by visit key: build.ActionPointFacts
     answers_available: bool
-    unanswered_seen: bool
-    question_records: int
-    answer_keys: Mapping[str, str | None]  # the answer, label and summary keys (R5 reads Q3 answers)
+    unreadable: frozenset[str] = frozenset()  # the derived columns NeuroDB cannot read (unreadable())
 
     def answers(self, visits: list[Visit]) -> dict[str, list[AnswerIn]]:
         raise NotImplementedError
@@ -536,15 +766,27 @@ class Source:
     def question_texts(self) -> Iterable[tuple[str, bool | None]]:
         raise NotImplementedError
 
-    def copy_scope(self) -> list[tuple[Visit, list[VisitEntity]]]:
-        """The visits whose narratives may be copies of the scored ones' (all of them, by default)."""
-        return [(visit, self.entities.get(visit.key, [])) for visit in self.visits]
+
+def unreadable(answers: bool, category: bool, method: bool, attachments: bool) -> frozenset[str]:
+    """The derived columns NeuroDB cannot read at all, by the keys found: a rule on one is "not
+    available" on every visit, never a missing value deducted (a visit without a value, where the data
+    has the key, still takes the rule's missing-value deduction)."""
+    out: set[str] = set()
+    if not answers:
+        out |= {"fmq_answered_pct", "fmq_answered_categories", "method_count", "red_flag_count"}
+    if not category:
+        out.add("fmq_answered_categories")
+    if not method:
+        out.add("method_count")
+    if not attachments:
+        out |= {"attachments_count", "attachment_count"}
+    return frozenset(out)
 
 
 class BuiltSource(Source):
     """The visits a full refresh has just built, before they are written."""
 
-    def __init__(self, result, keys: Mapping[tuple[str, str], str | None], questions: Mapping[str, Any]):
+    def __init__(self, result, keys: Mapping[tuple[str, str], str | None]):
         self.result = result
         self.visits = result.visits
         built = {visit.key for visit in self.visits}
@@ -562,9 +804,12 @@ class BuiltSource(Source):
         self.answers_available = bool(
             keys.get(("fm_questions", "answer")) or keys.get(("fm_questions", "answer_label"))
         )
-        self.unanswered_seen = bool(questions.get("unanswered_seen"))
-        self.question_records = int(questions.get("records") or 0)
-        self.answer_keys = {f: keys.get(("fm_questions", f)) for f in ("answer", "answer_label", "summary")}
+        self.unreadable = unreadable(
+            self.answers_available,
+            bool(keys.get(("fm_questions", "category"))),
+            bool(keys.get(("fm_questions", "method"))),
+            bool(keys.get(("field_monitoring", "attachments"))),
+        )
 
     def answers(self, visits: list[Visit]) -> dict[str, list[AnswerIn]]:
         return {visit.key: [self._answer_in(a) for a in self._answers.get(visit.key, ())] for visit in visits}
@@ -615,8 +860,8 @@ ANSWER_COLUMNS = (
 class StoredSource(Source):
     """The visits as stored (a scores-only refresh, or a preview), without reading any record."""
 
-    def __init__(self, visits: list[Visit] | None = None, copy_visits: Iterable[Visit] | None = None):
-        from . import fields, status
+    def __init__(self, visits: list[Visit] | None = None):
+        from . import fields
         from .build import ActionPointFacts
         from .models import VisitActionPoint
 
@@ -639,21 +884,15 @@ class StoredSource(Source):
         )
         for visit_id, pk, state, due, high in links:
             self.links[by_pk[visit_id].key].append(ActionPointFacts(pk, state or "", due, bool(high)))
-        self._copy_visits = list(copy_visits) if copy_visits is not None else None
         self.answers_available = fields.available("fm_questions", "answer") or fields.available(
             "fm_questions", "answer_label"
         )
-        probe = status.last_probe()
-        questions = ((probe.details or {}) if probe else {}).get("questions") or {}
-        if "unanswered_seen" in questions:
-            self.unanswered_seen = bool(questions.get("unanswered_seen"))
-            self.question_records = int(questions.get("records") or 0)
-        else:  # no reading of the keys recorded: what the stored answers say
-            self.unanswered_seen = QuestionAnswer.objects.filter(answered=False).exists()
-            self.question_records = QuestionAnswer.objects.count()
-        self.answer_keys = {
-            f: fields.key_for("fm_questions", f) for f in ("answer", "answer_label", "summary")
-        }
+        self.unreadable = unreadable(
+            self.answers_available,
+            fields.available("fm_questions", "category"),
+            fields.available("fm_questions", "method"),
+            fields.available("field_monitoring", "attachments"),
+        )
 
     def answers(self, visits: list[Visit]) -> dict[str, list[AnswerIn]]:
         keys = {visit.pk: visit.key for visit in visits}
@@ -685,18 +924,6 @@ class StoredSource(Source):
     def question_texts(self) -> Iterable[tuple[str, bool | None]]:
         return QuestionAnswer.objects.order_by().values_list("question_text", "is_hact").distinct()
 
-    def copy_scope(self) -> list[tuple[Visit, list[VisitEntity]]]:
-        if self._copy_visits is None:
-            return super().copy_scope()
-        scored = {visit.pk for visit in self.visits}
-        extra = [v for v in self._copy_visits if v.pk not in scored]
-        rows: dict[int, list[VisitEntity]] = defaultdict(list)
-        for entity in VisitEntity.objects.filter(visit_id__in=[v.pk for v in extra]).only(
-            "pk", "visit_id", "finding_id"
-        ):
-            rows[entity.visit_id].append(entity)
-        return super().copy_scope() + [(visit, rows.get(visit.pk, [])) for visit in extra]
-
 
 @dataclass
 class Scored:
@@ -709,34 +936,59 @@ class Scored:
     details: dict[str, Any] = field(default_factory=dict)
 
 
-def narratives(finding_ids: Iterable[int | None]) -> dict[int, str]:
-    """{finding pk: narrative} of the findings given (the narrative column only)."""
-    from neurodb.datamart.models import MonitoringFinding
-
-    ids = [pk for pk in set(finding_ids) if pk]
-    if not ids:
-        return {}
-    rows = MonitoringFinding.objects.filter(pk__in=ids).values_list("pk", "narrative_finding")
-    return {pk: text or "" for pk, text in rows}
-
-
-def narrative_measures(text: str, minimum: int, placeholders: frozenset[str]) -> tuple[int, bool, str]:
-    """(words, placeholder, hash) of a narrative under R4's settings: the hash (sha1 of the folded text)
-    only for a narrative of ``minimum`` words or more that is not a placeholder."""
-    if not text or not text.strip():
-        return 0, False, ""
-    folded = parse.fold(text)
-    words = parse.word_count(text)
-    placeholder = folded in placeholders
-    digest = ""
-    if words >= minimum and not placeholder:
-        digest = hashlib.sha1(folded.encode(), usedforsecurity=False).hexdigest()
-    return words, placeholder, digest
-
-
 def _batches(items: list, size: int) -> Iterable[list]:
     for start in range(0, len(items), size):
         yield items[start : start + size]
+
+
+@dataclass
+class _Batch:
+    """What the visits of one batch share: their AI checks' answers (fresh ones only: their inputs
+    and prompts are those they were checked with) and their monitors' e-mail addresses."""
+
+    checks: dict[str, dict[str, tuple[bool, str]]] = field(default_factory=dict)
+    emails: dict[int, set[str]] = field(default_factory=dict)
+
+
+def _batch_facts(
+    batch: list[Visit],
+    source: Source,
+    answers: Mapping[str, list[AnswerIn]],
+    roles: Mapping[tuple[str, bool | None], str],
+    book: Rulebook,
+) -> _Batch:
+    out = _Batch()
+    ai_rules = book.ai_rules()
+    # the texts are read only when a check may count: the AI is on, or answers are kept from before
+    if ai_rules and (book.ai_on or VisitAICheck.objects.exists()):
+        from .ai import checks
+
+        items = [
+            checks.item_of(
+                visit,
+                source.entities.get(visit.key, []),
+                [
+                    (
+                        a.document_id,
+                        roles.get((a.question_text, a.is_hact), ""),
+                        a.applies_to,
+                        a.entity,
+                        a.partner_id,
+                    )
+                    for a in answers.get(visit.key, ())
+                    if a.answered
+                ],
+                [link.id for link in source.links.get(visit.key, ())],
+            )
+            for visit in batch
+            if scorable(visit.status, book.scored_statuses)
+        ]
+        out.checks = checks.fresh(items, ai_rules, book)
+    if book.needs_people():
+        out.emails = monitor_emails(
+            e.finding_id for visit in batch for e in source.entities.get(visit.key, ())
+        )
+    return out
 
 
 def score_visits(
@@ -746,8 +998,8 @@ def score_visits(
     on_error: Callable[[str, BaseException], None] | None = None,
 ) -> Scored:
     """Score every visit of ``source`` with ``book``: the visits and their entity rows are updated in
-    place (Q1, PSEA, score, band, flags, urgency; the narrative measures under R4's settings), and the
-    rule results and the question roles are returned to be written."""
+    place (Q1, PSEA, score, band, flags, urgency), and the rule results and the question roles are
+    returned to be written."""
     out = Scored()
     roles = {
         (text, is_hact): rules.assign_roles(text, is_hact, book.patterns)
@@ -758,38 +1010,14 @@ def score_visits(
     if any(is_hact for _text, is_hact in roles):
         in_dataset.add("hact")
     in_dataset |= row_roles(e for rows in source.entities.values() for e in rows)
-    minimum = book.narrative_minimum()
-    placeholders = book.narrative_placeholders()
-
-    # 1. the narratives copied between visits (their hashes only)
-    copies: dict[str, list[tuple[str, date | None]]] = defaultdict(list)
-    labels: dict[str, str] = {}
-    for batch in _batches(source.copy_scope(), NARRATIVE_BATCH):
-        texts = narratives(e.finding_id for _visit, rows in batch for e in rows)
-        for visit, rows in batch:
-            labels[visit.key] = visit.label
-            for digest in {
-                narrative_measures(texts.get(e.finding_id, ""), minimum, placeholders)[2] for e in rows
-            }:
-                if digest:
-                    copies[digest].append((visit.key, visit.end_date))
-    ctx = Context(today=today, copies=copies, labels=labels, narrative_min_words=minimum)
-
-    # 2. the rules, the score and urgency, a batch of visits at a time
+    refs = References(load=book.needs_places())
+    ctx = book.context()
     roles_seen: Counter[str] = Counter()
     q1_applies: Counter[str] = Counter()
-    statuses: dict[str, Counter[str]] = {code: Counter() for code in rules.CODES}
-    total = book.total_points()
-    for batch in _batches(source.visits, NARRATIVE_BATCH):
+    statuses: dict[str, Counter[str]] = defaultdict(Counter)
+    for batch in _batches(source.visits, BATCH):
         answers = source.answers(batch)
-        texts = narratives(e.finding_id for visit in batch for e in source.entities.get(visit.key, ()))
-        q3_ids = [
-            a.document_id
-            for visit in batch
-            for a in answers.get(visit.key, ())
-            if roles.get((a.question_text, a.is_hact)) == "q3"
-        ]
-        q3_texts = parse.answer_texts(q3_ids, source.answer_keys) if q3_ids else {}
+        shared = _batch_facts(batch, source, answers, roles, book)
         for visit in batch:
             visit_answers = answers.get(visit.key, [])
             try:
@@ -798,14 +1026,14 @@ def score_visits(
                     source.entities.get(visit.key, []),
                     visit_answers,
                     source.links.get(visit.key, []),
-                    texts,
-                    q3_texts,
                     roles,
                     frozenset(in_dataset),
                     source,
                     book,
                     ctx,
-                    total,
+                    refs,
+                    shared,
+                    today,
                 )
             except Exception as exc:
                 out.failed += 1
@@ -830,6 +1058,7 @@ def score_visits(
             "q1_applies_to": {k: q1_applies.get(k, 0) for k in ("entity", "partner", "visit")},
         },
         "rule_results": {code: dict(counts) for code, counts in statuses.items()},
+        "provisional": sum(1 for v in source.visits if v.ai_pending),
     }
     return out
 
@@ -837,10 +1066,102 @@ def score_visits(
 def _not_scored(visit: Visit) -> None:
     """A visit whose scoring raised: nothing worked out for it is kept (not even an older result)."""
     visit.hact_q1, visit.psea_flag = "", None
-    visit.quality_score = visit.quality_points = None
+    visit.quality_score = visit.quality_points = visit.provisional_score = None
     visit.quality_max, visit.evaluated_rules, visit.flags, visit.flag_count = 0, [], [], 0
     visit.score_band, visit.not_scored_reason = "", NOT_SCORED_ERROR
+    visit.ai_pending, visit.category_deductions = 0, {}
     visit.urgency, visit.urgency_band, visit.urgency_parts, visit.signals = None, "", {}, {}
+
+
+def _answered_for(answers: Sequence[AnswerFacts], role: str, index: int, partner_id: int | None) -> bool:
+    """A row has an answer to ``role``: its own, its partner's, or the visit's."""
+    for answer in answers:
+        if answer.role != role or not answer.answered:
+            continue
+        if answer.applies_to == "entity" and answer.entity == index:
+            return True
+        if answer.applies_to == "partner" and partner_id and answer.partner_id == partner_id:
+            return True
+        if answer.applies_to not in ("entity", "partner"):
+            return True
+    return False
+
+
+def record(
+    visit: Visit,
+    entities: Sequence[VisitEntity],
+    answers: Sequence[AnswerFacts],
+    in_dataset: frozenset[str],
+    answers_available: bool,
+    scorable_: bool,
+    refs: dict[str, Any] | None = None,
+    checks: dict[str, tuple[bool, str]] | None = None,
+    unreadable: frozenset[str] = frozenset(),
+) -> rules.Record:
+    """What the rules see of a visit (``rules.Record``). A field of the report is filled when every row
+    that counts has it: the rated rows, or every row when none is rated."""
+    rated = [i for i, e in enumerate(entities) if e.rating in rules.RATED]
+    considered = rated or list(range(len(entities)))
+    present: dict[str, bool | None] = {}
+    if entities:
+        present["narrative_finding"] = all(
+            entities[i].narrative_words > 0 and not entities[i].narrative_placeholder for i in considered
+        )
+        present["overall_finding_rating"] = all((e.rating_raw or "").strip() for e in entities)
+        present["entity"] = all((e.entity or "").strip() for e in entities)
+        present["entity_type"] = all((e.entity_type_raw or "").strip() for e in entities)
+    for role in ROW_ROLES:
+        column = f"hact_{role}_answer"
+        readable = role in in_dataset and (
+            answers_available or any(a.from_row and a.role == role for a in answers)
+        )
+        if not entities or not readable:
+            present[column] = None
+            continue
+        present[column] = all(_answered_for(answers, role, i, entities[i].partner_id) for i in considered)
+    categories = visit.fmq_answered_categories
+    values: dict[str, Any] = {
+        "fmq_answered_pct": visit.fmq_answered_pct,
+        "fmq_answered_categories": categories,
+        "method_count": visit.method_count,
+        "red_flag_count": visit.red_flag_count,
+        "attachments_count": visit.attachments_count,
+        "attachment_count": visit.attachments_count,
+        "action_points_count": visit.action_points,
+        "field_offices": list(visit.offices or []),
+        "sections_names": list(visit.section_names or []),
+        "location_pcode": visit.place_pcode or "",
+        "monitoring_modality": visit.modality or "",
+        "programme_areas": list(visit.programme_areas or []),
+        "output": list(visit.cp_outputs or []),
+    }
+    present["fmq_answered_categories"] = None if categories is None else bool(categories.strip())
+    for name in (
+        "field_offices",
+        "sections_names",
+        "location_pcode",
+        "monitoring_modality",
+        "programme_areas",
+    ):
+        present[name] = bool(values[name])
+    present["action_points_count"] = present["action_points_text"] = visit.action_points > 0
+    present["action_points_due_dates"] = visit.action_points > 0
+    present["action_points_assigned_to"] = visit.action_points_assigned > 0
+    present["team_members"] = bool(visit.team or visit.team_unnamed)
+    for name in ("fmq_answered_pct", "method_count", "red_flag_count", "attachments_count"):
+        present[name] = None if values[name] is None else values[name] > 0
+    present["attachment_count"] = present["attachments_count"]
+    return rules.Record(
+        key=visit.key,
+        scorable=scorable_,
+        status_group=visit.status_group,
+        kinds=frozenset(e.kind for e in entities),
+        present=present,
+        values=values,
+        refs=refs or {},
+        checks=checks or {},
+        unreadable=unreadable,
+    )
 
 
 def _score_one(
@@ -848,97 +1169,76 @@ def _score_one(
     entities: list[VisitEntity],
     answers: list[AnswerIn],
     links: list[Any],
-    texts: Mapping[int, str],
-    q3_texts: Mapping[int, str],
     roles: Mapping[tuple[str, bool | None], str],
     in_dataset: frozenset[str],
     source: Source,
     book: Rulebook,
-    ctx: Context,
-    total: int,
+    ctx: rules.Context,
+    refs: References,
+    shared: _Batch,
+    today: date,
 ) -> list[VisitRuleResult]:
-    q3_placeholders = book.q3_placeholders()
-    q3_hashes = frozenset(
-        hashlib.sha1(p.encode(), usedforsecurity=False).hexdigest() for p in q3_placeholders
-    )
-    facts_answers = []
-    for a in answers:
-        role = roles.get((a.question_text, a.is_hact), "")
-        placeholder = a.placeholder
-        if role == "q3" and not placeholder and (text := q3_texts.get(a.document_id)):
-            placeholder = parse.fold(text) in q3_placeholders
-        facts_answers.append(
-            AnswerFacts(
-                question_key=a.question_key,
-                role=role,
-                answered=a.answered,
-                placeholder=placeholder,
-                words=a.answer_words + a.summary_words,
-                rating=a.rating,
-                answer_code=a.answer_code,
-                is_hact=a.is_hact,
-                applies_to=a.applies_to or "visit",
-                entity=a.entity,
-                partner_id=a.partner_id,
-            )
+    facts_answers = [
+        AnswerFacts(
+            question_key=a.question_key,
+            role=roles.get((a.question_text, a.is_hact), ""),
+            answered=a.answered,
+            placeholder=a.placeholder,
+            words=a.answer_words + a.summary_words,
+            rating=a.rating,
+            answer_code=a.answer_code,
+            is_hact=a.is_hact,
+            applies_to=a.applies_to or "visit",
+            entity=a.entity,
+            partner_id=a.partner_id,
         )
-    facts_answers = with_row_answers(entities, facts_answers, q3_hashes)
+        for a in answers
+    ]
+    facts_answers = with_row_answers(entities, facts_answers)
     q1 = effective_q1(entities, facts_answers)
-    minimum = book.narrative_minimum()
-    placeholders = book.narrative_placeholders()
-    facts_entities = []
     for entity, (entity_q1, q1_from) in zip(entities, q1, strict=True):
-        text = texts.get(entity.finding_id, "") if entity.finding_id else ""
-        words, placeholder, digest = narrative_measures(text, minimum, placeholders)
         entity.hact_q1, entity.hact_q1_from = entity_q1, q1_from
-        entity.narrative_placeholder, entity.narrative_hash = placeholder, digest
-        facts_entities.append(
-            EntityFacts(
-                kind=entity.kind,
-                rating=entity.rating,
-                rating_raw=entity.rating_raw,
-                partner_id=entity.partner_id,
-                hact_q1=entity_q1,
-                narrative=text,
-                words=words,
-                placeholder=placeholder,
-                narrative_hash=digest,
-            )
-        )
-    facts = VisitFacts(
-        key=visit.key,
-        status_group=visit.status_group,
-        scorable=scorable(visit.status, book.scored_statuses),
-        is_programmatic=visit.is_programmatic,
-        end_date=visit.end_date,
-        has_place=bool(visit.location_id or visit.site_id),
-        entities=tuple(facts_entities),
-        answers=tuple(facts_answers),
-        questions_in_dataset=in_dataset,
-        answers_available=source.answers_available,
-        unanswered_seen=source.unanswered_seen,
-        question_records=source.question_records,
-    )
     visit.hact_q1 = visit_q1([q for q, _ in q1], facts_answers)
     # without the answers' key every answer reads as blank: the flag is not known, not "not flagged"
     visit.psea_flag = psea_flag(facts_answers, book.flag_codes) if source.answers_available else None
+    is_scorable = scorable(visit.status, book.scored_statuses)
+    references = refs.facts(visit) if book.needs_places() else {}
+    if book.needs_people():
+        emails = (
+            set().union(*(shared.emails.get(e.finding_id, set()) for e in entities)) if entities else set()
+        )
+        references["people"] = {"team_members": emails}
+    facts = record(
+        visit,
+        entities,
+        facts_answers,
+        in_dataset,
+        source.answers_available,
+        is_scorable,
+        references,
+        shared.checks.get(visit.key, {}),
+        source.unreadable,
+    )
     outcomes = rules.evaluate(facts, book.rules, ctx)
-    outcome = score_visit(facts, outcomes, book.setting, total)
-    visit.quality_score, visit.quality_points = outcome.score, outcome.points
-    visit.quality_max, visit.evaluated_rules = min(outcome.max_points, 32767), list(outcome.evaluated)
+    outcome = score_visit(outcomes, book.setting, is_scorable, visit.status_group)
+    visit.quality_score, visit.provisional_score = outcome.score, outcome.provisional
+    visit.quality_points = outcome.score
+    visit.quality_max = 100 if outcome.score is not None else 0
+    visit.evaluated_rules = list(outcome.evaluated)
+    visit.ai_pending, visit.category_deductions = outcome.pending, outcome.deductions
     visit.not_scored_reason, visit.score_band = outcome.not_scored_reason, outcome.band
     visit.flags, visit.flag_count = list(outcome.flags), len(outcome.flags)
-    visit.urgency, visit.urgency_band, visit.urgency_parts = urgency(visit, outcome, book.setting, ctx.today)
-    visit.signals = signals(visit, links, book.setting, ctx.today)
+    visit.urgency, visit.urgency_band, visit.urgency_parts = urgency(visit, outcome, book.setting, today)
+    visit.signals = signals(visit, links, book.setting, today)
     return [
         VisitRuleResult(
             visit=visit,
             rule=o.rule,
             status=o.status,
-            points=half_up(o.points, 1),
-            max_points=o.max_points,
+            points=half_up(o.max_deduction - o.deduction, 1),
+            max_points=half_up(o.max_deduction, 1),
             detail_key=o.detail_key[:40],
-            detail=o.detail[:300],
+            detail=o.detail[:600],
             measure=o.measure,
         )
         for o in outcomes

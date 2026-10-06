@@ -89,6 +89,7 @@ CANDIDATES: dict[str, dict[str, tuple[str, ...]]] = {
         "objective": ("objective", "objectives", "visit_objective"),
         "supplies": ("dim_supplies", "supplies"),
         "psea": ("dim_psea", "psea"),
+        "attachments": ("attachments_count", "attachment_count", "attachments"),
     },
     "fm_questions": {
         "activity_id": ("monitoring_activity_id", "activity_id", "monitoring_activity.id", "activity.id"),
@@ -135,6 +136,7 @@ CANDIDATES: dict[str, dict[str, tuple[str, ...]]] = {
         ),
         "entity_type": ("entity_type", "level", "related_to_type"),
         "method": ("method", "methods", "method_type", "data_collection_method"),
+        "category": ("category", "question_category", "question.category", "category_name", "dimension"),
         "sections": ("sections", "section"),
         "offices": ("field_office", "offices", "office"),
     },
@@ -167,6 +169,7 @@ CANDIDATES: dict[str, dict[str, tuple[str, ...]]] = {
 PERSON_FIELDS = {("field_monitoring", "team")}
 KINDS = {  # others: "text"
     "activity_id": "id",
+    "attachments": "count",
     "question_id": "id",
     "is_hact": "bool",
     "order": "int",
@@ -207,6 +210,7 @@ NEEDED_BY: dict[tuple[str, str], str] = {
     ("field_monitoring", "objective"): "The objective of a visit (visit page)",
     ("field_monitoring", "supplies"): "The supplies answer of a finding row (visit page)",
     ("field_monitoring", "psea"): "The PSEA answer of a finding row (visit page)",
+    ("field_monitoring", "attachments"): "The attachments of a finding row: their number (rule R28)",
     ("fm_questions", "activity_id"): "Which visit an answer belongs to (R2, R3, R5, HACT Q1, PSEA)",
     ("fm_questions", "activity_ref"): "Which visit an answer belongs to, when no activity id is given",
     ("fm_questions", "question_id"): "Telling the questions apart (R2) and their answer options",
@@ -218,7 +222,8 @@ NEEDED_BY: dict[tuple[str, str], str] = {
     ("fm_questions", "order"): "The order of the questions on the visit page",
     ("fm_questions", "entity"): "Which entity, partner or visit an answer is about (R3, HACT Q1)",
     ("fm_questions", "entity_type"): "Which entity, partner or visit an answer is about",
-    ("fm_questions", "method"): "How an answer was collected (visit page)",
+    ("fm_questions", "method"): "How an answer was collected (visit page; the methods used, R11 and R31)",
+    ("fm_questions", "category"): "The category of a question (the categories answered: R1, R10, R24-R30)",
     ("fm_questions", "sections"): "The sections of a visit, from its answers",
     ("fm_questions", "offices"): "The field office of a visit, from its answers",
     ("fm_options", "question_id"): "Which question an answer option belongs to",

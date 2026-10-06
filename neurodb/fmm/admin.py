@@ -5,8 +5,12 @@
   administrator can pin another key the data shows (an override), with a note;
 - **Questions found**: the checklist questions the answers hold, the role each one has (Q1, Q2, Q3,
   PSEA) and buttons that give a question its role;
-- **Quality rules** and **Score settings**: R1-R6, the score bands, urgency and the question roles,
-  each save with a note, with a preview of its effect before it is saved;
+- **Quality rules** and **Score settings**: FMS's rule model (each rule's type, category, deduction,
+  flag and parameters; Rebalance), the score categories and bands, urgency, the question roles and the
+  AI checks, each save with a note, with a preview of its effect before it is saved;
+- **Field office staff lists**: the staff e-mail addresses of each field office (rule R19), kept here
+  only, compared in code, never shown on a page or sent to the AI;
+- **AI checks**: the answer of each AI check of each visit, kept until its inputs or prompt change;
 - **Rule versions**: every saved state of the rules, the score settings and the pinned keys, with who,
   when and why, and "Restore this version";
 - **Visits**: the visits the refresh built, with their entity rows, action points, rule results and
@@ -38,6 +42,7 @@ from django.utils.formats import date_format
 from django.utils.translation import gettext as _
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.decorators import action
+from unfold.forms import BaseDialogForm
 
 from neurodb.core.models import SyncRun
 from neurodb.datamart.fm import STATUSES
@@ -49,9 +54,11 @@ from . import access, fields, privacy, rules, samples, status, versions
 from .ai import profiles
 from .models import (
     CHAT_EXAMPLES_HELP,
+    RULE_PROMPTS_HELP,
     SECTIONS_HELP,
     ChatQuestion,
     FieldMapping,
+    FieldOfficeStaff,
     Insight,
     KeyProbe,
     ModelCapability,
@@ -63,6 +70,7 @@ from .models import (
     ScoreSetting,
     Visit,
     VisitActionPoint,
+    VisitAICheck,
     VisitEntity,
     VisitReview,
     VisitRuleResult,
@@ -209,7 +217,8 @@ def _match_rates(run: SyncRun | None) -> list[dict[str, Any]]:
 
 
 def _r2_line(run: SyncRun | None) -> dict[str, Any] | None:
-    """Whether eTools sends unanswered questions at all: without any, R2 cannot be measured."""
+    """Whether eTools sends unanswered questions at all: without any, R2 (the share of questions
+    answered) reads 100% for every visit."""
     questions = ((run.details or {}) if run else {}).get("questions") or {}
     if not questions.get("records") or not questions.get("answers_found"):
         return None
@@ -218,10 +227,9 @@ def _r2_line(run: SyncRun | None) -> dict[str, Any] | None:
         "n": f"{unanswered:,}",
         "total": f"{total:,}",
     }
-    r2 = RuleSetting.objects.filter(code="R2").first()
-    checked = r2 is None or (r2.enabled and rules.param(r2, "require_unanswered_seen") is not False)
-    if unanswered == 0 and total >= R2_MIN_RECORDS and checked:  # an administrator may turn the check off
-        return {"text": text + _(" — R2 cannot be measured"), "warn": True}
+    r2 = RuleSetting.objects.filter(code="R2", enabled=True).first()
+    if unanswered == 0 and total >= R2_MIN_RECORDS and r2 is not None:
+        return {"text": text + _(" — R2 reads 100% answered for every visit"), "warn": True}
     return {"text": text, "warn": False}
 
 
@@ -679,48 +687,236 @@ def questions_view(request):
 
 
 # ------------------------------------------------------------------------------------------ quality rules
+PARAMS_HELP = _(
+    "The rule's settings as JSON, by type (FMS's rule file): a completeness rule lists its "
+    '"fields" ({"name", "label", "deduction"} each); a deterministic rule its "field", "field_type" '
+    '(numeric or list), "scoring" bands ({"min", "max_inclusive", "deduction"}; for a list '
+    '"min_categories" and "required_met"), "missing_value_deduction" and "entity_type_scoring"; an AI '
+    'check its "fields" and "ai_prompt_key" (its instructions in the prompt version); a reference check '
+    'its "check_type", "field", "key_field" and "reference_map" (entries added to what eTools holds). '
+    '"entity_type_filter" limits a rule to Partner, CP Output or PD/SSFA visits. Staff e-mail addresses '
+    "never go here: R19 reads the Field office staff lists."
+)
+
+
 class RuleSettingForm(_NoteForm):
-    params = JSONTextField(
-        label=_("Parameters"),
-        required=False,
-        help_text=_(
-            'The rule\'s settings as JSON, e.g. {"strict": false}. Lists of words are compared in lower '
-            "case, without accents or punctuation; each list holds at most 60 entries of 1 to 80 characters."
-        ),
-    )
+    params = JSONTextField(label=_("Parameters"), required=False, help_text=PARAMS_HELP)
 
     class Meta:
         model = RuleSetting
-        fields = ("enabled", "points", "threshold", "params", "description")
+        fields = (
+            "label",
+            "enabled",
+            "category",
+            "group",
+            "hact_spec",
+            "deduction",
+            "flag_template",
+            "params",
+            "description",
+        )
+        help_texts = {
+            "deduction": _(
+                "Points taken off the rule's category when it fires (each category's deductions are at most "
+                "its weight). A completeness rule's is the sum of its fields'; a rule with scoring bands "
+                "takes its band's, this is its weight in the category."
+            ),
+            "flag_template": _(
+                "What the flag says: {value}, {key_value}, {missing_fields}, {entity_type} and {ai_detail} "
+                "are filled in by NeuroDB."
+            ),
+            "category": _("Its score category (Score settings: categories)."),
+        }
 
     def clean_params(self):
         return self.cleaned_data.get("params") or {}
 
 
+class RebalanceForm(BaseDialogForm):
+    note = forms.CharField(
+        label=_("Note (why)"), max_length=versions.NOTE_CHARS, required=False, widget=forms.TextInput
+    )
+
+
 @admin.register(RuleSetting)
 class RuleSettingAdmin(_VersionedAdmin):
-    """The quality rules R1-R6: points, threshold and parameters, each save with a note and a rules
-    version, previewed before it is saved."""
+    """The quality rules as FMS defines them (type, category, deduction, flag, parameters), each save
+    with a note and a rules version, previewed before it is saved; the sum of the deductions of each
+    score category against its weight, and Rebalance."""
 
     form = RuleSettingForm
-    list_display = ("code", "label", "enabled", "points", "threshold", "updated_by", "updated_at")
-    list_select_related = ("updated_by",)
-    ordering = ("code",)
+    list_display = ("code", "label", "type_shown", "category", "group", "enabled", "deduction", "updated_at")
+    list_filter = ("enabled", "type", "category", "group")
+    search_fields = ("code", "label", "category")
+    list_before_template = "admin/fmm/rulesetting/category_sums.html"
+    actions_list = ["rebalance_rules"]
     fieldsets = (
-        (None, {"fields": ("code", "label", "last_results")}),
-        (_("Settings"), {"fields": ("enabled", "points", "threshold", "params", "description")}),
+        (None, {"fields": ("code", "type", "last_results")}),
+        (
+            _("Settings"),
+            {
+                "fields": (
+                    "label",
+                    "enabled",
+                    ("category", "group"),
+                    "hact_spec",
+                    "deduction",
+                    "flag_template",
+                    "params",
+                    "description",
+                )
+            },
+        ),
         (_("Why"), {"fields": ("change_note",)}),
         (None, {"fields": ("updated_by", "updated_at")}),
     )
-    readonly_fields = ("code", "label", "last_results", "updated_by", "updated_at")
+    readonly_fields = ("code", "type", "last_results", "updated_by", "updated_at")
+
+    def get_queryset(self, request):
+        from django.db.models import IntegerField
+        from django.db.models.functions import Cast, Substr
+
+        number = Cast(Substr("code", 2), IntegerField())  # R2 before R10
+        rows = self.model._default_manager.get_queryset().select_related("updated_by").annotate(number=number)
+        return rows.order_by(*self.get_ordering(request))
+
+    def get_ordering(self, request):
+        return ("number", "code")
 
     def preview_changes(self, obj) -> tuple[dict, dict]:
-        values = {name: getattr(obj, name) for name in ("enabled", "points", "threshold", "params")}
-        return {obj.code: values}, {}
+        names = ("enabled", "category", "deduction", "flag_template", "params")
+        return {obj.code: {name: getattr(obj, name) for name in names}}, {}
+
+    @admin.display(description=_("type"), ordering="type")
+    def type_shown(self, obj):
+        return rules.TYPE_LABELS.get(obj.type, obj.type)
 
     @admin.display(description=_("last refresh"))
     def last_results(self, obj):
         return _last_results(obj.code)
+
+    def changelist_view(self, request, extra_context=None):
+        from . import score
+
+        setting = ScoreSetting.load()
+        labels = score.category_labels(setting)
+        sums = [
+            {**row, "label": labels.get(row["key"], row["key"])}
+            for row in rules.category_sums(RuleSetting.objects.all(), score.categories_of(setting))
+        ]
+        context = {
+            "category_sums": sums,
+            "category_mismatch": any(not row["matches"] for row in sums),
+            "category_total": sum(row["weight"] or 0 for row in sums),
+            **(extra_context or {}),
+        }
+        return super().changelist_view(request, context)
+
+    def has_rebalance_permission(self, request, obj=None):
+        return access.is_admin(request.user)
+
+    @action(
+        description=_("Rebalance"),
+        url_path="rebalance",
+        permissions=["rebalance"],
+        icon="balance",
+        dialog={
+            "title": _("Rebalance the deductions"),
+            "description": _(
+                "Scales the deductions of each category's rules that are on so that they add up to the "
+                "category's weight, and the weights so that they add up to 100. No rule is added, removed, "
+                "switched on or off. The change is saved as a new rules version and the scores are "
+                "recomputed "
+                "in the background."
+            ),
+            "form_class": RebalanceForm,
+            "form_submit_text": _("Rebalance"),
+        },
+    )
+    def rebalance_rules(self, request, form):
+        note = form.cleaned_data.get("note", "") if form is not None and form.is_valid() else ""
+        version = versions.rebalance(request.user, note)
+        if version is None:
+            messages.info(
+                request, _("Nothing to rebalance: each category's deductions already match its weight.")
+            )
+        else:
+            messages.success(request, versions.saved_message(version))
+        url = reverse("admin:fmm_rulesetting_changelist")
+        if request.headers.get("HX-Request"):
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = url
+            return response
+        return redirect(url)
+
+
+@admin.register(FieldOfficeStaff)
+class FieldOfficeStaffAdmin(ModelAdmin):
+    """The staff list of each field office (rule R19), kept by administrators only. The list shows how
+    many addresses each office has, never the addresses; a save asks for the scores to be recomputed."""
+
+    list_display = ("office", "addresses_count", "updated_at")
+    search_fields = ("office",)
+    fields = ("office", "emails", "updated_by", "updated_at")
+    readonly_fields = ("updated_by", "updated_at")
+
+    def has_module_permission(self, request):
+        return access.is_admin(request.user)
+
+    def has_view_permission(self, request, obj=None):
+        return access.is_admin(request.user)
+
+    def has_add_permission(self, request):
+        return access.is_admin(request.user)
+
+    def has_change_permission(self, request, obj=None):
+        return access.is_admin(request.user)
+
+    def has_delete_permission(self, request, obj=None):
+        return access.is_admin(request.user)
+
+    @admin.display(description=_("addresses"))
+    def addresses_count(self, obj):
+        return len(obj.addresses())
+
+    def save_model(self, request, obj, form, change):
+        obj.updated_by = request.user
+        super().save_model(request, obj, form, change)
+        versions.start_rescore(request.user)
+
+    def delete_model(self, request, obj):
+        super().delete_model(request, obj)
+        versions.start_rescore(request.user)
+
+
+@admin.register(VisitAICheck)
+class VisitAICheckAdmin(ReadOnlyModelAdmin):
+    """The answers of the AI checks, per visit and rule: kept until the visit's inputs or the rule's
+    prompt change. Read-only; deleting one makes it be checked again."""
+
+    list_display = ("visit_key", "rule", "passed", "model", "tokens", "checked_at")
+    list_filter = ("rule", "passed", "model")
+    search_fields = ("visit_key",)
+    fields = (
+        "visit_key",
+        "rule",
+        "passed",
+        "detail",
+        "model",
+        "input_tokens",
+        "output_tokens",
+        "checked_at",
+        "input_hash",
+        "prompt_hash",
+    )
+    readonly_fields = fields
+
+    def has_delete_permission(self, request, obj=None):
+        return access.is_admin(request.user)
+
+    @admin.display(description=_("tokens"))
+    def tokens(self, obj):
+        return f"{obj.input_tokens + obj.output_tokens:,}"
 
 
 class ScoreSettingForm(_NoteForm):
@@ -752,6 +948,15 @@ class ScoreSettingForm(_NoteForm):
             "(Questions found writes these). At most 20 per role, 2 to 200 characters each."
         ),
     )
+    categories = JSONTextField(
+        label=_("Score categories"),
+        help_text=_(
+            'Each rule\'s category and its weight: [{"key": "completeness", "label": "Completeness", '
+            "\"weight\": 30}, ...]. A visit's score is 100 less its rules' deductions, each category's at "
+            "most its weight. "
+            "The weights add up to 100 (Quality rules → Rebalance scales them)."
+        ),
+    )
     role_flag_answers = JSONTextField(
         order=rules.ROLES,
         label=_("Answers that flag"),
@@ -764,7 +969,7 @@ class ScoreSettingForm(_NoteForm):
     class Meta:
         model = ScoreSetting
         fields = (
-            "min_evaluated_points",
+            "categories",
             "band_high",
             "band_medium",
             "high_flag_count",
@@ -777,8 +982,26 @@ class ScoreSettingForm(_NoteForm):
             "report_late_days",
             "question_patterns",
             "role_flag_answers",
+            "ai_checks",
+            "ai_model",
+            "ai_max_output_tokens",
+            "ai_temperature",
+            "ai_text_chars",
         )
         help_texts = {
+            "ai_checks": _(
+                "The AI checks of the narrative rules (R3, R5, R6, R7, R8, R32...). Off: those rules count "
+                "as "
+                "switched off and no check is made; the checks kept are used again when it is back on."
+            ),
+            "ai_model": _("The model of the AI checks; empty: the assistant's model (AI_ASSISTANT_MODEL)."),
+            "ai_max_output_tokens": _(
+                "The most tokens one check may write, its reasoning included (2,000 by default)."
+            ),
+            "ai_temperature": _("Sent only when the model accepts it (FMS: 0.3); empty: not sent."),
+            "ai_text_chars": _(
+                "Each text a check sends (a narrative, an answer) is cut to this many characters."
+            ),
             "recency_days": _("Days after which a visit adds nothing to urgency for its recency (FMS: 180)."),
             "follow_up_days": _(
                 "Days after an off-track or constrained visit without an action point before the visit "
@@ -796,7 +1019,8 @@ class ScoreSettingForm(_NoteForm):
 
 @admin.register(ScoreSetting)
 class ScoreSettingAdmin(_VersionedAdmin):
-    """The one row of score settings: bands, urgency and the question roles. Its list opens the row."""
+    """The one row of score settings: the categories, bands, urgency, the question roles and the AI
+    checks. Its list opens the row."""
 
     form = ScoreSettingForm
     fieldsets = (
@@ -805,9 +1029,20 @@ class ScoreSettingAdmin(_VersionedAdmin):
             {
                 "fields": (
                     "scored_statuses",
-                    "min_evaluated_points",
+                    "categories",
                     ("band_high", "band_medium"),
                     "high_flag_count",
+                )
+            },
+        ),
+        (
+            _("AI checks"),
+            {
+                "fields": (
+                    "ai_checks",
+                    "ai_model",
+                    ("ai_max_output_tokens", "ai_temperature"),
+                    "ai_text_chars",
                 )
             },
         ),
@@ -962,7 +1197,9 @@ class VisitActionPointInline(_ReadOnlyInline):
 class VisitRuleResultInline(_ReadOnlyInline):
     model = VisitRuleResult
     fields = readonly_fields = ("rule", "status", "points", "max_points", "detail_key", "detail", "measure")
-    verbose_name_plural = "quality rules (pass, fail, na: not available, nap: does not apply, off)"
+    verbose_name_plural = (
+        "quality rules (pass, fail, na: not available, nap: does not apply, off, pending: AI check not done)"
+    )
 
 
 @admin.register(Visit)
@@ -1109,6 +1346,9 @@ class PromptVersionForm(forms.ModelForm):
         help_text=_("How much the model reasons before it writes; higher costs more output tokens."),
     )
     sections = JSONTextField(label=_("Parts of the brief"), help_text=SECTIONS_HELP)
+    rule_prompts = JSONTextField(
+        label=_("AI checks' instructions"), required=False, help_text=RULE_PROMPTS_HELP
+    )
     chat_examples = forms.CharField(
         label=_("Starter questions"),
         required=False,
@@ -1164,7 +1404,13 @@ class PromptVersionForm(forms.ModelForm):
                 self.add_error(name, problem)
         for problem in profiles.text_problems("\n".join(cleaned.get("chat_examples") or []), known):
             self.add_error("chat_examples", problem)
+        for key, text in (cleaned.get("rule_prompts") or {}).items():
+            for problem in profiles.text_problems(str(text), known):
+                self.add_error("rule_prompts", f"{key}: {problem}")
         return cleaned
+
+    def clean_rule_prompts(self):
+        return self.cleaned_data.get("rule_prompts") or {}
 
 
 def _preview_scope(choice: str = "", url: str = ""):
@@ -1212,6 +1458,7 @@ class PromptVersionAdmin(ModelAdmin):
     fieldsets = (
         (_("AI monitoring insights"), {"fields": ("insights_enabled", "instructions", "sections")}),
         (_("Chat with Data"), {"fields": ("chat_enabled", "chat_instructions", "chat_examples")}),
+        (_("AI checks of the quality rules"), {"fields": ("rule_prompts",)}),
         (
             _("Model and parameters"),
             {

@@ -247,6 +247,19 @@ BACKGROUND_JOBS = [
         ),
         "auto_awesome",
     ),
+    BackgroundJob(
+        "run_fmm_ai_checks",
+        ("fmm_ai_checks",),
+        SyncRun.Job.FMM_AI_CHECKS,
+        _("Monitoring insights (AI checks)"),
+        _("Run the AI checks of the quality rules now"),
+        _(
+            "Checks the newest visits not checked yet against the AI quality rules (R3, R5, R6, R7, R8, "
+            "R32...), within the day's budget for these checks, then recomputes the scores. Older visits "
+            "are checked on the following nights. It runs by itself each morning."
+        ),
+        "fact_check",
+    ),
 ]
 
 

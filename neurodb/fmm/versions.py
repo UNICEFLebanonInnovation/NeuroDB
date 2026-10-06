@@ -33,7 +33,7 @@ from .models import FieldMapping, RuleSetting, RuleSetVersion, ScoreSetting, Vis
 ROLE_LABELS = {"q1": "Q1", "q2": "Q2", "q3": "Q3", "psea": "PSEA"}
 PATTERN_CHARS = 200  # the longest question pattern the score settings take
 SCORE_FIELDS = (
-    "min_evaluated_points",
+    "categories",
     "band_high",
     "band_medium",
     "high_flag_count",
@@ -46,33 +46,41 @@ SCORE_FIELDS = (
     "report_late_days",
     "question_patterns",
     "role_flag_answers",
+    "ai_checks",
+    "ai_model",
+    "ai_max_output_tokens",
+    "ai_temperature",
+    "ai_text_chars",
 )
-RULE_FIELDS = ("label", "enabled", "points", "threshold", "params", "description")
+RULE_FIELDS = (
+    "label",
+    "description",
+    "type",
+    "category",
+    "group",
+    "hact_spec",
+    "enabled",
+    "deduction",
+    "flag_template",
+    "params",
+)
+DECIMAL_FIELDS = ("deduction", "ai_temperature")
 NOTE_CHARS = 200
 
 
-def _threshold(value: Decimal | None) -> int | float | None:
-    if value is None:
-        return None
-    value = Decimal(str(value))
-    return int(value) if value == value.to_integral_value() else float(value)
+def _plain(value: Any) -> Any:
+    """A setting as a snapshot keeps it (a Decimal as a number)."""
+    if isinstance(value, Decimal):
+        return int(value) if value == value.to_integral_value() else float(value)
+    return value
 
 
 def snapshot_rules() -> dict:
     """The rules, the score settings and the pinned keys as they are now."""
-    rows = []
-    for rule in RuleSetting.objects.order_by("code"):
-        rows.append(
-            {
-                "code": rule.code,
-                "label": rule.label,
-                "enabled": rule.enabled,
-                "points": rule.points,
-                "threshold": _threshold(rule.threshold),
-                "params": rule.params,
-                "description": rule.description,
-            }
-        )
+    rows = [
+        {"code": rule.code, **{name: _plain(getattr(rule, name)) for name in RULE_FIELDS}}
+        for rule in sorted(RuleSetting.objects.all(), key=lambda r: rules.code_order(r.code))
+    ]
     setting = ScoreSetting.load()
     mappings = {
         f"{m.dataset}.{m.field}": m.override_key.strip()
@@ -81,7 +89,7 @@ def snapshot_rules() -> dict:
     }
     return {
         "rules": rows,
-        "score": {name: getattr(setting, name) for name in SCORE_FIELDS},
+        "score": {name: _plain(getattr(setting, name)) for name in SCORE_FIELDS},
         "mappings": mappings,
     }
 
@@ -135,17 +143,22 @@ def restore_rules(version: RuleSetVersion, user, note: str = "") -> RuleSetVersi
     with transaction.atomic():
         for row in snapshot.get("rules") or []:
             code = row.get("code")
-            if code not in rules.CODES:
+            if not code or "type" not in row:  # a version of Release 1's rules (R1-R6): not FMS's model
                 continue
             values = {name: row[name] for name in RULE_FIELDS if name in row}
-            if "threshold" in values and values["threshold"] is not None:
-                values["threshold"] = Decimal(str(values["threshold"]))
+            for name in DECIMAL_FIELDS:
+                if values.get(name) is not None:
+                    values[name] = Decimal(str(values[name]))
             RuleSetting.objects.update_or_create(code=code, defaults={**values, "updated_by": _user(user)})
         setting = ScoreSetting.load()
         weights = setting.urgency_weights
         for name, value in (snapshot.get("score") or {}).items():
             if name in SCORE_FIELDS:
-                setattr(setting, name, value)
+                setattr(
+                    setting,
+                    name,
+                    Decimal(str(value)) if name in DECIMAL_FIELDS and value is not None else value,
+                )
         if not score.valid_weights(setting.urgency_weights):  # a version saved before Release 2's urgency
             setting.urgency_weights = weights
         setting.updated_by = _user(user)
@@ -156,6 +169,30 @@ def restore_rules(version: RuleSetVersion, user, note: str = "") -> RuleSetVersi
         start_rescore(user, full=changed)
         transaction.on_commit(fields.forget)
     return new
+
+
+def rebalance(user, note: str = "") -> RuleSetVersion | None:
+    """FMS's Rebalance (``rules.rebalance``): the category weights scaled to sum 100 and each
+    category's rules scaled to its weight, saved, recorded as a new rules version and rescored; None
+    when nothing needed to change."""
+    with transaction.atomic():
+        setting = ScoreSetting.objects.select_for_update().get(pk=ScoreSetting.load().pk)
+        found = list(RuleSetting.objects.select_for_update().order_by("code"))
+        changes, categories = rules.rebalance(found, list(setting.categories or []))
+        if not changes and categories == setting.categories:
+            return None
+        for rule in found:
+            if rule.code in changes:
+                rule.params, rule.deduction = changes[rule.code]
+                rule.updated_by = _user(user)
+                rule.save()
+        setting.categories, setting.updated_by = categories, _user(user)
+        setting.save()
+        version = record_rules(
+            user, (note or "").strip() or "Rebalance: deductions scaled to the category weights"
+        )
+        start_rescore(user)
+    return version
 
 
 def _user(user):
@@ -246,8 +283,6 @@ def preview(
     ``start`` and ``end`` (this calendar year by default, the whole country): per rule, the visits it
     flags now and with the change; the average quality and the visits scored, now and with the
     change. Nothing is written."""
-    from datetime import timedelta
-
     from . import score
 
     today = timezone.localdate()
@@ -255,17 +290,14 @@ def preview(
     end = end or date(today.year, 12, 31)
     now_book = score.Rulebook.load()
     then_book = now_book.with_changes(rule_changes, score_changes)
-    window = max(int(rules.param(book.rules["R4"], "copy_window_days")) for book in (now_book, then_book))
+    codes = sorted(now_book.rules, key=rules.code_order)
     figures = {}
     for name, book in (("now", now_book), ("then", then_book)):
         visits = list(Visit.objects.filter(end_date__range=(start, end)).order_by("pk"))
-        nearby = Visit.objects.filter(
-            end_date__range=(start - timedelta(days=window), end + timedelta(days=window))
-        ).only("pk", "key", "label", "end_date")
-        source = score.StoredSource(visits, copy_visits=nearby)
+        source = score.StoredSource(visits)
         score.score_visits(source, book, today)
         figures[name] = {
-            "flagged": {code: sum(1 for v in visits if code in v.flags) for code in rules.CODES},
+            "flagged": {code: sum(1 for v in visits if code in v.flags) for code in codes},
             "avg_quality": score.average_quality(v.quality_score for v in visits),
             "scored": sum(1 for v in visits if v.quality_score is not None),
             "visits": len(visits),
@@ -275,7 +307,7 @@ def preview(
         "start": start,
         "end": end,
         "visits": now["visits"],
-        "rules": {code: {"now": now["flagged"][code], "then": then["flagged"][code]} for code in rules.CODES},
+        "rules": {code: {"now": now["flagged"][code], "then": then["flagged"][code]} for code in codes},
         "avg_quality": {"now": now["avg_quality"], "then": then["avg_quality"]},
         "scored": {"now": now["scored"], "then": then["scored"]},
     }

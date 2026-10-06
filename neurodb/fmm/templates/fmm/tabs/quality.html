@@ -108,8 +108,10 @@
         <span class="small {% if r.state == 'ok' %}text-{{ r.level }}{% else %}text-muted{% endif %}">
           {% if r.state == "off" %}{% trans "off" %}
           {% elif r.state == "na" %}{% if r.needs_answers %}{% trans "Not available — needs question answers (fm_questions); see Fields found" %}{% else %}{% blocktrans count n=r.na %}Not available on {{ n }} visit{% plural %}Not available on {{ n }} visits{% endblocktrans %}{% endif %}
+          {% elif r.state == "ai_off" %}{% trans "AI check switched off" %}
           {% elif r.state == "none" %}{% trans "does not apply to these visits" %}
-          {% else %}{% blocktrans with flagged=r.flagged evaluated=r.evaluated %}{{ flagged }} / {{ evaluated }} visits flagged{% endblocktrans %}{% if r.na %} · {% blocktrans with n=r.na %}not available on {{ n }}{% endblocktrans %}{% endif %}{% endif %}
+          {% elif r.state == "pending" %}{% blocktrans count n=r.pending %}AI check pending on {{ n }} visit{% plural %}AI check pending on {{ n }} visits{% endblocktrans %}
+          {% else %}{% blocktrans with flagged=r.flagged evaluated=r.evaluated %}{{ flagged }} / {{ evaluated }} visits flagged{% endblocktrans %}{% if r.na %} · {% blocktrans with n=r.na %}not available on {{ n }}{% endblocktrans %}{% endif %}{% if r.pending %} · {% blocktrans with n=r.pending %}pending on {{ n }}{% endblocktrans %}{% endif %}{% endif %}
         </span>
       </div>
       {% if r.state == "ok" %}<div class="meter"><div class="meter__track"><span class="meter__fill meter__fill--{{ r.level }}" style="width: {{ r.fill|floatformat:0 }}%"></span></div></div>{% endif %}
@@ -122,7 +124,7 @@
     <div class="panel__header"><h2 class="panel__title" id="fmm-summary-title">{% trans "Quality issues summary" %}</h2></div>
     <div class="mini-grid">
       {% with s=issues_summary %}
-      <a class="mini{% if s.r6.n %} mini--warning{% endif %}" {% if s.r6_url %}href="{{ s.r6_url }}" hx-get="{{ s.r6_url }}" hx-target="#modal-content"{% endif %}><div class="mini__value">{{ s.r6.n }}</div><div class="mini__label">{% trans "Rating quality (R6) flags" %}{% if s.r6.pct is not None %} · {% blocktrans with pct=s.r6.pct|percent %}{{ pct }} of scored visits{% endblocktrans %}{% endif %}</div></a>
+      <a class="mini{% if s.r6.n %} mini--warning{% endif %}" {% if s.r6_url %}href="{{ s.r6_url }}" hx-get="{{ s.r6_url }}" hx-target="#modal-content"{% endif %}><div class="mini__value">{{ s.r6.n }}</div><div class="mini__label">{% trans "Narrative and rating coherence (R6) flags" %}{% if s.r6.pct is not None %} · {% blocktrans with pct=s.r6.pct|percent %}{{ pct }} of scored visits{% endblocktrans %}{% endif %}</div></a>
       <a class="mini{% if s.gaps.n %} mini--danger{% endif %}" {% if s.gaps_url %}href="{{ s.gaps_url }}" hx-get="{{ s.gaps_url }}" hx-target="#modal-content"{% endif %}><div class="mini__value">{{ s.gaps.n }}</div><div class="mini__label">{% trans "Not monitored (planned, not conducted): reported visits with nothing rated, a count apart from the rated visits" %}</div></a>
       <a class="mini{% if s.high_flag.n %} mini--danger{% endif %}" {% if s.high_flag_url %}href="{{ s.high_flag_url }}" hx-get="{{ s.high_flag_url }}" hx-target="#modal-content"{% endif %}><div class="mini__value">{{ s.high_flag.n }}</div><div class="mini__label">{% blocktrans with at=s.high_flag.at %}Visits with {{ at }} or more flags{% endblocktrans %}{% if s.high_flag.pct is not None %} · {% blocktrans with pct=s.high_flag.pct|percent %}{{ pct }} of scored visits{% endblocktrans %}{% endif %}</div></a>
       {% endwith %}

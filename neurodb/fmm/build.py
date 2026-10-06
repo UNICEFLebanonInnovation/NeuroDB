@@ -98,6 +98,7 @@ FINDING_FIELDS = (
     "data",
 )
 RATED = ("on_track", "constrained", "off_track")
+LIKERT_SCALES = (3, 5)  # the answer scales whose bottom tier is a red flag (FMS: <= 2 of 5, 1 of 3)
 
 
 # ------------------------------------------------------------------------------------------ helpers
@@ -208,6 +209,7 @@ class ActionPointFacts:
     high_priority: bool
     section: str = ""
     office: str = ""
+    assigned: bool = False  # assigned to someone (who is never kept)
 
 
 def ap_counts(links: Iterable[ActionPointFacts], today: datetime.date) -> dict[str, int]:
@@ -279,6 +281,7 @@ class _Row:
     point: tuple[float, float] | None = None  # location_lat / location_lon
     location_type: str = ""
     row_answers: dict[str, dict[str, Any]] = field(default_factory=dict)
+    attachments: int | None = None  # attachments_count (rule R28); None: not in the record
 
 
 class _Answer:
@@ -298,10 +301,25 @@ class _Answer:
         "partner_id",
         "applies_to",
         "role",
+        "category",
+        "likert",
+        "scale",
     )
 
     def __init__(
-        self, document_id, visit_key, entity_text, question_key, question_text, order, is_hact, parsed, method
+        self,
+        document_id,
+        visit_key,
+        entity_text,
+        question_key,
+        question_text,
+        order,
+        is_hact,
+        parsed,
+        method,
+        category="",
+        likert=None,
+        scale=None,
     ):
         self.document_id = document_id
         self.visit_key = visit_key
@@ -316,6 +334,8 @@ class _Answer:
         self.partner_id: int | None = None
         self.applies_to = "visit"
         self.role = ""  # given by the scoring step (score.score_visits)
+        self.category = category
+        self.likert, self.scale = likert, scale  # a Likert answer's value (1 = the bottom tier) and scale
 
     def as_model(self, visit: Visit | None) -> QuestionAnswer:
         parsed = self.parsed
@@ -338,6 +358,9 @@ class _Answer:
             summary_words=min(parsed.summary_words, 2_000_000_000),
             rating=parsed.rating,
             method=self.method,
+            category=self.category,
+            likert=self.likert,
+            scale=self.scale,
         )
 
 
@@ -490,6 +513,9 @@ class _Builder:
             point=coordinates(read("latitude"), read("longitude")),
             location_type=parse.as_kind(read("location_type"), "text") or "",
             row_answers=answers,
+            attachments=parse.as_kind(read("attachments"), "count")
+            if ctx.key("field_monitoring", "attachments")
+            else None,
         )
 
     # ------------------------------------------------------------------ joining records to visits
@@ -548,6 +574,7 @@ class _Builder:
         if not (keys["question_id"] or keys["question_text"]):
             return
         counts = self.counts["questions"]
+        self.scales = Counter(question for question, _value in options)  # options per question
         for pk, record in fields.records("fm_questions"):
             self.result.questions += 1
             try:
@@ -589,6 +616,12 @@ class _Builder:
             _add(extra.sections, parse.split_list(raw("sections")))
             _add(extra.offices, parse.split_list(raw("offices")))
         order = read("order", "int")
+        scale = self.scales.get(question_key) if hasattr(self, "scales") else None
+        likert = None
+        if scale in LIKERT_SCALES and parsed.answered and not parsed.answer_code:
+            value = parse.as_kind(raw("answer"), "int")
+            likert = value if value is not None and 1 <= value <= scale else None
+        category = read("category") or ""
         return _Answer(
             document_id=pk,
             visit_key=same(visit_key, visit_key),
@@ -599,6 +632,9 @@ class _Builder:
             is_hact=is_hact,
             parsed=same(parsed, parsed),
             method=same(method := fit(QuestionAnswer, "method", read("method")), method),
+            category=same(category := fit(QuestionAnswer, "category", category), category),
+            likert=likert,
+            scale=scale if likert is not None else None,
         )
 
     # ------------------------------------------------------------------ what the visits link to
@@ -691,14 +727,23 @@ class _Builder:
             "high_priority",
             "section",
             "office",
+            "assigned_to_name",
         )
         return {
             pk: (
-                ActionPointFacts(pk, status or "", due, bool(high), section or "", office or ""),
+                ActionPointFacts(
+                    pk,
+                    status or "",
+                    due,
+                    bool(high),
+                    section or "",
+                    office or "",
+                    bool((assigned or "").strip()),
+                ),
                 related,
                 reference or "",
             )
-            for pk, related, reference, status, due, high, section, office in rows
+            for pk, related, reference, status, due, high, section, office, assigned in rows
         }
 
     def _match_action_points(self) -> None:
@@ -733,6 +778,9 @@ class _Builder:
         for visit in self.result.visits:
             for name, n in ap_counts(self.links_by_key.get(visit.key, ()), today).items():
                 setattr(visit, name, min(n, 32767))
+            visit.action_points_assigned = min(
+                sum(1 for a in self.links_by_key.get(visit.key, ()) if a.assigned), 32767
+            )
         self._sections_and_offices_from_action_points()
 
     # ------------------------------------------------------------------ building each visit
@@ -797,6 +845,7 @@ class _Builder:
         if shared > 1:
             issues["reference_conflict"] = shared
         self._answers(visit, entities)
+        self._derived(visit, rows)
         visit.issues = issues
         partners = [self.partners.get(pid) or {} for pid in visit.partner_ids]
         visit.search = search_text(
@@ -1075,6 +1124,38 @@ class _Builder:
             asked[pair] = asked.get(pair, False) or answer.parsed.answered
         visit.questions_asked = min(len(asked), 32767)
         visit.questions_answered = min(sum(asked.values()), 32767)
+
+    def _derived(self, visit: Visit, rows: list[_Row]) -> None:
+        """FMS's derived columns of a visit (rules R1, R2, R10, R11, R14, R28, R31...): the share of the
+        questions answered, the categories with an answer, the collection methods used, the red-flag
+        Likert answers (2 or less of 5, 1 of 3) and the attachments. None when the data cannot tell."""
+        from .rules import half_up
+
+        answers = self.answers_by_key.get(visit.key) or []
+        asked, answered_n = visit.questions_asked, visit.questions_answered
+        visit.fmq_answered_pct = (
+            half_up(100 * answered_n / asked, 1) if asked and answered_n is not None else None
+        )
+        answered = [a for a in answers if a.parsed.answered]
+        category_key = self.ctx.key("fm_questions", "category")
+        method_key = self.ctx.key("fm_questions", "method")
+        if answers and category_key:
+            categories = _unique(a.category for a in answered if a.category)
+            visit.fmq_answered_categories = fit(
+                Visit, "fmq_answered_categories", "; ".join(sorted(categories, key=str.casefold))
+            )
+        else:
+            visit.fmq_answered_categories = None
+        if answers and method_key:
+            visit.method_count = min(len({_name(a.method) for a in answered if a.method}), 32767)
+        else:
+            visit.method_count = None
+        likert = [a for a in answered if a.likert is not None]
+        visit.red_flag_count = (
+            min(sum(1 for a in likert if a.likert <= (2 if a.scale == 5 else 1)), 32767) if likert else None
+        )
+        found = [r.attachments for r in rows if r.attachments is not None]
+        visit.attachments_count = min(sum(found), 2_000_000_000) if found else None
 
     # ------------------------------------------------------------------ the run details
     def _finish_details(self) -> None:

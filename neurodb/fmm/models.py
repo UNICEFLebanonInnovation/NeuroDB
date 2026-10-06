@@ -8,7 +8,9 @@
 - the reviews sections put on visits (:class:`VisitReview`, kept across rebuilds) and the refreshes
   someone asked for that have not run yet (:class:`RefreshRequest`);
 - the quality rules, score settings and their versions (:class:`RuleSetting`, :class:`ScoreSetting`,
-  :class:`RuleSetVersion`) and each visit's rule results (:class:`VisitRuleResult`);
+  :class:`RuleSetVersion`), the field offices' staff lists of rule R19 (:class:`FieldOfficeStaff`),
+  each visit's rule results (:class:`VisitRuleResult`) and the AI checks' answers
+  (:class:`VisitAICheck`, kept across rebuilds);
 - the AI's prompt versions (:class:`PromptProfile`, :class:`PromptVersion`, never changed once
   published), what each model accepted (:class:`ModelCapability`), its pause (:class:`AIState`) and its
   briefs (:class:`Insight`, which keeps the payload sent, redacted, for a limited time);
@@ -176,12 +178,25 @@ class Visit(models.Model):
     team_unnamed = models.PositiveSmallIntegerField(default=0)  # members known by e-mail address only
     questions_asked = models.PositiveSmallIntegerField(null=True, blank=True)  # NULL = no question data
     questions_answered = models.PositiveSmallIntegerField(null=True, blank=True)
+    # FMS's derived columns, worked out at the build from the checklist answers and action points; None:
+    # not in the data (a rule then applies its missing-value deduction, or skips)
+    fmq_answered_pct = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
+    fmq_answered_categories = models.CharField(max_length=500, null=True, blank=True)  # "HACT; PSEA"
+    method_count = models.PositiveSmallIntegerField(null=True, blank=True)  # distinct collection methods
+    red_flag_count = models.PositiveSmallIntegerField(null=True, blank=True)  # bottom-tier Likert answers
+    attachments_count = models.PositiveIntegerField(null=True, blank=True)
+    action_points_assigned = models.PositiveSmallIntegerField(default=0)  # a count, never the names
     quality_score = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True, db_index=True)
     quality_points = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True)
     quality_max = models.PositiveSmallIntegerField(default=0)  # points of the rules evaluated
     evaluated_rules = ArrayField(models.CharField(max_length=4), default=list)  # ["R1", "R4"]
     not_scored_reason = models.CharField(max_length=80, blank=True)
-    score_band = models.CharField(max_length=8, blank=True)  # high | medium | low | ""
+    score_band = models.CharField(max_length=8, blank=True)  # high | medium | low | pending | ""
+    # a visit whose AI checks are not all done: its score so far (``quality_score`` stays empty, so no
+    # figure counts it as scored) and how many checks are pending
+    provisional_score = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
+    ai_pending = models.PositiveSmallIntegerField(default=0)
+    category_deductions = models.JSONField(default=dict)  # {"completeness": 4.0, ...}: each capped
     flags = ArrayField(models.CharField(max_length=4), default=list)  # the rules failed
     flag_count = models.PositiveSmallIntegerField(default=0, db_index=True)
     urgency = models.PositiveSmallIntegerField(null=True, blank=True, db_index=True)  # None: not scored
@@ -289,6 +304,10 @@ class QuestionAnswer(models.Model):
     summary_words = models.PositiveIntegerField(default=0)
     rating = models.CharField(max_length=16, blank=True)  # when the answer is a rating word
     method = models.CharField(max_length=100, blank=True)
+    category = models.CharField(max_length=120, blank=True)  # the question's category (FMS: Reach, PSEA...)
+    # a Likert answer: its value (1 = the bottom tier) and its scale (3 or 5 options); None otherwise
+    likert = models.PositiveSmallIntegerField(null=True, blank=True)
+    scale = models.PositiveSmallIntegerField(null=True, blank=True)
 
     class Meta:
         ordering = ("visit", "question_order", "question_key")
@@ -367,17 +386,38 @@ class RefreshRequest(models.Model):
 
 # ------------------------------------------------------------------------------------------ quality rules
 class RuleSetting(models.Model):
-    """One quality rule (R1-R6) as administrators set it: on or off, its points, its threshold and its
-    parameters (``fmm.rules``). Every save is recorded as a new rules version (``RuleSetVersion``) and
-    the scores are recomputed in the background."""
+    """One quality rule as FMS defines it (``fmm.rules``): its id, name, type, score category, group
+    (core or additional), on or off, its deduction, the flag it writes and its parameters (the fields it
+    reads, the scoring bands, the entity types it applies to, the AI prompt it uses, its check and
+    reference data). Every save is recorded as a new rules version (``RuleSetVersion``) and the scores
+    are recomputed in the background."""
 
-    code = models.CharField(max_length=4, primary_key=True)  # R1..R6
-    label = models.CharField(max_length=60)  # "Completeness", ...
-    enabled = models.BooleanField(default=True)
-    points = models.PositiveSmallIntegerField(validators=[MaxValueValidator(50)])
-    threshold = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
-    params = models.JSONField(default=dict, blank=True)  # checked per rule in clean()
+    class Type(models.TextChoices):
+        COMPLETENESS = "completeness", "Completeness (fields present)"
+        DETERMINISTIC = "deterministic", "Deterministic (scoring bands)"
+        NARRATIVE = "narrative", "AI check"
+        REFERENCE = "reference_check", "Reference check"
+
+    class Group(models.TextChoices):
+        CORE = "core", "Core"
+        ADDITIONAL = "additional", "Additional"
+
+    code = models.CharField(max_length=4, primary_key=True)  # R1..R32: never renamed
+    label = models.CharField(max_length=80)  # the rule's name
     description = models.TextField(blank=True)  # plain words: what the rule checks
+    type = models.CharField(max_length=16, choices=Type.choices, default="completeness")
+    # its score category (Score settings: categories)
+    category = models.SlugField(max_length=40, default="completeness")
+    group = models.CharField(max_length=12, choices=Group.choices, default=Group.ADDITIONAL)
+    hact_spec = models.CharField(max_length=120, blank=True)  # "Rule 1 - Completeness" (core rules)
+    enabled = models.BooleanField(default=True)
+    # points taken off the category when the rule fires (a completeness rule: the sum of its fields'
+    # deductions; a rule with scoring bands: its nominal weight, the bands give the deduction)
+    deduction = models.DecimalField(
+        max_digits=4, decimal_places=1, default=0, validators=[MinValueValidator(0), MaxValueValidator(100)]
+    )
+    flag_template = models.CharField(max_length=400, blank=True)  # "R2: Only {value}% of ..."
+    params = models.JSONField(default=dict, blank=True)  # checked per type in clean()
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
@@ -394,12 +434,62 @@ class RuleSetting(models.Model):
     def clean(self):
         from . import rules
 
-        self.params = rules.validate_rule(self.code, self.points, self.threshold, self.params)
+        self.params, self.deduction = rules.validate_rule(self)
+
+
+class FieldOfficeStaff(models.Model):
+    """The staff of one field office, kept by administrators (rule R19: the monitor of a visit is on the
+    staff list of the visit's field office). The addresses are compared in code only: never shown on a
+    page, never kept elsewhere, never sent to the AI. R19 skips a visit whose offices have no list."""
+
+    office = models.CharField(max_length=200, unique=True)  # as eTools writes it ("Zahle")
+    emails = models.TextField(blank=True, help_text="one e-mail address per line")
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("office",)
+        verbose_name = "field office staff list"
+        verbose_name_plural = "field office staff lists"
+
+    def __str__(self):
+        return self.office
+
+    def addresses(self) -> set[str]:
+        """The list's e-mail addresses, in lower case."""
+        return {line.strip().casefold() for line in (self.emails or "").splitlines() if "@" in line}
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        from neurodb.watch.people import EMAIL
+
+        wrong = [line.strip() for line in (self.emails or "").splitlines() if line.strip()]
+        wrong = [line for line in wrong if not EMAIL.fullmatch(line)]
+        if wrong:
+            raise ValidationError({"emails": f"One e-mail address per line ({len(wrong)} lines are not)."})
+        lines = {line.strip().casefold() for line in self.emails.splitlines() if line.strip()}
+        self.emails = "\n".join(sorted(lines))
 
 
 def default_urgency_weights() -> dict:
     # FMS's urgency: 50% the gap from the maximum quality score, 30% recency, 20% red flags (sum 1)
     return {"quality_gap": 0.5, "recency": 0.3, "red_flags": 0.2}
+
+
+def default_categories() -> list:
+    # FMS Lebanon's score categories and their weights (they sum to 100)
+    parts = (
+        ("completeness", "Completeness", 30),
+        ("evidence", "Evidence", 20),
+        ("alignment", "Alignment", 20),
+        ("coherence", "Coherence", 15),
+        ("q3_quality", "Q3 quality", 10),
+        ("actionability", "Actionability", 5),
+    )
+    return [{"key": key, "label": label, "weight": weight} for key, label, weight in parts]
 
 
 def default_scored_statuses() -> list:
@@ -426,7 +516,8 @@ class ScoreSetting(models.Model):
     (``fmm.score``): which statuses are scored, the bands, urgency's weights and recency window, the
     follow-up and late-report signals. Versioned and rescored like the rules."""
 
-    min_evaluated_points = models.PositiveSmallIntegerField(default=30)
+    # the score categories: each rule's deductions count against its category, at most its weight
+    categories = models.JSONField(default=default_categories)
     band_high = models.PositiveSmallIntegerField(default=80)  # High >= 80
     band_medium = models.PositiveSmallIntegerField(default=50)  # Medium 50-79, Low < 50
     high_flag_count = models.PositiveSmallIntegerField(default=3)
@@ -441,6 +532,23 @@ class ScoreSetting(models.Model):
     report_late_days = models.PositiveSmallIntegerField(default=30)
     question_patterns = models.JSONField(default=default_question_patterns)
     role_flag_answers = models.JSONField(default=default_role_flag_answers)
+    # the AI checks of the narrative rules (``fmm.ai.checks``)
+    ai_checks = models.BooleanField(default=True)  # off: the AI rules count as switched off
+    ai_model = models.CharField(max_length=64, blank=True)  # blank: AI_ASSISTANT_MODEL
+    ai_max_output_tokens = models.PositiveIntegerField(  # per check, the reasoning included
+        default=2000, validators=[MinValueValidator(500), MaxValueValidator(16000)]
+    )
+    ai_temperature = models.DecimalField(  # None: not sent
+        max_digits=3,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        default=Decimal("0.30"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("2"))],
+    )
+    ai_text_chars = models.PositiveSmallIntegerField(  # each text sent is cut to this many characters
+        default=1500, validators=[MinValueValidator(200), MaxValueValidator(6000)]
+    )
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
@@ -491,17 +599,18 @@ class RuleSetVersion(models.Model):
 
 class VisitRuleResult(models.Model):
     """What one quality rule found on one visit: passed, failed (a flag), not available, not
-    applicable or switched off, with the points earned and a code-written sentence (never text from
-    the data)."""
+    applicable, switched off or pending (an AI check not done yet), with the points it kept (its
+    maximum deduction less what it took off) and its flag: written by the code from the rule's flag
+    template, with an AI check's explanation (cleaned of names, e-mail addresses and links)."""
 
     visit = models.ForeignKey(Visit, on_delete=models.CASCADE, related_name="rule_results")
-    rule = models.CharField(max_length=4)  # R1..R6
-    status = models.CharField(max_length=4, db_index=True)  # pass | fail | na | nap | off
-    points = models.DecimalField(max_digits=4, decimal_places=1, default=0)  # earned, never above max
-    max_points = models.PositiveSmallIntegerField(default=0)
-    detail_key = models.CharField(max_length=40, blank=True)  # "missing:narrative,q2", "below_threshold"
-    detail = models.CharField(max_length=300, blank=True)  # code-written; never text from the data
-    measure = models.FloatField(null=True, blank=True)  # 46.2 (% answered), 9 (words), 2 (cues)
+    rule = models.CharField(max_length=4)  # R1..R32
+    status = models.CharField(max_length=8, db_index=True)  # pass | fail | na | nap | off | pending
+    points = models.DecimalField(max_digits=4, decimal_places=1, default=0)  # kept, never above max
+    max_points = models.DecimalField(max_digits=4, decimal_places=1, default=0)  # the most it takes off
+    detail_key = models.CharField(max_length=40, blank=True)  # "missing:0,3", "band:1", "ai"
+    detail = models.CharField(max_length=600, blank=True)  # the flag, or why it passed or did not apply
+    measure = models.FloatField(null=True, blank=True)  # 46.2 (% answered), 2 (methods)
 
     class Meta:
         ordering = ("visit", "rule")
@@ -512,6 +621,38 @@ class VisitRuleResult(models.Model):
 
     def __str__(self):
         return f"{self.visit_id} {self.rule} {self.status}"
+
+    @property
+    def deducted(self) -> Decimal:
+        """The points the rule took off the visit."""
+        return Decimal(self.max_points or 0) - Decimal(self.points or 0)
+
+
+class VisitAICheck(models.Model):
+    """The answer of one AI check (a narrative rule) on one visit, kept so that a visit and rule are
+    checked again only when the visit's inputs (``input_hash``) or the rule's prompt (``prompt_hash``)
+    change. Keyed by the visit's key: it survives the rebuilds of the visits. The explanation is
+    cleaned of names, e-mail addresses, phone numbers and links, and checked against what was sent."""
+
+    visit_key = models.CharField(max_length=40)
+    rule = models.CharField(max_length=4)
+    input_hash = models.CharField(max_length=64)
+    prompt_hash = models.CharField(max_length=64)
+    model = models.CharField(max_length=64, blank=True)
+    passed = models.BooleanField()
+    detail = models.CharField(max_length=400, blank=True)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    checked_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        ordering = ("visit_key", "rule")
+        constraints = [models.UniqueConstraint(fields=["visit_key", "rule"], name="fmm_visit_ai_check")]
+        verbose_name = "AI check"
+        verbose_name_plural = "AI checks"
+
+    def __str__(self):
+        return f"{self.visit_key} {self.rule} {'passed' if self.passed else 'flagged'}"
 
 
 # ------------------------------------------------------------------------------------------ AI
@@ -550,6 +691,11 @@ SECTIONS_HELP = (
     "label (the heading on the page), its format (paragraph or bullets) and its limit: the most "
     "sentences or bullets it may hold. The key action_points holds the priority action points "
     "(priority, section, partner, action, responsible party, timeframe)."
+)
+RULE_PROMPTS_HELP = (
+    "The instructions of the AI checks, one per prompt key a narrative quality rule names (for example "
+    '"evidence_sufficiency"): what the check looks for and when it passes. NeuroDB adds its fixed rules '
+    "and the answer format (passed or not, and one or two sentences why)."
 )
 CHAT_EXAMPLES_HELP = "The starter questions Chat with Data offers, one per line (at most 8)."
 
@@ -603,6 +749,8 @@ class PromptVersion(models.Model):
         "compliance depth", default=15, validators=[MaxValueValidator(40)], help_text=COMP_HELP
     )
     sections = models.JSONField(default=default_insight_sections, help_text=SECTIONS_HELP)
+    # the AI checks: the instructions of each prompt key a narrative rule names (FMS's prompt sections)
+    rule_prompts = models.JSONField(default=dict, blank=True, help_text=RULE_PROMPTS_HELP)
     insights_per_user_per_day = models.PositiveSmallIntegerField(
         default=5, validators=[MaxValueValidator(50)]
     )
@@ -662,6 +810,7 @@ class PromptVersion(models.Model):
         "narratives_sampled",
         "comparison_visits",
         "sections",
+        "rule_prompts",
         "insights_per_user_per_day",
         "chat_enabled",
         "chat_instructions",
@@ -735,6 +884,10 @@ class PromptVersion(models.Model):
             self.chat_examples = sections.validate_examples(self.chat_examples)
         except ValidationError as exc:
             errors["chat_examples"] = exc.messages
+        try:
+            self.rule_prompts = sections.validate_rule_prompts(self.rule_prompts)
+        except ValidationError as exc:
+            errors["rule_prompts"] = exc.messages
         if errors:
             raise ValidationError(errors)
 
@@ -747,8 +900,12 @@ class PromptVersion(models.Model):
         return value
 
     def content(self) -> dict:
-        """The content fields as plain values, for comparisons and the hash."""
-        return {name: self._plain(name, getattr(self, name)) for name in self.CONTENT_FIELDS}
+        """The content fields as plain values, for comparisons and the hash (no AI check prompts: no
+        key, so a version written before them keeps its hash)."""
+        out = {name: self._plain(name, getattr(self, name)) for name in self.CONTENT_FIELDS}
+        if not out.get("rule_prompts"):
+            out.pop("rule_prompts", None)
+        return out
 
     def compute_hash(self) -> str:
         """sha256 of the content, the version of the fixed safety text and the version of the brief's

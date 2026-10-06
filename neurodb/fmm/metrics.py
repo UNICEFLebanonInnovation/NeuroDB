@@ -28,7 +28,9 @@ from typing import Any
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Count, Max, Min, Q, QuerySet, Sum
+from django.db.models import Count, DecimalField, Max, Min, Q, QuerySet, Sum
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Cast
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
@@ -835,35 +837,31 @@ def band_of(score: float, limits: dict[str, int]) -> str:
 
 
 def issue_label(rule: str, key: str, measures: list[float], setting: Any) -> str:
-    """A recurring issue in words, written by NeuroDB from the rule and its detail code."""
-    from .rules import R1_LABELS, number
+    """A recurring issue in words, written by NeuroDB from the rule's flag template and the detail code
+    (the fields missing, the band, or "ai" for an AI check: its explanation differs from visit to
+    visit, so the issue is the rule's flag without it)."""
+    from .rules import COLUMNS, number, param, render
 
-    limit = number(setting.threshold) if setting is not None and setting.threshold is not None else ""
-    low = min(measures) if measures else None
-    if rule == "R1" and key.startswith("missing:"):
-        missing = [R1_LABELS.get(part, part) for part in key.split(":", 1)[1].split(",") if part]
-        return "R1: Incomplete monitoring report — missing: " + ", ".join(missing)
-    if rule == "R2" and key == "below_threshold":
-        text = f"R2: fewer than {limit}% of questions answered"
-        return text + (f" (lowest {number(low)}%)" if low is not None else "")
-    if rule in ("R4", "R5") and key in ("too_short", "q3_short"):
-        what = "narrative" if rule == "R4" else "Q3 answer"
-        text = f"{rule}: {what} shorter than {limit} words"
-        return text + (f" (shortest {int(low)})" if low is not None else "")
-    fixed = {
-        ("R3", "q1_missing"): "R3: HACT Q1 not answered",
-        ("R3", "q1_unrecognised"): "R3: HACT Q1 answer is not a rating",
-        ("R3", "conflict"): "R3: HACT Q1 contradicts the overall finding",
-        ("R4", "placeholder"): "R4: narrative is a placeholder",
-        ("R4", "copied"): "R4: narrative identical to another visit's",
-        ("R5", "q3_missing"): "R5: Q3 not answered",
-        ("R5", "q3_placeholder"): "R5: Q3 answer is a placeholder",
-        ("R6", "contradiction"): "R6: narrative contradicts the rating",
-        ("R6", "not_monitored_described"): "R6: entity rated Not monitored described without a reason",
-    }
-    if (rule, key) in fixed:
-        return fixed[(rule, key)]
-    return f"{rule} {setting.label if setting is not None else ''}: flagged".replace("  ", " ")
+    template = getattr(setting, "flag_template", "") or ""
+    label = getattr(setting, "label", "") or rule
+    if not template:
+        return f"{rule} {label}: flagged"
+    if key.startswith("missing:") and setting is not None:
+        specs = param(setting, "fields") or []
+        names = []
+        for part in key.split(":", 1)[1].split(","):
+            if part.isdigit() and int(part) < len(specs):
+                spec = specs[int(part)]
+                names.append(spec.get("label") or COLUMNS.get(spec.get("name", ""), spec.get("name", "")))
+        return render(template, missing_fields=", ".join(names))
+    if key == "missing":
+        name = COLUMNS.get(param(setting, "field", ""), "") if setting is not None else ""
+        return f"{rule}: {name or label} not in the eTools data"
+    value = ""
+    if key == "band" and measures:
+        low, high = min(measures), max(measures)
+        value = number(low) if low == high else f"{number(low)}–{number(high)}"
+    return render(template, value=value)
 
 
 def top_issues(
@@ -1022,7 +1020,7 @@ def rule_stats(scope: Scope, when: str | None = None) -> dict[str, dict[str, Any
     return cached(scope, "rules", compute, when)
 
 
-NEEDS_ANSWERS = ("R2", "R3", "R5")
+ANSWER_COLUMNS = ("fmq_answered_pct", "fmq_answered_categories", "method_count", "red_flag_count")
 
 
 def _rule_settings(rules: list | None) -> list:
@@ -1034,33 +1032,44 @@ def _rule_settings(rules: list | None) -> list:
 
 def rule_analysis(scope: Scope, rules: list | None = None, when: str | None = None) -> list[dict[str, Any]]:
     """Block 10: per rule, the visits flagged out of the visits evaluated (passed or flagged), the
-    visits where it was not available, "off" for a rule switched off and "flag only" for 0 points."""
-    rules = _rule_settings(rules)
+    visits where it was not available and those whose AI check is pending; "off" for a rule switched
+    off and "flag only" for a rule without a deduction. In the order of the rule ids."""
+    from .rules import TYPE_LABELS, code_order, nominal, param
+
+    rules = sorted(_rule_settings(rules), key=lambda r: code_order(r.code))
     stats = rule_stats(scope, when)
     out = []
-    for rule in sorted(rules, key=lambda r: r.code):
+    for rule in rules:
         s = stats.get(rule.code, {})
         flagged, evaluated = s.get("fail", 0), s.get("fail", 0) + s.get("pass", 0)
         share = _pct(flagged, evaluated)
         if not rule.enabled:
             state = "off"
+        elif not evaluated and s.get("pending", 0):
+            state = "pending"
         elif not evaluated and s.get("na", 0):
             state = "na"
+        elif not evaluated and s.get("off", 0):
+            state = "ai_off"  # an AI check while the AI checks are switched off
         elif not evaluated:
             state = "none"
         else:
             state = "ok"
+        deduction = nominal(rule)
         out.append(
             {
                 "code": rule.code,
                 "label": rule.label,
                 "description": rule.description,
-                "points": rule.points,
-                "flag_only": not rule.points,
+                "category": rule.category,
+                "type": TYPE_LABELS.get(rule.type, rule.type),
+                "points": deduction,
+                "flag_only": not deduction,
                 "state": state,
                 "flagged": flagged,
                 "evaluated": evaluated,
                 "na": s.get("na", 0),
+                "pending": s.get("pending", 0),
                 "share": share,
                 "fill": float(share or 0),
                 "level": "danger"
@@ -1068,7 +1077,8 @@ def rule_analysis(scope: Scope, rules: list | None = None, when: str | None = No
                 else "warning"
                 if flagged
                 else "success",
-                "needs_answers": rule.code in NEEDS_ANSWERS,
+                # a rule read from the checklist answers (fm_questions), "not available" without them
+                "needs_answers": param(rule, "field", "") in ANSWER_COLUMNS,
             }
         )
     return out
@@ -1242,38 +1252,61 @@ def flag_frequency(scope: Scope, rules: list | None = None, when: str | None = N
     return {"rows": rows, "pairs": [[r["label"], r["n"], r["code"]] for r in rows if r["n"]]}
 
 
-def dimension_breakdown(scope: Scope, rules: list | None = None, when: str | None = None) -> dict[str, Any]:
-    """Block 22: per rule with points, the mean points earned over the visits it evaluated, out of its
-    maximum (capped at 100%), weakest first; rules never evaluated last as "not available"."""
+def dimension_breakdown(
+    scope: Scope, rules: list | None = None, when: str | None = None, setting=None
+) -> dict[str, Any]:
+    """Block 22, points by category: per score category, its weight and the points the scored visits
+    kept of it on average (the weight less the category's deductions, each at most the weight), weakest
+    first; the categories no rule switched on uses are listed apart."""
+    from .models import ScoreSetting
     from .rules import half_up
+    from .score import categories_of, category_labels
 
     rules = _rule_settings(rules)
-    stats = rule_stats(scope, when)
-    rows, unavailable, flag_only = [], [], []
-    for rule in sorted(rules, key=lambda r: r.code):
-        if not rule.enabled:
+    setting = setting or ScoreSetting.load()
+    weights = categories_of(setting)
+    labels = category_labels(setting)
+
+    def compute() -> dict[str, Any]:
+        # one aggregate: each visit's deduction per category is stored already capped at its weight
+        sums = {
+            f"c{i}": Sum(
+                Cast(
+                    KeyTextTransform(key, "category_deductions"),
+                    DecimalField(max_digits=12, decimal_places=2),
+                )
+            )
+            for i, key in enumerate(weights)
+        }
+        found = scope.visits().exclude(quality_score=None).aggregate(n=Count("id"), **sums)
+        totals = {key: str(found[f"c{i}"] or 0) for i, key in enumerate(weights)}
+        return {"n": found["n"], "totals": totals}
+
+    data = cached(scope, "categories", compute, when)
+    used = {r.category for r in rules if r.enabled}
+    rows, unavailable = [], []
+    for key, weight in weights.items():
+        if key not in used or not weight:
+            unavailable.append({"code": key, "label": labels.get(key, key), "points": weight})
             continue
-        if not rule.points:
-            flag_only.append(rule.code)
+        if not data["n"]:
             continue
-        s = stats.get(rule.code, {})
-        n, earned, top = s.get("points_n", 0), s.get("earned"), s.get("points_max")
-        if not n or not top:
-            unavailable.append({"code": rule.code, "label": rule.label, "points": rule.points})
-            continue
-        pct = min(Decimal(100), half_up(Decimal(100) * Decimal(earned or 0) / Decimal(top), 1))
+        lost = Decimal(data["totals"].get(key, "0")) / data["n"]
+        kept = half_up(max(Decimal(0), weight - lost), 1)
+        pct = min(Decimal(100), half_up(Decimal(100) * kept / weight, 1))
         rows.append(
             {
-                "code": rule.code,
-                "label": rule.label,
-                "earned": half_up(Decimal(earned or 0) / n, 1),
-                "max": half_up(Decimal(top) / n, 1),
+                "code": key,
+                "label": labels.get(key, key),
+                "earned": kept,
+                "max": half_up(weight, 1),
                 "pct": pct,
                 "fill": float(pct),
-                "visits": n,
+                "visits": data["n"],
             }
         )
     rows.sort(key=lambda r: (r["pct"], r["code"]))
+    flag_only = [r.code for r in rules if r.enabled and not r.deduction]
     return {"rows": rows, "unavailable": unavailable, "flag_only": flag_only}
 
 
@@ -1281,9 +1314,9 @@ def rule_trends(scope: Scope, rules: list | None = None, when: str | None = None
     """Rule score trends over time: per rule with points, the share of its maximum points earned by the
     visits that ended each month (the results that passed or failed; each capped at its maximum); a
     month where the rule checked no visit has no value. ``{}`` when no rule checked a visit."""
-    from .rules import half_up
+    from .rules import code_order, half_up, max_deduction
 
-    rules = [r for r in _rule_settings(rules) if r.enabled and r.points]
+    rules = [r for r in _rule_settings(rules) if r.enabled and max_deduction(r)]
     found: dict[tuple[str, str], float] = {}
     for row in rule_months(scope, when):
         if row["month"] and row["points_max"]:
@@ -1293,7 +1326,9 @@ def rule_trends(scope: Scope, rules: list | None = None, when: str | None = None
         return {}
     axis = _month_axis(scope, {month for _rule, month in found})
     keys = [d.strftime("%Y-%m") for d in axis]
-    shown = [r for r in sorted(rules, key=lambda r: r.code) if any((r.code, k) in found for k in keys)]
+    shown = [
+        r for r in sorted(rules, key=lambda r: code_order(r.code)) if any((r.code, k) in found for k in keys)
+    ]
     if not shown:
         return {}
     return {

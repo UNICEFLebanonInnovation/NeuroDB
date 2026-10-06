@@ -1,5 +1,6 @@
-"""Scoring a visit (``fmm.score``): the score over the rules evaluated, its floor, bands and flags;
-urgency and its worked examples; HACT Q1 (own, partner-level, visit-level) and the PSEA flag."""
+"""Scoring a visit (``fmm.score``): FMS's score (100 less the deductions, each category's at most its
+weight), provisional visits, bands and flags; urgency and its worked examples; HACT Q1 (own,
+partner-level, visit-level) and the PSEA flag."""
 
 from __future__ import annotations
 
@@ -11,10 +12,10 @@ import pytest
 from neurodb.fmm import score
 from neurodb.fmm.build import ActionPointFacts
 from neurodb.fmm.models import ScoreSetting, Visit, default_urgency_weights
-from neurodb.fmm.rules import AnswerFacts, RuleOutcome
+from neurodb.fmm.rules import AnswerFacts, Outcome
 from neurodb.fmm.score import ScoreOutcome
 
-from .test_rules import answer, entity, facts
+from .test_rules import answer, entity
 
 TODAY = datetime.date(2026, 10, 5)
 
@@ -23,61 +24,49 @@ def setting(**changes) -> ScoreSetting:
     return ScoreSetting(**changes)  # the defaults, not saved
 
 
-def outcome(rule: str, status: str, points: float, max_points: int) -> RuleOutcome:
-    return RuleOutcome(rule, status, points, max_points)
+def outcome(
+    rule: str, status: str, deduction: float = 0, category: str = "completeness", top: float = 20
+) -> Outcome:
+    return Outcome(rule, status, Decimal(str(deduction)), Decimal(str(top)), category=category)
 
 
 # ------------------------------------------------------------------------------------------ score
-def test_the_score_is_earned_over_the_points_evaluated():
+def test_the_score_is_100_less_the_deductions_each_category_at_most_its_weight():
     outcomes = [
-        outcome("R1", "pass", 15, 15),
-        outcome("R2", "fail", 8.3, 20),
-        outcome("R3", "na", 0, 20),  # not available: out of the denominator
-        outcome("R4", "fail", 7.5, 15),
-        outcome("R5", "nap", 0, 15),
-        outcome("R6", "pass", 0, 0),
+        outcome("R1", "fail", 11, "completeness"),
+        outcome("R2", "fail", 10, "completeness"),
+        outcome("R20", "fail", 15, "completeness"),  # completeness: 36 taken, at most 30
+        outcome("R3", "fail", 20, "evidence"),
+        outcome("R5", "pass", 0, "alignment"),
+        outcome("R6", "na", 0, "coherence"),
+        outcome("R7", "off", 0, "q3_quality"),
     ]
-    result = score.score_visit(facts([entity()]), outcomes, setting(), total=85)
-    assert result.score == Decimal("61.6")  # 30.8 of 50, half up
-    assert (result.points, result.max_points, result.evaluated) == (Decimal("30.8"), 50, ("R1", "R2", "R4"))
-    assert (result.flags, result.band, result.not_scored_reason) == (("R2", "R4"), "medium", "")
+    result = score.score_visit(outcomes, setting())
+    assert result.score == Decimal("50.0")  # 100 - 30 - 20
+    assert result.deductions == {"completeness": 30.0, "evidence": 20.0}
+    assert (result.flags, result.evaluated) == (("R1", "R2", "R20", "R3"), ("R1", "R2", "R20", "R3", "R5"))
+    assert (result.band, result.not_scored_reason, result.pending) == ("medium", "", 0)
 
 
-def test_r6_at_0_points_still_flags_and_a_disabled_rule_is_out():
-    outcomes = [
-        outcome("R1", "pass", 15, 15),
-        outcome("R2", "pass", 20, 20),
-        outcome("R3", "off", 0, 20),
-        outcome("R6", "fail", 0, 0),
-    ]
-    result = score.score_visit(facts([entity()]), outcomes, setting())
-    assert (result.score, result.max_points, result.flags) == (Decimal("100.0"), 35, ("R6",))
-    assert result.evaluated == ("R1", "R2")
+def test_the_score_never_goes_below_zero_and_a_flag_without_points_still_flags():
+    every = [outcome(f"R{n}", "fail", 40, f"c{n}") for n in range(1, 5)]  # categories without a weight
+    assert score.score_visit(every, setting()).score == Decimal("0.0")
+    result = score.score_visit([outcome("R23", "fail", 0, "completeness", 0)], setting())
+    assert (result.score, result.flags) == (Decimal("100.0"), ("R23",))
 
 
-def test_points_above_a_rules_maximum_never_count():
-    result = score.score_visit(
-        facts([entity()]), [outcome("R2", "pass", 40, 20), outcome("R1", "pass", 15, 15)], setting()
-    )
-    assert result.score == Decimal("100.0")
-
-
-def test_too_few_points_evaluated_gives_no_score():
-    outcomes = [outcome("R1", "fail", 7.5, 15), *[outcome(r, "na", 0, 20) for r in ("R2", "R3")]]
-    result = score.score_visit(facts([entity()]), outcomes, setting(), total=85)
-    assert (result.score, result.band, result.not_scored_reason) == (
-        None,
-        "",
-        "too few rules (15 of 85 points)",
-    )
-    assert result.flags == ("R1",)  # the flag stays
-    assert score.score_visit(facts([entity()]), outcomes, setting(min_evaluated_points=15)).score == 50
+def test_a_visit_with_ai_checks_pending_is_provisional_and_not_scored():
+    outcomes = [outcome("R1", "fail", 2), outcome("R3", "pending", 0, "evidence"), outcome("R5", "pending")]
+    result = score.score_visit(outcomes, setting())
+    assert (result.score, result.provisional, result.pending) == (None, Decimal("98.0"), 2)
+    assert (result.band, result.not_scored_reason) == ("", "provisional: 2 AI checks pending")
+    assert result.flags == ("R1",)  # the flags found so far stay
 
 
 def test_visits_in_other_statuses_are_pending():
-    planned = score.score_visit(facts([entity()], status_group="planned", scorable=False), [], setting())
+    planned = score.score_visit([], setting(), False, "planned")
     assert (planned.score, planned.band, planned.not_scored_reason) == (None, "pending", score.PENDING)
-    cancelled = score.score_visit(facts([entity()], status_group="cancelled", scorable=False), [], setting())
+    cancelled = score.score_visit([], setting(), False, "cancelled")
     assert (cancelled.band, cancelled.not_scored_reason) == ("", "cancelled")
 
 
@@ -95,13 +84,11 @@ def test_scorable_visits_follow_the_scored_statuses():
 
 
 @pytest.mark.parametrize(
-    ("earned", "band"),
-    [(Decimal(80), "high"), (Decimal("79.9"), "medium"), (Decimal(50), "medium"), (Decimal("49.9"), "low")],
+    ("taken", "band"),
+    [(Decimal(20), "high"), (Decimal("20.1"), "medium"), (Decimal(50), "medium"), (Decimal("50.1"), "low")],
 )
-def test_bands_at_their_edges(earned, band):
-    result = score.score_visit(
-        facts([entity()]), [outcome("R1", "pass", float(earned), 100)], setting(min_evaluated_points=0)
-    )
+def test_bands_at_their_edges(taken, band):
+    result = score.score_visit([outcome("R1", "fail", taken, "x", 100)], setting())
     assert result.band == band
 
 
@@ -122,7 +109,7 @@ def visit(rating="on_track", q1="", group="reported", end=None) -> Visit:
 
 def scored(value, flags=0) -> ScoreOutcome:
     value = None if value is None else Decimal(value)
-    return ScoreOutcome(value, value, 85, (), "", tuple(f"R{n}" for n in range(1, flags + 1)), "")
+    return ScoreOutcome(value, None, 0, {}, (), "", tuple(f"R{n}" for n in range(1, flags + 1)), "")
 
 
 def days_ago(n: int) -> datetime.date:
@@ -331,9 +318,7 @@ def test_the_built_visits_carry_their_effective_q1(fm_world):
 
 
 @pytest.mark.django_db
-def test_without_the_answer_keys_psea_is_not_known_and_the_answer_rules_are_not_available(
-    fm_world, monkeypatch
-):
+def test_without_the_answer_keys_psea_is_not_known_and_q1_q2_are_not_counted_missing(fm_world, monkeypatch):
     from neurodb.fmm import fields, refresh
     from neurodb.fmm.models import VisitRuleResult
 
@@ -343,9 +328,6 @@ def test_without_the_answer_keys_psea_is_not_known_and_the_answer_rules_are_not_
     refresh.run(triggered_by="test", scores_only=True, today=TODAY)
     flags = dict(Visit.objects.values_list("key", "psea_flag"))
     assert flags["1722"] is None and flags["1726"] is None  # not "not flagged"
-    statuses = set(
-        VisitRuleResult.objects.filter(
-            rule__in=("R2", "R3", "R5"), visit__status_group="reported"
-        ).values_list("status", flat=True)
-    )
-    assert statuses == {"na"}
+    # Q1 and Q2 cannot be read: R1 does not count them missing
+    details = VisitRuleResult.objects.filter(rule="R1").values_list("detail", flat=True)
+    assert details and not any("Q1 –" in d or "Q2 –" in d for d in details)

@@ -90,17 +90,19 @@ def test_shape_d_finds_nothing_and_says_so(fm_questions_variant):
 
 
 def test_shape_d_leaves_r2_r3_and_r5_not_available_not_failed(fm_world, fm_questions_variant):
-    """Nothing read from the checklist answers: the rules that need them say "not available", they do
-    not flag the visits."""
+    """Nothing read from the checklist answers: the rule that needs them (R2) says "not available", it
+    does not flag the visits (nor take its missing-value deduction); the AI checks R3 and R5 are off
+    while none is made."""
     from neurodb.fmm.models import VisitRuleResult
 
     fm_questions_variant("D")
     run = refresh.run(triggered_by="test")
     assert not QuestionAnswer.objects.exists() and "fm_questions.answer" in run.details["fields_not_found"]
-    results = VisitRuleResult.objects.filter(rule__in=("R2", "R3", "R5"))
-    assert set(results.filter(visit__status_group="reported").values_list("status", flat=True)) == {"na"}
+    results = VisitRuleResult.objects.filter(rule__in=("R2", "R3", "R5"), visit__status_group="reported")
+    assert set(results.filter(rule="R2").values_list("status", flat=True)) == {"na"}
+    assert set(results.exclude(rule="R2").values_list("status", flat=True)) == {"off"}
     assert not results.filter(status="fail").exists()
-    assert Visit.objects.filter(status_group="reported").exclude(quality_score=None).exists()  # R1 and R4
+    assert Visit.objects.filter(status_group="reported").exclude(quality_score=None).exists()  # R1
 
 
 def test_the_probe_measures_the_answers_given(fm_questions_variant):

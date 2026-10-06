@@ -100,7 +100,11 @@ def test_v2_is_seeded_from_fms_lebanon_prompt():
     """Release 2 (A7): version 2 is published from the [insights] part of FMS's Lebanon prompt, with its
     five parts and their limits; version 1 is retired; NeuroDB's fixed text stays in code."""
     v1, v2 = PromptVersion.objects.get(number=1), PromptVersion.objects.get(number=2)
-    assert (v1.status, v2.status) == ("retired", "published") and profiles.published() == v2
+    # stage B's version 3 copies it with the AI checks' instructions added, and is published in its place
+    v3 = PromptVersion.objects.get(number=3)
+    assert (v1.status, v2.status, v3.status) == ("retired", "retired", "published")
+    assert profiles.published() == v3 and v3.based_on == v2 and v3.instructions == v2.instructions
+    assert v3.content_hash == v3.compute_hash() and v3.rule_prompts and not v2.rule_prompts
     assert v2.content_hash == v2.compute_hash()  # the migration's literal hash is the model's
     assert v2.based_on == v1 and v2.created_by_name == v2.published_by_name == "NeuroDB (default)"
     assert [(s["key"], s["format"], s["limit"]) for s in v2.sections] == [

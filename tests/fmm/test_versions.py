@@ -41,44 +41,23 @@ def started(monkeypatch):
 
 
 # ------------------------------------------------------------------------------------------ the seed
-def test_version_1_holds_the_defaults():
-    v1 = RuleSetVersion.objects.get()
+def test_version_1_holds_release_1s_defaults_and_version_2_fms_rules():
+    v1, v2 = RuleSetVersion.objects.order_by("number")
     assert (v1.number, v1.note, v1.created_by, v1.created_by_name) == (
         1,
         "Defaults",
         None,
         "NeuroDB (default)",
     )
-    # version 1 holds Release 1's settings: Release 2 changed urgency's weights (FMS's formula) and added
-    # the scored statuses and the recency window, which a restore of version 1 leaves as they are
+    assert {r["code"] for r in v1.snapshot["rules"]} == {"R1", "R2", "R3", "R4", "R5", "R6"}  # Release 1's
+    assert (v2.number, v2.created_by, v2.created_by_name) == (2, None, "NeuroDB (default)")
+    assert v2.note == "FMS Lebanon rule set (Release 2): 32 rules, six score categories"
     now = versions.snapshot_rules()
-    release_2 = {"urgency_weights", "scored_statuses", "recency_days"}
-    assert v1.snapshot["rules"] == now["rules"] and v1.snapshot["mappings"] == now["mappings"]
-    assert {k: v for k, v in v1.snapshot["score"].items() if k not in release_2} == {
-        k: v for k, v in now["score"].items() if k not in release_2
-    }
-    assert (
-        "off_track" in v1.snapshot["score"]["urgency_weights"]
-        and "scored_statuses" not in v1.snapshot["score"]
-    )
-    assert (
-        v1.snapshot["mappings"] == {}
-        and versions.current_rules_version() == refresh.current_rules_version() == 1
-    )
-    for row in RuleSetting.objects.all():  # the migration's literals are the code's defaults
-        default = rules.DEFAULTS[row.code]
-        assert (row.label, row.points, row.params, row.description, row.enabled) == (
-            default["label"],
-            default["points"],
-            default["params"],
-            default["description"],
-            True,
-        )
-        assert row.threshold == (None if default["threshold"] is None else Decimal(default["threshold"]))
-    assert sum(r.points for r in RuleSetting.objects.all()) == 85  # R6 is a flag only (0 points)
+    assert v2.snapshot == now and versions.current_rules_version() == refresh.current_rules_version() == 2
     seeded, fresh = ScoreSetting.load(), ScoreSetting()
     for name in versions.SCORE_FIELDS:
         assert getattr(seeded, name) == getattr(fresh, name), name
+    assert sum(r.deduction for r in RuleSetting.objects.filter(enabled=True)) == 100  # FMS's six weights
 
 
 def test_the_default_settings_are_new_objects_for_every_row():
@@ -98,39 +77,39 @@ def test_a_rule_save_records_a_version_and_asks_for_a_rescore_on_commit(
     admin_user, started, django_capture_on_commit_callbacks
 ):
     with django_capture_on_commit_callbacks(execute=True):
-        RuleSetting.objects.filter(code="R2").update(threshold=60, updated_by=admin_user)
+        RuleSetting.objects.filter(code="R2").update(deduction=6, updated_by=admin_user)
         version = versions.record_rules(admin_user, "Target lowered for the first quarter")
         versions.start_rescore(admin_user)
         assert started == []  # not before the save is committed
     assert started == [("fmm_refresh", "--scores-only", "--triggered-by", f"admin:{admin_user.pk}")]
     assert (version.number, version.note, version.created_by, version.created_by_name) == (
-        2,
+        3,
         "Target lowered for the first quarter",
         admin_user,
         "admin",
     )
     assert version.created_at is not None and version.restored_from is None
-    assert {r["code"]: r["threshold"] for r in version.snapshot["rules"]}["R2"] == 60
+    assert {r["code"]: r["deduction"] for r in version.snapshot["rules"]}["R2"] == 6
     assert RefreshRequest.load().scores_requested_at is not None and RefreshRequest.load().requested_by == (
         f"admin:{admin_user.pk}"
     )
-    assert versions.current_rules_version() == 2
+    assert versions.current_rules_version() == 3
     assert versions.saved_message(version) == (
-        "Saved as rules v2. Scores will be recomputed in the background; the page shows "
-        "'recomputing with rules v2' until they are."
+        "Saved as rules v3. Scores will be recomputed in the background; the page shows "
+        "'recomputing with rules v3' until they are."
     )
 
 
 def test_the_visits_carry_the_rules_version_they_were_scored_with(fm_world, admin_user, started):
     refresh.run(triggered_by="test", today=TODAY)
-    assert set(Visit.objects.values_list("rules_version", flat=True)) == {1} and not status.rescore_pending()
-    RuleSetting.objects.filter(code="R4").update(threshold=5)
-    versions.record_rules(admin_user, "Shorter narratives accepted")
+    assert set(Visit.objects.values_list("rules_version", flat=True)) == {2} and not status.rescore_pending()
+    RuleSetting.objects.filter(code="R1").update(enabled=False)
+    versions.record_rules(admin_user, "Completeness off for a test")
     assert status.rescore_pending()  # until the rescore has run
     run = refresh.run(triggered_by=f"admin:{admin_user.pk}", scores_only=True, today=TODAY)
-    assert run.details["rules_version"] == 2
-    assert set(Visit.objects.values_list("rules_version", flat=True)) == {2} and not status.rescore_pending()
-    assert VisitRuleResult.objects.get(visit__key="1726", rule="R4").status == "pass"  # 8 words, minimum 5
+    assert run.details["rules_version"] == 3
+    assert set(Visit.objects.values_list("rules_version", flat=True)) == {3} and not status.rescore_pending()
+    assert not VisitRuleResult.objects.filter(rule="R1").exists()  # a rule switched off keeps no row
 
 
 def test_a_rule_saved_while_a_refresh_holds_the_lock_ends_on_the_new_version(
@@ -146,49 +125,51 @@ def test_a_rule_saved_while_a_refresh_holds_the_lock_ends_on_the_new_version(
         book = load()
         if not saved:  # an administrator saves while this pass scores
             with django_capture_on_commit_callbacks(execute=True):
-                RuleSetting.objects.filter(code="R4").update(threshold=5)
-                saved.append(versions.record_rules(admin_user, "Shorter narratives accepted"))
+                RuleSetting.objects.filter(code="R1").update(enabled=False)
+                saved.append(versions.record_rules(admin_user, "Completeness off for a test"))
                 versions.start_rescore(admin_user)
         return book
 
     monkeypatch.setattr(score.Rulebook, "load", staticmethod(load_then_save))
     last = refresh.run(triggered_by="test", today=TODAY)
     assert started == [("fmm_refresh", "--scores-only", "--triggered-by", f"admin:{admin_user.pk}")]
-    assert (last.target, last.details["rules_version"]) == ("scores", 2)
-    assert set(Visit.objects.values_list("rules_version", flat=True)) == {2} and not status.rescore_pending()
-    assert VisitRuleResult.objects.get(visit__key="1726", rule="R4").status == "pass"
+    assert (last.target, last.details["rules_version"]) == ("scores", 3)
+    assert set(Visit.objects.values_list("rules_version", flat=True)) == {3} and not status.rescore_pending()
+    assert not VisitRuleResult.objects.filter(rule="R1").exists()  # a rule switched off keeps no row
 
 
 # ------------------------------------------------------------------------------------------ restoring
 def test_restore_writes_a_version_back_as_a_new_one(admin_user, started, django_capture_on_commit_callbacks):
-    v1 = RuleSetVersion.objects.get(number=1)
-    RuleSetting.objects.filter(code="R2").update(threshold=60, enabled=False)
+    v1, v2 = RuleSetVersion.objects.order_by("number")
+    RuleSetting.objects.filter(code="R2").update(deduction=6, enabled=False)
     ScoreSetting.objects.filter(pk=1).update(urgency_red=90)
-    v2 = versions.record_rules(admin_user, "Experiment")
-    assert [r["changed"] for r in versions.differences(v1.snapshot) if r["changed"]]
+    v3 = versions.record_rules(admin_user, "Experiment")
+    assert [r["changed"] for r in versions.differences(v2.snapshot) if r["changed"]]
     with django_capture_on_commit_callbacks(execute=True):
-        v3 = versions.restore_rules(v1, admin_user, "Back to the defaults")
-    assert (v3.number, v3.note, v3.restored_from) == (3, "Restored v1: Back to the defaults", v1)
+        v4 = versions.restore_rules(v2, admin_user, "Back to the defaults")
+    assert (v4.number, v4.note, v4.restored_from) == (4, "Restored v2: Back to the defaults", v2)
     rule = RuleSetting.objects.get(code="R2")
-    assert (rule.threshold, rule.enabled, rule.updated_by) == (Decimal(80), True, admin_user)
+    assert (rule.deduction, rule.enabled, rule.updated_by) == (Decimal(8), True, admin_user)
     assert ScoreSetting.load().urgency_red == 70
-    # version 1 is from before Release 2: its urgency weights (points per part) are not FMS's, so the
-    # weights are kept, as are the scored statuses and the recency window it does not hold
-    changed = {(r["group"], r["name"]) for r in versions.differences(v1.snapshot) if r["changed"]}
-    assert changed == {("Score", "urgency_weights"), ("Score", "scored_statuses"), ("Score", "recency_days")}
-    assert ScoreSetting.load().urgency_weights == default_urgency_weights()
-    assert v3.snapshot["rules"] == v1.snapshot["rules"]
+    assert not [r for r in versions.differences(v2.snapshot) if r["changed"]]
+    assert v4.snapshot["rules"] == v2.snapshot["rules"]
     assert started == [("fmm_refresh", "--scores-only", "--triggered-by", f"admin:{admin_user.pk}")]
-    # the history only grows: v2 is still there, and can be restored in turn
-    assert list(RuleSetVersion.objects.values_list("number", flat=True)) == [3, 2, 1]
-    assert versions.restore_rules(v2, admin_user).note == "Restored v2"
+    # the history only grows: v3 is still there, and can be restored in turn
+    assert list(RuleSetVersion.objects.values_list("number", flat=True)) == [4, 3, 2, 1]
+    assert versions.restore_rules(v3, admin_user).note == "Restored v3"
+    # version 1 holds Release 1's rules (R1-R6, points and thresholds): restoring it keeps FMS's rules and
+    # the settings it does not hold
+    before = versions.snapshot_rules()["rules"]
+    versions.restore_rules(v1, admin_user, "Release 1")
+    assert versions.snapshot_rules()["rules"] == before
+    assert ScoreSetting.load().urgency_weights == default_urgency_weights()
 
 
 def test_restoring_writes_the_pinned_keys_back_and_rebuilds_only_when_they_differ(
     fm_world, admin_user, started, django_capture_on_commit_callbacks
 ):
     refresh.run(triggered_by="test", probe_only=True)
-    v1 = RuleSetVersion.objects.get(number=1)
+    v1 = RuleSetVersion.objects.get(number=2)
     FieldMapping.objects.filter(dataset="fm_questions", field="answer").update(override_key="summary")
     v2 = versions.record_rules(admin_user, "Field override: fm_questions.answer → summary: test")
     assert v2.snapshot["mappings"] == {"fm_questions.answer": "summary"}
@@ -223,7 +204,7 @@ def test_a_question_given_a_role_from_questions_found(
     patterns = ScoreSetting.load().question_patterns
     assert patterns["psea"][-1] == "=are attendance registers kept up to date"
     assert rules.assign_roles(OTHER_TEXT, False, patterns) == "psea"
-    assert (version.number, version.note) == (2, "PSEA pattern set from Questions found")
+    assert (version.number, version.note) == (3, "PSEA pattern set from Questions found")
     assert started == [("fmm_refresh", "--scores-only", "--triggered-by", f"admin:{admin_user.pk}")]
     # given another role, it leaves the first one
     versions.pin_question("q2", OTHER_TEXT, admin_user)
@@ -243,7 +224,7 @@ def test_a_long_question_is_pinned_by_its_first_words_and_the_role_limit_holds(a
     ScoreSetting.objects.filter(pk=1).update(question_patterns={"q1": [f"question {n}" for n in range(20)]})
     with pytest.raises(ValidationError, match="at most 20"):
         versions.pin_question("q1", OTHER_TEXT, admin_user)
-    assert RuleSetVersion.objects.count() == 1  # nothing was recorded
+    assert RuleSetVersion.objects.count() == 2  # nothing was recorded
     with pytest.raises(ValueError):
         versions.pin_question("q9", OTHER_TEXT, admin_user)
 
@@ -255,26 +236,29 @@ def test_the_preview_shows_the_effect_and_writes_nothing(fm_world):
         list(Visit.objects.order_by("key").values_list("key", "quality_score", "flags", "urgency")),
         sorted(VisitRuleResult.objects.values_list("visit__key", "rule", "status", "points")),
     )
-    rule = RuleSetting.objects.get(code="R4")
-    result = versions.preview(
-        {"R4": {"threshold": Decimal(5), "enabled": True, "points": 15, "params": rule.params}}, {}, **YEAR
-    )
-    assert result["rules"]["R4"] == {"now": 2, "then": 0}  # 1722 and 1726 have narratives under 25 words
-    assert result["rules"]["R2"] == {"now": 1, "then": 1} and result["visits"] == 8
+    rule = RuleSetting.objects.get(code="R2")
+    scoring = [{"min": 30, "deduction": 0}, {"min": 0, "deduction": 10}]
+    result = versions.preview({"R2": {"params": {**rule.params, "scoring": scoring}}}, {}, **YEAR)
+    assert result["rules"]["R2"] == {"now": 1, "then": 0}  # 1723 answered 33.3%
+    assert result["rules"]["R1"] == {"now": 6, "then": 6} and result["visits"] == 8
     assert result["scored"] == {"now": 6, "then": 6}
     assert result["avg_quality"]["then"] > result["avg_quality"]["now"]
-    sentence = versions.describe(result, ["R4"])
-    assert sentence.startswith("R4 would flag 0 visits (now 2); average quality ")
+    sentence = versions.describe(result, ["R2"])
+    assert sentence.startswith("R2 would flag 0 visits (now 1); average quality ")
     assert sentence.endswith("; scored visits 6 (now 6)")
     after = (
         list(Visit.objects.order_by("key").values_list("key", "quality_score", "flags", "urgency")),
         sorted(VisitRuleResult.objects.values_list("visit__key", "rule", "status", "points")),
     )
-    assert after == before and RuleSetVersion.objects.count() == 1
-    assert RuleSetting.objects.get(code="R4").threshold == 25
-    # a score setting change: no band, no flag moves with the urgency bands
-    result = versions.preview({}, {"min_evaluated_points": 100}, **YEAR)
-    assert result["scored"] == {"now": 6, "then": 0}
+    assert after == before and RuleSetVersion.objects.count() == 2
+    assert RuleSetting.objects.get(code="R2").params["scoring"][0] == {"min": 80, "deduction": 0}
+    # a score setting change: a category's weight caps its deductions
+    categories = [
+        {**c, "weight": 5 if c["key"] == "completeness" else c["weight"]}
+        for c in ScoreSetting.load().categories
+    ]
+    result = versions.preview({}, {"categories": categories}, **YEAR)
+    assert result["avg_quality"]["then"] > result["avg_quality"]["now"]
 
 
 # ------------------------------------------------------------------------------------------ validation
@@ -290,30 +274,71 @@ def _rule_errors(code: str, **values) -> dict[str, list[str]]:
 @pytest.mark.parametrize(
     ("code", "values", "field", "words"),
     [
-        ("R1", {"params": {"required": []}}, "params", "at least one of"),
-        ("R1", {"params": {"required": ["narrative", "photos"]}}, "params", "not photos"),
-        ("R1", {"threshold": Decimal(5)}, "threshold", "uses no threshold"),
-        ("R2", {"threshold": Decimal(0)}, "threshold", "from 1 to 100"),
-        ("R2", {"threshold": Decimal(101)}, "threshold", "from 1 to 100"),
-        ("R2", {"threshold": None}, "threshold", "needs a threshold"),
-        ("R2", {"params": {"require_unanswered_seen": "yes"}}, "params", "true or false"),
-        ("R3", {"params": {"strict": "no"}}, "params", "true or false"),
-        ("R4", {"threshold": Decimal(501)}, "threshold", "from 1 to 500"),
-        ("R4", {"threshold": Decimal("2.5")}, "threshold", "whole number"),
-        ("R4", {"params": {"placeholders": "n/a"}}, "params", "must be a list"),
-        ("R4", {"params": {"check_copies": 1}}, "params", "true or false"),
-        ("R4", {"params": {"copy_window_days": 1096}}, "params", "from 1 to 1095"),
-        ("R4", {"params": {"copy_window_days": 0}}, "params", "from 1 to 1095"),
-        ("R5", {"params": {"placeholders": ["x" * 81]}}, "params", "1 to 80 characters"),
-        ("R5", {"params": {"placeholders": ["ok", 3]}}, "params", "must be a list"),
-        ("R6", {"threshold": Decimal(11)}, "threshold", "from 1 to 10"),
-        ("R6", {"params": {"negative_cues": [f"cue {n}" for n in range(61)]}}, "params", "at most 60"),
-        ("R6", {"params": {"negation_window": 6}}, "params", "from 0 to 5"),
-        ("R6", {"params": {"check_not_monitored": "true"}}, "params", "true or false"),
-        ("R6", {"params": {"positive_cues": ["..."]}}, "params", "no letter or digit"),
-        ("R6", {"params": {"tone": "harsh"}}, "params", "has no setting"),
-        ("R6", {"params": ["delayed"]}, "params", "must be an object"),
-        ("R3", {"points": 51}, "points", "from 0 to 50"),
+        ("R1", {"params": {"fields": []}}, "params", "lists its fields"),
+        (
+            "R1",
+            {"params": {"fields": [{"name": "photos", "deduction": 2}]}},
+            "params",
+            "a name of the report",
+        ),
+        ("R1", {"params": {"fields": [{"name": "entity", "deduction": 200}]}}, "params", "0 to 100"),
+        ("R2", {"params": {"field": "fmq_answered_pct", "scoring": []}}, "params", "at least one band"),
+        (
+            "R2",
+            {"params": {"field": "nothing", "scoring": [{"min": 1, "deduction": 1}]}},
+            "params",
+            "names a column",
+        ),
+        (
+            "R2",
+            {"params": {"field": "method_count", "scoring": [{"min": 1, "points": 1}]}},
+            "params",
+            "Each band",
+        ),
+        (
+            "R2",
+            {"params": {"field": "method_count", "field_type": "text", "scoring": [{"deduction": 1}]}},
+            "params",
+            "numeric or list",
+        ),
+        (
+            "R2",
+            {
+                "params": {
+                    "field": "method_count",
+                    "scoring": [{"deduction": 1}],
+                    "missing_value_deduction": -1,
+                }
+            },
+            "params",
+            "0 to 100",
+        ),
+        ("R3", {"params": {"fields": ["narrative_finding"], "strict": True}}, "params", "has no"),
+        ("R3", {"params": {"fields": []}}, "params", "lists the fields"),
+        (
+            "R3",
+            {"params": {"fields": ["narrative_finding"], "ai_prompt_key": "Not A Key"}},
+            "params",
+            "lower case",
+        ),
+        ("R20", {"params": {"check_type": "guess"}}, "params", "check_type"),
+        (
+            "R20",
+            {"params": {"check_type": "value_in_mapped_list", "reference_map": ["x"]}},
+            "params",
+            "maps each key",
+        ),
+        ("R24", {"params": {"check_type": "string_contains"}}, "params", "needs the text"),
+        (
+            "R20",
+            {"params": {"check_type": "value_in_mapped_list", "entity_type_filter": ["Donor"]}},
+            "params",
+            "Partner, CP Output",
+        ),
+        ("R20", {"params": ["x"]}, "params", "must be an object"),
+        ("R20", {"category": "Not a key"}, "category", "lower case"),
+        ("R20", {"category": "red_flags"}, "category", "not one of the score categories"),
+        ("R20", {"type": "guess"}, "type", "one of"),
     ],
 )
 def test_each_rule_setting_is_checked_with_a_readable_error(code, values, field, words):
@@ -321,15 +346,20 @@ def test_each_rule_setting_is_checked_with_a_readable_error(code, values, field,
     assert any(words in message for message in errors[field]), errors
 
 
-def test_lists_are_stored_folded_and_without_repeats():
-    rule = RuleSetting.objects.get(code="R4")
-    rule.params = {"placeholders": ["N/A", "n/a", "See Above!", "Très bien"], "check_copies": False}
-    rule.clean()
-    assert rule.params == {"placeholders": ["n a", "see above", "tres bien"], "check_copies": False}
+def test_a_rules_deduction_follows_its_fields_or_bands():
     r1 = RuleSetting.objects.get(code="R1")
-    r1.params = {"required": ["location", "narrative"]}
+    r1.params = {
+        "fields": [
+            {"name": "entity", "label": "Entity", "deduction": 4},
+            {"name": "objective", "deduction": 1.5},
+        ]
+    }
     r1.clean()
-    assert r1.params == {"required": ["narrative", "location"]}
+    assert r1.deduction == Decimal("5.5")
+    r31 = RuleSetting.objects.get(code="R31")
+    r31.deduction = Decimal(0)
+    r31.clean()
+    assert r31.deduction == 8  # no deduction given: its largest band
 
 
 def _score_errors(**values) -> dict[str, list[str]]:
@@ -348,7 +378,19 @@ def _score_errors(**values) -> dict[str, list[str]]:
         ({"urgency_red": 101}, "urgency_red", "at most 100"),
         ({"band_medium": 80}, "band_high", "must start below the High band"),
         ({"band_high": 101}, "band_high", "at most 100"),
-        ({"min_evaluated_points": 101}, "min_evaluated_points", "from 0 to 100"),
+        ({"categories": []}, "categories", "List 1 to"),
+        ({"categories": [{"key": "completeness", "weight": 90}]}, "categories", "add up to 100"),
+        ({"categories": [{"key": "Bad Key", "weight": 100}]}, "categories", "lower case"),
+        (
+            {"categories": [{"key": "x", "weight": 100, "colour": "red"}]},
+            "categories",
+            "a key, a label and a weight",
+        ),
+        (
+            {"categories": [{"key": "completeness", "weight": 50}, {"key": "evidence", "weight": 50}]},
+            "categories",
+            "Rules that are on use a category left out",
+        ),
         (
             {"urgency_weights": {**default_urgency_weights(), "mood": 3}},
             "urgency_weights",

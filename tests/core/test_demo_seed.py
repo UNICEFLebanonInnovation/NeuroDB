@@ -105,6 +105,7 @@ def test_demo_field_monitoring_adds_without_moving_the_rest(monkeypatch):
         "fmm.QuestionAnswer",
         "fmm.VisitActionPoint",
         "fmm.VisitRuleResult",
+        "fmm.VisitAICheck",  # the demo's AI check answers, written without any AI call
         "fmm.KeyProbe",
     }
     assert dm.ActionPoint.objects.filter(datamart_id__gt=8000).count() == (
@@ -132,7 +133,7 @@ def test_demo_field_monitoring_adds_without_moving_the_rest(monkeypatch):
     # seed_demo ends with the Monitoring insights refresh: every visit built, nothing failed
     from neurodb.fmm.models import Visit
 
-    refreshed = SyncRun.objects.get(job=SyncRun.Job.FMM_REFRESH)
+    refreshed = SyncRun.objects.filter(job=SyncRun.Job.FMM_REFRESH, target="full").get()
     assert (refreshed.status, refreshed.target, refreshed.triggered_by) == ("succeeded", "full", "demo")
     assert Visit.objects.count() == fm.count_visits(findings) == refreshed.rows_written
     # the new rows are linked by the FM demo; the first 50 by the refresh, the same with or without it
@@ -142,14 +143,24 @@ def test_demo_field_monitoring_adds_without_moving_the_rest(monkeypatch):
     # nothing rated (a monitoring gap) and a PSEA-flagged visit
     from neurodb.fmm.models import VisitRuleResult
 
-    assert refreshed.details["rules_version"] == 1 and refreshed.details["scored"] > 0
+    assert refreshed.details["rules_version"] == 2 and refreshed.details["scored"] > 0
     assert (
         Visit.objects.filter(urgency_band="red").exists()
         and Visit.objects.filter(urgency_band="amber").exists()
     )
-    evaluated = VisitRuleResult.objects.filter(status__in=("pass", "fail")).values_list("rule", flat=True)
-    assert set(evaluated) == {"R1", "R2", "R3", "R4", "R5", "R6"}
+    # FMS Lebanon's rules, the AI checks with the demo's answers (written without any AI call)
+    from neurodb.fmm.models import VisitAICheck
+
+    assert VisitAICheck.objects.exists() and set(VisitAICheck.objects.values_list("model", flat=True)) == {
+        "demo"
+    }
+    evaluated = set(
+        VisitRuleResult.objects.filter(status__in=("pass", "fail")).values_list("rule", flat=True)
+    )
+    assert {"R1", "R2", "R3", "R5", "R6", "R7", "R8", "R32"} <= evaluated
     assert VisitRuleResult.objects.filter(status="fail").values("rule").distinct().count() >= 5
+    assert Visit.objects.get(key="75").urgency_band == "red"
+    assert not Visit.objects.filter(ai_pending__gt=0).exists()
     assert Visit.objects.filter(status_group="reported", entities_rated=0).exists()
     assert Visit.objects.filter(psea_flag=True).exists() and Visit.objects.filter(psea_flag=False).exists()
     assert set(Visit.objects.exclude(hact_q1="").values_list("hact_q1", flat=True)) == {

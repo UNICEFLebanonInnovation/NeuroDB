@@ -527,6 +527,10 @@ FMM_PAYLOAD_RETENTION_DAYS = env.int(
     "FMM_PAYLOAD_RETENTION_DAYS", default=30
 )  # then a brief's payload is blanked
 FMM_RETENTION_DAYS = env.int("FMM_RETENTION_DAYS", default=180)  # briefs and chat questions kept
+# The AI checks of the narrative quality rules (fmm.ai.checks): their own daily token cap (they also stop
+# at 80% of AI_DAILY_TOKEN_SOFT_CAP across every feature) and the time limit of one check
+FMM_RULES_DAILY_TOKEN_CAP = env.int("FMM_RULES_DAILY_TOKEN_CAP", default=2_000_000)
+FMM_RULES_TIMEOUT_SECONDS = env.int("FMM_RULES_TIMEOUT_SECONDS", default=60)
 
 # ---------------------------------------------------------------------------- logging
 LOG_FORMAT = env("LOG_FORMAT", default="plain")  # "json" in Azure so Log Analytics can parse fields

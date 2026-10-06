@@ -126,6 +126,7 @@ RULE_STATES = {
     "na": gettext_lazy("Not available"),
     "nap": gettext_lazy("Does not apply"),
     "off": gettext_lazy("Switched off"),
+    "pending": gettext_lazy("Pending"),
 }
 PD_MATCH = {
     "exact": gettext_lazy("matched by its number"),
@@ -236,12 +237,37 @@ def _reference(scope: Scope, snap: status.Snapshot) -> dict[str, Any]:
 
 
 def _how(setting: ScoreSetting, rules: list[RuleSetting] | None = None) -> dict[str, Any]:
-    """What the "How scores work" window lists: each rule as administrators set it and the thresholds."""
-    from .score import scored_statuses_of, weights_of
+    """What "What does quality mean for Lebanon?" shows, rendered from the rule set the engine applies:
+    the band thresholds, the score categories with their weights, the core rules (FMS's HACT rules) and
+    the additional rules switched on (id, name, category, deduction, what it checks), and urgency."""
+    from .ai import profiles
+    from .rules import TYPE_LABELS, code_order, nominal
+    from .score import categories_of, category_labels, scored_statuses_of, weights_of
 
+    rules = sorted(
+        rules if rules is not None else RuleSetting.objects.all(), key=lambda r: code_order(r.code)
+    )
+    labels = category_labels(setting)
+    shown = []
+    for rule in rules:
+        if not rule.enabled:
+            continue
+        rule.category_label = labels.get(rule.category, rule.category)
+        rule.type_label = TYPE_LABELS.get(rule.type, rule.type)
+        rule.weight = nominal(rule)
+        shown.append(rule)
+    version = profiles.published()
+    country = version.profile.label if version is not None else "Lebanon"
     return {
-        "rules": rules if rules is not None else list(RuleSetting.objects.order_by("code")),
+        "rules": shown,
+        "core": [r for r in shown if r.group == "core"],
+        "additional": [r for r in shown if r.group != "core"],
+        "off": sum(1 for r in rules if not r.enabled),
+        "categories": [
+            {"key": k, "label": labels.get(k, k), "weight": w} for k, w in categories_of(setting).items()
+        ],
         "setting": setting,
+        "country": country,
         "scored": [code_label(code) for code in fm.STATUSES if code in scored_statuses_of(setting)],
         "weights": {name: round(100 * value) for name, value in weights_of(setting).items()},
     }
@@ -554,7 +580,7 @@ def _results_context(
     request: HttpRequest, scope: Scope, tab: str, snap: status.Snapshot, when: str
 ) -> dict[str, Any]:
     setting = ScoreSetting.objects.filter(pk=1).first() or ScoreSetting()
-    rules = list(RuleSetting.objects.order_by("code"))
+    rules = list(RuleSetting.objects.all())
     context: dict[str, Any] = {
         "scope": scope,
         "tab": tab,
@@ -598,7 +624,7 @@ def _results_context(
             )
         )
     elif tab == "analysis":
-        context.update(_analysis_tab(request, scope, when, limits, rules))
+        context.update(_analysis_tab(request, scope, when, limits, rules, setting))
     elif tab == "map":
         context.update(_map_tab(request, scope, when))
     return context
@@ -906,11 +932,11 @@ def _entity_link(link: tuple[str, int] | None) -> str:
 
 
 def _analysis_tab(
-    request: HttpRequest, scope: Scope, when: str, limits: dict[str, int], rules: list
+    request: HttpRequest, scope: Scope, when: str, limits: dict[str, int], rules: list, setting=None
 ) -> dict[str, Any]:
     """The Analysis tab: highlights, governorates not visited, field offices, entity performance,
     quality by field office, sections, visit frequency by place, quality by rating, flags by rule,
-    points by rule, programmatic visits and HACT, and follow-up."""
+    points by category, programmatic visits and HACT, and follow-up."""
     visit_url = _visit_url()
     highlights = metrics.highlights(scope, when, limits)
     kind = _entity_kind(request)
@@ -1000,7 +1026,7 @@ def _analysis_tab(
         "rating_rows": _rating_rows(scope, when, limits),
         "flag_frequency": flag_frequency,
         "flag_template": _drill_template(scope, "flag") + "&flag={drill}",
-        "dimensions": metrics.dimension_breakdown(scope, rules, when),
+        "dimensions": metrics.dimension_breakdown(scope, rules, when, setting),
         "hact": hact,
         "follow_up": {
             **follow_up,
@@ -1289,14 +1315,24 @@ def _visit_context(request: HttpRequest, v: Visit) -> dict[str, Any]:
         narrative = (texts.get(e.finding_id) or "").strip()
         e.narrative = people.EMAIL.sub(people.EMAIL_WITHHELD, narrative)
 
+    from .rules import TYPE_LABELS, code_order
+    from .score import category_labels
+
     rules = {r.code: r for r in RuleSetting.objects.all()}
-    results = list(v.rule_results.order_by("rule"))
+    categories = category_labels(ScoreSetting.load())
+    results = sorted(v.rule_results.all(), key=lambda r: code_order(r.rule))
     for r in results:
         setting = rules.get(r.rule)
         r.label = setting.label if setting else r.rule
-        r.threshold = setting.threshold if setting else None
+        r.type_label = TYPE_LABELS.get(setting.type, "") if setting else ""
+        r.category_label = categories.get(setting.category, setting.category) if setting else ""
         r.state_label = RULE_STATES.get(r.status, r.status)
-    total = sum(r.points for r in rules.values() if r.enabled)
+    # switched off (the rules off, and the AI checks while they are): listed once, after the rules that ran
+    shown = [r for r in results if r.status != "off"]
+    switched_off = sorted(
+        {r.rule for r in results if r.status == "off"} | {code for code, s in rules.items() if not s.enabled},
+        key=code_order,
+    )
 
     partners = list(PartnerOrganization.objects.filter(pk__in=v.partner_ids).only("pk", "name", "short_name"))
     pds = list(PCA.objects.filter(pk__in=v.pd_ids).only("pk", "number", "title"))
@@ -1323,8 +1359,12 @@ def _visit_context(request: HttpRequest, v: Visit) -> dict[str, Any]:
         "band_label": BANDS.get(v.score_band, ""),
         "status_as_of": status_as_of,
         "entities": entities,
-        "results": results,
-        "total_points": total,
+        "results": shown,
+        "results_off": switched_off,
+        "category_deductions": [
+            {"label": categories.get(key, key), "points": points}
+            for key, points in sorted((v.category_deductions or {}).items(), key=lambda kv: -kv[1])
+        ],
         "partners": partners,
         "pds": pds,
         "action_points": links,

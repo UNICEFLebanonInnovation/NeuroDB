@@ -146,15 +146,15 @@
 </div>
 
 <section class="panel" aria-labelledby="fmm-points-title">
-  <div class="panel__header"><h2 class="panel__title" id="fmm-points-title">{% trans "Points by rule" %}</h2><span class="panel__hint">{% trans "Mean points earned over the visits each rule checked, weakest first" %}</span></div>
+  <div class="panel__header"><h2 class="panel__title" id="fmm-points-title">{% trans "Points by category" %}</h2><span class="panel__hint">{% trans "The points the scored visits kept of each category's weight, on average, weakest first" %}</span></div>
   {% for r in dimensions.rows %}
-  <div class="fmm-meter-row">
-    <div class="fmm-meter-row__head"><span>{{ r.code }} {{ r.label }}</span><span class="small text-muted">{% blocktrans with earned=r.earned max=r.max|number pct=r.pct|percent visits=r.visits %}{{ earned }}/{{ max }} pts · {{ pct }} · on {{ visits }} visits{% endblocktrans %}</span></div>
+  <div class="fmm-meter-row" data-category="{{ r.code }}">
+    <div class="fmm-meter-row__head"><span>{{ r.label }} <span class="small text-muted">{% blocktrans with weight=r.max|number %}weight {{ weight }}{% endblocktrans %}</span></span><span class="small text-muted">{% blocktrans with earned=r.earned|number max=r.max|number pct=r.pct|percent visits=r.visits %}{{ earned }}/{{ max }} pts · {{ pct }} · on {{ visits }} visits{% endblocktrans %}</span></div>
     <div class="meter"><div class="meter__track"><span class="meter__fill meter__fill--{% if r.pct >= limits.band_high %}success{% elif r.pct >= limits.band_medium %}warning{% else %}danger{% endif %}" style="width: {{ r.fill|floatformat:0 }}%"></span></div></div>
   </div>
   {% endfor %}
-  {% for r in dimensions.unavailable %}<div class="fmm-meter-row"><div class="fmm-meter-row__head"><span>{{ r.code }} {{ r.label }}</span><span class="small text-muted">{% trans "not available" %}</span></div></div>{% endfor %}
-  {% if dimensions.flag_only %}<p class="source-line">{% for code in dimensions.flag_only %}{% blocktrans %}{{ code }} is a flag only (0 points).{% endblocktrans %} {% endfor %}</p>{% endif %}
+  {% for r in dimensions.unavailable %}<div class="fmm-meter-row"><div class="fmm-meter-row__head"><span>{{ r.label }}</span><span class="small text-muted">{% trans "no rule of this category is on" %}</span></div></div>{% endfor %}
+  {% if dimensions.flag_only %}<p class="source-line">{% for code in dimensions.flag_only %}{% blocktrans %}{{ code }} is a flag only (no deduction).{% endblocktrans %} {% endfor %}</p>{% endif %}
 </section>
 
 <section class="panel p-0" aria-labelledby="fmm-hact-title">

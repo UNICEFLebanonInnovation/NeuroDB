@@ -174,7 +174,7 @@ def test_every_entry_of_the_payload_is_citable_and_shares_are_precomputed(built,
     assert set(found.citable) >= {"scope", "kpi", "previous", "ap:summary", "hact:2026", "gap:governorates"}
     kpi = payload["kpi"]
     assert (kpi["visits"], kpi["entities"], kpi["entities_rated"]) == (8, 12, 8)
-    assert "entities_not_monitored_share" not in kpi and kpi["avg_quality"] == 64.4
+    assert "entities_not_monitored_share" not in kpi and kpi["avg_quality"] == 79.2
     # every share of ratings is over the rated visits (entities); Not monitored is a count apart
     assert (kpi["rated_visits"], kpi["on_track_visits"], kpi["off_track_visits"]) == (5, 3, 2)
     assert (kpi["on_track_share_of_rated"], kpi["off_track_share_of_rated"]) == (60.0, 40.0)
@@ -508,11 +508,11 @@ def test_the_code_written_brief_words(built):
         "1 visit was Not monitored (planned, not conducted), counted apart from the rated visits.",
     ]
     assert texts[3] == "6 visits were reported, 1 is in progress and 0 are planned."
-    assert texts[4] == "The average quality score was 64.4% on 6 scored visits."
+    assert texts[4] == "The average quality score was 79.2% on 6 scored visits."
     challenges = [s["text"] for s in written["challenges"]]
-    assert challenges[0].startswith("R1 flagged 4 visits: Incomplete monitoring report")
+    assert challenges[0].startswith("R23 flagged 3 visits: Visit location not among registered PD locations")
     assert not [t for t in texts + challenges if "monitoring gap" in t or "not monitored (" in t]
-    assert written["recommendations"][0]["text"] == fallback.RULE_ADVICE["R1"]
+    assert written["recommendations"][0]["text"] == fallback.RULE_ADVICE["R1"]  # the most flagged rule
     action = actions[0]
     assert (action["priority"], action["owner_role"], action["timeframe"]) == (
         "Medium",
@@ -542,7 +542,8 @@ def test_a_new_version_or_rules_version_asks_again(built, ai_on, fake_insights_c
     found = facts.build(_scope(), ai_on, TODAY)
     api = fake_insights_client(*[_answer(_good(found))] * 3)
     insights.generate(_scope(), trigger=Insight.Trigger.NIGHTLY, today=TODAY)
-    SyncRun.objects.filter(pk=built.pk).update(details={**built.details, "rules_version": 2})
+    for run in SyncRun.objects.filter(job=built.job):  # the full refresh and the rescore after it
+        SyncRun.objects.filter(pk=run.pk).update(details={**run.details, "rules_version": 3})
     insights.generate(_scope(), trigger=Insight.Trigger.NIGHTLY, today=TODAY)
     assert len(api.requests) == 2
     draft = profiles.draft_from(ai_on, None, "Shorter", narratives_sampled=10)
@@ -614,7 +615,7 @@ def test_the_badges(built, ai_on, fake_insights_client):
     )
     profiles.publish(profiles.draft_from(ai_on, None, "v2"), None)
     shown = insights.current(_scope())
-    assert shown.insight.pk == row.pk and shown.badge == "Written with prompt v2 (now v3)"
+    assert shown.insight.pk == row.pk and shown.badge == "Written with prompt v3 (now v4)"
 
 
 def test_regenerate_starts_a_background_brief_and_the_card_polls_it(
@@ -648,7 +649,7 @@ def test_regenerate_starts_a_background_brief_and_the_card_polls_it(
     assert "[PRIORITY: High]" in card and "What was sent" in card
     assert "Up to date" in card and "1 of 5 today" in card and 'class="visit-chip"' in card
     assert "temp 0.30 · applied" in card and "top-p · not set (API default 1.00)" in card
-    assert "narr 3/20" in card and f"comp {row.sent['flags']}/15" in card and "prompt v2" in card
+    assert "narr 3/20" in card and f"comp {row.sent['flags']}/15" in card and "prompt v3" in card
 
 
 def test_a_stopped_brief_is_shown_as_stopped(built, ai_on, client_viewer, viewer):

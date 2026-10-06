@@ -157,11 +157,17 @@ class Command(BaseCommand):
             return
         from neurodb.fmm import refresh
 
+        from ._demo_fmm import demo_checks
+
         done = refresh.run(triggered_by="demo")
         if done is not None:
             self.stdout.write(
                 f"Monitoring insights: {done.rows_written} visits built ({done.get_status_display()})."
             )
+            kept = demo_checks()
+            if kept:
+                refresh.run(triggered_by="demo", scores_only=True)
+                self.stdout.write(f"Monitoring insights: {kept} demo AI check answers kept (no AI call).")
 
     def _seed(self, rng: random.Random, password: str, months: int) -> None:
         groups = ensure_groups()

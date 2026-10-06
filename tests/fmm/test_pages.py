@@ -1,8 +1,9 @@
 """The Monitoring insights page (``/fmm/``): its shell, filters, key figures and tabs.
 
-On ``fm_world`` built on 5 October 2026: 8 visits ending in 2026 (6 reported, 1 in progress, 1
-cancelled), 12 finding rows (8 rated, 4 not monitored), 6 scored visits averaging 64.4%, one red visit
-(the one known by its reference only, urgency 72) and three amber ones.
+On ``fm_world`` built on 5 October 2026 with its AI checks (conftest ``built``): 8 visits ending in 2026
+(6 reported, 1 in progress, 1 cancelled), 12 finding rows (8 rated, 2 not monitored), 6 scored visits
+averaging 79.2% (1722 93, 1723 46, 1726 88, 1727 80, 1728 93, the one known by its reference only 75),
+no red visit and one amber (1723, urgency 59).
 """
 
 from __future__ import annotations
@@ -67,11 +68,11 @@ def test_the_page_opens_for_a_viewer_with_its_key_figures(built, client_viewer):
     text = " ".join(visible(html).split())
     assert "Monitoring visits 8 6 reported · 1 in progress · 0 planned · 1 cancelled" in text
     assert "Monitored entities 12 8 rated · 2 not monitored · 1 not rated yet · 1 other" in text
-    assert "Average quality score 64.4% on 6 scored visits · rules v1" in text
+    assert "Average quality score 79.2% on 6 scored visits · rules v2" in text
     assert "High urgency 0 ≥ 70 · 1 amber (40–69)" in text
     assert "Showing 1 Jan – 31 Dec 2026 · Lebanon" in text
-    assert "scores computed" in text and "with quality rules v1" in text
-    assert "How scores work" in html and "NeuroDB has no field office staff list" in html
+    assert "scores computed" in text and "with quality rules v2" in text
+    assert "What does quality mean for Lebanon?" in html and "Field Office - Team Member Validation" in html
     assert 'class="kpi kpi--off_track"' not in html  # the high urgency tile is red while any visit is
     assert "View urgent visits →" in html
     assert 'hx-get="/fmm/insights/?section=" hx-trigger="load"' in html  # the AI brief loads on its own
@@ -203,19 +204,24 @@ def test_the_year_menu_keeps_the_page_and_its_filters(built, client_viewer, repo
         ({"month": "2026-05"}, {"1722"}),
         ({"hact_q1": "constrained"}, {"1723", "1727"}),
         ({"hact_q1": "none"}, {"1724", "1725", "1728"}),
-        ({"bucket": "40-60"}, {"1723", "1728"}),
-        ({"bucket": "60-80"}, {"1722", "1726", "1727", REFERENCE_KEY}),
+        ({"bucket": "40-60"}, {"1723"}),
+        ({"bucket": "60-80"}, {REFERENCE_KEY}),
+        ({"bucket": "80-90"}, {"1726", "1727"}),
+        ({"bucket": "90-100"}, {"1722", "1728"}),
         ({"bucket": "none"}, {"1724", "1725"}),
-        ({"flag": "R1"}, {"1723", "1727", "1728", REFERENCE_KEY}),
-        ({"flags": "1"}, {"1727", "1728", REFERENCE_KEY}),
-        ({"flags": "3+"}, {"1723"}),
+        ({"flag": "R1"}, {"1722", "1723", "1726", "1727", "1728", REFERENCE_KEY}),
+        ({"flag": "R23"}, {"1722", "1723", "1728"}),
+        ({"flags": "2"}, {"1727", "1728", REFERENCE_KEY}),
+        ({"flags": "1"}, set()),
+        ({"flags": "3+"}, {"1722", "1723", "1726"}),
         ({"flags": "1+"}, {"1722", "1723", "1726", "1727", "1728", REFERENCE_KEY}),
-        ({"urgency": "red"}, set()),  # FMS's urgency: 1723 57, 1727 38, 1726 37, 1722 33, 1728 26, ref 19
+        ({"urgency": "red"}, set()),  # FMS's urgency: 1723 59, 1727 39, 1726 37, 1722 24, ref 23, 1728 14
         ({"urgency": "amber"}, {"1723"}),
         ({"urgency": "none"}, {"1722", "1726", "1727", "1728", REFERENCE_KEY}),  # unscored ones have none
         ({"modality": "none"}, ALL),
         ({"modality": "TPM - iAPS"}, set()),
-        ({"quality": "medium"}, {"1722", "1726", "1727", "1728", REFERENCE_KEY}),
+        ({"quality": "medium"}, {REFERENCE_KEY}),
+        ({"quality": "high"}, {"1722", "1726", "1727", "1728"}),
         ({"quality": "low"}, {"1723"}),
         ({"quality": "pending"}, {"1724", "1725"}),
         ({"quality": ["low", "pending"]}, {"1723", "1724", "1725"}),
@@ -224,8 +230,10 @@ def test_the_year_menu_keeps_the_page_and_its_filters(built, client_viewer, repo
         ({"urgency_level": "low"}, {"1722", "1726", "1727", "1728", REFERENCE_KEY}),
         ({"urgency_level": "high"}, set()),
         ({"preset": "all_time"}, ALL),
-        ({"rule": "R3", "rule_state": "fail"}, {"1722"}),
-        ({"issue": "R3:q1_missing"}, {"1722"}),
+        ({"rule": "R3", "rule_state": "fail"}, {"1723"}),
+        ({"rule": "R32", "rule_state": "fail"}, {"1726"}),
+        ({"issue": "R3:ai"}, {"1723"}),
+        ({"issue": "R1:missing:3"}, {"1726"}),
         ({"month": "May 2026"}, ALL),  # a drawn label is not a drill value: ignored
         ({"bucket": "80–100"}, ALL),
     ],
@@ -397,7 +405,8 @@ def test_how_scores_work_lists_the_rules_and_links_administrators_to_their_setti
 ):
     html = client_viewer.get(PAGE).content.decode()
     how = html.split('id="fmm-how"', 1)[1].split('<div class="modal fade"', 1)[0]
-    assert "R1 Completeness" in how and "R6 Rating quality" in how and "a flag only" in how
+    assert "R1 Report Completeness" in how and "R32 Challenge-to-Action Alignment" in how
+    assert "a flag only" in how  # R23, the admin-level check
     assert "/fmm/rulesetting/" not in how  # a viewer gets no admin link
     client.force_login(admin_user)
     how = client.get(PAGE).content.decode().split('id="fmm-how"', 1)[1]
@@ -407,9 +416,9 @@ def test_how_scores_work_lists_the_rules_and_links_administrators_to_their_setti
 
 def test_the_reference_line_says_when_scores_are_being_recomputed(built, client_viewer):
     assert "recomputing" not in client_viewer.get(PAGE).content.decode()
-    RuleSetVersion.objects.create(number=2, snapshot={}, note="test", created_by_name="test")
+    RuleSetVersion.objects.create(number=3, snapshot={}, note="test", created_by_name="test")
     html = client_viewer.get(PAGE).content.decode()
-    assert "recomputing with rules v2" in html
+    assert "recomputing with rules v3" in html
 
 
 def test_the_reference_line_shows_a_failed_refresh(built, client_viewer, monkeypatch):
@@ -452,7 +461,8 @@ def test_each_tab_and_the_page_stay_within_their_query_budget(
         {"tab": "quality", "places": "all"},
     ):
         cache.clear()
-        with django_assert_max_num_queries(20):
+        # the entity table's own queries on top of the tab's
+        with django_assert_max_num_queries(21):
             response = client_viewer.get(PAGE, extra, HTTP_HX_REQUEST="true")
         assert response.status_code == 200, extra
 
@@ -497,7 +507,7 @@ def test_a_review_drill_counts_a_new_review_at_once(built, client_viewer, admin_
 def test_one_scored_visit_is_written_in_the_singular(built, client_viewer):
     Visit.objects.exclude(key="1722").update(quality_score=None)
     html = client_viewer.get(PAGE, {"section": ""}).content.decode()
-    assert "on 1 scored visit · rules v1" in " ".join(visible(html).split())
+    assert "on 1 scored visit · rules v2" in " ".join(visible(html).split())
 
 
 # ------------------------------------------------------------------------------------------ Quality and Analysis
@@ -520,7 +530,7 @@ def test_the_quality_tab_shows_its_blocks(built, client_viewer):
         "Flags per visit",
     ):
         assert title in text, title
-    assert "R1 Completeness" in text and "4 / 6 visits flagged" in text
+    assert "R1 Report Completeness" in text and "6 / 6 visits flagged" in text
     assert "On track 1" in text and "Constrained 2" in text and "Off track 2" in text  # the chip row
     assert "Not scored: 2 visits" in text
     assert "Green = no issues · Blue = minor · Amber = moderate · Red = critical attention needed" in text
@@ -544,7 +554,7 @@ def test_the_analysis_tab_shows_its_blocks(built, client_viewer):
         "Visit frequency by location",
         "Quality by finding rating",
         "Flags by rule",
-        "Points by rule",
+        "Points by category",
         "Programmatic visits and HACT (2026)",
         "Follow-up",
     ):
@@ -553,7 +563,7 @@ def test_the_analysis_tab_shows_its_blocks(built, client_viewer):
     assert "1 PSEA flagged · of 2 visits with a PSEA question" in text
     assert "Every governorate was visited in this period." in text
     assert "office from: activity 1 · PD 3 · action points 0" in text
-    assert "R6 is a flag only (0 points)." in text
+    assert "R23 is a flag only (no deduction)." in text
     assert "&amp;flag={drill}" in html and 'data-suffix=" visits"' in html
     assert 'id="fmm-entities"' in html and 'hx-select="#fmm-entities"' in html
 
@@ -617,7 +627,9 @@ def test_the_quality_tab_says_what_is_not_available_without_the_checklist_answer
     dm.DatamartDocument.objects.filter(dataset__in=("fm_questions", "fm_options")).delete()
     refresh.run(triggered_by="test", today=TODAY)
     text = _text(client_viewer.get(PAGE, {"tab": "quality"}).content.decode())
-    assert text.count("Not available — needs question answers (fm_questions); see Fields found") == 3
+    # R2 reads the share of questions answered: not available, never a missing value deducted
+    assert text.count("Not available — needs question answers (fm_questions); see Fields found") == 1
+    assert "R3 Narrative Evidence Quality AI check switched off" in text  # the AI is off in this test
     assert "HACT Q1 answers are not in the eTools data NeuroDB reads yet" in text
 
 
@@ -630,10 +642,10 @@ def test_an_empty_filter_on_the_new_tabs(built, client_viewer):
 
 def test_drill_chips_name_the_place_and_the_issue(built, client_viewer):
     html = client_viewer.get(
-        PAGE, {"section": "", "location": "30", "issue": "R1:missing:narrative"}
+        PAGE, {"section": "", "location": "30", "issue": "R1:missing:3"}
     ).content.decode()
     assert "Location: Zahle town" in html
-    assert "Issue: Incomplete monitoring report — missing: General observation (narrative)" in html
+    assert "Issue: Incomplete monitoring report — missing: Q2 – Activities monitored" in html
     html = client_viewer.get(PAGE, {"section": "", "flags": "3+"}).content.decode()
     assert "Flags per visit: 3 or more" in html
 

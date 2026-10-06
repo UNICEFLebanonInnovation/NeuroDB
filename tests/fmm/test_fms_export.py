@@ -168,9 +168,8 @@ def test_a_row_q1_takes_precedence_over_the_checklist_answer(exported):
     _refresh()
     entity = VisitEntity.objects.get(finding_id=exported.rows[101].pk)
     assert (entity.hact_q1, entity.hact_q1_from) == ("off_track", "entity")
-    # the row's own Off track against its On track rating: a conflict
-    result = _result("1722", "R3")
-    assert result.status == "fail" and result.detail_key == "conflict"
+    # the visit's worst Q1, which R1 reads as answered on this row
+    assert Visit.objects.get(key="1722").hact_q1 == "off_track"
 
 
 def test_a_blank_row_answer_falls_back_to_the_checklist(exported):
@@ -182,13 +181,12 @@ def test_a_blank_row_answer_falls_back_to_the_checklist(exported):
 
 def test_rules_read_the_row_answers(exported):
     _refresh()
-    # 1727 has no checklist Q2 or Q3: its row writes Q2 blank and a placeholder of R5's list in Q3
+    # 1727 has no checklist Q2: its row writes Q2 blank, so R1 finds it missing (field 3, Q2)
     r1 = _result("1727", "R1")
-    assert r1.status == "fail" and "q2" in r1.detail_key
-    r5 = _result("1727", "R5")
-    assert (r5.status, r5.detail_key) == ("fail", "q3_placeholder")
-    # 1722: Q3 written on the row, long enough
-    assert _result("1722", "R5").status == "pass"
+    assert r1.status == "fail" and r1.detail_key == "missing:0,3"
+    assert "Q2 – Activities monitored" in r1.detail
+    # 1722: Q2 written on the row; one of its rows has no Q1 (field 2)
+    assert _result("1722", "R1").detail_key == "missing:2"
 
 
 def test_r2_counts_checklist_questions_only():

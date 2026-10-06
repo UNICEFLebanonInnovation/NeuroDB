@@ -31,12 +31,18 @@ RATINGS = (("on_track", "were On track"), ("constrained", "Constrained"), ("off_
 
 # One sentence of advice per rule that flagged visits (no figure in them: nothing to check)
 RULE_ADVICE = {
-    "R1": "Complete the general observation and Q2 before submitting a visit report.",
+    "R1": "Complete the general observation, the rating and Q1 and Q2 before submitting a visit report.",
     "R2": "Answer every checklist question that applies before submitting a visit report.",
-    "R3": "Answer HACT Q1 on programmatic visits and check it against the overall finding.",
-    "R4": "Write a specific narrative for each monitored entity rather than a placeholder or a copy.",
-    "R5": "Record the key observations and findings in Q3 with enough detail to act on.",
-    "R6": "Check that each narrative agrees with the rating given before submitting the report.",
+    "R3": "Describe in Q2 what the monitor verified, with figures by sex and age where people are served.",
+    "R5": "Check that Q1 (implementation status) agrees with the activities reported in Q2.",
+    "R6": "Check that the general observation agrees with Q1, Q2 and the rating, and adds to them.",
+    "R7": "Record specific observations and assigned, time-bound action points in Q3.",
+    "R8": "Raise an action point for each problem the narrative, Q1 or Q2 describes.",
+    "R32": "Make sure each key challenge of the visit has a matching action point.",
+    "R19": "Check that each visit's monitor is on the staff list of its field office.",
+    "R20": "Check that programme document visits take place at the document's registered locations.",
+    "R21": "Check that each CP output visit names the sections that work on the output.",
+    "R23": "Check that each visit's place is among the registered locations of its programme document.",
 }
 
 
@@ -126,8 +132,15 @@ def _challenges(facts: Facts) -> list[dict[str, Any]]:
 
 
 def _recommendations(facts: Facts) -> list[dict[str, Any]]:
+    """The advice of the rules that flagged visits, the most flagged first (then in the order of the
+    rule ids)."""
+    from ..rules import code_order
+
     out = []
-    for key, rule in sorted(facts.payload.get("rules", {}).items()):
+    rules = facts.payload.get("rules", {})
+    for key, rule in sorted(
+        rules.items(), key=lambda kv: (-kv[1]["flagged"], code_order(kv[0].split(":", 1)[1]))
+    ):
         code = key.split(":", 1)[1]
         if rule["flagged"] and code in RULE_ADVICE:
             out.append({"text": RULE_ADVICE[code], "keys": [key]})

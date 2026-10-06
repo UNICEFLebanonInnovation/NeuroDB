@@ -26,7 +26,9 @@
       <dd class="col-sm-9">{% if visit.hact_q1 %}{% status_pill visit.hact_q1 hact_q1_label "sm" %}{% elif answers_available %}{% trans "No HACT Q1 answer for this visit" %}{% else %}{% trans "Not available — the checklist answers were not found in the eTools data" %}{% endif %}</dd>
       <dt class="col-sm-3 text-muted">{% trans "Quality" %}</dt>
       <dd class="col-sm-9">{% if visit.quality_score is not None %}<span class="fmm-score fmm-score--{{ visit.score_band|default:'none' }}">{{ visit.quality_score|percent }}</span> ({{ band_label }})
-        <span class="text-muted">· {% blocktrans with rules=visit.evaluated_rules|join:", " points=visit.quality_max total=total_points %}scored on {{ rules }} ({{ points }} of {{ total }} points){% endblocktrans %}</span>
+        <span class="text-muted">· {% if category_deductions %}{% trans "100 less" %} {% for c in category_deductions %}{{ c.label }} {{ c.points|number }}{% if not forloop.last %}, {% endif %}{% endfor %}{% else %}{% trans "no rule took points off" %}{% endif %}</span>
+        {% elif visit.provisional_score is not None %}<span class="fmm-score fmm-score--none">{{ visit.provisional_score|percent }}</span>
+        <span class="text-muted">{% blocktrans count n=visit.ai_pending %}provisional ({{ n }} AI check pending){% plural %}provisional ({{ n }} AI checks pending){% endblocktrans %}: {% trans "it counts as not scored until its checks are done, and has no urgency yet" %}</span>
         {% else %}— <span class="text-muted">{{ visit.not_scored_reason|default:_("not scored") }}</span>{% endif %}</dd>
       {% for label, text in visit_texts %}<dt class="col-sm-3 text-muted">{{ label }}</dt>
       <dd class="col-sm-9" data-synced>{{ text|linebreaksbr }}</dd>{% endfor %}
@@ -91,20 +93,24 @@
     </table></div>
   </section>
 
-  {% comment %}7. Quality: each rule's result, then the score with its basis.{% endcomment %}
+  {% comment %}
+  7. Quality: each rule's result with its points off and its flag (an AI check's explanation, cleaned
+  of names; "Pending" while the check is not done yet), then the rules switched off.
+{% endcomment %}
   <section class="panel p-0" aria-labelledby="fmm-quality-{{ visit.key }}">
     <div class="table-toolbar"><div class="table-toolbar__title"><h3 class="h6 mb-0" id="fmm-quality-{{ visit.key }}">{% trans "Quality checks" %}</h3>
       <span class="small text-muted">{% blocktrans with version=visit.rules_version when=visit.refreshed_at|date:"j M Y H:i" %}rules v{{ version }} · as of {{ when }}{% endblocktrans %}</span></div></div>
     {% if results %}
     <div class="table-wrap"><table class="table table-sm">
-      <thead><tr><th>{% trans "Rule" %}</th><th>{% trans "Result" %}</th><th>{% trans "Points" %}</th><th>{% trans "Detail" %}</th></tr></thead>
-      <tbody>{% for r in results %}<tr>
-        <td class="text-nowrap">{{ r.rule }} {{ r.label }}{% if r.threshold is not None %}<span class="cell-sub">{% blocktrans with t=r.threshold|number %}threshold {{ t }}{% endblocktrans %}</span>{% endif %}</td>
-        <td class="text-nowrap"><span class="pill pill--sm pill--{% if r.status == 'fail' %}danger{% elif r.status == 'pass' %}success{% else %}neutral{% endif %}">{{ r.state_label }}</span></td>
-        <td class="text-nowrap">{% if r.max_points %}{{ r.points|number }}/{{ r.max_points }}{% else %}{% trans "a flag only" %}{% endif %}</td>
-        <td class="small fmm-detail">{{ r.detail|default:"—" }}{% if r.measure is not None %}<span class="cell-sub">{% blocktrans with m=r.measure|number %}measured: {{ m }}{% endblocktrans %}</span>{% endif %}</td>
+      <thead><tr><th>{% trans "Rule" %}</th><th>{% trans "Result" %}</th><th>{% trans "Points off" %}</th><th>{% trans "Detail" %}</th></tr></thead>
+      <tbody>{% for r in results %}<tr data-rule="{{ r.rule }}">
+        <td class="text-nowrap">{{ r.rule }} {{ r.label }}<span class="cell-sub">{{ r.category_label }}{% if r.type_label %} · {{ r.type_label }}{% endif %}</span></td>
+        <td class="text-nowrap"><span class="pill pill--sm pill--{% if r.status == 'fail' %}danger{% elif r.status == 'pass' %}success{% elif r.status == 'pending' %}warning{% else %}neutral{% endif %}">{{ r.state_label }}</span></td>
+        <td class="text-nowrap">{% if not r.max_points %}{% trans "a flag only" %}{% elif r.status == 'fail' %}{{ r.deducted|number }} / {{ r.max_points|number }}{% else %}<span class="text-muted">0 / {{ r.max_points|number }}</span>{% endif %}</td>
+        <td class="small fmm-detail" data-synced>{{ r.detail|default:"—" }}{% if r.measure is not None %}<span class="cell-sub">{% blocktrans with m=r.measure|number %}measured: {{ m }}{% endblocktrans %}</span>{% endif %}</td>
       </tr>{% endfor %}</tbody>
     </table></div>
+    {% if results_off %}<p class="small text-muted px-3 pb-3 mb-0">{% trans "Switched off:" %} {% for code in results_off %}{{ code }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
     {% else %}
     <p class="small text-muted px-3 pb-3 mb-0">{{ visit.not_scored_reason|default:_("The quality rules have not run on this visit yet.") }}</p>
     {% endif %}

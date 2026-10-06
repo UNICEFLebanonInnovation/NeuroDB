@@ -455,14 +455,89 @@ def fm_world(db):
     )
 
 
+class FakeChecks:
+    """``agent.client()`` for the AI checks of the quality rules: records each call, and answers by its
+    visit and rule (``verdicts``: (visit label, rule) or rule -> (passed, detail); passed by default) or
+    raises the next of ``errors``."""
+
+    def __init__(self, verdicts=None, errors=()):
+        self.verdicts = dict(verdicts or {})
+        self.errors = list(errors)
+        self.requests: list[dict] = []
+        self.options: list[dict] = []
+
+    def client(self):
+        def with_options(**options):
+            self.options.append(options)
+            return api
+
+        api = SimpleNamespace(with_options=with_options, responses=SimpleNamespace(create=self.create))
+        return api
+
+    def create(self, **params):
+        import json
+
+        self.requests.append(params)
+        if self.errors:
+            raise self.errors.pop(0)
+        rule = params["prompt_cache_key"].rsplit("-", 1)[1]
+        visit = json.loads(params["input"][0]["content"])["visit"]
+        found = self.verdicts.get((visit, rule), self.verdicts.get(rule, (True, "The report is specific.")))
+        passed, detail = found
+        return SimpleNamespace(
+            output_text=json.dumps({"is_coherent": passed, "detail": detail}),
+            status="completed",
+            output=[],
+            usage=SimpleNamespace(
+                input_tokens=900, input_tokens_details=SimpleNamespace(cached_tokens=100), output_tokens=150
+            ),
+        )
+
+    def sent(self) -> list[dict]:
+        import json
+
+        return [json.loads(r["input"][0]["content"]) for r in self.requests]
+
+
+# The AI checks of the built world: 1723 the only low visit (Q2 not verified, the narrative incoherent)
+BUILT_VERDICTS = {
+    ("Visit 1723", "R3"): (False, "Q2 lists no activity the monitor verified."),
+    ("Visit 1723", "R6"): (False, "The narrative is blank while the rows are rated."),
+    ("Visit 1722", "R7"): (False, "Q3 names no responsible party or timeline."),
+    ("Visit 1726", "R8"): (False, "The delays are not followed by an action point."),
+    ("Visit 1726", "R32"): (False, "The suspension of sessions has no matching action point."),
+    ("Visit 1727", "R6"): (False, "The narrative does not address the visit objective."),
+    ("FM/2026/9", "R5"): (False, "Q1 says Off track while Q2 lists no problem."),
+}
+
+
 @pytest.fixture
-def built(fm_world):
-    """``fm_world`` with its visits built and scored by a full refresh on 5 October 2026."""
+def built(fm_world, monkeypatch):
+    """``fm_world`` with its visits built and scored by a full refresh on 5 October 2026, then its AI
+    checks made (``BUILT_VERDICTS``, through a fake OpenAI client: no call leaves the test) and the
+    scores worked out again with them, on 5 October too. The AI stays switched off for the test (the
+    answers kept still count). Scores: 1722 93, 1723 46 (Low, the most urgent), 1726 88, 1727 80,
+    1728 93, the visit known by its reference 75."""
+    from django.test import override_settings
+
+    from neurodb.assistant import agent
+    from neurodb.assistant.models import AIUsage
     from neurodb.core.models import SyncRun
     from neurodb.fmm import refresh
+    from neurodb.fmm.ai import checks
 
-    run = refresh.run(triggered_by="test", today=datetime.date(2026, 10, 5))
+    today = datetime.date(2026, 10, 5)
+    run = refresh.run(triggered_by="test", today=today)
     assert run.status == SyncRun.Status.SUCCEEDED, run.error
+    fake = FakeChecks(BUILT_VERDICTS)
+    with monkeypatch.context() as patched, override_settings(FMM_AI=True, AI_ASSISTANT_ENABLED=True):
+        patched.setattr(agent, "client", fake.client)
+        done = checks.run("test")
+    assert done.status == SyncRun.Status.SUCCEEDED and done.rows_written == 36, done.details
+    AIUsage.objects.all().delete()  # the fake checks spent nothing
+    SyncRun.objects.filter(job=SyncRun.Job.FMM_AI_CHECKS).delete()
+    rescored = refresh.run(triggered_by="test", scores_only=True, today=today)
+    assert rescored.status == SyncRun.Status.SUCCEEDED, rescored.error
     return run
 
 

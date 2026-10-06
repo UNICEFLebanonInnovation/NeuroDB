@@ -1,0 +1,1284 @@
+{
+  "name": "Lebanon FMM HACT Quality Rules",
+  "version": "1.0",
+  "description": "Quality assessment rules for Lebanon Field Monitoring Module. Implements the 6-rule HACT Quality Check spec: Completeness, Evidence Sufficiency (Q2), HACT Activities Alignment (Q1-Q2), General Observations Coherence (narrative-Q1/Q2), Q3 Quality, and Overall Finding Quality.",
+  "rules": [
+    {
+      "id": "R1",
+      "name": "Report Completeness",
+      "description": "Key HACT fields must be present: narrative_finding (General Observation), overall_finding_rating, Q1, and Q2. Missing fields indicate an incomplete report.",
+      "type": "completeness",
+      "category": "completeness",
+      "group": "core",
+      "hact_spec": "Rule 1 - Completeness",
+      "enabled": true,
+      "fields": [
+        {
+          "name": "narrative_finding",
+          "label": "General Observation (narrative)",
+          "deduction": 3
+        },
+        {
+          "name": "overall_finding_rating",
+          "label": "Overall finding rating",
+          "deduction": 2
+        },
+        {
+          "name": "hact_q1_answer",
+          "label": "Q1 – Implementation status",
+          "deduction": 2
+        },
+        {
+          "name": "hact_q2_answer",
+          "label": "Q2 – Activities monitored",
+          "deduction": 2
+        },
+        {
+          "name": "fmq_answered_categories",
+          "label": "Data collection method records",
+          "deduction": 2
+        }
+      ],
+      "flag_template": "R1: Incomplete monitoring report — missing: {missing_fields}"
+    },
+    {
+      "id": "R2",
+      "name": "Question Answer Completeness",
+      "description": "Measures what percentage of FMM questions were answered. Below 80% indicates incomplete data collection. Below 50% indicates severely incomplete data collection.",
+      "type": "deterministic",
+      "category": "completeness",
+      "enabled": true,
+      "field": "fmq_answered_pct",
+      "field_type": "numeric",
+      "deduction": 8,
+      "missing_value_deduction": 3,
+      "scoring": [
+        {
+          "min": 80,
+          "deduction": 0
+        },
+        {
+          "min": 50,
+          "deduction": 5
+        },
+        {
+          "min": 0,
+          "deduction": 10
+        }
+      ],
+      "flag_template": "R2: Only {value}% of monitoring questions answered (target: 80%+)"
+    },
+    {
+      "id": "R3",
+      "name": "Narrative Evidence Quality",
+      "description": "Merged evidence-quality rule covering narrative sufficiency, specificity, and depth. The report should show concrete, independently observed evidence with enough detail to support findings rather than generic or boilerplate text.",
+      "type": "narrative",
+      "category": "evidence",
+      "group": "core",
+      "hact_spec": "Rule 2 - HACT Activities Evidence Sufficiency (Q2)",
+      "enabled": true,
+      "fields": [
+        "hact_q2_answer",
+        "narrative_finding"
+      ],
+      "deduction": 20,
+      "flag_template": "R3: Q2 lacks specific or disaggregated activity evidence — {ai_detail}",
+      "ai_prompt_key": "evidence_sufficiency"
+    },
+    {
+      "id": "R5",
+      "name": "HACT Activities Alignment",
+      "description": "Q1 (implementation status) must be logically consistent with Q2 (activities verified). If Q1 says On-track but Q2 lists no real activities, or Q1 says Off-track but Q2 describes only positive results, the answers are misaligned.",
+      "type": "narrative",
+      "category": "alignment",
+      "group": "core",
+      "hact_spec": "Rule 3 - HACT Activities Alignment (Q1 ↔ Q2)",
+      "enabled": true,
+      "fields": [
+        "hact_q1_answer",
+        "hact_q2_answer"
+      ],
+      "deduction": 20,
+      "flag_template": "R5: Q1 and Q2 are misaligned — {ai_detail}",
+      "ai_prompt_key": "hact_q1_q2_alignment"
+    },
+    {
+      "id": "R6",
+      "name": "Narrative and Rating Coherence",
+      "description": "Merged coherence rule covering implementation status, narrative consistency, and rating alignment. Q1, Q2, the narrative, and the overall finding rating should tell a consistent story without contradictions or unsupported conclusions.",
+      "type": "narrative",
+      "category": "coherence",
+      "group": "core",
+      "hact_spec": "Rule 4 - General Observations Coherence with Q1/Q2",
+      "enabled": true,
+      "fields": [
+        "hact_q1_answer",
+        "hact_q2_answer",
+        "overall_finding_rating",
+        "narrative_finding",
+        "visit_goals",
+        "objective"
+      ],
+      "deduction": 15,
+      "flag_template": "R6: General Observation is incoherent, duplicates Q2, or does not address visit objective — {ai_detail}",
+      "ai_prompt_key": "narrative_coherence"
+    },
+    {
+      "id": "R7",
+      "name": "Action Point Quality",
+      "description": "Merged action-quality rule covering Q3 quality, SMARTness, and action-point specificity. Follow-up actions should be concrete, assigned, time-bound where possible, and directly useful for correcting the issues described in the visit.",
+      "type": "narrative",
+      "category": "q3_quality",
+      "group": "core",
+      "hact_spec": "Rule 5 - Q3 Quality Check",
+      "enabled": true,
+      "fields": [
+        "hact_q3_answer",
+        "narrative_finding",
+        "action_points_text",
+        "action_points_assigned_to",
+        "action_points_due_dates",
+        "overall_finding_rating",
+        "hact_q1_answer",
+        "hact_q2_answer"
+      ],
+      "deduction": 5,
+      "flag_template": "R7: Q3 has quality issues — {ai_detail}",
+      "ai_prompt_key": "q3_action_quality"
+    },
+    {
+      "id": "R8",
+      "name": "Action Points Cross-Check",
+      "description": "Merged action cross-check rule covering issue-to-action alignment across the narrative, Q1/Q2, the summary, and available action-points records. When problems or recommendations are documented, corresponding follow-up actions must be present and clearly linked.",
+      "type": "narrative",
+      "category": "q3_quality",
+      "group": "core",
+      "hact_spec": "Rule 6 - General Observation Quality Check (Overall_finding)",
+      "enabled": true,
+      "fields": [
+        "hact_q1_answer",
+        "hact_q2_answer",
+        "hact_q3_answer",
+        "narrative_finding",
+        "action_points_text",
+        "action_points_count",
+        "action_points_assigned_to",
+        "action_points_due_dates"
+      ],
+      "deduction": 5,
+      "flag_template": "R8: Bottlenecks or issues identified in narrative/Q1/Q2 but Q3 lacks corresponding action points — {ai_detail}",
+      "ai_prompt_key": "action_points_cross_check"
+    },
+    {
+      "id": "R32",
+      "name": "Challenge-to-Action Alignment",
+      "description": "Checks whether each key challenge or bottleneck identified in the summary (Q1, Q2, narrative_finding) has a corresponding action point in the Action Points tab. Passes when the visit is clearly positive and no follow-up is needed, or when the main challenges each have matching actions. Fails when a significant challenge is documented but not addressed by any action point, or when action points focus on minor issues while the key problems are left unaddressed.",
+      "type": "narrative",
+      "category": "actionability",
+      "enabled": true,
+      "fields": [
+        "hact_q1_answer",
+        "hact_q2_answer",
+        "narrative_finding",
+        "action_points_text",
+        "action_points_assigned_to",
+        "action_points_due_dates"
+      ],
+      "deduction": 5,
+      "flag_template": "R32: Key challenge lacks a corresponding action point — {ai_detail}",
+      "ai_prompt_key": "summary_challenges_action_points_alignment"
+    },
+    {
+      "id": "R9",
+      "name": "Programme Coverage",
+      "description": "Merged programme-coverage rule covering multi-dimension and multi-category coverage. The report should reflect the programme dimensions relevant to the entity and visit context rather than focusing too narrowly on a single aspect of implementation.",
+      "type": "narrative",
+      "category": "programme_coverage",
+      "enabled": false,
+      "fields": [
+        "narrative_finding",
+        "overall_finding_rating"
+      ],
+      "deduction": 15,
+      "flag_template": "R9: Narrative does not cover non-HACT programme dimensions — {ai_detail}",
+      "ai_prompt_key": ""
+    },
+    {
+      "id": "R10",
+      "name": "Determinant Coverage Breadth",
+      "description": "Entity-adapted determinant coverage check from fmq_answered_categories. CP Output must cover Reach + Quality at minimum. Partner must cover HACT + PSEA. PD/SSFA assessed via narrative (no fm_questions categories expected). More categories covered = higher score.",
+      "type": "deterministic",
+      "category": "coverage",
+      "enabled": false,
+      "field": "fmq_answered_categories",
+      "field_type": "list",
+      "list_separator": ";",
+      "entity_type_field": "entity_type",
+      "deduction": 10,
+      "missing_value_deduction": 5,
+      "entity_type_scoring": {
+        "CP Output": {
+          "required": [
+            "Reach",
+            "Quality"
+          ],
+          "scoring": [
+            {
+              "min_categories": 5,
+              "deduction": 0
+            },
+            {
+              "min_categories": 4,
+              "deduction": 1
+            },
+            {
+              "min_categories": 3,
+              "deduction": 3
+            },
+            {
+              "min_categories": 2,
+              "required_met": true,
+              "deduction": 5
+            },
+            {
+              "min_categories": 1,
+              "deduction": 8
+            },
+            {
+              "min_categories": 0,
+              "deduction": 10
+            }
+          ]
+        },
+        "Partner": {
+          "required": [
+            "HACT",
+            "PSEA"
+          ],
+          "scoring": [
+            {
+              "min_categories": 4,
+              "deduction": 0
+            },
+            {
+              "min_categories": 3,
+              "deduction": 1
+            },
+            {
+              "min_categories": 2,
+              "required_met": true,
+              "deduction": 3
+            },
+            {
+              "min_categories": 1,
+              "deduction": 7
+            },
+            {
+              "min_categories": 0,
+              "deduction": 10
+            }
+          ]
+        },
+        "PD/SSFA": {
+          "required": [
+            "Supplies"
+          ],
+          "scoring": [
+            {
+              "min_categories": 3,
+              "deduction": 0
+            },
+            {
+              "min_categories": 2,
+              "required_met": true,
+              "deduction": 2
+            },
+            {
+              "min_categories": 1,
+              "deduction": 5
+            },
+            {
+              "min_categories": 0,
+              "deduction": 8
+            }
+          ]
+        },
+        "default": {
+          "required": [],
+          "scoring": [
+            {
+              "min_categories": 3,
+              "deduction": 0
+            },
+            {
+              "min_categories": 2,
+              "deduction": 3
+            },
+            {
+              "min_categories": 1,
+              "deduction": 7
+            },
+            {
+              "min_categories": 0,
+              "deduction": 10
+            }
+          ]
+        }
+      },
+      "flag_template": "R10: Insufficient determinant coverage for {entity_type} — categories covered: {value}"
+    },
+    {
+      "id": "R11",
+      "name": "Method Triangulation",
+      "description": "Reliability requires triangulation across data collection methods: Key Informant Interviews (KII), Focus Group Discussions (FGD), and Direct Observation. Scored from method_count (distinct collection_method values used across all answered questions in the visit). FGD cannot be used for remote monitoring visits.",
+      "type": "deterministic",
+      "category": "triangulation",
+      "enabled": false,
+      "field": "method_count",
+      "field_type": "numeric",
+      "deduction": 10,
+      "missing_value_deduction": 5,
+      "scoring": [
+        {
+          "min": 3,
+          "deduction": 0
+        },
+        {
+          "min": 2,
+          "deduction": 3
+        },
+        {
+          "min": 1,
+          "deduction": 7
+        },
+        {
+          "min": 0,
+          "deduction": 10
+        }
+      ],
+      "flag_template": "R11: Only {value} data collection method(s) used — KII + FGD + Observation triangulation recommended"
+    },
+    {
+      "id": "R12",
+      "name": "PSEA/AAP Compliance",
+      "description": "Merged compliance rule covering PSEA, safeguarding, and AAP expectations. Relevant reports should document beneficiary protection, safeguarding measures, complaint mechanisms, and community feedback considerations where applicable.",
+      "type": "narrative",
+      "category": "compliance",
+      "enabled": false,
+      "fields": [
+        "narrative_finding",
+        "hact_q3_answer",
+        "dim_psea"
+      ],
+      "deduction": 10,
+      "flag_template": "R12: PSEA/AAP compliance gap — {ai_detail}",
+      "ai_prompt_key": ""
+    },
+    {
+      "id": "R13",
+      "name": "Beneficiary Disaggregation",
+      "description": "For people-facing activities (health, education, nutrition, cash assistance, protection, psychosocial support, training, community outreach), Q2 and the narrative must include disaggregated beneficiary counts — at minimum sex breakdown (boys/girls or men/women), ideally with age groups. Activities that directly serve individuals without any numeric beneficiary data are incomplete. Non-people-facing activities (supply delivery, infrastructure checks, document review, coordination meetings) are exempt. Reports may be in English, French, or Arabic.",
+      "type": "narrative",
+      "category": "beneficiary_disaggregation",
+      "enabled": false,
+      "fields": [
+        "hact_q2_answer",
+        "narrative_finding"
+      ],
+      "deduction": 2,
+      "flag_template": "R13: People-facing activities listed without disaggregated beneficiary data (sex/age breakdown) — {ai_detail}",
+      "ai_prompt_key": ""
+    },
+    {
+      "id": "R14",
+      "name": "Red Flag Intensity",
+      "description": "Red flags are bottom-tier Likert answers: answer <= 2 for 5-class scales; answer = 1 for 3-class scales. High red flag counts signal serious programme concerns. Scored from red_flag_count column computed during question aggregation.",
+      "type": "deterministic",
+      "category": "red_flags",
+      "enabled": false,
+      "field": "red_flag_count",
+      "field_type": "numeric",
+      "deduction": 10,
+      "missing_value_deduction": 0,
+      "scoring": [
+        {
+          "min": 0,
+          "max_inclusive": 0,
+          "deduction": 0
+        },
+        {
+          "min": 1,
+          "max_inclusive": 2,
+          "deduction": 3
+        },
+        {
+          "min": 3,
+          "max_inclusive": 5,
+          "deduction": 6
+        },
+        {
+          "min": 6,
+          "deduction": 10
+        }
+      ],
+      "flag_template": "R14: {value} red-flag Likert response(s) detected — serious programme concerns requiring documented corrective action"
+    },
+    {
+      "id": "R15",
+      "name": "Access Constraint Documentation",
+      "description": "SoP-specific: When a visit is affected by access restrictions (checkpoint delays, area closures, security incidents, evacuation), the narrative must document: (1) the nature of the restriction, (2) its impact on monitoring scope and completeness, (3) any alternative arrangements made (phone interview, secondary source, community informant). Undocumented access constraints are a significant quality gap in the SoP context.",
+      "type": "narrative",
+      "category": "access_documentation",
+      "enabled": false,
+      "fields": [
+        "narrative_finding",
+        "overall_finding_rating"
+      ],
+      "deduction": 8,
+      "flag_template": "R15: Access constraints not adequately documented — {ai_detail}",
+      "ai_prompt_key": ""
+    },
+    {
+      "id": "R16",
+      "name": "Humanitarian Context Relevance",
+      "description": "SoP-specific: The narrative should be grounded in the actual humanitarian context at the time of the visit. For Gaza visits: operational status under conflict conditions, displacement, infrastructure damage. For West Bank visits: movement restrictions, Area A/B/C access considerations. Generic narratives that ignore the specific SoP operating environment score low on this dimension.",
+      "type": "narrative",
+      "category": "humanitarian_context",
+      "enabled": false,
+      "fields": [
+        "narrative_finding"
+      ],
+      "deduction": 5,
+      "flag_template": "R16: Narrative lacks SoP humanitarian context relevance — {ai_detail}",
+      "ai_prompt_key": ""
+    },
+    {
+      "id": "R17",
+      "name": "Cross-Sectoral Integration and Follow-up",
+      "description": "AI checks whether the report acknowledges relevant cross-sectoral linkages (e.g. Health + Nutrition, WASH + Education, CP + AAP) and whether findings or action points from previous visits to the same partner or site have been followed up on.",
+      "type": "narrative",
+      "category": "actionability",
+      "enabled": false,
+      "fields": [
+        "narrative_finding"
+      ],
+      "deduction": 5,
+      "flag_template": "R17: Cross-sectoral integration or follow-up gaps — {ai_detail}",
+      "ai_prompt_key": ""
+    },
+    {
+      "id": "R18",
+      "name": "Evidence Documentation and Depth",
+      "description": "Merged evidence-documentation rule covering evidence depth and attachment support. Strong reports cite sources, document verifiable observations, and include supporting attachments or equivalent documentation when required by the monitoring modality.",
+      "type": "narrative",
+      "category": "evidence_documentation",
+      "enabled": false,
+      "fields": [
+        "narrative_finding",
+        "hact_q2_answer",
+        "attachments_count",
+        "entity_type",
+        "visit_goals"
+      ],
+      "deduction": 15,
+      "flag_template": "R18: Evidence documentation insufficient — {ai_detail}",
+      "ai_prompt_key": ""
+    },
+    {
+      "id": "R4",
+      "name": "Evidence and Source Reliability",
+      "description": "Disabled — merged into R3. Both rules use the same AI prompt key (evidence_sufficiency). R3 (Narrative Evidence Quality) already covers source triangulation and reliability as part of its broader evidence quality assessment. Enabling R4 alongside R3 would run the identical AI prompt twice and apply a duplicate deduction for the same finding. [Inherited from Sudan as part of the canonical 32-rule set; disabled by default — enable and customise reference data for Lebanon before use.]",
+      "type": "narrative",
+      "category": "reliability",
+      "enabled": false,
+      "fields": [
+        "narrative_finding",
+        "hact_q1_answer",
+        "hact_q2_answer"
+      ],
+      "deduction": 10,
+      "flag_template": "R4: Assessment lacks sufficient evidence base or multi-source triangulation — {ai_detail}",
+      "ai_prompt_key": "evidence_sufficiency"
+    },
+    {
+      "id": "R28",
+      "name": "Supporting Attachments Presence",
+      "description": "Checks that at least one supporting document was attached to the report. Partner and PD/SSFA visits should include verifiable evidence — photos, distribution lists, field observation notes, or signed documents. Reports with zero attachments lack documentary backing for their findings. [Inherited from Sudan as part of the canonical 32-rule set; disabled by default — enable and customise reference data for Lebanon before use.]",
+      "type": "deterministic",
+      "category": "evidence_documentation",
+      "enabled": false,
+      "entity_type_filter": [
+        "Partner",
+        "PD",
+        "PD/SSFA"
+      ],
+      "field": "attachment_count",
+      "field_type": "numeric",
+      "deduction": 5,
+      "missing_value_deduction": 3,
+      "scoring": [
+        {
+          "max_inclusive": 0,
+          "deduction": 5
+        },
+        {
+          "min": 1,
+          "deduction": 0
+        }
+      ],
+      "flag_template": "R28: No supporting attachments uploaded — Partner and PD/SSFA visits should include documentation (photos, distribution records, or field notes)"
+    },
+    {
+      "id": "R31",
+      "name": "Information Source Triangulation",
+      "description": "Checks that at least two distinct data collection methods were used (KII, FGD, Observation). Single-method reports lack the cross-source verification expected by SCO quality standards — findings should be triangulated across at least two information channels. [Inherited from Sudan as part of the canonical 32-rule set; disabled by default — enable and customise reference data for Lebanon before use.]",
+      "type": "deterministic",
+      "category": "evidence_documentation",
+      "enabled": false,
+      "entity_type_filter": [
+        "Partner",
+        "CP Output",
+        "PD/SSFA"
+      ],
+      "field": "method_count",
+      "field_type": "numeric",
+      "missing_value_deduction": 3,
+      "scoring": [
+        {
+          "max_inclusive": 0,
+          "deduction": 8
+        },
+        {
+          "max_inclusive": 1,
+          "deduction": 5
+        },
+        {
+          "min": 2,
+          "deduction": 0
+        }
+      ],
+      "flag_template": "R31: Single data collection method used — SCO quality standards require triangulation across at least two methods (KII, FGD, and/or Observation)"
+    },
+    {
+      "id": "R19",
+      "name": "Field Office - Team Member Validation",
+      "description": "Validates that the monitor (team_members email) is assigned to the field office stated in the report. Reference data: populate field_office_emails map in this rules file. Rules skip silently while this map is empty.",
+      "type": "reference_check",
+      "check_type": "member_in_mapped_list",
+      "category": "completeness",
+      "enabled": true,
+      "field": "team_members",
+      "key_field": "field_offices",
+      "reference_map": {
+        "Beirut": [],
+        "Zahle": [],
+        "Tripoli": [],
+        "Beirut/Mount Lebanon": []
+      },
+      "deduction": 3,
+      "flag_template": "R19: Monitor {value} is not listed as staff for field office '{key_value}' — verify assignment"
+    },
+    {
+      "id": "R20",
+      "name": "Location - PD/SSFA Site Validation",
+      "description": "For PD/SSFA visits, validates that the visited location (location_pcode) is one of the PD/SSFA registered sites for this partner. Skips if entity_type is not PD/SSFA or if reference_map is empty. Populate reference_map with {partner_name: [pcode1, pcode2]} to activate.",
+      "type": "reference_check",
+      "check_type": "value_in_mapped_list",
+      "category": "completeness",
+      "enabled": true,
+      "entity_type_filter": "PD",
+      "field": "location_pcode",
+      "key_field": "entity",
+      "reference_map": {
+        "LEBA/PCA2023646/PD20251522-2": [
+          "MU-35277"
+        ],
+        "LEBA/PCA2025677/PD20251529-2": [
+          "LB_CAS_37231",
+          "LB_CAS_61183",
+          "MU-62128"
+        ],
+        "LEBA/PCA2023645/PD20251521-2": [
+          "LB_CAS_61183"
+        ],
+        "LEBA/PCA2023597/PD20251524-3": [
+          "MU-21111a",
+          "MU-62111"
+        ],
+        "LEBA/PCA2023642/PD20251597": [
+          "LB_CAS_53217"
+        ],
+        "LEBA/PCA2023617/PD20251590-1": [
+          "LB_CAS_51139",
+          "LB_CAS_51227"
+        ],
+        "LEBA/PCA2023589/SPD20241337-5": [
+          "LB_CAS_31166"
+        ],
+        "LEBA/PCA2023598/PD20251651-1": [
+          "LB_CAS_31126"
+        ],
+        "LEBA/PCA2023608/PD20261652": [
+          "LB_CAS_31111"
+        ],
+        "LEBA/PCA2023603/PD20251631-1": [
+          "LB_CAS_10210",
+          "LB_CAS_10310",
+          "LB_CAS_24133",
+          "MU-23211"
+        ],
+        "LEBA/PCA2023647/PD20251520-2": [
+          "MU-21111a"
+        ],
+        "LEBA/PCA2023586/PD20251630-1": [
+          "LB_CAS_53111",
+          "MU-53411"
+        ]
+      },
+      "deduction": 5,
+      "flag_template": "R20: Location pcode '{value}' is not a registered PD/SSFA site for partner '{key_value}'"
+    },
+    {
+      "id": "R21",
+      "name": "Section - CP Output Alignment",
+      "description": "For CP Output visits, validates that the section(s) monitored align with the sections associated with the selected CP output. Populate cp_output_sections with {cp_output_code: [section1, section2]} to activate.",
+      "type": "reference_check",
+      "check_type": "section_in_cp_output",
+      "category": "completeness",
+      "enabled": true,
+      "entity_type_filter": "CP Output",
+      "field": "sections_names",
+      "key_field": "output",
+      "list_separator": ";",
+      "reference_map": {
+        "2490/A0/08/303/020": [
+          "Child Protection",
+          "Palestinian Programme"
+        ],
+        "2490/A0/08/305/020": [
+          "Palestinian Programme"
+        ],
+        "2490/A0/08/302/020": [
+          "Education",
+          "Palestinian Programme"
+        ],
+        "2490/A0/08/305/002": [
+          "Adolescent & Youth",
+          "Field Operations"
+        ],
+        "2490/A0/08/303/003": [
+          "Child Protection"
+        ],
+        "2490/A0/08/302/003": [
+          "Education"
+        ],
+        "2490/A0/08/302/004": [
+          "Education",
+          "Field Operations"
+        ],
+        "2490/A0/08/302/002": [
+          "Education"
+        ]
+      },
+      "deduction": 3,
+      "flag_template": "R21: Section '{value}' does not match expected sections for CP output '{key_value}'"
+    },
+    {
+      "id": "R22",
+      "name": "Report Reviewer - PME Staff Check",
+      "description": "Validates that the person responsible (person_responsible_email) is a PME staff member. Note: this uses person_responsible_email as a proxy — the FMM form does not capture a distinct reviewer field. Populate reference_list to activate.",
+      "type": "reference_check",
+      "check_type": "value_in_list",
+      "category": "completeness",
+      "enabled": false,
+      "field": "person_responsible_email",
+      "reference_list": [],
+      "deduction": 2,
+      "flag_template": "R22: Person responsible '{value}' is not in the PME staff list — confirm report has been reviewed by PME"
+    },
+    {
+      "id": "R23",
+      "name": "PD Reference Locations",
+      "description": "Stores registered PD/SSFA physical locations per partner for map overlay. Populate reference_map with {partner_name: [{name, lat, lon, pcode}, ...]} via the Rules UI. Used by the Visit Map to show planned vs actual visited locations. Deduction is 0 — this rule stores reference data only.",
+      "type": "reference_check",
+      "check_type": "pd_reference_locations",
+      "category": "completeness",
+      "enabled": true,
+      "field": "location_pcode",
+      "key_field": "partner",
+      "reference_map": {
+        "MEDICAL AID FOR PALESTINIANS": [
+          {
+            "pcode": "MU-35277",
+            "name": "Mhamra",
+            "lat": 34.507401943560986,
+            "lon": 35.96892215130578
+          }
+        ],
+        "PPL CP SYSTEM STRENGTHENING&ACCESS TO SERVICES ARE INCREASED": [
+          {
+            "pcode": "LB_CAS_61183",
+            "name": "Miye ou Miye",
+            "lat": 33.543188852708944,
+            "lon": 35.392576696067245
+          },
+          {
+            "pcode": "MU-35277",
+            "name": "Mhamra",
+            "lat": 34.507401943560986,
+            "lon": 35.96892215130578
+          }
+        ],
+        "LEBA/PCA2023646/PD20251522-2": [
+          {
+            "pcode": "MU-35277",
+            "name": "Mhamra",
+            "lat": 34.507401943560986,
+            "lon": 35.96892215130578
+          }
+        ],
+        "THE NATIONAL INSTITUTION OF SOCIAL CARE AND VOCATIONAL TRAINING": [
+          {
+            "pcode": "LB_CAS_37231",
+            "name": "Beddaoui",
+            "lat": 34.45081347589272,
+            "lon": 35.87152739211551
+          },
+          {
+            "pcode": "LB_CAS_61183",
+            "name": "Miye ou Miye",
+            "lat": 33.543188852708944,
+            "lon": 35.392576696067245
+          },
+          {
+            "pcode": "MU-62128",
+            "name": "Borj ech Chmali",
+            "lat": 33.26196566914696,
+            "lon": 35.23551984443083
+          }
+        ],
+        "LEBA/PCA2025677/PD20251529-2": [
+          {
+            "pcode": "LB_CAS_37231",
+            "name": "Beddaoui",
+            "lat": 34.45081347589272,
+            "lon": 35.87152739211551
+          },
+          {
+            "pcode": "LB_CAS_61183",
+            "name": "Miye ou Miye",
+            "lat": 33.543188852708944,
+            "lon": 35.392576696067245
+          },
+          {
+            "pcode": "MU-62128",
+            "name": "Borj ech Chmali",
+            "lat": 33.26196566914696,
+            "lon": 35.23551984443083
+          }
+        ],
+        "ARAB RESOURCE CENTER FOR POPULAR ARTS": [
+          {
+            "pcode": "LB_CAS_61183",
+            "name": "Miye ou Miye",
+            "lat": 33.543188852708944,
+            "lon": 35.392576696067245
+          }
+        ],
+        "PPL YOUTH LEARNING&SKILLS BUILDING OPPORTUNITIES FOR ADOLESCENTS&YOUNG PEOPLE": [
+          {
+            "pcode": "LB_CAS_37231",
+            "name": "Beddaoui",
+            "lat": 34.45081347589272,
+            "lon": 35.87152739211551
+          },
+          {
+            "pcode": "LB_CAS_61183",
+            "name": "Miye ou Miye",
+            "lat": 33.543188852708944,
+            "lon": 35.392576696067245
+          },
+          {
+            "pcode": "MU-62128",
+            "name": "Borj ech Chmali",
+            "lat": 33.26196566914696,
+            "lon": 35.23551984443083
+          }
+        ],
+        "LEBA/PCA2023645/PD20251521-2": [
+          {
+            "pcode": "LB_CAS_61183",
+            "name": "Miye ou Miye",
+            "lat": 33.543188852708944,
+            "lon": 35.392576696067245
+          }
+        ],
+        "TERRE DES HOMMES ITALIA": [
+          {
+            "pcode": "MU-21111a",
+            "name": "Ghobeiri",
+            "lat": 33.85361870407981,
+            "lon": 35.49105764240912
+          },
+          {
+            "pcode": "MU-62111",
+            "name": "Sour",
+            "lat": 33.25613466854013,
+            "lon": 35.21136733825505
+          }
+        ],
+        "PPL LEARNING SKILLS & EARLY CHILDHOOD EDUCATION": [
+          {
+            "pcode": "MU-21111a",
+            "name": "Ghobeiri",
+            "lat": 33.85361870407981,
+            "lon": 35.49105764240912
+          },
+          {
+            "pcode": "MU-62111",
+            "name": "Sour",
+            "lat": 33.25613466854013,
+            "lon": 35.21136733825505
+          }
+        ],
+        "LEBA/PCA2023597/PD20251524-3": [
+          {
+            "pcode": "MU-21111a",
+            "name": "Ghobeiri",
+            "lat": 33.85361870407981,
+            "lon": 35.49105764240912
+          },
+          {
+            "pcode": "MU-62111",
+            "name": "Sour",
+            "lat": 33.25613466854013,
+            "lon": 35.21136733825505
+          }
+        ],
+        "MOUVEMENT SOCIAL": [
+          {
+            "pcode": "LB_CAS_53217",
+            "name": "Aain Baalbek",
+            "lat": 34.223936107357844,
+            "lon": 36.38453316456042
+          }
+        ],
+        "5.2 ADOL.&YOUTH LEARNING TO EARNING PATHWAYS AND SKILLING": [
+          {
+            "pcode": "LB_CAS_51139",
+            "name": "Fourzol",
+            "lat": 33.863288403597245,
+            "lon": 35.94876098684687
+          },
+          {
+            "pcode": "LB_CAS_51227",
+            "name": "Taanayel",
+            "lat": 33.78881539111049,
+            "lon": 35.87805105995776
+          },
+          {
+            "pcode": "LB_CAS_53217",
+            "name": "Aain Baalbek",
+            "lat": 34.223936107357844,
+            "lon": 36.38453316456042
+          }
+        ],
+        "LEBA/PCA2023642/PD20251597": [
+          {
+            "pcode": "LB_CAS_53217",
+            "name": "Aain Baalbek",
+            "lat": 34.223936107357844,
+            "lon": 36.38453316456042
+          }
+        ],
+        "AMERICAN NEAR EAST REFUGEE AID": [
+          {
+            "pcode": "LB_CAS_51139",
+            "name": "Fourzol",
+            "lat": 33.863288403597245,
+            "lon": 35.94876098684687
+          },
+          {
+            "pcode": "LB_CAS_51227",
+            "name": "Taanayel",
+            "lat": 33.78881539111049,
+            "lon": 35.87805105995776
+          }
+        ],
+        "LEBA/PCA2023617/PD20251590-1": [
+          {
+            "pcode": "LB_CAS_51139",
+            "name": "Fourzol",
+            "lat": 33.863288403597245,
+            "lon": 35.94876098684687
+          },
+          {
+            "pcode": "LB_CAS_51227",
+            "name": "Taanayel",
+            "lat": 33.78881539111049,
+            "lon": 35.87805105995776
+          }
+        ],
+        "SAVE THE CHILDREN SWEDEN LEBANON": [
+          {
+            "pcode": "LB_CAS_31166",
+            "name": "Trablous jardins",
+            "lat": 34.43995015304424,
+            "lon": 35.83463181543677
+          }
+        ],
+        "3.3 ACCESS TO QUALITY COMPREHENSIVE CPSERVICES": [
+          {
+            "pcode": "LB_CAS_31166",
+            "name": "Trablous jardins",
+            "lat": 34.43995015304424,
+            "lon": 35.83463181543677
+          }
+        ],
+        "LEBA/PCA2023589/SPD20241337-5": [
+          {
+            "pcode": "LB_CAS_31166",
+            "name": "Trablous jardins",
+            "lat": 34.43995015304424,
+            "lon": 35.83463181543677
+          }
+        ],
+        "MINISTRY OF EDUCATION AND HIGHER EDUCATION": [
+          {
+            "pcode": "LB_CAS_25126",
+            "name": "Zouk Mousbeh",
+            "lat": 33.95683373393882,
+            "lon": 35.61184289561502
+          },
+          {
+            "pcode": "LB_CAS_51267",
+            "name": "Barr Elias",
+            "lat": 33.77681128958791,
+            "lon": 35.92764852286183
+          }
+        ],
+        "2.3 STRENGTHENED EDUCATION SYSTEM.": [
+          {
+            "pcode": "LB_CAS_51267",
+            "name": "Barr Elias",
+            "lat": 33.77681128958791,
+            "lon": 35.92764852286183
+          }
+        ],
+        "RENE MOAWAD FOUNDATION": [
+          {
+            "pcode": "LB_CAS_31126",
+            "name": "Trablous En-Nouri",
+            "lat": 34.435399943208374,
+            "lon": 35.84016882707007
+          }
+        ],
+        "2.4 MULTIPLE FLEXIBLE PATHWAYS": [
+          {
+            "pcode": "LB_CAS_10210",
+            "name": "Msaitbe",
+            "lat": 33.88092127364178,
+            "lon": 35.48818890637331
+          },
+          {
+            "pcode": "LB_CAS_10310",
+            "name": "Mazraa",
+            "lat": 33.87499243010244,
+            "lon": 35.50457576920626
+          },
+          {
+            "pcode": "LB_CAS_24133",
+            "name": "Choueifat El-Quoubbe",
+            "lat": 33.789544648876614,
+            "lon": 35.48429171369874
+          },
+          {
+            "pcode": "LB_CAS_31111",
+            "name": "Trablous Ez-Zeitoun",
+            "lat": 34.41470859237824,
+            "lon": 35.85059053044595
+          },
+          {
+            "pcode": "LB_CAS_31126",
+            "name": "Trablous En-Nouri",
+            "lat": 34.435399943208374,
+            "lon": 35.84016882707007
+          },
+          {
+            "pcode": "LB_CAS_53111",
+            "name": "Baalbek",
+            "lat": 34.01322248561571,
+            "lon": 36.20551112768633
+          },
+          {
+            "pcode": "MU-23211",
+            "name": "Chhim",
+            "lat": 33.629787243552535,
+            "lon": 35.48524380245534
+          },
+          {
+            "pcode": "MU-53411",
+            "name": "Bednayel",
+            "lat": 33.93698914889108,
+            "lon": 35.951723287229186
+          }
+        ],
+        "LEBA/PCA2023598/PD20251651-1": [
+          {
+            "pcode": "LB_CAS_31126",
+            "name": "Trablous En-Nouri",
+            "lat": 34.435399943208374,
+            "lon": 35.84016882707007
+          }
+        ],
+        "2.2 INCREASED ACCESS TO EDUCATION.": [
+          {
+            "pcode": "LB_CAS_25126",
+            "name": "Zouk Mousbeh",
+            "lat": 33.95683373393882,
+            "lon": 35.61184289561502
+          }
+        ],
+        "SHIFT": [
+          {
+            "pcode": "LB_CAS_31111",
+            "name": "Trablous Ez-Zeitoun",
+            "lat": 34.41470859237824,
+            "lon": 35.85059053044595
+          }
+        ],
+        "LEBA/PCA2023608/PD20261652": [
+          {
+            "pcode": "LB_CAS_31111",
+            "name": "Trablous Ez-Zeitoun",
+            "lat": 34.41470859237824,
+            "lon": 35.85059053044595
+          }
+        ],
+        "AMEL ASSOC INTERNATIONAL": [
+          {
+            "pcode": "LB_CAS_10210",
+            "name": "Msaitbe",
+            "lat": 33.88092127364178,
+            "lon": 35.48818890637331
+          },
+          {
+            "pcode": "LB_CAS_10310",
+            "name": "Mazraa",
+            "lat": 33.87499243010244,
+            "lon": 35.50457576920626
+          },
+          {
+            "pcode": "LB_CAS_24133",
+            "name": "Choueifat El-Quoubbe",
+            "lat": 33.789544648876614,
+            "lon": 35.48429171369874
+          },
+          {
+            "pcode": "MU-23211",
+            "name": "Chhim",
+            "lat": 33.629787243552535,
+            "lon": 35.48524380245534
+          }
+        ],
+        "LEBA/PCA2023603/PD20251631-1": [
+          {
+            "pcode": "LB_CAS_10210",
+            "name": "Msaitbe",
+            "lat": 33.88092127364178,
+            "lon": 35.48818890637331
+          },
+          {
+            "pcode": "LB_CAS_10310",
+            "name": "Mazraa",
+            "lat": 33.87499243010244,
+            "lon": 35.50457576920626
+          },
+          {
+            "pcode": "LB_CAS_24133",
+            "name": "Choueifat El-Quoubbe",
+            "lat": 33.789544648876614,
+            "lon": 35.48429171369874
+          },
+          {
+            "pcode": "MU-23211",
+            "name": "Chhim",
+            "lat": 33.629787243552535,
+            "lon": 35.48524380245534
+          }
+        ],
+        "WELFARE ASSOCIATION TAAWON LEBANON BRANCH": [
+          {
+            "pcode": "MU-21111a",
+            "name": "Ghobeiri",
+            "lat": 33.85361870407981,
+            "lon": 35.49105764240912
+          }
+        ],
+        "LEBA/PCA2023647/PD20251520-2": [
+          {
+            "pcode": "MU-21111a",
+            "name": "Ghobeiri",
+            "lat": 33.85361870407981,
+            "lon": 35.49105764240912
+          }
+        ],
+        "LEBANESE ORGANIZATION OF STUDIES AND TRAINING": [
+          {
+            "pcode": "LB_CAS_53111",
+            "name": "Baalbek",
+            "lat": 34.01322248561571,
+            "lon": 36.20551112768633
+          },
+          {
+            "pcode": "MU-53411",
+            "name": "Bednayel",
+            "lat": 33.93698914889108,
+            "lon": 35.951723287229186
+          }
+        ],
+        "LEBA/PCA2023586/PD20251630-1": [
+          {
+            "pcode": "LB_CAS_53111",
+            "name": "Baalbek",
+            "lat": 34.01322248561571,
+            "lon": 36.20551112768633
+          },
+          {
+            "pcode": "MU-53411",
+            "name": "Bednayel",
+            "lat": 33.93698914889108,
+            "lon": 35.951723287229186
+          }
+        ]
+      },
+      "deduction": 0,
+      "flag_template": "R23: Visit location '{value}' not among registered PD locations for partner '{key_value}'"
+    },
+    {
+      "id": "R24",
+      "name": "Supplies Dimension Coverage",
+      "description": "Checks that at least one Supplies/Products question was answered during data collection for PD-type visits. Supplies questions assess whether key inputs met agreed quality standards, were delivered on time, and are adequate in quantity. Scoped to PD only — PD/SSFA visits are covered by R29, which references the specific SCO mandatory questions (Q62–Q67) for that entity type. Applying this rule to PD/SSFA alongside R29 would cause a double deduction for the same gap. [Inherited from Sudan as part of the canonical 32-rule set; disabled by default — enable and customise reference data for Lebanon before use.]",
+      "type": "reference_check",
+      "check_type": "string_contains",
+      "category": "completeness",
+      "enabled": false,
+      "entity_type_filter": [
+        "PD"
+      ],
+      "field": "fmq_answered_categories",
+      "contains": "supplies",
+      "deduction": 4,
+      "flag_template": "R24: Supplies/Products dimension not covered — no supply-related questions answered during this visit"
+    },
+    {
+      "id": "R25",
+      "name": "Acceptability Dimension Coverage",
+      "description": "Checks that at least one Acceptability question was answered during data collection for PD-type visits. Acceptability questions assess whether intended users are satisfied with services, whether socio-cultural barriers restrict access, and whether excluded groups have been identified. Scoped to PD only — PD/SSFA visits are covered by R30, which references the specific SCO mandatory questions (Q26, Q29) for that entity type. Applying this rule to PD/SSFA alongside R30 would cause a double deduction for the same gap. [Inherited from Sudan as part of the canonical 32-rule set; disabled by default — enable and customise reference data for Lebanon before use.]",
+      "type": "reference_check",
+      "check_type": "string_contains",
+      "category": "completeness",
+      "enabled": false,
+      "entity_type_filter": [
+        "PD"
+      ],
+      "field": "fmq_answered_categories",
+      "contains": "acceptability",
+      "deduction": 4,
+      "flag_template": "R25: Acceptability dimension not covered — no acceptability questions answered during this visit"
+    },
+    {
+      "id": "R26",
+      "name": "PSEA Mandatory Question Coverage — Partner",
+      "description": "For Partner visits, checks that the PSEA dimension was answered during data collection. SCO mandatory questions Q1 (proportion of beneficiaries who can explain a PSEA reporting channel) and Q2 (visible PSEA materials at the site) are both mandatory for Partner visits. No PSEA entry in fmq_answered_categories means these mandatory questions were entirely skipped. [Inherited from Sudan as part of the canonical 32-rule set; disabled by default — enable and customise reference data for Lebanon before use.]",
+      "type": "reference_check",
+      "check_type": "string_contains",
+      "category": "compliance",
+      "enabled": false,
+      "entity_type_filter": [
+        "Partner"
+      ],
+      "field": "fmq_answered_categories",
+      "contains": "PSEA",
+      "deduction": 5,
+      "flag_template": "R26: PSEA dimension not collected — SCO mandatory questions Q1 and Q2 (beneficiary PSEA knowledge and visible materials) were not answered during this Partner visit"
+    },
+    {
+      "id": "R27",
+      "name": "Community Engagement Mandatory Coverage — CP Output",
+      "description": "For CP Output visits, checks that Community Engagement and Accountability dimension questions were answered. SCO mandatory questions Q15 (community feedback mechanism), Q16 (community/beneficiary feedback), and Q17 (engagement with community structures) are all mandatory for CP Output visits. A missing Community Engagement category in fmq_answered_categories indicates these mandatory questions were skipped. [Inherited from Sudan as part of the canonical 32-rule set; disabled by default — enable and customise reference data for Lebanon before use.]",
+      "type": "reference_check",
+      "check_type": "string_contains",
+      "category": "compliance",
+      "enabled": false,
+      "entity_type_filter": [
+        "CP Output"
+      ],
+      "field": "fmq_answered_categories",
+      "contains": "community engagement",
+      "deduction": 5,
+      "flag_template": "R27: Community Engagement dimension not collected — SCO mandatory questions Q15/Q16/Q17 (community feedback mechanism and community engagement) were not answered during this CP Output visit"
+    },
+    {
+      "id": "R29",
+      "name": "Supplies Mandatory Coverage — PD/SSFA",
+      "description": "PD/SSFA visits must assess the Supplies dimension (availability, timeliness, quality, fair distribution). Questions Q62–Q67 are specific to PD/SSFA entity type and cover the full supplies chain from availability through end-use. [Inherited from Sudan as part of the canonical 32-rule set; disabled by default — enable and customise reference data for Lebanon before use.]",
+      "type": "reference_check",
+      "check_type": "string_contains",
+      "category": "compliance",
+      "enabled": false,
+      "entity_type_filter": [
+        "PD/SSFA"
+      ],
+      "field": "fmq_answered_categories",
+      "contains": "Supplies",
+      "deduction": 5,
+      "flag_template": "R29: Supplies dimension not collected — PD/SSFA visits must address supplies availability, timeliness, quality, and distribution (SCO mandatory questions Q62–Q67)"
+    },
+    {
+      "id": "R30",
+      "name": "Acceptability Mandatory Coverage — PD/SSFA",
+      "description": "PD/SSFA visits must assess the Acceptability dimension — socio-cultural barriers, cost barriers, continuity of use, and user satisfaction. SCO mandatory questions Q26 (continuity) and Q29 (socio-cultural barriers) are required for all PD/SSFA visits except warehouse-only monitoring. [Inherited from Sudan as part of the canonical 32-rule set; disabled by default — enable and customise reference data for Lebanon before use.]",
+      "type": "reference_check",
+      "check_type": "string_contains",
+      "category": "compliance",
+      "enabled": false,
+      "entity_type_filter": [
+        "PD/SSFA"
+      ],
+      "field": "fmq_answered_categories",
+      "contains": "Acceptability",
+      "deduction": 5,
+      "flag_template": "R30: Acceptability dimension not collected — PD/SSFA visits must assess socio-cultural barriers, cost barriers, and continuity of use (SCO mandatory questions Q26, Q29)"
+    }
+  ],
+  "score_categories": {
+    "completeness": {
+      "weight": 30
+    },
+    "evidence": {
+      "weight": 20
+    },
+    "alignment": {
+      "weight": 20
+    },
+    "coherence": {
+      "weight": 15
+    },
+    "q3_quality": {
+      "weight": 10
+    },
+    "actionability": {
+      "weight": 5
+    }
+  },
+  "quality_thresholds": {
+    "high": 80,
+    "medium": 50
+  },
+  "ai_config": {
+    "enabled": true,
+    "temperature": 0.3,
+    "max_tokens": 500
+  }
+}

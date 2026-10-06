@@ -255,22 +255,29 @@ def _previous(scope: Scope, kpi: dict[str, Any], when: str, limits: dict[str, in
 
 
 def _rules(scope: Scope, when: str, rules: list) -> dict[str, dict[str, Any]]:
-    points = {row["code"]: row for row in metrics.dimension_breakdown(scope, rules, when)["rows"]}
+    """One entry per quality rule switched on: its category, the visits it flagged out of those it
+    checked, and the mean points the visits kept of its deduction."""
+    stats = metrics.rule_stats(scope, when)
     out = {}
     for row in metrics.rule_analysis(scope, rules, when):
-        if row["state"] == "off":
+        if row["state"] in ("off", "ai_off"):  # switched off, or an AI check while they are
             continue
         key = f"rule:{row['code']}"
-        earned = points.get(row["code"])
+        s = stats.get(row["code"]) or {}
+        kept = None
+        if s.get("points_n") and s.get("earned") is not None:
+            kept = Decimal(str(s["earned"])) / s["points_n"]
         out[key] = {
             "key": key,
             "label": row["label"],
+            "category": row["category"],
             "flagged": row["flagged"],
             "evaluated": row["evaluated"],
             "not_available": row["na"],
+            "pending": row["pending"],
             "flagged_share": _num(row["share"]),
-            "avg_points": _num(earned["earned"]) if earned else None,
-            "max_points": row["points"],
+            "avg_points": _num(kept),
+            "max_points": _num(row["points"]),
         }
     return out
 

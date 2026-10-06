@@ -13,8 +13,9 @@ Each pass is one ``SyncRun`` (job "Monitoring insights refresh") under its own d
    partners, programme documents, places, sections, offices, teams, action points and checklist
    answers. Records are read one at a time, and only small parsed values are kept.
 6. **Scores** them (``fmm.score``): the question roles, HACT Q1 and the PSEA flag, the quality rules
-   R1-R6, the score, its band and flags, and urgency, with the rules as they are when the pass
-   starts (the rules version is read first and stamped on every visit).
+   (FMS's model, with the AI checks' answers kept for each visit), the score, its band and flags, and
+   urgency, with the rules as they are when the pass starts (the rules version is read first and
+   stamped on every visit).
 7. **Swaps** the new visits in, in one transaction: readers see the old ones until it commits, a
    visit keeps its pk while its key stays, its rows, answers, action point links and rule results are
    replaced, and the reviews (``VisitReview``) are never touched.
@@ -100,6 +101,9 @@ SCORE_FIELDS = (
     "hact_q1",
     "psea_flag",
     "quality_score",
+    "provisional_score",
+    "ai_pending",
+    "category_deductions",
     "quality_points",
     "quality_max",
     "evaluated_rules",
@@ -118,9 +122,8 @@ SCORE_FIELDS = (
     "rules_version",
     "refreshed_at",
 )
-# What a scores-only pass writes on each entity row (the effective HACT Q1, and the narrative's measures
-# under the narrative rule's settings)
-ENTITY_SCORE_FIELDS = ("hact_q1", "hact_q1_from", "narrative_hash", "narrative_placeholder")
+# What a scores-only pass writes on each entity row (the effective HACT Q1)
+ENTITY_SCORE_FIELDS = ("hact_q1", "hact_q1_from")
 # What a full pass writes on a visit that exists already (everything but its pk and key)
 UPSERT_FIELDS = [f.name for f in Visit._meta.concrete_fields if f.name not in ("id", "key")]
 Kind = Literal["full", "scores", "probe"]
@@ -336,12 +339,12 @@ def _full(triggered_by: str, today: date) -> SyncRun:
         result = build.build_visits(build.Context(today=today, keys=keys, on_error=failed))
         if result.findings and not result.visits:  # every row failed: never swap in an empty set
             raise RuntimeError(f"none of the {result.findings} finding rows could be read")
-        answer_keys = {field: keys.get(("fm_questions", field)) for field in fields.ANSWER_FIELDS}
-        source = score.BuiltSource(result, keys, probes["fm_questions"].answer_counts(answer_keys))
+        source = score.BuiltSource(result, keys)
         scored = _score(result.visits, today, version_used, source=source, on_error=failed)
         with transaction.atomic():
             _written, mappings = _write_keys(probes)
             sync_run.rows_written = _swap(result, version_used, scored)
+            _forget_checks()
         details = _details(probes, mappings, relinked)
     except Exception as exc:
         return fail(sync_run, exc, duration_ms=_ms(clock))
@@ -486,6 +489,13 @@ def _swap(result: build.BuildResult, version: int, scored: score.Scored | None =
             copy_rows(VisitRuleResult, scored.results)
         transaction.on_commit(people.forget)  # the team names, read again by the next look-up
     return len(visits)
+
+
+def _forget_checks() -> int:
+    """The AI checks of visits that are gone (their key no longer in eTools) are deleted."""
+    from .models import VisitAICheck
+
+    return VisitAICheck.objects.exclude(visit_key__in=Visit.objects.values("key")).delete()[0]
 
 
 def _ms(clock: float) -> int:

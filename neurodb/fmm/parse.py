@@ -35,7 +35,7 @@ from typing import Any, Literal
 from neurodb.datamart import fm
 from neurodb.watch import people
 
-KINDS = ("text", "id", "int", "bool", "number")
+KINDS = ("text", "id", "int", "bool", "number", "count")
 TEXT_KEYS = ("text", "title", "name", "label", "value", "reference_number", "id")
 ID_KEYS = ("id", "text", "title", "name", "label", "value", "reference_number")  # an id prefers "id"
 INT_KEYS = ("value", "id", "text", "title", "name", "label", "reference_number")
@@ -109,6 +109,13 @@ def as_kind(raw: Any, kind: str = "text") -> Any:
         if isinstance(raw, list):
             return as_kind(raw[0], "bool") if raw else None
         return raw if isinstance(raw, bool) else None
+    if kind == "count":  # a number of things: a list's length, else a whole number from 0
+        if isinstance(raw, list | tuple):
+            return len(raw)
+        if isinstance(raw, bool):
+            return None
+        number = _number(raw)
+        return int(number) if number is not None and number >= 0 and number == int(number) else None
     raise ValueError(f"unknown kind {kind!r}")
 
 

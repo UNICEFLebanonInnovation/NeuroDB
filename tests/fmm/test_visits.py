@@ -25,9 +25,9 @@ pytestmark = pytest.mark.django_db
 TODAY = datetime.date(2026, 10, 5)
 TABLE = reverse("fmm:visits")
 REFERENCE_KEY = fm.visit_key(None, "FM/2026/9", 0)
-# by urgency (FMS's formula: 57, 38, 37, 33, 26, 19), then the two without a score (and so without
+# by urgency (FMS's formula: 59, 39, 37, 24, 23, 14), then the two without a score (and so without
 # urgency) by end date, newest first
-URGENCY_ORDER = ["1723", "1727", "1726", "1722", "1728", REFERENCE_KEY, "1724", "1725"]
+URGENCY_ORDER = ["1723", "1727", "1726", "1722", REFERENCE_KEY, "1728", "1724", "1725"]
 
 
 @pytest.fixture(autouse=True)
@@ -57,7 +57,10 @@ def test_the_table_is_sorted_by_urgency_then_date(built, client_viewer):
     html = client_viewer.get(TABLE).content.decode()
     assert _keys(html) == URGENCY_ORDER
     assert _keys(client_viewer.get(TABLE, {"sort": "-date"}).content.decode())[:3] == ["1724", "1727", "1726"]
-    assert _keys(client_viewer.get(TABLE, {"sort": "quality"}).content.decode())[:2] == ["1723", "1728"]
+    assert _keys(client_viewer.get(TABLE, {"sort": "quality"}).content.decode())[:2] == [
+        "1723",
+        REFERENCE_KEY,
+    ]
     assert _keys(client_viewer.get(TABLE, {"sort": "nonsense"}).content.decode()) == URGENCY_ORDER
 
 
@@ -69,8 +72,8 @@ def test_red_and_amber_rows_follow_the_configured_thresholds(built, client_viewe
     assert "Red rows = high urgency (≥ 70) · Amber rows = medium (40–69)" in html
     ScoreSetting.objects.filter(pk=1).update(urgency_red=55, urgency_amber=30)
     rows = dict(zip(URGENCY_ORDER, _rows(client_viewer.get(TABLE).content.decode()), strict=True))
-    assert 'class="row--red"' in rows["1723"] and 'class="row--amber"' in rows["1722"]
-    assert "row--" not in rows["1728"] and "row--" not in rows["1724"]  # 26; no urgency
+    assert 'class="row--red"' in rows["1723"] and 'class="row--amber"' in rows["1727"]
+    assert "row--" not in rows["1722"] and "row--" not in rows["1724"]  # 24; no urgency
     assert (
         "Red rows = high urgency (≥ 55) · Amber rows = medium (30–54)"
         in client_viewer.get(TABLE).content.decode()
@@ -79,8 +82,8 @@ def test_red_and_amber_rows_follow_the_configured_thresholds(built, client_viewe
 
 def test_the_urgency_pill_explains_its_parts(built, client_viewer):
     rows = dict(zip(URGENCY_ORDER, _rows(client_viewer.get(TABLE).content.decode()), strict=True))
-    title = re.search(r'title="([^"]*)">57<', rows["1723"]).group(1)
-    assert title == "quality gap 29.8 · recency 12.2 · red flags 15" and "pill--warning" in rows["1723"]
+    title = re.search(r'title="([^"]*)">59<', rows["1723"]).group(1)
+    assert title == "quality gap 27 · recency 12.2 · red flags 20" and "pill--warning" in rows["1723"]
     assert "No urgency: the visit has no score" in rows["1724"] and ">—<" in rows["1724"]
 
 
@@ -136,9 +139,9 @@ def test_the_csv_has_every_row_and_no_team_lead_or_narrative(built, client_viewe
     one = dict(zip(rows[0], next(r for r in rows if r[1] == "1722"), strict=True))
     assert (one["Rating"], one["Quality score"], one["Flags"], one["Urgency"]) == (
         "off_track",
-        "64.7",
-        "R3 R4",
-        "33",
+        "93.0",
+        "R1 R7 R23",
+        "24",
     )
     filtered = client_viewer.get(
         TABLE, {"export": "csv", "rating": "off_track", "section": ""}
@@ -156,9 +159,10 @@ def test_the_visit_page_shows_narratives_in_full_without_emails(built, client_vi
     assert MEMBER_EMAIL not in html
     assert "matched by PCA/PD number" in html
     assert "Shown to NeuroDB users only; never sent to the AI." in html
-    assert "Why urgency 33" in html and "scored on R1, R2, R3, R4, R5 (85 of 85 points)" in html
+    assert "Why urgency 24" in html and "100 less Q3 quality 5, Completeness 2" in " ".join(html.split())
     assert "/action-points/?module=fm&amp;visit=1722" in html or "module=fm&amp;visit=1722" in html
-    assert "HACT Q1 not answered" in html  # the rule's own sentence
+    assert "R1: Incomplete monitoring report — missing: Q1 – Implementation status" in html  # its flag
+    assert "Switched off: R4, R9, R10" in html  # the rules switched off keep no result
     assert "Questions and answers" in html and "5 of 5 answered" in html
     assert "Open in eTools" not in html  # no address configured
 

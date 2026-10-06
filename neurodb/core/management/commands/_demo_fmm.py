@@ -728,3 +728,43 @@ def _action_points(rng, today, reported, q1_labels) -> None:
                 partner_name=pca.partner_name or "",
                 intervention_number=pca.number or "",
             )
+
+
+# ------------------------------------------------------------------------------ AI checks
+DEMO_FLAGS = {  # a rule's demo explanation when it flags a visit
+    "R3": "Q2 restates the partner's report and names no activity the monitor verified.",
+    "R5": "Q1 says the activities are on track while Q2 describes delays.",
+    "R6": "The general observation repeats Q2 and does not address the visit's objective.",
+    "R7": "Q3 lists no action with a responsible party or a timeline.",
+    "R8": "The problems described in the narrative have no action point.",
+    "R32": "The main challenge of the visit has no matching action point.",
+}
+
+
+def demo_checks() -> int:
+    """The answers of the AI checks of the demo's scored visits, written without any AI call (model
+    "demo"): the poor report of activity 75 fails every check, about one other visit in seven fails one.
+    Kept as the checks of the visits' current inputs, so the pages show AI flags at once."""
+    from neurodb.fmm.ai import checks
+    from neurodb.fmm.models import Visit
+    from neurodb.fmm.score import Rulebook
+
+    book = Rulebook.load()
+    codes = [rule.code for rule in book.ai_rules()]
+    if not codes:
+        return 0
+    rng = random.Random(1776)  # noqa: S311 - its own draws: the rest of the demo does not move
+    answers = {}
+    for key in (
+        Visit.objects.filter(status__in=sorted(book.scored_statuses))
+        .order_by("key")
+        .values_list("key", flat=True)
+    ):
+        failing = set(codes) if key == "75" else ({rng.choice(codes)} if rng.random() < 1 / 7 else set())
+        for code in codes:
+            flagged = code in failing
+            answers[(key, code)] = (
+                not flagged,
+                DEMO_FLAGS.get(code, "") if flagged else "The report is specific.",
+            )
+    return checks.store_answers(answers, "demo")

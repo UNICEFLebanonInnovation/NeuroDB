@@ -1,0 +1,16 @@
+{% load i18n %}
+{% comment %}
+  Above the quality rules: each score category's weight and the sum of the deductions of its rules that
+  are on (FMS's "Sum of deductions per category" chips); a mismatch asks for Rebalance.
+  Context: fmm.admin.RuleSettingAdmin.changelist_view.
+{% endcomment %}
+{% if category_sums %}
+  <div class="nd-scheduler{% if category_mismatch %} nd-scheduler--warn{% endif %}" role="status">
+    <span class="material-symbols-outlined" aria-hidden="true">balance</span>
+    <div>
+      <strong>{% trans "Sum of deductions per category" %}</strong>
+      <p>{% for row in category_sums %}<span class="whitespace-nowrap">{{ row.label }}: {{ row.sum }}{% if row.weight is not None %} / {{ row.weight }}{% else %} ({% trans "no weight" %}){% endif %}{% if not row.matches %} ⚠{% endif %}</span>{% if not forloop.last %} · {% endif %}{% endfor %}</p>
+      {% if category_mismatch %}<p>{% trans "A category's deductions do not match its weight, or the weights do not add up to 100: each visit is still scored correctly, but the totals are confusing. Use Rebalance once the edits are done." %}</p>{% endif %}
+    </div>
+  </div>
+{% endif %}

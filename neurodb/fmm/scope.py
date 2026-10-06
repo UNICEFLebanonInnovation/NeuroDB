@@ -85,8 +85,8 @@ STATUS_LABELS = {
     "unknown": "Status unknown",
 }
 KIND_LABELS = {"pd": "PD/SSFA", "cp_output": "CP output", "partner": "Partner", "other": "Other"}
-RULES = ("R1", "R2", "R3", "R4", "R5", "R6")
-RULE_STATES = ("pass", "fail", "na", "nap", "off")
+RULE_CODE = re.compile(r"^R\d{1,3}$")  # a quality rule's id (R1 ... R32)
+RULE_STATES = ("pass", "fail", "na", "nap", "off", "pending")
 # the score distribution's buckets of 10 points (90-100 holds 100); the buckets of 20 points of Release 1
 # are still read, so an older link keeps opening its visits
 CHART_BUCKETS = {f"{low}-{low + 10}": (low, low + 10) for low in range(0, 100, 10)}
@@ -116,7 +116,7 @@ DRILL_KEYS = (
 MAX_VALUES = 50  # values kept per filter
 Q_CHARS = 200
 _MONTH = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
-_ISSUE = re.compile(r"^(R[1-6]):([a-z0-9_:,]{1,40})$")
+_ISSUE = re.compile(r"^(R\d{1,3}):([a-z0-9_:,]{1,40})$")
 
 
 def _drill_ok(key: str, value: str) -> bool:
@@ -130,7 +130,7 @@ def _drill_ok(key: str, value: str) -> bool:
     if key == "bucket":
         return value in BUCKETS or value == NONE
     if key in ("flag", "rule"):
-        return value in RULES
+        return bool(RULE_CODE.match(value))
     if key == "flags":
         return bool(_FLAGS.match(value))
     if key == "urgency":

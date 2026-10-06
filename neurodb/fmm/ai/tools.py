@@ -44,7 +44,8 @@ from neurodb.assistant.tools import ToolInputError
 from neurodb.watch import people
 
 from .. import metrics, privacy
-from ..scope import KIND_LABELS, NONE, RATING_LABELS, RATINGS, RULES, STATUS_GROUPS, STATUS_LABELS, Scope
+from ..rules import code_order
+from ..scope import KIND_LABELS, NONE, RATING_LABELS, RATINGS, STATUS_GROUPS, STATUS_LABELS, Scope
 
 ASK_CARDS = 20  # visit cards per look-up when no chat is bound (Ask NeuroDB)
 CHAT_CARDS = 15  # visit cards per look-up of Chat with Data (comp is the brief's compliance depth)
@@ -346,9 +347,9 @@ def _rule_groups(scope: Scope) -> tuple[list[dict[str, Any]], int]:
     from ..models import RuleSetting
 
     stats = metrics.rule_stats(scope)
-    labels = dict(RuleSetting.objects.values_list("code", "label"))
+    labels = dict(RuleSetting.objects.filter(enabled=True).values_list("code", "label"))
     out = []
-    for code in RULES:
+    for code in sorted(labels, key=code_order):
         row = stats.get(code) or {}
         out.append(
             {
@@ -358,7 +359,7 @@ def _rule_groups(scope: Scope) -> tuple[list[dict[str, Any]], int]:
                 "passed": row.get("pass", 0),
                 "not_available": row.get("na", 0),
                 "does_not_apply": row.get("nap", 0),
-                "switched_off": row.get("off", 0),
+                "pending": row.get("pending", 0),
             }
         )
     return out, len(out)
@@ -588,11 +589,12 @@ def fm_visit(visit: str) -> dict[str, Any]:
         {
             "rule": r.rule,
             "status": r.status,
-            "points": float(r.points),
-            "max_points": r.max_points,
+            "points_off": float(r.deducted) if r.status == "fail" else 0.0,
+            "max_points": float(r.max_points),
             "detail": r.detail,
         }
-        for r in VisitRuleResult.objects.filter(visit=v).order_by("rule")
+        for r in sorted(VisitRuleResult.objects.filter(visit=v), key=lambda r: code_order(r.rule))
+        if r.status != "off"
     ]
     answers = []
     if bound():
@@ -751,8 +753,7 @@ FMM_TOOLS: dict[str, tuple[Any, str, dict, str]] = {
                 "status": {"type": "string", "enum": list(STATUS_GROUPS)},
                 "flag": {
                     "type": "string",
-                    "enum": list(RULES),
-                    "description": "Visits flagged by this rule.",
+                    "description": "Visits flagged by this quality rule, by its id (R1, R2 ... R32).",
                 },
                 "min_urgency": {"type": "integer", "minimum": 0, "maximum": 100},
                 "sort": {"type": "string", "enum": list(SORTS)},

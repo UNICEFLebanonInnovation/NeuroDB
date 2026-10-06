@@ -67,6 +67,8 @@ def test_fmm_icons_are_material_symbols_names_not_site_icons():
         "fmm.RuleSetting": "rule",
         "fmm.ScoreSetting": "tune",
         "fmm.RuleSetVersion": "history",
+        "fmm.FieldOfficeStaff": "badge",
+        "fmm.VisitAICheck": "fact_check",
         "fmm.PromptVersion": "edit_note",
         "fmm.ModelCapability": "science",
         "fmm.Insight": "auto_awesome",
@@ -79,7 +81,11 @@ def test_fmm_icons_are_material_symbols_names_not_site_icons():
     from neurodb.core.admin_jobs import BACKGROUND_JOBS
 
     buttons = {job.name: job.icon for job in BACKGROUND_JOBS if job.name.startswith("run_fmm_")}
-    assert buttons == {"run_fmm_refresh": "monitoring", "run_fmm_insights": "auto_awesome"}
+    assert buttons == {
+        "run_fmm_refresh": "monitoring",
+        "run_fmm_insights": "auto_awesome",
+        "run_fmm_ai_checks": "fact_check",
+    }
     for icon in buttons.values():
         assert re.fullmatch(r"[a-z0-9_]+", icon) and icon not in site_icons
 
@@ -126,11 +132,13 @@ def test_r2_cannot_be_measured_without_unanswered_questions(admin_client, fm_wor
         )
     dm.DatamartDocument.objects.filter(dataset="fm_questions", data__answer__in=["", "n/a"]).delete()
     refresh.run(triggered_by="test", probe_only=True)
-    assert "Unanswered questions seen: 0 of 204 records — R2 cannot be measured" in _page(admin_client)
-    # an administrator who turns R2's check off is not told that R2 cannot be measured
-    RuleSetting.objects.filter(code="R2").update(params={"require_unanswered_seen": False})
+    assert "Unanswered questions seen: 0 of 204 records — R2 reads 100% answered for every visit" in _page(
+        admin_client
+    )
+    # with R2 switched off, nothing to warn about
+    RuleSetting.objects.filter(code="R2").update(enabled=False)
     html = _page(admin_client)
-    assert "Unanswered questions seen: 0 of 204 records" in html and "R2 cannot be measured" not in html
+    assert "Unanswered questions seen: 0 of 204 records" in html and "R2 reads 100%" not in html
 
 
 def test_a_failed_later_run_is_pointed_at(admin_client, fm_world):
@@ -175,7 +183,7 @@ def test_a_key_is_pinned_with_a_note_and_rebuilds_the_visits(
     response = admin_client.post(url, {"override_key": "summary", "change_note": ""})
     assert response.status_code == 200 and "This field is required" in response.content.decode()
     mapping.refresh_from_db()
-    assert mapping.override_key == "" and RuleSetVersion.objects.count() == 1
+    assert mapping.override_key == "" and RuleSetVersion.objects.count() == 2
     with django_capture_on_commit_callbacks(execute=True):
         response = admin_client.post(
             url, {"override_key": "summary", "change_note": "Answers are in summary"}
@@ -183,14 +191,14 @@ def test_a_key_is_pinned_with_a_note_and_rebuilds_the_visits(
     assert response.status_code == 302
     mapping.refresh_from_db()
     assert (mapping.override_key, mapping.updated_by) == ("summary", admin_user)
-    version = RuleSetVersion.objects.get(number=2)
+    version = RuleSetVersion.objects.get(number=3)
     assert version.note == "Field override: fm_questions.answer → summary: Answers are in summary"
     assert version.snapshot["mappings"] == {"fm_questions.answer": "summary"}
     assert started == [("fmm_refresh", "--triggered-by", f"admin:{admin_user.pk}")]  # a full refresh
     messages = [str(m) for m in admin_client.get(reverse(URL)).context["messages"]]
     assert messages == [
-        "Saved as rules v2. The visits will be rebuilt with this key in the background; the page shows "
-        "'recomputing with rules v2' until they are."
+        "Saved as rules v3. The visits will be rebuilt with this key in the background; the page shows "
+        "'recomputing with rules v3' until they are."
     ]
     # pinning cannot add or delete a field
     assert admin_client.get(reverse("admin:fmm_fieldmapping_add")).status_code == 403
@@ -201,7 +209,7 @@ def test_other_staff_and_signed_out_people_cannot_open_it(client, roles):
     editor = User.objects.create_user(username="editor", password="editor-pass-123456", is_staff=True)
     editor.groups.add(Group.objects.get(name=SECTION_EDITOR))
     client.force_login(editor)
-    version = RuleSetVersion.objects.get()
+    version = RuleSetVersion.objects.first()
     for name, args in (
         (URL, []),
         ("admin:fmm_rulesetting_changelist", []),
@@ -273,13 +281,21 @@ def test_fields_found_shows_how_the_records_matched_their_visits(admin_client, f
 
 
 # ------------------------------------------------------------------------------------------ rules
+LOWER_BAND = [{"min": 30, "deduction": 0}, {"min": 0, "deduction": 10}]
+
+
 def _rule_form(**changes) -> dict:
-    rule = RuleSetting.objects.get(code="R4")
+    rule = RuleSetting.objects.get(code="R2")
+    params = changes.pop("params", rule.params)
     data = {
+        "label": rule.label,
         "enabled": "on",
-        "points": rule.points,
-        "threshold": rule.threshold,
-        "params": json.dumps(rule.params),
+        "category": rule.category,
+        "group": rule.group,
+        "hact_spec": rule.hact_spec,
+        "deduction": rule.deduction,
+        "flag_template": rule.flag_template,
+        "params": params if isinstance(params, str) else json.dumps(params),
         "description": rule.description,
         "change_note": "",
     }
@@ -289,61 +305,69 @@ def _rule_form(**changes) -> dict:
 def test_a_rule_is_saved_with_a_note_as_a_new_version(
     admin_client, admin_user, started, django_capture_on_commit_callbacks
 ):
-    url = reverse("admin:fmm_rulesetting_change", args=["R4"])
+    url = reverse("admin:fmm_rulesetting_change", args=["R2"])
     html = admin_client.get(url).content.decode()
     assert "Change note" in html and "Preview effect" in html
     start = html.index('id="rulesetting_form"')
     form = html[start : html.index("</form>", start)]  # the button posts the form's own values
-    preview = reverse("admin:fmm_rulesetting_preview", args=["R4"])
+    preview = reverse("admin:fmm_rulesetting_preview", args=["R2"])
     assert f'hx-post="{preview}" hx-include="closest form"' in form
     assert "Not computed yet" in html  # the last refresh's counts, once there is one
+    lower = {**RuleSetting.objects.get(code="R2").params, "scoring": LOWER_BAND}
     # no note, or a parameter that is not valid: nothing is saved
-    assert "This field is required" in admin_client.post(url, _rule_form(threshold=10)).content.decode()
-    bad = admin_client.post(url, _rule_form(params='{"copy_window_days": 5000}', change_note="x"))
-    assert "must be a whole number from 1 to 1095" in bad.content.decode()
-    assert RuleSetVersion.objects.count() == 1
+    assert "This field is required" in admin_client.post(url, _rule_form(params=lower)).content.decode()
+    bad = admin_client.post(url, _rule_form(params='{"field": "nothing"}', change_note="x"))
+    assert "names a column of the report" in bad.content.decode()
+    assert RuleSetVersion.objects.count() == 2
     with django_capture_on_commit_callbacks(execute=True):
-        response = admin_client.post(url, _rule_form(threshold=10, change_note="Short visits write less"))
+        response = admin_client.post(url, _rule_form(params=lower, change_note="Short visits answer less"))
     assert response.status_code == 302
-    rule = RuleSetting.objects.get(code="R4")
-    assert (rule.threshold, rule.updated_by) == (10, admin_user)
-    version = RuleSetVersion.objects.get(number=2)
-    assert (version.note, version.created_by) == ("Short visits write less", admin_user)
+    rule = RuleSetting.objects.get(code="R2")
+    assert (rule.params["scoring"], rule.updated_by) == (LOWER_BAND, admin_user)
+    version = RuleSetVersion.objects.get(number=3)
+    assert (version.note, version.created_by) == ("Short visits answer less", admin_user)
     assert started == [("fmm_refresh", "--scores-only", "--triggered-by", f"admin:{admin_user.pk}")]
     messages = [
         str(m) for m in admin_client.get(reverse("admin:fmm_rulesetting_changelist")).context["messages"]
     ]
     assert messages == [
-        "Saved as rules v2. Scores will be recomputed in the background; the page shows "
-        "'recomputing with rules v2' until they are."
+        "Saved as rules v3. Scores will be recomputed in the background; the page shows "
+        "'recomputing with rules v3' until they are."
     ]
 
 
 def test_the_rule_list_and_the_last_refresh_counts(admin_client, fm_world):
     refresh.run(triggered_by="test")
     html = admin_client.get(reverse("admin:fmm_rulesetting_changelist")).content.decode()
-    for label in ("Completeness", "Evidence sufficiency", "HACT alignment", "Rating quality"):
+    for label in (
+        "Report Completeness",
+        "Question Answer Completeness",
+        "Narrative Evidence Quality",
+        "AI check",
+    ):
         assert label in html, label
+    assert html.index(">R2<") < html.index(">R10<")  # in the order of their ids
     assert 'name="form-0-' not in html  # no editing in the list: every change needs a note
-    html = admin_client.get(reverse("admin:fmm_rulesetting_change", args=["R6"])).content.decode()
-    assert "evaluated on 2 visits, 1 of them flagged; not available on 4; does not apply to 2" in html
+    html = admin_client.get(reverse("admin:fmm_rulesetting_change", args=["R2"])).content.decode()
+    assert "evaluated on 6 visits, 1 of them flagged; not available on 0; does not apply to 2" in html
     # the time of the last refresh in the local time zone, as everywhere else
     run = SyncRun.objects.filter(job=SyncRun.Job.FMM_REFRESH).latest("finished_at")
     local = timezone.localtime(run.finished_at)
-    assert f"Last refresh ({date_format(local, 'j M Y, H:i')}, rules v1)" in html
+    assert f"Last refresh ({date_format(local, 'j M Y, H:i')}, rules v2)" in html
 
 
 def test_the_preview_shows_the_effect_before_saving(admin_client, fm_world):
     refresh.run(triggered_by="test")
-    url = reverse("admin:fmm_rulesetting_preview", args=["R4"])
-    response = admin_client.post(url, _rule_form(threshold=5))
+    url = reverse("admin:fmm_rulesetting_preview", args=["R2"])
+    lower = {**RuleSetting.objects.get(code="R2").params, "scoring": LOWER_BAND}
+    response = admin_client.post(url, _rule_form(params=lower))
     html = response.content.decode()
-    assert response.status_code == 200 and "R4 would flag 0 visits (now 2)" in html
+    assert response.status_code == 200 and "R2 would flag 0 visits (now 1)" in html
     assert "Nothing was saved" in html
-    assert RuleSetting.objects.get(code="R4").threshold == 25 and RuleSetVersion.objects.count() == 1
-    errors = admin_client.post(url, _rule_form(threshold=900)).content.decode()
-    assert "Correct these first" in errors and "from 1 to 500" in errors
-    assert admin_client.get(url).status_code == 404  # posted by the button only
+    assert RuleSetting.objects.get(code="R2").params["scoring"][0]["min"] == 80
+    assert RuleSetVersion.objects.count() == 2
+    errors = admin_client.post(url, _rule_form(params='{"field": "nothing"}')).content.decode()
+    assert "Correct these first" in errors and "names a column" in errors
 
 
 def test_score_settings_open_their_one_row_and_save_as_a_version(admin_client, admin_user, started):
@@ -359,7 +383,6 @@ def test_score_settings_open_their_one_row_and_save_as_a_version(admin_client, a
         if isinstance(getattr(setting, name), dict)
         else getattr(setting, name)
         for name in (
-            "min_evaluated_points",
             "band_high",
             "band_medium",
             "high_flag_count",
@@ -372,8 +395,13 @@ def test_score_settings_open_their_one_row_and_save_as_a_version(admin_client, a
             "report_late_days",
             "question_patterns",
             "role_flag_answers",
+            "ai_max_output_tokens",
+            "ai_text_chars",
         )
     }
+    data["categories"] = json.dumps(setting.categories)
+    data["ai_checks"] = "on"
+    data["ai_temperature"] = "0.30"
     response = admin_client.post(response["Location"], {**data, "urgency_amber": 75, "change_note": "x"})
     assert "Amber must be below red" in response.content.decode()
     response = admin_client.post(
@@ -381,7 +409,7 @@ def test_score_settings_open_their_one_row_and_save_as_a_version(admin_client, a
         {**data, "urgency_red": 75, "change_note": "Fewer reds"},
     )
     assert response.status_code == 302 and ScoreSetting.load().urgency_red == 75
-    assert RuleSetVersion.objects.get(number=2).snapshot["score"]["urgency_red"] == 75
+    assert RuleSetVersion.objects.get(number=3).snapshot["score"]["urgency_red"] == 75
     assert admin_client.get(reverse("admin:fmm_scoresetting_add")).status_code == 403
 
 
@@ -393,7 +421,11 @@ def test_score_settings_take_fms_urgency_weights_and_scored_statuses(admin_clien
     assert setting.scored_statuses == ["report_finalization", "completed"] and setting.recency_days == 180
     url = reverse("admin:fmm_scoresetting_change", args=[setting.pk])
     data = {
-        "min_evaluated_points": 30,
+        "categories": json.dumps(setting.categories),
+        "ai_checks": "on",
+        "ai_max_output_tokens": 2000,
+        "ai_temperature": "0.30",
+        "ai_text_chars": 1500,
         "band_high": 80,
         "band_medium": 50,
         "high_flag_count": 3,
@@ -430,9 +462,11 @@ def test_staff_who_may_only_view_read_the_rules(client, roles):
     client.force_login(reader)
     url = reverse("admin:fmm_rulesetting_change", args=["R2"])
     html = client.get(url).content.decode()
-    assert "Evidence sufficiency" in html and 'name="_save"' not in html and "Preview effect" not in html
-    assert client.post(url, {"points": 1, "change_note": "x"}).status_code == 403
-    assert RuleSetting.objects.get(code="R2").points == 20
+    assert (
+        "Question Answer Completeness" in html and 'name="_save"' not in html and "Preview effect" not in html
+    )
+    assert client.post(url, {"deduction": 1, "change_note": "x"}).status_code == 403
+    assert RuleSetting.objects.get(code="R2").deduction == 8
 
 
 # ------------------------------------------------------------------------------------------ questions found
@@ -451,46 +485,46 @@ def test_questions_found_gives_a_question_its_role(
         )
     assert response.status_code == 302
     assert "=are attendance registers kept up to date" in ScoreSetting.load().question_patterns["psea"]
-    assert RuleSetVersion.objects.get(number=2).note == "PSEA pattern set from Questions found"
+    assert RuleSetVersion.objects.get(number=3).note == "PSEA pattern set from Questions found"
     assert started == [("fmm_refresh", "--scores-only", "--triggered-by", f"admin:{admin_user.pk}")]
     html = admin_client.get(url).content.decode()
-    assert "(set here)" in html and "Saved as rules v2" in html
+    assert "(set here)" in html and "Saved as rules v3" in html
 
 
 # ------------------------------------------------------------------------------------------ versions
 def test_a_version_shows_its_settings_beside_today_and_can_be_restored(
     admin_client, admin_user, started, django_capture_on_commit_callbacks
 ):
-    v1 = RuleSetVersion.objects.get(number=1)
-    RuleSetting.objects.filter(code="R2").update(threshold=60)
-    versions.record_rules(admin_user, "Lower target")
-    detail = admin_client.get(reverse("admin:fmm_rulesetversion_change", args=[v1.pk])).content.decode()
+    v2 = RuleSetVersion.objects.get(number=2)
+    RuleSetting.objects.filter(code="R2").update(deduction=6)
+    versions.record_rules(admin_user, "Lighter R2")
+    detail = admin_client.get(reverse("admin:fmm_rulesetversion_change", args=[v2.pk])).content.decode()
     assert "In this version" in detail and "(differs)" in detail and "Restore this version" in detail
     assert 'name="_save"' not in detail  # versions are never edited
-    confirm_url = reverse("admin:fmm_rulesetversion_restore", args=[v1.pk])
+    confirm_url = reverse("admin:fmm_rulesetversion_restore", args=[v2.pk])
     html = admin_client.get(confirm_url).content.decode()
-    assert "What restoring changes" in html and "threshold" in html and "60" in html
+    assert "What restoring changes" in html and "deduction" in html and ">6<" in html
     with django_capture_on_commit_callbacks(execute=True):
-        response = admin_client.post(confirm_url, {"note": "Back to 80%"})
-    v3 = RuleSetVersion.objects.get(number=3)
+        response = admin_client.post(confirm_url, {"note": "Back to 8"})
+    v4 = RuleSetVersion.objects.get(number=4)
     assert response.status_code == 302 and response["Location"] == reverse(
-        "admin:fmm_rulesetversion_change", args=[v3.pk]
+        "admin:fmm_rulesetversion_change", args=[v4.pk]
     )
-    assert (v3.note, v3.restored_from, RuleSetting.objects.get(code="R2").threshold) == (
-        "Restored v1: Back to 80%",
-        v1,
-        80,
+    assert (v4.note, v4.restored_from, RuleSetting.objects.get(code="R2").deduction) == (
+        "Restored v2: Back to 8",
+        v2,
+        8,
     )
     assert started == [("fmm_refresh", "--scores-only", "--triggered-by", f"admin:{admin_user.pk}")]
-    assert admin_client.post(reverse("admin:fmm_rulesetversion_delete", args=[v1.pk])).status_code == 403
+    assert admin_client.post(reverse("admin:fmm_rulesetversion_delete", args=[v2.pk])).status_code == 403
 
 
 def test_the_visit_admin_shows_the_rule_results(admin_client, fm_world):
     refresh.run(triggered_by="test")
-    visit = Visit.objects.get(key="1726")
+    visit = Visit.objects.get(key="1723")
     html = admin_client.get(reverse("admin:fmm_visit_change", args=[visit.pk])).content.decode()
-    assert "quality rules (pass, fail" in html.lower() and "contradiction" in html and "too_short" in html
-    assert "Narrative contradicts the rating (rated On track; it mentions: delayed, suspended)" in html
+    assert "quality rules (pass, fail" in html.lower() and "missing:0,1,2,3" in html
+    assert "R2: Only 33.3% of monitoring questions answered (target: 80%+)" in html
 
 
 # ------------------------------------------------------------------------------------------ chat questions

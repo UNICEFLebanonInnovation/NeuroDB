@@ -119,7 +119,7 @@ def test_the_morning_briefing_tiles(built, client_viewer):
     # this year so far, whatever the page's period (2025 here)
     assert values == {
         "critical": "0",
-        "avg_quality": "64.4%",
+        "avg_quality": "79.2%",
         "low": "1",
         "critical_partners": "0",
         "visits": "8",
@@ -136,8 +136,8 @@ def test_the_morning_briefing_tiles(built, client_viewer):
     assert "tab=visits" in tiles["avg_quality"][1] and "sort=quality" in tiles["avg_quality"][1]
     assert "Top critical partners" not in html
     # the quality by governorate, each opening the visits there
-    assert re.search(r"Bekaa</span> · 58\.7% · 5 visits", html)
-    assert re.search(r"North</span> · 75\.7% · 3 visits", html)
+    assert re.search(r"Bekaa</span> · 78\.0% · 5 visits", html)
+    assert re.search(r"North</span> · 81\.5% · 3 visits", html)
     assert "governorate=beqaa" in html
 
 
@@ -257,7 +257,7 @@ def test_the_facts_break_the_visits_down_by_partner_modality_and_governorate(bui
         3,
         1,
         1,
-        58.7,
+        78.0,
     )
 
 
@@ -361,9 +361,9 @@ def test_the_rule_trends_load_when_their_panel_is_reached(built, client_viewer):
 def test_a_rule_trend_point_opens_the_visits_it_flagged_that_month(built, client_viewer):
     html = _tab(client_viewer, "quality", rule_trends="1")
     template = re.search(r'id="fmm-chart-rule-trends"[^>]*data-href-template="([^"]+)"', html).group(1)
-    url = template.replace("&amp;", "&").replace("{drill}", "2026-05").replace("{series_drill}", "R3")
+    url = template.replace("&amp;", "&").replace("{drill}", "2026-05").replace("{series_drill}", "R1")
     found = client_viewer.get(url, HTTP_HX_REQUEST="true").content.decode()
-    assert "/fmm/visits/1722/" in found and "/fmm/visits/1727/" not in found
+    assert "/fmm/visits/1722/" in found and "/fmm/visits/1727/" not in found  # Q1 missing in May
 
 
 def test_every_chart_can_be_saved_as_a_png(built, client_viewer):

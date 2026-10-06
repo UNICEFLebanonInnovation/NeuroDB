@@ -432,6 +432,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `locations` | `sync_locations` | `0 5 * * *`, daily 05:00: the eTools locations from the Datamart (`--source rest` for the older eTools REST API, which needs `ETOOLS_TOKEN`; its location-types endpoint is gone and is skipped) |
 | `fmm-refresh` | `fmm_refresh` | `25 5 * * *`, daily 05:25, after the locations: rebuilds and scores the Monitoring insights visits, so that overdue action points, the age of a visit and urgency are recomputed even when no data changed (it also runs after every Datamart sync) |
 | `fmm-insights` | `fmm_insights` | `40 5 * * *`, daily 05:40, after the refresh: the AI monitoring briefs of the whole country, each section people land on and the last 90 days (reused at no cost when their data has not changed); with `FMM_AI` off it writes nothing and only applies the briefs' retention |
+| `fmm-ai-checks` | `fmm_ai_checks` | `50 5 * * *`, daily 05:50, after the refresh and the briefs: the AI checks of the quality rules on the visits not checked yet (newest first, within `FMM_RULES_DAILY_TOKEN_CAP`), then the scores are recomputed; with the AI or the AI checks off it checks nothing |
 | `daily-review` | `daily_review` | `0 6 * * *`, daily 06:00, after the night's syncs |
 | `activityinfo-data` | `import_activityinfo_data --current-year` | `0 18 1-22 * *`, 18:00 on days 1–22 |
 | `etools-datamart` | `sync_etools_datamart` | `30 20 * * *`, daily 20:30 |
@@ -511,6 +512,7 @@ admin home page, *Quick actions*):
 | Run a job → *Year-end forecast* | `forecast_indicators` | background |
 | Run a job → *Monitoring insights* | `fmm_refresh` | background |
 | Run a job → *Monitoring insights (AI)* | `fmm_insights` | background |
+| Run a job → *Monitoring insights (AI checks)* | `fmm_ai_checks` | background |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |
@@ -1284,8 +1286,8 @@ saved there or in the hub (see `docs/ICEBOX.md`).
 ## Monitoring insights (`/fmm/`)
 
 Monitoring insights turns the eTools field monitoring data into **visits**: each visit's partners,
-programme documents, place and sections, how complete and coherent its report is (quality rules R1-R6
-and a score), how urgent its follow-up is, and what was done about it (FM action points). Its page,
+programme documents, place and sections, how complete and coherent its report is (FMS's quality
+rules, AI checks among them, and a score), how urgent its follow-up is, and what was done about it (FM action points). Its page,
 `/fmm/` (menu: *Monitoring insights*, right after *Field monitoring*, marked "AI"), has five tabs:
 **Insights** (the morning briefing, the key figures, an AI monitoring brief and Chat with Data),
 **Quality**, **Analysis**,
@@ -1296,7 +1298,8 @@ A refresh (`fmm_refresh`, after every eTools Datamart sync and each morning) bui
 visits from the synced records; the page reads only what it built, so it never waits for eTools. The
 admin views under admin → *Monitoring insights* are: **Fields found** (which keys the field monitoring
 records hold, and the keys an administrator pins), **Questions found** (which checklist question is
-Q1, Q2, Q3 and PSEA), **Quality rules**, **Score settings**, **Rule versions**, **Prompt versions** and
+Q1, Q2, Q3 and PSEA), **Quality rules**, **Score settings**, **Rule versions**, **Field office staff
+lists** (rule R19), **AI checks** (each visit's AI check answers), **Prompt versions** and
 **Sampling checks** (the AI's prompts and what the model accepted), **AI briefs** (every brief written,
 or why none was), **Chat questions** (every chat question, with what its check found), **Visits** (the
 visits built, with their rule results, for checking the data) and **Visit reviews**.
@@ -1324,8 +1327,8 @@ per block, each taking the page's filter), kept 10 minutes.
 | Quality › Quality score distribution | Scored visits in ten bars of 10 points (100 in the top one), each coloured by its quality band, and the visits not scored | `score_buckets` |
 | Quality › Top recurring issues | Flags grouped by rule and reason, with their visits and mean urgency | `top_issues`: `fmm.VisitRuleResult` |
 | Quality › Geographic coverage | The places visited, their governorate, visits and last visit (top 10; *Show all* loads the rest, up to 500) | `locations` |
-| Quality › Quality rules | Each rule's visits flagged out of the visits it checked; "not available", "off" or "flag only" | `rule_analysis` |
-| Quality › Quality issues summary | Rating-quality flags (R6), Not monitored (planned, not conducted: reported visits with no entity rated), visits with 3 or more flags | `issues_summary` |
+| Quality › Quality rules | Each rule's visits flagged out of the visits it checked, in the order of the ids; "not available", "AI check pending", "AI check switched off", "off" or "flag only" | `rule_analysis` |
+| Quality › Quality issues summary | Narrative and rating coherence flags (R6, an AI check), Not monitored (planned, not conducted: reported visits with no entity rated), visits with 3 or more flags | `issues_summary` |
 | Quality › Flags per visit | Scored visits with 0, 1, 2 and 3 or more flags | `flag_distribution` |
 | Quality › Rule score trends over time | Per rule with points, the share of its maximum points the visits that ended each month earned; a point opens the visits the rule flagged that month | `rule_trends` (with `rule_stats`, from `rule_months`) |
 | Analysis › Highlights | Visits, reported, governorates covered of the gazetteer's, average quality (the key figure's), off-track visits, PSEA-flagged visits of those with a PSEA question, High / Medium / Low shares, entities by type | `highlights` |
@@ -1337,7 +1340,7 @@ per block, each taking the page's filter), kept 10 minutes.
 | Analysis › Visit frequency by location | Visits, average quality and coverage (rated ÷ monitored entities) per place (top 10; *Show all* loads the rest) | `locations` |
 | Analysis › Quality by finding rating | Visits, average quality and bands per overall rating; Not monitored always has its own bar | `quality_by_rating` |
 | Analysis › Flags by rule | Visits flagged by each rule | `flag_frequency` |
-| Analysis › Points by rule | Each rule's mean points earned of its maximum, weakest first (capped at 100%) | `dimension_breakdown` |
+| Analysis › Points by category | Each score category's points the scored visits kept of its weight on average (its weight less the visit's deductions in it, each at most the weight), weakest first; the rules that are a flag only listed under it | `dimension_breakdown`: `Visit.category_deductions` |
 | Analysis › Programmatic visits and HACT | For the partners of the filter with programmatic visits required: required, planned and completed in eTools, NeuroDB's completed programmatic FM visits, and the gap | `hact_programmatic`: `PartnerHACTYear`, `datamart.fm.programmatic_visits_by_partner` |
 | Analysis › Follow-up | FM action points of these visits (open, overdue, high priority) and the off-track or constrained visits without one | `action_points`: `fmm.VisitActionPoint`, `datamart.ActionPoint` |
 | Visits › Find a visit | An id, "#1722", "Visit 1722", a key, a reference or a reference number | `fmm:lookup` |
@@ -1370,8 +1373,10 @@ is hidden.
   rule, review), shown as removable chips.
 - **Reference line**: the filter, when the field monitoring rows were synced, when the scores were
   computed and with which rules version ("recomputing with rules v8" while a rescore waits), a warning
-  when the last refresh failed, and *How scores work* (the rules, bands and urgency, as set in the
-  admin).
+  when the last refresh failed, and *What does quality mean for Lebanon?* (FMS's methodology panel,
+  rendered from the rule set the engine applies: the three bands, the score categories and their
+  weights, the core rules with their HACT rule, the additional rules switched on with their category
+  and deduction, and urgency; rules switched off are not listed).
 - **Data notes**, each only when it applies: the section rule differs from the overview's, visits
   placed in the governorate through their monitoring site only, finding rows without an activity
   reference (counted as their own visits here, not by the overview), visits without an end date.
@@ -1491,15 +1496,16 @@ chat, so the same figure never differs between two places.
 | PSEA flag | A PSEA answer coded in *Answers that flag* (Yes, Constrained or Off track by default) flags the visit; asked and answered otherwise: not flagged; no PSEA question: not known. |
 | Not monitored | eTools' rating "Not Monitored": the visit was **planned but not conducted** (the monitor did not attend, the partner was unavailable, access was denied), a planning status, not a programme outcome. A visit is Not monitored when it is reported and none of its entities is rated; a planned or in-progress visit with blank ratings is "not rated yet". It is always a count apart, never inside a share of ratings and never a share of all visits. |
 | Scored visit | A visit whose status is one of the *scored statuses* (Score settings; report finalization and completed by default). Every other visit is **pending**: no score, no urgency, quality band "Pending" (cancelled ones read "cancelled"). Not monitored visits of a scored status are scored. |
-| Quality score | Points earned ÷ points of the rules evaluated, × 100, rounded half up to one decimal; none below 30 evaluated points. |
+| Quality score | FMS's: 100 less the deductions of the quality rules that fired, each score category's deductions at most its weight, never below 0, rounded half up to one decimal. A visit whose AI checks are not all done is *provisional* and counts as not scored. |
 | Average quality | The mean score of the scored visits of the filter (half up, one decimal): the key figure, the Analysis highlight, the AI facts and the chat's `fm_summary` are this one figure. |
 | High urgency | Urgency at or above *urgency red* (70); amber (Medium) from *urgency amber* (40) to 69; Low below. A visit without a score has no urgency and is in no urgency figure. |
 | Governorates covered | Governorates with a visit, out of the gazetteer's active governorates. |
 | Open / overdue action point | Status open; overdue when also past its due date (the action points page's, the overview's and Watch's definition). |
 | FM programmatic visits (NeuroDB) | The completed, programmatic visits that ended in the year, counted once per visit for each partner of its rows. |
 
-R19 of the reference dashboard (monitoring by field office staff) is not used: NeuroDB has no field
-office staff list, and *How scores work* on the page says so.
+R19 (the monitor is on the staff list of the visit's field office) reads the **field office staff
+lists** administrators keep (admin → *Field office staff lists*); it skips a visit silently while its
+office has no list.
 
 
 **Question roles.** The rules need to know which checklist question is Q1 ("Have the activities been
@@ -1526,27 +1532,74 @@ every rule reads "does not apply" ("Pending: the visit's status is not one of th
 Cancelled visits read "cancelled". A Not monitored visit of a scored status is scored. Changing the
 list is saved as a rules version and rescored like any other score setting.
 
-**The rules** (admin → *Quality rules*; the points and R2's 80% follow the reference dashboard, every
-other threshold is NeuroDB's proposal, to be confirmed by the user):
+**The rules: FMS's model** (admin → *Quality rules*, seeded from FMS Lebanon's rules file,
+`fmm/lebanon_rules.json`). Each rule has an id (R1 … R32, never renamed), a name, a **type**, a score
+**category**, a group (*core*: FMS's six HACT rules; *additional*), on or off, a **deduction** (the
+points it takes off its category when it fires), a **flag template** and its parameters (JSON, as in
+FMS's file):
 
-| Rule | Points | Passes when | Not available (left out of the score) when |
-|---|---|---|---|
-| R1 Completeness | 15 | Every rated entity has a narrative (and at least one entity has one), and Q2 is answered (when the visit has a Q2 question and the answer keys were found). A rating on every entity and the visit's place can be required too (`required`). Points in proportion to the elements present. | never in practice |
-| R2 Evidence sufficiency | 20 | At least 80% of the questions answered, counted once per question and entity (or partner, or the whole visit). Below it, points in proportion. | the visit has no answer; the answer keys were not found; or none of 200 or more checklist records in the data is unanswered ("cannot be measured": eTools then probably sends answered questions only; `require_unanswered_seen` turns this off) |
-| R3 HACT alignment | 20 | Every rated entity's HACT Q1 (as above) agrees with its overall finding. Only On track against Off track is a conflict; Constrained agrees with either (`strict` makes any difference a conflict). Fails when Q1 is missing or not a rating. Does not apply to a visit that is not programmatic and was asked no Q1. | the visit has no answer, the answer keys were not found, or no question in the data is Q1 or flagged HACT |
-| R4 Narrative coherence | 15 | Every narrative has at least 25 words, is not a placeholder ("n/a", "see above"…) and is not word for word another visit's within 365 days. Points in proportion to the narratives that pass. | no entity has a narrative (R1 flags it already) |
-| R5 Q3 quality | 15 | Q3 is answered with at least 15 words (answer and summary), not a placeholder. Points in proportion to the words. Does not apply to a visit with answers but no Q3. | the visit has no answer, the answer keys were not found, or no question in the data is Q3 |
-| R6 Rating quality | 0 (a flag only) | No narrative contradicts its rating: On track naming 2 or more problem words (delayed, suspended…) and nothing good, or Off track naming only good points. A word with "no", "not", "without", "never" or "nor" up to 3 words before it does not count. Constrained never fails. An optional check (off) flags a Not monitored entity described at length without saying why. | no rated entity has a narrative |
+| Type | What it does | Parameters |
+|---|---|---|
+| Completeness | Each field of the report it lists that is missing takes its own deduction off ("R1: Incomplete monitoring report — missing: Q2 – Activities monitored"). A field NeuroDB cannot read in the data is not checked. | `fields`: `name`, `label`, `deduction` each |
+| Deterministic | One column scored by **bands**: the first band that matches, in the order listed, gives the deduction (a band matches from its `min` up to its `max_inclusive`; for a list column, from `min_categories`, and with `required_met` only when the entity type's `required` categories are there). A visit without a value takes `missing_value_deduction` off, or the rule is "not available" when that is 0; a column NeuroDB cannot read at all (the checklist answers not found, a count whose key the records do not have) leaves the rule "not available" on every visit, never deducted. | `field`, `field_type` (numeric or list), `scoring`, `missing_value_deduction`, `list_separator`, `entity_type_scoring` |
+| AI check (narrative) | An AI check of the fields it lists (see *AI checks of the quality rules* below): fails when the AI finds the report not coherent, with the AI's explanation in the flag. | `fields`, `ai_prompt_key` |
+| Reference check | Compares a value with reference data: `member_in_mapped_list` (R19, the staff lists), `value_in_mapped_list` (R20), `section_in_cp_output` (R21), `pd_reference_locations` (R23), `value_in_list`, `string_contains`. | `check_type`, `field`, `key_field`, `reference_map`, `reference_list`, `contains` |
 
-A rule's detail is written by NeuroDB ("Only 46.2% of monitoring questions answered (target: 80%+)",
-"Narrative identical to Visit 1588"); R6 names only words of its own lists, never words of the
-narrative.
+`entity_type_filter` (Partner, CP Output, PD/SSFA or PD) limits a rule to the visits with a finding row
+of those types; on other visits it reads "does not apply". A rule switched off keeps no result (the
+visit page lists it under "Switched off"); an AI check reads "AI check switched off" in the rule list
+while the AI checks are off and none is kept.
 
-**Score.** The points earned over the points of the rules evaluated (passed or failed), as a
-percentage rounded half up to one decimal; a rule never gives more than its points. No score when fewer
-than 30 points could be evaluated ("too few rules (15 of 85 points)"). Bands: High from 80, Medium from
-50, else Low. The flags are the rules failed, R6 included at 0 points; 3 flags or more is a high-flag
-visit.
+The Lebanon set switches on **R1** Report Completeness (narrative 3, rating 2, Q1 2, Q2 2, checklist
+categories 2), **R2** Question Answer Completeness (share of checklist questions answered: 80%+ 0,
+50%+ 5, below 10; not in the data 3), **R3** Narrative Evidence Quality (AI, 20), **R5** HACT Activities
+Alignment Q1↔Q2 (AI, 20), **R6** Narrative and Rating Coherence (AI, 15), **R7** Action Point Quality
+(AI, 5), **R8** Action Points Cross-Check (AI, 5), **R32** Challenge-to-Action Alignment (AI, 5),
+**R19** Field Office - Team Member Validation (3), **R20** Location - PD/SSFA Site Validation (5), **R21**
+Section - CP Output Alignment (3) and **R23** PD Reference Locations (0: a flag only). R4, R9-R18, R22
+and R24-R31 are seeded switched off, with their lists empty; an administrator can switch one on once
+its category has a weight.
+
+**Reference checks from eTools.** R20 and R23 read the registered locations of the visit's programme
+documents (`PCA.location_p_codes` and the PD's locations), R23 falling back to those of the partner's
+programme documents running on the visit date; a visit passes when its place's P-code, or that of a
+place holding it (the cadaster of a site, the district of a cadaster), is among them. R21 reads the
+sections of the programme documents that name the visit's CP output. The rule's own `reference_map`
+**adds** entries to what eTools holds (FMS Lebanon's hand lists are seeded there for R20, R21 and R23).
+R19 reads the **field office staff lists** (admin → *Field office staff lists*, Administrators only:
+one office per list, one e-mail address per line). The monitors' e-mail addresses are read from the
+records, compared in code and dropped: never kept, never shown (the list shows only how many addresses
+an office has; the flag says "Monitor is not listed as staff for field office 'Zahle'"), never sent to
+the AI. R19 skips a visit whose offices have no list, so it does nothing until a list is filled.
+
+**Columns derived at the build** (FMS's processed record, worked out by every full refresh from the
+checklist answers and action points; empty when the visit has no value, and a rule then applies its
+missing-value deduction or skips; when the records have no key for a column at all, its rules are "not
+available" on every visit): the share of checklist questions answered (`fmq_answered_pct`), the
+categories with an answer (`fmq_answered_categories`, from the questions' category key, *Fields found*),
+the collection methods used (`method_count`), the red-flag answers (`red_flag_count`: an answer of 2 or
+less on a 5-point scale, 1 on a 3-point scale, read from the answer options), the attachments
+(`attachments_count`, when the records have the key) and the action points assigned (a count, never
+who). The action points' texts and due dates are read when a check needs them, never stored.
+
+**Score.** 100 less the deductions of the rules that fired; each **score category**'s deductions count
+at most its weight (*Score settings → Score categories*; Lebanon: completeness 30, evidence 20,
+alignment 20, coherence 15, Q3 quality 10, actionability 5); never below 0; rounded half up to one
+decimal. Bands: High from 80, Medium from 50, else Low. The flags are the rules that fired, R23 included
+at 0 points; 3 flags or more is a high-flag visit. Each visit keeps its deductions per category (the
+visit page: "100 less Completeness 19").
+
+**Provisional visits.** While AI checks are on, a visit whose checks are not all done (or out of date)
+is **provisional**: the visit page shows its score so far ("provisional (2 AI checks pending)"), but it
+counts as not scored everywhere (no average, band or urgency) until its checks are done, so it never gets
+full marks for checks not made. The rule analysis counts the pending checks per rule.
+
+**Category sums and Rebalance.** *Quality rules* shows the sum of the deductions of each category's
+rules that are on against the category's weight (⚠ when they differ, or when the weights do not add up to
+100). **Rebalance** (a button on the list, with a note) scales each category's rule deductions (a
+completeness rule's fields, a deterministic rule's bands) so that they add up to its weight, and the
+weights so that they add up to 100; no rule is added, removed or switched on or off. It is saved as a
+rules version and rescored, like every other change.
 
 **Urgency** (FMS's formula), 0 to 100, for scored visits only, with every part kept to explain it:
 
@@ -1554,12 +1607,12 @@ visit.
 
 - the **recency part** is 100 on the day the visit ended, falling in a straight line to 0 at *recency
   days* (180) after it: `100 × max(0, 1 − days since the end ÷ recency days)`;
-- the **flags part** is 25 per red flag (a failed rule, R6 included), at most 100;
+- the **flags part** is 25 per red flag (a rule that fired, R23 included), at most 100;
 - the **weights** are 0.50, 0.30 and 0.20 by default (*Score settings*; each from 0 to 1, and they must
   add up to 1).
 
 The total is rounded half up and kept within 0-100. Red from 70, amber from 40 (both editable). A visit
-without a score (pending, cancelled, or too few rules evaluated) has **no urgency**: "—" in the table,
+without a score (pending, cancelled, or provisional) has **no urgency**: "—" in the table,
 last when sorting, and in no urgency figure. The daily 05:25 refresh recomputes it, so a visit grows
 less urgent as it ages, unless its quality is low and its flags many.
 
@@ -1718,8 +1771,8 @@ found*):
    document, no date, an unknown rating, one reference under several activities) are recorded on the
    visit as counts;
 5. scores the visits with the quality rules as they are when it starts (see *Rules of this page*
-   above): the question roles, HACT Q1, the PSEA flag, R1-R6, the score, its band and
-   flags, and urgency. Each visit keeps the rules version it was scored with;
+   above): the question roles, HACT Q1, the PSEA flag, the quality rules (with the AI checks' answers
+   kept for each visit), the score, its band and flags, and urgency. Each visit keeps the rules version it was scored with;
 6. writes the keys and the visits together in one transaction: the pages see the old visits until it
    commits, a visit keeps its id while its key stays, and the visit reviews are never touched.
 
@@ -1915,6 +1968,51 @@ and the chat reads "Chat is not available: the AI is switched off."
 
 The caps and quotas every call checks are under *Costs, limits and quotas*, below.
 
+### AI checks of the quality rules
+
+FMS's narrative rules are **AI checks**, made visit by visit (`fmm.ai.checks`): R3 (Q2's evidence), R5
+(Q1 against Q2), R6 (the narrative against Q1, Q2, the rating and the visit's objective), R7 (Q3 and the
+action points), R8 (problems without action points) and R32 (key challenges without action points).
+
+- **One check** is one OpenAI call per visit and rule. Its instructions are the rule's prompt (the
+  published prompt version's *AI checks' instructions*, under the rule's `ai_prompt_key`, seeded from
+  FMS Lebanon's prompt file; editable and versioned with the prompt version) followed by NeuroDB's fixed
+  rules (shown nowhere else, the same for every check). Its input is the rule's fields for the visit:
+  each finding row (entity, type, rating, narrative, Q1, Q2, Q3 answers as the rule lists them) and the
+  visit's own fields (visit goals, objective, action points with their due dates), each text cut to
+  *AI text characters* (1,500) and cleaned of names, e-mail addresses, phone numbers and links. **Never
+  sent**: the team, the visit lead, any monitor's e-mail address, the person responsible, and who an
+  action point is assigned to (only "1 of 2 action points assigned"). Everything is checked once more
+  before the call; a check that would carry a person is not sent.
+- The answer has a strict format: passed or not, and one or two sentences why. The explanation is
+  cleaned, and left out when it names a figure the report does not hold or a word NeuroDB never shows
+  (the verdict stays). A check that fails adds its flag with the explanation ("R3: Q2 lacks specific or
+  disaggregated activity evidence — …") and takes the rule's deduction off.
+- The model is *AI model* (Score settings; empty: `AI_ASSISTANT_MODEL`, the same as the assistant's),
+  at low reasoning effort, with *AI max output tokens* (2,000, the reasoning included) and temperature
+  0.30 (sent only when the model accepts it, as for the briefs). Nothing is stored at OpenAI.
+- **Cache.** Each answer is kept per visit and rule (admin → *AI checks*) and used while the visit's
+  inputs and the rule's prompt are those it was checked with; a changed narrative, answer or action
+  point, or a new prompt, makes that check due again. Deleting a row makes it be checked again.
+- **Provisional visits.** A visit whose checks are not all done is provisional (see *Rules of this page*):
+  no score in any figure until they are.
+- **The job** (`fmm_ai_checks`, daily at 05:50 after the refresh and the briefs; *Import and sync runs →
+  Run a job → Run the AI checks of the quality rules now*): the scored visits, **newest first**, each
+  rule due, while the day's budget allows; then a scores-only refresh. One run at a time. The run says
+  how many checks were made, passed, flagged, already up to date, the tokens, and why it stopped.
+- **Back-fill.** The first runs check the newest visits; what the day's budget leaves waits for the next
+  night, so the older visits are checked over several nights (with the defaults, about 700-1,000 checks
+  a night).
+- **Costs.** One check uses about 1,000-3,500 tokens (input about 600-1,500, output with reasoning at
+  most 2,000). Six checks per visit: about 10,000-20,000 tokens per visit, once (again only when it
+  changes). The checks have their own cap, `FMM_RULES_DAILY_TOKEN_CAP` (2,000,000 tokens a day, counted
+  under *Monitoring insights (AI checks)* in *AI use*), and stop at 80% of `AI_DAILY_TOKEN_SOFT_CAP` across
+  every AI feature, so people's questions keep their share. When OpenAI says the credit ran out, the AI
+  of Monitoring insights pauses for 6 hours (briefs and chat too); 3 failed checks in a row stop the run.
+- **Switching off.** *Score settings → AI checks* unticked: the AI rules count as switched off, no check
+  is made and no visit is provisional (the answers kept are used again when it is back on). `FMM_AI=false`
+  does the same for every AI of Monitoring insights. To stop one check only, switch its rule off.
+
 ### Chat with Data
 
 Under the brief on the Insights tab, staff ask questions about the visits **of the page's filter**
@@ -2008,7 +2106,8 @@ every call.
 ### Costs, limits and quotas
 
 Every brief, test run and chat round is counted under *Monitoring insights* in Admin → Data and sync →
-*AI use*. Before each call NeuroDB checks, in order: the AI is switched on (`FMM_ENABLED`, `FMM_AI`,
+*AI use*; the AI checks of the quality rules under *Monitoring insights (AI checks)*, with their own cap
+(see *AI checks of the quality rules*). Before each call NeuroDB checks, in order: the AI is switched on (`FMM_ENABLED`, `FMM_AI`,
 `AI_ASSISTANT_ENABLED` and a published prompt version); it is not paused (6 hours after OpenAI said
 the credit ran out); Monitoring insights' own caps for the whole office, `FMM_DAILY_TOKEN_CAP`
 (1,200,000 tokens) and `FMM_MAX_CALLS_PER_DAY` (400 calls); and the shared `AI_DAILY_TOKEN_SOFT_CAP`
@@ -2060,7 +2159,7 @@ Both are edited by Administrators only; other staff can read them. Neither is ev
   `narr = 0` sends none. **`comp`** is the compliance depth: how many of the most frequent quality flags
   it receives.
 - **Rules versions** (admin → *Rule versions*). Every save of a rule, of the score settings, of a
-  question pattern or of a pinned key needs a note and records a new rules version with who, when and
+  question pattern, of a pinned key or a Rebalance needs a note and records a new rules version with who, when and
   the whole settings. *Restore this version* writes an older version back as a new one. Each save asks
   for a rescore in the background; every visit and brief keeps the rules version it was computed with,
   and the page says "recomputing with rules v8" until the rescore is done.
@@ -2072,6 +2171,7 @@ Both are edited by Administrators only; other staff can read them. Neither is ev
 | Monitors' notes, answers and snippets reaching the AI | A new prompt version with `narr` = 0, published |
 | The AI briefs | A new prompt version with *insights enabled* unticked, published (the brief written by NeuroDB is shown) |
 | The chat | A new prompt version with *chat enabled* unticked, published |
+| The AI checks of the quality rules | *Score settings → AI checks* unticked (the AI rules then count as switched off; no visit is provisional), or one rule switched off |
 | Every AI call of Monitoring insights | `FMM_AI=false` (no restart of the data or pages needed beyond the setting) |
 | The refresh after each Datamart sync | `FMM_REFRESH_AFTER_SYNC=off` (or `false`); the 05:25 run still refreshes |
 | Everything | `FMM_ENABLED=false`: the page and every `/fmm/` address answer 404, the menu item and panels are hidden, the refresh and the briefs do nothing, the look-ups say Monitoring insights is off (switch off the Watch check `fm_follow_up` too) |
@@ -2152,17 +2252,25 @@ on, and before its figures are trusted:
    data protection focal point first). Open *Preview* on the published prompt version (the exact
    instructions and the redacted facts), make a *Test run*, check its chips (sampling applied or not,
    tokens used), then set `FMM_AI=true` and leave the `fmm-insights` schedule on.
-8. **Confirm with the user** the points left open when this was built: R6 at 0 points (a flag only);
+8. **Confirm with the user** the points left open when this was built: R23 at 0 points (a flag only);
    `comp` as the compliance depth (the quality flags the AI receives); the Team column (names only); this calendar year as the
-   default period; how the AI is switched on (step 7); every threshold that is NeuroDB's proposal (R1's
-   elements, R2's counting, R3 tolerating Constrained, R4's 25 words and 365 days, R5's 15 words, R6's 2
-   cues, the 30-point floor, bands 80/50, red 70, amber 40, 14 days for follow-up, 30 days for a late
-   report, the PSEA answers that flag); the brief's 8,000-token limit in v2 (the reference showed
+   default period; how the AI is switched on (step 7); every threshold that is NeuroDB's proposal (bands
+   80/50, red 70, amber 40, 14 days for follow-up, 30 days for a late report, the PSEA answers that
+   flag); the brief's 8,000-token limit in v2 (the reference showed
    1,500); temperature 0.30 with top-p not set; and the office AI budget (about 30-40 chat answers and 10
    Regenerates a day). Release 2's choices to confirm: the scored statuses (report finalization and
    completed), FMS's urgency weights 0.50 / 0.30 / 0.20 over 180 recency days, the precision rule of
    written coordinates (lowest level, or more than 100 m from the gazetteer's point), the priority
    levels High and Medium of the action points, and v2's wording adapted from FMS's Lebanon prompt.
+   Stage B's: FMS Lebanon's rule set as seeded (R23 flags at 0 points; a field NeuroDB cannot read is
+   not counted missing; a provisional visit counts as not scored), the eTools-derived reference data of
+   R20, R21 and R23 (FMS's hand lists kept as additions), and the AI checks' model, budget and schedule.
+9. **Fill the field office staff lists** (admin → *Field office staff lists*: Beirut, Zahle, Tripoli and
+   Beirut/Mount Lebanon are there, empty) when R19 should run; it skips until a list has addresses.
+10. **Switch the AI checks on** with the AI (Score settings → *AI checks* is on by default): the first
+   nights check the newest visits within `FMM_RULES_DAILY_TOKEN_CAP`, and the older ones over the next
+   nights; until a visit's checks are done it is provisional. *Run the AI checks of the quality rules
+   now* (Import and sync runs → Run a job) starts a run at once.
 
 ### Settings
 
@@ -2191,9 +2299,11 @@ on, and before its figures are trusted:
 | `FMM_INSIGHTS_TIMEOUT_SECONDS` | `90` | Seconds per brief call. |
 | `FMM_PAYLOAD_RETENTION_DAYS` | `30` | After this many days a brief's sent payload is blanked. |
 | `FMM_RETENTION_DAYS` | `180` | Briefs and chat questions are kept this many days. |
+| `FMM_RULES_DAILY_TOKEN_CAP` | `2000000` | The AI checks' own tokens a day (about 700-1,000 checks); what is left waits for the next night. They also stop at 80% of `AI_DAILY_TOKEN_SOFT_CAP` across every feature. |
+| `FMM_RULES_TIMEOUT_SECONDS` | `60` | Seconds per AI check. |
 
-Release 2 adds no environment setting. Its settings are kept in the admin, versioned with the rules
-(*Score settings*) or with the prompts (*Prompt versions*):
+Release 2's other settings are kept in the admin, versioned with the rules (*Quality rules*, *Score
+settings*) or with the prompts (*Prompt versions*):
 
 | Admin setting | Default | What it does |
 |---|---|---|
@@ -2202,6 +2312,15 @@ Release 2 adds no environment setting. Its settings are kept in the admin, versi
 | Score settings › *Recency days* | `180` | Days over which the recency part falls from 100 to 0 (1 to 3,650). |
 | Score settings › *Urgency red / amber* | `70` / `40` | High urgency from red; Medium (amber) from amber. |
 | Score settings › *Follow-up days*, *Report late days* | `14`, `30` | The follow-up signals on the visit page (no longer part of urgency). |
+| Score settings › *Score categories* | FMS Lebanon's six: completeness 30, evidence 20, alignment 20, coherence 15, Q3 quality 10, actionability 5 | Each rule's category and its weight: a category loses at most its weight. The weights add up to 100 (Rebalance). |
+| Score settings › *AI checks* | on | The AI checks of the narrative rules; off: those rules count as switched off. |
+| Score settings › *AI model* | (blank: `AI_ASSISTANT_MODEL`) | The model of the AI checks. |
+| Score settings › *AI max output tokens* | `2000` | Per check, the reasoning included (500-16,000). |
+| Score settings › *AI temperature* | `0.30` | Sent only when the model accepts it; blank: not sent. |
+| Score settings › *AI text characters* | `1500` | Each text a check sends is cut to this (200-6,000). |
+| Quality rules › each rule | FMS Lebanon's 32 rules | On or off, category, group, deduction, flag template and parameters (see *Rules of this page*). |
+| Field office staff lists | Beirut, Zahle, Tripoli, Beirut/Mount Lebanon, empty | Rule R19's staff e-mail addresses per field office (Administrators only; never shown or sent). |
+| Prompt version › *AI checks' instructions* | FMS Lebanon's six check prompts (v3) | The instructions of each AI check, by prompt key. |
 | Prompt version › *Parts of the brief* | FMS's five Lebanon parts (v2) | Key, label, paragraph or bullets, and the limit (the most sentences or bullets, 1-30) of each part, at most 8 parts; the brief's answer format is built from it. |
 | Prompt version › *Chat starter questions* | the four FMS questions | One per line, at most 8, each at most 200 characters. |
 | Prompt version › *Compliance depth* (`comp`) | `15` | How many of the most frequent quality flags the AI receives (0-40). |

@@ -49,7 +49,7 @@ def test_key_figures_and_the_status_breakdown(built):
         "planned": 0,
         "cancelled": 1,
     }
-    assert (k["avg_quality"], k["scored"], k["high_urgency"], k["amber"]) == (Decimal("64.4"), 6, 0, 1)
+    assert (k["avg_quality"], k["scored"], k["high_urgency"], k["amber"]) == (Decimal("79.2"), 6, 0, 1)
     # the rated entities by rating: shares of ratings are over these only
     assert k["entity_ratings"] == {"on_track": 6, "constrained": 0, "off_track": 2}
 
@@ -59,7 +59,7 @@ def test_one_average_quality_in_the_key_figure_and_the_highlights(built):
         scope = _scope(**params)
         kpi = metrics.kpis(scope)["avg_quality"]
         assert metrics.highlights(scope)["avg_quality"] == kpi == metrics.avg_quality(scope.visits())
-    assert metrics.highlights(_scope())["avg_quality"] == Decimal("64.4")
+    assert metrics.highlights(_scope())["avg_quality"] == Decimal("79.2")
 
 
 # ------------------------------------------------------------------------------------------ Quality tab
@@ -67,7 +67,7 @@ def test_quality_and_visits_by_month(built):
     quality = metrics.monthly_quality(_scope())
     assert quality["months"][0] == "Jan 2026" and quality["months"][-1] == "Oct 2026"  # up to this month
     values = dict(zip(quality["drill"]["labels"], quality["indicators"][0]["values"], strict=True))
-    assert values["2026-05"] == 64.7 and values["2026-01"] is None and values["2026-09"] is None
+    assert values["2026-05"] == 93.0 and values["2026-01"] is None and values["2026-09"] is None
     reports = dict(zip(quality["drill"]["labels"], quality["indicators"][0]["reports"], strict=True))
     assert reports["2026-09"] == 0 and sum(reports.values()) == 6  # reported visits only
     assert quality["bar_name"] == "Average quality" and quality["line_name"] == "Reports"
@@ -111,9 +111,9 @@ def test_score_buckets_hold_100_in_the_top_bucket_and_take_their_band_colour(bui
     data = metrics.score_buckets(_scope())
     assert [(i["drill"], i["value"]) for i in data["items"] if i["value"]] == [
         ("40-50", 1),
-        ("50-60", 1),
-        ("60-70", 1),
-        ("70-80", 3),
+        ("70-80", 1),
+        ("80-90", 2),
+        ("90-100", 2),
     ]
     assert len(data["items"]) == 10 and data["not_scored"] == 2
     bands = {i["drill"]: (i["band"], i["color"]) for i in data["items"]}
@@ -123,39 +123,45 @@ def test_score_buckets_hold_100_in_the_top_bucket_and_take_their_band_colour(bui
     Visit.objects.filter(key="1723").update(quality_score=Decimal("90.0"))
     cache.clear()
     top = metrics.score_buckets(_scope())["items"][-1]
-    assert top["value"] == 2 == len(_keys(_scope(bucket="90-100")))
-    assert len(_keys(_scope(bucket="80-100"))) == 2  # a bucket of Release 1's links still opens its visits
+    assert top["value"] == 3 == len(_keys(_scope(bucket="90-100")))  # 1722 (100), 1723 (90), 1728 (93)
+    assert len(_keys(_scope(bucket="80-100"))) == 5  # a bucket of Release 1's links still opens its visits
     # the colours follow the bands as Score settings set them
     limits = {**metrics.thresholds(), "band_medium": 40}
     assert metrics.score_buckets(_scope(), limits=limits)["items"][4]["band"] == "medium"
 
 
 def test_top_issues_are_grouped_by_rule_and_detail(built):
-    issues = metrics.top_issues(_scope(), 10)
+    issues = metrics.top_issues(_scope(), 50)
     first = issues[0]
-    assert first["label"] == "R1: Incomplete monitoring report — missing: General observation (narrative)"
-    assert first["visits"] == 4 and first["drill"] == "R1:missing:narrative"
-    assert {c["key"] for c in first["chips"]} == {REFERENCE_KEY, "1727", "1723", "1728"}
+    assert first["label"] == "R23: Visit location not among registered PD locations for partner"
+    assert first["visits"] == 3 and first["drill"] == "R23:not_registered"
+    assert {c["key"] for c in first["chips"]} == {"1722", "1723", "1728"}
     by_drill = {row["drill"]: row for row in issues}
-    assert by_drill["R2:below_threshold"]["label"] == (
-        "R2: fewer than 80% of questions answered (lowest 33.3%)"
+    assert by_drill["R2:band"]["label"] == "R2: Only 33.3% of monitoring questions answered (target: 80%+)"
+    assert by_drill["R1:missing:0,3"]["visits"] == 2  # the same fields missing
+    # an AI check's issue is its rule's flag without the explanation, which differs from visit to visit
+    assert by_drill["R6:ai"]["label"] == (
+        "R6: General Observation is incoherent, duplicates Q2, or does not address visit objective"
     )
-    assert by_drill["R4:too_short"]["visits"] == 2
-    # one row per (rule, detail): every failed result is in exactly one of them
-    assert sum(row["visits"] for row in issues) == VisitRuleResult.objects.filter(status="fail").count()
+    # one row per (rule, detail): every failed result of a visit in the scope is in exactly one of them
+    in_scope = VisitRuleResult.objects.filter(status="fail", visit__in=_scope().visits())
+    assert sum(row["visits"] for row in issues) == in_scope.count()
     # mean urgency of the visits behind the issue
     urgencies = Visit.objects.filter(key__in=[c["key"] for c in first["chips"]]).values_list(
         "urgency", flat=True
     )
-    assert first["urgency"] == round(sum(urgencies) / 4)
+    assert first["urgency"] == round(sum(urgencies) / 3)
     assert metrics.top_issues(_scope(year="2025"), 10) == []
 
 
 def test_rule_analysis_flagged_out_of_evaluated(built):
     rows = {r["code"]: r for r in metrics.rule_analysis(_scope(), _rules())}
-    assert (rows["R1"]["flagged"], rows["R1"]["evaluated"], rows["R1"]["state"]) == (4, 6, "ok")
-    assert rows["R1"]["level"] == "danger"  # 66.7% flagged
-    assert rows["R6"]["flag_only"] and rows["R6"]["points"] == 0
+    assert (rows["R1"]["flagged"], rows["R1"]["evaluated"], rows["R1"]["state"]) == (6, 6, "ok")
+    assert rows["R1"]["level"] == "danger"  # every visit flagged
+    assert (rows["R6"]["flagged"], rows["R6"]["level"], rows["R6"]["category"]) == (2, "warning", "coherence")
+    assert rows["R23"]["flag_only"] and rows["R23"]["points"] == 0
+    assert rows["R4"]["state"] == "off"  # FMS Lebanon's rule set has it switched off
+    assert [r["code"] for r in rows.values()][:3] == ["R1", "R2", "R3"]  # in the order of the ids
     RuleSetting.objects.filter(code="R5").update(enabled=False)
     cache.clear()
     assert {r["code"]: r for r in metrics.rule_analysis(_scope(), _rules())}["R5"]["state"] == "off"
@@ -173,9 +179,10 @@ def test_issues_summary_monitoring_gaps_are_reported_visits_with_nothing_rated(b
     # 1723 is reported with no rated entity; 1724 (in progress) and 1725 (cancelled) are not gaps
     assert data["gaps"]["n"] == 1
     assert _keys(_scope(rating="not_monitored", status="reported")) == {"1723"}
-    assert data["high_flag"]["n"] == 1 and data["high_flag"]["at"] == 3  # 1723: R1, R2, R5
-    assert data["r6"]["n"] == len(_keys(_scope(flag="R6")))
-    assert data["high_flag"]["pct"] == Decimal("16.7")
+    # 1722 (R1, R7, R23), 1723 (R1, R2, R3, R6, R23) and 1726 (R1, R8, R32)
+    assert data["high_flag"]["n"] == 3 and data["high_flag"]["at"] == 3
+    assert data["r6"]["n"] == len(_keys(_scope(flag="R6"))) == 2
+    assert data["high_flag"]["pct"] == Decimal("50.0")
 
 
 def test_flag_distribution_counts_scored_visits(built):
@@ -212,12 +219,12 @@ def test_entity_performance_worst_first_unscored_last(built, fm_world):
     rows = metrics.entities_performance(_scope(), "pd")["rows"]
     assert [r["name"] for r in rows] == [
         "LEB/SSFA2024001",
-        "LEB/PCA2023597/PD2025123-2",
         "LEB/PCA2024100/PD2026010",
+        "LEB/PCA2023597/PD2025123-2",
         "LEB/PCA2023597/PD2025123",
     ]
-    assert [r["avg"] for r in rows] == [Decimal("58.7"), Decimal("68.7"), Decimal("75.7"), None]
-    amended = rows[1]
+    assert [r["avg"] for r in rows] == [Decimal("75.7"), Decimal("81.5"), Decimal("86.5"), None]
+    amended = rows[2]
     assert amended["link"] == ("pd", fm_world.pds["amended"].pk) and amended["planned"] == 2
     partners = metrics.entities_performance(_scope(), "partner")["rows"]
     assert {r["name"] for r in partners} == {"AMEL", "MCL"}
@@ -245,20 +252,30 @@ def test_office_rule_badges(built):
     badges = {o["name"]: o for o in metrics.office_rule_badges(_scope(), _rules())}
     assert badges["Zahle"]["scored"] == 1
     assert [(b["rule"], b["flagged"], b["total"], b["level"]) for b in badges["Zahle"]["badges"]] == [
-        ("R3", 1, 1, "danger"),
-        ("R4", 1, 1, "danger"),
+        ("R1", 1, 1, "danger"),
+        ("R23", 1, 1, "danger"),
+        ("R7", 1, 1, "danger"),
     ]
 
 
-def test_points_per_rule_are_capped_at_100(built):
-    rows = {r["code"]: r for r in metrics.dimension_breakdown(_scope(), _rules())["rows"]}
-    assert all(r["pct"] <= 100 for r in rows.values())
-    assert metrics.dimension_breakdown(_scope(), _rules())["flag_only"] == ["R6"]
-    result = VisitRuleResult.objects.filter(rule="R2", status="pass").first()
-    VisitRuleResult.objects.filter(rule="R2").update(points=Decimal("40.0"))  # above its 20 points
+def test_points_by_category_keep_between_0_and_the_weight(built):
+    data = metrics.dimension_breakdown(_scope(), _rules())
+    rows = {r["code"]: r for r in data["rows"]}
+    assert set(rows) == {"completeness", "evidence", "alignment", "coherence", "q3_quality", "actionability"}
+    assert all(0 <= r["pct"] <= 100 for r in rows.values()) and data["flag_only"] == ["R23"]
+    # the points kept on average: 1723 lost 15 of coherence's 15 and 1727 lost 15 (R6) -> 10 of 15
+    assert (rows["coherence"]["earned"], rows["coherence"]["max"], rows["coherence"]["visits"]) == (
+        Decimal("10.0"),
+        Decimal("15.0"),
+        6,
+    )
+    Visit.objects.update(category_deductions={"completeness": 45, "evidence": 0})  # more than its 30
     cache.clear()
-    r2 = {r["code"]: r for r in metrics.dimension_breakdown(_scope(), _rules())["rows"]}["R2"]
-    assert result is not None and r2["pct"] == Decimal("100.0") and r2["earned"] == r2["max"]
+    rows = {r["code"]: r for r in metrics.dimension_breakdown(_scope(), _rules())["rows"]}
+    assert rows["completeness"]["pct"] == Decimal("0.0") and rows["completeness"]["earned"] == 0
+    assert (
+        rows["evidence"]["pct"] == Decimal("100.0") and rows["evidence"]["earned"] == rows["evidence"]["max"]
+    )
     # weakest first
     ordered = metrics.dimension_breakdown(_scope(), _rules())["rows"]
     assert [r["pct"] for r in ordered] == sorted(r["pct"] for r in ordered)
@@ -266,7 +283,7 @@ def test_points_per_rule_are_capped_at_100(built):
 
 def test_flag_frequency_triples_carry_the_rule_as_drill(built):
     data = metrics.flag_frequency(_scope(), _rules())
-    assert data["pairs"][0] == ["R1 Completeness", 4, "R1"]
+    assert data["pairs"][0] == ["R1 Report Completeness", 6, "R1"]
     assert all(len(p) == 3 and p[2].startswith("R") for p in data["pairs"])
 
 

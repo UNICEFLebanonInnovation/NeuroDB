@@ -5,32 +5,56 @@
   · {% if reference.synced %}{% blocktrans with when=reference.synced|date:"j M Y H:i" %}eTools field monitoring synced {{ when }}{% endblocktrans %}{% else %}{% trans "eTools field monitoring not synced yet" %}{% endif %}
   · {% if reference.refresh %}{% blocktrans with when=reference.refresh.finished_at|date:"j M Y H:i" version=reference.rules_version|default:"—" %}scores computed {{ when }} with quality rules v{{ version }}{% endblocktrans %}{% else %}{% trans "scores not computed yet" %}{% endif %}
   {% if reference.pending_version %}· <span class="text-warning-emphasis">{% blocktrans with version=reference.pending_version %}recomputing with rules v{{ version }}{% endblocktrans %}</span>{% endif %}
-  · <button type="button" class="btn btn-link btn-sm p-0 align-baseline fmm-how-link" data-bs-toggle="modal" data-bs-target="#fmm-how">{% trans "How scores work" %}</button>
+  · <button type="button" class="btn btn-link btn-sm p-0 align-baseline fmm-how-link" data-bs-toggle="modal" data-bs-target="#fmm-how">{% blocktrans with country=how.country %}What does quality mean for {{ country }}?{% endblocktrans %}</button>
 </p>
 {% if reference.failed %}
 <div class="alert alert-warning py-2 small" role="alert">{% blocktrans with when=reference.failed.started_at|date:"j M Y H:i" %}The last refresh of Monitoring insights failed ({{ when }}). The figures below are those of the refresh before it.{% endblocktrans %}</div>
 {% endif %}
+{% comment %}
+  "What does quality mean for Lebanon?" (FMS's methodology panel), rendered from the rule set the engine
+  applies (context: views._how): the three bands, the score categories and their weights, the core
+  rules (with their HACT rule), the additional rules switched on, and urgency. Rules switched off are
+  not listed.
+{% endcomment %}
 <div class="modal fade" id="fmm-how" tabindex="-1" aria-hidden="true" aria-labelledby="fmm-how-title">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
-        <h2 class="modal-title h5" id="fmm-how-title">{% trans "How scores work" %}</h2>
+        <h2 class="modal-title h5" id="fmm-how-title">{% blocktrans with country=how.country %}What does “quality” mean for {{ country }}?{% endblocktrans %}</h2>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
       </div>
       <div class="modal-body small">
-        <p>{% blocktrans with floor=how.setting.min_evaluated_points statuses=how.scored|join:", " %}Each visit in a scored status ({{ statuses }}) is checked against the quality rules below; a visit in any other status is "pending", without a score. Its score is the points it earned over the points of the rules that could be checked, as a percentage. A rule whose data is not in eTools is "not available" and left out; with fewer than {{ floor }} points checked the visit is not scored.{% endblocktrans %}</p>
-        <div class="table-wrap"><table class="table table-sm">
-          <thead><tr><th>{% trans "Rule" %}</th><th>{% trans "Points" %}</th><th>{% trans "What it checks" %}</th></tr></thead>
-          <tbody>{% for rule in how.rules %}<tr>
-            <td class="text-nowrap">{{ rule.code }} {{ rule.label }}{% if not rule.enabled %} <span class="pill pill--sm pill--neutral">{% trans "off" %}</span>{% endif %}</td>
-            <td>{% if rule.points %}{{ rule.points }}{% else %}{% trans "a flag only" %}{% endif %}</td>
+        <div class="fmm-bands d-flex flex-wrap gap-2 mb-3" aria-label="{% trans 'Quality bands' %}">
+          <span class="pill pill--success">{% blocktrans with high=how.setting.band_high %}High ≥ {{ high }}{% endblocktrans %}</span>
+          <span class="pill pill--warning">{% blocktrans with medium=how.setting.band_medium below=how.setting.band_high|add:"-1" %}Medium {{ medium }}–{{ below }}{% endblocktrans %}</span>
+          <span class="pill pill--danger">{% blocktrans with medium=how.setting.band_medium %}Low &lt; {{ medium }}{% endblocktrans %}</span>
+        </div>
+        <p>{% blocktrans with statuses=how.scored|join:", " %}Each visit in a scored status ({{ statuses }}) starts at 100; each quality rule that fires takes its deduction off, and each category loses at most its weight. A visit in any other status is "pending", without a score. A visit whose AI checks are not all done yet is provisional: it counts as not scored until they are.{% endblocktrans %}</p>
+        <p>{% trans "Categories:" %} {% for c in how.categories %}<span class="chip">{{ c.label }} {{ c.weight|number }}</span> {% endfor %}</p>
+        <h3 class="h6">{% trans "Core rules" %}</h3>
+        {% if how.core %}<div class="table-wrap"><table class="table table-sm">
+          <thead><tr><th>{% trans "Rule" %}</th><th>{% trans "Category" %}</th><th>{% trans "Deduction" %}</th><th>{% trans "What it checks" %}</th></tr></thead>
+          <tbody>{% for rule in how.core %}<tr>
+            <td class="text-nowrap">{{ rule.code }} {{ rule.label }}{% if rule.hact_spec %}<span class="cell-sub"><span class="chip">HACT: {{ rule.hact_spec }}</span></span>{% endif %}</td>
+            <td>{{ rule.category_label }}<span class="cell-sub">{{ rule.type_label }}</span></td>
+            <td>{% if rule.weight %}{{ rule.weight|number }}{% else %}{% trans "a flag only" %}{% endif %}</td>
             <td>{{ rule.description|default:"—" }}</td>
           </tr>{% endfor %}</tbody>
-        </table></div>
-        <p>{% blocktrans with high=how.setting.band_high medium=how.setting.band_medium %}Bands: High from {{ high }}%, Medium from {{ medium }}%, Low below.{% endblocktrans %}
-        {% blocktrans with red=how.setting.urgency_red amber=how.setting.urgency_amber gap=how.weights.quality_gap recency=how.weights.recency flags=how.weights.red_flags days=how.setting.recency_days %}Urgency (0–100) = {{ gap }}% the gap from the maximum score + {{ recency }}% recency (100 on the day the visit ended, 0 after {{ days }} days) + {{ flags }}% red flags (25 per failed rule, at most 100). A visit without a score has no urgency. Red from {{ red }}, amber from {{ amber }}.{% endblocktrans %}</p>
-        <p class="mb-0">{% trans "Missing follow-up action points and late reports are shown on each visit's page; they are not part of urgency. NeuroDB has no field office staff list, so no rule checks who made the visit." %}
-        {% if user_role == "Administrator" %}<a href="{% url 'admin:fmm_rulesetting_changelist' %}">{% trans "Quality rules" %}</a> · <a href="{% url 'admin:fmm_scoresetting_changelist' %}">{% trans "Score settings" %}</a> · <a href="{% url 'admin:fmm_fieldmapping_changelist' %}">{% trans "Fields found" %}</a>{% endif %}</p>
+        </table></div>{% else %}<p class="text-muted">{% trans "No core rule is switched on." %}</p>{% endif %}
+        <h3 class="h6">{% trans "Additional rules" %}</h3>
+        {% if how.additional %}<div class="table-wrap"><table class="table table-sm">
+          <thead><tr><th>{% trans "Rule" %}</th><th>{% trans "Category" %}</th><th>{% trans "Deduction" %}</th><th>{% trans "What it checks" %}</th></tr></thead>
+          <tbody>{% for rule in how.additional %}<tr>
+            <td class="text-nowrap">{{ rule.code }} {{ rule.label }}</td>
+            <td>{{ rule.category_label }}<span class="cell-sub">{{ rule.type_label }}</span></td>
+            <td>{% if rule.weight %}{{ rule.weight|number }}{% else %}{% trans "a flag only" %}{% endif %}</td>
+            <td>{{ rule.description|default:"—" }}</td>
+          </tr>{% endfor %}</tbody>
+        </table></div>{% else %}<p class="text-muted">{% trans "No additional rule is switched on." %}</p>{% endif %}
+        {% if how.off %}<p class="text-muted">{% blocktrans count n=how.off %}{{ n }} rule is switched off and not listed.{% plural %}{{ n }} rules are switched off and not listed.{% endblocktrans %}</p>{% endif %}
+        <p>{% blocktrans with red=how.setting.urgency_red amber=how.setting.urgency_amber gap=how.weights.quality_gap recency=how.weights.recency flags=how.weights.red_flags days=how.setting.recency_days %}Urgency (0–100) = {{ gap }}% the gap from the maximum score + {{ recency }}% recency (100 on the day the visit ended, 0 after {{ days }} days) + {{ flags }}% red flags (25 per failed rule, at most 100). A visit without a score has no urgency. Red from {{ red }}, amber from {{ amber }}.{% endblocktrans %}</p>
+        <p class="mb-0">{% trans "Missing follow-up action points and late reports are shown on each visit's page; they are not part of urgency." %}
+        {% if user_role == "Administrator" %}<a href="{% url 'admin:fmm_rulesetting_changelist' %}">{% trans "Quality rules" %}</a> · <a href="{% url 'admin:fmm_scoresetting_changelist' %}">{% trans "Score settings" %}</a> · <a href="{% url 'admin:fmm_fieldofficestaff_changelist' %}">{% trans "Field office staff lists" %}</a> · <a href="{% url 'admin:fmm_fieldmapping_changelist' %}">{% trans "Fields found" %}</a>{% endif %}</p>
       </div>
     </div>
   </div>

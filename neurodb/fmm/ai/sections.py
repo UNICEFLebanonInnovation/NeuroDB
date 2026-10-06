@@ -195,3 +195,28 @@ def validate_examples(value: Any) -> list[str]:
     if any(len(v) > EXAMPLE_CHARS for v in out):
         raise ValidationError(f"A starter question has at most {EXAMPLE_CHARS} characters.")
     return out
+
+
+RULE_PROMPTS = 40  # AI check instructions a version may hold
+RULE_PROMPT_CHARS = 6000
+
+
+def validate_rule_prompts(value: Any) -> dict[str, str]:
+    """The instructions of the AI checks (``PromptVersion.rule_prompts``): an object of prompt keys (as the
+    narrative rules name them, in lower case) and their texts, each 50 to 6,000 characters."""
+    if value in (None, ""):
+        return {}
+    if not isinstance(value, dict):
+        raise ValidationError(
+            'The AI checks\' instructions are an object, e.g. {"evidence_sufficiency": "..."}.'
+        )
+    if len(value) > RULE_PROMPTS:
+        raise ValidationError(f"At most {RULE_PROMPTS} AI check instructions.")
+    out: dict[str, str] = {}
+    for key, text in value.items():
+        if not KEY.match(str(key)):
+            raise ValidationError(f"“{key}” is not a prompt key: lower case letters, digits and _ only.")
+        if not isinstance(text, str) or not 50 <= len(text.strip()) <= RULE_PROMPT_CHARS:
+            raise ValidationError(f"The instructions of {key} have 50 to {RULE_PROMPT_CHARS:,} characters.")
+        out[str(key)] = text.strip()
+    return out
