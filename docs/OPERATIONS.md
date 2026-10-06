@@ -1287,7 +1287,8 @@ Monitoring insights turns the eTools field monitoring data into **visits**: each
 programme documents, place and sections, how complete and coherent its report is (quality rules R1-R6
 and a score), how urgent its follow-up is, and what was done about it (FM action points). Its page,
 `/fmm/` (menu: *Monitoring insights*, right after *Field monitoring*, marked "AI"), has five tabs:
-**Insights** (the key figures, an AI monitoring brief and Chat with Data), **Quality**, **Analysis**,
+**Insights** (the morning briefing, the key figures, an AI monitoring brief and Chat with Data),
+**Quality**, **Analysis**,
 **Visits** (the table, the visit look-up and each visit's page) and **Map**. A drill-down window lists
 the visits behind every chart bar and count.
 
@@ -1313,18 +1314,20 @@ per block, each taking the page's filter), kept 10 minutes.
 
 | Block | What it shows | Source |
 |---|---|---|
-| Key figures (every tab) | Monitoring visits (whatever their status, with the breakdown reported / in progress / planned / cancelled / status unknown), monitored entities (rated / not monitored), the average quality of the scored visits, and the visits of high urgency (red, with the amber ones) | `kpis`: `fmm.Visit`, `fmm.VisitEntity` |
-| Insights › AI monitoring insights | Four parts (coverage and quality, programmatic findings, operational challenges, recommendations) and up to six priority action points, each sentence with the visits it rests on; the chips (model, effort, tokens, temperature and top-p, notes and visits sent, prompt and rules versions, quota); *Regenerate*, *What was sent* | `fmm.ai.insights.current`: the latest `Insight` of the filter, else the brief written by NeuroDB (`fmm.ai.fallback`) |
-| Insights › Chat with Data | Questions about the visits of the filter, answered with four look-ups, links to the visits checked | `fmm:chat_stream`, `fmm.ai.chat`, the `fm_*` look-ups |
+| Key figures (every tab) | Monitoring visits (whatever their status, with the breakdown reported / in progress / planned / cancelled / status unknown), monitored entities (rated / not monitored), the average quality of the scored visits, and the visits of high urgency (red, with the amber ones, and *View urgent visits →*) | `kpis`: `fmm.Visit`, `fmm.VisitEntity` |
+| Insights › Morning briefing | This year so far (1 January to today, whatever the page's period; its other filters kept): critical flags (urgency at or above red), average quality, low quality visits (below the Medium band), critical partners (a visit at or above red) with the top five, the visits, and the visits in review, submitted, in data collection, assigned and completed; each tile with its definition (ⓘ) and the visits behind it; the quality by governorate | `briefing` |
+| Insights › AI monitoring insights | The parts the published prompt version lists (v2: a coverage and quality summary, key programmatic findings, operational challenges, recommendations, and up to five priority action points written "[PRIORITY: High] Section / Partner — action — responsible — timeframe"), each sentence with the visits it rests on; the chips (model, effort, tokens, temperature and top-p, notes and quality flags sent, prompt and rules versions, quota); *Regenerate*, *What was sent* | `fmm.ai.insights.current`: the latest `Insight` of the filter, else the brief written by NeuroDB (`fmm.ai.fallback`) |
+| Insights › Chat with Data | Questions about the visits of the filter, answered with four look-ups, links to the visits checked; the published prompt version's starter questions | `fmm:chat_stream`, `fmm.ai.chat`, the `fm_*` look-ups |
 | Quality › Quality score by month | The average quality per month, with the visits reported that month | `monthly_quality` |
 | Quality › Visits by month | Visits per month (by end date), with their average quality | `monthly_volume` |
-| Quality › HACT Q1 rating by month | Visits per month by their worst HACT Q1 answer (On track, Constrained, Off track); the overall finding rating instead, with a note, when no visit of the filter has a Q1 answer | `hact_q1_by_month`, `rating_by_month` |
-| Quality › Quality score distribution | Scored visits in five bands of 20 points (100 in the top one), and the visits not scored | `score_buckets` |
+| Quality › HACT Q1 rating by month | Visits per month by their worst HACT Q1 answer (On track, Constrained, Off track); the overall finding rating instead, with a note, when no visit of the filter has a Q1 answer; the chips under it count each rating and "Not Monitored n" apart | `hact_q1_by_month`, `rating_by_month` |
+| Quality › Quality score distribution | Scored visits in ten bars of 10 points (100 in the top one), each coloured by its quality band, and the visits not scored | `score_buckets` |
 | Quality › Top recurring issues | Flags grouped by rule and reason, with their visits and mean urgency | `top_issues`: `fmm.VisitRuleResult` |
 | Quality › Geographic coverage | The places visited, their governorate, visits and last visit (top 10; *Show all* loads the rest, up to 500) | `locations` |
 | Quality › Quality rules | Each rule's visits flagged out of the visits it checked; "not available", "off" or "flag only" | `rule_analysis` |
-| Quality › Quality issues summary | Rating-quality flags (R6), monitoring gaps (reported visits with no entity rated), visits with 3 or more flags | `issues_summary` |
+| Quality › Quality issues summary | Rating-quality flags (R6), Not monitored (planned, not conducted: reported visits with no entity rated), visits with 3 or more flags | `issues_summary` |
 | Quality › Flags per visit | Scored visits with 0, 1, 2 and 3 or more flags | `flag_distribution` |
+| Quality › Rule score trends over time | Per rule with points, the share of its maximum points the visits that ended each month earned; a point opens the visits the rule flagged that month | `rule_trends` (with `rule_stats`, from `rule_months`) |
 | Analysis › Highlights | Visits, reported, governorates covered of the gazetteer's, average quality (the key figure's), off-track visits, PSEA-flagged visits of those with a PSEA question, High / Medium / Low shares, entities by type | `highlights` |
 | Analysis › Governorates not visited | The gazetteer's governorates no visit of the filter is placed in | `governorate_gaps` |
 | Analysis › Field offices | Visits and average quality per field office ("Office not known" too), and where the offices came from | `offices` |
@@ -1332,7 +1335,7 @@ per block, each taking the page's filter), kept 10 minutes.
 | Analysis › Quality by field office | Per office, its flags by rule ("R1: 6/16") | `office_rule_badges` |
 | Analysis › Sections | Per section, its visits, average quality, ratings and bands, and its visits listed | `sections` |
 | Analysis › Visit frequency by location | Visits, average quality and coverage (rated ÷ monitored entities) per place (top 10; *Show all* loads the rest) | `locations` |
-| Analysis › Quality by rating | Visits, average quality and bands per overall rating | `quality_by_rating` |
+| Analysis › Quality by finding rating | Visits, average quality and bands per overall rating; Not monitored always has its own bar | `quality_by_rating` |
 | Analysis › Flags by rule | Visits flagged by each rule | `flag_frequency` |
 | Analysis › Points by rule | Each rule's mean points earned of its maximum, weakest first (capped at 100%) | `dimension_breakdown` |
 | Analysis › Programmatic visits and HACT | For the partners of the filter with programmatic visits required: required, planned and completed in eTools, NeuroDB's completed programmatic FM visits, and the gap | `hact_programmatic`: `PartnerHACTYear`, `datamart.fm.programmatic_visits_by_partner` |
@@ -1342,6 +1345,7 @@ per block, each taking the page's filter), kept 10 minutes.
 | Visit page | Everything known of one visit (below) | `fmm:visit` |
 | Map › Visits and planned locations | Each visit with a point against the places its programme documents planned; the planned places not visited | `fmm.geo.map_points` |
 | Drill-down window | The visits behind a chart bar, a chip or a count | `fmm:drill` |
+| Every chart | *Download PNG* saves the chart as drawn (Plotly's own `downloadImage`; no other library) | `charts.js` |
 
 ### Using the page
 
@@ -1349,9 +1353,13 @@ Every signed-in user but a donor can read it; with `FMM_ENABLED` off it answers 
 is hidden.
 
 - **Filters.** Period (this year by default; last year, a calendar year, this or last quarter, the
-  last 30 or 90 days, or two dates), section, governorate ("Not located" too), field office, partner,
-  entity type, rating, status, "Programmatic visits only" and a search on the visit, its references,
-  partners, programme documents and place. `?year=Y` means 1 January to 31 December Y, so the year
+  last 30 or 90 days, two dates, or *All time*), section, governorate ("Not located" too), field
+  office, partner, entity type, rating, status, monitoring modality (UNICEF staff, a third-party
+  monitor...; "Modality not known" too), quality band (High from 80, Medium from 50, Low, or *Pending
+  (no score)*), urgency band (High: red, Medium: amber, Low: below amber; a visit without a score has
+  no urgency and is in none), "Programmatic visits only" and a search on the visit, its references,
+  partners, programme documents and place. *All time* and two dates add "Data available from X to Y"
+  (the first and last end dates of the visits the other filters keep) to the reference line. `?year=Y` means 1 January to 31 December Y, so the year
   menu keeps the page. Periods read the visit's end date only; a visit without one is left out and
   counted in a data note. A user with a section sees it by default, as on the overview, but only on a
   bare visit to `/fmm/`: every link the page writes carries `section` (empty for every section), and a
@@ -1369,19 +1377,29 @@ is hidden.
   reference (counted as their own visits here, not by the overview), visits without an end date.
   With no filter, the visits of a year equal the overview's field monitoring visits and the field
   monitoring page's "Monitoring activities", and the monitored entities its "Findings".
+- **Morning briefing** (first on the Insights tab): ten tiles over **this year so far**, 1 January to
+  today, whatever the page's period (the page's other filters are kept and named): critical flags
+  (visits at or above *urgency red*), average quality, low quality visits (scored below the Medium
+  band), critical partners (with a visit at or above red; the top five as chips that filter the page
+  on them), monitoring visits, and the visits at review status (*Pending report review*: awaiting the
+  reviewer's sign-off), submitted, in data collection, assigned and completed. Each tile has its
+  definition under ⓘ and opens the visits behind it; *Quality by governorate* gives each
+  governorate's average quality and visits this year, each opening its visits.
 - **Key figures**: monitoring visits (whatever their status, with the breakdown), monitored entities
   (rated / not monitored), the average quality score of the scored visits, and the visits of high
-  urgency (red, with the amber ones). Each links to the Visits tab. Figures are kept 10 minutes, and a
+  urgency (red, with the amber ones, and *View urgent visits →*). Each links to the Visits tab. Figures are kept 10 minutes, and a
   refresh or a new day shows at once.
 - **Quality tab**: the average quality by month (with the reported visits), the visits by month
   (with their average quality), the HACT Q1 rating by month (visits, each counted once with its worst
   Q1 answer; the overall finding rating instead, with a note, when no visit of the filter has a Q1
-  answer), the quality score distribution (five bands of 20 points, 100 in the top one, and the visits
-  not scored), the top recurring issues (flags grouped by rule and reason, with their visits and mean
-  urgency), the places visited (top 10, *Show all*), each rule's visits flagged out of the visits it
-  checked ("not available" when the checklist answers are missing, see Fields found), the quality
-  issues summary (rating-quality flags, monitoring gaps: reported visits with no entity rated, and
-  visits with three or more flags) and the flags per visit.
+  answer; the chips count each rating, and Not Monitored apart), the quality score distribution (ten
+  bars of 10 points, 100 in the top one, each coloured by its band, and the visits not scored), the
+  top recurring issues (flags grouped by rule and reason, with their visits and mean urgency), the
+  places visited (top 10, *Show all*), each rule's visits flagged out of the visits it checked ("not
+  available" when the checklist answers are missing, see Fields found), the rule score trends (per
+  rule, the share of its maximum points earned by the visits of each month), the quality issues
+  summary (rating-quality flags, Not monitored: planned, not conducted, and visits with three or more
+  flags) and the flags per visit. Every chart has *Download PNG*.
 - **Analysis tab**: highlights (visits, reported, governorates covered out of the gazetteer's,
   average quality: the same figure as the key figure, off-track visits, PSEA-flagged visits out of
   those with a PSEA question, the High / Medium / Low shares, the monitored entities by type), the
@@ -1389,14 +1407,14 @@ is hidden.
   each office's flags per rule, entity performance (PDs, CP outputs, partners or other entities,
   worst average quality first, unscored last; a PD shows its planned visits for the year), the
   sections with their visits, the visit frequency and coverage (rated ÷ monitored entities) by place,
-  the quality by overall rating, the flags by rule, the points earned per rule (weakest first; a rule
+  the quality by finding rating (Not monitored always its own bar), the flags by rule, the points earned per rule (weakest first; a rule
   at 0 points is a flag only), the HACT programmatic visits of the partners of the filter (required,
   planned and completed in eTools next to NeuroDB's count of completed programmatic FM visits; gap =
   required − completed in eTools) and the follow-up (FM action points of these visits: open, overdue,
   high priority; the off-track or constrained visits without one).
 - **Drill-down window** (`/fmm/drill/`): a chart bar, a chip or a count opens the visits behind it,
   most urgent first (50 at most), with *Open in the Visits tab* for the rest. Charts carry codes
-  (`month=2026-05`, `bucket=80-100`, `hact_q1=constrained`, `flag=R1`); an address with a label as a
+  (`month=2026-05`, `bucket=80-90`, `hact_q1=constrained`, `flag=R1`); an address with a label as a
   chart draws it ("May 2026", "80–100", "On track") is refused, so a cut or translated label can never
   open the wrong visits.
 - **Visits tab**: *Find a visit* (an id, "#1722", "Visit 1722", a key, a reference or a reference
@@ -1428,10 +1446,14 @@ is hidden.
   lead or a narrative.
 - **Visit page** (`/fmm/visits/<key>/`, also a window from the table; the address AI answers will
   cite): status and rating with their dates, HACT Q1, quality and its basis, urgency and its parts,
-  links (partner, programme documents, HACT assurance, *On the map* when the visit has a point, the
-  visit's action points, and *Open in eTools* once `FMM_ETOOLS_ACTIVITY_URL` is set), place and how it was located, sections and offices
-  with their source, the team (names only, shown to NeuroDB users only), each entity with its rating,
-  HACT Q1, programme document match and the narrative in full (e-mail addresses hidden), each rule's
+  the follow-up signals (an off-track or constrained visit without an action point, overdue and
+  high-priority action points, a late report: shown apart, never part of urgency), links (partner,
+  programme documents, HACT assurance, *On the map* when the visit has a point, the visit's action
+  points, and *Open in eTools* once `FMM_ETOOLS_ACTIVITY_URL` is set), place and how it was located, the
+  monitoring modality and programme areas, the visit goals and objective, sections and offices with
+  their source, the team (names only, shown to NeuroDB users only), each entity with its rating, HACT
+  Q1, programme document match, the narrative in full and the Q1, Q2 and Q3 answers written on its
+  row (e-mail addresses hidden), each rule's
   result, the checklist questions and answers (read from the eTools records when the page opens),
   programme activities and CP outputs (linked to the country programme when they match), the action
   points, the partner's programmatic visits for HACT and each programme document's planned visits of
@@ -1460,17 +1482,17 @@ chat, so the same figure never differs between two places.
 | Visit date | The latest end date of its rows. Periods read it only; a visit without one is left out of every period and counted in a data note, never placed by its start date. |
 | Monitoring visits (key figure) | Every visit of the period, whatever its status, as the overview counts them. |
 | Monitored entities | The finding rows of the visits (the partners, programme documents and CP outputs monitored); "Findings" on `/field-monitoring/`. An entity filter counts the matching rows only. |
-| Entity rated | Its rating reads On track, Constrained or Off track. |
+| Entity rated | Its rating reads On track, Constrained or Off track. Every share of ratings (key figures, charts, highlights, the AI facts, the brief written by NeuroDB, the chat's look-ups) is a share of the rated visits or entities only. |
 | Status group | planned (draft, checklist, review, assigned), in progress (data collection, report finalization), reported (submitted, completed), cancelled, status unknown. |
 | Visit status | The most advanced status of its rows; rows that disagree are noted on the visit. |
 | Visit rating | Its worst rated entity (Off track, then Constrained, then On track); *Not monitored* when none is rated. |
 | HACT Q1 | Of an entity: its own Q1 answer, else the one given for its partner, else the one given for the whole visit. Of a visit: the worst of these and of the visit-level answers. Charts count visits. |
 | PSEA flag | A PSEA answer coded in *Answers that flag* (Yes, Constrained or Off track by default) flags the visit; asked and answered otherwise: not flagged; no PSEA question: not known. |
-| Not-monitored visit (monitoring gap) | A **reported** visit none of whose entities is rated. A planned or in-progress visit with blank ratings is "not rated yet", never a gap. |
-| Scorable visit | Reported, or of unknown status with something rated or answered. Not-monitored reported visits are scored. |
+| Not monitored | eTools' rating "Not Monitored": the visit was **planned but not conducted** (the monitor did not attend, the partner was unavailable, access was denied), a planning status, not a programme outcome. A visit is Not monitored when it is reported and none of its entities is rated; a planned or in-progress visit with blank ratings is "not rated yet". It is always a count apart, never inside a share of ratings and never a share of all visits. |
+| Scored visit | A visit whose status is one of the *scored statuses* (Score settings; report finalization and completed by default). Every other visit is **pending**: no score, no urgency, quality band "Pending" (cancelled ones read "cancelled"). Not monitored visits of a scored status are scored. |
 | Quality score | Points earned ÷ points of the rules evaluated, × 100, rounded half up to one decimal; none below 30 evaluated points. |
 | Average quality | The mean score of the scored visits of the filter (half up, one decimal): the key figure, the Analysis highlight, the AI facts and the chat's `fm_summary` are this one figure. |
-| High urgency | Urgency at or above *urgency red* (70); amber from *urgency amber* (40) to 69. |
+| High urgency | Urgency at or above *urgency red* (70); amber (Medium) from *urgency amber* (40) to 69; Low below. A visit without a score has no urgency and is in no urgency figure. |
 | Governorates covered | Governorates with a visit, out of the gazetteer's active governorates. |
 | Open / overdue action point | Status open; overdue when also past its due date (the action points page's, the overview's and Watch's definition). |
 | FM programmatic visits (NeuroDB) | The completed, programmatic visits that ended in the year, counted once per visit for each partner of its rows. |
@@ -1496,10 +1518,12 @@ pattern change needs only a scores-only refresh:
   `off_track` by default) flags the visit; asked and answered otherwise: not flagged; no PSEA question,
   or the answer keys not found: not known.
 
-**Which visits are scored.** A reported visit (submitted or completed), or one of unknown status with
-something rated or answered. A reported visit with nothing rated (a monitoring gap) is scored; planned
-and in-progress visits are "not reported yet" and cancelled ones "cancelled". For those, every rule
-reads "does not apply".
+**Which visits are scored.** The visits whose status is one of the **scored statuses** (*Score
+settings*, a list of eTools statuses; *report finalization* and *completed* by default, as FMS does).
+Every other visit is **pending**: no score and no urgency, "Pending" in the quality band filter, and
+every rule reads "does not apply" ("Pending: the visit's status is not one of the scored statuses").
+Cancelled visits read "cancelled". A Not monitored visit of a scored status is scored. Changing the
+list is saved as a rules version and rescored like any other score setting.
 
 **The rules** (admin → *Quality rules*; the points and R2's 80% follow the reference dashboard, every
 other threshold is NeuroDB's proposal, to be confirmed by the user):
@@ -1523,27 +1547,36 @@ than 30 points could be evaluated ("too few rules (15 of 85 points)"). Bands: Hi
 50, else Low. The flags are the rules failed, R6 included at 0 points; 3 flags or more is a high-flag
 visit.
 
-**Urgency**, 0 to 100, with every part kept to explain it: the worse of the rating and HACT Q1 (Off
-track 40, Constrained 20); the quality gap (25 × the share of the score missing; 10 for a reported visit
-that could not be scored); 5 per flag, at most 15; follow-up: 20 when an Off track or Constrained
-reported visit has no action point more than 14 days after it ended, else 12 for an overdue open action point, 8
-more when it is high priority, 5 for an open high-priority one, at most 20; and 15 for a planned or
-in-progress visit that ended more than 30 days ago. Red from 70, amber from 40. The daily 05:25 refresh
-recomputes it, so a visit grows more urgent while nothing is done.
+**Urgency** (FMS's formula), 0 to 100, for scored visits only, with every part kept to explain it:
 
-| Urgency part | Weight (Score settings) | When |
+`urgency = quality_gap × (100 − quality score) + recency × recency part + red_flags × flags part`
+
+- the **recency part** is 100 on the day the visit ended, falling in a straight line to 0 at *recency
+  days* (180) after it: `100 × max(0, 1 − days since the end ÷ recency days)`;
+- the **flags part** is 25 per red flag (a failed rule, R6 included), at most 100;
+- the **weights** are 0.50, 0.30 and 0.20 by default (*Score settings*; each from 0 to 1, and they must
+  add up to 1).
+
+The total is rounded half up and kept within 0-100. Red from 70, amber from 40 (both editable). A visit
+without a score (pending, cancelled, or too few rules evaluated) has **no urgency**: "—" in the table,
+last when sorting, and in no urgency figure. The daily 05:25 refresh recomputes it, so a visit grows
+less urgent as it ages, unless its quality is low and its flags many.
+
+| Urgency part | Weight (Score settings) | Value |
 |---|---|---|
-| Rating | `off_track` 40, `constrained` 20 | the worse of the visit's rating and its HACT Q1 |
-| Quality | `quality_gap` 25 × (100 − score) ÷ 100; `unscored_reported` 10 | a scored visit; a reported visit that could not be scored |
-| Flags | `per_flag` 5, at most `flags_max` 15 | each failed rule |
-| Follow-up | `no_follow_up` 20; else `ap_overdue` 12 + `ap_high_overdue` 8, or `ap_high_open` 5; at most `follow_up_max` 20 | an off-track or constrained reported visit with no action point more than *follow-up days* (14) after it ended; else its open action points |
-| Late report | `report_late` 15 | a planned or in-progress visit that ended more than *report late days* (30) ago |
+| Quality gap | `quality_gap` 0.50 | 100 − the quality score |
+| Recency | `recency` 0.30, over *recency days* (180) | 100 × max(0, 1 − days since the visit ended ÷ recency days) |
+| Red flags | `red_flags` 0.20 | 25 per failed rule, at most 100 |
 
-The total is capped at 100. Every visit keeps its parts (`urgency_parts`), shown on the visit page ("Why
-urgency 73: rating off track 40 · quality 8 · flags 5 · no follow-up action point 20") and as the
-urgency pill's hover in the table. The thresholds that are NeuroDB's proposals rather than the
-reference dashboard's (every one but the points and R2's 80%) are listed for the user to confirm in
-the go-live checklist.
+Every visit keeps its weighted parts (`urgency_parts`), shown on the visit page ("Why urgency 33:
+quality gap 29.8 · recency 12.2 · red flags 15") and as the urgency pill's hover in the table.
+
+**Follow-up signals** (shown on the visit page, never part of urgency since Release 2): an Off track or Constrained reported visit with no action point more than
+*follow-up days* (14) after it ended; its overdue, high-priority overdue and high-priority open action
+points; and a planned or in-progress visit that ended more than *report late days* (30) ago (a late
+report). They are worked out by every refresh, scored or not. The thresholds that are NeuroDB's
+proposals rather than the reference dashboard's or FMS's are listed for the user to confirm in the
+go-live checklist.
 
 **Changing the rules.** Administrators only: other staff can read the rules, the settings and the
 versions. Each rule, the score settings and every pinned key are saved with a required note; the
@@ -1559,7 +1592,8 @@ it was scored with.
 ### Filters and caching
 
 - **Period**: this calendar year by default; last year, a calendar year, this or last quarter, the last
-  30 or 90 days, or two dates. `?year=Y` means 1 January to 31 December Y and wins over any preset, so
+  30 or 90 days, two dates, or *All time* (every visit with an end date; no earlier period to compare
+  with, and the reference line says "Data available from X to Y"). `?year=Y` means 1 January to 31 December Y and wins over any preset, so
   the site's year menu keeps the page on the year chosen. Periods read the visit's end date only.
 - **Section default**: a user with a section sees that section on a bare visit to `/fmm/`, as on the
   overview, with a chip to show every section. Every link the page writes, and every link into it
@@ -1567,8 +1601,14 @@ it was scored with.
   the default again and the figures equal those of the panel the link came from.
 - **Entity-level filters** (entity type, partner) keep a visit when one of its entities matches; the
   entity figure then counts the matching rows only, and a note says so.
+- **Modality, quality band and urgency band** (`modality`, `quality`, `urgency_level`, each may be
+  given more than once): the modality written on the visit's rows ("none": not known); High, Medium,
+  Low or Pending (no score) by the score bands; High (red), Medium (amber) or Low (scored, below amber)
+  by the bands the last scoring gave. A filter address without them keeps the same cache and AI brief
+  as before Release 2.
 - **Drill-downs** come from chart clicks and links only, carry codes (`month=2026-05`,
-  `bucket=80-100`, `hact_q1=constrained`, `flag=R1`), and show as removable chips. A label as a chart
+  `bucket=80-90`, `hact_q1=constrained`, `flag=R1`, `visit_status=review`), and show as removable
+  chips (the 20-point buckets of Release 1, `bucket=80-100`, still open). A label as a chart
   draws it is refused, so a cut or translated label never opens the wrong visits.
 - **Caching**: each block is kept 10 minutes in the web process's cache, under the filter, the last
   refresh and its rules version, and the day; a refresh, a new rules version or midnight shows at once.
@@ -1681,6 +1721,35 @@ found*):
 6. writes the keys and the visits together in one transaction: the pages see the old visits until it
    commits, a visit keeps its id while its key stays, and the visit reviews are never touched.
 
+**The eTools FMM export's own names** (FMS user manual, §13.2) come first in `CANDIDATES` since
+Release 2: `hact_q1_answer`, `hact_q2_answer` and `hact_q3_answer` (the Q1, Q2 and Q3 answers written
+on a finding row), `field_offices` and `sections_names` (lists written with ";"), `programme_areas`,
+`monitoring_modality` (UNICEF staff, TPM - iAPS, TPM - Voluntas...), `location_lat`, `location_lon`,
+`location_type`, `location_pcode`, `location_name`, `team_members`, `visit_goals`, `objective`,
+`dim_supplies`, `dim_psea` and `status`; the names of Release 1 follow as fallbacks. What the build does
+with them:
+
+- **Q1, Q2 and Q3 written on the row take precedence** over the checklist answers of the same
+  question for that row's entity; a blank one falls back to the checklist. Only whether each was
+  answered, its rating code, its word count and, for a short answer, a hash of its folded text (so
+  R5's list of placeholders can be checked without it) are kept (`VisitEntity.row_answers`): the texts stay in eTools' records and are read
+  when the visit page opens or a brief is written. R1, R3 and R5 read them; R2 counts checklist
+  questions only.
+- **Modality and programme areas** are kept on the visit (filter, AI breakdowns, visit page).
+- **Coordinates**: after the monitoring site, the point written on the row (`location_lat`,
+  `location_lon`) places the visit (*located by location*, counted as "written" in the refresh's
+  details). It counts as **precise** for the map's 2 km match when `location_type` names the
+  gazetteer's lowest level (its name, e.g. "Cadaster", or "admin level 3"), or when the point is more
+  than 100 m from the gazetteer's point of its location (its own, or the one borrowed from an
+  ancestor), so it is not a centroid; with no gazetteer location to compare with, only the type
+  counts. Otherwise the gazetteer's location, then its nearest ancestor, place it as before.
+- **A row whose location eTools did not link** is placed by its `location_pcode` when the gazetteer
+  holds that P-code (counted as "by P-code").
+- **Entity types**: "PD/SSFA" → programme document, "CP Output" → CP output, "Partner" → partner
+  (`datamart.fm.entity_kind`).
+- `dim_supplies` and `dim_psea` are shown on the visit page only; `person_responsible_email` is never
+  read (contact keys are removed before anything is stored).
+
 Each run is one line in *Import and sync runs* (*Monitoring insights refresh*, target `full`): rows
 read are the finding rows and checklist records, rows written the visits. One runs at a time (a
 database lock: a second start does nothing). A failure keeps the previous visits and keys and marks
@@ -1745,19 +1814,32 @@ After the first production sync, work through the *Go-live checklist* below.
 brief **written by NeuroDB from the figures** ("AI not used: AI is switched off") and no call is made,
 and the chat reads "Chat is not available: the AI is switched off."
 
-- **The brief** (Insights tab, loaded after the page): four parts (coverage and quality, programmatic
-  findings, operational challenges, recommendations) and up to six priority action points. Every
+- **The brief** (Insights tab, loaded after the page): the parts the published prompt version lists
+  (*Parts of the brief*, like FMS's insight sections). Version 2, from FMS's Lebanon prompt: *Coverage
+  and Quality Summary* (a paragraph of at most 5 sentences), *Key Programmatic Findings* (at most 20
+  bullets), *Operational Challenges* (4), *Recommendations* (5) and *Priority Action Points* (5). The
+  brief's strict answer format is built from that list, so its keys are exactly the list's. Every
   sentence rests on the facts NeuroDB sends and names them; a sentence with a figure, date, reference
-  or name the facts it cites do not hold, a link, an e-mail address, markup or the words staff pages
-  never use is dropped before anyone reads it. An action whose owner names a person gets "Section
-  lead", and one whose section the facts do not name gets "All sections". When nothing passes, or
+  or person's name the facts it cites do not hold, a link, an e-mail address, markup or the words
+  staff pages never use is dropped before anyone reads it. Partner, place and section names pass (a
+  test pins it); only people's names are refused. An action point is structured (priority High or
+  Medium, programme section, partner or none, action, responsible party, timeframe, the facts it rests
+  on) and NeuroDB writes it out as "[PRIORITY: High] Education / AMEL — action — Education section
+  lead — within 2 weeks". An action whose responsible party names a person gets "Section lead", one
+  whose section the facts do not name gets "All sections", and a partner the facts do not name is
+  left out. When nothing passes, or
   the call fails, the code-written brief (or the last brief) is shown. Under each sentence, the
   visits it rests on open their window; the visits table's *AI* column marks them, and the visit page
   lists the sentences of the brief of the user's own landing filter that cite it.
-- **What is sent**: the period and filter, the key figures and the previous period, the rules,
-  the recurring issues, sections, field offices, governorates, follow-up and HACT counts, up to `comp`
-  visits as cards and up to `narr` monitors' notes, each cleaned of names, e-mail addresses, phone
-  numbers and links (a note with more than 3 of them removed, or under 40 characters, is never
+- **What is sent**: the period and filter; the key figures with the rating distribution over the
+  **rated** visits and entities (Not monitored a count apart) and the previous period; the rules; the
+  `comp` most frequent **quality flags** (rule, reason, visits and up to 3 example visits); per
+  section, field office, partner (the 30 most visited), monitoring modality and governorate: visits,
+  average quality, rated visits by rating, the share Off track or Constrained of the rated ones and
+  Not monitored apart; the follow-up and HACT counts; the 15 most urgent visits as cards (plus the
+  flags' example visits); and up to `narr` monitors' notes, each with its row's Q1, Q2 and Q3 answers
+  (at most 400 characters each), all cleaned of names, e-mail addresses, phone numbers and links (a
+  note or an answer with more than 3 of them removed, or a note under 40 characters, is never
   sent). The team and the visit lead are never sent. A last check refuses a brief whose facts still
   hold a known name, an e-mail address, a phone number or a link (the brief fails with "could not be
   written safely" and an error is logged). *What was sent* on the card shows the facts and notes
@@ -1772,18 +1854,25 @@ and the chat reads "Chat is not available: the AI is switched off."
   from an older prompt version "Written with prompt v6 (now v7)". A brief left writing by a stopped
   process is closed after `FMM_INSIGHTS_TIMEOUT_SECONDS` plus a minute ("The last attempt stopped").
 - **The chips** say what was really used: model, effort, the output limit and the tokens used,
-  temperature and top-p ("applied", "not applied" with why, "not set"), notes and visits sent of those
-  allowed (`narr`, `comp`), the prompt and rules versions, and the person's quota with the share of
+  temperature and top-p ("applied", "not applied" with why, "not set"), notes and quality flags sent
+  of those allowed (`narr`, `comp`), the prompt and rules versions, and the person's quota with the share of
   the office AI budget used today.
 - **Retention.** The morning run also closes stopped briefs, blanks payloads older than 30 days,
   deletes refused and skipped briefs after 30 days and every brief after `FMM_RETENTION_DAYS` (180).
 
 - **Prompt versions** (admin → *Monitoring insights* → *Prompt versions*, Administrators only; other
-  staff read). A version holds the editable instructions of the brief and of the chat, the model
-  (blank: `FMM_MODEL`), the effort, the output limits (they **include the reasoning tokens**: 4,000 for
-  a brief, 6,000 per chat call), temperature and top-p (empty: not sent), `narr`, `comp` and the
-  per-person limits (5 briefs and 20 questions a day, 4 chat rounds, 120 seconds). v1 is seeded and
-  published by "NeuroDB (default)" with temperature 0.30 and top-p not set. *Add* starts a **draft**
+  staff read). A version holds the editable instructions of the brief and of the chat, the parts of
+  the brief (key, label, paragraph or bullets, and the most sentences or bullets; the action points
+  are the part keyed `action_points`), the chat's starter questions (one per line, at most 8), the
+  model (blank: `FMM_MODEL`), the effort, the output limits (they **include the reasoning tokens**:
+  8,000 for a brief in v2, 6,000 per chat call), temperature and top-p (empty: not sent), `narr`,
+  `comp` and the per-person limits (5 briefs and 20 questions a day, 4 chat rounds, 120 seconds). v1
+  was seeded and published by "NeuroDB (default)" with temperature 0.30 and top-p not set; Release 2
+  publishes **v2** (note "FMS Lebanon prompt (Release 2)…"): the editable text adapted from FMS's
+  Lebanon prompt (the Lebanon context, what Not Monitored means, the rating and quality thresholds,
+  the priority flags and the guidance of each part), FMS's five parts, the four starter questions and
+  8,000 output tokens, its model and other settings copied from v1. v1, retired, keeps its own four
+  parts, so its briefs show as they were written, and can be published again with *Roll back*. *Add* starts a **draft**
   prefilled from the published version (or `?from=<id>`), with a required note; only drafts can be
   changed or deleted (a draft's test runs are deleted with it). *Publish* retires the published
   version; briefs already written stay until the next night's run or a Regenerate. Published and
@@ -1794,9 +1883,12 @@ and the chat reads "Chat is not available: the AI is switched off."
   parameter the model refused.
 - **`narr`** is the most texts (narratives, checklist answers, search snippets) the AI may read per
   brief and per chat answer, each cleaned of names, e-mail addresses, phone numbers and links first;
-  `narr = 0` sends none. **`comp`** is how many visits the AI sees in full, as a card (dates, partner,
-  programme document, place, sections, rating with its date, HACT Q1, quality, flags, urgency, action
-  point counts; never a narrative, a team or a visit lead); every other visit reaches it as counts only.
+  `narr = 0` sends none. **`comp`** is the **compliance depth** (FMS §8.5): how many of the most
+  frequent quality flags the AI receives, each with its rule, its visits and up to three example visits
+  (their cards are sent too). Higher gives more nuanced findings and a longer prompt. The visit cards
+  (dates, partner, programme document, place, sections, rating with its date, HACT Q1, quality, flags,
+  urgency, action point counts; never a narrative, a team or a visit lead) are the 15 most urgent
+  visits plus the flags' examples; every other visit reaches it as counts only.
 - **Preview** (on each version) shows exactly the instructions each call sends: the brief's (the
   editable text, then the fixed part) and the chat's (the same, then the date and the filter's line),
   and the facts a brief would send (redacted), the notes and visit cards sent of those allowed, the
@@ -1850,6 +1942,10 @@ and their notes, rule results, urgency, action points, HACT context and checklis
   name, an e-mail address, a phone number or a link is not shown to the model ("This look-up could not
   be shared safely"); the answer goes on without it, the question's checks count it and an error is
   logged.
+- **Starter questions**: the published version's list (by default "What are the main programmatic
+  issues in this period?", "List the reports that mention supply or stock-out issues.", "Which
+  partners or governorates have the most quality concerns?", "Tell me more about the low-quality
+  visits and why they scored low."), shown under the chat box; a click asks it.
 - **Checked answers.** A link to a visit stays only when a look-up of this conversation returned that
   visit; otherwise it becomes "Visit 1722 (not checked)". Figures that no look-up returned (dates,
   references and small counts aside) are listed under the answer ("These figures could not be checked
@@ -1877,7 +1973,7 @@ Nothing goes while `FMM_AI` is off. Once it is on, the brief and the chat send:
 |---|---|
 | The period and filter (dates, section, governorate and office names) | The visit lead, team members and monitors (names or e-mail addresses), from any source |
 | Figures: visits, entities, rated and not monitored, rating counts, quality averages and bands, rule results, shares worked out by NeuroDB | E-mail addresses, phone numbers and links, also removed from inside every text |
-| Up to `comp` visit cards (dates, partner, PD reference, place, sections, rating with its date, HACT Q1, quality, flags, urgency, action point counts) | Action point assignees, PD focal points, partner staff, eTools user ids |
+| Up to `comp` quality flags (rule, reason, visits); the 15 most urgent visits and the flags' example visits as cards (dates, partner, PD reference, place, sections, rating with its date, HACT Q1, quality, flags, urgency, action point counts) | Action point assignees, PD focal points, partner staff, eTools user ids |
 | Up to `narr` texts per brief or per chat answer (monitors' notes, checklist answers, search snippets), each cleaned and cut to `FMM_NARRATIVE_CHARS` (600) | The finding records as eTools holds them, raw answers, attachments, coordinates (only place names go) |
 | A keyed hash of the person (`safety_identifier`) on runs a person starts; `store=False` always | Child-level or Makani data; the user's name, e-mail address or id |
 | Within one chat conversation only: its last 6 questions and checked answers, cleaned again, at most 1,500 characters each | Earlier briefs; answers of other conversations or other filters |
@@ -1923,7 +2019,7 @@ against the office caps only; a refused question does not count.
 
 | Run | Model calls | Tokens (input with the cached part, and output with reasoning) |
 |---|---|---|
-| One brief (nightly, Regenerate or test run) | 1 | about 10,000-20,000 (facts 6,000-12,000, output at most 4,000) |
+| One brief (nightly, Regenerate or test run) | 1 | about 12,000-28,000 (facts 8,000-16,000, output at most 8,000 with v2) |
 | One chat answer | 1-4 rounds | about 15,000-35,000 (prompt about 1,500 and history at most 3,000 sent again each round, look-ups at most about 6,000, output at most 6,000 a round) |
 
 With the defaults the nightly run uses about 200,000 tokens (12 briefs), which leaves about 1,000,000:
@@ -1945,8 +2041,9 @@ site and 2 per person, so 8 threads always remain. Raising `FMM_CHAT_MAX_RUNNING
 Both are edited by Administrators only; other staff can read them. Neither is ever changed in place.
 
 - **Prompt versions** (admin → *Prompt versions*). A version holds the editable instructions of the
-  brief and of the chat, the model, effort, output limits (they include the reasoning tokens),
-  temperature and top-p, `narr`, `comp` and the per-person limits. *Add* starts a **draft** from the
+  brief and of the chat, the parts of the brief, the chat's starter questions, the model, effort,
+  output limits (they include the reasoning tokens), temperature and top-p, `narr`, `comp` and the
+  per-person limits. *Add* starts a **draft** from the
   published version, with a note saying what changes and why. *Preview* shows exactly what a call
   sends (the instructions, the facts, the counts, the estimated tokens and cost) without a call.
   *Test run* writes a brief with the draft in the background, beside the published version's latest
@@ -1955,10 +2052,11 @@ Both are edited by Administrators only; other staff can read them. Neither is ev
   Only drafts can be deleted (their test runs with them).
 - **The chips are honest.** Each brief and chat answer keeps the version it ran with and what was
   really used: "temp 0.30 · not applied" when the model refused temperature (*Sampling checks*),
-  "tokens 4000 · used 1,212", "narr 14/20", "comp 15/15", "prompt v7", "rules v4".
+  "tokens 8000 · used 3,212", "narr 14/20", "comp 9/15" (quality flags sent of those allowed), "prompt
+  v7", "rules v4".
 - **`narr`** is the most texts (notes, answers, snippets) the AI may read per brief and per chat answer;
-  `narr = 0` sends none. **`comp`** is how many visits it sees in full as a card; every other visit
-  reaches it as counts only.
+  `narr = 0` sends none. **`comp`** is the compliance depth: how many of the most frequent quality flags
+  it receives.
 - **Rules versions** (admin → *Rule versions*). Every save of a rule, of the score settings, of a
   question pattern or of a pinned key needs a note and records a new rules version with who, when and
   the whole settings. *Restore this version* writes an older version back as a new one. Each save asks
@@ -2016,7 +2114,11 @@ on, and before its figures are trusted:
 
 1. **Deploy with `FMM_AI=false`.** Let one nightly eTools Datamart sync and the refresh after it run
    (or press *Refresh now* on *Fields found*, or *Run a job → Monitoring insights* in *Import and sync
-   runs*, once the sync has finished).
+   runs*, once the sync has finished). **After deploying Release 2**, run that full refresh at once
+   (*Run a job → Monitoring insights*): until it runs, the visits keep Release 1's urgency (the
+   migration only converts the Score settings' weights to FMS's), have no modality, programme areas or
+   row answers, and statuses outside the scored statuses still show their old score. The migration
+   also publishes prompt v2 (the brief's five parts from FMS's Lebanon prompt); v1 is retired.
 2. **Confirm the real keys in Fields found** (the steps of *Before go-live: confirm the real keys*,
    above: this was not possible while Monitoring insights was built, so it is a go-live step):
    - the activity id coverage (`monitoring_activity_id`) is 95% or more; otherwise visits are told
@@ -2024,7 +2126,10 @@ on, and before its figures are trusted:
    - each key chosen is the right one (state *Found*, no *Set key not in the data*); pin any that is
      not (the pin is a rules version, with a note);
    - the Q1, Q2, Q3 and PSEA patterns match the live question texts in Questions found;
-   - "Unanswered questions seen" is not 0; if it is, R2 shows "cannot be measured" and the user is told.
+   - "Unanswered questions seen" is not 0; if it is, R2 shows "cannot be measured" and the user is told;
+   - the eTools FMM export's names are the keys chosen (`hact_q1_answer`, `field_offices`,
+     `sections_names`, `monitoring_modality`, `location_lat`/`location_lon`...); the refresh's details
+     show how many visits were placed by written coordinates ("written") and by P-code.
 3. **Read the refresh's details** (its line in *Import and sync runs*): PD-kind rows linked to their
    programme document (aim for 90% or more), the governorate link rate, how the FM action points were
    matched (decide whether `related_module_id` is the activity id), and any status or rating eTools
@@ -2044,13 +2149,16 @@ on, and before its figures are trusted:
    instructions and the redacted facts), make a *Test run*, check its chips (sampling applied or not,
    tokens used), then set `FMM_AI=true` and leave the `fmm-insights` schedule on.
 8. **Confirm with the user** the points left open when this was built: R6 at 0 points (a flag only);
-   `comp` as the visits the AI sees in full; the Team column (names only); this calendar year as the
+   `comp` as the compliance depth (the quality flags the AI receives); the Team column (names only); this calendar year as the
    default period; how the AI is switched on (step 7); every threshold that is NeuroDB's proposal (R1's
    elements, R2's counting, R3 tolerating Constrained, R4's 25 words and 365 days, R5's 15 words, R6's 2
-   cues, the 30-point floor, bands 80/50, urgency weights, red 70, amber 40, 14 days for follow-up, 30
-   days for a late report, the PSEA answers that flag); the brief's 4,000-token limit (the reference
-   showed 1,500); temperature 0.30 with top-p not set; and the office AI budget (about 30-40 chat answers
-   and 10 Regenerates a day).
+   cues, the 30-point floor, bands 80/50, red 70, amber 40, 14 days for follow-up, 30 days for a late
+   report, the PSEA answers that flag); the brief's 8,000-token limit in v2 (the reference showed
+   1,500); temperature 0.30 with top-p not set; and the office AI budget (about 30-40 chat answers and 10
+   Regenerates a day). Release 2's choices to confirm: the scored statuses (report finalization and
+   completed), FMS's urgency weights 0.50 / 0.30 / 0.20 over 180 recency days, the precision rule of
+   written coordinates (lowest level, or more than 100 m from the gazetteer's point), the priority
+   levels High and Medium of the action points, and v2's wording adapted from FMS's Lebanon prompt.
 
 ### Settings
 
@@ -2079,6 +2187,20 @@ on, and before its figures are trusted:
 | `FMM_INSIGHTS_TIMEOUT_SECONDS` | `90` | Seconds per brief call. |
 | `FMM_PAYLOAD_RETENTION_DAYS` | `30` | After this many days a brief's sent payload is blanked. |
 | `FMM_RETENTION_DAYS` | `180` | Briefs and chat questions are kept this many days. |
+
+Release 2 adds no environment setting. Its settings are kept in the admin, versioned with the rules
+(*Score settings*) or with the prompts (*Prompt versions*):
+
+| Admin setting | Default | What it does |
+|---|---|---|
+| Score settings › *Scored statuses* | report finalization, completed | The eTools statuses whose visits are scored; every other visit is pending (no score, no urgency). At least one; cancelled cannot be chosen. |
+| Score settings › *Urgency weights* | `{"quality_gap": 0.5, "recency": 0.3, "red_flags": 0.2}` | FMS's urgency formula; each from 0 to 1, adding up to 1. |
+| Score settings › *Recency days* | `180` | Days over which the recency part falls from 100 to 0 (1 to 3,650). |
+| Score settings › *Urgency red / amber* | `70` / `40` | High urgency from red; Medium (amber) from amber. |
+| Score settings › *Follow-up days*, *Report late days* | `14`, `30` | The follow-up signals on the visit page (no longer part of urgency). |
+| Prompt version › *Parts of the brief* | FMS's five Lebanon parts (v2) | Key, label, paragraph or bullets, and the most sentences or bullets (1-30) of each part, at most 8 parts; the brief's answer format is built from it. |
+| Prompt version › *Chat starter questions* | the four FMS questions | One per line, at most 8, each at most 200 characters. |
+| Prompt version › *Compliance depth* (`comp`) | `15` | How many of the most frequent quality flags the AI receives (0-40). |
 
 ## Donor access (`/donor/`)
 
