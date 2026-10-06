@@ -1517,7 +1517,7 @@ visit.
 **Urgency**, 0 to 100, with every part kept to explain it: the worse of the rating and HACT Q1 (Off
 track 40, Constrained 20); the quality gap (25 × the share of the score missing; 10 for a reported visit
 that could not be scored); 5 per flag, at most 15; follow-up: 20 when an Off track or Constrained
-reported visit has no action point 14 days after it ended, else 12 for an overdue open action point, 8
+reported visit has no action point more than 14 days after it ended, else 12 for an overdue open action point, 8
 more when it is high priority, 5 for an open high-priority one, at most 20; and 15 for a planned or
 in-progress visit that ended more than 30 days ago. Red from 70, amber from 40. The daily 05:25 refresh
 recomputes it, so a visit grows more urgent while nothing is done.
@@ -1527,7 +1527,7 @@ recomputes it, so a visit grows more urgent while nothing is done.
 | Rating | `off_track` 40, `constrained` 20 | the worse of the visit's rating and its HACT Q1 |
 | Quality | `quality_gap` 25 × (100 − score) ÷ 100; `unscored_reported` 10 | a scored visit; a reported visit that could not be scored |
 | Flags | `per_flag` 5, at most `flags_max` 15 | each failed rule |
-| Follow-up | `no_follow_up` 20; else `ap_overdue` 12 + `ap_high_overdue` 8, or `ap_high_open` 5; at most `follow_up_max` 20 | an off-track or constrained reported visit with no action point *follow-up days* (14) after it ended; else its open action points |
+| Follow-up | `no_follow_up` 20; else `ap_overdue` 12 + `ap_high_overdue` 8, or `ap_high_open` 5; at most `follow_up_max` 20 | an off-track or constrained reported visit with no action point more than *follow-up days* (14) after it ended; else its open action points |
 | Late report | `report_late` 15 | a planned or in-progress visit that ended more than *report late days* (30) ago |
 
 The total is capped at 100. Every visit keeps its parts (`urgency_parts`), shown on the visit page ("Why
@@ -1665,11 +1665,11 @@ code lists candidate keys, most likely first (`neurodb/fmm/fields.py`). The refr
    narratives stay where eTools put them. Problems (several statuses or places, an unlinked programme
    document, no date, an unknown rating, one reference under several activities) are recorded on the
    visit as counts;
-5. scores the visits with the quality rules as they are when it starts (see *Quality rules, scores
-   and urgency* below): the question roles, HACT Q1, the PSEA flag, R1-R6, the score, its band and
+5. scores the visits with the quality rules as they are when it starts (see *Rules of this page*
+   above): the question roles, HACT Q1, the PSEA flag, R1-R6, the score, its band and
    flags, and urgency. Each visit keeps the rules version it was scored with;
 6. writes the keys and the visits together in one transaction: the pages see the old visits until it
-   commits, a visit keeps its id while its key stays, and the section reviews are never touched.
+   commits, a visit keeps its id while its key stays, and the visit reviews are never touched.
 
 Each run is one line in *Import and sync runs* (*Monitoring insights refresh*, target `full`): rows
 read are the finding rows and checklist records, rows written the visits. One runs at a time (a
@@ -1973,7 +1973,8 @@ records) and holds these limits (`tests/fmm/test_performance.py`): the full refr
 with a peak traced memory under 200 MB (it runs inside the Datamart sync's process), a scores-only
 refresh under 15 seconds, and each tab under 300 ms of server time on a cold cache. On the build
 machine it measured 28-33 s and 92-94 MB for the full refresh, 6-9 s for scores-only, and 40-230 ms
-per tab (the Quality and Analysis tabs are the slowest). The *Preview effect* of a rule change
+per tab (the Quality and Analysis tabs are the slowest); the entity table, which loads when it
+scrolls into view, about 210 ms more, and a place list's *Show all* about 40 ms. The *Preview effect* of a rule change
 rescores the year's visits twice in memory inside the admin request: about 9-10 s at that size. If the
 refresh's memory ever grows past what the sync's process can afford, set
 `FMM_REFRESH_AFTER_SYNC=background`.

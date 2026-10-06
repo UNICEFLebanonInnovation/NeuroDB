@@ -25,7 +25,7 @@ import tracemalloc
 
 import pytest
 from django.core.cache import cache
-from django.db import connection
+from django.db import DatabaseError, connection
 from django.urls import reverse
 
 from neurodb.core.models import SyncRun
@@ -51,6 +51,10 @@ PAGE_LIMITS_MS = {
     "PD page": 2_000,
     "CSV": 5_000,
     "rules preview": 30_000,  # an administrator's button: two rescores of the year in memory
+    # what a tab loads when it is reached or opened, with the tab's own blocks already kept (as the
+    # browser asks for it, just after the tab)
+    "entity table": 1_500,
+    "all places": 1_500,
 }
 TABS = ("insights", "quality", "analysis", "visits", "map")
 RATINGS = ("On Track", "On Track", "On Track", "Off Track", "Not Monitored", "", "Constrained")
@@ -299,6 +303,7 @@ def test_monitoring_insights_at_production_size(admin_user, client, monkeypatch)
     assert inserted == {"findings": VISITS * ROWS_PER_VISIT, "questions": QUESTIONS}
 
     # the full refresh: time, then memory (the same work again, the programme document links undone)
+    _settle()
     start = time.perf_counter()
     full = refresh.run(triggered_by="test", today=TODAY)
     full_s = time.perf_counter() - start
@@ -316,15 +321,16 @@ def test_monitoring_insights_at_production_size(admin_user, client, monkeypatch)
     assert again.status == SyncRun.Status.SUCCEEDED, again.error
     peak_mb = peak / 2**20
 
+    _settle()
     start = time.perf_counter()
     scores = refresh.run(triggered_by="test", scores_only=True, today=TODAY)
     scores_s = time.perf_counter() - start
     assert scores.status == SyncRun.Status.SUCCEEDED, scores.error
 
-    # the planner's statistics, as autovacuum keeps them in production (it may not have reached the rows
-    # just inserted, and without them the tabs' queries are planned blind)
-    with connection.cursor() as cursor:
-        cursor.execute("ANALYZE")
+    # the planner's statistics and the tables cleared of the rows the three refreshes replaced, as
+    # autovacuum keeps them in production (it may not have reached them yet: without statistics the
+    # tabs' queries are planned blind, and every scan steps over the replaced rows)
+    _settle()
 
     # each tab as an HTMX partial on a cold cache (the first view after a refresh or a filter change,
     # the slowest one): the best of three cold views, after one view that loads the templates
@@ -354,6 +360,18 @@ def test_monitoring_insights_at_production_size(admin_user, client, monkeypatch)
         ("CSV", reverse("fmm:visits"), {**base, "export": "csv"}),
     ):
         pages[name] = _cold_ms(client, url, params)
+    page = reverse("fmm:dashboard")
+    for name, tab, extra in (
+        ("entity table", "analysis", {"entity_kind": "pd"}),
+        ("all places", "quality", {"places": "all"}),
+    ):
+        cache.clear()
+        assert client.get(page, {**base, "tab": tab}, HTTP_HX_REQUEST="true").status_code == 200
+        pages[name] = _ms(
+            lambda tab=tab, extra=extra: client.get(
+                page, {**base, "tab": tab, **extra}, HTTP_HX_REQUEST="true"
+            )
+        )
     pages["rules preview"] = _ms(lambda: versions.preview({"R2": {"threshold": 90}}, {}))
 
     report = (
@@ -370,6 +388,20 @@ def test_monitoring_insights_at_production_size(admin_user, client, monkeypatch)
         assert ms < LIMITS["tab_ms"], f"{tab}: {report}"
     for name, limit in PAGE_LIMITS_MS.items():
         assert pages[name] < limit, f"{name}: {report}"
+
+
+def _settle() -> None:
+    """The database as production has it when a refresh starts or a tab is read: the tables analysed
+    and vacuumed (as autovacuum keeps them) and what was written before flushed to disk (a checkpoint).
+    Without it, the refresh's commit waited, in the full suite, on the flush of everything the tests
+    before this one wrote (a commit of 10 s, a refresh of 77 s that takes 30 s alone). The checkpoint
+    needs a superuser (or ``pg_checkpoint``), and is skipped where it is not allowed."""
+    with connection.cursor() as cursor:
+        cursor.execute("VACUUM ANALYZE")
+        try:
+            cursor.execute("CHECKPOINT")
+        except DatabaseError:
+            pass
 
 
 def _cold_ms(client, url: str, params: dict, hx: bool = False) -> float:

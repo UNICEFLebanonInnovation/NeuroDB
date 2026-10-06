@@ -77,6 +77,14 @@ def test_no_forbidden_word_on_any_page_staff_read(built, fm_world, client, admin
         "visits tab, sorted by quality": _get(client, page, {**base, "tab": "visits", "sort": "quality"}),
         "lookup miss": _get(client, reverse("fmm:lookup"), {"id": "FM-1999"}, hx=True),
         "places, every row": _get(client, page, {**base, "tab": "analysis", "places": "all"}),
+        "quality places, every row": _get(client, page, {**base, "tab": "quality", "places": "all"}),
+        # the entity table loads when it is reached: each kind of it, read as it comes
+        **{
+            f"entity table ({kind})": _get(
+                client, page, {**base, "tab": "analysis", "entity_kind": kind, "entity_all": "1"}, hx=True
+            )
+            for kind in ("pd", "cp_output", "partner", "other")
+        },
         "partner page": _get(client, reverse("reports:partner_profile", args=[fm_world.partners["amel"].pk])),
         "programme document page": _get(
             client, reverse("reports:programme_detail", args=[fm_world.pds["amended"].pk])
@@ -147,6 +155,12 @@ def test_no_forbidden_word_in_the_admin_pages(built, client, admin_user):
         response = client.get(url)
         assert response.status_code == 200, url
         _clean(url, response.content.decode())
+    # an empty list reads in NeuroDB's words (Unfold's own text says "Create a new item")
+    from neurodb.fmm.models import VisitReview
+
+    VisitReview.objects.all().delete()
+    empty = client.get(reverse("admin:fmm_visitreview_changelist")).content.decode()
+    assert "Nothing to show here" in empty and "new item" not in empty
 
 
 def test_no_forbidden_word_in_the_csv_the_hub_or_watch(built, client, viewer):

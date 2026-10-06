@@ -600,20 +600,21 @@ def _folded_words(phrase: str) -> tuple[str, ...]:
 
 
 @functools.lru_cache(maxsize=64)
-def _text_words(text: str) -> list[str]:
+def _text_words(text: str) -> tuple[str, ...]:
     """A narrative's folded words (kept for the next call: each narrative is searched for its
-    negative, its positive and its access cues in turn). Callers only read the list."""
-    return parse.fold(text).split()
+    negative, its positive and its access cues in turn; a tuple, so no caller can change what is kept)."""
+    return tuple(parse.fold(text).split())
 
 
 def cues_found(text: str, cues: Iterable[str], negations: Iterable[str], window: int) -> list[str]:
     """The cues of ``cues`` (in their list order) that ``text`` holds as whole words at least once
     without a negation in the ``window`` words before them."""
     words = _text_words(str(text or ""))
-    negating = {" ".join(folded) for n in negations if (folded := _folded_words(str(n)))}
+    # (``str(x or "")`` as ``parse.fold`` reads a value: a blank entry is no word, never "none")
+    negating = {" ".join(folded) for n in negations if (folded := _folded_words(str(n or "")))}
     found = []
     for cue in cues:
-        cue_words = list(_folded_words(str(cue)))
+        cue_words = _folded_words(str(cue or ""))
         if not cue_words or cue in found:
             continue
         size = len(cue_words)

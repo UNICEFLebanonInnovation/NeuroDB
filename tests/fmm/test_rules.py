@@ -445,3 +445,15 @@ def test_answers_not_found_make_r2_r3_and_r5_not_available_and_r1_skip_q2():
         assert (out.status, out.detail_key) == ("na", "answers_not_found"), code
     out = run("R1", visit)
     assert (out.status, out.detail_key) == ("pass", "complete")  # Q2 cannot be read: not evaluated
+
+
+def test_cue_words_kept_between_calls_cannot_be_changed_and_a_blank_entry_is_no_word():
+    """The folded words kept between calls (stage 8b) are read-only, and a blank cue or negation (an
+    empty list entry an administrator left) is no word: it never turns into "none"."""
+    assert isinstance(rules._text_words("Classes were delayed."), tuple)
+    text = "There were none delayed this month."
+    assert rules.cues_found(text, ["delayed"], [None, ""], 3) == ["delayed"]
+    assert rules.cues_found(text, [None, "", "delayed"], [], 3) == ["delayed"]
+    # the same text read twice (the second from what was kept) finds the same cues
+    assert rules.cues_found(text, ["delayed"], ["none"], 3) == []
+    assert rules.cues_found(text, ["delayed"], ["none"], 3) == []

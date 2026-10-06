@@ -430,6 +430,18 @@ def test_each_tab_and_the_page_stay_within_their_query_budget(
         cache.clear()
         with django_assert_max_num_queries(30):
             client_viewer.get(PAGE, {"tab": tab})
+    # the parts a tab loads when they are reached or opened (the entity table, a place list's "Show
+    # all") are tab partials too, within the same budget
+    for extra in (
+        {"tab": "analysis", "entity_kind": "pd"},
+        {"tab": "analysis", "entity_kind": "partner", "entity_all": "1"},
+        {"tab": "analysis", "places": "all"},
+        {"tab": "quality", "places": "all"},
+    ):
+        cache.clear()
+        with django_assert_max_num_queries(20):
+            response = client_viewer.get(PAGE, extra, HTTP_HX_REQUEST="true")
+        assert response.status_code == 200, extra
 
 
 def test_the_data_note_counts_rows_without_a_reference(built, client_viewer):
