@@ -77,6 +77,9 @@ COMMANDS: dict[str, JobCommand] = {
     "fmm_ai_checks": JobCommand(
         _("Run the AI checks of the monitoring quality rules"), ("fmm_ai_checks",), SyncRun.Job.FMM_AI_CHECKS
     ),
+    "fmm_ap_review": JobCommand(
+        _("Run the AI review of completed action points"), ("fmm_ap_review",), SyncRun.Job.FMM_AP_REVIEW
+    ),
     "freshness": JobCommand(_("Check data freshness"), ("check_sync_freshness",), None, triggered_by=False),
 }
 

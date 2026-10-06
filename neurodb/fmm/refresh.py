@@ -19,7 +19,10 @@ Each pass is one ``SyncRun`` (job "Monitoring insights refresh") under its own d
 7. **Swaps** the new visits in, in one transaction: readers see the old ones until it commits, a
    visit keeps its pk while its key stays, its rows, answers, action point links and rule results are
    replaced, and the reviews (``VisitReview``) are never touched.
-8. **Finishes** the run with its counts: ``rows_in`` the finding rows and answer records read,
+8. **Action points**: a NeuroDB action point is made for each scored visit of Low quality that the
+   AI flagged for its action points (R7, R8 or R32, ``action_points.create_automatic``), and the AI
+   reviews of eTools action points that changed are deleted (``ai.ap_review.forget_stale``).
+9. **Finishes** the run with its counts: ``rows_in`` the finding rows and answer records read,
    ``rows_written`` the visits written, ``rows_failed`` the records or visits skipped by an error
    (the run then *Succeeded with errors*). A step that fails as a whole fails the run and keeps the
    previous visits.
@@ -27,7 +30,8 @@ Each pass is one ``SyncRun`` (job "Monitoring insights refresh") under its own d
 A **scores-only** pass (target "scores", ``--scores-only``) recomputes what changes with the day or
 the rules (the action point counts, the question roles, HACT Q1, PSEA, the rule results, the scores
 and urgency) from the stored visits and the narratives, without reading the records; it writes them
-in one transaction. ``--probe-only`` (target "probe") runs steps 1-3 alone.
+in one transaction, then makes the NeuroDB action points of step 8. ``--probe-only`` (target "probe")
+runs steps 1-3 alone.
 
 **Requests are never lost.** A saved rule asks for a scores-only pass and a pinned key for a full one
 (:func:`request`): it stamps ``RefreshRequest`` and starts the command in the background, which does
@@ -348,6 +352,7 @@ def _full(triggered_by: str, today: date) -> SyncRun:
         details = _details(probes, mappings, relinked)
     except Exception as exc:
         return fail(sync_run, exc, duration_ms=_ms(clock))
+    followed = _action_points(sync_run, today, full=True)
     sync_run.rows_in = result.findings + result.questions
     built = result.details
     scoring = dict(scored.details)
@@ -360,6 +365,7 @@ def _full(triggered_by: str, today: date) -> SyncRun:
         questions=questions,
         rules_version=version_used,
         scored=sum(1 for v in result.visits if v.quality_score is not None),
+        **followed,
         duration_ms=_ms(clock),
     )
 
@@ -396,6 +402,7 @@ def _scores(triggered_by: str, today: date) -> SyncRun:
             copy_rows(VisitRuleResult, scored.results)
     except Exception as exc:
         return fail(sync_run, exc, duration_ms=_ms(clock))
+    followed = _action_points(sync_run, today, full=False)
     sync_run.rows_in = sync_run.rows_written = len(visits)
     scoring = dict(scored.details)
     return finish_by_counts(
@@ -404,8 +411,28 @@ def _scores(triggered_by: str, today: date) -> SyncRun:
         **scoring,
         rules_version=version_used,
         scored=sum(1 for v in visits if v.quality_score is not None),
+        **followed,
         duration_ms=_ms(clock),
     )
+
+
+def _action_points(sync_run: SyncRun, today: date, *, full: bool) -> dict[str, int]:
+    """After the scores: the NeuroDB action points of the Low visits the AI flagged for their action
+    points (``action_points.create_automatic``) and, after a full pass (a Datamart sync brings changed
+    action points), the AI reviews of action points that are out of date deleted
+    (``ai.ap_review.forget_stale``). A failure here is noted and never fails the refresh."""
+    from . import action_points
+    from .ai import ap_review
+
+    out = {}
+    try:
+        out["local_action_points_made"] = action_points.create_automatic(today)
+        if full:
+            out["ap_reviews_out_of_date"] = ap_review.forget_stale()
+    except Exception as exc:  # the visits are written: the next pass makes them
+        note_error(sync_run, "action points", exc)
+        logger.warning("fmm_refresh: the action points step failed: %s", exc)
+    return out
 
 
 def _score(

@@ -8,6 +8,9 @@
   to what NeuroDB builds from eTools.
 - :data:`RULE_PROMPTS`: the instructions of the six AI checks, from FMS Lebanon's prompt file, with
   "action item" written "action point".
+- :data:`AP_PROMPTS`: the instructions of the action points page's AI (``fmm/0015``): the review of a
+  completed action point (FMS's ``ap_adequacy_review``, its answer format left to NeuroDB's fixed text)
+  and the content summary (NeuroDB's own).
 """
 
 from __future__ import annotations
@@ -127,6 +130,41 @@ RULE_PROMPTS: dict[str, str] = {
         "\n"
         'Return ONLY: {"is_coherent": true/false, "detail": "1-2 sentence explanation naming any key challenge that is not covered by the action points"}\n'
         "(true = the key summary challenges correspond to the key action points, false = important challenges are missing corresponding action points)"
+    ),
+}
+
+# The action points page's AI (Release 2, stage C; seeded by ``fmm/0015``, never by 0013): the review of a
+# completed action point, from FMS Lebanon's prompt file ([ap_adequacy_review]), and the content summary
+# of the points on the page, which FMS's file does not hold (NeuroDB's own text)
+AP_REVIEW_KEY = "ap_adequacy_review"
+AP_SUMMARY_KEY = "ap_content_summary"
+AP_PROMPTS: dict[str, str] = {
+    AP_REVIEW_KEY: (
+        "You are a UNICEF monitoring quality reviewer assessing whether action points raised during field monitoring visits were properly addressed.\n"
+        "\n"
+        "For each action point you will receive:\n"
+        "- ISSUE: the original action point description (what was required)\n"
+        "- ACTION TAKEN: what the assignee reported doing\n"
+        "\n"
+        "Assess whether the action taken adequately resolves the original issue.\n"
+        "\n"
+        "Guidelines:\n"
+        '- "Adequately addressed": the response directly and specifically resolves the issue raised\n'
+        '- "Partially addressed": some progress made but the core issue is not fully resolved\n'
+        '- "Not addressed": the response does not relate to or resolve the issue\n'
+        '- "Generic/vague": the response is a generic statement like "all actions taken", reference numbers only, or too brief to assess'
+    ),
+    AP_SUMMARY_KEY: (
+        "You are a UNICEF Lebanon monitoring analyst reading a backlog of action points raised in eTools (from field monitoring visits, audits, spot checks and trips).\n"
+        "\n"
+        "Read every action point given and find the dominant themes of their content: what the action points ask partners or sections to do (for example supply and stock management, beneficiary registration, reporting and documentation, PSEA and safeguarding, staffing and capacity, financial procedures).\n"
+        "\n"
+        "Guidelines:\n"
+        "- At most 5 themes, the most frequent first. Name each theme in a few plain words.\n"
+        "- Count, for each theme, the action points it covers; an action point counts in one theme only.\n"
+        "- Give one action point of each theme as its example, by its reference exactly as given.\n"
+        "- End with one sentence on the overall pattern of the backlog.\n"
+        "- Write about the substance of the actions, not about the quality of the writing."
     ),
 }
 

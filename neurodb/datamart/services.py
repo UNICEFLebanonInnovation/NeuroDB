@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import datetime
+import re
 from collections import Counter, defaultdict
+from collections.abc import Iterator
 from decimal import Decimal
 from typing import Any
 
@@ -594,26 +596,197 @@ def monitoring(params) -> dict[str, Any]:
 
 
 # ----------------------------------------------------------------------------------- action points
-def action_points(params) -> dict[str, Any]:
-    statuses = _getlist(params, "status")
-    modules = _getlist(params, "module")
-    q = (params.get("q") or "").strip()
-    only_overdue = params.get("overdue") == "1"
-    only_priority = params.get("priority") == "1"
-    today = datetime.date.today()
+# The key the action taken is read from (the record as the Datamart sent it): the first that holds a text
+AP_ACTION_TAKEN_KEYS = (
+    "action_taken",
+    "actions_taken",
+    "action_taken_text",
+    "actions_taken_text",
+    "action_taken_description",
+)
+AP_CREATED_KEYS = ("created", "date_created", "created_at", "created_date")  # raised in eTools
+AP_SOON_DAYS = 30
+AP_MONTHS = 24  # months of the monthly trend
+AP_DUE = {
+    "overdue": "Overdue",
+    "soon": f"Due within {AP_SOON_DAYS} days",
+    "on_track": "On track",
+    "none": "No due date",
+}
+AP_TIMELINESS = {
+    "on_time": "On time",
+    "late_30": "Late 1–30 days",
+    "late_90": "Late 31–90 days",
+    "late_more": "Late > 90 days",
+    "no_dates": "No dates",
+}
+AP_EXPORT_COLUMNS = (
+    "reference",
+    "description",
+    "partner",
+    "pd",
+    "office",
+    "section",
+    "assigned_to",
+    "priority",
+    "due_date",
+    "status",
+    "completed",
+    "raised_from",
+    "module_reference",
+    "action_taken",
+    "visit",
+    "link_confidence",
+    "ai_verdict",
+    "pme_verification",
+)
+_MONTH = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+
+
+def ap_completed_q(prefix: str = "") -> Q:
+    """The completed action points (completed, closed or resolved, whatever the case)."""
+    match = Q()
+    for status in dm.ActionPoint.COMPLETED_STATUSES:
+        match |= Q(**{f"{prefix}status__iexact": status})
+    return match
+
+
+def ap_action_taken(data: Any) -> str:
+    """The action taken written when an action point was closed, on one line; "" when none."""
+    if not isinstance(data, dict):
+        return ""
+    for key in AP_ACTION_TAKEN_KEYS:
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return " ".join(value.split())
+    return ""
+
+
+def _raised_month():
+    """The month an action point was raised in eTools ("2026-05"), read from its record."""
+    from django.db.models import Value
+    from django.db.models.fields.json import KT
+    from django.db.models.functions import Coalesce, NullIf, Substr
+
+    return Substr(
+        Coalesce(*(NullIf(KT(f"data__{key}"), Value("")) for key in AP_CREATED_KEYS), Value("")), 1, 7
+    )
+
+
+def _date_param(value: Any) -> datetime.date | None:
+    try:
+        return datetime.date.fromisoformat(str(value or "").strip()[:10])
+    except ValueError:
+        return None
+
+
+def _fmm_points():
+    """``neurodb.fmm.action_points`` when Monitoring insights is installed and on, else None (a lazy
+    import: this module never depends on that app)."""
+    from django.apps import apps
+    from django.conf import settings
+
+    if not apps.is_installed("neurodb.fmm") or not getattr(settings, "FMM_ENABLED", False):
+        return None
+    from neurodb.fmm import action_points as fmm_points
+
+    return fmm_points
+
+
+def action_point_filters(params) -> dict[str, Any]:
+    """The filters of the action points page, read from ``params``."""
+    return {
+        "statuses": _getlist(params, "status"),
+        "modules": _getlist(params, "module"),
+        "offices": _getlist(params, "office"),
+        "sections": _getlist(params, "section"),
+        "partners": [int(p) for p in _getlist(params, "partner") if p.isdigit() and len(p) <= 18],
+        "q": (params.get("q") or "").strip()[:200],
+        "assignee": (params.get("assignee") or "").strip()[:100],
+        "changed_from": _date_param(params.get("changed_from")),
+        "changed_to": _date_param(params.get("changed_to")),
+        "overdue": params.get("overdue") == "1",
+        "priority": params.get("priority") == "1",
+        "fm": params.get("fm") == "1",
+        "due": params.get("due") if params.get("due") in AP_DUE else "",
+        "timeliness": params.get("timeliness") if params.get("timeliness") in AP_TIMELINESS else "",
+        "raised": params.get("raised") if _MONTH.match(str(params.get("raised") or "")) else "",
+        "completed": params.get("completed") if _MONTH.match(str(params.get("completed") or "")) else "",
+        "verdict": (params.get("verdict") or "")[:20],
+        "pme": (params.get("pme") or "")[:20],
+        "link": (params.get("link") or "")[:20],
+    }
+
+
+def filtered_action_points(params, today: datetime.date | None = None) -> tuple[QuerySet, dict | None, dict]:
+    """The action points of the page's filter (``params``), the visit of ``?visit=`` and the filters
+    read."""
+    from datetime import timedelta
+
+    from django.db.models import F
+    from django.db.models.functions import TruncDate
+
+    today = today or datetime.date.today()
+    f = action_point_filters(params)
     points = dm.ActionPoint.objects.select_related("partner", "intervention")
-    if statuses:
-        points = points.filter(status__in=statuses)
-    if modules:
-        points = points.filter(related_module__in=modules)
-    if only_priority:
+    if f["statuses"]:
+        points = points.filter(status__in=f["statuses"])
+    if f["modules"]:
+        points = points.filter(related_module__in=f["modules"])
+    if f["fm"]:
+        points = points.filter(related_module__iexact="fm")
+    if f["offices"]:
+        points = points.filter(office__in=f["offices"])
+    if f["sections"]:
+        points = points.filter(section__in=f["sections"])
+    if f["partners"]:
+        points = points.filter(partner_id__in=f["partners"])
+    if f["assignee"]:
+        points = points.filter(assigned_to_name__icontains=f["assignee"])
+    if f["changed_from"]:
+        points = points.filter(last_modify_date__date__gte=f["changed_from"])
+    if f["changed_to"]:
+        points = points.filter(last_modify_date__date__lte=f["changed_to"])
+    if f["priority"]:
         points = points.filter(high_priority=True)
-    overdue = Q(status__in=dm.ActionPoint.OPEN_STATUSES, due_date__lt=today)
-    if only_overdue:
-        points = points.filter(overdue)
+    open_ = Q(status__in=dm.ActionPoint.OPEN_STATUSES)
+    if f["overdue"]:
+        points = points.filter(open_, due_date__lt=today)
+    soon = today + timedelta(days=AP_SOON_DAYS)
+    due = {
+        "overdue": open_ & Q(due_date__lt=today),
+        "soon": open_ & Q(due_date__gte=today, due_date__lte=soon),
+        "on_track": open_ & Q(due_date__gt=soon),
+        "none": open_ & Q(due_date__isnull=True),
+    }
+    if f["due"]:
+        points = points.filter(due[f["due"]])
+    if f["timeliness"]:
+        points = points.filter(ap_completed_q()).annotate(done_on=TruncDate("date_of_completion"))
+        dated = Q(due_date__isnull=False, done_on__isnull=False)
+        late = {
+            "on_time": dated & Q(done_on__lte=F("due_date")),
+            "late_30": dated & Q(done_on__gt=F("due_date"), done_on__lte=F("due_date") + timedelta(days=30)),
+            "late_90": dated
+            & Q(
+                done_on__gt=F("due_date") + timedelta(days=30),
+                done_on__lte=F("due_date") + timedelta(days=90),
+            ),
+            "late_more": dated & Q(done_on__gt=F("due_date") + timedelta(days=90)),
+            "no_dates": Q(due_date__isnull=True) | Q(done_on__isnull=True),
+        }
+        points = points.filter(late[f["timeliness"]])
+    if f["raised"]:
+        points = points.annotate(raised_month=_raised_month()).filter(raised_month=f["raised"])
+    if f["completed"]:
+        year, month = (int(x) for x in f["completed"].split("-"))
+        points = points.filter(
+            ap_completed_q(), date_of_completion__year=year, date_of_completion__month=month
+        )
     visit = _fm_visit(params)
     if visit is not None:
         points = points.filter(pk__in=visit["ids"])
+    q = f["q"]
     if q:
         match = (
             Q(reference_number__icontains=q)
@@ -622,31 +795,186 @@ def action_points(params) -> dict[str, Any]:
             | Q(assigned_to_name__icontains=q)
             | Q(intervention_number__icontains=q)
             | Q(module_reference_number__icontains=q)  # a visit's reference finds its action points
+            | Q(status__iexact=q)
             | _partner_q(q)
         )
+        for key in AP_ACTION_TAKEN_KEYS[:2]:  # the action taken, as the Datamart names it
+            match |= Q(**{f"data__{key}__icontains": q})
         if q.isdigit() and len(q) <= 18:
             match |= Q(related_module_id=int(q))  # ... and so does an eTools activity id
         points = points.filter(match)
+    fmm_points = _fmm_points()
+    if fmm_points is not None:
+        if f["verdict"] and (match := fmm_points.verdict_q(f["verdict"])) is not None:
+            points = points.filter(match)
+        if f["link"] and (match := fmm_points.confidence_q(f["link"])) is not None:
+            points = points.filter(match)
+        if f["pme"]:
+            points = fmm_points.verification_filter(points, f["pme"])
+    return points, visit, f
+
+
+def action_points(params) -> dict[str, Any]:
+    today = datetime.date.today()
+    points, visit, f = filtered_action_points(params, today)
+    overdue = Q(status__in=dm.ActionPoint.OPEN_STATUSES, due_date__lt=today)
     return {
         "points": points.order_by("-high_priority", "due_date", "-datamart_id"),
         "visit": visit,
+        "filters": f,
         "visit_links": _fm_visit_links(points),
         "open": points.filter(status__in=dm.ActionPoint.OPEN_STATUSES).count(),
         "overdue": points.filter(overdue).count(),
         "high_priority": points.filter(high_priority=True, status__in=dm.ActionPoint.OPEN_STATUSES).count(),
+        "completed": points.filter(ap_completed_q()).count(),
         "by_module": Counter(points.values_list("related_module", flat=True)).most_common(),
         "today": today,
         "options": {
-            "statuses": sorted(
-                x for x in dm.ActionPoint.objects.order_by().values_list("status", flat=True).distinct() if x
+            "statuses": _distinct_ap("status"),
+            "modules": _distinct_ap("related_module"),
+            "offices": _distinct_ap("office"),
+            "sections": _distinct_ap("section"),
+            "partners": list(
+                PartnerOrganization.objects.filter(
+                    pk__in=dm.ActionPoint.objects.exclude(partner=None).values("partner_id")
+                )
+                .order_by("name")
+                .values_list("pk", "name")
             ),
-            "modules": sorted(
-                x
-                for x in dm.ActionPoint.objects.order_by().values_list("related_module", flat=True).distinct()
-                if x
-            ),
+            "due": list(AP_DUE.items()),
+            "timeliness": list(AP_TIMELINESS.items()),
         },
     }
+
+
+def _distinct_ap(field: str) -> list[str]:
+    return sorted(x for x in dm.ActionPoint.objects.order_by().values_list(field, flat=True).distinct() if x)
+
+
+def action_point_charts(points: QuerySet, today: datetime.date | None = None) -> dict[str, Any]:
+    """The charts of the action points page over ``points`` (the filter): by status; the due-date status
+    of the open ones; raised and completed per month (the last 24 months with any); the timeliness of
+    the completed ones with their average days late; the open ones by office and by section. Each bar
+    carries the value its click filters on."""
+    from datetime import timedelta
+
+    today = today or datetime.date.today()
+    soon = today + timedelta(days=AP_SOON_DAYS)
+    rows = points.order_by().annotate(raised_month=_raised_month())
+    status_counts: Counter = Counter()
+    due: Counter = Counter()
+    timeliness: Counter = Counter()
+    raised: Counter = Counter()
+    completed: Counter = Counter()
+    offices: Counter = Counter()
+    sections: Counter = Counter()
+    late_days: list[int] = []
+    completed_set = set(dm.ActionPoint.COMPLETED_STATUSES)
+    for status, due_date, done_at, office, section, month in rows.values_list(
+        "status", "due_date", "date_of_completion", "office", "section", "raised_month"
+    ).iterator(chunk_size=2000):
+        status_counts[status or ""] += 1
+        if month and _MONTH.match(month):
+            raised[month] += 1
+        if status in dm.ActionPoint.OPEN_STATUSES:
+            due[
+                "none"
+                if due_date is None
+                else "overdue"
+                if due_date < today
+                else "soon"
+                if due_date <= soon
+                else "on_track"
+            ] += 1
+            offices[office or ""] += 1
+            sections[section or ""] += 1
+        if (status or "").lower() in completed_set:
+            done = done_at.date() if done_at else None
+            if done:
+                completed[f"{done.year:04d}-{done.month:02d}"] += 1
+            if done is None or due_date is None:
+                timeliness["no_dates"] += 1
+            else:
+                late = (done - due_date).days
+                key = (
+                    "on_time"
+                    if late <= 0
+                    else "late_30"
+                    if late <= 30
+                    else "late_90"
+                    if late <= 90
+                    else "late_more"
+                )
+                timeliness[key] += 1
+                if late > 0:
+                    late_days.append(late)
+    months = sorted(set(raised) | set(completed))[-AP_MONTHS:]
+    return {
+        "by_status": [
+            [code_label(status) if status else "No status", n, status or ""]
+            for status, n in status_counts.most_common()
+        ],
+        "due": [[label, due[key], key] for key, label in AP_DUE.items() if due[key]],
+        "monthly": {
+            "labels": months,
+            "series": {"Raised": [raised[m] for m in months], "Completed": [completed[m] for m in months]},
+            "drill": {"labels": months, "series": {"Raised": "raised", "Completed": "completed"}},
+        }
+        if months
+        else {},
+        "timeliness": [
+            [label, timeliness[key], key] for key, label in AP_TIMELINESS.items() if timeliness[key]
+        ],
+        "late_average": round(sum(late_days) / len(late_days), 1) if late_days else None,
+        "late_count": len(late_days),
+        "by_office": [[name or "No office", n, name] for name, n in offices.most_common(15)],
+        "by_section": [[name or "No section", n, name] for name, n in sections.most_common(15)],
+    }
+
+
+def code_label(code: str) -> str:
+    """An eTools code written for people ("in_progress" -> "In progress")."""
+    return (code or "").replace("_", " ").strip().capitalize()
+
+
+def action_point_rows(points: QuerySet) -> Iterator[dict[str, Any]]:
+    """The action points of ``points`` as the CSV export writes them, with the visit, link confidence,
+    AI verdict and PME verification when Monitoring insights is on."""
+    fmm_points = _fmm_points()
+    rows = points.order_by("-high_priority", "due_date", "-datamart_id")
+    for start in range(0, rows.count(), 1000):
+        chunk = list(rows[start : start + 1000])
+        links = fmm_points.visit_links([p.pk for p in chunk]) if fmm_points else {}
+        reviews = fmm_points.current_reviews(chunk) if fmm_points else {}
+        checks = fmm_points.latest_verifications([p.datamart_id for p in chunk]) if fmm_points else {}
+        for p in chunk:
+            link = links.get(p.pk)
+            review = reviews.get(p.datamart_id)
+            check = checks.get(p.datamart_id)
+            yield {
+                "reference": p.reference_number,
+                "description": p.description,
+                "partner": p.partner_name or (p.partner.name if p.partner else ""),
+                "pd": p.intervention_number or (p.intervention.number if p.intervention else ""),
+                "office": p.office,
+                "section": p.section,
+                "assigned_to": p.assigned_to_name,
+                "priority": "High" if p.high_priority else "",
+                "due_date": p.due_date,
+                "status": p.status,
+                "completed": p.date_of_completion.date() if p.date_of_completion else None,
+                "raised_from": p.related_module,
+                "module_reference": p.module_reference_number,
+                "action_taken": ap_action_taken(p.data),
+                "visit": link["label"] if link else "",
+                "link_confidence": (
+                    fmm_points.CONFIDENCE_LABELS[link["confidence"]]
+                    if link
+                    else ("Unmatched" if fmm_points and (p.related_module or "").lower() == "fm" else "")
+                ),
+                "ai_verdict": review.get_verdict_display() if review else "",
+                "pme_verification": check.get_state_display() if check else "",
+            }
 
 
 def _fm_visit_links(points: QuerySet[dm.ActionPoint]) -> dict[int, tuple[str, str]]:

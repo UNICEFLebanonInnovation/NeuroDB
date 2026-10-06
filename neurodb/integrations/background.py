@@ -32,6 +32,7 @@ WATCH_LOCK_ID = 7140431  # neurodb.watch.lock.LOCK_ID (7140430 is the scheduler'
 FMM_REFRESH_LOCK_ID = 7140432  # neurodb.fmm.refresh.LOCK_ID
 FMM_INSIGHTS_LOCK_ID = 7140433  # the AI briefs of Monitoring insights
 FMM_AI_CHECKS_LOCK_ID = 7140434  # the AI checks of Monitoring insights' quality rules
+FMM_AP_REVIEW_LOCK_ID = 7140435  # the AI review of completed action points
 LOCK_IDS = {
     SyncRun.Job.ETOOLS_DATAMART: DATAMART_LOCK_ID,
     SyncRun.Job.DAILY_REVIEW: DAILY_REVIEW_LOCK_ID,
@@ -39,6 +40,7 @@ LOCK_IDS = {
     SyncRun.Job.FMM_REFRESH: FMM_REFRESH_LOCK_ID,
     SyncRun.Job.FMM_INSIGHTS: FMM_INSIGHTS_LOCK_ID,
     SyncRun.Job.FMM_AI_CHECKS: FMM_AI_CHECKS_LOCK_ID,
+    SyncRun.Job.FMM_AP_REVIEW: FMM_AP_REVIEW_LOCK_ID,
 }
 
 

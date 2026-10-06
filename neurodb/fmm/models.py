@@ -695,7 +695,9 @@ SECTIONS_HELP = (
 RULE_PROMPTS_HELP = (
     "The instructions of the AI checks, one per prompt key a narrative quality rule names (for example "
     '"evidence_sufficiency"): what the check looks for and when it passes. NeuroDB adds its fixed rules '
-    "and the answer format (passed or not, and one or two sentences why)."
+    "and the answer format (passed or not, and one or two sentences why). The action points page reads two "
+    'more: "ap_adequacy_review" (does the action taken on a completed action point resolve its issue) and '
+    '"ap_content_summary" (the dominant themes of the action points on the page).'
 )
 CHAT_EXAMPLES_HELP = "The starter questions Chat with Data offers, one per line (at most 8)."
 
@@ -1080,3 +1082,180 @@ class ChatQuestion(models.Model):
         return (
             f"{self.get_status_display()} · {self.created_at:%Y-%m-%d %H:%M}" if self.created_at else "Chat"
         )
+
+
+# ------------------------------------------------------------------------------------------ action points
+class ActionPointSetting(models.Model):
+    """The one row (pk=1) of the action points page's AI settings (``fmm.ai.ap_review`` and
+    ``fmm.ai.ap_summary``): the AI review of completed action points switched on or off, how many
+    action points one AI content summary reads and how many summaries one person may ask for a day.
+    The model and temperature are the AI checks' (Score settings)."""
+
+    ai_review = models.BooleanField(default=True)  # off: the AI review runs nothing
+    summary_points = models.PositiveSmallIntegerField(
+        default=150, validators=[MinValueValidator(10), MaxValueValidator(500)]
+    )
+    summary_per_user_per_day = models.PositiveSmallIntegerField(default=5, validators=[MaxValueValidator(50)])
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "action point settings"
+        verbose_name_plural = "action point settings"
+
+    def __str__(self):
+        return "Action point settings"
+
+    @classmethod
+    def load(cls) -> ActionPointSetting:
+        return cls.objects.get_or_create(pk=1)[0]
+
+
+class ActionPointReview(models.Model):
+    """The AI's verdict on one completed eTools action point: does the action taken resolve the issue
+    raised? Keyed by the action point's Datamart id, so it survives the syncs. Made again only when the
+    description or the action taken (``input_hash``) or the instructions (``prompt_hash``) change; a
+    verdict whose hashes no longer match is out of date and never shown. The explanation is cleaned of
+    names, e-mail addresses, phone numbers and links, and checked against what was sent."""
+
+    class Verdict(models.TextChoices):
+        ADEQUATE = "adequate", "Adequately addressed"
+        PARTIAL = "partial", "Partially addressed"
+        NOT_ADDRESSED = "not_addressed", "Not addressed"
+        VAGUE = "vague", "Generic/vague"
+
+    datamart_id = models.BigIntegerField(unique=True)  # datamart.ActionPoint.datamart_id
+    input_hash = models.CharField(max_length=64)
+    prompt_hash = models.CharField(max_length=64)
+    verdict = models.CharField(max_length=16, choices=Verdict.choices, db_index=True)
+    explanation = models.CharField(max_length=400, blank=True)
+    model = models.CharField(max_length=64, blank=True)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    reviewed_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        ordering = ("-reviewed_at",)
+        verbose_name = "AI review of an action point"
+        verbose_name_plural = "AI reviews of action points"
+
+    def __str__(self):
+        return f"{self.datamart_id} {self.get_verdict_display()}"
+
+
+class ActionPointVerification(models.Model):
+    """One PME verification of an eTools action point (Verified, Rejected or Pending, with an optional
+    note): who and when recorded automatically. Every decision is kept; the latest one counts."""
+
+    class State(models.TextChoices):
+        VERIFIED = "verified", "Verified"
+        REJECTED = "rejected", "Rejected"
+        PENDING = "pending", "Pending"
+
+    datamart_id = models.BigIntegerField(db_index=True)  # datamart.ActionPoint.datamart_id
+    state = models.CharField(max_length=10, choices=State.choices)
+    note = models.CharField(max_length=500, blank=True)  # typed by staff; never sent to the AI
+    verified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    verified_by_name = models.CharField(max_length=150)  # kept when the user is deleted
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ("-created_at", "-pk")
+        indexes = [models.Index(fields=["datamart_id", "-created_at"])]
+        verbose_name = "action point verification"
+        verbose_name_plural = "action point verifications"
+
+    def __str__(self):
+        return f"{self.datamart_id} {self.get_state_display()}"
+
+
+class ActionPointSummary(models.Model):
+    """One AI content summary asked for on the action points page: who asked, when, how many action
+    points it read and what it cost (the per-person daily quota counts these). The summary itself is
+    shown once and never kept."""
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "Running"
+        DONE = "done", "Done"
+        FAILED = "failed", "Failed"
+        LIMITED = "limited", "Over a limit"
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+")
+    status = models.CharField(max_length=8, choices=Status.choices)
+    called = models.BooleanField(default=False)  # an AI call was made
+    points = models.PositiveSmallIntegerField(default=0)  # action points sent
+    reason = models.CharField(max_length=200, blank=True)
+    model = models.CharField(max_length=64, blank=True)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        verbose_name = "AI content summary"
+        verbose_name_plural = "AI content summaries"
+
+    def __str__(self):
+        when = f" · {self.created_at:%Y-%m-%d %H:%M}" if self.created_at else ""
+        return f"{self.get_status_display()}{when}"
+
+
+class LocalActionPoint(models.Model):
+    """An action point kept in NeuroDB only (FMS's "local action points"), never pushed to eTools: made
+    by hand by an Administrator or a Section editor, or by the refresh when a scored visit's quality is
+    Low and the AI flagged its action points (rule R7, R8 or R32). Its description holds what NeuroDB
+    wrote or the person typed: an automatic one lists the visit's flags, never a narrative or a person."""
+
+    class Priority(models.TextChoices):
+        HIGH = "high", "High"
+        MEDIUM = "medium", "Medium"
+        LOW = "low", "Low"
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        DONE = "done", "Done"
+        DROPPED = "dropped", "Dropped"
+
+    class Source(models.TextChoices):
+        MANUAL = "manual", "Added by hand"
+        AUTO = "auto", "Made by NeuroDB"
+
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True, validators=[MaxLengthValidator(2000)])
+    visit_key = models.CharField(max_length=40, blank=True, db_index=True)  # Visit.key; "" = no visit
+    priority = models.CharField(max_length=8, choices=Priority.choices, default=Priority.MEDIUM)
+    due_date = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=8, choices=Status.choices, default=Status.OPEN, db_index=True)
+    assignee_role = models.CharField(max_length=150, blank=True)  # a role or a section, as typed
+    assignee = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    source = models.CharField(max_length=8, choices=Source.choices, default=Source.MANUAL)
+    rule = models.CharField(max_length=4, blank=True)  # an automatic one: the flag that made it
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_by_name = models.CharField(max_length=150, blank=True)  # kept when the user is deleted
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at", "-pk")
+        verbose_name = "NeuroDB action point"
+        verbose_name_plural = "NeuroDB action points"
+
+    def __str__(self):
+        return self.title
+
+    @property
+    def is_follow_up(self) -> bool:
+        """Counts as a visit's follow-up: one added by hand and not dropped, or one NeuroDB made that
+        someone marked done (an automatic one alone is only a reminder)."""
+        if self.status == self.Status.DROPPED:
+            return False
+        return self.source == self.Source.MANUAL or self.status == self.Status.DONE

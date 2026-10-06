@@ -198,6 +198,7 @@ def data_health() -> dict[str, Any]:
             SyncRun.Job.FMM_REFRESH,
             SyncRun.Job.FMM_INSIGHTS,
             SyncRun.Job.FMM_AI_CHECKS,
+            SyncRun.Job.FMM_AP_REVIEW,
         ):
             # weekly analyses, NeuroDB Watch and Monitoring insights, shown on their own pages: jobs
             # worked out from the synced data, not syncs that go stale

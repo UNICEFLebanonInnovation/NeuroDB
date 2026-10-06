@@ -3,7 +3,8 @@
 Every feature that calls the model adds the call to today's ``AIUsage`` row of its feature and model
 right after the call returns (``record``): Ask NeuroDB, the daily review (summary and decisions), the
 What's new note, document summaries, periodic report figures, the country programme reading, NeuroDB
-Watch and Monitoring insights (its briefs, test runs and chat; its AI checks apart). The day's totals
+Watch and Monitoring insights (its briefs, test runs and chat; its AI checks apart; the action points'
+AI review and summaries apart). The day's totals
 (``today_total``,
 ``today_calls``) tell how much of the key's daily spend is used, across every feature or for one; the
 admin lists the rows under "AI use", in tokens, and in US dollars when the optional ``AI_PRICE_*``
@@ -29,7 +30,7 @@ from .models import AIUsage
 logger = logging.getLogger(__name__)
 
 # The features on the shared key, with the name the admin shows.
-ASK, REVIEW, DIGEST, KNOWLEDGE, PERIODIC, CPD, WATCH, FMM, FMM_RULES = (
+ASK, REVIEW, DIGEST, KNOWLEDGE, PERIODIC, CPD, WATCH, FMM, FMM_RULES, FMM_AP_REVIEW = (
     "ask",
     "review",
     "digest",
@@ -39,6 +40,7 @@ ASK, REVIEW, DIGEST, KNOWLEDGE, PERIODIC, CPD, WATCH, FMM, FMM_RULES = (
     "watch",
     "fmm",
     "fmm_rules",
+    "fmm_ap_review",
 )
 FEATURES = {
     ASK: "Ask NeuroDB",
@@ -50,6 +52,7 @@ FEATURES = {
     WATCH: "NeuroDB Watch",
     FMM: "Monitoring insights",
     FMM_RULES: "Monitoring insights (AI checks)",
+    FMM_AP_REVIEW: "Action points (AI review and summaries)",
 }
 MILLION = Decimal(1_000_000)
 CENT = Decimal("0.01")

@@ -531,6 +531,11 @@ FMM_RETENTION_DAYS = env.int("FMM_RETENTION_DAYS", default=180)  # briefs and ch
 # at 80% of AI_DAILY_TOKEN_SOFT_CAP across every feature) and the time limit of one check
 FMM_RULES_DAILY_TOKEN_CAP = env.int("FMM_RULES_DAILY_TOKEN_CAP", default=2_000_000)
 FMM_RULES_TIMEOUT_SECONDS = env.int("FMM_RULES_TIMEOUT_SECONDS", default=60)
+# The AI review of completed action points and the AI content summaries of the action points page
+# (fmm.ai.ap_review, fmm.ai.ap_summary): their own daily token cap (the nightly review also stops at 80%
+# of AI_DAILY_TOKEN_SOFT_CAP across every feature) and the time limit of one call
+FMM_AP_REVIEW_DAILY_TOKEN_CAP = env.int("FMM_AP_REVIEW_DAILY_TOKEN_CAP", default=300_000)
+FMM_AP_REVIEW_TIMEOUT_SECONDS = env.int("FMM_AP_REVIEW_TIMEOUT_SECONDS", default=60)
 
 # ---------------------------------------------------------------------------- logging
 LOG_FORMAT = env("LOG_FORMAT", default="plain")  # "json" in Azure so Log Analytics can parse fields

@@ -260,6 +260,20 @@ BACKGROUND_JOBS = [
         ),
         "fact_check",
     ),
+    BackgroundJob(
+        "run_fmm_ap_review",
+        ("fmm_ap_review",),
+        SyncRun.Job.FMM_AP_REVIEW,
+        _("Action points (AI review)"),
+        _("Run the AI review of completed action points now"),
+        _(
+            "Asks the AI whether the action taken on each completed eTools action point resolves the issue "
+            "raised (Adequately addressed, Partially addressed, Not addressed or Generic/vague), most "
+            "recently completed first, within the day's budget for this review. Action points already "
+            "reviewed are skipped unless their texts changed. It runs by itself each morning."
+        ),
+        "rule",
+    ),
 ]
 
 

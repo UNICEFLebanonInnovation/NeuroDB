@@ -281,6 +281,7 @@ class ActionPoint(DatamartRecord):
     )
 
     OPEN_STATUSES = ("open",)
+    COMPLETED_STATUSES = ("completed", "closed", "resolved")  # lower case, as eTools writes them
 
     class Meta:
         ordering = ("-due_date",)
