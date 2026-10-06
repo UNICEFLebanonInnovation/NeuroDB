@@ -1,0 +1,23 @@
+{% extends "admin/base_site.html" %}
+{% load i18n unfold %}
+
+{% comment %}
+  Revoke a Power BI key (context: fmm.admin.PowerBIKeyAdmin.revoke_view): Power BI can no longer read the
+  feed with it, at once. The key stays listed, with its last use.
+{% endcomment %}
+
+{% block content %}
+<form method="post" class="max-w-5xl">
+  {% csrf_token %}
+  {% component "unfold/components/card.html" with title=title %}
+    <p>{% blocktrans trimmed with prefix=row.prefix uses=row.uses %}
+      The key starting {{ prefix }}… has read the feed {{ uses }} times. Once revoked, every Power BI report
+      that reads the feed with it stops refreshing; give those reports a new key.
+    {% endblocktrans %}{% if row.last_used_at %} {% blocktrans with when=row.last_used_at|date:"j M Y, H:i" %}Last used {{ when }}.{% endblocktrans %}{% endif %}</p>
+  {% endcomponent %}
+  <div class="flex justify-end gap-4 mt-6">
+    <a class="px-3 py-2" href="{% url 'admin:fmm_powerbikey_change' row.pk %}">{% trans "Cancel" %}</a>
+    {% component "unfold/components/button.html" with submit=1 %}{% trans "Revoke this key" %}{% endcomponent %}
+  </div>
+</form>
+{% endblock %}

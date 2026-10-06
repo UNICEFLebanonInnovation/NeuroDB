@@ -292,16 +292,51 @@ async function initModules(root) {
   }
 }
 
+// ------------------------------------------------------------------ links that follow the page's filter
+// A link with data-current-query (an export menu in the page header) takes the filter of the address bar
+// when it is clicked: a filter bar driven by HTMX changes the address, not the links drawn with the page.
+// The attribute's value is added after the filter ("export=csv"); the page's own keys (tab, page...) are not.
+const PAGE_ONLY_KEYS = ["tab", "page", "sort", "places", "entity_kind", "entity_all", "rule_trends", "pd_scope", "visit"];
+function followQuery(event) {
+  const link = event.target.closest?.("a[data-current-query]");
+  if (!link) return;
+  const params = new URLSearchParams(window.location.search);
+  if (!params.size) return; // the first load: the link already carries the filter shown (a default section)
+  PAGE_ONLY_KEYS.forEach((key) => params.delete(key));
+  for (const [key, value] of new URLSearchParams(link.dataset.currentQuery || "")) params.set(key, value);
+  const url = new URL(link.getAttribute("href"), window.location.href);
+  url.search = params.toString();
+  link.href = url.toString();
+}
+
+// ------------------------------------------------------------------ print pages
+// A button with data-autoprint prints the page; data-autoprint="load" also opens the print dialog once the
+// page and its charts are drawn (the printable reports: staff choose "Save as PDF").
+function initAutoprint(root) {
+  $$("[data-autoprint]", root).forEach((btn) => {
+    if (btn.dataset.ndBound) return;
+    btn.dataset.ndBound = "1";
+    btn.addEventListener("click", () => window.print());
+    if (btn.dataset.autoprint === "load" && root === document) {
+      const open = () => window.setTimeout(() => window.print(), 1500);
+      if (document.readyState === "complete") open();
+      else window.addEventListener("load", open, { once: true });
+    }
+  });
+}
+
 function enhance(root = document) {
   $$("form[data-filter-bar]", root).forEach(initFilterBar);
   initFiltersCollapse(root);
   initTables(root);
   initSelects(root);
   initModules(root);
-  $$("[data-autoprint]", root).forEach((btn) => btn.addEventListener("click", () => window.print()));
+  initAutoprint(root);
 }
 
 initTheme();
 initSearch();
 initHtmx();
+document.addEventListener("click", followQuery);
+document.addEventListener("auxclick", followQuery);
 enhance(document);

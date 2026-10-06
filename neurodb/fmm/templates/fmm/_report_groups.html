@@ -1,0 +1,17 @@
+{% load i18n ui %}
+{% comment %}
+  A table of the printable report: per section, field office or partner (metrics.breakdown), its visits,
+  the rated ones and the share of each rating over them, the average quality and the visits flagged.
+  Context: rows, first (the first column's title), none (the row of the visits without one).
+{% endcomment %}
+<div class="table-wrap"><table class="table table-sm small mb-0">
+  <thead><tr><th>{{ first }}</th><th class="num">{% trans "Visits" %}</th><th class="num">{% trans "Rated" %}</th><th class="num">{% trans "On track" %}</th><th class="num">{% trans "Constrained" %}</th><th class="num">{% trans "Off track" %}</th><th class="num">{% trans "Average quality" %}</th><th class="num">{% trans "Flagged visits" %}</th><th class="num">{% trans "Open action points" %}</th></tr></thead>
+  <tbody>{% for r in rows %}<tr>
+    <td>{{ r.name|default:none }}</td><td class="num">{{ r.visits|number }}</td><td class="num">{{ r.rated|number }}</td>
+    <td class="num">{% if r.shares.on_track is not None %}{{ r.shares.on_track|percent }}{% else %}—{% endif %}</td>
+    <td class="num">{% if r.shares.constrained is not None %}{{ r.shares.constrained|percent }}{% else %}—{% endif %}</td>
+    <td class="num">{% if r.shares.off_track is not None %}{{ r.shares.off_track|percent }}{% else %}—{% endif %}</td>
+    <td class="num">{% if r.avg is not None %}{{ r.avg|percent }}{% else %}—{% endif %}</td>
+    <td class="num">{{ r.flagged|number }}</td><td class="num">{{ r.open_action_points|number }}</td></tr>
+  {% empty %}<tr><td colspan="9" class="text-muted">{% trans "No visits in this filter." %}</td></tr>{% endfor %}</tbody>
+</table></div>

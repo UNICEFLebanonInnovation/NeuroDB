@@ -132,7 +132,8 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
             "key each field is read from (Fields found), the quality rules and score settings with their "
             "versions, the field offices' staff lists, the AI checks of the visits, the visits built from it "
             "and their reviews, the AI's prompt versions, sampling checks and briefs, and the action points' "
-            "AI settings, AI reviews, PME verifications, AI summaries and NeuroDB action points."
+            "AI settings, AI reviews, PME verifications, AI summaries and NeuroDB action points, and the "
+            "keys Power BI reads the live feed with."
         ),
         [
             "fmm.FieldMapping",
@@ -152,6 +153,7 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
             "fmm.ActionPointVerification",
             "fmm.ActionPointSummary",
             "fmm.LocalActionPoint",
+            "fmm.PowerBIKey",
         ],
     ),
     (
@@ -320,6 +322,7 @@ ICONS = {
     "fmm.ActionPointVerification": "verified_user",
     "fmm.ActionPointSummary": "notes",
     "fmm.LocalActionPoint": "add_task",
+    "fmm.PowerBIKey": "vpn_key",
     "fmm.PromptVersion": "edit_note",
     "fmm.ModelCapability": "science",
     "fmm.Insight": "auto_awesome",

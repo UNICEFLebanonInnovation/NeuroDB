@@ -27,6 +27,7 @@ function baseLayout(el, extra = {}) {
     font: { family: cssVar("--nd-font") || "system-ui", color: text, size: 12 },
     margin: { t: 8, r: 8, b: 40, l: 48 },
     height: Number(el.dataset.height) || undefined,
+    width: Number(el.dataset.width) || undefined,
     showlegend: false,
     colorway: PALETTE,
     hoverlabel: { bgcolor: isDark() ? "#1d2632" : "#ffffff", bordercolor: grid, font: { color: text } },
@@ -38,6 +39,8 @@ function baseLayout(el, extra = {}) {
 }
 
 const CONFIG = { displaylogo: false, responsive: true, displayModeBar: false };
+// A chart of a printable report (data-static): drawn once at its fixed width (data-width), no hover, no zoom
+const STATIC_CONFIG = { ...CONFIG, responsive: false, staticPlot: true };
 
 function pairs(data) {
   // [[label, value], ...] | {label: value} | [{label/name/x, value/y}, ...]
@@ -1076,7 +1079,7 @@ function render(el) {
   const built = builder(el, data, source.labels);
   if (!built) return; // the builder drew the element itself (SVG)
   const { traces, layout } = built;
-  window.Plotly.react(el, traces, baseLayout(el, layout), CONFIG);
+  window.Plotly.react(el, traces, baseLayout(el, layout), el.dataset.static ? STATIC_CONFIG : CONFIG);
 }
 
 let hints = 0;

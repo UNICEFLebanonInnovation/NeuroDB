@@ -15,7 +15,9 @@
   when and why, and "Restore this version";
 - **Visits**: the visits the refresh built, with their entity rows, action points, rule results and
   data problems, for checking the data;
-- **Visit reviews**: the marks sections put on visits.
+- **Visit reviews**: the marks sections put on visits;
+- **Power BI keys**: the keys Power BI reads the live feed with (Administrators only): created here, the
+  key shown once with the ready-to-paste Power Query script, revoked here.
 
 Every save of a rule, a score setting, a question's role, a pinned key or a restore records a new rules
 version (``fmm.versions``) and asks for the scores (or, for a key, the visits) to be recomputed in the
@@ -67,6 +69,7 @@ from .models import (
     KeyProbe,
     LocalActionPoint,
     ModelCapability,
+    PowerBIKey,
     PromptProfile,
     PromptVersion,
     QuestionAnswer,
@@ -2177,3 +2180,173 @@ class LocalActionPointAdmin(ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return access.is_admin(request.user)
+
+
+# ------------------------------------------------------------------------------------------ Power BI keys
+class PowerBIKeyForm(forms.ModelForm):
+    class Meta:
+        model = PowerBIKey
+        fields = ("name",)
+
+
+@admin.register(PowerBIKey)
+class PowerBIKeyAdmin(ModelAdmin):
+    """The keys of the Power BI live feed (``fmm.powerbi``), Administrators only. *Add* creates a key and
+    shows it once, with the Power Query script that reads the feed with it; only its hash and its first
+    eight characters are kept. *Revoke* closes a key at once (a revoked key is kept, with its last use).
+    With no key that is not revoked, the feed answers "not found"."""
+
+    form = PowerBIKeyForm
+    list_display = ("name", "prefix_shown", "state", "created_by", "created_at", "last_used_at", "uses")
+    list_select_related = ("created_by",)
+    search_fields = ("name", "prefix")
+    actions = ("revoke_selected",)
+    actions_detail = ("revoke_key",)
+    readonly_fields = (
+        "prefix_shown",
+        "state",
+        "created_by",
+        "created_at",
+        "last_used_at",
+        "uses",
+        "revoked_at",
+        "feed_addresses",
+        "live_script",
+    )
+
+    def has_module_permission(self, request):
+        return access.is_admin(request.user)
+
+    def has_view_permission(self, request, obj=None):
+        return access.is_admin(request.user)
+
+    def has_add_permission(self, request):
+        return access.is_admin(request.user)
+
+    def has_change_permission(self, request, obj=None):
+        return access.is_admin(request.user)
+
+    def has_delete_permission(self, request, obj=None):
+        return False  # revoked, never deleted: its last use stays on record
+
+    def has_revoke_permission(self, request, obj=None):
+        return access.is_admin(request.user)
+
+    def get_fields(self, request, obj=None):
+        if obj is None:
+            return ("name",)
+        return ("name", *self.readonly_fields)
+
+    def get_readonly_fields(self, request, obj=None):
+        return () if obj is None else self.readonly_fields
+
+    @admin.display(description=_("key starts with"))
+    def prefix_shown(self, obj):
+        return f"{obj.prefix}…"
+
+    @admin.display(description=_("state"))
+    def state(self, obj):
+        if obj.revoked_at is not None:
+            return _("Revoked %(when)s") % {"when": date_format(timezone.localtime(obj.revoked_at), "j M Y")}
+        return _("Active")
+
+    @admin.display(description=_("feed addresses"))
+    def feed_addresses(self, obj):
+        from . import exports
+
+        base = (getattr(settings, "SITE_URL", "") or "").rstrip("/")
+        return render_to_string(
+            "admin/fmm/powerbikey/_addresses.html",
+            {"urls": [f"{base}{reverse('fmm_powerbi_feed', args=[name])}" for name in exports.DATASETS]},
+        )
+
+    @admin.display(description=_("Power Query script"))
+    def live_script(self, obj):
+        from . import powerbi
+
+        request = getattr(self, "_request", None)
+        if request is None:
+            return ""
+        return render_to_string("admin/fmm/powerbikey/_script.html", {"script": powerbi.live_script(request)})
+
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        self._request = request
+        return super().get_form(request, obj, change=change, **kwargs)
+
+    def save_model(self, request, obj, form, change):
+        if change:
+            obj.save(update_fields=["name"])
+            return
+        from . import powerbi
+
+        key = powerbi.new_key()
+        obj.prefix, obj.key_hash, obj.created_by = (
+            key[: powerbi.PREFIX_CHARS],
+            powerbi.key_hash(key),
+            request.user,
+        )
+        obj.save()
+        request._powerbi_key = key  # shown once, by response_add; never kept
+
+    def response_add(self, request, obj, post_url_continue=None):
+        from . import exports, powerbi
+
+        key = getattr(request, "_powerbi_key", "")
+        base = powerbi.site_url(request).rstrip("/")
+        context = {
+            **self.admin_site.each_context(request),
+            "title": _("Power BI key created"),
+            "opts": self.model._meta,
+            "row": obj,
+            "key": key,
+            "script": powerbi.live_script(request),
+            "example": f"{base}{reverse('fmm_powerbi_feed', args=['visits'])}",
+            "datasets": exports.DATASETS,
+            "per_hour": settings.FMM_POWERBI_REQUESTS_PER_HOUR,
+            "list_url": reverse("admin:fmm_powerbikey_changelist"),
+        }
+        response = render(request, "admin/fmm/powerbikey/created.html", context)
+        response["Cache-Control"] = "no-store"
+        return response
+
+    @admin.action(description=_("Revoke the selected keys"), permissions=["revoke"])
+    def revoke_selected(self, request, queryset):
+        from . import powerbi
+
+        n = powerbi.revoke(queryset)
+        messages.success(
+            request, _("%(n)s key(s) revoked: Power BI can no longer read the feed with them.") % {"n": n}
+        )
+
+    @action(description=_("Revoke this key"), url_path="revoke-key", icon="key_off", permissions=["revoke"])
+    def revoke_key(self, request, object_id):
+        return redirect("admin:fmm_powerbikey_revoke", object_id)
+
+    def get_urls(self):
+        return [
+            path(
+                "<int:pk>/revoke/", self.admin_site.admin_view(self.revoke_view), name="fmm_powerbikey_revoke"
+            ),
+            *super().get_urls(),
+        ]
+
+    def revoke_view(self, request, pk):
+        """Confirm, then revoke one key (Administrators only)."""
+        from . import powerbi
+
+        if not access.is_admin(request.user):
+            raise Http404
+        row = get_object_or_404(PowerBIKey, pk=pk)
+        if request.method == "POST":
+            if powerbi.revoke(PowerBIKey.objects.filter(pk=row.pk)):
+                messages.success(request, _("Key revoked: Power BI can no longer read the feed with it."))
+            else:
+                messages.info(request, _("This key was revoked already."))
+            return redirect("admin:fmm_powerbikey_change", row.pk)
+        context = {
+            **self.admin_site.each_context(request),
+            "title": _("Revoke the Power BI key “%(name)s”") % {"name": row.name},
+            "opts": self.model._meta,
+            "row": row,
+        }
+        return render(request, "admin/fmm/powerbikey/revoke_confirm.html", context)

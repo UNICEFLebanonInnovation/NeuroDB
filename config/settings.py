@@ -536,6 +536,10 @@ FMM_RULES_TIMEOUT_SECONDS = env.int("FMM_RULES_TIMEOUT_SECONDS", default=60)
 # of AI_DAILY_TOKEN_SOFT_CAP across every feature) and the time limit of one call
 FMM_AP_REVIEW_DAILY_TOKEN_CAP = env.int("FMM_AP_REVIEW_DAILY_TOKEN_CAP", default=300_000)
 FMM_AP_REVIEW_TIMEOUT_SECONDS = env.int("FMM_AP_REVIEW_TIMEOUT_SECONDS", default=60)
+# The exports of Monitoring insights (Excel workbook, Power BI package and live feed): the country written
+# in their country_name column (FMS §13.2), and the requests one Power BI key may make an hour
+FMM_COUNTRY_NAME = env("FMM_COUNTRY_NAME", default="Lebanon").strip() or "Lebanon"
+FMM_POWERBI_REQUESTS_PER_HOUR = env.int("FMM_POWERBI_REQUESTS_PER_HOUR", default=120)
 
 # ---------------------------------------------------------------------------- logging
 LOG_FORMAT = env("LOG_FORMAT", default="plain")  # "json" in Azure so Log Analytics can parse fields

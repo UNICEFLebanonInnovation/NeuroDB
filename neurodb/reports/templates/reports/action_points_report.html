@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% comment %}
+  The printable report of the action points page (context: reports.ap_views.action_points_report): the
+  filter in words and the data's date, the key figures, the page's six charts (drawn once at a width that
+  fits A4 portrait: data-static), the action points by module and, with Monitoring insights, the AI
+  verdicts. The browser's print dialog opens once the charts are drawn (data-autoprint="load"); staff save
+  it as PDF. No person is named.
+{% endcomment %}
+{% block content %}
+<div class="fmm-report">
+  <div class="toolbar no-print mb-3">
+    <button type="button" class="btn btn-primary btn-sm" data-autoprint="load">{% include "components/icon.html" with name="printer" %}<span>{% trans "Print or save as PDF" %}</span></button>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ back_url }}">{% trans "Back to the action points" %}</a>
+    <span class="small text-muted">{% trans "In the print dialog, choose “Save as PDF”." %}</span>
+  </div>
+  <header class="fmm-report__head">
+    <p class="fmm-report__period"><strong>{% if filters %}{{ filters|join:" · " }}{% else %}{% trans "Every action point" %}{% endif %}</strong></p>
+    <p class="small text-muted mb-0">{% if as_of %}{% blocktrans with when=as_of|date:"j M Y H:i" %}eTools action points synced {{ when }}{% endblocktrans %}{% else %}{% trans "No action points synced yet" %}{% endif %} · {% now "j M Y H:i" as printed %}{% blocktrans %}printed {{ printed }}{% endblocktrans %}</p>
+  </header>
+
+  <div class="kpi-grid fmm-report__block">
+    {% trans "Action points" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=total|number %}
+    {% trans "Open" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.open|number %}
+    {% trans "Overdue" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.overdue|number status=data.overdue|yesno:"off_track," %}
+    {% trans "Open, high priority" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.high_priority|number %}
+    {% trans "Completed" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=data.completed|number %}
+  </div>
+
+  <div class="grid grid--2 fmm-report__block">
+    <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "By status" %}</h2></div>
+      <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-static="1" data-width="330" data-source="ap-report-data" data-key="by_status" data-empty-title="{% trans 'No action points' %}" aria-label="{% trans 'Action points by status' %}"></div></section>
+    <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Due dates of the open ones" %}</h2></div>
+      <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-static="1" data-width="330" data-source="ap-report-data" data-key="due" data-empty-title="{% trans 'No open action points' %}" aria-label="{% trans 'Open action points by due date' %}"></div></section>
+    <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Completed on time?" %}</h2>{% if chart_data.late_average is not None %}<span class="panel__hint">{% blocktrans with days=chart_data.late_average|number n=chart_data.late_count %}{{ n }} late, {{ days }} days late on average{% endblocktrans %}</span>{% endif %}</div>
+      <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-static="1" data-width="330" data-source="ap-report-data" data-key="timeliness" data-empty-title="{% trans 'No completed action points' %}" aria-label="{% trans 'Completed action points by timeliness' %}"></div></section>
+    <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Raised and completed by month" %}</h2></div>
+      <div class="chart chart--sm" data-module="charts" data-chart="grouped" data-static="1" data-width="330" data-source="ap-report-data" data-key="monthly" data-empty-title="{% trans 'No dates' %}" aria-label="{% trans 'Action points raised and completed by month' %}"></div></section>
+    <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Open, by office" %}</h2></div>
+      <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-static="1" data-width="330" data-source="ap-report-data" data-key="by_office" data-empty-title="{% trans 'No open action points' %}" aria-label="{% trans 'Open action points by office' %}"></div></section>
+    <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Open, by section" %}</h2></div>
+      <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-static="1" data-width="330" data-source="ap-report-data" data-key="by_section" data-empty-title="{% trans 'No open action points' %}" aria-label="{% trans 'Open action points by section' %}"></div></section>
+  </div>
+
+  <div class="grid grid--2 fmm-report__block">
+    <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "By where they were raised" %}</h2></div>
+      <table class="table table-sm small mb-0"><thead><tr><th>{% trans "Raised from" %}</th><th class="num">{% trans "Action points" %}</th></tr></thead>
+        <tbody>{% for module, n in data.by_module %}<tr><td>{{ module|default:_("Not given") }}</td><td class="num">{{ n|number }}</td></tr>{% empty %}<tr><td colspan="2" class="text-muted">{% trans "No action points" %}</td></tr>{% endfor %}</tbody></table>
+    </section>
+    {% if fmm_on %}
+    <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "AI verdicts" %}</h2><span class="panel__hint">{% trans "every completed action point reviewed" %}</span></div>
+      <table class="table table-sm small mb-0"><thead><tr><th>{% trans "Verdict" %}</th><th class="num">{% trans "Action points" %}</th></tr></thead>
+        <tbody>{% for label, n in verdicts %}<tr><td>{{ label }}</td><td class="num">{{ n|number }}</td></tr>{% endfor %}</tbody></table>
+    </section>
+    {% endif %}
+  </div>
+  <p class="small text-muted">{% trans "Overdue: open with a due date before today. The charts count the action points of the filter; offices and sections stand where other tools rank people: no person is named." %}</p>
+</div>
+{{ chart_data|json_script:"ap-report-data" }}
+{% endblock %}

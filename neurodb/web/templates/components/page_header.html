@@ -25,7 +25,7 @@
             {% if action.icon %}{% include "components/icon.html" with name=action.icon %}{% endif %}<span>{{ action.label }}</span>
           </button>
           <ul class="dropdown-menu dropdown-menu-end">
-            {% for item in action.menu %}<li><a class="dropdown-item" href="{{ item.url }}">{{ item.label }}</a></li>{% endfor %}
+            {% for item in action.menu %}<li><a class="dropdown-item" href="{{ item.url }}"{% if item.follow %} data-current-query="{{ item.extra|default:'' }}"{% endif %}{% if item.new_tab %} target="_blank" rel="noopener"{% endif %}>{{ item.label }}</a></li>{% endfor %}
           </ul>
         </div>
         {% else %}

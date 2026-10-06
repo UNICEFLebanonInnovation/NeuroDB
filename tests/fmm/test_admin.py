@@ -80,6 +80,7 @@ def test_fmm_icons_are_material_symbols_names_not_site_icons():
         "fmm.ActionPointVerification": "verified_user",
         "fmm.ActionPointSummary": "notes",
         "fmm.LocalActionPoint": "add_task",
+        "fmm.PowerBIKey": "vpn_key",
     }
     for icon in icons.values():
         assert re.fullmatch(r"[a-z0-9_]+", icon) and icon not in site_icons

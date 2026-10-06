@@ -1,4 +1,6 @@
-"""CSV (streamed) and XLSX (openpyxl write-only) exports with database-labelled filenames."""
+"""CSV (streamed) and XLSX (openpyxl write-only) exports with database-labelled filenames. A typed workbook
+(``xlsx_response(..., typed=True)``, written by :mod:`neurodb.reports.xlsx`) keeps numbers as numbers and
+dates as dates, never lets a text become a formula, and stays fast for millions of cells."""
 
 from __future__ import annotations
 
@@ -72,17 +74,25 @@ def stream_csv(
 
 
 def xlsx_response(
-    filename: str, sheets: Sequence[tuple[str, Sequence[str], Iterable[dict[str, Any]]]]
+    filename: str,
+    sheets: Sequence[tuple[str, Sequence[str], Iterable[dict[str, Any]]]],
+    typed: bool = False,
 ) -> HttpResponse:
-    book = Workbook(write_only=True)
-    for title, columns, rows in sheets:
-        sheet = book.create_sheet(title=title[:31])
-        sheet.append(list(columns))
-        for row in rows:
-            sheet.append([_cell(row.get(c)) for c in columns])
-    buffer = io.BytesIO()
-    book.save(buffer)
-    response = HttpResponse(buffer.getvalue(), content_type=XLSX_CONTENT_TYPE)
+    if typed:
+        from .xlsx import workbook
+
+        content = workbook(sheets)
+    else:
+        book = Workbook(write_only=True)
+        for title, columns, rows in sheets:
+            sheet = book.create_sheet(title=title[:31])
+            sheet.append(list(columns))
+            for row in rows:
+                sheet.append([_cell(row.get(c)) for c in columns])
+        buffer = io.BytesIO()
+        book.save(buffer)
+        content = buffer.getvalue()
+    response = HttpResponse(content, content_type=XLSX_CONTENT_TYPE)
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
 

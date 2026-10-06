@@ -1233,6 +1233,86 @@ def sections(scope: Scope, when: str | None = None, limits: dict | None = None) 
     return out
 
 
+BREAKDOWN_KINDS = ("partner", "office", "section")
+BREAKDOWN_COLUMNS = (
+    "partner_ids",
+    "offices",
+    "section_names",
+    "quality_score",
+    "score_band",
+    "rating",
+    "status_group",
+    "flags",
+    "action_points_open",
+)
+
+
+def breakdown(
+    scope: Scope, by: str, when: str | None = None, limits: dict | None = None
+) -> list[dict[str, Any]]:
+    """The exports' aggregates (Excel workbook, PDF report, Power BI package) per partner, field office
+    or section (``by``): the visits, the rated ones (On track, Constrained, Off track) and each rating's
+    share of them, the average quality with the bands, the visits flagged and their flags, and the open
+    FM action points of the visits. A visit counts in each of its partners, offices or sections ("none":
+    without one), as the page's field office and section blocks count it, with the same ratings and
+    average (:class:`Tally`, :func:`counted_rating`); only the rows the filter keeps are given. Most
+    visits first."""
+    from neurodb.partnerships.models import PartnerOrganization
+
+    if by not in BREAKDOWN_KINDS:
+        raise ValueError(f"breakdown by {by!r}")
+
+    def compute() -> list[dict[str, Any]]:
+        groups: dict[Any, dict[str, Any]] = {}
+        rows = scope.visits().order_by().values_list(*BREAKDOWN_COLUMNS)
+        for partner_ids, offices, sections, quality, band, rating, group, flags, open_points in rows:
+            keys = {"partner": partner_ids, "office": offices, "section": sections}[by] or ["none"]
+            counted = counted_rating(rating or "not_monitored", group)
+            quality = _quality(quality)
+            for key in keys:
+                g = groups.get(key)
+                if g is None:
+                    g = groups[key] = {"tally": Tally(), "flagged": 0, "flags": 0, "open": 0}
+                g["tally"].add(quality, band, counted)
+                g["flagged"] += bool(flags)
+                g["flags"] += len(flags or ())
+                g["open"] += open_points or 0
+        names: dict[Any, tuple[str, str, str]] = {}
+        if by == "partner":
+            names = {
+                p.pk: (p.short_name or p.name, p.name, p.vendor_number or "")
+                for p in PartnerOrganization.objects.filter(pk__in=[k for k in groups if k != "none"]).only(
+                    "pk", "name", "short_name", "vendor_number"
+                )
+            }
+        kept = {"partner": scope.partners, "office": scope.offices, "section": scope.sections}[by]
+        out = []
+        for key, g in groups.items():
+            if kept and key not in kept:  # a multi-valued row the filter does not keep (_within)
+                continue
+            tally = g["tally"].out()
+            rated = sum(tally["ratings"][code] for code in RATED)
+            short, full, vendor = names.get(key, (str(key), str(key), ""))
+            out.append(
+                {
+                    "key": key,
+                    "name": "" if key == "none" else short,
+                    "full_name": "" if key == "none" else full,
+                    "vendor_number": vendor,
+                    **tally,
+                    "rated": rated,
+                    "shares": {code: _pct(tally["ratings"][code], rated) for code in RATED},
+                    "flagged": g["flagged"],
+                    "flags": g["flags"],
+                    "open_action_points": g["open"],
+                }
+            )
+        out.sort(key=lambda r: (r["key"] == "none", -r["visits"], str(r["name"]).casefold()))
+        return out
+
+    return cached(scope, f"breakdown:{by}", compute, when)
+
+
 def quality_by_rating(
     scope: Scope, when: str | None = None, limits: dict | None = None
 ) -> list[dict[str, Any]]:

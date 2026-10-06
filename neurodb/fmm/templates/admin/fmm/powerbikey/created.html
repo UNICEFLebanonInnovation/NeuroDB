@@ -1,0 +1,45 @@
+{% extends "admin/base_site.html" %}
+{% load i18n unfold %}
+
+{% comment %}
+  A Power BI key just created (context: fmm.admin.PowerBIKeyAdmin.response_add): the key, shown this once
+  and never again, the Power Query script that reads the live feed with it, and how to set it up. The key
+  is not in the script: Power BI asks for it once ("Web API") and keeps it.
+{% endcomment %}
+
+{% block content %}
+<div class="max-w-5xl flex flex-col gap-6">
+  {% component "unfold/components/card.html" with title=title %}
+    <div class="flex flex-col gap-4">
+      <p>{% blocktrans trimmed with name=row.name %}
+        The key “{{ name }}” is ready. Copy it now: NeuroDB keeps only a fingerprint of it, so it cannot be
+        shown again. If it is lost, revoke it and create another.
+      {% endblocktrans %}</p>
+      <div class="flex flex-col gap-2">
+        <label class="font-semibold text-important" for="powerbi-key">{% trans "The key" %}</label>
+        <input id="powerbi-key" type="text" readonly value="{{ key }}" class="font-mono border border-base-200 rounded-default px-3 py-2 dark:border-base-700 dark:bg-base-900">
+      </div>
+      <p>{% blocktrans trimmed with example=example per_hour=per_hour %}
+        Power BI reads {{ example }} and the three other tables with it, at most {{ per_hour }} requests an
+        hour for this key.
+      {% endblocktrans %}</p>
+    </div>
+  {% endcomponent %}
+
+  {% trans "Power Query script" as script_title %}
+  {% component "unfold/components/card.html" with title=script_title %}
+    <ol class="list-decimal pl-5 mb-4 flex flex-col gap-1">
+      <li>{% trans "Power BI Desktop: Get data › Blank query, then Advanced editor." %}</li>
+      <li>{% trans "Paste the script below and click Done." %}</li>
+      <li>{% trans "When Power BI asks how to connect, choose Web API, paste the key above and click Connect." %}</li>
+      <li>{% trans "Right-click each of the seven tables › Add as new query, then turn off loading of the first query. Close & Apply." %}</li>
+      <li>{% trans "Publish to your Power BI Service workspace; in the dataset's settings, enter the key again under Data source credentials (Web API) and switch on Scheduled refresh." %}</li>
+    </ol>
+    {% include "admin/fmm/powerbikey/_script.html" %}
+  {% endcomponent %}
+
+  <div class="flex justify-end gap-4">
+    <a class="px-3 py-2" href="{{ list_url }}">{% trans "Back to the Power BI keys" %}</a>
+  </div>
+</div>
+{% endblock %}

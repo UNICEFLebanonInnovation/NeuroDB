@@ -1,7 +1,9 @@
 """The Monitoring insights page (``/fmm/``): its tabs (Insights, Quality, Analysis, Visits, Map), the
 visits table and its CSV, the visit page, the visit look-up, the reviews, the drill-down window that
-lists the visits behind a chart cell or a count, and the AI brief's card (Regenerate starts the brief
-in a background process; the card polls it) and what was sent for it.
+lists the visits behind a chart cell or a count, the AI brief's card (Regenerate starts the brief
+in a background process; the card polls it) and what was sent for it, and the exports of the filter
+(the header's Export menu: the Excel workbook, the printable report and the Power BI package, built by
+:mod:`neurodb.fmm.exports`).
 
 Every view reads the stored visits through a :class:`~neurodb.fmm.scope.Scope` built from the query
 string; an HTMX request gets the partial it swaps in, a plain request the full page. With
@@ -1184,6 +1186,7 @@ def dashboard(request: HttpRequest) -> HttpResponse:
             "page_title": _("Monitoring insights"),
             "page_subtitle": _("eTools field monitoring: visits, report quality, findings and follow-up"),
             "breadcrumbs": _crumbs(),
+            "actions": _export_menu(request, scope),
             "options": options(when),
             "presets": [(k, _(v)) for k, v in _period_choices()],
             "kind_labels": KIND_LABELS,
@@ -2066,3 +2069,153 @@ def chat_stream(request: HttpRequest) -> HttpResponse:
     response["Cache-Control"] = "no-cache"
     response["X-Accel-Buffering"] = "no"  # no proxy buffering: tokens reach the browser as they arrive
     return response
+
+
+# ------------------------------------------------------------------------------------------ exports
+def _export_menu(request: HttpRequest, scope: Scope) -> list[dict[str, Any]]:
+    """The page header's Export menu, for the filter shown: the visits CSV, the Excel workbook, the PDF
+    report and the Power BI package; for Administrators, the Power BI keys of the live connection. Each
+    filter link takes the address bar's filter when clicked (``data-current-query``, app.js): the filter
+    bar changes the address, not the header."""
+    query = scope.query
+    items = [
+        {
+            "label": _("CSV (visits)"),
+            "url": f"{reverse('fmm:visits')}?{query}&export=csv",
+            "follow": True,
+            "extra": "export=csv",
+        },
+        {"label": _("Excel workbook"), "url": f"{reverse('fmm:export_xlsx')}?{query}", "follow": True},
+        {
+            "label": _("PDF report"),
+            "url": f"{reverse('fmm:report')}?{query}",
+            "follow": True,
+            "new_tab": True,
+        },
+        {"label": _("Power BI package"), "url": f"{reverse('fmm:export_powerbi')}?{query}", "follow": True},
+    ]
+    if access.is_admin(request.user):
+        items.append(
+            {"label": _("Power BI live connection…"), "url": reverse("admin:fmm_powerbikey_changelist")}
+        )
+    return [{"label": _("Export"), "icon": "download", "menu": items}]
+
+
+@require_GET
+def export_xlsx(request: HttpRequest) -> HttpResponse:
+    """The Excel workbook of the filter (``fmm.exports``): About, Visits (FMS's column names), Rule
+    results, Partners, Field offices, Sections, Flags and Action points; no person in it."""
+    from . import exports
+
+    _enabled()
+    when = metrics.stamp()
+    scope = Scope.from_params(request.GET, request.user, when=when)
+    return exports.workbook(scope, when)
+
+
+@require_GET
+def export_powerbi(request: HttpRequest) -> HttpResponse:
+    """The Power BI package of the filter: the visits, rule results, action points and partners as CSV
+    files, the Power Query script that loads them and README.txt, in one ZIP file."""
+    from . import exports
+
+    _enabled()
+    when = metrics.stamp()
+    scope = Scope.from_params(request.GET, request.user, when=when)
+    filename, content = exports.powerbi_package(scope, when)
+    response = HttpResponse(content, content_type="application/zip")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+REPORT_PARTNERS = 15
+REPORT_FLAGS = 10
+REPORT_URGENT = 10
+
+
+@require_GET
+def report(request: HttpRequest) -> HttpResponse:
+    """The printable report of the filter (A4, laid out like the "FMM Analysis" report): the browser's
+    print dialog opens on it, and staff save it as PDF. Every figure is the page's own."""
+    _enabled()
+    snap = status.snapshot()
+    when = metrics.stamp(snap.last_refresh)
+    scope = Scope.from_params(request.GET, request.user, when=when)
+    context = _report_context(request, scope, snap, when)
+    context.update(
+        {
+            "page_title": _("Monitoring insights report"),
+            "page_subtitle": scope.label(),
+            "breadcrumbs": _crumbs({"label": _("Report"), "url": None}),
+        }
+    )
+    return render(request, "fmm/report.html", context)
+
+
+def _report_context(request: HttpRequest, scope: Scope, snap: status.Snapshot, when: str) -> dict[str, Any]:
+    from .ai import sections as sections_module
+
+    setting = ScoreSetting.objects.filter(pk=1).first() or ScoreSetting()
+    rules = list(RuleSetting.objects.all())
+    limits = metrics.thresholds(setting)
+    context: dict[str, Any] = {
+        "scope": scope,
+        "reference": _reference(scope, snap),
+        "filters": _filters_in_words(scope),
+        "has_visits": bool(snap.visits),
+        "how": _how(setting, rules),
+        "limits": limits,
+        "dashboard_url": f"{reverse('fmm:dashboard')}?{scope.query}",
+    }
+    context["urgency_weights"] = [
+        (URGENCY_PARTS.get(name, name), share) for name, share in context["how"]["weights"].items()
+    ]
+    if not snap.visits:
+        return context
+    kpis = metrics.kpis(scope, when, limits)
+    version = profiles.published()
+    brief = ai_insights.current(scope, version)
+    row = brief.insight
+    parts = sections_module.of(row.version if row is not None else version)
+    written = (row.sections or {}) if row is not None else (brief.fallback or {}).get("sections") or {}
+    written_actions = (row.actions or []) if row is not None else (brief.fallback or {}).get("actions") or []
+    brief_sections, brief_actions = _brief_blocks(written, written_actions, parts)
+    ratings = metrics.quality_by_rating(scope, when, limits)
+    highlights = metrics.highlights(scope, when, limits)
+    flags = metrics.flag_frequency(scope, rules, when)
+    urgent = list(
+        scope.visits().select_related("partner").order_by(*SORTS[DEFAULT_SORT], "key")[:REPORT_URGENT]
+    )
+    _decorate(urgent, limits)
+    partners = [r for r in metrics.breakdown(scope, "partner", when, limits) if r["key"] != "none"]
+    sections = metrics.breakdown(scope, "section", when, limits)
+    context.update(
+        {
+            "kpi_tiles": _kpi_tiles(scope, kpis),
+            "kpis": kpis,
+            "briefing": _briefing(scope, when, limits),
+            "brief": brief,
+            "brief_row": row,
+            "brief_by_ai": row is not None and row.status in ai_insights.WRITTEN,
+            "brief_sections": brief_sections,
+            "brief_actions": brief_actions,
+            "actions_title": (sections_module.action_part(parts) or {}).get("label", ""),
+            "ratings": ratings,
+            "highlights": highlights,
+            "by_section": sections,
+            "by_office": metrics.breakdown(scope, "office", when, limits),
+            "partners": partners[:REPORT_PARTNERS],
+            "partners_more": max(len(partners) - REPORT_PARTNERS, 0),
+            "flags": [r for r in flags["rows"] if r["n"]][:REPORT_FLAGS],
+            "urgent": urgent,
+            "hact": metrics.hact_programmatic(scope, when, limits),
+            "follow_up": metrics.action_points(scope, when, limits),
+            "points_by_section": [r for r in sections if r["open_action_points"]],
+            "chart_data": {
+                "ratings": [[str(r["label"]), r["visits"], r["code"]] for r in ratings],
+                "bands": highlights["bands"],
+                "flags": [[r["label"], r["n"], r["code"]] for r in flags["rows"] if r["n"]][:REPORT_FLAGS],
+            },
+        }
+    )
+    return context

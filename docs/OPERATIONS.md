@@ -2157,6 +2157,121 @@ the eTools action points as before.
   points uses about 10,000-20,000 tokens and counts against the same cap (and 100% of the shared cap).
   When OpenAI says the credit ran out, the AI of Monitoring insights pauses for 6 hours.
 
+### Exports (FMS §13): Excel, PDF report, Power BI
+
+The page header's **Export** menu exports the filter the page shows (the period, every filter and the
+drill-downs; the tab does not matter). It is read-only: every person who can open the page can export,
+and nothing is written. Every figure comes from the functions that draw the page (`fmm.metrics`,
+`fmm.scope.Scope`), so a file and the page never disagree for the same filter (tests in
+`tests/fmm/test_exports.py` compare them).
+
+| In the menu | What you get |
+|---|---|
+| *CSV (visits)* | The visits table's CSV, as before (`/fmm/visits/?…&export=csv`). |
+| *Excel workbook* | `monitoring-insights-YYYY-MM-DD.xlsx` (`/fmm/export.xlsx`), described below. |
+| *PDF report* | A printable A4 report (`/fmm/report/`) that opens the browser's print dialog: choose *Save as PDF*. |
+| *Power BI package* | `monitoring-insights-powerbi-YYYY-MM-DD.zip` (`/fmm/export-powerbi.zip`): CSV files and a Power Query script. |
+| *Power BI live connection…* | Administrators only: the admin's *Power BI keys* (below). |
+
+**The Excel workbook** has eight sheets, numbers as numbers and dates as dates:
+
+- *About*: the filter in words, *Data as of* (the last refresh), the visit counts and what the columns
+  mean (quality score, bands High ≥ 80 and Medium ≥ 50 as set in Score settings, the urgency formula
+  and its weights, *Not monitored*), the columns left out and the privacy note.
+- *Visits*: one row per visit with the column names of FMS's FMM output (§13.2), so FMS's Power BI
+  reports and formulas fit: `id` (the visit key), `country_name` (`FMM_COUNTRY_NAME`), the eTools ids,
+  dates, partner (`entity`, `vendor_number`), entity types, programme documents, field offices,
+  sections and programme areas (several values separated by `;`), `overall_finding_rating` as the page
+  counts it (*Not monitored* only for a reported visit with nothing rated; *Not rated yet* for a planned
+  or in-progress visit; blank for a cancelled one), status, modality, `quality_score`, `quality_status`
+  (High, Medium, Low or Skipped), `urgency`, `quality_flags`, one score per category (`completeness_score`,
+  `_evidence_score`…: the points the visit kept of the category's weight), the place (name, latitude,
+  longitude, type, P-code, governorate, district), the narratives and the HACT Q1-Q3 answers (cleaned,
+  at most 32,000 characters), the action points (count, open, overdue, their descriptions cleaned and
+  their due dates, and `action_points_assigned`, a **count**), `_ai_used` (an AI check of the quality
+  rules was applied) and `neurodb_url` (absolute when `SITE_URL` is set).
+- *Rule results*: one row per visit and rule: passed, flagged, not checked (the data is missing or the
+  AI check is pending) or skipped (does not apply, or switched off), the points lost and whether an AI
+  check gave it. The detail is given only for rules whose detail NeuroDB writes itself (an AI check's
+  explanation may quote a narrative, so it is left out).
+- *Partners*, *Field offices*, *Sections*: visits, rated visits, On track / Constrained / Off track
+  (counts and shares of the rated visits), average quality and bands, visits flagged and flags, and the
+  open action points of the visits. A visit counts in each of its partners, offices and sections, as on
+  the page.
+- *Flags*: the visits each rule flagged out of those it checked (the flag frequency chart).
+- *Action points*: the field monitoring action points linked to the visits: reference, description
+  (cleaned), partner, section, office, priority, due date, status, visits, link confidence, AI verdict and
+  PME verification. Never who it is assigned to.
+
+**Privacy** (all exports, the report and the live feed): no file holds the team, the visit lead, a
+monitor's e-mail address or who an action point is assigned to (`action_points_assigned_to` is never
+written; `action_points_assigned` is a count). Narratives, HACT answers and action point descriptions
+are cleaned of the person names NeuroDB knows (read afresh for every file), e-mail addresses, links,
+phone numbers and names written after a title, as for the AI (`fmm.privacy.clean`). Large filters are
+read 500 visits at a time, a fixed number of queries per 500 visits, so a large filter costs time in
+proportion to its visits and never one query per visit.
+
+**The PDF report** follows the "LCO – FMM Analysis" layout: the period, the filters and *Data as of*;
+the key figures and the morning briefing; the AI brief of the filter with its parts (or, without one,
+the brief NeuroDB writes from the figures, said so); the overall finding ratings and the quality bands;
+ratings by section and by field office; the 15 partners with the most visits; the most frequent flags;
+the 10 most urgent visits; HACT programmatic visits; the action points (linked, open, overdue, high
+priority, NeuroDB's, visits without follow-up, open by section); and the method. Charts are drawn once at
+a width that fits A4 portrait and no block is split across pages. The print dialog opens by itself once
+the charts are drawn; *Print or save as PDF* opens it again.
+
+**The Power BI package** holds `data/visits.csv`, `data/rule_results.csv`, `data/action_points.csv` and
+`data/partners.csv` (the workbook's columns; UTF-8 with a byte-order mark, ISO dates, `.` decimals),
+`NeuroDB_monitoring.pq` (a Power Query script that loads the four files with their types, and splits the
+`;` columns into `visit_sections`, `visit_offices` and `visit_flags`) and `README.txt` (the steps below and
+FMS §13.3's visuals adapted to these columns). There is no `.pbit` template: a template cannot be built
+or tested without Power BI, and the script stands in its place. In Power BI Desktop:
+
+1. Unzip the package into a folder, keeping its `data` folder (for example
+   `C:\NeuroDB\monitoring-insights\`).
+2. *Get data → Blank query*, then *Advanced editor*; paste the whole of `NeuroDB_monitoring.pq`.
+3. Set `RootFolder` in its first lines to that folder (ending with `\`) and click *Done*.
+4. The query shows seven tables: right-click each → *Add as new query*, then switch off loading of the
+   first query; *Close & Apply*. Join `visits[id]` to the `visit_id` of the other tables.
+5. *File → Save as* `.pbix`. To refresh: download a new package, unzip it into the same folder, *Refresh*.
+
+**Power BI live connection** (FMS "Connect Live", for scheduled refresh in Power BI Service). The feed
+`/powerbi/fmm/<table>.csv` (`visits`, `rule_results`, `action_points`, `partners`) serves the same tables
+over **every** visit (no person's section is applied), narrowed by `?year=2026` or `?since=2026-01-01`
+(visits that ended from that day). It is read with a key, never with a sign-in:
+
+1. Admin → *Monitoring insights* → *Power BI keys* → *Add*: give the key a name (what it is for, e.g. the
+   workspace) and save. The next page shows the key **once** (NeuroDB keeps only its SHA-256 hash and its
+   first eight characters) and the ready-to-paste Power Query script with this site's address. Copy both.
+2. Power BI Desktop: *Get data → Blank query → Advanced editor*, paste the script, *Done*. When asked how
+   to connect, choose **Web API** and paste the key. Add the seven tables as queries as above.
+3. Publish to the workspace; in the dataset's settings enter the key again under *Data source
+   credentials* (Web API), then switch on *Scheduled refresh*.
+
+The script sends the key with `Web.Contents(…, [ApiKeyName = "key"])`, which adds `?key=` to each request
+(the only way a scheduled refresh in Power BI Service sends a key); other tools may send
+`Authorization: Bearer <key>` instead. With no key at all (none created, or all revoked) the feed answers
+404; a missing, wrong or revoked key gets 401; each key may make `FMM_POWERBI_REQUESTS_PER_HOUR` (120)
+requests an hour, then 429 with `Retry-After`. Every answer is `Cache-Control: no-store`. Each use updates
+the key's *Last used* and *Uses* in the admin; refused requests are logged without the key. These
+addresses alone are left out of the sign-in and of the donor lock-down; a signed-in person without a key
+gets nothing from them.
+
+**Key rotation.** Create a new key, put it in Power BI (Desktop: *File → Options and settings → Data
+source settings → Edit permissions*; Service: the dataset's *Data source credentials*), check that a
+refresh works, then open the old key in the admin and **Revoke this key** (or select keys in the list and
+*Revoke the selected keys*). Revoking works at once. Revoked keys stay listed with their last use; they
+are never deleted. A key that may have been seen by someone else is revoked at once, and Power BI given a
+new one.
+
+**Action points** (`/action-points/`, D1.6): next to the CSV downloads, *Excel of the filter* and *Excel
+of every action point* (`?export=xlsx`, `&all=1`) hold the CSV's columns without *assigned_to*, with the
+description and the action taken cleaned as above. The CSV keeps its established columns, including who
+an action point is assigned to (shown to staff on the page already). *PDF report*
+(`/action-points/report/?<filter>`) prints the filter in words (a name typed in *Assigned to* is not
+repeated), the key figures, the six charts, the action points by module and, with Monitoring insights,
+the AI verdicts.
+
 ### What goes to OpenAI, and what never does
 
 Nothing goes while `FMM_AI` is off. Once it is on, the brief and the chat send:
@@ -2411,6 +2526,8 @@ on, and before its figures are trusted:
 | `FMM_RULES_TIMEOUT_SECONDS` | `60` | Seconds per AI check. |
 | `FMM_AP_REVIEW_DAILY_TOKEN_CAP` | `300000` | The action points' AI review and summaries: their own tokens a day (about 150-250 reviews); the nightly review also stops at 80% of `AI_DAILY_TOKEN_SOFT_CAP`. |
 | `FMM_AP_REVIEW_TIMEOUT_SECONDS` | `60` | Seconds per action point review or summary call. |
+| `FMM_COUNTRY_NAME` | `Lebanon` | The `country_name` column of the Excel workbook, the Power BI package and the live feed (FMS §13.2). |
+| `FMM_POWERBI_REQUESTS_PER_HOUR` | `120` | Requests one Power BI key may make to the live feed an hour; then 429 with `Retry-After`. |
 
 Release 2's other settings are kept in the admin, versioned with the rules (*Quality rules*, *Score
 settings*) or with the prompts (*Prompt versions*):

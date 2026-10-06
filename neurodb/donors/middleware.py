@@ -3,9 +3,9 @@
 A user with a ``DonorAccount`` reaches the donor page, the password change page and sign out, and
 nothing else: any other page (or an address that matches none) redirects to the donor page, and the
 internal API, the assistant and HTMX requests are refused with 403 (a redirect would hand them a
-page they did not ask for). An
-account that is switched off or past its end date is signed out. Until the donor replaces the
-temporary password, every page leads to the password change page.
+page they did not ask for). An account that is switched off or past its end date is signed out. Until
+the donor replaces the temporary password, every page leads to the password change page. The Power BI
+feed, read with a key and never with a session, is left out.
 """
 
 from __future__ import annotations
@@ -35,12 +35,20 @@ def donor_account(request) -> DonorAccount | None:
     return request._donor_account
 
 
+def _key_feed(view_func) -> bool:
+    """A feed read with a key of its own (the Power BI feed, ``fmm.powerbi.key_only``): no session, so no
+    donor account, applies to it."""
+    return bool(getattr(view_func, "powerbi_feed", False))
+
+
 class DonorScopeMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
         response = self.get_response(request)
+        if _key_feed(getattr(getattr(request, "resolver_match", None), "func", None)):
+            return response
         # An address that matches no page (a stale link, a ``next`` from before sign-in) leads a
         # donor back to the donor page rather than to a "not found" page.
         if response.status_code == 404 and request.method == "GET" and not self._is_api(request):
@@ -50,6 +58,8 @@ class DonorScopeMiddleware:
         return response
 
     def process_view(self, request, view_func, view_args, view_kwargs):
+        if _key_feed(view_func):  # read with its own key, never with a session
+            return None
         account = donor_account(request)
         if account is None:
             return None

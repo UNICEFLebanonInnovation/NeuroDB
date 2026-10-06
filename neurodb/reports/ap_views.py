@@ -1,7 +1,7 @@
 """The action points page (``/action-points/``) and what opens from it: the eTools action points with
-their filters, charts and CSV exports; one action point's details (every field, the action taken, the
-AI's verdict and the PME verifications); the AI review and the AI content summary; and the NeuroDB action
-points (FMS §10).
+their filters, charts, CSV and Excel exports and printable report; one action point's details (every
+field, the action taken, the AI's verdict and the PME verifications); the AI review and the AI content
+summary; and the NeuroDB action points (FMS §10).
 
 What comes from Monitoring insights (the visit of a field monitoring action point and its link
 confidence, the AI's verdicts, the verifications, the NeuroDB action points) is read through
@@ -74,14 +74,43 @@ def _query(params: QueryDict, **changes: Any) -> str:
 
 
 # ------------------------------------------------------------------------------------------ the page
+# The Excel export's columns: the CSV's, without who an action point is assigned to (the CSV keeps its
+# established column)
+XLSX_COLUMNS = tuple(c for c in datamart.AP_EXPORT_COLUMNS if c != "assigned_to")
+CLEANED = ("description", "action_taken")  # texts written by people: cleaned in the Excel file
+
+
+def _xlsx_rows(points):
+    """The CSV's rows without the assignee, the description and the action taken cleaned of names,
+    e-mail addresses, links and phone numbers (``fmm.privacy.clean``)."""
+    from neurodb.fmm import privacy
+    from neurodb.watch import people
+
+    names = people.known_names(refresh=True)  # read afresh: the file holds whole descriptions
+    for row in datamart.action_point_rows(points):
+        row.pop("assigned_to", None)
+        for key in CLEANED:
+            row[key] = privacy.clean(row.get(key), 32_000, names)[0] if row.get(key) else ""
+        yield row
+
+
 @require_GET
 def action_points(request: HttpRequest) -> HttpResponse:
     params, own_section = _params(request)
-    if request.GET.get("export") == "csv":
-        points = ActionPoint.objects.all() if request.GET.get("all") == "1" else None
-        if points is None:
+    export = request.GET.get("export")
+    if export in ("csv", "xlsx"):
+        everything = request.GET.get("all") == "1"
+        if everything:
+            points = ActionPoint.objects.select_related("partner", "intervention")
+        else:
             points = datamart.filtered_action_points(params)[0]
-        label = "action-points" if request.GET.get("all") == "1" else "action-points-filtered"
+        label = "action-points" if everything else "action-points-filtered"
+        if export == "xlsx":
+            return exports.xlsx_response(
+                exports.export_filename(label, "xlsx"),
+                [("Action points", XLSX_COLUMNS, _xlsx_rows(points))],
+                typed=True,
+            )
         return exports.stream_csv(
             exports.export_filename(label, "csv"),
             datamart.AP_EXPORT_COLUMNS,
@@ -121,6 +150,14 @@ def action_points(request: HttpRequest) -> HttpResponse:
         "downloads": [
             {"label": _("CSV of the filter"), "url": f"{base}?{_query(params, export='csv')}"},
             {"label": _("CSV of every action point"), "url": f"{base}?export=csv&all=1"},
+            {"label": _("Excel of the filter"), "url": f"{base}?{_query(params, export='xlsx')}"},
+            {"label": _("Excel of every action point"), "url": f"{base}?export=xlsx&all=1"},
+            {
+                "label": _("PDF report"),
+                "url": f"{reverse('reports:action_points_report')}?{query}",
+                "icon": "printer",
+                "new_tab": True,
+            },
         ],
         **extras,
     }
@@ -200,6 +237,104 @@ def _drills(params: QueryDict, f: dict[str, Any]) -> list[dict[str, str]]:
         if f.get(key):
             out.append({"label": label(f[key]), "url": f"{base}?{_query(params, **{key: None})}"})
     return out
+
+
+# ------------------------------------------------------------------------------------------ the report
+def _filters_words(params: QueryDict, f: dict[str, Any], visit: dict | None) -> list[str]:
+    """The filter of the page in words, for the printable report; a name typed in *Assigned to* is not
+    repeated (the report names no one)."""
+    from neurodb.partnerships.models import PartnerOrganization
+
+    out = []
+    for key, label in (
+        ("statuses", _("Status")),
+        ("modules", _("Raised from")),
+        ("offices", _("Office")),
+        ("sections", _("Section")),
+    ):
+        if f.get(key):
+            out.append(f"{label}: {', '.join(f[key])}")
+    if f.get("partners"):
+        names = (
+            PartnerOrganization.objects.filter(pk__in=f["partners"])
+            .order_by("name")
+            .values_list("name", flat=True)
+        )
+        out.append(f"{_('Partner')}: {', '.join(names)}")
+    if f.get("q"):  # a search may be a person's name: cleaned like the exports
+        from neurodb.fmm import privacy
+
+        out.append(f"{_('Search')}: {privacy.clean(f['q'], 200)[0]}")
+    if f.get("assignee"):
+        out.append(_("Assigned to: filtered by a name"))
+    if f.get("changed_from") or f.get("changed_to"):
+        out.append(
+            _("Changed in eTools: %(start)s – %(end)s")
+            % {"start": f.get("changed_from") or "…", "end": f.get("changed_to") or "…"}
+        )
+    for key, label in (
+        ("overdue", _("Overdue only")),
+        ("priority", _("High priority only")),
+        ("fm", _("Field monitoring only")),
+    ):
+        if f.get(key):
+            out.append(str(label))
+    if f.get("due"):
+        out.append(f"{_('Due')}: {datamart.AP_DUE.get(f['due'], f['due'])}")
+    if f.get("timeliness"):
+        out.append(f"{_('Completed')}: {datamart.AP_TIMELINESS.get(f['timeliness'], f['timeliness'])}")
+    if f.get("raised"):
+        out.append(_("Raised in %(month)s") % {"month": f["raised"]})
+    if f.get("completed"):
+        out.append(_("Completed in %(month)s") % {"month": f["completed"]})
+    for key, label in (
+        ("verdict", _("AI verdict")),
+        ("pme", _("PME verification")),
+        ("link", _("Visit link")),
+    ):
+        if f.get(key):
+            out.append(f"{label}: {f[key].replace('_', ' ')}")
+    if visit:
+        out.append(_("From %(label)s") % {"label": visit["label"]})
+    return out
+
+
+@require_GET
+def action_points_report(request: HttpRequest) -> HttpResponse:
+    """The printable report of the action points of the filter: the key figures, the page's charts (drawn
+    once, at a width that fits A4), the action points by module and, with Monitoring insights, the AI
+    verdicts. The browser's print dialog opens on it; staff save it as PDF. No person is named."""
+    from django.db.models import Max
+
+    params, _own = _params(request)
+    data = datamart.action_points(params)
+    charts = datamart.action_point_charts(data["points"])
+    fmm_points = _fmm()
+    verdicts = []
+    if fmm_points is not None:
+        from neurodb.fmm.ai import ap_review
+        from neurodb.fmm.models import ActionPointReview
+
+        found = ap_review.counts()
+        verdicts = [(label, found.get(value, 0)) for value, label in ActionPointReview.Verdict.choices]
+    as_of = ActionPoint.objects.aggregate(at=Max("synced_at"))["at"]
+    context = {
+        "page_title": _("Action points report"),
+        "page_subtitle": _("eTools action points of the filter"),
+        "breadcrumbs": [
+            _crumb(_("Action points"), reverse("reports:action_points")),
+            _crumb(_("Report")),
+        ],
+        "data": data,
+        "total": data["points"].count(),
+        "chart_data": charts,
+        "filters": _filters_words(params, data["filters"], data["visit"]),
+        "as_of": as_of,
+        "verdicts": verdicts,
+        "fmm_on": fmm_points is not None,
+        "back_url": f"{reverse('reports:action_points')}?{_query(params)}",
+    }
+    return render(request, "reports/action_points_report.html", context)
 
 
 # ------------------------------------------------------------------------------------------ one point

@@ -2,6 +2,7 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 
+from neurodb.fmm.powerbi import feed as powerbi_feed
 from neurodb.web.views import favicon, healthz, landing
 
 urlpatterns = [
@@ -22,6 +23,8 @@ urlpatterns = [
     path("insights/", include("neurodb.insights.urls")),
     path("makani/wellbeing/", include("neurodb.wellbeing.urls")),
     path("fmm/", include("neurodb.fmm.urls")),
+    # read with a Power BI key, never a session (fmm.powerbi): the only addresses left out of sign-in
+    path("powerbi/fmm/<slug:dataset>.csv", powerbi_feed, name="fmm_powerbi_feed"),
     path("", include("neurodb.reports.urls")),
 ]
 

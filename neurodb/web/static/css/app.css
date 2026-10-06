@@ -979,3 +979,19 @@ tr.row--amber { --row-tint: color-mix(in srgb, var(--nd-warning-soft) 70%, trans
 .fmm-info { cursor: help; color: var(--nd-muted); font-weight: 400; }
 .fmm-briefing__tiles { grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); }
 .fmm-png { font-size: 0.75rem; }
+
+/* ---------------------------------------------------------------------------- printable reports (A4) */
+/* Monitoring insights' report (/fmm/report/) and the action points report: blocks never split across
+   pages; the charts are drawn at a fixed width (data-static) that fits A4 portrait. */
+.fmm-report__head { margin-bottom: 1rem; }
+.fmm-report__period { font-size: 1.05rem; margin-bottom: 0.2rem; }
+.fmm-report__block { margin-bottom: 1rem; }
+.fmm-report__brief-part { break-inside: avoid; }
+.fmm-report .chart[data-static] { max-width: 100%; overflow: hidden; }
+@media print {
+  @page { size: A4 portrait; margin: 12mm; }
+  .fmm-report__block, .fmm-report .panel, .fmm-report tr, .fmm-report .kpi { break-inside: avoid; }
+  .fmm-report .table-wrap { overflow: visible; max-height: none; }
+  .fmm-report .grid--2 { grid-template-columns: 1fr 1fr; }
+  .fmm-report .kpi-grid { grid-template-columns: repeat(4, 1fr); }
+}

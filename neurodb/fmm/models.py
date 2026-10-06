@@ -19,7 +19,8 @@
 - the action points module (FMS §10): the AI's verdicts on completed eTools action points
   (:class:`ActionPointReview`), their PME verifications (:class:`ActionPointVerification`), the AI
   content summaries asked for (:class:`ActionPointSummary`, no text kept), the action points kept in
-  NeuroDB only (:class:`LocalActionPoint`) and the page's AI settings (:class:`ActionPointSetting`).
+  NeuroDB only (:class:`LocalActionPoint`) and the page's AI settings (:class:`ActionPointSetting`);
+- the keys Power BI reads the live feed with (:class:`PowerBIKey`: a hash and a prefix, never the key).
 
 No data table here holds a narrative, an answer, a summary or a comment from eTools: those texts are
 read from their source when a page needs them. Only an AI brief keeps texts derived from them: the
@@ -1263,3 +1264,33 @@ class LocalActionPoint(models.Model):
         if self.status == self.Status.DROPPED:
             return False
         return self.source == self.Source.MANUAL or self.status == self.Status.DONE
+
+
+class PowerBIKey(models.Model):
+    """A key Power BI reads the live feed of Monitoring insights with (FMS "Connect Live",
+    ``/powerbi/fmm/<dataset>.csv``). Only its SHA-256 hash and its first eight characters are kept: the
+    key is shown once, when an Administrator creates it. A revoked key opens nothing; with no key at all
+    the feed answers "not found"."""
+
+    name = models.CharField(max_length=100, help_text="What the key is for, e.g. the Power BI workspace")
+    prefix = models.CharField(max_length=8, db_index=True)  # the key's first characters, shown
+    key_hash = models.CharField(max_length=64, unique=True)  # sha256 of the key
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    uses = models.PositiveIntegerField(default=0)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at", "-pk")
+        verbose_name = "Power BI key"
+        verbose_name_plural = "Power BI keys"
+
+    def __str__(self):
+        return f"{self.name} ({self.prefix}…)"
+
+    @property
+    def active(self) -> bool:
+        return self.revoked_at is None
