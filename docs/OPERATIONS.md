@@ -2193,7 +2193,8 @@ and nothing is written. Every figure comes from the functions that draw the page
 - *Rule results*: one row per visit and rule: passed, flagged, not checked (the data is missing or the
   AI check is pending) or skipped (does not apply, or switched off), the points lost and whether an AI
   check gave it. The detail is given only for rules whose detail NeuroDB writes itself (an AI check's
-  explanation may quote a narrative, so it is left out).
+  explanation may quote a narrative, and the flag of a "text contains" check writes the text it read, so
+  both are left out).
 - *Partners*, *Field offices*, *Sections*: visits, rated visits, On track / Constrained / Off track
   (counts and shares of the rated visits), average quality and bands, visits flagged and flags, and the
   open action points of the visits. A visit counts in each of its partners, offices and sections, as on
@@ -2252,10 +2253,14 @@ The script sends the key with `Web.Contents(…, [ApiKeyName = "key"])`, which a
 (the only way a scheduled refresh in Power BI Service sends a key); other tools may send
 `Authorization: Bearer <key>` instead. With no key at all (none created, or all revoked) the feed answers
 404; a missing, wrong or revoked key gets 401; each key may make `FMM_POWERBI_REQUESTS_PER_HOUR` (120)
-requests an hour, then 429 with `Retry-After`. Every answer is `Cache-Control: no-store`. Each use updates
-the key's *Last used* and *Uses* in the admin; refused requests are logged without the key. These
-addresses alone are left out of the sign-in and of the donor lock-down; a signed-in person without a key
-gets nothing from them.
+requests an hour, then 429 with `Retry-After` (the hour's count is kept on the key in the database, so
+the limit holds across every worker and container). Every answer is `Cache-Control: no-store`. Each use
+updates the key's *Last used* and *Uses* in the admin; refused requests are logged without the key. The
+web server's access log writes the address with `key=[hidden]`, and the feed's addresses are left out of
+the Application Insights request traces (added to `OTEL_PYTHON_DJANGO_EXCLUDED_URLS` at start-up), so the
+key sent in the address is kept nowhere. A proxy or gateway placed in front of NeuroDB may log addresses
+too: leave `/powerbi/fmm/` out of its logs. These addresses alone are left out of the sign-in and of the
+donor lock-down; a signed-in person without a key gets nothing from them.
 
 **Key rotation.** Create a new key, put it in Power BI (Desktop: *File → Options and settings → Data
 source settings → Edit permissions*; Service: the dataset's *Data source credentials*), check that a

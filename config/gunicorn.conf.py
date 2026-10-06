@@ -22,10 +22,18 @@ access_log_format = '%(h)s "%(r)s" %(s)s %(b)s %(M)sms "%(a)s"'
 logconfig_dict = {
     "version": 1,
     "disable_existing_loggers": False,
-    "filters": {"no_probes": {"()": "config.gunicorn_filters.SkipHealthChecks"}},
+    "filters": {
+        "no_probes": {"()": "config.gunicorn_filters.SkipHealthChecks"},
+        # the Power BI feed's key (?key=) never reaches the log
+        "hide_keys": {"()": "config.gunicorn_filters.HideKeys"},
+    },
     "handlers": {
         "console": {"class": "logging.StreamHandler", "stream": "ext://sys.stdout"},
-        "access": {"class": "logging.StreamHandler", "stream": "ext://sys.stdout", "filters": ["no_probes"]},
+        "access": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stdout",
+            "filters": ["no_probes", "hide_keys"],
+        },
         "error": {"class": "logging.StreamHandler", "stream": "ext://sys.stderr"},
     },
     "root": {"level": "INFO", "handlers": ["console"]},

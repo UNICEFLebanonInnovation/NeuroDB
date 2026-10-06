@@ -206,11 +206,14 @@ def test_the_workbook_totals_equal_the_page(built, client_viewer):
         book = _book(client_viewer.get(reverse("fmm:export_xlsx"), {**YEAR, **params}))
         assert len(_sheet_rows(book, "Visits")) == metrics.kpis(scope)["visits"]
         offices = {r["name"]: r for r in metrics.offices(scope)["rows"]}
+        compared = 0
         for row in _sheet_rows(book, "Field offices"):
             if row["field_office"] in offices:
                 page = offices[row["field_office"]]
                 assert row["visits"] == page["visits"]
                 assert row["avg_quality_score"] == (float(page["avg"]) if page["avg"] is not None else None)
+                compared += 1
+        assert compared and compared == len(offices)  # every office of the page is in the sheet
         sections = {r["name"]: r for r in metrics.sections(scope)}
         for row in _sheet_rows(book, "Sections"):
             name = "none" if row["section"] == "No section" else row["section"]
@@ -251,6 +254,29 @@ def test_rule_results_keep_neurodb_wording_only(built):
     assert any(r["ai_used"] == "yes" for r in ai)
     flagged = [r for r in rows if r["result"] == "flagged" and r["rule_id"] not in ctx.ai_rules]
     assert flagged and all(isinstance(r["points_lost"], Decimal) for r in flagged)
+
+
+def test_a_text_contains_flag_is_not_quoted(built):
+    """The flag of a "text contains" check writes the whole text it read (a narrative): the Rule results
+    sheet leaves its detail out, and keeps the detail of the check when it passed."""
+    from neurodb.fmm.models import RuleSetting, VisitRuleResult
+
+    rule = RuleSetting.objects.filter(type=RuleSetting.Type.REFERENCE).order_by("code").first()
+    rule.params = {**(rule.params or {}), "check_type": "string_contains", "contains": "gender"}
+    rule.save(update_fields=["params"])
+    visit = Visit.objects.get(activity_id=1722)
+    quote = "The partner said the girls were kept at home during the exams"
+    VisitRuleResult.objects.update_or_create(
+        visit=visit, rule=rule.code, defaults={"status": "fail", "detail": f"Not covered: {quote}"}
+    )
+    other = Visit.objects.get(activity_id=1723)
+    VisitRuleResult.objects.update_or_create(
+        visit=other, rule=rule.code, defaults={"status": "pass", "detail": "gender is covered."}
+    )
+    rows = {(r["visit_id"], r["rule_id"]): r for r in exports.rule_rows(_scope().visits())}
+    assert rows[(visit.key, rule.code)]["result"] == "flagged"
+    assert rows[(visit.key, rule.code)]["detail"] == ""
+    assert rows[(other.key, rule.code)]["detail"] == "gender is covered."
 
 
 def test_query_count_does_not_grow_with_rows(built):
@@ -486,6 +512,73 @@ def test_the_feed_is_throttled_per_key(built, client):
     assert response.status_code == 429 and 0 < int(response["Retry-After"]) <= 3600
     _other, other_key = _key()
     assert _feed(client, key=other_key)[0].status_code == 200  # each key its own count
+
+
+@override_settings(FMM_POWERBI_REQUESTS_PER_HOUR=2)
+def test_the_throttle_is_kept_in_the_database(built, client):
+    """The count of the hour lives on the key's row, not in one worker's memory: emptying the cache (a
+    second worker, another container) does not open the feed again; the next hour does."""
+    from django.core.cache import cache
+
+    row, key = _key()
+    assert _feed(client, key=key)[0].status_code == 200
+    cache.clear()
+    assert _feed(client, key=key)[0].status_code == 200
+    cache.clear()
+    assert _feed(client, key=key)[0].status_code == 429
+    row.refresh_from_db()
+    assert row.hour_uses == 2 and row.uses == 2
+    PowerBIKey.objects.filter(pk=row.pk).update(hour_started=row.hour_started - datetime.timedelta(hours=1))
+    assert _feed(client, key=key)[0].status_code == 200
+    row.refresh_from_db()
+    assert row.hour_uses == 1 and row.uses == 3
+
+
+def test_the_key_never_reaches_the_access_log_or_a_trace(monkeypatch):
+    """Power BI sends the key in the address (?key=): gunicorn's access log writes the request line, and a
+    request trace keeps the address. The log hides the key; the feed is not traced."""
+    import logging
+    import os
+    import runpy
+    import sys
+    import types
+
+    from django.conf import settings
+
+    from config import gunicorn_filters, telemetry
+
+    key = "s3cret-Key_value-0123456789"
+    atoms = {
+        "h": "10.0.0.1",
+        "r": f"GET /powerbi/fmm/visits.csv?year=2026&key={key} HTTP/1.1",
+        "q": f"key={key}&year=2026",
+        "a": "Microsoft.Data.Mashup",
+        "{authorization}i": f"Bearer {key}",
+    }
+    record = logging.LogRecord(
+        "gunicorn.access", logging.INFO, "", 0, '%(h)s "%(r)s" %(q)s %({authorization}i)s', (atoms,), None
+    )
+    assert gunicorn_filters.HideKeys().filter(record)
+    line = record.getMessage()
+    assert key not in line and "year=2026" in line and "/powerbi/fmm/visits.csv" in line
+    conf = runpy.run_path(str(settings.BASE_DIR / "config" / "gunicorn.conf.py"))["logconfig_dict"]
+    assert conf["filters"]["hide_keys"]["()"] == "config.gunicorn_filters.HideKeys"
+    assert "hide_keys" in conf["handlers"]["access"]["filters"]
+
+    # Application Insights: the feed's addresses are left out of the traces, beside the operator's own
+    calls = []
+    stub = types.ModuleType("azure.monitor.opentelemetry")
+    stub.configure_azure_monitor = lambda **kwargs: calls.append(kwargs)
+    monkeypatch.setitem(sys.modules, "azure.monitor.opentelemetry", stub)
+    monkeypatch.setattr(telemetry, "_configured", False)
+    monkeypatch.setenv("APPLICATIONINSIGHTS_CONNECTION_STRING", "InstrumentationKey=00000000")
+    monkeypatch.setenv("OTEL_PYTHON_EXCLUDED_URLS", "healthz")
+    monkeypatch.setenv("OTEL_PYTHON_DJANGO_EXCLUDED_URLS", "set-by-the-test")  # restored afterwards
+    monkeypatch.delenv("OTEL_PYTHON_DJANGO_EXCLUDED_URLS")
+    monkeypatch.setenv("OTEL_SERVICE_NAME", "neurodb-test")
+    monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "service.version=test")
+    telemetry.setup("web")
+    assert calls and os.environ["OTEL_PYTHON_DJANGO_EXCLUDED_URLS"] == "healthz,powerbi/fmm/"
 
 
 def test_a_session_alone_opens_nothing(built, client_viewer, client):

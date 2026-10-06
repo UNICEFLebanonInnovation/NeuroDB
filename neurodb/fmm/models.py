@@ -1282,6 +1282,10 @@ class PowerBIKey(models.Model):
     last_used_at = models.DateTimeField(null=True, blank=True)
     uses = models.PositiveIntegerField(default=0)
     revoked_at = models.DateTimeField(null=True, blank=True)
+    # the requests of the current hour (the throttle): kept here, not in one worker's memory, so the
+    # limit holds across every worker and container
+    hour_started = models.DateTimeField(null=True, blank=True, editable=False)
+    hour_uses = models.PositiveIntegerField(default=0, editable=False)
 
     class Meta:
         ordering = ("-created_at", "-pk")

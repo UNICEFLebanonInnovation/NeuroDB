@@ -26,7 +26,6 @@ from dataclasses import replace
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_not_required
-from django.core.cache import cache
 from django.db.models import F
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 from django.utils import timezone
@@ -85,18 +84,19 @@ def find_key(key: str) -> PowerBIKey | None:
 
 
 def _throttled(row: PowerBIKey) -> int:
-    """0 when ``row`` may make one more request this hour, else the seconds until it may."""
+    """0 when ``row`` may make one more request this hour (and that request is counted), else the
+    seconds until it may. The count is kept on the key's row, in single UPDATE statements, so the limit
+    holds across every worker and container (a cache would count each worker on its own)."""
     now = timezone.now()
-    slot = f"fmm:powerbi:{row.pk}:{now:%Y%m%d%H}"
-    cache.add(slot, 0, 3700)
-    try:
-        used = cache.incr(slot)
-    except ValueError:  # expired between the two calls
-        cache.set(slot, 1, 3700)
-        used = 1
-    if used <= settings.FMM_POWERBI_REQUESTS_PER_HOUR:
-        return 0
-    next_hour = now.replace(minute=0, second=0, microsecond=0) + datetime.timedelta(hours=1)
+    hour = now.replace(minute=0, second=0, microsecond=0)
+    limit = settings.FMM_POWERBI_REQUESTS_PER_HOUR
+    keys = PowerBIKey.objects.filter(pk=row.pk)
+    for _attempt in range(2 if limit > 0 else 0):  # two requests that start the hour together: count again
+        if keys.filter(hour_started=hour, hour_uses__lt=limit).update(hour_uses=F("hour_uses") + 1):
+            return 0
+        if keys.exclude(hour_started=hour).update(hour_started=hour, hour_uses=1):
+            return 0
+    next_hour = hour + datetime.timedelta(hours=1)
     return max(1, int((next_hour - now).total_seconds()))
 
 

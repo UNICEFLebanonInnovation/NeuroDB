@@ -448,12 +448,13 @@ def visit_rows(visits: QuerySet, ctx: Context | None = None) -> Iterator[dict[st
 def rule_rows(visits: QuerySet, ctx: Context | None = None) -> Iterator[dict[str, Any]]:
     """One row per rule result of ``visits``: the visit, the rule, its category, the result in words, the
     points it took off and whether an AI check gave it. The detail only for a rule whose detail NeuroDB
-    writes itself (its flag template): an AI check's explanation may quote a narrative, so it is left
-    out."""
+    writes itself (its flag template): an AI check's explanation may quote a narrative, and the flag of
+    a "text contains" check writes the whole text it read, so both are left out."""
     from .models import VisitRuleResult
-    from .rules import code_order
+    from .rules import code_order, param
 
     ctx = ctx or Context.read()
+    quoting = {code for code, r in ctx.rules.items() if param(r, "check_type") == "string_contains"}
     rows = (
         VisitRuleResult.objects.filter(visit__in=visits.values("pk"))
         .order_by("visit__key", "rule")
@@ -476,7 +477,9 @@ def rule_rows(visits: QuerySet, ctx: Context | None = None) -> Iterator[dict[str
                 "result": RESULT_WORDS.get(status, status),
                 "points_lost": max(lost, Decimal(0)),
                 "ai_used": "yes" if ai and evaluated else "no",
-                "detail": "" if ai or not detail else ctx.clean(detail, DETAIL_CHARS),
+                "detail": ""
+                if ai or not detail or (rule in quoting and status == "fail")
+                else ctx.clean(detail, DETAIL_CHARS),
             }
 
     for row in rows.iterator(chunk_size=5000):

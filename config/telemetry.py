@@ -11,6 +11,19 @@ import logging
 import os
 
 _configured = False
+# Requests never traced: the Power BI feed is read with ?key= in its address, and a trace keeps the address
+NOT_TRACED = "powerbi/fmm/"
+
+
+def exclude_key_urls() -> None:
+    """Keep the Power BI feed's addresses (and so its key) out of the request traces, beside any
+    address an operator already left out (``OTEL_PYTHON_DJANGO_EXCLUDED_URLS``, else
+    ``OTEL_PYTHON_EXCLUDED_URLS``)."""
+    current = os.environ.get(
+        "OTEL_PYTHON_DJANGO_EXCLUDED_URLS", os.environ.get("OTEL_PYTHON_EXCLUDED_URLS", "")
+    )
+    if NOT_TRACED not in current:
+        os.environ["OTEL_PYTHON_DJANGO_EXCLUDED_URLS"] = ",".join(u for u in (current, NOT_TRACED) if u)
 
 
 def setup(role: str) -> None:
@@ -22,6 +35,7 @@ def setup(role: str) -> None:
     os.environ.setdefault(
         "OTEL_RESOURCE_ATTRIBUTES", f"service.version={os.environ.get('APP_VERSION', 'dev')}"
     )
+    exclude_key_urls()
     try:
         from azure.monitor.opentelemetry import configure_azure_monitor
 
