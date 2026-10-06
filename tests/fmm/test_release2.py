@@ -205,8 +205,8 @@ def test_a_scope_without_the_new_filters_keeps_its_hash():
 def test_the_schema_is_built_from_the_versions_parts():
     parts = sections.validate(
         [
-            {"key": "summary", "label": "Summary", "format": "paragraph", "max_items": 3},
-            {"key": "action_points", "label": "Actions", "format": "bullets", "max_items": 2},
+            {"key": "summary", "label": "Summary", "format": "paragraph", "limit": 3},
+            {"key": "action_points", "label": "Actions", "format": "bullets", "limit": 2},
         ]
     )
     schema = sections.schema(parts)
@@ -347,8 +347,19 @@ def test_rule_trends_give_each_rules_monthly_share_of_points(built):
     assert metrics.rule_trends(_scope("year=2025&section=")) == {}
 
 
-def test_a_rule_trend_point_opens_the_visits_it_flagged_that_month(built, client_viewer):
+def test_the_rule_trends_load_when_their_panel_is_reached(built, client_viewer):
     html = _tab(client_viewer, "quality")
+    panel = html.split('id="fmm-rule-trends-panel"', 1)[1].split("</section>", 1)[0]
+    assert 'hx-trigger="revealed"' in panel and "rule_trends=1" in panel
+    assert 'id="fmm-chart-rule-trends"' not in html and "fmm-rule-trend-data" not in html
+    loaded = _tab(client_viewer, "quality", rule_trends="1")
+    data = re.search(r'<script id="fmm-rule-trend-data" type="application/json">(.*?)</script>', loaded, re.S)
+    assert data and '"rule_trends"' in data.group(1) and "R3 " in data.group(1)
+    assert 'data-source="fmm-rule-trend-data"' in loaded
+
+
+def test_a_rule_trend_point_opens_the_visits_it_flagged_that_month(built, client_viewer):
+    html = _tab(client_viewer, "quality", rule_trends="1")
     template = re.search(r'id="fmm-chart-rule-trends"[^>]*data-href-template="([^"]+)"', html).group(1)
     url = template.replace("&amp;", "&").replace("{drill}", "2026-05").replace("{series_drill}", "R3")
     found = client_viewer.get(url, HTTP_HX_REQUEST="true").content.decode()
@@ -356,8 +367,8 @@ def test_a_rule_trend_point_opens_the_visits_it_flagged_that_month(built, client
 
 
 def test_every_chart_can_be_saved_as_a_png(built, client_viewer):
-    for tab in ("quality", "analysis"):
-        html = _tab(client_viewer, tab)
+    for tab, extra in (("quality", {}), ("quality", {"rule_trends": "1"}), ("analysis", {})):
+        html = _tab(client_viewer, tab, **extra)
         for target in re.findall(r'data-chart-png="#([\w-]+)"', html):
             assert f'id="{target}"' in html, target
         charts = set(re.findall(r'id="(fmm-chart-[\w-]+)" class="chart', html))

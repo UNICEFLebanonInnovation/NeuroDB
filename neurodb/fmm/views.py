@@ -585,7 +585,16 @@ def _results_context(
     elif tab == "visits":
         context.update(_table(request, scope, limits, count=kpis["visits"]))
     elif tab == "quality":
-        context.update(_quality_tab(scope, when, limits, rules, places_all=_places_all(request)))
+        context.update(
+            _quality_tab(
+                scope,
+                when,
+                limits,
+                rules,
+                places_all=_places_all(request),
+                trends="rule_trends" in request.GET,
+            )
+        )
     elif tab == "analysis":
         context.update(_analysis_tab(request, scope, when, limits, rules))
     elif tab == "map":
@@ -782,11 +791,17 @@ def _places(scope: Scope, tab: str, places: dict[str, Any], rows: list, show_all
 
 
 def _quality_tab(
-    scope: Scope, when: str, limits: dict[str, int], rules: list, places_all: bool = False
+    scope: Scope,
+    when: str,
+    limits: dict[str, int],
+    rules: list,
+    places_all: bool = False,
+    trends: bool = False,
 ) -> dict[str, Any]:
     """The Quality tab: quality and visits by month, HACT Q1 by month (or the overall rating when no
     visit has a Q1 answer), the score distribution, recurring issues, places, rule analysis, the
-    issues summary and the flags per visit."""
+    issues summary and the flags per visit. The rule score trends (their own query, per rule and
+    month) are worked out only when their panel scrolls into view and asks for them (``trends``)."""
     visit_url = _visit_url()
     q1 = metrics.hact_q1_by_month(scope, when, limits)
     q1_question = metrics.q1_question(when)
@@ -796,6 +811,8 @@ def _quality_tab(
         q1_key = "hact_q1"
     q1_template = _drill_template(scope, "month", q1_key) + f"&month={{drill}}&{q1_key}={{series_drill}}"
     buckets = metrics.score_buckets(scope, when, limits)
+    # the trends first, when asked for: the rule figures below are then summed from the same query
+    rule_trends = metrics.rule_trends(scope, rules, when) if trends else None
     issues = metrics.issues_summary(scope, when, limits)
     places = metrics.locations(scope, when, limits)
     place_rows = [  # the last visit's date, written once per place shown
@@ -817,8 +834,9 @@ def _quality_tab(
             "monthly_volume": metrics.monthly_volume(scope, when, limits),
             "q1": {k: v for k, v in (q1 or {}).items() if k != "totals"},
             "buckets": buckets["items"],
-            "rule_trends": metrics.rule_trends(scope, rules, when),
         },
+        "rule_trends": None if rule_trends is None else {"rule_trends": rule_trends},
+        "rule_trends_query": _page_query(scope, tab="quality", rule_trends="1"),
         "rule_trend_template": _drill_template(scope, "month", "rule") + "&month={drill}&rule={series_drill}",
         "month_template": _drill_template(scope, "month") + "&month={drill}",
         "q1_key": q1_key,

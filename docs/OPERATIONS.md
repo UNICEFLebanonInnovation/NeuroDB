@@ -1397,7 +1397,8 @@ is hidden.
   top recurring issues (flags grouped by rule and reason, with their visits and mean urgency), the
   places visited (top 10, *Show all*), each rule's visits flagged out of the visits it checked ("not
   available" when the checklist answers are missing, see Fields found), the rule score trends (per
-  rule, the share of its maximum points earned by the visits of each month), the quality issues
+  rule, the share of its maximum points earned by the visits of each month; worked out when the panel
+  scrolls into view), the quality issues
   summary (rating-quality flags, Not monitored: planned, not conducted, and visits with three or more
   flags) and the flags per visit. Every chart has *Download PNG*.
 - **Analysis tab**: highlights (visits, reported, governorates covered out of the gazetteer's,
@@ -1613,8 +1614,9 @@ it was scored with.
 - **Caching**: each block is kept 10 minutes in the web process's cache, under the filter, the last
   refresh and its rules version, and the day; a refresh, a new rules version or midnight shows at once.
   A drill into the reviews is never kept (a review saved a minute ago counts at once). Each tab and the
-  visit window load on their own; the map, the brief, the entity table and the long place lists load
-  only when shown (the entity table when it scrolls into view, a place list when *Show all* opens).
+  visit window load on their own; the map, the brief, the entity table, the rule score trends and the
+  long place lists load only when shown (the entity table and the rule trends when they scroll into
+  view, a place list when *Show all* opens).
 
 ### How Monitoring insights differs from the overview
 
@@ -1862,8 +1864,8 @@ and the chat reads "Chat is not available: the AI is switched off."
 
 - **Prompt versions** (admin → *Monitoring insights* → *Prompt versions*, Administrators only; other
   staff read). A version holds the editable instructions of the brief and of the chat, the parts of
-  the brief (key, label, paragraph or bullets, and the most sentences or bullets; the action points
-  are the part keyed `action_points`), the chat's starter questions (one per line, at most 8), the
+  the brief (key, label, paragraph or bullets, and the limit: the most sentences or bullets; the
+  action points are the part keyed `action_points`), the chat's starter questions (one per line, at most 8), the
   model (blank: `FMM_MODEL`), the effort, the output limits (they **include the reasoning tokens**:
   8,000 for a brief in v2, 6,000 per chat call), temperature and top-p (empty: not sent), `narr`,
   `comp` and the per-person limits (5 briefs and 20 questions a day, 4 chat rounds, 120 seconds). v1
@@ -2081,7 +2083,9 @@ records) and holds these limits (`tests/fmm/test_performance.py`): the full refr
 with a peak traced memory under 200 MB (it runs inside the Datamart sync's process), a scores-only
 refresh under 15 seconds, and each tab under 300 ms of server time on a cold cache. On the build
 machine it measured 28-33 s and 92-94 MB for the full refresh, 6-9 s for scores-only, and 40-230 ms
-per tab (the Quality and Analysis tabs are the slowest); the entity table, which loads when it
+per tab (the Quality and Analysis tabs are the slowest); with Release 2 (the briefing, the rule score
+trends, which load when their panel scrolls into view) 36-39 s, 95 MB and 8 s, and 60-280 ms per tab
+(Quality 254 ms, Analysis 229 ms; Release 1 measured 282 and 234 ms the same day); the entity table, which loads when it
 scrolls into view, about 210 ms more, and a place list's *Show all* about 40 ms. The *Preview effect* of a rule change
 rescores the year's visits twice in memory inside the admin request: about 9-10 s at that size. If the
 refresh's memory ever grows past what the sync's process can afford, set
@@ -2198,7 +2202,7 @@ Release 2 adds no environment setting. Its settings are kept in the admin, versi
 | Score settings › *Recency days* | `180` | Days over which the recency part falls from 100 to 0 (1 to 3,650). |
 | Score settings › *Urgency red / amber* | `70` / `40` | High urgency from red; Medium (amber) from amber. |
 | Score settings › *Follow-up days*, *Report late days* | `14`, `30` | The follow-up signals on the visit page (no longer part of urgency). |
-| Prompt version › *Parts of the brief* | FMS's five Lebanon parts (v2) | Key, label, paragraph or bullets, and the most sentences or bullets (1-30) of each part, at most 8 parts; the brief's answer format is built from it. |
+| Prompt version › *Parts of the brief* | FMS's five Lebanon parts (v2) | Key, label, paragraph or bullets, and the limit (the most sentences or bullets, 1-30) of each part, at most 8 parts; the brief's answer format is built from it. |
 | Prompt version › *Chat starter questions* | the four FMS questions | One per line, at most 8, each at most 200 characters. |
 | Prompt version › *Compliance depth* (`comp`) | `15` | How many of the most frequent quality flags the AI receives (0-40). |
 

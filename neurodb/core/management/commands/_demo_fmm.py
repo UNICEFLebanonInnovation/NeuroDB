@@ -46,7 +46,11 @@ rest of the demo does not move; the 50 findings ``_demo_etools`` wrote stay exac
   activities and CP outputs of each activity;
 - action points raised from about half of the off-track or constrained visits (``datamart_id``
   8001+, linked by the activity id; some open and overdue, some high priority), 2 linked by the
-  activity reference only, and 1 that matches no visit.
+  activity reference only, and 1 that matches no visit;
+- one poorly written report that ended three days ago (activity 75, ``datamart_id`` 2201+, its own
+  ``random.Random(1775)``): Off track with a one-line narrative and an "n/a" one, Q1 "On track"
+  against it, Q3 "n/a" and most questions left unanswered, so the page has a red (high urgency)
+  visit under FMS's urgency formula.
 
 The new findings are linked to their programme documents as the Datamart sync would link them
 (``datamart.fm.relink_findings``); the 50 findings of ``_demo_etools`` are linked by the Monitoring
@@ -157,6 +161,7 @@ def seed_fmm(today: dt.date) -> None:
     _options()
     _programme_activities(rng, reported)
     _action_points(rng, today, reported, q1_labels)
+    _poor_report(today, pcas, sites)
     fm.relink_findings(dm.MonitoringFinding.objects.filter(datamart_id__gt=50))
 
 
@@ -458,6 +463,72 @@ def _new_activities(rng, today, pcas, sites, districts, narratives) -> list[dict
             rows.append(row)
         visits.append(_visit(activity_id, f"FM-{year}-{activity_id:03d}", status, end, pca, rows))
     return visits
+
+
+def _poor_report(today: dt.date, pcas: list[PCA], sites: list[dm.MonitoringSite]) -> None:
+    """Activity 75: a completed visit that ended three days ago, whose report fails most quality rules
+    (R2 most questions unanswered, R3 Q1 against the rating, R4 short and "n/a" narratives, R5 Q3
+    "n/a"): with a score near 27, a recent end and four flags, its urgency is red (about 86)."""
+    rng = random.Random(1775)  # noqa: S311 - its own draws: the rest of the demo does not move
+    pca, site = rng.choice(pcas), rng.choice(sites)
+    end = max(dt.date(today.year, 1, 1), today - dt.timedelta(days=3))
+    reference = f"FM-{today.year}-075"
+    lead, team, office = _team(rng)
+    rows = []
+    for n, (kind, text) in enumerate(
+        (("pd", SHORT_OFF.format(site=site.name)), ("partner", PLACEHOLDER)), 2201
+    ):
+        entity, entity_type = _entity(kind, pca)
+        row = dm.MonitoringFinding(
+            datamart_id=n,
+            partner=pca.partner,
+            vendor_number=pca.partner.vendor_number if pca.partner else "",
+            entity=entity,
+            entity_type=entity_type,
+            monitoring_activity=reference,
+            reference_number=f"FM/{today.year}/75",
+            status="completed",
+            overall_finding_rating="Off Track",
+            narrative_finding=text,
+            start_date=end - dt.timedelta(days=1),
+            end_date=end,
+            location_name=site.parent.name,
+            location_pcode=site.parent.p_code,
+            location_source_id=site.parent.id,
+            location=site.parent,
+            site=site.name,
+            monitoring_site=site,
+            monitoring_activity_id=75,
+            is_programmatic_visit=True,
+            is_remote_monitoring=False,
+            visit_lead=lead,
+        )
+        row.data = _record(row, team, office)
+        row.save()
+        rows.append(row)
+    partner = pca.partner
+    pd_entity, pd_type = _entity("pd", pca)
+    answers = [(Q1, 1, pd_entity, pd_type, "On track"), (Q3, 3, "", "", PLACEHOLDER), (PSEA, 4, "", "", "No")]
+    answers += [(q, 5 + k, "", "", "Yes" if k == 0 else "") for k, q in enumerate(OTHER_QUESTIONS[:6])]
+    for n, ((question_id, text), order, entity, entity_type, answer) in enumerate(answers, 59001):
+        record = {
+            "id": n,
+            "monitoring_activity_id": 75,
+            "monitoring_activity": reference,
+            "monitoring_activity_end_date": end.isoformat(),
+            "vendor_number": partner.vendor_number if partner else "",
+            "country_name": COUNTRY,
+            "question_id": question_id,
+            "question_text": text,
+            "is_hact": question_id == Q1[0],
+            "order": order,
+            "entity": entity,
+            "entity_type": entity_type,
+            "answer": answer,
+            "summary": "",
+            "method": rng.choice(METHODS),
+        }
+        _document("fm_questions", record, partner=partner, title=reference, date=end)
 
 
 # ------------------------------------------------------------------------------ documents

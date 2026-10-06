@@ -77,6 +77,13 @@ def cached(scope: Scope, block: str, compute: Callable[[], Any], when: str | Non
     return value
 
 
+def kept(scope: Scope, block: str, when: str | None = None) -> Any:
+    """What :func:`cached` keeps for ``scope``'s ``block`` (None when nothing is kept), never computed."""
+    if settings.DEBUG or any(key == "review" for key, _value in scope.drill):
+        return None
+    return cache.get(f"fmm:v2:{scope.hash()}:{when if when is not None else stamp()}:{block}")
+
+
 # The aggregates the average quality is computed from, so a block that aggregates the visits anyway
 # reads them in the same query (:func:`mean_quality`)
 QUALITY_AGGREGATES = {
@@ -400,12 +407,15 @@ class Tally:
         }
 
 
+_BUCKET_KEYS = tuple(CHART_BUCKETS)  # in order: bucket n holds the scores from 10n to below 10(n + 1)
+
+
 def _bucket(quality: Decimal) -> str:
-    """The score bucket of a score, as the ``bucket`` drill-down reads it (80-100 holds 100)."""
-    for drill, (low, high) in CHART_BUCKETS.items():
-        if quality >= low and (quality < high or (high == 100 and quality <= high)):
-            return drill
-    return ""
+    """The score bucket of a score (0 to 100), as the ``bucket`` drill-down reads it (90-100 holds
+    100): worked out, not searched, as the one pass over the visits calls it for every scored one."""
+    if quality < 0 or quality > 100:
+        return ""
+    return _BUCKET_KEYS[min(int(quality // 10), len(_BUCKET_KEYS) - 1)]
 
 
 # The columns of the one pass over the scope's visits most blocks are computed from
@@ -474,7 +484,8 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
             quality = _quality(quality)
             rating = rating or "not_monitored"
             reported = group == "reported"
-            counted = counted_rating(rating, group)
+            # counted_rating(rating, group), written out: it runs for every visit of the scope
+            counted = "" if rating == "not_monitored" and not reported else rating
             add_everyone(quality, band, counted)
             if counted in by_rating:
                 by_rating[counted].add(quality, band, counted)
@@ -923,61 +934,78 @@ def locations(scope: Scope, when: str | None = None, limits: dict | None = None)
     return {"rows": rows, "total": data["places_total"], "unlinked": data["no_place"]}
 
 
-def rule_months(scope: Scope, when: str | None = None) -> list[dict[str, Any]]:
-    """Per rule and month of the visits' end date, over the scope's visits: the visits in each result
-    state, and the points earned (each capped at its maximum) over the points evaluated. One query,
-    which both the rule figures (:func:`rule_stats`) and the rule trends (:func:`rule_trends`) read."""
+def _rule_rows(scope: Scope, by_month: bool) -> list[dict[str, Any]]:
+    """Per rule (and month of the visits' end date, ``by_month``), over the scope's visits: the visits
+    in each result state, and the points earned (each capped at its maximum) over the points
+    evaluated. One query."""
     from django.db.models import DecimalField
     from django.db.models.functions import Cast, Least, TruncMonth
 
     from .models import VisitRuleResult
     from .rules import STATES
 
-    def compute() -> list[dict[str, Any]]:
-        evaluated = Q(status__in=("pass", "fail"), max_points__gt=0)
-        rows = (
-            VisitRuleResult.objects.filter(visit__in=scope.visits().values("pk"))
-            .order_by()
-            .annotate(month=TruncMonth("visit__end_date"))
-            .values("rule", "month")
-            .annotate(
-                **{state: Count("pk", filter=Q(status=state)) for state in STATES},
-                earned=Sum(
-                    Least("points", Cast("max_points", DecimalField(max_digits=5, decimal_places=1))),
-                    filter=evaluated,
-                ),
-                points_max=Sum("max_points", filter=evaluated),
-                points_n=Count("pk", filter=evaluated),
-            )
+    evaluated = Q(status__in=("pass", "fail"), max_points__gt=0)
+    rows = VisitRuleResult.objects.filter(visit__in=scope.visits().values("pk")).order_by()
+    if by_month:
+        rows = rows.annotate(month=TruncMonth("visit__end_date")).values("rule", "month")
+    else:
+        rows = rows.values("rule")
+    return list(
+        rows.annotate(
+            **{state: Count("pk", filter=Q(status=state)) for state in STATES},
+            earned=Sum(
+                Least("points", Cast("max_points", DecimalField(max_digits=5, decimal_places=1))),
+                filter=evaluated,
+            ),
+            points_max=Sum("max_points", filter=evaluated),
+            points_n=Count("pk", filter=evaluated),
         )
-        return [{**row, "month": row["month"].strftime("%Y-%m") if row["month"] else ""} for row in rows]
+    )
+
+
+def rule_months(scope: Scope, when: str | None = None) -> list[dict[str, Any]]:
+    """:func:`_rule_rows` per rule and month (``"2026-05"``), which the rule trends read, and the rule
+    figures too when the trends were read first (the Quality tab)."""
+
+    def compute() -> list[dict[str, Any]]:
+        return [
+            {**row, "month": row["month"].strftime("%Y-%m") if row["month"] else ""}
+            for row in _rule_rows(scope, by_month=True)
+        ]
 
     return cached(scope, "rule_months", compute, when)
 
 
 def rule_stats(scope: Scope, when: str | None = None) -> dict[str, dict[str, Any]]:
     """Per rule over the scope's visits: the visits in each result state, and the points earned (each
-    capped at its maximum) over the points evaluated (:func:`rule_months`, summed)."""
+    capped at its maximum) over the points evaluated: the rule months summed when they are kept
+    already, else a query of its own without the months (cheaper: no join to the visits' dates)."""
     from .rules import STATES
 
-    out: dict[str, dict[str, Any]] = {}
-    for row in rule_months(scope, when):
-        s = out.get(row["rule"])
-        if s is None:
-            s = out[row["rule"]] = {
-                **dict.fromkeys(STATES, 0),
-                "earned": None,
-                "points_max": None,
-                "points_n": 0,
-            }
-        for state in STATES:
-            s[state] += row[state]
-        s["points_n"] += row["points_n"]
-        if row["earned"] is not None:
-            s["earned"] = (s["earned"] or 0) + row["earned"]
-        if row["points_max"] is not None:
-            s["points_max"] = (s["points_max"] or 0) + row["points_max"]
-    return out
+    def compute() -> dict[str, dict[str, Any]]:
+        months = kept(scope, "rule_months", when)
+        if months is None:
+            return {row.pop("rule"): row for row in _rule_rows(scope, by_month=False)}
+        out: dict[str, dict[str, Any]] = {}
+        for row in months:
+            s = out.get(row["rule"])
+            if s is None:
+                s = out[row["rule"]] = {
+                    **dict.fromkeys(STATES, 0),
+                    "earned": None,
+                    "points_max": None,
+                    "points_n": 0,
+                }
+            for state in STATES:
+                s[state] += row[state]
+            s["points_n"] += row["points_n"]
+            if row["earned"] is not None:
+                s["earned"] = (s["earned"] or 0) + row["earned"]
+            if row["points_max"] is not None:
+                s["points_max"] = (s["points_max"] or 0) + row["points_max"]
+        return out
+
+    return cached(scope, "rules", compute, when)
 
 
 NEEDS_ANSWERS = ("R2", "R3", "R5")
