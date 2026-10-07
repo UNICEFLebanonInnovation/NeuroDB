@@ -1190,17 +1190,22 @@ function savePng(event) {
   window.Plotly.downloadImage(el, { format: "png", filename: button.dataset.filename || "chart", width, height });
 }
 /** The rows of a list of HTML bars (data-png-row under the element data-rows-png names) as plain values: the label,
- * the figure and its colour, the bar's filled share and colour, and the figure written inside the bar. */
+ * the figure and its colour, the bar's filled share and colour, and the figure written inside the bar. A pill in the
+ * label ("flag only") is written after it in brackets, not run into the label's words. */
 export function barRows(list) {
   const style = (el, key) => (el && typeof globalThis.getComputedStyle === "function" ? globalThis.getComputedStyle(el)[key] || "" : "");
+  const words = (text) => (text || "").replace(/\s+/g, " ").trim();
   return Array.from(list.querySelectorAll("[data-png-row]")).map((row) => {
     const label = row.querySelector(".fmm-bar__label");
     const value = row.querySelector(".fmm-bar__value");
     const fill = row.querySelector(".fmm-bar__fill");
     const share = fill ? parseFloat(fill.style.width) : 0;
+    const pills = Array.from(label?.querySelectorAll?.(".pill") || []).map((p) => words(p.textContent)).filter(Boolean);
+    let text = label?.textContent || "";
+    for (const pill of pills) text = text.replace(pill, " ");
     return {
-      label: (label?.textContent || "").replace(/\s+/g, " ").trim(),
-      value: (value?.textContent || "").replace(/\s+/g, " ").trim(),
+      label: words(text) + (pills.length ? ` (${pills.join(", ")})` : ""),
+      value: words(value?.textContent),
       valueColor: style(value, "color"),
       share: Number.isFinite(share) ? Math.min(Math.max(share, 0), 100) : 0,
       fillColor: style(fill, "backgroundColor"),

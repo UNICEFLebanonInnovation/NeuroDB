@@ -179,7 +179,7 @@ DRILL_LABELS = {
     "hact_q1": gettext_lazy("HACT Q1"),
     "bucket": gettext_lazy("Quality score"),
     "flag": gettext_lazy("Flag"),
-    "flags": gettext_lazy("Flags per visit"),
+    "flags": gettext_lazy("Flag count"),  # the flag count distribution's rows
     "urgency": gettext_lazy("Urgency"),
     "location": gettext_lazy("Location"),
     "issue": gettext_lazy("Issue"),

@@ -674,7 +674,7 @@ def test_drill_chips_name_the_place_and_the_issue(built, client_viewer):
     assert "Location: Zahle town" in html
     assert "Issue: Incomplete monitoring report — missing: Q2 – Activities monitored" in html
     html = client_viewer.get(PAGE, {"section": "", "flags": "3+"}).content.decode()
-    assert "Flags per visit: 3 or more" in html
+    assert "Flag count: 3 or more" in html  # the panel's name (FMS)
 
 
 def test_a_capped_place_list_does_not_claim_to_show_all(built, client_viewer, monkeypatch):

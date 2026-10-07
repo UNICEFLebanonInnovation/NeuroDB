@@ -294,13 +294,16 @@ def test_every_bar_list_has_a_png_and_a_pdf_button(built, client_viewer):
 BARS_SCRIPT = """
 const charts = await import(process.argv[1]);
 const node = (text, extra = {}) => ({ textContent: text, style: {}, ...extra });
-const row = (label, value, width, inside) => ({
+const row = (label, value, width, inside, pill) => ({
   querySelector: (sel) => ({
-    ".fmm-bar__label": node(label), ".fmm-bar__value": node(value),
+    ".fmm-bar__label": node(label, pill ? { querySelectorAll: () => [node(pill)] } : {}), ".fmm-bar__value": node(value),
     ".fmm-bar__fill": node("", { style: { width } }), ".fmm-bar__pct": inside ? node(inside) : null,
   })[sel] ?? null,
 });
-const list = { querySelectorAll: () => [row(" R1  Report ", "15 / 55 visits flagged", "73%", ""), row("3+ flags", "17 visits", "31%", "31%")] };
+const list = { querySelectorAll: () => [
+  row(" R1  Report ", "15 / 55 visits flagged", "73%", ""), row("3+ flags", "17 visits", "31%", "31%"),
+  row("R23 PD Reference Locations flag only", "50 / 55 visits flagged", "9%", "", "flag only"),
+] };
 const B = charts.BUILDERS;
 const trend = B["share-lines"]({ dataset: { yTitle: "% of max score" }, clientWidth: 900 }, {
   labels: ["Jan 2026", "Feb 2026"], series: { "R1 A": [100, 90], "R2 B": [80, null] },
@@ -328,6 +331,7 @@ def test_the_bar_lists_and_the_rule_trends_draw_as_fms():
     assert data["rows"] == [
         ["R1 Report", "15 / 55 visits flagged", 73, ""],
         ["3+ flags", "17 visits", 31, "31%"],
+        ["R23 PD Reference Locations (flag only)", "50 / 55 visits flagged", 9, ""],  # the pill apart
     ]
     assert data["trend"] == [["lines+markers", "spline"], ["lines+markers", "spline"]]
     assert data["legend"] == [1, "center"] and data["yTitle"] == "% of max score"
@@ -376,6 +380,8 @@ def test_the_drill_window_shows_fms_columns_and_no_people(built, client_viewer):
         "Flags",
     ]
     assert "Amel Association" in html  # the partner's full name
+    # eleven columns: the window is extra-large on a wide screen, not the visit window's large one
+    assert ".modal-dialog:has(.fmm-drill) { max-width: 1140px; }" in (STATIC / "css" / "app.css").read_text()
     assert "@" not in _text(html.split("<tbody>", 1)[1])
     # with an entity type filter, the entity is the row that was counted
     narrowed = client_viewer.get(

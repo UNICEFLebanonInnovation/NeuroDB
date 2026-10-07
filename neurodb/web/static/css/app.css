@@ -992,6 +992,8 @@ tr.row--amber { --row-tint: color-mix(in srgb, var(--nd-warning-soft) 70%, trans
   .modal-dialog:has(.visit-modal) { max-width: none; width: 100vw; height: 100%; margin: 0; }
   .modal-dialog:has(.visit-modal) .modal-content { height: 100%; border: 0; border-radius: 0; }
 }
+/* the drill-down window lists eleven columns (FMS §8.6): as wide as an extra-large window on a wide screen */
+@media (min-width: 1200px) { .modal-dialog:has(.fmm-drill) { max-width: 1140px; } }
 .fmm-info { cursor: help; color: var(--nd-muted); font-weight: 400; }
 .fmm-png { font-size: 0.75rem; }
 
