@@ -70,11 +70,14 @@ def test_quality_and_visits_by_month(built):
     assert values["2026-05"] == 93.0 and values["2026-01"] is None and values["2026-09"] is None
     reports = dict(zip(quality["drill"]["labels"], quality["indicators"][0]["reports"], strict=True))
     assert reports["2026-09"] == 0 and sum(reports.values()) == 6  # reported visits only
-    assert quality["bar_name"] == "Average quality" and quality["line_name"] == "Reports"
+    assert quality["bar_name"] == "Average quality score" and quality["line_name"] == "Total reports"
     volume = metrics.monthly_volume(_scope())
     visits = dict(zip(volume["drill"]["labels"], volume["indicators"][0]["values"], strict=True))
     assert sum(visits.values()) == 8 and visits["2026-09"] == 1  # whatever their status
-    assert volume["line_unit"] == "%"
+    assert volume["line_unit"] == "%" and (volume["bar_name"], volume["line_name"]) == (
+        "Visit count",
+        "Avg quality %",
+    )
     assert metrics.monthly_volume(_scope(year="2025")) == {} == metrics.monthly_quality(_scope(year="2025"))
 
 
@@ -91,7 +94,7 @@ def test_hact_q1_by_month_counts_visits_by_their_worst_q1(built):
         "Off track": "off_track",
     }
     assert sum(sum(v) for v in data["series"].values()) == Visit.objects.exclude(hact_q1="").count() == 5
-    assert data["colors"]["Off track"] == "--nd-danger"
+    assert data["colors"]["Off track"] == "--nd-rating-off-track"  # FMS's rating colours
 
 
 def test_without_q1_answers_the_chart_counts_the_overall_rating(built):

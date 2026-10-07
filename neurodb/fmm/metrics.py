@@ -21,6 +21,7 @@ version>:<day>:<block>`` (:func:`cached`), so a refresh, a rescore or a new day 
 from __future__ import annotations
 
 import datetime
+import re
 from collections import Counter
 from collections.abc import Callable
 from decimal import Decimal
@@ -283,7 +284,7 @@ def briefing(scope: Scope, when: str | None = None, limits: dict[str, int] | Non
         for ids in visits.filter(urgency__gte=limits["red"]).values_list("partner_ids", flat=True):
             partners.update(set(ids or ()))
         names = {
-            p.pk: p.short_name or p.name
+            p.pk: p.name or p.short_name
             for p in PartnerOrganization.objects.filter(pk__in=list(partners)).only(
                 "pk", "name", "short_name"
             )
@@ -325,16 +326,84 @@ def briefing(scope: Scope, when: str | None = None, limits: dict[str, int] | Non
     return cached(year, "briefing", compute, when)
 
 
+# ------------------------------------------------------------------------------------------ critical items
+CRITICAL_ITEMS = 10  # red visits listed
+CRITICAL_AMBER = 5  # amber visits listed when no visit is red
+_OFFICE_IN_FLAG = re.compile(r"field office '([^']+)'")
+
+
+def critical_items(scope: Scope, when: str | None = None, limits: dict | None = None) -> dict[str, Any]:
+    """Critical items requiring attention (FMS §7.3): the scored visits of urgency at or above red (the
+    morning briefing's critical flags), most urgent first, at most ``CRITICAL_ITEMS``; when no visit is
+    red, the ``CRITICAL_AMBER`` most urgent amber visits. Each with its partner, rating, urgency and one
+    line per rule it failed: the rule's stored flag (for an AI check, the flag and the AI's explanation),
+    except R19, which says how many monitors are not on the field office's staff list (never who).
+    ``band`` is "red", "amber" or "" (nothing to list)."""
+    from .models import VisitRuleResult
+    from .rules import code_order
+
+    limits = limits or thresholds()
+
+    def compute() -> dict[str, Any]:
+        visits = scope.visits().select_related("partner").order_by("-urgency", "-end_date", "key")
+        fields = ("pk", "key", "label", "activity_id", "rating", "status_group", "urgency", "offices")
+        fields += ("partner__name", "pd_numbers", "cp_outputs")
+        # one query: the most urgent visits from amber up, the red ones first (most urgent first)
+        found = list(visits.filter(urgency__gte=limits["amber"]).only(*fields)[:CRITICAL_ITEMS])
+        red = [v for v in found if v.urgency >= limits["red"]]
+        band, found = ("red", red) if red else ("amber", found[:CRITICAL_AMBER])
+        if not found:
+            return {"band": "", "items": []}
+        lines: dict[int, list[dict[str, Any]]] = {v.pk: [] for v in found}
+        results = VisitRuleResult.objects.filter(visit_id__in=list(lines), status="fail").values_list(
+            "visit_id", "rule", "detail", "measure"
+        )
+        for visit_id, rule, detail, measure in results:
+            lines[visit_id].append({"rule": rule, **_flag_line(rule, detail, measure)})
+        items = []
+        for v in found:
+            entity = (v.partner.name if v.partner_id else "") or next(iter(v.pd_numbers or v.cp_outputs), "")
+            items.append(
+                {
+                    "key": v.key,
+                    "name": _visit_name(v.key, v.label, v.activity_id),
+                    "entity": entity,
+                    "rating": v.rating,
+                    "status_group": v.status_group,
+                    "urgency": v.urgency,
+                    "level": "high" if v.urgency >= limits["red"] else "medium",
+                    "lines": sorted(lines[v.pk], key=lambda line: code_order(line["rule"])),
+                }
+            )
+        return {"band": band, "items": items}
+
+    return cached(scope, f"critical_items:{limits['red']}:{limits['amber']}", compute, when)
+
+
+def _flag_line(rule: str, detail: str, measure: float | None) -> dict[str, Any]:
+    """One line of a critical item: the stored flag without its "R3: " prefix, split at its first dash
+    (an AI check's flag holds the AI's explanation after it); for R19, the number of monitors not on
+    the staff list and the field office (``r19``), never an address."""
+    if rule == "R19":
+        office = _OFFICE_IN_FLAG.search(detail or "")
+        return {"r19": {"n": int(measure or 1), "office": office.group(1) if office else ""}}
+    text = (detail or "").strip()
+    if text.startswith(f"{rule}:"):
+        text = text[len(rule) + 1 :].strip()
+    message, _dash, explanation = text.partition(" — ")
+    return {"message": message, "explanation": explanation}
+
+
 # ------------------------------------------------------------------------------------------ shared
 BANDS = ("high", "medium", "low")
 BAND_LABELS = {"high": "High", "medium": "Medium", "low": "Low"}
 BAND_COLORS = {"high": "--nd-success", "medium": "--nd-warning", "low": "--nd-danger"}
 RATINGS = ("on_track", "constrained", "off_track", "not_monitored")
-RATING_COLORS = {
-    "on_track": "--nd-success",
-    "constrained": "--nd-warning",
-    "off_track": "--nd-danger",
-    "not_monitored": "--nd-muted",
+RATING_COLORS = {  # FMS's rating colours (app.css), the same in the HACT Q1 and the rating charts
+    "on_track": "--nd-rating-on-track",
+    "constrained": "--nd-rating-constrained",
+    "off_track": "--nd-rating-off-track",
+    "not_monitored": "--nd-rating-not-monitored",
 }
 FLAG_ROWS = (  # (drill, label, meter colour)
     ("0", "No flags", "success"),
@@ -722,8 +791,9 @@ def _month_label(day: datetime.date) -> str:
 
 
 def monthly_quality(scope: Scope, when: str | None = None, limits: dict | None = None) -> dict[str, Any]:
-    """Block 4: the average quality of the visits that ended each month (bars) and the reported visits
-    (line); ``{}`` when no visit of the scope is scored. A bar opens the visits of its month."""
+    """Block 4, quality score trends: the average quality of the visits that ended each month and the
+    reported visits (two lines, each on its own axis); ``{}`` when no visit of the scope is scored. A
+    point opens the visits of its month."""
     axis, months = _months(scope, when, limits)
     if not any(m["q_n"] for m in months.values()):
         return {}
@@ -736,22 +806,22 @@ def monthly_quality(scope: Scope, when: str | None = None, limits: dict | None =
         "indicators": [
             {
                 "id": "q",
-                "label": "Average quality",
+                "label": "Average quality score",
                 "unit": "%",
                 "values": values,
                 "reports": [months.get(k, {}).get("reported", 0) for k in keys],
             }
         ],
-        "bar_name": "Average quality",
-        "line_name": "Reports",
+        "bar_name": "Average quality score",
+        "line_name": "Total reports",
         "line_unit": "reports",
         "drill": {"labels": keys, "series": {}},
     }
 
 
 def monthly_volume(scope: Scope, when: str | None = None, limits: dict | None = None) -> dict[str, Any]:
-    """Block 5: the visits that ended each month (bars, whatever their status) and their average
-    quality (line); ``{}`` when the scope has no visit."""
+    """Block 5, monitoring volume over time: the visits that ended each month (bars, whatever their
+    status) and their average quality (line); ``{}`` when the scope has no visit."""
     axis, months = _months(scope, when, limits)
     if not months:
         return {}
@@ -761,7 +831,7 @@ def monthly_volume(scope: Scope, when: str | None = None, limits: dict | None = 
         "indicators": [
             {
                 "id": "visits",
-                "label": "Visits",
+                "label": "Visit count",
                 "unit": "visits",
                 "values": [months.get(k, {}).get("visits", 0) for k in keys],
                 "reports": [
@@ -770,8 +840,8 @@ def monthly_volume(scope: Scope, when: str | None = None, limits: dict | None = 
                 ],
             }
         ],
-        "bar_name": "Visits",
-        "line_name": "Average quality",
+        "bar_name": "Visit count",
+        "line_name": "Avg quality %",
         "line_unit": "%",
         "drill": {"labels": keys, "series": {}},
     }

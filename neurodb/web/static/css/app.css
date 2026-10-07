@@ -977,8 +977,136 @@ tr.row--amber { --row-tint: color-mix(in srgb, var(--nd-warning-soft) 70%, trans
   .modal-dialog:has(.visit-modal) .modal-content { height: 100%; border: 0; border-radius: 0; }
 }
 .fmm-info { cursor: help; color: var(--nd-muted); font-weight: 400; }
-.fmm-briefing__tiles { grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); }
 .fmm-png { font-size: 0.75rem; }
+
+/* Monitoring insights as FMS draws it: tinted briefing tiles with coloured figures, red and band-tinted chips,
+   the brief's generation settings, the critical items, the HACT Q1 drill-down pills and the chart colours. The
+   tints and inks are tokens, each with its dark-theme step. */
+:root {
+  --fmm-tint-red: #fdf0ef;
+  --fmm-tint-yellow: #fefbe8;
+  --fmm-tint-blue: #eef3fe;
+  --fmm-tint-cyan: #ebfafc;
+  --fmm-tint-purple: #f6f1fe;
+  --fmm-tint-indigo: #eff0fe;
+  --fmm-tint-green: #ecfaf3;
+  --fmm-ink-amber: #a66a00;
+  --fmm-ink-blue: #2f5fd0;
+  --fmm-ink-cyan: #0b7285;
+  --fmm-ink-purple: #7b3fe4;
+  --fmm-ink-indigo: #4f46e5;
+  --fmm-ink-on-fill: #ffffff;
+  --nd-chart-blue: #2f5fd0;
+  --nd-chart-green: #3fae7a;
+  --nd-chart-sky: #6cb4e6;
+  --nd-rating-on-track: #5cb85c;
+  --nd-rating-constrained: #f0b429;
+  --nd-rating-off-track: #d9534f;
+  --nd-rating-not-monitored: #9aa3af;
+  --fmm-pill-on-track: #3a873a;
+  --fmm-pill-constrained: #a3640a;
+  --fmm-pill-off-track: #c4302b;
+  --fmm-pill-not-monitored: #6b7280;
+}
+[data-bs-theme="dark"] {
+  --fmm-tint-red: #2b1819;
+  --fmm-tint-yellow: #2a2512;
+  --fmm-tint-blue: #172138;
+  --fmm-tint-cyan: #10292f;
+  --fmm-tint-purple: #231b36;
+  --fmm-tint-indigo: #1c1e3a;
+  --fmm-tint-green: #13291e;
+  --fmm-ink-amber: #f0b04a;
+  --fmm-ink-blue: #8fb0f5;
+  --fmm-ink-cyan: #5fd0e3;
+  --fmm-ink-purple: #bba1f7;
+  --fmm-ink-indigo: #a5a9f7;
+  --fmm-ink-on-fill: #0f141b;
+  --nd-chart-blue: #6f97f0;
+  --nd-chart-green: #4cc58c;
+  --nd-chart-sky: #4f9fd6;
+  --nd-rating-on-track: #67c267;
+  --nd-rating-constrained: #f2bf45;
+  --nd-rating-off-track: #e8645f;
+  --nd-rating-not-monitored: #8a94a3;
+  --fmm-pill-on-track: #3a873a;
+  --fmm-pill-constrained: #a3640a;
+  --fmm-pill-off-track: #c4302b;
+  --fmm-pill-not-monitored: #5d6573;
+}
+.fmm-briefing__tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 992px) { .fmm-briefing__tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.fmm-tile { text-align: center; padding: 1rem 0.75rem; background: var(--fmm-tile-bg, var(--nd-surface)); }
+.fmm-tile .kpi__label { color: var(--nd-text); font-weight: 500; }
+.fmm-tile .kpi__value { color: var(--fmm-tile-ink, var(--nd-text)); font-size: 2rem; }
+.fmm-tile .kpi__meta { justify-content: center; }
+.fmm-tile--critical, .fmm-tile--low { --fmm-tile-bg: var(--fmm-tint-red); --fmm-tile-ink: var(--nd-danger); }
+.fmm-tile--avg_quality { --fmm-tile-bg: var(--fmm-tint-yellow); --fmm-tile-ink: var(--fmm-ink-amber); }
+.fmm-tile--critical_partners { --fmm-tile-ink: var(--nd-danger); }
+.fmm-tile--review { --fmm-tile-bg: var(--fmm-tint-blue); --fmm-tile-ink: var(--fmm-ink-blue); }
+.fmm-tile--submitted { --fmm-tile-bg: var(--fmm-tint-cyan); --fmm-tile-ink: var(--fmm-ink-cyan); }
+.fmm-tile--data_collection { --fmm-tile-bg: var(--fmm-tint-purple); --fmm-tile-ink: var(--fmm-ink-purple); }
+.fmm-tile--assigned { --fmm-tile-bg: var(--fmm-tint-indigo); --fmm-tile-ink: var(--fmm-ink-indigo); }
+.fmm-tile--completed { --fmm-tile-bg: var(--fmm-tint-green); --fmm-tile-ink: var(--nd-success); }
+.fmm-briefing__block { margin-top: 1rem; padding-top: 0.85rem; border-top: 1px solid var(--nd-border); }
+.fmm-briefing__subtitle { margin: 0 0 0.55rem; font-size: 0.9rem; font-weight: 600; }
+.fmm-chip-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.fmm-chip { display: inline-flex; align-items: center; gap: 0.4rem; max-width: 100%; padding: 0.3rem 0.75rem; border-radius: 999px; border: 1px solid var(--fmm-chip-line, var(--nd-border)); background: var(--fmm-chip-bg, var(--nd-surface-2)); color: var(--fmm-chip-ink, var(--nd-text)); font-size: 0.82rem; font-weight: 500; text-decoration: none; overflow-wrap: anywhere; }
+.fmm-chip:hover, .fmm-chip:focus-visible { border-color: var(--fmm-chip-ink, var(--nd-primary)); color: var(--fmm-chip-ink, var(--nd-text)); }
+.fmm-chip__count { flex: none; padding: 0 0.4rem; border-radius: 999px; background: color-mix(in srgb, currentColor 14%, transparent); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.fmm-chip--mono { font-family: var(--nd-font-mono); font-size: 0.8rem; }
+.fmm-chip--danger, .fmm-chip--low { --fmm-chip-bg: var(--fmm-tint-red); --fmm-chip-ink: var(--nd-danger); --fmm-chip-line: color-mix(in srgb, var(--nd-danger) 30%, transparent); }
+.fmm-chip--medium { --fmm-chip-bg: var(--fmm-tint-yellow); --fmm-chip-ink: var(--fmm-ink-amber); --fmm-chip-line: color-mix(in srgb, var(--fmm-ink-amber) 30%, transparent); }
+.fmm-chip--high { --fmm-chip-bg: var(--fmm-tint-green); --fmm-chip-ink: var(--nd-success); --fmm-chip-line: color-mix(in srgb, var(--nd-success) 30%, transparent); }
+/* the brief's generation settings (read-only) */
+.fmm-gen { margin-bottom: 0.75rem; padding: 0.6rem 0.8rem; border: 1px solid color-mix(in srgb, var(--nd-success) 35%, transparent); border-radius: var(--nd-radius-sm); background: color-mix(in srgb, var(--nd-success-soft) 50%, transparent); }
+.fmm-gen__head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+.fmm-gen__title { margin: 0; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.fmm-gen__row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.4rem; }
+.fmm-param { display: inline-flex; align-items: baseline; gap: 0.35rem; padding: 0.15rem 0.6rem; border: 1px solid var(--nd-border); border-radius: 999px; background: var(--nd-surface); font-size: 0.8rem; }
+.fmm-param__label { color: var(--nd-muted); font-size: 0.76rem; }
+.fmm-section-chip { padding: 0.15rem 0.6rem; border-radius: 999px; background: var(--nd-success); color: var(--nd-surface); font-size: 0.76rem; font-weight: 600; }
+/* critical items requiring attention */
+.fmm-critical { border-left: 4px solid var(--nd-danger); }
+.fmm-critical__title { color: var(--nd-danger); }
+.fmm-critical-item { margin-bottom: 0.6rem; padding: 0.7rem 0.85rem; border-radius: var(--nd-radius-sm); background: var(--fmm-tint-red); }
+.fmm-critical-item--medium { background: var(--fmm-tint-yellow); }
+.fmm-critical-item__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; }
+.fmm-critical-item__title { margin: 0; font-size: 0.85rem; font-weight: 500; }
+.fmm-critical-item__id { padding: 0.05rem 0.4rem; border-radius: 4px; background: color-mix(in srgb, var(--nd-danger) 12%, transparent); color: var(--nd-danger); font-family: var(--nd-font-mono); font-weight: 700; text-decoration: none; }
+.fmm-critical-item__id:hover, .fmm-critical-item__id:focus-visible { text-decoration: underline; }
+.fmm-critical-item__entity { color: var(--nd-muted); text-transform: uppercase; }
+.fmm-critical-item__rating { margin-top: 0.2rem; font-size: 0.95rem; }
+.fmm-critical-item__urgency { flex: none; text-align: right; color: var(--nd-muted); white-space: nowrap; }
+.fmm-level { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; background: var(--nd-danger); color: var(--fmm-ink-on-fill); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em; }
+.fmm-level--medium { background: var(--fmm-ink-amber); }
+.fmm-critical-item__lines { margin: 0.5rem 0 0; padding: 0; list-style: none; font-size: 0.83rem; color: var(--nd-danger); }
+.fmm-critical-item__lines li { padding: 0.12rem 0; }
+.fmm-critical-item__detail { color: var(--nd-text); }
+.fmm-rule-badge { display: inline-block; min-width: 2.6em; margin-right: 0.3rem; padding: 0.05rem 0.3rem; border-radius: 4px; background: color-mix(in srgb, var(--nd-danger) 15%, transparent); color: var(--nd-danger); font-family: var(--nd-font-mono); font-size: 0.72rem; font-weight: 700; text-align: center; }
+/* HACT Q1: the drill-down box under the chart */
+.fmm-drillbox { margin-top: 0.75rem; padding: 0.6rem 0.8rem; border: 1px solid color-mix(in srgb, var(--nd-info) 25%, transparent); border-radius: var(--nd-radius-sm); background: var(--nd-info-soft); }
+.fmm-drillbox__title { margin: 0 0 0.45rem; color: var(--nd-info); font-size: 0.8rem; font-weight: 600; }
+.fmm-drillbox__pills { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+.fmm-rating-pill { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.28rem 0.65rem; border-radius: 6px; background: var(--fmm-pill, var(--fmm-pill-not-monitored)); color: #fff; font-size: 0.8rem; font-weight: 600; text-decoration: none; }
+a.fmm-rating-pill:hover, a.fmm-rating-pill:focus-visible { color: #fff; filter: brightness(1.08); text-decoration: underline; }
+.fmm-rating-pill--on_track { --fmm-pill: var(--fmm-pill-on-track); }
+.fmm-rating-pill--constrained { --fmm-pill: var(--fmm-pill-constrained); }
+.fmm-rating-pill--off_track { --fmm-pill: var(--fmm-pill-off-track); }
+.fmm-rating-pill__dot { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: currentColor; opacity: 0.85; }
+.fmm-rating-pill__count { padding: 0 0.35rem; border-radius: 4px; background: rgb(0 0 0 / 20%); font-family: var(--nd-font-mono); }
+.fmm-rating-pill.is-empty { opacity: 0.6; }
+/* a chart card's tools (PNG, PDF) at its foot */
+.card-tools { display: flex; justify-content: flex-end; gap: 1rem; margin-top: 0.4rem; }
+/* one card printed alone (data-card-pdf, app.js): drawn at an A4 page's width, everything else hidden */
+body.printing-card .print-card { width: 700px; max-width: 100%; }
+@media print {
+  body.printing-card > :not(.print-path):not(.print-card),
+  body.printing-card .print-path > :not(.print-path):not(.print-card) { display: none !important; }
+  body.printing-card .print-path { display: block !important; width: auto !important; max-width: none !important; margin: 0 !important; padding: 0 !important; border: 0 !important; box-shadow: none !important; }
+  body.printing-card .print-card { width: 100%; margin: 0; break-inside: auto; }
+  body.printing-card .print-card .card-tools { display: none; }
+}
 
 /* ---------------------------------------------------------------------------- printable reports (A4) */
 /* Monitoring insights' report (/fmm/report/) and the action points report: blocks never split across

@@ -11,14 +11,18 @@ the field monitoring rows were synced and when the scores were computed, with wh
 
 ## The tabs
 
-- **Insights**: the morning briefing, the key figures, the AI monitoring brief and Chat with Data.
-- **Quality**: how good the reports are, month by month and rule by rule.
-- **Analysis**: highlights, places, field offices, partners and programme documents, sections, HACT
-  programmatic visits and follow-up.
+- **Insights**: the morning briefing, the AI monitoring brief, the critical visits requiring attention
+  and Chat with Data, in the order of the field monitoring system (FMS).
+- **Quality**: how good the reports are month by month, the HACT Q1 ratings and the places visited.
+- **Analysis**: the quality score distribution, the rule score trends and the quality rules first, then
+  highlights, places, field offices, partners and programme documents, sections, HACT programmatic
+  visits and follow-up.
 - **Visits**: find a visit, the table of visits (most urgent first) and each visit's page.
 - **Map**: the visits against the places their programme documents planned.
 
-Every chart has *Download PNG*. A chart bar, a chip or a count opens the **drill-down window**: the
+Every chart card has *Download PNG* and *PDF* at its foot: *PDF* prints that card alone (choose "Save
+as PDF" in the print window to keep it as a file). A chart bar, a chip or a count opens the
+**drill-down window**: the
 visits behind it, most urgent first (50 at most), with *Open in the Visits tab* for the rest.
 
 ## Filters
@@ -60,12 +64,17 @@ Shown on every tab, for the filter:
 ### Morning briefing
 
 Ten tiles over **this year so far** (1 January to today, whatever the page's period; the page's other
-filters are kept and named): critical flags (visits at or above red urgency), average quality, low
-quality visits (scored below the Medium band, 50), critical partners (a visit at or above red; the top
-five as chips that filter the page), monitoring visits, and the visits at review status (*pending
-report review*), submitted, in data collection, assigned and completed. Each tile has its definition
-under ⓘ and opens the visits behind it. *Quality by governorate* gives each governorate's average
-quality and visits this year.
+filters are kept and named), tinted as FMS shows them: critical flags (visits at or above red urgency,
+red), average quality (yellow), low quality visits (scored below the Medium band, 50; red), critical
+partners (partners with a visit at or above red), monitoring visits, and the visits at review status
+(*pending report review*, blue), submitted (cyan), in data collection (purple), assigned (indigo) and
+completed (green). Each tile has its definition under ⓘ and opens the visits behind it.
+
+- **Top critical partners (this year)**: the five partners with the most critical visits (the visits
+  the Critical flags tile counts), as red chips "PARTNER (visits)"; a chip opens those visits. Only
+  partners are listed, never a programme document or a person.
+- **Quality by governorate (this year)**: each governorate as "NAME · average quality · visits", the
+  chip green from 80%, amber from 50%, red below (the quality bands of Score settings).
 
 ### AI monitoring brief
 
@@ -80,10 +89,23 @@ date, reference or person's name the facts do not hold is dropped before anyone 
   the last 90 days. A brief whose data has not changed is shown again at no cost ("Up to date").
 - *Regenerate* writes a new one (5 a day per person); the card shows "Writing… about 30 seconds".
 - *What was sent* shows the facts and notes exactly as sent (kept 30 days).
-- The chips say what was used: model, effort, tokens, temperature and top-p (applied or not), the
-  notes and quality flags sent, the prompt and rules versions, and your quota.
+- **Generation settings**: what the published prompt version writes the next brief with, read-only:
+  the model, its reasoning effort, the most output tokens, the narrative samples, the compliance depth
+  (the most frequent quality flags the AI reads), temperature or top-p only when the version sets them
+  and the model uses them, and the sections to generate. Administrators get *Edit in admin*.
+- The chips under them say what this brief used: model, effort, tokens, temperature and top-p
+  (applied or not), the notes and quality flags sent, the prompt and rules versions, and your quota.
 - When the AI is switched off, the card shows a brief written by NeuroDB from the figures, and says
   so.
+
+### Critical visits requiring attention
+
+FMS's list of the most urgent visits, under its own heading. The scored visits of the filter at or above red
+urgency (70), most urgent first, at most 10; when no visit is red, the five most urgent amber ones. Each
+visit is a red-tinted card: its number and partner, its rating, HIGH (red) or MEDIUM (amber) with its
+urgency, then one line per quality rule it failed: the rule, its flag and, for an AI check, the AI's
+explanation. R19 says how many monitors are not on the field office's staff list, never who. *Show all
+N* opens the Visits tab with all the visits of that urgency band.
 
 ### Chat with Data
 
@@ -99,14 +121,11 @@ per person. For questions about how NeuroDB works, use the Help assistant instea
 
 | Block | What it shows |
 |---|---|
-| Quality score by month | The average quality of the scored visits per month (by end date), with the visits reported that month. |
-| Visits by month | Visits per month, with their average quality. |
-| HACT Q1 rating by month | Visits per month by their worst HACT Q1 answer (On track, Constrained, Off track). When no visit of the filter has a Q1 answer, the overall finding rating is shown instead, with a note. The chips count each rating, and Not monitored apart. |
-| Quality score distribution | Scored visits in ten bars of 10 points (100 in the top one), coloured by quality band, and the visits not scored. |
-| Top recurring issues | Flags grouped by rule and reason, with their visits and mean urgency. |
+| Quality score trends | Two smooth lines per month (by end date): the average quality score of the scored visits (left axis, 0–100) and the reports (right axis). A point opens the month's visits. |
+| Monitoring volume over time | Visits per month as bars (left axis), whatever their status, with their average quality as a line (right axis, 0–100%). |
+| HACT Q1 — Finding rating distribution | Visits per month by their worst HACT Q1 answer, stacked: On track (green), Constrained (amber), Off track (red). When no visit of the filter has a Q1 answer, the overall finding rating is shown instead ("Overall finding rating distribution"), with a note. Under it, the drill-down pills On track, Off track, Constrained and Not monitored (counted apart) open their visits. |
 | Geographic coverage | The places visited, their governorate, visits and last visit (top 10; *Show all* loads the rest). |
-| Quality rules | Each rule's visits flagged out of the visits it checked; "not available" when the data it needs is missing, "AI check pending", "AI check switched off", "off" or "flag only". |
-| Rule score trends | Per rule with points, the share of its maximum points the visits of each month kept. |
+| Top recurring issues | Flags grouped by rule and reason, with their visits and mean urgency. |
 | Quality issues summary | Narrative and rating coherence flags (R6), Not monitored visits, and visits with 3 or more flags. |
 | Flags per visit | Scored visits with 0, 1, 2 and 3 or more flags. |
 
@@ -114,6 +133,9 @@ per person. For questions about how NeuroDB works, use the Help assistant instea
 
 | Block | What it shows |
 |---|---|
+| Quality score distribution | Scored visits in ten bars of 10 points (100 in the top one), coloured by quality band, and the visits not scored. |
+| Rule score trends over time | Per rule with points, the share of its maximum points the visits of each month kept (loaded when you reach it). |
+| Quality rules | Each rule's visits flagged out of the visits it checked; "not available" when the data it needs is missing, "AI check pending", "AI check switched off", "off" or "flag only". |
 | Highlights | Visits, reported visits, governorates covered (of the gazetteer's active governorates), average quality, off-track visits, PSEA-flagged visits of those with a PSEA question, the High / Medium / Low shares and the monitored entities by type. |
 | Governorates not visited | The governorates no visit of the filter is placed in. |
 | Field offices | Visits and average quality per field office ("Office not known" too). A visit to a programme document with two offices counts in both. |

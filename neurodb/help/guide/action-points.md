@@ -27,8 +27,9 @@ with the **visit** of a field monitoring action point and its **link confidence*
 Then the **AI verdict** and the **PME verification**. The reference opens the details: every field, the
 action taken, the AI's verdict and why, and the verifications.
 
-An action point is **open** when its status is open, and **overdue** when it is also past its due date
-(the same definition as the overview and NeuroDB Watch).
+An action point is **open** when its status is open or in progress (as FMS counts them), and
+**overdue** when it is also past its due date (the same definition as the overview, Monitoring insights
+and NeuroDB Watch). The *Open* status filter keeps the action points in progress too.
 
 ## Charts
 

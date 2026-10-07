@@ -1,9 +1,13 @@
 {% load i18n %}
+{% comment %}FMS's order: the morning briefing (with the top critical partners and the quality by governorate),
+the AI monitoring insights (with their generation settings), the critical items requiring attention, then
+Chat with Data.{% endcomment %}
 <div class="fmm-tab" aria-label="{% trans 'Insights' %}">
   {% if briefing %}{% include "fmm/_briefing.html" %}{% endif %}
   <section class="panel fmm-insights" id="fmm-insights" aria-labelledby="fmm-insights-title" hx-get="{% url 'fmm:insights' %}?{{ scope.query }}" hx-trigger="load" hx-swap="outerHTML">
     <h2 class="h6" id="fmm-insights-title">{% trans "AI monitoring insights" %}</h2>
     {% include "components/skeleton.html" %}
   </section>
+  {% if critical %}{% include "fmm/_critical.html" %}{% endif %}
   {% include "fmm/_chat.html" %}
 </div>

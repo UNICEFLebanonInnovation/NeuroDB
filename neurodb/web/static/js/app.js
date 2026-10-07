@@ -386,6 +386,43 @@ function initAutoprint(root) {
   });
 }
 
+// ------------------------------------------------------------------ one card as a PDF
+// A button with data-card-pdf prints its card alone (the closest .panel), to paper or "Save as PDF" (FMS's "PDF"
+// beside "PNG" on every chart card): the card, the elements around it and the page are marked for the print
+// styles (app.css hides everything else), its charts are drawn at the width of an A4 page, and all is undone once
+// printed. One listener for the page, as the buttons come and go with HTMX.
+const PRINT_CLASSES = ["print-card", "print-path", "printing-card"];
+
+function unmarkPrint() {
+  PRINT_CLASSES.forEach((name) => $$(`.${name}`).forEach((el) => el.classList.remove(name)));
+}
+
+function redrawCharts(card) {
+  const plots = $$(".js-plotly-plot", card);
+  return Promise.all(plots.map((el) => window.Plotly?.Plots?.resize(el))).catch(() => undefined);
+}
+
+async function printCard(event) {
+  const button = event.target.closest?.("[data-card-pdf]");
+  if (!button) return;
+  const card = button.closest(".panel");
+  if (!card) return;
+  unmarkPrint();
+  card.classList.add("print-card");
+  for (let node = card.parentElement; node && node !== document.body; node = node.parentElement) node.classList.add("print-path");
+  document.body.classList.add("printing-card");
+  window.addEventListener(
+    "afterprint",
+    () => {
+      unmarkPrint();
+      redrawCharts(card);
+    },
+    { once: true },
+  );
+  await redrawCharts(card); // at the card's print width (app.css), before the print dialog takes the page
+  window.print();
+}
+
 // ------------------------------------------------------------------ confirmations
 // A form with data-confirm asks first (removing or deleting something); a plain browser confirm, so it
 // works for forms posted normally and through HTMX alike.
@@ -411,6 +448,7 @@ initSearch();
 initHelp();
 initHtmx();
 document.addEventListener("click", followQuery);
+document.addEventListener("click", printCard);
 document.addEventListener("auxclick", followQuery);
 document.addEventListener("submit", confirmSubmit, true);
 enhance(document);

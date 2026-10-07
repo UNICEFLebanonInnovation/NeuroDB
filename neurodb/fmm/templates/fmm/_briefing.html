@@ -1,7 +1,8 @@
 {% load i18n ui %}
 {% comment %}The morning briefing (FMS §7.1): ten tiles over this year so far (1 January to today, whatever
-the page's period; the page's other filters kept), each with its definition and the visits behind it, the
-top critical partners and the quality by governorate.{% endcomment %}
+the page's period; the page's other filters kept), each tinted and coloured as FMS shows it, with its
+definition and the visits behind it; then the top critical partners (red chips, each opening the partner's
+critical visits) and the quality by governorate (chips tinted by quality band).{% endcomment %}
 <section class="panel fmm-briefing" id="fmm-briefing" aria-labelledby="fmm-briefing-title">
   <div class="panel__header">
     <h2 class="panel__title" id="fmm-briefing-title">{% trans "Morning briefing" %}</h2>
@@ -9,21 +10,29 @@ top critical partners and the quality by governorate.{% endcomment %}
   </div>
   <div class="kpi-grid fmm-briefing__tiles">
     {% for tile in briefing.tiles %}
-    <div class="kpi{% if tile.key == 'critical' and tile.value != '0' %} kpi--off_track{% endif %}" data-tile="{{ tile.key }}">
+    <div class="kpi fmm-tile fmm-tile--{{ tile.key }}" data-tile="{{ tile.key }}">
       <div class="kpi__label">{{ tile.label }} <span class="fmm-info" tabindex="0" role="note" title="{{ tile.info }}" aria-label="{{ tile.info }}">ⓘ</span></div>
       <div class="kpi__value">{% if tile.url %}<a href="{{ tile.url }}"{% if "/drill/" in tile.url %} hx-get="{{ tile.url }}" hx-target="#modal-content"{% endif %}>{{ tile.value }}</a>{% else %}{{ tile.value }}{% endif %}</div>
-      <div class="kpi__meta"><span class="kpi__hint">{% trans "This year" %}</span></div>
+      <div class="kpi__meta"><span class="kpi__hint">{% if tile.key == "low" %}{% blocktrans with low=briefing.low_below %}This year (&lt; {{ low }}%){% endblocktrans %}{% else %}{% trans "This year" %}{% endif %}</span></div>
     </div>
     {% endfor %}
   </div>
-  {% if briefing.partners %}
-  <div class="chips mb-2" aria-label="{% trans 'Top critical partners' %}"><span class="small fw-semibold me-1">{% trans "Top critical partners" %}</span>
-    {% for p in briefing.partners %}<a class="chip" href="{{ p.url }}"><span data-synced>{{ p.name }}</span> <strong>{{ p.visits }}</strong></a>{% endfor %}
+  <div class="fmm-briefing__block" aria-labelledby="fmm-critical-partners-title">
+    <h3 class="fmm-briefing__subtitle" id="fmm-critical-partners-title">{% trans "Top critical partners (this year)" %} <span class="fmm-info" tabindex="0" role="note" title="{% blocktrans with red=briefing.red_at %}The partners with the most visits of urgency {{ red }} or more (the critical flags); a chip opens those visits.{% endblocktrans %}">ⓘ</span></h3>
+    {% if briefing.partners %}
+    <div class="fmm-chip-row">
+      {% for p in briefing.partners %}<a class="fmm-chip fmm-chip--danger" href="{{ p.url }}" hx-get="{{ p.url }}" hx-target="#modal-content" title="{% blocktrans count n=p.visits %}{{ n }} critical visit this year{% plural %}{{ n }} critical visits this year{% endblocktrans %}"><span data-synced>{{ p.name }}</span> <span class="fmm-chip__count">{{ p.visits }}</span></a>{% endfor %}
+    </div>
+    {% else %}
+    <p class="small text-muted mb-0">{% trans "No partner has a critical visit this year." %}</p>
+    {% endif %}
   </div>
-  {% endif %}
   {% if briefing.governorates %}
-  <div class="chips mb-0" aria-label="{% trans 'Quality by governorate' %}"><span class="small fw-semibold me-1">{% trans "Quality by governorate" %}</span>
-    {% for g in briefing.governorates %}<a class="chip" href="{{ g.url }}" title="{% blocktrans count n=g.visits %}{{ n }} visit this year{% plural %}{{ n }} visits this year{% endblocktrans %}"><span data-synced>{{ g.name }}</span> · {% if g.avg_quality is not None %}{{ g.avg_quality|percent }}{% else %}—{% endif %} · {% blocktrans count n=g.visits %}{{ n }} visit{% plural %}{{ n }} visits{% endblocktrans %}</a>{% endfor %}
+  <div class="fmm-briefing__block" aria-labelledby="fmm-gov-quality-title">
+    <h3 class="fmm-briefing__subtitle" id="fmm-gov-quality-title">{% trans "Quality by governorate (this year)" %} <span class="fmm-info" tabindex="0" role="note" title="{% blocktrans with high=briefing.band_high medium=briefing.band_medium %}Average quality and visits of each governorate this year; green from {{ high }}%, amber from {{ medium }}%, red below.{% endblocktrans %}">ⓘ</span></h3>
+    <div class="fmm-chip-row">
+      {% for g in briefing.governorates %}<a class="fmm-chip fmm-chip--mono fmm-chip--{{ g.band|default:'none' }}" href="{{ g.url }}" title="{% blocktrans count n=g.visits %}{{ n }} visit this year{% plural %}{{ n }} visits this year{% endblocktrans %}"><span data-synced>{{ g.name }}</span> · {% if g.avg_quality is not None %}{{ g.avg_quality|percent }}{% else %}—{% endif %} · <span class="fmm-chip__count">{{ g.visits }}</span></a>{% endfor %}
+    </div>
   </div>
   {% endif %}
 </section>

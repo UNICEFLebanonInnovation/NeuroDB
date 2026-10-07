@@ -66,13 +66,23 @@ def plan(version, model: str, effort: str, now: datetime.datetime | None = None)
     """What a call of ``version`` with ``model`` at ``effort`` will send (see the module's notes)."""
     params: dict[str, float] = {}
     states: dict[str, str] = {}
+    wanted = [p for p in PARAMETERS if getattr(version, p, None) is not None]
+    rejected: set[str] = set()
+    if wanted and settings.FMM_SAMPLING != "off":  # the refusals that still hold, in one query
+        now = now or timezone.now()
+        since = now - datetime.timedelta(days=settings.FMM_SAMPLING_RECHECK_DAYS)
+        rejected = set(
+            ModelCapability.objects.filter(
+                model=model, effort=effort, parameter__in=wanted, accepted=False, checked_at__gte=since
+            ).values_list("parameter", flat=True)
+        )
     for parameter in PARAMETERS:
         value = getattr(version, parameter, None)
         if value is None:
             states[parameter] = NOT_SET
         elif settings.FMM_SAMPLING == "off":
             states[parameter] = OFF
-        elif known_rejection(model, effort, parameter, now) is not None:
+        elif parameter in rejected:
             states[parameter] = KNOWN_REJECTED
         else:
             states[parameter] = SENT

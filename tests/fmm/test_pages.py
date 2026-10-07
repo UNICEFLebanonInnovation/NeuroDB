@@ -517,35 +517,53 @@ def _text(html: str) -> str:
     return " ".join(visible(html).split())
 
 
+QUALITY_ORDER = (  # FMS's order, then NeuroDB's own blocks
+    "Quality score trends",
+    "Monitoring volume over time",
+    "HACT Q1 — Finding rating distribution",
+    "Geographic coverage",
+    "Top recurring issues",
+    "Quality issues summary",
+)
+
+
 def test_the_quality_tab_shows_its_blocks(built, client_viewer):
     html = client_viewer.get(PAGE, {"tab": "quality"}).content.decode()
     text = _text(html)
-    for title in (
-        "Quality score by month",
-        "Visits by month",
-        "HACT Q1 rating by month",
-        "Quality score distribution",
-        "Top recurring issues",
-        "Geographic coverage",
-        "Quality rules",
-        "Quality issues summary",
-        "Flags per visit",
-    ):
-        assert title in text, title
-    assert "R1 Report Completeness" in text and "6 / 6 visits flagged" in text
-    assert "On track 1" in text and "Constrained 2" in text and "Off track 2" in text  # the chip row
-    assert "Not scored: 2 visits" in text
+    positions = [text.find(title) for title in QUALITY_ORDER]
+    assert -1 not in positions and positions == sorted(positions), dict(
+        zip(QUALITY_ORDER, positions, strict=True)
+    )
+    assert "Flags per visit" in text
+    for moved in ("Quality score distribution", "Rule score trends over time", "Quality rules"):
+        assert moved not in text, moved  # on the Analysis tab, as FMS has them
+    # the HACT Q1 drill-down pills, in FMS's order
+    pills = _text(html.split('class="fmm-drillbox"', 1)[1].split("</section>", 1)[0])
+    assert "Drill down — click a rating to see individual visits" in pills
+    assert pills.index("On track 1") < pills.index("Off track 2") < pills.index("Constrained 2")
+    assert pills.index("Constrained 2") < pills.index("Not Monitored 1")
     assert "Green = no issues · Blue = minor · Amber = moderate · Red = critical attention needed" in text
+    # the two monthly charts as FMS draws them: smooth lines on two axes, bars and a line
+    assert html.count('data-chart="dual-axis"') == 2
+    assert 'data-primary="area"' in html and 'data-primary="bar"' in html
+    assert 'data-legend="top"' in html  # the HACT Q1 chart's legend on top
     # the charts open the drill-down window with codes, never labels
     assert 'data-href-template="/fmm/drill/?section=&amp;month={drill}"' in html
     assert "&amp;month={drill}&amp;hact_q1={series_drill}" in html
-    assert 'data-barmode="stack"' in html and "&amp;bucket={drill}" in html
+    assert 'data-barmode="stack"' in html
     assert 'hx-target="#modal-content"' in html
 
 
 def test_the_analysis_tab_shows_its_blocks(built, client_viewer):
     html = client_viewer.get(PAGE, {"tab": "analysis"}).content.decode()
     text = _text(html)
+    # FMS's blocks first (moved from the Quality tab), then NeuroDB's
+    first = [
+        text.find(t) for t in ("Quality score distribution", "Rule score trends over time", "Quality rules")
+    ]
+    assert -1 not in first and first == sorted(first) and first[-1] < text.find("Highlights")
+    assert "R1 Report Completeness" in text and "6 / 6 visits flagged" in text
+    assert "Not scored: 2 visits" in text and "&amp;bucket={drill}" in html
     for title in (
         "Highlights",
         "Governorates not visited",
@@ -607,7 +625,9 @@ def test_the_hact_q1_chart_switches_to_overall_ratings_without_q1(built, client_
     from neurodb.fmm.models import QuestionAnswer
 
     html = client_viewer.get(PAGE, {"tab": "quality"}).content.decode()
-    assert "HACT Q1 rating by month" in html and "Overall finding rating by month" not in html
+    assert (
+        "HACT Q1 — Finding rating distribution" in html and "Overall finding rating distribution" not in html
+    )
     assert "Have the activities been implemented as planned" in html  # the Q1 question quoted
     # no visit of the filter has a Q1 answer, but other visits do
     Visit.objects.filter(end_date__month__in=(3, 5, 6, 7, 8)).update(hact_q1="")
@@ -615,7 +635,9 @@ def test_the_hact_q1_chart_switches_to_overall_ratings_without_q1(built, client_
 
     cache.clear()
     html = client_viewer.get(PAGE, {"tab": "quality"}).content.decode()
-    assert "Overall finding rating by month" in html and "HACT Q1 rating by month" not in html
+    assert (
+        "Overall finding rating distribution" in html and "HACT Q1 — Finding rating distribution" not in html
+    )
     assert "No visit in this filter has a HACT Q1 answer" in html
     assert "&amp;month={drill}&amp;rating={series_drill}" in html
     # no Q1 in the data at all
@@ -628,10 +650,11 @@ def test_the_hact_q1_chart_switches_to_overall_ratings_without_q1(built, client_
 def test_the_quality_tab_says_what_is_not_available_without_the_checklist_answers(fm_world, client_viewer):
     dm.DatamartDocument.objects.filter(dataset__in=("fm_questions", "fm_options")).delete()
     refresh.run(triggered_by="test", today=TODAY)
-    text = _text(client_viewer.get(PAGE, {"tab": "quality"}).content.decode())
+    text = _text(client_viewer.get(PAGE, {"tab": "analysis"}).content.decode())
     # R2 reads the share of questions answered: not available, never a missing value deducted
     assert text.count("Not available — needs question answers (fm_questions); see Fields found") == 1
     assert "R3 Narrative Evidence Quality AI check switched off" in text  # the AI is off in this test
+    text = _text(client_viewer.get(PAGE, {"tab": "quality"}).content.decode())
     assert "HACT Q1 answers are not in the eTools data NeuroDB reads yet" in text
 
 

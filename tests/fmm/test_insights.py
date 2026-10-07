@@ -704,8 +704,9 @@ def test_the_brief_card_stays_within_its_queries(
 ):
     url = f"{reverse('fmm:insights')}?{YEAR}"
     client_viewer.get(url)  # warm the figures
-    # the AI on, no brief yet: the code-written one, and every gate of Regenerate (quota, budget)
-    with django_assert_max_num_queries(28):
+    # the AI on, no brief yet: the code-written one, and every gate of Regenerate (quota, budget), and
+    # the generation settings (the refusals of temperature and top-p the model made, one query)
+    with django_assert_max_num_queries(29):
         client_viewer.get(url)
     found = facts.build(_scope(), ai_on, TODAY)
     fake_insights_client(_answer(_good(found)))

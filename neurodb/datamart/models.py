@@ -280,7 +280,9 @@ class ActionPoint(DatamartRecord):
         related_name="datamart_action_points",
     )
 
-    OPEN_STATUSES = ("open",)
+    # an action point being worked on is still open (FMS counts "in progress" as open): every open count,
+    # overdue count and follow-up check reads these
+    OPEN_STATUSES = ("open", "in_progress", "in progress", "in-progress")
     COMPLETED_STATUSES = ("completed", "closed", "resolved")  # lower case, as eTools writes them
 
     class Meta:
@@ -289,6 +291,11 @@ class ActionPoint(DatamartRecord):
 
     def __str__(self):
         return self.reference_number or self.description[:80]
+
+    @property
+    def is_open(self) -> bool:
+        """Open or in progress (``OPEN_STATUSES``): it can be overdue."""
+        return (self.status or "").strip().lower() in self.OPEN_STATUSES
 
 
 class TPMVisit(DatamartRecord):

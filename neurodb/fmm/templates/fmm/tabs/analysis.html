@@ -3,6 +3,56 @@
 {{ chart_data|json_script:"fmm-chart-data" }}
 {% url 'fmm:dashboard' as page_url %}
 <div class="fmm-tab fmm-analysis">
+{% comment %}FMS's order first (the quality score distribution, the rule score trends, the quality rules), then
+NeuroDB's own blocks.{% endcomment %}
+<section class="panel" aria-labelledby="fmm-dist-title">
+  <div class="panel__header">
+    <h2 class="panel__title" id="fmm-dist-title">{% trans "Quality score distribution" %}</h2>
+    <span class="panel__hint">{% trans "Scored visits by score; a bar opens its visits" %}</span>
+  </div>
+  <div id="fmm-chart-buckets" class="chart chart--sm" data-module="charts" data-chart="dist" data-orientation="h" data-show="value" data-source="fmm-chart-data" data-key="buckets" data-href-template="{{ bucket_template }}" data-empty-title="{% trans 'No visit in this filter is scored' %}" aria-label="{% trans 'Quality score distribution' %}"></div>
+  <p class="small text-muted mb-0">{% if not_scored_url %}<a href="{{ not_scored_url }}" hx-get="{{ not_scored_url }}" hx-target="#modal-content">{% blocktrans count n=not_scored %}Not scored: {{ n }} visit{% plural %}Not scored: {{ n }} visits{% endblocktrans %}</a>{% else %}{% trans "Every visit in this filter is scored." %}{% endif %}</p>
+  {% include "fmm/_card_tools.html" with chart="fmm-chart-buckets" filename="monitoring-score-distribution" %}
+</section>
+
+<section class="panel" id="fmm-rule-trends-panel" aria-labelledby="fmm-rule-trends-title">
+  <div class="panel__header">
+    <h2 class="panel__title" id="fmm-rule-trends-title">{% trans "Rule score trends over time" %}</h2>
+    <span class="panel__hint">{% trans "Per rule, the share of its maximum points the visits that ended each month earned; a point opens the visits it flagged that month" %}</span>
+  </div>
+  {% comment %}Worked out when the panel scrolls into view: the tab itself, with rule_trends=1, gives
+  this panel with its own chart data (the other blocks are kept from the first view).{% endcomment %}
+  {% if rule_trends is not None %}
+  {{ rule_trends|json_script:"fmm-rule-trend-data" }}
+  <div id="fmm-chart-rule-trends" class="chart" data-module="charts" data-chart="share-lines" data-source="fmm-rule-trend-data" data-key="rule_trends" data-href-template="{{ rule_trend_template }}" data-empty-title="{% trans 'No rule checked a visit in this filter' %}" aria-label="{% trans 'Rule score trends over time' %}"></div>
+  {% include "fmm/_card_tools.html" with chart="fmm-chart-rule-trends" filename="monitoring-rule-trends" %}
+  {% else %}
+  <p class="px-3 pb-3 mb-0 small" hx-get="{% url 'fmm:dashboard' %}?{{ rule_trends_query }}" hx-trigger="revealed" hx-target="#fmm-rule-trends-panel" hx-select="#fmm-rule-trends-panel" hx-swap="outerHTML"><a href="{% url 'fmm:dashboard' %}?{{ rule_trends_query }}">{% trans "Loading the rule trends…" %}</a></p>
+  {% endif %}
+</section>
+
+<section class="panel" aria-labelledby="fmm-rules-title">
+  <div class="panel__header"><h2 class="panel__title" id="fmm-rules-title">{% trans "Quality rules" %}</h2><span class="panel__hint">{% trans "Visits flagged out of the visits each rule checked" %}</span></div>
+  {% for r in rule_rows %}
+  <div class="fmm-meter-row">
+    <div class="fmm-meter-row__head">
+      <span>{% if r.url %}<a href="{{ r.url }}" hx-get="{{ r.url }}" hx-target="#modal-content">{{ r.code }} {{ r.label }}</a>{% else %}{{ r.code }} {{ r.label }}{% endif %}{% if r.flag_only %} <span class="pill pill--sm pill--neutral">{% trans "flag only" %}</span>{% endif %}</span>
+      <span class="small {% if r.state == 'ok' %}text-{{ r.level }}{% else %}text-muted{% endif %}">
+        {% if r.state == "off" %}{% trans "off" %}
+        {% elif r.state == "na" %}{% if r.needs_answers %}{% trans "Not available — needs question answers (fm_questions); see Fields found" %}{% else %}{% blocktrans count n=r.na %}Not available on {{ n }} visit{% plural %}Not available on {{ n }} visits{% endblocktrans %}{% endif %}
+        {% elif r.state == "ai_off" %}{% trans "AI check switched off" %}
+        {% elif r.state == "none" %}{% trans "does not apply to these visits" %}
+        {% elif r.state == "pending" %}{% blocktrans count n=r.pending %}AI check pending on {{ n }} visit{% plural %}AI check pending on {{ n }} visits{% endblocktrans %}
+        {% else %}{% blocktrans with flagged=r.flagged evaluated=r.evaluated %}{{ flagged }} / {{ evaluated }} visits flagged{% endblocktrans %}{% if r.na %} · {% blocktrans with n=r.na %}not available on {{ n }}{% endblocktrans %}{% endif %}{% if r.pending %} · {% blocktrans with n=r.pending %}pending on {{ n }}{% endblocktrans %}{% endif %}{% endif %}
+      </span>
+    </div>
+    {% if r.state == "ok" %}<div class="meter"><div class="meter__track"><span class="meter__fill meter__fill--{{ r.level }}" style="width: {{ r.fill|floatformat:0 }}%"></span></div></div>{% endif %}
+    {% if r.description %}<details class="small text-muted"><summary>{% trans "What it checks" %}</summary>{{ r.description }}</details>{% endif %}
+  </div>
+  {% endfor %}
+  {% if user_role == "Administrator" %}<p class="source-line"><a href="{{ fields_found_url }}">{% trans "Fields found" %}</a></p>{% endif %}
+</section>
+
 <section class="panel" aria-labelledby="fmm-highlights-title">
   <div class="panel__header"><h2 class="panel__title" id="fmm-highlights-title">{% trans "Highlights" %}</h2><span class="panel__hint">{{ scope.label }}</span></div>
   {% with h=highlights %}
@@ -20,8 +70,8 @@
   </div>
   <h3 class="small fw-semibold mb-1">{% trans "Quality distribution" %}</h3>
   {% if h.bands %}
-  <div class="text-end"><button type="button" class="btn btn-link btn-sm p-0 fmm-png" data-chart-png="#fmm-chart-bands" data-filename="monitoring-bands">{% trans "Download PNG" %}</button></div>
     <div id="fmm-chart-bands" class="chart chart--share" data-module="charts" data-chart="share-bar" data-source="fmm-chart-data" data-key="bands" aria-label="{% trans 'Scored visits by band: High, Medium, Low' %}"></div>
+  {% include "fmm/_card_tools.html" with chart="fmm-chart-bands" filename="monitoring-bands" %}
   <p class="small text-muted">{% blocktrans with high=limits.band_high medium=limits.band_medium %}High from {{ high }}% · Medium from {{ medium }}% · Low below {{ medium }}%{% endblocktrans %}</p>
   {% else %}<p class="small text-muted">{% trans "No visit in this filter is scored." %}</p>{% endif %}
   <div class="chips" aria-label="{% trans 'Monitored entities by type' %}">{% for k in h.kinds %}<a class="chip" href="{{ k.url }}" hx-get="{{ k.url }}" hx-target="#fmm-results" hx-push-url="true">{{ k.label }} <strong>{{ k.n|number }}</strong></a>{% endfor %}</div>
@@ -139,8 +189,8 @@
   </section>
   <section class="panel" aria-labelledby="fmm-flag-rule-title">
     <div class="panel__header"><h2 class="panel__title" id="fmm-flag-rule-title">{% trans "Flags by rule" %}</h2><span class="panel__hint">{% trans "Visits each rule flagged; a bar opens its visits" %}</span></div>
-    <div class="text-end"><button type="button" class="btn btn-link btn-sm p-0 fmm-png" data-chart-png="#fmm-chart-flags" data-filename="monitoring-flags">{% trans "Download PNG" %}</button></div>
     <div id="fmm-chart-flags" class="chart chart--sm" data-module="charts" data-chart="hbars" data-suffix=" visits" data-source="fmm-chart-data" data-key="flags" data-href-template="{{ flag_template }}" data-empty-title="{% trans 'No quality flags in this period' %}" aria-label="{% trans 'Flags by rule' %}"></div>
+    {% include "fmm/_card_tools.html" with chart="fmm-chart-flags" filename="monitoring-flags" %}
     <ul class="small text-muted mb-0 ps-3">{% for r in flag_frequency.rows %}<li>{{ r.label }}: {% blocktrans count n=r.n %}{{ n }} visit{% plural %}{{ n }} visits{% endblocktrans %}{% if r.pct is not None %} ({% blocktrans with pct=r.pct|percent evaluated=r.evaluated %}{{ pct }} of the {{ evaluated }} it checked{% endblocktrans %}){% endif %}</li>{% endfor %}</ul>
   </section>
 </div>

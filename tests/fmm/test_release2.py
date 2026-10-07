@@ -78,9 +78,9 @@ def test_ask_gives_rating_shares_of_the_rated_visits_only(built):
 
 def test_the_q1_chips_count_not_monitored_apart(built, client_viewer):
     html = _tab(client_viewer, "quality")
-    chips = html.split('aria-label="Visits by rating"', 1)[1].split("</div>", 1)[0]
-    assert "Not Monitored 1" in chips
-    assert "rating=not_monitored" in chips  # it opens the planned visits not conducted
+    pills = html.split('class="fmm-drillbox__pills"', 1)[1].split("</div>", 1)[0]
+    assert "Not Monitored 1" in " ".join(re.sub(r"<[^>]+>", " ", pills).split())
+    assert "rating=not_monitored" in pills  # it opens the planned visits not conducted
 
 
 def test_quality_by_finding_rating_always_has_a_not_monitored_bar(built):
@@ -130,14 +130,21 @@ def test_the_morning_briefing_tiles(built, client_viewer):
         "completed": "6",
     }
     assert "This year: 1 Jan – 5 Oct 2026" in html
-    assert html.count('class="fmm-info"') == 10 and 'title="Scored visits below 50."' in html
+    # the ten tiles' definitions, and the two of the critical partners and the quality by governorate
+    assert html.count('class="fmm-info"') == 12 and 'title="Scored visits below 50."' in html
     assert tiles["critical"][1] == "" and tiles["review"][1] == ""  # nothing to open
     assert "quality=low" in tiles["low"][1] and "visit_status=data_collection" in tiles["data_collection"][1]
     assert "tab=visits" in tiles["avg_quality"][1] and "sort=quality" in tiles["avg_quality"][1]
-    assert "Top critical partners" not in html
-    # the quality by governorate, each opening the visits there
-    assert re.search(r"Bekaa</span> · 78\.0% · 5 visits", html)
-    assert re.search(r"North</span> · 81\.5% · 3 visits", html)
+    assert "No partner has a critical visit this year." in html
+    # the quality by governorate, each tinted by its band and opening the visits there
+    assert re.search(
+        r'fmm-chip--medium"[^>]*><span data-synced>Bekaa</span> · 78\.0% · <span class="fmm-chip__count">5<',
+        html,
+    )
+    assert re.search(
+        r'fmm-chip--high"[^>]*><span data-synced>North</span> · 81\.5% · <span class="fmm-chip__count">3<',
+        html,
+    )
     assert "governorate=beqaa" in html
 
 
@@ -157,13 +164,18 @@ def test_the_briefing_names_the_critical_partners(built, client_viewer):
     html = _briefing(_tab(client_viewer, "insights"))
     tiles = {key: (value.strip(), url) for key, url, value in TILE.findall(html)}
     assert tiles["critical"][0] == "1" and tiles["critical_partners"][0] == "1"
-    assert 'class="kpi kpi--off_track" data-tile="critical"' in html
+    assert 'class="kpi fmm-tile fmm-tile--critical" data-tile="critical"' in html
     critical = client_viewer.get(
         tiles["critical"][1].replace("&amp;", "&"), HTTP_HX_REQUEST="true"
     ).content.decode()
     assert "/fmm/visits/1723/" in critical and "/fmm/visits/1722/" not in critical
     partners = html.split("Top critical partners", 1)[1].split("</div>", 1)[0]
-    assert re.search(r"MCL</span> <strong>1</strong>", partners)
+    # the partner's full name and its critical visits, opening those visits
+    assert re.search(r'Mercy Corps Lebanon</span> <span class="fmm-chip__count">1</span>', partners)
+    url = re.search(r'class="fmm-chip fmm-chip--danger" href="([^"]+)"', partners).group(1)
+    assert "/fmm/drill/" in url and "urgency_level=high" in url
+    opened = client_viewer.get(url.replace("&amp;", "&"), HTTP_HX_REQUEST="true").content.decode()
+    assert "/fmm/visits/1723/" in opened and "/fmm/visits/1722/" not in opened
 
 
 def test_the_briefing_keeps_the_pages_other_filters(built, client_viewer):
@@ -348,18 +360,18 @@ def test_rule_trends_give_each_rules_monthly_share_of_points(built):
 
 
 def test_the_rule_trends_load_when_their_panel_is_reached(built, client_viewer):
-    html = _tab(client_viewer, "quality")
+    html = _tab(client_viewer, "analysis")
     panel = html.split('id="fmm-rule-trends-panel"', 1)[1].split("</section>", 1)[0]
     assert 'hx-trigger="revealed"' in panel and "rule_trends=1" in panel
     assert 'id="fmm-chart-rule-trends"' not in html and "fmm-rule-trend-data" not in html
-    loaded = _tab(client_viewer, "quality", rule_trends="1")
+    loaded = _tab(client_viewer, "analysis", rule_trends="1")
     data = re.search(r'<script id="fmm-rule-trend-data" type="application/json">(.*?)</script>', loaded, re.S)
     assert data and '"rule_trends"' in data.group(1) and "R3 " in data.group(1)
     assert 'data-source="fmm-rule-trend-data"' in loaded
 
 
 def test_a_rule_trend_point_opens_the_visits_it_flagged_that_month(built, client_viewer):
-    html = _tab(client_viewer, "quality", rule_trends="1")
+    html = _tab(client_viewer, "analysis", rule_trends="1")
     template = re.search(r'id="fmm-chart-rule-trends"[^>]*data-href-template="([^"]+)"', html).group(1)
     url = template.replace("&amp;", "&").replace("{drill}", "2026-05").replace("{series_drill}", "R1")
     found = client_viewer.get(url, HTTP_HX_REQUEST="true").content.decode()
@@ -367,7 +379,7 @@ def test_a_rule_trend_point_opens_the_visits_it_flagged_that_month(built, client
 
 
 def test_every_chart_can_be_saved_as_a_png(built, client_viewer):
-    for tab, extra in (("quality", {}), ("quality", {"rule_trends": "1"}), ("analysis", {})):
+    for tab, extra in (("quality", {}), ("analysis", {"rule_trends": "1"}), ("analysis", {})):
         html = _tab(client_viewer, tab, **extra)
         for target in re.findall(r'data-chart-png="#([\w-]+)"', html):
             assert f'id="{target}"' in html, target

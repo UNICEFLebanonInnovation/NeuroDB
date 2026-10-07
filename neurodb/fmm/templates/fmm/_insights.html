@@ -13,11 +13,20 @@
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
     <div>
       <h2 class="h6 mb-1" id="fmm-insights-title">{% trans "AI monitoring insights" %}</h2>
-      {% if shown_version %}<p class="small text-muted mb-0">{% blocktrans with label=shown_version.profile.label n=shown_version.number %}Prompt {{ label }} v{{ n }}{% endblocktrans %}{% if shown_version.published_at %} · {% blocktrans with day=shown_version.published_at|date:"j M" who=shown_version.published_by_name %}published {{ day }} by {{ who }}{% endblocktrans %}{% endif %} · {% blocktrans with v=rules_version %}rules v{{ v }}{% endblocktrans %}{% if is_admin %} · <a href="{% url 'admin:fmm_promptversion_change' shown_version.pk %}">{% trans "Edit in admin" %}</a>{% endif %}</p>{% endif %}
+      {% if shown_version %}<p class="small text-muted mb-0">{% blocktrans with label=shown_version.profile.label n=shown_version.number %}Prompt {{ label }} v{{ n }}{% endblocktrans %}{% if shown_version.published_at %} · {% blocktrans with day=shown_version.published_at|date:"j M" who=shown_version.published_by_name %}published {{ day }} by {{ who }}{% endblocktrans %}{% endif %} · {% blocktrans with v=rules_version %}rules v{{ v }}{% endblocktrans %}</p>{% endif %}
       <p class="small text-muted mb-0">{% if row %}{% blocktrans with when=row.created_at|date:"j M Y H:i" %}Written {{ when }}{% endblocktrans %}{% if row.data_as_of %} · {% blocktrans with when=row.data_as_of|date:"j M H:i" %}data of {{ when }}{% endblocktrans %}{% endif %} · {% endif %}<span class="fmm-badge">{{ brief.badge }}</span></p>
     </div>
     {% if quota.allowed %}<span class="pill pill--sm pill--{% if quota.used >= quota.allowed %}warning{% else %}neutral{% endif %}" title="{% trans 'Briefs you asked for today, and the share of the office budget for Monitoring insights used today' %}">{% blocktrans with used=quota.used allowed=quota.allowed %}{{ used }} of {{ allowed }} today{% endblocktrans %}{% if quota.office is not None %} · {% blocktrans with share=quota.office|number:0 %}office AI budget {{ share }}% used{% endblocktrans %}{% endif %}</span>{% endif %}
   </div>
+  {% comment %}The settings the next brief is written with (the published prompt version), read-only, as
+  FMS's AI generation parameters: only settings the version holds and sends.{% endcomment %}
+  {% if generation %}
+  <div class="fmm-gen" role="group" aria-labelledby="fmm-gen-title">
+    <div class="fmm-gen__head"><h3 class="fmm-gen__title" id="fmm-gen-title">{% trans "Generation settings" %}</h3>{% if generation.edit_url %}<a class="small" href="{{ generation.edit_url }}">{% trans "Edit in admin" %}</a>{% endif %}</div>
+    <div class="fmm-gen__row">{% for c in generation.chips %}<span class="fmm-param"{% if c.title %} title="{{ c.title }}"{% endif %}><span class="fmm-param__label">{{ c.label }}</span> <strong>{{ c.value }}</strong></span>{% endfor %}</div>
+    <div class="fmm-gen__row"><span class="fmm-param__label">{% trans "Sections to generate" %}</span>{% for name in generation.sections %}<span class="fmm-section-chip">{{ name }}</span>{% endfor %}</div>
+  </div>
+  {% endif %}
   {% if row and row.called %}
   <div class="chips mb-2" aria-label="{% trans 'How this brief was written' %}">
     <span class="chip">{{ row.model }}</span>

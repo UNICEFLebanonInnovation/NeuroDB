@@ -366,6 +366,80 @@ export const BUILDERS = {
       },
     };
   },
+  "dual-axis"(el, data) {
+    // The monthly payload above, drawn as FMS draws it (Monitoring insights' Quality tab), each series on its own
+    // axis and the legend centred on top: data-primary="area" (quality score trends) gives two smooth lines with
+    // markers, the first filled to zero on a 0-100 axis; data-primary="bar" (monitoring volume) gives light bars
+    // and a smooth line. data-y-title and data-y2-title name the axes; a point or bar opens its month's visits.
+    const series = (data?.indicators || [])[0];
+    const months = data?.months || [];
+    if (!series || !months.length) return emptyState(el);
+    const area = el.dataset.primary === "area";
+    const blue = cssVar("--nd-chart-blue");
+    const green = cssVar("--nd-chart-green");
+    const grid = cssVar("--nd-border");
+    const muted = cssVar("--nd-muted");
+    const barName = plotlyText(data.bar_name || "Value");
+    const lineName = plotlyText(data.line_name || "Records");
+    const percentLine = data.line_unit === "%";
+    const smooth = { shape: "spline", smoothing: 0.8, width: 2.5 };
+    const values = (series.values || []).map((v) => (v === null || v === undefined ? null : num(v)));
+    const line = (series.reports || []).map((v) => (v === null || v === undefined ? null : num(v)));
+    const primary = area
+      ? {
+          type: "scatter",
+          mode: "lines+markers",
+          line: { ...smooth, color: blue },
+          marker: { size: 6, color: blue },
+          fill: "tozeroy",
+          fillcolor: withAlpha(blue, 0.1),
+          connectgaps: true,
+          hovertemplate: `${barName}: %{y:.1f}%<extra></extra>`,
+        }
+      : {
+          type: "bar",
+          marker: { color: withAlpha(cssVar("--nd-chart-sky"), 0.85), line: { width: 0 } },
+          hovertemplate: `${barName}: %{y:,}<extra></extra>`,
+        };
+    const title = (text) => (text ? { title: { text: plotlyText(text), font: { size: 11, color: muted } } } : {});
+    return {
+      traces: [
+        { ...primary, name: barName, x: months, y: values, meta: drillMeta(data, data.bar_name || "Value") },
+        {
+          type: "scatter",
+          mode: "lines+markers",
+          name: lineName,
+          x: months,
+          y: line,
+          yaxis: "y2",
+          connectgaps: true,
+          line: { ...smooth, color: green },
+          marker: { size: 6, color: green },
+          hovertemplate: percentLine ? `${lineName}: %{y:.1f}%<extra></extra>` : `${lineName}: %{y:,}<extra></extra>`,
+          meta: drillMeta(data, data.line_name || "Records"),
+        },
+      ],
+      layout: {
+        bargap: 0.3,
+        showlegend: true,
+        legend: { orientation: "h", x: 0.5, xanchor: "center", yref: "container", y: 1, yanchor: "top" },
+        xaxis: { type: "category", tickangle: months.length > 8 ? -45 : 0 },
+        yaxis: { ...(area ? { range: [0, 100] } : { rangemode: "tozero" }), ...title(el.dataset.yTitle) },
+        yaxis2: {
+          overlaying: "y",
+          side: "right",
+          showgrid: false,
+          zeroline: false,
+          linecolor: grid,
+          tickfont: { color: muted },
+          ...(percentLine ? { range: [0, 100], ticksuffix: "%" } : { rangemode: "tozero" }),
+          ...title(el.dataset.y2Title),
+        },
+        hovermode: "x unified",
+        margin: { t: 36, r: 56, b: 56, l: 56 },
+      },
+    };
+  },
   bars(el, data) {
     let rows = pairs(data);
     const limit = Number(el.dataset.limit) || 0;
@@ -597,8 +671,15 @@ export const BUILDERS = {
   },
   grouped(el, data) {
     // {labels, series: {name: [...]}, colors?: {name: "--nd-token"}, drill?: {labels, series: {name: code}}}
-    // -> grouped vertical bars; data-barmode="stack" stacks them
+    // -> grouped vertical bars; data-barmode="stack" stacks them, data-legend="top" centres the legend above the
+    // plot (as FMS draws its HACT Q1 chart) and data-y-title names the value axis
     const { labels, series, colors } = seriesOf(data);
+    const top = el.dataset.legend === "top" && series.length >= 2;
+    const muted = cssVar("--nd-muted");
+    const yTitle = el.dataset.yTitle ? { title: { text: plotlyText(el.dataset.yTitle), font: { size: 11, color: muted } } } : {};
+    const legend = top
+      ? { showlegend: true, legend: { orientation: "h", x: 0.5, xanchor: "center", yref: "container", y: 1, yanchor: "top", traceorder: "normal" } }
+      : legendFor(series.length);
     return {
       traces: series.map(([name, values], i) => ({
         type: "bar",
@@ -613,10 +694,10 @@ export const BUILDERS = {
         barmode: el.dataset.barmode === "stack" ? "stack" : "group",
         bargap: 0.25,
         bargroupgap: 0.06,
-        xaxis: { type: "category" },
-        yaxis: { rangemode: "tozero" },
-        margin: { t: 8, r: 8, b: 56, l: 40 },
-        ...legendFor(series.length),
+        xaxis: { type: "category", ...(top && labels.length > 8 ? { tickangle: -45 } : {}) },
+        yaxis: { rangemode: "tozero", ...yTitle },
+        margin: top ? { t: 36, r: 8, b: 56, l: 56 } : { t: 8, r: 8, b: 56, l: 40 },
+        ...legend,
       },
     };
   },

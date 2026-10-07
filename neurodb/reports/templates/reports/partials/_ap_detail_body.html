@@ -2,7 +2,7 @@
 {% comment %}One eTools action point (FMS §10.3 "Action Point Details"): every field, the action taken, the AI's
 verdict and why, and the PME verifications.{% endcomment %}
 <section class="panel" aria-label="{% trans 'Action point' %}">
-  <p class="mb-2">{% status_pill a.status|status_key a.status|code_label %}{% if a.high_priority %} <span class="chip">{% trans "High priority" %}</span>{% endif %}{% if a.status == "open" and a.due_date and a.due_date < today %} {% status_pill "off_track" _("Overdue") %}{% endif %}</p>
+  <p class="mb-2">{% status_pill a.status|status_key a.status|code_label %}{% if a.high_priority %} <span class="chip">{% trans "High priority" %}</span>{% endif %}{% if a.is_open and a.due_date and a.due_date < today %} {% status_pill "off_track" _("Overdue") %}{% endif %}</p>
   <h3 class="h6">{% trans "Description" %}</h3>
   <p class="small" data-synced>{{ a.description|default:"—"|linebreaksbr }}</p>
   <h3 class="h6">{% trans "Action taken" %}</h3>

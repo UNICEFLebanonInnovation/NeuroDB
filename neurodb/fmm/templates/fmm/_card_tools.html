@@ -1,0 +1,3 @@
+{% load i18n %}{% comment %}A chart card's tools, at its foot as FMS has them: the chart as a PNG (charts.js) and
+the card alone printed or saved as a PDF (app.js, data-card-pdf).{% endcomment %}
+<div class="card-tools">{% if chart %}<button type="button" class="btn btn-link btn-sm p-0 fmm-png" data-chart-png="#{{ chart }}" data-filename="{{ filename }}">{% trans "Download PNG" %}</button>{% endif %}<button type="button" class="btn btn-link btn-sm p-0 fmm-png" data-card-pdf title="{% trans 'Print this card alone, or save it as a PDF' %}">{% trans "PDF" %}</button></div>

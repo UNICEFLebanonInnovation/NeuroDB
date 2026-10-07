@@ -536,17 +536,15 @@ def _briefing(scope: Scope, when: str, limits: dict[str, int]) -> dict[str, Any]
         }
         for key, label, info in BRIEFING_TILES
     ]
+    # a partner chip opens the partner's critical visits: the visits the Critical flags tile counts
     partners = [
-        {
-            **p,
-            "url": f"{reverse('fmm:dashboard')}?"
-            + _page_query(replace(year, partners=(p["id"],)), tab="visits"),
-        }
+        {**p, "url": drill_url(replace(year, partners=(p["id"],)), urgency_level="high")}
         for p in data["top_partners"]
     ]
     governorates = [
         {
             **g,
+            "band": metrics.band_of(g["avg_quality"], limits) if g["avg_quality"] is not None else "",
             "url": f"{reverse('fmm:dashboard')}?"
             + _page_query(replace(year, governorate=g["key"]), tab="visits"),
         }
@@ -559,6 +557,38 @@ def _briefing(scope: Scope, when: str, limits: dict[str, int]) -> dict[str, Any]
         "start": data["start"],
         "end": data["end"],
         "filters": _filters_in_words(replace(scope, drill=())),
+        "red_at": data["red_at"],
+        "low_below": data["low_below"],
+        "band_high": limits["band_high"],
+        "band_medium": limits["band_medium"],
+    }
+
+
+def _critical_items(scope: Scope, when: str, limits: dict[str, int], kpis: dict[str, Any]) -> dict[str, Any]:
+    """Critical visits requiring attention (FMS §7.3's critical items, :func:`metrics.critical_items`),
+    each visit opening its page, with the link to all the visits of its urgency band on the Visits tab
+    ("Show all N")."""
+    from dataclasses import replace
+
+    data = metrics.critical_items(scope, when, limits)
+    band = data["band"]
+    total = kpis["high_urgency"] if band == "red" else kpis["amber"] if band == "amber" else 0
+    banded = replace(scope, drill=tuple(d for d in scope.drill if d[0] != "urgency") + (("urgency", band),))
+    visit_url = _visit_url()
+    return {
+        "band": band,
+        "items": [
+            {
+                **item,
+                "url": visit_url(item["key"]),
+                "rating_label": rating_label(item["rating"], item["status_group"]),
+            }
+            for item in data["items"]
+        ],
+        "total": total,
+        "all_url": f"{reverse('fmm:dashboard')}?{_page_query(banded, tab='visits')}" if band else "",
+        "red_at": limits["red"],
+        "amber_at": limits["amber"],
     }
 
 
@@ -612,20 +642,12 @@ def _results_context(
     )
     if tab == "insights":
         context["briefing"] = _briefing(scope, when, limits)
+        context["critical"] = _critical_items(scope, when, limits, kpis)
         context["chat"] = _chat_context(request, scope)
     elif tab == "visits":
         context.update(_table(request, scope, limits, count=kpis["visits"]))
     elif tab == "quality":
-        context.update(
-            _quality_tab(
-                scope,
-                when,
-                limits,
-                rules,
-                places_all=_places_all(request),
-                trends="rule_trends" in request.GET,
-            )
-        )
+        context.update(_quality_tab(scope, when, limits, rules, places_all=_places_all(request)))
     elif tab == "analysis":
         context.update(_analysis_tab(request, scope, when, limits, rules, setting))
     elif tab == "map":
@@ -821,18 +843,20 @@ def _places(scope: Scope, tab: str, places: dict[str, Any], rows: list, show_all
     }
 
 
+Q1_PILL_ORDER = ("on_track", "off_track", "constrained", "not_monitored")  # FMS's drill-down pills
+
+
 def _quality_tab(
     scope: Scope,
     when: str,
     limits: dict[str, int],
     rules: list,
     places_all: bool = False,
-    trends: bool = False,
 ) -> dict[str, Any]:
-    """The Quality tab: quality and visits by month, HACT Q1 by month (or the overall rating when no
-    visit has a Q1 answer), the score distribution, recurring issues, places, rule analysis, the
-    issues summary and the flags per visit. The rule score trends (their own query, per rule and
-    month) are worked out only when their panel scrolls into view and asks for them (``trends``)."""
+    """The Quality tab, in FMS's order: quality score trends and monitoring volume by month, the HACT Q1
+    finding rating distribution (or the overall rating when no visit has a Q1 answer) with its drill-down
+    pills, the geographic coverage; then the recurring issues, the issues summary and the flags per
+    visit."""
     visit_url = _visit_url()
     q1 = metrics.hact_q1_by_month(scope, when, limits)
     q1_question = metrics.q1_question(when)
@@ -841,54 +865,41 @@ def _quality_tab(
     else:
         q1_key = "hact_q1"
     q1_template = _drill_template(scope, "month", q1_key) + f"&month={{drill}}&{q1_key}={{series_drill}}"
-    buckets = metrics.score_buckets(scope, when, limits)
-    # the trends first, when asked for: the rule figures below are then summed from the same query
-    rule_trends = metrics.rule_trends(scope, rules, when) if trends else None
     issues = metrics.issues_summary(scope, when, limits)
     places = metrics.locations(scope, when, limits)
     place_rows = [  # the last visit's date, written once per place shown
         {**p, "last_iso": p["last"].isoformat() if p["last"] else "", "last_text": _day_text(p["last"])}
         for p in _with_urls(_shown_places(places, places_all), scope, "location")
     ]
-    rule_rows = [
-        {**r, "url": drill_url(scope, flag=r["code"]) if r["flagged"] else ""}
-        for r in metrics.rule_analysis(scope, rules, when)
-    ]
     flags = metrics.flag_distribution(scope, when, limits)
     # Not monitored: planned, not conducted (a reported visit with nothing rated), a count apart
     narrow = _narrowed(scope, {"rating": "not_monitored"})
     not_monitored = issues["gaps"]["n"]
     not_monitored_url = f"{reverse('fmm:drill')}?{narrow.query}" if not_monitored else ""
+    q1_totals = [
+        {**t, "url": f"{_drill_template(scope, q1_key)}&{q1_key}={t['code']}" if t["n"] else ""}
+        for t in (q1 or {}).get("totals", ())
+        if t["code"] != "not_monitored"
+    ] + [
+        {
+            "code": "not_monitored",
+            "label": _("Not Monitored"),
+            "n": not_monitored,
+            "url": not_monitored_url,
+        }
+    ]
+    q1_totals.sort(key=lambda t: Q1_PILL_ORDER.index(t["code"]) if t["code"] in Q1_PILL_ORDER else 9)
     return {
         "chart_data": {
             "monthly_quality": metrics.monthly_quality(scope, when, limits),
             "monthly_volume": metrics.monthly_volume(scope, when, limits),
             "q1": {k: v for k, v in (q1 or {}).items() if k != "totals"},
-            "buckets": buckets["items"],
         },
-        "rule_trends": None if rule_trends is None else {"rule_trends": rule_trends},
-        "rule_trends_query": _page_query(scope, tab="quality", rule_trends="1"),
-        "rule_trend_template": _drill_template(scope, "month", "rule") + "&month={drill}&rule={series_drill}",
         "month_template": _drill_template(scope, "month") + "&month={drill}",
         "q1_key": q1_key,
         "q1_template": q1_template,
         "q1_question": q1_question,
-        "q1_totals": [
-            {**t, "url": f"{_drill_template(scope, q1_key)}&{q1_key}={t['code']}" if t["n"] else ""}
-            for t in (q1 or {}).get("totals", ())
-            if t["code"] != "not_monitored"
-        ]
-        + [
-            {
-                "code": "not_monitored",
-                "label": _("Not Monitored"),
-                "n": not_monitored,
-                "url": not_monitored_url,
-            }
-        ],
-        "bucket_template": _drill_template(scope, "bucket") + "&bucket={drill}",
-        "not_scored": buckets["not_scored"],
-        "not_scored_url": drill_url(scope, bucket="none") if buckets["not_scored"] else "",
+        "q1_totals": q1_totals,
         "issues": [
             {
                 **row,
@@ -898,7 +909,6 @@ def _quality_tab(
             for row in metrics.top_issues(scope, 10, when, rules)
         ],
         "places": _places(scope, "quality", places, place_rows, places_all),
-        "rule_rows": rule_rows,
         "issues_summary": {
             **issues,
             "r6_url": drill_url(scope, flag="R6") if issues["r6"]["n"] else "",
@@ -937,10 +947,20 @@ def _entity_link(link: tuple[str, int] | None) -> str:
 def _analysis_tab(
     request: HttpRequest, scope: Scope, when: str, limits: dict[str, int], rules: list, setting=None
 ) -> dict[str, Any]:
-    """The Analysis tab: highlights, governorates not visited, field offices, entity performance,
-    quality by field office, sections, visit frequency by place, quality by rating, flags by rule,
-    points by category, programmatic visits and HACT, and follow-up."""
+    """The Analysis tab: FMS's quality score distribution, rule score trends and quality rules first;
+    then highlights, governorates not visited, field offices, entity performance, quality by field
+    office, sections, visit frequency by place, quality by rating, flags by rule, points by category,
+    programmatic visits and HACT, and follow-up. The rule score trends (their own query, per rule and
+    month) are worked out only when their panel scrolls into view and asks for them
+    (``?rule_trends=1``)."""
     visit_url = _visit_url()
+    buckets = metrics.score_buckets(scope, when, limits)
+    # the trends first, when asked for: the rule figures below are then summed from the same query
+    rule_trends = metrics.rule_trends(scope, rules, when) if "rule_trends" in request.GET else None
+    rule_rows = [
+        {**r, "url": drill_url(scope, flag=r["code"]) if r["flagged"] else ""}
+        for r in metrics.rule_analysis(scope, rules, when)
+    ]
     highlights = metrics.highlights(scope, when, limits)
     kind = _entity_kind(request)
     show_all = request.GET.get("entity_all") == "1"
@@ -986,9 +1006,18 @@ def _analysis_tab(
         section_rows.append({**row, "lines": lines, "url": drill_url(scope, section=row["drill"])})
     return {
         "chart_data": {
+            "buckets": buckets["items"],
             "bands": highlights["bands"],
             "flags": flag_frequency["pairs"],
         },
+        "bucket_template": _drill_template(scope, "bucket") + "&bucket={drill}",
+        "not_scored": buckets["not_scored"],
+        "not_scored_url": drill_url(scope, bucket="none") if buckets["not_scored"] else "",
+        "rule_trends": None if rule_trends is None else {"rule_trends": rule_trends},
+        "rule_trends_query": _page_query(scope, tab="analysis", rule_trends="1"),
+        "rule_trend_template": _drill_template(scope, "month", "rule") + "&month={drill}&rule={series_drill}",
+        "rule_rows": rule_rows,
+        "fields_found_url": reverse("admin:fmm_fieldmapping_changelist"),
         "highlights": {
             **highlights,
             "reported_url": drill_url(scope, status="reported") if highlights["reported"] else "",
@@ -1815,6 +1844,49 @@ def _brief_blocks(
     return sections, lines
 
 
+def _generation_settings(version, is_admin: bool) -> dict[str, Any] | None:
+    """The brief's generation settings as read-only chips (FMS's AI generation parameters): what the
+    published prompt version holds and sends (the model, its reasoning effort, the output token limit,
+    the narratives sampled, the compliance depth, and temperature or top-p only when they are set and
+    sent to the model), and the parts it writes; administrators get the link to edit them."""
+    if version is None:
+        return None
+    from .ai import sampling
+    from .ai import sections as sections_module
+
+    model = profiles.model_of(version)
+    chips = [
+        {"label": _("Model"), "value": model, "title": ""},
+        {"label": _("Reasoning effort"), "value": version.effort, "title": ""},
+        {
+            "label": _("Max output tokens"),
+            "value": f"{version.max_output_tokens:,}",
+            "title": _("The limit includes the model’s reasoning tokens."),
+        },
+        {
+            "label": _("Narrative samples"),
+            "value": version.narratives_sampled,
+            "title": _("The most monitors’ narratives (each with its Q1, Q2 and Q3 answers) the AI reads."),
+        },
+        {
+            "label": _("Compliance depth"),
+            "value": version.comparison_visits,
+            "title": _("The most frequent quality flags the AI reads (rule, visits, example visits)."),
+        },
+    ]
+    plan = sampling.plan(version, model, version.effort)
+    for parameter in sampling.PARAMETERS:
+        if plan.states.get(parameter) == sampling.SENT:
+            chips.append(
+                {"label": SAMPLING_NAMES[parameter], "value": f"{plan.params[parameter]:.2f}", "title": ""}
+            )
+    return {
+        "chips": chips,
+        "sections": [part["label"] for part in sections_module.of(version)],
+        "edit_url": reverse("admin:fmm_promptversion_change", args=[version.pk]) if is_admin else "",
+    }
+
+
 def _insight_context(request: HttpRequest, scope: Scope, message: str = "") -> dict[str, Any]:
     """The brief card: the brief shown (kept or code-written), its header, chips, quota and buttons."""
     from .ai import sections as sections_module
@@ -1843,6 +1915,7 @@ def _insight_context(request: HttpRequest, scope: Scope, message: str = "") -> d
         refused = ai_insights.gate(scope, version, request.user)
         disabled = refused[1] if refused else ""
     rules_version = (row.rules_version if row else None) or ai_insights._refresh_state()[0]
+    is_admin = access.is_admin(request.user)
     return {
         "scope": scope,
         "brief": brief,
@@ -1858,7 +1931,8 @@ def _insight_context(request: HttpRequest, scope: Scope, message: str = "") -> d
         "ai_on": on,
         "disabled": disabled,
         "message": message,
-        "is_admin": access.is_admin(request.user),
+        "is_admin": is_admin,
+        "generation": _generation_settings(version, is_admin),
         "fallback_note": row is not None and row.status == "fallback",
     }
 
