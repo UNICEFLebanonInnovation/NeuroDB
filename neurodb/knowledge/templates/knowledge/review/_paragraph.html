@@ -1,0 +1,10 @@
+{% load i18n %}
+{% if result.ok %}
+<div class="review-paragraph mt-2 p-2 border rounded">
+  <p class="mb-1">{{ result.text }}</p>
+  <p class="small text-muted mb-0">{% blocktrans count n=result.findings %}Written by the AI from {{ n }} finding of this theme; each citation is checked to be one of them.{% plural %}Written by the AI from {{ n }} findings of this theme; each citation is checked to be one of them.{% endblocktrans %} {% blocktrans with used=quota.used allowed=quota.allowed %}{{ used }} of {{ allowed }} today.{% endblocktrans %}</p>
+</div>
+{% else %}
+<p class="small text-danger mt-2 mb-0" role="alert">{{ result.message }}</p>
+{% endif %}
+<span class="chip{% if quota.used >= quota.allowed %} watch-chip--likely{% endif %}" id="paragraph-quota" hx-swap-oob="true" title="{% trans 'Your paragraphs today; the count starts again at midnight' %}">{% blocktrans with used=quota.used allowed=quota.allowed %}{{ used }} of {{ allowed }} today{% endblocktrans %}</span>

@@ -3,6 +3,7 @@
 {% block content %}
 <form method="post" enctype="multipart/form-data" class="panel" style="max-width: 860px">
   {% csrf_token %}
+  {% if batch %}<input type="hidden" name="batch" value="{{ batch.pk }}"><p class="small">{% blocktrans with name=batch.name %}The documents go in the review batch “{{ name }}” once added.{% endblocktrans %}</p>{% endif %}
   {% if form.non_field_errors %}<div class="alert alert-danger small" role="alert">{{ form.non_field_errors|join:" " }}</div>{% endif %}
   {% for field in form %}
   {% if field.name == "periodic" %}

@@ -1,0 +1,8 @@
+{% load i18n %}
+<div class="filter-bar__field">
+  <label class="form-label" for="{{ prefix|default:'r' }}-batch">{% trans "Batch" %}</label>
+  <select class="form-select form-select-sm" id="{{ prefix|default:'r' }}-batch" name="batch">
+    <option value="">{% trans "Every batch" %}</option>
+    {% for b in batch_choices %}<option value="{{ b.pk }}" {% if b.pk == selected %}selected{% endif %}>{{ b.name }}{% if b.archived %} ({% trans "archived" %}){% endif %}</option>{% endfor %}
+  </select>
+</div>

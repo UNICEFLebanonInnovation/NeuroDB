@@ -1,0 +1,33 @@
+{% load i18n ui %}
+{% if modal %}
+<div class="modal-header">
+  <h2 class="modal-title h5" id="modal-title">{{ title }}</h2>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+</div>
+<div class="modal-body">
+{% endif %}
+<p class="small text-muted mb-2">{{ document.title }}{% if finding and finding.manual %} · {% trans "added by a person" %}{% elif finding %} · {% trans "read by the AI; a new analysis keeps your changes" %}{% endif %}</p>
+<form method="post" action="{{ action }}"{% if modal %} hx-post="{{ action }}" hx-target="#modal-content"{% endif %}>
+  {% csrf_token %}<input type="hidden" name="next" value="{{ next }}">
+  <div class="mb-2"><label class="form-label small" for="ff-text">{% trans "Finding (one to three sentences)" %}</label>
+    <textarea class="form-control form-control-sm" id="ff-text" name="text" rows="3" maxlength="1200" required>{{ values.text }}</textarea>{% if errors.text %}<p class="small text-danger mb-0" role="alert">{{ errors.text }}</p>{% endif %}</div>
+  <div class="mb-2"><label class="form-label small" for="ff-quote">{% trans "Quote (the words of the document, as written)" %}</label>
+    <textarea class="form-control form-control-sm" id="ff-quote" name="quote" rows="2" maxlength="1000">{{ values.quote }}</textarea>
+    <p class="form-text">{% trans "NeuroDB looks for it in the text to give the exact page and the evidence score." %}</p></div>
+  <div class="row g-2">
+    <div class="col-sm-6 mb-2"><label class="form-label small" for="ff-category-edit">{% trans "Category" %}</label>
+      <select class="form-select form-select-sm" id="ff-category-edit" name="category">{% for value, label in categories %}<option value="{{ value }}" {% if values.category == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>{% if errors.category %}<p class="small text-danger mb-0" role="alert">{{ errors.category }}</p>{% endif %}</div>
+    <div class="col-sm-6 mb-2"><label class="form-label small" for="ff-kind">{% trans "The document" %}</label>
+      <select class="form-select form-select-sm" id="ff-kind" name="kind">{% for value, label in kinds %}<option value="{{ value }}" {% if values.kind == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="col-12 mb-2"><label class="form-label small" for="ff-topic-edit">{% trans "Topic" %}</label>
+      <select class="form-select form-select-sm" id="ff-topic-edit" name="topic" required>{% for pk, path in topics %}<option value="{{ pk }}" {% if values.topic == pk|stringformat:"s" %}selected{% endif %}>{{ path }}</option>{% endfor %}</select>{% if errors.topic %}<p class="small text-danger mb-0" role="alert">{{ errors.topic }}</p>{% endif %}</div>
+    <div class="col-sm-4 mb-2"><label class="form-label small" for="ff-page">{% trans "Page (number)" %}</label>
+      <input class="form-control form-control-sm" id="ff-page" name="page" inputmode="numeric" value="{{ values.page }}">{% if errors.page %}<p class="small text-danger mb-0" role="alert">{{ errors.page }}</p>{% endif %}</div>
+    <div class="col-sm-4 mb-2"><label class="form-label small" for="ff-place">{% trans "Place" %}</label>
+      <input class="form-control form-control-sm" id="ff-place" name="place_text" maxlength="200" value="{{ values.place_text }}" placeholder="{% trans 'e.g. Akkar, or Lebanon' %}"></div>
+    <div class="col-sm-4 mb-2"><label class="form-label small" for="ff-date">{% trans "Date or period" %}</label>
+      <input class="form-control form-control-sm" id="ff-date" name="date_text" maxlength="100" value="{{ values.date_text }}" placeholder="{% trans 'e.g. Q3 2025' %}"></div>
+  </div>
+  <button type="submit" class="btn btn-primary btn-sm">{% trans "Save" %}</button>
+</form>
+{% if modal %}</div>{% endif %}

@@ -22,7 +22,7 @@ from neurodb.accounts.models import Section
 from . import search
 from .access import can_add, can_manage
 from .forms import DocumentForm
-from .models import Document, Link, ReportSeries
+from .models import Document, Link, ReportSeries, ReviewBatch
 
 logger = logging.getLogger(__name__)
 
@@ -122,14 +122,36 @@ def add(request: HttpRequest) -> HttpResponse:
     if not can_add(request.user):
         raise PermissionDenied
     form = DocumentForm(request.POST or None, request.FILES or None)
+    # uploaded from the document review: the documents go in that review batch
+    batch = ReviewBatch.objects.filter(pk=_int(request.POST.get("batch") or request.GET.get("batch"))).first()
     documents = []
     if request.method == "POST" and form.is_valid():
         try:
             with transaction.atomic():  # all the files or none
                 documents = save_added(form, request.user)
+                if batch is not None:
+                    from . import review
+
+                    review.put_in_batch(documents, batch)
         except STORAGE_ERRORS:
             logger.exception("knowledge base: the uploaded file(s) could not be stored")
             form.add_error(None, STORAGE_MESSAGE)
+    if documents and batch is not None:
+        if len(documents) == 1:
+            start(documents[0])
+        else:
+            from neurodb.integrations import background
+
+            background.start_command("index_knowledge", "--pending")
+        messages.success(
+            request,
+            _(
+                "%(n)s document(s) added to the batch “%(batch)s”. NeuroDB reads them first (a few minutes "
+                "each); they are analysed at the next nightly run, or now with Analyse once read."
+            )
+            % {"n": len(documents), "batch": batch.name},
+        )
+        return redirect(f"{reverse('knowledge:review')}?tab=documents&batch={batch.pk}")
     if documents:
         if len(documents) == 1:
             start(documents[0])
@@ -163,6 +185,7 @@ def add(request: HttpRequest) -> HttpResponse:
             {"label": _("Add"), "url": None},
         ],
         "form": form,
+        "batch": batch,
     }
     return render(request, "knowledge/add.html", context)
 
@@ -278,7 +301,9 @@ def download(request: HttpRequest, pk: int) -> FileResponse:
         handle = document.file.open("rb")
     except (FileNotFoundError, OSError) as exc:
         raise Http404(_("The file is missing from storage.")) from exc
-    return FileResponse(handle, as_attachment=True, filename=document.filename)
+    # a PDF opens in the browser, so that a finding's link (#page=n) opens it at its page
+    inline = document.filename.lower().endswith(".pdf")
+    return FileResponse(handle, as_attachment=not inline, filename=document.filename)
 
 
 @require_POST

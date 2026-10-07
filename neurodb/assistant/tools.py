@@ -1133,7 +1133,7 @@ def search_document_findings(query: str | None = None, batch: str | None = None)
             }
             for f in findings
         ],
-        "url": reverse("knowledge:index"),
+        "url": reverse("knowledge:review"),
     }
 
 

@@ -386,6 +386,17 @@ function initAutoprint(root) {
   });
 }
 
+// ------------------------------------------------------------------ confirmations
+// A form with data-confirm asks first (removing or deleting something); a plain browser confirm, so it
+// works for forms posted normally and through HTMX alike.
+function confirmSubmit(event) {
+  const form = event.target.closest?.("form[data-confirm]");
+  if (form && !window.confirm(form.dataset.confirm)) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+}
+
 function enhance(root = document) {
   $$("form[data-filter-bar]", root).forEach(initFilterBar);
   initFiltersCollapse(root);
@@ -401,4 +412,5 @@ initHelp();
 initHtmx();
 document.addEventListener("click", followQuery);
 document.addEventListener("auxclick", followQuery);
+document.addEventListener("submit", confirmSubmit, true);
 enhance(document);

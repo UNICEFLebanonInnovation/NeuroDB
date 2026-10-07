@@ -90,5 +90,49 @@ Documents are read each night (04:40) when they are waiting, failed or partly an
 again by the knowledge base with a new text waits to be analysed again. A new analysis replaces what the
 AI wrote but keeps people's verdicts on findings whose words did not change, the findings people added
 and the status of each action point. [Ask NeuroDB](/help/ask-neurodb/) can search the findings and cite
-their pages. The review page (batches, accept or reject, dashboard, synthesis and the desk-review report)
-is being added in this release.
+their pages.
+
+## The document review page
+
+**Knowledge → Document review** (`/knowledge/review/`) has six tabs. Everyone signed in can read it;
+administrators and section editors create batches, add documents, start an analysis and review the
+findings. The prompts and the switch are in the admin (administrators only).
+
+- **Documents**: the batches (create, rename, archive) and, for the chosen batch, its documents with five
+  stage chips (Text, Findings, Locate, Summary, Action points: green done, amber partly, red failed, grey
+  not reached; the reason on hover), their counts and "only n% read" when partly analysed. *Upload
+  documents into this batch* adds new files; *Or pick knowledge base documents* adds ones already there.
+  Per document: **Analyse / Re-analyse** (now, in the background), **Mark as reference** (kept, never
+  analysed, out of every count) and **Remove from batch**.
+- **Findings**: *All findings* (one row per finding: batch, document and page — a PDF opens at the page —
+  date, programme, subtopic, tag, category, place, evidence, the text with its quote on hover, and ✓ ✕ to
+  accept or reject, Edit and Delete for editors); *By document* (its key statements, then its findings,
+  with **Accept all** and **Reject all**, which change only what is not reviewed yet, and **Add a
+  finding** for one the AI missed); *Key statements*; and the *Index* (every document with its stages and
+  notes). Filters: batch, programme, tag, category, minimum evidence, review and search. Each view
+  downloads as CSV.
+- **Dashboard**: documents analysed, findings, key statements, high-urgency statements (urgency 70 or
+  more) and open action points; six quality tiles (tagged, located, dated, exact page, reviewed,
+  statements cited), each opening the findings that lack it; charts by category, programme, top tags,
+  evidence, year and place; and a table by batch. Every tile, bar and batch opens the rows it counts.
+- **Synthesis**: themes are topics ranked by how many **different documents** raise them (minimum 2, 3,
+  4 or 5 or more; search; challenges only), each with its documents, years, average evidence and best
+  findings. *Over time* sorts them into persistent (every year up to the latest), recurring (again after
+  a gap), emerging (the latest year only) and no longer raised; *Coverage* lists the themes resting on
+  one batch only; *Repeated findings* groups findings of different documents written in nearly the same
+  words (at least 60% of their words shared). Nothing here uses AI except **Write a paragraph**: one call
+  on one theme's findings, each claim cited "(Document title, p. n)", 50 a day per person.
+- **Actions**: open, overdue, high priority, done and derived action points; open ones by owner; the table
+  with its filters (Current — documents dated within a year of the newest one — or All time, status,
+  overdue only, batch, owner, priority, search). Editors set the status on the row; a new analysis never
+  changes it. CSV and Excel downloads.
+- **Report**: **Download desk review (.docx)**, a Word file assembled without AI: the scope, the counts,
+  the recurring themes with their evidence, the recurring challenges, the repeated findings, the most
+  urgent statements, the open action points by owner, the coverage and the method, every claim cited
+  "(Document title, p. n)".
+
+**Rejected** findings and statements are left out of every count, chart, synthesis and report (the
+Findings tab still lists them, struck through, so a verdict can be changed). The **Verified only** switch
+at the top (shown once something was reviewed; yours alone, for as long as you stay signed in) goes further: only
+accepted findings and statements feed the Dashboard, the Synthesis, the Actions and the desk review.
+Turn it on before circulating the report.

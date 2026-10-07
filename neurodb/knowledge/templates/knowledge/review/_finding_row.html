@@ -1,0 +1,26 @@
+{% load i18n ui %}
+{% url 'knowledge:review_finding_verdict' finding.pk as verdict_url %}
+<tr id="finding-{{ finding.pk }}"{% if finding.verdict == "rejected" %} class="is-rejected"{% endif %}>
+  {% if compact %}
+  <td class="small text-nowrap">{% if finding.page_label %}<a href="{{ finding.url }}" target="_blank" rel="noopener">{{ finding.page_label }}</a>{% else %}—{% endif %}</td>
+  {% else %}
+  <td class="small">{{ finding.document.review_batch.name }}</td>
+  <td><a href="{{ finding.document.get_absolute_url }}">{{ finding.document.title|truncatechars:60 }}</a>{% if finding.page_label %}<span class="cell-sub"><a href="{{ finding.url }}" target="_blank" rel="noopener">{{ finding.page_label }}</a></span>{% endif %}</td>
+  <td class="small text-nowrap" data-value="{{ finding.finding_date|date:'Y-m-d' }}">{{ finding.finding_date|date:"d/m/Y"|default:"" }}{% if finding.date_text and not finding.finding_date %}<span class="cell-sub">{{ finding.date_text }}</span>{% endif %}</td>
+  <td class="small">{{ finding.topic.subtopic.programme.name }}</td>
+  <td class="small">{{ finding.topic.subtopic.name }}</td>
+  {% endif %}
+  {% if compact %}<td>{{ finding.text }}{% if finding.quote %}<span class="cell-sub fst-italic">“{{ finding.quote|truncatechars:300 }}”</span>{% endif %}{% if finding.manual %} <span class="chip">{% trans "Added by a person" %}</span>{% endif %}{% if finding.derived %} <span class="chip">{% trans "Derived" %}</span>{% endif %}</td>{% endif %}
+  <td class="small">{{ finding.topic.name }}{% if finding.topic.is_other and finding.tag_text %}<span class="cell-sub" title="{% trans 'The tag the AI wrote, not in the topic list' %}">{{ finding.tag_text|truncatechars:60 }}</span>{% endif %}</td>
+  <td class="small">{{ finding.get_category_display }}</td>
+  <td class="small">{{ finding.place_text|default:"—" }}{% if finding.place_match == "unmatched" %}<span class="cell-sub text-warning">{% trans "Not recognised" %}</span>{% elif finding.district_name or finding.governorate_name %}{% with matched=finding.district_name|default:finding.governorate_name %}{% if matched|lower != finding.place_text|lower %}<span class="cell-sub" title="{% trans 'As NeuroDB recognised it' %}">{{ matched }}</span>{% endif %}{% endwith %}{% endif %}</td>
+  <td class="text-end" data-value="{{ finding.evidence }}"><span title="{% if finding.quote_found %}{% trans 'quote found' %}{% else %}{% trans 'quote not found' %}{% endif %} · {{ finding.get_kind_display }}">{{ finding.evidence }}</span></td>
+  {% if not compact %}<td><span title="{% if finding.quote %}“{{ finding.quote }}”{% endif %}">{{ finding.text|truncatechars:240 }}</span>{% if finding.manual %} <span class="chip">{% trans "Added by a person" %}</span>{% endif %}{% if finding.derived %} <span class="chip">{% trans "Derived" %}</span>{% endif %}</td>{% endif %}
+  <td class="text-nowrap">{% include "knowledge/review/_verdict_buttons.html" with item=finding action=verdict_url %}
+    {% if can_edit %}{% url 'knowledge:review_finding_edit' finding.pk as edit_url %}{% url 'knowledge:review_finding_delete' finding.pk as delete_url %}
+    <div class="d-flex gap-1 mt-1">
+      <a class="btn btn-link btn-sm p-0" href="{{ edit_url }}?next={{ request.get_full_path|urlencode }}" hx-get="{{ edit_url }}?next={{ request.get_full_path|urlencode }}" hx-target="#modal-content" hx-push-url="false">{% trans "Edit" %}</a>
+      <form method="post" action="{{ delete_url }}" hx-post="{{ delete_url }}" hx-target="closest tr" hx-swap="outerHTML" data-confirm="{% trans 'Delete this finding? A new analysis may find it again: reject it to keep it out.' %}" class="d-inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button type="submit" class="btn btn-link btn-sm p-0 text-danger">{% trans "Delete" %}</button></form>
+    </div>{% endif %}
+  </td>
+</tr>

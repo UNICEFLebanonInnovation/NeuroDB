@@ -16,6 +16,7 @@
       <h1 class="page-title">{{ page_title }}</h1>
       {% if page_subtitle %}<p class="page-subtitle">{{ page_subtitle }}</p>{% endif %}
     </div>
+    {% if header_include %}{% include header_include %}{% endif %}
     {% if actions %}
     <div class="page-actions" role="group" aria-label="{% trans 'Page actions' %}">
       {% for action in actions %}

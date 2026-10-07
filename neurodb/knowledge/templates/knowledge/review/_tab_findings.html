@@ -1,0 +1,144 @@
+{% load i18n ui %}
+<nav class="segmented mb-2" aria-label="{% trans 'Findings views' %}">
+  {% for v in views %}<a href="{% url 'knowledge:review' %}?{{ v.query }}" hx-get="{% url 'knowledge:review' %}?{{ v.query }}" hx-target="#review-results" hx-push-url="true" {% if v.key == view %}aria-current="page"{% endif %}>{{ v.label }}</a>{% endfor %}
+</nav>
+<p class="small text-muted">{% if view == "document" %}{% trans "One document at a time: its key statements, then its findings. Accept all and Reject all apply to what is still not reviewed; what was already decided stays." %}{% elif view == "statements" %}{% trans "The key statements of every document, most urgent first, each with the findings it rests on." %}{% elif view == "index" %}{% trans "Every document of the review, analysed or not, with its stages: the place to see whether a file was ever analysed and why a stage failed." %}{% else %}{% trans "One row per finding across every document. Evidence (0–100) is NeuroDB's check, never the AI's confidence: quote found 45, reported 25, dated 10, placed 10, tagged 10. Under 70 is worth reading against its page before quoting it." %}{% endif %}</p>
+<form method="get" action="{% url 'knowledge:review' %}" class="filter-bar" hx-get="{% url 'knowledge:review' %}" hx-target="#review-results" hx-push-url="true" role="search" aria-label="{% trans 'Finding filters' %}">
+  <input type="hidden" name="tab" value="findings"><input type="hidden" name="view" value="{{ view }}">
+  {% include "knowledge/review/_batch_select.html" with selected=f.batch prefix="ff" %}
+  {% if view != "index" %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="ff-q">{% trans "Search" %}</label>
+    <input class="form-control form-control-sm" type="search" id="ff-q" name="q" value="{{ f.q }}" placeholder="{% if view == 'statements' %}{% trans 'Words of the statement or the document' %}{% else %}{% trans 'Text, quote, place, tag or document' %}{% endif %}">
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="ff-verdict">{% trans "Review" %}</label>
+    <select class="form-select form-select-sm" id="ff-verdict" name="verdict"><option value="">{% trans "All" %}</option>{% for value, label in verdicts %}<option value="{{ value }}" {% if f.verdict == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+  </div>
+  {% endif %}
+  {% if view == "all" or view == "document" %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="ff-programme">{% trans "Programme" %}</label>
+    <select class="form-select form-select-sm" id="ff-programme" name="programme"><option value="">{% trans "All" %}</option>{% for pk, name in programmes %}<option value="{{ pk }}" {% if f.programme == pk %}selected{% endif %}>{{ name }}</option>{% endfor %}</select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="ff-topic">{% trans "Tag" %}</label>
+    <select class="form-select form-select-sm" id="ff-topic" name="topic" data-tom placeholder="{% trans 'All' %}"><option value="">{% trans "All" %}</option>{% for pk, path in topics %}<option value="{{ pk }}" {% if f.topic == pk %}selected{% endif %}>{{ path }}</option>{% endfor %}</select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="ff-category">{% trans "Category" %}</label>
+    <select class="form-select form-select-sm" id="ff-category" name="category"><option value="">{% trans "All" %}</option>{% for value, label in categories %}<option value="{{ value }}" {% if f.category == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="ff-evidence">{% trans "Evidence at least" %}</label>
+    <input class="form-control form-control-sm" type="number" id="ff-evidence" name="evidence" min="0" max="100" step="5" value="{{ f.evidence|default_if_none:'' }}" style="width: 6rem">
+  </div>
+  {% for key, value in hidden %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+  {% elif view == "statements" %}
+  <div class="filter-bar__field">
+    <span class="form-label">{% trans "Show only" %}</span>
+    <label class="form-check mb-0 small"><input class="form-check-input" type="checkbox" name="urgent" value="1" {% if f.urgent %}checked{% endif %}> {% blocktrans with n=high_urgency %}Urgency {{ n }} or more{% endblocktrans %}</label>
+  </div>
+  {% for key, value in hidden %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+  {% endif %}
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
+    <a class="btn btn-link btn-sm" href="{% url 'knowledge:review' %}?tab=findings&amp;view={{ view }}">{% trans "Reset" %}</a>
+  </div>
+</form>
+{% if chips %}
+<div class="chips mb-2" aria-label="{% trans 'Filters from links' %}">
+  {% for chip in chips %}{% if chip.url %}<span class="chip chip--removable">{{ chip.label }} <a class="chip__remove" href="{{ chip.url }}" hx-get="{{ chip.url }}" hx-target="#review-results" hx-push-url="true" aria-label="{% blocktrans with label=chip.label %}Remove {{ label }}{% endblocktrans %}">&times;</a></span>{% else %}<span class="chip">{{ chip.label }}</span>{% endif %}{% endfor %}
+</div>
+{% endif %}
+
+{% if view == "index" %}
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Document index") count=rows|length table_id="review-index" filename="document-review-index" %}
+  <div class="px-3 pb-2"><a class="btn btn-outline-secondary btn-sm" href="{{ export_url }}">{% include "components/icon.html" with name="download" %}<span>{% trans "CSV of the index" %}</span></a></div>
+  {% if rows %}
+  <div class="table-wrap"><table class="table table-sm mb-0" id="review-index" data-sortable>
+    <thead><tr><th>{% trans "Batch" %}</th><th>{% trans "Document" %}</th><th>{% trans "Status" %}</th>{% for s in rows.0.stage_chips %}<th>{{ s.label }}</th>{% endfor %}<th class="text-end">{% trans "Findings" %}</th><th class="text-end">{% trans "Statements" %}</th><th class="text-end">{% trans "Action points" %}</th><th class="text-end">{% trans "Reviewed" %}</th><th>{% trans "Notes" %}</th></tr></thead>
+    <tbody>{% for d in rows %}<tr>
+      <td class="small">{{ d.review_batch.name }}</td>
+      <td><a href="{{ d.get_absolute_url }}">{{ d.title }}</a></td>
+      <td class="small text-nowrap">{{ d.get_review_status_display }}{% if d.reviewed_at %}<span class="cell-sub">{{ d.reviewed_at|date:"j M Y" }}</span>{% endif %}</td>
+      {% for s in d.stage_chips %}<td><span title="{{ s.note }}">{% status_pill s.key s.state "sm" %}</span></td>{% endfor %}
+      <td class="text-end">{{ d.n_findings|number }}</td><td class="text-end">{{ d.n_statements|number }}</td><td class="text-end">{{ d.n_actions|number }}</td><td class="text-end">{{ d.n_reviewed|number }}</td>
+      <td class="small">{% for s in d.stage_chips %}{% if s.key == "partial" or s.key == "failed" %}<span class="d-block">{{ s.label }}: {{ s.note|truncatechars:200 }}</span>{% endif %}{% endfor %}{% if d.stopped %}<span class="d-block text-danger">{{ d.stopped|truncatechars:200 }}</span>{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}
+  {% include "components/empty_state.html" with icon="file" title=_("No document in the review yet") %}
+  {% endif %}
+</section>
+
+{% elif view == "statements" %}
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Key statements") count=page_obj.paginator.count table_id="review-statements" filename="key-statements" %}
+  <div class="px-3 pb-2"><a class="btn btn-outline-secondary btn-sm" href="{{ export_url }}">{% include "components/icon.html" with name="download" %}<span>{% trans "CSV of the filter" %}</span></a></div>
+  {% if statements %}
+  <div class="table-wrap"><table class="table table-sm mb-0" id="review-statements">
+    <thead><tr><th class="text-end">{% trans "Urgency" %}</th><th>{% trans "Statement" %}</th><th>{% trans "Document" %}</th><th>{% trans "Based on" %}</th><th>{% trans "Review" %}</th></tr></thead>
+    <tbody>{% for s in statements %}{% include "knowledge/review/_statement_row.html" %}{% endfor %}</tbody>
+  </table></div>
+  {% include "components/pagination.html" with hx_target="#review-results" %}
+  {% else %}
+  {% include "components/empty_state.html" with icon="search" title=_("No key statement matches") %}
+  {% endif %}
+</section>
+
+{% elif view == "document" %}
+{% if documents %}
+{% for d in documents %}
+<section class="panel" aria-labelledby="review-doc-{{ d.pk }}">
+  <div class="panel__header">
+    <h2 class="panel__title" id="review-doc-{{ d.pk }}"><a href="{{ d.get_absolute_url }}">{{ d.title }}</a></h2>
+    <span class="panel__hint">{{ d.review_batch.name }} · {{ d.get_review_status_display }}{% if d.reviewed_at %} {% blocktrans with day=d.reviewed_at|date:"j M Y" %}on {{ day }}{% endblocktrans %}{% endif %}</span>
+  </div>
+  {% if can_edit %}
+  <div class="d-flex flex-wrap gap-2 mb-2">
+    {% if d.unreviewed %}
+    <form method="post" action="{% url 'knowledge:review_bulk_verdict' d.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="verdict" value="accepted"><button type="submit" class="btn btn-outline-success btn-sm">{% blocktrans count n=d.unreviewed %}Accept all ({{ n }} not reviewed){% plural %}Accept all ({{ n }} not reviewed){% endblocktrans %}</button></form>
+    <form method="post" action="{% url 'knowledge:review_bulk_verdict' d.pk %}" class="d-inline" data-confirm="{% trans 'Reject every finding of this document that is not reviewed yet?' %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="verdict" value="rejected"><button type="submit" class="btn btn-outline-danger btn-sm">{% trans "Reject all not reviewed" %}</button></form>
+    {% endif %}
+    {% url 'knowledge:review_finding_new' d.pk as new_url %}
+    <a class="btn btn-outline-primary btn-sm" href="{{ new_url }}?next={{ request.get_full_path|urlencode }}" hx-get="{{ new_url }}?next={{ request.get_full_path|urlencode }}" hx-target="#modal-content" hx-push-url="false">{% trans "Add a finding" %}</a>
+  </div>
+  {% endif %}
+  {% if d.key_statements %}
+  <h3 class="h6 mt-2">{% trans "Key statements" %}</h3>
+  <div class="table-wrap"><table class="table table-sm">
+    <thead><tr><th class="text-end">{% trans "Urgency" %}</th><th>{% trans "Statement" %}</th><th>{% trans "Based on" %}</th><th>{% trans "Review" %}</th></tr></thead>
+    <tbody>{% for s in d.key_statements %}{% include "knowledge/review/_statement_row.html" with compact=True %}{% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+  <h3 class="h6 mt-2">{% blocktrans count n=d.shown_findings|length %}{{ n }} finding{% plural %}{{ n }} findings{% endblocktrans %}</h3>
+  {% if d.shown_findings %}
+  <div class="table-wrap"><table class="table table-sm mb-0">
+    <thead><tr><th>{% trans "Page" %}</th><th>{% trans "Finding" %}</th><th>{% trans "Tag" %}</th><th>{% trans "Category" %}</th><th>{% trans "Place" %}</th><th class="text-end">{% trans "Evidence" %}</th><th>{% trans "Review" %}</th></tr></thead>
+    <tbody>{% for finding in d.shown_findings %}{% include "knowledge/review/_finding_row.html" with compact=True %}{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="small text-muted">{% trans "No finding matches the filter." %}</p>{% endif %}
+</section>
+{% endfor %}
+{% include "components/pagination.html" with page_obj=documents_page hx_target="#review-results" %}
+{% else %}
+<section class="panel">{% include "components/empty_state.html" with icon="search" title=_("No document matches") message=_("Documents appear here once they are analysed.") %}</section>
+{% endif %}
+
+{% else %}
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("All findings") count=page_obj.paginator.count table_id="review-findings" filename="document-findings" %}
+  <div class="px-3 pb-2"><a class="btn btn-outline-secondary btn-sm" href="{{ export_url }}">{% include "components/icon.html" with name="download" %}<span>{% trans "CSV of the filter" %}</span></a></div>
+  {% if findings %}
+  <div class="table-wrap"><table class="table table-sm mb-0" id="review-findings" data-sortable>
+    <thead><tr><th>{% trans "Batch" %}</th><th>{% trans "Document" %}</th><th>{% trans "Date" %}</th><th>{% trans "Programme" %}</th><th>{% trans "Subtopic" %}</th><th>{% trans "Tag" %}</th><th>{% trans "Category" %}</th><th>{% trans "Place" %}</th><th class="text-end">{% trans "Evidence" %}</th><th>{% trans "Finding" %}</th><th>{% trans "Review" %}</th></tr></thead>
+    <tbody>{% for finding in findings %}{% include "knowledge/review/_finding_row.html" %}{% endfor %}</tbody>
+  </table></div>
+  {% include "components/pagination.html" with hx_target="#review-results" %}
+  {% else %}
+  {% include "components/empty_state.html" with icon="search" title=_("No finding matches") message=_("Change the filter, or analyse documents on the Documents tab.") %}
+  {% endif %}
+</section>
+{% endif %}

@@ -5,8 +5,10 @@ the switches, the job's plumbing, the settings and topics in the admin, and the 
 from __future__ import annotations
 
 import datetime
+import io
 import json
 import re
+import zipfile
 from types import SimpleNamespace
 
 import pytest
@@ -23,7 +25,7 @@ from neurodb.core import admin_jobs, jobs
 from neurodb.core.models import ScheduledJob, SyncRun
 from neurodb.geo.models import DistrictLocation, GovernorateLocation
 from neurodb.integrations import background
-from neurodb.knowledge import review, review_locate, review_prompts
+from neurodb.knowledge import review, review_data, review_locate, review_prompts
 from neurodb.knowledge.models import (
     Document,
     DocumentActionPoint,
@@ -759,7 +761,8 @@ def test_ask_neurodb_searches_the_findings_without_rejected_ones(report, setting
     out = tools.run("search_document_findings", {"query": "Akkar children"})
     first = out["findings"][0]
     assert first["finding"] == OUT_OF_SCHOOL["text"] and first["page"] == "p. 1"
-    assert first["url"] == f"/knowledge/{report.pk}/" and first["batch"] == "Annual reports"
+    assert first["url"] == f"/knowledge/review/?tab=findings&view=document&document={report.pk}"
+    assert first["batch"] == "Annual reports"
     assert first["evidence"] == 100 and "instructions" in out["note"]
     DocumentFinding.objects.filter(text__icontains="Akkar").update(verdict=Verdict.REJECTED)
     out = tools.run("search_document_findings", {"query": "Akkar children"})
@@ -831,3 +834,506 @@ def test_the_admin_action_analyses_the_chosen_documents(admin_client, report, ba
     review.put_in_batch([second], batch)
     admin_client.post(url, {"action": "analyse_in_review", "_selected_action": [report.pk, second.pk]})
     assert started[-1] == ("review_documents", "--pending", "--triggered-by", "admin")
+
+
+# ================================================================================ the review page (D3.3)
+REVIEW_URL = "/knowledge/review/"
+TABS = ("documents", "findings", "dashboard", "synthesis", "actions", "report")
+
+
+@pytest.fixture
+def analysed(report, setting, fake, ai_on):
+    """The annual report analysed by the scripted model (4 findings and a derived one, a statement, two
+    action points)."""
+    fake()
+    review.run(review.FULL, triggered_by="test")
+    report.refresh_from_db()
+    return report
+
+
+def _tiles(client, **params) -> dict:
+    response = client.get(REVIEW_URL, {"tab": "dashboard", **params})
+    assert response.status_code == 200
+    return response.context["tiles"]
+
+
+def _topics(n: int) -> list[Topic]:
+    return list(
+        Topic.objects.exclude(name=Topic.OTHER).select_related("subtopic__programme").order_by("pk")[:n]
+    )
+
+
+def _doc(batch: ReviewBatch, title: str, year: int | None = None) -> Document:
+    document = Document.objects.create(
+        title=title, text="x", status=Document.Status.READY, year=year, review_batch=batch,
+        review_status=Document.ReviewStatus.DONE,
+    )  # fmt: skip
+    return document
+
+
+def _add(document: Document, topic: Topic, text: str, year: int | None = None, **extra) -> DocumentFinding:
+    return DocumentFinding.objects.create(
+        document=document, topic=topic, text=text, category=extra.pop("category", "challenge"),
+        finding_date=datetime.date(year, 1, 1) if year else None, page_label="p. 2", page_from=2, **extra,
+    )  # fmt: skip
+
+
+def test_every_tab_renders_for_a_viewer_read_only(analysed, client_viewer, editor, client):
+    for tab in TABS:
+        full = client_viewer.get(REVIEW_URL, {"tab": tab})
+        assert full.status_code == 200, tab
+        page = full.content.decode()
+        assert "Document review" in page and 'aria-current="page"' in page
+        assert "manage.py" not in page
+        partial = client_viewer.get(REVIEW_URL, {"tab": tab}, HTTP_HX_REQUEST="true")
+        assert partial.status_code == 200 and "<html" not in partial.content.decode()
+    for view in ("all", "document", "statements", "index"):
+        assert client_viewer.get(REVIEW_URL, {"tab": "findings", "view": view}).status_code == 200
+    for view in ("themes", "time", "coverage", "repeated"):
+        assert (
+            client_viewer.get(REVIEW_URL, {"tab": "synthesis", "view": view, "min": "2"}).status_code == 200
+        )
+    findings = client_viewer.get(REVIEW_URL, {"tab": "findings"}).content.decode()
+    assert "Akkar" in findings and "/verdict/" not in findings and "/edit/" not in findings
+    documents = client_viewer.get(REVIEW_URL, {"tab": "documents"}).content.decode()
+    assert "Annual report 2024" in documents and "/analyse/" not in documents
+    client.force_login(editor)
+    by_document = client.get(REVIEW_URL, {"tab": "findings", "view": "document", "document": analysed.pk})
+    page = by_document.content.decode()
+    assert "Accept all" in page and "/verdict/" in page and "Add a finding" in page
+    assert "/analyse/" in client.get(REVIEW_URL, {"tab": "documents"}).content.decode()
+    sidebar = client.get(reverse("knowledge:index")).content.decode()
+    assert REVIEW_URL in sidebar and "Document review" in sidebar
+
+
+def test_the_documents_tab_shows_stages_counts_and_partly_read(analysed, client_viewer):
+    notes = analysed.review_stage_notes
+    notes["findings"].update(
+        state="partly", read_share=80, error="Only 80% read: some parts got no usable answer."
+    )
+    Document.objects.filter(pk=analysed.pk).update(review_stage_notes=notes, review_status="partly")
+    response = client_viewer.get(REVIEW_URL, {"tab": "documents", "batch": analysed.review_batch_id})
+    row = response.context["rows"][0]
+    assert row.n_findings == 5 and row.n_statements == 1 and row.n_actions == 2 and row.read_share == 80
+    assert [c["key"] for c in row.stage_chips] == [
+        "succeeded",
+        "partial",
+        "succeeded",
+        "succeeded",
+        "succeeded",
+    ]
+    page = response.content.decode()
+    assert "Only 80% read" in page and "Findings: Only 80% read" in page
+
+
+def test_a_document_left_running_shows_as_failed_on_the_page(analysed, client_viewer):
+    Document.objects.filter(pk=analysed.pk).update(
+        review_status="running", review_progress_at=timezone.now() - datetime.timedelta(hours=1)
+    )
+    page = client_viewer.get(REVIEW_URL, {"tab": "documents"}).content.decode()
+    analysed.refresh_from_db()
+    assert analysed.review_status == "failed" and "No progress for 30 minutes" in page
+
+
+def _post_urls(document: Document, finding: DocumentFinding, statement, point, batch, topic) -> list:
+    return [
+        ("knowledge:review_batch_new", [], {"name": "Evaluations"}),
+        ("knowledge:review_batch_edit", [batch.pk], {"action": "rename", "name": "Renamed"}),
+        ("knowledge:review_batch_add", [batch.pk], {"documents": []}),
+        ("knowledge:review_analyse", [document.pk], {}),
+        ("knowledge:review_reference", [document.pk], {"reference": "1"}),
+        ("knowledge:review_bulk_verdict", [document.pk], {"verdict": "accepted"}),
+        ("knowledge:review_finding_new", [document.pk], {"text": "A finding.", "topic": topic.pk,
+                                                         "category": "challenge"}),
+        ("knowledge:review_finding_verdict", [finding.pk], {"verdict": "accepted"}),
+        ("knowledge:review_finding_edit", [finding.pk], {"text": "Edited.", "topic": topic.pk,
+                                                          "category": "observation"}),
+        ("knowledge:review_statement_verdict", [statement.pk], {"verdict": "rejected"}),
+        ("knowledge:review_action_status", [point.pk], {"status": "done"}),
+        ("knowledge:review_finding_delete", [finding.pk], {}),
+        ("knowledge:review_remove", [document.pk], {}),
+    ]  # fmt: skip
+
+
+def test_every_change_needs_an_administrator_or_a_section_editor(analysed, client, viewer, editor, started):
+    finding = analysed.findings.filter(derived=False).first()
+    statement = analysed.statements.first()
+    point = analysed.review_action_points.first()
+    topic = _topics(1)[0]
+    urls = _post_urls(analysed, finding, statement, point, analysed.review_batch, topic)
+    client.force_login(viewer)
+    for name, args, data in urls:
+        assert client.post(reverse(name, args=args), data).status_code == 403, name
+        if name in ("knowledge:review_finding_new", "knowledge:review_finding_edit"):
+            assert client.get(reverse(name, args=args)).status_code == 403, name
+    assert not ReviewBatch.objects.filter(name="Evaluations").exists()
+    assert DocumentFinding.objects.filter(pk=finding.pk, verdict="unreviewed").exists()
+    # every reader may turn Verified only on for themself
+    assert client.post(reverse("knowledge:review_verified"), {"on": "1"}).status_code == 302
+    client.force_login(editor)
+    for name, args, data in urls:
+        response = client.post(reverse(name, args=args), data)
+        assert response.status_code in (200, 204, 302), (name, response.status_code)
+    point.refresh_from_db()
+    assert point.status == "done" and point.status_by == editor
+    assert ReviewBatch.objects.filter(name="Evaluations").exists()
+    analysed.refresh_from_db()
+    assert analysed.review_batch is None and analysed.review_status == "not_in_review"
+
+
+def test_a_reviewer_accepts_rejects_edits_adds_and_deletes(analysed, client, editor):
+    client.force_login(editor)
+    school = _finding(analysed, "out of school")
+    water = _finding(analysed, "Water supply")
+    url = reverse("knowledge:review_finding_verdict", args=[school.pk])
+    row = client.post(url, {"verdict": "rejected"}, HTTP_HX_REQUEST="true")
+    assert row.status_code == 200 and 'class="is-rejected"' in row.content.decode()
+    school.refresh_from_db()
+    assert school.verdict == "rejected" and school.reviewed_by == editor and school.reviewed_at
+    client.post(url, {"verdict": "unreviewed"})
+    school.refresh_from_db()
+    assert school.verdict == "unreviewed" and school.reviewed_by is None
+    # Accept all: the unreviewed only, a decided finding stays
+    water.verdict = "rejected"
+    water.save()
+    client.post(reverse("knowledge:review_bulk_verdict", args=[analysed.pk]), {"verdict": "accepted"})
+    water.refresh_from_db()
+    school.refresh_from_db()
+    assert water.verdict == "rejected" and school.verdict == "accepted"
+    # an edit recomputes the page, place, date and evidence, and keeps the person's page
+    akkar_topic = school.topic
+    edit = reverse("knowledge:review_finding_edit", args=[water.pk])
+    assert client.get(edit, HTTP_HX_REQUEST="true").status_code == 200
+    response = client.post(
+        edit,
+        {"text": "Water supply fell in Akkar.", "quote": "In Akkar, 1,200 children", "topic": akkar_topic.pk,
+         "category": "challenge", "kind": "reported", "place_text": "Akkar", "date_text": "2024", "page": ""},
+        HTTP_HX_REQUEST="true",
+    )  # fmt: skip
+    assert response.status_code == 204 and response["HX-Redirect"]
+    water.refresh_from_db()
+    assert (water.text, water.page_label, water.place_match, water.evidence) == (
+        "Water supply fell in Akkar.", "p. 1", "governorate", 100,
+    )  # fmt: skip
+    assert water.edited_by == editor and water.verdict == "rejected"  # the verdict stays
+    refused = client.post(edit, {"text": "", "topic": "x", "category": "nope"})
+    assert refused.status_code == 200 and "Write the finding" in refused.content.decode()
+    # a person's finding: accepted, manual, located, with the page they gave
+    new = reverse("knowledge:review_finding_new", args=[analysed.pk])
+    client.post(
+        new,
+        {"text": "Teachers were not paid.", "quote": "not in the text", "topic": akkar_topic.pk,
+         "category": "challenge", "kind": "reported", "place_text": "Zahle", "date_text": "", "page": "3"},
+    )  # fmt: skip
+    added = analysed.findings.get(manual=True)
+    assert added.verdict == "accepted" and added.reviewed_by == editor
+    assert (added.page_label, added.place_match, added.evidence) == ("p. 3", "district", 25 + 10 + 10)
+    response = client.post(
+        reverse("knowledge:review_finding_delete", args=[added.pk]), HTTP_HX_REQUEST="true"
+    )
+    assert response.status_code == 200 and not DocumentFinding.objects.filter(pk=added.pk).exists()
+    statement = analysed.statements.get()
+    row = client.post(
+        reverse("knowledge:review_statement_verdict", args=[statement.pk]),
+        {"verdict": "accepted", "compact": "1"},
+        HTTP_HX_REQUEST="true",
+    )
+    assert row.status_code == 200 and "Accepted" in row.content.decode()
+
+
+def test_verified_only_changes_the_counts_and_rejected_ones_are_always_out(analysed, client, editor):
+    client.force_login(editor)
+    first = client.get(REVIEW_URL)
+    assert "Verified only" not in first.content.decode()  # no verdict yet: no switch
+    before = _tiles(client)
+    assert before["findings"] == 5 and before["statements"] == 1 and before["open_actions"] == 2
+    school = _finding(analysed, "out of school")
+    rehabilitate = analysed.findings.get(text__icontains="rehabilitate")
+    DocumentFinding.objects.filter(pk=school.pk).update(verdict="rejected")
+    DocumentFinding.objects.filter(pk=rehabilitate.pk).update(verdict="accepted")
+    assert _tiles(client)["findings"] == 4  # rejected: always out
+    assert "Verified only: off" in client.get(REVIEW_URL).content.decode()
+    client.post(reverse("knowledge:review_verified"), {"on": "1", "next": f"{REVIEW_URL}?tab=dashboard"})
+    after = _tiles(client)
+    assert after["findings"] == 1 and after["statements"] == 0
+    assert after["open_actions"] == 1  # the action point citing the accepted finding only
+    counted = client.get(REVIEW_URL, {"tab": "findings", "counted": "1"})
+    assert counted.context["page_obj"].paginator.count == after["findings"]
+    report = client.get(REVIEW_URL, {"tab": "report"}).content.decode()
+    assert "Verified only is on" in report
+    client.post(reverse("knowledge:review_verified"), {"on": "0"})
+    assert _tiles(client)["findings"] == 4
+    # the Findings tab still lists the rejected one (struck through) for its review
+    listed = client.get(REVIEW_URL, {"tab": "findings"})
+    assert listed.context["page_obj"].paginator.count == 5 and "is-rejected" in listed.content.decode()
+
+
+def test_the_dashboard_figures_open_the_rows_they_count(analysed, client_viewer):
+    response = client_viewer.get(REVIEW_URL, {"tab": "dashboard"})
+    figures = response.context["figures"]
+    quality = {q["key"]: q for q in figures["quality"]}
+    other = analysed.findings.filter(topic=Topic.other())  # Water (an unknown tag) and what derives from it
+    assert quality["untagged"]["gap"] == other.count() >= 1 and quality["untagged"]["total"] == 5
+    gap = client_viewer.get(REVIEW_URL, {"tab": "findings", "counted": "1", "gap": "untagged"})
+    assert WATER["text"] in [f.text for f in gap.context["findings"]]
+    for tile in figures["quality"][:5]:
+        listed = client_viewer.get(REVIEW_URL, {"tab": "findings", "counted": "1", "gap": tile["key"]})
+        assert listed.context["page_obj"].paginator.count == tile["gap"], tile["key"]
+    for label, n, key in figures["charts"]["category"]:
+        listed = client_viewer.get(REVIEW_URL, {"tab": "findings", "counted": "1", "category": key})
+        assert listed.context["page_obj"].paginator.count == n, label
+    for row in figures["charts"]["years"] + figures["charts"]["evidence"]:
+        key = "year" if row in figures["charts"]["years"] else "band"
+        listed = client_viewer.get(REVIEW_URL, {"tab": "findings", "counted": "1", key: row["drill"]})
+        assert listed.context["page_obj"].paginator.count == row["value"], row
+    for name, n, drill in figures["charts"]["places"]:
+        listed = client_viewer.get(REVIEW_URL, {"tab": "findings", "counted": "1", "place": drill})
+        assert listed.context["page_obj"].paginator.count == n, name
+    assert {name for name, _n, _d in figures["charts"]["places"]} >= {"Akkar", "Zahle"}
+    urgent = client_viewer.get(
+        REVIEW_URL, {"tab": "findings", "view": "statements", "counted": "1", "urgent": "1"}
+    )
+    assert urgent.context["page_obj"].paginator.count == figures["tiles"]["urgent"] == 1
+    assert figures["per_batch"][0]["findings"] == figures["tiles"]["findings"]
+    assert "review-chart-data" in response.content.decode()
+
+
+def test_synthesis_ranks_themes_by_distinct_documents(db, client_viewer):
+    annual, donor = ReviewBatch.objects.create(name="Annual"), ReviewBatch.objects.create(name="Donor")
+    a, b, c = _doc(annual, "Report A", 2022), _doc(annual, "Report B", 2023), _doc(donor, "Report C", 2024)
+    loud, shared, spread = _topics(3)
+    for n in range(5):  # one document saying it five times: one document's view
+        _add(a, loud, f"Point number {n} about the loud topic.", 2022)
+    _add(a, shared, "Teachers lack training in rural schools.", 2022)
+    _add(b, shared, "Teachers lack training in rural schools of the north.", 2024)
+    for document, year in ((a, 2022), (b, 2023), (c, 2024)):
+        _add(document, spread, f"Water trucking costs rose in {year}.", year)
+    found = review_data.synthesis(None, False, min_documents=2)
+    assert [t.topic for t in found.themes] == [spread, shared]
+    assert [t.n_documents for t in found.themes] == [3, 2] and loud not in [t.topic for t in found.themes]
+    assert {t.topic: t.trend for t in found.themes} == {spread: "persistent", shared: "recurring"}
+    assert [t.topic for t in found.coverage()] == [shared]  # Annual only
+    assert [t.topic for t in review_data.synthesis(None, False, min_documents=3).themes] == [spread]
+    assert (
+        review_data.synthesis(None, False, min_documents=2, q=shared.name.lower()).themes[0].topic == shared
+    )
+    assert not review_data.synthesis(None, False, min_documents=2, challenges=False, q="zzz").themes
+    groups = review_data.repeated(None, False)
+    # the water findings (3 documents) then the two teacher findings: words at least 60% alike
+    assert [g.documents for g in groups] == [3, 2] and "Teachers" in groups[1].lead.text
+    assert review_data.trend({2024}, 2024) == "emerging" and review_data.trend({2021}, 2024) == "no_longer"
+    page = client_viewer.get(REVIEW_URL, {"tab": "synthesis", "min": "2"}).content.decode()
+    assert spread.path in page and "Write a paragraph" not in page  # AI off: no button
+    time = client_viewer.get(REVIEW_URL, {"tab": "synthesis", "view": "time"}).content.decode()
+    assert "Persistent" in time and "2022, 2023, 2024" in time
+    assert (
+        "Annual" in client_viewer.get(REVIEW_URL, {"tab": "synthesis", "view": "coverage"}).content.decode()
+    )
+
+
+def test_actions_cards_filters_status_and_exports(analysed, client, editor):
+    client.force_login(editor)
+    schools = analysed.review_action_points.get(action__icontains="schools")
+    response = client.get(REVIEW_URL, {"tab": "actions", "period": "all"})
+    figures = response.context["figures"]
+    assert (figures["open"], figures["high"], figures["derived"], figures["overdue"]) == (2, 1, 1, 2)
+    assert figures["by_owner"][0][1] == 1
+    row = client.post(
+        reverse("knowledge:review_action_status", args=[schools.pk]),
+        {"status": "done"},
+        HTTP_HX_REQUEST="true",
+    )
+    assert row.status_code == 200 and "selected" in row.content.decode()
+    done = client.get(REVIEW_URL, {"tab": "actions", "period": "all", "status": "done"})
+    assert [p.pk for p in done.context["points"]] == [schools.pk]
+    overdue = client.get(REVIEW_URL, {"tab": "actions", "period": "all", "overdue": "1"})
+    assert all(p.overdue for p in overdue.context["points"]) and len(overdue.context["points"]) == 1
+    owner = client.get(REVIEW_URL, {"tab": "actions", "period": "all", "owner": "Unassigned"})
+    assert [p.owner_text for p in owner.context["points"]] == ["Unassigned"]
+    old = Document.objects.create(title="Old plan", text="x", year=2015, review_batch=analysed.review_batch,
+                                  review_status="done")  # fmt: skip
+    analysed.year = 2024
+    analysed.save()
+    DocumentActionPoint.objects.create(document=old, action="An old commitment.", action_key="old")
+    current = client.get(REVIEW_URL, {"tab": "actions"})
+    assert "An old commitment." not in current.content.decode()
+    assert (
+        "An old commitment." in client.get(REVIEW_URL, {"tab": "actions", "period": "all"}).content.decode()
+    )
+    csv_response = client.get(
+        REVIEW_URL, {"tab": "actions", "period": "all", "status": "done", "export": "csv"}
+    )
+    body = b"".join(csv_response.streaming_content).decode("utf-8-sig")
+    assert body.splitlines()[0].startswith("Batch,Document,Where,Action,Owner")
+    assert (
+        "Rehabilitate 20 schools." in body and "Ministry of Education" in body and len(body.splitlines()) == 2
+    )
+    xlsx = client.get(REVIEW_URL, {"tab": "actions", "period": "all", "export": "xlsx"})
+    assert xlsx.status_code == 200 and xlsx["Content-Disposition"].endswith('.xlsx"')
+    from openpyxl import load_workbook
+
+    sheet = load_workbook(io.BytesIO(xlsx.content)).active
+    assert sheet.max_row == 4 and sheet.cell(1, 4).value == "Action"
+
+
+def test_the_findings_csv_holds_the_filter_and_guards_formulas(analysed, client_viewer):
+    DocumentFinding.objects.filter(text__icontains="Water supply").update(text="=HYPERLINK(1)")
+    response = client_viewer.get(REVIEW_URL, {"tab": "findings", "export": "csv", "category": "observation"})
+    body = b"".join(response.streaming_content).decode("utf-8-sig")
+    lines = body.splitlines()
+    assert lines[0].startswith("Batch,Document,Page,Link") and len(lines) == 2
+    assert "'=HYPERLINK(1)" in body
+    index = client_viewer.get(REVIEW_URL, {"tab": "findings", "view": "index", "export": "csv"})
+    assert "Annual report 2024" in b"".join(index.streaming_content).decode("utf-8-sig")
+    statements_csv = client_viewer.get(REVIEW_URL, {"tab": "findings", "view": "statements", "export": "csv"})
+    assert "(Annual report 2024, p. 1)" in b"".join(statements_csv.streaming_content).decode("utf-8-sig")
+
+
+def test_the_desk_review_opens_and_cites_its_evidence(db, client_viewer):
+    from neurodb.knowledge import text
+
+    annual, donor = ReviewBatch.objects.create(name="Annual"), ReviewBatch.objects.create(name="Donor")
+    a, b = _doc(annual, "Report A", 2023), _doc(donor, "Report B & <C>", 2024)
+    topic = _topics(1)[0]
+    _add(a, topic, "Teachers lack training in rural schools.", 2023, quote="Teachers lack training")
+    _add(b, topic, "Teachers lack training in rural schools of the north.", 2024)
+    rejected = _add(b, topic, "A rejected point that must not appear.", 2024, verdict="rejected")
+    DocumentStatement.objects.create(document=a, text="Training is the main gap.", urgency=90)
+    DocumentActionPoint.objects.create(document=a, action="Train 500 teachers.", action_key="t",
+                                       owner_text="Ministry of Education", deadline_text="2025")  # fmt: skip
+    response = client_viewer.get(reverse("knowledge:review_docx"), {"min": "2"})
+    assert response.status_code == 200
+    assert (
+        response["Content-Disposition"] == f'attachment; filename="desk-review-{timezone.localdate()}.docx"'
+    )
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        names = set(archive.namelist())
+        styles = archive.read("word/styles.xml").decode()
+    assert {"[Content_Types].xml", "_rels/.rels", "word/document.xml", "word/styles.xml"} <= names
+    assert all(
+        f'w:styleId="{s}"' in styles for s in ("Title", "Heading1", "Heading2", "Heading3", "TableGrid")
+    )
+    words = text.docx_text(response.content)
+    for heading in ("Desk review", "Scope", "Summary", "Recurring themes", "Recurring challenges",
+                    "Findings repeated across documents", "Most urgent statements",
+                    "Open action points by owner", "Coverage", "Method"):  # fmt: skip
+        assert heading in words, heading
+    assert topic.path in words and "Raised by 2 documents" in words
+    assert "(Report A, p. 2)" in words and "(Report B & <C>, p. 2)" in words
+    assert "Train 500 teachers." in words and "Ministry of Education (1)" in words
+    assert "Training is the main gap." in words and rejected.text not in words
+    assert "Evidence score (0–100)" in words
+
+
+def test_write_a_paragraph_cites_real_findings_and_counts_against_a_quota(
+    db, client_viewer, viewer, monkeypatch
+):
+    annual = ReviewBatch.objects.create(name="Annual")
+    a, b = _doc(annual, "Report A", 2023), _doc(annual, "Report B", 2024)
+    topic = _topics(1)[0]
+    _add(a, topic, "Teachers lack training.", 2023)
+    _add(b, topic, "Teachers lack training in the north.", 2024)
+    url = reverse("knowledge:review_paragraph", args=[topic.pk])
+    off = client_viewer.post(url, HTTP_HX_REQUEST="true")
+    assert "AI is switched off" in off.content.decode()
+    sent = []
+
+    def create(**params):
+        sent.append(params)
+        answer = {"paragraph": "Two reports find teachers lack training [1][2], getting worse [99]."}
+        return FakeReview._answer(json.dumps(answer))
+
+    api = SimpleNamespace(responses=SimpleNamespace(create=create))
+    monkeypatch.setattr(agent, "client", lambda: SimpleNamespace(with_options=lambda **kw: api))
+    with override_settings(**AI_ON):
+        page = client_viewer.get(REVIEW_URL, {"tab": "synthesis"}).content.decode()
+        assert "Write a paragraph" in page and "0 of 50 today" in page
+        answer = client_viewer.post(url, HTTP_HX_REQUEST="true").content.decode()
+        assert "(Report A, p. 2)" in answer and "(Report B, p. 2)" in answer and "[99]" not in answer
+        assert "1 of 50 today" in answer
+        content = sent[0]["input"][0]["content"]
+        assert topic.path in content and "[1]" in content and sent[0]["store"] is False
+        assert AIUsage.objects.get(feature=usage.DOC_REVIEW).calls == 1
+        from neurodb.knowledge.models import ReviewParagraph
+
+        row = ReviewParagraph.objects.get()
+        assert row.status == "done" and row.user == viewer and row.findings == 2
+        ReviewParagraph.objects.bulk_create(
+            [ReviewParagraph(user=viewer, topic=topic, status="done") for _ in range(49)]
+        )
+        refused = client_viewer.post(url, HTTP_HX_REQUEST="true").content.decode()
+        assert "50 paragraphs; the count starts again" in refused and len(sent) == 1
+        assert ReviewParagraph.objects.filter(status="limited").count() == 1
+
+
+def test_batches_documents_and_the_analyse_button(report, client, editor, started, media):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    client.force_login(editor)
+    client.post(reverse("knowledge:review_batch_new"), {"name": "  Evaluations  ", "description": "Mid-term"})
+    evaluations = ReviewBatch.objects.get(name="Evaluations")
+    assert evaluations.created_by == editor
+    loose = Document.objects.create(title="Loose", text="x", status=Document.Status.READY)
+    client.post(
+        reverse("knowledge:review_batch_add", args=[evaluations.pk]), {"documents": [loose.pk, report.pk]}
+    )
+    loose.refresh_from_db()
+    report.refresh_from_db()
+    assert loose.review_batch == evaluations and loose.review_status == "pending"
+    assert report.review_batch != evaluations  # already in a batch: left where it is
+    analyse = reverse("knowledge:review_analyse", args=[loose.pk])
+    response = client.post(analyse, follow=True)
+    assert "switched off" in response.content.decode() and not started  # the review is off
+    found = DocumentReviewSettings.load()
+    found.enabled = True
+    found.save()
+    with override_settings(**AI_ON):
+        client.post(analyse)
+    assert started[-1] == ("review_documents", "--document", str(loose.pk), "--triggered-by", "page")
+    client.post(reverse("knowledge:review_reference", args=[loose.pk]), {"reference": "1"})
+    loose.refresh_from_db()
+    assert loose.review_status == "reference"
+    with override_settings(**AI_ON):
+        refused = client.post(analyse, follow=True).content.decode()
+    assert "reference document is not analysed" in refused
+    client.post(reverse("knowledge:review_batch_edit", args=[evaluations.pk]), {"action": "archive"})
+    evaluations.refresh_from_db()
+    assert evaluations.archived
+    # uploaded from the batch: the document goes in it
+    upload = client.post(
+        f"{reverse('knowledge:add')}?batch={evaluations.pk}",
+        {"title": "Evaluation", "batch": evaluations.pk, "files": SimpleUploadedFile("eval.txt", b"text")},
+    )
+    assert upload.status_code == 302 and upload["Location"].startswith(REVIEW_URL)
+    assert Document.objects.get(title="Evaluation").review_batch == evaluations
+
+
+def test_a_pdf_opens_in_the_browser_at_its_page(db, client_viewer, media):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    pdf_doc = Document.objects.create(title="Report", file=SimpleUploadedFile("r.pdf", b"%PDF-1.4"))
+    response = client_viewer.get(reverse("knowledge:file", args=[pdf_doc.pk]))
+    assert response["Content-Disposition"].startswith("inline")
+    text_doc = Document.objects.create(title="Notes", file=SimpleUploadedFile("n.txt", b"x"))
+    assert client_viewer.get(reverse("knowledge:file", args=[text_doc.pk]))["Content-Disposition"].startswith(
+        "attachment"
+    )
+
+
+def test_donors_never_reach_the_review(analysed):
+    from django.test import Client
+
+    from tests.donors.test_donor_access import make_donor
+
+    donor = Client()
+    donor.force_login(make_donor().user)
+    assert donor.get(REVIEW_URL)["Location"] == reverse("donors:page")
+    assert donor.get(REVIEW_URL, {"tab": "findings"}, HTTP_HX_REQUEST="true").status_code == 403
+    assert donor.get(reverse("knowledge:review_docx")).status_code == 302
+    finding = analysed.findings.first()
+    response = donor.post(
+        reverse("knowledge:review_finding_verdict", args=[finding.pk]), {"verdict": "rejected"}
+    )
+    assert response.status_code in (302, 403)
+    finding.refresh_from_db()
+    assert finding.verdict == "unreviewed"

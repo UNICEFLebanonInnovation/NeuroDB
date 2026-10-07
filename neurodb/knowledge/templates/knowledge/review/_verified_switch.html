@@ -1,0 +1,12 @@
+{% load i18n %}
+{% comment %}The Verified only switch of the document review (each person's, kept in the session): shown once a
+finding or statement was accepted or rejected.{% endcomment %}
+{% if show_verified %}
+<form method="post" action="{% url 'knowledge:review_verified' %}" class="review-verified" aria-label="{% trans 'Verified only' %}">
+  {% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+  <input type="hidden" name="on" value="{% if verified %}0{% else %}1{% endif %}">
+  <button type="submit" class="btn btn-sm {% if verified %}btn-primary{% else %}btn-outline-secondary{% endif %}" aria-pressed="{% if verified %}true{% else %}false{% endif %}" title="{% trans 'On: only the findings and statements a reviewer accepted feed the Dashboard, the Synthesis, the Actions and the desk review. Rejected ones are always left out.' %}">
+    {% include "components/icon.html" with name="check" %}<span>{% if verified %}{% trans "Verified only: on" %}{% else %}{% trans "Verified only: off" %}{% endif %}</span>
+  </button>
+</form>
+{% endif %}

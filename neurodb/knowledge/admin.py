@@ -25,6 +25,7 @@ from .models import (
     ReportFigure,
     ReportSeries,
     ReviewBatch,
+    ReviewParagraph,
     Topic,
     TopicProgramme,
     TopicSubtopic,
@@ -456,3 +457,17 @@ class DocumentActionPointAdmin(ReviewedAdmin):
     @admin.display(description=_("Action"))
     def short(self, obj):
         return obj.action[:100] + ("…" if len(obj.action) > 100 else "")
+
+
+@admin.register(ReviewParagraph)
+class ReviewParagraphAdmin(ReadOnlyModelAdmin):
+    """The theme paragraphs written on the Synthesis tab: who asked, for which theme, what it cost."""
+
+    list_display = ("created_at", "topic", "user", "status", "findings", "input_tokens", "output_tokens")
+    list_filter = ("status",)
+    list_select_related = ("topic__subtopic__programme", "user")
+    fields = (
+        "created_at", "user", "topic", "status", "reason", "findings", "text", "model", "input_tokens",
+        "output_tokens",
+    )  # fmt: skip
+    readonly_fields = fields

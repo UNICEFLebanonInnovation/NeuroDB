@@ -1,0 +1,9 @@
+{% load i18n ui %}
+{% url 'knowledge:review_statement_verdict' s.pk as verdict_url %}
+<tr id="statement-{{ s.pk }}"{% if s.verdict == "rejected" %} class="is-rejected"{% endif %}>
+  <td class="text-end" data-value="{{ s.urgency }}">{% if s.urgency >= high_urgency %}<strong class="text-danger">{{ s.urgency }}</strong>{% else %}{{ s.urgency }}{% endif %}</td>
+  <td>{{ s.text }}{% if s.category or s.place_text or s.date_text %}<span class="cell-sub">{{ s.get_category_display }}{% if s.place_text %} · {{ s.place_text }}{% endif %}{% if s.date_text %} · {{ s.date_text }}{% endif %}</span>{% endif %}</td>
+  {% if not compact %}<td class="small"><a href="{{ s.document.get_absolute_url }}">{{ s.document.title|truncatechars:60 }}</a><span class="cell-sub">{{ s.document.review_batch.name }}</span></td>{% endif %}
+  <td class="small">{% with cited=s.cites.all %}{% if cited %}<a href="{% url 'knowledge:review' %}?tab=findings&amp;view=document&amp;document={{ s.document_id }}">{% blocktrans count n=cited|length %}{{ n }} finding{% plural %}{{ n }} findings{% endblocktrans %}</a>{% for f in cited|slice:":3" %}<span class="cell-sub">{% if f.page_label %}<a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.page_label }}</a>{% endif %} {{ f.text|truncatechars:80 }}</span>{% endfor %}{% else %}<span class="text-muted">{% trans "No finding cited" %}</span>{% endif %}{% endwith %}</td>
+  <td class="text-nowrap">{% include "knowledge/review/_verdict_buttons.html" with item=s action=verdict_url %}</td>
+</tr>

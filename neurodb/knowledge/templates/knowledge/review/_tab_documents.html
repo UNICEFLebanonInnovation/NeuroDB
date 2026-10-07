@@ -1,0 +1,89 @@
+{% load i18n ui %}
+{% if not review_on %}<div class="alert alert-warning small" role="status">{{ review_off_reason }}{% if settings_url %} <a href="{{ settings_url }}">{% trans "Document review settings" %}</a>{% endif %}</div>{% endif %}
+<div class="review-layout">
+  <section class="panel" aria-labelledby="review-batches-title">
+    <div class="panel__header"><h2 class="panel__title" id="review-batches-title">{% trans "Batches" %}</h2>
+      <span class="panel__hint">{% blocktrans count n=batches|length %}{{ n }} batch{% plural %}{{ n }} batches{% endblocktrans %} · {% blocktrans count n=documents_total %}{{ n }} document{% plural %}{{ n }} documents{% endblocktrans %}</span></div>
+    <p class="small text-muted">{% trans "A batch is a folder for one kind of document (annual reports, donor reports, evaluations…): the Coverage view then tells when a theme rests on one kind of document only." %}</p>
+    <ul class="list-unstyled review-batches mb-3">
+      <li><a href="{% url 'knowledge:review' %}?tab=documents" hx-get="{% url 'knowledge:review' %}?tab=documents" hx-target="#review-results" hx-push-url="true" {% if not batch %}aria-current="page"{% endif %}>{% trans "Every batch" %}</a></li>
+      {% for b in batches %}<li><a href="{% url 'knowledge:review' %}?tab=documents&amp;batch={{ b.pk }}" hx-get="{% url 'knowledge:review' %}?tab=documents&amp;batch={{ b.pk }}" hx-target="#review-results" hx-push-url="true" {% if batch.pk == b.pk %}aria-current="page"{% endif %}>{{ b.name }}</a>
+        <span class="cell-sub">{% blocktrans count n=b.n_documents with done=b.n_analysed %}{{ n }} document, {{ done }} analysed{% plural %}{{ n }} documents, {{ done }} analysed{% endblocktrans %}{% if b.n_references %} · {% blocktrans count n=b.n_references %}{{ n }} reference{% plural %}{{ n }} references{% endblocktrans %}{% endif %}{% if b.archived %} · {% trans "archived" %}{% endif %}</span></li>{% endfor %}
+    </ul>
+    {% if can_edit %}
+    <form method="post" action="{% url 'knowledge:review_batch_new' %}" aria-label="{% trans 'New batch' %}">
+      {% csrf_token %}
+      <label class="form-label small" for="batch-new-name">{% trans "New batch" %}</label>
+      <input class="form-control form-control-sm mb-1" id="batch-new-name" name="name" maxlength="200" required placeholder="{% trans 'e.g. Annual reports 2024' %}">
+      <textarea class="form-control form-control-sm mb-2" name="description" rows="2" maxlength="2000" aria-label="{% trans 'Description' %}" placeholder="{% trans 'What it holds (optional)' %}"></textarea>
+      <button type="submit" class="btn btn-primary btn-sm">{% trans "Create the batch" %}</button>
+    </form>
+    {% endif %}
+  </section>
+  <div class="stack">
+    {% if batch %}
+    <section class="panel" aria-labelledby="review-batch-title">
+      <div class="panel__header"><h2 class="panel__title" id="review-batch-title">{{ batch.name }}{% if batch.archived %} <span class="chip">{% trans "Archived" %}</span>{% endif %}</h2>
+        <span class="panel__hint">{% blocktrans with day=batch.created_at|date:"j M Y" %}created {{ day }}{% endblocktrans %}</span></div>
+      {% if batch.description %}<p class="small">{{ batch.description }}</p>{% endif %}
+      {% if can_edit %}
+      <details class="mb-2"><summary class="small">{% trans "Rename or archive" %}</summary>
+        <form method="post" action="{% url 'knowledge:review_batch_edit' batch.pk %}" class="mt-2">
+          {% csrf_token %}<input type="hidden" name="next" value="{{ next }}">
+          <input class="form-control form-control-sm mb-1" name="name" maxlength="200" required value="{{ batch.name }}" aria-label="{% trans 'Name' %}">
+          <textarea class="form-control form-control-sm mb-2" name="description" rows="2" maxlength="2000" aria-label="{% trans 'Description' %}">{{ batch.description }}</textarea>
+          <button type="submit" name="action" value="rename" class="btn btn-outline-secondary btn-sm">{% trans "Save" %}</button>
+          {% if batch.archived %}<button type="submit" name="action" value="restore" class="btn btn-outline-secondary btn-sm">{% trans "Bring back" %}</button>
+          {% else %}<button type="submit" name="action" value="archive" class="btn btn-outline-secondary btn-sm" title="{% trans 'Kept with what was found, but no longer analysed' %}">{% trans "Archive" %}</button>{% endif %}
+        </form>
+      </details>
+      <div class="d-flex flex-wrap gap-2 align-items-end">
+        <a class="btn btn-outline-primary btn-sm" href="{{ upload_url }}">{% include "components/icon.html" with name="file" %}<span>{% trans "Upload documents into this batch" %}</span></a>
+        {% if addable %}
+        <form method="post" action="{% url 'knowledge:review_batch_add' batch.pk %}" class="d-flex flex-wrap gap-2 align-items-end flex-grow-1">
+          {% csrf_token %}<input type="hidden" name="next" value="{{ next }}">
+          <div class="flex-grow-1" style="min-width: 16rem"><label class="form-label small" for="batch-add-documents">{% trans "Or pick knowledge base documents" %}</label>
+            <select class="form-select form-select-sm" id="batch-add-documents" name="documents" multiple data-tom placeholder="{% trans 'Documents not in a batch yet' %}">
+              {% for pk, title in addable %}<option value="{{ pk }}">{{ title }}</option>{% endfor %}
+            </select></div>
+          <button type="submit" class="btn btn-primary btn-sm">{% trans "Add to the batch" %}</button>
+        </form>
+        {% endif %}
+      </div>
+      {% endif %}
+    </section>
+    {% endif %}
+    <section class="panel p-0" id="review-documents"{% if working %} hx-get="{% url 'knowledge:review' %}?tab=documents{% if batch %}&amp;batch={{ batch.pk }}{% endif %}" hx-trigger="every 20s" hx-target="this" hx-select="#review-documents" hx-swap="outerHTML"{% endif %}>
+      {% include "components/table_toolbar.html" with title=_("Documents") count=rows|length table_id="review-documents-table" filename="review-documents" %}
+      {% if working %}<p class="small text-muted px-3 mb-2">{% trans "Documents are being analysed: this list refreshes every 20 seconds." %}</p>{% endif %}
+      {% if rows %}
+      <div class="table-wrap"><table class="table table-sm mb-0" id="review-documents-table">
+        <thead><tr><th>{% trans "Document" %}</th>{% if not batch %}<th>{% trans "Batch" %}</th>{% endif %}<th>{% trans "Stages" %}</th><th class="text-end">{% trans "Findings" %}</th><th class="text-end">{% trans "Statements" %}</th><th class="text-end">{% trans "Action points" %}</th><th>{% trans "Status" %}</th>{% if can_edit %}<th><span class="visually-hidden">{% trans "Actions" %}</span></th>{% endif %}</tr></thead>
+        <tbody>{% for d in rows %}<tr>
+          <td><a href="{{ d.get_absolute_url }}">{{ d.title }}</a>{% if d.n_findings %}<span class="cell-sub"><a href="{% url 'knowledge:review' %}?tab=findings&amp;view=document&amp;document={{ d.pk }}">{% trans "Read its findings" %}</a></span>{% endif %}{% if d.read_share is not None %}<span class="cell-sub text-warning">{% blocktrans with n=d.read_share %}Only {{ n }}% read: Analyse again to finish it{% endblocktrans %}</span>{% endif %}{% if d.status != "ready" %}<span class="cell-sub">{{ d.get_status_display }}</span>{% endif %}</td>
+          {% if not batch %}<td class="small">{{ d.review_batch.name }}</td>{% endif %}
+          <td><span class="d-inline-flex flex-wrap gap-1">{% for s in d.stage_chips %}<span title="{{ s.label }}: {{ s.note }}">{% status_pill s.key s.label "sm" %}</span>{% endfor %}</span></td>
+          <td class="text-end">{{ d.n_findings|number }}{% if d.n_findings %}<span class="cell-sub">{% blocktrans with n=d.n_reviewed %}{{ n }} reviewed{% endblocktrans %}</span>{% endif %}</td>
+          <td class="text-end">{{ d.n_statements|number }}</td>
+          <td class="text-end">{{ d.n_actions|number }}</td>
+          <td>{% if d.review_status == "done" %}{% status_pill "succeeded" d.get_review_status_display "sm" %}{% elif d.review_status == "partly" %}{% status_pill "partial" d.get_review_status_display "sm" %}{% elif d.review_status == "failed" %}{% status_pill "failed" d.get_review_status_display "sm" %}{% elif d.review_status == "running" %}{% status_pill "running" d.get_review_status_display "sm" %}{% else %}{% status_pill "pending" d.get_review_status_display "sm" %}{% endif %}
+            {% if d.reviewed_at %}<span class="cell-sub">{% blocktrans with day=d.reviewed_at|date:"j M Y H:i" %}on {{ day }}{% endblocktrans %}</span>{% endif %}{% if d.stopped %}<span class="cell-sub text-danger">{{ d.stopped|truncatechars:160 }}</span>{% endif %}</td>
+          {% if can_edit %}<td class="text-nowrap">
+            {% if d.review_status != "reference" %}<form method="post" action="{% url 'knowledge:review_analyse' d.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}"><button type="submit" class="btn btn-outline-primary btn-sm" {% if not review_on or d.review_status == "running" %}disabled{% endif %}>{% if d.reviewed_at %}{% trans "Re-analyse" %}{% else %}{% trans "Analyse" %}{% endif %}</button></form>{% endif %}
+            <form method="post" action="{% url 'knowledge:review_reference' d.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}">{% if d.review_status == "reference" %}<input type="hidden" name="reference" value="0"><button type="submit" class="btn btn-outline-secondary btn-sm">{% trans "Unmark reference" %}</button>{% else %}<input type="hidden" name="reference" value="1"><button type="submit" class="btn btn-outline-secondary btn-sm" title="{% trans 'Kept in its batch but never analysed; its findings leave every count' %}">{% trans "Mark as reference" %}</button>{% endif %}</form>
+            <form method="post" action="{% url 'knowledge:review_remove' d.pk %}" class="d-inline" data-confirm="{% trans 'Take this document out of the review? It stays in the knowledge base; what was found is no longer shown.' %}">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}"><button type="submit" class="btn btn-link btn-sm text-danger">{% trans "Remove from batch" %}</button></form>
+          </td>{% endif %}
+        </tr>{% endfor %}</tbody>
+      </table></div>
+      {% else %}
+      {% if batch and can_edit %}
+      {% include "components/empty_state.html" with icon="file" title=_("No document in this batch yet") message=_("Upload documents into it, or pick documents already in the knowledge base.") %}
+      {% elif can_edit %}
+      {% include "components/empty_state.html" with icon="file" title=_("No document in the review yet") message=_("Create a batch, then add documents to it: only documents in a batch are analysed.") %}
+      {% else %}
+      {% include "components/empty_state.html" with icon="file" title=_("No document in the review yet") message=_("Administrators and section editors put documents in review batches.") %}
+      {% endif %}
+      {% endif %}
+    </section>
+  </div>
+</div>

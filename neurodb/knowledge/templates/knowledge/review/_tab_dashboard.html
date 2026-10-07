@@ -1,0 +1,54 @@
+{% load i18n ui %}
+<form method="get" action="{% url 'knowledge:review' %}" class="filter-bar" hx-get="{% url 'knowledge:review' %}" hx-target="#review-results" hx-push-url="true" hx-trigger="change" role="search" aria-label="{% trans 'Dashboard filter' %}">
+  <input type="hidden" name="tab" value="dashboard">
+  {% include "knowledge/review/_batch_select.html" with selected=batch prefix="fd" %}
+  <noscript><div class="filter-bar__actions"><button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button></div></noscript>
+</form>
+<p class="small text-muted">{% trans "The findings and key statements of the analysed documents, rejected ones left out. A tile, a bar or a batch opens the rows it counts." %}</p>
+<div class="kpi-grid kpi-grid--5">
+  {% trans "Documents analysed" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=tiles.documents|number href=tile_links.documents %}
+  {% trans "Findings" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=tiles.findings|number href=tile_links.findings %}
+  {% trans "Key statements" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=tiles.statements|number href=tile_links.statements %}
+  {% trans "High-urgency statements" as l4 %}{% blocktrans asvar h4 with n=high_urgency %}urgency {{ n }} or more{% endblocktrans %}{% include "components/kpi_tile.html" with label=l4 value=tiles.urgent|number href=tile_links.urgent hint=h4 %}
+  {% trans "Open action points" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=tiles.open_actions|number href=tile_links.open_actions %}
+</div>
+<section class="panel" aria-labelledby="review-quality-title">
+  <div class="panel__header"><h2 class="panel__title" id="review-quality-title">{% trans "Quality of the findings" %}</h2>{% if figures.average_evidence is not None %}<span class="panel__hint">{% blocktrans with n=figures.average_evidence %}average evidence {{ n }} out of 100{% endblocktrans %}</span>{% endif %}</div>
+  <p class="small text-muted">{% trans "How much of the collection has each property. A tile opens the gap: the findings without it, e.g. the tags or places to add to the lists." %}</p>
+  <div class="kpi-grid">
+    {% for q in figures.quality %}
+    {% if q.share is None %}{% include "components/kpi_tile.html" with label=q.label value="—" %}
+    {% else %}{% blocktrans asvar hint with done=q.done|number total=q.total|number %}{{ done }} of {{ total }}{% endblocktrans %}{% blocktrans asvar more with n=q.gap|number %}{{ n }} without: list them{% endblocktrans %}{% if q.gap %}{% include "components/kpi_tile.html" with label=q.label value=q.share unit="%" hint=hint more_href=q.href more_label=more %}{% else %}{% include "components/kpi_tile.html" with label=q.label value=q.share unit="%" hint=hint %}{% endif %}{% endif %}
+    {% endfor %}
+  </div>
+</section>
+<div class="grid grid--3 mt-3">
+  <section class="panel"><div class="panel__header"><h2 class="panel__title" id="rv-cat-title">{% trans "Findings by category" %}</h2></div>
+    <div class="chart chart--sm" id="rv-chart-category" data-module="charts" data-chart="hbars" data-source="review-chart-data" data-key="category" data-href-template="{{ chart_hrefs.category }}" data-href-target="#review-results" data-empty-title="{% trans 'No findings' %}" aria-labelledby="rv-cat-title"></div></section>
+  <section class="panel"><div class="panel__header"><h2 class="panel__title" id="rv-prog-title">{% trans "Findings by programme" %}</h2></div>
+    <div class="chart chart--sm" id="rv-chart-programme" data-module="charts" data-chart="hbars" data-source="review-chart-data" data-key="programme" data-href-template="{{ chart_hrefs.programme }}" data-href-target="#review-results" data-empty-title="{% trans 'No findings' %}" aria-labelledby="rv-prog-title"></div></section>
+  <section class="panel"><div class="panel__header"><h2 class="panel__title" id="rv-tags-title">{% trans "Top tags" %}</h2><span class="panel__hint">{% trans "Other apart" %}</span></div>
+    <div class="chart chart--sm" id="rv-chart-tags" data-module="charts" data-chart="hbars" data-source="review-chart-data" data-key="tags" data-href-template="{{ chart_hrefs.tags }}" data-href-target="#review-results" data-empty-title="{% trans 'No tagged findings' %}" aria-labelledby="rv-tags-title"></div></section>
+  <section class="panel"><div class="panel__header"><h2 class="panel__title" id="rv-evidence-title">{% trans "Evidence" %}</h2><span class="panel__hint">{% trans "findings by score" %}</span></div>
+    <div class="chart chart--sm" id="rv-chart-evidence" data-module="charts" data-chart="dist" data-orientation="v" data-show="value" data-palette="single" data-source="review-chart-data" data-key="evidence" data-href-template="{{ chart_hrefs.evidence }}" data-href-target="#review-results" data-empty-title="{% trans 'No findings' %}" aria-labelledby="rv-evidence-title"></div></section>
+  <section class="panel"><div class="panel__header"><h2 class="panel__title" id="rv-years-title">{% trans "Findings by year" %}</h2>{% if figures.undated %}<span class="panel__hint">{% blocktrans count n=figures.undated %}{{ n }} without a date{% plural %}{{ n }} without a date{% endblocktrans %}</span>{% endif %}</div>
+    <div class="chart chart--sm" id="rv-chart-years" data-module="charts" data-chart="dist" data-orientation="v" data-show="value" data-palette="single" data-source="review-chart-data" data-key="years" data-href-template="{{ chart_hrefs.years }}" data-href-target="#review-results" data-empty-title="{% trans 'No dated findings' %}" aria-labelledby="rv-years-title"></div></section>
+  <section class="panel"><div class="panel__header"><h2 class="panel__title" id="rv-places-title">{% trans "Top places" %}</h2><span class="panel__hint">{% trans "district, else governorate" %}</span></div>
+    <div class="chart chart--sm" id="rv-chart-places" data-module="charts" data-chart="hbars" data-source="review-chart-data" data-key="places" data-href-template="{{ chart_hrefs.places }}" data-href-target="#review-results" data-empty-title="{% trans 'No recognised places' %}" aria-labelledby="rv-places-title"></div></section>
+</div>
+<section class="panel p-0 mt-3">
+  {% include "components/table_toolbar.html" with title=_("By batch") count=figures.per_batch|length table_id="review-per-batch" filename="document-review-batches" %}
+  {% if figures.per_batch %}
+  <div class="table-wrap"><table class="table table-sm mb-0" id="review-per-batch" data-sortable>
+    <thead><tr><th>{% trans "Batch" %}</th><th class="text-end">{% trans "Documents" %}</th><th class="text-end">{% trans "Findings" %}</th><th class="text-end">{% trans "Statements" %}</th><th class="text-end">{% trans "Average evidence" %}</th><th class="text-end">{% trans "Challenges" %}</th><th>{% trans "Top tag" %}</th></tr></thead>
+    <tbody>{% for row in figures.per_batch %}<tr>
+      <td><a href="{% url 'knowledge:review' %}?tab=findings&amp;counted=1&amp;batch={{ row.batch.pk }}" hx-get="{% url 'knowledge:review' %}?tab=findings&amp;counted=1&amp;batch={{ row.batch.pk }}" hx-target="#review-results" hx-push-url="true">{{ row.batch.name }}</a></td>
+      <td class="text-end">{{ row.documents|number }}</td><td class="text-end">{{ row.findings|number }}</td><td class="text-end">{{ row.statements|number }}</td>
+      <td class="text-end">{{ row.average|default_if_none:"—" }}</td><td class="text-end">{% if row.challenges is not None %}{{ row.challenges }}%{% else %}—{% endif %}</td><td class="small">{{ row.top_tag|default:"—" }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}
+  {% include "components/empty_state.html" with icon="chart" title=_("Nothing counted yet") message=_("Figures appear once documents are analysed.") %}
+  {% endif %}
+</section>
+{{ chart_data|json_script:"review-chart-data" }}

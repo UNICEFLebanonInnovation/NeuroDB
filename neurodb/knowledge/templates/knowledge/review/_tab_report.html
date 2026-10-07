@@ -1,0 +1,22 @@
+{% load i18n ui %}
+<section class="panel" style="max-width: 62rem">
+  <div class="panel__header"><h2 class="panel__title">{% trans "Desk review (Word)" %}</h2></div>
+  <p>{% trans "A Word document assembled from the findings without an AI call: the scope, the counts, the recurring themes with their cited evidence, the recurring challenges, the findings repeated across documents, the most urgent statements, the open action points by owner, the coverage and the method. Every claim is cited (Document title, page)." %}</p>
+  <form method="get" action="{% url 'knowledge:review' %}" class="filter-bar" hx-get="{% url 'knowledge:review' %}" hx-target="#review-results" hx-push-url="true" hx-trigger="change" aria-label="{% trans 'What the desk review covers' %}">
+    <input type="hidden" name="tab" value="report">
+    {% include "knowledge/review/_batch_select.html" with selected=batch prefix="fr" %}
+    <div class="filter-bar__field">
+      <label class="form-label" for="fr-min">{% trans "A theme recurs when raised by" %}</label>
+      <select class="form-select form-select-sm" id="fr-min" name="min">{% for n in min_choices %}<option value="{{ n }}" {% if n == min_documents %}selected{% endif %}>{% blocktrans %}{{ n }} documents or more{% endblocktrans %}</option>{% endfor %}</select>
+    </div>
+    <noscript><div class="filter-bar__actions"><button type="submit" class="btn btn-outline-secondary btn-sm">{% trans "Apply" %}</button></div></noscript>
+  </form>
+  <ul class="small">
+    <li>{% blocktrans count n=tiles.documents %}{{ n }} document analysed{% plural %}{{ n }} documents analysed{% endblocktrans %}, {% blocktrans count n=tiles.findings %}{{ n }} finding{% plural %}{{ n }} findings{% endblocktrans %}, {% blocktrans count n=tiles.statements %}{{ n }} key statement{% plural %}{{ n }} key statements{% endblocktrans %}</li>
+    <li>{% blocktrans count n=themes %}{{ n }} recurring theme{% plural %}{{ n }} recurring themes{% endblocktrans %}{% if single %}, {% blocktrans count n=single %}{{ n }} resting on one batch{% plural %}{{ n }} resting on one batch{% endblocktrans %}{% endif %}</li>
+    <li>{% blocktrans count n=tiles.open_actions %}{{ n }} open action point{% plural %}{{ n }} open action points{% endblocktrans %}</li>
+    <li>{% if verified %}{% trans "Verified only is on: only accepted findings and statements." %}{% else %}{% trans "Every finding not rejected (accepted or not reviewed yet); turn Verified only on before circulating it." %}{% endif %}</li>
+  </ul>
+  <a class="btn btn-primary" href="{{ download_url }}">{% include "components/icon.html" with name="download" %}<span>{% trans "Download desk review (.docx)" %}</span></a>
+  <p class="small text-muted mt-2">{% blocktrans %}Saved as {{ filename }}. It is built from the review as it stands when you click.{% endblocktrans %}</p>
+</section>

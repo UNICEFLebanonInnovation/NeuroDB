@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% load i18n ui %}
+{% block content %}
+<p class="page-purpose">{% trans "The documents put in a review batch are read by the AI into findings, key statements and action points, each pointing to its page; people accept or reject them, and the figures, the synthesis and the desk review count what was not rejected." %}</p>
+<div id="review-results" aria-live="polite">{% include "knowledge/review/_results.html" %}</div>
+{% endblock %}

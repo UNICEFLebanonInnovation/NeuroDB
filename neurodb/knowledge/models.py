@@ -495,10 +495,11 @@ class DocumentFinding(Reviewed):
 
     @property
     def url(self) -> str:
-        """The document's file at the finding's page (a PDF opens there), else its knowledge base page."""
+        """The document's file at the finding's page (a PDF opens there), else the document's findings on
+        the review page."""
         if self.document.file and self.page_from:
             return f"{reverse('knowledge:file', args=[self.document_id])}#page={self.page_from}"
-        return reverse("knowledge:detail", args=[self.document_id])
+        return f"{reverse('knowledge:review')}?tab=findings&view=document&document={self.document_id}"
 
 
 class DocumentStatement(Reviewed):
@@ -670,3 +671,36 @@ class DocumentReviewSettings(models.Model):
     @property
     def token_cap(self) -> int:
         return self.daily_token_cap or settings.DOC_REVIEW_DAILY_TOKEN_CAP
+
+
+class ReviewParagraph(models.Model):
+    """One "Write a paragraph" request of the Synthesis tab: who asked, for which theme, and what it cost.
+    It holds each person's daily quota (a request refused by the quota or the budget is kept as
+    *limited* and does not count)."""
+
+    class Status(models.TextChoices):
+        RUNNING = "running", _("Being written")
+        DONE = "done", _("Written")
+        FAILED = "failed", _("Failed")
+        LIMITED = "limited", _("Refused (quota or budget)")
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    topic = models.ForeignKey(Topic, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    status = models.CharField(max_length=8, choices=Status.choices, default=Status.RUNNING, db_index=True)
+    reason = models.CharField(max_length=200, blank=True)
+    findings = models.PositiveIntegerField(default=0, help_text=_("findings sent"))
+    text = models.TextField(blank=True, help_text=_("the paragraph, its citations written out"))
+    model = models.CharField(max_length=64, blank=True)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        verbose_name = _("theme paragraph")
+        verbose_name_plural = _("theme paragraphs")
+
+    def __str__(self):
+        return f"{self.topic or '—'} ({self.get_status_display()})"

@@ -1,0 +1,6 @@
+{% load i18n ui %}
+<nav class="segmented segmented--scroll review-tabs mb-3" aria-label="{% trans 'Document review views' %}">
+  {% for t in tabs %}<a href="{% url 'knowledge:review' %}?{{ t.query }}" hx-get="{% url 'knowledge:review' %}?{{ t.query }}" hx-target="#review-results" hx-push-url="true" {% if t.key == tab %}aria-current="page"{% endif %}>{{ t.label }}</a>{% endfor %}
+</nav>
+{% if verified and tab != "documents" and tab != "findings" %}<p class="small text-muted mb-2">{% trans "Verified only is on: only accepted findings and statements are counted here." %}</p>{% endif %}
+{% if tab == "findings" %}{% include "knowledge/review/_tab_findings.html" %}{% elif tab == "dashboard" %}{% include "knowledge/review/_tab_dashboard.html" %}{% elif tab == "synthesis" %}{% include "knowledge/review/_tab_synthesis.html" %}{% elif tab == "actions" %}{% include "knowledge/review/_tab_actions.html" %}{% elif tab == "report" %}{% include "knowledge/review/_tab_report.html" %}{% else %}{% include "knowledge/review/_tab_documents.html" %}{% endif %}

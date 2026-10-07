@@ -1,0 +1,16 @@
+{% load i18n ui %}
+<tr id="action-{{ p.pk }}">
+  <td>{% if p.priority == "high" %}{% status_pill "off_track" p.get_priority_display "sm" %}{% elif p.priority == "medium" %}{% status_pill "over_target" p.get_priority_display "sm" %}{% else %}{% status_pill "unknown" p.get_priority_display "sm" %}{% endif %}</td>
+  <td>{{ p.action }}{% if p.derived %} <span class="chip" title="{% trans 'Drawn from challenges or recommendations: no finding states it as a commitment' %}">{% trans "Derived" %}</span>{% endif %}{% if p.where %}<span class="cell-sub">{% if p.where.page_label %}<a href="{{ p.where.url }}" target="_blank" rel="noopener">{{ p.where.page_label }}</a> · {% endif %}<a href="{% url 'knowledge:review' %}?tab=findings&amp;view=document&amp;document={{ p.document_id }}">{% trans "its findings" %}</a></span>{% endif %}</td>
+  <td class="small">{{ p.owner_text }}</td>
+  <td class="small text-nowrap" data-value="{{ p.deadline_date|date:'Y-m-d' }}">{{ p.deadline_text|default:"—" }}{% if p.deadline_date %}<span class="cell-sub">{% blocktrans with day=p.deadline_date|date:"j M Y" %}by {{ day }}{% endblocktrans %}</span>{% endif %}{% if p.overdue %}<span class="cell-sub text-danger">{% trans "Overdue" %}</span>{% endif %}</td>
+  <td class="small"><a href="{{ p.document.get_absolute_url }}">{{ p.document.title|truncatechars:60 }}</a></td>
+  <td class="small">{{ p.document.review_batch.name }}</td>
+  <td class="text-nowrap">{% if can_edit %}{% url 'knowledge:review_action_status' p.pk as status_url %}
+    <form method="post" action="{{ status_url }}" hx-post="{{ status_url }}" hx-trigger="change" hx-target="closest tr" hx-swap="outerHTML" class="d-flex gap-1">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <label class="visually-hidden" for="ap-status-{{ p.pk }}">{% trans "Status" %}</label>
+      <select class="form-select form-select-sm" id="ap-status-{{ p.pk }}" name="status">{% for value, label in statuses %}<option value="{{ value }}" {% if p.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+      <noscript><button type="submit" class="btn btn-outline-secondary btn-sm">{% trans "Save" %}</button></noscript>
+    </form>{% else %}{% status_pill p.status p.get_status_display "sm" %}{% endif %}
+    {% if p.status_at %}<span class="cell-sub">{% blocktrans with day=p.status_at|date:"j M Y" %}set {{ day }}{% endblocktrans %}</span>{% endif %}</td>
+</tr>

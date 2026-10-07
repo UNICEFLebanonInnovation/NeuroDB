@@ -1,0 +1,13 @@
+{% load i18n ui %}
+{% comment %}The review of one finding or statement: its verdict (who and when on hover); ✓ ✕ for editors, swapping
+the row in place ("compact": the By document view's narrower row).{% endcomment %}
+{% if item.verdict == "accepted" %}{% status_pill "verified" _("Accepted") "sm" %}{% elif item.verdict == "rejected" %}{% status_pill "rejected" _("Rejected") "sm" %}{% else %}<span class="small text-muted">{% trans "Not reviewed" %}</span>{% endif %}
+{% if item.reviewed_at %}<span class="cell-sub" title="{{ item.reviewed_by.get_full_name|default:item.reviewed_by.username }}">{{ item.reviewed_at|date:"j M Y" }}</span>{% endif %}
+{% if can_edit %}
+<form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="closest tr" hx-swap="outerHTML" class="d-inline-flex gap-1 mt-1">
+  {% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">{% if compact %}<input type="hidden" name="compact" value="1">{% endif %}
+  {% if item.verdict != "accepted" %}<button type="submit" name="verdict" value="accepted" class="btn btn-outline-success btn-sm py-0" title="{% trans 'Accept: checked against its page' %}" aria-label="{% trans 'Accept' %}">✓</button>{% endif %}
+  {% if item.verdict != "rejected" %}<button type="submit" name="verdict" value="rejected" class="btn btn-outline-danger btn-sm py-0" title="{% trans 'Reject: not there, or wrong' %}" aria-label="{% trans 'Reject' %}">✕</button>{% endif %}
+  {% if item.verdict != "unreviewed" %}<button type="submit" name="verdict" value="unreviewed" class="btn btn-link btn-sm py-0" title="{% trans 'Back to not reviewed' %}">{% trans "Undo" %}</button>{% endif %}
+</form>
+{% endif %}

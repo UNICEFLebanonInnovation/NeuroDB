@@ -14,6 +14,7 @@ are the defaults; administrators can change them.
 | Chat with Data (Monitoring insights) | 20 questions a day; at most 2 at the same time, and 4 on the whole site | "You have asked 20 questions today; the count starts again tomorrow." or "The chat is busy; please try again in a minute." |
 | Regenerate (AI monitoring brief) | 5 a day | Regenerate is refused until midnight; the latest brief stays. A brief found up to date costs nothing and uses no quota. |
 | AI content summary (action points) | 5 a day | The summary is refused until midnight. |
+| Write a paragraph (Document review, Synthesis) | 50 a day | "You have written today's 50 paragraphs; the count starts again at midnight." A paragraph refused by the limit or the budget does not count. |
 
 The chips next to each feature say how much you have used: "3 of 20 today".
 
@@ -26,7 +27,7 @@ The chips next to each feature say how much you have used: "3 of 20 today".
 | AI checks of the quality rules | 2,000,000 tokens | About 700–1,000 checks a night; older visits wait for the next nights. |
 | AI review of action points | 300,000 tokens | About 150–250 reviews a night, and the content summaries. |
 | NeuroDB Watch | 300,000 tokens and 24 calls | The morning notes and up to 3 look-ups a day. |
-| Document review | 1,000,000 tokens | The knowledge base documents put in a review batch, read each night; a 100-page report takes roughly 150,000 tokens, so about six such reports a night. What is left waits for the next night. |
+| Document review | 1,000,000 tokens | The knowledge base documents put in a review batch, read each night; a 100-page report takes roughly 150,000 tokens, so about six such reports a night. What is left waits for the next night. The theme paragraphs of the Synthesis tab count here too, and stop at 100% of the shared budget. |
 
 A **token** is a piece of a word, about four characters of English. What is sent (the question, the
 instructions, the data looked up) and what is written (the answer and the model's reasoning) both count.

@@ -255,17 +255,18 @@ sector reviews, workplans) with the AI and keeps what they say as **findings** (
 recommendations, observations, action points), **key statements** and **action points**, each pointing
 to the page it comes from, for people to accept or reject. It is opt-in per document, so the AI's cost
 stays with what was chosen. The code is in `neurodb/knowledge/review.py` (the job),
-`review_locate.py` (the work without AI) and `review_prompts.py` (the shipped prompts). The review page
-(`/knowledge/review/`: batches, findings to accept or reject, dashboard, synthesis, actions and the Word
-desk review) is being added in the next stage of this release.
+`review_locate.py` (the work without AI) and `review_prompts.py` (the shipped prompts); the page
+(`/knowledge/review/`, below) in `review_views.py`, what it counts in `review_data.py`, the Word desk review
+in `review_docx.py` and the theme paragraph in `review_paragraph.py`.
 
 **Turning it on.** Admin → Library and maps → **Document review settings** (Administrators only):
 tick *Enabled*. It is off when NeuroDB is deployed: until then nothing is analysed and the nightly
 run finishes *skipped*. It also needs the AI assistant (`AI_ASSISTANT_ENABLED`, an OpenAI key).
 
 **Batches.** Only documents put in a **review batch** are analysed: a folder for one kind of document
-(Admin → **Document review batches**, or the review page once it is there). Put a knowledge base
-document in a batch on its admin page (*Review batch*): it waits to be analysed. Taking it out stops
+(the review page's Documents tab, or Admin → **Document review batches**). Put a knowledge base document
+in a batch from the Documents tab (*Upload documents into this batch*, or *Or pick knowledge base
+documents*) or on its admin page (*Review batch*): it waits to be analysed. Taking it out stops
 its analysis and leaves what was found out of every view. A document marked *reference only* stays in
 its batch and is never analysed; an archived batch is no longer analysed. Admin → Knowledge documents →
 action *Analyse in the document review* analyses the chosen documents now, in the background.
@@ -360,17 +361,65 @@ add or switch off any; a topic switched off is no longer offered to the AI and f
 that findings use cannot be deleted (switch it off). "Other" is made again if removed.
 
 **What was found** is listed read-only in the admin (Document findings, Document statements, Document
-action points; an Administrator may delete a row); people review them on the review page.
+action points, Theme paragraphs; an Administrator may delete a row); people review them on the review
+page.
 
 **Ask NeuroDB** has the tool `search_document_findings` (words, optionally a batch's name or id): the
 findings of the documents still in a batch, never the rejected ones, each with its document, page,
 category, topic, quote, evidence and verdict and a link to the document's file at that page
-(`/knowledge/<id>/file/#page=n`, for a PDF) or to the document. Its answers cite them as
-"(Document title, p. n)".
+(`/knowledge/<id>/file/#page=n`, for a PDF) or to the document's findings on the review page. Its
+answers cite them as "(Document title, p. n)".
+
+**The review page** (`/knowledge/review/`, sidebar → Resources → *Document review*). Every signed-in
+user reads it (Viewers read only; donor accounts never reach it). Administrators and Section editors
+(`knowledge.access.can_add`) create, rename and archive batches, add documents, start an analysis, mark a
+document as reference or take it out, accept or reject findings and statements, edit, add or delete a
+finding and set an action point's status; every one of these is a POST refused (403) to anyone else.
+The prompts and settings stay in the admin, for Administrators. Its tabs:
+
+- **Documents**: the batches and, per document, the five stage chips (green yes, amber partly, red
+  failed, grey not reached; the note on hover), counts, "only n% read", and *Analyse / Re-analyse* (the
+  `review_documents --document <id>` run in the background, as the admin action; refused with the reason
+  when the review or the AI is off, the document is a reference or its batch is archived), *Mark as
+  reference / Unmark reference*, *Remove from batch*. Opening the tab also marks failed a document with no
+  progress for 30 minutes; while documents wait or are analysed the list refreshes every 20 seconds.
+  *Upload documents into this batch* opens the knowledge base's Add page, which puts the new documents in
+  the batch.
+- **Findings**: *All findings*, *By document* (key statements, findings, *Accept all* / *Reject all* —
+  only what is not reviewed yet — and *Add a finding*: a person's finding is accepted, located like the
+  AI's, keeps the page given when its quote is not found, and is kept by every new analysis), *Key
+  statements* and the *Index*; filters and a CSV of each view (texts starting with `=`, `+`, `-` or `@`
+  are written as text). An edit is located again (page, place, date, evidence) and kept by a new analysis
+  with its verdict. Deleting an AI finding does not stop a new analysis from finding it again: reject it.
+  Links to a page open the PDF at that page: the knowledge base now serves PDF files to open in the
+  browser (other files still download).
+- **Dashboard**: five tiles, six quality tiles (each opens its gap), six charts and the table by batch;
+  every figure opens the rows it counts (`counted=1`: the same query), so the two always agree.
+- **Synthesis**: themes ranked by distinct documents (Other apart), Over time, Coverage and Repeated
+  findings (Python, no AI: at most the 3,000 best-evidenced findings compared, 50 groups kept).
+  **Write a paragraph** is the only AI call: one Responses call (`AI_ASSISTANT_MODEL`, low effort,
+  `store=false`) on that theme's findings only (at most 60, cleaned of names, e-mail addresses, links and
+  phone numbers), cited back as "(Document title, p. n)"; a citation that is not one of them is dropped,
+  and an answer citing none is not shown. Each person may write **50 a day** (the chip "n of 50 today";
+  refused requests do not count); it is recorded under *Document review* in AI use, counts against the
+  review's daily cap and 100% of `AI_DAILY_TOKEN_SOFT_CAP`, and stops when the OpenAI credit pause is on.
+  Each request is kept in Admin → Theme paragraphs (who, when, what, tokens).
+- **Actions**: cards, open by owner, the table with its filters (*Current*: documents dated within a year
+  of the newest document of the collection — their date, issue date or year, else when added; *All
+  time*), the status set on the row, CSV and Excel of the filter.
+- **Report**: *Download desk review (.docx)* (`desk-review-YYYY-MM-DD.docx`), built when clicked from the
+  same figures, without AI, for the chosen batch and minimum of documents.
+
+**Rejected and verified.** A rejected finding or statement leaves every count, chart, synthesis and the
+desk review (the Findings tab keeps listing it, struck through). **Verified only** (the switch at the top
+of the page, shown once a verdict exists; each person's, kept in their session) restricts the Dashboard,
+Synthesis, Actions and the desk review to what was accepted; an action point counts when a finding it
+cites was accepted.
 
 **Not built in this release**: the weekly document digest (no e-mails in this step), the figures
-discrepancy check between documents and NeuroDB's data, and snapshots of a document's findings over
-time ("Changes").
+discrepancy check between documents and NeuroDB's data, snapshots of the collection and their "Changes"
+view, the Power BI package of the review, and a separate "Ask the documents" tab (Ask NeuroDB's
+`search_document_findings` covers it).
 
 ### Knowledge hub: everything linked, for questions across sources
 
