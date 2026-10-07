@@ -730,9 +730,10 @@ def filtered_action_points(params, today: datetime.date | None = None) -> tuple[
     f = action_point_filters(params)
     points = dm.ActionPoint.objects.select_related("partner", "intervention")
     if f["statuses"]:
-        # "open" means open in every figure: the points in progress with it
+        # "open" means open in every figure: the points in progress with it (but "in progress" alone
+        # keeps only the points in progress)
         wanted = set(f["statuses"])
-        if wanted & set(dm.ActionPoint.OPEN_STATUSES):
+        if "open" in wanted:
             wanted |= set(dm.ActionPoint.OPEN_STATUSES)
         points = points.filter(status__in=sorted(wanted))
     if f["modules"]:

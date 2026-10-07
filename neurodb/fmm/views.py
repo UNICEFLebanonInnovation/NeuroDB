@@ -1744,6 +1744,8 @@ INSIGHT_MESSAGES = {
 }
 PRIORITY_STATUS = {"High": "off_track", "Medium": "constrained", "Low": "not_monitored"}
 SAMPLING_NAMES = {"temperature": "temp", "top_p": "top-p"}
+# the same, written out in the generation settings strip (beside "Model", "Max output tokens")
+GENERATION_NAMES = {"temperature": gettext_lazy("Temperature"), "top_p": gettext_lazy("Top-p")}
 
 
 def _insight_message(row) -> str:
@@ -1878,7 +1880,7 @@ def _generation_settings(version, is_admin: bool) -> dict[str, Any] | None:
     for parameter in sampling.PARAMETERS:
         if plan.states.get(parameter) == sampling.SENT:
             chips.append(
-                {"label": SAMPLING_NAMES[parameter], "value": f"{plan.params[parameter]:.2f}", "title": ""}
+                {"label": GENERATION_NAMES[parameter], "value": f"{plan.params[parameter]:.2f}", "title": ""}
             )
     return {
         "chips": chips,

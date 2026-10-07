@@ -178,6 +178,9 @@ def test_at_most_ten_critical_visits_and_a_link_to_all(built, client_viewer, mon
     link = re.search(r'href="([^"]+)"[^>]*>Show all (\d+)', html)
     assert link and int(link.group(2)) == total
     assert "tab=visits" in link.group(1) and "urgency=red" in link.group(1)
+    # the Visits tab it opens lists exactly those visits
+    opened = client_viewer.get(unescape(link.group(1)), HTTP_HX_REQUEST="true").content.decode()
+    assert f"Showing {total} visits" in _text(opened)
 
 
 # ------------------------------------------------------------------------------------------ AI brief settings
@@ -201,10 +204,10 @@ def test_the_generation_settings_show_what_the_published_version_holds(
             ("Max output tokens", f"{version.max_output_tokens:,}"),
             ("Narrative samples", str(version.narratives_sampled)),
             ("Compliance depth", str(version.comparison_visits)),
-            ("temp", "0.30"),
+            ("Temperature", "0.30"),
         ):
             assert f"{label} {value}" in text, label
-        assert "top-p" not in text  # not set: never shown as a setting
+        assert "Top-p" not in text  # not set: never shown as a setting
         for part in ("Coverage and Quality Summary", "Recommendations"):
             assert part in text
         assert "Edit in admin" not in text  # a viewer only reads them
@@ -221,7 +224,7 @@ def test_the_generation_settings_show_what_the_published_version_holds(
             .split('class="fmm-gen"', 1)[1]
             .split('<div class="chips', 1)[0]
         )
-        assert "temp 0.30" not in text
+        assert "Temperature" not in text
         client.force_login(admin_user)
         admin_html = client.get(url).content.decode()
         assert (
@@ -281,6 +284,9 @@ def test_an_action_point_in_progress_is_open_and_can_be_overdue(fm_world):
     # the "open" filter of the action points page keeps the points in progress
     opened = datamart.action_points(QueryDict("status=open"))
     assert 8001 in set(opened["points"].values_list("datamart_id", flat=True))
+    # but "in progress" chosen alone keeps only the points in progress
+    working = datamart.action_points(QueryDict("status=in_progress"))
+    assert set(working["points"].values_list("status", flat=True)) == {"in_progress"}
 
 
 # ------------------------------------------------------------------------------------------ charts
