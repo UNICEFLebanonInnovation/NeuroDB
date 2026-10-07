@@ -479,9 +479,17 @@ def test_switched_off_nothing_is_analysed(report, fake, ai_on):
     assert report.review_status == Document.ReviewStatus.PENDING
 
 
+def _used_today(tokens: int) -> None:
+    used = SimpleNamespace(
+        input_tokens=tokens, input_tokens_details=SimpleNamespace(cached_tokens=0), output_tokens=0
+    )
+    usage.record(usage.DOC_REVIEW, "test-model", used)
+
+
 def test_the_daily_cap_stops_the_run_cleanly(report, setting, fake, ai_on):
-    setting.daily_token_cap = 100
+    setting.daily_token_cap = 60_000
     setting.save()
+    _used_today(59_000)  # the document fits a day, but not what is left of today
     client = fake()
     run = review.run(review.PENDING, triggered_by="test")
     report.refresh_from_db()
@@ -510,9 +518,129 @@ def test_the_credit_pause_and_the_shared_cap_stop_it(report, setting, fake, ai_o
     run = review.run(review.PENDING, triggered_by="test")
     assert client.requests == [] and run.details["stopped"] == review.PAUSED
     monkeypatch.setattr("neurodb.fmm.ai.budget.paused_until", lambda *a: None)
-    with override_settings(AI_DAILY_TOKEN_SOFT_CAP=1000):
+    _used_today(79_000)  # the document fits 80% of the shared cap, but not what is left of it today
+    with override_settings(AI_DAILY_TOKEN_SOFT_CAP=100_000):
         run = review.run(review.PENDING, triggered_by="test")
+    report.refresh_from_db()
     assert client.requests == [] and run.details["stopped"] == review.SHARED_BUDGET
+    assert report.review_status == Document.ReviewStatus.PENDING
+
+
+def test_a_document_too_long_for_a_whole_day_fails_without_a_call(report, setting, fake, ai_on):
+    setting.daily_token_cap = 5000  # less than one analysis of the report needs
+    setting.save()
+    client = fake()
+    run = review.run(review.PENDING, triggered_by="test")
+    report.refresh_from_db()
+    assert client.requests == [] and run.rows_failed == 1
+    assert report.review_status == Document.ReviewStatus.FAILED
+    assert "Daily token cap" in report.review_stage_notes["findings"]["error"]
+    with override_settings(AI_DAILY_TOKEN_SOFT_CAP=6000):  # 80% of the shared cap counts too
+        setting.daily_token_cap = 0
+        setting.save()
+        review.run(review.PENDING, triggered_by="test")
+    report.refresh_from_db()
+    assert client.requests == [] and report.review_status == Document.ReviewStatus.FAILED
+    error = report.review_stage_notes["findings"]["error"]
+    assert "AI_DAILY_TOKEN_SOFT_CAP" in error and "4,800" in error and "Daily token cap" not in error
+    setting.daily_token_cap = 0
+    setting.save()
+    review.run(review.PENDING, triggered_by="test")  # a failed document is tried again: it fits now
+    report.refresh_from_db()
+    assert report.review_status == Document.ReviewStatus.DONE and client.requests
+
+
+def test_a_full_run_stopped_by_the_budget_leaves_the_rest_waiting(
+    report, setting, fake, ai_on, batch, monkeypatch
+):
+    second = Document.objects.create(
+        title="Donor report 2024", text="\f".join(PAGES), status=Document.Status.READY, pages=3
+    )
+    review.put_in_batch([second], batch)
+    fake()
+    review.run(review.FULL, triggered_by="test")
+    assert set(Document.objects.values_list("review_status", flat=True)) == {Document.ReviewStatus.DONE}
+
+    client = fake()
+    blocked = review.blocked
+    monkeypatch.setattr(  # the budget lasts for one document's three calls
+        review,
+        "blocked",
+        lambda tokens, s: review.BUDGET if len(client.requests) >= 3 else blocked(tokens, s),
+    )
+    run = review.run(review.FULL, triggered_by="test")
+    assert run.details["stopped"] == review.BUDGET and run.details["left_waiting"] == 1
+    report.refresh_from_db()
+    second.refresh_from_db()
+    assert report.review_status == Document.ReviewStatus.DONE
+    assert second.review_status == Document.ReviewStatus.PENDING and second.findings.count() == 5  # kept
+    monkeypatch.setattr(review, "blocked", blocked)
+    run = review.run(review.PENDING, triggered_by="test")  # the next night goes on with it
+    second.refresh_from_db()
+    assert run.rows_written == 1 and second.review_status == Document.ReviewStatus.DONE
+
+
+def test_a_document_taken_out_while_the_ai_reads_keeps_nothing(report, setting, fake, ai_on):
+    fake(during=lambda: review.take_out(Document.objects.get(pk=report.pk)))
+    run = review.run(review.FULL, triggered_by="test")
+    report.refresh_from_db()
+    assert run.rows_written == 0 and run.details["waiting"] == 1
+    assert report.review_status == Document.ReviewStatus.NOT_IN_REVIEW and report.review_batch is None
+    assert not report.findings.exists() and not report.statements.exists()
+
+
+def test_a_finding_a_person_deletes_while_the_ai_reads_is_not_cited(report, setting, fake, ai_on):
+    DocumentFinding.objects.create(
+        document=report,
+        category="observation",
+        topic=Topic.other(),
+        manual=True,
+        text="Children out of school were counted twice.",
+        quote="",
+    )  # the statement cites it: the first finding with "out of school"
+    fake(during=lambda: DocumentFinding.objects.filter(manual=True).delete())
+    run = review.run(review.FULL, triggered_by="test")
+    report.refresh_from_db()
+    assert run.rows_written == 1 and report.review_status == Document.ReviewStatus.DONE
+    statement = DocumentStatement.objects.get(document=report)
+    assert list(statement.cites.all()) == [] and not report.findings.filter(manual=True).exists()
+
+
+def test_a_new_text_read_while_the_ai_reads_is_analysed_again(report, setting, fake, ai_on):
+    def read_again():
+        Document.objects.filter(pk=report.pk).update(text="\f".join([*PAGES, "A new page."]))
+        assert not review.text_read(Document.objects.get(pk=report.pk))  # it is being analysed
+
+    fake(during=read_again)
+    run = review.run(review.FULL, triggered_by="test")
+    report.refresh_from_db()
+    assert report.review_status == Document.ReviewStatus.PENDING and run.details["waiting"] == 1
+    assert report.review_stage_notes["waiting"] == review.TEXT_CHANGED
+    assert report.findings.count() == 5  # kept meanwhile
+    fake()
+    run = review.run(review.PENDING, triggered_by="test")
+    report.refresh_from_db()
+    assert run.rows_written == 1 and report.review_status == Document.ReviewStatus.DONE
+    assert report.reviewed_text_hash == review.text_hash(report)
+
+
+def test_a_persons_edit_of_a_finding_is_kept_with_its_verdict(report, setting, fake, ai_on, admin_user):
+    fake()
+    review.run(review.FULL, triggered_by="test")
+    water = _finding(report, "Water supply")
+    DocumentFinding.objects.filter(pk=water.pk).update(
+        text="Water supply in Zahle fell by 30% in summer 2024.",
+        topic=Topic.objects.get(name="Water supply"),
+        verdict=Verdict.ACCEPTED,
+        edited_by=admin_user,
+        edited_at=timezone.now(),
+    )
+    fake()
+    review.run(review.FULL, triggered_by="test")
+    again = report.findings.get(text__icontains="by 30% in summer")
+    assert again.pk != water.pk and again.verdict == Verdict.ACCEPTED and again.edited_by == admin_user
+    assert again.topic.name == "Water supply" and again.evidence == 45 + 10 + 10 + 10  # tagged now
+    assert not report.findings.filter(text=WATER["text"]).exists()
 
 
 def test_a_document_with_no_progress_for_30_minutes_is_marked_failed(report, setting, fake, ai_on):
@@ -550,6 +678,10 @@ def test_the_command_and_its_buttons_and_schedule(report, setting, fake, ai_on, 
     loose = Document.objects.create(title="Loose", text="x")
     with pytest.raises(CommandError):
         call_command("review_documents", "--document", str(loose.pk))
+    waiting = Document.objects.create(title="Not analysed yet", text="x")
+    review.put_in_batch([waiting], report.review_batch)
+    with pytest.raises(CommandError):  # no analysis to draw the action points again from
+        call_command("review_documents", "--enrich", "--document", str(waiting.pk))
     assert jobs.COMMANDS["doc_review"].args == ("review_documents", "--pending")
     buttons = {j.name: j.command for j in admin_jobs.BACKGROUND_JOBS if j.job == SyncRun.Job.DOC_REVIEW}
     assert buttons == {
@@ -634,6 +766,10 @@ def test_ask_neurodb_searches_the_findings_without_rejected_ones(report, setting
     assert all("Akkar" not in f["finding"] for f in out["findings"])
     assert tools.run("search_document_findings", {"query": "water", "batch": "Annual"})["findings"]
     assert not tools.run("search_document_findings", {"query": "water", "batch": "Evaluations"})["findings"]
+    assert tools.run("search_document_findings", {"query": "water", "batch": str(report.review_batch_id)})[
+        "findings"
+    ]
+    assert not tools.run("search_document_findings", {"query": "water", "batch": "9" * 30})["findings"]
     review.take_out(report)
     assert not tools.run("search_document_findings", {"query": "water"})["findings"]
 
@@ -676,6 +812,8 @@ def test_parts_carry_page_markers_and_quotes_are_found_across_lines():
     assert index.find("water supply in ZAHLE\ndistrict fell by 30 percent") == 2
     assert index.find("Funding gaps … according to the sector partners") == 3
     assert index.find("not in this document at all, surely") is None
+    assert index.find("Funding gaps reached 4") is None  # whole words: "4" is not "40"
+    assert index.find("Funding gaps reached 40") == 3
     halves = review_locate.halves(review_locate.Part(1, "page", [(1, PAGES[0]), (2, PAGES[1])]))
     assert [h.first for h in halves] == [1, 2]
 

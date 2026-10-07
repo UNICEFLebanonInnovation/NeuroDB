@@ -305,7 +305,8 @@ text 45, reported rather than interpreted 25, dated 10, placed 10, tagged (not O
 findings whose AI text and quote are unchanged, the findings people added, the verdicts of statements
 with the same words, and the status of each action point (matched on its words, normalised); people
 set the status, an analysis never changes it. Rejected findings are not read by the summary or the
-enrichment. A document read again by the knowledge base with a new text waits to be analysed again.
+enrichment. A document read again by the knowledge base with a new text (also while it is being
+analysed) waits to be analysed again.
 
 **Jobs** (Admin → Import and sync runs → Run a job; each run is recorded as *Document review*):
 
@@ -329,7 +330,11 @@ be passed (*Daily token cap* in the settings; 0 = `DOC_REVIEW_DAILY_TOKEN_CAP`, 
 the shared `AI_DAILY_TOKEN_SOFT_CAP` would pass 80% (a background job leaves the rest to people), or
 the OpenAI credit pause of Monitoring insights is on (a call that meets the credit's end starts the
 pause). A part of 12,000 characters is about 4,000 tokens sent and 1,000–3,000 written; a 100-page
-report takes roughly 150,000 tokens, so the default cap reads about six such reports a night. The
+report takes roughly 150,000 tokens, so the default cap reads about six such reports a night. A
+document that needs more than a whole day's budget (the smaller of the review's cap and 80% of the
+shared cap) is not started, as it could never finish: it fails with the reason, and the next nightly
+run tries it again once the cap is raised or the document is split. A full run stopped by the budget
+leaves the documents it did not reach waiting, so the nightly run goes on with them. The
 model is `AI_ASSISTANT_MODEL` at low effort, `store=false`, 180 seconds and one retry per call.
 
 **What goes to OpenAI**: the document's title and text (the part being read), the topic list, and for

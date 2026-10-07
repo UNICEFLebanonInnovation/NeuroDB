@@ -36,7 +36,9 @@ on) and needs the AI assistant. Its calls are recorded under ``doc_review`` in t
 its own daily cap (the settings' cap, else ``DOC_REVIEW_DAILY_TOKEN_CAP``), 80% of the shared
 ``AI_DAILY_TOKEN_SOFT_CAP`` (a background job) and the OpenAI credit pause (Monitoring insights'
 ``AIState``, shared by every AI feature on the key): when one is reached the run stops cleanly and the
-rest waits for the next night. One run at a time (an advisory lock; a single document's run waits for
+rest waits for the next night (a full run leaves the documents it did not reach waiting). A document
+that needs more than a whole day's budget is not started: it could never finish (failed, with the
+reason). One run at a time (an advisory lock; a single document's run waits for
 it). A document with no progress for 30 minutes is marked failed with the reason.
 """
 
@@ -101,6 +103,16 @@ BUDGET = "budget: today's AI budget for the document review is used; the rest wa
 SHARED_BUDGET = "budget: today's shared AI budget is nearly used; the rest waits for the next run"
 NOT_READ_YET = "waiting: the knowledge base is still reading the document"
 STALE = "No progress for 30 minutes (the run stopped, e.g. the server restarted): analyse it again."
+TOO_LONG = (
+    "Too long for one day's budget of the document review (about {tokens:,} tokens; a day gives at most "
+    "{cap:,}): raise the Daily token cap in Document review settings, or split the document."
+)
+TOO_LONG_SHARED = (
+    "Too long for one day's budget of the document review (about {tokens:,} tokens; the shared AI "
+    "budget, AI_DAILY_TOKEN_SOFT_CAP, gives it at most {cap:,} a day): split the document, or raise the "
+    "shared budget."
+)
+TEXT_CHANGED = "waiting: the knowledge base read a new text while it was analysed; it is analysed again"
 
 
 def _string(description: str = "") -> dict[str, Any]:
@@ -203,6 +215,23 @@ def blocked(tokens: int, setting: DocumentReviewSettings) -> str:
 def estimate(stage: str, payload: str, setting: DocumentReviewSettings) -> int:
     chars = len(payload) + len(setting.prompt(PROMPT_OF[stage])) + len(prompts.FIXED)
     return int(chars / CHARS_PER_TOKEN) + MAX_OUTPUT[stage]
+
+
+def day_cap(setting: DocumentReviewSettings) -> tuple[int, str]:
+    """The most a day can give the review (its own cap, or 80% of the shared cap when lower), and what
+    to say of a document that needs more."""
+    shared = int(settings.AI_DAILY_TOKEN_SOFT_CAP * SOFT_SHARE)
+    return (setting.token_cap, TOO_LONG) if setting.token_cap <= shared else (shared, TOO_LONG_SHARED)
+
+
+def whole_estimate(ctx: Context, document_parts: list[where.Part]) -> int:
+    """About the tokens a whole analysis of the document takes: each part sent with half of its longest
+    answer, then the summary's and the enrichment's answers."""
+    extra = len(_findings_extra(ctx)) + len(ctx.setting.prompt(prompts.TAGGING)) + len(prompts.FIXED)
+    findings = sum(
+        int((p.chars + extra) / CHARS_PER_TOKEN) + MAX_OUTPUT[FINDINGS] // 2 for p in document_parts
+    )
+    return findings + MAX_OUTPUT[SUMMARY] + MAX_OUTPUT[ENRICHMENT]
 
 
 # ------------------------------------------------------------------------------------------ keys
@@ -398,9 +427,12 @@ def _finding(
     )
 
 
-def find(ctx: Context, document: Document) -> tuple[list[DocumentFinding], dict[str, Any]]:
+def find(
+    ctx: Context, document: Document, document_parts: list[where.Part] | None = None
+) -> tuple[list[DocumentFinding], dict[str, Any]]:
     """The findings the AI reads in the document (unsaved), and the stage's note."""
-    document_parts = where.parts(document, ctx.setting.chunk_size)
+    if document_parts is None:
+        document_parts = where.parts(document, ctx.setting.chunk_size)
     total = sum(p.chars for p in document_parts) or 1
     extra = _findings_extra(ctx)
     found: list[DocumentFinding] = []
@@ -712,11 +744,17 @@ def analyse(ctx: Context, document: Document) -> str:
     if text["state"] == FAILED:
         _finish(document, {TEXT: text})
         return document.review_status
+    document_parts = where.parts(document, ctx.setting.chunk_size)
+    tokens, (cap, too_long) = whole_estimate(ctx, document_parts), day_cap(ctx.setting)
+    if tokens > cap:  # it would spend the whole day's budget each night and never be finished
+        note = {"state": FAILED, "error": too_long.format(tokens=tokens, cap=cap)}
+        _finish(document, {**(document.review_stage_notes or {}), TEXT: text, FINDINGS: note})
+        return document.review_status
     document.review_status, document.review_progress_at = Document.ReviewStatus.RUNNING, timezone.now()
     document.save(update_fields=["review_status", "review_progress_at", "updated_at"])
     notes: dict[str, Any] = {TEXT: text}
     try:
-        found, notes[FINDINGS] = find(ctx, document)
+        found, notes[FINDINGS] = find(ctx, document, document_parts)
         if notes[FINDINGS]["state"] == FAILED:  # nothing read: what an earlier analysis found stays
             _finish(document, notes)
             return document.review_status
@@ -730,12 +768,32 @@ def analyse(ctx: Context, document: Document) -> str:
         points, derived, notes[ENRICHMENT] = enrich(ctx, document, usable)
     except Stop as reason:
         waiting = {**(document.review_stage_notes or {}), "waiting": str(reason)}
-        Document.objects.filter(pk=document.pk).update(review_status=before, review_stage_notes=waiting)
+        Document.objects.filter(pk=document.pk, review_status=Document.ReviewStatus.RUNNING).update(
+            review_status=before, review_stage_notes=waiting
+        )  # unless a person took it out of the review meanwhile
         document.review_status = before
         raise
     if derived:
         place_all(ctx, document, derived)
     with transaction.atomic():
+        current = (
+            Document.objects.select_for_update()
+            .filter(pk=document.pk)
+            .values("review_batch_id", "review_status", "text")
+            .first()
+        )
+        if left_review(current):  # taken out or made a reference while the AI was reading: not kept
+            if current is not None and current["review_status"] == Document.ReviewStatus.RUNNING:
+                Document.objects.filter(pk=document.pk).update(
+                    review_status=Document.ReviewStatus.NOT_IN_REVIEW
+                )  # its batch was deleted
+            logger.info("document review: document %s left the review while it was analysed", document.pk)
+            return Document.ReviewStatus.NOT_IN_REVIEW
+        alive = set(document.findings.filter(manual=True).values_list("pk", flat=True))
+        if len(alive) != len(manual):  # a person deleted one of their findings meanwhile
+            manual = [f for f in manual if f.pk in alive]
+            statements = [(s, _alive(cited, alive)) for s, cited in statements]
+            points = [(p, _alive(cited, alive)) for p, cited in points]
         kept = Kept.read(document)  # again: what people decided while the AI was reading
         for finding in found + derived:
             kept.apply_finding(finding)
@@ -755,8 +813,27 @@ def analyse(ctx: Context, document: Document) -> str:
         _save_statements(statements)
         _save_actions(points)
         document.reviewed_text_hash = text_hash(document)
-        _finish(document, notes)
+        if hashlib.sha256((current["text"] or "").encode()).hexdigest() != document.reviewed_text_hash:
+            notes["waiting"] = TEXT_CHANGED  # read again meanwhile: kept for now, analysed again next
+            _finish(document, notes, status=Document.ReviewStatus.PENDING)
+        else:
+            _finish(document, notes)
     return document.review_status
+
+
+def left_review(current: dict[str, Any] | None) -> bool:
+    """A document (its batch and status, read again) no longer in the review: deleted, out of its batch
+    or a reference."""
+    return (
+        current is None
+        or not current["review_batch_id"]
+        or current["review_status"] in (Document.ReviewStatus.NOT_IN_REVIEW, Document.ReviewStatus.REFERENCE)
+    )
+
+
+def _alive(cited: list[DocumentFinding], manual_ids: set[int]) -> list[DocumentFinding]:
+    """The cited findings without the manual ones deleted meanwhile."""
+    return [f for f in cited if not f.manual or f.pk in manual_ids]
 
 
 def enrich_again(ctx: Context, document: Document) -> str:
@@ -848,7 +925,17 @@ def left_behind(now: datetime.datetime | None = None) -> int:
     return count
 
 
+WAITING = (
+    Document.ReviewStatus.PENDING,
+    Document.ReviewStatus.FAILED,
+    Document.ReviewStatus.PARTLY,
+    Document.ReviewStatus.NOT_IN_REVIEW,
+)
+
+
 def documents_for(mode: str, batch: int | None = None, document: int | None = None):
+    """The documents a run of ``mode`` reaches; ``document``: that one (any status in full and pending
+    mode, as its *Analyse* button asks), when it is in a batch and not a reference."""
     if document is not None:
         qs = Document.objects.filter(pk=document, review_batch__isnull=False).exclude(
             review_status=Document.ReviewStatus.REFERENCE
@@ -858,18 +945,11 @@ def documents_for(mode: str, batch: int | None = None, document: int | None = No
         if batch is not None:
             qs = qs.filter(review_batch_id=batch)
         if mode == PENDING:
-            qs = qs.filter(
-                review_status__in=[
-                    Document.ReviewStatus.PENDING,
-                    Document.ReviewStatus.FAILED,
-                    Document.ReviewStatus.PARTLY,
-                    Document.ReviewStatus.NOT_IN_REVIEW,
-                ]
-            )
-        elif mode == ENRICH:
-            qs = qs.filter(review_status__in=[Document.ReviewStatus.DONE, Document.ReviewStatus.PARTLY])
-        elif mode == LOCATE:
-            qs = qs.filter(findings__isnull=False).distinct()
+            qs = qs.filter(review_status__in=WAITING)
+    if mode == ENRICH:  # the action points again needs findings from an analysis
+        qs = qs.filter(review_status__in=[Document.ReviewStatus.DONE, Document.ReviewStatus.PARTLY])
+    elif mode == LOCATE:
+        qs = qs.filter(findings__isnull=False).distinct()
     return qs.order_by("pk")
 
 
@@ -919,8 +999,15 @@ def run(
 
 
 def _run_all(ctx: Context, sync_run, mode: str, batch: int | None, document: int | None) -> str:
-    """Each document of the mode in turn; why the run stopped ("" when every one was reached)."""
-    for doc in documents_for(mode, batch, document):
+    """Each document of the mode in turn, read again when its turn comes (a long run: it may have been
+    taken out, made a reference or read again meanwhile); why the run stopped ("" when every one was
+    reached). A full run stopped by the budget leaves the documents it did not reach waiting, so the
+    nightly run goes on with them."""
+    chosen = list(documents_for(mode, batch, document).values_list("pk", flat=True))
+    for n, pk in enumerate(chosen):
+        doc = documents_for(mode, batch, document).filter(pk=pk).first()
+        if doc is None:
+            continue
         sync_run.rows_in += 1
         if mode == LOCATE:
             ctx.tally["findings_located"] += locate_again(ctx, doc)
@@ -929,10 +1016,19 @@ def _run_all(ctx: Context, sync_run, mode: str, batch: int | None, document: int
         try:
             status = enrich_again(ctx, doc) if mode == ENRICH else analyse(ctx, doc)
         except Stop as reason:
+            if mode == FULL:
+                ctx.tally["left_waiting"] = (
+                    in_review()
+                    .filter(pk__in=chosen[n:])
+                    .exclude(review_status=Document.ReviewStatus.RUNNING)
+                    .update(review_status=Document.ReviewStatus.PENDING)
+                )
             return str(reason)
         except Exception:
             logger.exception("document review: document %s failed", doc.pk)
-            Document.objects.filter(pk=doc.pk).update(
+            Document.objects.filter(pk=doc.pk, review_batch__isnull=False).exclude(
+                review_status=Document.ReviewStatus.REFERENCE
+            ).update(
                 review_status=Document.ReviewStatus.FAILED,
                 review_stage_notes={
                     **(doc.review_stage_notes or {}),
@@ -978,6 +1074,8 @@ def text_read(document: Document) -> bool:
     """After the knowledge base read a document again: when it is in the review and its text is not the
     one analysed, it waits to be analysed again (the next run). True when it does."""
     analysed = (Document.ReviewStatus.DONE, Document.ReviewStatus.PARTLY, Document.ReviewStatus.FAILED)
+    # as they are now: the knowledge base may have read the document for minutes
+    document.refresh_from_db(fields=["review_batch", "review_status", "reviewed_text_hash"])
     if not document.review_batch_id or document.review_status not in analysed:
         return False
     if document.reviewed_text_hash and document.reviewed_text_hash == text_hash(document):
@@ -1025,10 +1123,9 @@ def search_findings(query: str, batch: str | int | None = None, limit: int = 15)
     found = shown_findings().select_related("document__review_batch", "topic__subtopic__programme")
     if batch not in (None, ""):
         text = str(batch).strip()
+        named = Q(document__review_batch__name__icontains=text)
         found = found.filter(
-            Q(document__review_batch_id=int(text))
-            if text.isdigit()
-            else Q(document__review_batch__name__icontains=text)
+            named | Q(document__review_batch_id=int(text)) if text.isdigit() and len(text) < 10 else named
         )
     terms = words(query or "")
     if not terms:

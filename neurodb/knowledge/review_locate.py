@@ -218,10 +218,14 @@ class TextIndex:
         return None if at is None else self.page_at(at)
 
     def _word_find(self, wanted: str, start: int) -> int | None:
+        """Where ``wanted`` starts as whole words ("rate of 5" is not in "rate of 50"); None if nowhere."""
         at = self.text.find(wanted, start)
-        while at > 0 and self.text[at - 1] != " ":  # whole words only
+        while at >= 0:
+            end = at + len(wanted)
+            if (at == 0 or self.text[at - 1] == " ") and (end == len(self.text) or self.text[end] == " "):
+                return at
             at = self.text.find(wanted, at + 1)
-        return None if at < 0 else at
+        return None
 
 
 # ------------------------------------------------------------------------------------------ places

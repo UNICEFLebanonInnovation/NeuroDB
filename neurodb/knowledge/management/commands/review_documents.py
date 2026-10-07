@@ -38,7 +38,9 @@ class Command(BaseCommand):
         if document is not None and not review.documents_for(mode, document=document).exists():
             known = Document.objects.filter(pk=document).exists()
             raise CommandError(
-                "The document is not in a review batch, or is a reference." if known else "No such document"
+                "The document is not in a review batch, is a reference, or has no analysis to start from."
+                if known
+                else "No such document"
             )
         with review.locked(wait=document is not None) as got:
             if not got:
