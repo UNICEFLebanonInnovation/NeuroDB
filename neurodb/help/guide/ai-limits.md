@@ -26,6 +26,7 @@ The chips next to each feature say how much you have used: "3 of 20 today".
 | AI checks of the quality rules | 2,000,000 tokens | About 700–1,000 checks a night; older visits wait for the next nights. |
 | AI review of action points | 300,000 tokens | About 150–250 reviews a night, and the content summaries. |
 | NeuroDB Watch | 300,000 tokens and 24 calls | The morning notes and up to 3 look-ups a day. |
+| Document review | 1,000,000 tokens | The knowledge base documents put in a review batch, read each night; a 100-page report takes roughly 150,000 tokens, so about six such reports a night. What is left waits for the next night. |
 
 A **token** is a piece of a word, about four characters of English. What is sent (the question, the
 instructions, the data looked up) and what is written (the answer and the model's reasoning) both count.
@@ -36,8 +37,8 @@ figures, the rule results already checked, the review verdicts already made.
 
 ## When the OpenAI credit runs out
 
-When OpenAI says the account's credit has run out, the AI of Monitoring insights and the Help assistant
-pause for **6 hours**, so that no question is sent while it cannot be answered. Ask NeuroDB says
+When OpenAI says the account's credit has run out, the AI of Monitoring insights, the Help assistant and
+the document review pause for **6 hours**, so that no question is sent while it cannot be answered. Ask NeuroDB says
 "The AI service's credit for this application has run out. Ask an administrator."
 
 ## What is sent, and what never is

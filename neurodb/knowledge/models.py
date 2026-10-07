@@ -15,7 +15,7 @@ from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVectorField
 from django.core.exceptions import ValidationError
-from django.core.validators import FileExtensionValidator
+from django.core.validators import FileExtensionValidator, MaxValueValidator, MinValueValidator
 from django.db import models
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -128,6 +128,31 @@ class Document(models.Model):
     figures_status = models.CharField(max_length=10, choices=FiguresStatus.choices, default="", blank=True)
     figures_note = models.TextField(blank=True)
     figures_read_at = models.DateTimeField(null=True, blank=True)
+
+    # the document review (``review.py``): only a document in a batch, and not a reference, is analysed
+    class ReviewStatus(models.TextChoices):
+        NOT_IN_REVIEW = "not_in_review", _("Not in the review")
+        PENDING = "pending", _("Waiting to be analysed")
+        RUNNING = "running", _("Being analysed")
+        DONE = "done", _("Analysed")
+        PARTLY = "partly", _("Partly analysed")
+        FAILED = "failed", _("Analysis failed")
+        REFERENCE = "reference", _("Reference only")
+
+    review_batch = models.ForeignKey(
+        "ReviewBatch", null=True, blank=True, on_delete=models.SET_NULL, related_name="documents"
+    )
+    review_status = models.CharField(
+        max_length=14, choices=ReviewStatus.choices, default=ReviewStatus.NOT_IN_REVIEW, db_index=True
+    )
+    review_stage_notes = models.JSONField(
+        default=dict, blank=True, help_text=_("per stage: yes, partly or failed, and why")
+    )
+    reviewed_text_hash = models.CharField(max_length=64, blank=True)
+    review_progress_at = models.DateTimeField(
+        null=True, blank=True, help_text=_("the last step of the analysis (none for 30 minutes: given up)")
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True, help_text=_("when the last analysis ended"))
 
     class Meta:
         ordering = ("-created_at",)
@@ -266,3 +291,382 @@ class ReportFigure(models.Model):
     @property
     def label(self) -> str:
         return " — ".join(p for p in (self.metric, self.breakdown) if p)
+
+
+# ------------------------------------------------------------------------------- document review
+# FMS §9 "Other Reports", built on the knowledge base: documents gathered in batches are read by the AI
+# into findings with evidence, key statements and action points (``review.py``), which people accept or
+# reject. Only documents in a batch are analysed, so the AI's cost stays with what was chosen.
+
+
+class ReviewBatch(models.Model):
+    """A folder of documents of one kind (annual reports, donor reports, evaluations…): the Coverage
+    view tells when a theme rests on one kind of source only."""
+
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    archived = models.BooleanField(default=False, help_text=_("kept, but no longer analysed or listed first"))
+
+    class Meta:
+        ordering = ("archived", "name")
+        verbose_name = _("document review batch")
+        verbose_name_plural = _("document review batches")
+
+    def __str__(self):
+        return self.name
+
+
+class TopicProgramme(models.Model):
+    """The first level of the document review's topics (e.g. Education)."""
+
+    name = models.CharField(max_length=120, unique=True)
+    order = models.PositiveSmallIntegerField(default=0)
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ("order", "name")
+        verbose_name = _("topic programme")
+
+    def __str__(self):
+        return self.name
+
+
+class TopicSubtopic(models.Model):
+    """The second level (e.g. Education → Access to learning)."""
+
+    programme = models.ForeignKey(TopicProgramme, on_delete=models.CASCADE, related_name="subtopics")
+    name = models.CharField(max_length=120)
+    order = models.PositiveSmallIntegerField(default=0)
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ("programme__order", "programme__name", "order", "name")
+        verbose_name = _("topic subtopic")
+        constraints = [models.UniqueConstraint(fields=["programme", "name"], name="knowledge_subtopic_once")]
+
+    def __str__(self):
+        return f"{self.programme} › {self.name}"
+
+
+class Topic(models.Model):
+    """A tag the AI gives a finding (e.g. Education → Access to learning → Out-of-school children). A tag
+    the AI invents becomes "Other", which always exists (``other``)."""
+
+    OTHER = "Other"
+
+    subtopic = models.ForeignKey(TopicSubtopic, on_delete=models.CASCADE, related_name="topics")
+    name = models.CharField(max_length=120)
+    order = models.PositiveSmallIntegerField(default=0)
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = (
+            "subtopic__programme__order",
+            "subtopic__programme__name",
+            "subtopic__order",
+            "order",
+            "name",
+        )
+        verbose_name = _("topic")
+        constraints = [models.UniqueConstraint(fields=["subtopic", "name"], name="knowledge_topic_once")]
+
+    def __str__(self):
+        return f"{self.subtopic} › {self.name}"
+
+    @property
+    def path(self) -> str:
+        return f"{self.subtopic.programme.name} › {self.subtopic.name} › {self.name}"
+
+    @property
+    def is_other(self) -> bool:
+        return self.name == self.OTHER and self.subtopic.name == self.OTHER
+
+    @classmethod
+    def other(cls) -> Topic:
+        """The "Other" tag (under the "Other" programme and subtopic), made again if it was removed."""
+        programme, _created = TopicProgramme.objects.get_or_create(
+            name=cls.OTHER, defaults={"order": 999, "active": True}
+        )
+        subtopic, _created = TopicSubtopic.objects.get_or_create(programme=programme, name=cls.OTHER)
+        return cls.objects.get_or_create(subtopic=subtopic, name=cls.OTHER)[0]
+
+
+class Verdict(models.TextChoices):
+    UNREVIEWED = "unreviewed", _("Not reviewed")
+    ACCEPTED = "accepted", _("Accepted")
+    REJECTED = "rejected", _("Rejected")
+
+
+class FindingCategory(models.TextChoices):
+    CHALLENGE = "challenge", _("Challenge")
+    RECOMMENDATION = "recommendation", _("Recommendation")
+    OBSERVATION = "observation", _("Observation")
+    ACTION_POINT = "action_point", _("Action point")
+
+
+class Reviewed(models.Model):
+    """What a person decides about a finding or statement: accepted, rejected or not reviewed yet."""
+
+    verdict = models.CharField(
+        max_length=10, choices=Verdict.choices, default=Verdict.UNREVIEWED, db_index=True
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        abstract = True
+
+
+class DocumentFinding(Reviewed):
+    """One point a document makes, with the words that support it and where they are. The evidence score
+    (0-100) is worked out by NeuroDB from what can be checked, never by the model: the quote found in
+    the text 45, reports rather than interprets 25, dated 10, placed 10, tagged (not Other) 10."""
+
+    class Kind(models.TextChoices):
+        REPORTED = "reported", _("Reported by the document")
+        INTERPRETED = "interpreted", _("Interpreted from it")
+
+    class PlaceMatch(models.TextChoices):
+        NONE = "", _("No place")
+        GENERAL = "general", _("Lebanon (country-wide)")
+        GOVERNORATE = "governorate", _("Governorate")
+        DISTRICT = "district", _("District")
+        UNMATCHED = "unmatched", _("Not recognised")
+
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="findings")
+    position = models.PositiveIntegerField(default=0)
+    category = models.CharField(max_length=14, choices=FindingCategory.choices, db_index=True)
+    topic = models.ForeignKey(Topic, on_delete=models.PROTECT, related_name="findings")
+    tag_text = models.CharField(max_length=200, blank=True, help_text=_("the tag as the AI wrote it"))
+    text = models.TextField()
+    quote = models.TextField(blank=True)
+    kind = models.CharField(max_length=12, choices=Kind.choices, default=Kind.REPORTED)
+    # where: the exact page when the quote is found in the text, else the range of the part it came from
+    page_label = models.CharField(max_length=80, blank=True)
+    page_from = models.PositiveIntegerField(null=True, blank=True)
+    page_to = models.PositiveIntegerField(null=True, blank=True)
+    chunk_from = models.PositiveIntegerField(null=True, blank=True, help_text=_("the part's first page"))
+    chunk_to = models.PositiveIntegerField(null=True, blank=True)
+    quote_found = models.BooleanField(default=False)
+    exact_page = models.BooleanField(default=False)
+    place_text = models.CharField(max_length=200, blank=True)
+    place_match = models.CharField(max_length=12, choices=PlaceMatch.choices, default="", blank=True)
+    governorate_id = models.BigIntegerField(null=True, blank=True)
+    governorate_name = models.CharField(max_length=100, blank=True)
+    district_id = models.BigIntegerField(null=True, blank=True)
+    district_name = models.CharField(max_length=100, blank=True)
+    finding_date = models.DateField(null=True, blank=True)
+    date_text = models.CharField(max_length=100, blank=True)
+    evidence = models.PositiveSmallIntegerField(default=0, db_index=True)
+    derived = models.BooleanField(
+        default=False, help_text=_("made by the enrichment for an action point no finding states")
+    )
+    manual = models.BooleanField(default=False, help_text=_("added by a person; re-analysis keeps it"))
+    model_key = models.CharField(
+        max_length=64, blank=True, db_index=True, help_text=_("the text and quote as the AI wrote them")
+    )
+    edited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    edited_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("document", "position", "pk")
+        verbose_name = _("document finding")
+        indexes = [models.Index(fields=["document", "verdict"]), models.Index(fields=["topic", "category"])]
+
+    def __str__(self):
+        return self.text[:80]
+
+    @property
+    def placed(self) -> bool:
+        return self.place_match in (
+            self.PlaceMatch.GENERAL,
+            self.PlaceMatch.GOVERNORATE,
+            self.PlaceMatch.DISTRICT,
+        )
+
+    @property
+    def url(self) -> str:
+        """The document's file at the finding's page (a PDF opens there), else its knowledge base page."""
+        if self.document.file and self.page_from:
+            return f"{reverse('knowledge:file', args=[self.document_id])}#page={self.page_from}"
+        return reverse("knowledge:detail", args=[self.document_id])
+
+
+class DocumentStatement(Reviewed):
+    """One key statement of a document, citing the findings it rests on, with its urgency (0-100)."""
+
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="statements")
+    position = models.PositiveIntegerField(default=0)
+    text = models.TextField()
+    urgency = models.PositiveSmallIntegerField(default=0)
+    category = models.CharField(max_length=14, choices=FindingCategory.choices, blank=True)
+    topic = models.ForeignKey(
+        Topic, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+        help_text=_("the topic most of its findings have"),
+    )  # fmt: skip
+    place_text = models.CharField(max_length=200, blank=True)
+    date_text = models.CharField(max_length=100, blank=True)
+    cites = models.ManyToManyField(DocumentFinding, blank=True, related_name="statements")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("document", "-urgency", "position")
+        verbose_name = _("document statement")
+
+    def __str__(self):
+        return self.text[:80]
+
+
+class DocumentActionPoint(models.Model):
+    """A commitment a document states: who, what, by when. Its status is set by people only; a new
+    analysis keeps it (matched on the action's words)."""
+
+    class Priority(models.TextChoices):
+        HIGH = "high", _("High")
+        MEDIUM = "medium", _("Medium")
+        LOW = "low", _("Low")
+        UNRATED = "unrated", _("Not rated")
+
+    class Status(models.TextChoices):
+        OPEN = "open", _("Open")
+        DONE = "done", _("Done")
+        DROPPED = "dropped", _("Dropped")
+
+    UNASSIGNED = "Unassigned"
+
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="review_action_points")
+    position = models.PositiveIntegerField(default=0)
+    action = models.TextField()
+    action_key = models.CharField(max_length=64, db_index=True, help_text=_("the action's words, normalised"))
+    owner_text = models.CharField(max_length=200, default=UNASSIGNED)
+    deadline_text = models.CharField(max_length=100, blank=True)
+    deadline_date = models.DateField(null=True, blank=True, help_text=_("a quarter or year: its last day"))
+    priority = models.CharField(max_length=8, choices=Priority.choices, default=Priority.UNRATED)
+    status = models.CharField(max_length=8, choices=Status.choices, default=Status.OPEN, db_index=True)
+    status_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    status_at = models.DateTimeField(null=True, blank=True)
+    derived = models.BooleanField(
+        default=False, help_text=_("drawn from challenges or recommendations: no finding states it as such")
+    )
+    topic = models.ForeignKey(Topic, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    cites = models.ManyToManyField(DocumentFinding, blank=True, related_name="action_points")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("document", "position")
+        verbose_name = _("document action point")
+
+    def __str__(self):
+        return self.action[:80]
+
+
+def _default_prompt(stage: str):
+    from . import review_prompts
+
+    return review_prompts.DEFAULTS[stage]
+
+
+class DocumentReviewSettings(models.Model):
+    """The one row (pk=1) of the document review's settings, for Administrators (admin): the switch,
+    the three prompts (shipped text in ``review_prompts``; "Restore default" puts it back), the sizes
+    and the daily token cap. A prompt without the sentence naming its JSON is refused."""
+
+    enabled = models.BooleanField(
+        default=False, help_text=_("off until an administrator turns it on: nothing is analysed meanwhile")
+    )
+    tagging_prompt = models.TextField(
+        help_text=_("stage 1: how the findings are found and tagged"),
+        default="",
+    )
+    summary_prompt = models.TextField(help_text=_("stage 2: how the key statements are written"), default="")
+    enrichment_prompt = models.TextField(
+        help_text=_("stage 3: how the action points are drawn from the findings"), default=""
+    )
+    statements_per_document = models.PositiveSmallIntegerField(
+        default=0,
+        validators=[MaxValueValidator(100)],
+        help_text=_("at most (fewer for short documents, never under 5); 0 = the default, 20"),
+    )
+    max_findings_per_chunk = models.PositiveSmallIntegerField(
+        default=25, validators=[MinValueValidator(1), MaxValueValidator(100)]
+    )
+    chunk_size = models.PositiveIntegerField(
+        default=12000,
+        validators=[MinValueValidator(2000), MaxValueValidator(60000)],
+        help_text=_("characters of the document read in one AI call"),
+    )
+    daily_token_cap = models.PositiveIntegerField(
+        default=0, help_text=_("tokens a day for the document review; 0 = DOC_REVIEW_DAILY_TOKEN_CAP")
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    PROMPT_FIELDS = {
+        "tagging": "tagging_prompt",
+        "summary": "summary_prompt",
+        "enrichment": "enrichment_prompt",
+    }
+    DEFAULT_STATEMENTS = 20
+    MIN_STATEMENTS = 5
+
+    class Meta:
+        verbose_name = _("document review settings")
+        verbose_name_plural = _("document review settings")
+
+    def __str__(self):
+        return "Document review settings"
+
+    def save(self, *args, **kwargs):
+        for stage, field in self.PROMPT_FIELDS.items():  # an empty prompt is the shipped one
+            if not (getattr(self, field) or "").strip():
+                setattr(self, field, _default_prompt(stage))
+        super().save(*args, **kwargs)
+
+    def clean(self):
+        from . import review_prompts
+
+        errors = {}
+        for stage, field in self.PROMPT_FIELDS.items():
+            text = getattr(self, field) or ""
+            sentence = review_prompts.REQUIRED_SENTENCES[stage]
+            if text.strip() and sentence not in text:
+                errors[field] = _(
+                    "Keep the sentence %(sentence)s: without it this stage runs and finds nothing."
+                ) % {"sentence": f"“{sentence}”"}
+        if errors:
+            raise ValidationError(errors)
+
+    @classmethod
+    def load(cls) -> DocumentReviewSettings:
+        found = cls.objects.filter(pk=1).first()
+        if found is None:
+            found = cls(pk=1)
+            found.save()
+        return found
+
+    def prompt(self, stage: str) -> str:
+        return (getattr(self, self.PROMPT_FIELDS[stage]) or "").strip() or _default_prompt(stage)
+
+    def is_default(self, stage: str) -> bool:
+        return self.prompt(stage) == _default_prompt(stage).strip()
+
+    @property
+    def statements_limit(self) -> int:
+        return self.statements_per_document or self.DEFAULT_STATEMENTS
+
+    @property
+    def token_cap(self) -> int:
+        return self.daily_token_cap or settings.DOC_REVIEW_DAILY_TOKEN_CAP

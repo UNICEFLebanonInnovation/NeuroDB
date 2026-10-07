@@ -1107,6 +1107,36 @@ def read_knowledge(document_id: int, part: int = 1) -> dict[str, Any]:
     }
 
 
+def search_document_findings(query: str | None = None, batch: str | None = None) -> dict[str, Any]:
+    from neurodb.knowledge import review
+
+    findings = review.search_findings(query or "", batch)
+    return {
+        "note": KNOWLEDGE_NOTE + " Findings were drawn from the documents by the AI and checked by people "
+        "when 'verdict' is 'accepted'; 'evidence' (0-100) is NeuroDB's check of the quote, page, date, "
+        "place and topic. Cite the document and page.",
+        "findings": [
+            {
+                "document_id": f.document_id,
+                "document": f.document.title,
+                "batch": f.document.review_batch.name if f.document.review_batch else None,
+                "page": f.page_label or None,
+                "category": f.get_category_display(),
+                "topic": f.topic.path,
+                "finding": f.text,
+                "quote": f.quote,
+                "place": f.place_text or None,
+                "date": f.date_text or None,
+                "evidence": f.evidence,
+                "verdict": f.verdict,
+                "url": f.url,
+            }
+            for f in findings
+        ],
+        "url": reverse("knowledge:index"),
+    }
+
+
 _YEAR = {"type": "string", "description": 'Reporting year name, e.g. "2026". Omit for the current year.'}
 _DB = {"type": "integer", "description": "Database id from list_databases."}
 
@@ -1415,6 +1445,21 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
             ["document_id"],
         ),
         "Reading a document",
+    ),
+    "search_document_findings": (
+        search_document_findings,
+        "Search the document review's findings: the challenges, recommendations, observations and action "
+        "points read from the documents put in a review batch (annual reports, donor reports, evaluations), "
+        "each with its document, page, topic, quote and evidence score; findings people rejected are left "
+        "out. Use it for what the documents say about a topic or place with page-level evidence; "
+        "search_knowledge finds passages in every document.",
+        _schema(
+            {
+                "query": {"type": "string", "description": "Words to look for (not a full question)."},
+                "batch": {"type": "string", "description": "A review batch's name or id."},
+            }
+        ),
+        "Searching the document findings",
     ),
     "population": (
         population,

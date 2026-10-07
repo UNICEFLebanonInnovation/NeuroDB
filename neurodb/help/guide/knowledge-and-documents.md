@@ -59,5 +59,36 @@ with the one before.
 
 ## Document review
 
-The document review (findings with evidence, topics, accept or reject, a desk-review report) is being
-added to the knowledge base in this release. This guide will describe it once it is available.
+The document review reads chosen knowledge base documents (annual reports, donor reports, evaluations,
+sector reviews) with the AI and keeps what they say as **findings**, **key statements** and **action
+points**, each pointing to the page it comes from. It is switched off until an administrator turns it on,
+and only documents put in a **review batch** (a folder for one kind of document) are read, so the cost
+stays with what was chosen. A document marked *reference only* stays in its batch and is never read.
+
+How a document is read, in five stages, each noted as done, partly done or failed:
+
+1. **Text**: the text the knowledge base already read (a document still being read waits).
+2. **Findings**: the text is read in parts of about 12,000 characters. Each finding is a challenge, a
+   recommendation, an observation or an action point, in one to three sentences, with the words of the
+   document that support it, the place and date it is about, and a topic from the list (programme →
+   subtopic → tag; "Other" when none fits). When a part gets no usable answer it is read again as two
+   halves; what still fails is left out and the document is *partly analysed* ("only 80% read").
+3. **Locate** (no AI): the supporting words are looked for in the text to give the exact page ("p. 12",
+   "slide 4", "sheet 'Budget'"); when they are not found, the pages of the part they came from. The place
+   is matched to NeuroDB's governorates and districts; a place not recognised is kept as written.
+4. **Key statements**: the main points of the document, each citing its findings, with an urgency from
+   0 (background) to 100 (needs action now).
+5. **Action points**: at most 15 explicit commitments, with the owner as written ("Unassigned" when the
+   document does not say; never a person's name), the deadline (a quarter or a year counts to its last
+   day) and the priority.
+
+The **evidence score** (0–100) of a finding is worked out by NeuroDB, never by the AI: the supporting
+words found in the text 45, reported by the document rather than interpreted 25, dated 10, placed 10,
+given a topic other than "Other" 10.
+
+Documents are read each night (04:40) when they are waiting, failed or partly analysed. A document read
+again by the knowledge base with a new text waits to be analysed again. A new analysis replaces what the
+AI wrote but keeps people's verdicts on findings whose words did not change, the findings people added
+and the status of each action point. [Ask NeuroDB](/help/ask-neurodb/) can search the findings and cite
+their pages. The review page (batches, accept or reject, dashboard, synthesis and the desk-review report)
+is being added in this release.

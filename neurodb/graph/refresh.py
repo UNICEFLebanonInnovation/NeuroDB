@@ -110,6 +110,7 @@ def on_run_finished(sender, instance, update_fields=None, **kwargs) -> None:
         SyncRun.Job.FMM_INSIGHTS,  # the AI briefs: nothing the hub reads
         SyncRun.Job.FMM_AI_CHECKS,  # the AI checks: their rescore is a refresh run of its own
         SyncRun.Job.FMM_AP_REVIEW,  # the AI review of action points: nothing the hub reads
+        SyncRun.Job.DOC_REVIEW,  # the document review: findings the hub does not read
     ):
         return  # they bring no new data
     if instance.status not in (SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL):

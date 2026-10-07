@@ -441,6 +441,14 @@ AI_PRICE_OUTPUT_PER_MTOK = _optional_float("AI_PRICE_OUTPUT_PER_MTOK")
 HELP_ENABLED = env.bool("HELP_ENABLED", default=bool(OPENAI_API_KEY))
 HELP_PER_USER_PER_DAY = env.int("HELP_PER_USER_PER_DAY", default=20)
 
+# ---------------------------------------------------------------------------- Document review
+# The knowledge base's document review (/knowledge/review/, FMS "Other Reports"): documents put in a batch
+# are read by the AI into findings, key statements and action points, nightly (scheduled job doc-review,
+# 04:40) or on request. Switched on in the admin (Document review settings, off by default); tokens a day
+# for it (the settings page may set a lower or higher cap); the shared AI_DAILY_TOKEN_SOFT_CAP (80%: a
+# background job) and the OpenAI credit pause apply too.
+DOC_REVIEW_DAILY_TOKEN_CAP = env.int("DOC_REVIEW_DAILY_TOKEN_CAP", default=1_000_000)
+
 # ---------------------------------------------------------------------------- NeuroDB Watch (For you)
 # The background assistant behind each person's "For you" page: every morning (scheduled job "watch",
 # 07:45) and shortly after new data arrives it checks what is due soon and what needs someone, then

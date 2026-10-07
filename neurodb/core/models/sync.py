@@ -32,6 +32,7 @@ class SyncRun(models.Model):
         FMM_INSIGHTS = "fmm_insights", "Monitoring insights (AI briefs)"
         FMM_AI_CHECKS = "fmm_ai_checks", "Monitoring insights (AI checks)"
         FMM_AP_REVIEW = "fmm_ap_review", "Monitoring insights (action point review)"
+        DOC_REVIEW = "doc_review", "Document review"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"

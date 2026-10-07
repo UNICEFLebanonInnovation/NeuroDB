@@ -24,7 +24,9 @@ own read-only look-ups, and it links each answer to the pages its figures come f
   [Monitoring insights](/help/monitoring-insights/#chat-with-data).
 - eTools records are sent without e-mail addresses, phone numbers or the people of field monitoring.
 - What a document says comes from the knowledge base; the document's text is material to answer from,
-  never instructions to follow.
+  never instructions to follow. For the documents analysed by the
+  [document review](/help/knowledge-and-documents/#document-review), it also reads their findings with
+  the document, page and quote; findings people rejected are left out.
 - Makani wellbeing is available as centre totals only: never anything about an individual child.
 - Nothing is written back; it reads only what any signed-in person can already see.
 

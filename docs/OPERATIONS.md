@@ -248,6 +248,125 @@ differences, follow trends and draw charts.
 - Search ranks the newest edition first when several say the same thing, and gives the assistant
   each passage's date and edition.
 
+### Document review (FMS §9 "Other Reports"): findings with evidence
+
+The document review reads chosen knowledge base documents (annual reports, donor reports, evaluations,
+sector reviews, workplans) with the AI and keeps what they say as **findings** (challenges,
+recommendations, observations, action points), **key statements** and **action points**, each pointing
+to the page it comes from, for people to accept or reject. It is opt-in per document, so the AI's cost
+stays with what was chosen. The code is in `neurodb/knowledge/review.py` (the job),
+`review_locate.py` (the work without AI) and `review_prompts.py` (the shipped prompts). The review page
+(`/knowledge/review/`: batches, findings to accept or reject, dashboard, synthesis, actions and the Word
+desk review) is being added in the next stage of this release.
+
+**Turning it on.** Admin → Library and maps → **Document review settings** (Administrators only):
+tick *Enabled*. It is off when NeuroDB is deployed: until then nothing is analysed and the nightly
+run finishes *skipped*. It also needs the AI assistant (`AI_ASSISTANT_ENABLED`, an OpenAI key).
+
+**Batches.** Only documents put in a **review batch** are analysed: a folder for one kind of document
+(Admin → **Document review batches**, or the review page once it is there). Put a knowledge base
+document in a batch on its admin page (*Review batch*): it waits to be analysed. Taking it out stops
+its analysis and leaves what was found out of every view. A document marked *reference only* stays in
+its batch and is never analysed; an archived batch is no longer analysed. Admin → Knowledge documents →
+action *Analyse in the document review* analyses the chosen documents now, in the background.
+
+**How a document is analysed** (each stage noted *yes*, *partly* or *failed*, with the reason, in the
+document's review notes):
+
+1. **Text**: the text the knowledge base read (PDF pages, slides, sheets); a document still being read
+   waits for the next run, one whose text could not be read fails.
+2. **Findings**: the text in parts of about 12,000 characters (*Chunk size*), cut between pages, each
+   page marked (`[Page 4]`, `[Slide 2]`, `[Sheet 'Budget']`); one call per part, its answer held to a
+   strict JSON schema: category, a tag from the topic list, 1–3 sentences, the verbatim quote, the place
+   and date as written, and whether the document reports it or the AI interpreted it (at most *Max
+   findings per chunk*). A tag not in the list becomes **Other**. A part whose answer is broken (not
+   JSON, cut off, or the call failed) is asked again once as two halves; what still fails is left out
+   and the document is **partly analysed** ("Only 80% read"). Nothing usable at all: **failed**, and
+   what an earlier analysis found stays.
+3. **Locate** (no AI): each quote is looked for in the whole text, compared as words (case, accents,
+   punctuation and line breaks ignored; a quote shortened with "…" by its longest piece), giving the
+   exact page ("p. 12", "slide 4", "sheet 'Budget'"); not found, the pages of the part it came from. The
+   place is matched to NeuroDB's governorates and districts (the maps' areas, whatever the spelling;
+   "Lebanon" or "national" is country-wide); a place not recognised is kept as written and marked *Not
+   recognised*. The date is read as a period ("Q3 2025", "H1 2024", "March 2025", "2024-2025").
+4. **Key statements**: one call over the findings (numbered): up to *Statements per document* (0: 20;
+   fewer for a short document, never under 5), each citing the findings it rests on, with an urgency
+   from 0 to 100.
+5. **Enrichment**: one call: at most 15 action points, explicit commitments only, each with its owner
+   as written (*Unassigned* when not said; names, e-mail addresses and phone numbers removed), deadline
+   (a quarter or a year counts to its last day) and priority, citing findings. An action point that no
+   *action point* finding states is marked **derived**, and a derived finding (category action point,
+   on the quote of the finding it was drawn from) records it.
+
+The **evidence score** (0–100) is computed by NeuroDB, never taken from the model: quote found in the
+text 45, reported rather than interpreted 25, dated 10, placed 10, tagged (not Other) 10.
+
+**A new analysis** replaces what the AI wrote but keeps: the verdicts (and a person's edits) of
+findings whose AI text and quote are unchanged, the findings people added, the verdicts of statements
+with the same words, and the status of each action point (matched on its words, normalised); people
+set the status, an analysis never changes it. Rejected findings are not read by the summary or the
+enrichment. A document read again by the knowledge base with a new text waits to be analysed again.
+
+**Jobs** (Admin → Import and sync runs → Run a job; each run is recorded as *Document review*):
+
+- *Review documents (pending)*: the documents waiting, failed or partly analysed. This is the
+  scheduled job `doc-review`, nightly at 04:40, before the morning's other AI jobs.
+- *Review documents (full)*: every document of the batches again, as after a change to the prompts or
+  the topics; it costs as much as the first analysis.
+- *Locate document findings*: the pages, places, dates and evidence again, without AI (after the
+  governorates or districts changed); seconds.
+
+One run at a time (an advisory lock): a second run started while one is going does nothing; a single
+document's analysis (its *Analyse* button, or the admin action for one document) waits for it. A
+document with no progress for 30 minutes (a restart in the middle) is marked failed with the reason at
+the next run. The run's details give the documents analysed, partly analysed, failed and waiting, the
+calls, the tokens, the parts read again as halves, and why it stopped.
+
+**Costs and limits.** Every call is counted under *Document review* in *AI use*
+(`assistant.usage` feature `doc_review`). Before each call NeuroDB estimates its tokens and stops the
+run cleanly, leaving the document as it was for the next night, when: the review's own daily cap would
+be passed (*Daily token cap* in the settings; 0 = `DOC_REVIEW_DAILY_TOKEN_CAP`, default 1,000,000),
+the shared `AI_DAILY_TOKEN_SOFT_CAP` would pass 80% (a background job leaves the rest to people), or
+the OpenAI credit pause of Monitoring insights is on (a call that meets the credit's end starts the
+pause). A part of 12,000 characters is about 4,000 tokens sent and 1,000–3,000 written; a 100-page
+report takes roughly 150,000 tokens, so the default cap reads about six such reports a night. The
+model is `AI_ASSISTANT_MODEL` at low effort, `store=false`, 180 seconds and one retry per call.
+
+**What goes to OpenAI**: the document's title and text (the part being read), the topic list, and for
+the statements and action points the findings' texts. The prompts tell the model that the document is
+material, never instructions, and never to write a person's name, e-mail address or phone number; owners
+are cleaned of them again before they are kept. Do not put personal data of children, beneficiaries or
+staff in a reviewed document.
+
+**Settings** (Admin → Document review settings, Administrators only): the switch; the three prompts
+(*findings*, *key statements*, *action points*), each with **Restore the shipped findings prompt** (and
+the like) to put NeuroDB's text back, and *Prompts in use* saying which are changed. A prompt must keep
+its JSON sentence (`Reply with the JSON object {"findings": [...]} and nothing else.` and the like): a
+save without it is refused, as the stage would find nothing. NeuroDB's own rules are sent after every
+prompt and cannot be changed. The sizes (chunk size 2,000–60,000 characters, findings per part,
+statements per document) and the daily token cap, with today's use. A change applies to the documents
+analysed afterwards.
+
+**Topics** (Admin → Topic programmes, Topic subtopics, Topics): three levels, programme → subtopic →
+tag, shipped with UNICEF Lebanon's programmes (Education, Child Protection, Health & Nutrition, WASH,
+Social Protection & Inclusion, Adolescents & Youth, Gender, Emergency/Humanitarian response,
+Partnerships & Funding, Monitoring & Data), a few subtopics and tags each, and **Other**. Rename, reorder,
+add or switch off any; a topic switched off is no longer offered to the AI and findings keep it. A topic
+that findings use cannot be deleted (switch it off). "Other" is made again if removed.
+
+**What was found** is listed read-only in the admin (Document findings, Document statements, Document
+action points; an Administrator may delete a row); people review them on the review page.
+
+**Ask NeuroDB** has the tool `search_document_findings` (words, optionally a batch's name or id): the
+findings of the documents still in a batch, never the rejected ones, each with its document, page,
+category, topic, quote, evidence and verdict and a link to the document's file at that page
+(`/knowledge/<id>/file/#page=n`, for a PDF) or to the document. Its answers cite them as
+"(Document title, p. n)".
+
+**Not built in this release**: the weekly document digest (no e-mails in this step), the figures
+discrepancy check between documents and NeuroDB's data, and snapshots of a document's findings over
+time ("Changes").
+
 ### Knowledge hub: everything linked, for questions across sources
 
 So that a question can combine sources ("which donors fund the partners working in Akkar, and what
@@ -496,6 +615,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 
 | Job | Runs | Default schedule (Beirut) |
 |---|---|---|
+| `doc-review` | `review_documents --pending` | `40 4 * * *`, daily 04:40: the document review of the knowledge base documents in a review batch that are waiting, failed or partly analysed, within its daily cap (see Document review); while the review is switched off it analyses nothing |
 | `locations` | `sync_locations` | `0 5 * * *`, daily 05:00: the eTools locations from the Datamart (`--source rest` for the older eTools REST API, which needs `ETOOLS_TOKEN`; its location-types endpoint is gone and is skipped) |
 | `fmm-refresh` | `fmm_refresh` | `25 5 * * *`, daily 05:25, after the locations: rebuilds and scores the Monitoring insights visits, so that overdue action points, the age of a visit and urgency are recomputed even when no data changed (it also runs after every Datamart sync) |
 | `fmm-insights` | `fmm_insights` | `40 5 * * *`, daily 05:40, after the refresh: the AI monitoring briefs of the whole country, each section people land on and the last 90 days (reused at no cost when their data has not changed); with `FMM_AI` off it writes nothing and only applies the briefs' retention |
@@ -582,6 +702,9 @@ admin home page, *Quick actions*):
 | Run a job → *Monitoring insights (AI)* | `fmm_insights` | background |
 | Run a job → *Monitoring insights (AI checks)* | `fmm_ai_checks` | background |
 | Run a job → *Action points (AI review)* (also *Run AI review* on the action points page, with a batch size) | `fmm_ap_review` (`--limit N` from the page) | background |
+| Run a job → *Review documents (pending)* (also the admin action *Analyse in the document review* on Knowledge documents) | `review_documents --pending` (`--document <id>` for one document) | background |
+| Run a job → *Review documents (full)* | `review_documents --full` | background |
+| Run a job → *Locate document findings* | `review_documents --locate` | background |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |

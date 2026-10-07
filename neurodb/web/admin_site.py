@@ -52,7 +52,8 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
         _("Library and maps"),
         _(
             "Published resources, their classification, map products, the knowledge base of Ask NeuroDB "
-            "and the knowledge hub that links everything, with what changed and the daily notes."
+            "with its document review (settings, batches, topics and what it found), and the knowledge hub "
+            "that links everything, with what changed and the daily notes."
         ),
         [
             "pivoting.Resource",
@@ -61,6 +62,14 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
             "pivoting.ResourceTag",
             "pivoting.Map",
             "knowledge.Document",
+            "knowledge.DocumentReviewSettings",
+            "knowledge.ReviewBatch",
+            "knowledge.TopicProgramme",
+            "knowledge.TopicSubtopic",
+            "knowledge.Topic",
+            "knowledge.DocumentFinding",
+            "knowledge.DocumentStatement",
+            "knowledge.DocumentActionPoint",
             "graph.Entity",
             "graph.Edge",
             "graph.Change",
@@ -285,6 +294,14 @@ ICONS = {
     "datamart.IndicatorFlag": "child_care",
     "assistant.AssistantQuestion": "smart_toy",
     "help.HelpQuestion": "help",
+    "knowledge.DocumentReviewSettings": "manage_search",
+    "knowledge.ReviewBatch": "folder_open",
+    "knowledge.TopicProgramme": "category",
+    "knowledge.TopicSubtopic": "account_tree",
+    "knowledge.Topic": "sell",
+    "knowledge.DocumentFinding": "find_in_page",
+    "knowledge.DocumentStatement": "format_quote",
+    "knowledge.DocumentActionPoint": "assignment",
     "assistant.AIUsage": "data_usage",
     "datamart.FundsReservation": "account_balance",
     "datamart.Grant": "redeem",

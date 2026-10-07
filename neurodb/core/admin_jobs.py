@@ -274,6 +274,45 @@ BACKGROUND_JOBS = [
         ),
         "playlist_add_check",
     ),
+    BackgroundJob(
+        "run_doc_review",
+        ("review_documents", "--pending"),
+        SyncRun.Job.DOC_REVIEW,
+        _("Review documents (pending)"),
+        _("Review documents (pending)"),
+        _(
+            "Analyses the knowledge base documents put in a review batch that are waiting, failed or "
+            "partly analysed: their findings, key statements and action points, within the day's budget "
+            "for the document review. What the budget leaves waits for the next run. It runs by itself "
+            "each night; nothing is analysed while the review is switched off (Document review settings)."
+        ),
+        "plagiarism",
+    ),
+    BackgroundJob(
+        "run_doc_review_full",
+        ("review_documents", "--full"),
+        SyncRun.Job.DOC_REVIEW,
+        _("Review documents (full)"),
+        _("Review documents (full)"),
+        _(
+            "Analyses every document of the review batches again, as after a change to the prompts or the "
+            "topics. People's verdicts, the findings they added and the action points' statuses are kept. "
+            "It costs as much as the first analysis; what the day's budget leaves waits for the next run."
+        ),
+        "restart_alt",
+    ),
+    BackgroundJob(
+        "run_doc_review_locate",
+        ("review_documents", "--locate"),
+        SyncRun.Job.DOC_REVIEW,
+        _("Locate document findings"),
+        _("Locate document findings again"),
+        _(
+            "Finds again, without AI, the page of each document finding, its place on the map and its "
+            "evidence score, as after a change to the governorates or districts. It takes a few seconds."
+        ),
+        "pin_drop",
+    ),
 ]
 
 

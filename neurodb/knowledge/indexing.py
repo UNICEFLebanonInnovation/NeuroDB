@@ -259,6 +259,9 @@ def process(document: Document) -> Document:
             document.save(update_fields=["figures_status", "figures_note", "updated_at"])
     document.status, document.error, document.indexed_at = Document.Status.READY, note, timezone.now()
     document.save(update_fields=["status", "error", "indexed_at", "updated_at"])
+    from . import review
+
+    review.text_read(document)  # in the document review with a new text: analysed again
     from neurodb.graph.refresh import request
 
     request("knowledge base")  # the hub links the new document and reports it as new
