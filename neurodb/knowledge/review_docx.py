@@ -165,8 +165,15 @@ def filename(today: datetime.date | None = None) -> str:
     return f"desk-review-{(today or timezone.localdate()).isoformat()}.docx"
 
 
-def _statement_cite(statement: DocumentStatement) -> str:
-    cited = [f for f in statement.cites.all() if f.verdict != Verdict.REJECTED]
+def _usable(cited, verified: bool) -> list:
+    """The cited findings the report may point to: never a rejected one; with Verified only, accepted."""
+    if verified:
+        return [f for f in cited if f.verdict == Verdict.ACCEPTED]
+    return [f for f in cited if f.verdict != Verdict.REJECTED]
+
+
+def _statement_cite(statement: DocumentStatement, verified: bool) -> str:
+    cited = _usable(statement.cites.all(), verified)
     if cited:
         return " ".join(dict.fromkeys(review_data.cite(f) for f in cited[:2]))
     return f"({statement.document.title})"
@@ -178,10 +185,12 @@ def build(batch: int | None, verified: bool, min_documents: int = 2) -> bytes:
     today = timezone.localdate()
     chosen = ReviewBatch.objects.filter(pk=batch).first() if batch else None
     documents = list(
-        review_data.in_review_documents(batch)
-        .filter(review_status__in=[Document.ReviewStatus.DONE, Document.ReviewStatus.PARTLY])
-        .select_related("review_batch")
-        .order_by("review_batch__name", "title")
+        review_data.light(
+            review_data.in_review_documents(batch)
+            .filter(review_status__in=[Document.ReviewStatus.DONE, Document.ReviewStatus.PARTLY])
+            .select_related("review_batch"),
+            "",
+        ).order_by("review_batch__name", "title")
     )
     counted = review_data.findings(batch, verified)
     figures = review_data.dashboard(batch, verified)
@@ -284,23 +293,22 @@ def build(batch: int | None, verified: bool, min_documents: int = 2) -> bytes:
     # ---- most urgent statements
     doc.heading("Most urgent statements", 1)
     urgent = list(
-        review_data.statements(batch, verified)
-        .select_related("document")
-        .prefetch_related("cites__document")
+        review_data.light(review_data.statements(batch, verified).select_related("document"))
+        .prefetch_related(review_data.cited_findings())
         .order_by("-urgency", "pk")[:STATEMENTS]
     )
     if not urgent:
         doc.paragraph("No key statement.")
     for statement in urgent:
-        doc.bullet(f"[{statement.urgency}] {statement.text} {_statement_cite(statement)}")
+        doc.bullet(f"[{statement.urgency}] {statement.text} {_statement_cite(statement, verified)}")
 
     # ---- open action points by owner
     doc.heading("Open action points by owner", 1)
     points = list(
-        review_data.action_points(batch, verified)
-        .filter(status="open")
-        .select_related("document")
-        .prefetch_related("cites__document")
+        review_data.light(
+            review_data.action_points(batch, verified).filter(status="open").select_related("document")
+        )
+        .prefetch_related(review_data.cited_findings())
         .order_by("owner_text", "deadline_date", "pk")
     )
     if not points:
@@ -311,7 +319,7 @@ def build(batch: int | None, verified: bool, min_documents: int = 2) -> bytes:
     for owner, owned in sorted(by_owner.items(), key=lambda item: (-len(item[1]), item[0])):
         doc.heading(f"{owner} ({len(owned)})", 2)
         for point in owned[:ACTIONS_PER_OWNER]:
-            cited = [f for f in point.cites.all() if f.verdict != Verdict.REJECTED]
+            cited = _usable(point.cites.all(), verified)
             where = review_data.cite(cited[0]) if cited else f"({point.document.title})"
             deadline = f" By {point.deadline_text}." if point.deadline_text else ""
             doc.bullet(f"{point.action}{deadline} Priority: {point.get_priority_display()}. {where}")

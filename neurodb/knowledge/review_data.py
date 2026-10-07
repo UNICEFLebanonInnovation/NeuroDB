@@ -18,7 +18,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
-from django.db.models import Avg, Count, Exists, OuterRef, Q, QuerySet
+from django.db.models import Avg, Count, Exists, OuterRef, Prefetch, Q, QuerySet
 from django.http import QueryDict
 from django.utils import timezone
 
@@ -67,6 +67,21 @@ STOP_WORDS = frozenset(
     "there these this those to was were which with will would should could than also more most not no "
     "per our we they he she his her all any some such other".split()
 )
+
+
+# a document's full text (megabytes for a long report) and its summary: never shown by the review page,
+# so never loaded with the rows that join their document
+HEAVY = ("text", "summary")
+
+
+def light(qs: QuerySet, path: str = "document") -> QuerySet:
+    """``qs`` without the full text of the documents it loads (``path``: the relation; "" for documents)."""
+    return qs.defer(*(f"{path}__{name}" if path else name for name in HEAVY))
+
+
+def cited_findings() -> Prefetch:
+    """The findings a statement or an action point cites, with their document (for the page link)."""
+    return Prefetch("cites", queryset=light(DocumentFinding.objects.select_related("document")))
 
 
 # ------------------------------------------------------------------------------------------ what is counted
@@ -392,16 +407,20 @@ def stopped_note(document: Document) -> str:
     return str(notes.get("stopped") or notes.get("error") or "")
 
 
-def document_rows(batch: int | None = None, include_reference: bool = True) -> list[Document]:
+ANALYSED = (Document.ReviewStatus.DONE, Document.ReviewStatus.PARTLY)
+
+
+def document_rows(batch: int | None = None, analysed: bool = False) -> list[Document]:
     """The documents of the batch (or of every batch) with their counts, for the Documents tab and the
-    Index view."""
+    Index view; ``analysed``: those the Dashboard's "Documents analysed" counts (done or partly, not a
+    reference)."""
     qs = Document.objects.filter(review_batch__isnull=False)
     if batch:
         qs = qs.filter(review_batch_id=batch)
-    if not include_reference:
-        qs = qs.exclude(review_status=Document.ReviewStatus.REFERENCE)
+    if analysed:
+        qs = qs.filter(review_status__in=ANALYSED)
     rows = list(
-        qs.select_related("review_batch")
+        light(qs.select_related("review_batch"), "")
         .annotate(
             n_findings=Count("findings", distinct=True),
             n_statements=Count("statements", distinct=True),
@@ -449,9 +468,7 @@ def dashboard(batch: int | None, verified: bool) -> dict[str, Any]:
     other = Topic.other()
     total = counted.count()
     n_statements = said.count()
-    analysed = in_review_documents(batch).filter(
-        review_status__in=[Document.ReviewStatus.DONE, Document.ReviewStatus.PARTLY]
-    )
+    analysed = in_review_documents(batch).filter(review_status__in=ANALYSED)
     quality_counts = counted.aggregate(
         tagged=Count("pk", filter=~Q(topic=other)),
         located=Count("pk", filter=Q(place_match__in=PLACED)),
@@ -712,7 +729,7 @@ def theme_findings(
 ) -> list[DocumentFinding]:
     """A theme's findings, best evidence first, one per document before the second of any (so a long
     list shows every document)."""
-    qs = findings(batch, verified).filter(topic_id=topic).select_related("document", "topic")
+    qs = light(findings(batch, verified).filter(topic_id=topic).select_related("document", "topic"))
     if challenges:
         qs = qs.filter(category=FindingCategory.CHALLENGE)
     rows = list(qs.order_by("-evidence", "pk"))
@@ -752,9 +769,9 @@ def repeated(batch: int | None, verified: bool, limit: int = REPEATED_GROUPS) ->
     At most ``REPEATED_CANDIDATES`` findings are compared (best evidence first) and ``limit`` groups
     kept, those spanning the most documents first."""
     candidates = list(
-        findings(batch, verified)
-        .select_related("document", "topic")
-        .order_by("-evidence", "pk")[:REPEATED_CANDIDATES]
+        light(findings(batch, verified).select_related("document", "topic")).order_by("-evidence", "pk")[
+            :REPEATED_CANDIDATES
+        ]
     )
     sets = [word_set(f.text) for f in candidates]
     postings: dict[str, list[int]] = defaultdict(list)

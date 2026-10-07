@@ -123,7 +123,9 @@ def add(request: HttpRequest) -> HttpResponse:
         raise PermissionDenied
     form = DocumentForm(request.POST or None, request.FILES or None)
     # uploaded from the document review: the documents go in that review batch
-    batch = ReviewBatch.objects.filter(pk=_int(request.POST.get("batch") or request.GET.get("batch"))).first()
+    batch = ReviewBatch.objects.filter(
+        pk=_int(request.POST.get("batch") or request.GET.get("batch")), archived=False
+    ).first()
     documents = []
     if request.method == "POST" and form.is_valid():
         try:

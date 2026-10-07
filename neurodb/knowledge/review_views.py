@@ -19,7 +19,7 @@ from typing import Any
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.db.models import Case, F, Max, Prefetch, When
+from django.db.models import Case, F, Max, When
 from django.http import Http404, HttpRequest, HttpResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -234,7 +234,7 @@ def _documents(request: HttpRequest, verified: bool) -> dict[str, Any]:
     on, why = _review_on()
     can_edit = can_add(request.user)
     choices = []
-    if can_edit and chosen:
+    if can_edit and chosen and not chosen.archived:
         choices = list(
             Document.objects.filter(review_batch__isnull=True)
             .order_by("-created_at")
@@ -259,7 +259,9 @@ def _documents(request: HttpRequest, verified: bool) -> dict[str, Any]:
         "settings_url": reverse("admin:knowledge_documentreviewsettings_changelist")
         if request.user.is_superuser or _is_admin(request.user)
         else "",
-        "upload_url": f"{reverse('knowledge:add')}?batch={chosen.pk}" if chosen else "",
+        "upload_url": f"{reverse('knowledge:add')}?batch={chosen.pk}"
+        if chosen and not chosen.archived
+        else "",
         "next": _page_url("documents", batch=chosen.pk if chosen else None),
     }
 
@@ -284,10 +286,20 @@ def _findings(request: HttpRequest, verified: bool) -> dict[str, Any]:
     }
     if view == "index":
         batch = review_data.batch_id(params.get("batch"))
+        counted = params.get("counted") == "1"  # from the Dashboard: the documents analysed only
         context.update(
             {
                 "f": {"batch": batch},
-                "rows": review_data.document_rows(batch),
+                "hidden": [("counted", "1")] if counted else [],
+                "chips": [
+                    {
+                        "label": _("Analysed documents, as counted on the Dashboard"),
+                        "url": f"{base}?{_query(params, counted=None)}",
+                    }
+                ]
+                if counted
+                else [],
+                "rows": review_data.document_rows(batch, analysed=counted),
                 "export_url": f"{base}?{_query(params, export='csv')}",
             }
         )
@@ -297,9 +309,8 @@ def _findings(request: HttpRequest, verified: bool) -> dict[str, Any]:
     if view == "statements":
         sf = review_data.StatementFilter.from_params(params)
         qs = (
-            sf.apply(verified)
-            .select_related("document__review_batch", "reviewed_by")
-            .prefetch_related(Prefetch("cites", queryset=DocumentFinding.objects.select_related("document")))
+            review_data.light(sf.apply(verified).select_related("document__review_batch", "reviewed_by"))
+            .prefetch_related(review_data.cited_findings())
             .order_by("-urgency", "document__title", "position", "pk")
         )
         page_obj = Paginator(qs, PAGE_SIZE).get_page(params.get("page"))
@@ -319,8 +330,10 @@ def _findings(request: HttpRequest, verified: bool) -> dict[str, Any]:
         )
         return context
     ff = review_data.FindingFilter.from_params(params)
-    qs = ff.apply(verified).select_related(
-        "document__review_batch", "topic__subtopic__programme", "reviewed_by", "edited_by"
+    qs = review_data.light(
+        ff.apply(verified).select_related(
+            "document__review_batch", "topic__subtopic__programme", "reviewed_by", "edited_by"
+        )
     )
     context.update(
         {
@@ -360,7 +373,9 @@ def _statement_chips(sf: review_data.StatementFilter) -> list[tuple[str, str]]:
 def _by_document(request: HttpRequest, ff: review_data.FindingFilter, qs, verified: bool) -> dict[str, Any]:
     """The documents of the filter, newest analysis first, each with its key statements and findings;
     ``document``: that one only."""
-    documents = review_data.in_review_documents(ff.batch).select_related("review_batch")
+    documents = review_data.light(
+        review_data.in_review_documents(ff.batch).select_related("review_batch"), ""
+    )
     if ff.document:
         documents = documents.filter(pk=ff.document)
     else:
@@ -378,7 +393,7 @@ def _by_document(request: HttpRequest, ff: review_data.FindingFilter, qs, verifi
         review_data.all_statements()
         .filter(document_id__in=ids)
         .select_related("reviewed_by")
-        .prefetch_related("cites")
+        .prefetch_related(review_data.cited_findings())
         .order_by("-urgency", "position")
     ):
         said[statement.document_id].append(statement)
@@ -399,7 +414,7 @@ def _dashboard(request: HttpRequest, verified: bool) -> dict[str, Any]:
 
     tiles = figures["tiles"]
     links = {
-        "documents": to("findings", view="index"),
+        "documents": to("findings", view="index", counted="1"),
         "findings": to(counted="1"),
         "statements": to(view="statements", counted="1"),
         "urgent": to(view="statements", counted="1", urgent="1"),
@@ -495,9 +510,10 @@ def _actions(request: HttpRequest, verified: bool) -> dict[str, Any]:
     base_qs = af.base(verified)
     figures = review_data.action_figures(base_qs)
     qs = (
-        af.apply(verified)
-        .select_related("document__review_batch", "topic__subtopic__programme")
-        .prefetch_related(Prefetch("cites", queryset=DocumentFinding.objects.select_related("document")))
+        review_data.light(
+            af.apply(verified).select_related("document__review_batch", "topic__subtopic__programme")
+        )
+        .prefetch_related(review_data.cited_findings())
         .order_by(*ACTION_ORDER)
     )
     page_obj = Paginator(qs, PAGE_SIZE).get_page(params.get("page"))
@@ -534,7 +550,8 @@ def _actions(request: HttpRequest, verified: bool) -> dict[str, Any]:
         "priorities": DocumentActionPoint.Priority.choices,
         "query": _query(params),
         "chart_data": {"by_owner": figures["by_owner"]},
-        "owner_href": f"{base}?{_query(params, owner=None, status=None)}&status=open&owner={{drill}}",
+        # the chart counts the period and batch only (as the cards): a bar opens those rows
+        "owner_href": f"{base}?{_query(plain, status='open')}&owner={{drill}}",
         "downloads": [
             {"label": _("CSV of the filter"), "url": f"{base}?{_query(params, export='csv')}"},
             {"label": _("Excel of the filter"), "url": f"{base}?{_query(params, export='xlsx')}"},
@@ -579,25 +596,28 @@ TAB_CONTEXT = {
 def _findings_export(request: HttpRequest, verified: bool) -> HttpResponse:
     view = request.GET.get("view", "all")
     if view == "index":
-        rows = review_data.document_rows(review_data.batch_id(request.GET.get("batch")))
+        rows = review_data.document_rows(
+            review_data.batch_id(request.GET.get("batch")), analysed=request.GET.get("counted") == "1"
+        )
         return _csv("document-review-index", INDEX_COLUMNS, (_index_row(d) for d in rows))
     if view == "statements":
         qs = (
-            review_data.StatementFilter.from_params(request.GET)
-            .apply(verified)
-            .select_related("document__review_batch")
-            .prefetch_related(Prefetch("cites", queryset=DocumentFinding.objects.select_related("document")))
+            review_data.light(
+                review_data.StatementFilter.from_params(request.GET)
+                .apply(verified)
+                .select_related("document__review_batch")
+            )
+            .prefetch_related(review_data.cited_findings())
             .order_by("-urgency", "document__title", "pk")
         )
         return _csv(
             "document-statements", STATEMENT_COLUMNS, (_statement_row(s) for s in qs.iterator(chunk_size=500))
         )
-    qs = (
+    qs = review_data.light(
         review_data.FindingFilter.from_params(request.GET)
         .apply(verified)
         .select_related("document__review_batch", "topic__subtopic__programme")
-        .order_by("document__review_batch__name", "document__title", "position", "pk")
-    )
+    ).order_by("document__review_batch__name", "document__title", "position", "pk")
     host = request.build_absolute_uri("/").rstrip("/")
     return _csv(
         "document-findings", FINDING_COLUMNS, (_finding_row(f, host) for f in qs.iterator(chunk_size=500))
@@ -688,9 +708,11 @@ def _action_row(p: DocumentActionPoint, typed: bool) -> dict[str, Any]:
 
 def _actions_export(request: HttpRequest, verified: bool, export: str) -> HttpResponse:
     qs = (
-        review_data.ActionFilter.from_params(request.GET)
-        .apply(verified)
-        .select_related("document__review_batch", "topic__subtopic__programme")
+        review_data.light(
+            review_data.ActionFilter.from_params(request.GET)
+            .apply(verified)
+            .select_related("document__review_batch", "topic__subtopic__programme")
+        )
         .prefetch_related("cites")
         .order_by("document__review_batch__name", "document__title", "position", "pk")
     )
@@ -780,6 +802,9 @@ def batch_add(request: HttpRequest, pk: int) -> HttpResponse:
     """Put chosen knowledge base documents (not in a batch yet) in this batch: they wait to be analysed."""
     _need_editor(request)
     batch = get_object_or_404(ReviewBatch, pk=pk)
+    if batch.archived:
+        messages.error(request, _("The batch is archived: bring it back to add documents to it."))
+        return redirect(_back(request, _page_url("documents", batch=batch.pk)))
     ids = [int(v) for v in request.POST.getlist("documents") if v.isdigit()][:500]
     documents = Document.objects.filter(pk__in=ids, review_batch__isnull=True)
     added = review.put_in_batch(documents, batch)
@@ -848,15 +873,17 @@ def take_out(request: HttpRequest, pk: int) -> HttpResponse:
 
 @require_POST
 def bulk_verdict(request: HttpRequest, pk: int) -> HttpResponse:
-    """Accept all or Reject all: the findings of the document still not reviewed (the others stay)."""
+    """Accept all or Reject all: the findings of the document still not reviewed (the others stay);
+    ``finding``: the ones the page listed (a filtered list): nobody decides on findings they did not see."""
     _need_editor(request)
     document = _in_batch(pk)
     verdict = request.POST.get("verdict", "")
     if verdict not in (Verdict.ACCEPTED, Verdict.REJECTED):
         raise Http404
-    count = document.findings.filter(verdict=Verdict.UNREVIEWED).update(
-        verdict=verdict, reviewed_by=request.user, reviewed_at=timezone.now()
-    )
+    chosen = document.findings.filter(verdict=Verdict.UNREVIEWED)
+    if "finding" in request.POST:
+        chosen = chosen.filter(pk__in=[int(v) for v in request.POST.getlist("finding") if v.isdigit()])
+    count = chosen.update(verdict=verdict, reviewed_by=request.user, reviewed_at=timezone.now())
     messages.success(
         request,
         _("%(n)s finding(s) marked %(verdict)s.") % {"n": count, "verdict": Verdict(verdict).label.lower()},
@@ -906,7 +933,7 @@ def statement_verdict(request: HttpRequest, pk: int) -> HttpResponse:
     if request.htmx:
         statement = (
             DocumentStatement.objects.select_related("document__review_batch", "reviewed_by")
-            .prefetch_related(Prefetch("cites", queryset=DocumentFinding.objects.select_related("document")))
+            .prefetch_related(review_data.cited_findings())
             .get(pk=pk)
         )
         return render(
@@ -1109,7 +1136,7 @@ def action_status(request: HttpRequest, pk: int) -> HttpResponse:
     if request.htmx:
         point = (
             DocumentActionPoint.objects.select_related("document__review_batch", "topic", "status_by")
-            .prefetch_related(Prefetch("cites", queryset=DocumentFinding.objects.select_related("document")))
+            .prefetch_related(review_data.cited_findings())
             .get(pk=pk)
         )
         today = timezone.localdate()

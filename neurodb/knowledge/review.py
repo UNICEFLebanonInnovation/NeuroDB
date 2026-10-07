@@ -647,7 +647,7 @@ class Kept:
             old.reviewed_at,
         )
         if old.edited_by_id or old.edited_at:  # a person's edit of the AI's finding stays
-            for name in ("text", "quote", "category", "topic_id", "place_text", "date_text"):
+            for name in ("text", "quote", "kind", "category", "topic_id", "place_text", "date_text"):
                 setattr(finding, name, getattr(old, name))
             finding.edited_by_id, finding.edited_at = old.edited_by_id, old.edited_at
 
@@ -912,7 +912,7 @@ def left_behind(now: datetime.datetime | None = None) -> int:
         Q(review_progress_at__lt=since) | Q(review_progress_at__isnull=True)
     )
     count = 0
-    for document in stale:
+    for document in stale.only("pk", "review_stage_notes"):  # not the text: it runs at each Documents tab
         notes = {
             **(document.review_stage_notes or {}),
             "stopped": STALE,

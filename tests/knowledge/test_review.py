@@ -633,6 +633,7 @@ def test_a_persons_edit_of_a_finding_is_kept_with_its_verdict(report, setting, f
     DocumentFinding.objects.filter(pk=water.pk).update(
         text="Water supply in Zahle fell by 30% in summer 2024.",
         topic=Topic.objects.get(name="Water supply"),
+        kind=DocumentFinding.Kind.REPORTED,
         verdict=Verdict.ACCEPTED,
         edited_by=admin_user,
         edited_at=timezone.now(),
@@ -641,7 +642,9 @@ def test_a_persons_edit_of_a_finding_is_kept_with_its_verdict(report, setting, f
     review.run(review.FULL, triggered_by="test")
     again = report.findings.get(text__icontains="by 30% in summer")
     assert again.pk != water.pk and again.verdict == Verdict.ACCEPTED and again.edited_by == admin_user
-    assert again.topic.name == "Water supply" and again.evidence == 45 + 10 + 10 + 10  # tagged now
+    # the person's tag and "reported" (the review page's edit form sets both) stay: tagged and reported now
+    assert again.topic.name == "Water supply" and again.kind == DocumentFinding.Kind.REPORTED
+    assert again.evidence == 45 + 25 + 10 + 10 + 10
     assert not report.findings.filter(text=WATER["text"]).exists()
 
 
@@ -1299,6 +1302,14 @@ def test_batches_documents_and_the_analyse_button(report, client, editor, starte
     client.post(reverse("knowledge:review_batch_edit", args=[evaluations.pk]), {"action": "archive"})
     evaluations.refresh_from_db()
     assert evaluations.archived
+    # an archived batch takes no new document (it would never be analysed)
+    other = Document.objects.create(title="Other", text="x", status=Document.Status.READY)
+    client.post(reverse("knowledge:review_batch_add", args=[evaluations.pk]), {"documents": [other.pk]})
+    other.refresh_from_db()
+    assert other.review_batch is None
+    page = client.get(REVIEW_URL, {"tab": "documents", "batch": evaluations.pk}).content.decode()
+    assert "Upload documents into this batch" not in page and "Bring the batch back" in page
+    client.post(reverse("knowledge:review_batch_edit", args=[evaluations.pk]), {"action": "restore"})
     # uploaded from the batch: the document goes in it
     upload = client.post(
         f"{reverse('knowledge:add')}?batch={evaluations.pk}",
@@ -1337,3 +1348,99 @@ def test_donors_never_reach_the_review(analysed):
     assert response.status_code in (302, 403)
     finding.refresh_from_db()
     assert finding.verdict == "unreviewed"
+
+
+def test_every_dashboard_figure_and_the_owner_chart_open_the_rows_they_count(analysed, client_viewer, batch):
+    from urllib.parse import quote
+
+    # in the batch but not counted as analysed: one waiting, one reference
+    Document.objects.create(title="Waiting", text="x", review_batch=batch, review_status="pending")
+    Document.objects.create(title="A reference", text="x", review_batch=batch, review_status="reference")
+    response = client_viewer.get(REVIEW_URL, {"tab": "dashboard"})
+    figures, tiles, links = (
+        response.context["figures"],
+        response.context["tiles"],
+        response.context["tile_links"],
+    )
+    documents = client_viewer.get(links["documents"])
+    assert [d.title for d in documents.context["rows"]] == [analysed.title] and tiles["documents"] == 1
+    assert "as counted on the Dashboard" in documents.content.decode()
+    index_csv = client_viewer.get(links["documents"] + "&export=csv")
+    assert len(b"".join(index_csv.streaming_content).decode("utf-8-sig").splitlines()) == 2
+    assert client_viewer.get(links["findings"]).context["page_obj"].paginator.count == tiles["findings"]
+    assert client_viewer.get(links["statements"]).context["page_obj"].paginator.count == tiles["statements"]
+    assert (
+        client_viewer.get(links["open_actions"]).context["page_obj"].paginator.count == tiles["open_actions"]
+    )
+    for key, param in (("programme", "programme"), ("tags", "topic")):
+        assert figures["charts"][key], key
+        for label, n, drill in figures["charts"][key]:
+            listed = client_viewer.get(REVIEW_URL, {"tab": "findings", "counted": "1", param: drill})
+            assert listed.context["page_obj"].paginator.count == n, label
+    # the owner chart counts the period and batch (as the cards): a bar opens those rows, whatever the
+    # table's own filter
+    actions = client_viewer.get(REVIEW_URL, {"tab": "actions", "period": "all", "priority": "high"})
+    bars = actions.context["figures"]["by_owner"]
+    assert len(bars) == 2
+    for owner, n, drill in bars:
+        listed = client_viewer.get(actions.context["owner_href"].replace("{drill}", quote(drill)))
+        assert listed.context["page_obj"].paginator.count == n, owner
+
+
+def test_accept_all_decides_only_the_findings_listed(analysed, client, editor):
+    client.force_login(editor)
+    page = client.get(
+        REVIEW_URL, {"tab": "findings", "view": "document", "document": analysed.pk, "category": "challenge"}
+    ).content.decode()
+    form = re.search(r'name="verdict" value="accepted">(.*?)<button', page).group(1)
+    listed = {int(pk) for pk in re.findall(r'name="finding" value="(\d+)"', form)}
+    assert listed == set(analysed.findings.filter(category="challenge").values_list("pk", flat=True))
+    client.post(
+        reverse("knowledge:review_bulk_verdict", args=[analysed.pk]),
+        {"verdict": "accepted", "finding": sorted(listed)},
+    )
+    assert set(analysed.findings.filter(verdict="accepted").values_list("pk", flat=True)) == listed
+    assert (
+        analysed.findings.filter(verdict="unreviewed").count() == analysed.findings.count() - len(listed) > 0
+    )
+
+
+def test_verified_only_the_desk_review_cites_accepted_findings_only(analysed, client, editor):
+    from neurodb.knowledge import text
+
+    client.force_login(editor)
+    statement = analysed.statements.get()
+    DocumentStatement.objects.filter(pk=statement.pk).update(verdict="accepted")
+    client.post(reverse("knowledge:review_verified"), {"on": "1"})
+    words = text.docx_text(client.get(reverse("knowledge:review_docx")).content)
+    # the statement is used; the finding it cites was not accepted, so the report does not point to it
+    assert statement.text in words and "(Annual report 2024)" in words
+    assert "(Annual report 2024, p. 1)" not in words
+    DocumentFinding.objects.filter(pk=_finding(analysed, "out of school").pk).update(verdict="accepted")
+    words = text.docx_text(client.get(reverse("knowledge:review_docx")).content)
+    assert f"{statement.text} (Annual report 2024, p. 1)" in words
+
+
+def test_the_review_pages_never_load_the_documents_full_text(analysed, client, editor):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    client.force_login(editor)
+    DocumentFinding.objects.filter(text__icontains="out of school").update(verdict="accepted")
+    asked = [{"tab": tab} for tab in TABS]
+    asked += [{"tab": "findings", "view": v} for v in ("document", "statements", "index")]
+    asked += [{"tab": "synthesis", "view": v, "min": "1"} for v in ("time", "coverage", "repeated")]
+    asked += [
+        {"tab": "findings", "export": "csv"},
+        {"tab": "findings", "view": "statements", "export": "csv"},
+    ]
+    asked += [{"tab": "actions", "period": "all", "export": "csv"}]
+    with CaptureQueriesContext(connection) as queries:
+        for params in asked:
+            response = client.get(REVIEW_URL, params)
+            assert response.status_code == 200, params
+            if response.streaming:
+                b"".join(response.streaming_content)
+        assert client.get(reverse("knowledge:review_docx")).status_code == 200
+    heavy = [q["sql"] for q in queries.captured_queries if '"knowledge_document"."text"' in q["sql"]]
+    assert not heavy, heavy[:1]

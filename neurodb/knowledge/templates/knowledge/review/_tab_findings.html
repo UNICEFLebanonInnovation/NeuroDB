@@ -40,6 +40,8 @@
     <label class="form-check mb-0 small"><input class="form-check-input" type="checkbox" name="urgent" value="1" {% if f.urgent %}checked{% endif %}> {% blocktrans with n=high_urgency %}Urgency {{ n }} or more{% endblocktrans %}</label>
   </div>
   {% for key, value in hidden %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+  {% else %}
+  {% for key, value in hidden %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
   {% endif %}
   <div class="filter-bar__actions">
     <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
@@ -99,8 +101,8 @@
   {% if can_edit %}
   <div class="d-flex flex-wrap gap-2 mb-2">
     {% if d.unreviewed %}
-    <form method="post" action="{% url 'knowledge:review_bulk_verdict' d.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="verdict" value="accepted"><button type="submit" class="btn btn-outline-success btn-sm">{% blocktrans count n=d.unreviewed %}Accept all ({{ n }} not reviewed){% plural %}Accept all ({{ n }} not reviewed){% endblocktrans %}</button></form>
-    <form method="post" action="{% url 'knowledge:review_bulk_verdict' d.pk %}" class="d-inline" data-confirm="{% trans 'Reject every finding of this document that is not reviewed yet?' %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="verdict" value="rejected"><button type="submit" class="btn btn-outline-danger btn-sm">{% trans "Reject all not reviewed" %}</button></form>
+    <form method="post" action="{% url 'knowledge:review_bulk_verdict' d.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="verdict" value="accepted">{% for f in d.shown_findings %}{% if f.verdict == "unreviewed" %}<input type="hidden" name="finding" value="{{ f.pk }}">{% endif %}{% endfor %}<button type="submit" class="btn btn-outline-success btn-sm">{% blocktrans count n=d.unreviewed %}Accept all ({{ n }} not reviewed){% plural %}Accept all ({{ n }} not reviewed){% endblocktrans %}</button></form>
+    <form method="post" action="{% url 'knowledge:review_bulk_verdict' d.pk %}" class="d-inline" data-confirm="{% trans 'Reject every finding listed here that is not reviewed yet?' %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="verdict" value="rejected">{% for f in d.shown_findings %}{% if f.verdict == "unreviewed" %}<input type="hidden" name="finding" value="{{ f.pk }}">{% endif %}{% endfor %}<button type="submit" class="btn btn-outline-danger btn-sm">{% trans "Reject all not reviewed" %}</button></form>
     {% endif %}
     {% url 'knowledge:review_finding_new' d.pk as new_url %}
     <a class="btn btn-outline-primary btn-sm" href="{{ new_url }}?next={{ request.get_full_path|urlencode }}" hx-get="{{ new_url }}?next={{ request.get_full_path|urlencode }}" hx-target="#modal-content" hx-push-url="false">{% trans "Add a finding" %}</a>
