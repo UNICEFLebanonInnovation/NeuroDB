@@ -83,7 +83,7 @@ TAB_MARKERS = {
     "quality": "Top recurring issues",
     "analysis": "Programmatic visits and HACT",
     "visits": "Monitoring visits — detail and flags",
-    "map": "Visits and planned locations",
+    "map": "Visit locations map",
 }
 
 
@@ -534,15 +534,14 @@ def test_the_quality_tab_shows_its_blocks(built, client_viewer):
     assert -1 not in positions and positions == sorted(positions), dict(
         zip(QUALITY_ORDER, positions, strict=True)
     )
-    assert "Flags per visit" in text
-    for moved in ("Quality score distribution", "Rule score trends over time", "Quality rules"):
+    for moved in ("Quality score distribution", "Rule score trends over time", "Quality rule analysis"):
         assert moved not in text, moved  # on the Analysis tab, as FMS has them
+    assert "Flag count distribution" not in text and "Flags per visit" not in text  # Analysis too
     # the HACT Q1 drill-down pills, in FMS's order
     pills = _text(html.split('class="fmm-drillbox"', 1)[1].split("</section>", 1)[0])
     assert "Drill down — click a rating to see individual visits" in pills
     assert pills.index("On track 1") < pills.index("Off track 2") < pills.index("Constrained 2")
     assert pills.index("Constrained 2") < pills.index("Not Monitored 1")
-    assert "Green = no issues · Blue = minor · Amber = moderate · Red = critical attention needed" in text
     # the two monthly charts as FMS draws them: smooth lines on two axes, bars and a line
     assert html.count('data-chart="dual-axis"') == 2
     assert 'data-primary="area"' in html and 'data-primary="bar"' in html
@@ -559,7 +558,8 @@ def test_the_analysis_tab_shows_its_blocks(built, client_viewer):
     text = _text(html)
     # FMS's blocks first (moved from the Quality tab), then NeuroDB's
     first = [
-        text.find(t) for t in ("Quality score distribution", "Rule score trends over time", "Quality rules")
+        text.find(t)
+        for t in ("Quality score distribution", "Rule score trends over time", "Quality rule analysis")
     ]
     assert -1 not in first and first == sorted(first) and first[-1] < text.find("Highlights")
     assert "R1 Report Completeness" in text and "6 / 6 visits flagged" in text
@@ -570,10 +570,11 @@ def test_the_analysis_tab_shows_its_blocks(built, client_viewer):
         "Field offices",
         "Quality by field office",
         "Entity performance",
-        "Sections",
+        "Section performance",
         "Visit frequency by location",
         "Quality by finding rating",
-        "Flags by rule",
+        "Quality flag frequency",
+        "Flag count distribution",
         "Points by category",
         "Programmatic visits and HACT (2026)",
         "Follow-up",
@@ -584,14 +585,14 @@ def test_the_analysis_tab_shows_its_blocks(built, client_viewer):
     assert "Every governorate was visited in this period." in text
     assert "office from: activity 1 · PD 3 · action points 0" in text
     assert "R23 is a flag only (no deduction)." in text
-    assert "&amp;flag={drill}" in html and 'data-suffix=" visits"' in html
+    assert "flag=R1" in html and 'data-rows-png="#fmm-flag-frequency"' in html
     assert 'id="fmm-entities"' in html and 'hx-select="#fmm-entities"' in html
 
 
 def test_the_entity_kind_chips_switch_the_table(built, client_viewer):
     html = client_viewer.get(PAGE, {"tab": "analysis", "entity_kind": "partner"}).content.decode()
     table = html.split('id="fmm-entities"', 1)[1].split("</section>", 1)[0]
-    assert "AMEL" in table and "MCL" in table and "LEB/SSFA2024001" not in table
+    assert "Amel Association" in table and "Mercy Corps Lebanon" in table and "LEB/SSFA2024001" not in table
     assert "Planned visits" not in table
     html = client_viewer.get(PAGE, {"tab": "analysis", "entity_kind": "other"}).content.decode()
     assert "No entities of this type" in html.split('id="fmm-entities"', 1)[1]
@@ -650,7 +651,8 @@ def test_the_hact_q1_chart_switches_to_overall_ratings_without_q1(built, client_
 def test_the_quality_tab_says_what_is_not_available_without_the_checklist_answers(fm_world, client_viewer):
     dm.DatamartDocument.objects.filter(dataset__in=("fm_questions", "fm_options")).delete()
     refresh.run(triggered_by="test", today=TODAY)
-    text = _text(client_viewer.get(PAGE, {"tab": "analysis"}).content.decode())
+    # (the list of every rule, under the quality rule analysis, as it is when opened)
+    text = _text(client_viewer.get(PAGE, {"tab": "analysis", "rules": "all"}).content.decode())
     # R2 reads the share of questions answered: not available, never a missing value deducted
     assert text.count("Not available — needs question answers (fm_questions); see Fields found") == 1
     assert "R3 Narrative Evidence Quality AI check switched off" in text  # the AI is off in this test

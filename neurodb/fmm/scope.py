@@ -87,8 +87,8 @@ STATUS_LABELS = {
 KIND_LABELS = {"pd": "PD/SSFA", "cp_output": "CP output", "partner": "Partner", "other": "Other"}
 RULE_CODE = re.compile(r"^R\d{1,3}$")  # a quality rule's id (R1 ... R32)
 RULE_STATES = ("pass", "fail", "na", "nap", "off", "pending")
-# the score distribution's buckets of 10 points (90-100 holds 100); the buckets of 20 points of Release 1
-# are still read, so an older link keeps opening its visits
+# the one pass counts scores in buckets of 10 points (90-100 holds 100); the chart shows FMS's buckets of 20
+# points (80-100 holds 100), and both are read, so an older link keeps opening its visits
 CHART_BUCKETS = {f"{low}-{low + 10}": (low, low + 10) for low in range(0, 100, 10)}
 BUCKETS = {
     **CHART_BUCKETS,

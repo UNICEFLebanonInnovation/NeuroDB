@@ -110,27 +110,26 @@ def test_without_q1_answers_the_chart_counts_the_overall_rating(built):
     assert data["key"] == "rating"
 
 
-def test_score_buckets_hold_100_in_the_top_bucket_and_take_their_band_colour(built):
+def test_score_buckets_are_fms_five_and_hold_100_in_the_top_one(built):
     data = metrics.score_buckets(_scope())
     assert [(i["drill"], i["value"]) for i in data["items"] if i["value"]] == [
-        ("40-50", 1),
-        ("70-80", 1),
-        ("80-90", 2),
-        ("90-100", 2),
+        ("40-60", 1),
+        ("60-80", 1),
+        ("80-100", 4),
     ]
-    assert len(data["items"]) == 10 and data["not_scored"] == 2
+    assert len(data["items"]) == 5 and data["not_scored"] == 2
     bands = {i["drill"]: (i["band"], i["color"]) for i in data["items"]}
-    assert bands["40-50"] == ("low", "--nd-danger") and bands["50-60"] == ("medium", "--nd-warning")
-    assert bands["70-80"] == ("medium", "--nd-warning") and bands["80-90"] == ("high", "--nd-success")
+    assert bands["40-60"] == ("low", "--fmm-score-2") and bands["60-80"] == ("medium", "--fmm-score-3")
+    assert bands["80-100"] == ("high", "--fmm-score-4")
     Visit.objects.filter(key="1722").update(quality_score=Decimal("100.0"))
     Visit.objects.filter(key="1723").update(quality_score=Decimal("90.0"))
     cache.clear()
     top = metrics.score_buckets(_scope())["items"][-1]
-    assert top["value"] == 3 == len(_keys(_scope(bucket="90-100")))  # 1722 (100), 1723 (90), 1728 (93)
-    assert len(_keys(_scope(bucket="80-100"))) == 5  # a bucket of Release 1's links still opens its visits
-    # the colours follow the bands as Score settings set them
+    assert top["value"] == 5 == len(_keys(_scope(bucket="80-100")))  # 100 and 90 are in 80-100
+    assert len(_keys(_scope(bucket="90-100"))) == 3  # a bucket of 10 of an older link still opens its visits
+    # the bands follow Score settings (the colours are FMS's, fixed)
     limits = {**metrics.thresholds(), "band_medium": 40}
-    assert metrics.score_buckets(_scope(), limits=limits)["items"][4]["band"] == "medium"
+    assert metrics.score_buckets(_scope(), limits=limits)["items"][2]["band"] == "medium"
 
 
 def test_top_issues_are_grouped_by_rule_and_detail(built):
@@ -230,7 +229,7 @@ def test_entity_performance_worst_first_unscored_last(built, fm_world):
     amended = rows[2]
     assert amended["link"] == ("pd", fm_world.pds["amended"].pk) and amended["planned"] == 2
     partners = metrics.entities_performance(_scope(), "partner")["rows"]
-    assert {r["name"] for r in partners} == {"AMEL", "MCL"}
+    assert {r["name"] for r in partners} == {"Amel Association", "Mercy Corps Lebanon"}
     assert metrics.entity_rows(_scope())["kinds"] == {"pd": 9, "cp_output": 1, "partner": 2}
 
 

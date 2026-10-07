@@ -87,16 +87,6 @@ issues summary.{% endcomment %}
     <a class="mini{% if s.high_flag.n %} mini--danger{% endif %}" {% if s.high_flag_url %}href="{{ s.high_flag_url }}" hx-get="{{ s.high_flag_url }}" hx-target="#modal-content"{% endif %}><div class="mini__value">{{ s.high_flag.n }}</div><div class="mini__label">{% blocktrans with at=s.high_flag.at %}Visits with {{ at }} or more flags{% endblocktrans %}{% if s.high_flag.pct is not None %} · {% blocktrans with pct=s.high_flag.pct|percent %}{{ pct }} of scored visits{% endblocktrans %}{% endif %}</div></a>
     {% endwith %}
   </div>
-  <h3 class="small fw-semibold mb-1" id="fmm-flags-title">{% trans "Flags per visit" %}</h3>
-  {% if flags_scored %}
-  {% for r in flag_rows %}
-  <div class="fmm-meter-row" aria-describedby="fmm-flags-title">
-    <div class="fmm-meter-row__head"><span>{% if r.url %}<a href="{{ r.url }}" hx-get="{{ r.url }}" hx-target="#modal-content">{{ r.label }}</a>{% else %}{{ r.label }}{% endif %}</span><span class="small text-muted">{{ r.n }}{% if r.pct is not None %} · {{ r.pct|percent }}{% endif %}</span></div>
-    <div class="meter"><div class="meter__track"><span class="meter__fill meter__fill--{{ r.color }}" style="width: {{ r.fill|floatformat:0 }}%"></span></div></div>
-  </div>
-  {% endfor %}
-  <p class="legend">{% trans "Green = no issues · Blue = minor · Amber = moderate · Red = critical attention needed" %}</p>
-  {% else %}<p class="small text-muted mb-0">{% trans "No visit in this filter is scored." %}</p>{% endif %}
 </section>
 </div>
 {% endif %}

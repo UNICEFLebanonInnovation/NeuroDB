@@ -7,7 +7,7 @@
   <div class="table-wrap table-wrap--tall"><table class="table table-hover fmm-visits" id="fmm-visits-table">
     <thead><tr>
       {% for key, label in sort_columns %}{% if key %}<th scope="col" {% if sort == key or sort == "-"|add:key %}aria-sort="{% if sort|first == '-' %}descending{% else %}ascending{% endif %}"{% endif %}>
-        {% with next=sort_next|get_item:key %}<a href="{{ page_url }}?{{ scope.query }}&amp;tab=visits&amp;sort={{ next }}" hx-get="{{ table_url }}?{{ scope.query }}&amp;sort={{ next }}" hx-target="#fmm-visits" hx-push-url="{{ page_url }}?{{ scope.query }}&amp;tab=visits&amp;sort={{ next }}">{{ label }}</a>{% endwith %}</th>
+        {% with next=sort_next|get_item:key %}<a href="{{ page_url }}?{{ scope.query }}&amp;tab=visits&amp;sort={{ next }}{{ size_query }}" hx-get="{{ table_url }}?{{ scope.query }}&amp;sort={{ next }}{{ size_query }}" hx-target="#fmm-visits" hx-push-url="{{ page_url }}?{{ scope.query }}&amp;tab=visits&amp;sort={{ next }}{{ size_query }}">{{ label }}</a>{% endwith %}</th>
       {% else %}<th scope="col">{{ label }}</th>{% endif %}{% if forloop.counter == 5 %}
       <th scope="col" class="d-none d-md-table-cell" data-export="no">{% trans "Team" %}</th>{% endif %}{% endfor %}
       <th scope="col">{% trans "Rating" %}</th>
@@ -34,17 +34,18 @@
     </tr>{% endfor %}</tbody>
   </table></div>
   <p class="small text-muted px-3 py-2 mb-0">{% blocktrans with red=limits.red amber=limits.amber below=limits.red|add:"-1" count n=page_obj.paginator.count %}Showing {{ n }} visit · Red rows = high urgency (≥ {{ red }}) · Amber rows = medium ({{ amber }}–{{ below }}){% plural %}Showing {{ n }} visits · Red rows = high urgency (≥ {{ red }}) · Amber rows = medium ({{ amber }}–{{ below }}){% endblocktrans %}</p>
-  {% if page_obj.paginator.num_pages > 1 %}
   <nav class="pagination-bar" aria-label="{% trans 'Pagination' %}">
-    <span class="text-muted small">{% blocktrans with start=page_obj.start_index end=page_obj.end_index total=page_obj.paginator.count %}Showing {{ start }}–{{ end }} of {{ total }}{% endblocktrans %}</span>
+    <span class="text-muted small">{% if page_obj.paginator.num_pages > 1 %}{% blocktrans with start=page_obj.start_index end=page_obj.end_index total=page_obj.paginator.count %}Showing {{ start }}–{{ end }} of {{ total }}{% endblocktrans %}{% endif %}</span>
+    <span class="fmm-page-size small" role="group" aria-label="{% trans 'Visits per page' %}"><span class="text-muted">{% trans "Per page:" %}</span>{% for n in page_sizes %}{% if n == page_size %}<a class="fmm-page-size__opt" aria-current="true">{{ n }}</a>{% else %}<a class="fmm-page-size__opt" href="{{ page_url }}?{{ scope.query }}&amp;tab=visits&amp;sort={{ sort }}&amp;page_size={{ n }}" hx-get="{{ table_url }}?{{ scope.query }}&amp;sort={{ sort }}&amp;page_size={{ n }}" hx-target="#fmm-visits" hx-push-url="{{ page_url }}?{{ scope.query }}&amp;tab=visits&amp;sort={{ sort }}&amp;page_size={{ n }}">{{ n }}</a>{% endif %}{% endfor %}</span>
+    {% if page_obj.paginator.num_pages > 1 %}
     <ul class="pagination pagination-sm mb-0">
       {% for n in page_obj.paginator.get_elided_page_range %}
       {% if n == page_obj.paginator.ELLIPSIS %}<li class="page-item disabled"><span class="page-link">…</span></li>
-      {% else %}<li class="page-item {% if n == page_obj.number %}active{% endif %}"><a class="page-link" href="{{ page_url }}?{{ scope.query }}&amp;tab=visits&amp;sort={{ sort }}&amp;page={{ n }}" hx-get="{{ table_url }}?{{ scope.query }}&amp;sort={{ sort }}&amp;page={{ n }}" hx-target="#fmm-visits" hx-push-url="{{ page_url }}?{{ scope.query }}&amp;tab=visits&amp;sort={{ sort }}&amp;page={{ n }}" {% if n == page_obj.number %}aria-current="page"{% endif %}>{{ n }}</a></li>{% endif %}
+      {% else %}<li class="page-item {% if n == page_obj.number %}active{% endif %}"><a class="page-link" href="{{ page_url }}?{{ scope.query }}&amp;tab=visits&amp;sort={{ sort }}{{ size_query }}&amp;page={{ n }}" hx-get="{{ table_url }}?{{ scope.query }}&amp;sort={{ sort }}{{ size_query }}&amp;page={{ n }}" hx-target="#fmm-visits" hx-push-url="{{ page_url }}?{{ scope.query }}&amp;tab=visits&amp;sort={{ sort }}{{ size_query }}&amp;page={{ n }}" {% if n == page_obj.number %}aria-current="page"{% endif %}>{{ n }}</a></li>{% endif %}
       {% endfor %}
     </ul>
+    {% endif %}
   </nav>
-  {% endif %}
   {% else %}
   <div class="state state--empty" role="status">
     {% include "components/icon.html" with name="inbox" class="state__icon" %}

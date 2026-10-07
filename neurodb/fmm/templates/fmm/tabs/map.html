@@ -6,7 +6,10 @@
 <div class="fmm-tab fmm-map">
 <section class="panel" aria-labelledby="fmm-map-title">
   <div class="panel__header flex-wrap">
-    <h2 class="panel__title" id="fmm-map-title">{% trans "Visits and planned locations" %}</h2>
+    <div>
+      <h2 class="panel__title" id="fmm-map-title">{% trans "Visit locations map" %}</h2>
+      <p class="small text-muted mb-0">{% trans "Actual monitoring visits vs PD reference locations" %} · {% blocktrans count n=c.mapped %}<strong>{{ n }}</strong> visit mapped{% plural %}<strong>{{ n }}</strong> visits mapped{% endblocktrans %}{% if c.unlocated %} · <span class="fmm-tone--warning">{% blocktrans count n=c.unlocated %}{{ n }} without coordinates{% plural %}{{ n }} without coordinates{% endblocktrans %}</span>{% endif %}</p>
+    </div>
     <nav class="segmented segmented--scroll" aria-label="{% trans 'Planned locations shown' %}">
       {% if pd_scope == "visited" %}<a aria-current="page">{% trans "Programme documents visited" %}</a><a href="{{ page_url }}?{{ pd_scope_query }}" hx-get="{{ page_url }}?{{ pd_scope_query }}" hx-target="#fmm-results" hx-push-url="true">{% trans "Every active programme document" %}</a>
       {% else %}<a href="{{ page_url }}?{{ pd_scope_query }}" hx-get="{{ page_url }}?{{ pd_scope_query }}" hx-target="#fmm-results" hx-push-url="true">{% trans "Programme documents visited" %}</a><a aria-current="page">{% trans "Every active programme document" %}</a>{% endif %}
@@ -14,14 +17,19 @@
   </div>
   <p class="small text-muted mb-2">{% blocktrans with km=map.km|floatformat:"-1" %}Each visit is set against the places its own programme documents planned: matched by coordinates when both points are exact (a monitoring site, or a cadaster's own point) and less than {{ km }} km apart, else by place (the same place, or the planned area that holds it), else not linked. A grey ring is a planned place no visit of this filter reached.{% endblocktrans %}
     {% if pd_scope == "active" %}{% trans "The rings are the planned places of every active programme document of the filter's sections, partners and governorate." %}{% else %}{% trans "The rings are the planned places of the programme documents these visits went to." %}{% endif %}</p>
-  <div class="chips mb-2" aria-label="{% trans 'What the map shows' %}">
-    <span class="chip">{% blocktrans count n=c.mapped %}{{ n }} visit mapped{% plural %}{{ n }} visits mapped{% endblocktrans %}</span>
-    <span class="chip"><span class="fmm-swatch fmm-swatch--coords" aria-hidden="true"></span>{% blocktrans count n=c.coords %}{{ n }} matched by coordinates{% plural %}{{ n }} matched by coordinates{% endblocktrans %}</span>
-    <span class="chip"><span class="fmm-swatch fmm-swatch--place" aria-hidden="true"></span>{% blocktrans count n=c.place %}{{ n }} matched by place{% plural %}{{ n }} matched by place{% endblocktrans %}</span>
-    <span class="chip"><span class="fmm-swatch fmm-swatch--none" aria-hidden="true"></span>{% blocktrans count n=c.none %}{{ n }} not linked to a PD location{% plural %}{{ n }} not linked to a PD location{% endblocktrans %}</span>
-    <span class="chip"><span class="fmm-swatch fmm-swatch--planned" aria-hidden="true"></span>{% blocktrans count n=c.not_visited %}{{ n }} PD location not yet visited{% plural %}{{ n }} PD locations not yet visited{% endblocktrans %}</span>
-    {% if c.unlocated %}<span class="chip">{% blocktrans count n=c.unlocated %}{{ n }} visit without coordinates{% plural %}{{ n }} visits without coordinates{% endblocktrans %}</span>{% endif %}
+  <div class="fmm-chip-row mb-2" aria-label="{% trans 'What the map shows' %}">
+    <span class="fmm-chip fmm-chip--map-none"><span class="fmm-swatch fmm-swatch--none" aria-hidden="true"></span>{% blocktrans count n=c.mapped %}{{ n }} visit mapped{% plural %}{{ n }} visits mapped{% endblocktrans %}</span>
+    <span class="fmm-chip fmm-chip--map-coords"><span class="fmm-swatch fmm-swatch--coords" aria-hidden="true"></span>{% blocktrans count n=c.coords %}{{ n }} matched by coordinates{% plural %}{{ n }} matched by coordinates{% endblocktrans %}</span>
+    <span class="fmm-chip fmm-chip--map-place"><span class="fmm-swatch fmm-swatch--place" aria-hidden="true"></span>{% blocktrans count n=c.place %}{{ n }} matched by location name{% plural %}{{ n }} matched by location name{% endblocktrans %}</span>
+    <span class="fmm-chip"><span class="fmm-swatch fmm-swatch--none" aria-hidden="true"></span>{% blocktrans count n=c.none %}{{ n }} actual visit not linked to a PD location{% plural %}{{ n }} actual visits not linked to a PD location{% endblocktrans %}</span>
+    <span class="fmm-chip"><span class="fmm-swatch fmm-swatch--planned" aria-hidden="true"></span>{% blocktrans count n=c.not_visited %}{{ n }} PD location not yet visited{% plural %}{{ n }} PD locations not yet visited{% endblocktrans %}</span>
   </div>
+  <dl class="fmm-map-key small mb-2" aria-label="{% trans 'Legend' %}">
+    <div><dt class="fmm-map-key__none">{% trans "Actual visit" %}</dt><dd>{% trans "visit not linked to any PD location" %}</dd></div>
+    <div><dt class="fmm-map-key__coords">{% trans "Matched by coordinates" %}</dt><dd>{% blocktrans with km=map.km|floatformat:"-1" %}visit physically close (&lt; {{ km }} km) to a PD location{% endblocktrans %}</dd></div>
+    <div><dt class="fmm-map-key__place">{% trans "Matched by name only" %}</dt><dd>{% trans "same place, or the planned area that holds it, but coordinates not matched" %}</dd></div>
+    <div><dt>{% trans "PD locations not visited" %}</dt><dd>{% trans "planned location with no visit yet" %}</dd></div>
+  </dl>
   {% if map_focus.key %}
   {% if map_focus.reason == "unlocated" %}<p class="caveat" role="status">{% blocktrans with label=map_focus.label %}{{ label }} has no coordinates, so it is listed below the map only.{% endblocktrans %}</p>
   {% elif map_focus.reason == "outside" %}<p class="caveat" role="status">{% blocktrans with label=map_focus.label %}{{ label }} is not in this filter.{% endblocktrans %}</p>
@@ -37,6 +45,7 @@
     <div class="map" data-map-canvas></div>
     <div class="map-legend" data-map-legend hidden></div>
   </section>
+  {% if c.unlocated %}<p class="fmm-map-note small mt-2 mb-0">{% blocktrans count n=c.unlocated %}{{ n }} visit not shown — no location coordinates recorded.{% plural %}{{ n }} visits not shown — no location coordinates recorded.{% endblocktrans %}</p>{% endif %}
   {% else %}
   <div class="state state--empty">
     {% include "components/icon.html" with name="map" class="state__icon" %}

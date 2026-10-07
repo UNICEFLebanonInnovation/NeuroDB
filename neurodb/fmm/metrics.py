@@ -37,7 +37,7 @@ from django.utils.dateformat import format as date_format
 
 from neurodb.datamart.fm import RATING_ORDER
 
-from .scope import CHART_BUCKETS, Scope
+from .scope import BUCKETS, CHART_BUCKETS, Scope
 
 CACHE_SECONDS = 600
 RATED = ("on_track", "constrained", "off_track")
@@ -405,11 +405,11 @@ RATING_COLORS = {  # FMS's rating colours (app.css), the same in the HACT Q1 and
     "off_track": "--nd-rating-off-track",
     "not_monitored": "--nd-rating-not-monitored",
 }
-FLAG_ROWS = (  # (drill, label, meter colour)
-    ("0", "No flags", "success"),
+FLAG_ROWS = (  # (drill, label, meter colour), as FMS's flag count distribution writes them
+    ("0", "0 flags", "success"),
     ("1", "1 flag", "info"),
     ("2", "2 flags", "warning"),
-    ("3+", "3 or more flags", "danger"),
+    ("3+", "3+ flags", "danger"),
 )
 MONTHS_MAX = 36  # the latest months a monthly chart draws
 SECTION_LINES = 50  # visit lines listed under a section
@@ -903,23 +903,35 @@ def q1_question(when: str | None = None) -> str:
 
 
 # ------------------------------------------------------------------------------------------ quality
+SCORE_BUCKETS = (  # FMS's five buckets of 20 points (80-100 holds 100), each with its own colour
+    ("0-20", "--fmm-score-0"),
+    ("20-40", "--fmm-score-1"),
+    ("40-60", "--fmm-score-2"),
+    ("60-80", "--fmm-score-3"),
+    ("80-100", "--fmm-score-4"),
+)
+
+
 def score_buckets(scope: Scope, when: str | None = None, limits: dict | None = None) -> dict[str, Any]:
-    """Block 7: scored visits in ten score buckets of 10 points (90–100 holds 100), each with its drill
-    value and the colour of its band (a bucket takes the band of its lowest score: High from 80, Medium
-    from 50, else Low, as Score settings set them), and the visits not scored."""
+    """Block 7: scored visits in FMS's five score buckets of 20 points (80–100 holds 100), each with its
+    drill value, its colour (red, orange, amber, light green, green, as FMS draws them) and the band of
+    its lowest score (High from 80, Medium from 50, else Low, as Score settings set them); and the
+    visits not scored. Summed from the pass's buckets of 10 points: two of them make one of 20."""
     limits = limits or thresholds()
     data = summary(scope, when, limits)
     found = data["buckets"]
-    items = [
-        {
-            "label": f"{low}–{high}",
-            "value": found.get(drill, 0),
-            "color": BAND_COLORS[band_of(low, limits)],
-            "band": band_of(low, limits),
-            "drill": drill,
-        }
-        for drill, (low, high) in CHART_BUCKETS.items()
-    ]
+    items = []
+    for drill, color in SCORE_BUCKETS:
+        low, high = BUCKETS[drill]
+        items.append(
+            {
+                "label": f"{low}–{high}",
+                "value": found.get(f"{low}-{low + 10}", 0) + found.get(f"{low + 10}-{high}", 0),
+                "color": color,
+                "band": band_of(low, limits),
+                "drill": drill,
+            }
+        )
     return {"items": items if data["scored"] else [], "not_scored": found.get("none", 0)}
 
 
@@ -1122,6 +1134,14 @@ def _rule_settings(rules: list | None) -> list:
     return list(rules) if rules is not None else list(RuleSetting.objects.order_by("code"))
 
 
+def rule_tone(share: Decimal | None) -> str:
+    """FMS's colour of a rule by the share of its checked visits it flagged: green under 25 %, amber from
+    25 % to 50 %, red over 50 %."""
+    if share is None or share < 25:
+        return "success"
+    return "warning" if share <= 50 else "danger"
+
+
 def rule_analysis(scope: Scope, rules: list | None = None, when: str | None = None) -> list[dict[str, Any]]:
     """Block 10: per rule, the visits flagged out of the visits evaluated (passed or flagged), the
     visits where it was not available and those whose AI check is pending; "off" for a rule switched
@@ -1169,6 +1189,10 @@ def rule_analysis(scope: Scope, rules: list | None = None, when: str | None = No
                 else "warning"
                 if flagged
                 else "success",
+                # Quality rule analysis (FMS): the bar is the share of the checked visits not flagged, green
+                # under 25 % flagged, amber up to 50 %, red over 50 %
+                "clean_fill": float(100 - share) if share is not None else 0.0,
+                "tone": rule_tone(share),
                 # a rule read from the checklist answers (fm_questions), "not available" without them
                 "needs_answers": param(rule, "field", "") in ANSWER_COLUMNS,
             }
@@ -1418,6 +1442,7 @@ def flag_frequency(scope: Scope, rules: list | None = None, when: str | None = N
                 "n": flagged,
                 "evaluated": evaluated,
                 "pct": _pct(flagged, evaluated),
+                "fill": float(_pct(flagged, evaluated) or 0),  # the bar: the share of the visits it checked
             }
         )
     rows.sort(key=lambda r: (-r["n"], r["code"]))
@@ -1558,7 +1583,26 @@ ENTITY_COLUMNS = (
     "visit__status_group",
     "visit__urgency",
     "datamart_id",
+    "partner__partner_type",
 )
+ENTITY_TYPE_LABELS = {"pd": "PD/SSFA", "cp_output": "CP output", "partner": "Partner", "other": "Other"}
+# The type badge of a partner in the entity table, from the start of its eTools partner type ("Civil Society
+# Organization" or "CSO" -> "CSO partner", as FMS writes it)
+PARTNER_TYPES = (
+    (("civil", "cso"), "CSO partner"),
+    (("government", "gov"), "Government partner"),
+    (("un agency", "un "), "UN agency"),
+    (("bilateral",), "Bilateral partner"),
+)
+
+
+def partner_type_label(partner_type: str | None) -> str:
+    """A partner's type badge: "CSO partner", "Government partner"…, else "Partner"."""
+    text = (partner_type or "").strip().casefold()
+    for starts, label in PARTNER_TYPES:
+        if text and (text.startswith(starts) or text in {s.strip() for s in starts}):
+            return label
+    return ENTITY_TYPE_LABELS["partner"]
 
 
 def _year(scope: Scope) -> int:
@@ -1616,12 +1660,13 @@ def entity_rows(scope: Scope, when: str | None = None, kind: str | None = None) 
         for row in rows:
             row_kind, entity, pd_id, pd_number, partner_id, partner_short, partner_name = row[:7]
             cp_output, rating, visit_id, end_date, quality, band, flags, status_group = row[7:15]
+            partner_type = row[17]
             row_kind = row_kind or "other"
             text = (entity or "").strip()
             if row_kind == "pd" and pd_id:
                 key, name, link = ("pd", pd_id), pd_number or text, ("pd", pd_id)
             elif row_kind == "partner" and partner_id:
-                name = partner_short or partner_name or text
+                name = partner_name or partner_short or text  # the full name, as FMS writes it
                 key, link = ("partner", partner_id), ("partner", partner_id)
             elif row_kind == "cp_output":
                 name = (cp_output or text).strip()
@@ -1635,7 +1680,15 @@ def entity_rows(scope: Scope, when: str | None = None, kind: str | None = None) 
                 of_kind = groups[row_kind] = {}
             g = of_kind.get(key)
             if g is None:  # (not setdefault: its default would be built for every row)
-                g = of_kind[key] = {"name": name, "link": link, "visits": {}, "planned": planned.get(pd_id)}
+                g = of_kind[key] = {
+                    "name": name,
+                    "link": link,
+                    "visits": {},
+                    "planned": planned.get(pd_id),
+                    "type": partner_type_label(partner_type)
+                    if row_kind == "partner"
+                    else ENTITY_TYPE_LABELS.get(row_kind, ENTITY_TYPE_LABELS["other"]),
+                }
             g["visits"][visit_id] = (
                 end_date,
                 _quality(quality),
@@ -1657,6 +1710,8 @@ def entity_rows(scope: Scope, when: str | None = None, kind: str | None = None) 
                 rows_out.append(
                     {
                         "name": g["name"],
+                        "kind": group_kind,
+                        "type": g["type"],
                         "link": g["link"],
                         "planned": g["planned"],
                         "top_issue": {"rule": top[0], "n": top[1]} if top else None,
@@ -1668,19 +1723,60 @@ def entity_rows(scope: Scope, when: str | None = None, kind: str | None = None) 
                         **tally.out(),
                     }
                 )
-            rows_out.sort(key=lambda r: (r["avg"] is None, r["avg"] or 0, -r["visits"], r["name"].casefold()))
+            rows_out.sort(key=_worst_first)
             out[group_kind] = rows_out
         return {"kinds": entity_kinds(scope, when), "entities": out, "year": year}
 
     return cached(scope, f"entities:{kind or 'all'}", compute, when)
 
 
-def entities_performance(scope: Scope, kind: str = "pd", when: str | None = None) -> dict[str, Any]:
-    """Block 16: the entities of one kind, worst average quality first, unscored last."""
-    data = entity_rows(scope, when, kind)
+def _worst_first(row: dict[str, Any]) -> tuple:
+    """Worst average quality first, unscored last; then the most visits, then the name."""
+    return (row["avg"] is None, row["avg"] or 0, -row["visits"], row["name"].casefold())
+
+
+def visit_entities(scope: Scope, keys) -> dict[str, str]:
+    """The assessed entity of each visit of ``keys``: its first finding row the scope counts (an entity
+    type or partner filter keeps the matching rows only), in words: the CP output, the partner's full
+    name or the PD number, else the entity as eTools wrote it. A visit with no such row is left out.
+    One query, for the visits a list shows (the drill-down window, the section lines)."""
+    from .models import VisitEntity
+
+    keys = list(keys)
+    if not keys:
+        return {}
+    qs = VisitEntity.objects.filter(visit__key__in=keys)
+    if scope.entity_types:
+        qs = qs.filter(kind__in=scope.entity_types)
+    if scope.partners:
+        qs = qs.filter(partner_id__in=scope.partners)
+    out: dict[str, str] = {}
+    rows = qs.order_by("visit_id", "datamart_id").values_list(
+        "visit__key", "kind", "entity", "cp_output", "pd__number", "partner__name"
+    )
+    for key, kind, entity, cp_output, pd_number, partner_name in rows:
+        if key in out:
+            continue
+        own = {"cp_output": cp_output, "partner": partner_name, "pd": pd_number}.get(kind)
+        text = (own or entity or "").strip()
+        if text:
+            out[key] = text
+    return out
+
+
+def entities_performance(scope: Scope, kind: str = "all", when: str | None = None) -> dict[str, Any]:
+    """Block 16: the entities of one kind, or of every kind (``"all"``, FMS's default: partners, CP
+    outputs, PD/SSFAs and the rest in one table, each with its type), worst average quality first,
+    unscored last."""
+    if kind == "all":
+        data = entity_rows(scope, when, None)
+        rows = sorted((row for found in data["entities"].values() for row in found), key=_worst_first)
+    else:
+        data = entity_rows(scope, when, kind)
+        rows = data["entities"].get(kind, [])
     return {
         "kind": kind,
-        "rows": data["entities"].get(kind, []),
+        "rows": rows,
         "kinds": data["kinds"],
         "year": data["year"],
     }

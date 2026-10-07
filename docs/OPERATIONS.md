@@ -1576,28 +1576,28 @@ per block, each taking the page's filter), kept 10 minutes.
 | Quality › Geographic coverage | The places visited, their governorate, visits and last visit (top 10; *Show all* loads the rest, up to 500) | `locations` |
 | Quality › Top recurring issues | Flags grouped by rule and reason, with their visits and mean urgency | `top_issues`: `fmm.VisitRuleResult` |
 | Quality › Quality issues summary | Narrative and rating coherence flags (R6, an AI check), Not monitored (planned, not conducted: reported visits with no entity rated), visits with 3 or more flags | `issues_summary` |
-| Quality › Flags per visit | Scored visits with 0, 1, 2 and 3 or more flags | `flag_distribution` |
-| Analysis › Quality score distribution | Scored visits in ten bars of 10 points (100 in the top one), each coloured by its quality band, and the visits not scored | `score_buckets` |
-| Analysis › Rule score trends over time | Per rule with points, the share of its maximum points the visits that ended each month earned; a point opens the visits the rule flagged that month (worked out when the panel scrolls into view) | `rule_trends` (with `rule_stats`, from `rule_months`) |
-| Analysis › Quality rules | Each rule's visits flagged out of the visits it checked, in the order of the ids; "not available", "AI check pending", "AI check switched off", "off" or "flag only" | `rule_analysis` |
+| Analysis › Quality score distribution | Scored visits in FMS's five bars of 20 points (0–20 red, 20–40 orange, 40–60 amber, 60–80 light green, 80–100 green, 100 included) along a "Visit count" axis, and the visits not scored | `score_buckets` (summed from the pass's buckets of 10) |
+| Analysis › Rule score trends over time | Per rule with points, a smooth line of the share of its maximum points the visits that ended each month earned ("% of max score", legend on top, FMS's colours for the first five); a point opens the visits the rule flagged that month (worked out when the panel scrolls into view) | `rule_trends` (with `rule_stats`, from `rule_months`) |
+| Analysis › Quality rule analysis | One row per rule that checked visits, in the order of the ids: "N / M visits flagged" and a bar of the share not flagged (green under 25% flagged, amber 25–50%, red over 50%); under it, every rule with what it checks and "not available", "AI check pending", "AI check switched off", "off" or "flag only" | `rule_analysis` |
+| Analysis › Quality flag frequency | Every rule that flagged a visit, most first: id, bar and "N (share of the visits it checked)"; the same counts as the rule analysis | `flag_frequency` |
+| Analysis › Flag count distribution | Scored visits with 0 flags (green), 1 flag (blue), 2 flags (amber), 3+ flags (red), the share inside the bar | `flag_distribution` |
 | Analysis › Highlights | Visits, reported, governorates covered of the gazetteer's, average quality (the key figure's), off-track visits, PSEA-flagged visits of those with a PSEA question, High / Medium / Low shares, entities by type | `highlights` |
 | Analysis › Governorates not visited | The gazetteer's governorates no visit of the filter is placed in | `governorate_gaps` |
 | Analysis › Field offices | Visits and average quality per field office ("Office not known" too), and where the offices came from | `offices` |
-| Analysis › Entity performance | PDs, CP outputs, partners or other entities, worst average quality first, unscored last, with their top issue and last rating; a PD shows its planned visits for the year (the table loads when it scrolls into view) | `entities_performance` (one kind at a time) |
-| Analysis › Quality by field office | Per office, its flags by rule ("R1: 6/16") | `office_rule_badges` |
-| Analysis › Sections | Per section, its visits, average quality, ratings and bands, and its visits listed | `sections` |
+| Analysis › Entity performance | All the monitored entities (FMS's default *All* chip) or one kind (Partner, CP output, PD/SSFA), each with its type badge (CSO partner, CP output, PD/SSFA…), visits, average quality coloured by band, High / Med / Low, top issue and last rating, worst average quality first, unscored last; partners by their full name; a PD shows its planned visits for the year (the table loads when it scrolls into view) | `entities_performance` (`"all"` merges the kinds) |
+| Analysis › Quality by field office | One row per office, its scored visits, its flags by rule ("R1: 6/16", amber under half, red from half) | `office_rule_badges` |
+| Analysis › Section performance | Per section, its visits, average quality and High / Medium / Low, a bar coloured by band, and its first 10 visits ("#id ENTITY score rating", lowest score first, unscored after), *Show all* for the rest | `sections`, `visit_entities` |
 | Analysis › Visit frequency by location | Visits, average quality and coverage (rated ÷ monitored entities) per place (top 10; *Show all* loads the rest) | `locations` |
 | Analysis › Quality by finding rating | Visits, average quality and bands per overall rating; Not monitored always has its own bar | `quality_by_rating` |
-| Analysis › Flags by rule | Visits flagged by each rule | `flag_frequency` |
 | Analysis › Points by category | Each score category's points the scored visits kept of its weight on average (its weight less the visit's deductions in it, each at most the weight), weakest first; the rules that are a flag only listed under it | `dimension_breakdown`: `Visit.category_deductions` |
 | Analysis › Programmatic visits and HACT | For the partners of the filter with programmatic visits required: required, planned and completed in eTools, NeuroDB's completed programmatic FM visits, and the gap | `hact_programmatic`: `PartnerHACTYear`, `datamart.fm.programmatic_visits_by_partner` |
 | Analysis › Follow-up | FM action points of these visits (open, overdue, high priority) and the off-track or constrained visits without one | `action_points`: `fmm.VisitActionPoint`, `datamart.ActionPoint` |
 | Visits › Find a visit | An id, "#1722", "Visit 1722", a key, a reference or a reference number | `fmm:lookup` |
-| Visits › Monitoring visits — detail & flags | The visits, most urgent first, 50 a page, with *All rows (CSV)* | `fmm:visits` |
+| Visits › Monitoring visits — detail & flags | The visits, most urgent first, 50 a page (*Per page* 25, 50 or 100, `?page_size=`), with *All rows (CSV)* | `fmm:visits` |
 | Visit page | Everything known of one visit (below) | `fmm:visit` |
-| Map › Visits and planned locations | Each visit with a point against the places its programme documents planned; the planned places not visited | `fmm.geo.map_points` |
-| Drill-down window | The visits behind a chart bar, a chip or a count | `fmm:drill` |
-| Every chart | *Download PNG* saves the chart as drawn (Plotly's own `downloadImage`; no other library); *PDF* prints its card alone (A4 width; "Save as PDF" in the print window) | `charts.js`, `app.js` (`data-card-pdf`) |
+| Map › Visit locations map | Each visit with a point against the places its programme documents planned, in FMS's legend: actual visit, matched by coordinates, matched by name only, PD locations not visited; the visits not shown for want of coordinates | `fmm.geo.map_points` |
+| Drill-down window | The visits behind a chart bar, a chip or a count: visit, date, entity (the counted row's), partner (full name), PD number, location, section, rating, quality, urgency, flags | `fmm:drill`, `visit_entities` |
+| Every chart | *Download PNG* saves the chart as drawn (Plotly's own `downloadImage`; the bar lists drawn in HTML on a canvas, `data-rows-png`; no other library); *PDF* prints its card alone (A4 width; "Save as PDF" in the print window) | `charts.js`, `app.js` (`data-card-pdf`) |
 
 ### Using the page
 
@@ -1653,21 +1653,21 @@ is hidden.
   filter has a Q1 answer; the drill-down pills count each rating, and Not Monitored apart), the places
   visited (top 10, *Show all*); then the top recurring issues (flags grouped by rule and reason, with
   their visits and mean urgency), the quality issues summary (rating-quality flags, Not monitored:
-  planned, not conducted, and visits with three or more flags) and the flags per visit. The quality
-  score distribution, the rule score trends and each rule's visits flagged are first on the Analysis
-  tab. Every chart card has *Download PNG* and *PDF* (the card alone, printed or saved as a PDF).
-- **Analysis tab**: first, as FMS has them, the quality score distribution (ten bars of 10 points, 100
-  in the top one, each coloured by its band, and the visits not scored), the rule score trends (per
-  rule, the share of its maximum points earned by the visits of each month; worked out when the panel
-  scrolls into view) and each rule's visits flagged out of the visits it checked ("not available" when
-  the checklist answers are missing, see Fields found); then highlights (visits, reported, governorates covered out of the gazetteer's,
+  planned, not conducted, and visits with three or more flags). The quality score distribution, the
+  rule score trends, the rule analysis and the flag counts are first on the Analysis tab. Every chart card has *Download PNG* and *PDF* (the card alone, printed or saved as a PDF).
+- **Analysis tab**: first, in FMS's order, the quality score distribution (five bars of 20 points in
+  FMS's colours, 100 in the top one, and the visits not scored), the rule score trends (per rule, the
+  share of its maximum points earned by the visits of each month; worked out when the panel scrolls
+  into view), the quality rule analysis (each rule that checked visits: its visits flagged and a bar of
+  the share not flagged; every rule under it, "not available" when the checklist answers are missing,
+  see Fields found), the quality flag frequency, the flag count distribution, entity performance (All
+  by default), quality by field office and section performance (first 10 visits, *Show all*); then
+  highlights (visits, reported, governorates covered out of the gazetteer's,
   average quality: the same figure as the key figure, off-track visits, PSEA-flagged visits out of
   those with a PSEA question, the High / Medium / Low shares, the monitored entities by type), the
-  governorates not visited, the field offices (a visit to a PD with two offices counts in both) and
-  each office's flags per rule, entity performance (PDs, CP outputs, partners or other entities,
-  worst average quality first, unscored last; a PD shows its planned visits for the year), the
-  sections with their visits, the visit frequency and coverage (rated ÷ monitored entities) by place,
-  the quality by finding rating (Not monitored always its own bar), the flags by rule, the points earned per rule (weakest first; a rule
+  governorates not visited, the field offices (a visit to a PD with two offices counts in both), the
+  visit frequency and coverage (rated ÷ monitored entities) by place,
+  the quality by finding rating (Not monitored always its own bar), the points earned per rule (weakest first; a rule
   at 0 points is a flag only), the HACT programmatic visits of the partners of the filter (required,
   planned and completed in eTools next to NeuroDB's count of completed programmatic FM visits; gap =
   required − completed in eTools) and the follow-up (FM action points of these visits: open, overdue,
@@ -1685,15 +1685,16 @@ is hidden.
   filter with its references, dates, status, partner, programme documents, place, sections, offices,
   rating, HACT Q1, quality, flags, urgency, action point counts and review, and never the team, the
   visit lead or a narrative.
-- **Map tab**: each visit with a point, set against the places its own programme documents planned
+- **Map tab** (*Visit locations map*, in FMS's legend wording: actual visit, matched by coordinates,
+  matched by name only, PD locations not visited): each visit with a point, set against the places its own programme documents planned
   (`PCA.locations`, placed through the gazetteer). A visit is *matched by coordinates* (green) when
   it is less than `FMM_MATCH_KM` (2 km) from a planned place and **both points are exact**: the visit
   placed by its monitoring site or by its location's own point at the gazetteer's lowest level
   (cadasters), and the planned place a cadaster with its own point. A district's or governorate's
   centre, its own or borrowed from an ancestor, never matches by coordinates; such a visit point is
-  drawn fainter with "approximate: placed at …". Otherwise a visit is *matched by place* (purple: the
-  same location or P-code, the planned district or governorate that holds it, or the same name), or
-  *not linked to a PD location* (blue). A grey ring is a planned place no visit of the filter reached
+  drawn fainter with "approximate: placed at …". Otherwise a visit is *matched by name only* (purple:
+  the same location or P-code, the planned district or governorate that holds it, or the same name), or
+  an *actual visit* not linked to a PD location (blue). A grey ring is a planned place no visit of the filter reached
   (*PD location not yet visited*; it opens the programme document). The rings are the planned places
   of the programme documents the visits went to, or, with *Every active programme document*, those
   of every active programme document of the filter's sections, partners and governorate. The chips

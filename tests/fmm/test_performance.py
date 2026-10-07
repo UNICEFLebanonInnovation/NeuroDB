@@ -20,6 +20,7 @@ from __future__ import annotations
 import datetime
 import gc
 import random
+import re
 import time
 import tracemalloc
 
@@ -362,7 +363,7 @@ def test_monitoring_insights_at_production_size(admin_user, client, monkeypatch)
         pages[name] = _cold_ms(client, url, params)
     page = reverse("fmm:dashboard")
     for name, tab, extra in (
-        ("entity table", "analysis", {"entity_kind": "pd"}),
+        ("entity table", "analysis", {"entity_kind": "all"}),  # All: the default, every kind
         ("all places", "quality", {"places": "all"}),
     ):
         cache.clear()
@@ -502,8 +503,8 @@ def test_the_entity_table_comes_when_it_is_reached_or_asked_for(built, client_vi
         page, {"tab": "analysis", "section": ""}, HTTP_HX_REQUEST="true"
     ).content.decode()
     block = html.split('id="fmm-entities"', 1)[1].split("</section>", 1)[0]
-    assert 'hx-trigger="revealed"' in block and "entity_kind=pd" in block and "<tbody>" not in block
-    assert "PD/SSFA 9" in " ".join(block.split())  # the chips still count every kind
+    assert 'hx-trigger="revealed"' in block and "entity_kind=all" in block and "<tbody>" not in block
+    assert "PD/SSFA 9" in " ".join(re.sub(r"<[^>]+>", " ", block).split())  # the chips still count every kind
     asked = client_viewer.get(page, {"tab": "analysis", "section": "", "entity_kind": "pd"}).content.decode()
     block = asked.split('id="fmm-entities"', 1)[1].split("</section>", 1)[0]
     assert 'hx-trigger="revealed"' not in block and block.count("<tr>") >= 2

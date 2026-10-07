@@ -14,16 +14,20 @@ the field monitoring rows were synced and when the scores were computed, with wh
 - **Insights**: the morning briefing, the AI monitoring brief, the critical visits requiring attention
   and Chat with Data, in the order of the field monitoring system (FMS).
 - **Quality**: how good the reports are month by month, the HACT Q1 ratings and the places visited.
-- **Analysis**: the quality score distribution, the rule score trends and the quality rules first, then
-  highlights, places, field offices, partners and programme documents, sections, HACT programmatic
-  visits and follow-up.
+- **Analysis**: in FMS's order, the quality score distribution, the rule score trends, the quality rule
+  analysis, the quality flag frequency, the flag count distribution, entity performance, quality by
+  field office and section performance; then highlights, places, field offices, quality by rating,
+  points by category, HACT programmatic visits and follow-up.
 - **Visits**: find a visit, the table of visits (most urgent first) and each visit's page.
 - **Map**: the visits against the places their programme documents planned.
 
 Every chart card has *Download PNG* and *PDF* at its foot: *PDF* prints that card alone (choose "Save
 as PDF" in the print window to keep it as a file). A chart bar, a chip or a count opens the
 **drill-down window**: the
-visits behind it, most urgent first (50 at most), with *Open in the Visits tab* for the rest.
+visits behind it, most urgent first (50 at most), with *Open in the Visits tab* for the rest. Each row
+shows the visit, its date, the entity (the assessed entity of the row that was counted: with an entity
+type or partner filter, the matching row), the partner's full name, the PD number, the location, the
+section, the rating, the quality score, the urgency and the flags; never the people.
 
 ## Filters
 
@@ -127,24 +131,24 @@ per person. For questions about how NeuroDB works, use the Help assistant instea
 | Geographic coverage | The places visited, their governorate, visits and last visit (top 10; *Show all* loads the rest). |
 | Top recurring issues | Flags grouped by rule and reason, with their visits and mean urgency. |
 | Quality issues summary | Narrative and rating coherence flags (R6), Not monitored visits, and visits with 3 or more flags. |
-| Flags per visit | Scored visits with 0, 1, 2 and 3 or more flags. |
 
 ## Analysis tab
 
 | Block | What it shows |
 |---|---|
-| Quality score distribution | Scored visits in ten bars of 10 points (100 in the top one), coloured by quality band, and the visits not scored. |
-| Rule score trends over time | Per rule with points, the share of its maximum points the visits of each month kept (loaded when you reach it). |
-| Quality rules | Each rule's visits flagged out of the visits it checked; "not available" when the data it needs is missing, "AI check pending", "AI check switched off", "off" or "flag only". |
+| Quality score distribution | Scored visits in five bars, as FMS draws them: 0–20 (red), 20–40 (orange), 40–60 (amber), 60–80 (light green) and 80–100 (green, 100 included), along a "Visit count" axis; and the visits not scored. A bar opens its visits. |
+| Rule score trends over time | Per rule with points, a smooth line of the share of its maximum points the visits of each month kept ("% of max score"), legend on top (loaded when you reach it). A point opens the visits the rule flagged that month. |
+| Quality rule analysis | One row per rule that checked visits, in the order of the rule ids: "15 / 55 visits flagged" and a bar of the share of the checked visits not flagged, green when under 25% were flagged, amber from 25% to 50%, red over 50%. A rule opens its flagged visits. Under it, *Every quality rule* lists all the rules with what each checks, and why a rule shows no figure: "not available" when the data it needs is missing, "AI check pending", "AI check switched off", "off" or "flag only". |
+| Quality flag frequency | Every rule that flagged a visit, most first: its id, a bar and "50 (90.9%)", the visits it flagged and their share of the visits it checked (the same counts as the quality rule analysis). A row opens its visits. |
+| Flag count distribution | Scored visits with 0 flags (green), 1 flag (blue), 2 flags (amber) and 3+ flags (red): the share inside the bar, the visits on the right. A row opens its visits. |
+| Entity performance | All the monitored entities by default (FMS's *All* chip), or only partners, CP outputs or PD/SSFAs: each with its type (CSO partner, CP output, PD/SSFA…), visits, average quality (green, amber or red by band), High / Med / Low, top issue and last rating, worst average quality first, unscored last; a programme document shows its planned visits for the year. Partners are written with their full name. |
+| Quality by field office | One row per office, its scored visits on the right and its flags by rule ("R1: 6/16"), amber when under half of its scored visits, red from half. |
+| Section performance | Per section, its visits, average quality and High / Medium / Low, a bar of the average quality coloured by band, and its first 10 visits, lowest score first then the unscored ones ("#1067 ENTITY 23% Off track"); *Show all* opens the rest. |
 | Highlights | Visits, reported visits, governorates covered (of the gazetteer's active governorates), average quality, off-track visits, PSEA-flagged visits of those with a PSEA question, the High / Medium / Low shares and the monitored entities by type. |
 | Governorates not visited | The governorates no visit of the filter is placed in. |
 | Field offices | Visits and average quality per field office ("Office not known" too). A visit to a programme document with two offices counts in both. |
-| Entity performance | Programme documents, CP outputs, partners or other entities, worst average quality first, unscored last, with their top issue and last rating; a programme document shows its planned visits for the year. |
-| Quality by field office | Per office, its flags by rule ("R1: 6/16"). |
-| Sections | Per section, its visits, average quality, ratings and bands. |
 | Visit frequency by location | Visits, average quality and coverage (rated ÷ monitored entities) per place. |
 | Quality by finding rating | Visits, average quality and bands per overall rating; Not monitored always has its own bar. |
-| Flags by rule | Visits flagged by each rule. |
 | Points by category | Each score category's points the scored visits kept of its weight on average, weakest first. |
 | Programmatic visits and HACT | For the partners of the filter that need programmatic visits: required, planned and completed in eTools, NeuroDB's count of completed programmatic field monitoring visits, and the gap (required − completed in eTools). |
 | Follow-up | The action points of these visits (open, overdue, high priority) and the off-track or constrained visits without one. |
@@ -152,8 +156,9 @@ per person. For questions about how NeuroDB works, use the Help assistant instea
 ## Visits tab and the visit page
 
 **Find a visit** takes an id ("1722", "#1722", "Visit 1722"), a key, a reference or a reference
-number; a miss offers the three nearest ids of the filter. The table lists the visits 50 a page, most
-urgent first, sortable by date, partner, quality and urgency. Red rows are at or above red urgency,
+number; a miss offers the three nearest ids of the filter. The table lists the visits 50 a page
+(*Per page* sets 25, 50 or 100, kept in the address), most urgent first, sortable by date, partner,
+quality and urgency. Red rows are at or above red urgency,
 amber rows between amber and red. The Team column shows names only, is hidden on phones and is never
 copied or exported.
 
@@ -171,11 +176,14 @@ are kept by visit, so a refresh never loses them.
 
 ## Map tab
 
-Each visit with a point, set against the places its own programme documents planned. A visit is
-**matched by coordinates** (green) when it is less than 2 km from a planned place and both points are
-exact (a monitoring site or a cadaster's own point); **matched by place** (purple) when it is in the
-same location or P-code, or in the planned district or governorate; otherwise **not linked to a PD
-location** (blue). A grey ring is a planned place no visit of the filter reached. A point placed at a
+The **Visit locations map**: each visit with a point, set against the places its own programme
+documents planned, with FMS's legend. A visit is **matched by coordinates** (green) when it is less
+than 2 km from a planned place and both points are exact (a monitoring site or a cadaster's own
+point); **matched by name only** (purple) when it is in the same location or P-code, or in the planned
+district or governorate, but its coordinates do not match; otherwise it is an **actual visit** not
+linked to a PD location (blue). A ring is a **PD location not visited**: a planned place no visit of
+the filter reached. Chips count each kind, and a note under the map says how many visits are not shown
+because no location coordinates were recorded. A point placed at a
 district's or governorate's centre is drawn fainter ("approximate"). At most 1,000 points are drawn,
 most urgent first. The table under the map lists every point: it is the keyboard route.
 

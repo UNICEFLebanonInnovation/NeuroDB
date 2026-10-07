@@ -10,12 +10,16 @@
   {% if chips %}<div class="chips mb-2">{% for chip in chips %}<span class="chip">{{ chip.label }}</span>{% endfor %}</div>{% endif %}
   {% if visits %}
   <div class="table-wrap"><table class="table table-sm fmm-visits">
-    <thead><tr><th scope="col">{% trans "Visit" %}</th><th scope="col">{% trans "Date" %}</th><th scope="col">{% trans "Partner" %}</th><th scope="col">{% trans "Rating" %}</th><th scope="col">{% trans "Quality" %}</th><th scope="col">{% trans "Urgency" %}</th><th scope="col">{% trans "Flags" %}</th></tr></thead>
+    <thead><tr><th scope="col">{% trans "Visit" %}</th><th scope="col">{% trans "Date" %}</th><th scope="col">{% trans "Entity" %}</th><th scope="col">{% trans "Partner" %}</th><th scope="col">{% trans "PD number" %}</th><th scope="col">{% trans "Location" %}</th><th scope="col">{% trans "Section" %}</th><th scope="col">{% trans "Rating" %}</th><th scope="col">{% trans "Quality" %}</th><th scope="col">{% trans "Urgency" %}</th><th scope="col">{% trans "Flags" %}</th></tr></thead>
     <tbody>{% for v in visits %}{% url 'fmm:visit' v.key as visit_url %}
     <tr data-key="{{ v.key }}"{% if v.row_band %} class="row--{{ v.row_band }}"{% endif %}>
       <td class="text-nowrap"><a href="{{ visit_url }}" hx-get="{{ visit_url }}" hx-target="#modal-content">{{ v.label }}</a></td>
       <td class="small text-nowrap">{{ v.end_date|date:"j M Y"|default:"—" }}</td>
-      <td>{% if v.partner %}<span data-synced>{{ v.partner.short_name|default:v.partner.name }}</span>{% else %}—{% endif %}</td>
+      <td class="small">{% if v.entity %}<span data-synced title="{{ v.entity }}">{{ v.entity|truncatechars:60 }}</span>{% else %}—{% endif %}</td>
+      <td class="small">{% if v.partner %}<span data-synced>{{ v.partner.name|default:v.partner.short_name }}</span>{% else %}—{% endif %}</td>
+      <td class="small mono text-nowrap">{% if v.pd_numbers %}<span data-synced>{{ v.pd_numbers.0 }}</span>{% if v.pd_numbers|length > 1 %} +{{ v.pd_numbers|length|add:"-1" }}{% endif %}{% else %}—{% endif %}</td>
+      <td class="small"><span data-synced>{{ v.place_name|default:"—" }}</span>{% if v.governorate_name %}<span class="cell-sub" data-synced>{{ v.governorate_name }}</span>{% endif %}</td>
+      <td class="small"><span data-synced>{{ v.section_names|join:", "|default:"—" }}</span></td>
       <td class="text-nowrap">{% status_pill v.rating v.rating_label "sm" %}<span class="cell-sub">{% if v.not_rated_yet %}{% blocktrans with day=v.end_date|date:"j M Y"|default:"—" %}ends {{ day }}{% endblocktrans %}{% else %}{% blocktrans with day=v.end_date|date:"j M Y"|default:"—" %}rated {{ day }}{% endblocktrans %}{% endif %}</span></td>
       <td class="text-nowrap">{% if v.quality_score is not None %}<span class="fmm-score fmm-score--{{ v.score_band|default:'none' }}">{{ v.quality_score|percent }}</span>{% elif v.score_band == "pending" %}<span class="pill pill--sm pill--neutral" title="{{ v.not_scored_reason }}">{% trans "Pending" %}</span>{% else %}<span class="text-muted" title="{{ v.not_scored_reason }}">—</span>{% endif %}</td>
       <td><span class="pill pill--sm pill--{% if v.row_band == 'red' %}danger{% elif v.row_band == 'amber' %}warning{% else %}neutral{% endif %}" title="{{ v.urgency_title }}">{{ v.urgency|default_if_none:"—" }}</span></td>

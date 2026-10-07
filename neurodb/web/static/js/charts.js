@@ -702,14 +702,20 @@ export const BUILDERS = {
     };
   },
   "share-lines"(el, data) {
-    // {labels, series: {name: [share or null]}, drill?: {labels, series: {name: code}}} -> one line per series
-    // on a 0-100 % axis; a month without a value is a gap, never a 0 (Monitoring insights' rule trends)
+    // {labels, series: {name: [share or null]}, drill?: {labels, series: {name: code}}} -> one smooth line with markers
+    // per series on a 0-100 % axis, the legend centred on top, in FMS's colours for its first five rules (blue,
+    // green, amber, purple, red); a month without a value is a gap, never a 0 (Monitoring insights' rule trends).
+    // data-y-title names the value axis.
     const labels = Array.isArray(data?.labels) ? data.labels.map(String) : [];
     const series = Object.entries(data?.series || {}).map(([name, values]) => [name, (values || []).map((v) => (v === null || v === undefined ? null : Number(v)))]);
     if (!labels.length || !series.some(([, values]) => values.some((v) => v !== null))) return emptyState(el);
+    const first = ["--nd-chart-sky", "--nd-chart-green", "--nd-rating-constrained", "--nd-cat-7", "--nd-rating-off-track"].map((t) => cssVar(t));
+    const colorOf = (i) => (i < first.length && first[i] ? first[i] : PALETTE[i % PALETTE.length]);
+    const muted = cssVar("--nd-muted");
+    const yTitle = el.dataset.yTitle ? { title: { text: plotlyText(el.dataset.yTitle), font: { size: 11, color: muted } } } : {};
     return {
       traces: series.map(([name, values], i) => {
-        const color = PALETTE[i % PALETTE.length];
+        const color = colorOf(i);
         return {
           type: "scatter",
           mode: "lines+markers",
@@ -717,17 +723,19 @@ export const BUILDERS = {
           x: labels,
           y: values,
           connectgaps: false,
-          line: { color, width: 2 },
-          marker: { size: 6, color },
+          line: { color, width: 2.5, shape: "spline", smoothing: 0.6 },
+          marker: { size: 5, color },
           hovertemplate: `%{x} · ${plotlyText(name)}: %{y:.1f}%<extra></extra>`,
           meta: drillMeta(data, name),
         };
       }),
       layout: {
-        xaxis: { type: "category" },
-        yaxis: { range: [0, 105], ticksuffix: "%" },
-        margin: { t: 8, r: 12, b: 56, l: 48 },
-        ...legendFor(series.length),
+        xaxis: { type: "category", ...(labels.length > 8 ? { tickangle: -45 } : {}) },
+        yaxis: { range: [0, 105], ticksuffix: "%", dtick: 10, ...yTitle },
+        margin: { t: series.length > 1 ? 40 : 8, r: 12, b: 64, l: 56 },
+        ...(series.length > 1
+          ? { showlegend: true, legend: { orientation: "h", x: 0.5, xanchor: "center", yref: "container", y: 1, yanchor: "top", font: { size: 11 } } }
+          : { showlegend: false }),
       },
     };
   },
@@ -991,11 +999,16 @@ export const BUILDERS = {
     const grid = cssVar("--nd-border");
     // the category axis carries the labels by position, so two labels cut to the same text stay two bars
     const categoryAxis = { tickmode: "array", tickvals: index, ticktext: ticks, showgrid: false, zeroline: false, showline: true, linecolor: grid, ticks: "", fixedrange: true, ...(horizontal ? { autorange: "reversed" } : upright ? { tickangle: 0 } : {}) };
-    const valueAxis = { showgrid: false, zeroline: false, showticklabels: false, rangemode: "tozero", fixedrange: true };
+    // data-value-title (horizontal bars): a value axis with its ticks, grid and title under the bars, as FMS draws
+    // its quality score distribution ("Visit count")
+    const valueTitle = horizontal ? el.dataset.valueTitle : "";
+    const valueAxis = valueTitle
+      ? { showgrid: true, gridcolor: grid, zeroline: false, showticklabels: true, rangemode: "tozero", fixedrange: true, title: { text: plotlyText(valueTitle), font: { size: 11, color: cssVar("--nd-muted") } } }
+      : { showgrid: false, zeroline: false, showticklabels: false, rangemode: "tozero", fixedrange: true };
     // the figures sit past the bar ends: room for them above the columns or right of the bars
     const longest = Math.max(...rows.map((r) => shownText(show, r.value, total).length));
     const margin = horizontal
-      ? { t: 4, r: 12 + textWidth(longest, size), b: 8, l: 8 }
+      ? { t: 4, r: 12 + textWidth(longest, size), b: valueTitle ? 48 : 8, l: 8 }
       : { t: turned ? 10 + textWidth(longest, size) : 6 + 16 * Math.max(...lines.map((l) => l.length)), r: 8, b: 8, l: 8 };
     return {
       traces: [
@@ -1021,7 +1034,7 @@ export const BUILDERS = {
         xaxis: horizontal ? valueAxis : categoryAxis,
         yaxis: horizontal ? categoryAxis : valueAxis,
         margin,
-        height: horizontal ? rowsHeight(el, rows.length, 30, 24) : Number(el.dataset.height) || undefined,
+        height: horizontal ? rowsHeight(el, rows.length, 30, valueTitle ? 64 : 24) : Number(el.dataset.height) || undefined,
       },
     };
   },
@@ -1176,9 +1189,87 @@ function savePng(event) {
   const height = Math.max(el.clientHeight || 0, 360);
   window.Plotly.downloadImage(el, { format: "png", filename: button.dataset.filename || "chart", width, height });
 }
+/** The rows of a list of HTML bars (data-png-row under the element data-rows-png names) as plain values: the label,
+ * the figure and its colour, the bar's filled share and colour, and the figure written inside the bar. */
+export function barRows(list) {
+  const style = (el, key) => (el && typeof globalThis.getComputedStyle === "function" ? globalThis.getComputedStyle(el)[key] || "" : "");
+  return Array.from(list.querySelectorAll("[data-png-row]")).map((row) => {
+    const label = row.querySelector(".fmm-bar__label");
+    const value = row.querySelector(".fmm-bar__value");
+    const fill = row.querySelector(".fmm-bar__fill");
+    const share = fill ? parseFloat(fill.style.width) : 0;
+    return {
+      label: (label?.textContent || "").replace(/\s+/g, " ").trim(),
+      value: (value?.textContent || "").replace(/\s+/g, " ").trim(),
+      valueColor: style(value, "color"),
+      share: Number.isFinite(share) ? Math.min(Math.max(share, 0), 100) : 0,
+      fillColor: style(fill, "backgroundColor"),
+      inside: (row.querySelector(".fmm-bar__pct")?.textContent || "").trim(),
+    };
+  });
+}
+
+/** A button with data-rows-png="#list-id" saves a list of HTML bars (Monitoring insights' quality rule analysis, flag
+ * frequency, flag count distribution) as a PNG: the rows drawn on a canvas as the page shows them, under the list's
+ * data-png-title, in the page's colours; no other library. */
+function saveRowsPng(event) {
+  const button = event.target.closest?.("[data-rows-png]");
+  if (!button) return;
+  const list = document.querySelector(button.dataset.rowsPng);
+  if (!list) return;
+  const rows = barRows(list);
+  if (!rows.length) return;
+  const scale = 2;
+  const width = 960;
+  const rowHeight = 46;
+  const top = 56;
+  const canvas = document.createElement("canvas");
+  canvas.width = width * scale;
+  canvas.height = (top + rows.length * rowHeight + 16) * scale;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.scale(scale, scale);
+  const font = cssVar("--nd-font") || "system-ui, sans-serif";
+  const text = cssVar("--nd-text") || "#1f2933";
+  ctx.fillStyle = cssVar("--nd-surface") || "#ffffff";
+  ctx.fillRect(0, 0, width, top + rows.length * rowHeight + 16);
+  ctx.fillStyle = text;
+  ctx.font = `600 18px ${font}`;
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(list.dataset.pngTitle || "", 24, 34);
+  const track = cssVar("--nd-surface-2") || "#eef1f5";
+  rows.forEach((row, i) => {
+    const y = top + i * rowHeight;
+    ctx.font = `13px ${font}`;
+    ctx.textAlign = "left";
+    ctx.fillStyle = text;
+    ctx.fillText(row.label, 24, y + 14, width * 0.6);
+    ctx.textAlign = "right";
+    ctx.fillStyle = row.valueColor || text;
+    ctx.fillText(row.value, width - 24, y + 14);
+    const barY = y + 22;
+    const barWidth = width - 48;
+    ctx.fillStyle = track;
+    ctx.fillRect(24, barY, barWidth, 10);
+    // a bar with its share written inside is at least as wide as the figure, as on the page (min-width)
+    const filled = row.inside && row.share > 0 ? Math.max((barWidth * row.share) / 100, 38) : (barWidth * row.share) / 100;
+    ctx.fillStyle = row.fillColor || cssVar("--nd-primary");
+    ctx.fillRect(24, barY, filled, 10);
+    if (row.inside && row.share > 0) {
+      ctx.font = `600 9px ${font}`;
+      ctx.fillStyle = cssVar("--fmm-ink-on-fill") || "#ffffff";
+      ctx.fillText(row.inside, 24 + filled - 4, barY + 9);
+    }
+  });
+  const link = document.createElement("a");
+  link.download = `${button.dataset.filename || "chart"}.png`;
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
 if (typeof document !== "undefined" && typeof document.addEventListener === "function" && !window.__ndChartPng) {
   window.__ndChartPng = true;
   document.addEventListener("click", savePng);
+  document.addEventListener("click", saveRowsPng);
 }
 
 /** A chart with data-href-template opens the visits behind a bar: a click fills the template from the point's

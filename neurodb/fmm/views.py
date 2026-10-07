@@ -78,6 +78,7 @@ TABS = [
     ("map", gettext_lazy("Map")),
 ]
 PAGE_SIZE = 50
+PAGE_SIZES = (25, 50, 100)  # the visits table's rows per page (FMS §8.1)
 SORTS = {  # a visit without a score has no urgency: it comes after every urgency, either way
     "-urgency": (F("urgency").desc(nulls_last=True), F("end_date").desc(nulls_last=True)),
     "urgency": (F("urgency").asc(nulls_last=True), F("end_date").desc(nulls_last=True)),
@@ -381,13 +382,20 @@ def _this_year_query(scope: Scope) -> str:
     return replace(scope, preset="this_year", start=start, end=end, year=None, drill=()).query
 
 
+def _page_size(request: HttpRequest) -> int:
+    """The visits table's rows per page: ``?page_size=`` 25, 50 or 100 (FMS's choices), else 50."""
+    wanted = request.GET.get("page_size", "")
+    return int(wanted) if wanted.isdigit() and int(wanted) in PAGE_SIZES else PAGE_SIZE
+
+
 def _table(
     request: HttpRequest, scope: Scope, limits: dict[str, int], count: int | None = None
 ) -> dict[str, Any]:
-    """The visits table: one page of the scope's visits in the chosen order."""
+    """The visits table: one page of the scope's visits in the chosen order, 25, 50 or 100 a page."""
     sort = _sort(request)
+    size = _page_size(request)
     qs = scope.visits().select_related("partner").order_by(*SORTS[sort], "key")
-    paginator = Paginator(qs, PAGE_SIZE)
+    paginator = Paginator(qs, size)
     if count is not None:
         paginator.count = count  # the key figures counted the same visits already
     page = paginator.get_page(request.GET.get("page"))
@@ -400,6 +408,10 @@ def _table(
         "page_obj": page,
         "visits": visits,
         "sort": sort,
+        # kept in every sort and page link of the table; the default (50) is left out of the address
+        "size_query": "" if size == PAGE_SIZE else f"&page_size={size}",
+        "page_size": size,
+        "page_sizes": PAGE_SIZES,
         "limits": limits,
         "sort_columns": SORT_COLUMNS,
         "sort_next": _sort_next(sort),
@@ -855,8 +867,8 @@ def _quality_tab(
 ) -> dict[str, Any]:
     """The Quality tab, in FMS's order: quality score trends and monitoring volume by month, the HACT Q1
     finding rating distribution (or the overall rating when no visit has a Q1 answer) with its drill-down
-    pills, the geographic coverage; then the recurring issues, the issues summary and the flags per
-    visit."""
+    pills, the geographic coverage; then the recurring issues and the issues summary (the flag count
+    distribution is on the Analysis tab, as FMS has it)."""
     visit_url = _visit_url()
     q1 = metrics.hact_q1_by_month(scope, when, limits)
     q1_question = metrics.q1_question(when)
@@ -871,7 +883,6 @@ def _quality_tab(
         {**p, "last_iso": p["last"].isoformat() if p["last"] else "", "last_text": _day_text(p["last"])}
         for p in _with_urls(_shown_places(places, places_all), scope, "location")
     ]
-    flags = metrics.flag_distribution(scope, when, limits)
     # Not monitored: planned, not conducted (a reported visit with nothing rated), a count apart
     narrow = _narrowed(scope, {"rating": "not_monitored"})
     not_monitored = issues["gaps"]["n"]
@@ -917,20 +928,21 @@ def _quality_tab(
             if issues["high_flag"]["n"]
             else "",
         },
-        "flag_rows": [
-            {**r, "url": drill_url(scope, flags=r["drill"]) if r["n"] else ""} for r in flags["rows"]
-        ],
-        "flags_scored": flags["scored"],
         "fields_found_url": reverse("admin:fmm_fieldmapping_changelist"),
     }
 
 
 ENTITY_ROWS = 25
+# The entity table's chips, in FMS's order (Partner · CP Output · PD/SSFA · All); "Other" only when some
+# entity is of no known kind
+ENTITY_CHIPS = ("partner", "cp_output", "pd", "other", "all")
+SECTION_TOP = 10  # visit lines shown under a section before "Show all"
 
 
 def _entity_kind(request: HttpRequest) -> str:
+    """The entity table's kind: ``?entity_kind=``, else All (FMS's default)."""
     wanted = request.GET.get("entity_kind", "")
-    return wanted if wanted in KIND_LABELS else "pd"
+    return wanted if wanted in ENTITY_CHIPS else "all"
 
 
 def _entity_link(link: tuple[str, int] | None) -> str:
@@ -947,12 +959,13 @@ def _entity_link(link: tuple[str, int] | None) -> str:
 def _analysis_tab(
     request: HttpRequest, scope: Scope, when: str, limits: dict[str, int], rules: list, setting=None
 ) -> dict[str, Any]:
-    """The Analysis tab: FMS's quality score distribution, rule score trends and quality rules first;
-    then highlights, governorates not visited, field offices, entity performance, quality by field
-    office, sections, visit frequency by place, quality by rating, flags by rule, points by category,
-    programmatic visits and HACT, and follow-up. The rule score trends (their own query, per rule and
-    month) are worked out only when their panel scrolls into view and asks for them
-    (``?rule_trends=1``)."""
+    """The Analysis tab, in FMS's order: the quality score distribution, the rule score trends, the
+    quality rule analysis (with every rule under it), the quality flag frequency, the flag count
+    distribution, entity performance, quality by field office and section performance; then NeuroDB's
+    own blocks: highlights, governorates not visited, field offices, visit frequency by place, quality
+    by rating, points by category, programmatic visits and HACT, and follow-up. The rule score trends
+    (their own query, per rule and month) are worked out only when their panel scrolls into view and
+    asks for them (``?rule_trends=1``)."""
     visit_url = _visit_url()
     buckets = metrics.score_buckets(scope, when, limits)
     # the trends first, when asked for: the rule figures below are then summed from the same query
@@ -976,6 +989,7 @@ def _analysis_tab(
         {
             **row,
             "url": _entity_link(row["link"]),
+            "band": metrics.band_of(row["avg"], limits) if row["avg"] is not None else "none",
             "last_label": rating_label(row["last"]["rating"])
             if not row["last"]["not_rated_yet"]
             else _("Not rated yet"),
@@ -984,31 +998,54 @@ def _analysis_tab(
     ]
     offices = metrics.offices(scope, when, limits)
     flag_frequency = metrics.flag_frequency(scope, rules, when)
+    flag_counts = metrics.flag_distribution(scope, when, limits)
     follow_up = metrics.action_points(scope, when, limits)
     hact = metrics.hact_programmatic(scope, when, limits)
     places = metrics.locations(scope, when, limits)
     place_rows = _with_urls(_shown_places(places, _places_all(request)), scope, "location")
     section_rows = []
     day = functools.lru_cache(maxsize=None)(lambda d: date_format(d, "j M Y") if d else "")
-    for row in metrics.sections(scope, when, limits):
-        lines = [
+    found_sections = metrics.sections(scope, when, limits)
+    # the first SECTION_TOP lines of each section are written out; the rest only when "Show all" asks for
+    # them (``?sections=all``), as the places tables do: up to 50 lines a section, most of the block's weight
+    sections_all = request.GET.get("sections") == "all"
+    shown = {id(row): row["lines"] if sections_all else row["lines"][:SECTION_TOP] for row in found_sections}
+    # each line's assessed entity, as FMS lists it ("#1067 1.4 NUTRITION OF YO… — On track"): one query
+    entities = metrics.visit_entities(scope, {line["key"] for lines in shown.values() for line in lines})
+    for row in found_sections:
+        lines = []
+        for line in shown[id(row)]:
+            entity = entities.get(line["key"], "")
+            lines.append(
+                {
+                    **line,
+                    "entity": entity,
+                    # cut here, not by a filter per line in the template
+                    "entity_short": entity if len(entity) <= 24 else entity[:23] + "…",
+                    "url": visit_url(line["key"]),
+                    "rating_label": _("Not rated yet")
+                    if line["not_rated_yet"]
+                    else rating_label(line["rating"]),
+                    # the date beside the rating, written here once per line (a translated block per line
+                    # of up to 50 lines per section cost as much as the rest of the block)
+                    "when": (_("ends %(day)s") if line["not_rated_yet"] else _("rated %(day)s"))
+                    % {"day": day(line["date"])},
+                }
+            )
+        section_rows.append(
             {
-                **line,
-                "url": visit_url(line["key"]),
-                "rating_label": _("Not rated yet") if line["not_rated_yet"] else rating_label(line["rating"]),
-                # the date beside the rating, written here once per line (a translated block per line
-                # of up to 50 lines per section cost as much as the rest of the block)
-                "when": (_("ends %(day)s") if line["not_rated_yet"] else _("rated %(day)s"))
-                % {"day": day(line["date"])},
+                **row,
+                "band": metrics.band_of(row["avg"], limits) if row["avg"] is not None else "none",
+                "top": lines[:SECTION_TOP],
+                "rest": lines[SECTION_TOP:],
+                "rest_count": max(len(row["lines"]) - SECTION_TOP, 0),
+                "url": drill_url(scope, section=row["drill"]),
             }
-            for line in row["lines"]
-        ]
-        section_rows.append({**row, "lines": lines, "url": drill_url(scope, section=row["drill"])})
+        )
     return {
         "chart_data": {
             "buckets": buckets["items"],
             "bands": highlights["bands"],
-            "flags": flag_frequency["pairs"],
         },
         "bucket_template": _drill_template(scope, "bucket") + "&bucket={drill}",
         "not_scored": buckets["not_scored"],
@@ -1017,6 +1054,11 @@ def _analysis_tab(
         "rule_trends_query": _page_query(scope, tab="analysis", rule_trends="1"),
         "rule_trend_template": _drill_template(scope, "month", "rule") + "&month={drill}&rule={series_drill}",
         "rule_rows": rule_rows,
+        "sections_all_query": _page_query(scope, tab="analysis", sections="all"),
+        "rules_all": request.GET.get("rules") == "all",
+        "rules_all_query": _page_query(scope, tab="analysis", rules="all"),
+        # FMS's quality rule analysis: the rules that checked visits, in the order of their ids (R1 first)
+        "rule_checked": [r for r in rule_rows if r["state"] == "ok"],
         "fields_found_url": reverse("admin:fmm_fieldmapping_changelist"),
         "highlights": {
             **highlights,
@@ -1041,11 +1083,12 @@ def _analysis_tab(
         "entity_kinds": [
             {
                 "key": k,
-                "label": label,
-                "n": performance["kinds"].get(k, 0),
+                "label": _("All") if k == "all" else KIND_LABELS[k],
+                "n": sum(performance["kinds"].values()) if k == "all" else performance["kinds"].get(k, 0),
                 "query": _page_query(scope, tab="analysis", entity_kind=k),
             }
-            for k, label in KIND_LABELS.items()
+            for k in ENTITY_CHIPS
+            if k != "other" or performance["kinds"].get(k) or kind == "other"
         ],
         "entity_rows": entity_rows,
         "entity_total": len(performance["rows"]),
@@ -1057,7 +1100,13 @@ def _analysis_tab(
         "places": _places(scope, "analysis", places, place_rows, _places_all(request)),
         "rating_rows": _rating_rows(scope, when, limits),
         "flag_frequency": flag_frequency,
-        "flag_template": _drill_template(scope, "flag") + "&flag={drill}",
+        "flag_frequency_rows": _with_urls(
+            [r for r in flag_frequency["rows"] if r["n"]], scope, "flag", "code"
+        ),
+        "flag_count_rows": [
+            {**r, "url": drill_url(scope, flags=r["drill"]) if r["n"] else ""} for r in flag_counts["rows"]
+        ],
+        "flags_scored": flag_counts["scored"],
         "dimensions": metrics.dimension_breakdown(scope, rules, when, setting),
         "hact": hact,
         "follow_up": {
@@ -1162,6 +1211,9 @@ def drill(request: HttpRequest) -> HttpResponse:
     total = qs.count()
     rows = list(qs[:DRILL_ROWS])
     _decorate(rows, limits)
+    entities = metrics.visit_entities(scope, [v.key for v in rows])  # FMS's Entity column, one query
+    for v in rows:
+        v.entity = entities.get(v.key, "")
     context = {
         "scope": scope,
         "visits": rows,

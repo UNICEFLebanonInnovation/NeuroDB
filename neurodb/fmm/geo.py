@@ -46,8 +46,8 @@ MATCHES = ("coords", "place", "none")
 PLANNED = "planned"  # the group of the planned locations not yet visited
 COLORS = {
     "coords": "var(--nd-success)",
-    "place": "var(--nd-cat-6)",
-    "none": "var(--nd-cat-2)",
+    "place": "var(--nd-cat-7)",  # FMS's purple
+    "none": "var(--nd-cat-1)",  # FMS's blue: an actual visit, not linked to a PD location
     PLANNED: "var(--nd-muted)",
 }
 # the only keys a point or the configuration may carry (a test pins them: no team, lead or narrative)
@@ -324,7 +324,7 @@ def _km(distance: float | None) -> str:
 
 MATCH_LABELS = {
     "coords": "Matched by coordinates",
-    "place": "Matched by place",
+    "place": "Matched by name only",
     "none": "Actual visit — not linked to a PD location",
 }
 
@@ -576,11 +576,11 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
     ]
 
     legend = []
-    for group, label, n in (
+    for group, label, n in (  # FMS's legend, in its order
+        ("none", _("Actual visit"), counts["none"]),
         ("coords", _("Matched by coordinates"), counts["coords"]),
-        ("place", _("Matched by place"), counts["place"]),
-        ("none", _("Not linked to a PD location"), counts["none"]),
-        (PLANNED, _("PD location not yet visited"), rings_drawn),
+        ("place", _("Matched by name only"), counts["place"]),
+        (PLANNED, _("PD locations not visited"), rings_drawn),
     ):
         if n:
             entry = {"label": f"{label} ({n})", "color": COLORS[group], "group": group, "toggle": True}
@@ -593,7 +593,7 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
             "open": "modal",
             "points": points,
             "legend": legend,
-            "legend_title": _("Visits and planned locations"),
+            "legend_title": _("Visit locations map"),
             "empty_title": _("No visit in this filter has coordinates"),
             "aria_label": _(
                 "Map of the visits of this filter and the places their programme documents planned"
