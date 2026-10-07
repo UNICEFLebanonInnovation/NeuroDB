@@ -32,8 +32,10 @@ section, the rating, the quality score, the urgency and the flags; never the peo
 ## Filters
 
 - **Period**: this calendar year by default; last year, a calendar year, this or last quarter, the
-  last 30 or 90 days, two dates, or *All time*. A period reads the visit's **end date** only: a visit
-  without an end date is left out of every period and counted in a data note.
+  last 30 or 90 days, two dates, or *All time*. A period reads the visit's **start date**,
+  else its end date when eTools has no start date (a data note counts those): a visit from 30 December
+  to 3 January counts in the year it started, here, on the overview and on the field monitoring page. A
+  visit with no date at all is left out of every period and counted in a data note.
 - **Section, governorate** ("Not located" too), **field office**, **partner**, **entity type**,
   **rating**, **status**, **monitoring modality** (UNICEF staff, a third-party monitor...),
   **quality band** (High, Medium, Low, or Pending: no score), **urgency band** (High: red, Medium:
@@ -125,7 +127,7 @@ per person. For questions about how NeuroDB works, use the Help assistant instea
 
 | Block | What it shows |
 |---|---|
-| Quality score trends | Two smooth lines per month (by end date): the average quality score of the scored visits (left axis, 0–100) and the reports (right axis). A point opens the month's visits. |
+| Quality score trends | Two smooth lines per month (by start date): the average quality score of the scored visits (left axis, 0–100) and the reports (right axis). A point opens the month's visits. |
 | Monitoring volume over time | Visits per month as bars (left axis), whatever their status, with their average quality as a line (right axis, 0–100%). |
 | HACT Q1 — Finding rating distribution | Visits per month by their worst HACT Q1 answer, stacked: On track (green), Constrained (amber), Off track (red). When no visit of the filter has a Q1 answer, the overall finding rating is shown instead ("Overall finding rating distribution"), with a note. Under it, the drill-down pills On track, Off track, Constrained and Not monitored (counted apart) open their visits. |
 | Geographic coverage | The places visited, their governorate, visits and last visit (top 10; *Show all* loads the rest). |
@@ -191,7 +193,8 @@ most urgent first. The table under the map lists every point: it is the keyboard
 
 - **Visit**: one eTools monitoring activity, that is the finding rows that share an activity id (else
   an activity reference, else the row alone).
-- **Visit date**: the latest end date of its rows.
+- **Visit date**: the start date of its rows, else (no start date in eTools) their latest end date.
+  The rating date ("rated 12 May") and urgency recency still count from the end date.
 - **Status group**: planned (draft, checklist, review, assigned), in progress (data collection,
   report finalization), reported (submitted, completed), cancelled, status unknown. A visit's status
   is the most advanced status of its rows.

@@ -84,7 +84,8 @@ def _scope(**params: Any):
 
 
 def _visit_line(v, limits: dict[str, int]) -> dict[str, Any]:
-    """A visit as the panels list it: label, date, rating (or "not rated yet"), quality, urgency."""
+    """A visit as the panels list it: label, dates (the visit date: start, else end; the end date, which
+    the rating line reads), rating (or "not rated yet"), quality, urgency."""
     from .views import _not_rated_yet, rating_label, urgency_band
 
     band = urgency_band(v.urgency, limits)
@@ -92,6 +93,7 @@ def _visit_line(v, limits: dict[str, int]) -> dict[str, Any]:
         "key": v.key,
         "label": v.label,
         "url": v.get_absolute_url(),
+        "visit_date": v.visit_date,
         "end_date": v.end_date,
         "rating": v.rating,
         "rating_label": rating_label(v.rating, v.status_group),
@@ -131,7 +133,7 @@ def partner_summary(partner_id: int, year: int) -> dict[str, Any] | None:
 
     partner_id = int(partner_id)
     every = Visit.objects.filter(partner_ids__contains=[partner_id])
-    last = every.exclude(end_date=None).order_by("-end_date", "-pk").first()
+    last = every.exclude(visit_date=None).order_by("-visit_date", "-pk").first()
     if last is None and not every.exists():
         return None
     limits = metrics.thresholds()
@@ -162,7 +164,7 @@ def partner_summary(partner_id: int, year: int) -> dict[str, Any] | None:
 # ------------------------------------------------------------------------------------------ PD page
 def pd_summary(pd_id: int, year: int) -> dict[str, Any] | None:
     """The programme document page's "Field monitoring visits" panel for ``year``: the FM visits to the
-    PD per quarter of their end date (``VisitEntity.pd``) against the visits eTools plans
+    PD per quarter of their visit date, start else end (``VisitEntity.pd``) against the visits eTools plans
     (``PlannedVisits`` q1-q4), its 3 latest visits (any year) and the block of :func:`pd_context` for the
     year. None when no visit ever monitored the PD and eTools plans none for the year. The visits are
     those of ``/fmm/?pd=<id>&year=<year>&section=``, the panel's own link."""
@@ -183,12 +185,12 @@ def pd_summary(pd_id: int, year: int) -> dict[str, Any] | None:
     limits = metrics.thresholds()
     scope = _scope(pd=pd_id, year=year)
     kpis = metrics.kpis(scope, metrics.stamp(), limits)
-    done = Counter((day.month - 1) // 3 + 1 for day in scope.visits().values_list("end_date", flat=True))
+    done = Counter((day.month - 1) // 3 + 1 for day in scope.visits().values_list("visit_date", flat=True))
     quarters = [
         {"quarter": q, "planned": planned[f"q{q}"] if has_plan else None, "visits": done.get(q, 0)}
         for q in (1, 2, 3, 4)
     ]
-    latest = list(every.exclude(end_date=None).order_by("-end_date", "-pk")[:LATEST])
+    latest = list(every.exclude(visit_date=None).order_by("-visit_date", "-pk")[:LATEST])
     return {
         "year": year,
         "visits": kpis["visits"],
@@ -317,10 +319,10 @@ def pd_context(
             {"reference": t["travel_reference_number"], "date": t["date"], "place": t["location_name"]}
         )
     visits: dict[int, list[dict[str, Any]]] = {pk: [] for pk in pds}
-    rows = Visit.objects.filter(pd_ids__overlap=found, end_date__gte=start, end_date__lte=end)
+    rows = Visit.objects.filter(pd_ids__overlap=found, visit_date__gte=start, visit_date__lte=end)
     if exclude_key:
         rows = rows.exclude(key=exclude_key)
-    for v in rows.order_by("-end_date", "-pk")[:500]:
+    for v in rows.order_by("-visit_date", "-pk")[:500]:
         for pk in v.pd_ids:
             if pk in visits:
                 visits[pk].append(_visit_line(v, limits))

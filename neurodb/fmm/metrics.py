@@ -14,7 +14,7 @@ queries whatever the number of visits; the rule results, entity rows, HACT figur
 have one query each. Every drill value a block gives (``drill``) is a code the scope parses, and the
 visits a drill-down lists are exactly those the block counted.
 
-Every block is cached for ten minutes under ``fmm:v3:<scope hash>:<last refresh run>:<rules
+Every block is cached for ten minutes under ``fmm:v4:<scope hash>:<last refresh run>:<rules
 version>:<day>:<block>`` (:func:`cached`), so a refresh, a rescore or a new day shows at once.
 """
 
@@ -74,7 +74,7 @@ def cached(scope: Scope, block: str, compute: Callable[[], Any], when: str | Non
     saved a minute ago must count at once, and no refresh marks it."""
     if settings.DEBUG or any(key == "review" for key, _value in scope.drill):
         return compute()
-    key = f"fmm:v3:{scope.hash()}:{when if when is not None else stamp()}:{block}"
+    key = f"fmm:v4:{scope.hash()}:{when if when is not None else stamp()}:{block}"
     found = cache.get(key)
     if found is not None:
         return found
@@ -87,7 +87,7 @@ def kept(scope: Scope, block: str, when: str | None = None) -> Any:
     """What :func:`cached` keeps for ``scope``'s ``block`` (None when nothing is kept), never computed."""
     if settings.DEBUG or any(key == "review" for key, _value in scope.drill):
         return None
-    return cache.get(f"fmm:v3:{scope.hash()}:{when if when is not None else stamp()}:{block}")
+    return cache.get(f"fmm:v4:{scope.hash()}:{when if when is not None else stamp()}:{block}")
 
 
 # The aggregates the average quality is computed from, so a block that aggregates the visits anyway
@@ -207,11 +207,15 @@ def kpis(scope: Scope, when: str | None = None, limits: dict[str, int] | None = 
 
 
 def data_window(scope: Scope, when: str | None = None) -> dict[str, Any]:
-    """The first and last end dates of the visits every filter but the period keeps ("Data available
-    from X to Y", shown for all time and for custom dates)."""
+    """The first and last visit dates (start, else end) of the visits every filter but the period
+    keeps ("Data available from X to Y", shown for all time and for custom dates)."""
 
     def compute() -> dict[str, Any]:
-        found = scope.filtered().exclude(end_date=None).aggregate(first=Min("end_date"), last=Max("end_date"))
+        found = (
+            scope.filtered()
+            .exclude(visit_date=None)
+            .aggregate(first=Min("visit_date"), last=Max("visit_date"))
+        )
         return {"first": found["first"], "last": found["last"]}
 
     return cached(scope, "window", compute, when)
@@ -222,18 +226,19 @@ def notes(scope: Scope, when: str | None = None) -> list[dict[str, Any]]:
     when it applies, with its count (``{"key", "n", "text"}``)."""
 
     def compute() -> list[dict[str, Any]]:
-        within = Q(end_date__gte=scope.start, end_date__lte=scope.end)
+        within = Q(visit_date__gte=scope.start, visit_date__lte=scope.end)
         counts = scope.filtered().aggregate(
             via_site=Count("pk", filter=within & Q(location=None, site__isnull=False)),
             no_reference=Count("pk", filter=within & Q(reference="")),
-            no_date=Count("pk", filter=Q(end_date=None)),
+            no_date=Count("pk", filter=Q(visit_date=None)),
+            dated_by_end=Count("pk", filter=within & Q(start_date=None, end_date__isnull=False)),
         )
         lines: list[dict[str, Any]] = []
         if scope.sections:
             lines.append({"key": "section", "n": None})
         if scope.governorate and scope.governorate != "none" and counts["via_site"]:
             lines.append({"key": "via_site", "n": counts["via_site"]})
-        for key in ("no_reference", "no_date"):
+        for key in ("no_reference", "no_date", "dated_by_end"):
             if counts[key]:
                 lines.append({"key": key, "n": counts[key]})
         if scope.entity_filtered:
@@ -345,7 +350,7 @@ def critical_items(scope: Scope, when: str | None = None, limits: dict | None = 
     limits = limits or thresholds()
 
     def compute() -> dict[str, Any]:
-        visits = scope.visits().select_related("partner").order_by("-urgency", "-end_date", "key")
+        visits = scope.visits().select_related("partner").order_by("-urgency", "-visit_date", "key")
         fields = ("pk", "key", "label", "activity_id", "rating", "status_group", "urgency", "offices")
         fields += ("partner__name", "pd_numbers", "cp_outputs")
         # one query: the most urgent visits from amber up, the red ones first (most urgent first)
@@ -507,7 +512,7 @@ SUMMARY_COLUMNS = (
     "key",
     "label",
     "activity_id",
-    "end_date",
+    "visit_date",
     "status_group",
     "rating",
     "hact_q1",
@@ -571,11 +576,11 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
         counts: Counter = Counter()
         # read at once: a year of visits is a few thousand rows, and a server-side cursor's round
         # trips cost more than the rows
-        rows = scope.visits().order_by("end_date", "key").values_list(*SUMMARY_COLUMNS)
+        rows = scope.visits().order_by("visit_date", "key").values_list(*SUMMARY_COLUMNS)
         add_everyone = everyone.add
         last_day, month = None, ""
         for row in rows:
-            (key, label, activity_id, end_date, group, rating, hact_q1, quality, band, flags, flag_count,
+            (key, label, activity_id, visit_date, group, rating, hact_q1, quality, band, flags, flag_count,
              visit_offices, offices_from, section_names, governorate_key, location_id, location_name, site_id,
              place_name, governorate_name, partner_ids, psea_flag, entities, entities_rated,
              action_points) = row  # fmt: skip
@@ -603,9 +608,9 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
                 count = flag_count or 0
                 flags_dist["3+" if count >= 3 else str(count)] += 1
                 counts["high_flag"] += count >= high_flag
-            # by month (the end date: every visit here has one; the rows come in date order)
-            if end_date != last_day:
-                last_day, month = end_date, f"{end_date.year:04d}-{end_date.month:02d}"
+            # by month (start, else end date: every visit here has one; the rows come in date order)
+            if visit_date != last_day:
+                last_day, month = visit_date, f"{visit_date.year:04d}-{visit_date.month:02d}"
             m = months.get(month)
             if m is None:
                 m = months[month] = {"visits": 0, "reported": 0, "q_sum": Decimal(0), "q_n": 0}
@@ -634,7 +639,7 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
             line = (
                 quality is None,
                 quality or 0,
-                end_date,
+                visit_date,
                 key,
                 quality,
                 activity_id,
@@ -671,7 +676,7 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
                         "rated": 0,
                     }
                 p["tally"].add(quality, band, counted)
-                p["last"] = max(p["last"] or end_date, end_date)
+                p["last"] = max(p["last"] or visit_date, visit_date)
                 p["entities"] += entities or 0
                 p["rated"] += entities_rated or 0
                 p["governorate"] = p["governorate"] or governorate_name
@@ -701,9 +706,9 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
                         "band": band,
                         "rating": rating,
                         "not_rated_yet": _not_rated_yet(rating, group),
-                        "date": end_date,
+                        "date": visit_date,
                     }
-                    for *_sort, end_date, key, quality, activity_id, label, band, rating, group in (
+                    for *_sort, visit_date, key, quality, activity_id, label, band, rating, group in (
                         ln[2:] for ln in lines[:SECTION_LINES]
                     )
                 ],
@@ -791,7 +796,7 @@ def _month_label(day: datetime.date) -> str:
 
 
 def monthly_quality(scope: Scope, when: str | None = None, limits: dict | None = None) -> dict[str, Any]:
-    """Block 4, quality score trends: the average quality of the visits that ended each month and the
+    """Block 4, quality score trends: the average quality of the visits that started each month and the
     reported visits (two lines, each on its own axis); ``{}`` when no visit of the scope is scored. A
     point opens the visits of its month."""
     axis, months = _months(scope, when, limits)
@@ -820,7 +825,7 @@ def monthly_quality(scope: Scope, when: str | None = None, limits: dict | None =
 
 
 def monthly_volume(scope: Scope, when: str | None = None, limits: dict | None = None) -> dict[str, Any]:
-    """Block 5, monitoring volume over time: the visits that ended each month (bars, whatever their
+    """Block 5, monitoring volume over time: the visits that started each month (bars, whatever their
     status) and their average quality (line); ``{}`` when the scope has no visit."""
     axis, months = _months(scope, when, limits)
     if not months:
@@ -884,7 +889,7 @@ def q1_question(when: str | None = None) -> str:
     is Q1, in the whole data), "" when no Q1 question was found. Kept ten minutes per refresh."""
     from .models import QuestionAnswer
 
-    key = f"fmm:v3:q1:{when if when is not None else stamp()}"
+    key = f"fmm:v4:q1:{when if when is not None else stamp()}"
     found = None if settings.DEBUG else cache.get(key)
     if found is not None:
         return found
@@ -990,14 +995,14 @@ def top_issues(
                 "visit__label",
                 "visit__activity_id",
                 "visit__urgency",
-                "visit__end_date",
+                "visit__visit_date",
             )
         )
         # most urgent visit first, then the latest, then by key: sorted here, where it costs a third of
         # what the database took to sort the joined rows
         rows.sort(key=lambda r: (-(r[6] or 0), -(r[7].toordinal() if r[7] else 0), r[3]))
         groups: dict[tuple[str, str], dict[str, Any]] = {}
-        for rule, key, measure, visit_key, label, activity_id, urgency, _end in rows:
+        for rule, key, measure, visit_key, label, activity_id, urgency, _day in rows:
             g = groups.get((rule, key))
             if g is None:  # (not setdefault: its default would be built for every flag)
                 g = groups[(rule, key)] = {"visits": [], "n": 0, "urgency": 0, "urgent_n": 0, "measures": []}
@@ -1051,9 +1056,9 @@ def locations(scope: Scope, when: str | None = None, limits: dict | None = None)
 
 
 def _rule_rows(scope: Scope, by_month: bool) -> list[dict[str, Any]]:
-    """Per rule (and month of the visits' end date, ``by_month``), over the scope's visits: the visits
-    in each result state, and the points earned (each capped at its maximum) over the points
-    evaluated. One query."""
+    """Per rule (and month of the visits' date, start else end, ``by_month``), over the scope's
+    visits: the visits in each result state, and the points earned (each capped at its maximum) over
+    the points evaluated. One query."""
     from django.db.models import DecimalField
     from django.db.models.functions import Cast, Least, TruncMonth
 
@@ -1063,7 +1068,7 @@ def _rule_rows(scope: Scope, by_month: bool) -> list[dict[str, Any]]:
     evaluated = Q(status__in=("pass", "fail"), max_points__gt=0)
     rows = VisitRuleResult.objects.filter(visit__in=scope.visits().values("pk")).order_by()
     if by_month:
-        rows = rows.annotate(month=TruncMonth("visit__end_date")).values("rule", "month")
+        rows = rows.annotate(month=TruncMonth("visit__visit_date")).values("rule", "month")
     else:
         rows = rows.values("rule")
     return list(
@@ -1509,7 +1514,7 @@ def dimension_breakdown(
 
 def rule_trends(scope: Scope, rules: list | None = None, when: str | None = None) -> dict[str, Any]:
     """Rule score trends over time: per rule with points, the share of its maximum points earned by the
-    visits that ended each month (the results that passed or failed; each capped at its maximum); a
+    visits that started each month (the results that passed or failed; each capped at its maximum); a
     month where the rule checked no visit has no value. ``{}`` when no rule checked a visit."""
     from .rules import code_order, half_up, max_deduction
 
@@ -1576,7 +1581,7 @@ ENTITY_COLUMNS = (
     "cp_output",
     "rating",
     "visit_id",
-    "visit__end_date",
+    "visit__visit_date",
     "visit__quality_score",
     "visit__score_band",
     "visit__flags",
@@ -1659,7 +1664,7 @@ def entity_rows(scope: Scope, when: str | None = None, kind: str | None = None) 
         groups: dict[str, dict[tuple, dict[str, Any]]] = {}
         for row in rows:
             row_kind, entity, pd_id, pd_number, partner_id, partner_short, partner_name = row[:7]
-            cp_output, rating, visit_id, end_date, quality, band, flags, status_group = row[7:15]
+            cp_output, rating, visit_id, visit_date, quality, band, flags, status_group = row[7:15]
             partner_type = row[17]
             row_kind = row_kind or "other"
             text = (entity or "").strip()
@@ -1690,7 +1695,7 @@ def entity_rows(scope: Scope, when: str | None = None, kind: str | None = None) 
                     else ENTITY_TYPE_LABELS.get(row_kind, ENTITY_TYPE_LABELS["other"]),
                 }
             g["visits"][visit_id] = (
-                end_date,
+                visit_date,
                 _quality(quality),
                 band,
                 tuple(flags or ()),

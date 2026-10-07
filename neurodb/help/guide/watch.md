@@ -60,7 +60,7 @@ indicator's value), new or ended links (a programme document newly funded by a d
 - A change is **notable** when it is a new or gone thing of the main kinds, a status or date that
   changed, a figure that moved by at least 10% (and at least $1,000 for money), a funding or reporting
   link, or a critical review finding that appears or goes. *Include minor changes* shows the rest.
-- A field monitoring visit is news when it comes in rated off track or constrained having ended in the
-  last 30 days, or when its rating changes later.
+- A field monitoring visit is news when it comes in rated off track or constrained and dated (its start
+  date, else its end date) in the last 30 days, or when its rating changes later.
 - Filter by the last 24 hours, 7 or 30 days, section and kind. Each line links to the page of the thing.
 - The daily note (07:30) sums up the notable changes of the last 24 hours, for everyone and per section.

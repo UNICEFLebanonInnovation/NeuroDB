@@ -518,7 +518,7 @@ def test_search_texts_finds_narratives_and_answer_values_only(fm_world):
     assert len(parse.search_texts(keys, "registers", 1)) == 1
     assert parse.search_texts(["1723"], "registers", 10) == []
     # a visit without a date comes after the dated ones, not before the newest
-    Visit.objects.filter(key="1726").update(end_date=None)
+    Visit.objects.filter(key="1726").update(end_date=None, visit_date=None)
     found = [h.visit_key for h in parse.search_texts(keys, "a", 50)]
     assert found[0] != "1726" and found[-1] == "1726"
 

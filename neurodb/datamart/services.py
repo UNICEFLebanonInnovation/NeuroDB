@@ -144,7 +144,8 @@ def workplan(queryset: QuerySet[dm.PDActivity]) -> list[dict[str, Any]]:
 
 def visits_by_year(pd: PCA) -> list[dict[str, Any]]:
     """Programmatic visits planned (eTools PD plan) and done (staff trips, TPM visits) per year, and
-    the field monitoring visits that monitored the PD (one per visit, by the year of its end date)."""
+    the field monitoring visits that monitored the PD (one per visit, by the year of its start date,
+    else its end date)."""
     years: dict[int, dict[str, int]] = defaultdict(lambda: {"planned": 0, "staff": 0, "tpm": 0, "fm": 0})
     for plan in pd.planned_visits_by_year.exclude(year=None):
         years[plan.year]["planned"] += plan.total
@@ -361,13 +362,15 @@ def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
 
 def _monitoring_visits_by_year(partner: PartnerOrganization) -> dict[str, dict[int, int]]:
     """Field monitoring visits (one per monitoring activity, however many findings it has) and planned
-    third-party visits (drafts and cancelled ones left out) of a partner, per year."""
+    third-party visits (drafts and cancelled ones left out) of a partner, per year (a field monitoring
+    visit by its start date, else its end date)."""
     field: Counter[int] = Counter()
     seen: set[str] = set()
     for activity, pk, day in (
         dm.MonitoringFinding.objects.filter(partner=partner)
-        .exclude(end_date=None)
-        .values_list("monitoring_activity", "pk", "end_date")
+        .annotate(day=fm.finding_date())
+        .exclude(day=None)
+        .values_list("monitoring_activity", "pk", "day")
     ):
         key = activity or f"#{pk}"
         if key not in seen:
@@ -530,7 +533,7 @@ def monitoring(params) -> dict[str, Any]:
     if ratings:
         findings = findings.filter(overall_finding_rating__in=ratings)
     if year:
-        findings = findings.filter(end_date__year=year)
+        findings = findings.filter(fm.finding_year_q(year))  # start date, else end date: as FMM dates a visit
         visits = visits.filter(start_date__year=year)
     if q:
         findings = findings.filter(
@@ -547,7 +550,7 @@ def monitoring(params) -> dict[str, Any]:
         )
     by_rating = Counter(findings.values_list("overall_finding_rating", flat=True))
     by_month: dict[str, int] = defaultdict(int)
-    for day in findings.exclude(end_date=None).values_list("end_date", flat=True):
+    for day in findings.annotate(day=fm.finding_date()).exclude(day=None).values_list("day", flat=True):
         by_month[day.strftime("%Y-%m")] += 1
     planned_visits = visits.exclude(status__in=TPM_NOT_PLANNED)
     activities = dm.TPMActivity.objects.select_related("partner", "intervention")
@@ -570,7 +573,7 @@ def monitoring(params) -> dict[str, Any]:
         "tpm_activities": list(activities.order_by("-date")[:50]),
         "staff_visits": staff.count(),
         "staff_by_type": Counter(staff.values_list("travel_type", flat=True)).most_common(),
-        "findings": findings.order_by("-end_date", "-datamart_id"),
+        "findings": findings.order_by(fm.finding_date().desc(nulls_last=True), "-datamart_id"),
         "by_rating": [(r or "—", n) for r, n in by_rating.most_common()],
         "by_month": sorted(by_month.items())[-24:],
         "activities": findings.exclude(monitoring_activity="")
@@ -590,7 +593,9 @@ def monitoring(params) -> dict[str, Any]:
                 .distinct()
                 if x
             ),
-            "years": _years(dm.MonitoringFinding.objects.exclude(end_date=None), "end_date"),
+            "years": _years(
+                dm.MonitoringFinding.objects.annotate(day=fm.finding_date()).exclude(day=None), "day"
+            ),
         },
     }
 

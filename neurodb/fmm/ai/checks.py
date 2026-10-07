@@ -538,7 +538,7 @@ def _check_all(api, book, sync_run, tally: dict[str, int], limit: int | None) ->
         rule.code: prompt_hash(rule, book.prompts[rules.param(rule, "ai_prompt_key")]) for rule in ai_rules
     }
     visits = Visit.objects.filter(status__in=sorted(book.scored_statuses)).order_by(
-        F("end_date").desc(nulls_last=True), "key"
+        F("visit_date").desc(nulls_last=True), "key"
     )
     failures = 0
     batch: list[Visit] = []

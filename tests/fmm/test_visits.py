@@ -26,7 +26,7 @@ TODAY = datetime.date(2026, 10, 5)
 TABLE = reverse("fmm:visits")
 REFERENCE_KEY = fm.visit_key(None, "FM/2026/9", 0)
 # by urgency (FMS's formula: 59, 39, 37, 24, 23, 14), then the two without a score (and so without
-# urgency) by end date, newest first
+# urgency) by visit date (start, else end), newest first
 URGENCY_ORDER = ["1723", "1727", "1726", "1722", REFERENCE_KEY, "1728", "1724", "1725"]
 
 

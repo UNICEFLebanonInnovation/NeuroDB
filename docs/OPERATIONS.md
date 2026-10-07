@@ -437,7 +437,7 @@ do the evaluations say about them?"), NeuroDB keeps one index of everything it h
 | Youth indicators, Makani and Dirasa, Makani centres | Compiler | PDs, partners, governorates |
 | Documents and maps | Knowledge base, library, country programme | the partners, PDs, sections and places they name |
 | Open daily review findings | Daily review | the PD or partner they are about, section |
-| Field monitoring visits | Monitoring insights (visits that ended in the last `FMM_HUB_MONTHS`, 24, months) | the PDs, partners and country programme outputs they are about, their sections, governorate and district |
+| Field monitoring visits | Monitoring insights (visits dated, by their start date else their end date, in the last `FMM_HUB_MONTHS`, 24, months) | the PDs, partners and country programme outputs they are about, their sections, governorate and district |
 
 The hub holds **names and links** (plus a few headline figures, kept only to notice what changed): every figure the assistant gives is read live. Each thing carries a *lookup*,
 the assistant tool and arguments that give its current figures (e.g. `partner_details`,
@@ -486,8 +486,8 @@ A change is **notable** (in the daily note, the overview card and the assistant'
 it is a new or gone thing of the main kinds, a status or date that changed, a figure that moved by at
 least 10% (and at least $1,000 for money, 5 for report counts), a funding or reporting link, a
 critical review finding that appears or goes, or a finding whose severity changed. A field
-monitoring visit is news when it comes in rated off track or constrained having ended in the last
-`FMM_NEWS_DAYS` (30) days, or when its rating changes later; its quality, urgency and status moving
+monitoring visit is news when it comes in rated off track or constrained and dated (its start date, else its
+end date) in the last `FMM_NEWS_DAYS` (30) days, or when its rating changes later; its quality, urgency and status moving
 are kept, not told, and the first build that brings visits into the hub tells none of them (so the
 24 months of visits added at once are not news). A finding growing
 older (new, then still open) is not news, and its title counting the days down is kept as a minor
@@ -1570,14 +1570,14 @@ per block, each taking the page's filter), kept 10 minutes.
 | Insights › AI monitoring insights | The parts the published prompt version lists (v2: a coverage and quality summary, key programmatic findings, operational challenges, recommendations, and up to five priority action points written "[PRIORITY: High] Section / Partner — action — responsible — timeframe"), each sentence with the visits it rests on; *Generation settings* (read-only: the published version's model, effort, output token limit, narrative samples, compliance depth, temperature or top-p only when set and used, the sections; *Edit in admin* for administrators); the chips (model, effort, tokens, temperature and top-p, notes and quality flags sent, prompt and rules versions, quota); *Regenerate*, *What was sent* | `fmm.ai.insights.current`: the latest `Insight` of the filter, else the brief written by NeuroDB (`fmm.ai.fallback`) |
 | Insights › Critical visits requiring attention | FMS's "Critical items requiring attention": the scored visits at or above red urgency, most urgent first, at most 10 (else the five most urgent amber ones), each with its partner, rating, HIGH/MEDIUM and urgency, and one line per rule it failed (the stored flag, with the AI's explanation for an AI check; R19 as "N monitors not on the staff list of <office>", never who); *Show all N* opens the Visits tab on that urgency band | `critical_items`: `fmm.Visit`, `fmm.VisitRuleResult` |
 | Insights › Chat with Data | Questions about the visits of the filter, answered with four look-ups, links to the visits checked; the published prompt version's starter questions | `fmm:chat_stream`, `fmm.ai.chat`, the `fm_*` look-ups |
-| Quality › Quality score trends | Two smooth lines per month: the average quality score (left axis, 0–100, filled) and the reports (right axis); a point opens the month's visits | `monthly_quality` |
-| Quality › Monitoring volume over time | Visits per month (by end date) as bars, with their average quality as a line on its own axis (0–100%) | `monthly_volume` |
+| Quality › Quality score trends | Two smooth lines per month (by visit date: start, else end): the average quality score (left axis, 0–100, filled) and the reports (right axis); a point opens the month's visits | `monthly_quality` |
+| Quality › Monitoring volume over time | Visits per month (by visit date: start, else end) as bars, with their average quality as a line on its own axis (0–100%) | `monthly_volume` |
 | Quality › HACT Q1 — Finding rating distribution | Visits per month by their worst HACT Q1 answer, stacked On track / Constrained / Off track in FMS's colours; the overall finding rating instead ("Overall finding rating distribution"), with a note, when no visit of the filter has a Q1 answer; the drill-down box's pills On track, Off track, Constrained and Not Monitored (apart) open their visits | `hact_q1_by_month`, `rating_by_month` |
 | Quality › Geographic coverage | The places visited, their governorate, visits and last visit (top 10; *Show all* loads the rest, up to 500) | `locations` |
 | Quality › Top recurring issues | Flags grouped by rule and reason, with their visits and mean urgency | `top_issues`: `fmm.VisitRuleResult` |
 | Quality › Quality issues summary | Narrative and rating coherence flags (R6, an AI check), Not monitored (planned, not conducted: reported visits with no entity rated), visits with 3 or more flags | `issues_summary` |
 | Analysis › Quality score distribution | Scored visits in FMS's five bars of 20 points (0–20 red, 20–40 orange, 40–60 amber, 60–80 light green, 80–100 green, 100 included) along a "Visit count" axis, and the visits not scored | `score_buckets` (summed from the pass's buckets of 10) |
-| Analysis › Rule score trends over time | Per rule with points, a smooth line of the share of its maximum points the visits that ended each month earned ("% of max score", legend on top, FMS's colours for the first five); a point opens the visits the rule flagged that month (worked out when the panel scrolls into view) | `rule_trends` (with `rule_stats`, from `rule_months`) |
+| Analysis › Rule score trends over time | Per rule with points, a smooth line of the share of its maximum points the visits that started each month earned ("% of max score", legend on top, FMS's colours for the first five); a point opens the visits the rule flagged that month (worked out when the panel scrolls into view) | `rule_trends` (with `rule_stats`, from `rule_months`) |
 | Analysis › Quality rule analysis | One row per rule that checked visits, in the order of the ids: "N / M visits flagged" and a bar of the share not flagged (green under 25% flagged, amber 25–50%, red over 50%); under it, every rule with what it checks and "not available", "AI check pending", "AI check switched off", "off" or "flag only" | `rule_analysis` |
 | Analysis › Quality flag frequency | Every rule that flagged a visit, most first: id, bar and "N (share of the visits it checked)"; the same counts as the rule analysis | `flag_frequency` |
 | Analysis › Flag count distribution | Scored visits with 0 flags (green), 1 flag (blue), 2 flags (amber), 3+ flags (red), the share inside the bar | `flag_distribution` |
@@ -1611,9 +1611,10 @@ is hidden.
   (no score)*), urgency band (High: red, Medium: amber, Low: below amber; a visit without a score has
   no urgency and is in none), "Programmatic visits only" and a search on the visit, its references,
   partners, programme documents and place. *All time* and two dates add "Data available from X to Y"
-  (the first and last end dates of the visits the other filters keep) to the reference line. `?year=Y` means 1 January to 31 December Y, so the year
-  menu keeps the page. Periods read the visit's end date only; a visit without one is left out and
-  counted in a data note. A user with a section sees it by default, as on the overview, but only on a
+  (the first and last visit dates of the visits the other filters keep) to the reference line. `?year=Y` means 1 January to 31 December Y, so the year
+  menu keeps the page. Periods read the visit date: its start date, else its end date when eTools has
+  no start date (a data note counts those); a visit with neither is left out and counted in a data
+  note. A user with a section sees it by default, as on the overview, but only on a
   bare visit to `/fmm/`: every link the page writes carries `section` (empty for every section), and a
   chip "Your section: … ×" shows every section. A governorate can be given as its gazetteer name
   ("Beqaa") or its key ("bekaa"). The entity type and partner filters keep a visit when one of its
@@ -1628,7 +1629,8 @@ is hidden.
   and deduction, and urgency; rules switched off are not listed).
 - **Data notes**, each only when it applies: the section rule differs from the overview's, visits
   placed in the governorate through their monitoring site only, finding rows without an activity
-  reference (counted as their own visits here, not by the overview), visits without an end date.
+  reference (counted as their own visits here, not by the overview), visits with no start date
+  (dated by their end date), visits with no date at all.
   With no filter, the visits of a year equal the overview's field monitoring visits and the field
   monitoring page's "Monitoring activities", and the monitored entities its "Findings".
 - **Morning briefing** (first on the Insights tab): ten tiles over **this year so far**, 1 January to
@@ -1740,7 +1742,7 @@ chat, so the same figure never differs between two places.
 | Figure | Definition |
 |---|---|
 | Visit | One eTools monitoring activity: the finding rows that share an activity id (else an activity reference, else the row alone) (`datamart.fm.visit_key`). |
-| Visit date | The latest end date of its rows. Periods read it only; a visit without one is left out of every period and counted in a data note, never placed by its start date. |
+| Visit date | The earliest start date of its rows, else (eTools left the start blank) the latest end date (`Visit.visit_date`). Every period, month and year reads it: Monitoring insights, the overview's *Field monitoring visits* and `/field-monitoring/` (`datamart.fm.finding_year_q`), so a visit from 30 December to 3 January counts in the year it started on every page. A visit with neither date is left out of every period and counted in a data note. The rating date, urgency recency, the follow-up and late-report signals and the HACT programmatic count still read the end date. |
 | Monitoring visits (key figure) | Every visit of the period, whatever its status, as the overview counts them. |
 | Monitored entities | The finding rows of the visits (the partners, programme documents and CP outputs monitored); "Findings" on `/field-monitoring/`. An entity filter counts the matching rows only. |
 | Entity rated | Its rating reads On track, Constrained or Off track. Every share of ratings (key figures, charts, highlights, the AI facts, the brief written by NeuroDB, the chat's look-ups) is a share of the rated visits or entities only. |
@@ -1901,9 +1903,10 @@ it was scored with.
 ### Filters and caching
 
 - **Period**: this calendar year by default; last year, a calendar year, this or last quarter, the last
-  30 or 90 days, two dates, or *All time* (every visit with an end date; no earlier period to compare
+  30 or 90 days, two dates, or *All time* (every visit with a date; no earlier period to compare
   with, and the reference line says "Data available from X to Y"). `?year=Y` means 1 January to 31 December Y and wins over any preset, so
-  the site's year menu keeps the page on the year chosen. Periods read the visit's end date only.
+  the site's year menu keeps the page on the year chosen. Periods read the visit date: the start
+  date, else the end date (a data note counts the visits dated by their end).
 - **Section default**: a user with a section sees that section on a bare visit to `/fmm/`, as on the
   overview, with a chip to show every section. Every link the page writes, and every link into it
   from another page, carries `section` (empty for every section), so following a link never applies
@@ -1939,7 +1942,9 @@ under the reference line says so, each line only when it applies, with its count
   places visits by their location and leaves these out;
 - finding rows without an activity reference count as their own visits here; the overview does not
   count them;
-- visits without an end date are left out of every period.
+- visits with no start date are dated by their end date (a count, not a difference: the overview and
+  the field monitoring page date them the same way);
+- visits with no date at all are left out of every period.
 
 The existing pages do not move because Monitoring insights exists: `/field-monitoring/`, the overview's
 assurance figures and the partner page's visit series are pinned by tests before and after a refresh.
@@ -1953,10 +1958,10 @@ whose own section would otherwise apply sees the same figures as the panel the l
   (every status), the average quality, the visits rated off track and constrained, the open and
   overdue FM action points of those visits, and the last visit (rating and date). Its link
   `/fmm/?partner=<id>&year=<year>&section=` opens the page with the same figures. The partner page's
-  existing visits chart does not change. No panel for a partner no visit ever monitored.
+  existing visits chart dates a field monitoring visit the same way (start date, else end date). No panel for a partner no visit ever monitored.
 - **Programme document page**: the *Programmatic visits* table gains a *Field monitoring* column (FM
-  visits that monitored the PD, by the year of their end date), and a *Field monitoring visits* panel
-  shows this year's FM visits per quarter (by end date) against the visits eTools plans (`PlannedVisits`),
+  visits that monitored the PD, by the year of their start date, else their end date), and a *Field
+  monitoring visits* panel shows this year's FM visits per quarter (by start date, else end date) against the visits eTools plans (`PlannedVisits`),
   the three latest visits with their rating, quality and urgency, a link
   `/fmm/?pd=<id>&year=<year>&section=` with the same count, and the PD's *what the partner reported,
   and other visits* for the year (as on the visit page, with the country programme outputs the PD
@@ -1974,7 +1979,7 @@ whose own section would otherwise apply sees the same figures as the panel the l
   Monitoring insights.
 - **Action points**: an FM action point matched to a visit shows *Visit 1722* under *Raised from* with
   its link confidence, opening the visit; see *Action points* below for the page.
-- **Knowledge hub and What's new**: every visit that ended in the last `FMM_HUB_MONTHS` (24) months
+- **Knowledge hub and What's new**: every visit dated (start, else end) in the last `FMM_HUB_MONTHS` (24) months
   is a *Field monitoring visit* (`fm_visit`) in the hub: "Visit 1722 · AMEL · 12 May 2026", with its
   date, status group, rating, quality and urgency band only (never a narrative, an answer or a team),
   linked *about* its programme documents, partners and the country programme outputs its CP outputs
@@ -2761,8 +2766,8 @@ on, and before its figures are trusted:
 | `FMM_KEY_MIN_COVERAGE` | `0.5` | The share of a dataset's records a candidate key must fill to be chosen before the keys listed after it (above 0, at most 1; another value stops the start-up). |
 | `FMM_ETOOLS_ACTIVITY_URL` | (blank) | The address of an activity in eTools, with `{id}` for its id (e.g. `https://etools.unicef.org/fm/activities/{id}/details`), for the visit page's *Open in eTools*. Blank hides the link until the address is verified. |
 | `FMM_MATCH_KM` | `2.0` | Map: the distance in kilometres below which a visit and a planned place of its programme document count as the same place, when both points are exact (a monitoring site, or a cadaster's own point). Above 0; another value stops the start-up. |
-| `FMM_HUB_MONTHS` | `24` | The visits that ended within this many months are in the knowledge hub. |
-| `FMM_NEWS_DAYS` | `30` | A visit rated off track or constrained that comes into the knowledge hub is news in What's new only when it ended within this many days. |
+| `FMM_HUB_MONTHS` | `24` | The visits dated (start, else end) within this many months are in the knowledge hub. |
+| `FMM_NEWS_DAYS` | `30` | A visit rated off track or constrained that comes into the knowledge hub is news in What's new only when it is dated (start, else end) within this many days. |
 | `FMM_AI` | `false` | The AI brief and chat. They also need `AI_ASSISTANT_ENABLED` and a published prompt version. Off at deploy; switched on at go-live once the real keys are confirmed (above) and a Preview and a Test run look right. |
 | `FMM_MODEL` | (blank) | The model of a prompt version that names none; blank: `AI_ASSISTANT_MODEL`. |
 | `FMM_SAMPLING` | `auto` | `auto`: send temperature/top-p when a version sets them and the model has not refused them; `off`: never send them. Another value stops the start-up. |

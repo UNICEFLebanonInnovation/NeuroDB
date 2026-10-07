@@ -5,8 +5,9 @@ A scope is a period (a preset such as "this year" or "all time", a calendar year
 filters on the visits: sections, governorate, field offices, partners, a programme document, entity
 types, ratings, status groups, monitoring modalities, quality bands (High, Medium, Low, Pending: no
 score), urgency levels (High, Medium, Low; a visit without a score has none), programmatic visits only,
-a search text, and the drill-downs that charts and links add. Periods read the visit's end date only;
-a visit without one is left out of every period.
+a search text, and the drill-downs that charts and links add. Periods read the visit's start date
+(``Visit.visit_date``: the start date, else the end date when eTools has no start date); a visit
+with neither is left out of every period.
 
 **Sections.** A user with a section sees it by default, as on the overview, but only on a bare visit
 to the page (no ``section`` key in the address). Every link FMM writes carries ``section`` explicitly
@@ -63,7 +64,7 @@ PRESET_LABELS = {
     "all_time": "All time",
     "custom": "Custom dates",
 }
-ALL_TIME_START = datetime.date(1990, 1, 1)  # "all time": every visit, whatever its end date
+ALL_TIME_START = datetime.date(1990, 1, 1)  # "all time": every visit, whatever its date
 QUALITY_BANDS = ("high", "medium", "low", "pending")
 QUALITY_LABELS = {"high": "High", "medium": "Medium", "low": "Low", "pending": "Pending (no score)"}
 URGENCY_LEVELS = ("high", "medium", "low")
@@ -397,13 +398,13 @@ class Scope:
         return qs
 
     def visits(self) -> QuerySet:
-        """The visits of the scope: end date in the period (a visit without one is left out), every
-        filter and drill-down applied."""
-        return self.filtered().filter(end_date__gte=self.start, end_date__lte=self.end)
+        """The visits of the scope: visit date (start, else end) in the period (a visit without one
+        is left out), every filter and drill-down applied."""
+        return self.filtered().filter(visit_date__gte=self.start, visit_date__lte=self.end)
 
     def undated(self) -> QuerySet:
-        """The visits every filter but the period keeps that have no end date (the data note)."""
-        return self.filtered().filter(end_date=None)
+        """The visits every filter but the period keeps that have no date at all (the data note)."""
+        return self.filtered().filter(visit_date=None)
 
     def entities(self) -> QuerySet:
         """The finding rows of the scope's visits; the entity type and partner filters also filter the
@@ -605,7 +606,7 @@ def _drill(qs: QuerySet, key: str, value: str, drill: tuple[tuple[str, str], ...
 
     if key == "month":
         year, month = (int(part) for part in value.split("-"))
-        return qs.filter(end_date__year=year, end_date__month=month)
+        return qs.filter(visit_date__year=year, visit_date__month=month)
     if key == "visit_status":
         return qs.filter(status=value)
     if key == "hact_q1":
@@ -668,7 +669,7 @@ def link(**params: Any) -> str:
 def options(when: str | None = None) -> dict[str, list]:
     """The filter bar's choices: the eTools section names, field offices and monitoring modalities of
     the visits, the gazetteer's governorates (``[key, name]``), the partners with visits (``[id,
-    name]``) and the years of the visits' end dates. Kept ten minutes per refresh (``when``:
+    name]``) and the years of the visits' dates (start, else end). Kept ten minutes per refresh (``when``:
     ``metrics.stamp``)."""
     from django.core.cache import cache
     from django.db import connection
@@ -682,7 +683,7 @@ def options(when: str | None = None) -> dict[str, list]:
         from .metrics import stamp
 
         when = stamp()
-    key = f"fmm:v2:options:{when}"
+    key = f"fmm:v3:options:{when}"
     found = cache.get(key)
     if found is not None:
         return found
@@ -692,8 +693,8 @@ def options(when: str | None = None) -> dict[str, list]:
             f"SELECT ARRAY(SELECT DISTINCT unnest(section_names) FROM {table}), "  # noqa: S608
             f"ARRAY(SELECT DISTINCT unnest(offices) FROM {table}), "
             f"ARRAY(SELECT DISTINCT unnest(partner_ids) FROM {table}), "
-            f"ARRAY(SELECT DISTINCT EXTRACT(YEAR FROM end_date)::int FROM {table} "
-            "WHERE end_date IS NOT NULL), "
+            f"ARRAY(SELECT DISTINCT EXTRACT(YEAR FROM visit_date)::int FROM {table} "
+            "WHERE visit_date IS NOT NULL), "
             f"ARRAY(SELECT DISTINCT modality FROM {table} WHERE modality <> '')"
         )
         sections, offices, partner_ids, years, modalities = cursor.fetchone()

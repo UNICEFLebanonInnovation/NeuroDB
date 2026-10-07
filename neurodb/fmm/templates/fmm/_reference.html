@@ -1,7 +1,7 @@
 {% load i18n ui %}
 <p class="fmm-reference small text-muted">
   {% blocktrans with label=reference.label %}Showing {{ label }}{% endblocktrans %}
-  {% if reference.window %}· {% if reference.window.first %}{% blocktrans with first=reference.window.first|date:"j M Y" last=reference.window.last|date:"j M Y" %}Data available from {{ first }} to {{ last }}{% endblocktrans %}{% else %}{% trans "No visit with an end date matches these filters" %}{% endif %}{% endif %}
+  {% if reference.window %}· {% if reference.window.first %}{% blocktrans with first=reference.window.first|date:"j M Y" last=reference.window.last|date:"j M Y" %}Data available from {{ first }} to {{ last }}{% endblocktrans %}{% else %}{% trans "No visit with a date matches these filters" %}{% endif %}{% endif %}
   · {% if reference.synced %}{% blocktrans with when=reference.synced|date:"j M Y H:i" %}eTools field monitoring synced {{ when }}{% endblocktrans %}{% else %}{% trans "eTools field monitoring not synced yet" %}{% endif %}
   · {% if reference.refresh %}{% blocktrans with when=reference.refresh.finished_at|date:"j M Y H:i" version=reference.rules_version|default:"—" %}scores computed {{ when }} with quality rules v{{ version }}{% endblocktrans %}{% else %}{% trans "scores not computed yet" %}{% endif %}
   {% if reference.pending_version %}· <span class="text-warning-emphasis">{% blocktrans with version=reference.pending_version %}recomputing with rules v{{ version }}{% endblocktrans %}</span>{% endif %}

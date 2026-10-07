@@ -688,7 +688,7 @@ class References:
             if pk in self.pd_codes
         }
         partner_pd_locations = {}
-        day = visit.end_date
+        day = visit.visit_date  # the partner's documents running when the visit started (else ended)
         for partner in visit.partner_ids or ():
             for pk, start, end in self.partner_pds.get(partner, ()):
                 running = day is None or ((start is None or start <= day) and (end is None or day <= end))

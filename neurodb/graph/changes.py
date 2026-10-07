@@ -11,9 +11,9 @@ A daily review finding is news when it appears or goes while critical, or when i
 state moving from new to still open is not even recorded; its title counting the days down ("ends in 12
 days") is kept, but is not news.
 
-A field monitoring visit is news when it comes in rated off track or constrained having ended in the last
-``FMM_NEWS_DAYS`` days, or when its rating moves later; its quality and urgency moving are kept, not told.
-The first build that brings field monitoring visits into the hub tells none of them.
+A field monitoring visit is news when it comes in rated off track or constrained and dated (start, else
+end) in the last ``FMM_NEWS_DAYS`` days, or when its rating moves later; its quality and urgency moving
+are kept, not told. The first build that brings field monitoring visits into the hub tells none of them.
 
 A build that loses more than a fifth of one kind of thing at once, with no error from its source, is more
 likely a partial read than real news: those removals are recorded but not notable, and counted as suspect.
@@ -72,7 +72,8 @@ NOTABLE_FIELDS = {K.FINDING: {"severity"}, K.FM_VISIT: {"rating"}}
 
 def _fm_visit_news(attrs: dict[str, Any], today: date) -> bool:
     """A field monitoring visit newly in the hub is news when it was rated off track or constrained and
-    ended within ``FMM_NEWS_DAYS`` days: a backlog of older visits synced late is recorded, not told."""
+    is dated (its start, else its end: the hub's ``date``) within ``FMM_NEWS_DAYS`` days: a backlog of
+    older visits synced late is recorded, not told."""
     days = int(getattr(settings, "FMM_NEWS_DAYS", 30))
     ended = str(attrs.get("date") or "")
     return (

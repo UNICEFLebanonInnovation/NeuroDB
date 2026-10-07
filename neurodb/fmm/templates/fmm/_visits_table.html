@@ -18,7 +18,7 @@
     <tbody>{% for v in visits %}{% url 'fmm:visit' v.key as visit_url %}
     <tr data-href="{{ visit_url }}"{% if v.row_band %} class="row--{{ v.row_band }}"{% endif %}>
       <td class="text-nowrap"><a href="{{ visit_url }}" hx-get="{{ visit_url }}" hx-target="#modal-content" hx-push-url="false">{{ v.label }}</a>{% if v.reference and v.reference != v.label %}<span class="cell-sub mono" data-synced>{{ v.reference }}</span>{% endif %}</td>
-      <td class="small text-nowrap" data-value="{{ v.end_date|date:'Y-m-d' }}">{{ v.end_date|date:"j M Y"|default:"—" }}</td>
+      <td class="small text-nowrap" data-value="{{ v.visit_date|date:'Y-m-d' }}"{% if v.end_date and v.end_date != v.visit_date %} title="{% blocktrans with day=v.end_date|date:'j M Y' %}Ends {{ day }}{% endblocktrans %}"{% endif %}>{{ v.visit_date|date:"j M Y"|default:"—" }}</td>
       <td>{% if v.partner %}<a href="{% url 'reports:partner_profile' v.partner.id %}" data-synced>{{ v.partner.short_name|default:v.partner.name }}</a>{% else %}—{% endif %}
         {% if v.pd_numbers %}<span class="cell-sub mono">{% if v.pd_id %}<a href="{% url 'reports:programme_detail' v.pd_id %}" data-synced>{{ v.pd_numbers.0 }}</a>{% else %}<span data-synced>{{ v.pd_numbers.0 }}</span>{% endif %}{% if v.pd_numbers|length > 1 %} +{{ v.pd_numbers|length|add:"-1" }}{% endif %}</span>
         {% elif v.cp_outputs %}<span class="cell-sub" data-synced>{{ v.cp_outputs.0|truncatechars:60 }}</span>{% endif %}</td>

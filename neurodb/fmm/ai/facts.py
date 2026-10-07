@@ -429,7 +429,7 @@ def _places(
         .exclude(governorate_key="")
         .order_by()
         .values("governorate_key")
-        .annotate(n=Count("pk"), last=Max("end_date"), name=Max("governorate_name"))
+        .annotate(n=Count("pk"), last=Max("visit_date"), name=Max("governorate_name"))
         .order_by("-n", "governorate_key")
     )
     for row in rows:
@@ -479,7 +479,9 @@ def _notes(scope: Scope, kpi: dict[str, Any], when: str) -> list[str]:
     lines.append(f"Question answers are available for {asked} of {kpi['visits']} visits.")
     for note in metrics.notes(scope, when):
         if note["key"] == "no_date":
-            lines.append(f"{note['n']} visits have no end date and are left out of the period.")
+            lines.append(f"{note['n']} visits have no start or end date and are left out of the period.")
+        elif note["key"] == "dated_by_end":
+            lines.append(f"{note['n']} visits have no start date and are dated by their end date.")
         elif note["key"] == "no_reference":
             lines.append(
                 f"{note['n']} finding rows have no activity reference and count as their own visits."
@@ -494,7 +496,7 @@ def _notes(scope: Scope, kpi: dict[str, Any], when: str) -> list[str]:
 
 
 # ------------------------------------------------------------------------------------------ visits
-CARD_COLUMNS = ("pk", "key", "urgency", "end_date", "section_names", "rating", "hact_q1")
+CARD_COLUMNS = ("pk", "key", "urgency", "visit_date", "section_names", "rating", "hact_q1")
 
 
 def _pick(
@@ -522,11 +524,11 @@ def _urgency(value: int | None) -> int:
 
 
 def _by_urgency(row: dict[str, Any]) -> tuple:
-    return (-_urgency(row["urgency"]), -row["end_date"].toordinal(), row["key"])
+    return (-_urgency(row["urgency"]), -row["visit_date"].toordinal(), row["key"])
 
 
 def _newest(row: dict[str, Any]) -> tuple:
-    return (-row["end_date"].toordinal(), row["key"])
+    return (-row["visit_date"].toordinal(), row["key"])
 
 
 def card_order(scope: Scope, limit: int, limits: dict[str, int] | None = None) -> list[int]:
@@ -584,6 +586,7 @@ NARRATIVE_COLUMNS = (
     "datamart_id",
     "visit__key",
     "visit__urgency",
+    "visit__visit_date",
     "visit__end_date",
     "visit__section_names",
     "visit__governorate_key",
@@ -617,13 +620,13 @@ def narrative_order(scope: Scope, limits: dict[str, int] | None = None) -> list[
     def urgent(row):
         return (
             -_urgency(row["visit__urgency"]),
-            -row["visit__end_date"].toordinal(),
+            -row["visit__visit_date"].toordinal(),
             row["visit__key"],
             row["datamart_id"],
         )
 
     def newest(row):
-        return (-row["visit__end_date"].toordinal(), row["visit__key"], row["datamart_id"])
+        return (-row["visit__visit_date"].toordinal(), row["visit__key"], row["datamart_id"])
 
     first = sorted((r for r in rows if r["rating"] in ("off_track", "constrained")), key=urgent)
     used = {id(r) for r in first}
@@ -694,8 +697,8 @@ def _notes_sampled(
                     "visit": f"visit:{visit_key}",
                     "section": _text(section, names_) or None,
                     "rating": rating,
-                    "rated_on": None
-                    if _not_rated_yet(rating, row["visit__status_group"])
+                    "rated_on": None  # the end date: a rating is given when the visit ends
+                    if _not_rated_yet(rating, row["visit__status_group"]) or row["visit__end_date"] is None
                     else row["visit__end_date"].isoformat(),
                     "text": text,
                 }

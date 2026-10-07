@@ -331,7 +331,7 @@ def search_texts(visit_keys: Collection[str], needle: str, limit: int) -> list[T
         key: rank
         for rank, key in enumerate(
             Visit.objects.filter(key__in=list(visit_keys))
-            .order_by(F("end_date").desc(nulls_last=True), "key")  # a visit without a date last
+            .order_by(F("visit_date").desc(nulls_last=True), "key")  # a visit without a date last
             .values_list("key", flat=True)
         )
     }

@@ -279,10 +279,10 @@ def preview(
     start: date | None = None,
     end: date | None = None,
 ) -> dict[str, Any]:
-    """The effect of a change not saved yet, scored in memory over the visits that ended between
-    ``start`` and ``end`` (this calendar year by default, the whole country): per rule, the visits it
-    flags now and with the change; the average quality and the visits scored, now and with the
-    change. Nothing is written."""
+    """The effect of a change not saved yet, scored in memory over the visits dated (start, else
+    end) between ``start`` and ``end`` (this calendar year by default, the whole country): per rule,
+    the visits it flags now and with the change; the average quality and the visits scored, now and
+    with the change. Nothing is written."""
     from . import score
 
     today = timezone.localdate()
@@ -293,7 +293,7 @@ def preview(
     codes = sorted(now_book.rules, key=rules.code_order)
     figures = {}
     for name, book in (("now", now_book), ("then", then_book)):
-        visits = list(Visit.objects.filter(end_date__range=(start, end)).order_by("pk"))
+        visits = list(Visit.objects.filter(visit_date__range=(start, end)).order_by("pk"))
         source = score.StoredSource(visits)
         score.score_visits(source, book, today)
         figures[name] = {

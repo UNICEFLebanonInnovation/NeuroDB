@@ -347,14 +347,16 @@ def _recent(days: int) -> datetime.date:
 
 def _visit(key: str, rating: str, ended: datetime.date, **fields) -> Visit:
     return Visit.objects.create(
-        key=key, label=f"Visit {key}", end_date=ended, rating=rating, status_group="reported",
+        key=key, label=f"Visit {key}", end_date=ended, visit_date=ended, rating=rating, status_group="reported",
         refreshed_at=timezone.now(), **fields,
     )  # fmt: skip
 
 
 def test_hub_visits_have_their_links_and_no_text_or_people(built, fm_world):
     output = _cp_output()
-    Visit.objects.update(end_date=_recent(10))  # every visit within the hub's 24 months
+    Visit.objects.update(
+        end_date=_recent(10), visit_date=_recent(10)
+    )  # every visit within the hub's 24 months
     build_hub()
     visit = Entity.objects.get(kind=K.FM_VISIT, key="1722")
     assert visit.name.startswith("Visit 1722 · AMEL · ")
@@ -385,8 +387,8 @@ def test_hub_visits_have_their_links_and_no_text_or_people(built, fm_world):
 
 def test_visits_older_than_the_hub_months_are_left_out(built, settings):
     settings.FMM_HUB_MONTHS = 24
-    Visit.objects.update(end_date=_recent(10))
-    Visit.objects.filter(key="1722").update(end_date=_recent(800))
+    Visit.objects.update(end_date=_recent(10), visit_date=_recent(10))
+    Visit.objects.filter(key="1722").update(end_date=_recent(800), visit_date=_recent(800))
     build_hub()
     keys = set(Entity.objects.filter(kind=K.FM_VISIT).values_list("key", flat=True))
     assert "1722" not in keys and "1726" in keys
@@ -394,7 +396,7 @@ def test_visits_older_than_the_hub_months_are_left_out(built, settings):
 
 def test_the_first_build_with_visits_marks_none_notable_then_only_recent_concerns(built, settings):
     settings.FMM_NEWS_DAYS = 30
-    Visit.objects.update(end_date=_recent(5))
+    Visit.objects.update(end_date=_recent(5), visit_date=_recent(5))
     settings.FMM_ENABLED = False
     build_hub()  # the hub's first build, without visits
     settings.FMM_ENABLED = True
@@ -416,7 +418,7 @@ def test_the_first_build_with_visits_marks_none_notable_then_only_recent_concern
 
 
 def test_a_rating_change_is_news_and_a_quality_change_is_not(built):
-    Visit.objects.update(end_date=_recent(5))
+    Visit.objects.update(end_date=_recent(5), visit_date=_recent(5))
     build_hub()
     build_hub()
     Change.objects.all().delete()

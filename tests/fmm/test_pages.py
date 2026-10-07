@@ -477,8 +477,9 @@ def test_the_data_note_counts_rows_without_a_reference(built, client_viewer):
     refresh.run(triggered_by="test", today=TODAY)
     text = " ".join(visible(client_viewer.get(PAGE).content.decode()).split())
     assert "1 finding row has no activity reference and counts as its own visit here" in text
-    assert "1 visit has no end date and is left out of the period" in text
-    assert Visit.objects.filter(end_date=None).count() == 1
+    assert "1 visit has no start or end date and is left out of the period" in text
+    assert "visits have no start date in eTools and are dated by their end date" in text
+    assert Visit.objects.filter(visit_date=None).count() == 1
 
 
 def test_a_partner_id_too_large_for_an_id_is_ignored_not_an_error(built, client_viewer, fm_world):

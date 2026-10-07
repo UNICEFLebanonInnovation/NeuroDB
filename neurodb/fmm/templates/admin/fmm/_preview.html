@@ -10,7 +10,7 @@
   <p><strong>{{ sentence }}.</strong></p>
   <p>
     {% blocktrans trimmed with start=result.start|date:"j M Y" end=result.end|date:"j M Y" n=result.visits %}
-      Over the {{ n }} visits that ended between {{ start }} and {{ end }}, the whole country. Nothing was saved.
+      Over the {{ n }} visits dated (start, else end) between {{ start }} and {{ end }}, the whole country. Nothing was saved.
     {% endblocktrans %}
   </p>
   <table class="nd-jobs nd-found__table mt-2">

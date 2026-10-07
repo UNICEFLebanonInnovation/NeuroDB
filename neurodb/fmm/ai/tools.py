@@ -265,7 +265,7 @@ class _Group:
 
 
 GROUP_COLUMNS = (
-    "end_date",
+    "visit_date",
     "section_names",
     "governorate_key",
     "governorate_name",
@@ -291,7 +291,7 @@ def _group_codes(group_by: str, row: dict[str, Any]) -> list[tuple[str, str]]:
     if group_by == "partner":
         return [(str(pk), str(pk)) for pk in row["partner_ids"] or ()] or [(NONE, "No partner")]
     if group_by == "month":
-        day = row["end_date"]
+        day = row["visit_date"]
         return [(day.strftime("%Y-%m"), date_format(day, "M Y"))]
     if group_by == "rating":
         code = metrics.counted_rating(row["rating"] or "not_monitored", row["status_group"])
@@ -424,9 +424,9 @@ def fm_summary(
 
 # ------------------------------------------------------------------------------------------ fm_visits
 SORTS = {
-    "urgency": (F("urgency").desc(nulls_last=True), F("end_date").desc(nulls_last=True), "key"),
-    "date": (F("end_date").desc(nulls_last=True), "key"),
-    "quality": (F("quality_score").asc(nulls_last=True), F("end_date").desc(nulls_last=True), "key"),
+    "urgency": (F("urgency").desc(nulls_last=True), F("visit_date").desc(nulls_last=True), "key"),
+    "date": (F("visit_date").desc(nulls_last=True), "key"),
+    "quality": (F("quality_score").asc(nulls_last=True), F("visit_date").desc(nulls_last=True), "key"),
 }
 
 
@@ -691,8 +691,18 @@ def fm_search(text: str, limit: int = 5) -> dict[str, Any]:
 
 # ------------------------------------------------------------------------------------------ registry
 _PERIOD = {
-    "period_from": {"type": "string", "description": "YYYY-MM-DD: only visits that ended on or after it."},
-    "period_to": {"type": "string", "description": "YYYY-MM-DD: only visits that ended on or before it."},
+    "period_from": {
+        "type": "string",
+        "description": (
+            "YYYY-MM-DD: only visits that started on or after it (the end date when no start date)."
+        ),
+    },
+    "period_to": {
+        "type": "string",
+        "description": (
+            "YYYY-MM-DD: only visits that started on or before it (the end date when no start date)."
+        ),
+    },
 }
 
 

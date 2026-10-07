@@ -63,6 +63,7 @@ MAP_COLUMNS = (
     "pk",
     "key",
     "label",
+    "visit_date",
     "end_date",
     "status_group",
     "rating",
@@ -381,7 +382,7 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
     visits = [
         MapVisit(row)
         for row in scope.visits()
-        .order_by(F("urgency").desc(nulls_last=True), F("end_date").desc(nulls_last=True), "key")
+        .order_by(F("urgency").desc(nulls_last=True), F("visit_date").desc(nulls_last=True), "key")
         .values_list(*MAP_COLUMNS)
     ]
 
@@ -472,7 +473,7 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
         approximate = _approximate_text(v)
         lines = [
             [words["Partner"], v.partner_short_name or v.partner_name or "—"],
-            [words["Date"], day(v.end_date) or "—"],
+            [words["Date"], day(v.visit_date) or "—"],  # the visit date; the rating line: the end
             [words["Rating"], rating_words(v.rating, v.status_group, v.end_date)],
             [words["Quality"], _percent(v.quality_score)],
             [words["Match"], matches[kind]],
@@ -500,7 +501,7 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
                 "key": v.key,
                 "label": v.label,
                 "url": url,
-                "date": v.end_date,
+                "date": v.visit_date,
                 "match": kind,
                 "match_label": matches[kind],
                 "distance": _km(distance),
@@ -568,7 +569,7 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
             "key": v.key,
             "label": v.label,
             "url": visit_url(v.key),
-            "date": v.end_date,
+            "date": v.visit_date,
             "place": v.place_name,
             "match_label": matches[results[v.pk][0]],
         }

@@ -96,9 +96,9 @@
   <section class="panel p-0 fmm-report__block" aria-labelledby="r-urgent">
     <div class="panel__header px-3 pt-3"><h2 class="panel__title" id="r-urgent">{% trans "The most urgent visits" %}</h2><span class="panel__hint">{% blocktrans with red=limits.red amber=limits.amber %}high from {{ red }}, medium from {{ amber }}{% endblocktrans %}</span></div>
     <div class="table-wrap"><table class="table table-sm small mb-0">
-      <thead><tr><th>{% trans "Visit" %}</th><th>{% trans "End date" %}</th><th>{% trans "Partner" %}</th><th>{% trans "Place" %}</th><th>{% trans "Rating" %}</th><th class="num">{% trans "Quality" %}</th><th>{% trans "Flags" %}</th><th class="num">{% trans "Urgency" %}</th></tr></thead>
+      <thead><tr><th>{% trans "Visit" %}</th><th>{% trans "Visit date" %}</th><th>{% trans "Partner" %}</th><th>{% trans "Place" %}</th><th>{% trans "Rating" %}</th><th class="num">{% trans "Quality" %}</th><th>{% trans "Flags" %}</th><th class="num">{% trans "Urgency" %}</th></tr></thead>
       <tbody>{% for v in urgent %}<tr{% if v.row_band %} class="row--{{ v.row_band }}"{% endif %}>
-        <td>{{ v.label }}</td><td>{{ v.end_date|date:"j M Y"|default:"—" }}</td><td>{% if v.partner %}{{ v.partner.short_name|default:v.partner.name }}{% else %}—{% endif %}</td><td>{{ v.place_name|default:"—" }}</td>
+        <td>{{ v.label }}</td><td>{{ v.visit_date|date:"j M Y"|default:"—" }}</td><td>{% if v.partner %}{{ v.partner.short_name|default:v.partner.name }}{% else %}—{% endif %}</td><td>{{ v.place_name|default:"—" }}</td>
         <td>{{ v.rating_label }}</td><td class="num">{% if v.quality_score is not None %}{{ v.quality_score|percent }}{% else %}—{% endif %}</td><td>{{ v.flags|join:" " }}</td><td class="num">{{ v.urgency|default_if_none:"—" }}</td></tr>
       {% empty %}<tr><td colspan="8" class="text-muted">{% trans "No visits in this filter." %}</td></tr>{% endfor %}</tbody>
     </table></div>

@@ -30,8 +30,8 @@ from django.core.cache import cache as django_cache
 from django.db.models import Count, Max, Q, Sum
 from django.urls import reverse
 
+from neurodb.datamart import fm, monitoring
 from neurodb.datamart import models as dm
-from neurodb.datamart import monitoring
 from neurodb.datamart.children import counts_children
 from neurodb.datamart.children import overrides as children_overrides
 from neurodb.datamart.monitoring import ACTIVE_PD_STATUSES, NOT_REPORTED, Filters, Indicator
@@ -899,7 +899,8 @@ class _Builder:
         return out
 
     def _scoped_findings(self):
-        qs = dm.MonitoringFinding.objects.filter(end_date__year=self.year)
+        # start date in the year, else end date: as Monitoring insights dates a visit
+        qs = dm.MonitoringFinding.objects.filter(fm.finding_year_q(self.year))
         if self.scope.sections:
             qs = qs.filter(partner_id__in=self._partners_in_scope())
         if self.gov_key:

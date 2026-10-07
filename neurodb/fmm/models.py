@@ -131,7 +131,10 @@ class Visit(models.Model):
     reference_number = models.CharField(max_length=100, blank=True)
     label = models.CharField(max_length=110)  # "Visit 1722" | the reference | "Finding 88"
     start_date = models.DateField(null=True, blank=True)
-    end_date = models.DateField(null=True, blank=True, db_index=True)  # THE visit date
+    end_date = models.DateField(null=True, blank=True, db_index=True)
+    # THE visit date, which every period reads: the start date, else the end date (eTools left the
+    # start blank). Urgency recency and the follow-up signals still count from the end date.
+    visit_date = models.DateField(null=True, blank=True, db_index=True)
     last_modified = models.DateTimeField(null=True, blank=True)  # latest change in eTools: "status as of"
     status = models.CharField(max_length=24, blank=True)  # normalised, the most advanced of its rows
     status_raw = models.CharField(max_length=40, blank=True)
@@ -223,9 +226,9 @@ class Visit(models.Model):
     refreshed_at = models.DateTimeField()
 
     class Meta:
-        ordering = (models.F("urgency").desc(nulls_last=True), models.F("end_date").desc(nulls_last=True))
+        ordering = (models.F("urgency").desc(nulls_last=True), models.F("visit_date").desc(nulls_last=True))
         indexes = [
-            models.Index(fields=["end_date", "status_group"]),
+            models.Index(fields=["visit_date", "status_group"]),
             GinIndex(fields=["section_names"]),
             GinIndex(fields=["partner_ids"]),
             GinIndex(fields=["pd_ids"]),

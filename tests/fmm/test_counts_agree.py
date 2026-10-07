@@ -151,3 +151,38 @@ def _fmm_with(**params) -> dict:
     return metrics.kpis(
         Scope.from_params({"year": "2026", "section": "", **{k: str(v) for k, v in params.items()}})
     )
+
+
+def test_a_visit_across_the_new_year_counts_in_its_start_year_on_every_page(built, fm_world, reporting_year):
+    """Invariants 1-4 with periods read on the start date: a visit from 30 December 2025 to 3 January
+    2026 is 2025's on Monitoring insights, the overview, the field monitoring page, and the partner and
+    PD panels; 2026's figures stay those of fm_world."""
+    from neurodb.fmm import services as fmm_services
+    from tests.fmm.conftest import PD_EDU, _finding
+
+    mercy = fm_world.partners["mercy"]
+    _finding(
+        990,
+        partner=mercy,
+        vendor_number=mercy.vendor_number,
+        entity=PD_EDU,
+        entity_type="PD/SSFA",
+        monitoring_activity="FM-2025-099",
+        monitoring_activity_id=1799,
+        reference_number="FM-2025-099",
+        status="completed",
+        overall_finding_rating="On Track",
+        start_date=datetime.date(2025, 12, 30),
+        end_date=datetime.date(2026, 1, 3),
+    )
+    refresh.run(triggered_by="test", today=TODAY)
+    for year, visits in ((2025, 1), (2026, 8)):
+        page = services.monitoring({"year": str(year)})
+        assert _fmm(year)["visits"] == _overview_visits(reporting_year, year) == page["activities"] == visits
+        assert _fmm(year)["entities"] == page["findings"].count()
+    panel = fmm_services.partner_summary(mercy.pk, 2025)
+    scope = Scope.from_params({"year": "2025", "partner": str(mercy.pk), "section": ""})
+    assert panel["visits"] == metrics.kpis(scope)["visits"] == 1
+    pd = fm_world.pds["education"]
+    pd_panel = fmm_services.pd_summary(pd.pk, 2025)
+    assert pd_panel["visits"] == sum(q["visits"] for q in pd_panel["quarters"]) == 1

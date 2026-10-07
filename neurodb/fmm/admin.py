@@ -1216,7 +1216,7 @@ class VisitAdmin(ReadOnlyModelAdmin):
 
     list_display = (
         "label",
-        "end_date",
+        "visit_date",
         "status_shown",
         "rating_shown",
         "partner",
@@ -1239,7 +1239,7 @@ class VisitAdmin(ReadOnlyModelAdmin):
                     "activity_id",
                     "reference",
                     "reference_number",
-                    ("start_date", "end_date", "last_modified"),
+                    ("visit_date", "start_date", "end_date", "last_modified"),
                     ("status", "status_raw", "status_group"),
                     ("rating", "rating_counts"),
                     ("is_programmatic", "is_remote"),

@@ -80,13 +80,13 @@ TABS = [
 PAGE_SIZE = 50
 PAGE_SIZES = (25, 50, 100)  # the visits table's rows per page (FMS §8.1)
 SORTS = {  # a visit without a score has no urgency: it comes after every urgency, either way
-    "-urgency": (F("urgency").desc(nulls_last=True), F("end_date").desc(nulls_last=True)),
-    "urgency": (F("urgency").asc(nulls_last=True), F("end_date").desc(nulls_last=True)),
-    "-date": (F("end_date").desc(nulls_last=True),),
-    "date": (F("end_date").asc(nulls_last=True),),
+    "-urgency": (F("urgency").desc(nulls_last=True), F("visit_date").desc(nulls_last=True)),
+    "urgency": (F("urgency").asc(nulls_last=True), F("visit_date").desc(nulls_last=True)),
+    "-date": (F("visit_date").desc(nulls_last=True),),
+    "date": (F("visit_date").asc(nulls_last=True),),
     "-quality": (F("quality_score").desc(nulls_last=True), F("urgency").desc(nulls_last=True)),
     "quality": (F("quality_score").asc(nulls_last=True), F("urgency").desc(nulls_last=True)),
-    "partner": (F("partner__short_name").asc(nulls_last=True), F("end_date").desc(nulls_last=True)),
+    "partner": (F("partner__short_name").asc(nulls_last=True), F("visit_date").desc(nulls_last=True)),
 }
 DEFAULT_SORT = "-urgency"
 CSV_HEADER = (
@@ -1523,17 +1523,17 @@ def _pd_context(v: Visit) -> list[dict[str, Any]]:
 
     if not v.pd_ids:
         return []
-    return services.pd_context(v.pd_ids, around=v.end_date, exclude_key=v.key)
+    return services.pd_context(v.pd_ids, around=v.visit_date, exclude_key=v.key)
 
 
 def _map_url(v: Visit) -> str:
-    """The Map tab centred on the visit: its year, every section, so the visit is on the map ("" when
-    it has no point or no end date, as the map would not show it)."""
+    """The Map tab centred on the visit: the year of its visit date (start, else end), every section,
+    so the visit is on the map ("" when it has no point or no date, as the map would not show it)."""
     from .scope import link
 
-    if v.latitude is None or v.longitude is None or v.end_date is None:
+    if v.latitude is None or v.longitude is None or v.visit_date is None:
         return ""
-    return link(year=v.end_date.year, tab="map", visit=v.key)
+    return link(year=v.visit_date.year, tab="map", visit=v.key)
 
 
 def _located(v: Visit) -> str:
@@ -1628,17 +1628,20 @@ def _hact(v: Visit, partners: list, pds: list) -> dict[str, Any] | None:
                 "neurodb": counted.get(p.pk, 0),
             }
         )
-    quarter = (v.end_date.month - 1) // 3 + 1
-    start, end = quarter_of(v.end_date)
+    # the programme documents' quarter is that of the visit date (start, else end), as the PD panel
+    # and the Monitoring insights periods count it; the partners' HACT year stays the end date's
+    day = v.visit_date or v.end_date
+    quarter = (day.month - 1) // 3 + 1
+    start, end = quarter_of(day)
     planned = {
         row.intervention_id: row
-        for row in PlannedVisits.objects.filter(intervention_id__in=v.pd_ids, year=year)
+        for row in PlannedVisits.objects.filter(intervention_id__in=v.pd_ids, year=day.year)
     }
     pd_lines = []
     for pd in pds:
         row = planned.get(pd.pk)
         done = (
-            VisitEntity.objects.filter(pd_id=pd.pk, visit__end_date__gte=start, visit__end_date__lte=end)
+            VisitEntity.objects.filter(pd_id=pd.pk, visit__visit_date__gte=start, visit__visit_date__lte=end)
             .values("visit_id")
             .distinct()
             .count()
@@ -1672,7 +1675,7 @@ def _data_notes(v: Visit) -> list[str]:
             % {"n": n}
         )
     if issues.get("no_date"):
-        notes.append(_("No end date in eTools: the visit is left out of every period."))
+        notes.append(_("No start or end date in eTools: the visit is left out of every period."))
     if issues.get("rating_unknown"):
         written = ", ".join(f"{k} ({n})" for k, n in issues["rating_unknown"].items())
         notes.append(_("Ratings NeuroDB does not know: %(written)s.") % {"written": written})
@@ -1755,7 +1758,7 @@ def _find(text: str) -> list[Visit]:
             reference_number__iexact=reference
         ):
             found.setdefault(v.pk, v)
-    return sorted(found.values(), key=lambda v: v.end_date or datetime.date.min, reverse=True)[:10]
+    return sorted(found.values(), key=lambda v: v.visit_date or datetime.date.min, reverse=True)[:10]
 
 
 def _nearest(scope: Scope, number: int, limit: int = 3) -> list[Visit]:

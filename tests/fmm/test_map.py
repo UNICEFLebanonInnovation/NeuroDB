@@ -315,7 +315,9 @@ def test_a_visit_named_in_the_address_is_centred_and_opened(planned, client_view
     assert _config(html)["focus"] == "Visit 1722"
     assert 'class="table-active"' in html
     # a visit of another year is not in this filter; an unknown key is said so
-    Visit.objects.filter(key="1723").update(end_date=datetime.date(2025, 6, 20))
+    Visit.objects.filter(key="1723").update(
+        end_date=datetime.date(2025, 6, 20), visit_date=datetime.date(2025, 6, 20)
+    )
     from django.core.cache import cache
 
     cache.clear()
@@ -327,7 +329,7 @@ def test_a_visit_named_in_the_address_is_centred_and_opened(planned, client_view
 def test_a_visit_past_the_points_drawn_is_said_so(planned, client_viewer, monkeypatch):
     monkeypatch.setattr(geo, "MAX_POINTS", 1)  # the most urgent visit only
     drawn = geo.map_points(_scope())["visit_rows"][0]["key"]
-    other = Visit.objects.exclude(key=drawn).filter(latitude__isnull=False, end_date__year=2026).first()
+    other = Visit.objects.exclude(key=drawn).filter(latitude__isnull=False, visit_date__year=2026).first()
     html = _map_tab(client_viewer, visit=other.key)
     assert f"{other.label} is in this filter but past the points the map draws" in html
     assert "is not in this filter" not in html and "focus" not in _config(html)

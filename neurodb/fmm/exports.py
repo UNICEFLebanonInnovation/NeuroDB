@@ -40,7 +40,7 @@ AP_TEXT_CHARS = 1_000  # one action point's description at most, in a visit's ac
 DETAIL_CHARS = 300  # a rule result's detail at most
 ROLES = ("q1", "q2", "q3")
 # The order of the visits in every file: the visits table's own (most urgent first)
-ORDER = (F("urgency").desc(nulls_last=True), F("end_date").desc(nulls_last=True), "key")
+ORDER = (F("urgency").desc(nulls_last=True), F("visit_date").desc(nulls_last=True), "key")
 BAND_WORDS = {"high": "High", "medium": "Medium", "low": "Low"}
 RESULT_WORDS = {  # a rule result in the words of FMS's exports
     "pass": "passed",
@@ -885,7 +885,8 @@ Recommended visuals (FMS §13.3, with these columns)
 - Map: location_lat, location_lon; bubble size = quality_score.
 - Bar chart: entity on the axis, average of quality_score: quality by partner.
 - Donut: overall_finding_rating, count of id: On track, Constrained, Off track, Not monitored.
-- Column chart: monitoring_activity_end_date by month, count of id: visit volume over time.
+- Column chart: monitoring_activity_start_date by month, count of id: visit volume over time (NeuroDB
+  dates a visit by its start date, else its end date).
 - Matrix: rows = entity, columns = visit_sections[section], values = average of quality_score.
 - Slicers: country_name, visit_offices[field_office], quality_status, monitoring_modality.
 - KPI card: average of quality_score.

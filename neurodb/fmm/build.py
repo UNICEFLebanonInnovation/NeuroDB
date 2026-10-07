@@ -820,8 +820,10 @@ class _Builder:
         visit.label = fit(Visit, "label", label)
         visit.start_date = min((r.start_date for r in rows if r.start_date), default=None)
         visit.end_date = max((r.end_date for r in rows if r.end_date), default=None)
+        # the date every period reads: the start, else the end when eTools left the start blank
+        visit.visit_date = visit.start_date or visit.end_date
         visit.last_modified = max((r.last_modified for r in rows if r.last_modified), default=None)
-        if visit.end_date is None:
+        if visit.visit_date is None:
             issues["no_date"] = True
         self._status(visit, rows, issues)
         entities = self._entities(visit, rows, issues)
@@ -1169,7 +1171,8 @@ class _Builder:
         self.result.details = {
             "visits": len(visits),
             "findings": self.result.findings,
-            "without_date": sum(1 for v in visits if v.end_date is None),
+            "without_date": sum(1 for v in visits if v.visit_date is None),
+            "dated_by_end": sum(1 for v in visits if v.start_date is None and v.end_date is not None),
             "reference_conflicts": sum(1 for keys in self.by_reference.values() if len(keys) > 1),
             "rows_without_reference": sum(1 for v in visits if v.key.startswith("f-")),
             "location": {

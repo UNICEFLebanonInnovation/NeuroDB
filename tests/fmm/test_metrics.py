@@ -9,6 +9,7 @@ from decimal import Decimal
 
 import pytest
 from django.core.cache import cache
+from django.db.models import F
 
 from neurodb.datamart import fm
 from neurodb.fmm import metrics
@@ -199,8 +200,8 @@ def test_places_show_a_dash_without_a_scored_visit_and_coverage(built):
     places = metrics.locations(_scope())
     by_name = {p["name"]: p for p in places["rows"]}
     assert by_name["Zahle town"]["visits"] == 2 and by_name["Zahle town"]["last"] == datetime.date(
-        2026, 5, 12
-    )
+        2026, 5, 11
+    )  # 1722's start date
     assert by_name["Douris"]["coverage"] == Decimal("0.0")  # 1723: nothing rated
     assert places["unlinked"] == 0
     only_planned = metrics.locations(_scope(status="in_progress"))["rows"]
@@ -331,6 +332,10 @@ def test_the_previous_period_has_its_own_figures(built):
 
 
 def test_the_data_notes_appear_only_when_they_apply(built):
+    # every visit of fm_world but 1722 has no start date: dated by its end, and counted
+    assert metrics.notes(_scope()) == [{"key": "dated_by_end", "n": 7}]
+    Visit.objects.exclude(start_date__isnull=False).update(start_date=F("end_date"))
+    cache.clear()
     assert metrics.notes(_scope()) == []
     assert [n["key"] for n in metrics.notes(_scope(section="Education"))] == ["section"]
     assert [n["key"] for n in metrics.notes(_scope(entity_type="pd"))] == ["entity_filter"]

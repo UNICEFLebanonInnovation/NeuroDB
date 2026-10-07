@@ -25,9 +25,9 @@ from collections import Counter, defaultdict
 from collections.abc import Collection, Iterable
 from typing import Any
 
-from django.db.models import CharField, Count, F, Max, Q, QuerySet, Value
+from django.db.models import CharField, Count, F, Max, Min, Q, QuerySet, Value
 from django.db.models.expressions import Case, Expression, Func, When
-from django.db.models.functions import Cast, Concat, Trim, Upper
+from django.db.models.functions import Cast, Coalesce, Concat, Trim, Upper
 
 VISIT_KEY_MAX = 40
 KINDS = ("pd", "cp_output", "partner", "other")
@@ -165,18 +165,30 @@ def count_visits(findings: QuerySet) -> int:
     return findings.order_by().annotate(vk=visit_key_expr()).values("vk").distinct().count()
 
 
+def finding_year_q(year: int) -> Q:
+    """The finding rows of a calendar year: start date in the year, else (eTools left the start blank)
+    end date in the year. Every page that counts field monitoring visits by year reads it, as
+    Monitoring insights dates a visit (``fmm.Visit.visit_date``: its start date, else its end date)."""
+    return Q(start_date__year=year) | Q(start_date=None, end_date__year=year)
+
+
+def finding_date() -> Expression:
+    """A finding row's date, in SQL: its start date, else its end date (:func:`finding_year_q`)."""
+    return Coalesce("start_date", "end_date")
+
+
 def visits_by_year(findings: QuerySet) -> dict[int, int]:
-    """Visits per year of their date (the latest end date of their rows); rows without an end date
-    are left out."""
+    """Visits per year of their date: the earliest start date of their rows, else the latest end date
+    (as ``fmm.Visit.visit_date``); rows with neither are left out."""
     rows = (
-        findings.exclude(end_date=None)
+        findings.exclude(start_date=None, end_date=None)
         .order_by()
         .annotate(vk=visit_key_expr())
         .values("vk")
-        .annotate(last=Max("end_date"))
-        .values_list("last", flat=True)
+        .annotate(first=Min("start_date"), last=Max("end_date"))
+        .values_list("first", "last")
     )
-    return dict(sorted(Counter(day.year for day in rows if day).items()))
+    return dict(sorted(Counter((first or last).year for first, last in rows if first or last).items()))
 
 
 # ---------------------------------------------------------------------------------- vocabularies

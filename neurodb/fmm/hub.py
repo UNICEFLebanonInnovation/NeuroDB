@@ -1,6 +1,7 @@
-"""The field monitoring visits in the knowledge hub (``graph``): one ``fm_visit`` entity per visit that
-ended in the last ``FMM_HUB_MONTHS`` months, linked to what it is about (its programme documents, its
-partners and the country programme outputs it monitored), its sections and its places.
+"""The field monitoring visits in the knowledge hub (``graph``): one ``fm_visit`` entity per visit
+dated (start, else end) in the last ``FMM_HUB_MONTHS`` months, linked to what it is about (its
+programme documents, its partners and the country programme outputs it monitored), its sections and
+its places.
 
 An entity carries structured facts only (date, status group, rating, quality, urgency band): never a
 narrative, an answer, a visit lead or a team name. The hub's builder (``graph.builders``) imports this
@@ -42,7 +43,7 @@ def attrs_of(visit) -> dict[str, Any]:
     """The facts of a visit the hub keeps, to identify it and to notice a change of rating: structured
     values only."""
     return {
-        "date": visit.end_date.isoformat() if visit.end_date else "",
+        "date": visit.visit_date.isoformat() if visit.visit_date else "",
         "status_group": visit.status_group,
         "rating": visit.rating,
         "quality": float(visit.quality_score) if visit.quality_score is not None else None,
@@ -61,9 +62,10 @@ def _outputs() -> list:
 
 
 def add_field_monitoring(c, names, today: datetime.date | None = None) -> None:
-    """Add the visits that ended in the last ``FMM_HUB_MONTHS`` months to the collector ``c``, with
-    their links: ``about`` their programme documents, partners and matched country programme outputs,
-    ``in_section`` their sections and ``takes_place_in`` their governorate and district."""
+    """Add the visits dated (start, else end) in the last ``FMM_HUB_MONTHS`` months to the collector
+    ``c``, with their links: ``about`` their programme documents, partners and matched country
+    programme outputs, ``in_section`` their sections and ``takes_place_in`` their governorate and
+    district."""
     from neurodb.cpd.services import output_matches
     from neurodb.graph.models import Entity
 
@@ -73,9 +75,9 @@ def add_field_monitoring(c, names, today: datetime.date | None = None) -> None:
     today = today or timezone.localdate()
     since = months_back(today, int(getattr(settings, "FMM_HUB_MONTHS", 24)))
     visits = (
-        Visit.objects.filter(end_date__gte=since, end_date__lte=today)
+        Visit.objects.filter(visit_date__gte=since, visit_date__lte=today)
         .select_related("partner")
-        .order_by("end_date", "key")
+        .order_by("visit_date", "key")
     )
     outputs: list | None = None
     matched: dict[str, list[int]] = {}
@@ -84,7 +86,7 @@ def add_field_monitoring(c, names, today: datetime.date | None = None) -> None:
         ref = c.entity(
             K.FM_VISIT,
             v.key,
-            entity_name(v.label, partner, v.end_date),
+            entity_name(v.label, partner, v.visit_date),
             aliases=[v.reference, v.reference_number, *([str(v.activity_id)] if v.activity_id else [])],
             url=v.get_absolute_url(),
             attrs=attrs_of(v),

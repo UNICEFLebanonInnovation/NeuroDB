@@ -14,7 +14,7 @@
     <tbody>{% for v in visits %}{% url 'fmm:visit' v.key as visit_url %}
     <tr data-key="{{ v.key }}"{% if v.row_band %} class="row--{{ v.row_band }}"{% endif %}>
       <td class="text-nowrap"><a href="{{ visit_url }}" hx-get="{{ visit_url }}" hx-target="#modal-content">{{ v.label }}</a></td>
-      <td class="small text-nowrap">{{ v.end_date|date:"j M Y"|default:"—" }}</td>
+      <td class="small text-nowrap"{% if v.end_date and v.end_date != v.visit_date %} title="{% blocktrans with day=v.end_date|date:'j M Y' %}Ends {{ day }}{% endblocktrans %}"{% endif %}>{{ v.visit_date|date:"j M Y"|default:"—" }}</td>
       <td class="small">{% if v.entity %}<span data-synced title="{{ v.entity }}">{{ v.entity|truncatechars:60 }}</span>{% else %}—{% endif %}</td>
       <td class="small">{% if v.partner %}<span data-synced>{{ v.partner.name|default:v.partner.short_name }}</span>{% else %}—{% endif %}</td>
       <td class="small mono text-nowrap">{% if v.pd_numbers %}<span data-synced>{{ v.pd_numbers.0 }}</span>{% if v.pd_numbers|length > 1 %} +{{ v.pd_numbers|length|add:"-1" }}{% endif %}{% else %}—{% endif %}</td>
