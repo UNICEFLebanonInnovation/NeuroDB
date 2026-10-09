@@ -5,7 +5,7 @@
   {% elif found %}
   <p class="mb-1">{% blocktrans count n=found|length %}{{ n }} visit matches “{{ text }}”:{% plural %}{{ n }} visits match “{{ text }}”:{% endblocktrans %}</p>
   <ul class="list-unstyled mb-0">{% for v in found %}{% url 'fmm:visit' v.key as visit_url %}
-    <li><a href="{{ visit_url }}" hx-get="{{ visit_url }}" hx-target="#modal-content" hx-push-url="false">{{ v.label }}</a> <span class="text-muted">· <span data-synced>{{ v.reference|default:"—" }}</span> · {{ v.end_date|date:"j M Y"|default:"—" }}</span></li>
+    <li><a href="{{ visit_url }}" hx-get="{{ visit_url }}" hx-target="#modal-content" hx-push-url="false">{{ v.label }}</a> <span class="text-muted">· <span data-synced>{{ v.reference|default:"—" }}</span> · {{ v.visit_date|date:"j M Y"|default:"—" }}</span></li>
   {% endfor %}</ul>
   {% else %}
   <p class="mb-1">{% blocktrans with token=token|default:text %}No visit {{ token }} in NeuroDB — eTools field monitoring syncs nightly.{% endblocktrans %}</p>

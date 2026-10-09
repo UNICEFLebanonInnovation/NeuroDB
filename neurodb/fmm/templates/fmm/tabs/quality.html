@@ -8,7 +8,7 @@ issues summary.{% endcomment %}
 <section class="panel" aria-labelledby="fmm-q-month-title">
   <div class="panel__header">
     <h2 class="panel__title" id="fmm-q-month-title">{% trans "Quality score trends" %}</h2>
-    <span class="panel__hint">{% trans "Average quality score of the visits that ended each month, and the reports; a point opens the month's visits" %}</span>
+    <span class="panel__hint">{% trans "Average quality score of the visits that started each month, and the reports; a point opens the month's visits" %}</span>
   </div>
   <div id="fmm-chart-monthly-quality" class="chart chart--lg" data-module="charts" data-chart="dual-axis" data-primary="area" data-y-title="{% trans 'Quality score (%)' %}" data-y2-title="{% trans 'Report count' %}" data-source="fmm-chart-data" data-key="monthly_quality" data-href-template="{{ month_template }}" data-empty-title="{% trans 'No visit in this filter is scored' %}" aria-label="{% trans 'Quality score trends' %}"></div>
   {% include "fmm/_card_tools.html" with chart="fmm-chart-monthly-quality" filename="monitoring-quality-score-trends" %}
@@ -17,7 +17,7 @@ issues summary.{% endcomment %}
 <section class="panel" aria-labelledby="fmm-v-month-title">
   <div class="panel__header">
     <h2 class="panel__title" id="fmm-v-month-title">{% trans "Monitoring volume over time" %}</h2>
-    <span class="panel__hint">{% trans "Visits that ended each month, whatever their status, and their average quality; a bar opens the month's visits" %}</span>
+    <span class="panel__hint">{% trans "Visits that started each month, whatever their status, and their average quality; a bar opens the month's visits" %}</span>
   </div>
   <div id="fmm-chart-monthly-volume" class="chart chart--lg" data-module="charts" data-chart="dual-axis" data-primary="bar" data-y-title="{% trans 'Visit count' %}" data-y2-title="{% trans 'Quality %' %}" data-source="fmm-chart-data" data-key="monthly_volume" data-href-template="{{ month_template }}" data-empty-title="{% trans 'No visits in this filter' %}" aria-label="{% trans 'Monitoring volume over time' %}"></div>
   {% include "fmm/_card_tools.html" with chart="fmm-chart-monthly-volume" filename="monitoring-volume-over-time" %}

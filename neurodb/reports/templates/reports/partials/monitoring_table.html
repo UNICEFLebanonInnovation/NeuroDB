@@ -8,7 +8,7 @@
 <div class="grid grid--2 mb-3">
   <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Findings by rating" %}</h2></div>
     <div class="chart chart--sm" data-module="charts" data-chart="bars" data-source="monitoring-chart-data" data-key="by_rating" data-empty-title="{% trans 'No findings' %}"></div></section>
-  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Findings by month" %}</h2><span class="panel__hint">{% trans "Last 24 months with findings" %}</span></div>
+  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Findings by month" %}</h2><span class="panel__hint">{% trans "Last 24 months with findings, by start date (else end date)" %}</span></div>
     <div class="chart chart--sm" data-module="charts" data-chart="bars" data-orientation="v" data-source="monitoring-chart-data" data-key="by_month" data-empty-title="{% trans 'No findings' %}"></div></section>
 </div>
 <section class="panel p-0 mb-3">

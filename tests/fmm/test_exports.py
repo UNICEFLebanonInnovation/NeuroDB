@@ -498,7 +498,12 @@ def test_the_feed_narrows_by_year_and_since(built, client):
     assert len(_csv_rows(_feed(client, key=key, year="2026")[1])) == 8
     assert _csv_rows(_feed(client, key=key, year="2025")[1]) == []
     since = _csv_rows(_feed(client, key=key, since="2026-07-01")[1])
-    assert {r["monitoring_activity_end_date"] >= "2026-07-01" for r in since} == {True} and len(since) < 8
+    # the visit date: its start date, else its end date (as every period reads it)
+    dated = {
+        (r["monitoring_activity_start_date"] or r["monitoring_activity_end_date"]) >= "2026-07-01"
+        for r in since
+    }
+    assert dated == {True} and len(since) < 8
     assert _feed(client, key=key, year="twenty")[0].status_code == 400
     assert _feed(client, key=key, since="July")[0].status_code == 400
 

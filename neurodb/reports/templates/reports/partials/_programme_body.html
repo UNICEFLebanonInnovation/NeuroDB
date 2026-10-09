@@ -61,7 +61,7 @@
 <h3 class="h6 mt-3">{% trans "Programmatic visits" %}</h3>
 <div class="table-wrap"><table class="table table-sm"><thead><tr><th>{% trans "Year" %}</th><th class="num">{% trans "Planned" %}</th><th class="num">{% trans "UNICEF staff" %}</th><th class="num">{% trans "TPM activities" %}</th><th class="num">{% trans "Field monitoring" %}</th></tr></thead>
 <tbody>{% for v in datamart.visits %}<tr><td>{{ v.year }}</td><td class="num">{{ v.planned }}</td><td class="num">{{ v.staff }}</td><td class="num">{{ v.tpm }}</td><td class="num">{{ v.fm }}</td></tr>{% endfor %}</tbody></table></div>
-<p class="small text-muted mb-0">{% trans "Field monitoring: eTools field monitoring visits that monitored this programme document, by the year of their end date." %}</p>
+<p class="small text-muted mb-0">{% trans "Field monitoring: eTools field monitoring visits that monitored this programme document, by the year of their start date (else their end date), as Monitoring insights counts them." %}</p>
 {% endif %}
 {% if fmm_pd %}{% include "fmm/_pd_panel.html" %}{% endif %}
 {% if datamart.tpm_activities %}

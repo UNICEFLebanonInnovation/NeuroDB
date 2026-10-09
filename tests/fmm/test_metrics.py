@@ -1,5 +1,5 @@
 """The figures of the Quality and Analysis tabs (``fmm.metrics``), on ``fm_world`` built and scored on 5
-October 2026: 8 visits ending in 2026 (6 reported, 1 in progress, 1 cancelled), 6 of them scored
+October 2026: 8 visits dated in 2026 (6 reported, 1 in progress, 1 cancelled), 6 of them scored
 (40.4% to 78.6%, average 64.4%). Each block counts visits; its drill values are codes the scope reads."""
 
 from __future__ import annotations

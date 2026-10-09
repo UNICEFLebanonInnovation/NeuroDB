@@ -2431,7 +2431,8 @@ and nothing is written. Every figure comes from the functions that draw the page
 
 **The Excel workbook** has eight sheets, numbers as numbers and dates as dates:
 
-- *About*: the filter in words, *Data as of* (the last refresh), the visit counts and what the columns
+- *About*: the filter in words, *Data as of* (the last refresh), how visits are dated (start date, else
+  end date), the visit counts and what the columns
   mean (quality score, bands High ≥ 80 and Medium ≥ 50 as set in Score settings, the urgency formula
   and its weights, *Not monitored*), the columns left out and the privacy note.
 - *Visits*: one row per visit with the column names of FMS's FMM output (§13.2), so FMS's Power BI
@@ -2495,7 +2496,7 @@ or tested without Power BI, and the script stands in its place. In Power BI Desk
 **Power BI live connection** (FMS "Connect Live", for scheduled refresh in Power BI Service). The feed
 `/powerbi/fmm/<table>.csv` (`visits`, `rule_results`, `action_points`, `partners`) serves the same tables
 over **every** visit (no person's section is applied), narrowed by `?year=2026` or `?since=2026-01-01`
-(visits that ended from that day). It is read with a key, never with a sign-in:
+(visits dated from that day: their start date, else their end date). It is read with a key, never with a sign-in:
 
 1. Admin → *Monitoring insights* → *Power BI keys* → *Add*: give the key a name (what it is for, e.g. the
    workspace) and save. The next page shows the key **once** (NeuroDB keeps only its SHA-256 hash and its

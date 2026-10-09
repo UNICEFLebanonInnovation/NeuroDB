@@ -1,6 +1,6 @@
 """The Monitoring insights page (``/fmm/``): its shell, filters, key figures and tabs.
 
-On ``fm_world`` built on 5 October 2026 with its AI checks (conftest ``built``): 8 visits ending in 2026
+On ``fm_world`` built on 5 October 2026 with its AI checks (conftest ``built``): 8 visits dated in 2026
 (6 reported, 1 in progress, 1 cancelled), 12 finding rows (8 rated, 2 not monitored), 6 scored visits
 averaging 79.2% (1722 93, 1723 46, 1726 88, 1727 80, 1728 93, the one known by its reference only 75),
 no red visit and one amber (1723, urgency 59).

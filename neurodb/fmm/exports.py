@@ -610,6 +610,11 @@ def about_rows(scope: Scope, ctx: Context, when: str | None = None) -> list[dict
         ("Period", scope.period_label()),
         ("Period from", scope.start),
         ("Period to", scope.end),
+        (
+            "Visits dated by",
+            "Their start date (monitoring_activity_start_date), else their end date when eTools has no "
+            "start date: a visit from 30 December to 3 January counts in the year it started.",
+        ),
         ("Filters", _filters_text(scope)),
         ("Country", ctx.country),
         ("Visits", kpis["visits"]),

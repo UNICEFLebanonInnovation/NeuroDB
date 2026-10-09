@@ -6,17 +6,21 @@ page says so. Urgency recency still counts from the end date."""
 
 from __future__ import annotations
 
+import csv
 import datetime
 import importlib
+import io
 from decimal import Decimal
 
 import pytest
 from django.apps import apps as django_apps
+from django.test import Client
 from django.urls import reverse
+from openpyxl import load_workbook
 
 from neurodb.datamart import fm, services
 from neurodb.datamart import models as dm
-from neurodb.fmm import hub, metrics, refresh, score
+from neurodb.fmm import hub, metrics, powerbi, refresh, score
 from neurodb.fmm import scope as scope_module
 from neurodb.fmm import services as fmm_services
 from neurodb.fmm.models import ScoreSetting, Visit
@@ -200,3 +204,137 @@ def test_the_migration_fills_the_visit_date(across):
     assert Visit.objects.get(key="1790").visit_date == START
     assert Visit.objects.get(key="1723").visit_date == datetime.date(2026, 6, 20)  # no start: its end
     assert not Visit.objects.filter(visit_date=None).exists()
+
+
+# ------------------------------------------------------------------------------------------ stage F1 check
+def test_the_partner_chart_dates_a_visit_as_monitoring_insights_does(across):
+    """The partner page's FM visits per year read a visit's date as ``Visit.visit_date`` does (the
+    earliest start date of its rows, else the latest end date), not the date of whichever row comes
+    first: a row without a start date ending in 2026 does not move a visit that started in 2025."""
+    mercy = PartnerOrganization.objects.get(short_name="MCL")
+    _finding(
+        903,
+        partner=mercy,
+        vendor_number=mercy.vendor_number,
+        entity="CP output of 1790",
+        entity_type="CP Output",
+        monitoring_activity="FM-2025-090",
+        monitoring_activity_id=1790,
+        reference_number="FM-2025-090",
+        status="completed",
+        overall_finding_rating="On Track",
+        start_date=None,
+        end_date=datetime.date(2026, 1, 4),  # the latest end of the visit: the row read first by end date
+    )
+    refresh.run(triggered_by="test", today=TODAY)
+    assert Visit.objects.get(key="1790").visit_date == START
+    field = services.partner_datamart(mercy)["monitoring_visits_by_year"]["field"]
+    for year in (2025, 2026):
+        scope = _scope(year=year, partner=mercy.pk)
+        assert field.get(year, 0) == metrics.kpis(scope)["visits"], year
+    assert field[2025] == 1
+
+
+def test_the_ai_reads_the_visit_date_with_the_start_and_the_end(across):
+    from neurodb.fmm import privacy
+
+    visit = Visit.objects.select_related("partner", "pd").get(key="1790")
+    card = privacy.visit_card(visit, frozenset())
+    assert (card["date"], card["start"], card["end"]) == ("2025-12-30", "2025-12-30", "2026-01-03")
+    assert card["rated_on"] == "2026-01-03"  # a rating is given when the visit ends
+    no_start = privacy.visit_card(Visit.objects.select_related("partner", "pd").get(key="1723"), frozenset())
+    assert no_start["start"] is None and no_start["date"] == no_start["end"] == "2026-06-20"
+
+
+def test_a_no_date_issue_of_an_older_build_is_not_shown_for_a_dated_visit(across):
+    """Before visit dates, a build noted "no date" for a visit with a start date but no end date; the
+    migration dates it by its start, so the visit page does not say it is left out of every period."""
+    from neurodb.fmm.views import _data_notes
+
+    left_out = "left out of every period"
+    visit = Visit(issues={"no_date": True}, start_date=START, end_date=None, visit_date=START)
+    assert not any(left_out in note for note in _data_notes(visit))
+    visit.visit_date = visit.start_date = None
+    assert any(left_out in note for note in _data_notes(visit))
+
+
+def test_the_hact_block_names_the_year_of_the_programme_documents_quarter(across, client_viewer):
+    """The partners' HACT year is that of the end date (2026), the programme documents' quarter that of
+    the visit date: the visit page and the AI say Q4 2025, never a bare "Q4" read as 2026's."""
+    from neurodb.fmm.ai import tools as ai_tools
+    from neurodb.fmm.views import _hact
+
+    mercy = PartnerOrganization.objects.get(short_name="MCL")
+    pd = PCA.objects.get(number=PD_EDU)
+    found = _hact(across, [mercy], [pd])
+    assert (found["year"], found["quarter"], found["quarter_year"]) == (2026, 4, 2025)
+    assert found["pds"][0]["done"] == 1  # this visit, in Q4 2025
+    assert ai_tools._hact(across)["quarter_year"] == 2025
+    html = client_viewer.get(reverse("fmm:visit", args=[across.key])).content.decode()
+    assert "in Q4 2025" in html
+
+
+def test_the_feed_and_the_workbook_read_the_visit_date(across, client_viewer):
+    """The Power BI feed's ``?year=`` and ``?since=`` and the Excel workbook's period read the visit
+    date, as the page does: 1790 is 2025's, and not in a feed from 31 December 2025 though it ended in
+    2026."""
+    _row, key = powerbi.create_key("Office workspace")
+    feed = Client()
+
+    def keys(**params) -> set[str]:
+        response = feed.get(reverse("fmm_powerbi_feed", args=["visits"]), {**params, "key": key})
+        text = b"".join(response.streaming_content).decode("utf-8") if response.streaming else ""
+        rows = list(csv.DictReader(io.StringIO(text.lstrip("\ufeff"))))
+        return {str(r["monitoring_activity_id"]) for r in rows}
+
+    assert keys(year="2025") == {"1790"}
+    assert "1790" not in keys(year="2026")
+    assert "1790" not in keys(since="2025-12-31") and "1790" in keys(since="2025-12-30")
+    response = client_viewer.get(reverse("fmm:export_xlsx"), {"year": "2025", "section": ""})
+    book = load_workbook(io.BytesIO(response.content))
+    rows = list(book["Visits"].iter_rows(values_only=True))
+    header = rows[0]
+    assert [dict(zip(header, row, strict=True))["monitoring_activity_id"] for row in rows[1:]] == [1790]
+    about = {row[0]: row[1] for row in book["About"].iter_rows(values_only=True)}
+    assert "start date" in about["Visits dated by"] and about["Visits"] == 1
+
+
+def test_a_visit_with_a_start_date_and_no_end_date_counts_and_reads_cleanly(
+    across, client, admin_user, reporting_year
+):
+    """A planned visit eTools gives a start date but no end date yet is in the period of its start (it
+    was left out of every period before) and the panels that list it show "ends —", not "ends "."""
+    mercy = PartnerOrganization.objects.get(short_name="MCL")
+    _finding(
+        904,
+        partner=mercy,
+        vendor_number=mercy.vendor_number,
+        entity=PD_EDU,
+        entity_type="PD/SSFA",
+        monitoring_activity="FM-2026-091",
+        monitoring_activity_id=1791,
+        reference_number="FM-2026-091",
+        status="assigned",  # planned: not rated yet
+        start_date=datetime.date(2026, 10, 1),
+        end_date=None,
+    )
+    refresh.run(triggered_by="test", today=TODAY)
+    visit = Visit.objects.get(key="1791")
+    assert visit.visit_date == datetime.date(2026, 10, 1) and not visit.issues.get("no_date")
+    assert _scope(year=2026).visits().filter(key="1791").exists()
+    # counted on every page alike: Monitoring insights, the overview and the field monitoring page
+    n = metrics.kpis(_scope(year=2026))["visits"]
+    assert (
+        n
+        == 9
+        == _overview_visits(reporting_year, 2026)
+        == services.monitoring({"year": "2026"})["activities"]
+    )
+    summary = fmm_services.partner_summary(mercy.pk, 2026)
+    assert summary["last"]["key"] == "1791" and summary["last"]["end_date"] is None
+    assert summary["last"]["not_rated_yet"]
+    client.force_login(admin_user)
+    html = client.get(reverse("reports:partner_profile", args=[mercy.pk])).content.decode()
+    panel = html.split('id="fmm-partner"', 1)[1].split("</section>", 1)[0]
+    assert "ends —" in panel and "ends </span>" not in panel
+    assert "visits starting in 2026" in panel

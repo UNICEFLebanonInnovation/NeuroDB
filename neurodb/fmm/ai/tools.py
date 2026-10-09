@@ -524,8 +524,9 @@ def _hact(visit) -> dict[str, Any] | None:
     if not found:
         return None
     return {
-        "year": found["year"],
-        "quarter": found["quarter"],
+        "year": found["year"],  # the HACT year: that of the visit's end date
+        "quarter": found["quarter"],  # the programme documents' quarter: that of the visit date
+        "quarter_year": found["quarter_year"],
         "partners": [
             {
                 "partner": line["partner"],

@@ -222,6 +222,7 @@ CARD_KEYS = {
     "label",
     "date",
     "start",
+    "end",
     "status",
     "partner",
     "pd",
@@ -279,8 +280,10 @@ def test_a_visit_card_is_an_allow_list_copy_without_people_or_narratives(built):
     visit = Visit.objects.select_related("partner", "pd").get(key="1722")
     card = privacy.visit_card(visit, names)
     assert set(card) == CARD_KEYS
-    assert card["key"] == "visit:1722" and card["date"] == visit.end_date.isoformat()
-    assert card["rated_on"] == card["date"] and card["urgency"] == visit.urgency
+    assert card["key"] == "visit:1722" and card["date"] == visit.visit_date.isoformat()
+    assert card["date"] == card["start"] == "2026-05-11"  # the visit date periods read: its start
+    assert card["end"] == visit.end_date.isoformat() and card["date"] != card["end"]
+    assert card["rated_on"] == card["end"] and card["urgency"] == visit.urgency
     assert card["pd"] and card["partner"]
     blob = repr(card)
     for canary in (*CANARIES, LEAD, MEMBER):

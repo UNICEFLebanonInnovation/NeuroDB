@@ -364,18 +364,22 @@ def _monitoring_visits_by_year(partner: PartnerOrganization) -> dict[str, dict[i
     """Field monitoring visits (one per monitoring activity, however many findings it has) and planned
     third-party visits (drafts and cancelled ones left out) of a partner, per year (a field monitoring
     visit by its start date, else its end date)."""
-    field: Counter[int] = Counter()
-    seen: set[str] = set()
-    for activity, pk, day in (
+    # a visit's date as fm.visits_by_year and fmm.Visit.visit_date read it: the earliest start date of
+    # its rows, else their latest end date (not the date of whichever row comes first)
+    first: dict[str, datetime.date] = {}
+    last: dict[str, datetime.date] = {}
+    for activity, pk, start, end in (
         dm.MonitoringFinding.objects.filter(partner=partner)
-        .annotate(day=fm.finding_date())
-        .exclude(day=None)
-        .values_list("monitoring_activity", "pk", "day")
+        .exclude(start_date=None, end_date=None)
+        .order_by()
+        .values_list("monitoring_activity", "pk", "start_date", "end_date")
     ):
         key = activity or f"#{pk}"
-        if key not in seen:
-            seen.add(key)
-            field[day.year] += 1
+        if start and (key not in first or start < first[key]):
+            first[key] = start
+        if end and (key not in last or end > last[key]):
+            last[key] = end
+    field: Counter[int] = Counter((first.get(key) or last[key]).year for key in first.keys() | last.keys())
     tpm: Counter[int] = Counter(
         day.year
         for day in dm.TPMVisit.objects.filter(partner=partner)

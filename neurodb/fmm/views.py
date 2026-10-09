@@ -1649,7 +1649,15 @@ def _hact(v: Visit, partners: list, pds: list) -> dict[str, Any] | None:
         pd_lines.append(
             {"pd": pd, "planned": getattr(row, f"q{quarter}", None) if row else None, "done": done}
         )
-    return {"year": year, "quarter": quarter, "partners": partner_lines, "pds": pd_lines}
+    # ``quarter_year``: the year of that quarter, which differs from the HACT ``year`` for a visit that
+    # starts in one year and ends in the next (Q4 2025 for a visit from 30 Dec 2025 to 3 Jan 2026)
+    return {
+        "year": year,
+        "quarter": quarter,
+        "quarter_year": day.year,
+        "partners": partner_lines,
+        "pds": pd_lines,
+    }
 
 
 def _data_notes(v: Visit) -> list[str]:
@@ -1674,7 +1682,8 @@ def _data_notes(v: Visit) -> list[str]:
             )
             % {"n": n}
         )
-    if issues.get("no_date"):
+    # (an issue a build before visit dates noted for a visit with a start date but no end: not left out)
+    if issues.get("no_date") and v.visit_date is None:
         notes.append(_("No start or end date in eTools: the visit is left out of every period."))
     if issues.get("rating_unknown"):
         written = ", ".join(f"{k} ({n})" for k, n in issues["rating_unknown"].items())

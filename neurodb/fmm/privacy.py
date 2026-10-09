@@ -224,9 +224,10 @@ def _card_text(value: Any, names_: frozenset[str]) -> str:
 
 
 def visit_card(visit, names_: frozenset[str] | None = None) -> dict[str, Any]:
-    """A visit as the AI may read it "in full": an allow-list copy of its structured fields (dates,
-    partner, programme document, place, sections, rating with its date, HACT Q1, quality, flags, urgency
-    and action point counts). Never its team, visit lead, narratives or answers. Names pass through
+    """A visit as the AI may read it "in full": an allow-list copy of its structured fields (``date``,
+    the visit date every period reads: its start, else its end; ``start`` and ``end``; partner,
+    programme document, place, sections, rating with its date, HACT Q1, quality, flags, urgency and
+    action point counts). Never its team, visit lead, narratives or answers. Names pass through
     ``watch.redact.text`` (e-mail addresses, links and known person names removed). Reads
     ``visit.partner`` and ``visit.pd``: select them with the visits."""
     names_ = names() if names_ is None else names_
@@ -238,8 +239,9 @@ def visit_card(visit, names_: frozenset[str] | None = None) -> dict[str, Any]:
     return {
         "key": f"visit:{visit.key}",
         "label": _card_text(visit.label, names_),
-        "date": end,
+        "date": visit.visit_date.isoformat() if visit.visit_date else None,  # the date periods read
         "start": visit.start_date.isoformat() if visit.start_date else None,
+        "end": end,
         "status": visit.status or visit.status_group,
         "partner": _card_text(visit.partner.name if visit.partner_id and visit.partner else "", names_),
         "pd": _card_text(pd_number, names_),

@@ -1,7 +1,7 @@
 """The Power BI live feed of Monitoring insights (FMS "Connect Live"): ``/powerbi/fmm/<dataset>.csv`` for
 ``visits``, ``rule_results``, ``action_points`` and ``partners``, the tables of the Power BI package over
-every visit (no person's section is applied), narrowed by ``?year=`` or ``?since=YYYY-MM-DD`` (the visit's
-end date).
+every visit (no person's section is applied), narrowed by ``?year=`` or ``?since=YYYY-MM-DD`` (the visit
+date: its start, else its end, as every period reads it).
 
 The feed is read with a key an Administrator creates in the admin (*Power BI keys*,
 :class:`~neurodb.fmm.models.PowerBIKey`), never with a session: these addresses alone are left out of the
@@ -118,8 +118,8 @@ def _refused(status: int, text: str, **headers: str) -> HttpResponse:
 
 
 def feed_scope(params) -> Scope | None:
-    """Every visit, or those of ``?year=``, from ``?since=`` on (end date); None for a value that is not
-    a year or an ISO date."""
+    """Every visit, or those of ``?year=``, from ``?since=`` on (visit date: start, else end); None
+    for a value that is not a year or an ISO date."""
     year = str(params.get("year", "")).strip()
     since = str(params.get("since", "")).strip()
     if year and not _YEAR.match(year):

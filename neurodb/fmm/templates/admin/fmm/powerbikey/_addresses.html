@@ -1,4 +1,4 @@
 {% load i18n %}
 {% comment %}The live feed's addresses (fmm.powerbi.feed); each is read with the key, never with a session.{% endcomment %}
 <ul class="flex flex-col gap-1">{% for url in urls %}<li><code>{{ url }}</code></li>{% endfor %}</ul>
-<p class="mt-2">{% trans "Add ?year=2026 for one year, or ?since=2026-01-01 for the visits that ended from that day." %}</p>
+<p class="mt-2">{% trans "Add ?year=2026 for one year, or ?since=2026-01-01 for the visits that started from that day (or ended, when eTools has no start date)." %}</p>

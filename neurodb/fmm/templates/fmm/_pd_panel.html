@@ -13,7 +13,7 @@ insights page its link opens (/fmm/?pd=<id>&year=Y&section=), for every user.{% 
 </tbody></table></div>
 <p class="small text-muted mb-2">{% trans "Visits by the quarter of their start date (else their end date), whatever their status. Planned visits are the programmatic visits of the eTools plan." %}</p>
 {% if s.latest %}
-<ul class="list-unstyled small mb-2">{% for v in s.latest %}<li class="mb-1"><a href="{{ v.url }}" hx-get="{{ v.url }}" hx-target="#modal-content" hx-push-url="false">{{ v.label }}</a> · {% status_pill v.rating v.rating_label "sm" %} <span class="text-muted">{% if v.not_rated_yet %}{% blocktrans with day=v.end_date|date:"j M Y" %}ends {{ day }}{% endblocktrans %}{% else %}{% blocktrans with day=v.end_date|date:"j M Y" %}rated {{ day }}{% endblocktrans %}{% endif %}</span>
+<ul class="list-unstyled small mb-2">{% for v in s.latest %}<li class="mb-1"><a href="{{ v.url }}" hx-get="{{ v.url }}" hx-target="#modal-content" hx-push-url="false">{{ v.label }}</a> · {% status_pill v.rating v.rating_label "sm" %} <span class="text-muted">{% if v.not_rated_yet %}{% blocktrans with day=v.end_date|date:"j M Y"|default:"—" %}ends {{ day }}{% endblocktrans %}{% else %}{% blocktrans with day=v.end_date|date:"j M Y"|default:"—" %}rated {{ day }}{% endblocktrans %}{% endif %}</span>
   · {% trans "quality" %} {% if v.quality is not None %}<span class="fmm-score fmm-score--{{ v.score_band|default:'none' }}">{{ v.quality|percent }}</span>{% else %}—{% endif %}
   · {% trans "urgency" %} <span class="pill pill--sm pill--{% if v.urgency_band == 'red' %}danger{% elif v.urgency_band == 'amber' %}warning{% else %}neutral{% endif %}">{{ v.urgency|default_if_none:"—" }}</span></li>{% endfor %}</ul>
 {% endif %}
