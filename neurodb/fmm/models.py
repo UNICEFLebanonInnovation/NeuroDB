@@ -2,15 +2,18 @@
 
 - what the eTools field monitoring records hold (:class:`KeyProbe`) and which key each logical field
   is read from (:class:`FieldMapping`), shown in the admin as "Fields found";
-- the visits (:class:`Visit`, one per eTools monitoring activity), the finding rows of each
-  (:class:`VisitEntity`), its checklist answers (:class:`QuestionAnswer`) and the action points raised
-  from it (:class:`VisitActionPoint`);
+- the visits (:class:`Visit`, one per eTools monitoring activity), the finding rows of each, its
+  **records** (:class:`VisitEntity`: one per entity assessed, scored on its own as FMS scores each
+  record), its checklist answers (:class:`QuestionAnswer`) and the action points raised from it
+  (:class:`VisitActionPoint`);
 - the reviews sections put on visits (:class:`VisitReview`, kept across rebuilds) and the refreshes
   someone asked for that have not run yet (:class:`RefreshRequest`);
 - the quality rules, score settings and their versions (:class:`RuleSetting`, :class:`ScoreSetting`,
   :class:`RuleSetVersion`), the field offices' staff lists of rule R19 (:class:`FieldOfficeStaff`),
-  each visit's rule results (:class:`VisitRuleResult`) and the AI checks' answers
-  (:class:`VisitAICheck`, kept across rebuilds);
+  each record's rule results (:class:`RecordRuleResult`) and each visit's, derived from them
+  (:class:`VisitRuleResult`), and the AI checks' answers (:class:`AICheckAnswer`, kept by what was
+  sent, so identical inputs share one answer; :class:`VisitAICheck` holds the answers made per visit
+  before Release 2 step 5, carried over once and then dropped);
 - the AI's prompt versions (:class:`PromptProfile`, :class:`PromptVersion`, never changed once
   published), what each model accepted (:class:`ModelCapability`), its pause (:class:`AIState`) and its
   briefs (:class:`Insight`, which keeps the payload sent, redacted, for a limited time);
@@ -194,20 +197,26 @@ class Visit(models.Model):
     red_flag_count = models.PositiveSmallIntegerField(null=True, blank=True)  # bottom-tier Likert answers
     attachments_count = models.PositiveIntegerField(null=True, blank=True)
     action_points_assigned = models.PositiveSmallIntegerField(default=0)  # a count, never the names
+    # the visit's quality: the mean of its scored records' scores (``score.aggregate_visit``); None while
+    # one of its records waits for an AI check (provisional) or when its status is not scored
     quality_score = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True, db_index=True)
     quality_points = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True)
     quality_max = models.PositiveSmallIntegerField(default=0)  # points of the rules evaluated
+    lowest_score = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)  # worst record
+    records_scored = models.PositiveSmallIntegerField(default=0)  # records with a score
+    records_low = models.PositiveSmallIntegerField(default=0)  # scored records below the Medium band
     evaluated_rules = ArrayField(models.CharField(max_length=4), default=list)  # ["R1", "R4"]
     not_scored_reason = models.CharField(max_length=80, blank=True)
-    score_band = models.CharField(max_length=8, blank=True)  # high | medium | low | pending | ""
-    # a visit whose AI checks are not all done: its score so far (``quality_score`` stays empty, so no
-    # figure counts it as scored) and how many checks are pending
+    score_band = models.CharField(max_length=8, blank=True)  # the mean's: high | medium | low | pending | ""
+    # a visit with a record whose AI checks are not all done: the mean of its records' scores so far
+    # (``quality_score`` stays empty, so no figure counts it as scored) and how many checks are pending
     provisional_score = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
-    ai_pending = models.PositiveSmallIntegerField(default=0)
-    category_deductions = models.JSONField(default=dict)  # {"completeness": 4.0, ...}: each capped
-    flags = ArrayField(models.CharField(max_length=4), default=list)  # the rules failed
+    ai_pending = models.PositiveSmallIntegerField(default=0)  # over its records
+    category_deductions = models.JSONField(default=dict)  # its records' means: {"completeness": 4.0, ...}
+    flags = ArrayField(models.CharField(max_length=4), default=list)  # the rules one of its records failed
     flag_count = models.PositiveSmallIntegerField(default=0, db_index=True)
-    urgency = models.PositiveSmallIntegerField(null=True, blank=True, db_index=True)  # None: not scored
+    # its most urgent record's urgency, band and parts (None: not scored)
+    urgency = models.PositiveSmallIntegerField(null=True, blank=True, db_index=True)
     urgency_band = models.CharField(max_length=6, blank=True)  # red | amber | ""
     urgency_parts = models.JSONField(
         default=dict
@@ -253,12 +262,17 @@ class Visit(models.Model):
 
 
 class VisitEntity(models.Model):
-    """One finding row of a visit (a monitored programme document, CP output or partner), with its
-    links and the measures of its narrative; never the narrative itself."""
+    """A **record**: one finding row of a visit (a monitored programme document, CP output or partner),
+    with its links, the measures of its narrative (never the narrative itself), the derived columns
+    worked out over the answers that apply to it, and its own quality score, flags and urgency: FMS
+    scores, rates and counts each record (``score``). Its pk changes with every full refresh; its
+    ``datamart_id`` (the eTools record's id) does not, so anything that points at a record uses it
+    (``/fmm/visits/<visit key>/#record-<datamart_id>``). It follows its visit for the period, status,
+    sections, offices, governorate and modality: none of those is copied onto it."""
 
     visit = models.ForeignKey(Visit, on_delete=models.CASCADE, related_name="entity_rows")
     finding = _fk("datamart.MonitoringFinding")
-    datamart_id = models.BigIntegerField(db_index=True)
+    datamart_id = models.BigIntegerField()  # the stable record id (unique)
     entity = models.CharField(max_length=255, blank=True)  # as eTools wrote it (a PD, partner or output)
     entity_type_raw = models.CharField(max_length=100, blank=True)
     kind = models.CharField(max_length=12)  # datamart.fm.KINDS
@@ -277,14 +291,54 @@ class VisitEntity(models.Model):
     # {"q1": {"answered", "placeholder", "rating", "code", "words", "short"}, ...}, one entry per answer
     # whose key the records hold ("short": sha1 of a short answer's folded text, for R5's placeholders)
     row_answers = models.JSONField(default=dict)
+    # the row's own place, as eTools wrote it (R20, R23); blank: the visit's place is used
+    location = _fk("locations.Location")
+    location_pcode = models.CharField(max_length=32, blank=True)
+    # FMS's derived columns over the (question, unit) pairs that apply to this row: its own answers, its
+    # partner's and the visit's (a visit whose answers name no entity gives every row the visit's
+    # figures, as FMS repeats them); None: not in the data
+    questions_asked = models.PositiveSmallIntegerField(null=True, blank=True)
+    questions_answered = models.PositiveSmallIntegerField(null=True, blank=True)
+    fmq_answered_pct = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
+    fmq_answered_categories = models.CharField(max_length=500, null=True, blank=True)
+    method_count = models.PositiveSmallIntegerField(null=True, blank=True)
+    red_flag_count = models.PositiveSmallIntegerField(null=True, blank=True)
+    attachments_count = models.PositiveIntegerField(null=True, blank=True)  # the row's own
+    # the record's own score, as the scoring writes it (the same meanings as the visit's fields)
+    quality_score = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True, db_index=True)
+    provisional_score = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
+    ai_pending = models.PositiveSmallIntegerField(default=0)
+    score_band = models.CharField(max_length=8, blank=True)  # high | medium | low | pending | ""
+    category_deductions = models.JSONField(default=dict)  # {"completeness": 4.0, ...}: each capped
+    evaluated_rules = ArrayField(models.CharField(max_length=4), default=list)
+    not_scored_reason = models.CharField(max_length=80, blank=True)
+    flags = ArrayField(models.CharField(max_length=4), default=list)  # the rules failed
+    flag_count = models.PositiveSmallIntegerField(default=0)
+    urgency = models.PositiveSmallIntegerField(null=True, blank=True, db_index=True)  # None: not scored
+    urgency_band = models.CharField(max_length=6, blank=True)  # red | amber | ""
+    urgency_parts = models.JSONField(default=dict)
 
     class Meta:
         ordering = ("visit", "datamart_id")
-        verbose_name = "monitored entity"
-        verbose_name_plural = "monitored entities"
+        constraints = [models.UniqueConstraint(fields=["datamart_id"], name="fmm_record_datamart_id")]
+        indexes = [
+            models.Index(fields=["visit", "quality_score"]),
+            GinIndex(fields=["flags"]),
+        ]
+        verbose_name = "record"
+        verbose_name_plural = "records"
 
     def __str__(self):
         return self.entity or f"Finding {self.datamart_id}"
+
+    def get_absolute_url(self) -> str:
+        """``/fmm/visits/<visit key>/#record-<datamart_id>``: the record on its visit's page."""
+        return f"{reverse('fmm:visit', args=[self.visit.key])}#{self.anchor}"
+
+    @property
+    def anchor(self) -> str:
+        """The record's anchor on its visit's page (stable across refreshes)."""
+        return f"record-{self.datamart_id}"
 
 
 class QuestionAnswer(models.Model):
@@ -605,11 +659,47 @@ class RuleSetVersion(models.Model):
         return f"Rules v{self.number}"
 
 
-class VisitRuleResult(models.Model):
-    """What one quality rule found on one visit: passed, failed (a flag), not available, not
+class RecordRuleResult(models.Model):
+    """What one quality rule found on one record: passed, failed (a flag), not available, not
     applicable, switched off or pending (an AI check not done yet), with the points it kept (its
     maximum deduction less what it took off) and its flag: written by the code from the rule's flag
-    template, with an AI check's explanation (cleaned of names, e-mail addresses and links)."""
+    template, with an AI check's explanation (cleaned of names, e-mail addresses and links). Rewritten
+    by every scoring, like the records' scores."""
+
+    # no index of its own: the unique (record, rule) index serves the look-ups by record, and each pass
+    # writes some 180,000 results through one index less
+    entity = models.ForeignKey(
+        VisitEntity, on_delete=models.CASCADE, related_name="rule_results", db_index=False
+    )
+    rule = models.CharField(max_length=4)  # R1..R32
+    status = models.CharField(max_length=8)  # pass | fail | na | nap | off | pending
+    points = models.DecimalField(max_digits=4, decimal_places=1, default=0)  # kept, never above max
+    max_points = models.DecimalField(max_digits=4, decimal_places=1, default=0)  # the most it takes off
+    detail_key = models.CharField(max_length=40, blank=True)  # "missing:0,3", "band:1", "ai"
+    detail = models.CharField(max_length=600, blank=True)  # the flag, or why it passed or did not apply
+    measure = models.FloatField(null=True, blank=True)  # 46.2 (% answered), 2 (methods)
+
+    class Meta:
+        ordering = ("entity", "rule")
+        constraints = [models.UniqueConstraint(fields=["entity", "rule"], name="fmm_record_rule")]
+        indexes = [models.Index(fields=["rule", "status"])]
+        verbose_name = "record rule result"
+        verbose_name_plural = "record rule results"
+
+    def __str__(self):
+        return f"{self.entity_id} {self.rule} {self.status}"
+
+    @property
+    def deducted(self) -> Decimal:
+        """The points the rule took off the record."""
+        return Decimal(self.max_points or 0) - Decimal(self.points or 0)
+
+
+class VisitRuleResult(models.Model):
+    """What one quality rule found on one visit, derived from its records' results
+    (``score.visit_results``): failed when a record failed it, else passed when a record passed it,
+    else the most common other state; the points are the records' means, the detail the first failing
+    record's, prefixed with its entity type. Kept while the pages read it (Release 2 step 5, stage F2)."""
 
     visit = models.ForeignKey(Visit, on_delete=models.CASCADE, related_name="rule_results")
     rule = models.CharField(max_length=4)  # R1..R32
@@ -636,11 +726,45 @@ class VisitRuleResult(models.Model):
         return Decimal(self.max_points or 0) - Decimal(self.points or 0)
 
 
+class AICheckAnswer(models.Model):
+    """The answer of one AI check (a narrative rule), kept by what was asked: the rule, its prompt
+    (``prompt_hash``) and the record's inputs as read (``input_hash``). It has no record key: a record's
+    answer is the one whose three match, so records with identical inputs (on one visit or several)
+    share one answer, and a record is checked again only when its inputs or the rule's prompt change.
+    The explanation is cleaned of names, e-mail addresses, phone numbers and links, and checked against
+    what was sent. ``carried``: a verdict made per visit before Release 2 step 5, copied for that
+    visit's only record (``ai.checks.carry_over``). ``last_used``: the last day a scoring read it; one
+    unused for 120 days is deleted by the refresh."""
+
+    rule = models.CharField(max_length=4)
+    prompt_hash = models.CharField(max_length=64)
+    input_hash = models.CharField(max_length=64)
+    model = models.CharField(max_length=64, blank=True)
+    passed = models.BooleanField()
+    detail = models.CharField(max_length=400, blank=True)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    checked_at = models.DateTimeField(db_index=True)
+    last_used = models.DateField(db_index=True)
+    carried = models.BooleanField(default=False, db_index=True)
+
+    class Meta:
+        ordering = ("-checked_at", "rule")
+        constraints = [
+            models.UniqueConstraint(fields=["rule", "input_hash", "prompt_hash"], name="fmm_ai_check_answer")
+        ]
+        verbose_name = "AI check answer"
+        verbose_name_plural = "AI check answers"
+
+    def __str__(self):
+        return f"{self.rule} {'passed' if self.passed else 'flagged'} ({self.input_hash[:8]})"
+
+
 class VisitAICheck(models.Model):
-    """The answer of one AI check (a narrative rule) on one visit, kept so that a visit and rule are
-    checked again only when the visit's inputs (``input_hash``) or the rule's prompt (``prompt_hash``)
-    change. Keyed by the visit's key: it survives the rebuilds of the visits. The explanation is
-    cleaned of names, e-mail addresses, phone numbers and links, and checked against what was sent."""
+    """The answer of one AI check (a narrative rule) on one visit, as Release 2 kept them before the
+    records were checked one by one (step 5). Read only by ``ai.checks.carry_over``, which copies the
+    verdicts of single-record visits into :class:`AICheckAnswer` and deletes the rows it has dealt with;
+    the table is dropped once none is left."""
 
     visit_key = models.CharField(max_length=40)
     rule = models.CharField(max_length=4)
@@ -656,8 +780,8 @@ class VisitAICheck(models.Model):
     class Meta:
         ordering = ("visit_key", "rule")
         constraints = [models.UniqueConstraint(fields=["visit_key", "rule"], name="fmm_visit_ai_check")]
-        verbose_name = "AI check"
-        verbose_name_plural = "AI checks"
+        verbose_name = "AI check made per visit (before records)"
+        verbose_name_plural = "AI checks made per visit (before records)"
 
     def __str__(self):
         return f"{self.visit_key} {self.rule} {'passed' if self.passed else 'flagged'}"
@@ -1214,9 +1338,10 @@ class ActionPointSummary(models.Model):
 
 class LocalActionPoint(models.Model):
     """An action point kept in NeuroDB only (FMS's "local action points"), never pushed to eTools: made
-    by hand by an Administrator or a Section editor, or by the refresh when a scored visit's quality is
-    Low and the AI flagged its action points (rule R7, R8 or R32). Its description holds what NeuroDB
-    wrote or the person typed: an automatic one lists the visit's flags, never a narrative or a person."""
+    by hand by an Administrator or a Section editor, or by the refresh when a scored record's quality is
+    Low and the AI flagged its action points (rule R7, R8 or R32), at most one open per visit. Its
+    description holds what NeuroDB wrote or the person typed: an automatic one lists the qualifying
+    records with their scores and flags, never a narrative or a person."""
 
     class Priority(models.TextChoices):
         HIGH = "high", "High"
@@ -1244,6 +1369,8 @@ class LocalActionPoint(models.Model):
     )
     source = models.CharField(max_length=8, choices=Source.choices, default=Source.MANUAL)
     rule = models.CharField(max_length=4, blank=True)  # an automatic one: the flag that made it
+    # an automatic one: the record that made it (its lowest qualifying record's VisitEntity.datamart_id)
+    record = models.BigIntegerField(null=True, blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )

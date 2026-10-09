@@ -25,9 +25,9 @@ pytestmark = pytest.mark.django_db
 TODAY = datetime.date(2026, 10, 5)
 TABLE = reverse("fmm:visits")
 REFERENCE_KEY = fm.visit_key(None, "FM/2026/9", 0)
-# by urgency (FMS's formula: 59, 39, 37, 24, 23, 14), then the two without a score (and so without
-# urgency) by visit date (start, else end), newest first
-URGENCY_ORDER = ["1723", "1727", "1726", "1722", REFERENCE_KEY, "1728", "1724", "1725"]
+# by urgency (FMS's formula, a visit's being its most urgent record's: 58, 39, 37, 23, 19, 14), then the
+# two without a score (and so without urgency) by visit date (start, else end), newest first
+URGENCY_ORDER = ["1723", "1727", "1726", REFERENCE_KEY, "1722", "1728", "1724", "1725"]
 
 
 @pytest.fixture(autouse=True)
@@ -82,8 +82,8 @@ def test_red_and_amber_rows_follow_the_configured_thresholds(built, client_viewe
 
 def test_the_urgency_pill_explains_its_parts(built, client_viewer):
     rows = dict(zip(URGENCY_ORDER, _rows(client_viewer.get(TABLE).content.decode()), strict=True))
-    title = re.search(r'title="([^"]*)">59<', rows["1723"]).group(1)
-    assert title == "quality gap 27 · recency 12.2 · red flags 20" and "pill--warning" in rows["1723"]
+    title = re.search(r'title="([^"]*)">58<', rows["1723"]).group(1)
+    assert title == "quality gap 26 · recency 12.2 · red flags 20" and "pill--warning" in rows["1723"]
     assert "No urgency: the visit has no score" in rows["1724"] and ">—<" in rows["1724"]
 
 
@@ -139,9 +139,9 @@ def test_the_csv_has_every_row_and_no_team_lead_or_narrative(built, client_viewe
     one = dict(zip(rows[0], next(r for r in rows if r[1] == "1722"), strict=True))
     assert (one["Rating"], one["Quality score"], one["Flags"], one["Urgency"]) == (
         "off_track",
-        "93.0",
+        "94.3",  # the mean of its records' (95, 95, 93)
         "R1 R7 R23",
-        "24",
+        "19",  # its most urgent record's
     )
     filtered = client_viewer.get(
         TABLE, {"export": "csv", "rating": "off_track", "section": ""}
@@ -159,7 +159,8 @@ def test_the_visit_page_shows_narratives_in_full_without_emails(built, client_vi
     assert MEMBER_EMAIL not in html
     assert "matched by PCA/PD number" in html
     assert "Shown to NeuroDB users only; never sent to the AI." in html
-    assert "Why urgency 24" in html and "100 less Q3 quality 5, Completeness 2" in " ".join(html.split())
+    # its most urgent record's urgency; its records' mean deductions (R1 took 2 off one of the three)
+    assert "Why urgency 19" in html and "100 less Q3 quality 5, Completeness 0.7" in " ".join(html.split())
     assert "/action-points/?module=fm&amp;visit=1722" in html or "module=fm&amp;visit=1722" in html
     assert "R1: Incomplete monitoring report — missing: Q1 – Implementation status" in html  # its flag
     assert "Switched off: R4, R9, R10" in html  # the rules switched off keep no result

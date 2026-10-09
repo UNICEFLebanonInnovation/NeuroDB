@@ -254,9 +254,10 @@ BACKGROUND_JOBS = [
         _("Monitoring insights (AI checks)"),
         _("Run the AI checks of the quality rules now"),
         _(
-            "Checks the newest visits not checked yet against the AI quality rules (R3, R5, R6, R7, R8, "
-            "R32...), within the day's budget for these checks, then recomputes the scores. Older visits "
-            "are checked on the following nights. It runs by itself each morning."
+            "Checks the records not checked yet against the AI quality rules (R3, R5, R6, R7, R8, R32...): "
+            "this year's first, those of visits with several records first, within the day's budget for "
+            "these checks, then recomputes the scores. What is left is checked on the following nights. It "
+            "runs by itself each morning, after the refresh."
         ),
         "fact_check",
     ),

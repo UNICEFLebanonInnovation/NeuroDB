@@ -74,11 +74,12 @@ FMS's "local action points", never sent to eTools. Administrators and Section ed
 responsible role or section, or a person in NeuroDB), also from a visit's page. The person who added it,
 an Administrator or a Section editor of the visit's sections marks it done, dropped or open again.
 
-**NeuroDB makes one at each refresh** for a scored visit whose quality is Low (below 50) with at least
-one of the AI's action point flags (R7, R8 or R32), unless one is already open on the visit: below 30 it
-is *High* and due in 5 working days, else *Medium* and due in 10. Its title names the flag that took the
-most points ("Follow up on R8 — FM/2026/23"), its description lists the visit's flags, and it is
-assigned to the role "PME focal point".
+**NeuroDB makes one at each refresh** for a visit with a scored record (one entity of the visit) whose
+quality is Low (below 50) and that has at least one of the AI's action point flags (R7, R8 or R32), one
+per visit, unless one is already open on the visit: below 30 (the lowest such record) it is *High* and
+due in 5 working days, else *Medium* and due in 10. Its title names the flag that took the most points
+and the record ("Follow up on R8 — FM/2026/23 · <entity>"), its description lists each such record with
+its score and flags, and it is assigned to the role "PME focal point".
 
 ## Follow-up
 

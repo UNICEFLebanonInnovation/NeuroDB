@@ -15,49 +15,63 @@ worked out here, not when the visits are built, so a pattern change needs only a
   Constrained or Off track rating) flags the visit; ``None`` when no PSEA question was asked, or when
   the answers of the checklist records were not found (Fields found).
 
-**The rules** (``fmm.rules``, FMS's model) read what the visit's report holds (:func:`record`): whether
-each field is filled (the narrative, the rating, Q1, Q2 and Q3 of every rated row, or of every row when
-none is rated), the columns derived at the build (the share of questions answered, the categories
-answered, the methods...), the reference facts eTools holds (:class:`References`: the programme
-documents' registered locations, the CP outputs' sections) and the answers of the AI checks
-(``VisitAICheck``, used only while the visit's inputs and the rule's prompt are those it was checked
-with: ``fmm.ai.checks``). The monitors' e-mail addresses R19 compares are read from the records in code
-and dropped at once.
+**Each record is scored** (FMS scores, rates and counts each record: an entity row of a visit). The
+rules (``fmm.rules``, FMS's model) read what one record holds (:func:`record_of`, with ``kinds`` its
+own entity type, so a rule's entity type filter and its entity type bands apply row by row): whether
+each field of the row is filled (its narrative, its rating, Q1, Q2 and Q3 answered for it: its own
+answer, its partner's or the visit's), the columns derived at the build over the answers that apply to
+it (the share of questions answered, the categories answered, the methods...), the visit's own fields
+(offices, sections, modality, action points: repeated on each record, as FMS does), the reference facts
+eTools holds for that row (:class:`References`: its programme document's registered locations, its CP
+output's sections, its place, else the visit's) and the answers of the AI checks (``AICheckAnswer``,
+used only while the record's inputs and the rule's prompt are those it was checked with:
+``fmm.ai.checks``). A rule that reads only what belongs to the visit (R19: the monitors' e-mail
+addresses and the visit's field offices) is evaluated once per visit and its outcome copied to every
+record. The monitors' e-mail addresses R19 compares are read from the records in code and dropped at
+once.
 
-**Score** (:func:`score_visit`), FMS's: 100 less the deductions of the rules that fired, each score
-category's deductions at most its weight (Score settings: categories), never below 0, rounded half up to
-one decimal. Only the visits whose eTools status is one of the settings' *scored statuses* (report
-finalization and completed by default) are scored: the others are "pending" (band ``pending``, no score),
-a cancelled one "cancelled". A visit whose AI checks are not all done is **provisional**: its score so
-far is kept apart (``provisional_score``, with ``ai_pending``) and it counts as not scored, so it never
-gets full marks for checks not made. Bands: High from 80, Medium from 50, else Low. The flags are the
-rules that fired.
+**Score** (:func:`score_outcome`), FMS's, per record: 100 less the deductions of the rules that fired,
+each score category's deductions at most its weight (Score settings: categories), never below 0, rounded
+half up to one decimal. Only the visits whose eTools status is one of the settings' *scored statuses*
+(report finalization and completed by default) are scored: the others' records are "pending" (band
+``pending``, no score), a cancelled one's "cancelled". A record whose AI checks are not all done is
+**provisional**: its score so far is kept apart (``provisional_score``, with ``ai_pending``) and it
+counts as not scored, so it never gets full marks for checks not made. Bands: High from 80, Medium from
+50, else Low. The flags are the rules that fired.
 
-**Urgency** (:func:`urgency`), FMS's formula, 0 to 100: 50% the gap from the maximum score
-(100 − score), 30% recency (100 on the day the visit ended, falling to 0 at ``recency_days``, 180)
-and 20% red flags (25 per failed rule, at most 100); the weights are the settings' and sum to 1. A
-visit with no score has no urgency (``None``) and is left out of every urgency figure. Red from 70,
-amber from 40. Each weighted part is kept (``urgency_parts``) to explain it.
+**The visit** (:func:`aggregate_visit`): its quality is the mean of its records' scores (rounded half
+up), its lowest record's score is kept, its band is the mean's, its flags the union of its records'
+and its urgency its most urgent record's. A visit with a provisional record is provisional too: no
+score and no urgency, its records' mean so far in ``provisional_score``. Its rule results
+(``VisitRuleResult``) are derived from its records' (:func:`visit_results`) while the pages read them.
+
+**Urgency** (:func:`urgency`), FMS's formula, per record, 0 to 100: 50% the gap from the maximum score
+(100 − the record's score), 30% recency (100 on the day the visit ended, falling to 0 at
+``recency_days``, 180) and 20% red flags (25 per rule the record failed, at most 100); the weights are
+the settings' and sum to 1. A record with no score has no urgency (``None``) and is left out of every
+urgency figure. Red from 70, amber from 40. Each weighted part is kept (``urgency_parts``) to explain
+it.
 
 **Signals** (:func:`signals`), shown on the visit page and never part of urgency: no follow-up action
 point 14 days after an Off track or Constrained reported visit; overdue or high-priority open action
 points; a planned or in-progress visit that ended more than 30 days ago (a late report).
 
-The visits are scored in batches of 500. A full refresh scores the visits it has just built
-(:class:`BuiltSource`); a scores-only one the visits stored (:class:`StoredSource`), which is also what
-the admin's *Preview effect* scores in memory without writing anything.
+The visits are scored in batches of 500, each with its records. A full refresh scores the visits it has
+just built (:class:`BuiltSource`); a scores-only one the visits stored (:class:`StoredSource`), which is
+also what the admin's *Preview effect* scores in memory without writing anything.
 """
 
 from __future__ import annotations
 
 import copy
+import functools
 import logging
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, NamedTuple
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -66,14 +80,13 @@ from neurodb.datamart.fm import RATING_ORDER, STATUSES
 
 from . import parse, rules
 from .models import (
+    AICheckAnswer,
     FieldOfficeStaff,
     QuestionAnswer,
     RuleSetting,
     ScoreSetting,
     Visit,
-    VisitAICheck,
     VisitEntity,
-    VisitRuleResult,
     default_categories,
     default_question_patterns,
     default_role_flag_answers,
@@ -96,6 +109,9 @@ FLAG_POINTS = 25  # each red flag (a failed rule) adds this to the flags part, a
 NOT_SCORED_ERROR = "could not be scored"
 HUNDRED = Decimal(100)
 PLACE_CHECKS = ("value_in_mapped_list", "pd_reference_locations", "section_in_cp_output")
+# the reference checks that read only what belongs to the visit (its team and field offices): evaluated
+# once per visit, their outcome copied to every record
+VISIT_CHECKS = ("member_in_mapped_list",)
 
 
 # ------------------------------------------------------------------------------------------ settings
@@ -148,6 +164,14 @@ class Rulebook:
     @property
     def categories(self) -> dict[str, Decimal]:
         return categories_of(self.setting)
+
+    def split_rules(self) -> tuple[dict[str, RuleSetting], dict[str, RuleSetting]]:
+        """(the rules evaluated on each record, those evaluated once per visit: :func:`visit_level`),
+        worked out once per scoring."""
+        if not hasattr(self, "_split"):
+            visit = {code: rule for code, rule in self.rules.items() if visit_level(rule)}
+            self._split = ({c: r for c, r in self.rules.items() if c not in visit}, visit)
+        return self._split
 
     @property
     def ai_on(self) -> bool:
@@ -520,10 +544,10 @@ class ScoreOutcome:
     not_scored_reason: str
 
 
-def score_visit(
+def score_outcome(
     outcomes: Sequence[Outcome], s: ScoreSetting, scorable_: bool = True, status_group: str = ""
 ) -> ScoreOutcome:
-    """The visit's score from its rules' outcomes (see the module's description)."""
+    """A record's score from its rules' outcomes (see the module's description)."""
     flags = tuple(o.rule for o in outcomes if o.status == "fail")
     evaluated = tuple(o.rule for o in outcomes if o.status in ("pass", "fail"))
     if not scorable_:
@@ -545,12 +569,19 @@ def score_visit(
     if pending:
         reason = PROVISIONAL.format(n=pending)
         return ScoreOutcome(None, value, pending, deductions, evaluated, "", flags, reason)
-    band = "high" if value >= s.band_high else "medium" if value >= s.band_medium else "low"
-    return ScoreOutcome(value, None, 0, deductions, evaluated, band, flags, "")
+    return ScoreOutcome(value, None, 0, deductions, evaluated, band_of(value, s), flags, "")
+
+
+score_visit = score_outcome  # its name before records were scored (Release 2 step 5)
+
+
+def band_of(value: Decimal, s: ScoreSetting) -> str:
+    """The band of a score: High from ``band_high``, Medium from ``band_medium``, else Low."""
+    return "high" if value >= s.band_high else "medium" if value >= s.band_medium else "low"
 
 
 def high_flag(flag_count: int, s: ScoreSetting) -> bool:
-    """A visit with many flags: at least the settings' ``high_flag_count`` (3) rules failed."""
+    """Many flags: at least the settings' ``high_flag_count`` (3) rules failed."""
     return flag_count >= s.high_flag_count
 
 
@@ -564,8 +595,9 @@ def recency(end_date: date | None, today: date, days: int) -> float:
 
 
 def urgency(visit: Visit, score: ScoreOutcome, s: ScoreSetting, today: date) -> tuple[int | None, str, dict]:
-    """The visit's urgency (FMS's formula, see the module's description), its band (red, amber or "")
-    and its weighted parts; ``(None, "", {})`` for a visit without a score."""
+    """The urgency of a record of ``visit`` scored ``score`` (FMS's formula, see the module's
+    description; recency counts from the visit's end), its band (red, amber or "") and its weighted
+    parts; ``(None, "", {})`` without a score."""
     if score.score is None:
         return None, "", {}
     w = weights_of(s)
@@ -620,7 +652,7 @@ def signals(visit: Visit, links: Sequence[Any], s: ScoreSetting, today: date) ->
 
 # ------------------------------------------------------------------------------------------ references
 class References:
-    """What eTools holds that the reference checks compare a visit with (R20, R21, R23), read once per
+    """What eTools holds that the reference checks compare a record with (R20, R21, R23), read once per
     scoring: the registered locations of every programme document (``PCA.location_p_codes`` and its
     locations' P-codes), the programme documents of each partner, the sections of each CP output (the
     programme documents that name it), the partners' names and the P-codes of the places holding each
@@ -668,10 +700,17 @@ class References:
         }
         self.site_parents = dict(MonitoringSite.objects.values_list("pk", "parent_id"))
 
-    def place_codes(self, visit: Visit) -> list[str]:
-        """The visit's P-code and those of the places holding its place, nearest first."""
-        out = [visit.place_pcode.strip().casefold()] if visit.place_pcode.strip() else []
-        node = visit.location_id or (self.site_parents.get(visit.site_id) if visit.site_id else None)
+    def place_codes(self, visit: Visit, entity: VisitEntity | None = None) -> list[str]:
+        """The P-code of a record's place and those of the places holding it, nearest first: the place
+        its row names (its P-code, its location), else the visit's."""
+        own_pcode = ((getattr(entity, "location_pcode", "") or "").strip()) if entity is not None else ""
+        own_node = getattr(entity, "location_id", None) if entity is not None else None
+        if own_pcode or own_node:
+            out = [own_pcode.casefold()] if own_pcode else []
+            node = own_node
+        else:
+            out = [visit.place_pcode.strip().casefold()] if visit.place_pcode.strip() else []
+            node = visit.location_id or (self.site_parents.get(visit.site_id) if visit.site_id else None)
         hops = 0
         while node and hops < 10:
             parent, pcode = self.parents.get(node, (None, ""))
@@ -680,29 +719,38 @@ class References:
             node, hops = parent, hops + 1
         return out
 
-    def facts(self, visit: Visit) -> dict[str, Any]:
-        """The reference facts of one visit, for the rules (``rules.Record.refs``)."""
+    def facts(self, visit: Visit, entity: VisitEntity | None = None) -> dict[str, Any]:
+        """The reference facts of one record of ``visit`` (``entity``), for the rules
+        (``rules.Record.refs``): its own programme document, partner and CP output, and its place (else
+        the visit's); a visit's as a whole when ``entity`` is None. Dictionary look-ups only."""
+        if entity is None:
+            pd_ids = list(visit.pd_ids or ())
+            pd_numbers = list(visit.pd_numbers or [])
+            partner_ids = list(visit.partner_ids or ())
+            outputs = list(visit.cp_outputs or [])
+        else:
+            pd_ids = [entity.pd_id] if entity.pd_id else []
+            pd_numbers = [self.pd_numbers[pk] for pk in pd_ids if self.pd_numbers.get(pk)]
+            partner_ids = [entity.partner_id] if entity.partner_id else []
+            outputs = [entity.cp_output] if (entity.cp_output or "").strip() else []
         pd_locations = {
-            self.pd_numbers.get(pk) or str(pk): self.pd_codes[pk]
-            for pk in visit.pd_ids or ()
-            if pk in self.pd_codes
+            self.pd_numbers.get(pk) or str(pk): self.pd_codes[pk] for pk in pd_ids if pk in self.pd_codes
         }
         partner_pd_locations = {}
         day = visit.visit_date  # the partner's documents running when the visit started (else ended)
-        for partner in visit.partner_ids or ():
+        for partner in partner_ids:
             for pk, start, end in self.partner_pds.get(partner, ()):
                 running = day is None or ((start is None or start <= day) and (end is None or day <= end))
                 if running and pk in self.pd_codes:
                     partner_pd_locations[self.pd_numbers.get(pk) or str(pk)] = self.pd_codes[pk]
-        outputs = list(visit.cp_outputs or [])
         return {
             "pd_locations": pd_locations,
             "partner_pd_locations": partner_pd_locations,
-            "pd_numbers": list(visit.pd_numbers or []),
-            "partner_names": [n for pid in visit.partner_ids or () for n in self.partner_names.get(pid, ())],
+            "pd_numbers": pd_numbers,
+            "partner_names": [n for pid in partner_ids for n in self.partner_names.get(pid, ())],
             "cp_outputs": outputs,
-            "cp_output_sections": {o: self.output_sections.get(parse.fold(o), set()) for o in outputs},
-            "place_pcodes": self.place_codes(visit),
+            "cp_output_sections": {o: self.output_sections.get(rules.folded(o), set()) for o in outputs},
+            "place_pcodes": self.place_codes(visit, entity),
         }
 
 
@@ -925,11 +973,71 @@ class StoredSource(Source):
         return QuestionAnswer.objects.order_by().values_list("question_text", "is_hact").distinct()
 
 
+# One rule's result on one record (or visit) as a scoring keeps it until it is written: (record or
+# visit, rule, status, points, max points, detail key, detail, measure). A tuple, not a model instance:
+# a refresh holds one per record and rule switched on (some 180,000 at 15,000 records) and one per
+# visit and rule, within its memory budget.
+ResultRow = tuple[Any, str, str, Decimal, Decimal, str, str, float | None]
+
+
+def result_models(model, owner: str, rows: Iterable[ResultRow]) -> Iterable:
+    """The rows as ``model`` instances (``RecordRuleResult``, ``owner`` "entity"; ``VisitRuleResult``,
+    "visit"), one at a time: what ``refresh.copy_results`` writes where COPY is not available."""
+    for target, rule, status, points, max_points, detail_key, detail, measure in rows:
+        yield model(
+            **{owner: target},
+            rule=rule,
+            status=status,
+            points=points,
+            max_points=max_points,
+            detail_key=detail_key,
+            detail=detail,
+            measure=measure,
+        )
+
+
+class Derived(NamedTuple):
+    """A visit's result of one rule, derived from its records' (:func:`visit_results`)."""
+
+    rule: str
+    status: str
+    points: Decimal
+    max_points: Decimal
+    detail_key: str
+    detail: str
+    measure: float | None
+
+
+@functools.lru_cache(maxsize=4096)  # a few dozen distinct deductions, for 180,000 results
+def _points(top: Decimal, taken: Decimal) -> tuple[Decimal, Decimal]:
+    return half_up(top - taken, 1), half_up(top, 1)
+
+
+def _row(owner, result, keep: Callable[[Any], Any]) -> ResultRow:
+    """A result (an ``Outcome`` or a :class:`Derived`) as a row, its repeated values shared."""
+    if isinstance(result, Outcome):  # the points are shared already (``_points``)
+        points, top = _points(result.max_deduction, result.deduction)
+    else:
+        points, top = keep(result.points), keep(result.max_points)
+    return (
+        owner,
+        result.rule,
+        result.status,
+        points,
+        top,
+        keep(result.detail_key[:40]),
+        keep(result.detail[:600]),
+        result.measure,
+    )
+
+
 @dataclass
 class Scored:
-    """What a scoring produced besides the visits and entity rows it updated in place."""
+    """What a scoring produced besides the visits and records it updated in place: the records' rule
+    results and the visits' (derived from them), as rows (:data:`ResultRow`), and the question roles."""
 
-    results: list[VisitRuleResult] = field(default_factory=list)
+    results: list[ResultRow] = field(default_factory=list)
+    record_results: list[ResultRow] = field(default_factory=list)
     roles: dict[tuple[str, bool | None], str] = field(default_factory=dict)
     scored: int = 0
     failed: int = 0
@@ -943,11 +1051,17 @@ def _batches(items: list, size: int) -> Iterable[list]:
 
 @dataclass
 class _Batch:
-    """What the visits of one batch share: their AI checks' answers (fresh ones only: their inputs
-    and prompts are those they were checked with) and their monitors' e-mail addresses."""
+    """What the visits of one batch share: their records' AI checks' answers (fresh ones only: their
+    inputs and prompts are those they were checked with), by record (``datamart_id``), and their
+    monitors' e-mail addresses."""
 
-    checks: dict[str, dict[str, tuple[bool, str]]] = field(default_factory=dict)
+    checks: dict[int, dict[str, tuple[bool, str]]] = field(default_factory=dict)
     emails: dict[int, set[str]] = field(default_factory=dict)
+    # one object per distinct detail and number of the records' results (they repeat a few hundred)
+    values: dict[Any, Any] = field(default_factory=dict)
+
+    def shared(self, value: Any) -> Any:
+        return self.values.setdefault(value, value)
 
 
 def _batch_facts(
@@ -956,11 +1070,13 @@ def _batch_facts(
     answers: Mapping[str, list[AnswerIn]],
     roles: Mapping[tuple[str, bool | None], str],
     book: Rulebook,
+    touch: bool = True,
+    today: date | None = None,
 ) -> _Batch:
     out = _Batch()
     ai_rules = book.ai_rules()
     # the texts are read only when a check may count: the AI is on, or answers are kept from before
-    if ai_rules and (book.ai_on or VisitAICheck.objects.exists()):
+    if ai_rules and (book.ai_on or AICheckAnswer.objects.exists()):
         from .ai import checks
 
         items = [
@@ -983,7 +1099,7 @@ def _batch_facts(
             for visit in batch
             if scorable(visit.status, book.scored_statuses)
         ]
-        out.checks = checks.fresh(items, ai_rules, book)
+        out.checks = checks.fresh(items, ai_rules, book, touch=touch, today=today)
     if book.needs_people():
         out.emails = monitor_emails(
             e.finding_id for visit in batch for e in source.entities.get(visit.key, ())
@@ -996,10 +1112,13 @@ def score_visits(
     book: Rulebook,
     today: date,
     on_error: Callable[[str, BaseException], None] | None = None,
+    *,
+    touch: bool = True,
 ) -> Scored:
-    """Score every visit of ``source`` with ``book``: the visits and their entity rows are updated in
-    place (Q1, PSEA, score, band, flags, urgency), and the rule results and the question roles are
-    returned to be written."""
+    """Score every record of every visit of ``source`` with ``book``, then each visit from its records:
+    the visits and their records are updated in place (Q1, PSEA, score, band, flags, urgency), and the
+    rule results and the question roles are returned to be written. ``touch``: mark the AI check
+    answers read as used today (a preview, which writes nothing, does not)."""
     out = Scored()
     roles = {
         (text, is_hact): rules.assign_roles(text, is_hact, book.patterns)
@@ -1017,13 +1136,14 @@ def score_visits(
     statuses: dict[str, Counter[str]] = defaultdict(Counter)
     for batch in _batches(source.visits, BATCH):
         answers = source.answers(batch)
-        shared = _batch_facts(batch, source, answers, roles, book)
+        shared = _batch_facts(batch, source, answers, roles, book, touch, today)
         for visit in batch:
             visit_answers = answers.get(visit.key, [])
+            entities = source.entities.get(visit.key, [])
             try:
-                results = _score_one(
+                visit_results, record_results = _score_one(
                     visit,
-                    source.entities.get(visit.key, []),
+                    entities,
                     visit_answers,
                     source.links.get(visit.key, []),
                     roles,
@@ -1040,18 +1160,21 @@ def score_visits(
                 logger.warning("fmm scoring: visit %s could not be scored: %s", visit.key, exc)
                 if on_error is not None:
                     on_error(f"visit {visit.key}", exc)
-                _not_scored(visit)
+                _not_scored(visit, entities)
                 continue
-            out.results += results
+            out.results += visit_results
+            out.record_results += record_results
             out.scored += int(visit.quality_score is not None)
-            for result in results:
-                statuses[result.rule][result.status] += 1
+            # what each rule found, counted per record (a visit with no record counts once)
+            for row in record_results or visit_results:
+                statuses[row[1]][row[2]] += 1
             for answer in visit_answers:
                 role = roles.get((answer.question_text, answer.is_hact), "")
                 if role:
                     roles_seen[role] += 1
                 if role == "q1":
                     q1_applies[answer.applies_to or "visit"] += 1
+    records = [e for rows in source.entities.values() for e in rows]
     out.details = {
         "questions": {
             "roles": {role: roles_seen.get(role, 0) for role in rules.ROLES},
@@ -1059,18 +1182,42 @@ def score_visits(
         },
         "rule_results": {code: dict(counts) for code, counts in statuses.items()},
         "provisional": sum(1 for v in source.visits if v.ai_pending),
+        "records": len(records),
+        "records_scored": sum(1 for e in records if e.quality_score is not None),
+        "records_provisional": sum(1 for e in records if e.ai_pending),
     }
     return out
 
 
-def _not_scored(visit: Visit) -> None:
-    """A visit whose scoring raised: nothing worked out for it is kept (not even an older result)."""
+RECORD_SCORE_FIELDS = (
+    "quality_score",
+    "provisional_score",
+    "ai_pending",
+    "score_band",
+    "category_deductions",
+    "evaluated_rules",
+    "not_scored_reason",
+    "flags",
+    "flag_count",
+    "urgency",
+    "urgency_band",
+    "urgency_parts",
+)
+
+
+def _not_scored(visit: Visit, entities: Iterable[VisitEntity] = ()) -> None:
+    """A visit whose scoring raised: nothing worked out for it or its records is kept (not even an
+    older result)."""
     visit.hact_q1, visit.psea_flag = "", None
-    visit.quality_score = visit.quality_points = visit.provisional_score = None
+    visit.quality_score = visit.quality_points = visit.provisional_score = visit.lowest_score = None
     visit.quality_max, visit.evaluated_rules, visit.flags, visit.flag_count = 0, [], [], 0
+    visit.records_scored = visit.records_low = 0
     visit.score_band, visit.not_scored_reason = "", NOT_SCORED_ERROR
     visit.ai_pending, visit.category_deductions = 0, {}
     visit.urgency, visit.urgency_band, visit.urgency_parts, visit.signals = None, "", {}, {}
+    for entity in entities:
+        entity.hact_q1 = entity.hact_q1_from = ""
+        _set_record(entity, ScoreOutcome(None, None, 0, {}, (), "", (), NOT_SCORED_ERROR), (None, "", {}))
 
 
 def _answered_for(answers: Sequence[AnswerFacts], role: str, index: int, partner_id: int | None) -> bool:
@@ -1087,6 +1234,104 @@ def _answered_for(answers: Sequence[AnswerFacts], role: str, index: int, partner
     return False
 
 
+DERIVED_COLUMNS = ("fmq_answered_pct", "fmq_answered_categories", "method_count", "red_flag_count")
+
+
+def row_values(visit: Visit, entity: VisitEntity) -> dict[str, Any]:
+    """A record's derived columns (the share answered, the categories answered, the methods, the red
+    flags), worked out at the build over the answers that apply to it. A record the build has not
+    measured yet (stored before Release 2 step 5: no question count while its visit has one) reads its
+    visit's, until the next full refresh."""
+    if getattr(entity, "questions_asked", None) is None and visit.questions_asked is not None:
+        return {name: getattr(visit, name) for name in DERIVED_COLUMNS}
+    return {name: getattr(entity, name, None) for name in DERIVED_COLUMNS}
+
+
+def _visit_values(visit: Visit) -> dict[str, Any]:
+    """The columns that belong to the visit, repeated on each of its records as FMS does."""
+    return {
+        "action_points_count": visit.action_points,
+        "field_offices": list(visit.offices or []),
+        "sections_names": list(visit.section_names or []),
+        "monitoring_modality": visit.modality or "",
+        "programme_areas": list(visit.programme_areas or []),
+    }
+
+
+def _present(values: Mapping[str, Any], visit: Visit, present: dict[str, bool | None]) -> None:
+    """Whether each column of ``values`` (and the visit's action points and team) is filled."""
+    categories = values["fmq_answered_categories"]
+    present["fmq_answered_categories"] = None if categories is None else bool(categories.strip())
+    for name in (
+        "field_offices",
+        "sections_names",
+        "location_pcode",
+        "monitoring_modality",
+        "programme_areas",
+    ):
+        present[name] = bool(values[name])
+    present["action_points_count"] = present["action_points_text"] = visit.action_points > 0
+    present["action_points_due_dates"] = visit.action_points > 0
+    present["action_points_assigned_to"] = visit.action_points_assigned > 0
+    present["team_members"] = bool(visit.team or visit.team_unnamed)
+    for name in ("fmq_answered_pct", "method_count", "red_flag_count", "attachments_count"):
+        present[name] = None if values[name] is None else values[name] > 0
+    present["attachment_count"] = present["attachments_count"]
+
+
+def record_of(
+    visit: Visit,
+    entity: VisitEntity,
+    index: int,
+    answers: Sequence[AnswerFacts],
+    in_dataset: frozenset[str],
+    answers_available: bool,
+    scorable_: bool,
+    refs: dict[str, Any] | None = None,
+    checks: dict[str, tuple[bool, str]] | None = None,
+    unreadable: frozenset[str] = frozenset(),
+) -> rules.Record:
+    """What the rules see of one record (``rules.Record``, ``kinds`` its own entity type): whether each
+    field of its row is filled (its narrative, its rating, Q1, Q2 and Q3 answered for it: its own
+    answer, its partner's or the visit's), its derived columns, its place (else the visit's) and the
+    visit's own columns. ``index``: the row's place in the visit's records (the answers point into
+    it)."""
+    present: dict[str, bool | None] = {
+        "narrative_finding": entity.narrative_words > 0 and not entity.narrative_placeholder,
+        "overall_finding_rating": bool((entity.rating_raw or "").strip()),
+        "entity": bool((entity.entity or "").strip()),
+        "entity_type": bool((entity.entity_type_raw or "").strip()),
+    }
+    for role in ROW_ROLES:
+        readable = role in in_dataset and (
+            answers_available or any(a.from_row and a.role == role for a in answers)
+        )
+        present[f"hact_{role}_answer"] = (
+            _answered_for(answers, role, index, entity.partner_id) if readable else None
+        )
+    attachments = getattr(entity, "attachments_count", None)
+    values: dict[str, Any] = {
+        **row_values(visit, entity),
+        "attachments_count": attachments,
+        "attachment_count": attachments,
+        **_visit_values(visit),
+        "location_pcode": (getattr(entity, "location_pcode", "") or "").strip() or visit.place_pcode or "",
+        "output": [entity.cp_output] if (getattr(entity, "cp_output", "") or "").strip() else [],
+    }
+    _present(values, visit, present)
+    return rules.Record(
+        key=f"{visit.key}#{entity.datamart_id}",
+        scorable=scorable_,
+        status_group=visit.status_group,
+        kinds=frozenset({entity.kind}),
+        present=present,
+        values=values,
+        refs=refs or {},
+        checks=checks or {},
+        unreadable=unreadable,
+    )
+
+
 def record(
     visit: Visit,
     entities: Sequence[VisitEntity],
@@ -1098,8 +1343,8 @@ def record(
     checks: dict[str, tuple[bool, str]] | None = None,
     unreadable: frozenset[str] = frozenset(),
 ) -> rules.Record:
-    """What the rules see of a visit (``rules.Record``). A field of the report is filled when every row
-    that counts has it: the rated rows, or every row when none is rated."""
+    """What the rules see of a visit as a whole: only for a visit without any record (none is built
+    without one); a field of the report is filled when every row that counts has it."""
     rated = [i for i, e in enumerate(entities) if e.rating in rules.RATED]
     considered = rated or list(range(len(entities)))
     present: dict[str, bool | None] = {}
@@ -1119,38 +1364,15 @@ def record(
             present[column] = None
             continue
         present[column] = all(_answered_for(answers, role, i, entities[i].partner_id) for i in considered)
-    categories = visit.fmq_answered_categories
     values: dict[str, Any] = {
-        "fmq_answered_pct": visit.fmq_answered_pct,
-        "fmq_answered_categories": categories,
-        "method_count": visit.method_count,
-        "red_flag_count": visit.red_flag_count,
+        **{name: getattr(visit, name) for name in DERIVED_COLUMNS},
         "attachments_count": visit.attachments_count,
         "attachment_count": visit.attachments_count,
-        "action_points_count": visit.action_points,
-        "field_offices": list(visit.offices or []),
-        "sections_names": list(visit.section_names or []),
+        **_visit_values(visit),
         "location_pcode": visit.place_pcode or "",
-        "monitoring_modality": visit.modality or "",
-        "programme_areas": list(visit.programme_areas or []),
         "output": list(visit.cp_outputs or []),
     }
-    present["fmq_answered_categories"] = None if categories is None else bool(categories.strip())
-    for name in (
-        "field_offices",
-        "sections_names",
-        "location_pcode",
-        "monitoring_modality",
-        "programme_areas",
-    ):
-        present[name] = bool(values[name])
-    present["action_points_count"] = present["action_points_text"] = visit.action_points > 0
-    present["action_points_due_dates"] = visit.action_points > 0
-    present["action_points_assigned_to"] = visit.action_points_assigned > 0
-    present["team_members"] = bool(visit.team or visit.team_unnamed)
-    for name in ("fmq_answered_pct", "method_count", "red_flag_count", "attachments_count"):
-        present[name] = None if values[name] is None else values[name] > 0
-    present["attachment_count"] = present["attachments_count"]
+    _present(values, visit, present)
     return rules.Record(
         key=visit.key,
         scorable=scorable_,
@@ -1162,6 +1384,27 @@ def record(
         checks=checks or {},
         unreadable=unreadable,
     )
+
+
+def visit_level(rule: RuleSetting) -> bool:
+    """A rule that reads only what belongs to the visit (its monitors and field offices): evaluated once
+    per visit, its outcome copied to every record (R19)."""
+    if rule.type != "reference_check":
+        return False
+    check = rules.param(rule, "check_type", "")
+    if check in VISIT_CHECKS:
+        return True
+    return check == "value_in_list" and rules.param(rule, "field", "") in rules.PERSON_COLUMNS
+
+
+def _set_record(entity: VisitEntity, outcome: ScoreOutcome, urgent: tuple[int | None, str, dict]) -> None:
+    entity.quality_score, entity.provisional_score = outcome.score, outcome.provisional
+    entity.ai_pending = min(outcome.pending, 32767)
+    entity.category_deductions = outcome.deductions
+    entity.evaluated_rules = list(outcome.evaluated)
+    entity.not_scored_reason, entity.score_band = outcome.not_scored_reason, outcome.band
+    entity.flags, entity.flag_count = list(outcome.flags), len(outcome.flags)
+    entity.urgency, entity.urgency_band, entity.urgency_parts = urgent
 
 
 def _score_one(
@@ -1177,7 +1420,9 @@ def _score_one(
     refs: References,
     shared: _Batch,
     today: date,
-) -> list[VisitRuleResult]:
+) -> tuple[list[ResultRow], list[ResultRow]]:
+    """Score each record of one visit, then the visit from its records; the visit's rule results
+    (derived) and its records' rule results, as rows."""
     facts_answers = [
         AnswerFacts(
             question_key=a.question_key,
@@ -1202,47 +1447,195 @@ def _score_one(
     # without the answers' key every answer reads as blank: the flag is not known, not "not flagged"
     visit.psea_flag = psea_flag(facts_answers, book.flag_codes) if source.answers_available else None
     is_scorable = scorable(visit.status, book.scored_statuses)
-    references = refs.facts(visit) if book.needs_places() else {}
+    people: dict[str, Any] | None = None
     if book.needs_people():
         emails = (
             set().union(*(shared.emails.get(e.finding_id, set()) for e in entities)) if entities else set()
         )
-        references["people"] = {"team_members": emails}
+        people = {"team_members": emails}  # the visit's monitors: the same for every record
+    if not entities:
+        return _score_visit_alone(
+            visit, facts_answers, in_dataset, source, book, ctx, refs, people, today, links, shared.shared
+        )
+    row_rules, visit_rules = book.split_rules()
+    kinds = frozenset(e.kind for e in entities)
+    copied: list[Outcome] | None = None
+    scored: list[tuple[VisitEntity, list[Outcome]]] = []
+    for index, entity in enumerate(entities):
+        references = refs.facts(visit, entity) if book.needs_places() else {}
+        if people is not None:
+            references["people"] = people
+        facts = record_of(
+            visit,
+            entity,
+            index,
+            facts_answers,
+            in_dataset,
+            source.answers_available,
+            is_scorable,
+            references,
+            shared.checks.get(entity.datamart_id, {}),
+            source.unreadable,
+        )
+        outcomes = rules.evaluate(facts, row_rules, ctx)
+        if visit_rules:
+            if copied is None:  # once per visit, on what every record shares
+                copied = rules.evaluate(replace(facts, kinds=kinds), visit_rules, ctx)
+            outcomes = sorted(outcomes + copied, key=lambda o: rules.code_order(o.rule))
+        outcome = score_outcome(outcomes, book.setting, is_scorable, visit.status_group)
+        _set_record(entity, outcome, urgency(visit, outcome, book.setting, today))
+        scored.append((entity, outcomes))
+    aggregate_visit(visit, entities, book.setting)
+    visit.signals = signals(visit, links, book.setting, today)
+    keep = shared.shared
+    record_results = [_row(entity, o, keep) for entity, outcomes in scored for o in outcomes]
+    derived = visit_results(visit, scored, frozenset(visit_rules))
+    return [_row(visit, r, keep) for r in derived], record_results
+
+
+def _score_visit_alone(
+    visit: Visit,
+    facts_answers: list[AnswerFacts],
+    in_dataset: frozenset[str],
+    source: Source,
+    book: Rulebook,
+    ctx: rules.Context,
+    refs: References,
+    people: dict[str, Any] | None,
+    today: date,
+    links: list[Any],
+    keep: Callable[[Any], Any] = lambda value: value,
+) -> tuple[list[ResultRow], list[ResultRow]]:
+    """A visit without any record (the build never makes one; kept for safety): scored on its own
+    fields, as a visit was before its records were."""
+    is_scorable = scorable(visit.status, book.scored_statuses)
+    references = refs.facts(visit) if book.needs_places() else {}
+    if people is not None:
+        references["people"] = people
     facts = record(
         visit,
-        entities,
+        [],
         facts_answers,
         in_dataset,
         source.answers_available,
         is_scorable,
         references,
-        shared.checks.get(visit.key, {}),
+        {},
         source.unreadable,
     )
     outcomes = rules.evaluate(facts, book.rules, ctx)
-    outcome = score_visit(outcomes, book.setting, is_scorable, visit.status_group)
+    outcome = score_outcome(outcomes, book.setting, is_scorable, visit.status_group)
     visit.quality_score, visit.provisional_score = outcome.score, outcome.provisional
     visit.quality_points = outcome.score
     visit.quality_max = 100 if outcome.score is not None else 0
+    visit.lowest_score = outcome.score
+    visit.records_scored = visit.records_low = 0
     visit.evaluated_rules = list(outcome.evaluated)
-    visit.ai_pending, visit.category_deductions = outcome.pending, outcome.deductions
+    visit.ai_pending, visit.category_deductions = min(outcome.pending, 32767), outcome.deductions
     visit.not_scored_reason, visit.score_band = outcome.not_scored_reason, outcome.band
     visit.flags, visit.flag_count = list(outcome.flags), len(outcome.flags)
     visit.urgency, visit.urgency_band, visit.urgency_parts = urgency(visit, outcome, book.setting, today)
     visit.signals = signals(visit, links, book.setting, today)
-    return [
-        VisitRuleResult(
-            visit=visit,
-            rule=o.rule,
-            status=o.status,
-            points=half_up(o.max_deduction - o.deduction, 1),
-            max_points=half_up(o.max_deduction, 1),
-            detail_key=o.detail_key[:40],
-            detail=o.detail[:600],
-            measure=o.measure,
+    return [_row(visit, o, keep) for o in outcomes], []
+
+
+def aggregate_visit(visit: Visit, records: Sequence[VisitEntity], s: ScoreSetting) -> None:
+    """A visit's figures from its records' (see the module's description): its quality is the mean of
+    its records' scores (rounded half up), with its lowest one, the number scored and below the Medium
+    band; its band is the mean's; its flags (and the rules evaluated) the union of its records', in code
+    order; its urgency its most urgent record's; its pending AI checks the sum of its records'. A visit
+    with a provisional record is provisional: no score and no urgency, the mean of its records' scores so
+    far in ``provisional_score``. Its status decides alone whether it is scored ("pending", "cancelled")."""
+    records = list(records)
+    scored = [r for r in records if r.quality_score is not None]
+    pending = sum(r.ai_pending or 0 for r in records)
+    flags = {code for r in records for code in r.flags or ()}
+    visit.flags = sorted(flags, key=rules.code_order)
+    visit.flag_count = len(visit.flags)
+    evaluated = {code for r in records for code in r.evaluated_rules or ()}
+    visit.evaluated_rules = sorted(evaluated, key=rules.code_order)
+    visit.ai_pending = min(pending, 32767)
+    visit.records_scored = min(len(scored), 32767)
+    visit.records_low = min(sum(1 for r in scored if r.quality_score < s.band_medium), 32767)
+    visit.lowest_score = min((r.quality_score for r in scored), default=None)
+    counted = [r for r in records if r.quality_score is not None or r.provisional_score is not None]
+    totals: dict[str, Decimal] = defaultdict(Decimal)
+    for r in counted:
+        for category, value in (r.category_deductions or {}).items():
+            totals[category] += Decimal(str(value))
+    visit.category_deductions = {
+        category: float(half_up(total / len(counted), 1)) for category, total in totals.items() if total
+    }
+    visit.urgency, visit.urgency_band, visit.urgency_parts = None, "", {}
+    if pending:
+        visit.quality_score = None
+        visit.provisional_score = average_quality(
+            r.quality_score if r.quality_score is not None else r.provisional_score for r in records
         )
-        for o in outcomes
-    ]
+        visit.score_band, visit.not_scored_reason = "", PROVISIONAL.format(n=pending)
+    elif scored:
+        visit.quality_score = average_quality(r.quality_score for r in scored)
+        visit.provisional_score = None
+        visit.score_band, visit.not_scored_reason = band_of(visit.quality_score, s), ""
+        urgent = [r for r in scored if r.urgency is not None]
+        if urgent:
+            most = max(urgent, key=lambda r: r.urgency)
+            visit.urgency, visit.urgency_band, visit.urgency_parts = (
+                most.urgency,
+                most.urgency_band,
+                dict(most.urgency_parts or {}),
+            )
+    else:  # not scored: its status is not, it was cancelled, or a record could not be
+        visit.quality_score = visit.provisional_score = None
+        first = records[0] if records else None
+        visit.score_band = first.score_band if first else ""
+        visit.not_scored_reason = first.not_scored_reason if first else ""
+    visit.quality_points = visit.quality_score
+    visit.quality_max = 100 if visit.quality_score is not None else 0
+
+
+def visit_results(
+    visit: Visit,
+    scored: Sequence[tuple[VisitEntity, Sequence[Outcome]]],
+    visit_codes: frozenset[str] = frozenset(),
+) -> list[Derived]:
+    """A visit's rule results derived from its records' (kept while the pages read them): failed when a
+    record failed the rule, else passed when one passed it, else the most common other state; the points
+    and maximum are the records' means; the detail is the first failing record's, its entity type first
+    ("(PD/SSFA) R3: ..."; not for a rule of ``visit_codes``, evaluated once for the whole visit), else
+    that of the first record in the state kept."""
+    by_rule: dict[str, list[tuple[VisitEntity, Outcome]]] = defaultdict(list)
+    for entity, outcomes in scored:
+        for o in outcomes:
+            by_rule[o.rule].append((entity, o))
+    out = []
+    for code in sorted(by_rule, key=rules.code_order):
+        found = by_rule[code]
+        states = [o.status for _e, o in found]
+        if "fail" in states:
+            state = "fail"
+        elif "pass" in states:
+            state = "pass"
+        else:
+            state = Counter(states).most_common(1)[0][0]
+        entity, chosen = next((e, o) for e, o in found if o.status == state)
+        detail = chosen.detail
+        if state == "fail" and code not in visit_codes:
+            kind = rules.KIND_NAMES.get(entity.kind) or entity.entity_type_raw or "Record"
+            detail = f"({kind}) {detail}"
+        n = Decimal(len(found))
+        out.append(
+            Derived(
+                rule=code,
+                status=state,
+                points=half_up(sum((o.max_deduction - o.deduction for _e, o in found), Decimal(0)) / n, 1),
+                max_points=half_up(sum((o.max_deduction for _e, o in found), Decimal(0)) / n, 1),
+                detail_key=chosen.detail_key[:40],
+                detail=detail[:600],
+                measure=chosen.measure,
+            )
+        )
+    return out
 
 
 def average_quality(scores: Iterable[Decimal | float | None]) -> Decimal | None:

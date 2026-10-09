@@ -10,11 +10,14 @@
   AI checks, each save with a note, with a preview of its effect before it is saved;
 - **Field office staff lists**: the staff e-mail addresses of each field office (rule R19), kept here
   only, compared in code, never shown on a page or sent to the AI;
-- **AI checks**: the answer of each AI check of each visit, kept until its inputs or prompt change;
+- **AI check answers**: the answer of each AI check, kept by what was asked (the rule, its prompt and
+  a record's inputs: records with the same texts share one), with the checks made per visit before
+  records were (carried over once, then dropped); *Re-check carried answers* (Score settings) has
+  the carried ones checked again;
 - **Rule versions**: every saved state of the rules, the score settings and the pinned keys, with who,
   when and why, and "Restore this version";
-- **Visits**: the visits the refresh built, with their entity rows, action points, rule results and
-  data problems, for checking the data;
+- **Visits**: the visits the refresh built, with their records (each with its own score, band,
+  urgency and flags), action points, rule results and data problems, for checking the data;
 - **Visit reviews**: the marks sections put on visits;
 - **Power BI keys**: the keys Power BI reads the live feed with (Administrators only): created here, the
   key shown once with the ready-to-paste Power Query script, revoked here.
@@ -53,6 +56,7 @@ from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 from neurodb.web.templatetags.ui import code_label
 
 from . import access, fields, privacy, rules, samples, status, versions
+from .ai import checks as ai_checks
 from .ai import profiles
 from .models import (
     CHAT_EXAMPLES_HELP,
@@ -62,6 +66,7 @@ from .models import (
     ActionPointSetting,
     ActionPointSummary,
     ActionPointVerification,
+    AICheckAnswer,
     ChatQuestion,
     FieldMapping,
     FieldOfficeStaff,
@@ -454,8 +459,8 @@ def _last_results(code: str) -> str:
         return _("Not computed yet: shown after the next refresh of Monitoring insights.")
     evaluated = counts.get("pass", 0) + counts.get("fail", 0)
     return _(
-        "Last refresh (%(when)s, rules v%(version)s): evaluated on %(evaluated)s visits, %(flagged)s of them "
-        "flagged; not available on %(na)s; does not apply to %(nap)s; switched off on %(off)s."
+        "Last refresh (%(when)s, rules v%(version)s): evaluated on %(evaluated)s records, %(flagged)s of "
+        "them flagged; not available on %(na)s; does not apply to %(nap)s; switched off on %(off)s."
     ) % {
         "when": date_format(timezone.localtime(run.finished_at), "j M Y, H:i") if run.finished_at else "—",
         "version": (run.details or {}).get("rules_version", "—"),
@@ -897,10 +902,44 @@ class FieldOfficeStaffAdmin(ModelAdmin):
         versions.start_rescore(request.user)
 
 
+@admin.register(AICheckAnswer)
+class AICheckAnswerAdmin(ReadOnlyModelAdmin):
+    """The answers of the AI checks, kept by what was asked: the rule, its prompt and a record's inputs
+    (hashed), so the records with the same texts share one answer. Read-only; deleting one makes the
+    records it served be checked again. *Carried*: a verdict made per visit before records were,
+    copied for that visit's only record."""
+
+    list_display = ("rule", "passed", "carried", "model", "tokens", "checked_at", "last_used")
+    list_filter = ("rule", "passed", "carried", "model")
+    search_fields = ("input_hash",)
+    fields = (
+        "rule",
+        "passed",
+        "detail",
+        "carried",
+        "model",
+        "input_tokens",
+        "output_tokens",
+        "checked_at",
+        "last_used",
+        "input_hash",
+        "prompt_hash",
+    )
+    readonly_fields = fields
+
+    def has_delete_permission(self, request, obj=None):
+        return access.is_admin(request.user)
+
+    @admin.display(description=_("tokens"))
+    def tokens(self, obj):
+        return f"{obj.input_tokens + obj.output_tokens:,}"
+
+
 @admin.register(VisitAICheck)
 class VisitAICheckAdmin(ReadOnlyModelAdmin):
-    """The answers of the AI checks, per visit and rule: kept until the visit's inputs or the rule's
-    prompt change. Read-only; deleting one makes it be checked again."""
+    """The AI checks made per visit before records were checked one by one (Release 2): read only by the
+    AI checks job, which carries the verdicts of single-record visits over to the answers kept by
+    record and deletes each check it has dealt with. Read-only."""
 
     list_display = ("visit_key", "rule", "passed", "model", "tokens", "checked_at")
     list_filter = ("rule", "passed", "model")
@@ -1062,11 +1101,63 @@ class ScoreSettingAdmin(_VersionedAdmin):
     )
     readonly_fields = ("updated_by", "updated_at")
 
+    actions_detail = ("recheck_carried",)
+
     def changelist_view(self, request, extra_context=None):
         return redirect("admin:fmm_scoresetting_change", ScoreSetting.load().pk)
 
     def preview_changes(self, obj) -> tuple[dict, dict]:
         return {}, {name: getattr(obj, name) for name in versions.SCORE_FIELDS}
+
+    def has_recheck_permission(self, request, obj=None):
+        return access.is_admin(request.user)
+
+    def get_urls(self):
+        return [
+            path(
+                "recheck-carried/",
+                self.admin_site.admin_view(self.recheck_view),
+                name="fmm_scoresetting_recheck",
+            ),
+            *super().get_urls(),
+        ]
+
+    @action(
+        description=_("Re-check carried answers"),
+        url_path="recheck-carried-answers",
+        icon="fact_check",
+        permissions=["recheck"],
+    )
+    def recheck_carried(self, request, object_id):
+        return redirect("admin:fmm_scoresetting_recheck")
+
+    def recheck_view(self, request):
+        """Confirm, then delete a batch of the AI check answers carried over from the checks made per
+        visit (Administrators only): the next AI checks runs check those records properly, while the
+        budget allows. Nothing else changes until they do."""
+        if not access.is_admin(request.user):
+            raise Http404
+        if request.method == "POST":
+            deleted, left = ai_checks.recheck_carried()
+            messages.success(
+                request,
+                _(
+                    "%(deleted)s carried answers will be checked again by the next runs of the AI checks "
+                    "(%(left)s carried answers left)."
+                )
+                % {"deleted": f"{deleted:,}", "left": f"{left:,}"},
+            )
+            return redirect("admin:fmm_scoresetting_change", ScoreSetting.load().pk)
+        carried = AICheckAnswer.objects.filter(carried=True).count()
+        context = {
+            **self.admin_site.each_context(request),
+            "title": _("Re-check carried answers"),
+            "carried": carried,
+            "batch": min(carried, ai_checks.RECHECK_BATCH),
+            "opts": self.model._meta,
+            "setting": ScoreSetting.load(),
+        }
+        return render(request, "admin/fmm/scoresetting/recheck_confirm.html", context)
 
 
 # ------------------------------------------------------------------------------------------ versions
@@ -1189,8 +1280,18 @@ class VisitEntityInline(_ReadOnlyInline):
         "hact_q1_from",
         "narrative_words",
         "narrative_placeholder",
+        "location_pcode",
+        "fmq_answered_pct",
+        "quality_score",
+        "provisional_score",
+        "score_band",
+        "ai_pending",
+        "flags",
+        "urgency",
+        "urgency_band",
+        "not_scored_reason",
     )
-    verbose_name_plural = "monitored entities (finding rows)"
+    verbose_name_plural = "records (one per entity assessed, each scored on its own)"
 
     def get_queryset(self, request):
         return super().get_queryset(request).select_related("pd", "partner")
@@ -1206,7 +1307,8 @@ class VisitRuleResultInline(_ReadOnlyInline):
     model = VisitRuleResult
     fields = readonly_fields = ("rule", "status", "points", "max_points", "detail_key", "detail", "measure")
     verbose_name_plural = (
-        "quality rules (pass, fail, na: not available, nap: does not apply, off, pending: AI check not done)"
+        "quality rules over the visit's records (fail: a record failed; pass, na: not available, nap: does "
+        "not apply, off, pending: AI check not done; points: the records' means)"
     )
 
 
@@ -1289,6 +1391,7 @@ class VisitAdmin(ReadOnlyModelAdmin):
                     ),
                     ("hact_q1", "psea_flag"),
                     ("quality_score", "quality_points", "quality_max", "score_band"),
+                    ("lowest_score", "records_scored", "records_low", "provisional_score", "ai_pending"),
                     ("evaluated_rules", "flags", "not_scored_reason"),
                     ("urgency", "urgency_band", "urgency_parts"),
                     ("rules_version", "refreshed_at"),

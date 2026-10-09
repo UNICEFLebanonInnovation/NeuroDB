@@ -335,6 +335,7 @@ def briefing(scope: Scope, when: str | None = None, limits: dict[str, int] | Non
 CRITICAL_ITEMS = 10  # red visits listed
 CRITICAL_AMBER = 5  # amber visits listed when no visit is red
 _OFFICE_IN_FLAG = re.compile(r"field office '([^']+)'")
+_RECORD_IN_FLAG = re.compile(r"\(([^()]{1,40})\) ")  # a visit's flag opens with the failing record's type
 
 
 def critical_items(scope: Scope, when: str | None = None, limits: dict | None = None) -> dict[str, Any]:
@@ -386,17 +387,22 @@ def critical_items(scope: Scope, when: str | None = None, limits: dict | None = 
 
 
 def _flag_line(rule: str, detail: str, measure: float | None) -> dict[str, Any]:
-    """One line of a critical item: the stored flag without its "R3: " prefix, split at its first dash
-    (an AI check's flag holds the AI's explanation after it); for R19, the number of monitors not on
-    the staff list and the field office (``r19``), never an address."""
+    """One line of a critical item: the stored flag without the type of the record that failed the rule
+    ("(PD/SSFA) ", kept as ``record``) and its "R3: " prefix, split at its first dash (an AI check's
+    flag holds the AI's explanation after it); for R19, the number of monitors not on the staff list and
+    the field office (``r19``), never an address."""
     if rule == "R19":
         office = _OFFICE_IN_FLAG.search(detail or "")
         return {"r19": {"n": int(measure or 1), "office": office.group(1) if office else ""}}
     text = (detail or "").strip()
+    record = ""
+    found = _RECORD_IN_FLAG.match(text)
+    if found and text[found.end() :].startswith(f"{rule}:"):
+        record, text = found.group(1), text[found.end() :]
     if text.startswith(f"{rule}:"):
         text = text[len(rule) + 1 :].strip()
     message, _dash, explanation = text.partition(" — ")
-    return {"message": message, "explanation": explanation}
+    return {"message": message, "explanation": explanation, "record": record}
 
 
 # ------------------------------------------------------------------------------------------ shared

@@ -102,7 +102,7 @@ def test_the_score_distribution_has_fms_five_buckets_that_sum_to_the_scored_visi
     assert sum(i["value"] for i in data["items"]) == metrics.kpis(scope)["scored"]
     for item in data["items"]:  # each bar opens exactly its visits
         assert _scope(f"year=2026&section=&bucket={item['drill']}").visits().count() == item["value"], item
-    # 1723 scores 46, 1727 80 (in the top bucket), 1722 and 1728 93
+    # 1723 scores 48, 1727 80 (in the top bucket), 1722 94.3 and 1728 93
     values = {i["drill"]: i["value"] for i in data["items"]}
     assert values["40-60"] == 1 and values["80-100"] >= 3
     Visit.objects.filter(key="1722").update(quality_score=Decimal("100.0"))

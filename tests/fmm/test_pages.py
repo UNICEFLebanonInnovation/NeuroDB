@@ -2,8 +2,8 @@
 
 On ``fm_world`` built on 5 October 2026 with its AI checks (conftest ``built``): 8 visits dated in 2026
 (6 reported, 1 in progress, 1 cancelled), 12 finding rows (8 rated, 2 not monitored), 6 scored visits
-averaging 79.2% (1722 93, 1723 46, 1726 88, 1727 80, 1728 93, the one known by its reference only 75),
-no red visit and one amber (1723, urgency 59).
+averaging 79.7% (1722 94.3, 1723 48, 1726 88, 1727 80, 1728 93, the one known by its reference only 75),
+no red visit and one amber (1723, urgency 58).
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ def test_the_page_opens_for_a_viewer_with_its_key_figures(built, client_viewer):
     text = " ".join(visible(html).split())
     assert "Monitoring visits 8 6 reported · 1 in progress · 0 planned · 1 cancelled" in text
     assert "Monitored entities 12 8 rated · 2 not monitored · 1 not rated yet · 1 other" in text
-    assert "Average quality score 79.2% on 6 scored visits · rules v2" in text
+    assert "Average quality score 79.7% on 6 scored visits · rules v2" in text
     assert "High urgency 0 ≥ 70 · 1 amber (40–69)" in text
     assert "Showing 1 Jan – 31 Dec 2026 · Lebanon" in text
     assert "scores computed" in text and "with quality rules v2" in text

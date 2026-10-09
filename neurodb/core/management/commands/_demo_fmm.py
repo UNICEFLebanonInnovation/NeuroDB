@@ -731,7 +731,7 @@ def _action_points(rng, today, reported, q1_labels) -> None:
 
 
 # ------------------------------------------------------------------------------ AI checks
-DEMO_FLAGS = {  # a rule's demo explanation when it flags a visit
+DEMO_FLAGS = {  # a rule's demo explanation when it flags a record
     "R3": "Q2 restates the partner's report and names no activity the monitor verified.",
     "R5": "Q1 says the activities are on track while Q2 describes delays.",
     "R6": "The general observation repeats Q2 and does not address the visit's objective.",
@@ -742,11 +742,12 @@ DEMO_FLAGS = {  # a rule's demo explanation when it flags a visit
 
 
 def demo_checks() -> int:
-    """The answers of the AI checks of the demo's scored visits, written without any AI call (model
-    "demo"): the poor report of activity 75 fails every check, about one other visit in seven fails one.
-    Kept as the checks of the visits' current inputs, so the pages show AI flags at once."""
+    """The answers of the AI checks of the records of the demo's scored visits, written without any AI
+    call (model "demo"), keyed by record: the records of the poor report of activity 75 fail every
+    check, about one other record in seven fails one. Kept as the checks of the records' current inputs,
+    so the pages show AI flags at once."""
     from neurodb.fmm.ai import checks
-    from neurodb.fmm.models import Visit
+    from neurodb.fmm.models import VisitEntity
     from neurodb.fmm.score import Rulebook
 
     book = Rulebook.load()
@@ -755,15 +756,16 @@ def demo_checks() -> int:
         return 0
     rng = random.Random(1776)  # noqa: S311 - its own draws: the rest of the demo does not move
     answers = {}
-    for key in (
-        Visit.objects.filter(status__in=sorted(book.scored_statuses))
-        .order_by("key")
-        .values_list("key", flat=True)
-    ):
+    records = (
+        VisitEntity.objects.filter(visit__status__in=sorted(book.scored_statuses))
+        .order_by("visit__key", "datamart_id")
+        .values_list("visit__key", "datamart_id")
+    )
+    for key, record in records:
         failing = set(codes) if key == "75" else ({rng.choice(codes)} if rng.random() < 1 / 7 else set())
         for code in codes:
             flagged = code in failing
-            answers[(key, code)] = (
+            answers[(record, code)] = (
                 not flagged,
                 DEMO_FLAGS.get(code, "") if flagged else "The report is specific.",
             )

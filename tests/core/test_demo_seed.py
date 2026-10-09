@@ -105,7 +105,8 @@ def test_demo_field_monitoring_adds_without_moving_the_rest(monkeypatch):
         "fmm.QuestionAnswer",
         "fmm.VisitActionPoint",
         "fmm.VisitRuleResult",
-        "fmm.VisitAICheck",  # the demo's AI check answers, written without any AI call
+        "fmm.RecordRuleResult",
+        "fmm.AICheckAnswer",  # the demo's AI check answers, written without any AI call
         "fmm.LocalActionPoint",  # the refresh's NeuroDB action points for the Low visits it flags
         "fmm.KeyProbe",
     }
@@ -150,11 +151,16 @@ def test_demo_field_monitoring_adds_without_moving_the_rest(monkeypatch):
         and Visit.objects.filter(urgency_band="amber").exists()
     )
     # FMS Lebanon's rules, the AI checks with the demo's answers (written without any AI call)
-    from neurodb.fmm.models import VisitAICheck
+    from neurodb.fmm.models import AICheckAnswer, RecordRuleResult, VisitEntity
 
-    assert VisitAICheck.objects.exists() and set(VisitAICheck.objects.values_list("model", flat=True)) == {
+    assert AICheckAnswer.objects.exists() and set(AICheckAnswer.objects.values_list("model", flat=True)) == {
         "demo"
     }
+    # each record scored on its own, the visit from its records
+    assert not VisitEntity.objects.filter(visit__status="completed", quality_score=None).exists()
+    assert RecordRuleResult.objects.filter(status="fail", rule="R3").exists()
+    poor = Visit.objects.get(key="75")
+    assert poor.records_scored == poor.entities and poor.records_low == poor.entities
     evaluated = set(
         VisitRuleResult.objects.filter(status__in=("pass", "fail")).values_list("rule", flat=True)
     )

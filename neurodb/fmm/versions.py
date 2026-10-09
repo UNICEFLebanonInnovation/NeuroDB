@@ -11,8 +11,8 @@ refresh, or a full one when a pinned key changed), never in the admin's request;
 the request even when another refresh holds its lock. Every visit keeps the rules version it was
 scored with, so the page can say "recomputing with rules v8" until it is done.
 
-:func:`preview` scores this year's visits in memory with a change not saved yet, to show its effect
-("R2 would flag 7 visits (now 3)") before it is saved; it writes nothing. :func:`pin_question` gives one
+:func:`preview` scores this year's records in memory with a change not saved yet, to show its effect
+("R2 would flag 7 records (now 3)") before it is saved; it writes nothing. :func:`pin_question` gives one
 checklist question a role ("Use as Q1" in Questions found), recorded like any other save.
 """
 
@@ -279,10 +279,10 @@ def preview(
     start: date | None = None,
     end: date | None = None,
 ) -> dict[str, Any]:
-    """The effect of a change not saved yet, scored in memory over the visits dated (start, else
-    end) between ``start`` and ``end`` (this calendar year by default, the whole country): per rule,
-    the visits it flags now and with the change; the average quality and the visits scored, now and
-    with the change. Nothing is written."""
+    """The effect of a change not saved yet, scored in memory over the records of the visits dated
+    (start, else end) between ``start`` and ``end`` (this calendar year by default, the whole country):
+    per rule, the records it flags now and with the change; the average quality (per record) and the
+    records scored, now and with the change. Nothing is written (not even the AI answers' last use)."""
     from . import score
 
     today = timezone.localdate()
@@ -295,18 +295,21 @@ def preview(
     for name, book in (("now", now_book), ("then", then_book)):
         visits = list(Visit.objects.filter(visit_date__range=(start, end)).order_by("pk"))
         source = score.StoredSource(visits)
-        score.score_visits(source, book, today)
+        score.score_visits(source, book, today, touch=False)
+        records = [e for v in visits for e in source.entities.get(v.key, [])]
         figures[name] = {
-            "flagged": {code: sum(1 for v in visits if code in v.flags) for code in codes},
-            "avg_quality": score.average_quality(v.quality_score for v in visits),
-            "scored": sum(1 for v in visits if v.quality_score is not None),
+            "flagged": {code: sum(1 for e in records if code in e.flags) for code in codes},
+            "avg_quality": score.average_quality(e.quality_score for e in records),
+            "scored": sum(1 for e in records if e.quality_score is not None),
             "visits": len(visits),
+            "records": len(records),
         }
     now, then = figures["now"], figures["then"]
     return {
         "start": start,
         "end": end,
         "visits": now["visits"],
+        "records": now["records"],
         "rules": {code: {"now": now["flagged"][code], "then": then["flagged"][code]} for code in codes},
         "avg_quality": {"now": now["avg_quality"], "then": then["avg_quality"]},
         "scored": {"now": now["scored"], "then": then["scored"]},
@@ -314,24 +317,24 @@ def preview(
 
 
 def describe(result: Mapping[str, Any], codes: list[str] | None = None) -> str:
-    """The preview in one sentence: "R2 would flag 7 visits (now 3); average quality 91.2% (now
-    94.7%); scored visits 29 (now 29)". ``codes``: the rules to name (else those whose count moves)."""
+    """The preview in one sentence: "R2 would flag 7 records (now 3); average quality 91.2% (now
+    94.7%); scored records 29 (now 29)". ``codes``: the rules to name (else those whose count moves)."""
 
-    def visits(n: int) -> str:
-        return f"{n} visit" if n == 1 else f"{n} visits"
+    def records(n: int) -> str:
+        return f"{n} record" if n == 1 else f"{n} records"
 
     def pct(value) -> str:
         return "—" if value is None else f"{value}%"
 
     shown = codes or [c for c, n in result["rules"].items() if n["now"] != n["then"]]
     parts = [
-        f"{code} would flag {visits(result['rules'][code]['then'])} (now {result['rules'][code]['now']})"
+        f"{code} would flag {records(result['rules'][code]['then'])} (now {result['rules'][code]['now']})"
         for code in shown
     ]
     quality = result["avg_quality"]
     parts.append(f"average quality {pct(quality['then'])} (now {pct(quality['now'])})")
     scored = result["scored"]
-    parts.append(f"scored visits {scored['then']} (now {scored['now']})")
+    parts.append(f"scored records {scored['then']} (now {scored['now']})")
     return "; ".join(parts)
 
 

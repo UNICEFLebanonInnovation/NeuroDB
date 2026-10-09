@@ -28,7 +28,8 @@ def test_a_visit_score_is_explained_without_people_or_texts(built, viewer):
     assert out["quality_score"] == float(visit.quality_score) and out["band"] == "low"
     assert out["urgency"] == visit.urgency and out["urgency_parts"] == visit.urgency_parts
     lost = {r["rule"]: r["points_lost"] for r in out["rule_results"] if r["result"] == "flagged"}
-    assert {"R3", "R6"} <= set(lost) and lost["R3"] == 20
+    # a visit's points are its records' means: R3 failed one of 1723's two records, R6 both
+    assert {"R3", "R6"} <= set(lost) and (lost["R3"], lost["R6"]) == (10, 15)
     assert round(100 - sum(d["deducted"] for d in out["deductions_by_category"]), 1) == out["quality_score"]
     r3 = next(r for r in out["rule_results"] if r["rule"] == "R3")
     assert r3["ai_check"] and "explanation is on the visit page" in r3["detail"]

@@ -19,6 +19,7 @@ from neurodb.fmm import scope as scope_module
 from neurodb.fmm.ai import profiles
 from neurodb.fmm.models import (
     FieldOfficeStaff,
+    RecordRuleResult,
     RefreshRequest,
     RuleSetting,
     RuleSetVersion,
@@ -67,6 +68,10 @@ def _results(key: str) -> dict[str, VisitRuleResult]:
     return {r.rule: r for r in VisitRuleResult.objects.filter(visit__key=key)}
 
 
+def _record_results(datamart_id: int) -> dict[str, RecordRuleResult]:
+    return {r.rule: r for r in RecordRuleResult.objects.filter(entity__datamart_id=datamart_id)}
+
+
 # ------------------------------------------------------------------------------------------ B1 seeded
 def test_the_lebanon_rule_set_is_seeded():
     found = {r.code: r for r in RuleSetting.objects.all()}
@@ -94,17 +99,34 @@ def test_the_lebanon_rule_set_is_seeded():
 
 
 def test_the_built_visits_are_scored_with_the_fms_rules(built):
-    visit = Visit.objects.get(key="1723")  # Q1 and Q2 on the rows: the narrative, a rating, 1 of 3 answered
-    results = _results("1723")
-    assert results["R1"].status == "fail" and results["R1"].deducted == 9
-    assert results["R2"].detail == "R2: Only 33.3% of monitoring questions answered (target: 80%+)"
-    assert visit.category_deductions == {"completeness": 19.0, "evidence": 20.0, "coherence": 15.0}
-    assert (visit.quality_score, visit.score_band, visit.urgency) == (Decimal("46.0"), "low", 59)
+    visit = Visit.objects.get(key="1723")
+    # each record on its own: the SSFA lacks its narrative, rating and Q2, and answered 1 of its 3
+    # questions; the partner's row (not monitored) lacks its narrative, Q1 and Q2, and answered none
+    ssfa, partner = _record_results(111), _record_results(112)
+    assert (ssfa["R1"].deducted, partner["R1"].deducted) == (7, 7)
+    assert ssfa["R2"].detail == "R2: Only 33.3% of monitoring questions answered (target: 80%+)"
+    assert partner["R2"].detail == "R2: Only 0% of monitoring questions answered (target: 80%+)"
     # the AI checks the world was built with (conftest.BUILT_VERDICTS) still count with the AI off
+    assert {c for c, r in ssfa.items() if r.status == "fail"} == {"R1", "R2", "R5", "R6", "R23"}
+    assert {c for c, r in partner.items() if r.status == "fail"} == {"R1", "R2", "R3", "R6", "R23"}
+    # the visit: its records' mean (48 and 48), their deductions' means, the most urgent's urgency
+    assert visit.category_deductions == {
+        "completeness": 17.0,
+        "evidence": 10.0,
+        "alignment": 10.0,
+        "coherence": 15.0,
+    }
+    assert (visit.quality_score, visit.score_band, visit.urgency) == (Decimal("48.0"), "low", 58)
+    results = _results("1723")  # derived from the records': failed when one of them failed
+    assert results["R1"].status == "fail" and results["R1"].deducted == 7
     assert {c: results[c].status for c in ("R3", "R5", "R6", "R7", "R8", "R32")} == {
-        "R3": "fail", "R5": "pass", "R6": "fail", "R7": "pass", "R8": "pass", "R32": "pass"
+        "R3": "fail", "R5": "fail", "R6": "fail", "R7": "pass", "R8": "pass", "R32": "pass"
     }  # fmt: skip
-    assert results["R3"].detail.endswith("— Q2 lists no activity the monitor verified.")
+    assert results["R3"].detail == (
+        "(Partner) R3: Q2 lacks specific or disaggregated activity evidence — "
+        "Q2 lists no activity the monitor verified."
+    )
+    assert (results["R3"].max_points, results["R3"].points) == (20, 10)  # the records' means
     assert Visit.objects.get(key="1726").quality_score == Decimal("88.0")
 
 
@@ -305,7 +327,7 @@ def test_a_snapshot_keeps_the_fms_rule_fields_and_restores_them(admin_user, buil
 
 def test_the_preview_counts_any_rule(built):
     result = versions.preview({"R2": {"enabled": False}}, {})
-    assert result["rules"]["R2"] == {"now": 1, "then": 0}
+    assert result["rules"]["R2"] == {"now": 2, "then": 0}  # 1723's two records
     assert "R32" in result["rules"]
 
 
@@ -328,7 +350,7 @@ def test_what_quality_means_lists_the_thresholds_and_the_core_and_additional_rul
 
 def test_points_by_category_rule_analysis_and_flag_frequency(built, client_viewer):
     rows = {r["code"]: r for r in metrics.dimension_breakdown(_scope())["rows"]}
-    assert rows["completeness"]["max"] == 30 and rows["completeness"]["earned"] == Decimal("23.3")
+    assert rows["completeness"]["max"] == 30 and rows["completeness"]["earned"] == Decimal("23.9")
     analysis = {r["code"]: r for r in metrics.rule_analysis(_scope())}
     assert [r["code"] for r in metrics.rule_analysis(_scope())][:4] == ["R1", "R2", "R3", "R4"]
     assert analysis["R23"]["flag_only"] and analysis["R1"]["flagged"] == 6
@@ -345,7 +367,8 @@ def test_the_visit_page_lists_each_rules_result_and_its_points_off(built, client
     assert 'data-rule="R1"' in quality and 'data-rule="R2"' in quality
     assert "R2: Only 33.3% of monitoring questions answered" in quality
     assert "Switched off:" in quality and "R3" in quality.split("Switched off:", 1)[1]
-    assert "100 less Evidence 20, Completeness 19, Coherence 15" in html
+    # the means of its two records' deductions
+    assert "100 less Completeness 17, Coherence 15, Evidence 10, Alignment 10" in html
 
 
 def test_a_recurring_issue_is_named_from_the_rules_flag(built):

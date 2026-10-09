@@ -8,9 +8,9 @@
   while it is up to date: :func:`current_reviews`) and the PME verifications (``ActionPointVerification``,
   the latest one counts: :func:`latest_verifications`), with who may verify (:func:`can_verify`).
 - **NeuroDB action points** (``LocalActionPoint``): kept here only, never pushed to eTools. Added by hand
-  (:func:`can_add_local`), or made by the refresh (:func:`create_automatic`) when a scored visit's quality
-  is Low and the AI flagged its action points (R7, R8 or R32). Listed with their own filters
-  (:func:`local_points`, the programme read from keywords as FMS does).
+  (:func:`can_add_local`), or made by the refresh (:func:`create_automatic`) when a scored record of a
+  visit is of Low quality and the AI flagged its action points (R7, R8 or R32): one per visit. Listed
+  with their own filters (:func:`local_points`, the programme read from keywords as FMS does).
 - **Follow-up**: a visit counts as followed up by a NeuroDB action point added by hand (not dropped), or
   by one NeuroDB made that someone marked done (:func:`followed_up_keys`); the Monitoring insights
   follow-up block and NeuroDB Watch read it.
@@ -35,10 +35,11 @@ from .models import (
     ActionPointReview,
     ActionPointVerification,
     LocalActionPoint,
+    RecordRuleResult,
     ScoreSetting,
     Visit,
     VisitActionPoint,
-    VisitRuleResult,
+    VisitEntity,
 )
 
 CONFIDENCE = {"related_id": "high", "reference": "medium", "reference_number": "medium"}
@@ -49,7 +50,7 @@ CONFIDENCE_HELP = {
     "unmatched": "A field monitoring action point no visit of Monitoring insights matches",
 }
 VERIFICATION_FILTERS = ("verified", "rejected", "pending", "none")
-AUTO_RULES = ("R7", "R8", "R32")  # the AI's action point flags: a Low visit with one gets a reminder
+AUTO_RULES = ("R7", "R8", "R32")  # the AI's action point flags: a Low record with one gets a reminder
 HIGH_BELOW = 30  # an automatic action point is High below this quality score, else Medium
 HIGH_DAYS, MEDIUM_DAYS = 5, 10  # working days (Monday to Friday) to its due date
 NOTE_CHARS = 500
@@ -393,27 +394,45 @@ def add_working_days(day: datetime.date, days: int) -> datetime.date:
 
 
 def create_automatic(today: datetime.date | None = None) -> int:
-    """FMS §10.4: a NeuroDB action point for each scored visit whose quality is Low (below the Medium
-    band, 50) with at least one of the AI's action point flags (R7, R8, R32), unless one is open for the
-    visit already, or NeuroDB already made one since the visit last changed in eTools. Below 30 it is
-    High and due in 5 working days, else Medium and due in 10. Its title names the flag that took the
-    most points ("Follow up on R8 — Visit 1670"), its description lists the flags (never a narrative or
-    a person). Returns how many were made."""
+    """FMS §10.4, per record: a NeuroDB action point for each visit with a scored record whose quality
+    is Low (below the Medium band, 50) and that the AI flagged for its action points (R7, R8, R32), unless
+    one is open for the visit already, or NeuroDB already made one since the visit last changed in eTools
+    (at most one open per visit). It points at the lowest qualifying record (``record``: its
+    ``datamart_id``): below 30 it is High and due in 5 working days, else Medium and due in 10. Its title
+    names the flag that took the most points off that record and the record ("Follow up on R8 — Visit
+    1670 · <entity>"); its description lists every qualifying record of the visit with its score and
+    flags (never a narrative or a person). Returns how many were made."""
     from . import privacy
-    from .rules import code_order
+    from .rules import KIND_NAMES, code_order
 
     today = today or timezone.localdate()
     medium = ScoreSetting.load().band_medium
-    visits = list(
-        Visit.objects.filter(
+    records = list(
+        VisitEntity.objects.filter(
             quality_score__isnull=False, quality_score__lt=medium, flags__overlap=list(AUTO_RULES)
         )
-        .order_by("key")
-        .only("pk", "key", "label", "reference", "quality_score", "flags", "last_modified")
+        .select_related("visit")
+        .only(
+            "pk",
+            "datamart_id",
+            "entity",
+            "entity_type_raw",
+            "kind",
+            "quality_score",
+            "flags",
+            "visit__key",
+            "visit__label",
+            "visit__reference",
+            "visit__last_modified",
+        )
+        .order_by("visit__key", "quality_score", "datamart_id")
     )
-    if not visits:
+    if not records:
         return 0
-    keys = [v.key for v in visits]
+    by_visit: dict[str, list] = {}
+    for entity in records:
+        by_visit.setdefault(entity.visit.key, []).append(entity)
+    keys = list(by_visit)
     open_keys = set(
         LocalActionPoint.objects.filter(visit_key__in=keys, status=LocalActionPoint.Status.OPEN).values_list(
             "visit_key", flat=True
@@ -424,37 +443,51 @@ def create_automatic(today: datetime.date | None = None) -> int:
         visit_key__in=keys, source=LocalActionPoint.Source.AUTO
     ).values_list("visit_key", "created_at"):
         made_at[key] = max(made_at.get(key, created), created)
-    results: dict[int, list[VisitRuleResult]] = {}
-    for r in VisitRuleResult.objects.filter(visit_id__in=[v.pk for v in visits], status="fail"):
-        results.setdefault(r.visit_id, []).append(r)
+    results: dict[int, list[RecordRuleResult]] = {}
+    for r in RecordRuleResult.objects.filter(entity_id__in=[e.pk for e in records], status="fail"):
+        results.setdefault(r.entity_id, []).append(r)
     names_ = privacy.names()
     made = []
-    for visit in visits:
-        if visit.key in open_keys:
+    for key, found in by_visit.items():
+        visit = found[0].visit
+        if key in open_keys:
             continue
-        if visit.key in made_at and (
-            visit.last_modified is None or visit.last_modified <= made_at[visit.key]
-        ):
+        if key in made_at and (visit.last_modified is None or visit.last_modified <= made_at[key]):
             continue
-        failed = sorted(results.get(visit.pk, []), key=lambda r: code_order(r.rule))
-        triggers = [r for r in failed if r.rule in AUTO_RULES]
-        if not triggers:
+        qualifying = []
+        for entity in found:
+            failed = sorted(results.get(entity.pk, []), key=lambda r: code_order(r.rule))
+            triggers = [r for r in failed if r.rule in AUTO_RULES]
+            if triggers:
+                qualifying.append((entity, failed, triggers))
+        if not qualifying:
             continue
-        # the flag that took the most points; on a tie, the first rule
+        lowest, _failed, triggers = qualifying[0]  # the lowest score first (then the record id)
+        # the flag that took the most points off it; on a tie, the first rule
         dominant = max(triggers, key=lambda r: (r.deducted, -code_order(r.rule)[0]))
-        score = float(visit.quality_score)
+        score = float(lowest.quality_score)
         high = score < HIGH_BELOW
         reference = visit.reference or visit.label
-        lines = [f"Quality score {score:g} (Low). Flags that call for a follow-up:"]
-        lines += [f"- {privacy.clean(r.detail or r.rule, 400, names_)[0]}" for r in triggers]
-        others = [r.rule for r in failed if r.rule not in AUTO_RULES]
-        if others:
-            lines.append(f"Other flags: {', '.join(others)}.")
+        lines = []
+        for entity, failed, flagged in qualifying:
+            kind = KIND_NAMES.get(entity.kind) or entity.entity_type_raw or "Record"
+            name = privacy.clean(entity.entity or kind, 200, names_)[0]
+            lines.append(
+                f"{name} ({kind}): quality score {float(entity.quality_score):g} (Low). "
+                "Flags that call for a follow-up:"
+            )
+            lines += [f"- {privacy.clean(r.detail or r.rule, 400, names_)[0]}" for r in flagged]
+            others = [r.rule for r in failed if r.rule not in AUTO_RULES]
+            if others:
+                lines.append(f"Other flags: {', '.join(others)}.")
+        entity_name = privacy.clean(lowest.entity or "", 120, names_)[0]
+        title = f"Follow up on {dominant.rule} — {reference}" + (f" · {entity_name}" if entity_name else "")
         made.append(
             LocalActionPoint(
-                title=f"Follow up on {dominant.rule} — {reference}"[:TITLE_CHARS],
+                title=title[:TITLE_CHARS],
                 description="\n".join(lines)[:DESCRIPTION_CHARS],
-                visit_key=visit.key,
+                visit_key=key,
+                record=lowest.datamart_id,
                 priority=LocalActionPoint.Priority.HIGH if high else LocalActionPoint.Priority.MEDIUM,
                 due_date=add_working_days(today, HIGH_DAYS if high else MEDIUM_DAYS),
                 status=LocalActionPoint.Status.OPEN,

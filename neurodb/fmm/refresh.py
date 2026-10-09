@@ -12,16 +12,19 @@ Each pass is one ``SyncRun`` (job "Monitoring insights refresh") under its own d
 4. and 5. **Builds the visits** (``fmm.build``): the findings grouped into visits and linked to
    partners, programme documents, places, sections, offices, teams, action points and checklist
    answers. Records are read one at a time, and only small parsed values are kept.
-6. **Scores** them (``fmm.score``): the question roles, HACT Q1 and the PSEA flag, the quality rules
-   (FMS's model, with the AI checks' answers kept for each visit), the score, its band and flags, and
-   urgency, with the rules as they are when the pass starts (the rules version is read first and
-   stamped on every visit).
+6. **Scores** them (``fmm.score``): the question roles, HACT Q1 and the PSEA flag, then each record
+   (an entity row: FMS's model scores each one) with the quality rules and the AI checks' answers kept
+   for its inputs, its score, band, flags and urgency, and each visit from its records (the mean, the
+   lowest, the most urgent), with the rules as they are when the pass starts (the rules version is
+   read first and stamped on every visit).
 7. **Swaps** the new visits in, in one transaction: readers see the old ones until it commits, a
-   visit keeps its pk while its key stays, its rows, answers, action point links and rule results are
-   replaced, and the reviews (``VisitReview``) are never touched.
-8. **Action points**: a NeuroDB action point is made for each scored visit of Low quality that the
-   AI flagged for its action points (R7, R8 or R32, ``action_points.create_automatic``), and the AI
-   reviews of eTools action points that changed are deleted (``ai.ap_review.forget_stale``).
+   visit keeps its pk while its key stays, its records, answers, action point links and rule results
+   (the records' and the visits') are replaced, and the reviews (``VisitReview``) are never touched.
+   The AI check answers no scoring has read for 120 days are deleted.
+8. **Action points**: a NeuroDB action point is made for each visit with a scored record of Low
+   quality that the AI flagged for its action points (R7, R8 or R32,
+   ``action_points.create_automatic``), and the AI reviews of eTools action points that changed are
+   deleted (``ai.ap_review.forget_stale``).
 9. **Finishes** the run with its counts: ``rows_in`` the finding rows and answer records read,
    ``rows_written`` the visits written, ``rows_failed`` the records or visits skipped by an error
    (the run then *Succeeded with errors*). A step that fails as a whole fails the run and keeps the
@@ -29,9 +32,9 @@ Each pass is one ``SyncRun`` (job "Monitoring insights refresh") under its own d
 
 A **scores-only** pass (target "scores", ``--scores-only``) recomputes what changes with the day or
 the rules (the action point counts, the question roles, HACT Q1, PSEA, the rule results, the scores
-and urgency) from the stored visits and the narratives, without reading the records; it writes them
-in one transaction, then makes the NeuroDB action points of step 8. ``--probe-only`` (target "probe")
-runs steps 1-3 alone.
+and urgency of the records and the visits) from the stored visits and the narratives, without reading
+the eTools records; it writes them in one transaction, then makes the NeuroDB action points of step 8.
+``--probe-only`` (target "probe") runs steps 1-3 alone.
 
 **Requests are never lost.** A saved rule asks for a scores-only pass and a pinned key for a full one
 (:func:`request`): it stamps ``RefreshRequest`` and starts the command in the background, which does
@@ -49,11 +52,11 @@ import logging
 import time
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Literal
 
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import DatabaseError, connection, transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 
@@ -66,9 +69,12 @@ from neurodb.watch import people
 
 from . import build, fields, privacy, score, versions
 from .models import (
+    AICheckAnswer,
     FieldMapping,
     QuestionAnswer,
+    RecordRuleResult,
     RefreshRequest,
+    ScoreSetting,
     Visit,
     VisitActionPoint,
     VisitEntity,
@@ -100,6 +106,7 @@ VALUES_SEEN = 50  # distinct rating, status and entity type values kept in the r
 VALUE_CHARS = 60
 BATCH = 2000
 VISIT_BATCH = 500  # a visit has some 70 columns: smaller batches keep the upsert's memory low
+ANSWER_DAYS = 120  # an AI check answer no scoring has read for this long is deleted
 # What a scores-only pass writes on each visit
 SCORE_FIELDS = (
     "hact_q1",
@@ -110,6 +117,9 @@ SCORE_FIELDS = (
     "category_deductions",
     "quality_points",
     "quality_max",
+    "lowest_score",
+    "records_scored",
+    "records_low",
     "evaluated_rules",
     "not_scored_reason",
     "score_band",
@@ -126,8 +136,8 @@ SCORE_FIELDS = (
     "rules_version",
     "refreshed_at",
 )
-# What a scores-only pass writes on each entity row (the effective HACT Q1)
-ENTITY_SCORE_FIELDS = ("hact_q1", "hact_q1_from")
+# What a scores-only pass writes on each record: the effective HACT Q1 and the record's score fields
+ENTITY_SCORE_FIELDS = ("hact_q1", "hact_q1_from", *score.RECORD_SCORE_FIELDS)
 # What a full pass writes on a visit that exists already (everything but its pk and key)
 UPSERT_FIELDS = [f.name for f in Visit._meta.concrete_fields if f.name not in ("id", "key")]
 Kind = Literal["full", "scores", "probe"]
@@ -348,7 +358,7 @@ def _full(triggered_by: str, today: date) -> SyncRun:
         with transaction.atomic():
             _written, mappings = _write_keys(probes)
             sync_run.rows_written = _swap(result, version_used, scored)
-            _forget_checks()
+            forgotten = _forget_checks(today)
         details = _details(probes, mappings, relinked)
     except Exception as exc:
         return fail(sync_run, exc, duration_ms=_ms(clock))
@@ -365,6 +375,7 @@ def _full(triggered_by: str, today: date) -> SyncRun:
         questions=questions,
         rules_version=version_used,
         scored=sum(1 for v in result.visits if v.quality_score is not None),
+        ai_answers_forgotten=forgotten,
         **followed,
         duration_ms=_ms(clock),
     )
@@ -398,8 +409,8 @@ def _scores(triggered_by: str, today: date) -> SyncRun:
             ]
             fm.update_rows(VisitEntity, changed, ENTITY_SCORE_FIELDS)
             _write_roles(scored.roles)
-            VisitRuleResult.objects.all().delete()
-            copy_rows(VisitRuleResult, scored.results)
+            update_results(RecordRuleResult, scored.record_results)
+            update_results(VisitRuleResult, scored.results)
     except Exception as exc:
         return fail(sync_run, exc, duration_ms=_ms(clock))
     followed = _action_points(sync_run, today, full=False)
@@ -444,9 +455,9 @@ def _score(
     on_error=None,
 ) -> score.Scored:
     """Step 6: the question roles, HACT Q1, the PSEA flag, the quality rules, the score and urgency of
-    each visit (``score.score_visits``), with the rules and settings as they are now (``version`` was
-    read before them). The visits and their entity rows are updated in place; the rule results and the
-    roles are returned to be written."""
+    each record and visit (``score.score_visits``), with the rules and settings as they are now
+    (``version`` was read before them). The visits and their records are updated in place; the rule
+    results and the roles are returned to be written."""
     source = source if source is not None else score.StoredSource(visits)
     scored = score.score_visits(source, score.Rulebook.load(), today, on_error=on_error)
     if isinstance(source, score.BuiltSource):
@@ -467,18 +478,18 @@ def _write_roles(roles: dict[tuple[str, bool | None], str]) -> None:
             QuestionAnswer.objects.filter(question_text=text, is_hact=is_hact, role=role).update(role=wanted)
 
 
-def copy_rows(model, rows: Iterable) -> int:
-    """Insert new ``rows`` (unsaved model instances whose pk is not needed) with PostgreSQL's COPY, much
-    faster than ``bulk_create`` for the tens of thousands of checklist answers; ``bulk_create``
-    elsewhere."""
+def copy_rows(model, rows: Iterable, *, with_pk: bool = False, table: str = "") -> int:
+    """Insert new ``rows`` (unsaved model instances whose pk is not needed, or set already: ``with_pk``)
+    with PostgreSQL's COPY, much faster than ``bulk_create`` for the tens of thousands of checklist
+    answers (into ``table`` when given, a table of the same columns); ``bulk_create`` elsewhere."""
     if connection.vendor != "postgresql":
         rows = list(rows)
         model.objects.bulk_create(rows, batch_size=BATCH)
         return len(rows)
-    fields = [f for f in model._meta.concrete_fields if not f.primary_key]
+    fields = [f for f in model._meta.concrete_fields if with_pk or not f.primary_key]
     quote = connection.ops.quote_name
     sql = "COPY {} ({}) FROM STDIN".format(
-        quote(model._meta.db_table), ", ".join(quote(f.column) for f in fields)
+        quote(table or model._meta.db_table), ", ".join(quote(f.column) for f in fields)
     )
     written = 0
     with connection.cursor() as cursor, cursor.cursor.copy(sql) as copy:
@@ -489,40 +500,184 @@ def copy_rows(model, rows: Iterable) -> int:
     return written
 
 
+RESULT_FIELDS = ("rule", "status", "points", "max_points", "detail_key", "detail", "measure")
+
+
+def _result_columns(model) -> tuple[str, list[str]]:
+    """(the owner field, "entity" or "visit"; the columns of a rule result, the owner's first)."""
+    owner = "entity" if model is RecordRuleResult else "visit"
+    meta = model._meta
+    columns = [meta.get_field(owner).column, *(meta.get_field(name).column for name in RESULT_FIELDS)]
+    if {f.column for f in meta.concrete_fields if not f.primary_key} != set(columns):
+        raise RuntimeError(f"{meta.label}: its columns are not those of a rule result")
+    return owner, columns
+
+
+def copy_results(model, rows: Iterable[score.ResultRow], table: str = "") -> int:
+    """Insert rule results (``RecordRuleResult`` or ``VisitRuleResult``; into ``table`` when given, a
+    table of the same columns) from the scoring's rows (``score.ResultRow``: the record or visit first,
+    saved already) with PostgreSQL's COPY, straight from the rows: no model instance is made for the
+    180,000 results of a large refresh."""
+    owner, columns = _result_columns(model)
+    if connection.vendor != "postgresql":
+        return copy_rows(model, score.result_models(model, owner, rows))
+    meta = model._meta
+    quote = connection.ops.quote_name
+    sql = "COPY {} ({}) FROM STDIN".format(
+        quote(table or meta.db_table), ", ".join(quote(c) for c in columns)
+    )
+    written = 0
+    with connection.cursor() as cursor, cursor.cursor.copy(sql) as copy:
+        for target, *values in rows:
+            if target.pk is None:
+                raise ValueError(f"{meta.label}: a result of an unsaved {owner}")
+            copy.write_row([target.pk, *values])
+            written += 1
+    return written
+
+
+SCRATCH = "fmm_scratch"  # the temporary table a write goes through
+
+
+def _scratch(cursor, table: str, names: str) -> bool:
+    """A temporary table of the columns ``names`` of ``table`` (both quoted), named :data:`SCRATCH` and
+    dropped at the commit. False where the database user may not create one: the caller then takes
+    the slower way."""
+    try:
+        with transaction.atomic():
+            cursor.execute(f"DROP TABLE IF EXISTS {SCRATCH}")
+            cursor.execute(
+                f"CREATE TEMPORARY TABLE {SCRATCH} ON COMMIT DROP AS SELECT {names} FROM {table} WITH NO DATA"  # noqa: S608
+            )
+    except DatabaseError as exc:
+        logger.warning("fmm_refresh: no temporary table (%s); the slower way is taken", exc)
+        return False
+    return True
+
+
+def update_results(model, rows: Iterable[score.ResultRow]) -> int:
+    """A scores-only pass: the stored rule results made those of the scoring by writing only what
+    changed (most results of a day are those of the day before): the new rows are copied into a
+    temporary table, the stored rows that differ from theirs (or have none) are deleted and the new
+    rows missing then are inserted. Returns the rows inserted."""
+    _owner, columns = _result_columns(model)
+    quote = connection.ops.quote_name
+    table = quote(model._meta.db_table)
+    names = ", ".join(quote(c) for c in columns)
+    key = " AND ".join(f"n.{quote(c)} = r.{quote(c)}" for c in columns[:2])
+    same = " AND ".join(f"n.{quote(c)} IS NOT DISTINCT FROM r.{quote(c)}" for c in columns[2:])
+    with transaction.atomic(), connection.cursor() as cursor:
+        if connection.vendor != "postgresql" or not _scratch(cursor, table, names):
+            model.objects.all().delete()
+            return copy_results(model, rows)
+        copy_results(model, rows, table=SCRATCH)
+        cursor.execute(f"ANALYZE {SCRATCH}")
+        cursor.execute(
+            f"DELETE FROM {table} AS r WHERE NOT EXISTS "  # noqa: S608
+            f"(SELECT 1 FROM {SCRATCH} AS n WHERE {key} AND {same})"
+        )
+        cursor.execute(
+            f"INSERT INTO {table} ({names}) SELECT {names} FROM {SCRATCH} AS n "  # noqa: S608
+            f"WHERE NOT EXISTS (SELECT 1 FROM {table} AS r WHERE {key})"
+        )
+        inserted = cursor.rowcount
+        cursor.execute(f"DROP TABLE {SCRATCH}")
+    return inserted
+
+
 def _swap(result: build.BuildResult, version: int, scored: score.Scored | None = None) -> int:
     """Step 7: the new visits in place of the old ones, in one transaction. A visit whose key stays
-    keeps its pk; its rows, answers, action point links and rule results are replaced; the reviews
-    stay."""
+    keeps its pk; its records, answers, action point links and rule results are replaced (the records
+    are inserted first, under pks drawn from their sequence, which their answers and rule results then
+    point at); the reviews stay."""
     visits = result.visits
     for visit in visits:
         visit.rules_version = version
     with transaction.atomic():
+        RecordRuleResult.objects.all().delete()
         VisitRuleResult.objects.all().delete()
         QuestionAnswer.objects.all().delete()
         VisitActionPoint.objects.all().delete()
-        VisitEntity.objects.all().delete()
-        for start in range(0, len(visits), VISIT_BATCH):
-            Visit.objects.bulk_create(
-                visits[start : start + VISIT_BATCH],
-                update_conflicts=True,
-                unique_fields=["key"],
-                update_fields=UPSERT_FIELDS,
-            )
+        # nothing points at a record any more: they are deleted in one statement, never loaded (Django
+        # would read the 15,000 records of a large refresh into memory to look for what points at them)
+        with connection.cursor() as cursor:
+            cursor.execute(f"DELETE FROM {connection.ops.quote_name(VisitEntity._meta.db_table)}")  # noqa: S608
+        _upsert_visits(visits)
         Visit.objects.exclude(key__in=[v.key for v in visits]).delete()
-        VisitEntity.objects.bulk_create(result.entities, batch_size=BATCH)
+        _insert_records(result.entities)
         copy_rows(QuestionAnswer, result.question_answers({v.key: v for v in visits}))
         VisitActionPoint.objects.bulk_create(result.links, batch_size=BATCH)
         if scored is not None:
-            copy_rows(VisitRuleResult, scored.results)
+            copy_results(RecordRuleResult, scored.record_results)
+            copy_results(VisitRuleResult, scored.results)
         transaction.on_commit(people.forget)  # the team names, read again by the next look-up
     return len(visits)
 
 
-def _forget_checks() -> int:
-    """The AI checks of visits that are gone (their key no longer in eTools) are deleted."""
+def _upsert_visits(visits: list[Visit]) -> None:
+    """The visits written over the stored ones of the same key (a visit keeps its pk; a new one is
+    inserted), through a temporary table filled with COPY; their pks are read back by key. Django's
+    INSERT ... ON CONFLICT of 5,000 rows of some eighty columns took 10 seconds to build and send."""
+    meta = Visit._meta
+    quote = connection.ops.quote_name
+    table = quote(meta.db_table)
+    names = ", ".join(quote(f.column) for f in meta.concrete_fields if not f.primary_key)
+    key, pk = quote(meta.get_field("key").column), quote(meta.pk.column)
+    columns = [quote(meta.get_field(name).column) for name in UPSERT_FIELDS]
+    updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in columns)
+    with transaction.atomic(), connection.cursor() as cursor:
+        if connection.vendor != "postgresql" or not _scratch(cursor, table, names):
+            for start in range(0, len(visits), VISIT_BATCH):
+                Visit.objects.bulk_create(
+                    visits[start : start + VISIT_BATCH],
+                    update_conflicts=True,
+                    unique_fields=["key"],
+                    update_fields=UPSERT_FIELDS,
+                )
+            return
+        copy_rows(Visit, visits, table=SCRATCH)
+        cursor.execute(
+            f"INSERT INTO {table} ({names}) SELECT {names} FROM {SCRATCH} "  # noqa: S608
+            f"ON CONFLICT ({key}) DO UPDATE SET {updates} RETURNING {key}, {pk}"
+        )
+        pks = dict(cursor.fetchall())
+        cursor.execute(f"DROP TABLE {SCRATCH}")
+    for visit in visits:
+        visit.pk = pks[visit.key]
+        visit._state.adding, visit._state.db = False, connection.alias
+
+
+def _insert_records(entities: list[VisitEntity]) -> None:
+    """The records, inserted with COPY under pks drawn first from their table's sequence (their rule
+    results point at them): an INSERT of 15,000 rows of some fifty columns took ten times as long."""
+    if connection.vendor != "postgresql" or not entities:
+        VisitEntity.objects.bulk_create(entities, batch_size=BATCH)
+        return
+    meta = VisitEntity._meta
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT nextval(pg_get_serial_sequence(%s, %s)) FROM generate_series(1, %s)",
+            [meta.db_table, meta.pk.column, len(entities)],
+        )
+        pks = [row[0] for row in cursor.fetchall()]
+    for entity, pk in zip(entities, pks, strict=True):
+        entity.pk = pk
+        entity._state.adding, entity._state.db = False, connection.alias
+    copy_rows(VisitEntity, entities, with_pk=True)
+
+
+def _forget_checks(today: date) -> int:
+    """The AI check answers no scoring has read for ``ANSWER_DAYS`` (120) days are deleted (an answer in
+    use is marked used once a day by ``ai.checks.fresh``), while the AI checks are on: switched off,
+    every answer is kept for when they are back. The checks made per visit before records, of visits
+    gone from eTools, are deleted too. Returns the answers deleted."""
     from .models import VisitAICheck
 
-    return VisitAICheck.objects.exclude(visit_key__in=Visit.objects.values("key")).delete()[0]
+    VisitAICheck.objects.exclude(visit_key__in=Visit.objects.values("key")).delete()
+    if not ScoreSetting.load().ai_checks:
+        return 0
+    cutoff = today - timedelta(days=ANSWER_DAYS)
+    return AICheckAnswer.objects.filter(last_used__lt=cutoff).delete()[0]
 
 
 def _ms(clock: float) -> int:

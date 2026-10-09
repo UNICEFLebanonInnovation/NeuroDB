@@ -1,5 +1,5 @@
-"""The quality rules of a monitoring visit's report, as FMS defines them, each applied by code to what the
-visit holds.
+"""The quality rules of a monitoring visit's report, as FMS defines them, each applied by code to what one
+record of the visit holds (an entity row: FMS scores each record; ``score.record_of``).
 
 **The rule model** (``RuleSetting``, seeded from FMS Lebanon's rules file, ``fmm.lebanon``): an id (R1,
 R2, ... R32, never renamed), a name and description, a **type**, a score **category**, a group (core or
@@ -26,13 +26,14 @@ template and its parameters (``params``), by type:
   the partner's programme documents), ``value_in_list`` and ``string_contains``. R20, R21 and R23 read
   what eTools holds (``score.References``); the rule's ``reference_map`` adds entries to it.
 
-``entity_type_filter`` limits a rule to the visits with a finding row of those types ("Partner", "CP
-Output", "PD/SSFA" or "PD").
+``entity_type_filter`` limits a rule to the records of those types ("Partner", "CP Output", "PD/SSFA" or
+"PD"): a record of another type gets ``nap``. A list rule's ``entity_type_scoring`` reads the record's
+own type.
 
 Each rule returns an :class:`Outcome`: ``pass``, ``fail`` (a flag, with its deduction), ``na`` (its input
-is not in the data), ``nap`` (it does not apply to this visit, or the visit is not scored), ``off`` or
-``pending`` (an AI check not done yet). The **score** (``score.score_visit``) is 100 less the deductions,
-each category's at most its weight, never below 0.
+is not in the data), ``nap`` (it does not apply to this record, or its visit is not scored), ``off`` or
+``pending`` (an AI check not done yet). The **score** (``score.score_outcome``) is 100 less the
+deductions, each category's at most its weight, never below 0.
 
 Texts are compared folded (:func:`neurodb.fmm.parse.fold`). The question roles (Q1, Q2, Q3, PSEA) are
 given by :func:`assign_roles` from the patterns of the score settings. Nothing a rule writes holds a
@@ -42,6 +43,7 @@ on the list.
 
 from __future__ import annotations
 
+import functools
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -173,6 +175,8 @@ def number(value: float | Decimal) -> str:
 
 def dec(value: Any) -> Decimal:
     """A deduction as a Decimal (None, a yes/no and anything unreadable: 0)."""
+    if isinstance(value, Decimal):  # a rule's own deduction, read for each of its outcomes
+        return value
     if value is None or isinstance(value, bool) or value == "":
         return Decimal(0)
     try:
@@ -194,10 +198,22 @@ def worst(values: Iterable[str]) -> str:
     return max(values, key=lambda v: RATING_ORDER.get(v, 0)) if values else ""
 
 
+@functools.lru_cache(maxsize=1024)  # a few dozen rule ids, sorted for each of thousands of records
 def code_order(code: str) -> tuple[int, str]:
     """R2 before R10: rule ids in their number's order."""
     digits = "".join(ch for ch in code if ch.isdigit())
     return (int(digits) if digits else 0, code)
+
+
+@functools.lru_cache(maxsize=8192)
+def _fold_name(text: str) -> str:
+    return parse.fold(text)
+
+
+def folded(text: Any) -> str:
+    """A name folded as :func:`neurodb.fmm.parse.fold` does, remembered: the rules fold the same short
+    names (a map's keys, programme document numbers, offices, sections, entity types) for every record."""
+    return _fold_name(text) if isinstance(text, str) and len(text) <= 200 else parse.fold(text)
 
 
 # ------------------------------------------------------------------------------------------ roles
@@ -273,12 +289,12 @@ def questions_answered(answers: Iterable[AnswerFacts]) -> tuple[int, int]:
 # ------------------------------------------------------------------------------------------ the record
 @dataclass(frozen=True)
 class Record:
-    """What the rules see of one visit (``score`` builds it): whether it is scored, the kinds of its
-    finding rows, whether each column of the report is present (``present``: True, False, or None when
-    the data cannot tell), the values of the other columns (``values``; None: not in the data), the
-    columns NeuroDB cannot read at all (``unreadable``: a rule on one is "not available", never a missing
-    value), the reference facts (``refs``) and the answers of its AI checks (``checks``: rule ->
-    (passed, detail))."""
+    """What the rules see of one record (``score.record_of`` builds it): whether it is scored, its kind
+    (the kinds of a visit's rows for a rule evaluated once per visit), whether each column of the
+    report is present (``present``: True, False, or None when the data cannot tell), the values of the
+    other columns (``values``; None: not in the data), the columns NeuroDB cannot read at all
+    (``unreadable``: a rule on one is "not available", never a missing value), the reference facts
+    (``refs``) and the answers of its AI checks (``checks``: rule -> (passed, detail))."""
 
     key: str
     scorable: bool
@@ -302,6 +318,8 @@ class Context:
     ai_checks: bool = True
     prompt_keys: frozenset[str] = frozenset()
     staff: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    # what one scoring works out once for all its records (a rule's map with its names folded)
+    memo: dict[Any, Any] = field(default_factory=dict, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -358,7 +376,7 @@ def entity_types(rule) -> frozenset[str]:
     if not found:
         return frozenset()
     names = [found] if isinstance(found, str) else list(found)
-    return frozenset(ENTITY_TYPES.get(parse.fold(name), "") for name in names) - {""}
+    return frozenset(ENTITY_TYPES.get(folded(name), "") for name in names) - {""}
 
 
 def render(template: str, **values: Any) -> str:
@@ -436,7 +454,7 @@ def completeness(record: Record, rule, ctx: Context) -> Outcome:
 
 def _type_spec(specs: Mapping[str, Any], kind: str) -> dict | None:
     for name, spec in specs.items():
-        if name != "default" and ENTITY_TYPES.get(parse.fold(name)) == ENTITY_TYPES.get(parse.fold(kind)):
+        if name != "default" and ENTITY_TYPES.get(folded(name)) == ENTITY_TYPES.get(folded(kind)):
             return spec
     return specs.get("default")
 
@@ -450,8 +468,8 @@ def _list_outcome(record: Record, rule, value: Any) -> Outcome:
         spec = _type_spec(specs, kind) if specs else {"scoring": param(rule, "scoring") or []}
         if spec is None:
             continue
-        required = {parse.fold(r) for r in spec.get("required") or []}
-        met = required <= {parse.fold(e) for e in entries}
+        required = {folded(r) for r in spec.get("required") or []}
+        met = required <= {folded(e) for e in entries}
         band = _band(spec.get("scoring") or [], len(entries), met, count=True)
         if band is not None:
             found.append((dec(band.get("deduction")), kind))
@@ -518,11 +536,19 @@ def narrative(record: Record, rule, ctx: Context) -> Outcome:
     return _flag(rule, rule.deduction, "ai", ai_detail=detail)
 
 
-def _folded_map(rule) -> dict[str, list]:
+def _folded_map(rule, ctx: Context | None = None) -> dict[str, list]:
+    """A rule's reference map with its names folded, worked out once per scoring (``ctx.memo``, kept
+    with the map it was worked out from: a rule changed since, or another rule of the same code, has
+    its own)."""
     found = param(rule, "reference_map") or {}
     if not isinstance(found, dict):
         return {}
-    return {parse.fold(key): list(values or []) for key, values in found.items()}
+    memo = ctx.memo if ctx is not None else {}
+    kept = memo.get(("reference_map", rule.code))
+    if kept is None or kept[0] is not found:
+        kept = (found, {folded(name): list(values or []) for name, values in found.items()})
+        memo[("reference_map", rule.code)] = kept
+    return kept[1]
 
 
 def _pcodes(entries: Iterable[Any]) -> set[str]:
@@ -539,9 +565,9 @@ def reference(record: Record, rule, ctx: Context) -> Outcome:
     if check == "member_in_mapped_list":
         return _members(record, rule, ctx)
     if check in ("value_in_mapped_list", "pd_reference_locations"):
-        return _locations(record, rule, check)
+        return _locations(record, rule, check, ctx)
     if check == "section_in_cp_output":
-        return _sections(record, rule)
+        return _sections(record, rule, ctx)
     if check == "string_contains":
         return _contains(record, rule)
     if check == "value_in_list":
@@ -578,24 +604,24 @@ def _in_list(record: Record, rule) -> Outcome:
 def _members(record: Record, rule, ctx: Context) -> Outcome:
     """R19: every monitor e-mail address of the visit is on the staff list of one of its field offices.
     Skipped while no office of the visit has a list; the addresses are never written anywhere."""
-    offices = [o for o in record.values.get("field_offices") or [] if parse.fold(o) in ctx.staff]
+    offices = [o for o in record.values.get("field_offices") or [] if folded(o) in ctx.staff]
     if not offices:
         return _outcome(rule, "nap", key="no_list", detail="No staff list for the visit's field office.")
     emails = set((record.refs.get("people") or {}).get("team_members") or ())
     if not emails:
         return _outcome(rule, "na", key="no_email", detail="No monitor e-mail address in the eTools data.")
-    allowed = set().union(*(ctx.staff[parse.fold(o)] for o in offices))
+    allowed = set().union(*(ctx.staff[folded(o)] for o in offices))
     if emails <= allowed:
         return _outcome(rule, "pass", key="listed", detail="The monitor is on the field office's staff list.")
     office = ", ".join(offices)
     return _flag(rule, rule.deduction, "not_listed", float(len(emails - allowed)), value="", key_value=office)
 
 
-def _locations(record: Record, rule, check: str) -> Outcome:
+def _locations(record: Record, rule, check: str, ctx: Context | None = None) -> Outcome:
     """R20 (``value_in_mapped_list``): the visited place (its P-code, or a place holding it) is one of
     the registered locations of the visit's programme documents; R23 (``pd_reference_locations``): the
     same, else against the planned locations of the partner's programme documents running then."""
-    extra = _folded_map(rule)
+    extra = _folded_map(rule, ctx)
     allowed: set[str] = set()
     keys: list[str] = []
     for number_, codes in (record.refs.get("pd_locations") or {}).items():
@@ -609,7 +635,7 @@ def _locations(record: Record, rule, check: str) -> Outcome:
                 allowed |= set(codes)
                 keys.append(number_)
     for name in names:
-        entries = extra.get(parse.fold(name))
+        entries = extra.get(folded(name))
         if entries:
             allowed |= _pcodes(entries)
             keys.append(name)
@@ -626,24 +652,24 @@ def _locations(record: Record, rule, check: str) -> Outcome:
     return _flag(rule, rule.deduction, "not_registered", value=place, key_value=shown)
 
 
-def _sections(record: Record, rule) -> Outcome:
+def _sections(record: Record, rule, ctx: Context | None = None) -> Outcome:
     """R21: each section of a CP output visit is one of the sections the CP output works with (the
     programme documents that name it, and the rule's own map)."""
-    extra = _folded_map(rule)
+    extra = _folded_map(rule, ctx)
     expected: set[str] = set()
     outputs = list(record.refs.get("cp_outputs") or [])
     for output in outputs:
-        expected |= {parse.fold(s) for s in (record.refs.get("cp_output_sections") or {}).get(output, ())}
-        folded = parse.fold(output)
+        expected |= {folded(s) for s in (record.refs.get("cp_output_sections") or {}).get(output, ())}
+        name = folded(output)
         for key, sections in extra.items():
-            if key and (key == folded or key in folded):
-                expected |= {parse.fold(s) for s in sections}
+            if key and (key == name or key in name):
+                expected |= {folded(s) for s in sections}
     if not expected:
         return _outcome(rule, "nap", key="no_reference", detail="No sections known for its CP output.")
     sections = list(record.values.get("sections_names") or [])
     if not sections:
         return _outcome(rule, "na", key="no_section", detail="The visit names no section.")
-    wrong = [s for s in sections if parse.fold(s) not in expected]
+    wrong = [s for s in sections if folded(s) not in expected]
     if not wrong:
         return _outcome(rule, "pass", key="aligned", detail="Its sections are those of its CP output.")
     return _flag(rule, rule.deduction, "not_aligned", float(len(wrong)), value=wrong[0], key_value=outputs[0])
@@ -658,10 +684,10 @@ EVALUATE = {
 
 
 def evaluate(record: Record, rules: Mapping[str, Any], ctx: Context) -> list[Outcome]:
-    """The outcome of each rule switched on for one visit, in the order of their ids (a rule switched off
+    """The outcome of each rule switched on for one record, in the order of their ids (a rule switched off
     has none: with FMS's 32 rules, most of them off, a row each would multiply the rows kept for
-    nothing): ``nap`` for all of them when the visit is not scored, and for a rule whose entity types
-    the visit has no row of."""
+    nothing): ``nap`` for all of them when its visit is not scored, and for a rule whose entity types
+    the record is not of."""
     out = []
     for code in sorted(rules, key=code_order):
         rule = rules[code]
@@ -672,7 +698,7 @@ def evaluate(record: Record, rules: Mapping[str, Any], ctx: Context) -> list[Out
             out.append(_outcome(rule, "nap", key="not_scorable", detail=detail))
         elif (kinds := entity_types(rule)) and not (kinds & record.kinds):
             names = ", ".join(sorted(KIND_NAMES[k] for k in kinds))
-            out.append(_outcome(rule, "nap", key="entity_type", detail=f"Applies to {names} visits only."))
+            out.append(_outcome(rule, "nap", key="entity_type", detail=f"Applies to {names} records only."))
         else:
             out.append(EVALUATE.get(rule.type, reference)(record, rule, ctx))
     return out

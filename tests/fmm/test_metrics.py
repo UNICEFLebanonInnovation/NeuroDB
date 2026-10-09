@@ -50,7 +50,7 @@ def test_key_figures_and_the_status_breakdown(built):
         "planned": 0,
         "cancelled": 1,
     }
-    assert (k["avg_quality"], k["scored"], k["high_urgency"], k["amber"]) == (Decimal("79.2"), 6, 0, 1)
+    assert (k["avg_quality"], k["scored"], k["high_urgency"], k["amber"]) == (Decimal("79.7"), 6, 0, 1)
     # the rated entities by rating: shares of ratings are over these only
     assert k["entity_ratings"] == {"on_track": 6, "constrained": 0, "off_track": 2}
 
@@ -60,7 +60,7 @@ def test_one_average_quality_in_the_key_figure_and_the_highlights(built):
         scope = _scope(**params)
         kpi = metrics.kpis(scope)["avg_quality"]
         assert metrics.highlights(scope)["avg_quality"] == kpi == metrics.avg_quality(scope.visits())
-    assert metrics.highlights(_scope())["avg_quality"] == Decimal("79.2")
+    assert metrics.highlights(_scope())["avg_quality"] == Decimal("79.7")
 
 
 # ------------------------------------------------------------------------------------------ Quality tab
@@ -68,7 +68,7 @@ def test_quality_and_visits_by_month(built):
     quality = metrics.monthly_quality(_scope())
     assert quality["months"][0] == "Jan 2026" and quality["months"][-1] == "Oct 2026"  # up to this month
     values = dict(zip(quality["drill"]["labels"], quality["indicators"][0]["values"], strict=True))
-    assert values["2026-05"] == 93.0 and values["2026-01"] is None and values["2026-09"] is None
+    assert values["2026-05"] == 94.3 and values["2026-01"] is None and values["2026-09"] is None
     reports = dict(zip(quality["drill"]["labels"], quality["indicators"][0]["reports"], strict=True))
     assert reports["2026-09"] == 0 and sum(reports.values()) == 6  # reported visits only
     assert quality["bar_name"] == "Average quality score" and quality["line_name"] == "Total reports"
@@ -226,7 +226,7 @@ def test_entity_performance_worst_first_unscored_last(built, fm_world):
         "LEB/PCA2023597/PD2025123-2",
         "LEB/PCA2023597/PD2025123",
     ]
-    assert [r["avg"] for r in rows] == [Decimal("75.7"), Decimal("81.5"), Decimal("86.5"), None]
+    assert [r["avg"] for r in rows] == [Decimal("76.3"), Decimal("81.5"), Decimal("87.2"), None]
     amended = rows[2]
     assert amended["link"] == ("pd", fm_world.pds["amended"].pk) and amended["planned"] == 2
     partners = metrics.entities_performance(_scope(), "partner")["rows"]

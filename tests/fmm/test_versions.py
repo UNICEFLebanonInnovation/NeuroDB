@@ -239,13 +239,15 @@ def test_the_preview_shows_the_effect_and_writes_nothing(fm_world):
     rule = RuleSetting.objects.get(code="R2")
     scoring = [{"min": 30, "deduction": 0}, {"min": 0, "deduction": 10}]
     result = versions.preview({"R2": {"params": {**rule.params, "scoring": scoring}}}, {}, **YEAR)
-    assert result["rules"]["R2"] == {"now": 1, "then": 0}  # 1723 answered 33.3%
-    assert result["rules"]["R1"] == {"now": 6, "then": 6} and result["visits"] == 8
-    assert result["scored"] == {"now": 6, "then": 6}
+    # counted per record: 1723's SSFA answered 33.3% (no longer flagged), its partner's record 0%
+    assert result["rules"]["R2"] == {"now": 2, "then": 1}
+    assert result["rules"]["R1"] == {"now": 8, "then": 8}
+    assert (result["visits"], result["records"]) == (8, 12)
+    assert result["scored"] == {"now": 10, "then": 10}
     assert result["avg_quality"]["then"] > result["avg_quality"]["now"]
     sentence = versions.describe(result, ["R2"])
-    assert sentence.startswith("R2 would flag 0 visits (now 1); average quality ")
-    assert sentence.endswith("; scored visits 6 (now 6)")
+    assert sentence.startswith("R2 would flag 1 record (now 2); average quality ")
+    assert sentence.endswith("; scored records 10 (now 10)")
     after = (
         list(Visit.objects.order_by("key").values_list("key", "quality_score", "flags", "urgency")),
         sorted(VisitRuleResult.objects.values_list("visit__key", "rule", "status", "points")),

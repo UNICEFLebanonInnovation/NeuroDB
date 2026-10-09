@@ -1,0 +1,44 @@
+{% extends "admin/base_site.html" %}
+{% load i18n unfold %}
+
+{% comment %}
+  Re-check carried answers (context: fmm.admin.ScoreSettingAdmin.recheck_view): how many AI check answers
+  were carried over from the checks made per visit, what one press deletes, and the button.
+{% endcomment %}
+
+{% block content %}
+<form method="post" class="max-w-5xl">
+  {% csrf_token %}
+  {% component "unfold/components/card.html" with title=title %}
+    <div class="flex flex-col gap-4">
+      {% if carried %}
+        <p>
+          {% blocktrans trimmed count n=carried %}
+            {{ n }} AI check answer was carried over from the checks made per visit, before each record
+            was checked on its own.
+          {% plural %}
+            {{ n }} AI check answers were carried over from the checks made per visit, before each record
+            was checked on its own.
+          {% endblocktrans %}
+        </p>
+        <p>
+          {% blocktrans trimmed with batch=batch %}
+            This deletes {{ batch }} of them, the oldest first. The next runs of the AI checks (every
+            morning, or Run a job → Run the AI checks of the quality rules now) check those records
+            again while the day's budget allows; until then their scores are provisional. Press it again
+            for the next batch once those are done.
+          {% endblocktrans %}
+        </p>
+      {% else %}
+        <p>{% trans "No carried answer is left: every record's answer was checked on its own." %}</p>
+      {% endif %}
+    </div>
+  {% endcomponent %}
+  <div class="flex justify-end gap-4 mt-6">
+    <a class="px-3 py-2" href="{% url 'admin:fmm_scoresetting_change' setting.pk %}">{% trans "Cancel" %}</a>
+    {% if carried %}
+      {% component "unfold/components/button.html" with submit=1 %}{% trans "Re-check carried answers" %}{% endcomponent %}
+    {% endif %}
+  </div>
+</form>
+{% endblock %}

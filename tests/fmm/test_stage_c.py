@@ -38,8 +38,9 @@ from neurodb.fmm.models import (
     ActionPointVerification,
     AIState,
     LocalActionPoint,
+    RecordRuleResult,
     Visit,
-    VisitRuleResult,
+    VisitEntity,
 )
 from neurodb.integrations import background
 from neurodb.partnerships.models import PartnerOrganization
@@ -652,35 +653,42 @@ def test_the_neurodb_list_filters(client_viewer, db):
     assert "No NeuroDB action points match your filters." in html and "Clear filters" in html
 
 
-def _low(visit_key: str, score: float, *codes: str) -> Visit:
-    visit = Visit.objects.get(key=visit_key)
-    Visit.objects.filter(pk=visit.pk).update(quality_score=score, flags=list(codes))
-    VisitRuleResult.objects.filter(visit=visit).filter(Q(status="fail") | Q(rule__in=codes)).delete()
+def _low(datamart_id: int, score: float, *codes: str) -> VisitEntity:
+    """A record of Low quality with ``codes`` failed (the first takes 5 points, the next 6...)."""
+    entity = VisitEntity.objects.get(datamart_id=datamart_id)
+    VisitEntity.objects.filter(pk=entity.pk).update(quality_score=score, flags=list(codes))
+    RecordRuleResult.objects.filter(entity=entity).filter(Q(status="fail") | Q(rule__in=codes)).delete()
     for n, code in enumerate(codes):
-        VisitRuleResult.objects.create(
-            visit=visit,
+        RecordRuleResult.objects.create(
+            entity=entity,
             rule=code,
             status="fail",
             points=0,
             max_points=5 + n,
             detail=f"{code}: the action points do not answer the delays — said {MEMBER}.",
         )
-    return Visit.objects.get(pk=visit.pk)
+    return VisitEntity.objects.get(pk=entity.pk)
 
 
-def test_neurodb_makes_an_action_point_for_a_low_visit_flagged_for_its_action_points(built):
+def test_neurodb_makes_an_action_point_for_a_low_record_flagged_for_its_action_points(built):
     friday = datetime.date(2026, 10, 2)
-    _low("1723", 25.0, "R3", "R8")
-    _low("1726", 40.0, "R7", "R32")
-    _low("1728", 45.0, "R3")  # Low, but no action point flag
+    _low(111, 25.0, "R3", "R8")  # 1723's SSFA record
+    _low(112, 45.0, "R7")  # 1723's partner record
+    _low(121, 40.0, "R7", "R32")  # one of 1726's programme documents
+    _low(171, 45.0, "R3")  # Low, but no action point flag
     people.forget()  # the team names, read again (the refresh's commit does it in production)
-    assert action_points.create_automatic(friday) == 2
+    assert action_points.create_automatic(friday) == 2  # one per visit
     made = {p.visit_key: p for p in LocalActionPoint.objects.all()}
     high, medium = made["1723"], made["1726"]
-    assert (high.priority, high.due_date) == ("high", datetime.date(2026, 10, 9))  # 5 working days
-    assert (medium.priority, medium.due_date) == ("medium", datetime.date(2026, 10, 16))  # 10 working days
-    assert high.title.startswith("Follow up on R8 — ") and medium.title.startswith("Follow up on R32 — ")
+    # it points at the lowest qualifying record, which also sets its priority
+    assert (high.record, high.priority, high.due_date) == (111, "high", datetime.date(2026, 10, 9))
+    assert (medium.record, medium.priority, medium.due_date) == (121, "medium", datetime.date(2026, 10, 16))
+    assert high.title == "Follow up on R8 — FM-2026-023 · LEB/SSFA2024001"
+    assert medium.title.startswith("Follow up on R32 — FM-2026-026 · ")
     assert high.source == "auto" and "Other flags: R3." in high.description
+    # every qualifying record of the visit, with its score
+    assert "LEB/SSFA2024001 (PD/SSFA): quality score 25 (Low)" in high.description
+    assert "Mercy Corps Lebanon (Partner): quality score 45 (Low)" in high.description
     assert (
         MEMBER not in high.description and "Classes held" not in high.description
     )  # no person, no narrative

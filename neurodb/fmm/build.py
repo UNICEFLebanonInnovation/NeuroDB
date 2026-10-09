@@ -33,7 +33,12 @@ A visit is the finding rows that share a ``datamart.fm.visit_key``. For each vis
   or no) and word counts are kept, never its text;
 - **HACT answers of a row** (``hact_q1_answer``, ``hact_q2_answer``, ``hact_q3_answer`` in eTools' FMM
   export): measured like a checklist answer, never kept as text (``VisitEntity.row_answers``); the
-  scoring prefers them to the checklist answers of the same question for that row.
+  scoring prefers them to the checklist answers of the same question for that row;
+- **each record's own columns** (FMS scores each record): its place as the row wrote it, its
+  attachments, and FMS's derived columns (questions asked and answered, the share answered, the
+  categories answered, the collection methods, the red-flag answers) worked out over the (question,
+  unit) pairs that apply to it: its own answers, its partner's and the visit's. A visit whose answers
+  never name an entity gives every record the visit's figures, as FMS repeats them on each row.
 
 Several field offices, sections or programme areas written as one text ("Zahle; Tripoli") are split at
 their semicolons.
@@ -847,7 +852,7 @@ class _Builder:
         if shared > 1:
             issues["reference_conflict"] = shared
         self._answers(visit, entities)
-        self._derived(visit, rows)
+        self._derived(visit, rows, entities)
         visit.issues = issues
         partners = [self.partners.get(pid) or {} for pid in visit.partner_ids]
         visit.search = search_text(
@@ -908,6 +913,11 @@ class _Builder:
                     narrative_hash=row.narrative_hash,
                     narrative_placeholder=row.placeholder,
                     row_answers=row.row_answers,
+                    location_id=row.location_id,
+                    location_pcode=fit(VisitEntity, "location_pcode", row.location_pcode),
+                    attachments_count=min(row.attachments, 2_000_000_000)
+                    if row.attachments is not None
+                    else None,
                 )
             )
         if unknown:
@@ -1084,10 +1094,13 @@ class _Builder:
     # ------------------------------------------------------------------ the answers of a visit
     def _answers(self, visit: Visit, entities: list[VisitEntity]) -> None:
         """Which entity, partner or the whole visit each answer applies to, and how many questions were
-        asked and answered (one per question and entity, partner or visit)."""
+        asked and answered (one per question and entity, partner or visit), for the visit and for each of
+        its records (over the pairs that apply to it: :func:`_applies_to_row`)."""
         answers = self.answers_by_key.get(visit.key) or []
         if not answers:
             visit.questions_asked = visit.questions_answered = None
+            for entity in entities:
+                entity.questions_asked = entity.questions_answered = None
             return
         by_text: dict[str, VisitEntity] = {}
         by_token: dict[tuple[str, str], VisitEntity] = {}
@@ -1105,8 +1118,6 @@ class _Builder:
             for name in ("name", "short_name", "vendor_number"):
                 if partner.get(name):
                     partner_names.setdefault(_name(partner[name]), pid)
-        index = {id(e): i for i, e in enumerate(entities)}
-        asked: dict[tuple[str, str], bool] = {}
         for answer in answers:
             text = answer.entity_text
             entity = by_text.get(text) if text else None
@@ -1117,45 +1128,47 @@ class _Builder:
             if entity is None and pid is not None and pid in partner_rows:
                 entity = partner_rows[pid]  # the partner's own row, under another spelling
             if entity is not None:
-                answer.entity, answer.applies_to, unit = entity, "entity", f"e{index[id(entity)]}"
+                answer.entity, answer.applies_to = entity, "entity"
             elif pid is not None:
-                answer.partner_id, answer.applies_to, unit = pid, "partner", f"p{pid}"
+                answer.partner_id, answer.applies_to = pid, "partner"
             else:
-                answer.applies_to, unit = "visit", "v"
-            pair = (answer.question_key, unit)
-            asked[pair] = asked.get(pair, False) or answer.parsed.answered
+                answer.applies_to = "visit"
+        asked = _pairs(answers)
         visit.questions_asked = min(len(asked), 32767)
         visit.questions_answered = min(sum(asked.values()), 32767)
+        for entity in entities:
+            found = _pairs(a for a in answers if _applies_to_row(a, entity))
+            entity.questions_asked = min(len(found), 32767)
+            entity.questions_answered = min(sum(found.values()), 32767)
 
-    def _derived(self, visit: Visit, rows: list[_Row]) -> None:
-        """FMS's derived columns of a visit (rules R1, R2, R10, R11, R14, R28, R31...): the share of the
-        questions answered, the categories with an answer, the collection methods used, the red-flag
-        Likert answers (2 or less of 5, 1 of 3) and the attachments. None when the data cannot tell."""
-        from .rules import half_up
-
+    def _derived(self, visit: Visit, rows: list[_Row], entities: Iterable[VisitEntity] = ()) -> None:
+        """FMS's derived columns (rules R1, R2, R10, R11, R14, R28, R31...) of a visit and of each of its
+        records: the share of the questions answered, the categories with an answer, the collection
+        methods used, the red-flag Likert answers (2 or less of 5, 1 of 3) and the attachments (a
+        record's: its row's; the visit's: their sum). A record's are worked out over the answers that
+        apply to it. None when the data cannot tell."""
         answers = self.answers_by_key.get(visit.key) or []
-        asked, answered_n = visit.questions_asked, visit.questions_answered
-        visit.fmq_answered_pct = (
-            half_up(100 * answered_n / asked, 1) if asked and answered_n is not None else None
-        )
-        answered = [a for a in answers if a.parsed.answered]
         category_key = self.ctx.key("fm_questions", "category")
         method_key = self.ctx.key("fm_questions", "method")
-        if answers and category_key:
-            categories = _unique(a.category for a in answered if a.category)
-            visit.fmq_answered_categories = fit(
-                Visit, "fmq_answered_categories", "; ".join(sorted(categories, key=str.casefold))
+        for target, scope in (
+            (visit, answers),
+            *((e, [a for a in answers if _applies_to_row(a, e)]) for e in entities),
+        ):
+            values = _answer_columns(
+                scope,
+                target.questions_asked,
+                target.questions_answered,
+                categories=bool(answers and category_key),
+                methods=bool(answers and method_key),
             )
-        else:
-            visit.fmq_answered_categories = None
-        if answers and method_key:
-            visit.method_count = min(len({_name(a.method) for a in answered if a.method}), 32767)
-        else:
-            visit.method_count = None
-        likert = [a for a in answered if a.likert is not None]
-        visit.red_flag_count = (
-            min(sum(1 for a in likert if a.likert <= (2 if a.scale == 5 else 1)), 32767) if likert else None
-        )
+            target.fmq_answered_pct = values["fmq_answered_pct"]
+            target.fmq_answered_categories = (
+                None
+                if values["fmq_answered_categories"] is None
+                else fit(type(target), "fmq_answered_categories", values["fmq_answered_categories"])
+            )
+            target.method_count = values["method_count"]
+            target.red_flag_count = values["red_flag_count"]
         found = [r.attachments for r in rows if r.attachments is not None]
         visit.attachments_count = min(sum(found), 2_000_000_000) if found else None
 
@@ -1202,6 +1215,59 @@ class _Builder:
                 "applies_to": {k: joined.get(k, 0) for k in ("entity", "partner", "visit")},
             },
         }
+
+
+def _applies_to_row(answer: _Answer, entity: VisitEntity) -> bool:
+    """An answer counts for a record when it is the record's own, its partner's (an answer given for the
+    partner as a whole) or the visit's."""
+    if answer.applies_to == "entity":
+        return answer.entity is entity
+    if answer.applies_to == "partner":
+        return entity.partner_id is not None and answer.partner_id == entity.partner_id
+    return True
+
+
+def _pairs(answers: Iterable[_Answer]) -> dict[tuple[str, str], bool]:
+    """{(question, unit): answered} of answers: one per checklist question and entity, partner or visit,
+    answered when one of its records is."""
+    out: dict[tuple[str, str], bool] = {}
+    for answer in answers:
+        if answer.applies_to == "entity":
+            unit = f"e{id(answer.entity)}"
+        elif answer.applies_to == "partner":
+            unit = f"p{answer.partner_id}"
+        else:
+            unit = "v"
+        pair = (answer.question_key, unit)
+        out[pair] = out.get(pair, False) or answer.parsed.answered
+    return out
+
+
+def _answer_columns(
+    answers: list[_Answer], asked: int | None, answered_n: int | None, *, categories: bool, methods: bool
+) -> dict[str, Any]:
+    """FMS's derived columns over ``answers`` (a visit's, or those that apply to one record): the share
+    of the questions answered, the categories answered ("" when none is), the collection methods and the
+    red-flag Likert answers. None when the data cannot tell (no checklist answers, or the key is not
+    found)."""
+    from .rules import half_up
+
+    answered = [a for a in answers if a.parsed.answered]
+    likert = [a for a in answered if a.likert is not None]
+    return {
+        "fmq_answered_pct": half_up(100 * answered_n / asked, 1)
+        if asked and answered_n is not None
+        else None,
+        "fmq_answered_categories": "; ".join(
+            sorted(_unique(a.category for a in answered if a.category), key=str.casefold)
+        )
+        if categories
+        else None,
+        "method_count": min(len({_name(a.method) for a in answered if a.method}), 32767) if methods else None,
+        "red_flag_count": min(sum(1 for a in likert if a.likert <= (2 if a.scale == 5 else 1)), 32767)
+        if likert
+        else None,
+    }
 
 
 def _add(values: list[str], new: Iterable[str]) -> None:

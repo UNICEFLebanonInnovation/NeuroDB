@@ -119,7 +119,7 @@ def test_the_morning_briefing_tiles(built, client_viewer):
     # this year so far, whatever the page's period (2025 here)
     assert values == {
         "critical": "0",
-        "avg_quality": "79.2%",
+        "avg_quality": "79.7%",
         "low": "1",
         "critical_partners": "0",
         "visits": "8",
@@ -138,7 +138,7 @@ def test_the_morning_briefing_tiles(built, client_viewer):
     assert "No partner has a critical visit this year." in html
     # the quality by governorate, each tinted by its band and opening the visits there
     assert re.search(
-        r'fmm-chip--medium"[^>]*><span data-synced>Bekaa</span> · 78\.0% · <span class="fmm-chip__count">5<',
+        r'fmm-chip--medium"[^>]*><span data-synced>Bekaa</span> · 78\.8% · <span class="fmm-chip__count">5<',
         html,
     )
     assert re.search(
@@ -265,11 +265,12 @@ def test_the_facts_break_the_visits_down_by_partner_modality_and_governorate(bui
     modalities = found.payload["modalities"]
     assert list(modalities) == ["modality:none"] and modalities["modality:none"]["visits"] == 8
     bekaa = found.payload["places"]["gov:beqaa"]
+    # the mean of 1722, 1723, 1727 and 1728's qualities, each the mean of its records' (94.3, 48, 80, 93)
     assert (bekaa["rated"], bekaa["off_track"], bekaa["not_monitored"], bekaa["avg_quality"]) == (
         3,
         1,
         1,
-        78.0,
+        78.8,
     )
 
 

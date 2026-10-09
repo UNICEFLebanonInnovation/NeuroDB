@@ -1,7 +1,7 @@
 {% load i18n %}
 {% comment %}
   The answer of the "Preview effect" button (context: fmm.admin._VersionedAdmin.preview_view): the
-  effect of the form's values, scored in memory over this year's visits, or what to correct first.
+  effect of the form's values, scored in memory over this year's records, or what to correct first.
 {% endcomment %}
 {% if errors %}
   <p class="nd-found__warn"><strong>{% trans "Correct these first:" %}</strong></p>
@@ -9,12 +9,12 @@
 {% elif result %}
   <p><strong>{{ sentence }}.</strong></p>
   <p>
-    {% blocktrans trimmed with start=result.start|date:"j M Y" end=result.end|date:"j M Y" n=result.visits %}
-      Over the {{ n }} visits dated (start, else end) between {{ start }} and {{ end }}, the whole country. Nothing was saved.
+    {% blocktrans trimmed with start=result.start|date:"j M Y" end=result.end|date:"j M Y" n=result.visits records=result.records %}
+      Over the {{ records }} records of the {{ n }} visits dated (start, else end) between {{ start }} and {{ end }}, the whole country: each record is scored on its own. Nothing was saved.
     {% endblocktrans %}
   </p>
   <table class="nd-jobs nd-found__table mt-2">
-    <thead><tr><th scope="col">{% trans "Rule" %}</th><th scope="col">{% trans "Visits flagged now" %}</th><th scope="col">{% trans "With the change" %}</th></tr></thead>
+    <thead><tr><th scope="col">{% trans "Rule" %}</th><th scope="col">{% trans "Records flagged now" %}</th><th scope="col">{% trans "With the change" %}</th></tr></thead>
     <tbody>
       {% for code, counts in result.rules.items %}
         <tr><th scope="row">{{ code }}</th><td>{{ counts.now }}</td><td>{{ counts.then }}</td></tr>

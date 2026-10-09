@@ -623,3 +623,42 @@ def test_earlier_answers_are_cleaned_and_cut_when_sent_again(built, viewer):
     _canary_free(turns)
     assert (seen, numbers) == ({"1722"}, {"412"})
     assert chat.history(viewer, conversation, "another filter") == ([], set(), set())
+
+
+# ------------------------------------------------------------------------------------------ AI checks
+@pytest.mark.django_db
+def test_an_ai_check_sends_one_record_with_no_person_no_visit_and_no_entity_name(fm_world, monkeypatch):
+    """Release 2 step 5: a check sends one record's texts, cleaned; never the visit's label or reference,
+    the entity's name, the team, the visit lead or a monitor's e-mail address."""
+    import json
+
+    from django.test import override_settings
+
+    from neurodb.assistant import agent
+    from neurodb.fmm.ai import checks
+
+    from .conftest import PD_BASE, PD_EDU, PD_LEBA, SSFA, FakeChecks
+
+    refresh.run(triggered_by="test")
+    people.forget()
+    fake = FakeChecks()
+    monkeypatch.setattr(agent, "client", fake.client)
+    with override_settings(FMM_AI=True, AI_ASSISTANT_ENABLED=True, OPENAI_API_KEY="x"):
+        run = checks.run("test")
+    assert run.rows_written == len(fake.requests) > 0
+    blob = json.dumps([r["input"] for r in fake.requests], ensure_ascii=False)
+    for canary in CANARIES:
+        assert canary not in blob, canary
+    for name in ("Amel Association", "Mercy Corps Lebanon", PD_LEBA, PD_BASE, PD_EDU, SSFA, "FM-2026-0"):
+        assert name not in blob, name
+    for sent in fake.sent():
+        assert set(sent) - {"entity_type"} <= set(checks.VISIT_FIELDS) | {
+            "hact_q1_answer",
+            "hact_q2_answer",
+            "hact_q3_answer",
+            "narrative_finding",
+            "overall_finding_rating",
+            "visit_goals",
+            "objective",
+        }
+    assert "412 children" in blob  # the figures of the texts stay

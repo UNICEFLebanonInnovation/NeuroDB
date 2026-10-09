@@ -456,9 +456,10 @@ def fm_world(db):
 
 
 class FakeChecks:
-    """``agent.client()`` for the AI checks of the quality rules: records each call, and answers by its
-    visit and rule (``verdicts``: (visit label, rule) or rule -> (passed, detail); passed by default) or
-    raises the next of ``errors``."""
+    """``agent.client()`` for the AI checks of the quality rules: records each call, and answers by what
+    it sends and its rule (``verdicts``: (a text the record's input holds, rule) or rule -> (passed,
+    detail); passed by default: a check sends neither the visit nor the entity's name, so a record is
+    told by its texts) or raises the next of ``errors``."""
 
     def __init__(self, verdicts=None, errors=()):
         self.verdicts = dict(verdicts or {})
@@ -481,8 +482,15 @@ class FakeChecks:
         if self.errors:
             raise self.errors.pop(0)
         rule = params["prompt_cache_key"].rsplit("-", 1)[1]
-        visit = json.loads(params["input"][0]["content"])["visit"]
-        found = self.verdicts.get((visit, rule), self.verdicts.get(rule, (True, "The report is specific.")))
+        content = params["input"][0]["content"]
+        found = next(
+            (
+                verdict
+                for key, verdict in self.verdicts.items()
+                if isinstance(key, tuple) and key[1] == rule and key[0] in content
+            ),
+            self.verdicts.get(rule, (True, "The report is specific.")),
+        )
         passed, detail = found
         return SimpleNamespace(
             output_text=json.dumps({"is_coherent": passed, "detail": detail}),
@@ -499,15 +507,23 @@ class FakeChecks:
         return [json.loads(r["input"][0]["content"]) for r in self.requests]
 
 
-# The AI checks of the built world: 1723 the only low visit (Q2 not verified, the narrative incoherent)
+# The AI checks of the built world, told by what each record sends (a check sends neither the visit nor
+# the entity's name): 1723 the only low visit (its SSFA record: Q1 Constrained against a blank Q2, and no
+# narrative; its partner record, not monitored: no Q2 verified and no narrative). The records of two
+# visits with the same texts share one answer: 1726's two programme documents share theirs.
 BUILT_VERDICTS = {
-    ("Visit 1723", "R3"): (False, "Q2 lists no activity the monitor verified."),
-    ("Visit 1723", "R6"): (False, "The narrative is blank while the rows are rated."),
-    ("Visit 1722", "R7"): (False, "Q3 names no responsible party or timeline."),
-    ("Visit 1726", "R8"): (False, "The delays are not followed by an action point."),
-    ("Visit 1726", "R32"): (False, "The suspension of sessions has no matching action point."),
-    ("Visit 1727", "R6"): (False, "The narrative does not address the visit objective."),
-    ("FM/2026/9", "R5"): (False, "Q1 says Off track while Q2 lists no problem."),
+    ('"hact_q1_answer": "Constrained"', "R5"): (False, "Q1 says Constrained while Q2 lists no activity."),
+    ('"hact_q1_answer": "Constrained"', "R6"): (False, "The narrative is blank while Q1 is answered."),
+    ('"entity_type": "Partner", "hact_q2_answer": ""', "R3"): (
+        False,
+        "Q2 lists no activity the monitor verified.",
+    ),
+    ("Not Monitored", "R6"): (False, "The narrative is blank and does not say why nothing was monitored."),
+    ("Registers checked.", "R7"): (False, "Q3 names no responsible party or timeline."),
+    ("Sessions were delayed", "R8"): (False, "The delays are not followed by an action point."),
+    ("Sessions were delayed", "R32"): (False, "The suspension of sessions has no matching action point."),
+    ('"hact_q1_answer": "2"', "R6"): (False, "The narrative does not address the visit objective."),
+    ('"hact_q1_answer": "Off track"', "R5"): (False, "Q1 says Off track while Q2 lists no problem."),
 }
 
 
@@ -516,8 +532,9 @@ def built(fm_world, monkeypatch):
     """``fm_world`` with its visits built and scored by a full refresh on 5 October 2026, then its AI
     checks made (``BUILT_VERDICTS``, through a fake OpenAI client: no call leaves the test) and the
     scores worked out again with them, on 5 October too. The AI stays switched off for the test (the
-    answers kept still count). Scores: 1722 93, 1723 46 (Low, the most urgent), 1726 88, 1727 80,
-    1728 93, the visit known by its reference 75."""
+    answers kept still count). Each record is scored, a visit's quality is its records' mean: 1722 94.3
+    (its records 95, 95 and 93), 1723 48 (Low, the most urgent: both records 48), 1726 88 (both 88), 1727
+    80, 1728 93, the visit known by its reference 75."""
     from django.test import override_settings
 
     from neurodb.assistant import agent
@@ -533,7 +550,8 @@ def built(fm_world, monkeypatch):
     with monkeypatch.context() as patched, override_settings(FMM_AI=True, AI_ASSISTANT_ENABLED=True):
         patched.setattr(agent, "client", fake.client)
         done = checks.run("test")
-    assert done.status == SyncRun.Status.SUCCEEDED and done.rows_written == 36, done.details
+    # 10 records of 6 scored visits, 6 checks each: 52 calls, as 8 records' inputs repeat another's
+    assert done.status == SyncRun.Status.SUCCEEDED and done.rows_written == 52, done.details
     AIUsage.objects.all().delete()  # the fake checks spent nothing
     SyncRun.objects.filter(job=SyncRun.Job.FMM_AI_CHECKS).delete()
     rescored = refresh.run(triggered_by="test", scores_only=True, today=today)

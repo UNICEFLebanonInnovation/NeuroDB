@@ -141,7 +141,7 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
         _(
             "eTools field monitoring as Monitoring insights reads it: the keys its records hold and the "
             "key each field is read from (Fields found), the quality rules and score settings with their "
-            "versions, the field offices' staff lists, the AI checks of the visits, the visits built from it "
+            "versions, the field offices' staff lists, the AI checks' answers, the visits built from it "
             "and their reviews, the AI's prompt versions, sampling checks and briefs, and the action points' "
             "AI settings, AI reviews, PME verifications, AI summaries and NeuroDB action points, and the "
             "keys Power BI reads the live feed with."
@@ -152,6 +152,7 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
             "fmm.ScoreSetting",
             "fmm.RuleSetVersion",
             "fmm.FieldOfficeStaff",
+            "fmm.AICheckAnswer",
             "fmm.VisitAICheck",
             "fmm.PromptVersion",
             "fmm.ModelCapability",
@@ -337,7 +338,8 @@ ICONS = {
     "fmm.ScoreSetting": "tune",
     "fmm.RuleSetVersion": "history",
     "fmm.FieldOfficeStaff": "badge",
-    "fmm.VisitAICheck": "fact_check",
+    "fmm.AICheckAnswer": "fact_check",
+    "fmm.VisitAICheck": "inventory_2",
     "fmm.ActionPointSetting": "settings_suggest",
     "fmm.ActionPointReview": "rate_review",
     "fmm.ActionPointVerification": "verified_user",

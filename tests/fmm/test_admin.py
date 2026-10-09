@@ -68,7 +68,8 @@ def test_fmm_icons_are_material_symbols_names_not_site_icons():
         "fmm.ScoreSetting": "tune",
         "fmm.RuleSetVersion": "history",
         "fmm.FieldOfficeStaff": "badge",
-        "fmm.VisitAICheck": "fact_check",
+        "fmm.AICheckAnswer": "fact_check",
+        "fmm.VisitAICheck": "inventory_2",
         "fmm.PromptVersion": "edit_note",
         "fmm.ModelCapability": "science",
         "fmm.Insight": "auto_awesome",
@@ -256,7 +257,7 @@ def test_the_visits_admin_is_read_only_and_shows_the_links(admin_client, fm_worl
     page = admin_client.get(reverse("admin:fmm_visit_change", args=[visit.pk]))
     assert page.status_code == 200
     html = page.content.decode()
-    assert "Zahle town" in html and "monitored entities" in html.lower() and "FM-2026-022" in html
+    assert "Zahle town" in html and "each scored on its own" in html and "FM-2026-022" in html
     assert 'name="_save"' not in html and "View on site" not in html
     for canary in CANARIES[2:]:  # never an e-mail address, phone, link or narrative
         assert canary not in html
@@ -356,7 +357,8 @@ def test_the_rule_list_and_the_last_refresh_counts(admin_client, fm_world):
     assert html.index(">R2<") < html.index(">R10<")  # in the order of their ids
     assert 'name="form-0-' not in html  # no editing in the list: every change needs a note
     html = admin_client.get(reverse("admin:fmm_rulesetting_change", args=["R2"])).content.decode()
-    assert "evaluated on 6 visits, 1 of them flagged; not available on 0; does not apply to 2" in html
+    # counted per record: 1723's two records are below 80% answered
+    assert "evaluated on 10 records, 2 of them flagged; not available on 0; does not apply to 2" in html
     # the time of the last refresh in the local time zone, as everywhere else
     run = SyncRun.objects.filter(job=SyncRun.Job.FMM_REFRESH).latest("finished_at")
     local = timezone.localtime(run.finished_at)
@@ -369,7 +371,7 @@ def test_the_preview_shows_the_effect_before_saving(admin_client, fm_world):
     lower = {**RuleSetting.objects.get(code="R2").params, "scoring": LOWER_BAND}
     response = admin_client.post(url, _rule_form(params=lower))
     html = response.content.decode()
-    assert response.status_code == 200 and "R2 would flag 0 visits (now 1)" in html
+    assert response.status_code == 200 and "R2 would flag 1 record (now 2)" in html  # 0% stays below 30
     assert "Nothing was saved" in html
     assert RuleSetting.objects.get(code="R2").params["scoring"][0]["min"] == 80
     assert RuleSetVersion.objects.count() == 2
@@ -530,8 +532,45 @@ def test_the_visit_admin_shows_the_rule_results(admin_client, fm_world):
     refresh.run(triggered_by="test")
     visit = Visit.objects.get(key="1723")
     html = admin_client.get(reverse("admin:fmm_visit_change", args=[visit.pk])).content.decode()
-    assert "quality rules (pass, fail" in html.lower() and "missing:0,1,2,3" in html
-    assert "R2: Only 33.3% of monitoring questions answered (target: 80%+)" in html
+    assert "quality rules over the visit&#x27;s records" in html.lower() and "missing:0,1,3" in html
+    assert "(PD/SSFA) R2: Only 33.3% of monitoring questions answered (target: 80%+)" in html
+    # each record with its own score, band and urgency
+    assert "each scored on its own" in html and "R2" in html
+
+
+def test_carried_ai_answers_are_listed_and_re_checked_a_batch_at_a_time(
+    admin_client, viewer, client, fm_world
+):
+    import datetime
+
+    from neurodb.fmm.ai import checks
+    from neurodb.fmm.models import AICheckAnswer
+
+    for n in range(3):
+        AICheckAnswer.objects.create(
+            rule="R3",
+            input_hash=f"{n:064d}",
+            prompt_hash="p" * 64,
+            passed=True,
+            carried=n < 2,
+            checked_at=datetime.datetime(2026, 9, n + 1, tzinfo=datetime.UTC),
+            last_used=datetime.date(2026, 10, 1),
+        )
+    assert admin_client.get(reverse("admin:fmm_aicheckanswer_changelist")).status_code == 200
+    url = reverse("admin:fmm_scoresetting_recheck")
+    html = admin_client.get(url).content.decode()
+    assert "2 AI check answers were carried over" in html and "This deletes 2 of them" in html
+    response = admin_client.post(url)
+    assert response.status_code == 302 and not AICheckAnswer.objects.filter(carried=True).exists()
+    assert AICheckAnswer.objects.count() == 1  # an answer checked on its own stays
+    assert "No carried answer is left" in admin_client.get(url).content.decode()
+    detail = admin_client.get(reverse("admin:fmm_scoresetting_change", args=[ScoreSetting.load().pk]))
+    assert "Re-check carried answers" in detail.content.decode()
+    AICheckAnswer.objects.filter(carried=False).update(carried=True)
+    client.force_login(viewer)
+    assert client.post(url).status_code in (302, 403, 404)
+    assert AICheckAnswer.objects.filter(carried=True).count() == 1  # only administrators delete them
+    assert checks.RECHECK_BATCH == 500
 
 
 # ------------------------------------------------------------------------------------------ chat questions

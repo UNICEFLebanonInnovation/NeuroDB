@@ -673,7 +673,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `locations` | `sync_locations` | `0 5 * * *`, daily 05:00: the eTools locations from the Datamart (`--source rest` for the older eTools REST API, which needs `ETOOLS_TOKEN`; its location-types endpoint is gone and is skipped) |
 | `fmm-refresh` | `fmm_refresh` | `25 5 * * *`, daily 05:25, after the locations: rebuilds and scores the Monitoring insights visits, so that overdue action points, the age of a visit and urgency are recomputed even when no data changed (it also runs after every Datamart sync) |
 | `fmm-insights` | `fmm_insights` | `40 5 * * *`, daily 05:40, after the refresh: the AI monitoring briefs of the whole country, each section people land on and the last 90 days (reused at no cost when their data has not changed); with `FMM_AI` off it writes nothing and only applies the briefs' retention |
-| `fmm-ai-checks` | `fmm_ai_checks` | `50 5 * * *`, daily 05:50, after the refresh and the briefs: the AI checks of the quality rules on the visits not checked yet (newest first, within `FMM_RULES_DAILY_TOKEN_CAP`), then the scores are recomputed; with the AI or the AI checks off it checks nothing |
+| `fmm-ai-checks` | `fmm_ai_checks` | `50 5 * * *`, daily 05:50, after the refresh and the briefs: the AI checks of the quality rules on the records not checked yet (this year's first, then those of visits with several records, newest first, within `FMM_RULES_DAILY_TOKEN_CAP`), then the scores are recomputed; with the AI or the AI checks off it checks nothing |
 | `daily-review` | `daily_review` | `0 6 * * *`, daily 06:00, after the night's syncs; it first deletes the Help assistant's questions older than 90 days |
 | `fmm-ap-review` | `fmm_ap_review` | `10 6 * * *`, daily 06:10, after the AI checks: the AI review of the completed eTools action points not reviewed yet or whose texts changed (most recently completed first, within `FMM_AP_REVIEW_DAILY_TOKEN_CAP`); with the AI or the review off it reviews nothing |
 | `activityinfo-data` | `import_activityinfo_data --current-year` | `0 18 1-22 * *`, 18:00 on days 1–22 |
@@ -755,6 +755,7 @@ admin home page, *Quick actions*):
 | Run a job → *Monitoring insights* | `fmm_refresh` | background |
 | Run a job → *Monitoring insights (AI)* | `fmm_insights` | background |
 | Run a job → *Monitoring insights (AI checks)* | `fmm_ai_checks` | background |
+| Score settings → *Re-check carried answers* | (deletes a batch of carried AI check answers; the next `fmm_ai_checks` runs check them) | in the request |
 | Run a job → *Action points (AI review)* (also *Run AI review* on the action points page, with a batch size) | `fmm_ap_review` (`--limit N` from the page) | background |
 | Run a job → *Review documents (pending)* (also the admin action *Analyse in the document review* on Knowledge documents) | `review_documents --pending` (`--document <id>` for one document) | background |
 | Run a job → *Review documents (full)* | `review_documents --full` | background |
@@ -762,6 +763,20 @@ admin home page, *Quick actions*):
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |
+
+**Monitoring insights: refresh first, then the AI checks.** The two buttons do different things and are
+pressed in this order when both are wanted: *Monitoring insights* (`fmm_refresh`) rebuilds the visits and
+their records and scores them; *Monitoring insights (AI checks)* (`fmm_ai_checks`) then checks the
+records whose AI checks are missing or out of date and recomputes the scores. The schedule runs them in
+that order every morning (05:25, then 05:50). Each AI checks run stops when the day's budget is used
+(`FMM_RULES_DAILY_TOKEN_CAP`, 2,000,000 tokens, about 900-1,300 checks); pressing it again the same day
+does nothing more until the next day unless the cap is raised for a few days in the App Service
+configuration (no shell needed). Its run details say what is left: `records_pending` (records with a check
+still to make: they stay provisional, without a score), `checks_pending` (the checks those need: records
+with the same texts share one) and `nights_estimate` (the nights that takes at the pace of the last run
+that made checks; 0 when nothing is left), with `checked`, `shared` (records served by an answer made for
+another record with the same texts in that run), `up_to_date`, `carried` and `legacy_checks_left` (see
+*AI checks of the quality rules*, below).
 
 One database at a time: *Reporting setup* → *Databases*, select them, action *Import structure* or
 *Import data from ActivityInfo* (one background process per database). The daily review and the
@@ -1545,7 +1560,8 @@ visits from the synced records; the page reads only what it built, so it never w
 admin views under admin → *Monitoring insights* are: **Fields found** (which keys the field monitoring
 records hold, and the keys an administrator pins), **Questions found** (which checklist question is
 Q1, Q2, Q3 and PSEA), **Quality rules**, **Score settings**, **Rule versions**, **Field office staff
-lists** (rule R19), **AI checks** (each visit's AI check answers), **Prompt versions** and
+lists** (rule R19), **AI check answers** (kept by what each record sent; the checks made per visit before
+records were are carried over once), **Prompt versions** and
 **Sampling checks** (the AI's prompts and what the model accepted), **AI briefs** (every brief written,
 or why none was), **Chat questions** (every chat question, with what its check found), **Visits** (the
 visits built, with their rule results, for checking the data) and **Visit reviews**; and for the
@@ -1753,7 +1769,7 @@ chat, so the same figure never differs between two places.
 | PSEA flag | A PSEA answer coded in *Answers that flag* (Yes, Constrained or Off track by default) flags the visit; asked and answered otherwise: not flagged; no PSEA question: not known. |
 | Not monitored | eTools' rating "Not Monitored": the visit was **planned but not conducted** (the monitor did not attend, the partner was unavailable, access was denied), a planning status, not a programme outcome. A visit is Not monitored when it is reported and none of its entities is rated; a planned or in-progress visit with blank ratings is "not rated yet". It is always a count apart, never inside a share of ratings and never a share of all visits. |
 | Scored visit | A visit whose status is one of the *scored statuses* (Score settings; report finalization and completed by default). Every other visit is **pending**: no score, no urgency, quality band "Pending" (cancelled ones read "cancelled"). Not monitored visits of a scored status are scored. |
-| Quality score | FMS's: 100 less the deductions of the quality rules that fired, each score category's deductions at most its weight, never below 0, rounded half up to one decimal. A visit whose AI checks are not all done is *provisional* and counts as not scored. |
+| Quality score | FMS's, per record (an entity row of a visit): 100 less the deductions of the quality rules that fired, each score category's deductions at most its weight, never below 0, rounded half up to one decimal. A visit's is the mean of its records' scores. A record whose AI checks are not all done is *provisional* and counts as not scored, and so does its visit. |
 | Average quality | The mean score of the scored visits of the filter (half up, one decimal): the key figure, the Analysis highlight, the AI facts and the chat's `fm_summary` are this one figure. |
 | High urgency | Urgency at or above *urgency red* (70); amber (Medium) from *urgency amber* (40) to 69; Low below. A visit without a score has no urgency and is in no urgency figure. |
 | Governorates covered | Governorates with a visit, out of the gazetteer's active governorates. |
@@ -1802,8 +1818,9 @@ FMS's file):
 | AI check (narrative) | An AI check of the fields it lists (see *AI checks of the quality rules* below): fails when the AI finds the report not coherent, with the AI's explanation in the flag. | `fields`, `ai_prompt_key` |
 | Reference check | Compares a value with reference data: `member_in_mapped_list` (R19, the staff lists), `value_in_mapped_list` (R20), `section_in_cp_output` (R21), `pd_reference_locations` (R23), `value_in_list`, `string_contains`. | `check_type`, `field`, `key_field`, `reference_map`, `reference_list`, `contains` |
 
-`entity_type_filter` (Partner, CP Output, PD/SSFA or PD) limits a rule to the visits with a finding row
-of those types; on other visits it reads "does not apply". A rule switched off keeps no result (the
+`entity_type_filter` (Partner, CP Output, PD/SSFA or PD) limits a rule to the records of those types; on
+other records it reads "does not apply" (R20 runs on programme document records only, R21 on CP output
+records only). A rule switched off keeps no result (the
 visit page lists it under "Switched off"); an AI check reads "AI check switched off" in the rule list
 while the AI checks are off and none is kept.
 
@@ -1839,17 +1856,27 @@ less on a 5-point scale, 1 on a 3-point scale, read from the answer options), th
 (`attachments_count`, when the records have the key) and the action points assigned (a count, never
 who). The action points' texts and due dates are read when a check needs them, never stored.
 
-**Score.** 100 less the deductions of the rules that fired; each **score category**'s deductions count
-at most its weight (*Score settings → Score categories*; Lebanon: completeness 30, evidence 20,
-alignment 20, coherence 15, Q3 quality 10, actionability 5); never below 0; rounded half up to one
-decimal. Bands: High from 80, Medium from 50, else Low. The flags are the rules that fired, R23 included
-at 0 points; 3 flags or more is a high-flag visit. Each visit keeps its deductions per category (the
-visit page: "100 less Completeness 19").
+**Score, per record (Release 2 step 5).** As in FMS, each **record** (an entity row of a visit: one
+partner, programme document or CP output assessed) is scored, flagged and given an urgency on its own:
+its rules read its own narrative, rating, Q1-Q3 answers (its own, its partner's or the visit's), the
+checklist columns worked out over the answers that apply to it, its own programme document, CP output
+and place, and the visit's own fields (offices, sections, action points, repeated on each record). R19
+(the monitors and the visit's field offices) is checked once per visit and counts on every record. A
+record's score is 100 less the deductions of the rules that fired; each **score category**'s
+deductions count at most its weight (*Score settings → Score categories*; Lebanon: completeness 30,
+evidence 20, alignment 20, coherence 15, Q3 quality 10, actionability 5); never below 0; rounded half up
+to one decimal. Bands: High from 80, Medium from 50, else Low. The flags are the rules that fired, R23
+included at 0 points; 3 flags or more is a high-flag record. A **visit**'s quality is the mean of its
+records' scores (half up), with its lowest record's score, its records' flags together, its most urgent
+record's urgency and its records' mean deductions per category (the visit page: "100 less Completeness
+19"); its rule list says a rule failed when one of its records failed it. Urgency's recency still counts
+from the day the visit ended.
 
-**Provisional visits.** While AI checks are on, a visit whose checks are not all done (or out of date)
-is **provisional**: the visit page shows its score so far ("provisional (2 AI checks pending)"), but it
-counts as not scored everywhere (no average, band or urgency) until its checks are done, so it never gets
-full marks for checks not made. The rule analysis counts the pending checks per rule.
+**Provisional records and visits.** While AI checks are on, a record whose checks are not all done (or
+out of date) is **provisional**: it has its score so far, but counts as not scored until its checks are
+done, so it never gets full marks for checks not made; a visit with a provisional record is provisional
+too ("provisional (2 AI checks pending)", counted over its records) and counts as not scored everywhere
+(no average, band or urgency). The rule analysis counts the pending checks per rule.
 
 **Category sums and Rebalance.** *Quality rules* shows the sum of the deductions of each category's
 rules that are on against the category's weight (⚠ when they differ, or when the weights do not add up to
@@ -2030,11 +2057,15 @@ found*):
    narratives stay where eTools put them. Problems (several statuses or places, an unlinked programme
    document, no date, an unknown rating, one reference under several activities) are recorded on the
    visit as counts;
-5. scores the visits with the quality rules as they are when it starts (see *Rules of this page*
-   above): the question roles, HACT Q1, the PSEA flag, the quality rules (with the AI checks' answers
-   kept for each visit), the score, its band and flags, and urgency. Each visit keeps the rules version it was scored with;
-6. writes the keys and the visits together in one transaction: the pages see the old visits until it
-   commits, a visit keeps its id while its key stays, and the visit reviews are never touched.
+5. scores each record, then each visit from its records, with the quality rules as they are when it
+   starts (see *Rules of this page* above): the question roles, HACT Q1, the PSEA flag, the quality
+   rules (with the AI checks' answers kept for each record's inputs), the score, its band and flags, and
+   urgency. Each visit keeps the rules version it was scored with;
+6. writes the keys, the visits, their records and the rule results together in one transaction: the
+   pages see the old visits until it commits, a visit keeps its id while its key stays, and the visit
+   reviews are never touched. The visits and rule results go through a temporary table where the
+   database user may create one (PostgreSQL allows it by default; otherwise the same rows are written
+   the slower way), and a scores-only pass rewrites only the rule results that changed.
 
 **The eTools FMM export's own names** (FMS user manual, §13.2) come first in `CANDIDATES` since
 Release 2: `hact_q1_answer`, `hact_q2_answer` and `hact_q3_answer` (the Q1, Q2 and Q3 answers written
@@ -2230,48 +2261,72 @@ The caps and quotas every call checks are under *Costs, limits and quotas*, belo
 
 ### AI checks of the quality rules
 
-FMS's narrative rules are **AI checks**, made visit by visit (`fmm.ai.checks`): R3 (Q2's evidence), R5
+FMS's narrative rules are **AI checks**, made record by record (`fmm.ai.checks`): R3 (Q2's evidence), R5
 (Q1 against Q2), R6 (the narrative against Q1, Q2, the rating and the visit's objective), R7 (Q3 and the
 action points), R8 (problems without action points) and R32 (key challenges without action points).
 
-- **One check** is one OpenAI call per visit and rule. Its instructions are the rule's prompt (the
-  published prompt version's *AI checks' instructions*, under the rule's `ai_prompt_key`, seeded from
-  FMS Lebanon's prompt file; editable and versioned with the prompt version) followed by NeuroDB's fixed
-  rules (shown nowhere else, the same for every check). Its input is the rule's fields for the visit:
-  each finding row (entity, type, rating, narrative, Q1, Q2, Q3 answers as the rule lists them) and the
-  visit's own fields (visit goals, objective, action points with their due dates), each text cut to
-  *AI text characters* (1,500) and cleaned of names, e-mail addresses, phone numbers and links. **Never
-  sent**: the team, the visit lead, any monitor's e-mail address, the person responsible, and who an
-  action point is assigned to (only "1 of 2 action points assigned"). Everything is checked once more
-  before the call; a check that would carry a person is not sent.
+- **One check** is one OpenAI call per record (an entity row of a visit, as FMS checks each record) and
+  rule. Its instructions are the rule's prompt (the published prompt version's *AI checks'
+  instructions*, under the rule's `ai_prompt_key`, seeded from FMS Lebanon's prompt file; editable and
+  versioned with the prompt version) followed by NeuroDB's fixed rules (shown nowhere else, the same for
+  every check). Its input is the rule's fields for the record: its entity type, rating, narrative and Q1,
+  Q2, Q3 answers as the rule lists them, and the visit's own fields (the record's visit goals and
+  objective, else the visit's; the visit's action points with their due dates, repeated on each record),
+  each text cut to *AI text characters* (1,500) and cleaned of names, e-mail addresses, phone numbers and
+  links. **Never sent**: the visit's label and the entity's name (the rules judge the texts, and records
+  with the same texts then ask the same question), the team, the visit lead, any monitor's e-mail address,
+  the person responsible, and who an action point is assigned to (only "1 of 2 action points assigned").
+  Everything is checked once more before the call; a check that would carry a person is not sent.
 - The answer has a strict format: passed or not, and one or two sentences why. The explanation is
-  cleaned, and left out when it names a figure the report does not hold or a word NeuroDB never shows
+  cleaned, and left out when it names a figure the record does not hold or a word NeuroDB never shows
   (the verdict stays). A check that fails adds its flag with the explanation ("R3: Q2 lacks specific or
-  disaggregated activity evidence — …") and takes the rule's deduction off.
+  disaggregated activity evidence — …") and takes the rule's deduction off the record.
 - The model is *AI model* (Score settings; empty: `AI_ASSISTANT_MODEL`, the same as the assistant's),
   at low reasoning effort, with *AI max output tokens* (2,000, the reasoning included) and temperature
   0.30 (sent only when the model accepts it, as for the briefs). Nothing is stored at OpenAI.
-- **Cache.** Each answer is kept per visit and rule (admin → *AI checks*) and used while the visit's
-  inputs and the rule's prompt are those it was checked with; a changed narrative, answer or action
-  point, or a new prompt, makes that check due again. Deleting a row makes it be checked again.
-- **Provisional visits.** A visit whose checks are not all done is provisional (see *Rules of this page*):
-  no score in any figure until they are.
+- **Answers kept** (admin → *AI check answers*): each answer is kept by what was asked (the rule, its
+  prompt and the record's inputs, hashed), so records with the same texts, on one visit or several,
+  share one answer, and a record is checked again only when its narrative, answers or action points, or
+  the rule's prompt, change. An answer no scoring has read for 120 days is deleted by the refresh (not
+  while the AI checks are switched off). Deleting one makes the records it served be checked again.
+- **Provisional records.** A record whose checks are not all done is provisional (see *Rules of this
+  page*): no score in any figure until they are, and neither has its visit.
 - **The job** (`fmm_ai_checks`, daily at 05:50 after the refresh and the briefs; *Import and sync runs →
-  Run a job → Run the AI checks of the quality rules now*): the scored visits, **newest first**, each
-  rule due, while the day's budget allows; then a scores-only refresh. One run at a time. The run says
-  how many checks were made, passed, flagged, already up to date, the tokens, and why it stopped.
-- **Back-fill.** The first runs check the newest visits; what the day's budget leaves waits for the next
-  night, so the older visits are checked over several nights (with the defaults, about 700-1,000 checks
-  a night).
-- **Costs.** One check uses about 1,000-3,500 tokens (input about 600-1,500, output with reasoning at
-  most 2,000). Six checks per visit: about 10,000-20,000 tokens per visit, once (again only when it
-  changes). The checks have their own cap, `FMM_RULES_DAILY_TOKEN_CAP` (2,000,000 tokens a day, counted
-  under *Monitoring insights (AI checks)* in *AI use*), and stop at 80% of `AI_DAILY_TOKEN_SOFT_CAP` across
-  every AI feature, so people's questions keep their share. When OpenAI says the credit ran out, the AI
-  of Monitoring insights pauses for 6 hours (briefs and chat too); 3 failed checks in a row stop the run.
+  Run a job → Run the AI checks of the quality rules now*): the records of the scored visits, **this
+  calendar year's first, those of visits with several records first, newest first**, each rule due, one
+  call for every record whose input is the same, while the day's budget allows; then a scores-only
+  refresh. One run at a time. The run says how many checks were made, passed, flagged, shared, already up
+  to date, the tokens, why it stopped, and what is left (`records_pending`, `checks_pending`,
+  `nights_estimate`: see *Run a job*).
+- **Carry-over of the checks made per visit (once, automatic).** Before Release 2 step 5 the checks were
+  made per visit. While any is left, each run first carries them over: for a visit with a single record,
+  a verdict still up to date against what the visit sent then becomes that record's answer (*carried* in
+  *AI check answers*); a visit with several records inherits nothing (a verdict on merged texts cannot be
+  given to one record), so its records are provisional until they are checked, and they come first in the
+  job's order. Each visit check dealt with is deleted; `carried` and `legacy_checks_left` in the run
+  details say how many (the checks of a rule switched off are kept for when it is back on). Once the
+  checks are up to date, *Score settings → Re-check carried answers* deletes up to 500 carried answers,
+  the oldest first, so the next runs check those records properly while the budget allows; press it
+  again for the next batch.
+- **Back-fill after the change to records.** The deployment asks for a full refresh and records a new
+  rules version ("Scores per record"), so every visit reads "recomputing with rules vN" until it is
+  rescored: the morning refresh (05:25) or *Run a job → Monitoring insights* does it, scoring each record
+  with its AI checks pending; the AI checks (05:50, or *Run a job → Monitoring insights (AI checks)*)
+  then carry over, check this year's records of visits with several records first, and rescore. With the
+  defaults this year's records take about one night and the whole history two to three; raise
+  `FMM_RULES_DAILY_TOKEN_CAP` for a few days in the App Service configuration to go faster, and watch
+  `records_pending` go down in the run details.
+- **Costs.** One check uses about 1,500-2,300 tokens (input about 1,100-1,900, output with reasoning at
+  most 2,000; a record sends less than a visit of several records did). Six checks per record, once
+  (again only when it changes). The checks have their own cap, `FMM_RULES_DAILY_TOKEN_CAP` (2,000,000
+  tokens a day, about 900-1,300 checks, counted under *Monitoring insights (AI checks)* in *AI use*), and
+  stop at 80% of `AI_DAILY_TOKEN_SOFT_CAP` across every AI feature, so people's questions keep their
+  share. When OpenAI says the credit ran out, the AI of Monitoring insights pauses for 6 hours (briefs
+  and chat too); 3 failed checks in a row stop the run.
 - **Switching off.** *Score settings → AI checks* unticked: the AI rules count as switched off, no check
-  is made and no visit is provisional (the answers kept are used again when it is back on). `FMM_AI=false`
-  does the same for every AI of Monitoring insights. To stop one check only, switch its rule off.
+  is made and no record is provisional (the answers kept are used again when it is back on).
+  `FMM_AI=false` does the same for every AI of Monitoring insights. To stop one check only, switch its
+  rule off.
 
 ### Chat with Data
 
@@ -2389,12 +2444,13 @@ the eTools action points as before.
   optional visit, priority High / Medium / Low, due date, a responsible role or section, or a person in
   NeuroDB), also from a visit's page; the person who added it, an Administrator or a Section editor (of
   the visit's sections) marks it done, dropped or open again. **NeuroDB makes one at each refresh** for a
-  scored visit whose quality is Low (below the Medium band, 50) with at least one of the AI's action point
-  flags (R7, R8 or R32), unless one is open on the visit, or NeuroDB already made one since the visit
-  last changed in eTools: below 30 it is *High* and due in 5 working days, else *Medium* and due in 10
-  (Monday to Friday); its title names the flag that took the most points ("Follow up on R8 — FM/2026/23"),
-  its description lists the visit's flags (never a narrative or a person) and it is assigned to the role
-  "PME focal point". The list has its own search (title, description, assignee), status, priority and
+  visit with a scored record whose quality is Low (below the Medium band, 50) and that has at least one of
+  the AI's action point flags (R7, R8 or R32), one per visit, unless one is open on the visit, or NeuroDB
+  already made one since the visit last changed in eTools. It points at the lowest such record (its
+  eTools record id is kept): below 30 it is *High* and due in 5 working days, else *Medium* and due in 10
+  (Monday to Friday); its title names the flag that took the most points off that record and the record
+  ("Follow up on R8 — FM/2026/23 · <entity>"), its description lists every such record of the visit with
+  its score and flags (never a narrative or a person) and it is assigned to the role "PME focal point". The list has its own search (title, description, assignee), status, priority and
   programme filters (Health, Nutrition, WASH, Education, Child Protection, Cash, MHPSS, Social Policy,
   SBC, read from keywords in the title and description, offered when some action point matches).
 - **Follow-up**: a visit counts as followed up by an eTools action point linked to it, or by a NeuroDB
@@ -2662,8 +2718,13 @@ machine it measured 28-33 s and 92-94 MB for the full refresh, 6-9 s for scores-
 per tab (the Quality and Analysis tabs are the slowest); with Release 2 (the briefing, the rule score
 trends, which load when their panel scrolls into view) 36-39 s, 95 MB and 8 s, and 60-280 ms per tab
 (Quality 254 ms, Analysis 229 ms; Release 1 measured 282 and 234 ms the same day); the entity table, which loads when it
-scrolls into view, about 210 ms more, and a place list's *Show all* about 40 ms. The *Preview effect* of a rule change
-rescores the year's visits twice in memory inside the admin request: about 9-10 s at that size. If the
+scrolls into view, about 210 ms more, and a place list's *Show all* about 40 ms. With scores per
+record (Release 2 step 5: 15,000 records, some 180,000 record rule results) the same test measured
+41-47 s and 126 MB for the full refresh and 12-14 s for scores-only, against 43-47 s, 129 MB and 10 s
+just before on the same machine, with the tabs as before; the visits and their records go through
+COPY, and a scores-only pass rewrites only the rule results that changed. The *Preview effect* of a
+rule change rescores the year's visits twice in memory inside the admin request: about 9-10 s at that
+size, 16-18 s since each record is scored. If the
 refresh's memory ever grows past what the sync's process can afford, set
 `FMM_REFRESH_AFTER_SYNC=background`.
 
@@ -2744,8 +2805,8 @@ on, and before its figures are trusted:
 9. **Fill the field office staff lists** (admin → *Field office staff lists*: Beirut, Zahle, Tripoli and
    Beirut/Mount Lebanon are there, empty) when R19 should run; it skips until a list has addresses.
 10. **Switch the AI checks on** with the AI (Score settings → *AI checks* is on by default): the first
-   nights check the newest visits within `FMM_RULES_DAILY_TOKEN_CAP`, and the older ones over the next
-   nights; until a visit's checks are done it is provisional. *Run the AI checks of the quality rules
+   nights check this year's records within `FMM_RULES_DAILY_TOKEN_CAP`, and the older ones over the next
+   nights; until a record's checks are done it is provisional, and so is its visit. *Run the AI checks of the quality rules
    now* (Import and sync runs → Run a job) starts a run at once.
 11. **Action points (Release 2, stage C).** The migration publishes a new prompt version with the
    review's and the summary's instructions (the one before it is retired). With the AI on, the 06:10
@@ -2784,7 +2845,7 @@ on, and before its figures are trusted:
 | `FMM_INSIGHTS_TIMEOUT_SECONDS` | `90` | Seconds per brief call. |
 | `FMM_PAYLOAD_RETENTION_DAYS` | `30` | After this many days a brief's sent payload is blanked. |
 | `FMM_RETENTION_DAYS` | `180` | Briefs and chat questions are kept this many days. |
-| `FMM_RULES_DAILY_TOKEN_CAP` | `2000000` | The AI checks' own tokens a day (about 700-1,000 checks); what is left waits for the next night. They also stop at 80% of `AI_DAILY_TOKEN_SOFT_CAP` across every feature. |
+| `FMM_RULES_DAILY_TOKEN_CAP` | `2000000` | The AI checks' own tokens a day (about 900-1,300 checks of one record each); what is left waits for the next night (raise it for a few days to back-fill faster). They also stop at 80% of `AI_DAILY_TOKEN_SOFT_CAP` across every feature. |
 | `FMM_RULES_TIMEOUT_SECONDS` | `60` | Seconds per AI check. |
 | `FMM_AP_REVIEW_DAILY_TOKEN_CAP` | `300000` | The action points' AI review and summaries: their own tokens a day (about 150-250 reviews); the nightly review also stops at 80% of `AI_DAILY_TOKEN_SOFT_CAP`. |
 | `FMM_AP_REVIEW_TIMEOUT_SECONDS` | `60` | Seconds per action point review or summary call. |

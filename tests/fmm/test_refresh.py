@@ -19,6 +19,7 @@ from neurodb.fmm.models import (
     FieldMapping,
     KeyProbe,
     QuestionAnswer,
+    RecordRuleResult,
     RefreshRequest,
     Visit,
     VisitActionPoint,
@@ -221,6 +222,22 @@ def _snapshot() -> dict:
                 "hact_q1_from",
                 "narrative_hash",
                 "narrative_placeholder",
+                "location_id",
+                "fmq_answered_pct",
+                "questions_asked",
+                *score.RECORD_SCORE_FIELDS,
+            )
+        ),
+        "record_rules": sorted(
+            RecordRuleResult.objects.values_list(
+                "entity__datamart_id",
+                "rule",
+                "status",
+                "points",
+                "max_points",
+                "detail_key",
+                "detail",
+                "measure",
             )
         ),
         "answers": sorted(
@@ -265,13 +282,16 @@ def test_a_full_refresh_builds_the_visits_with_meaningful_counts(fm_world):
     assert details["scored"] == Visit.objects.exclude(quality_score=None).count() == 6
     assert questions_details["roles"] == {"q1": 6, "q2": 1, "q3": 2, "psea": 2}
     assert questions_details["q1_applies_to"] == {"entity": 4, "partner": 1, "visit": 1}
-    # R6 is an AI check, switched off here with none made yet; 1724 and 1725 are not scored
-    assert details["rule_results"]["R6"] == {"off": 6, "nap": 2}
-    assert details["rule_results"]["R2"] == {"pass": 5, "fail": 1, "nap": 2}
-    # a row per visit for each of the 12 rules switched on, none for the 20 switched off
+    # counted per record: R6 is an AI check, switched off here with none made yet, on the 10 records of
+    # the scored visits; 1724 and 1725 (a record each) are not scored; R2 flags 1723's two records
+    assert details["rule_results"]["R6"] == {"off": 10, "nap": 2}
+    assert details["rule_results"]["R2"] == {"pass": 8, "fail": 2, "nap": 2}
+    assert (details["records"], details["records_scored"]) == (12, 10)
+    # a row per record, and one per visit, for each of the 12 rules switched on, none for the 20 off
     assert (
         VisitRuleResult.objects.count() == 12 * Visit.objects.count() and "R4" not in details["rule_results"]
     )
+    assert RecordRuleResult.objects.count() == 12 * VisitEntity.objects.count()
     assert set(Visit.objects.values_list("rules_version", flat=True)) == {2}
     assert set(QuestionAnswer.objects.values_list("role", flat=True)) == {"q1", "q2", "q3", "psea", ""}
 
@@ -399,7 +419,7 @@ def test_scores_only_reads_the_narratives_but_never_a_finding_record(fm_world, m
 
     _full()
     # an AI check's answer kept: the pass reads the narratives to know whether it is still up to date
-    assert checks.store_answers({("1722", "R3"): (True, "")}, "test") == 1
+    assert checks.store_answers({(101, "R3"): (True, "")}, "test") == 1
 
     def refused(self, value=None):
         raise AssertionError("a scores-only pass read MonitoringFinding.data")

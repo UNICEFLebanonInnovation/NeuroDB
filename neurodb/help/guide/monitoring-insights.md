@@ -246,10 +246,12 @@ scored.
 
 ### Provisional visits
 
-While the AI checks are on, a visit whose AI checks are not all done is **provisional**: the visit page
-shows its score so far ("provisional (2 AI checks pending)"), but it counts as not scored everywhere
-(no average, band or urgency) until its checks are done, so it never gets full marks for checks not
-made.
+As in FMS, each **record** of a visit (one entity assessed: a partner, a programme document or a CP
+output) is scored, flagged and given an urgency on its own, and a visit's score is the mean of its
+records' scores. While the AI checks are on, a record whose AI checks are not all done is
+**provisional**, and so is its visit: the visit page shows its score so far ("provisional (2 AI checks
+pending)"), but it counts as not scored everywhere (no average, band or urgency) until its checks are
+done, so it never gets full marks for checks not made.
 
 ## Quality rules
 
@@ -296,18 +298,19 @@ R19 compares are read and dropped at once: never kept, never shown, never sent t
 
 ## AI checks of the rules
 
-The AI rules (R3, R5, R6, R7, R8 and R32) are checked visit by visit, every morning at 05:50, newest
-visits first, within the day's AI budget; older visits are checked over the next nights. One check is
-one ChatGPT call per visit and rule: the rule's instructions and the visit's fields it lists (each
-finding row's entity, type, rating, narrative and Q1–Q3 answers; the visit goals, objective and action
-points with their due dates), each text cut to 1,500 characters and cleaned of names, e-mail
-addresses, phone numbers and links. The team, the visit lead and who an action point is assigned to
-are never sent.
+The AI rules (R3, R5, R6, R7, R8 and R32) are checked record by record (each entity of a visit, as FMS
+does), every morning at 05:50, this year's first and those of visits with several records first,
+within the day's AI budget; the rest are checked over the next nights. One check is one ChatGPT call
+per record and rule: the rule's instructions and the fields it lists (the record's entity type,
+rating, narrative and Q1–Q3 answers; the visit goals, objective and action points with their due
+dates), each text cut to 1,500 characters and cleaned of names, e-mail addresses, phone numbers and
+links. The visit's label, the entity's name, the team, the visit lead and who an action point is
+assigned to are never sent.
 
 The answer is passed or not, with one or two sentences why. A check that fails adds the rule's flag,
 with the explanation, and takes its deduction off. Each answer is kept and used again until the
-visit's texts or the rule's instructions change. When the AI checks are switched off, the AI rules
-count as switched off and no visit is provisional.
+record's texts or the rule's instructions change; records with the same texts share one answer. When
+the AI checks are switched off, the AI rules count as switched off and no visit is provisional.
 
 ## Urgency
 
