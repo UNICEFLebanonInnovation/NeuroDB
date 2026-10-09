@@ -28,14 +28,15 @@ missing or out of date is provisional (``score.score_outcome``). The explanation
 checked against what was sent: one that names a figure the record does not hold, or a word NeuroDB never
 writes, is left out (the verdict stays).
 
-**Carry-over** (:func:`carry_over`, once, by the job, with no command to run): the checks Release 2 made
-per visit (``VisitAICheck``) are copied for the visits with a single record, whose record was then the
-whole visit: a verdict still up to date against what the visit sent then (:func:`legacy_payload`) becomes
-that record's answer (``carried``). A visit with several records inherits nothing (a verdict on merged
-texts cannot be given to one row): its records stay provisional until they are checked, first in the
-job's order. Each visit check dealt with is deleted; ``legacy_checks_left`` in the run details counts
-those left (of rules not on now). Re-check carried answers (Score settings) deletes carried answers a
-batch at a time, so they are checked properly when the budget allows.
+**Carry-over** (:func:`carry_over`, once, by the refresh before it scores and by the job, with no command
+to run, so it needs neither the AI nor its budget): the checks Release 2 made per visit (``VisitAICheck``)
+are copied for the visits with a single record, whose record was then the whole visit: a verdict still up
+to date against what the visit sent then (:func:`legacy_payload`) becomes that record's answer
+(``carried``). A visit with several records inherits nothing (a verdict on merged texts cannot be given
+to one row): its records stay provisional until they are checked, first in the job's order. Each visit
+check dealt with is deleted; ``legacy_checks_left`` in the run details counts those left (of rules not
+on now). Re-check carried answers (Score settings) deletes carried answers a batch at a time, so they
+are checked properly when the budget allows.
 
 **The job** (:func:`run`, one at a time under its own lock, one ``SyncRun`` "Monitoring insights (AI
 checks)"): the carry-over, then the records of the scored visits, this calendar year's first, those of
@@ -66,7 +67,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import connection
-from django.db.models import Case, F, IntegerField, Value, When
+from django.db.models import Case, F, IntegerField, Q, Value, When
 from django.utils import timezone
 
 from neurodb.assistant import usage
@@ -638,7 +639,8 @@ def carry_over(book) -> dict[str, int]:
     notes): for a visit with a single record, a verdict still up to date against what the visit sent
     then (:func:`legacy_payload`, the prompt hash of then) is kept as that record's answer (``carried``);
     the checks of a visit with several records, of a visit gone, or out of date are dropped. Each check
-    dealt with is deleted; the checks of a rule not on now are left for when it is. Returns
+    dealt with is deleted; the checks of a rule not on now are left for when it is (and not read again
+    until then: the refresh calls this before every scoring while any is left). Returns
     ``{"carried", "dropped", "left"}``."""
     out = {"carried": 0, "dropped": 0, "left": 0}
     if not VisitAICheck.objects.exists():
@@ -649,20 +651,28 @@ def carry_over(book) -> dict[str, int]:
     old_hashes = {code: legacy_prompt_hash(rule, prompts_[code]) for code, rule in ai_rules.items()}
     limit = book.setting.ai_text_chars
     today = timezone.localdate()
-    keys = sorted(set(VisitAICheck.objects.values_list("visit_key", flat=True)))
+    # what can be dealt with now: a check of a rule on, or of a visit gone or with several records (the
+    # checks of a rule off on a single-record visit wait, unread)
+    single_keys = Visit.objects.filter(entities=1).values("key")
+    due = VisitAICheck.objects.filter(Q(rule__in=list(ai_rules)) | ~Q(visit_key__in=single_keys))
+    keys = sorted(set(due.values_list("visit_key", flat=True)))
     for start in range(0, len(keys), BATCH):
         batch = keys[start : start + BATCH]
-        visits = {v.key: v for v in Visit.objects.filter(key__in=batch)}
-        single = [v for v in visits.values() if v.entities == 1]
-        inputs = collect(_items(single)) if single else {}
+        found = list(VisitAICheck.objects.filter(visit_key__in=batch).order_by("pk"))
+        single = {v.key: v for v in Visit.objects.filter(key__in=batch, entities=1).order_by("key")}
+        # the texts are read only for the single-record visits with a check of a rule on
+        asked = [
+            single[key] for key in sorted({r.visit_key for r in found if r.rule in ai_rules} & set(single))
+        ]
+        inputs = collect(_items(asked)) if asked else {}
         done: list[int] = []
         carried: list[AICheckAnswer] = []
-        for row in VisitAICheck.objects.filter(visit_key__in=batch).order_by("pk"):
+        for row in found:
+            rule = ai_rules.get(row.rule)
+            if rule is None and row.visit_key in single:
+                continue  # a rule not on now: kept for when it is
             visit_inputs = inputs.get(row.visit_key)
             alone = visit_inputs is not None and len(visit_inputs.rows) == 1
-            rule = ai_rules.get(row.rule)
-            if alone and rule is None:
-                continue  # a rule not on now: kept for when it is
             if (
                 not alone
                 or row.prompt_hash != old_hashes[row.rule]

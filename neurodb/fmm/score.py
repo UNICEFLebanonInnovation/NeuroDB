@@ -27,8 +27,8 @@ output's sections, its place, else the visit's) and the answers of the AI checks
 used only while the record's inputs and the rule's prompt are those it was checked with:
 ``fmm.ai.checks``). A rule that reads only what belongs to the visit (R19: the monitors' e-mail
 addresses and the visit's field offices) is evaluated once per visit and its outcome copied to every
-record. The monitors' e-mail addresses R19 compares are read from the records in code and dropped at
-once.
+record (its entity type filter, when it has one, still applies record by record). The monitors' e-mail
+addresses R19 compares are read from the records in code and dropped at once.
 
 **Score** (:func:`score_outcome`), FMS's, per record: 100 less the deductions of the rules that fired,
 each score category's deductions at most its weight (Score settings: categories), never below 0, rounded
@@ -68,7 +68,7 @@ import functools
 import logging
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, NamedTuple
@@ -1458,8 +1458,9 @@ def _score_one(
             visit, facts_answers, in_dataset, source, book, ctx, refs, people, today, links, shared.shared
         )
     row_rules, visit_rules = book.split_rules()
-    kinds = frozenset(e.kind for e in entities)
-    copied: list[Outcome] | None = None
+    # the visit's rules, evaluated once per visit and kind of record: the same outcome on every record,
+    # but a rule limited to some entity types (its entity type filter) still skips the other records
+    copied: dict[str, list[Outcome]] = {}
     scored: list[tuple[VisitEntity, list[Outcome]]] = []
     for index, entity in enumerate(entities):
         references = refs.facts(visit, entity) if book.needs_places() else {}
@@ -1479,9 +1480,9 @@ def _score_one(
         )
         outcomes = rules.evaluate(facts, row_rules, ctx)
         if visit_rules:
-            if copied is None:  # once per visit, on what every record shares
-                copied = rules.evaluate(replace(facts, kinds=kinds), visit_rules, ctx)
-            outcomes = sorted(outcomes + copied, key=lambda o: rules.code_order(o.rule))
+            if entity.kind not in copied:  # on what every record of the visit shares
+                copied[entity.kind] = rules.evaluate(facts, visit_rules, ctx)
+            outcomes = sorted(outcomes + copied[entity.kind], key=lambda o: rules.code_order(o.rule))
         outcome = score_outcome(outcomes, book.setting, is_scorable, visit.status_group)
         _set_record(entity, outcome, urgency(visit, outcome, book.setting, today))
         scored.append((entity, outcomes))

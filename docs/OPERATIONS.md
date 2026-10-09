@@ -2299,20 +2299,24 @@ action points), R8 (problems without action points) and R32 (key challenges with
   to date, the tokens, why it stopped, and what is left (`records_pending`, `checks_pending`,
   `nights_estimate`: see *Run a job*).
 - **Carry-over of the checks made per visit (once, automatic).** Before Release 2 step 5 the checks were
-  made per visit. While any is left, each run first carries them over: for a visit with a single record,
-  a verdict still up to date against what the visit sent then becomes that record's answer (*carried* in
-  *AI check answers*); a visit with several records inherits nothing (a verdict on merged texts cannot be
-  given to one record), so its records are provisional until they are checked, and they come first in the
-  job's order. Each visit check dealt with is deleted; `carried` and `legacy_checks_left` in the run
-  details say how many (the checks of a rule switched off are kept for when it is back on). Once the
+  made per visit. While any is left, each refresh (before it scores) and each AI checks run first carry
+  them over, without any AI call, so it happens even while the AI is switched off: for a visit with a
+  single record, a verdict still up to date against what the visit sent then becomes that record's answer
+  (*carried* in *AI check answers*); a visit with several records inherits nothing (a verdict on merged
+  texts cannot be given to one record), so its records are provisional until they are checked, and they
+  come first in the job's order. Each visit check dealt with is deleted; `carried` and
+  `legacy_checks_left` in the AI checks run details, and `ai_checks_carried` in the refresh's, say how
+  many (the checks of a rule switched off are kept for when it is back on). Once the
   checks are up to date, *Score settings → Re-check carried answers* deletes up to 500 carried answers,
   the oldest first, so the next runs check those records properly while the budget allows; press it
   again for the next batch.
 - **Back-fill after the change to records.** The deployment asks for a full refresh and records a new
   rules version ("Scores per record"), so every visit reads "recomputing with rules vN" until it is
-  rescored: the morning refresh (05:25) or *Run a job → Monitoring insights* does it, scoring each record
-  with its AI checks pending; the AI checks (05:50, or *Run a job → Monitoring insights (AI checks)*)
-  then carry over, check this year's records of visits with several records first, and rescore. With the
+  rescored: the morning refresh (05:25) or *Run a job → Monitoring insights* does it, carrying the
+  checks of single-record visits over first, so those visits keep their scores, and scoring the records
+  of visits with several records with their AI checks pending; the AI checks (05:50, or *Run a job →
+  Monitoring insights (AI checks)*) then check this year's records of visits with several records first,
+  and rescore. With the
   defaults this year's records take about one night and the whole history two to three; raise
   `FMM_RULES_DAILY_TOKEN_CAP` for a few days in the App Service configuration to go faster, and watch
   `records_pending` go down in the run details.

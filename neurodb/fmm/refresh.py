@@ -16,7 +16,8 @@ Each pass is one ``SyncRun`` (job "Monitoring insights refresh") under its own d
    (an entity row: FMS's model scores each one) with the quality rules and the AI checks' answers kept
    for its inputs, its score, band, flags and urgency, and each visit from its records (the mean, the
    lowest, the most urgent), with the rules as they are when the pass starts (the rules version is
-   read first and stamped on every visit).
+   read first and stamped on every visit). The AI checks made per visit before records are carried
+   over to the records first (``ai.checks.carry_over``, while any is left).
 7. **Swaps** the new visits in, in one transaction: readers see the old ones until it commits, a
    visit keeps its pk while its key stays, its records, answers, action point links and rule results
    (the records' and the visits') are replaced, and the reviews (``VisitReview``) are never touched.
@@ -457,12 +458,39 @@ def _score(
     """Step 6: the question roles, HACT Q1, the PSEA flag, the quality rules, the score and urgency of
     each record and visit (``score.score_visits``), with the rules and settings as they are now
     (``version`` was read before them). The visits and their records are updated in place; the rule
-    results and the roles are returned to be written."""
+    results and the roles are returned to be written. The AI checks made per visit before records are
+    carried over first (:func:`_carry_over`)."""
     source = source if source is not None else score.StoredSource(visits)
-    scored = score.score_visits(source, score.Rulebook.load(), today, on_error=on_error)
+    book = score.Rulebook.load()
+    carried = _carry_over(book, on_error)
+    scored = score.score_visits(source, book, today, on_error=on_error)
+    if carried:
+        scored.details["ai_checks_carried"] = carried
     if isinstance(source, score.BuiltSource):
         source.set_roles(scored.roles)
     return scored
+
+
+def _carry_over(book: score.Rulebook, on_error=None) -> dict[str, int]:
+    """The AI checks made per visit before records (``VisitAICheck``) carried over to the records'
+    answers before a scoring (``ai.checks.carry_over``; nothing to do once none is left). The refresh
+    does it too, not only the AI checks job: the first refresh after the change to records then scores
+    the single-record visits with the verdicts they had, and those verdicts keep counting while the AI
+    is switched off or paused (the job does not run then), as the answers kept always do. A failure is
+    noted and never stops the refresh (the next pass or the job tries again)."""
+    from .models import VisitAICheck
+
+    if not VisitAICheck.objects.exists():
+        return {}
+    from .ai import checks
+
+    try:
+        return checks.carry_over(book)
+    except Exception as exc:
+        if on_error is not None:
+            on_error("AI checks carry-over", exc)
+        logger.warning("fmm_refresh: the AI checks made per visit were not carried over: %s", exc)
+        return {}
 
 
 def _entity_scores(entity: VisitEntity) -> tuple:

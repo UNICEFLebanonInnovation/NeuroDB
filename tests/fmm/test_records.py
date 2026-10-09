@@ -161,6 +161,25 @@ def test_each_record_is_scored_on_its_own_and_the_visit_from_its_records(fm_worl
     assert len(r19) == 1 and next(iter(r19))[0] == "fail"
 
 
+def test_a_visit_rule_limited_to_an_entity_type_skips_the_other_records(fm_world):
+    """R19 is evaluated once for the visit; with an entity type filter it still applies record by
+    record, as every rule's filter does: only the programme document's record loses its points."""
+    from neurodb.fmm.models import RuleSetting
+
+    rule = RuleSetting.objects.get(code="R19")
+    rule.params = {**rule.params, "entity_type_filter": "PD"}
+    rule.save()
+    _bad_cp_output_and_a_staff_list()
+    assert _results(101)["R19"].status == "fail"
+    for n in (102, 103):
+        assert (_results(n)["R19"].status, _results(n)["R19"].detail) == (
+            "nap",
+            "Applies to PD/SSFA records only.",
+        )
+    records = _records("1722")
+    assert "R19" in records[101].flags and "R19" not in records[103].flags
+
+
 def test_the_visit_rule_results_are_derived_from_the_records(fm_world):
     _bad_cp_output_and_a_staff_list()
     visit = {r.rule: r for r in VisitRuleResult.objects.filter(visit__key="1722")}

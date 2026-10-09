@@ -211,6 +211,19 @@ def test_no_person_ever_reaches_a_check(built, ai_on, fake):
     assert "team_members" not in blob and "visit_lead" not in blob
 
 
+def test_a_full_refresh_reads_the_answers_the_job_made(built, ai_on, fake):
+    """The records a full refresh builds send what the job's records sent: no answer is out of date
+    and nothing is checked again (each record's inputs hash the same from the build as from the store)."""
+    found = fake()
+    _run()
+    scores = dict(VisitEntity.objects.values_list("datamart_id", "quality_score"))
+    run = refresh.run(triggered_by="test", today=TODAY)
+    assert run.status == "succeeded", run.error
+    assert not VisitEntity.objects.filter(ai_pending__gt=0).exists()
+    assert dict(VisitEntity.objects.values_list("datamart_id", "quality_score")) == scores
+    assert _run().details["up_to_date"] == 60 and len(found.requests) == CALLS
+
+
 def test_a_check_is_made_again_only_when_its_inputs_or_its_prompt_change(built, ai_on, fake):
     found = fake()
     _run()
@@ -344,10 +357,11 @@ def test_the_command_and_its_button_and_schedule(built, ai_on, fake):
 
 
 def test_the_checks_made_per_visit_of_a_visit_gone_from_etools_are_deleted(built, ai_on, fake):
-    for key in ("gone", "1722"):
+    # a visit gone and one with several records: dropped; a single record's rule switched off (R9): kept
+    for key, rule in (("gone", "R3"), ("1722", "R3"), ("1727", "R9")):
         VisitAICheck.objects.create(
             visit_key=key,
-            rule="R3",
+            rule=rule,
             input_hash="x",
             prompt_hash="y",
             passed=True,
@@ -355,7 +369,8 @@ def test_the_checks_made_per_visit_of_a_visit_gone_from_etools_are_deleted(built
         )
     run = refresh.run(triggered_by="test", today=TODAY)
     assert run.status == "succeeded"
-    assert list(VisitAICheck.objects.values_list("visit_key", flat=True)) == ["1722"]
+    assert run.details["ai_checks_carried"] == {"carried": 0, "dropped": 2, "left": 1}
+    assert list(VisitAICheck.objects.values_list("visit_key", flat=True)) == ["1727"]
 
 
 def test_the_visit_page_shows_a_provisional_score_and_its_pending_checks(built, ai_on, fake, client_viewer):
@@ -471,7 +486,34 @@ def test_the_checks_of_single_record_visits_are_carried_over_once(built, ai_on, 
     assert (Visit.objects.get(key="1726").ai_pending, Visit.objects.get(key="1722").ai_pending) == (0, 18)
 
 
-def test_a_rule_not_on_keeps_its_visit_checks_for_later(built, ai_on, fake):
+def test_the_refresh_carries_the_visit_checks_over_before_it_scores(built, ai_on):
+    """The deployment: the first refresh (before any AI checks run) scores the single-record visits with
+    the verdicts they had, instead of leaving every scored visit without a score until the job runs."""
+    _legacy_checks(score.Rulebook.load(), ["1722", "1727", "1728"], passed=False)
+    run = refresh.run(triggered_by="test", today=TODAY)
+    assert run.status == "succeeded", run.error
+    # 1727 and 1728 have one record each (12 checks carried); 1722 has three (6 dropped)
+    assert run.details["ai_checks_carried"] == {"carried": 12, "dropped": 6, "left": 0}
+    for key in ("1727", "1728"):
+        visit = Visit.objects.get(key=key)
+        assert visit.quality_score is not None and visit.ai_pending == 0, key
+        assert set(AI_RULES) <= set(visit.flags), key
+    assert Visit.objects.get(key="1722").ai_pending == 18  # its records wait for the job
+    assert not VisitAICheck.objects.exists()
+
+
+def test_with_the_ai_off_the_visit_checks_still_count(built):
+    """The AI checks job does not run while the AI is off: the refresh carries the verdicts over, so a
+    pause never moves the scores."""
+    _legacy_checks(score.Rulebook.load(), ["1727"], passed=False)
+    assert checks.run("test").details["skipped"] == "AI is switched off"
+    _rescore()
+    statuses = dict(RecordRuleResult.objects.filter(entity__visit__key="1727").values_list("rule", "status"))
+    assert {statuses[code] for code in AI_RULES} == {"fail"}
+    assert AICheckAnswer.objects.filter(carried=True).count() == len(AI_RULES)
+
+
+def test_a_rule_not_on_keeps_its_visit_checks_for_later(built, ai_on, fake, monkeypatch):
     book = score.Rulebook.load()
     _legacy_checks(book, ["1727"])
     rule = book.rules["R7"]
@@ -482,6 +524,16 @@ def test_a_rule_not_on_keeps_its_visit_checks_for_later(built, ai_on, fake):
     assert list(VisitAICheck.objects.values_list("rule", flat=True)) == ["R7"]
     fake()
     assert _run(limit=1).details["legacy_checks_left"] == 1
+    # what waits is not read again by every refresh (each one carries over before it scores)
+    monkeypatch.setattr(checks, "collect", lambda items: pytest.fail("texts read for a check that waits"))
+    assert checks.carry_over(score.Rulebook.load()) == {"carried": 0, "dropped": 0, "left": 1}
+    # switched on again, it is carried over by the next refresh
+    monkeypatch.undo()
+    rule.enabled = True
+    rule.save()
+    _rescore()
+    assert not VisitAICheck.objects.exists()
+    assert AICheckAnswer.objects.filter(rule="R7", carried=True).count() == 1
 
 
 def test_re_check_carried_answers_deletes_a_batch(built, ai_on):
