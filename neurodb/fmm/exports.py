@@ -2,7 +2,13 @@
 Power BI package (``/fmm/export-powerbi.zip``: the same tables as CSV files, a Power Query script and its
 instructions) and the tables the Power BI live feed serves (:mod:`neurodb.fmm.powerbi`).
 
-Every figure comes from the functions that draw the page: the visits of a
+As FMS's export, the main table is the **records** (:func:`record_rows`): one row per record, an entity
+assessed in a visit, with its own rating, narrative, HACT answers, score, flags and urgency, and its
+visit's columns repeated. The **visits** (:func:`visit_rows`) stay one row per visit, its quality the mean
+of its records', so a report built on them before records keeps working; the **rule results** are one
+row per record and rule.
+
+Every figure comes from the functions that draw the page: the records and visits of a
 :class:`~neurodb.fmm.scope.Scope`, the key figures (:func:`metrics.kpis`), the partner, field office and
 section aggregates (:func:`metrics.breakdown`, with the page's own ratings and average quality) and the flag
 frequency (:func:`metrics.flag_frequency`), so a file and the page never disagree for the same filter.
@@ -10,8 +16,8 @@ frequency (:func:`metrics.flag_frequency`), so a file and the page never disagre
 No file holds a person: never the team, the visit lead, a monitor's e-mail address or who an action point
 is assigned to (a count, ``action_points_assigned``, stands in its place). The narratives, the HACT
 answers and the action point descriptions are cleaned of names, e-mail addresses, links and phone numbers
-(:func:`privacy.clean`) before they are written. The visits are read in chunks of ``CHUNK``: a handful of
-queries per chunk, whatever the number of visits in it.
+(:func:`privacy.clean`) before they are written. The records and visits are read in chunks of ``CHUNK``: a
+handful of queries per chunk, whatever the number of rows in it.
 """
 
 from __future__ import annotations
@@ -34,20 +40,27 @@ from django.utils import timezone
 from . import metrics, privacy
 from .scope import KIND_LABELS, RATING_LABELS, Scope
 
-CHUNK = 500  # visits read at once
+CHUNK = 500  # records or visits read at once
 TEXT_CHARS = 32_000  # a cell's text at most (Excel holds 32,767 characters in a cell)
 AP_TEXT_CHARS = 1_000  # one action point's description at most, in a visit's action_points_text
 DETAIL_CHARS = 300  # a rule result's detail at most
 ROLES = ("q1", "q2", "q3")
 # The order of the visits in every file: the visits table's own (most urgent first)
 ORDER = (F("urgency").desc(nulls_last=True), F("visit_date").desc(nulls_last=True), "key")
+# The order of the records: the records list's own (each by its own urgency, most urgent first)
+RECORD_ORDER = (
+    F("urgency").desc(nulls_last=True),
+    F("visit__visit_date").desc(nulls_last=True),
+    "visit__key",
+    "datamart_id",
+)
 BAND_WORDS = {"high": "High", "medium": "Medium", "low": "Low"}
 RESULT_WORDS = {  # a rule result in the words of FMS's exports
     "pass": "passed",
     "fail": "flagged",
     "na": "not checked",  # the data it needs is not there
     "pending": "not checked",  # its AI check is not done yet
-    "nap": "skipped",  # does not apply to the visit
+    "nap": "skipped",  # does not apply to the record
     "off": "skipped",  # switched off
 }
 NOT_IN_NEURODB = (  # FMS §13.2 columns these files leave out, and why
@@ -64,6 +77,29 @@ PRIVACY_NOTE = (
 )
 
 # ------------------------------------------------------------------------------------------ columns
+RECORD_HEAD = (  # FMS §13.2's columns, the record's own (its visit's for the visit's fields)
+    "id",  # e<record id>
+    "visit_id",  # the visit's id (the Visits table's id)
+    "country_name",
+    "monitoring_activity_id",
+    "reference_number",
+    "monitoring_activity_start_date",
+    "monitoring_activity_end_date",
+    "entity",
+    "entity_type",
+    "vendor_number",
+    "programme_documents",
+    "field_offices",
+    "sections_names",
+    "programme_areas",
+    "overall_finding_rating",
+    "status",
+    "monitoring_modality",
+    "quality_score",
+    "quality_status",
+    "urgency",
+    "quality_flags",
+)
 VISIT_HEAD = (
     "id",
     "country_name",
@@ -86,6 +122,7 @@ VISIT_HEAD = (
     "urgency",
     "quality_flags",
 )
+VISIT_RECORDS = ("lowest_score", "records", "records_scored")  # a visit's figures from its records
 VISIT_TAIL = (
     "location_name",
     "location_lat",
@@ -107,9 +144,20 @@ VISIT_TAIL = (
     "_ai_used",
     "neurodb_url",
 )
-RULE_COLUMNS = ("visit_id", "rule_id", "rule_name", "category", "result", "points_lost", "ai_used", "detail")
+RULE_COLUMNS = (
+    "record_id",
+    "visit_id",
+    "rule_id",
+    "rule_name",
+    "category",
+    "result",
+    "points_lost",
+    "ai_used",
+    "detail",
+)
 GROUP_TAIL = (
     "visits",
+    "records",
     "rated",
     "on_track",
     "constrained",
@@ -123,13 +171,14 @@ GROUP_TAIL = (
     "medium",
     "low",
     "flagged_visits",
+    "flagged_records",
     "flags",
     "open_action_points",
 )
 PARTNER_COLUMNS = ("partner", "partner_full_name", "vendor_number", *GROUP_TAIL)
 OFFICE_COLUMNS = ("field_office", *GROUP_TAIL)
 SECTION_COLUMNS = ("section", *GROUP_TAIL)
-FLAG_COLUMNS = ("rule_id", "rule_name", "flagged_visits", "evaluated_visits", "flagged_pct")
+FLAG_COLUMNS = ("rule_id", "rule_name", "flagged_records", "evaluated_records", "flagged_pct")
 AP_COLUMNS = (
     "reference",
     "description",
@@ -145,12 +194,13 @@ AP_COLUMNS = (
     "pme_verification",
 )
 ABOUT_COLUMNS = ("name", "value")
-DATASETS = ("visits", "rule_results", "action_points", "partners")
+DATASETS = ("records", "visits", "rule_results", "action_points", "partners")
 
 # The type of each column in the Power Query script (every other column is text)
 NUMBER_COLUMNS = frozenset(
     {
         "quality_score",
+        "lowest_score",
         "location_lat",
         "location_lon",
         "points_lost",
@@ -170,6 +220,8 @@ WHOLE_COLUMNS = frozenset(
         "action_points_overdue",
         "action_points_assigned",
         "visits",
+        "records",
+        "records_scored",
         "rated",
         "on_track",
         "constrained",
@@ -179,9 +231,10 @@ WHOLE_COLUMNS = frozenset(
         "medium",
         "low",
         "flagged_visits",
+        "flagged_records",
         "flags",
         "open_action_points",
-        "evaluated_visits",
+        "evaluated_records",
     }
 )
 DATE_COLUMNS = frozenset({"monitoring_activity_start_date", "monitoring_activity_end_date", "due_date"})
@@ -193,9 +246,15 @@ def category_column(key: str) -> str:
     return "completeness_score" if key == "completeness" else f"_{key}_score"
 
 
+def record_columns(categories: Iterable[str]) -> list[str]:
+    """The Records columns (FMS §13.2 names), with one column per score category."""
+    return [*RECORD_HEAD, *(category_column(k) for k in categories), *VISIT_TAIL]
+
+
 def visit_columns(categories: Iterable[str]) -> list[str]:
-    """The Visits columns (FMS §13.2 names), with one column per score category."""
-    return [*VISIT_HEAD, *(category_column(k) for k in categories), *VISIT_TAIL]
+    """The Visits columns (FMS §13.2 names, as before records were scored, so a report built on them
+    keeps working), with the visit's figures from its records and one column per score category."""
+    return [*VISIT_HEAD, *VISIT_RECORDS, *(category_column(k) for k in categories), *VISIT_TAIL]
 
 
 # ------------------------------------------------------------------------------------------ context
@@ -243,9 +302,9 @@ class Context:
 
 # ------------------------------------------------------------------------------------------ visits
 def rating_word(rating: str, status_group: str) -> str:
-    """The visit's overall finding rating in words, as the page counts it: Not monitored only for a
-    reported visit (planned, not conducted), "Not rated yet" for a planned or in-progress visit, and
-    nothing for another visit without a rating (``metrics.counted_rating``)."""
+    """A record's (or a visit's: its worst record's) overall finding rating in words, as the page counts
+    it: Not monitored only on a reported visit (planned, not conducted), "Not rated yet" on a planned or
+    in-progress visit, and nothing for another without a rating (``metrics.counted_rating``)."""
     rating = rating or "not_monitored"
     if rating == "not_monitored" and status_group in ("planned", "in_progress"):
         return "Not rated yet"
@@ -337,15 +396,29 @@ def _visit_points(visit_ids: list[int], ctx: Context) -> dict[int, tuple[list[st
 
 
 def _ai_used(visit_ids: list[int], ctx: Context) -> set[int]:
-    """The visits an AI check of the quality rules was applied to (it passed or flagged them)."""
-    from .models import VisitRuleResult
+    """The visits an AI check of the quality rules was applied to (it passed or flagged one of their
+    records)."""
+    from .models import RecordRuleResult
 
     if not ctx.ai_rules:
         return set()
     return set(
-        VisitRuleResult.objects.filter(
-            visit_id__in=visit_ids, rule__in=ctx.ai_rules, status__in=("pass", "fail")
-        ).values_list("visit_id", flat=True)
+        RecordRuleResult.objects.filter(
+            entity__visit_id__in=visit_ids, rule__in=ctx.ai_rules, status__in=("pass", "fail")
+        ).values_list("entity__visit_id", flat=True)
+    )
+
+
+def _ai_used_records(record_ids: list[int], ctx: Context) -> set[int]:
+    """The records (pks) an AI check of the quality rules was applied to (it passed or flagged them)."""
+    from .models import RecordRuleResult
+
+    if not ctx.ai_rules:
+        return set()
+    return set(
+        RecordRuleResult.objects.filter(
+            entity_id__in=record_ids, rule__in=ctx.ai_rules, status__in=("pass", "fail")
+        ).values_list("entity_id", flat=True)
     )
 
 
@@ -359,8 +432,9 @@ def _location_type(v) -> str:
 
 
 def _category_scores(v, ctx: Context) -> dict[str, Decimal | None]:
-    """The points a scored visit kept of each score category's weight (the weight less the category's
-    deductions); none for a visit without a score or a category no rule switched on uses."""
+    """The points a scored record (or visit: its records' means) kept of each score category's weight
+    (the weight less the category's deductions); none without a score or for a category no rule
+    switched on uses."""
     from .rules import half_up
 
     out: dict[str, Decimal | None] = {}
@@ -377,7 +451,9 @@ def _category_scores(v, ctx: Context) -> dict[str, Decimal | None]:
 
 def visit_rows(visits: QuerySet, ctx: Context | None = None) -> Iterator[dict[str, Any]]:
     """One row per visit of ``visits`` with the FMS §13.2 columns (:func:`visit_columns`), most urgent
-    first."""
+    first: its quality is the mean of its scored records (with its lowest record, its records and how
+    many are scored), its rating its worst record's, its urgency its most urgent record's and its flags
+    those of its records; its narratives and HACT answers those of its records, joined."""
     from .models import Visit
 
     ctx = ctx or Context.read()
@@ -421,6 +497,9 @@ def visit_rows(visits: QuerySet, ctx: Context | None = None) -> Iterator[dict[st
                 else "Skipped",
                 "urgency": v.urgency,
                 "quality_flags": "; ".join(v.flags or ()),
+                "lowest_score": v.lowest_score,
+                "records": v.entities,
+                "records_scored": v.records_scored,
                 **_category_scores(v, ctx),
                 "location_name": v.place_name,
                 "location_lat": v.latitude,
@@ -444,32 +523,201 @@ def visit_rows(visits: QuerySet, ctx: Context | None = None) -> Iterator[dict[st
             }
 
 
+# ------------------------------------------------------------------------------------------ records
+def _record_texts(entities: list, ctx: Context) -> dict[int, dict[str, str]]:
+    """{record pk: {"narrative", "q1", "q2", "q3"}} of the records given (``VisitEntity``, their visit
+    selected), cleaned: each record's own narrative, and each HACT answer as its finding row writes it
+    (``hact_q1_answer``...), else the checklist answers given for that record, else for its partner, else
+    for the whole visit (what the AI checks read for the record)."""
+    from neurodb.datamart.models import MonitoringFinding
+
+    from . import fields, parse
+    from .models import QuestionAnswer
+
+    finding_ids = [e.finding_id for e in entities if e.finding_id]
+    narratives = dict(
+        MonitoringFinding.objects.filter(pk__in=finding_ids).values_list("pk", "narrative_finding")
+    )
+    written = parse.row_texts(finding_ids, [f"{role}_answer" for role in ROLES])
+    rows = list(
+        QuestionAnswer.objects.filter(
+            visit_id__in={e.visit_id for e in entities}, role__in=ROLES, answered=True
+        )
+        .order_by("visit_id", "question_order", "document_id")
+        .values_list(
+            "visit_id", "role", "document_id", "question_key", "applies_to", "entity_id", "partner_id"
+        )
+    )
+    answers = parse.answer_texts(
+        [row[2] for row in rows],
+        {name: fields.key_for("fm_questions", name) for name in ("answer", "answer_label")},
+    )
+    options = parse.option_labels({row[3] for row in rows}) if rows else {}
+    by_entity: dict[tuple[int, str], list[str]] = defaultdict(list)
+    by_partner: dict[tuple[int, int, str], list[str]] = defaultdict(list)
+    by_visit: dict[tuple[int, str], list[str]] = defaultdict(list)
+    for visit_id, role, document, question, applies_to, entity_id, partner_id in rows:
+        text = answers.get(document)
+        if not text:
+            continue
+        text = options.get((question, text), text)
+        if applies_to == "entity" and entity_id:
+            by_entity[(entity_id, role)].append(text)
+        elif applies_to == "partner" and partner_id:
+            by_partner[(visit_id, partner_id, role)].append(text)
+        else:
+            by_visit[(visit_id, role)].append(text)
+    out: dict[int, dict[str, str]] = {}
+    for e in entities:
+        narrative = (narratives.get(e.finding_id) or "").strip() if e.finding_id else ""
+        entry = {"narrative": ctx.clean(narrative) if narrative else ""}
+        own = written.get(e.finding_id, {}) if e.finding_id else {}
+        for role in ROLES:
+            found = (
+                [own[f"{role}_answer"]]
+                if own.get(f"{role}_answer")
+                else by_entity.get((e.pk, role))
+                or by_partner.get((e.visit_id, e.partner_id, role))
+                or by_visit.get((e.visit_id, role))
+                or []
+            )
+            chosen = _joined(found)
+            entry[role] = ctx.clean(" | ".join(chosen)) if chosen else ""
+        out[e.pk] = entry
+    return out
+
+
+def _record_place(e) -> dict[str, Any]:
+    """A record's place: its own when eTools gave one (its location, else its P-code), else its visit's."""
+    v = e.visit
+    location = e.location
+    pcode = (e.location_pcode or "").strip()
+    if location is None:
+        return {
+            "location_name": v.place_name,
+            "location_lat": v.latitude,
+            "location_lon": v.longitude,
+            "location_type": _location_type(v),
+            "location_pcode": pcode or v.place_pcode,
+        }
+    placed = location.latitude is not None and location.longitude is not None
+    return {
+        "location_name": location.name,
+        "location_lat": location.latitude if placed else v.latitude,
+        "location_lon": location.longitude if placed else v.longitude,
+        "location_type": location.type.name if location.type is not None else "",
+        "location_pcode": pcode or location.p_code or v.place_pcode,
+    }
+
+
+def record_rows(records: QuerySet, ctx: Context | None = None) -> Iterator[dict[str, Any]]:
+    """One row per record of ``records`` (``Scope.records``) with the FMS §13.2 columns
+    (:func:`record_columns`), most urgent first: its own entity, type, rating, score, band, urgency,
+    flags, category scores, narrative and HACT answers (:func:`_record_texts`) and place
+    (:func:`_record_place`); its visit's dates, status, modality, sections, offices and action points,
+    repeated on each record as FMS does; ``id`` is ``e<record id>`` and ``neurodb_url`` opens the record
+    on its visit's page."""
+    from .metrics import record_name
+    from .models import VisitEntity
+
+    ctx = ctx or Context.read()
+    template = reverse("fmm:visit", args=["visit-key"])
+    ids = list(records.order_by(*RECORD_ORDER).values_list("pk", flat=True))
+    for start in range(0, len(ids), CHUNK):
+        chunk = ids[start : start + CHUNK]
+        found = {
+            e.pk: e
+            for e in VisitEntity.objects.filter(pk__in=chunk).select_related(
+                "visit__location__type", "partner", "pd", "location__type"
+            )
+        }
+        entities = [found[pk] for pk in chunk if pk in found]  # one rebuilt since the ids were read: left out
+        texts = _record_texts(entities, ctx)
+        points = _visit_points(sorted({e.visit_id for e in entities}), ctx)
+        ai = _ai_used_records(chunk, ctx)
+        for e in entities:
+            v = e.visit
+            partner = e.partner
+            pd_number = e.pd.number if e.pd else ""
+            name = record_name(e.kind, e.entity, e.cp_output, pd_number, partner.name if partner else "")
+            text = texts.get(e.pk, {})
+            descriptions, dues = points.get(v.pk, ([], []))
+            yield {
+                "id": f"e{e.datamart_id}",
+                "visit_id": v.key,
+                "country_name": ctx.country,
+                "monitoring_activity_id": v.activity_id,
+                "reference_number": v.reference_number or v.reference,
+                "monitoring_activity_start_date": v.start_date,
+                "monitoring_activity_end_date": v.end_date,
+                "entity": ctx.clean(name, 300) if name else "",
+                "entity_type": KIND_LABELS.get(e.kind, e.entity_type_raw or e.kind),
+                "vendor_number": (partner.vendor_number or "") if partner else "",
+                "programme_documents": pd_number,
+                "field_offices": "; ".join(v.offices or ()),
+                "sections_names": "; ".join(v.section_names or ()),
+                "programme_areas": "; ".join(v.programme_areas or ()),
+                "overall_finding_rating": rating_word(e.rating, v.status_group),
+                "status": v.status or v.status_group,
+                "monitoring_modality": v.modality,
+                "quality_score": e.quality_score,
+                "quality_status": BAND_WORDS.get(e.score_band, "")
+                if e.quality_score is not None
+                else "Skipped",
+                "urgency": e.urgency,
+                "quality_flags": "; ".join(e.flags or ()),
+                **_category_scores(e, ctx),
+                **_record_place(e),
+                "governorate": v.governorate_name,
+                "district": v.district_name,
+                "narrative_finding": text.get("narrative", ""),
+                "hact_q1_answer": text.get("q1", ""),
+                "hact_q2_answer": text.get("q2", ""),
+                "hact_q3_answer": text.get("q3", ""),
+                "action_points_count": v.action_points,
+                "action_points_open": v.action_points_open,
+                "action_points_overdue": v.action_points_overdue,
+                "action_points_text": "; ".join(descriptions)[:TEXT_CHARS],
+                "action_points_due_dates": "; ".join(dues)[:TEXT_CHARS],
+                "action_points_assigned": v.action_points_assigned,
+                "_ai_used": e.pk in ai,
+                "neurodb_url": f"{ctx.site_url}{template.replace('visit-key', v.key)}#{e.anchor}",
+            }
+
+
 # ------------------------------------------------------------------------------------------ other tables
-def rule_rows(visits: QuerySet, ctx: Context | None = None) -> Iterator[dict[str, Any]]:
-    """One row per rule result of ``visits``: the visit, the rule, its category, the result in words, the
-    points it took off and whether an AI check gave it. The detail only for a rule whose detail NeuroDB
-    writes itself (its flag template): an AI check's explanation may quote a narrative, and the flag of
-    a "text contains" check writes the whole text it read, so both are left out."""
-    from .models import VisitRuleResult
+def rule_rows(records: QuerySet, ctx: Context | None = None) -> Iterator[dict[str, Any]]:
+    """One row per rule result of ``records`` (``Scope.records``): the record (``e<record id>``) and its
+    visit, the rule, its category, the result in words, the points it took off the record and whether an
+    AI check gave it; a rule read once per visit (R19) on each of its records, as it counts. The detail
+    only for a rule whose detail NeuroDB writes itself (its flag template): an AI check's explanation may
+    quote a narrative, and the flag of a "text contains" check writes the whole text it read, so both are
+    left out."""
+    from .models import RecordRuleResult
     from .rules import code_order, param
 
     ctx = ctx or Context.read()
     quoting = {code for code, r in ctx.rules.items() if param(r, "check_type") == "string_contains"}
     rows = (
-        VisitRuleResult.objects.filter(visit__in=visits.values("pk"))
-        .order_by("visit__key", "rule")
-        .values_list("visit__key", "rule", "status", "points", "max_points", "detail")
+        RecordRuleResult.objects.filter(entity__in=records.values("pk"))
+        .order_by("entity__visit__key", "entity__datamart_id", "rule")
+        .values_list(
+            "entity__datamart_id", "entity__visit__key", "rule", "status", "points", "max_points", "detail"
+        )
     )
     batch: list[tuple] = []
     last = None
 
     def flush() -> Iterator[dict[str, Any]]:
-        for key, rule, status, points, max_points, detail in sorted(batch, key=lambda r: code_order(r[1])):
+        for record, key, rule, status, points, max_points, detail in sorted(
+            batch, key=lambda r: code_order(r[2])
+        ):
             setting = ctx.rules.get(rule)
             ai = rule in ctx.ai_rules
             evaluated = status in ("pass", "fail")
             lost = Decimal(max_points or 0) - Decimal(points or 0) if evaluated else Decimal(0)
             yield {
+                "record_id": f"e{record}",
                 "visit_id": key,
                 "rule_id": rule,
                 "rule_name": setting.label if setting else rule,
@@ -497,6 +745,7 @@ def _group_row(row: dict[str, Any], first: str, by: str) -> dict[str, Any]:
     out = {
         first: name,
         "visits": row["visits"],
+        "records": row["records"],
         "rated": row["rated"],
         **{code: row["ratings"][code] for code in metrics.RATED},
         **{f"{code}_pct": row["shares"][code] for code in metrics.RATED},
@@ -504,6 +753,7 @@ def _group_row(row: dict[str, Any], first: str, by: str) -> dict[str, Any]:
         "scored": row["scored"],
         **{band: row["bands"][band] for band in metrics.BANDS},
         "flagged_visits": row["flagged_visits"],  # the visits with a flagged record
+        "flagged_records": row["flagged"],
         "flags": row["flags"],
         "open_action_points": row["open_action_points"],
     }
@@ -520,15 +770,15 @@ def group_rows(scope: Scope, by: str, when: str | None = None) -> list[dict[str,
 
 
 def flag_rows(scope: Scope, ctx: Context, when: str | None = None) -> list[dict[str, Any]]:
-    """The Flags sheet: each rule switched on, the visits it flagged out of those it evaluated (the
+    """The Flags sheet: each rule switched on, the records it flagged out of those it evaluated (the
     flag frequency chart), most flagged first."""
     found = metrics.flag_frequency(scope, list(ctx.rules.values()), when)
     return [
         {
             "rule_id": row["code"],
             "rule_name": ctx.rules[row["code"]].label if row["code"] in ctx.rules else row["code"],
-            "flagged_visits": row["n"],
-            "evaluated_visits": row["evaluated"],
+            "flagged_records": row["n"],
+            "evaluated_records": row["evaluated"],
             "flagged_pct": row["pct"],
         }
         for row in found["rows"]
@@ -589,8 +839,9 @@ def _filters_text(scope: Scope) -> str:
 
 
 def about_rows(scope: Scope, ctx: Context, when: str | None = None) -> list[dict[str, Any]]:
-    """The About sheet: the filter in words, the reference date, the visit counts, and what the columns
-    mean (quality score, bands, urgency, Not monitored), what is left out, and the privacy note."""
+    """The About sheet: the filter in words, the reference date, the visit and record counts, and what
+    the tables and columns mean (records and visits, quality score, bands, urgency, Not monitored), what
+    is left out, and the privacy note."""
     from . import status
 
     snap = status.snapshot()
@@ -603,7 +854,7 @@ def about_rows(scope: Scope, ctx: Context, when: str | None = None) -> list[dict
     setting = ScoreSetting.objects.filter(pk=1).first() or ScoreSetting()
     weights = weights_of(setting)
     rows = [
-        ("Monitoring insights", "eTools field monitoring visits, exported from NeuroDB"),
+        ("Monitoring insights", "eTools field monitoring visits and their records, exported from NeuroDB"),
         ("Exported on", timezone.localtime().replace(tzinfo=None)),
         ("Data as of (last refresh)", as_of.replace(tzinfo=None) if as_of else "not refreshed yet"),
         ("Rules version", (refresh.details or {}).get("rules_version", "") if refresh else ""),
@@ -617,20 +868,44 @@ def about_rows(scope: Scope, ctx: Context, when: str | None = None) -> list[dict
         ),
         ("Filters", _filters_text(scope)),
         ("Country", ctx.country),
+        (
+            "Records and visits",
+            "A visit is one eTools monitoring activity. It holds one record per entity assessed (partner, "
+            "CP output or PD/SSFA), each with its own rating, narrative and Q1-Q3. As in FMS, each record "
+            "is scored, flagged and given an urgency on its own; a visit's quality is the mean of its "
+            "records.",
+        ),
         ("Visits", kpis["visits"]),
     ]
     rows += [(f"Visits {row['label']}", row["n"]) for row in kpis["by_status"]]
     rows += [
         ("Scored visits", kpis["scored_visits"]),
-        ("Average quality score (per record)", kpis["avg_quality"]),
         ("Records", kpis["records"]),
         ("Scored records", kpis["scored"]),
+        ("Average quality score (per record)", kpis["avg_quality"]),
         ("High urgency records", kpis["high_urgency"]),
         (
+            "Records sheet",
+            "One row per record, with the column names of FMS's export: id is e followed by the record's "
+            "eTools id, visit_id the visit's id on the Visits sheet. The entity, its type, the rating, the "
+            "scores, the flags, the urgency, the narrative and the HACT answers are the record's own (a "
+            "HACT answer as its row writes it, else the checklist answer given for that record, for its "
+            "partner, then for the whole visit). The place is the record's own when eTools gave one, else "
+            "its visit's. The dates, status, sections, field offices and action points are its visit's, "
+            "repeated on each of its records as FMS does.",
+        ),
+        (
+            "Visits sheet",
+            "One row per visit, as before records were scored: quality_score is the mean of its scored "
+            "records, lowest_score its lowest record, records how many records it holds and "
+            "records_scored how many are scored; its rating is its worst record's, its urgency its most "
+            "urgent record's and its flags those any of its records failed.",
+        ),
+        (
             "quality_score",
-            "0-100: 100 less the points the quality rules took off (each score category loses at most "
-            "its weight). Blank for a visit that is not scored (its status is not scored, or AI checks "
-            "are pending).",
+            "0-100, for each record: 100 less the points the quality rules took off it (each score "
+            "category loses at most its weight). Blank for a record that is not scored (its visit's "
+            "status is not scored, or AI checks are pending).",
         ),
         (
             "quality_status",
@@ -639,26 +914,35 @@ def about_rows(scope: Scope, ctx: Context, when: str | None = None) -> list[dict
         ),
         (
             "Category scores (completeness_score, _evidence_score...)",
-            "The points the visit kept of each category's weight ("
+            "The points the record kept of each category's weight ("
             + ", ".join(f"{ctx.labels.get(k, k)} {w}" for k, w in ctx.weights.items())
-            + "). Blank when the visit is not scored or no rule switched on uses the category.",
+            + "); a visit's are its records' means. Blank when not scored or no rule switched on uses "
+            "the category.",
         ),
         (
             "urgency",
-            "0-100, 100 the most urgent: "
+            "0-100, 100 the most urgent, for each scored record: "
             + " + ".join(
                 f"{round(100 * share)}% × {part.replace('_', ' ')}" for part, share in weights.items()
             )
-            + f". High from {ctx.limits['red']}, Medium from {ctx.limits['amber']}. Blank when not scored.",
+            + f". High from {ctx.limits['red']}, Medium from {ctx.limits['amber']}. Blank when not scored. "
+            "A visit's urgency is its most urgent record's.",
         ),
         (
             "overall_finding_rating",
-            "The visit's worst entity rating: On track, Constrained, Off track. Not monitored: a reported "
-            "visit with nothing rated (planned, not conducted). Not rated yet: planned or in progress. "
-            "Blank: cancelled or of unknown status without a rating.",
+            "The record's rating: On track, Constrained, Off track (a visit: its worst record's). Not "
+            "monitored: on a reported visit, nothing rated (planned, not conducted). Not rated yet: the "
+            "visit is planned or in progress. Blank: cancelled or of unknown status without a rating.",
         ),
-        ("quality_flags", "The quality rules the visit failed, separated by ;"),
-        ("_ai_used", "TRUE when an AI check of the quality rules was applied to the visit."),
+        (
+            "quality_flags",
+            "The quality rules the record failed (a visit: any of its records), separated by ;",
+        ),
+        (
+            "_ai_used",
+            "TRUE when an AI check of the quality rules was applied to the record (a visit: to one of its "
+            "records).",
+        ),
         (
             "Lists",
             "field_offices, sections_names, programme_areas, programme_documents, quality_flags, "
@@ -672,29 +956,34 @@ def about_rows(scope: Scope, ctx: Context, when: str | None = None) -> list[dict
     rows += [
         (
             "Rule results",
-            "One row per visit and rule: passed, flagged, not checked (data missing or AI check "
-            "pending) or skipped (does not apply, or switched off). The detail is NeuroDB's own wording "
-            "only.",
+            "One row per record and rule (record_id, visit_id): passed, flagged, not checked (data "
+            "missing or AI check pending) or skipped (does not apply, or switched off). R19 reads the "
+            "whole visit and is repeated on each of its records, as it counts. The detail is NeuroDB's "
+            "own wording only.",
         ),
         (
             "Partners, Field offices, Sections",
-            "A visit counts in each of its partners, offices or sections. "
-            "Shares of On track, Constrained and Off track are over the rated visits.",
+            "A record counts under its own partner, and in each of its visit's offices and sections; "
+            "visits are the distinct visits of those records. Ratings, shares (over the rated records), "
+            "average quality, bands and flags are the records'.",
         ),
+        ("Flags", "The records each rule flagged out of the records it checked."),
     ]
     return [{"name": name, "value": value} for name, value in rows]
 
 
 # ------------------------------------------------------------------------------------------ the workbook
 def workbook_sheets(scope: Scope, when: str | None = None) -> list[tuple[str, Sequence[str], Iterable]]:
-    """The sheets of the Excel workbook of ``scope``: About, Visits, Rule results, Partners, Field
-    offices, Sections, Flags and Action points."""
+    """The sheets of the Excel workbook of ``scope``: About, Records, Visits, Rule results, Partners,
+    Field offices, Sections, Flags and Action points."""
     ctx = Context.read()
     visits = scope.visits()
+    records = scope.records()
     return [
         ("About", ABOUT_COLUMNS, about_rows(scope, ctx, when)),
+        ("Records", record_columns(ctx.weights), record_rows(records, ctx)),
         ("Visits", visit_columns(ctx.weights), visit_rows(visits, ctx)),
-        ("Rule results", RULE_COLUMNS, rule_rows(visits, ctx)),
+        ("Rule results", RULE_COLUMNS, rule_rows(records, ctx)),
         ("Partners", PARTNER_COLUMNS, group_rows(scope, "partner", when)),
         ("Field offices", OFFICE_COLUMNS, group_rows(scope, "office", when)),
         ("Sections", SECTION_COLUMNS, group_rows(scope, "section", when)),
@@ -747,13 +1036,14 @@ def csv_lines(columns: Sequence[str], rows: Iterable[dict[str, Any]]) -> Iterato
 
 def dataset(name: str, scope: Scope, ctx: Context, when: str | None = None) -> tuple[list[str], Iterable]:
     """The columns and rows of one table of the Power BI package and feed (``DATASETS``)."""
-    visits = scope.visits()
+    if name == "records":
+        return record_columns(ctx.weights), record_rows(scope.records(), ctx)
     if name == "visits":
-        return visit_columns(ctx.weights), visit_rows(visits, ctx)
+        return visit_columns(ctx.weights), visit_rows(scope.visits(), ctx)
     if name == "rule_results":
-        return list(RULE_COLUMNS), rule_rows(visits, ctx)
+        return list(RULE_COLUMNS), rule_rows(scope.records(), ctx)
     if name == "action_points":
-        return list(AP_COLUMNS), action_point_rows(visits, ctx)
+        return list(AP_COLUMNS), action_point_rows(scope.visits(), ctx)
     if name == "partners":
         return list(PARTNER_COLUMNS), group_rows(scope, "partner", when)
     raise ValueError(f"no dataset {name!r}")
@@ -777,8 +1067,9 @@ def _m_text(text: str) -> str:
 
 
 def m_script(columns: dict[str, Sequence[str]], base_url: str | None = None) -> str:
-    """The Power Query (M) script that loads the four tables with their types, and splits the ";"
-    columns into ``visit_sections``, ``visit_offices`` and ``visit_flags``. From the unzipped folder
+    """The Power Query (M) script that loads the five tables (``DATASETS``: the records first) with their
+    types, and splits the records' ";" columns into ``record_sections``, ``record_offices`` and
+    ``record_flags``, one row per value and record. From the unzipped folder
     (``RootFolder``), or with ``base_url`` from the live feed (``Web.Contents`` with ``ApiKeyName``: Power
     BI asks for the key once, as a "Web API" key, and sends it as ``?key=``)."""
     today = timezone.localdate().isoformat()
@@ -811,14 +1102,14 @@ def m_script(columns: dict[str, Sequence[str]], base_url: str | None = None) -> 
         '            Typed = Table.TransformColumnTypes(Promoted, types, "en-US")',
         "        in",
         "            Typed,",
-        "    Split = (visits as table, column as text, name as text) as table =>",
+        "    Split = (rows as table, column as text, name as text) as table =>",
         "        let",
-        '            Kept = Table.SelectColumns(visits, {"id", column}),',
+        '            Kept = Table.SelectColumns(rows, {"id", column}),',
         "            Lists = Table.TransformColumns(Kept, {{column, each List.Select(List.Transform("
         'Text.Split(if _ = null then "" else _, ";"), Text.Trim), each _ <> ""), type list}}),',
         "            Rows = Table.ExpandListColumn(Lists, column),",
         "            Kept2 = Table.SelectRows(Rows, each Record.Field(_, column) <> null),",
-        '            Named = Table.RenameColumns(Kept2, {{"id", "visit_id"}, {column, name}})',
+        '            Named = Table.RenameColumns(Kept2, {{"id", "record_id"}, {column, name}})',
         "        in",
         "            Named,",
     ]
@@ -826,19 +1117,21 @@ def m_script(columns: dict[str, Sequence[str]], base_url: str | None = None) -> 
         types = ", ".join("{" + _m_text(c) + ", " + _m_type(c) + "}" for c in columns[name])
         lines.append(f"    {name} = Load({_m_text(name)}, {{{types}}}),")
     lines += [
-        '    visit_sections = Split(visits, "sections_names", "section"),',
-        '    visit_offices = Split(visits, "field_offices", "field_office"),',
-        '    visit_flags = Split(visits, "quality_flags", "rule_id")',
+        '    record_sections = Split(records, "sections_names", "section"),',
+        '    record_offices = Split(records, "field_offices", "field_office"),',
+        '    record_flags = Split(records, "quality_flags", "rule_id")',
         "in",
-        "    [visits = visits, rule_results = rule_results, action_points = action_points,",
-        "     partners = partners,",
-        "     visit_sections = visit_sections, visit_offices = visit_offices, visit_flags = visit_flags]",
+        "    [records = records, visits = visits, rule_results = rule_results,",
+        "     action_points = action_points, partners = partners,",
+        "     record_sections = record_sections, record_offices = record_offices,",
+        "     record_flags = record_flags]",
     ]
     return "\n".join(lines) + "\n"
 
 
 def all_columns(ctx: Context) -> dict[str, list[str]]:
     return {
+        "records": record_columns(ctx.weights),
         "visits": visit_columns(ctx.weights),
         "rule_results": list(RULE_COLUMNS),
         "action_points": list(AP_COLUMNS),
@@ -852,19 +1145,36 @@ README = """NeuroDB Monitoring insights for Power BI
 Exported from NeuroDB on {today}, for this filter: {label}{filters}.
 Data as of the last Monitoring insights refresh: {as_of}.
 
+Changed in this release: records
+--------------------------------
+NeuroDB now scores, rates and counts each record as FMS does: a visit (one eTools monitoring activity)
+holds one record per entity assessed (partner, CP output or PD/SSFA), each with its own rating,
+narrative, HACT answers, quality score, flags and urgency. data/records.csv is new: one row per record,
+with the column names of FMS's FMM output, so FMS's visuals give FMS's figures (an average quality over
+records). data/visits.csv stays one row per visit with the same columns as before, and three more:
+quality_score is now the mean of its scored records, lowest_score its lowest record, records and
+records_scored how many it holds and how many are scored; a report built on it keeps working, at visit
+grain. data/rule_results.csv is one row per record and rule, with record_id (visit_id stays).
+data/partners.csv gains records and flagged_records. The script below loads the records first; a report
+made with an earlier script keeps its own script and keeps refreshing.
+
 What is in this folder
 ----------------------
-data/visits.csv          one row per visit, with the column names of FMS's FMM output (§13.2)
-data/rule_results.csv    one row per visit and quality rule
+data/records.csv         one row per record (an entity assessed in a visit), with the column names of
+                         FMS's FMM output (§13.2); visit_id is the visit's id in visits.csv
+data/visits.csv          one row per visit (its quality: the mean of its records)
+data/rule_results.csv    one row per record and quality rule
 data/action_points.csv   the field monitoring action points linked to these visits
-data/partners.csv        visits, ratings, average quality, flags and open action points per partner
-NeuroDB_monitoring.pq    the Power Query script that loads the four files with their types
+data/partners.csv        records, visits, ratings, average quality, flags and open action points per
+                         partner (a record under its own partner)
+NeuroDB_monitoring.pq    the Power Query script that loads the five files with their types
 README.txt               this file
 
 The files are UTF-8 with a byte-order mark, dates are written 2026-05-31 and decimals with a point.
 Columns that hold several values (field_offices, sections_names, quality_flags, action_points_text,
 action_points_due_dates, programme_documents) separate them with ";". The script also makes three helper
-tables from them, one row per value: visit_sections, visit_offices and visit_flags.
+tables from the records' columns, one row per value and record: record_sections, record_offices and
+record_flags.
 
 {privacy}
 
@@ -874,11 +1184,12 @@ Setting it up in Power BI Desktop
 2. Power BI Desktop: Get data > Blank query, then Advanced editor.
 3. Paste the whole of NeuroDB_monitoring.pq and click Done.
 4. In the first lines, set RootFolder to your folder (it ends with \\) and click Done.
-5. The query shows the seven tables. Right-click each one > Add as new query, name the new queries
-   visits, rule_results, action_points, partners, visit_sections, visit_offices and visit_flags, then
-   right-click the first query > uncheck Enable load. Close & Apply.
-6. Relationships: visits[id] to rule_results[visit_id], visit_sections[visit_id], visit_offices[visit_id]
-   and visit_flags[visit_id] (one to many).
+5. The query shows the eight tables. Right-click each one > Add as new query, name the new queries
+   records, visits, rule_results, action_points, partners, record_sections, record_offices and
+   record_flags, then right-click the first query > uncheck Enable load. Close & Apply.
+6. Relationships (one to many): visits[id] to records[visit_id]; records[id] to rule_results[record_id],
+   record_sections[record_id], record_offices[record_id] and record_flags[record_id] (for these three,
+   set the cross filter direction to Both, so their slicers filter the records).
 7. File > Save as .pbix. To refresh later, download a new package, unzip it into the same folder and
    click Refresh.
 
@@ -886,26 +1197,27 @@ There is no .pbit template: a template cannot be built or tested without Power B
 in its place. For data that refreshes on its own (Power BI Service scheduled refresh), ask an
 Administrator for a Power BI key (NeuroDB admin > Power BI keys): its script reads the live feed.
 
-Recommended visuals (FMS §13.3, with these columns)
----------------------------------------------------
+Recommended visuals (FMS §13.3, on the records table)
+-----------------------------------------------------
 - Map: location_lat, location_lon; bubble size = quality_score.
 - Bar chart: entity on the axis, average of quality_score: quality by partner.
 - Donut: overall_finding_rating, count of id: On track, Constrained, Off track, Not monitored.
-- Column chart: monitoring_activity_start_date by month, count of id: visit volume over time (NeuroDB
-  dates a visit by its start date, else its end date).
-- Matrix: rows = entity, columns = visit_sections[section], values = average of quality_score.
-- Slicers: country_name, visit_offices[field_office], quality_status, monitoring_modality.
-- KPI card: average of quality_score.
+- Column chart: monitoring_activity_start_date by month, count of id: record volume over time (NeuroDB
+  dates a visit by its start date, else its end date); count of distinct visit_id for the visits.
+- Matrix: rows = entity, columns = record_sections[section], values = average of quality_score.
+- Slicers: country_name, record_offices[field_office], quality_status, monitoring_modality.
+- KPI card: average of quality_score (the average quality per record, as NeuroDB and FMS show it).
 - Scatter: X = quality_score, Y = urgency, details = id, legend = monitoring_modality, tooltips =
   location_name, status.
-- Table: visit_flags[rule_id] with count of visit_id, or rule_results filtered on result = flagged.
-- Action points: sum of action_points_count per entity; action_points_text as a tooltip.
+- Table: record_flags[rule_id] with count of record_id, or rule_results filtered on result = flagged.
+- Action points: the action point columns repeat their visit's on each of its records: sum
+  visits[action_points_count], or count action_points, rather than summing them over records.
 """
 
 
 def powerbi_package(scope: Scope, when: str | None = None) -> tuple[str, bytes]:
-    """``monitoring-insights-powerbi-YYYY-MM-DD.zip`` of ``scope``: the four CSV files, the Power Query
-    script and README.txt. Built in memory."""
+    """``monitoring-insights-powerbi-YYYY-MM-DD.zip`` of ``scope``: the five CSV files (``DATASETS``),
+    the Power Query script and README.txt. Built in memory."""
     from . import status
 
     ctx = Context.read()

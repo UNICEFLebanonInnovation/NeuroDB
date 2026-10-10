@@ -29,11 +29,9 @@ from neurodb.fmm.models import (
     ScoreSetting,
     Visit,
     VisitEntity,
-    VisitRuleResult,
 )
-from neurodb.fmm.rules import Outcome
 
-from .conftest import CP_OUTPUT, PD_LEBA
+from .conftest import CP_OUTPUT, PD_LEBA, rule_states
 
 pytestmark = pytest.mark.django_db
 TODAY = datetime.date(2026, 10, 5)
@@ -180,40 +178,22 @@ def test_a_visit_rule_limited_to_an_entity_type_skips_the_other_records(fm_world
     assert "R19" in records[101].flags and "R19" not in records[103].flags
 
 
-def test_the_visit_rule_results_are_derived_from_the_records(fm_world):
+def test_a_visit_keeps_no_rule_results_of_its_own(fm_world):
+    """Release 2 step 5's clean-up: the visits' rule results, derived from their records' while the pages
+    moved to records, are dropped (migration 0020); every reader reads the records'. A rule over a visit
+    reads as its records say: failed when one failed it (R1 on the CP output), R19 read once for the
+    visit and the same on each of its records."""
+    from neurodb.fmm import models
+
     _bad_cp_output_and_a_staff_list()
-    visit = {r.rule: r for r in VisitRuleResult.objects.filter(visit__key="1722")}
-    r1 = visit["R1"]
-    assert r1.status == "fail" and r1.detail.startswith("(CP Output) R1: Incomplete monitoring report")
-    assert (r1.max_points, r1.points) == (Decimal("11.0"), Decimal("8.7"))  # the mean of 11, 6 and 9
-    assert visit["R19"].detail.startswith("R19: Monitor is not listed")  # the visit's own: no record named
-    assert visit["R20"].status == "nap" and visit["R2"].status == "pass"
-    assert set(visit) == set(_results(101))  # one per rule switched on
-
-
-def test_visit_results_take_a_fail_then_a_pass_then_the_most_common_state():
-    pd, cp, partner = (
-        VisitEntity(kind=k, datamart_id=n) for n, k in enumerate(("pd", "cp_output", "partner"))
-    )
-
-    def outcome(status, taken=0, detail=""):
-        return Outcome("R9", status, Decimal(taken), Decimal(10), "k", detail or status)
-
-    visit = Visit(key="1")
-    failed = score.visit_results(visit, [(pd, [outcome("pass")]), (cp, [outcome("fail", 10, "R9: no")])])
-    assert (failed[0].status, failed[0].detail, failed[0].points) == (
-        "fail",
-        "(CP Output) R9: no",
-        Decimal("5.0"),
-    )
-    passed = score.visit_results(visit, [(pd, [outcome("na")]), (cp, [outcome("pass")])])
-    assert passed[0].status == "pass"
-    other = score.visit_results(
-        visit, [(pd, [outcome("nap")]), (cp, [outcome("na")]), (partner, [outcome("na")])]
-    )
-    assert other[0].status == "na"
-    copied = score.visit_results(visit, [(pd, [outcome("fail", 3, "R9: x")])], frozenset({"R9"}))
-    assert copied[0].detail == "R9: x"
+    assert not hasattr(models, "VisitRuleResult") and not hasattr(score, "visit_results")
+    r1 = {n: _results(n)["R1"] for n in (101, 102, 103)}
+    assert r1[102].status == "fail" and r1[102].detail.startswith("R1: Incomplete monitoring report")
+    states = rule_states("1722")
+    assert (states["R1"], states["R2"], states["R20"]) == ("fail", "pass", "nap")
+    r19 = {_results(n)["R19"].detail for n in (101, 102, 103) if _results(n)["R19"].status == "fail"}
+    assert len(r19) == 1 and next(iter(r19)).startswith("R19: Monitor is not listed")
+    assert set(states) == set(_results(101))  # one per rule switched on, on each record
 
 
 def test_a_critical_item_line_keeps_the_record_type_apart_from_the_flag():
@@ -290,11 +270,9 @@ def test_both_refreshes_write_the_record_results_and_replace_them(built):
 def test_a_scores_only_pass_writes_only_the_results_that_changed(built):
     _refresh(scores_only=True)
     kept = dict(RecordRuleResult.objects.values_list("pk", "detail"))
-    visit_kept = dict(VisitRuleResult.objects.values_list("pk", "detail"))
     rows = _record_rows()
     _refresh(scores_only=True)  # nothing changed: every row stays as it was
     assert dict(RecordRuleResult.objects.values_list("pk", "detail")) == kept
-    assert dict(VisitRuleResult.objects.values_list("pk", "detail")) == visit_kept
     # one record's flag differs from the scoring's, another result is missing: those two are written
     RecordRuleResult.objects.filter(entity__datamart_id=101, rule="R2").update(detail="an older flag")
     entity = VisitEntity.objects.exclude(datamart_id=101).order_by("datamart_id").first()

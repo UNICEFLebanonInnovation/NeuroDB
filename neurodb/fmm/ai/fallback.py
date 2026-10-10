@@ -4,8 +4,9 @@ passed the checks.
 :func:`brief` writes, from the same facts the AI would read, the parts the prompt version lists (each
 by what it is for: coverage, findings, challenges, recommendations, action points): a few sentences on
 coverage and quality (the shares of ratings over the rated visits only, the Not monitored visits a
-count apart), the most frequent quality flags, one fixed piece of advice per rule that flagged visits,
-and a priority action point for each of the most urgent visits. Every sentence cites the entries it
+count apart, the average quality per record), the most frequent quality flags (the records each flagged,
+and their visits), one fixed piece of advice per rule that flagged records, and a priority action point
+for each of the most urgent visits (by their most urgent record). Every sentence cites the entries it
 rests on and passes the same checks as the AI's (``watch.grounding``). Findings about programme
 delivery need the notes themselves, so that part stays empty, with a note; so does a part the
 administrators added that NeuroDB has nothing to write in.
@@ -29,7 +30,7 @@ ISSUES = 3
 COVERAGE = 5  # sentences
 RATINGS = (("on_track", "were On track"), ("constrained", "Constrained"), ("off_track", "Off track"))
 
-# One sentence of advice per rule that flagged visits (no figure in them: nothing to check)
+# One sentence of advice per rule that flagged records (no figure in them: nothing to check)
 RULE_ADVICE = {
     "R1": "Complete the general observation, the rating and Q1 and Q2 before submitting a visit report.",
     "R2": "Answer every checklist question that applies before submitting a visit report.",
@@ -107,14 +108,18 @@ def _coverage(facts: Facts) -> list[dict[str, Any]]:
 
 def _challenges(facts: Facts) -> list[dict[str, Any]]:
     out = []
-    issues = sorted(facts.payload.get("issues", {}).values(), key=lambda i: (-i["visits"], i["key"]))
+    issues = sorted(
+        facts.payload.get("issues", {}).values(), key=lambda i: (-i["records"], -i["visits"], i["key"])
+    )
     for issue in issues[:ISSUES]:
         rule, _sep, words = issue["label"].partition(": ")
         if not words:
             rule, words = issue["key"].split(":")[1], issue["label"]
+        flagged = _plural(issue["records"], "record", "records")
+        visits = _plural(issue["visits"], "visit", "visits")
         out.append(
             {
-                "text": f"{rule} flagged {_plural(issue['visits'], 'visit', 'visits')}: {words}.",
+                "text": f"{rule} flagged {flagged} in {visits}: {words}.",
                 "keys": [issue["key"]],
             }
         )
@@ -132,7 +137,7 @@ def _challenges(facts: Facts) -> list[dict[str, Any]]:
 
 
 def _recommendations(facts: Facts) -> list[dict[str, Any]]:
-    """The advice of the rules that flagged visits, the most flagged first (then in the order of the
+    """The advice of the rules that flagged records, the most flagged first (then in the order of the
     rule ids)."""
     from ..rules import code_order
 

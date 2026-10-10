@@ -320,7 +320,7 @@ def test_the_built_visits_carry_their_effective_q1(fm_world):
 @pytest.mark.django_db
 def test_without_the_answer_keys_psea_is_not_known_and_q1_q2_are_not_counted_missing(fm_world, monkeypatch):
     from neurodb.fmm import fields, refresh
-    from neurodb.fmm.models import VisitRuleResult
+    from neurodb.fmm.models import RecordRuleResult
 
     refresh.run(triggered_by="test", today=TODAY)
     assert dict(Visit.objects.values_list("key", "psea_flag"))["1722"] is False
@@ -329,5 +329,5 @@ def test_without_the_answer_keys_psea_is_not_known_and_q1_q2_are_not_counted_mis
     flags = dict(Visit.objects.values_list("key", "psea_flag"))
     assert flags["1722"] is None and flags["1726"] is None  # not "not flagged"
     # Q1 and Q2 cannot be read: R1 does not count them missing
-    details = VisitRuleResult.objects.filter(rule="R1").values_list("detail", flat=True)
+    details = RecordRuleResult.objects.filter(rule="R1").values_list("detail", flat=True)
     assert details and not any("Q1 –" in d or "Q2 –" in d for d in details)

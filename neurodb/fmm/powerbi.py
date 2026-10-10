@@ -1,7 +1,8 @@
 """The Power BI live feed of Monitoring insights (FMS "Connect Live"): ``/powerbi/fmm/<dataset>.csv`` for
-``visits``, ``rule_results``, ``action_points`` and ``partners``, the tables of the Power BI package over
-every visit (no person's section is applied), narrowed by ``?year=`` or ``?since=YYYY-MM-DD`` (the visit
-date: its start, else its end, as every period reads it).
+``records`` (one row per record, as FMS's export), ``visits``, ``rule_results``, ``action_points`` and
+``partners``, the tables of the Power BI package over every visit (no person's section is applied),
+narrowed by ``?year=`` or ``?since=YYYY-MM-DD`` (the visit date: its start, else its end, as every period
+reads it; a record follows its visit). A report built on ``visits`` before the records keeps working.
 
 The feed is read with a key an Administrator creates in the admin (*Power BI keys*,
 :class:`~neurodb.fmm.models.PowerBIKey`), never with a session: these addresses alone are left out of the

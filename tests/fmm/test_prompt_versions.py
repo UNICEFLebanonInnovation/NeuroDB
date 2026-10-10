@@ -96,9 +96,13 @@ def test_v1_is_seeded_published_with_the_defaults(v1):
     assert profiles.warnings(v1) == []  # temperature only: the "both set" warning does not fire
 
 
-def test_v2_is_seeded_from_fms_lebanon_prompt():
+def test_v2_is_seeded_from_fms_lebanon_prompt(monkeypatch):
     """Release 2 (A7): version 2 is published from the [insights] part of FMS's Lebanon prompt, with its
-    five parts and their limits; version 1 is retired; NeuroDB's fixed text stays in code."""
+    five parts and their limits; version 1 is retired; NeuroDB's fixed text stays in code. Each version
+    keeps the hash of the day it was written: the fixed text's version was 3 then (4 since Release 2
+    step 5's records)."""
+    assert prompts.SAFETY_VERSION == 4
+    monkeypatch.setattr(prompts, "SAFETY_VERSION", 3)  # the fixed text's version when they were seeded
     v1, v2 = PromptVersion.objects.get(number=1), PromptVersion.objects.get(number=2)
     # stage B's version 3 copies it with the AI checks' instructions added; stage C's version 4 copies v3
     # with the action points' instructions added, and is published in its place

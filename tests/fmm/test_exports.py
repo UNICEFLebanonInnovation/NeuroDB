@@ -2,8 +2,10 @@
 (D1.1); the Excel workbook with FMS's column names, typed cells and totals that equal the page's (D1.2);
 the printable report (D1.3); the Power BI package (D1.4); the Power BI live feed, read with a key only,
 throttled, and its keys in the admin (D1.5); and the action points' Excel export and printable report
-(D1.6). No file, feed or report holds a person: never the team, the visit lead, an e-mail address or who
-an action point is assigned to."""
+(D1.6). Since Release 2 step 5 (stage F3b) the main table is the records, one row per record as FMS's
+export, the visits stay one row per visit and the rule results are per record. No file, feed or report
+holds a person: never the team, the visit lead, an e-mail address or who an action point is assigned
+to."""
 
 from __future__ import annotations
 
@@ -23,7 +25,7 @@ from openpyxl import load_workbook
 
 from neurodb.datamart import models as dm
 from neurodb.fmm import exports, metrics, powerbi
-from neurodb.fmm.models import PowerBIKey, Visit
+from neurodb.fmm.models import PowerBIKey, RecordRuleResult, Visit, VisitEntity
 from neurodb.fmm.scope import Scope
 
 from .conftest import CANARIES, LEAD, MEMBER, MEMBER_EMAIL
@@ -129,6 +131,7 @@ def test_the_workbook_has_its_sheets_and_fms_columns(built, client_viewer):
     book = _book(response)
     assert book.sheetnames == [
         "About",
+        "Records",
         "Visits",
         "Rule results",
         "Partners",
@@ -184,6 +187,57 @@ def test_the_workbook_has_its_sheets_and_fms_columns(built, client_viewer):
     assert visits[1724]["overall_finding_rating"] == "Not rated yet"
     assert visits[1724]["quality_status"] == "Skipped" and visits[1724]["quality_score"] is None
     assert visits[1722]["overall_finding_rating"] == "Off track"
+    # a visit's figures from its records: the mean, its lowest record, its records and how many are scored
+    assert (v1722["records"], v1722["records_scored"]) == (3, stored.records_scored) == (3, 3)
+    assert v1722["lowest_score"] == float(stored.lowest_score)
+
+
+def test_the_records_sheet_has_one_row_per_record_with_its_own_columns(built, client_viewer):
+    """FMS §13.2 per record: one row per record of the filter, ``id`` e<record id> (unique), the visit's
+    id and activity id repeated on each of its records, and the record's own entity, type, rating,
+    score, flags, urgency, narrative and place; the visit's dates and action points repeated."""
+    book = _book(client_viewer.get(reverse("fmm:export_xlsx"), YEAR))
+    header = next(book["Records"].iter_rows(values_only=True))
+    assert list(header) == exports.record_columns(exports.Context.read().weights)
+    assert header[:2] == ("id", "visit_id") and "action_points_assigned_to" not in header
+    rows = _sheet_rows(book, "Records")
+    records = list(_scope().records().select_related("visit"))
+    assert len(rows) == len(records) == metrics.kpis(_scope())["records"] == 12
+    assert len({r["id"] for r in rows}) == len(rows)
+    assert {r["id"] for r in rows} == {f"e{e.datamart_id}" for e in records}
+    by_id = {r["id"]: r for r in rows}
+    assert [r["monitoring_activity_id"] for r in rows].count(1722) == 3  # repeated on each record
+    visit = Visit.objects.get(activity_id=1722)
+    for n in (101, 102, 103):
+        row, e = by_id[f"e{n}"], VisitEntity.objects.get(datamart_id=n)
+        assert row["visit_id"] == visit.key and row["monitoring_activity_end_date"].date() == visit.end_date
+        assert row["quality_score"] == float(e.quality_score) and row["urgency"] == e.urgency
+        assert (
+            row["quality_flags"] == "; ".join(e.flags) and row["action_points_count"] == visit.action_points
+        )
+        assert row["neurodb_url"] == f"{reverse('fmm:visit', args=[visit.key])}#record-{n}"
+    # each record's own rating and narrative (the visit's is its worst record's, Off track)
+    assert (by_id["e101"]["overall_finding_rating"], by_id["e102"]["overall_finding_rating"]) == (
+        "On track",
+        "Off track",
+    )
+    assert by_id["e103"]["narrative_finding"] == "The partner keeps its registers up to date."
+    assert "Classes held as planned" in by_id["e101"]["narrative_finding"]
+    assert "registers" not in by_id["e101"]["narrative_finding"]
+    assert (by_id["e101"]["entity_type"], by_id["e102"]["entity_type"], by_id["e103"]["entity_type"]) == (
+        "PD/SSFA",
+        "CP output",
+        "Partner",
+    )
+    assert by_id["e103"]["entity"] == "Amel Association" and by_id["e103"]["vendor_number"] == "2500212345"
+    # the in-progress visit's record is not rated yet and not scored
+    in_progress = next(r for r in rows if r["monitoring_activity_id"] == 1724)
+    assert (in_progress["overall_finding_rating"], in_progress["quality_status"]) == (
+        "Not rated yet",
+        "Skipped",
+    )
+    # the record's own place when eTools gave one, else its visit's
+    assert by_id["e171"]["location_name"] == Visit.objects.get(activity_id=1728).place_name
 
 
 def test_the_workbook_never_holds_a_person(assigned, client_viewer):
@@ -205,6 +259,10 @@ def test_the_workbook_totals_equal_the_page(built, client_viewer):
         scope = _scope(**params)
         book = _book(client_viewer.get(reverse("fmm:export_xlsx"), {**YEAR, **params}))
         assert len(_sheet_rows(book, "Visits")) == metrics.kpis(scope)["visits"]
+        records = _sheet_rows(book, "Records")
+        assert len(records) == metrics.kpis(scope)["records"]
+        # the visits of the Visits sheet are exactly the distinct visits of the records
+        assert {r["visit_id"] for r in records} == {r["id"] for r in _sheet_rows(book, "Visits")}
         offices = {r["name"]: r for r in metrics.offices(scope)["rows"]}
         compared = 0
         for row in _sheet_rows(book, "Field offices"):
@@ -221,9 +279,15 @@ def test_the_workbook_totals_equal_the_page(built, client_viewer):
             assert row["on_track"] + row["constrained"] + row["off_track"] == row["rated"]
         flags = {r["code"]: r for r in metrics.flag_frequency(scope)["rows"]}
         for row in _sheet_rows(book, "Flags"):
-            assert row["flagged_visits"] == flags[row["rule_id"]]["n"]
+            assert row["flagged_records"] == flags[row["rule_id"]]["n"]
+            assert row["evaluated_records"] == flags[row["rule_id"]]["evaluated"]
+        partners = {r["key"]: r for r in metrics.breakdown(scope, "partner")}
+        assert sum(row["records"] for row in _sheet_rows(book, "Partners")) == sum(
+            r["records"] for r in partners.values()
+        )
         about = {r["name"]: r["value"] for r in _sheet_rows(book, "About")}
         assert about["Visits"] == metrics.kpis(scope)["visits"]
+        assert about["Records"] == metrics.kpis(scope)["records"] == len(records)
         assert "No names" in about["Privacy"]
 
 
@@ -247,8 +311,13 @@ def test_the_breakdown_counts_as_the_page_blocks(built):
 
 def test_rule_results_keep_neurodb_wording_only(built):
     ctx = exports.Context.read()
-    rows = list(exports.rule_rows(_scope().visits(), ctx))
+    rows = list(exports.rule_rows(_scope().records(), ctx))
     assert rows and {r["result"] for r in rows} <= {"passed", "flagged", "not checked", "skipped"}
+    # one row per record and rule, with the record and its visit
+    assert len(rows) == RecordRuleResult.objects.filter(entity__in=_scope().records()).count()
+    assert len({(r["record_id"], r["rule_id"]) for r in rows}) == len(rows)
+    r101 = [r for r in rows if r["record_id"] == "e101"]
+    assert r101 and {r["visit_id"] for r in r101} == {Visit.objects.get(activity_id=1722).key}
     ai = [r for r in rows if r["rule_id"] in ctx.ai_rules]
     assert ai and all(r["detail"] == "" for r in ai)  # an AI check's explanation may quote a narrative
     assert any(r["ai_used"] == "yes" for r in ai)
@@ -259,45 +328,62 @@ def test_rule_results_keep_neurodb_wording_only(built):
 def test_a_text_contains_flag_is_not_quoted(built):
     """The flag of a "text contains" check writes the whole text it read (a narrative): the Rule results
     sheet leaves its detail out, and keeps the detail of the check when it passed."""
-    from neurodb.fmm.models import RuleSetting, VisitRuleResult
+    from neurodb.fmm.models import RuleSetting
 
     rule = RuleSetting.objects.filter(type=RuleSetting.Type.REFERENCE).order_by("code").first()
     rule.params = {**(rule.params or {}), "check_type": "string_contains", "contains": "gender"}
     rule.save(update_fields=["params"])
-    visit = Visit.objects.get(activity_id=1722)
+    record = VisitEntity.objects.get(datamart_id=101)
     quote = "The partner said the girls were kept at home during the exams"
-    VisitRuleResult.objects.update_or_create(
-        visit=visit, rule=rule.code, defaults={"status": "fail", "detail": f"Not covered: {quote}"}
+    RecordRuleResult.objects.update_or_create(
+        entity=record, rule=rule.code, defaults={"status": "fail", "detail": f"Not covered: {quote}"}
     )
-    other = Visit.objects.get(activity_id=1723)
-    VisitRuleResult.objects.update_or_create(
-        visit=other, rule=rule.code, defaults={"status": "pass", "detail": "gender is covered."}
+    other = VisitEntity.objects.get(datamart_id=111)
+    RecordRuleResult.objects.update_or_create(
+        entity=other, rule=rule.code, defaults={"status": "pass", "detail": "gender is covered."}
     )
-    rows = {(r["visit_id"], r["rule_id"]): r for r in exports.rule_rows(_scope().visits())}
-    assert rows[(visit.key, rule.code)]["result"] == "flagged"
-    assert rows[(visit.key, rule.code)]["detail"] == ""
-    assert rows[(other.key, rule.code)]["detail"] == "gender is covered."
+    rows = {(r["record_id"], r["rule_id"]): r for r in exports.rule_rows(_scope().records())}
+    assert rows[("e101", rule.code)]["result"] == "flagged"
+    assert rows[("e101", rule.code)]["detail"] == ""
+    assert rows[("e111", rule.code)]["detail"] == "gender is covered."
 
 
 def test_query_count_does_not_grow_with_rows(built):
-    """A large scope is read in chunks: the queries of 8 visits and of 48 are the same."""
+    """A large scope is read in chunks: the queries of 8 visits (12 records) and of 48 (72) are the
+    same."""
     ctx = exports.Context.read()
 
-    def queries() -> int:
+    def queries() -> tuple[int, int, int]:
         with CaptureQueriesContext(connection) as captured:
             rows = list(exports.visit_rows(Visit.objects.all(), ctx))
-            list(exports.rule_rows(Visit.objects.all(), ctx))
+            records = list(exports.record_rows(VisitEntity.objects.all(), ctx))
+            list(exports.rule_rows(VisitEntity.objects.all(), ctx))
             list(exports.action_point_rows(Visit.objects.all(), ctx))
-        return len(captured), len(rows)
+        return len(captured), len(rows), len(records)
 
-    few, n = queries()
-    template = list(Visit.objects.all())
+    few, n, n_records = queries()
+    visits = list(Visit.objects.all())
+    entities = list(VisitEntity.objects.all())
     for k in range(5):
-        for v in template:
-            v.pk, v.key, v.activity_id = None, f"{v.key}-c{k}", (v.activity_id or 0) + 100_000 * (k + 1)
-        Visit.objects.bulk_create(template)
-    many, m = queries()
-    assert (n, m) == (8, 48) and many == few
+        copies = []
+        for v in visits:
+            copy = Visit.objects.get(pk=v.pk)
+            copy.pk, copy.key, copy.activity_id = (
+                None,
+                f"{v.key}-c{k}",
+                (v.activity_id or 0) + 100_000 * (k + 1),
+            )
+            copies.append(copy)
+        Visit.objects.bulk_create(copies)
+        moved = {v.pk: c.pk for v, c in zip(visits, copies, strict=True)}
+        rows = []
+        for e in entities:
+            row = VisitEntity.objects.get(pk=e.pk)
+            row.pk, row.visit_id, row.datamart_id = None, moved[e.visit_id], e.datamart_id + 100_000 * (k + 1)
+            rows.append(row)
+        VisitEntity.objects.bulk_create(rows)
+    many, m, m_records = queries()
+    assert (n, m, n_records, m_records) == (8, 48, 12, 72) and many == few
 
 
 def test_a_text_that_starts_with_equals_stays_a_text():
@@ -381,6 +467,7 @@ def test_the_powerbi_package(assigned, client_viewer):
         "README.txt",
         "data/action_points.csv",
         "data/partners.csv",
+        "data/records.csv",
         "data/rule_results.csv",
         "data/visits.csv",
     ]
@@ -395,24 +482,39 @@ def test_the_powerbi_package(assigned, client_viewer):
     assert {r["id"] for r in visits} == set(sheet)
     assert float(row["quality_score"]) == sheet[row["id"]]["quality_score"]
     partners = _csv_rows(texts["data/partners.csv"])
-    assert sum(int(p["visits"]) for p in partners) == 8
+    # each record under its own partner: the records add up, a visit with two partners counts in both
+    assert sum(int(p["records"]) for p in partners) == 12
+    assert sum(int(p["visits"]) for p in partners) == sum(
+        len({e.partner_id for e in v.entity_rows.all() if e.partner_id}) for v in _scope().visits()
+    )
+    records = _csv_rows(texts["data/records.csv"])
+    assert len(records) == 12 and len({r["id"] for r in records}) == 12
+    assert {r["visit_id"] for r in records} == {r["id"] for r in visits}
+    assert set(_csv_rows(texts["data/rule_results.csv"])[0]) >= {"record_id", "visit_id", "rule_id"}
     script = texts["NeuroDB_monitoring.pq"]
     for part in (
         "RootFolder",
+        'Load("records"',
         'Load("visits"',
         'Load("rule_results"',
         'Load("action_points"',
         'Load("partners"',
         '{"quality_score", type number}',
+        '{"lowest_score", type number}',
+        '{"records", Int64.Type}',
         '{"monitoring_activity_end_date", type date}',
         '{"urgency", Int64.Type}',
-        "visit_sections",
-        "visit_offices",
-        "visit_flags",
+        "record_sections",
+        "record_offices",
+        "record_flags",
+        '{{"id", "record_id"}, {column, name}}',
         "Encoding = 65001",
     ):
         assert part in script, part
+    assert script.index('records = Load("records"') < script.index('visits = Load("visits"')
     readme = texts["README.txt"]
+    assert "Changed in this release: records" in readme and "keeps working" in readme
+    assert "data/records.csv" in readme and "records[id] to rule_results[record_id]" in readme
     assert (
         "Blank query" in readme
         and "Advanced editor" in readme
@@ -484,10 +586,12 @@ def test_a_good_key_reads_the_feed_by_header_or_query(assigned, client, viewer, 
         assert (float(r["quality_score"]) if r["quality_score"] else None) == sheet[r["id"]]["quality_score"]
     row.refresh_from_db()
     assert row.uses == 2 and row.last_used_at is not None
-    for dataset in ("rule_results", "action_points", "partners"):
+    for dataset in ("records", "rule_results", "action_points", "partners"):
         response, body = _feed(client, dataset, key=key)
         assert response.status_code == 200 and _csv_rows(body)
         _assert_no_person(body)
+    records = _csv_rows(_feed(client, "records", key=key)[1])
+    assert len(records) == VisitEntity.objects.count() == len({r["id"] for r in records})
     _assert_no_person(header_body)
     assert key not in caplog.text
     assert _feed(client, "people", key=key)[0].status_code == 404
@@ -497,6 +601,9 @@ def test_the_feed_narrows_by_year_and_since(built, client):
     _row, key = _key()
     assert len(_csv_rows(_feed(client, key=key, year="2026")[1])) == 8
     assert _csv_rows(_feed(client, key=key, year="2025")[1]) == []
+    # a record follows its visit's date
+    assert len(_csv_rows(_feed(client, "records", key=key, year="2026")[1])) == 12
+    assert _csv_rows(_feed(client, "records", key=key, year="2025")[1]) == []
     since = _csv_rows(_feed(client, key=key, since="2026-07-01")[1])
     # the visit date: its start date, else its end date (as every period reads it)
     dated = {
@@ -626,6 +733,7 @@ def test_an_administrator_creates_a_key_seen_once_and_revokes_it(built, admin_cl
     key = html.split('id="powerbi-key" type="text" readonly value="', 1)[1].split('"', 1)[0]
     assert powerbi.find_key(key) == row
     assert "ApiKeyName" in html and "Web.Contents" in html and "powerbi/fmm/" in html
+    assert "powerbi/fmm/records.csv" in html and "Load(&quot;records&quot;" in html
     assert "manage.py" not in html
     change = admin_client.get(reverse("admin:fmm_powerbikey_change", args=[row.pk])).content.decode()
     assert key not in change and row.prefix in change and "ApiKeyName" in change

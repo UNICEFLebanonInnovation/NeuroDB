@@ -22,7 +22,7 @@ from neurodb.assistant import agent, usage
 from neurodb.assistant.models import AIUsage
 from neurodb.core.models import SyncRun
 from neurodb.datamart.models import MonitoringFinding
-from neurodb.fmm import privacy
+from neurodb.fmm import metrics, privacy
 from neurodb.fmm.ai import FMM_NAMED_FIELDS, facts, fallback, insights, profiles, sections
 from neurodb.fmm.models import Insight, Visit, VisitEntity
 from neurodb.fmm.scope import Scope
@@ -123,7 +123,7 @@ def _good(found: facts.Facts) -> dict:
     section = next(iter(found.payload["sections"].values()))["name"]
     return {
         "coverage_summary": [
-            {"text": f"{k['visits']} visits and {k['entities']} entities in the period.", "keys": ["kpi"]}
+            {"text": f"{k['visits']} visits and {k['records']} records in the period.", "keys": ["kpi"]}
         ],
         "key_findings": [{"text": "A visit noted how the classes went.", "keys": [narrative]}],
         "challenges": [{"text": "One follow-up action point is overdue.", "keys": ["ap:summary"]}],
@@ -173,15 +173,21 @@ def test_every_entry_of_the_payload_is_citable_and_shares_are_precomputed(built,
             assert entry["key"] == key and found.citable[key] is entry
     assert set(found.citable) >= {"scope", "kpi", "previous", "ap:summary", "hact:2026", "gap:governorates"}
     kpi = payload["kpi"]
-    assert (kpi["visits"], kpi["entities"], kpi["entities_rated"]) == (8, 12, 8)
+    assert (kpi["visits"], kpi["records"], kpi["records_rated"]) == (8, 12, 8)
     # the mean of the records' own scores, as FMS (Release 2 step 5)
-    assert "entities_not_monitored_share" not in kpi and kpi["avg_quality"] == 80.3
+    assert "records_not_monitored_share" not in kpi and kpi["avg_quality"] == 80.3
     assert kpi["scored_visits"] == 6  # the visits scored (10 records)
     assert (kpi["records"], kpi["scored_records"]) == (12, 10)  # the average is over these
-    # every share of ratings is over the rated visits (entities); Not monitored is a count apart
+    # every share of ratings is over the rated visits (records); Not monitored is a count apart
     assert (kpi["rated_visits"], kpi["on_track_visits"], kpi["off_track_visits"]) == (5, 3, 2)
     assert (kpi["on_track_share_of_rated"], kpi["off_track_share_of_rated"]) == (60.0, 40.0)
-    assert kpi["not_monitored_visits"] == 1 and kpi["entities_off_track_share_of_rated"] == 25.0
+    assert kpi["not_monitored_visits"] == 1 and kpi["records_off_track_share_of_rated"] == 25.0
+    # SPEC5 §6.2: the record figures under their own names (no "entities" key is left)
+    assert not [key for key in kpi if key.startswith("entities") or key in ("high_urgency", "amber_urgency")]
+    assert (kpi["records_on_track"], kpi["records_off_track"], kpi["records_not_monitored"]) == (6, 2, 2)
+    scope = _scope()
+    assert kpi["high_urgency_records"] == metrics.kpis(scope)["high_urgency"]
+    assert kpi["low_quality_records"] == scope.records().filter(quality_score__lt=50).count()
     assert payload["rules"]["rule:R1"]["flagged_share"] is not None
     assert payload["previous"]["visits_change"] == kpi["visits"] - payload["previous"]["visits"]
     assert (
@@ -513,7 +519,10 @@ def test_the_code_written_brief_words(built):
     assert texts[3] == "6 visits were reported, 1 is in progress and 0 are planned."
     assert texts[4] == "The average quality score per record was 80.3% on 10 scored records."
     challenges = [s["text"] for s in written["challenges"]]
-    assert challenges[0].startswith("R23 flagged 3 visits: Visit location not among registered PD locations")
+    # the records a flag was raised on, and their visits (as the page's top recurring issues count them)
+    assert challenges[0].startswith(
+        "R23 flagged 4 records in 3 visits: Visit location not among registered PD locations"
+    )
     assert not [t for t in texts + challenges if "monitoring gap" in t or "not monitored (" in t]
     assert written["recommendations"][0]["text"] == fallback.RULE_ADVICE["R1"]  # the most flagged rule
     action = actions[0]

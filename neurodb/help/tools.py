@@ -4,8 +4,9 @@ them).
 - ``search_help`` / ``read_help``: the help guide (:mod:`.guide`), searched in memory;
 - ``list_quality_rules`` / ``get_quality_rule``: the live quality rules of Monitoring insights, the score
   settings (categories, bands, scored statuses) and urgency's weights, window and thresholds;
-- ``explain_visit_score``: why one visit scored what it scored (its rule results, deductions per
-  category and urgency parts), with the same access as the visit page;
+- ``explain_visit_score``: why one visit scored what it scored: each record (one entity assessed) is
+  scored on its own, with its rule results, deductions per category and urgency parts, and the visit's
+  quality is the mean of its records; with the same access as the visit page;
 - ``list_jobs``: the scheduled jobs, what they do, when they run and how their last run went.
 
 **What never comes out.** No person: not who ran a job, who changed a rule, a visit's team, lead or
@@ -166,8 +167,9 @@ def _score_settings() -> dict[str, Any]:
     s = _settings()
     return {
         "score": {
-            "formula": "100 less the deductions of the rules that fired; each category's deductions count "
-            "at most its weight; never below 0; rounded half up to one decimal",
+            "formula": "for each record (one entity assessed in a visit, as in FMS): 100 less the deductions "
+            "of the rules that fired on it; each category's deductions count at most its weight; never below "
+            "0; rounded half up to one decimal. A visit's quality is the mean of its scored records",
             "categories": [
                 {"category": c.get("label") or c.get("key"), "weight": c.get("weight")}
                 for c in (s.categories or [])
@@ -182,13 +184,14 @@ def _score_settings() -> dict[str, Any]:
             "ai_checks_switched_on": bool(s.ai_checks),
         },
         "urgency": {
-            "formula": "quality_gap x (100 - quality score) + recency x recency part + red_flags x flags "
-            "part; rounded half up, kept within 0-100; scored visits only",
+            "formula": "quality_gap x (100 - the record's quality score) + recency x recency part + "
+            "red_flags x flags part; rounded half up, kept within 0-100; scored records only. A visit's "
+            "urgency is its most urgent record's",
             "weights": score.weights_of(s),
             "recency_days": s.recency_days,
             "recency_part": f"100 on the day the visit ended, falling in a straight line to 0 at "
             f"{s.recency_days} days after it",
-            "flags_part": f"{score.FLAG_POINTS} per rule that fired, at most 100",
+            "flags_part": f"{score.FLAG_POINTS} per rule that fired on the record, at most 100",
             "red_from": s.urgency_red,
             "amber_from": s.urgency_amber,
         },
@@ -277,11 +280,64 @@ RESULT_WORDS = {
 }
 
 
+HOW_SCORED = (
+    "Each record of the visit (one entity assessed: a partner, a programme document or a CP output) is "
+    "scored on its own, as in FMS: 100 less the deductions of the rules that fired on it, each category at "
+    "most its weight. The visit's quality is the mean of its scored records; its urgency is its most "
+    "urgent record's."
+)
+VISIT_CHECKS_NOTE = (
+    "Checks read once for the whole visit (its monitors against the staff list): the same result on each "
+    "of its records, counted on each."
+)
+
+
+def _result_line(row, rule, labels: dict[str, str], quoting: set[str], names) -> dict[str, Any]:
+    """One rule result of a record as the Help assistant gives it: never an AI check's explanation (it
+    may quote a narrative) nor the flag of a "text contains" check (it writes the text it read); the
+    other flags are NeuroDB's own wording, cleaned once more."""
+    from neurodb.fmm import privacy
+
+    ai = rule is not None and rule.type == "narrative"
+    evaluated = row.status in ("pass", "fail")
+    lost = (Decimal(row.max_points or 0) - Decimal(row.points or 0)) if evaluated else Decimal(0)
+    detail = None
+    if row.detail and not ai and not (row.rule in quoting and row.status == "fail"):
+        detail = privacy.clean(row.detail, 300, names())[0]
+    elif ai and row.status == "fail":
+        detail = AI_FLAGGED
+    return {
+        "rule": row.rule,
+        "name": rule.label if rule else row.rule,
+        "category": labels.get(rule.category, rule.category) if rule else None,
+        "result": RESULT_WORDS.get(row.status, row.status),
+        "points_kept": _number(row.points) if evaluated else None,
+        "max_points": _number(row.max_points),
+        "points_lost": _number(max(lost, Decimal(0))),
+        "ai_check": ai,
+        "detail": detail,
+    }
+
+
+def _deductions(found, labels: dict[str, str], weights: dict) -> list[dict[str, Any]]:
+    return [
+        {
+            "category": labels.get(key, key),
+            "deducted": value,
+            "weight": _number(weights.get(key)) if key in weights else None,
+        }
+        for key, value in (found or {}).items()
+    ]
+
+
 def explain_visit_score(visit: str) -> dict[str, Any]:
+    from functools import cache
+
     from neurodb.fmm import metrics, privacy, rules
     from neurodb.fmm.action_points import find_visit
-    from neurodb.fmm.models import RuleSetting, VisitRuleResult
-    from neurodb.fmm.score import categories_of, category_labels
+    from neurodb.fmm.models import RecordRuleResult, RuleSetting
+    from neurodb.fmm.scope import KIND_LABELS
+    from neurodb.fmm.score import categories_of, category_labels, visit_level
 
     if not getattr(settings, "FMM_ENABLED", False):
         return {"error": "Monitoring insights is switched off, so no visit can be explained."}
@@ -297,43 +353,52 @@ def explain_visit_score(visit: str) -> dict[str, Any]:
     quoting = {
         code for code, r in settings_by_code.items() if rules.param(r, "check_type") == "string_contains"
     }
-    names = None
-    results = []
-    for row in sorted(VisitRuleResult.objects.filter(visit=found), key=lambda r: rules.code_order(r.rule)):
-        rule = settings_by_code.get(row.rule)
-        ai = rule is not None and rule.type == "narrative"
-        evaluated = row.status in ("pass", "fail")
-        lost = (Decimal(row.max_points or 0) - Decimal(row.points or 0)) if evaluated else Decimal(0)
-        detail = None
-        if row.detail and not ai and not (row.rule in quoting and row.status == "fail"):
-            if names is None:
-                from neurodb.watch import people
+    once = {code for code, r in settings_by_code.items() if visit_level(r)}  # R19: the visit's own
 
-                names = people.known_names()
-            detail = privacy.clean(row.detail, 300, names)[0]
-        elif ai and row.status == "fail":
-            detail = AI_FLAGGED
-        results.append(
+    @cache
+    def names():
+        from neurodb.watch import people
+
+        return people.known_names()
+
+    entities = list(found.entity_rows.select_related("pd", "partner").order_by("datamart_id"))
+    by_record: dict[int, list] = {e.pk: [] for e in entities}
+    for row in RecordRuleResult.objects.filter(entity__visit=found):
+        by_record.setdefault(row.entity_id, []).append(row)
+    visit_checks: dict[str, dict[str, Any]] = {}
+    records = []
+    for e in entities:
+        lines = []
+        for row in sorted(by_record.get(e.pk, ()), key=lambda r: rules.code_order(r.rule)):
+            line = _result_line(row, settings_by_code.get(row.rule), labels, quoting, names)
+            if row.rule in once and row.status != "off":
+                visit_checks.setdefault(row.rule, line)  # the same on every record: given once
+            else:
+                lines.append(line)
+        name = metrics.record_name(
+            e.kind, e.entity, e.cp_output, e.pd.number if e.pd else "", e.partner.name if e.partner else ""
+        )
+        records.append(
             {
-                "rule": row.rule,
-                "name": rule.label if rule else row.rule,
-                "category": labels.get(rule.category, rule.category) if rule else None,
-                "result": RESULT_WORDS.get(row.status, row.status),
-                "points_kept": _number(row.points) if evaluated else None,
-                "max_points": _number(row.max_points),
-                "points_lost": _number(max(lost, Decimal(0))),
-                "ai_check": ai,
-                "detail": detail,
+                "record": e.datamart_id,
+                "url": f"{found.get_absolute_url()}#{e.anchor}",
+                "entity": privacy.clean(name, 255, names())[0] if name else "",
+                "type": KIND_LABELS.get(e.kind, e.kind),
+                "rating": e.rating,
+                "scored": e.quality_score is not None,
+                "quality_score": _number(e.quality_score),
+                "band": e.score_band or None,
+                "provisional_score": _number(e.provisional_score),
+                "ai_checks_pending": e.ai_pending,
+                "not_scored_reason": e.not_scored_reason or None,
+                "deductions_by_category": _deductions(e.category_deductions, labels, weights),
+                "flags": e.flag_count,
+                "rule_results": lines,
+                "urgency": e.urgency,
+                "urgency_band": e.urgency_band or None,
+                "urgency_parts": e.urgency_parts or {},
             }
         )
-    deductions = [
-        {
-            "category": labels.get(key, key),
-            "deducted": value,
-            "weight": _number(weights.get(key)) if key in weights else None,
-        }
-        for key, value in (found.category_deductions or {}).items()
-    ]
     limits = metrics.thresholds(s)
     return {
         "visit": found.label,
@@ -343,16 +408,21 @@ def explain_visit_score(visit: str) -> dict[str, Any]:
         "status": found.status or found.status_group,
         "status_group": found.status_group,
         "rating": found.rating,
+        "how": HOW_SCORED,
         "scored": found.quality_score is not None,
         "quality_score": _number(found.quality_score),
+        "lowest_score": _number(found.lowest_score),
+        "records_scored": found.records_scored,
         "band": found.score_band or None,
         "provisional_score": _number(found.provisional_score),
         "ai_checks_pending": found.ai_pending,
         "not_scored_reason": found.not_scored_reason or None,
-        "how": "100 less the deductions of the rules that fired, each category at most its weight",
-        "deductions_by_category": deductions,
+        "deductions_by_category": _deductions(found.category_deductions, labels, weights),
+        "deductions_note": "The visit's deductions are its records' means.",
         "flags": found.flag_count,
-        "rule_results": results,
+        "records": records,
+        "visit_checks": sorted(visit_checks.values(), key=lambda line: rules.code_order(line["rule"])),
+        "visit_checks_note": VISIT_CHECKS_NOTE,
         "urgency": found.urgency,
         "urgency_band": found.urgency_band or None,
         "urgency_parts": found.urgency_parts or {},
@@ -439,9 +509,12 @@ HELP_TOOLS: dict[str, tuple[Any, str, dict, str]] = {
     ),
     "explain_visit_score": (
         explain_visit_score,
-        "Why one field monitoring visit scored what it scored: its quality score and band (or why it is "
+        "Why one field monitoring visit scored what it scored. Each record of the visit (one entity "
+        "assessed) is scored on its own, as in FMS: per record, its quality score and band (or why it is "
         "not scored), the deductions per score category, each rule's result and points lost, and its "
-        "urgency with its parts. Give the visit's eTools activity id (e.g. 1722), key or reference.",
+        "urgency with its parts; then the visit's quality (the mean of its records), its lowest record and "
+        "its urgency (its most urgent record's). Give the visit's eTools activity id (e.g. 1722), key or "
+        "reference.",
         _schema({"visit": {"type": "string"}}, ["visit"]),
         "Explaining a visit's score",
     ),

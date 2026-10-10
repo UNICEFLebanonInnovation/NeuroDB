@@ -15,11 +15,11 @@ from neurodb.fmm import build, parse, place, refresh
 from neurodb.fmm.models import (
     FieldMapping,
     QuestionAnswer,
+    RecordRuleResult,
     RefreshRequest,
     Visit,
     VisitActionPoint,
     VisitEntity,
-    VisitRuleResult,
 )
 from neurodb.geo.models import Location
 from neurodb.reports.overview import governorate_key
@@ -457,7 +457,7 @@ DATA_TABLES = (
     VisitEntity,
     QuestionAnswer,
     VisitActionPoint,
-    VisitRuleResult,
+    RecordRuleResult,
     FieldMapping,
     RefreshRequest,
 )
@@ -478,7 +478,7 @@ def test_no_data_table_holds_a_narrative_or_an_answer(fm_world, monkeypatch):
     monkeypatch.setattr(refresh.background, "start_command", lambda *args: 1)
     refresh.request("scores", "test")  # a request row too
     _refresh()
-    assert Visit.objects.exists() and QuestionAnswer.objects.exists() and VisitRuleResult.objects.exists()
+    assert Visit.objects.exists() and QuestionAnswer.objects.exists() and RecordRuleResult.objects.exists()
     for model, text in _stored_texts():
         for canary in TEXTS:
             assert canary not in text, (model, canary)

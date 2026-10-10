@@ -194,7 +194,7 @@
     {% if local_action_points %}
     <ul class="list-unstyled small mb-0">{% for p in local_action_points %}<li class="mb-1">
       <strong>{{ p.title }}</strong> {% status_pill p.status p.get_status_display "sm" %}
-      <span class="text-muted">{{ p.get_priority_display }} · {% if p.due_date %}{% blocktrans with day=p.due_date|date:"j M Y" %}due {{ day }}{% endblocktrans %}{% else %}{% trans "no due date" %}{% endif %} · {{ p.get_source_display }}</span>
+      <span class="text-muted">{{ p.get_priority_display }} · {% if p.due_date %}{% blocktrans with day=p.due_date|date:"j M Y" %}due {{ day }}{% endblocktrans %}{% else %}{% trans "no due date" %}{% endif %} · {{ p.get_source_display }}{% if p.record %} · <a href="#record-{{ p.record }}">{% trans "its record" %}</a>{% endif %}</span>
       {% if p.can_change %}<form method="post" action="{% url 'reports:local_action_point_status' p.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="next" value="{{ visit.get_absolute_url }}">{% for value, label in local_statuses %}{% if value != p.status %} <button type="submit" name="status" value="{{ value }}" class="btn btn-link btn-sm p-0">{% blocktrans with label=label|lower %}Mark {{ label }}{% endblocktrans %}</button>{% endif %}{% endfor %}</form>{% endif %}
     </li>{% endfor %}</ul>
     {% else %}

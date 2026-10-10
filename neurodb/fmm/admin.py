@@ -44,6 +44,7 @@ from django.template.loader import render_to_string
 from django.urls import path, reverse
 from django.utils import timezone
 from django.utils.formats import date_format
+from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext as _
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.decorators import action
@@ -83,10 +84,8 @@ from .models import (
     ScoreSetting,
     Visit,
     VisitActionPoint,
-    VisitAICheck,
     VisitEntity,
     VisitReview,
-    VisitRuleResult,
     default_urgency_weights,
 )
 
@@ -935,37 +934,6 @@ class AICheckAnswerAdmin(ReadOnlyModelAdmin):
         return f"{obj.input_tokens + obj.output_tokens:,}"
 
 
-@admin.register(VisitAICheck)
-class VisitAICheckAdmin(ReadOnlyModelAdmin):
-    """The AI checks made per visit before records were checked one by one (Release 2): read only by the
-    AI checks job, which carries the verdicts of single-record visits over to the answers kept by
-    record and deletes each check it has dealt with. Read-only."""
-
-    list_display = ("visit_key", "rule", "passed", "model", "tokens", "checked_at")
-    list_filter = ("rule", "passed", "model")
-    search_fields = ("visit_key",)
-    fields = (
-        "visit_key",
-        "rule",
-        "passed",
-        "detail",
-        "model",
-        "input_tokens",
-        "output_tokens",
-        "checked_at",
-        "input_hash",
-        "prompt_hash",
-    )
-    readonly_fields = fields
-
-    def has_delete_permission(self, request, obj=None):
-        return access.is_admin(request.user)
-
-    @admin.display(description=_("tokens"))
-    def tokens(self, obj):
-        return f"{obj.input_tokens + obj.output_tokens:,}"
-
-
 class ScoreSettingForm(_NoteForm):
     urgency_weights = JSONTextField(
         order=tuple(default_urgency_weights()),
@@ -1290,26 +1258,43 @@ class VisitEntityInline(_ReadOnlyInline):
         "urgency",
         "urgency_band",
         "not_scored_reason",
+        "rule_lines",
     )
-    verbose_name_plural = "records (one per entity assessed, each scored on its own)"
+    verbose_name_plural = "records (one per entity assessed, each scored on its own, with its rule results)"
 
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related("pd", "partner")
+        return super().get_queryset(request).select_related("pd", "partner").prefetch_related("rule_results")
+
+    @admin.display(description="rule results (pass, fail, na: not available, nap: does not apply, pending)")
+    def rule_lines(self, obj):
+        """The record's rule results, one per line: the rule, its state, the points kept of its maximum,
+        the detail key and the detail (a rule switched off is left out)."""
+        found = sorted(
+            (r for r in obj.rule_results.all() if r.status != "off"), key=lambda r: rules.code_order(r.rule)
+        )
+        if not found:
+            return "—"
+        return format_html_join(
+            format_html("<br>"),
+            "{} {} {}/{} {} {}",
+            (
+                (
+                    r.rule,
+                    r.status,
+                    r.points,
+                    r.max_points,
+                    f"[{r.detail_key}]" if r.detail_key else "",
+                    r.detail,
+                )
+                for r in found
+            ),
+        )
 
 
 class VisitActionPointInline(_ReadOnlyInline):
     model = VisitActionPoint
     fields = readonly_fields = ("action_point", "matched_by")
     verbose_name_plural = "action points raised from the visit"
-
-
-class VisitRuleResultInline(_ReadOnlyInline):
-    model = VisitRuleResult
-    fields = readonly_fields = ("rule", "status", "points", "max_points", "detail_key", "detail", "measure")
-    verbose_name_plural = (
-        "quality rules over the visit's records (fail: a record failed; pass, na: not available, nap: does "
-        "not apply, off, pending: AI check not done; points: the records' means)"
-    )
 
 
 @admin.register(Visit)
@@ -1330,7 +1315,7 @@ class VisitAdmin(ReadOnlyModelAdmin):
     search_fields = ("key", "reference", "reference_number", "partner__name", "partner__short_name")
     list_select_related = ("partner",)
     view_on_site = False
-    inlines = (VisitRuleResultInline, VisitEntityInline, VisitActionPointInline)
+    inlines = (VisitEntityInline, VisitActionPointInline)
     fieldsets = (
         (
             None,
@@ -2403,7 +2388,7 @@ class PowerBIKeyAdmin(ModelAdmin):
             "row": obj,
             "key": key,
             "script": powerbi.live_script(request),
-            "example": f"{base}{reverse('fmm_powerbi_feed', args=['visits'])}",
+            "example": f"{base}{reverse('fmm_powerbi_feed', args=['records'])}",
             "datasets": exports.DATASETS,
             "per_hour": settings.FMM_POWERBI_REQUESTS_PER_HOUR,
             "list_url": reverse("admin:fmm_powerbikey_changelist"),

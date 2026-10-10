@@ -79,7 +79,6 @@ from .models import (
     Visit,
     VisitActionPoint,
     VisitEntity,
-    VisitRuleResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -411,7 +410,6 @@ def _scores(triggered_by: str, today: date) -> SyncRun:
             fm.update_rows(VisitEntity, changed, ENTITY_SCORE_FIELDS)
             _write_roles(scored.roles)
             update_results(RecordRuleResult, scored.record_results)
-            update_results(VisitRuleResult, scored.results)
     except Exception as exc:
         return fail(sync_run, exc, duration_ms=_ms(clock))
     followed = _action_points(sync_run, today, full=False)
@@ -478,13 +476,11 @@ def _carry_over(book: score.Rulebook, on_error=None) -> dict[str, int]:
     the single-record visits with the verdicts they had, and those verdicts keep counting while the AI
     is switched off or paused (the job does not run then), as the answers kept always do. A failure is
     noted and never stops the refresh (the next pass or the job tries again)."""
-    from .models import VisitAICheck
-
-    if not VisitAICheck.objects.exists():
-        return {}
     from .ai import checks
 
     try:
+        if not checks.legacy_left():
+            return {}
         return checks.carry_over(book)
     except Exception as exc:
         if on_error is not None:
@@ -532,8 +528,8 @@ RESULT_FIELDS = ("rule", "status", "points", "max_points", "detail_key", "detail
 
 
 def _result_columns(model) -> tuple[str, list[str]]:
-    """(the owner field, "entity" or "visit"; the columns of a rule result, the owner's first)."""
-    owner = "entity" if model is RecordRuleResult else "visit"
+    """(the owner field, "entity": the record; the columns of a rule result, the owner's first)."""
+    owner = "entity"
     meta = model._meta
     columns = [meta.get_field(owner).column, *(meta.get_field(name).column for name in RESULT_FIELDS)]
     if {f.column for f in meta.concrete_fields if not f.primary_key} != set(columns):
@@ -542,10 +538,10 @@ def _result_columns(model) -> tuple[str, list[str]]:
 
 
 def copy_results(model, rows: Iterable[score.ResultRow], table: str = "") -> int:
-    """Insert rule results (``RecordRuleResult`` or ``VisitRuleResult``; into ``table`` when given, a
-    table of the same columns) from the scoring's rows (``score.ResultRow``: the record or visit first,
-    saved already) with PostgreSQL's COPY, straight from the rows: no model instance is made for the
-    180,000 results of a large refresh."""
+    """Insert rule results (``RecordRuleResult``; into ``table`` when given, a table of the same columns)
+    from the scoring's rows (``score.ResultRow``: the record first, saved already) with PostgreSQL's
+    COPY, straight from the rows: no model instance is made for the 180,000 results of a large
+    refresh."""
     owner, columns = _result_columns(model)
     if connection.vendor != "postgresql":
         return copy_rows(model, score.result_models(model, owner, rows))
@@ -623,7 +619,6 @@ def _swap(result: build.BuildResult, version: int, scored: score.Scored | None =
         visit.rules_version = version
     with transaction.atomic():
         RecordRuleResult.objects.all().delete()
-        VisitRuleResult.objects.all().delete()
         QuestionAnswer.objects.all().delete()
         VisitActionPoint.objects.all().delete()
         # nothing points at a record any more: they are deleted in one statement, never loaded (Django
@@ -637,7 +632,6 @@ def _swap(result: build.BuildResult, version: int, scored: score.Scored | None =
         VisitActionPoint.objects.bulk_create(result.links, batch_size=BATCH)
         if scored is not None:
             copy_results(RecordRuleResult, scored.record_results)
-            copy_results(VisitRuleResult, scored.results)
         transaction.on_commit(people.forget)  # the team names, read again by the next look-up
     return len(visits)
 
@@ -698,10 +692,10 @@ def _forget_checks(today: date) -> int:
     """The AI check answers no scoring has read for ``ANSWER_DAYS`` (120) days are deleted (an answer in
     use is marked used once a day by ``ai.checks.fresh``), while the AI checks are on: switched off,
     every answer is kept for when they are back. The checks made per visit before records, of visits
-    gone from eTools, are deleted too. Returns the answers deleted."""
-    from .models import VisitAICheck
+    gone from eTools, are deleted too (while that table is left). Returns the answers deleted."""
+    from .ai import checks
 
-    VisitAICheck.objects.exclude(visit_key__in=Visit.objects.values("key")).delete()
+    checks.forget_legacy_gone()
     if not ScoreSetting.load().ai_checks:
         return 0
     cutoff = today - timedelta(days=ANSWER_DAYS)

@@ -73,7 +73,9 @@ def test_without_a_chat_they_cover_this_year_in_the_whole_country(built, in_2026
     from neurodb.fmm import metrics
 
     k = metrics.kpis(ctx.scope)
-    assert summary["visits"] == k["visits"] > 0 and summary["entities"] == k["records"]
+    assert summary["visits"] == k["visits"] > 0 and summary["records"] == k["records"]
+    assert summary["records_rated"] == k["records_rated"] and "entities" not in summary
+    assert summary["high_urgency_records"] == k["high_urgency"]
     assert summary["avg_quality"] == float(k["avg_quality"])
     # the average is per record, over the scored records (as FMS)
     assert (summary["records"], summary["scored_records"]) == (k["records"], k["scored"])
@@ -86,7 +88,7 @@ def test_they_give_no_note_answer_or_snippet_and_no_person(built, in_2026):
     assert all(v["url"].startswith("/fmm/visits/") for v in listed["visits"])
     one = assistant_tools.run("fm_visit", {"visit": "Visit 1722"})
     assert one["key"] == "visit:1722" and one["url"] == "/fmm/visits/1722/"
-    narratives = [e["narrative"] for e in one["entities"]]
+    narratives = [e["narrative"] for e in one["records"]]
     assert narratives and set(narratives) == {tools.NARRATIVES_ELSEWHERE}
     answered = [a for a in one["answers"] if a["answered"]]
     assert answered and {a["answer"] for a in answered} == {tools.ANSWERS_ELSEWHERE}

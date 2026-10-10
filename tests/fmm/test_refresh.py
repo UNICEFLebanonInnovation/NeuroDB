@@ -25,7 +25,6 @@ from neurodb.fmm.models import (
     VisitActionPoint,
     VisitEntity,
     VisitReview,
-    VisitRuleResult,
 )
 from neurodb.integrations import background
 
@@ -252,11 +251,6 @@ def _snapshot() -> dict:
             )
         ),
         "links": sorted(VisitActionPoint.objects.values_list("visit__key", "action_point_id", "matched_by")),
-        "rules": sorted(
-            VisitRuleResult.objects.values_list(
-                "visit__key", "rule", "status", "points", "max_points", "detail_key", "detail", "measure"
-            )
-        ),
     }
 
 
@@ -287,11 +281,10 @@ def test_a_full_refresh_builds_the_visits_with_meaningful_counts(fm_world):
     assert details["rule_results"]["R6"] == {"off": 10, "nap": 2}
     assert details["rule_results"]["R2"] == {"pass": 8, "fail": 2, "nap": 2}
     assert (details["records"], details["records_scored"]) == (12, 10)
-    # a row per record, and one per visit, for each of the 12 rules switched on, none for the 20 off
-    assert (
-        VisitRuleResult.objects.count() == 12 * Visit.objects.count() and "R4" not in details["rule_results"]
-    )
+    # a row per record for each of the 12 rules switched on, none for the 20 off (a visit keeps none of
+    # its own)
     assert RecordRuleResult.objects.count() == 12 * VisitEntity.objects.count()
+    assert "R4" not in details["rule_results"]
     assert set(Visit.objects.values_list("rules_version", flat=True)) == {2}
     assert set(QuestionAnswer.objects.values_list("role", flat=True)) == {"q1", "q2", "q3", "psea", ""}
 
@@ -448,6 +441,16 @@ def test_a_later_day_moves_recency_and_the_signals_with_no_data_change(fm_world)
     assert late["1727"].urgency < early["1727"].urgency
 
 
+def _first_failing(rule: str) -> dict[str, str]:
+    """{visit key: the detail key of ``rule`` on its first failing record, else on its first record}."""
+    out: dict[str, tuple[str, str]] = {}
+    rows = RecordRuleResult.objects.filter(rule=rule).order_by("entity__visit__key", "entity__datamart_id")
+    for key, state, detail_key in rows.values_list("entity__visit__key", "status", "detail_key"):
+        if key not in out or (state == "fail" and out[key][0] != "fail"):
+            out[key] = (state, detail_key)
+    return {key: detail_key for key, (_state, detail_key) in out.items()}
+
+
 def test_a_q1_pattern_change_rescored_updates_q1_psea_r1_and_urgency(fm_world):
     from neurodb.fmm.models import ScoreSetting
 
@@ -458,7 +461,7 @@ def test_a_q1_pattern_change_rescored_updates_q1_psea_r1_and_urgency(fm_world):
         True,
         "constrained",
     )
-    r1 = dict(VisitRuleResult.objects.filter(rule="R1").values_list("visit__key", "detail_key"))
+    r1 = _first_failing("R1")
     assert (r1["1726"], r1["1728"]) == ("missing:3", "missing:0,2,3")  # R1's field 2 is Q1
     setting = ScoreSetting.load()  # Q1 is now the attendance question, and no question is PSEA
     setting.question_patterns = {**setting.question_patterns, "q1": ["attendance registers"], "psea": []}
@@ -468,7 +471,7 @@ def test_a_q1_pattern_change_rescored_updates_q1_psea_r1_and_urgency(fm_world):
     assert after["1722"].hact_q1 == "" and VisitEntity.objects.get(datamart_id=101).hact_q1 == ""
     assert after["1726"].psea_flag is None
     assert after["1728"].hact_q1 == "other"  # its attendance answer is "Yes", not a rating
-    r1 = dict(VisitRuleResult.objects.filter(rule="R1").values_list("visit__key", "detail_key"))
+    r1 = _first_failing("R1")
     assert (r1["1726"], r1["1728"]) == ("missing:2,3", "missing:0,3")  # 1728's attendance answer is its Q1
     # 1727's Q1 was Constrained: no follow-up action point was a signal; without its Q1 it is not
     assert before["1727"].signals == {"no_follow_up": True} and after["1727"].signals == {}
@@ -496,7 +499,7 @@ def test_a_visit_that_cannot_be_scored_is_counted_and_the_others_are_scored(fm_w
             "",
             None,
         )
-        assert not VisitRuleResult.objects.filter(visit=visit).exists()
+        assert not RecordRuleResult.objects.filter(entity__visit=visit).exists()
         assert Visit.objects.exclude(quality_score=None).count() == 5
 
 

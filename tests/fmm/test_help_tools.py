@@ -27,11 +27,27 @@ def test_a_visit_score_is_explained_without_people_or_texts(built, viewer):
     assert out["key"] == visit.key and out["url"] == visit.get_absolute_url()
     assert out["quality_score"] == float(visit.quality_score) and out["band"] == "low"
     assert out["urgency"] == visit.urgency and out["urgency_parts"] == visit.urgency_parts
-    lost = {r["rule"]: r["points_lost"] for r in out["rule_results"] if r["result"] == "flagged"}
-    # a visit's points are its records' means: R3 failed one of 1723's two records, R6 both
-    assert {"R3", "R6"} <= set(lost) and (lost["R3"], lost["R6"]) == (10, 15)
+    # each record scored on its own: R3 failed 1723's partner record, R6 both of its records
+    records = {r["record"]: r for r in out["records"]}
+    assert set(records) == {111, 112} and out["lowest_score"] == min(
+        r["quality_score"] for r in out["records"]
+    )
+    lost = {
+        (n, line["rule"]): line["points_lost"]
+        for n, record in records.items()
+        for line in record["rule_results"]
+        if line["result"] == "flagged"
+    }
+    assert (lost[(112, "R3")], lost[(111, "R6")], lost[(112, "R6")]) == (20, 15, 15) and (
+        111,
+        "R3",
+    ) not in lost
+    for record in records.values():
+        deducted = sum(d["deducted"] for d in record["deductions_by_category"])
+        assert round(100 - deducted, 1) == record["quality_score"]
+    # the visit's deductions are its records' means, and its quality the mean of its records
     assert round(100 - sum(d["deducted"] for d in out["deductions_by_category"]), 1) == out["quality_score"]
-    r3 = next(r for r in out["rule_results"] if r["rule"] == "R3")
+    r3 = next(line for line in records[112]["rule_results"] if line["rule"] == "R3")
     assert r3["ai_check"] and "explanation is on the visit page" in r3["detail"]
 
     blob = json.dumps(out, ensure_ascii=False)

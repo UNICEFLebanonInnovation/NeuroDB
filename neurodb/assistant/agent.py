@@ -87,8 +87,9 @@ linked by partner and programme document. The page tools (programme_details, par
 funds_overview, partner_reporting, assurance_overview) summarise it; for anything else use \
 etools_datasets to find the dataset and its fields, then etools_query to filter, count or add up; \
 etools_search finds where a name or reference appears.
-- Field monitoring visits (eTools: visits, entities, ratings, HACT Q1, report quality, urgency and \
-follow-up) come from fm_summary (counts and groups), fm_visits (lists) and fm_visit (one visit); \
+- Field monitoring visits (eTools: visits and their records, one per entity assessed, each with its own \
+rating, HACT Q1, report quality and urgency; follow-up) come from fm_summary (counts and groups), fm_visits \
+(lists) and fm_visit (one visit); \
 fm_search finds visits whose notes mention a word. They give structured fields only; the visit notes \
 themselves are read in Monitoring insights. fm_action_points counts the eTools action points by status, \
 by the AI's verdict on the completed ones and by PME verification, and the NeuroDB action points (counts \

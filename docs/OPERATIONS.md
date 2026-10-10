@@ -628,8 +628,10 @@ with a link. Every signed-in person but a donor has it. The code is in `neurodb/
   `read_help` (the guide, searched in memory, no database), `list_quality_rules` and `get_quality_rule`
   (the live quality rules, score settings and urgency settings of Monitoring insights; a rule's reference
   lists only as a count, as R19's hold e-mail addresses; an AI rule's instructions only for an
-  Administrator, for that rule), `explain_visit_score` (a visit's score, band, deductions per category,
-  each rule's result and points lost, and urgency's parts: never a narrative, an answer, a team, a
+  Administrator, for that rule), `explain_visit_score` (a visit's score record by record: each record's
+  score, band, deductions per category, each rule's result and points lost, and urgency's parts, the
+  checks read once for the whole visit, then the visit's mean, lowest record and urgency: never a
+  narrative, an answer, a team, a
   monitor, nor an AI check's explanation; the same access as the visit page, nothing while
   `FMM_ENABLED` is off) and `list_jobs` (the scheduled jobs, what each does, its schedule and its last
   run's status and time: never who ran it or its error text). Each look-up runs in a read-only
@@ -777,6 +779,16 @@ with the same texts share one) and `nights_estimate` (the nights that takes at t
 that made checks; 0 when nothing is left), with `checked`, `shared` (records served by an answer made for
 another record with the same texts in that run), `up_to_date`, `carried` and `legacy_checks_left` (see
 *AI checks of the quality rules*, below).
+
+How to read `records_pending` after the change to records (Release 2 step 5): it is high on the first
+morning (every record of a visit with several records waits for its checks; single-record visits keep
+the verdicts carried over) and goes down each night by the checks the budget allows; `nights_estimate`
+says how many nights are left at that pace. While it is above 0 the records it counts are provisional
+(no score, no urgency) and so are their visits, and the page's banner says so. To go faster, raise
+`FMM_RULES_DAILY_TOKEN_CAP` for a few days in the App Service configuration and press *Monitoring
+insights (AI checks)* again: each press uses what is left of the day's budget, then scores again.
+`legacy_checks_left` reads 0 once the checks made per visit before records are all carried over (the
+first refresh after the deployment does it); nothing is to be done when it does.
 
 One database at a time: *Reporting setup* → *Databases*, select them, action *Import structure* or
 *Import data from ActivityInfo* (one background process per database). The daily review and the
@@ -1564,7 +1576,8 @@ lists** (rule R19), **AI check answers** (kept by what each record sent; the che
 records were are carried over once), **Prompt versions** and
 **Sampling checks** (the AI's prompts and what the model accepted), **AI briefs** (every brief written,
 or why none was), **Chat questions** (every chat question, with what its check found), **Visits** (the
-visits built, with their rule results, for checking the data) and **Visit reviews**; and for the
+visits built, with their records and each record's score and rule results, for checking the data) and
+**Visit reviews**; and for the
 action points page **Action point settings**, **AI reviews of action points**, **Action point
 verifications**, **AI content summaries** and **NeuroDB action points** (see *Action points*).
 
@@ -2086,7 +2099,8 @@ found*):
    starts (see *Rules of this page* above): the question roles, HACT Q1, the PSEA flag, the quality
    rules (with the AI checks' answers kept for each record's inputs), the score, its band and flags, and
    urgency. Each visit keeps the rules version it was scored with;
-6. writes the keys, the visits, their records and the rule results together in one transaction: the
+6. writes the keys, the visits, their records and the records' rule results (a visit has none of its
+   own: R19, read once per visit, is kept on each of its records) together in one transaction: the
    pages see the old visits until it commits, a visit keeps its id while its key stays, and the visit
    reviews are never touched. The visits and rule results go through a temporary table where the
    database user may create one (PostgreSQL allows it by default; otherwise the same rows are written
@@ -2329,12 +2343,21 @@ action points), R8 (problems without action points) and R32 (key challenges with
   single record, a verdict still up to date against what the visit sent then becomes that record's answer
   (*carried* in *AI check answers*); a visit with several records inherits nothing (a verdict on merged
   texts cannot be given to one record), so its records are provisional until they are checked, and they
-  come first in the job's order. Each visit check dealt with is deleted; `carried` and
-  `legacy_checks_left` in the AI checks run details, and `ai_checks_carried` in the refresh's, say how
-  many (the checks of a rule switched off are kept for when it is back on). Once the
+  come first in the job's order. A check is carried over for every AI rule whose instructions the
+  published prompt version holds, switched on or not (a rule switched off finds its answers when it is
+  switched on again; unused, they go after 120 days like any answer). Each visit check dealt with is
+  deleted, so one pass deals with them all; `carried` and `legacy_checks_left` in the AI checks run
+  details, and `ai_checks_carried` in the refresh's, say how many. Once the
   checks are up to date, *Score settings → Re-check carried answers* deletes up to 500 carried answers,
   the oldest first, so the next runs check those records properly while the budget allows; press it
   again for the next batch.
+- **The clean-up of the change to records.** The visits' own rule results (derived from their records'
+  while the pages moved to records) are dropped by the deployment's migration: every page, export and
+  look-up reads the records'. The checks made per visit are dropped by the same migration when none is
+  left (a new database); on a database that still has some at the deployment, their table is kept for
+  the carry-over above and dropped by a migration of a later release, once `legacy_checks_left` reads 0
+  in the AI checks run details (developers: check it before shipping that migration). Nothing is run by
+  hand.
 - **Back-fill after the change to records.** The deployment asks for a full refresh and records a new
   rules version ("Scores per record"), so every visit reads "recomputing with rules vN" until it is
   rescored: the morning refresh (05:25) or *Run a job → Monitoring insights* does it, carrying the
@@ -2361,10 +2384,14 @@ action points), R8 (problems without action points) and R32 (key challenges with
 
 Under the brief on the Insights tab, staff ask questions about the visits **of the page's filter**
 ("Which visits were off track and why?"). ChatGPT answers with four look-ups of Monitoring insights
-and nothing else: `fm_summary` (counts, optionally by section, governorate, office, partner, month,
-rating, rule, entity type or status), `fm_visits` (visit cards), `fm_visit` (one visit: its entities
-and their notes, rule results, urgency, action points, HACT context and checklist answers) and
-`fm_search` (visits whose notes or answers hold a word, with a snippet).
+and nothing else: `fm_summary` (counts of visits and records, optionally by section, governorate,
+office, partner, month, rating, rule, entity type or status: each group gives its records, their visits
+and their average quality per record), `fm_visits` (visit cards, each with its records: entity, type,
+rating, score, band, urgency and flags), `fm_visit` (one visit: its records with their notes, scores,
+urgency and rule results, the checks of the whole visit, action points, HACT context and checklist
+answers) and `fm_search` (visits whose notes or answers hold a word, with a snippet). As on the page, a
+visit holds one record per entity assessed, each scored on its own; the look-ups and the tool
+descriptions say "records" for those and "visits" for distinct visits.
 
 - **The filter is fixed by the page.** Each look-up runs within the filter the question was asked
   from; the model can narrow it (one section, a governorate, a partner, a period) but never widen it,
@@ -2514,34 +2541,52 @@ and nothing is written. Every figure comes from the functions that draw the page
 | *Power BI package* | `monitoring-insights-powerbi-YYYY-MM-DD.zip` (`/fmm/export-powerbi.zip`): CSV files and a Power Query script. |
 | *Power BI live connection…* | Administrators only: the admin's *Power BI keys* (below). |
 
-**The Excel workbook** has eight sheets, numbers as numbers and dates as dates:
+**The Excel workbook** has nine sheets, numbers as numbers and dates as dates:
 
 - *About*: the filter in words, *Data as of* (the last refresh), how visits are dated (start date, else
-  end date), the visit counts and what the columns
+  end date), what a record and a visit are, the visit and record counts and what the columns
   mean (quality score, bands High ≥ 80 and Medium ≥ 50 as set in Score settings, the urgency formula
   and its weights, *Not monitored*), the columns left out and the privacy note.
+- *Records* (Release 2 step 5): one row per record (an entity assessed in a visit), as FMS's own export,
+  with the column names of FMS's FMM output (§13.2): `id` is `e<record id>` (the eTools finding's id) and
+  `visit_id` the visit's id on the *Visits* sheet; `entity`, `entity_type`, `vendor_number` and
+  `programme_documents` are the record's own (its partner's full name, its CP output or its PD number),
+  and so are `overall_finding_rating`, `quality_score`, `quality_status`, `urgency`, `quality_flags`, the
+  category scores, `_ai_used`, the narrative and the HACT Q1-Q3 answers (written on its row, else the
+  checklist answer given for that record, for its partner, then for the whole visit); the place is its
+  own when eTools gave one (its location, else its P-code), else its visit's; the dates, status,
+  modality, sections, field offices, programme areas, governorate, district and the action point
+  columns are its visit's, repeated on each of its records as FMS does. `neurodb_url` opens the record
+  on its visit's page (`#record-<id>`).
 - *Visits*: one row per visit with the column names of FMS's FMM output (§13.2), so FMS's Power BI
   reports and formulas fit: `id` (the visit key), `country_name` (`FMM_COUNTRY_NAME`), the eTools ids,
   dates, partner (`entity`, `vendor_number`), entity types, programme documents, field offices,
   sections and programme areas (several values separated by `;`), `overall_finding_rating` as the page
   counts it (*Not monitored* only for a reported visit with nothing rated; *Not rated yet* for a planned
   or in-progress visit; blank for a cancelled one), status, modality, `quality_score`, `quality_status`
-  (High, Medium, Low or Skipped), `urgency`, `quality_flags`, one score per category (`completeness_score`,
+  (High, Medium, Low or Skipped), `urgency`, `quality_flags`, then `lowest_score`, `records` and
+  `records_scored` (added in Release 2 step 5), one score per category (`completeness_score`,
   `_evidence_score`…: the points the visit kept of the category's weight), the place (name, latitude,
   longitude, type, P-code, governorate, district), the narratives and the HACT Q1-Q3 answers (cleaned,
   at most 32,000 characters), the action points (count, open, overdue, their descriptions cleaned and
   their due dates, and `action_points_assigned`, a **count**), `_ai_used` (an AI check of the quality
-  rules was applied) and `neurodb_url` (absolute when `SITE_URL` is set).
-- *Rule results*: one row per visit and rule: passed, flagged, not checked (the data is missing or the
-  AI check is pending) or skipped (does not apply, or switched off), the points lost and whether an AI
-  check gave it. The detail is given only for rules whose detail NeuroDB writes itself (an AI check's
+  rules was applied) and `neurodb_url` (absolute when `SITE_URL` is set). Since Release 2 step 5 its
+  figures come from its records: `quality_score` is the mean of its scored records, `lowest_score` its
+  lowest, `overall_finding_rating` its worst record's, `urgency` its most urgent record's, `quality_flags`
+  and the category scores its records' (union, means); the narratives and answers are its records',
+  joined. Its columns are those of before, so a report built on it keeps working, at visit grain.
+- *Rule results*: one row per record and rule (`record_id`, `visit_id`): passed, flagged, not checked (the
+  data is missing or the AI check is pending) or skipped (does not apply, or switched off), the points
+  the record lost and whether an AI check gave it; R19, read once per visit, is on each of its records
+  as it counts. The detail is given only for rules whose detail NeuroDB writes itself (an AI check's
   explanation may quote a narrative, and the flag of a "text contains" check writes the text it read, so
   both are left out).
-- *Partners*, *Field offices*, *Sections*: visits, rated visits, On track / Constrained / Off track
-  (counts and shares of the rated visits), average quality and bands, visits flagged and flags, and the
-  open action points of the visits. A visit counts in each of its partners, offices and sections, as on
-  the page.
-- *Flags*: the visits each rule flagged out of those it checked (the flag frequency chart).
+- *Partners*, *Field offices*, *Sections*: records and their visits, rated records, On track /
+  Constrained / Off track (counts and shares of the rated records), average quality per record and
+  bands, visits and records flagged and flags, and the open action points of the visits. A record counts
+  under its own partner and in each of its visit's offices and sections, as on the page.
+- *Flags*: the records each rule flagged out of those it checked (`flagged_records`,
+  `evaluated_records`: the flag frequency chart).
 - *Action points*: the field monitoring action points linked to the visits: reference, description
   (cleaned), partner, section, office, priority, due date, status, visits, link confidence, AI verdict and
   PME verification. Never who it is assigned to.
@@ -2551,8 +2596,8 @@ monitor's e-mail address or who an action point is assigned to (`action_points_a
 written; `action_points_assigned` is a count). Narratives, HACT answers and action point descriptions
 are cleaned of the person names NeuroDB knows (read afresh for every file), e-mail addresses, links,
 phone numbers and names written after a title, as for the AI (`fmm.privacy.clean`). Large filters are
-read 500 visits at a time, a fixed number of queries per 500 visits, so a large filter costs time in
-proportion to its visits and never one query per visit.
+read 500 records or visits at a time, a fixed number of queries per 500, so a large filter costs time in
+proportion to its rows and never one query per row.
 
 **The PDF report** follows the "LCO – FMM Analysis" layout: the period, the filters and *Data as of*;
 the key figures and the morning briefing; the AI brief of the filter with its parts (or, without one,
@@ -2563,31 +2608,41 @@ priority, NeuroDB's, visits without follow-up, open by section); and the method.
 a width that fits A4 portrait and no block is split across pages. The print dialog opens by itself once
 the charts are drawn; *Print or save as PDF* opens it again.
 
-**The Power BI package** holds `data/visits.csv`, `data/rule_results.csv`, `data/action_points.csv` and
-`data/partners.csv` (the workbook's columns; UTF-8 with a byte-order mark, ISO dates, `.` decimals),
-`NeuroDB_monitoring.pq` (a Power Query script that loads the four files with their types, and splits the
-`;` columns into `visit_sections`, `visit_offices` and `visit_flags`) and `README.txt` (the steps below and
-FMS §13.3's visuals adapted to these columns). There is no `.pbit` template: a template cannot be built
-or tested without Power BI, and the script stands in its place. In Power BI Desktop:
+**The Power BI package** holds `data/records.csv`, `data/visits.csv`, `data/rule_results.csv`,
+`data/action_points.csv` and `data/partners.csv` (the workbook's columns; UTF-8 with a byte-order mark,
+ISO dates, `.` decimals), `NeuroDB_monitoring.pq` (a Power Query script that loads the five files with
+their types, the records first, and splits the records' `;` columns into `record_sections`,
+`record_offices` and `record_flags`) and `README.txt` (the steps below, FMS §13.3's visuals on the records
+table, and a "Changed in this release: records" note). **Since Release 2 step 5** `records.csv` is the
+table that gives FMS's figures (one row per record, as FMS's export); `visits.csv` keeps its columns (plus
+`lowest_score`, `records` and `records_scored`) at visit grain, so a report built on it, and its own
+script, keep refreshing; `rule_results.csv` is one row per record and rule, with `record_id` (its
+`visit_id` stays); `partners.csv` gains `records` and `flagged_records`. Anyone who wants FMS's figures
+switches the report to `records`. There is no `.pbit` template: a template cannot be built or tested
+without Power BI, and the script stands in its place. In Power BI Desktop:
 
 1. Unzip the package into a folder, keeping its `data` folder (for example
    `C:\NeuroDB\monitoring-insights\`).
 2. *Get data → Blank query*, then *Advanced editor*; paste the whole of `NeuroDB_monitoring.pq`.
 3. Set `RootFolder` in its first lines to that folder (ending with `\`) and click *Done*.
-4. The query shows seven tables: right-click each → *Add as new query*, then switch off loading of the
-   first query; *Close & Apply*. Join `visits[id]` to the `visit_id` of the other tables.
+4. The query shows eight tables: right-click each → *Add as new query*, then switch off loading of the
+   first query; *Close & Apply*. Join `visits[id]` to `records[visit_id]`, and `records[id]` to the
+   `record_id` of `rule_results`, `record_sections`, `record_offices` and `record_flags` (cross filter
+   *Both* for the last three, so their slicers filter the records).
 5. *File → Save as* `.pbix`. To refresh: download a new package, unzip it into the same folder, *Refresh*.
 
 **Power BI live connection** (FMS "Connect Live", for scheduled refresh in Power BI Service). The feed
-`/powerbi/fmm/<table>.csv` (`visits`, `rule_results`, `action_points`, `partners`) serves the same tables
-over **every** visit (no person's section is applied), narrowed by `?year=2026` or `?since=2026-01-01`
-(visits dated from that day: their start date, else their end date). It is read with a key, never with a sign-in:
+`/powerbi/fmm/<table>.csv` (`records`, `visits`, `rule_results`, `action_points`, `partners`) serves the
+same tables over **every** visit (no person's section is applied), narrowed by `?year=2026` or
+`?since=2026-01-01` (visits dated from that day: their start date, else their end date; a record follows
+its visit). A report connected before Release 2 step 5 keeps reading `visits.csv` with its own script.
+It is read with a key, never with a sign-in:
 
 1. Admin → *Monitoring insights* → *Power BI keys* → *Add*: give the key a name (what it is for, e.g. the
    workspace) and save. The next page shows the key **once** (NeuroDB keeps only its SHA-256 hash and its
    first eight characters) and the ready-to-paste Power Query script with this site's address. Copy both.
 2. Power BI Desktop: *Get data → Blank query → Advanced editor*, paste the script, *Done*. When asked how
-   to connect, choose **Web API** and paste the key. Add the seven tables as queries as above.
+   to connect, choose **Web API** and paste the key. Add the eight tables as queries as above.
 3. Publish to the workspace; in the dataset's settings enter the key again under *Data source
    credentials* (Web API), then switch on *Scheduled refresh*.
 
@@ -2626,8 +2681,8 @@ Nothing goes while `FMM_AI` is off. Once it is on, the brief and the chat send:
 | Sent to OpenAI (briefs and chat) | Never sent |
 |---|---|
 | The period and filter (dates, section, governorate and office names) | The visit lead, team members and monitors (names or e-mail addresses), from any source |
-| Figures: visits, entities, rated and not monitored, rating counts, quality averages and bands, rule results, shares worked out by NeuroDB | E-mail addresses, phone numbers and links, also removed from inside every text |
-| Up to `comp` quality flags (rule, reason, visits); the 15 most urgent visits and the flags' example visits as cards (dates, partner, PD reference, place, sections, rating with its date, HACT Q1, quality, flags, urgency, action point counts) | Action point assignees, PD focal points, partner staff, eTools user ids |
+| Figures: visits and records, rated and not monitored, rating counts, quality averages per record and bands, rule results (records flagged), shares worked out by NeuroDB | E-mail addresses, phone numbers and links, also removed from inside every text |
+| Up to `comp` quality flags (rule, reason, records and visits); the visits of the 15 most urgent records and the flags' example visits as cards (dates, partner, PD reference, place, sections, rating with its date, HACT Q1, quality: the mean of its records, flags, urgency: its most urgent record's, action point counts); in the chat, a visit's records (entity, type, rating, score, urgency, flags, rule results) | Action point assignees, PD focal points, partner staff, eTools user ids |
 | Up to `narr` texts per brief or per chat answer (monitors' notes, checklist answers, search snippets), each cleaned and cut to `FMM_NARRATIVE_CHARS` (600) | The finding records as eTools holds them, raw answers, attachments, coordinates (only place names go) |
 | A keyed hash of the person (`safety_identifier`) on runs a person starts; `store=False` always | Child-level or Makani data; the user's name, e-mail address or id |
 | Within one chat conversation only: its last 6 questions and checked answers, cleaned again, at most 1,500 characters each | Earlier briefs; answers of other conversations or other filters |

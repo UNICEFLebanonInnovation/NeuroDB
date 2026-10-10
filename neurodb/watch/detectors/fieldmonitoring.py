@@ -2,9 +2,11 @@
 
 - ``fm_follow_up``: a field monitoring visit of Monitoring insights (``fmm.Visit``) that was reported
   (status submitted or completed), whose worse of its overall rating and its HACT Q1 answer is off track
-  or constrained, that ended between ``ScoreSetting.follow_up_days`` (14) and 120 days ago, and that no
-  eTools action point is linked to, nor a NeuroDB action point follows up (one added by hand and not
-  dropped, or one NeuroDB made that someone marked done: ``fmm.action_points.followed_up_q``). Warning;
+  or constrained (both the visit's: its worst record's, so one record off track is enough; the follow-up
+  stays per visit, as its action points are), that ended between ``ScoreSetting.follow_up_days`` (14)
+  and 120 days ago, and that no eTools action point is linked to, nor a NeuroDB action point follows up
+  (one added by hand and not dropped, or one NeuroDB made that someone marked done:
+  ``fmm.action_points.followed_up_q``). Warning;
   critical when off track and ended more than 30 days ago. Told to the sections of the visit (its eTools
   section names). It closes once an action point is linked to the visit or a NeuroDB one follows it up,
   or when its rating (and Q1) no longer say off track or constrained.

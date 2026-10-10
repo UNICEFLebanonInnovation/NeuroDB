@@ -1,13 +1,16 @@
 """The facts of an AI monitoring brief: what is sent, built by code from the stored visits of a filter.
 
 :func:`build` gathers, for one :class:`~neurodb.fmm.scope.Scope`, the figures the page shows (the key
-figures with the rating distribution over the rated visits, the previous period, the quality rules,
-the breakdowns per section, field office, partner, modality and governorate, each counting records with
-their visits as the page does, follow-up and HACT); the ``comp`` most frequent quality flags (the
-compliance depth: rule, records, visits, example visits); the cards of the most urgent visits and of
-the flags' examples (structured, never a narrative); and up to ``narr`` monitors' notes with their Q1,
-Q2 and Q3 answers, each cleaned (``privacy.clean``). Every share of ratings is over the rated visits
-(in the breakdowns, the rated records) only; Not monitored (planned, not conducted) is a count apart. Every
+figures: the visits with their rating distribution over the rated visits, and the records, each scored,
+rated, flagged and given an urgency on its own as in FMS, with the average quality per record; the
+previous period; the quality rules, counting the records each flagged; the breakdowns per section, field
+office, partner, modality and governorate, each counting records with their visits as the page does;
+follow-up and HACT); the ``comp`` most frequent quality flags (the compliance depth: rule, records,
+visits, example visits); the cards of the visits of the most urgent records and of the flags' examples
+(structured, never a narrative); and up to ``narr`` monitors' notes (one record's narrative each) with
+their Q1, Q2 and Q3 answers, each cleaned (``privacy.clean``). Every share of ratings is over the rated
+visits (for the records, the rated records) only; Not monitored (planned, not conducted) is a count
+apart. Every
 entry carries a ``key`` the brief's sentences cite, and :attr:`Facts.citable` maps each key to its
 entry, so that every number and date of a kept sentence can be checked against the entries it cites.
 
@@ -53,6 +56,9 @@ from ..scope import (
 from . import prompts
 
 RATED = ("on_track", "constrained", "off_track")
+# what the facts are made of: part of every brief's input hash, so a change to what is sent (2: the
+# records' figures, Release 2 step 5) writes every brief again at its next request
+FACTS_VERSION = 2
 NARRATIVE_MIN_CHARS = 40  # a shorter note says too little to be worth a place among the few sent
 NARRATIVE_MAX_PLACEHOLDERS = 3  # a note with more names, contacts or links removed is never sent
 TEXT_BATCH = 200  # narratives read from the findings at once
@@ -189,16 +195,19 @@ def _scope_entry(scope: Scope, names_: frozenset[str]) -> dict[str, Any]:
 
 # ------------------------------------------------------------------------------------------ figures
 def _kpi(scope: Scope, when: str, limits: dict[str, int]) -> dict[str, Any]:
-    """The key figures. Every share of ratings is over the rated visits (or entities) only; "Not
-    monitored" (planned, not conducted) is a count apart, never a share of all visits."""
+    """The key figures: the visits (each once, under its worst record's rating) and the records (each
+    under its own rating, scored and given an urgency on its own, as in FMS): the average quality is the
+    records', and the low-quality and high-urgency figures count records. Every share of ratings is over
+    the rated visits (or records) only; "Not monitored" (planned, not conducted) is a count apart, never
+    a share of all visits."""
     k = metrics.kpis(scope, when, limits)
     data = metrics.summary(scope, when, limits)
     covered = metrics.coverage(scope, when, limits)
     groups = {row["group"]: row["n"] for row in k["by_status"]}
-    # each visit under its own rating (its worst record's); the records' ratings are the entities' below
+    # each visit under its own rating (its worst record's); each record under its own below (records_...)
     by_rating = {code: data["visit_ratings"][code] for code in RATED}
     rated = sum(by_rating.values())
-    entity_ratings = k["record_ratings"]
+    record_ratings = k["record_ratings"]
     out = {
         "key": "kpi",
         "visits": k["visits"],
@@ -218,24 +227,24 @@ def _kpi(scope: Scope, when: str, limits: dict[str, int]) -> dict[str, Any]:
     )
     out.update(
         {
-            "entities": k["records"],
-            "entities_rated": k["records_rated"],
-            "entities_not_monitored": k["records_not_monitored"],
-            "entities_not_rated_yet": k["records_not_rated_yet"],
+            "records": k["records"],
+            "records_rated": k["records_rated"],
+            "records_not_monitored": k["records_not_monitored"],
+            "records_not_rated_yet": k["records_not_rated_yet"],
         }
     )
     for code in RATED:
-        out[f"entities_{code}"] = entity_ratings[code]
-        out[f"entities_{code}_share_of_rated"] = _share(entity_ratings[code], k["records_rated"])
+        out[f"records_{code}"] = record_ratings[code]
+        out[f"records_{code}_share_of_rated"] = _share(record_ratings[code], k["records_rated"])
     out.update(
         {
             # per record, as FMS: the mean of the scored records (each scored on its own)
-            "records": k["records"],
             "avg_quality": _num(k["avg_quality"]),
             "scored_records": k["scored"],
-            "scored_visits": k["scored_visits"],
-            "high_urgency": k["high_urgency"],  # records at or above red
-            "amber_urgency": k["amber"],
+            "scored_visits": k["scored_visits"],  # the visits whose records are all scored
+            "low_quality_records": data["bands"]["low"],  # scored below the Medium band
+            "high_urgency_records": k["high_urgency"],  # at or above red
+            "amber_urgency_records": k["amber"],
             "psea_flagged_visits": data["psea_flagged"],
             "governorates_covered": covered["covered"],
             "governorates_total": covered["total"],
@@ -505,11 +514,13 @@ def _hact(scope: Scope, when: str, limits: dict[str, int]) -> dict[str, Any] | N
 RECORDS_NOTE = (
     "A visit holds one record per entity assessed (partner, CP output or PD/SSFA), each scored, flagged "
     "and given an urgency on its own, as in FMS. The average quality is the mean of the scored records; "
-    "high and amber urgency count records; a rule's flagged and evaluated counts are records. Sections, "
-    "field offices, partners, modalities and governorates count records too (their ratings, shares and "
-    "average quality are the records' own), with the distinct visits of those records. The rated, on "
-    "track, constrained, off track and Not monitored visits of the key figures count each visit once, "
-    "under its worst record's rating."
+    "low quality, high and amber urgency count records; a rule's flagged and evaluated counts are "
+    "records, and so are a quality flag's (with the distinct visits of those records). Sections, field "
+    "offices, partners, modalities and governorates count records too (their ratings, shares and average "
+    "quality are the records' own), with the distinct visits of those records. The rated, on track, "
+    "constrained, off track and Not monitored visits of the key figures count each visit once, under its "
+    "worst record's rating; the records_ figures count each record under its own. A visit card's "
+    "quality is the mean of its records and its urgency its most urgent record's."
 )
 
 
@@ -536,6 +547,7 @@ def _notes(scope: Scope, kpi: dict[str, Any], when: str) -> list[str]:
 
 # ------------------------------------------------------------------------------------------ visits
 CARD_COLUMNS = ("pk", "key", "urgency", "visit_date", "section_names", "rating", "hact_q1")
+CONCERN = ("off_track", "constrained")
 
 
 def _pick(
@@ -570,22 +582,42 @@ def _newest(row: dict[str, Any]) -> tuple:
     return (-row["visit_date"].toordinal(), row["key"])
 
 
+def _card_rows(scope: Scope) -> list[dict[str, Any]]:
+    """The visits of the scope, each with its most urgent record's urgency (a visit's own urgency is its
+    most urgent record's; a provisional visit, another of whose records waits for its AI checks, has none
+    of its own: its scored records' are read) and its worst record's rating and Q1."""
+    rows = [dict(zip(CARD_COLUMNS, row, strict=True)) for row in scope.visits().values_list(*CARD_COLUMNS)]
+    waiting = dict(
+        scope.records()
+        .filter(visit__urgency__isnull=True, urgency__isnull=False)
+        .order_by()
+        .values("visit_id")
+        .annotate(top=Max("urgency"))
+        .values_list("visit_id", "top")
+    )
+    for row in rows:
+        if row["urgency"] is None:
+            row["urgency"] = waiting.get(row["pk"])
+        row["concern"] = row["rating"] in CONCERN or row["hact_q1"] in CONCERN
+    return rows
+
+
 def card_order(scope: Scope, limit: int, limits: dict[str, int] | None = None) -> list[int]:
-    """The visits sent in full, in order (pks): every red visit, then amber, then off track or
-    constrained, then the newest; each pass takes at most ⌈limit/3⌉ visits per section, for diversity,
-    and a last pass fills what is left with the newest."""
+    """The visits sent in full, in order (pks), each picked by its most urgent record (and its records'
+    ratings): every visit with a red record, then amber, then with a record off track or constrained,
+    then the newest; each pass takes at most ⌈limit/3⌉ visits per section, for diversity, and a last pass
+    fills what is left with the newest."""
     if limit <= 0:
         return []
     limits = limits or metrics.thresholds()
-    rows = [dict(zip(CARD_COLUMNS, row, strict=True)) for row in scope.visits().values_list(*CARD_COLUMNS)]
+    rows = _card_rows(scope)
     cap = math.ceil(limit / 3)
-    bad = ("off_track", "constrained")
     passes = [
         sorted((r for r in rows if _urgency(r["urgency"]) >= limits["red"]), key=_by_urgency),
         sorted(
             (r for r in rows if limits["amber"] <= _urgency(r["urgency"]) < limits["red"]), key=_by_urgency
         ),
-        sorted((r for r in rows if r["rating"] in bad or r["hact_q1"] in bad), key=_by_urgency),
+        sorted((r for r in rows if r["concern"]), key=_by_urgency),
         sorted(rows, key=_newest),
     ]
     chosen: list[int] = []
@@ -623,8 +655,8 @@ NARRATIVE_COLUMNS = (
     "finding_id",
     "rating",
     "datamart_id",
+    "urgency",
     "visit__key",
-    "visit__urgency",
     "visit__visit_date",
     "visit__end_date",
     "visit__section_names",
@@ -645,9 +677,10 @@ def _round_robin(groups: Iterable[list]) -> list:
 
 
 def narrative_order(scope: Scope, limits: dict[str, int] | None = None) -> list[dict[str, Any]]:
-    """Every finding row of the scope with a narrative, in the order notes are sampled: off-track and
-    constrained entities (most urgent visit first), then the entities of red and amber visits, then
-    round-robin across sections, and within a section across governorates, newest first."""
+    """Every record of the scope with a narrative, in the order notes are sampled: the off-track and
+    constrained records (the most urgent record first, by its own urgency), then the red and amber
+    records, then round-robin across sections, and within a section across governorates, newest
+    first."""
     limits = limits or metrics.thresholds()
     rows = [
         dict(zip(NARRATIVE_COLUMNS, row, strict=True))
@@ -658,7 +691,7 @@ def narrative_order(scope: Scope, limits: dict[str, int] | None = None) -> list[
 
     def urgent(row):
         return (
-            -_urgency(row["visit__urgency"]),
+            -_urgency(row["urgency"]),
             -row["visit__visit_date"].toordinal(),
             row["visit__key"],
             row["datamart_id"],
@@ -670,7 +703,7 @@ def narrative_order(scope: Scope, limits: dict[str, int] | None = None) -> list[
     first = sorted((r for r in rows if r["rating"] in ("off_track", "constrained")), key=urgent)
     used = {id(r) for r in first}
     second = sorted(
-        (r for r in rows if id(r) not in used and _urgency(r["visit__urgency"]) >= limits["amber"]),
+        (r for r in rows if id(r) not in used and _urgency(r["urgency"]) >= limits["amber"]),
         key=urgent,
     )
     used |= {id(r) for r in second}
@@ -807,7 +840,8 @@ def sample_narratives(scope: Scope, limit: int, names_: frozenset[str] | None = 
 # ------------------------------------------------------------------------------------------ the facts
 def input_hash(payload: dict[str, Any], version=None) -> str:
     """sha256 of what decides the answer: the whole prompt, the model, effort, output limit, the
-    sampling asked, the answer format's version and the payload."""
+    sampling asked, the answer format's version, what the facts are made of (``FACTS_VERSION``) and the
+    payload."""
     from . import insights, profiles
 
     parts = [""] * 5
@@ -822,6 +856,7 @@ def input_hash(payload: dict[str, Any], version=None) -> str:
             ),
         ]
     parts.append(str(insights.SCHEMA_VERSION))
+    parts.append(f"facts:{FACTS_VERSION}")
     parts.append(dump(payload))
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()
 

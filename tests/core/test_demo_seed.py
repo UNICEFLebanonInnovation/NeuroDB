@@ -104,7 +104,6 @@ def test_demo_field_monitoring_adds_without_moving_the_rest(monkeypatch):
         "fmm.VisitEntity",
         "fmm.QuestionAnswer",
         "fmm.VisitActionPoint",
-        "fmm.VisitRuleResult",
         "fmm.RecordRuleResult",
         "fmm.AICheckAnswer",  # the demo's AI check answers, written without any AI call
         "fmm.LocalActionPoint",  # the refresh's NeuroDB action points for the Low visits it flags
@@ -143,8 +142,6 @@ def test_demo_field_monitoring_adds_without_moving_the_rest(monkeypatch):
     assert findings.filter(datamart_id__lte=50).exclude(intervention=None).count() == 50
     # ... which scores them: red and amber visits, every rule evaluated somewhere, a reported visit with
     # nothing rated (a monitoring gap) and a PSEA-flagged visit
-    from neurodb.fmm.models import VisitRuleResult
-
     assert refreshed.details["rules_version"] == 2 and refreshed.details["scored"] > 0
     assert (
         Visit.objects.filter(urgency_band="red").exists()
@@ -162,10 +159,10 @@ def test_demo_field_monitoring_adds_without_moving_the_rest(monkeypatch):
     poor = Visit.objects.get(key="75")
     assert poor.records_scored == poor.entities and poor.records_low == poor.entities
     evaluated = set(
-        VisitRuleResult.objects.filter(status__in=("pass", "fail")).values_list("rule", flat=True)
+        RecordRuleResult.objects.filter(status__in=("pass", "fail")).values_list("rule", flat=True)
     )
     assert {"R1", "R2", "R3", "R5", "R6", "R7", "R8", "R32"} <= evaluated
-    assert VisitRuleResult.objects.filter(status="fail").values("rule").distinct().count() >= 5
+    assert RecordRuleResult.objects.filter(status="fail").values("rule").distinct().count() >= 5
     assert Visit.objects.get(key="75").urgency_band == "red"
     assert not Visit.objects.filter(ai_pending__gt=0).exists()
     assert Visit.objects.filter(status_group="reported", entities_rated=0).exists()

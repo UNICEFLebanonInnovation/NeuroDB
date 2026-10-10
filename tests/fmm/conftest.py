@@ -559,6 +559,58 @@ def built(fm_world, monkeypatch):
     return run
 
 
+@pytest.fixture
+def legacy_checks_table(db):
+    """The table of the AI checks made per visit before records (``VisitAICheck``): the clean-up migration
+    of Release 2 step 5 drops it on a database where none is left (as the test database is), and keeps it
+    where some are, for the carry-over. Made here for a test of the carry-over (in the test's transaction:
+    rolled back with it)."""
+    from django.db import connection
+
+    from neurodb.fmm.ai import checks
+    from neurodb.fmm.models import VisitAICheck
+
+    if not checks.legacy_table():
+        with connection.schema_editor() as editor:
+            editor.create_model(VisitAICheck)
+    yield VisitAICheck
+
+
+def visit_rule_results(key: str) -> dict:
+    """{rule: the record's result that speaks for the visit ``key``} (a visit keeps no rule results of its
+    own): its first failing record's, else its first passing record's, else its first record's in the
+    most common state (as :func:`rule_states` reads them)."""
+    from neurodb.fmm.models import RecordRuleResult
+
+    rows = RecordRuleResult.objects.filter(entity__visit__key=key).order_by("entity__datamart_id", "rule")
+    by_rule: dict[str, list] = {}
+    for row in rows:
+        by_rule.setdefault(row.rule, []).append(row)
+    states = rule_states(key)
+    return {rule: next(r for r in found if r.status == states[rule]) for rule, found in by_rule.items()}
+
+
+def rule_states(key: str) -> dict[str, str]:
+    """{rule: state} of the visit ``key`` from its records' rule results, as the pages read a rule over a
+    visit: failed when a record failed it, else passed when one passed it, else the most common state."""
+    from collections import Counter
+
+    from neurodb.fmm.models import RecordRuleResult
+
+    found: dict[str, list[str]] = {}
+    for rule, status in RecordRuleResult.objects.filter(entity__visit__key=key).values_list("rule", "status"):
+        found.setdefault(rule, []).append(status)
+    out = {}
+    for rule, states in found.items():
+        if "fail" in states:
+            out[rule] = "fail"
+        elif "pass" in states:
+            out[rule] = "pass"
+        else:
+            out[rule] = Counter(states).most_common(1)[0][0]
+    return out
+
+
 # ------------------------------------------------------------------------------------------ shapes
 def _shape_a(n: int, question: tuple[int, str], answer, summary="") -> dict:
     question_id, text = question

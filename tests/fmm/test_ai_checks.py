@@ -33,10 +33,9 @@ from neurodb.fmm.models import (
     Visit,
     VisitAICheck,
     VisitEntity,
-    VisitRuleResult,
 )
 
-from .conftest import CANARIES, LEAD, PD_BASE, PD_EDU, SSFA, FakeChecks
+from .conftest import CANARIES, LEAD, PD_BASE, PD_EDU, SSFA, FakeChecks, rule_states
 
 pytestmark = pytest.mark.django_db
 TODAY = datetime.date(2026, 10, 5)
@@ -99,7 +98,7 @@ def test_while_checks_are_pending_a_visit_is_provisional_and_not_scored(built, a
     assert (visit.quality_score, visit.urgency, visit.ai_pending) == (None, None, pending)
     assert visit.provisional_score is not None
     assert visit.not_scored_reason == f"provisional: {pending} AI checks pending"
-    statuses = dict(VisitRuleResult.objects.filter(visit=visit).values_list("rule", "status"))
+    statuses = rule_states(visit.key)
     assert {statuses[code] for code in AI_RULES} == {"pending"}
     assert Visit.objects.filter(quality_score__isnull=False).count() == 0  # never full marks meanwhile
     assert VisitEntity.objects.filter(quality_score__isnull=False).count() == 0
@@ -110,7 +109,7 @@ def test_while_checks_are_pending_a_visit_is_provisional_and_not_scored(built, a
 def test_with_the_ai_off_the_ai_rules_are_off_and_the_scores_final(built):
     visit = Visit.objects.get(key="1722")
     assert visit.quality_score is not None and visit.ai_pending == 0
-    statuses = dict(VisitRuleResult.objects.filter(visit=visit).values_list("rule", "status"))
+    statuses = rule_states(visit.key)
     assert {statuses[code] for code in AI_RULES} == {"off"}
 
 
@@ -182,8 +181,8 @@ def test_a_flag_carries_the_ai_explanation_cleaned_and_checked(built, ai_on, fak
         r6.detail
         == "R6: General Observation is incoherent, duplicates Q2, or does not address visit objective"
     )
-    # the visit's own result names the record that failed it first
-    assert VisitRuleResult.objects.get(visit__key="1722", rule="R3").detail.startswith("(PD/SSFA) R3: ")
+    # a visit has no rule results of its own: its records' are read
+    assert rule_states("1722")["R3"] == "fail"
     visit = Visit.objects.get(key="1722")
     assert {"R3", "R6"} <= set(visit.flags)
     assert visit.category_deductions["evidence"] == 20.0 and visit.category_deductions["coherence"] == 15.0
@@ -356,8 +355,10 @@ def test_the_command_and_its_button_and_schedule(built, ai_on, fake):
     assert (job.command, job.schedule, job.enabled) == ("fmm_ai_checks", "50 5 * * *", True)
 
 
-def test_the_checks_made_per_visit_of_a_visit_gone_from_etools_are_deleted(built, ai_on, fake):
-    # a visit gone and one with several records: dropped; a single record's rule switched off (R9): kept
+def test_the_checks_made_per_visit_of_a_visit_gone_from_etools_are_deleted(
+    built, ai_on, fake, legacy_checks_table
+):
+    # a visit gone, one with several records and a rule no prompt reads (R9): all dropped in one pass
     for key, rule in (("gone", "R3"), ("1722", "R3"), ("1727", "R9")):
         VisitAICheck.objects.create(
             visit_key=key,
@@ -369,8 +370,8 @@ def test_the_checks_made_per_visit_of_a_visit_gone_from_etools_are_deleted(built
         )
     run = refresh.run(triggered_by="test", today=TODAY)
     assert run.status == "succeeded"
-    assert run.details["ai_checks_carried"] == {"carried": 0, "dropped": 2, "left": 1}
-    assert list(VisitAICheck.objects.values_list("visit_key", flat=True)) == ["1727"]
+    assert run.details["ai_checks_carried"] == {"carried": 0, "dropped": 3, "left": 0}
+    assert not VisitAICheck.objects.exists() and checks.legacy_left() == 0
 
 
 def test_the_visit_page_shows_a_provisional_score_and_its_pending_checks(built, ai_on, fake, client_viewer):
@@ -459,7 +460,7 @@ def test_the_legacy_payload_is_what_a_visit_check_sent(built, ai_on):
     assert checks.legacy_prompt_hash(book.rules["R3"], "x") != checks.prompt_hash(book.rules["R3"], "x")
 
 
-def test_the_checks_of_single_record_visits_are_carried_over_once(built, ai_on, fake):
+def test_the_checks_of_single_record_visits_are_carried_over_once(built, ai_on, fake, legacy_checks_table):
     book = score.Rulebook.load()
     _legacy_checks(book, ["1722", "1726", "1727", "1728", "r-e4e046b73e2c"])
     stale = VisitAICheck.objects.get(visit_key="1728", rule="R7")
@@ -486,7 +487,7 @@ def test_the_checks_of_single_record_visits_are_carried_over_once(built, ai_on, 
     assert (Visit.objects.get(key="1726").ai_pending, Visit.objects.get(key="1722").ai_pending) == (0, 18)
 
 
-def test_the_refresh_carries_the_visit_checks_over_before_it_scores(built, ai_on):
+def test_the_refresh_carries_the_visit_checks_over_before_it_scores(built, ai_on, legacy_checks_table):
     """The deployment: the first refresh (before any AI checks run) scores the single-record visits with
     the verdicts they had, instead of leaving every scored visit without a score until the job runs."""
     _legacy_checks(score.Rulebook.load(), ["1722", "1727", "1728"], passed=False)
@@ -502,7 +503,7 @@ def test_the_refresh_carries_the_visit_checks_over_before_it_scores(built, ai_on
     assert not VisitAICheck.objects.exists()
 
 
-def test_with_the_ai_off_the_visit_checks_still_count(built):
+def test_with_the_ai_off_the_visit_checks_still_count(built, legacy_checks_table):
     """The AI checks job does not run while the AI is off: the refresh carries the verdicts over, so a
     pause never moves the scores."""
     _legacy_checks(score.Rulebook.load(), ["1727"], passed=False)
@@ -513,30 +514,37 @@ def test_with_the_ai_off_the_visit_checks_still_count(built):
     assert AICheckAnswer.objects.filter(carried=True).count() == len(AI_RULES)
 
 
-def test_a_rule_not_on_keeps_its_visit_checks_for_later(built, ai_on, fake, monkeypatch):
+def test_a_rule_switched_off_is_carried_over_too(built, ai_on, fake, legacy_checks_table):
+    """A check of a rule switched off is carried over with the others, so none is left after one pass (the
+    clean-up migration drops the table once none is): switched on again, the rule finds its answer."""
     book = score.Rulebook.load()
     _legacy_checks(book, ["1727"])
     rule = book.rules["R7"]
     rule.enabled = False
     rule.save()
     out = checks.carry_over(score.Rulebook.load())
-    assert out == {"carried": 5, "dropped": 0, "left": 1}
-    assert list(VisitAICheck.objects.values_list("rule", flat=True)) == ["R7"]
+    assert out == {"carried": 6, "dropped": 0, "left": 0}
+    assert checks.legacy_left() == 0 and AICheckAnswer.objects.filter(rule="R7", carried=True).count() == 1
     fake()
-    assert _run(limit=1).details["legacy_checks_left"] == 1
-    # what waits is not read again by every refresh (each one carries over before it scores)
-    monkeypatch.setattr(checks, "collect", lambda items: pytest.fail("texts read for a check that waits"))
-    assert checks.carry_over(score.Rulebook.load()) == {"carried": 0, "dropped": 0, "left": 1}
-    # switched on again, it is carried over by the next refresh
-    monkeypatch.undo()
+    assert _run(limit=1).details["legacy_checks_left"] == 0
     rule.enabled = True
     rule.save()
     _rescore()
-    assert not VisitAICheck.objects.exists()
-    assert AICheckAnswer.objects.filter(rule="R7", carried=True).count() == 1
+    r7 = RecordRuleResult.objects.get(entity__visit__key="1727", rule="R7")
+    assert r7.status == "pass"  # its carried answer: no new check was needed
 
 
-def test_re_check_carried_answers_deletes_a_batch(built, ai_on):
+def test_nothing_is_carried_over_once_the_table_is_gone(built, ai_on):
+    """The test database is a database without checks made per visit: the clean-up migration dropped
+    their table, and the refresh, the job and the carry-over read 0 left without it."""
+    assert not checks.legacy_table() and checks.legacy_left() == 0
+    assert checks.carry_over(score.Rulebook.load()) == {"carried": 0, "dropped": 0, "left": 0}
+    assert checks.forget_legacy_gone() == 0
+    run = refresh.run(triggered_by="test", today=TODAY)
+    assert run.status == "succeeded" and "ai_checks_carried" not in run.details
+
+
+def test_re_check_carried_answers_deletes_a_batch(built, ai_on, legacy_checks_table):
     book = score.Rulebook.load()
     _legacy_checks(book, ["1727", "1728"])
     checks.carry_over(book)

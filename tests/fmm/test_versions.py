@@ -13,12 +13,12 @@ from django.core.exceptions import ValidationError
 from neurodb.fmm import refresh, rules, status, versions
 from neurodb.fmm.models import (
     FieldMapping,
+    RecordRuleResult,
     RefreshRequest,
     RuleSetting,
     RuleSetVersion,
     ScoreSetting,
     Visit,
-    VisitRuleResult,
     default_question_patterns,
     default_role_flag_answers,
     default_urgency_weights,
@@ -109,7 +109,7 @@ def test_the_visits_carry_the_rules_version_they_were_scored_with(fm_world, admi
     run = refresh.run(triggered_by=f"admin:{admin_user.pk}", scores_only=True, today=TODAY)
     assert run.details["rules_version"] == 3
     assert set(Visit.objects.values_list("rules_version", flat=True)) == {3} and not status.rescore_pending()
-    assert not VisitRuleResult.objects.filter(rule="R1").exists()  # a rule switched off keeps no row
+    assert not RecordRuleResult.objects.filter(rule="R1").exists()  # a rule switched off keeps no row
 
 
 def test_a_rule_saved_while_a_refresh_holds_the_lock_ends_on_the_new_version(
@@ -135,7 +135,7 @@ def test_a_rule_saved_while_a_refresh_holds_the_lock_ends_on_the_new_version(
     assert started == [("fmm_refresh", "--scores-only", "--triggered-by", f"admin:{admin_user.pk}")]
     assert (last.target, last.details["rules_version"]) == ("scores", 3)
     assert set(Visit.objects.values_list("rules_version", flat=True)) == {3} and not status.rescore_pending()
-    assert not VisitRuleResult.objects.filter(rule="R1").exists()  # a rule switched off keeps no row
+    assert not RecordRuleResult.objects.filter(rule="R1").exists()  # a rule switched off keeps no row
 
 
 # ------------------------------------------------------------------------------------------ restoring
@@ -234,7 +234,7 @@ def test_the_preview_shows_the_effect_and_writes_nothing(fm_world):
     refresh.run(triggered_by="test", today=TODAY)
     before = (
         list(Visit.objects.order_by("key").values_list("key", "quality_score", "flags", "urgency")),
-        sorted(VisitRuleResult.objects.values_list("visit__key", "rule", "status", "points")),
+        sorted(RecordRuleResult.objects.values_list("entity__datamart_id", "rule", "status", "points")),
     )
     rule = RuleSetting.objects.get(code="R2")
     scoring = [{"min": 30, "deduction": 0}, {"min": 0, "deduction": 10}]
@@ -250,7 +250,7 @@ def test_the_preview_shows_the_effect_and_writes_nothing(fm_world):
     assert sentence.endswith("; scored records 10 (now 10)")
     after = (
         list(Visit.objects.order_by("key").values_list("key", "quality_score", "flags", "urgency")),
-        sorted(VisitRuleResult.objects.values_list("visit__key", "rule", "status", "points")),
+        sorted(RecordRuleResult.objects.values_list("entity__datamart_id", "rule", "status", "points")),
     )
     assert after == before and RuleSetVersion.objects.count() == 2
     assert RuleSetting.objects.get(code="R2").params["scoring"][0] == {"min": 80, "deduction": 0}

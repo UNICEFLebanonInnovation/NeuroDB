@@ -15,7 +15,7 @@ from neurodb.core.models import SyncRun
 from neurodb.datamart import fm
 from neurodb.datamart import models as dm
 from neurodb.fmm import fields, place, refresh, rules
-from neurodb.fmm.models import Visit, VisitEntity, VisitRuleResult
+from neurodb.fmm.models import RecordRuleResult, Visit, VisitEntity
 
 from .conftest import CANARY_TEXT
 
@@ -57,8 +57,13 @@ def _refresh() -> SyncRun:
     return run
 
 
-def _result(key: str, rule: str) -> VisitRuleResult:
-    return VisitRuleResult.objects.get(visit__key=key, rule=rule)
+def _result(key: str, rule: str) -> RecordRuleResult:
+    """The visit's result of ``rule`` as its records read it: its first failing record's, else its first
+    record's (a visit keeps no rule results of its own)."""
+    rows = list(
+        RecordRuleResult.objects.filter(entity__visit__key=key, rule=rule).order_by("entity__datamart_id")
+    )
+    return next((r for r in rows if r.status == "fail"), rows[0])
 
 
 # ------------------------------------------------------------------------------------------ names

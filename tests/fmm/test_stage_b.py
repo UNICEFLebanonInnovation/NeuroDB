@@ -25,12 +25,11 @@ from neurodb.fmm.models import (
     RuleSetVersion,
     ScoreSetting,
     Visit,
-    VisitRuleResult,
 )
 from neurodb.fmm.scope import Scope
 from neurodb.integrations import background
 
-from .conftest import MEMBER_EMAIL
+from .conftest import MEMBER_EMAIL, visit_rule_results
 
 pytestmark = pytest.mark.django_db
 TODAY = datetime.date(2026, 10, 5)
@@ -64,8 +63,9 @@ def _rescore() -> None:
     assert run.status == "succeeded", run.error
 
 
-def _results(key: str) -> dict[str, VisitRuleResult]:
-    return {r.rule: r for r in VisitRuleResult.objects.filter(visit__key=key)}
+def _results(key: str) -> dict[str, RecordRuleResult]:
+    """The rules over a visit as its records read them (a visit keeps no rule results of its own)."""
+    return visit_rule_results(key)
 
 
 def _record_results(datamart_id: int) -> dict[str, RecordRuleResult]:
@@ -117,16 +117,16 @@ def test_the_built_visits_are_scored_with_the_fms_rules(built):
         "coherence": 15.0,
     }
     assert (visit.quality_score, visit.score_band, visit.urgency) == (Decimal("48.0"), "low", 58)
-    results = _results("1723")  # derived from the records': failed when one of them failed
-    assert results["R1"].status == "fail" and results["R1"].deducted == 7
+    results = _results("1723")  # read from its records: failed when one of them failed
+    assert results["R1"].status == "fail"
     assert {c: results[c].status for c in ("R3", "R5", "R6", "R7", "R8", "R32")} == {
         "R3": "fail", "R5": "fail", "R6": "fail", "R7": "pass", "R8": "pass", "R32": "pass"
     }  # fmt: skip
-    assert results["R3"].detail == (
-        "(Partner) R3: Q2 lacks specific or disaggregated activity evidence — "
-        "Q2 lists no activity the monitor verified."
+    # the partner record's own result (a visit keeps none of its own): its full deduction
+    assert results["R3"].entity.datamart_id == 112 and results["R3"].detail == (
+        "R3: Q2 lacks specific or disaggregated activity evidence — Q2 lists no activity the monitor verified."
     )
-    assert (results["R3"].max_points, results["R3"].points) == (20, 10)  # the records' means
+    assert (results["R3"].max_points, results["R3"].points) == (20, 0)
     assert Visit.objects.get(key="1726").quality_score == Decimal("88.0")
 
 

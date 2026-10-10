@@ -504,7 +504,10 @@ def test_run_ai_review_is_for_administrators_with_a_batch_size(
     ]
 
 
-def test_the_review_and_summary_prompts_are_seeded_in_a_published_version():
+def test_the_review_and_summary_prompts_are_seeded_in_a_published_version(monkeypatch):
+    from neurodb.fmm.ai import prompts
+
+    monkeypatch.setattr(prompts, "SAFETY_VERSION", 3)  # its hash of the day it was seeded
     version = profiles.published()
     assert version.note.startswith("Action points (Release 2)")
     assert version.based_on.status == "retired" and version.content_hash == version.compute_hash()

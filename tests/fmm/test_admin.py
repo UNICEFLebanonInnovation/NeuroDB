@@ -69,7 +69,6 @@ def test_fmm_icons_are_material_symbols_names_not_site_icons():
         "fmm.RuleSetVersion": "history",
         "fmm.FieldOfficeStaff": "badge",
         "fmm.AICheckAnswer": "fact_check",
-        "fmm.VisitAICheck": "inventory_2",
         "fmm.PromptVersion": "edit_note",
         "fmm.ModelCapability": "science",
         "fmm.Insight": "auto_awesome",
@@ -529,13 +528,14 @@ def test_a_version_shows_its_settings_beside_today_and_can_be_restored(
 
 
 def test_the_visit_admin_shows_the_rule_results(admin_client, fm_world):
+    """Each record of the visit with its own score, band and urgency, and its own rule results (a visit
+    keeps none of its own since Release 2 step 5's clean-up)."""
     refresh.run(triggered_by="test")
     visit = Visit.objects.get(key="1723")
     html = admin_client.get(reverse("admin:fmm_visit_change", args=[visit.pk])).content.decode()
-    assert "quality rules over the visit&#x27;s records" in html.lower() and "missing:0,1,3" in html
-    assert "(PD/SSFA) R2: Only 33.3% of monitoring questions answered (target: 80%+)" in html
-    # each record with its own score, band and urgency
-    assert "each scored on its own" in html and "R2" in html
+    assert "each scored on its own, with its rule results" in html and "[missing:0,1,3]" in html
+    assert "R2 fail" in html and "R2: Only 33.3% of monitoring questions answered (target: 80%+)" in html
+    assert "(PD/SSFA) R2" not in html  # no derived visit result any more
 
 
 def test_carried_ai_answers_are_listed_and_re_checked_a_batch_at_a_time(

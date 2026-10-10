@@ -2555,8 +2555,9 @@ def _export_menu(request: HttpRequest, scope: Scope) -> list[dict[str, Any]]:
 
 @require_GET
 def export_xlsx(request: HttpRequest) -> HttpResponse:
-    """The Excel workbook of the filter (``fmm.exports``): About, Visits (FMS's column names), Rule
-    results, Partners, Field offices, Sections, Flags and Action points; no person in it."""
+    """The Excel workbook of the filter (``fmm.exports``): About, Records (one row per record, FMS's
+    column names), Visits, Rule results, Partners, Field offices, Sections, Flags and Action points; no
+    person in it."""
     from . import exports
 
     _enabled()
@@ -2567,8 +2568,8 @@ def export_xlsx(request: HttpRequest) -> HttpResponse:
 
 @require_GET
 def export_powerbi(request: HttpRequest) -> HttpResponse:
-    """The Power BI package of the filter: the visits, rule results, action points and partners as CSV
-    files, the Power Query script that loads them and README.txt, in one ZIP file."""
+    """The Power BI package of the filter: the records, visits, rule results, action points and partners
+    as CSV files, the Power Query script that loads them and README.txt, in one ZIP file."""
     from . import exports
 
     _enabled()

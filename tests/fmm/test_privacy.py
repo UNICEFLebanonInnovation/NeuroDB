@@ -504,7 +504,7 @@ def test_no_canary_reaches_a_look_up_of_the_chat_or_of_ask(chat_world, monkeypat
         texts.append(result)
     assert ctx.privacy_blocked == 0 and ctx.texts_sent > 0
     one = texts[2]
-    notes = [e["narrative"] for e in one["entities"]]
+    notes = [e["narrative"] for e in one["records"]]
     assert notes[0].startswith("Classes held as planned. Visit led by [name withheld]")
     assert notes[1] == tools.TOO_MANY_NAMES  # the canary note names too many people and contacts
     assert any(m.get("snippet") for m in texts[5]["matches"])
@@ -523,18 +523,18 @@ def test_the_limit_of_texts_holds_across_the_look_ups_of_one_answer(chat_world):
         one = tools.fm_visit("1722")
         found = tools.fm_search("delayed")
         other = tools.fm_visit("1726")
-    notes = [e["narrative"] for e in one["entities"]]
+    notes = [e["narrative"] for e in one["records"]]
     assert notes[0] and notes[0] not in (tools.LIMIT_REACHED, tools.TOO_MANY_NAMES)
     assert notes[1] == tools.TOO_MANY_NAMES and notes[2] and notes[2] != tools.LIMIT_REACHED  # 2 read
     answers = {a["answer"] for a in one["answers"] if a["answered"]}
     assert tools.LIMIT_REACHED in answers and answers <= {tools.LIMIT_REACHED, tools.TOO_MANY_NAMES}
     assert found["matches"] and not any("snippet" in m for m in found["matches"])
-    assert {e["narrative"] for e in other["entities"]} == {tools.LIMIT_REACHED}
+    assert {e["narrative"] for e in other["records"]} == {tools.LIMIT_REACHED}
     assert (ctx.texts_left, ctx.texts_sent) == (0, 2)
     # narr = 0 (or the AI's texts off): no text at all
     none = tools.ChatContext(scope=_chat_scope(), texts_left=0, cards_max=15)
     with tools.bind(none):
-        assert {e["narrative"] for e in tools.fm_visit("1726")["entities"]} == {tools.LIMIT_REACHED}
+        assert {e["narrative"] for e in tools.fm_visit("1726")["records"]} == {tools.LIMIT_REACHED}
     assert none.texts_sent == 0
 
 

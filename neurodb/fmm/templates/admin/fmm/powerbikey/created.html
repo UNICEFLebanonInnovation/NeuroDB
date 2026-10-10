@@ -20,8 +20,8 @@
         <input id="powerbi-key" type="text" readonly value="{{ key }}" class="font-mono border border-base-200 rounded-default px-3 py-2 dark:border-base-700 dark:bg-base-900">
       </div>
       <p>{% blocktrans trimmed with example=example per_hour=per_hour %}
-        Power BI reads {{ example }} and the three other tables with it, at most {{ per_hour }} requests an
-        hour for this key.
+        Power BI reads {{ example }} (one row per record, as FMS's export) and the four other tables with
+        it, at most {{ per_hour }} requests an hour for this key.
       {% endblocktrans %}</p>
     </div>
   {% endcomponent %}
@@ -32,7 +32,7 @@
       <li>{% trans "Power BI Desktop: Get data › Blank query, then Advanced editor." %}</li>
       <li>{% trans "Paste the script below and click Done." %}</li>
       <li>{% trans "When Power BI asks how to connect, choose Web API, paste the key above and click Connect." %}</li>
-      <li>{% trans "Right-click each of the seven tables › Add as new query, then turn off loading of the first query. Close & Apply." %}</li>
+      <li>{% trans "Right-click each of the eight tables › Add as new query, then turn off loading of the first query. Close & Apply." %}</li>
       <li>{% trans "Publish to your Power BI Service workspace; in the dataset's settings, enter the key again under Data source credentials (Web API) and switch on Scheduled refresh." %}</li>
     </ol>
     {% include "admin/fmm/powerbikey/_script.html" %}

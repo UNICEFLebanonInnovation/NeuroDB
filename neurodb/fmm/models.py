@@ -10,10 +10,10 @@
   someone asked for that have not run yet (:class:`RefreshRequest`);
 - the quality rules, score settings and their versions (:class:`RuleSetting`, :class:`ScoreSetting`,
   :class:`RuleSetVersion`), the field offices' staff lists of rule R19 (:class:`FieldOfficeStaff`),
-  each record's rule results (:class:`RecordRuleResult`) and each visit's, derived from them
-  (:class:`VisitRuleResult`), and the AI checks' answers (:class:`AICheckAnswer`, kept by what was
-  sent, so identical inputs share one answer; :class:`VisitAICheck` holds the answers made per visit
-  before Release 2 step 5, carried over once and then dropped);
+  each record's rule results (:class:`RecordRuleResult`; a visit has none of its own: R19, read once
+  per visit, is kept on each of its records), and the AI checks' answers (:class:`AICheckAnswer`, kept
+  by what was sent, so identical inputs share one answer; :class:`VisitAICheck` reads the answers made
+  per visit before Release 2 step 5 while any is left to carry over);
 - the AI's prompt versions (:class:`PromptProfile`, :class:`PromptVersion`, never changed once
   published), what each model accepted (:class:`ModelCapability`), its pause (:class:`AIState`) and its
   briefs (:class:`Insight`, which keeps the payload sent, redacted, for a limited time);
@@ -695,37 +695,6 @@ class RecordRuleResult(models.Model):
         return Decimal(self.max_points or 0) - Decimal(self.points or 0)
 
 
-class VisitRuleResult(models.Model):
-    """What one quality rule found on one visit, derived from its records' results
-    (``score.visit_results``): failed when a record failed it, else passed when a record passed it,
-    else the most common other state; the points are the records' means, the detail the first failing
-    record's, prefixed with its entity type. Kept while the pages read it (Release 2 step 5, stage F2)."""
-
-    visit = models.ForeignKey(Visit, on_delete=models.CASCADE, related_name="rule_results")
-    rule = models.CharField(max_length=4)  # R1..R32
-    status = models.CharField(max_length=8, db_index=True)  # pass | fail | na | nap | off | pending
-    points = models.DecimalField(max_digits=4, decimal_places=1, default=0)  # kept, never above max
-    max_points = models.DecimalField(max_digits=4, decimal_places=1, default=0)  # the most it takes off
-    detail_key = models.CharField(max_length=40, blank=True)  # "missing:0,3", "band:1", "ai"
-    detail = models.CharField(max_length=600, blank=True)  # the flag, or why it passed or did not apply
-    measure = models.FloatField(null=True, blank=True)  # 46.2 (% answered), 2 (methods)
-
-    class Meta:
-        ordering = ("visit", "rule")
-        constraints = [models.UniqueConstraint(fields=["visit", "rule"], name="fmm_visit_rule")]
-        indexes = [models.Index(fields=["rule", "status"])]
-        verbose_name = "rule result"
-        verbose_name_plural = "rule results"
-
-    def __str__(self):
-        return f"{self.visit_id} {self.rule} {self.status}"
-
-    @property
-    def deducted(self) -> Decimal:
-        """The points the rule took off the visit."""
-        return Decimal(self.max_points or 0) - Decimal(self.points or 0)
-
-
 class AICheckAnswer(models.Model):
     """The answer of one AI check (a narrative rule), kept by what was asked: the rule, its prompt
     (``prompt_hash``) and the record's inputs as read (``input_hash``). It has no record key: a record's
@@ -763,8 +732,12 @@ class AICheckAnswer(models.Model):
 class VisitAICheck(models.Model):
     """The answer of one AI check (a narrative rule) on one visit, as Release 2 kept them before the
     records were checked one by one (step 5). Read only by ``ai.checks.carry_over``, which copies the
-    verdicts of single-record visits into :class:`AICheckAnswer` and deletes the rows it has dealt with;
-    the table is dropped once none is left."""
+    verdicts of single-record visits into :class:`AICheckAnswer` and deletes the rows it has dealt with.
+
+    Not managed by Django since the clean-up of step 5 (migration ``0020``): that migration drops the
+    table when no row is left, and keeps it otherwise, for the carry-over to finish (the AI checks job
+    says how many are left: ``legacy_checks_left``); a later migration drops it then. Read it through
+    ``ai.checks.legacy_left`` and ``carry_over``, which answer 0 once the table is gone."""
 
     visit_key = models.CharField(max_length=40)
     rule = models.CharField(max_length=4)
@@ -778,6 +751,8 @@ class VisitAICheck(models.Model):
     checked_at = models.DateTimeField(db_index=True)
 
     class Meta:
+        managed = False
+        db_table = "fmm_visitaicheck"
         ordering = ("visit_key", "rule")
         constraints = [models.UniqueConstraint(fields=["visit_key", "rule"], name="fmm_visit_ai_check")]
         verbose_name = "AI check made per visit (before records)"

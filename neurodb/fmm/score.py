@@ -42,8 +42,9 @@ counts as not scored, so it never gets full marks for checks not made. Bands: Hi
 **The visit** (:func:`aggregate_visit`): its quality is the mean of its records' scores (rounded half
 up), its lowest record's score is kept, its band is the mean's, its flags the union of its records'
 and its urgency its most urgent record's. A visit with a provisional record is provisional too: no
-score and no urgency, its records' mean so far in ``provisional_score``. Its rule results
-(``VisitRuleResult``) are derived from its records' (:func:`visit_results`) while the pages read them.
+score and no urgency, its records' mean so far in ``provisional_score``. A visit has no rule results of
+its own: every page reads its records' (``RecordRuleResult``; a rule read once per visit, R19, is kept
+on each of its records).
 
 **Urgency** (:func:`urgency`), FMS's formula, per record, 0 to 100: 50% the gap from the maximum score
 (100 − the record's score), 30% recency (100 on the day the visit ended, falling to 0 at
@@ -71,7 +72,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Any, NamedTuple
+from typing import Any
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -973,16 +974,15 @@ class StoredSource(Source):
         return QuestionAnswer.objects.order_by().values_list("question_text", "is_hact").distinct()
 
 
-# One rule's result on one record (or visit) as a scoring keeps it until it is written: (record or
-# visit, rule, status, points, max points, detail key, detail, measure). A tuple, not a model instance:
-# a refresh holds one per record and rule switched on (some 180,000 at 15,000 records) and one per
-# visit and rule, within its memory budget.
+# One rule's result on one record as a scoring keeps it until it is written: (record, rule, status,
+# points, max points, detail key, detail, measure). A tuple, not a model instance: a refresh holds one
+# per record and rule switched on (some 180,000 at 15,000 records), within its memory budget.
 ResultRow = tuple[Any, str, str, Decimal, Decimal, str, str, float | None]
 
 
 def result_models(model, owner: str, rows: Iterable[ResultRow]) -> Iterable:
-    """The rows as ``model`` instances (``RecordRuleResult``, ``owner`` "entity"; ``VisitRuleResult``,
-    "visit"), one at a time: what ``refresh.copy_results`` writes where COPY is not available."""
+    """The rows as ``model`` instances (``RecordRuleResult``, ``owner`` "entity"), one at a time: what
+    ``refresh.copy_results`` writes where COPY is not available."""
     for target, rule, status, points, max_points, detail_key, detail, measure in rows:
         yield model(
             **{owner: target},
@@ -996,29 +996,15 @@ def result_models(model, owner: str, rows: Iterable[ResultRow]) -> Iterable:
         )
 
 
-class Derived(NamedTuple):
-    """A visit's result of one rule, derived from its records' (:func:`visit_results`)."""
-
-    rule: str
-    status: str
-    points: Decimal
-    max_points: Decimal
-    detail_key: str
-    detail: str
-    measure: float | None
-
-
 @functools.lru_cache(maxsize=4096)  # a few dozen distinct deductions, for 180,000 results
 def _points(top: Decimal, taken: Decimal) -> tuple[Decimal, Decimal]:
     return half_up(top - taken, 1), half_up(top, 1)
 
 
-def _row(owner, result, keep: Callable[[Any], Any]) -> ResultRow:
-    """A result (an ``Outcome`` or a :class:`Derived`) as a row, its repeated values shared."""
-    if isinstance(result, Outcome):  # the points are shared already (``_points``)
-        points, top = _points(result.max_deduction, result.deduction)
-    else:
-        points, top = keep(result.points), keep(result.max_points)
+def _row(owner, result: Outcome, keep: Callable[[Any], Any]) -> ResultRow:
+    """A record's result (an ``Outcome``) as a row, its repeated values shared (the points are shared
+    already: ``_points``)."""
+    points, top = _points(result.max_deduction, result.deduction)
     return (
         owner,
         result.rule,
@@ -1034,9 +1020,8 @@ def _row(owner, result, keep: Callable[[Any], Any]) -> ResultRow:
 @dataclass
 class Scored:
     """What a scoring produced besides the visits and records it updated in place: the records' rule
-    results and the visits' (derived from them), as rows (:data:`ResultRow`), and the question roles."""
+    results, as rows (:data:`ResultRow`), and the question roles."""
 
-    results: list[ResultRow] = field(default_factory=list)
     record_results: list[ResultRow] = field(default_factory=list)
     roles: dict[tuple[str, bool | None], str] = field(default_factory=dict)
     scored: int = 0
@@ -1141,7 +1126,7 @@ def score_visits(
             visit_answers = answers.get(visit.key, [])
             entities = source.entities.get(visit.key, [])
             try:
-                visit_results, record_results = _score_one(
+                record_results = _score_one(
                     visit,
                     entities,
                     visit_answers,
@@ -1162,11 +1147,10 @@ def score_visits(
                     on_error(f"visit {visit.key}", exc)
                 _not_scored(visit, entities)
                 continue
-            out.results += visit_results
             out.record_results += record_results
             out.scored += int(visit.quality_score is not None)
-            # what each rule found, counted per record (a visit with no record counts once)
-            for row in record_results or visit_results:
+            # what each rule found, counted per record
+            for row in record_results:
                 statuses[row[1]][row[2]] += 1
             for answer in visit_answers:
                 role = roles.get((answer.question_text, answer.is_hact), "")
@@ -1420,9 +1404,9 @@ def _score_one(
     refs: References,
     shared: _Batch,
     today: date,
-) -> tuple[list[ResultRow], list[ResultRow]]:
-    """Score each record of one visit, then the visit from its records; the visit's rule results
-    (derived) and its records' rule results, as rows."""
+) -> list[ResultRow]:
+    """Score each record of one visit, then the visit from its records; its records' rule results, as
+    rows."""
     facts_answers = [
         AnswerFacts(
             question_key=a.question_key,
@@ -1455,7 +1439,7 @@ def _score_one(
         people = {"team_members": emails}  # the visit's monitors: the same for every record
     if not entities:
         return _score_visit_alone(
-            visit, facts_answers, in_dataset, source, book, ctx, refs, people, today, links, shared.shared
+            visit, facts_answers, in_dataset, source, book, ctx, refs, people, today, links
         )
     row_rules, visit_rules = book.split_rules()
     # the visit's rules, evaluated once per visit and kind of record: the same outcome on every record,
@@ -1489,9 +1473,7 @@ def _score_one(
     aggregate_visit(visit, entities, book.setting)
     visit.signals = signals(visit, links, book.setting, today)
     keep = shared.shared
-    record_results = [_row(entity, o, keep) for entity, outcomes in scored for o in outcomes]
-    derived = visit_results(visit, scored, frozenset(visit_rules))
-    return [_row(visit, r, keep) for r in derived], record_results
+    return [_row(entity, o, keep) for entity, outcomes in scored for o in outcomes]
 
 
 def _score_visit_alone(
@@ -1505,10 +1487,10 @@ def _score_visit_alone(
     people: dict[str, Any] | None,
     today: date,
     links: list[Any],
-    keep: Callable[[Any], Any] = lambda value: value,
-) -> tuple[list[ResultRow], list[ResultRow]]:
+) -> list[ResultRow]:
     """A visit without any record (the build never makes one; kept for safety): scored on its own
-    fields, as a visit was before its records were."""
+    fields, as a visit was before its records were. It has no record to keep rule results on: none is
+    returned."""
     is_scorable = scorable(visit.status, book.scored_statuses)
     references = refs.facts(visit) if book.needs_places() else {}
     if people is not None:
@@ -1537,7 +1519,7 @@ def _score_visit_alone(
     visit.flags, visit.flag_count = list(outcome.flags), len(outcome.flags)
     visit.urgency, visit.urgency_band, visit.urgency_parts = urgency(visit, outcome, book.setting, today)
     visit.signals = signals(visit, links, book.setting, today)
-    return [_row(visit, o, keep) for o in outcomes], []
+    return []
 
 
 def aggregate_visit(visit: Visit, records: Sequence[VisitEntity], s: ScoreSetting) -> None:
@@ -1593,50 +1575,6 @@ def aggregate_visit(visit: Visit, records: Sequence[VisitEntity], s: ScoreSettin
         visit.not_scored_reason = first.not_scored_reason if first else ""
     visit.quality_points = visit.quality_score
     visit.quality_max = 100 if visit.quality_score is not None else 0
-
-
-def visit_results(
-    visit: Visit,
-    scored: Sequence[tuple[VisitEntity, Sequence[Outcome]]],
-    visit_codes: frozenset[str] = frozenset(),
-) -> list[Derived]:
-    """A visit's rule results derived from its records' (kept while the pages read them): failed when a
-    record failed the rule, else passed when one passed it, else the most common other state; the points
-    and maximum are the records' means; the detail is the first failing record's, its entity type first
-    ("(PD/SSFA) R3: ..."; not for a rule of ``visit_codes``, evaluated once for the whole visit), else
-    that of the first record in the state kept."""
-    by_rule: dict[str, list[tuple[VisitEntity, Outcome]]] = defaultdict(list)
-    for entity, outcomes in scored:
-        for o in outcomes:
-            by_rule[o.rule].append((entity, o))
-    out = []
-    for code in sorted(by_rule, key=rules.code_order):
-        found = by_rule[code]
-        states = [o.status for _e, o in found]
-        if "fail" in states:
-            state = "fail"
-        elif "pass" in states:
-            state = "pass"
-        else:
-            state = Counter(states).most_common(1)[0][0]
-        entity, chosen = next((e, o) for e, o in found if o.status == state)
-        detail = chosen.detail
-        if state == "fail" and code not in visit_codes:
-            kind = rules.KIND_NAMES.get(entity.kind) or entity.entity_type_raw or "Record"
-            detail = f"({kind}) {detail}"
-        n = Decimal(len(found))
-        out.append(
-            Derived(
-                rule=code,
-                status=state,
-                points=half_up(sum((o.max_deduction - o.deduction for _e, o in found), Decimal(0)) / n, 1),
-                max_points=half_up(sum((o.max_deduction for _e, o in found), Decimal(0)) / n, 1),
-                detail_key=chosen.detail_key[:40],
-                detail=detail[:600],
-                measure=chosen.measure,
-            )
-        )
-    return out
 
 
 def average_quality(scores: Iterable[Decimal | float | None]) -> Decimal | None:

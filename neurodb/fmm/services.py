@@ -123,10 +123,10 @@ def _action_point_counts(visits, today: datetime.date) -> dict[str, int]:
 # ------------------------------------------------------------------------------------- partner page
 def partner_summary(partner_id: int, year: int) -> dict[str, Any] | None:
     """The partner page's "Monitoring insights" panel for ``year``: the partner's FM visits (with the
-    status breakdown), the average quality of its own records (each scored on its own), its off-track and
-    constrained records, the open and overdue FM action points of those visits, and its last visit (any
-    year). None when no visit ever monitored the partner. The figures are those of
-    ``/fmm/?partner=<id>&year=<year>&section=``, the panel's own link."""
+    status breakdown) and its own records in them (each scored on its own), the average quality of those
+    records, its off-track and constrained records, the open and overdue FM action points of those
+    visits, and its last visit (any year). None when no visit ever monitored the partner. The figures
+    are those of ``/fmm/?partner=<id>&year=<year>&section=``, the panel's own link."""
     from . import metrics
     from .models import Visit
     from .scope import link
@@ -147,6 +147,7 @@ def partner_summary(partner_id: int, year: int) -> dict[str, Any] | None:
     return {
         "year": year,
         "visits": kpis["visits"],
+        "records": kpis["records"],  # the partner's own records in those visits
         "by_status": kpis["by_status"],
         "avg_quality": kpis["avg_quality"],
         "scored": kpis["scored"],
@@ -165,9 +166,10 @@ def partner_summary(partner_id: int, year: int) -> dict[str, Any] | None:
 def pd_summary(pd_id: int, year: int) -> dict[str, Any] | None:
     """The programme document page's "Field monitoring visits" panel for ``year``: the FM visits to the
     PD per quarter of their visit date, start else end (``VisitEntity.pd``) against the visits eTools plans
-    (``PlannedVisits`` q1-q4), its 3 latest visits (any year) and the block of :func:`pd_context` for the
-    year. None when no visit ever monitored the PD and eTools plans none for the year. The visits are
-    those of ``/fmm/?pd=<id>&year=<year>&section=``, the panel's own link."""
+    (``PlannedVisits`` q1-q4), the PD's own records in them and their average quality (each record scored
+    on its own), its 3 latest visits (any year) and the block of :func:`pd_context` for the year. None
+    when no visit ever monitored the PD and eTools plans none for the year. The visits are those of
+    ``/fmm/?pd=<id>&year=<year>&section=``, the panel's own link."""
     from django.db.models import Exists, OuterRef
 
     from neurodb.datamart.models import PlannedVisits
@@ -197,6 +199,7 @@ def pd_summary(pd_id: int, year: int) -> dict[str, Any] | None:
     return {
         "year": year,
         "visits": kpis["visits"],
+        "records": kpis["records"],  # the PD's own records in those visits
         "avg_quality": kpis["avg_quality"],
         "scored": kpis["scored"],
         "planned": sum(q["planned"] or 0 for q in quarters) if has_plan else None,

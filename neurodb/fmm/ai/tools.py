@@ -1,11 +1,15 @@
 """The four field monitoring look-ups of Chat with Data, also offered to Ask NeuroDB.
 
-- ``fm_summary`` counts the visits of the filter (visits, entities, rated, not monitored, average
-  quality, high and amber urgency), optionally grouped;
+A visit is one eTools monitoring activity; it holds one **record** per entity assessed (a partner,
+programme document or CP output), each rated, scored, flagged and given an urgency on its own, as in FMS.
+
+- ``fm_summary`` counts the visits of the filter and their records (visits by status and rating, records
+  by rating, not monitored, the average quality per record, the records of high and amber urgency),
+  optionally grouped: each group counts its records, their distinct visits and their average;
 - ``fm_visits`` lists visits as cards (``privacy.visit_card``: never a narrative, an answer or a
-  person);
-- ``fm_visit`` reads one visit: its entities with their notes, rule results, urgency, action points,
-  HACT context and checklist answers;
+  person), each with its records (entity, type, score, flags);
+- ``fm_visit`` reads one visit: its records with their notes, scores, urgency and rule results, the
+  checks of the whole visit, action points, HACT context and checklist answers;
 - ``fm_search`` finds the visits whose notes or answers hold a word, with a short snippet.
 
 **Scope.** Every look-up works within a :class:`ChatContext`: the page's filter, how many texts (notes,
@@ -246,77 +250,88 @@ def _quality(value: Any) -> float | None:
 
 # ------------------------------------------------------------------------------------------ fm_summary
 class _Group:
-    __slots__ = ("high", "q_n", "q_sum", "ratings", "visits")
+    """The records of one group, their distinct visits, their average quality and ratings (each record
+    under its own) and how many are of high urgency."""
+
+    __slots__ = ("high", "q_n", "q_sum", "ratings", "records", "visits")
 
     def __init__(self) -> None:
-        self.visits = 0
+        self.records = 0
+        self.visits: set[int] = set()
         self.q_sum = Decimal(0)
         self.q_n = 0
         self.high = 0
         self.ratings: Counter = Counter()
 
-    def add(self, quality: Any, rating: str, urgent: bool) -> None:
-        self.visits += 1
+    def add(self, visit: int, quality: Any, rating: str, urgent: bool) -> None:
+        self.records += 1
+        self.visits.add(visit)
         if quality is not None:
             self.q_sum += Decimal(str(quality))
             self.q_n += 1
-        self.ratings[rating] += 1  # metrics.counted_rating: Not monitored for reported visits only
+        self.ratings[rating] += 1  # metrics.counted_rating: Not monitored on reported visits only
         self.high += urgent
 
 
-GROUP_COLUMNS = (
-    "visit_date",
-    "section_names",
-    "governorate_key",
-    "governorate_name",
-    "offices",
-    "partner_ids",
+GROUP_COLUMNS = (  # a record, with the columns of its visit it follows
+    "visit_id",
+    "visit__visit_date",
+    "visit__section_names",
+    "visit__governorate_key",
+    "visit__governorate_name",
+    "visit__offices",
+    "partner_id",
     "rating",
-    "entity_kinds",
-    "status_group",
+    "kind",
+    "visit__status_group",
     "quality_score",
     "urgency",
 )
 
 
 def _group_codes(group_by: str, row: dict[str, Any]) -> list[tuple[str, str]]:
-    """(code, label) of each group a visit counts in (a visit with two sections counts in both)."""
+    """(code, label) of each group a record counts in: its visit's sections, governorate, offices,
+    month and status (a visit with two sections counts its records in both), its own partner, rating
+    and entity type."""
     if group_by == "section":
-        return [(name, name) for name in row["section_names"] or ()] or [(NONE, "No section")]
+        return [(name, name) for name in row["visit__section_names"] or ()] or [(NONE, "No section")]
     if group_by == "governorate":
-        key = row["governorate_key"]
-        return [(key, row["governorate_name"] or key)] if key else [(NONE, "Not located")]
+        key = row["visit__governorate_key"]
+        return [(key, row["visit__governorate_name"] or key)] if key else [(NONE, "Not located")]
     if group_by == "office":
-        return [(name, name) for name in row["offices"] or ()] or [(NONE, "Office not known")]
+        return [(name, name) for name in row["visit__offices"] or ()] or [(NONE, "Office not known")]
     if group_by == "partner":
-        return [(str(pk), str(pk)) for pk in row["partner_ids"] or ()] or [(NONE, "No partner")]
+        pk = row["partner_id"]
+        return [(str(pk), str(pk))] if pk else [(NONE, "No partner")]
     if group_by == "month":
-        day = row["visit_date"]
-        return [(day.strftime("%Y-%m"), date_format(day, "M Y"))]
+        day = row["visit__visit_date"]
+        return [(day.strftime("%Y-%m"), date_format(day, "M Y"))] if day else [(NONE, "No date")]
     if group_by == "rating":
-        code = metrics.counted_rating(row["rating"] or "not_monitored", row["status_group"])
+        code = metrics.counted_rating(row["rating"] or "not_monitored", row["visit__status_group"])
         return [(code, RATING_LABELS.get(code, code))] if code else [(NONE, "Not rated yet")]
     if group_by == "entity_type":
-        return [(kind, KIND_LABELS.get(kind, kind)) for kind in row["entity_kinds"] or ()] or [(NONE, "None")]
+        kind = row["kind"]
+        return [(kind, KIND_LABELS.get(kind, kind))] if kind else [(NONE, "None")]
     if group_by == "status":
-        code = row["status_group"] or "unknown"
+        code = row["visit__status_group"] or "unknown"
         return [(code, STATUS_LABELS.get(code, code))]
     return []
 
 
 def _groups(scope: Scope, group_by: str, limits: dict[str, int]) -> tuple[list[dict[str, Any]], int]:
-    """The visits of ``scope`` counted per group, most visits first (months in order), at most
-    GROUPS_MAX; and how many groups there are in all."""
+    """The records of ``scope`` counted per group, with their distinct visits and their average quality
+    (each record scored on its own), most records first (months in order), at most GROUPS_MAX; and how
+    many groups there are in all."""
     if group_by == "rule":
         return _rule_groups(scope)
     groups: dict[str, _Group] = {}
     labels: dict[str, str] = {}
-    for values in scope.visits().order_by().values_list(*GROUP_COLUMNS).iterator(chunk_size=2000):
+    for values in scope.records().order_by().values_list(*GROUP_COLUMNS).iterator(chunk_size=2000):
         row = dict(zip(GROUP_COLUMNS, values, strict=True))
         urgent = row["urgency"] is not None and row["urgency"] >= limits["red"]
+        rating = metrics.counted_rating(row["rating"] or "not_monitored", row["visit__status_group"])
         for code, label in _group_codes(group_by, row):
-            rating = metrics.counted_rating(row["rating"] or "not_monitored", row["status_group"])
-            groups.setdefault(code, _Group()).add(row["quality_score"], rating, urgent)
+            groups.setdefault(code, _Group()).add(row["visit_id"], row["quality_score"], rating, urgent)
             labels[code] = label
     if group_by == "partner":
         from neurodb.partnerships.models import PartnerOrganization
@@ -328,22 +343,25 @@ def _groups(scope: Scope, group_by: str, limits: dict[str, int]) -> tuple[list[d
         {
             "group": labels[code],
             "code": code,
-            "visits": g.visits,
+            "records": g.records,
+            "visits": len(g.visits),
             "avg_quality": _quality(metrics.mean_quality(g.q_sum, g.q_n)),
-            "scored_visits": g.q_n,
+            "scored_records": g.q_n,
             **{rating: g.ratings[rating] for rating in RATINGS},
-            "high_urgency": g.high,
+            "high_urgency_records": g.high,
         }
         for code, g in groups.items()
     ]
     if group_by == "month":
         out.sort(key=lambda g: g["code"])
     else:
-        out.sort(key=lambda g: (-g["visits"], str(g["group"]).casefold()))
+        out.sort(key=lambda g: (-g["records"], -g["visits"], str(g["group"]).casefold()))
     return out[:GROUPS_MAX], len(out)
 
 
 def _rule_groups(scope: Scope) -> tuple[list[dict[str, Any]], int]:
+    """Each quality rule switched on: the records it flagged, passed, could not check, did not apply to
+    and is still checking (R19, read once per visit, counts on each of its records)."""
     from ..models import RuleSetting
 
     stats = metrics.rule_stats(scope)
@@ -355,8 +373,8 @@ def _rule_groups(scope: Scope) -> tuple[list[dict[str, Any]], int]:
             {
                 "group": f"{code} {labels.get(code, '')}".strip(),
                 "code": code,
-                "flagged": row.get("fail", 0),
-                "passed": row.get("pass", 0),
+                "records_flagged": row.get("fail", 0),
+                "records_passed": row.get("pass", 0),
                 "not_available": row.get("na", 0),
                 "does_not_apply": row.get("nap", 0),
                 "pending": row.get("pending", 0),
@@ -397,16 +415,17 @@ def fm_summary(
             code: (float(metrics._pct(n, total)) if total else None) for code, n in rated.items()
         },
         "not_monitored_visits": data["gaps"],
-        "entities": k["records"],
-        "entities_rated": k["records_rated"],
-        "entities_not_monitored": k["records_not_monitored"],
-        # per record, as FMS: each record (an entity assessed) is scored and given an urgency on its own
+        # per record, as FMS: each record (an entity assessed) is rated, scored and given an urgency on
+        # its own; the average quality is the records'
         "records": k["records"],
+        "records_rated": k["records_rated"],
+        "records_by_rating": dict(k["record_ratings"]),
+        "records_not_monitored": k["records_not_monitored"],
         "avg_quality": _quality(k["avg_quality"]),
         "scored_records": k["scored"],
         "scored_visits": k["scored_visits"],
-        "high_urgency": k["high_urgency"],
-        "amber_urgency": k["amber"],
+        "high_urgency_records": k["high_urgency"],
+        "amber_urgency_records": k["amber"],
         "high_urgency_from": limits["red"],
         "amber_urgency_from": limits["amber"],
         "rules_version": k["rules_version"],
@@ -420,8 +439,10 @@ def fm_summary(
         out["groups"] = rows
         if total > len(rows):
             out["groups_total"] = total
-        if group_by in ("section", "office", "partner", "entity_type"):
-            out["hint"] = "A visit with several of these counts in each of them."
+        if group_by in ("section", "office"):
+            out["hint"] = "A visit with several of these counts its records in each of them."
+        elif group_by in ("partner", "entity_type", "rating"):
+            out["hint"] = "Each record counts under its own; a visit may count in several groups."
     return out
 
 
@@ -436,6 +457,44 @@ SORTS = {
 def card(visit, names_: frozenset[str]) -> dict[str, Any]:
     """A visit as the AI reads it in a list: its card (``privacy.visit_card``) and its url."""
     return {**privacy.visit_card(visit, names_), "url": _visit_url(visit.key)}
+
+
+def _record_entity(row, names_: frozenset[str]) -> str:
+    """A record's entity in words (``metrics.record_name``: the CP output, the partner's name or the PD
+    number, else the entity as eTools wrote it), cleaned."""
+    pd_number = row.pd.number if row.pd else ""
+    name = metrics.record_name(
+        row.kind, row.entity, row.cp_output, pd_number, row.partner.name if row.partner else ""
+    )
+    return privacy.clean(name, 255, names_)[0] if name else ""
+
+
+def _record_line(row, names_: frozenset[str]) -> dict[str, Any]:
+    """A record as a list shows it: its id, entity, type, rating, score, band, urgency and flags."""
+    return {
+        "record": row.datamart_id,
+        "entity": _record_entity(row, names_),
+        "type": KIND_LABELS.get(row.kind, row.kind),
+        "rating": row.rating,
+        "score": _quality(row.quality_score),
+        "band": row.score_band or None,
+        "urgency": row.urgency,
+        "flags": list(row.flags or ()),
+    }
+
+
+def _records_of(scope: Scope, visit_ids: list[int], names_: frozenset[str]) -> dict[int, list[dict]]:
+    """{visit pk: its records the scope keeps (a record filter keeps the matching ones), as lines}."""
+    out: dict[int, list[dict]] = {pk: [] for pk in visit_ids}
+    rows = (
+        scope.records()
+        .filter(visit_id__in=visit_ids)
+        .select_related("pd", "partner")
+        .order_by("visit_id", "datamart_id")
+    )
+    for row in rows:
+        out[row.visit_id].append(_record_line(row, names_))
+    return out
 
 
 def fm_visits(
@@ -474,13 +533,16 @@ def fm_visits(
     shown = max(1, min(limit or 10, ctx.cards_max or ASK_CARDS))
     visits = list(qs.select_related("partner", "pd").order_by(*SORTS.get(sort, SORTS["urgency"]))[:shown])
     names_ = privacy.names()
-    cards = [card(v, names_) for v in visits]
+    records = _records_of(scope, [v.pk for v in visits], names_)
+    cards = [{**card(v, names_), "records": records.get(v.pk, [])} for v in visits]
     ctx.seen.update(v.key for v in visits)
     out: dict[str, Any] = {
         "label": "Monitoring visits",
         "filter": scope.label(),
         "total": total,
         "shown": len(cards),
+        # each with its records: a visit's quality is the mean of its records, its urgency the most
+        # urgent record's
         "visits": cards,
         "url": _dashboard(scope, tab="visits"),
     }
@@ -553,8 +615,9 @@ def _hact(visit) -> dict[str, Any] | None:
 def fm_visit(visit: str) -> dict[str, Any]:
     from neurodb.datamart.models import MonitoringFinding
 
-    from ..models import Visit, VisitRuleResult
+    from ..models import RecordRuleResult, RuleSetting, Visit
     from ..parse import visit_answer_rows
+    from ..score import visit_level
 
     if (off := _switched_off()) is not None:
         return off
@@ -570,36 +633,52 @@ def fm_visit(visit: str) -> dict[str, Any]:
     names_ = privacy.names()
     ctx.seen.add(v.key)
     not_rated_yet = v.status_group in ("planned", "in_progress")
-    rows = list(v.entity_rows.order_by("datamart_id"))
+    rows = list(v.entity_rows.select_related("pd", "partner").order_by("datamart_id"))
     narratives: dict[int, str] = {}
     if bound():
         ids = [row.finding_id for row in rows if row.finding_id]
         narratives = dict(MonitoringFinding.objects.filter(pk__in=ids).values_list("pk", "narrative_finding"))
-    entities = []
+    once = {rule.code for rule in RuleSetting.objects.all() if visit_level(rule)}  # R19: the visit's own
+    results: dict[int, list] = {row.pk: [] for row in rows}
+    for r in RecordRuleResult.objects.filter(entity__visit=v):
+        results.setdefault(r.entity_id, []).append(r)
+    visit_checks: dict[str, dict[str, Any]] = {}  # read once for the whole visit, the same on each record
+    records = []
     for row in rows:
         raw = narratives.get(row.finding_id, "") if bound() else ("x" if row.narrative_words else "")
         rated = row.rating in ("on_track", "constrained", "off_track")
-        entities.append(
+        own = []
+        for r in sorted(results.get(row.pk, ()), key=lambda r: code_order(r.rule)):
+            if r.status == "off":
+                continue
+            line = _rule_line(r)
+            if r.rule in once:
+                visit_checks.setdefault(r.rule, line)
+            else:
+                own.append(line)
+        records.append(
             {
+                "record": row.datamart_id,
+                "url": f"{_visit_url(v.key)}#{row.anchor}",
                 "kind": row.kind,
-                "entity": privacy.clean(row.entity, 255, names_)[0],
+                "type": KIND_LABELS.get(row.kind, row.kind),
+                "entity": _record_entity(row, names_),
                 "rating": row.rating,
                 "rated_on": v.end_date.isoformat() if v.end_date and (rated or not not_rated_yet) else None,
                 "hact_q1": row.hact_q1 or None,
+                "quality": _quality(row.quality_score),
+                "score_band": row.score_band or None,
+                "provisional_score": _quality(row.provisional_score),
+                "ai_checks_pending": row.ai_pending,
+                "not_scored_reason": row.not_scored_reason or None,
+                "urgency": row.urgency,
+                "urgency_band": row.urgency_band or None,
+                "urgency_parts": dict(row.urgency_parts or {}),
+                "flags": list(row.flags or ()),
+                "rules": own,
                 "narrative": _text(ctx, raw, NARRATIVES_ELSEWHERE, names_),
             }
         )
-    rules = [
-        {
-            "rule": r.rule,
-            "status": r.status,
-            "points_off": float(r.deducted) if r.status == "fail" else 0.0,
-            "max_points": float(r.max_points),
-            "detail": r.detail,
-        }
-        for r in sorted(VisitRuleResult.objects.filter(visit=v), key=lambda r: code_order(r.rule))
-        if r.status != "off"
-    ]
     answers = []
     if bound():
         for answer, shown, summary in visit_answer_rows(v):
@@ -630,17 +709,34 @@ def fm_visit(visit: str) -> dict[str, Any]:
         **card(v, names_),
         "programmatic": v.is_programmatic,
         "psea_flag": v.psea_flag,
+        # the visit's quality: the mean of its scored records, with its lowest; its urgency its most
+        # urgent record's
         "score_band": v.score_band or None,
+        "lowest_score": _quality(v.lowest_score),
+        "records_count": len(records),
+        "records_scored": v.records_scored,
         "not_scored_reason": v.not_scored_reason or None,
         "urgency_band": v.urgency_band or None,
         "urgency_parts": dict(v.urgency_parts or {}),
         "action_points_total": v.action_points,
         "action_points_high_open": v.action_points_high_open,
         "cp_outputs": [privacy.clean(name, 300, names_)[0] for name in v.cp_outputs or ()],
-        "entities": entities,
-        "rules": rules,
+        "records": records,
+        "visit_checks": sorted(visit_checks.values(), key=lambda line: code_order(line["rule"])),
         "hact": _hact(v),
         "answers": answers,
+    }
+
+
+def _rule_line(r) -> dict[str, Any]:
+    """A record's rule result as the AI reads it: the rule, its state, the points it took off the record
+    (when it flagged it), its maximum and its detail."""
+    return {
+        "rule": r.rule,
+        "status": r.status,
+        "points_off": float(r.deducted) if r.status == "fail" else 0.0,
+        "max_points": float(r.max_points),
+        "detail": r.detail,
     }
 
 
@@ -722,11 +818,14 @@ def _schema(properties: dict, required: list[str] | None = None) -> dict:
 FMM_TOOLS: dict[str, tuple[Any, str, dict, str]] = {
     "fm_summary": (
         fm_summary,
-        "Field monitoring visits (eTools) counted: visits by status, the rated visits by rating with each "
-        "rating's share of the rated visits, the Not monitored visits (planned, not conducted: a count "
-        "apart, never in a share), monitored entities, the average report quality score, and visits of "
-        "high and amber urgency, for the filter, optionally grouped by section, governorate, office, "
-        "partner, month, rating, quality rule, entity type or status. Arguments can only narrow the filter.",
+        "Field monitoring visits (eTools) and their records counted. A visit holds one record per entity "
+        "assessed (partner, programme document or CP output); each record is rated, scored, flagged and "
+        "given an urgency on its own, as in FMS. Gives the visits by status, the rated visits by rating "
+        "with each rating's share of the rated visits, the Not monitored visits (planned, not conducted: a "
+        "count apart, never in a share), the records by rating, the average report quality score per "
+        "record, and the records of high and amber urgency, for the filter, optionally grouped by section, "
+        "governorate, office, partner, month, rating, quality rule, entity type or status (each group: its "
+        "records, their visits and their average). Arguments can only narrow the filter.",
         _schema(
             {
                 "group_by": {
@@ -754,9 +853,11 @@ FMM_TOOLS: dict[str, tuple[Any, str, dict, str]] = {
     "fm_visits": (
         fm_visits,
         "Field monitoring visits (eTools) listed as cards: dates, partner, programme document, place, "
-        "sections, rating and its date, HACT Q1, quality score, flags, urgency and action points, with the "
-        "visit's url. Sorted by urgency (default), date (newest first) or quality (lowest first). "
-        "Arguments can only narrow the filter.",
+        "sections, rating (its worst record's) and its date, HACT Q1, quality score (the mean of its "
+        "records), flags, urgency (its most urgent record's) and action points, with the visit's url, and "
+        "its records (one per entity assessed: entity, type, rating, score, band, urgency, flags). Sorted "
+        "by urgency (default), date (newest first) or quality (lowest first). Arguments can only narrow "
+        "the filter.",
         _schema(
             {
                 "section": {"type": "string"},
@@ -767,7 +868,7 @@ FMM_TOOLS: dict[str, tuple[Any, str, dict, str]] = {
                 "status": {"type": "string", "enum": list(STATUS_GROUPS)},
                 "flag": {
                     "type": "string",
-                    "description": "Visits flagged by this quality rule, by its id (R1, R2 ... R32).",
+                    "description": "Visits with a record this quality rule flagged, by its id (R1 ... R32).",
                 },
                 "min_urgency": {"type": "integer", "minimum": 0, "maximum": 100},
                 "sort": {"type": "string", "enum": list(SORTS)},
@@ -780,9 +881,10 @@ FMM_TOOLS: dict[str, tuple[Any, str, dict, str]] = {
     "fm_visit": (
         fm_visit,
         'One field monitoring visit in full, by its id (1722), "Visit 1722", its reference or the key a '
-        "list returned (visit:1722): its card, its entities with their ratings and notes, the quality "
-        "rules' results, its urgency, action points, HACT context and checklist answers. A visit outside "
-        "the filter is not read.",
+        "list returned (visit:1722): its card, its records (one per entity assessed) each with its rating, "
+        "note, quality score, urgency, flags and quality rules' results, the checks read once for the "
+        "whole visit, action points, HACT context and checklist answers. A visit outside the filter is not "
+        "read.",
         _schema({"visit": {"type": "string"}}, ["visit"]),
         "Reading a monitoring visit",
     ),

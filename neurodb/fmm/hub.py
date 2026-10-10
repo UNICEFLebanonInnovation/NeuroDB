@@ -3,9 +3,11 @@ dated (start, else end) in the last ``FMM_HUB_MONTHS`` months, linked to what it
 programme documents, its partners and the country programme outputs it monitored), its sections and
 its places.
 
-An entity carries structured facts only (date, status group, rating, quality, urgency band): never a
-narrative, an answer, a visit lead or a team name. The hub's builder (``graph.builders``) imports this
-module lazily, and only when the app is installed and switched on.
+An entity carries structured facts only (date, status group, rating: its worst record's, quality: the
+mean of its records, urgency band: its most urgent record's): never a narrative, an answer, a visit lead
+or a team name. The hub keeps visits, not their records: a record is read on its visit's page. The
+hub's builder (``graph.builders``) imports this module lazily, and only when the app is installed and
+switched on.
 """
 
 from __future__ import annotations
@@ -41,7 +43,7 @@ def entity_name(label: str, partner: str, day: datetime.date | None) -> str:
 
 def attrs_of(visit) -> dict[str, Any]:
     """The facts of a visit the hub keeps, to identify it and to notice a change of rating: structured
-    values only."""
+    values only (its quality is the mean of its records, as on its page)."""
     return {
         "date": visit.visit_date.isoformat() if visit.visit_date else "",
         "status_group": visit.status_group,

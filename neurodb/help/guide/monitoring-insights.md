@@ -138,8 +138,10 @@ records of that urgency band.
 ### Chat with Data
 
 Questions about the visits **of the page's filter** ("Which visits were off track and why?"),
-answered by ChatGPT with four look-ups of Monitoring insights: counts, lists of visits, one visit, and
-a search of the visits' notes. The model can narrow the filter but never widen it; changing the filter
+answered by ChatGPT with four look-ups of Monitoring insights: counts of visits and their records (also
+by section, partner, month, rating, rule...), lists of visits with their records, one visit with each
+of its records' score, urgency and rule results, and a search of the visits' notes. As on the page, the
+average quality and the urgency are per record. The model can narrow the filter but never widen it; changing the filter
 starts a new conversation. Names, e-mail addresses and phone numbers are removed from your question
 before it is sent. A link to a visit stays only when a look-up returned that visit ("Visit 1722 (not
 checked)" otherwise), and figures no look-up returned are listed under the answer. 20 questions a day

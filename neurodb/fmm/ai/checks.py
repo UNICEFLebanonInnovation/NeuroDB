@@ -32,11 +32,15 @@ writes, is left out (the verdict stays).
 to run, so it needs neither the AI nor its budget): the checks Release 2 made per visit (``VisitAICheck``)
 are copied for the visits with a single record, whose record was then the whole visit: a verdict still up
 to date against what the visit sent then (:func:`legacy_payload`) becomes that record's answer
-(``carried``). A visit with several records inherits nothing (a verdict on merged texts cannot be given
-to one row): its records stay provisional until they are checked, first in the job's order. Each visit
-check dealt with is deleted; ``legacy_checks_left`` in the run details counts those left (of rules not
-on now). Re-check carried answers (Score settings) deletes carried answers a batch at a time, so they
-are checked properly when the budget allows.
+(``carried``), for every narrative rule whose instructions the published prompt version holds, switched
+on or not (one switched off finds its answers when it is switched on again; unused, they go after 120
+days like any answer). A visit with several records inherits nothing (a verdict on merged texts cannot be
+given to one row): its records stay provisional until they are checked, first in the job's order. Each
+visit check dealt with is deleted, so one pass deals with them all; ``legacy_checks_left`` in the run
+details counts those left (:func:`legacy_left`: 0 once the table is gone too). The clean-up migration of
+Release 2 step 5 drops that table when it is empty and keeps it otherwise; a later migration drops it
+once ``legacy_checks_left`` reads 0. Re-check carried answers (Score settings) deletes carried answers a
+batch at a time, so they are checked properly when the budget allows.
 
 **The job** (:func:`run`, one at a time under its own lock, one ``SyncRun`` "Monitoring insights (AI
 checks)"): the carry-over, then the records of the scored visits, this calendar year's first, those of
@@ -67,7 +71,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import connection
-from django.db.models import Case, F, IntegerField, Q, Value, When
+from django.db.models import Case, F, IntegerField, Value, When
 from django.utils import timezone
 
 from neurodb.assistant import usage
@@ -634,33 +638,67 @@ def _items(visits: list[Visit]) -> list[Item]:
     return [item_of(v, entities[v.pk], answers[v.pk], links[v.pk]) for v in visits]
 
 
+LEGACY_TABLE = VisitAICheck._meta.db_table  # "fmm_visitaicheck": not managed by Django since step 5
+
+
+def legacy_table() -> bool:
+    """The table of the checks made per visit before records is still there (the clean-up migration of
+    Release 2 step 5 drops it when it is empty; a later one drops it in any case)."""
+    with connection.cursor() as cursor:
+        if connection.vendor == "postgresql":
+            cursor.execute("SELECT to_regclass(%s) IS NOT NULL", [LEGACY_TABLE])
+            return bool(cursor.fetchone()[0])
+        return LEGACY_TABLE in connection.introspection.table_names(cursor)
+
+
+def legacy_left() -> int:
+    """The checks made per visit before records still to carry over (``legacy_checks_left``): 0 once
+    the table is gone."""
+    return VisitAICheck.objects.count() if legacy_table() else 0
+
+
+def forget_legacy_gone() -> int:
+    """The checks made per visit before records of visits gone from eTools, deleted (the refresh, while
+    the table is left). Returns how many."""
+    if not legacy_table():
+        return 0
+    return VisitAICheck.objects.exclude(visit_key__in=Visit.objects.values("key")).delete()[0]
+
+
+def legacy_rules(book) -> dict[str, Any]:
+    """The narrative rules a check made per visit may be carried over for: those whose prompt key has
+    instructions in the published prompt version, switched on or off, whether the AI checks are on or
+    not (a verdict's prompt hash is checked against those instructions)."""
+    return {
+        code: rule
+        for code, rule in book.rules.items()
+        if rule.type == "narrative" and rules.param(rule, "ai_prompt_key") in book.prompts
+    }
+
+
 def carry_over(book) -> dict[str, int]:
     """The checks made per visit before records (``VisitAICheck``) carried over, once (see the module's
     notes): for a visit with a single record, a verdict still up to date against what the visit sent
-    then (:func:`legacy_payload`, the prompt hash of then) is kept as that record's answer (``carried``);
-    the checks of a visit with several records, of a visit gone, or out of date are dropped. Each check
-    dealt with is deleted; the checks of a rule not on now are left for when it is (and not read again
-    until then: the refresh calls this before every scoring while any is left). Returns
-    ``{"carried", "dropped", "left"}``."""
+    then (:func:`legacy_payload`, the prompt hash of then) is kept as that record's answer (``carried``),
+    for each rule of :func:`legacy_rules`; the checks of a visit with several records, of a visit gone,
+    out of date, or of a rule without instructions now are dropped. Each check dealt with is deleted, so
+    none is left after one pass (unless a batch failed). Nothing to do once the table is empty or gone.
+    Returns ``{"carried", "dropped", "left"}``."""
     out = {"carried": 0, "dropped": 0, "left": 0}
-    if not VisitAICheck.objects.exists():
+    if not legacy_left():
         return out
-    ai_rules = {rule.code: rule for rule in book.ai_rules()}
+    ai_rules = legacy_rules(book)
     prompts_ = {code: book.prompts[rules.param(rule, "ai_prompt_key")] for code, rule in ai_rules.items()}
     new_hashes = {code: prompt_hash(rule, prompts_[code]) for code, rule in ai_rules.items()}
     old_hashes = {code: legacy_prompt_hash(rule, prompts_[code]) for code, rule in ai_rules.items()}
     limit = book.setting.ai_text_chars
     today = timezone.localdate()
-    # what can be dealt with now: a check of a rule on, or of a visit gone or with several records (the
-    # checks of a rule off on a single-record visit wait, unread)
-    single_keys = Visit.objects.filter(entities=1).values("key")
-    due = VisitAICheck.objects.filter(Q(rule__in=list(ai_rules)) | ~Q(visit_key__in=single_keys))
-    keys = sorted(set(due.values_list("visit_key", flat=True)))
+    keys = sorted(set(VisitAICheck.objects.values_list("visit_key", flat=True)))
     for start in range(0, len(keys), BATCH):
         batch = keys[start : start + BATCH]
         found = list(VisitAICheck.objects.filter(visit_key__in=batch).order_by("pk"))
         single = {v.key: v for v in Visit.objects.filter(key__in=batch, entities=1).order_by("key")}
-        # the texts are read only for the single-record visits with a check of a rule on
+        # the texts are read only for the single-record visits with a check that may be carried over
         asked = [
             single[key] for key in sorted({r.visit_key for r in found if r.rule in ai_rules} & set(single))
         ]
@@ -669,12 +707,11 @@ def carry_over(book) -> dict[str, int]:
         carried: list[AICheckAnswer] = []
         for row in found:
             rule = ai_rules.get(row.rule)
-            if rule is None and row.visit_key in single:
-                continue  # a rule not on now: kept for when it is
             visit_inputs = inputs.get(row.visit_key)
             alone = visit_inputs is not None and len(visit_inputs.rows) == 1
             if (
-                not alone
+                rule is None
+                or not alone
                 or row.prompt_hash != old_hashes[row.rule]
                 or row.input_hash != input_hash(legacy_payload(visit_inputs, rule, limit))
             ):
@@ -700,7 +737,7 @@ def carry_over(book) -> dict[str, int]:
             out["carried"] += 1
         AICheckAnswer.objects.bulk_create(carried, ignore_conflicts=True)
         VisitAICheck.objects.filter(pk__in=done).delete()
-    out["left"] = VisitAICheck.objects.count()
+    out["left"] = legacy_left()
     return out
 
 
