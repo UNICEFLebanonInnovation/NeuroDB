@@ -8,7 +8,7 @@ import datetime
 import pytest
 
 from neurodb.datamart import models as dm
-from neurodb.datamart import monitoring, services
+from neurodb.datamart import monitoring, reached, services
 from neurodb.reports import brief
 from neurodb.review import checks
 from tests.reports.overview_fixture import TODAY, make_overview_data
@@ -41,6 +41,10 @@ def test_the_rule_reads_the_same_in_python_and_in_the_database(status, date, sub
     assert monitoring.is_submitted(row) is submitted
     assert monitoring.is_submitted({"report_status": status, "submission_date": date}) is submitted
     assert dm.ReportedIndicator.objects.filter(monitoring.pending_q()).exists() is not submitted
+    # the six report statuses follow the same rule: a report not submitted is Due, Overdue or Not yet due
+    six = reached.status_of(status, due_date=SENT, submission_date=date, today=datetime.date(2026, 6, 1))
+    assert (six in (reached.ACCEPTED, reached.SUBMITTED, reached.SENT_BACK)) is submitted
+    assert (six == reached.OVERDUE) is (not submitted)
 
 
 def test_a_missing_status_is_not_submitted():
@@ -106,7 +110,9 @@ def test_a_report_accepted_without_its_date_is_overdue_nowhere(data, reporting_y
         "brief": 0,
     }
     summary = services.partner_reporting({})["summary"]
-    assert (summary["reports"], summary["submitted"]) == (2, 2)  # submitted and overdue never overlap
+    # one status each: both reports are Accepted (the second without its date), none overdue
+    assert (summary["reports"], summary["accepted"], summary["submitted"], summary["overdue"]) == (2, 2, 0, 0)
+    assert sum(summary["statuses"].values()) == summary["reports"]
     assert _scorecard(reporting_year)["reports_on_time_percent"] == 100.0
 
 
@@ -122,7 +128,8 @@ def test_a_report_with_neither_date_nor_status_is_overdue_everywhere_once(data, 
     }
     (finding,) = checks.check_reports_overdue(checks.Context(today=TODAY))
     assert finding.key == "reports_overdue:LEB/PD1" and finding.evidence["numbers"]["days_overdue"] == 10
-    assert services.partner_reporting({})["summary"]["submitted"] == 1
+    summary = services.partner_reporting({})["summary"]
+    assert (summary["accepted"], summary["overdue"], summary["due"]) == (1, 1, 0)
     assert _scorecard(reporting_year)["reports_on_time_percent"] == 50.0
 
 

@@ -472,6 +472,10 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .monitoring-grid__section th { background: var(--nd-surface-2); font-size: 0.82rem; text-transform: none; letter-spacing: 0; position: static; }
 .monitoring-grid__pd th { background: var(--nd-surface); font-weight: 600; font-size: 0.82rem; text-transform: none; letter-spacing: 0; position: static; border-top: 2px solid var(--nd-border); }
 .monitoring-grid__output td { padding-top: 0.15rem; padding-bottom: 0.15rem; }
+/* total rows (Bootstrap's light row is white in the dark theme: it follows the theme's tokens instead) */
+.table .table-light { --bs-table-color: var(--nd-text); --bs-table-bg: var(--nd-surface-2); --bs-table-border-color: var(--nd-border); --bs-table-hover-bg: var(--nd-surface-2); --bs-table-hover-color: var(--nd-text); }
+/* eTools Reached: reports that do not count (Sent back, Due, Overdue) are greyed and outside every total */
+.reached-uncounted, tr.reached-uncounted td { color: var(--nd-muted); background: var(--nd-surface-2); font-style: italic; }
 .pdmap-side .table-toolbar__actions { flex: 1 1 200px; justify-content: flex-end; }
 .pdmap-list tr[data-pdmap-row] { cursor: pointer; }
 .map-legend .legend { margin-top: 0.25rem; }

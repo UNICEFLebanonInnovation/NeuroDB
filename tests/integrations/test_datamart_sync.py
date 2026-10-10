@@ -527,6 +527,114 @@ def test_partner_reports_are_read_for_a_window_and_only_that_window_is_replaced(
 
 
 @responses.activate
+def test_partner_reports_of_running_pds_are_read_from_their_start_with_their_cp_output(linked, settings):
+    """Reached adds up every counted report of a PD: the window reaches back to the start of every
+    running programme document; the indicator report id and the CP output get columns, and each PD
+    indicator its CP output (by its eTools id, else its title)."""
+    import datetime
+
+    p, pd = linked
+    PCA.objects.filter(pk=pd.pk).update(
+        status="active", start=datetime.date(2019, 7, 1), end=datetime.date(2030, 12, 31)
+    )
+    settings.ETOOLS_DATAMART_REPORTING_YEARS = 2
+    by_id = dm.PDIndicator.objects.create(
+        datamart_id=5, source_id=77, intervention=pd, title="Children reached"
+    )
+    by_title = dm.PDIndicator.objects.create(datamart_id=6, intervention=pd, title="Teachers trained")
+    common = {
+        "partner_vendor_number": "V1",
+        "etools_intervention_id": "11",
+        "intervention_reference_number": "LEB/PD1",
+        "progress_report": "QPR1",
+        "report_number": "QPR1",
+        "report_type": "QPR",
+        "report_status": "Accepted",
+        "reporting_period_start_date": "2019-07-01",
+    }
+    responses.get(
+        f"{BASE}/api/latest/prp/datareport/",
+        match=[
+            responses.matchers.query_param_matcher(
+                {
+                    "page_size": "500",
+                    "country_name": "Lebanon",
+                    "reporting_period_start_date__gte": "2019-07-01",
+                }
+            )
+        ],
+        json={
+            "results": [
+                {
+                    **common,
+                    "id": 1,
+                    "performance_indicator": "Children reached",
+                    "etools_cp_output_indicators_id": "77",
+                    "indicator_report": 501,
+                    "cp_output": "Output 2.1 Children access protection services",
+                    "etools_cp_output_id": 3301,
+                    "disaggregation": {"()": {"v": 10, "d": 1, "c": 10}},
+                },
+                {
+                    **common,
+                    "id": 2,
+                    "performance_indicator": "Teachers trained",
+                    "indicator_report": "502",
+                    "cp_output": {"name": "Output 3.1 Teachers"},
+                },
+            ],
+            "next": None,
+        },
+    )
+    (run,) = run_all("partner_reports")
+    assert run.status == SyncRun.Status.SUCCEEDED
+    assert run.details["read_from"] == "2019-07-01" and run.details["cp_outputs"] == 2
+    row = dm.ReportedIndicator.objects.get(datamart_id=1)
+    assert (row.indicator_report, row.cp_output, row.etools_cp_output_id) == (
+        "501",
+        "Output 2.1 Children access protection services",
+        "3301",
+    )
+    assert row.disaggregation == {"()": {"v": 10, "d": 1, "c": 10}}
+    assert dm.ReportedIndicator.objects.get(datamart_id=2).cp_output == "Output 3.1 Teachers"
+    by_id.refresh_from_db()
+    by_title.refresh_from_db()
+    assert (by_id.cp_output, by_title.cp_output) == (
+        "Output 2.1 Children access protection services",
+        "Output 3.1 Teachers",
+    )
+    # the setting off: the last years only
+    settings.ETOOLS_DATAMART_REPORTING_FROM_PD_START = False
+    assert sync._reporting_since() == datetime.date(datetime.date.today().year - 1, 1, 1)
+
+
+def test_the_migration_fills_the_new_columns_from_the_records(linked):
+    import importlib
+
+    from django.db import connection
+
+    _, pd = linked
+    migration = importlib.import_module("neurodb.datamart.migrations.0009_reached_columns")
+    indicator = dm.PDIndicator.objects.create(datamart_id=5, source_id=77, intervention=pd, title="Children")
+    row = dm.ReportedIndicator.objects.create(
+        datamart_id=1,
+        intervention=pd,
+        etools_indicator_id="77",
+        data={"indicator_report": 501, "cp_output": "Output 2.1", "etools_cp_output_id": 3301},
+    )
+
+    class Editor:
+        pass
+
+    Editor.connection = connection
+    migration.fill(None, Editor())
+    row.refresh_from_db()
+    indicator.refresh_from_db()
+    assert (row.indicator_report, row.cp_output, row.etools_cp_output_id) == ("501", "Output 2.1", "3301")
+    assert indicator.cp_output == "Output 2.1"
+
+
+@responses.activate
 def test_hact_history_counts_arrive_as_strings(linked):
     p, _ = linked
     page(

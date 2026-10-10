@@ -836,7 +836,7 @@ Datamart host (a pagination link to any other host is refused). Every request is
 | `tpm_visits`, `field_monitoring` | `tpm-visits/`, `fm-ontrack/` | TPM visits and field monitoring findings (field monitoring and partner pages); each finding is linked to the programme document its entity names, by the PCA/PD pair of the reference so that the `LEBA/` or `LEB/` prefix and the `-2` amendment do not matter (`pd_match` says how: exact, token, base or title; a PD entity that matches none is counted in `not_linked.programme_document_fm`) |
 | `hact` | `hact/aggregate/` | HACT totals per year (assurance page) |
 | `funds_reservation_headers` | `funds/fundsreservationheader/` | FRs: reserved, disbursed, outstanding (funds and programme pages) |
-| `partner_reports` | `prp/datareport/` | partner progress reports per indicator and location, periods starting in the last `ETOOLS_DATAMART_REPORTING_YEARS` years (partner reporting, programme and partner pages) |
+| `partner_reports` | `prp/datareport/` | partner progress reports per indicator and location (partner monitoring, partner reporting, programme and partner pages), periods starting in the last `ETOOLS_DATAMART_REPORTING_YEARS` years and, while `ETOOLS_DATAMART_REPORTING_FROM_PD_START` is on (the default), since the start of every running programme document (`details.read_from` shows the date read from); the indicator report id, CP output and eTools CP output id get columns, and each PD indicator its CP output from its latest report naming one (`details.cp_outputs`) |
 | `tpm_activities` | `tpm-activities/` | the PD, place and date of each TPM visit activity (field monitoring and programme pages) |
 | `staff_visits` | `travel-activities/` | UNICEF staff trip activities: programmatic visits, spot checks, meetings (programme and partner pages) |
 | `planned_visits` | `interventions-planned-visits/` | programmatic visits planned per PD and quarter |
@@ -906,27 +906,77 @@ few of their ids (every record is also in the container log). Two causes to know
 *Partner monitoring* replaces the ActivityInfo indicator dashboards for partners reporting in
 eTools/PRP. It joins the PD indicators (`pd_indicators`: target, baseline, section, output,
 planned locations, disaggregations) with the partners' data reports (`partner_reports`: one row per
-report, indicator and location) on the programme document and the indicator title. Quarterly (QPR)
-and monthly humanitarian (HR) reports describe the same achievements, so the page shows one report
-type at a time (QPR by default; HR exists only for high-frequency and cluster indicators) and never
-adds them. Each report's value is the sum of its location rows (or their maximum / average when the
-indicator's calculation method says so) and is shown in the month its reporting period ends; the
-cumulative is the one the latest report carries (PRP repeats it on each location row; if the rows
-disagree, the largest is used, and two reports ending the same day are ordered by report id, so an
-indicator reads the same under every filter). The status compares the cumulative's share of the
-PD target with the share of the PD period (start to end) elapsed, ±10 points, the same rule the
-ActivityInfo pages use with the calendar year. Gender, age group, nationality and disability tags
-are read from the indicator titles (`neurodb/datamart/tags.py`). The programme and partner pages
-summarise it; the assistant answers with `pd_indicator_progress`. Per-location targets are not in
-any country-filterable Datamart endpoint, so locations are compared on reported values only.
+report, indicator and location). A report row belongs to the PD indicator with its eTools indicator
+id (`etools_cp_output_indicators_id` = the PD indicator's `source_id`); a row without one is matched
+by its title, only when one indicator of the PD has that title (two indicators with the same title
+are never merged).
 
-**Statuses.** *On track / Off track / Ahead of schedule* compare the cumulative achievement with
-the share of the PD period elapsed (±10 points); an indicator ahead of schedule that has passed 100 %
-of its target reads *Over target* (the stored key stays `over_target`); *No target* when the PD sets none; **Not reported**
-when no progress report of the selected type and year was read for the indicator — an indicator
-nobody reported on is never called off track. A report row is matched to its PD indicator by the
-eTools indicator id (`etools_cp_output_indicators_id` = the PD indicator's `source_id`) when the
-Datamart gives one, else by its title within the programme document.
+**Reached: one rule for every page** (`neurodb/datamart/reached.py`; the grid, the indicator detail,
+the map, the programme and partner pages, the progress report pop-up and Ask NeuroDB all read it):
+
+* **Which reports count.** Accepted and Submitted reports. What Submitted reports add is shown as
+  *awaiting acceptance*, so a later send-back is understood. Sent back, Due, Overdue and not-yet-due
+  reports never count, whatever they carry; *the latest report* is the latest counted one. The six
+  statuses: PRP's word or code decides Accepted, Submitted and Sent back; any other report with a
+  submission date is Submitted; a report not submitted is Overdue once its due date has passed, Not
+  yet due while its period runs, else Due (the same rule as every "overdue" figure).
+* **A location's value in a report** is the disaggregation total `"()"` (its calculated value, else
+  numerator over denominator), else the location's running total minus its previous one, else the
+  value in the period. When every location row of a report carries the same value in the period,
+  it is the report total repeated on each row and is not added up (a data note says so). Two rows
+  of one location in one report are never added: the largest is used.
+* **A report's value** combines its locations by the indicator's method across locations (sum,
+  maximum, average; percentages and ratios as the sum of numerators over the sum of denominators).
+  PRP's own report total (`progress_value` of `prp_indicator_reports`) is used when it agrees, or
+  when the locations cannot say.
+* **Reached** combines the counted reports by the method across reporting periods (sum, maximum,
+  average, latest; percentages and ratios as numerators over denominators): to date, in a year, per
+  month (each report in the month its period ends), per location and per disaggregation key. For an
+  indicator summed across locations and periods the months of a year add up to *Reached in* that
+  year, the years to Reached, and the locations to Reached; for any other method the page names the
+  method next to the figure. Different indicators, percentages, and quarterly (QPR) and monthly
+  humanitarian (HR) reports are never added together: one report type is read at a time (QPR by
+  default; HR only for high-frequency and cluster indicators), and an indicator with no quarterly
+  report at all is read from its monthly ones (marked *From monthly reports*).
+* **PRP's own cumulative** (`total_cumulative_progress` on the latest counted report) is shown beside
+  Reached; an indicator where the two differ is marked *Differs from PRP*. A programme document that
+  started before the partner reports are read from (see `partner_reports` above: only closed PDs,
+  while the setting is on) has a partial history: its Reached is PRP's cumulative, marked *Partial
+  history*.
+* **A location filter** shows each indicator's Reached at the chosen locations; its % is a share of
+  the whole PD target.
+
+**The pages.** The grid lists, per indicator: Target, Reached (as of the latest counted report),
+% Reached, Reached in the chosen year, Awaiting acceptance, Status, the partner's own view, and the
+months of the year; *All years* in the year menu shows one column per year instead. The indicator
+detail is a location × report matrix of every report of the type (every year; not-yet-due reports
+left out): each row ends with the location's Reached, each column with the report's value, the
+corner is Reached; reports that do not count are greyed and stay out of every total. The progress
+report pop-up shows each location's value parsed (never PRP's raw text) and a total row that follows
+the method. The programme document page lists Reached on each indicator with its latest counted
+report. *Progress reports* counts reports by the six statuses (they add up to the total).
+
+**Statuses.** *On track / Off track / Ahead of schedule* compare Reached's share of the target with
+the share of the PD period (start to end) elapsed, ±10 points, the same rule the ActivityInfo pages
+use with the calendar year; an indicator ahead of schedule that has passed 100 % of its target reads
+*Over target* (the stored key stays `over_target`); *No target* when the PD sets none; **Not
+reported** when no counted report carries a value (an indicator nobody reported on, or whose only
+reports are due, is never called off track); *Reported zero* is noted under the status. Gender, age
+group, nationality and disability tags are read from the indicator titles
+(`neurodb/datamart/tags.py`). The assistant answers with `pd_indicator_progress` (Reached fields);
+`etools_query` refuses to add up partner report values (`partner_reports`, `prp_indicator_reports`)
+and points to it. Per-location targets are not in any country-filterable Datamart endpoint, so
+locations are compared on reported values only.
+
+**eTools reporting checks** (admin → *eTools reporting checks*, Administrators only; linked from
+*Data health*): nine read-only checks of the partner report data the rule depends on (rows per
+location, whether the value in the period is the report total repeated, disaggregation keys and the
+`"()"` total, what reports that do not count carry, PRP's cumulative against Reached, the
+calculation methods in use, whether report rows carry the PD indicator's id, PRP's report totals,
+and whether the financial contribution repeats on every indicator of a report), each with a verdict
+and what NeuroDB does whatever the answer. Every query is aggregate and stopped after 20 seconds.
+Nothing needs running: the page reads what the nightly eTools Datamart sync stored (Run a job →
+*Sync eTools (Datamart)* refreshes it).
 
 ### One programme implementation ecosystem: how the eTools records are linked
 
@@ -957,9 +1007,9 @@ placed by its own eTools coordinates; when it has none, by the nearest parent ar
 (drawn hollow, "approximate"); a name alone never places anything, and locations with no
 coordinates anywhere in their hierarchy are listed under the map. Clicking a location lists, per
 partner and programme document (with its funding and agreement), the indicators reported there:
-target, achieved at that location this year, cumulative there and overall, status and latest
-period, plus the TPM activities, field-monitoring findings and open action points recorded at the
-place. The indicator, programme and partner pages link back to the map for their locations.
+target, the location's own Reached (to date, with PRP's running total there, and in the chosen
+year), the indicator's Reached over all its locations, status and latest counted period, plus the
+TPM activities, field-monitoring findings and open action points recorded at the place. The indicator, programme and partner pages link back to the map for their locations.
 
 ### Partner reporting: ActivityInfo and eTools, side by side
 
@@ -1123,11 +1173,15 @@ management meeting asks for. Eight blocks, one tab each:
   *Assign* link next to a finding (on the brief and in the review admin); the status stamps the
   dates the lifecycle chart reads. A finding the review itself sees resolved counts as closed.
 
-**Rules of this page.** Every comparison is against the same rule: the same months of the year
-before for children reached (month to date, the larger of the two sources), the elapsed PD period
-for achievement, the daily review of 30 days ago for the on-track share (the same formula and the
-PDs running in the year, only when that review is of the selected year). The projection is the
-average of the last three reported months, extended to December; it is a pace, not a forecast.
+**Rules of this page.** The eTools figures are read from Partner monitoring's Reached
+(`neurodb/datamart/reached.py`): only Accepted and Submitted reports count, a report's month is the
+month its period ends, and its value combines the locations by the indicator's method, never adding
+what PRP repeats on each row; an indicator's achievement is its Reached to date against its target.
+Every comparison is against the same rule: the same months of the year before for children reached
+(month to date, the larger of the two sources), the elapsed PD period for achievement, the daily
+review of 30 days ago for the on-track share (the same formula and the PDs running in the year, only
+when that review is of the selected year). The projection is the average of the last three reported
+months, extended to December; it is a pace, not a forecast.
 Confidence thresholds: reported ≥ 80 %, verified ≥ 30 %, linked ≥ 90 %, sync at most 2 days old;
 one short = medium, two or more = low. A grant's unspent balance is each funds reservation's
 outstanding amount in the grant's share of the reservation's lines (eTools carries the

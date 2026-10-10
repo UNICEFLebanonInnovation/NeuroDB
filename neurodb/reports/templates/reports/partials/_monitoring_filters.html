@@ -33,8 +33,9 @@
   <div class="filter-bar__field">
     <label class="form-label" for="f-year">{% trans "Year" %}</label>
     <select class="form-select form-select-sm" id="f-year" name="year">
+      <option value="all" {% if filters.all_years %}selected{% endif %}>{% trans "All years" %}</option>
       {% for y in options.years %}<option value="{{ y }}" {% if y == filters.year %}selected{% endif %}>{{ y }}</option>{% endfor %}
-      {% if filters.year not in options.years %}<option value="{{ filters.year }}" selected>{{ filters.year }}</option>{% endif %}
+      {% if filters.year and filters.year not in options.years %}<option value="{{ filters.year }}" selected>{{ filters.year }}</option>{% endif %}
     </select>
   </div>
   <div class="filter-bar__field">

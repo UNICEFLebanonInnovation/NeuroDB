@@ -1,0 +1,456 @@
+"""The one rule for eTools "Reached" (neurodb.datamart.reached): which reports count, a location's value
+in a report, a report's value, and Reached to date, in a year, per month, per location and per
+disaggregation key. Most tests feed report rows straight to ``reached.compute``; the worked example and
+the property tests pin what the user complained about: the numbers never add what PRP repeats, and
+they add up wherever they should."""
+
+from __future__ import annotations
+
+import datetime
+import random
+
+import pytest
+
+from neurodb.datamart import reached
+
+TODAY = datetime.date(2026, 10, 9)
+_ids = iter(range(1, 10**9))
+
+
+def row(report, end, location, value=None, *, status="Accepted", submitted=True, p_code="", **extra):
+    """One partner report row (a ``ReportedIndicator.values()`` dict), its value in the "()" total."""
+    out = dict.fromkeys(reached.ROW_FIELDS, "")
+    out.update(
+        datamart_id=next(_ids),
+        intervention_id=1,
+        indicator="5.2.1 # adolescents and youth reached with outreach info sessions",
+        etools_indicator_id="521",
+        progress_report=report,
+        indicator_report=f"ir-{report}",
+        report_number=report,
+        report_type="QPR",
+        report_status=status,
+        period_start=end - datetime.timedelta(days=89),
+        period_end=end,
+        due_date=end + datetime.timedelta(days=30),
+        submission_date=end + datetime.timedelta(days=20) if submitted else None,
+        disaggregation={"()": {"v": value, "d": 1, "c": value}} if value is not None else {},
+        location=location,
+        p_code=p_code,
+        location_ref_id=None,
+    )
+    out.update(extra)
+    return out
+
+
+def compute(rows, **kwargs):
+    kwargs.setdefault("today", TODAY)
+    kwargs.setdefault("year", 2026)
+    return reached.compute(rows, **kwargs)
+
+
+# --------------------------------------------------------------------------------- worked example
+def worked_example_rows():
+    """synthesis §1: target 3,000, sum across locations and periods, PD Jul 2025 – Dec 2027, two
+    locations; QPR3's Akkar total is 20 with female 5 + male 15 (sex) and Lebanese 20 (nationality)."""
+    q = [
+        ("QPR1", datetime.date(2025, 9, 30), "Accepted", 100, 50),
+        ("QPR2", datetime.date(2025, 12, 31), "Accepted", 120, 80),
+        ("QPR3", datetime.date(2026, 3, 31), "Accepted", 20, 30),
+        ("QPR4", datetime.date(2026, 6, 30), "Submitted", 60, 40),
+    ]
+    rows = []
+    for report, end, status, akkar, bekaa in q:
+        rows.append(row(report, end, "Akkar", akkar, status=status, p_code="LB1"))
+        rows.append(row(report, end, "Bekaa", bekaa, status=status, p_code="LB2"))
+    rows[4]["disaggregation"] = {
+        "()": {"v": 20, "d": 1, "c": 20},
+        "(1,)": {"v": 5, "d": 1, "c": 5},  # female
+        "(2,)": {"v": 15, "d": 1, "c": 15},  # male
+        "(3,)": {"v": 20, "d": 1, "c": 20},  # Lebanese
+    }
+    # QPR5 due on 30 October (period ended), QPR6 not yet due: they carry nothing that counts
+    for report, end, carried in (
+        ("QPR5", datetime.date(2026, 9, 30), 0),
+        ("QPR6", datetime.date(2026, 12, 31), 0),
+    ):
+        for place, code in (("Akkar", "LB1"), ("Bekaa", "LB2")):
+            rows.append(
+                row(
+                    report,
+                    end,
+                    place,
+                    carried,
+                    status="Due",
+                    submitted=False,
+                    p_code=code,
+                    total_cumulative_progress="0",
+                )
+            )
+    return rows
+
+
+def test_the_worked_example():
+    out = compute(worked_example_rows())
+    assert out.reached == 500.0  # 150 + 200 + 50 + 100: Accepted and Submitted reports count
+    assert (out.awaiting, out.awaiting_reports) == (100.0, 1)  # QPR4 awaits acceptance
+    assert out.reached_accepted == 400.0
+    assert out.reached_in_year == 150.0 and out.months == {3: 50.0, 6: 100.0}
+    assert out.years == {2025: 350.0, 2026: 150.0} and sum(out.years.values()) == out.reached
+    assert {k: v["reached"] for k, v in out.by_location.items()} == {"LB1": 300.0, "LB2": 200.0}
+    assert sum(v["reached"] for v in out.by_location.values()) == out.reached
+    assert [r.status for r in out.reports] == [
+        "accepted",
+        "accepted",
+        "accepted",
+        "submitted",
+        "due",
+        "not_yet_due",
+    ]
+    assert out.latest.key == "QPR4" and out.value_status == reached.REPORTED
+    # Akkar in QPR3: sex 5 + 15 = 20, nationality 20, location total 20 (never 40)
+    cell = next(r for r in out.reports if r.key == "QPR3").cells["LB1"]
+    assert cell.value == 20.0
+    assert cell.parts["(1,)"] + cell.parts["(2,)"] == cell.parts["(3,)"] == cell.parts["()"] == cell.value
+    # the zero a due or future report carries never becomes "the latest"
+    assert out.prp_cumulative is None and not out.mismatch
+
+
+# ------------------------------------------------------------------------------ report statuses
+@pytest.mark.parametrize(
+    ("text", "submitted", "end", "due", "expected"),
+    [
+        ("Accepted", None, datetime.date(2026, 6, 30), None, "accepted"),
+        (" ACC ", None, datetime.date(2026, 6, 30), None, "accepted"),
+        ("Submitted", None, datetime.date(2026, 6, 30), None, "submitted"),
+        ("sub", None, datetime.date(2026, 6, 30), None, "submitted"),
+        ("Sent back", datetime.date(2026, 7, 2), datetime.date(2026, 6, 30), None, "sent_back"),
+        ("Sen", None, datetime.date(2026, 6, 30), None, "sent_back"),
+        ("Due", None, datetime.date(2026, 9, 30), datetime.date(2026, 10, 30), "due"),
+        ("Due", None, datetime.date(2026, 6, 30), datetime.date(2026, 7, 30), "overdue"),
+        ("Overdue", None, datetime.date(2026, 6, 30), datetime.date(2026, 7, 30), "overdue"),
+        ("Due", None, datetime.date(2026, 12, 31), datetime.date(2027, 1, 30), "not_yet_due"),
+        ("", None, datetime.date(2026, 12, 31), None, "not_yet_due"),
+        ("", datetime.date(2026, 7, 2), datetime.date(2026, 6, 30), None, "submitted"),  # a date settles it
+        ("Accepted later", None, datetime.date(2026, 6, 30), datetime.date(2026, 7, 30), "overdue"),
+    ],
+)
+def test_six_statuses(text, submitted, end, due, expected):
+    status = reached.status_of(text, period_end=end, due_date=due, submission_date=submitted, today=TODAY)
+    assert status == expected
+    assert (status in reached.COUNTED) is (expected in ("accepted", "submitted"))
+
+
+def test_not_reported_and_reported_zero():
+    due_only = [row("QPR1", datetime.date(2026, 6, 30), "Akkar", 0, status="Due", submitted=False)]
+    out = compute(due_only)
+    assert out.reached is None and out.value_status == reached.NOT_REPORTED and out.counted == []
+    zero = [row("QPR1", datetime.date(2026, 6, 30), "Akkar", 0)]
+    out = compute(zero)
+    assert out.reached == 0.0 and out.value_status == reached.REPORTED_ZERO
+
+
+# ----------------------------------------------------------------------------- property tests
+def _random_case(seed: int):
+    rng = random.Random(seed)
+    places = [(f"Place {n}", f"LB{n}") for n in range(1, rng.randint(1, 4) + 1)]
+    rows, ends = [], []
+    year = rng.choice([2024, 2025])
+    for q in range(rng.randint(1, 8)):
+        month = 3 * (q % 4) + 3
+        end = datetime.date(year + q // 4, month, 28)
+        status = rng.choice(["Accepted", "Accepted", "Submitted", "Sent back", "Due", "Overdue"])
+        report = f"QPR{q + 1}"
+        for place, code in places:
+            if rng.random() < 0.15:
+                continue  # a location not reported in this report
+            value = rng.randint(0, 400)
+            female = rng.randint(0, value)
+            refugees = rng.randint(0, value)
+            rows.append(
+                row(
+                    report,
+                    end,
+                    place,
+                    value,
+                    status=status,
+                    submitted=status in ("Accepted", "Submitted", "Sent back"),
+                    p_code=code,
+                    disaggregation={
+                        "()": {"v": value, "d": 1, "c": value},
+                        "(1,)": {"v": female, "d": 1, "c": female},
+                        "(2,)": {"v": value - female, "d": 1, "c": value - female},
+                        "(3,)": {"v": refugees, "d": 1, "c": refugees},
+                        "(4,)": {"v": value - refugees, "d": 1, "c": value - refugees},
+                    },
+                )
+            )
+        ends.append(end)
+    return rows
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_sum_indicators_add_up_everywhere(seed):
+    rows = _random_case(seed)
+    out = compute(rows, year=None)
+    counted = [r for r in rows if r["report_status"] in ("Accepted", "Submitted")]
+    expected = sum(r["disaggregation"]["()"]["c"] for r in counted) if counted else None
+    assert out.reached == expected
+    if out.reached is None:
+        return
+    # the years add up to Reached, and each year's months to Reached in that year
+    assert sum(out.years.values()) == out.reached
+    for year, value in out.years.items():
+        in_year = compute(rows, year=year)
+        assert in_year.reached_in_year == value and sum(in_year.months.values()) == value
+    # the locations add up to Reached
+    assert sum(loc["reached"] or 0 for loc in out.by_location.values()) == out.reached
+    # each disaggregation type adds up to the location total; types are never added together
+    for place, keys in out.disaggregation.items():
+        assert keys["(1,)"] + keys["(2,)"] == keys["()"] == out.by_location[place]["reached"]
+        assert keys["(3,)"] + keys["(4,)"] == keys["()"]
+    # what awaits acceptance is exactly what the Submitted reports add
+    submitted = [r for r in counted if r["report_status"] == "Submitted"]
+    assert (out.awaiting or 0) == sum(r["disaggregation"]["()"]["c"] for r in submitted)
+
+
+@pytest.mark.parametrize("seed", range(20))
+def test_reports_that_do_not_count_change_nothing(seed):
+    rows = _random_case(seed)
+    base = compute(rows, year=None)
+    extra = list(rows)
+    for n, status in enumerate(("Due", "Sent back", "Overdue")):
+        end = datetime.date(2026, 3 * n + 3, 28)
+        extra.append(
+            row(
+                f"X{n}",
+                end,
+                "Place 1",
+                9999,
+                status=status,
+                submitted=status == "Sent back",
+                p_code="LB1",
+                total_cumulative_progress="0",
+            )
+        )
+    extra.append(
+        row(
+            "FUTURE", datetime.date(2027, 3, 31), "Place 1", 9999, status="Due", submitted=False, p_code="LB1"
+        )
+    )
+    out = compute(extra, year=None)
+    assert (out.reached, out.years, out.awaiting) == (base.reached, base.years, base.awaiting)
+    assert {k: v["reached"] for k, v in out.by_location.items()} == {
+        k: v["reached"] for k, v in base.by_location.items()
+    }
+    assert out.prp_cumulative == base.prp_cumulative
+
+
+def test_submitted_counts_and_shows_as_awaiting_acceptance():
+    rows = [
+        row("QPR1", datetime.date(2026, 3, 31), "Akkar", 100),
+        row("QPR2", datetime.date(2026, 6, 30), "Akkar", 40, status="Submitted"),
+    ]
+    out = compute(rows)
+    assert (out.reached, out.reached_accepted, out.awaiting, out.awaiting_reports) == (140.0, 100.0, 40.0, 1)
+    # sent back later: it no longer counts
+    rows[1]["report_status"] = "Sent back"
+    out = compute(rows)
+    assert (out.reached, out.awaiting, out.awaiting_reports) == (100.0, None, 0)
+
+
+# --------------------------------------------------------------------------- a location's value
+def test_a_value_repeated_on_every_location_is_the_report_total():
+    rows = [
+        row("QPR1", datetime.date(2026, 3, 31), place, None, achievement_in_period="120")
+        for place in ("Akkar", "Bekaa", "Tyre")
+    ]
+    out = compute(rows)
+    assert out.reached == 120.0  # never 360
+    assert all(v["reached"] is None for v in out.by_location.values())
+    assert any("report total" in note for note in out.notes)
+    # different values per location are each location's own and add up
+    for r, value in zip(rows, ("100", "15", "5"), strict=True):
+        r["achievement_in_period"] = value
+    assert compute(rows).reached == 120.0
+    # a single location is never "repeated"
+    assert compute(rows[:1]).reached == 100.0
+
+
+def test_location_running_totals_are_the_fallback():
+    rows = [
+        row(
+            "QPR2",
+            datetime.date(2026, 6, 30),
+            "Akkar",
+            None,
+            total_cumulative_progress_in_location="350",
+            previous_location_progress="200",
+            achievement_in_period="999",
+        )
+    ]
+    assert compute(rows).reached == 150.0  # 350 − 200, before the value in the period
+    rows[0]["previous_location_progress"] = ""
+    assert compute(rows).reached == 999.0
+
+
+def test_two_rows_of_one_location_are_never_added():
+    rows = [
+        row("QPR1", datetime.date(2026, 3, 31), "Akkar", 200),
+        row("QPR1", datetime.date(2026, 3, 31), "akkar ", 7),  # the same place, by its name
+        row("QPR1", datetime.date(2026, 3, 31), "Bekaa", 100),
+    ]
+    out = compute(rows)
+    assert out.reached == 300.0 and out.by_location["name:akkar"]["reached"] == 200.0
+    rows[1]["disaggregation"]["()"] = {"v": 200, "d": 1, "c": 200}
+    out = compute(rows)
+    assert out.reached == 300.0 and not out.notes  # the same value twice: nothing to say
+
+
+# ------------------------------------------------------------------------------------- methods
+def test_percentages_are_numerators_over_denominators():
+    rows = [
+        row(
+            "QPR1",
+            datetime.date(2026, 3, 31),
+            place,
+            None,
+            disaggregation={"()": {"v": v, "d": d, "c": v / d}},
+        )
+        for place, v, d in (("Akkar", 8, 10), ("Bekaa", 40, 50), ("Tyre", 2, 40))
+    ]
+    out = compute(rows, display_type="percentage")
+    assert out.reached == pytest.approx(50.0)  # (8 + 40 + 2) / (10 + 50 + 40), never 80 + 80 + 5
+    rows += [
+        row(
+            "QPR2",
+            datetime.date(2026, 6, 30),
+            "Akkar",
+            None,
+            disaggregation={"()": {"v": 30, "d": 100, "c": 0.3}},
+        )
+    ]
+    out = compute(rows, display_type="percentage")
+    assert out.reached == pytest.approx(80 / 200 * 100)  # across periods too
+    assert out.method_label == "numerators over denominators" and not out.additive
+
+
+@pytest.mark.parametrize(
+    ("locations", "periods", "expected", "in_2026"),
+    [
+        ("max", "sum", 60 + 70, 70.0),
+        ("avg", "sum", (60 + 20) / 2 + (70 + 10) / 2, 40.0),
+        ("sum", "max", 80.0, 80.0),
+        ("sum", "latest", 80.0, 80.0),
+        ("sum", "avg", 80.0, 80.0),
+        ("", "", 160.0, 80.0),
+    ],
+)
+def test_location_and_period_methods(locations, periods, expected, in_2026):
+    rows = []
+    for report, end, akkar, bekaa in (
+        ("QPR1", datetime.date(2025, 12, 31), 60, 20),
+        ("QPR2", datetime.date(2026, 3, 31), 70, 10),
+    ):
+        for place, value in (("Akkar", akkar), ("Bekaa", bekaa)):
+            rows.append(
+                row(
+                    report,
+                    end,
+                    place,
+                    value,
+                    calculation_across_locations=locations,
+                    calculation_across_periods=periods,
+                )
+            )
+    out = compute(rows)
+    assert out.reached == pytest.approx(expected) and out.reached_in_year == pytest.approx(in_2026)
+    assert out.additive is (locations in ("", "sum") and periods in ("", "sum"))
+
+
+def test_a_max_across_periods_is_not_three_times_the_children():
+    rows = [
+        row(f"QPR{n}", datetime.date(2026, 3 * n, 28), "Akkar", 1000, calculation_across_periods="max")
+        for n in (1, 2, 3)
+    ]
+    out = compute(rows)
+    assert out.reached == 1000.0 and out.method_label == "sum of locations, max of periods"
+
+
+# ----------------------------------------------------------------- PRP's own totals and history
+def test_prp_report_total_is_used_when_it_agrees_or_the_locations_cannot_say():
+    rows = [row("QPR1", datetime.date(2026, 3, 31), p, None, achievement_in_period="50") for p in ("A", "B")]
+    out = compute(rows, progress_values={"ir-QPR1": "{'v': 50, 'd': 1, 'c': 50.0}"})
+    assert out.reached == 50.0 and out.reports[0].source == "prp"
+    rows = [row("QPR1", datetime.date(2026, 3, 31), p, v) for p, v in (("A", 30), ("B", 20))]
+    out = compute(rows, progress_values={"ir-QPR1": "50"})
+    assert out.reached == 50.0 and not out.notes
+    out = compute(rows, progress_values={"ir-QPR1": "75"})
+    assert out.reached == 50.0 and any("differs" in n for n in out.notes)
+
+
+def test_prp_cumulative_beside_reached_and_partial_history():
+    rows = [
+        row("QPR1", datetime.date(2026, 3, 31), "Akkar", 100, total_cumulative_progress="400"),
+        row("QPR2", datetime.date(2026, 6, 30), "Akkar", 50, total_cumulative_progress="450"),
+    ]
+    out = compute(rows)
+    assert (out.reached, out.prp_cumulative, out.mismatch) == (150.0, 450.0, True)
+    out = compute(rows, partial=True)  # the PD started before the reports NeuroDB reads
+    assert (out.reached, out.source, out.mismatch) == (450.0, "prp_cumulative", False)
+    rows[1]["total_cumulative_progress"] = "150"
+    assert compute(rows).mismatch is False
+
+
+def test_location_filter_reads_the_locations_own_reached():
+    rows = [
+        row("QPR1", datetime.date(2026, 3, 31), p, v, total_cumulative_progress="300")
+        for p, v in (("Akkar", 200), ("Bekaa", 100))
+    ]
+    out = compute(rows, only={"bekaa"}, progress_values={"ir-QPR1": "300"})
+    assert out.reached == 100.0 and out.prp_cumulative is None and list(out.by_location) == ["name:bekaa"]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ({"v": 1200, "d": 1, "c": 1200}, 1200.0),
+        ("{'c': 1200.0, 'd': 1, 'v': 1200}", 1200.0),
+        ('{"v": 45, "d": 100}', 0.45),
+        ("1,234", 1234.0),
+        ("45/100", None),
+        ("{'v': None}", None),
+    ],
+)
+def test_numbers(raw, expected):
+    assert reached.number(raw) == expected
+
+
+def test_combine_never_adds_a_ratio():
+    assert reached.combine([80, 80, 80], "sum") == 240
+    assert reached.combine_items([(80, None, None)] * 3, "sum", ratio=True)[0] == 80
+    assert reached.combine([1, 5, 3], "latest") == 3 and reached.combine([1, 5, 3], "max") == 5
+    assert reached.combine([], "sum") is None
+
+
+# ------------------------------------------------------------------------------- the sync window
+@pytest.mark.django_db
+def test_history_start_reaches_back_to_running_pds_never_too_far(settings):
+    from neurodb.partnerships.models import PCA
+
+    settings.ETOOLS_DATAMART_REPORTING_YEARS = 3
+    assert reached.history_start(TODAY) == datetime.date(2024, 1, 1)
+    PCA.objects.create(etl_id="1", number="A", status="active", start=datetime.date(2021, 7, 1))
+    PCA.objects.create(
+        etl_id="2",
+        number="B",
+        status="closed",
+        start=datetime.date(2019, 1, 1),
+        end=datetime.date(2022, 12, 31),
+    )  # ended: not running
+    PCA.objects.create(etl_id="3", number="C", status="draft", start=datetime.date(2018, 1, 1))
+    assert reached.history_start(TODAY) == datetime.date(2021, 7, 1)
+    PCA.objects.create(etl_id="4", number="D", status="active", start=datetime.date(1999, 1, 1))  # a typo
+    assert reached.history_start(TODAY) == datetime.date(2021, 7, 1)  # never more than 10 years back
+    settings.ETOOLS_DATAMART_REPORTING_FROM_PD_START = False
+    assert reached.history_start(TODAY) == datetime.date(2024, 1, 1)

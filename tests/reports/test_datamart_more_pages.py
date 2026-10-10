@@ -184,7 +184,8 @@ def test_partner_reporting_counts_and_overdue_filter(client_viewer, data):
     from neurodb.datamart.services import partner_reporting
 
     summary = partner_reporting({})["summary"]
-    assert summary == {"reports": 2, "submitted": 1, "late": 1, "overdue": 1, "accepted": 1}
+    statuses = {"accepted": 1, "submitted": 0, "sent_back": 0, "due": 0, "overdue": 1, "not_yet_due": 0}
+    assert summary == {"reports": 2, "late": 1, "statuses": statuses, **statuses}
     text = client_viewer.get(reverse("reports:partner_reporting"), {"overdue": "1"}).text
     assert "QPR3" in text and "QPR2" not in text
 
@@ -227,7 +228,16 @@ def test_programme_page_shows_funds_workplan_reporting_and_visits(client_viewer,
     assert (detail["fr_count"], detail["fr_actual"]) == (1, Decimal("400"))
     assert detail["visits"] == [{"year": TODAY.year, "planned": 2, "staff": 1, "tpm": 1, "fm": 0}]
     assert len(workplan(data["pd"].workplan_activities.all())[0]["activities"]) == 1
-    assert [p["progress"] for p in detail["latest_progress"]] == ["60"]
+    # Reached rows come from the PD's indicators, as on Partner monitoring: none synced, none listed
+    assert detail["latest_progress"] == []
+    dm.PDIndicator.objects.create(
+        datamart_id=1, source_id=77, intervention=data["pd"], title="Children reached", target_numerator=100
+    )
+    for n, value in ((1, 25), (2, 35)):
+        dm.ReportedIndicator.objects.filter(datamart_id=n).update(achievement_in_period=str(value))
+    (row,) = programme_datamart(data["pd"])["latest_progress"]
+    # what the accepted report reached (25 + 35), not PRP's raw text; the due QPR3 does not count
+    assert (row["reached"], row["report"], row["report_status"]) == (60.0, "QPR2", "Accepted")
 
 
 def test_partner_page_shows_hact_years_reporting_and_findings(client_viewer, data):

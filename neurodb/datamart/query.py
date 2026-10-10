@@ -43,6 +43,17 @@ FIELD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 OPERATORS = ("eq", "ne", "contains", "gt", "gte", "lt", "lte", "isnull")
 NOISE = {"id", "seen", "last_modify_date", "country_name", "schema_name", "area_code"}
 NUMBER = r"^\s*-?[0-9]+(\.[0-9]+)?\s*$"
+# PRP's {"v": .., "d": .., "c": ..} written as text (Python's quotes or JSON's): one part, as a number
+PART = r"['\"]%s['\"]\s*:\s*['\"]?(-?[0-9]+(\.[0-9]+)?)"
+# Partner report values repeat on every location row, report and indicator: adding them is never right
+NO_SUM = {
+    "partner_reports": "Partner report values repeat on every location, report and indicator row",
+    "prp_indicator_reports": "PRP indicator report values repeat across reports and indicators",
+}
+NO_SUM_HINT = (
+    "{why}, so they are never added up. Use pd_indicator_progress for what a partner reached (Reached, "
+    "per indicator, by PRP's own rules), or list the records without sum."
+)
 
 
 class QueryError(ValueError):
@@ -256,12 +267,34 @@ def _field(name: str) -> str:
 
 
 def _numeric(ds: Dataset, field: str) -> RawSQL:
-    """The field as a number where it holds one (the Datamart sends decimals as strings)."""
+    """The field as a number where it holds one: the Datamart sends decimals as strings, and PRP its
+    values as ``{"v": .., "d": .., "c": ..}`` (an object, or its text): ``c``, else ``v``/``d`` when the
+    denominator is a real one, else ``v``."""
     column = f'"{ds.model._meta.db_table}"."data"'
-    # The table name comes from the model; the field name and the pattern are bound parameters.
+    value = f"({column}->%s)"
+    text = f"({column}->>%s)"
+
+    def part(key: str) -> tuple[str, list[str]]:
+        """``key`` of the value: from the object, else from its text (``'c': 12.0``)."""
+        sql = (
+            f"CASE WHEN jsonb_typeof({value}) = 'object' AND ({value}->>%s) ~ %s "
+            f"THEN ({value}->>%s)::numeric "
+            f"WHEN jsonb_typeof({value}) = 'string' AND {text} ~ %s "
+            f"THEN (substring({text} from %s))::numeric END"
+        )
+        pattern = PART % key
+        return sql, [field, field, key, NUMBER, field, key, field, field, pattern, field, pattern]
+
+    c_sql, c_params = part("c")
+    v_sql, v_params = part("v")
+    d_sql, d_params = part("d")
+    # The table name comes from the model; the field name, the keys and the patterns are bound parameters.
     return RawSQL(  # noqa: S611
-        f"CASE WHEN ({column}->>%s) ~ %s THEN ({column}->>%s)::numeric END",
-        (field, NUMBER, field),
+        f"CASE WHEN {text} ~ %s THEN {text}::numeric "
+        f"WHEN ({c_sql}) IS NOT NULL THEN ({c_sql}) "
+        f"WHEN ({v_sql}) IS NOT NULL AND coalesce(({d_sql}), 0) NOT IN (0, 1) THEN ({v_sql}) / ({d_sql}) "
+        f"ELSE ({v_sql}) END",
+        (field, NUMBER, field, *c_params, *c_params, *v_params, *d_params, *v_params, *d_params, *v_params),
     )
 
 
@@ -364,6 +397,8 @@ def query(
         [*filters, *(fields or []), group_by or "", sum_field or "", order_by or ""],
         [criteria.get("search"), *filters.values()],
     )
+    if sum_field and name in NO_SUM:
+        raise QueryError(NO_SUM_HINT.format(why=NO_SUM[name]))
     qs = filtered(ds, **criteria)
     total = qs.count()
     if group_by:

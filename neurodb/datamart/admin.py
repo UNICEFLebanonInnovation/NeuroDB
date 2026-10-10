@@ -1,10 +1,18 @@
-"""Read-only admin over the eTools Datamart tables (refreshed by ``sync_etools_datamart``)."""
+"""Read-only admin over the eTools Datamart tables (refreshed by ``sync_etools_datamart``), and the
+eTools reporting checks page (admin/datamart/reporting-checks/, Administrators only)."""
 
 from django.contrib import admin
+from django.http import Http404
+from django.shortcuts import render
+from django.urls import path, reverse
+from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
 
+from neurodb.accounts.roles import ADMIN, role_of
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin
 
+from . import checks
 from . import models as dm
 
 
@@ -167,6 +175,35 @@ class ReportedIndicatorAdmin(DatamartAdmin):
     list_filter = ("report_type", "report_status")
     search_fields = ("pd_reference_number", "partner_name", "vendor_number", "indicator")
     raw_id_fields = ("partner", "intervention")
+
+    def site_urls(self):
+        """The eTools reporting checks page, at admin/datamart/reporting-checks/
+        (``NeuroDBAdminSite.get_urls``)."""
+        return [
+            path(
+                "datamart/reporting-checks/",
+                self.admin_site.admin_view(reporting_checks_view),
+                name="datamart_reporting_checks",
+            )
+        ]
+
+
+def reporting_checks_view(request):
+    """eTools reporting checks (Administrators only): how the partner report data answers the questions
+    the "Reached" rule depends on, with a verdict and what NeuroDB does in each case. Read-only."""
+    if role_of(request.user) != ADMIN:
+        raise Http404
+    context = {
+        **admin.site.each_context(request),
+        "title": _("eTools reporting checks"),
+        "subtitle": None,
+        "checks": checks.run_all(),
+        "checked_at": timezone.now(),
+        "rows_url": reverse("admin:datamart_reportedindicator_changelist"),
+        "health_url": reverse("reports:data_health"),
+        "opts": dm.ReportedIndicator._meta,
+    }
+    return render(request, "admin/datamart/reporting_checks.html", context)
 
 
 @admin.register(dm.TPMActivity)

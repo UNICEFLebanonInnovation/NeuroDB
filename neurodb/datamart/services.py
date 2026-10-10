@@ -14,7 +14,7 @@ from django.db.models.functions import ExtractYear
 
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
-from . import fm
+from . import fm, reached
 from . import models as dm
 from . import monitoring as pd_monitoring
 
@@ -217,28 +217,42 @@ def progress_reports(queryset: QuerySet[dm.ReportedIndicator]) -> list[dict[str,
     return out
 
 
-def latest_progress(pd: PCA) -> list[dict[str, Any]]:
-    """Cumulative progress per indicator from the PD's latest progress report."""
-    latest = pd.reported_indicators.exclude(period_end=None).order_by("-period_end").first()
-    if latest is None:
-        return []
-    rows = {}
-    for row in pd.reported_indicators.filter(progress_report=latest.progress_report).order_by(
-        "pd_output", "indicator"
-    ):
-        rows.setdefault(
-            row.indicator,
+def latest_progress(
+    pd: PCA, today: datetime.date | None = None, rows: list[pd_monitoring.Indicator] | None = None
+) -> list[dict[str, Any]]:
+    """Each indicator of the PD with its Reached (``neurodb.datamart.reached``, the rule of every
+    page): target, Reached to date, % of the target, what awaits acceptance and the latest counted
+    report. Indicators nobody reported on yet are listed too, as not reported. ``rows``: the PD's
+    partner monitoring rows when already read."""
+    if rows is None:
+        rows = pd_monitoring.indicators(pd_monitoring.Filters(pd_ids=[pd.id], scope="all"), today)
+    out = []
+    for row in rows:
+        latest = row.result.latest if row.result else None
+        out.append(
             {
-                "indicator": row.indicator,
-                "output": row.pd_output,
+                "indicator": row.title,
+                "output": row.output,
+                "url": row.url,
                 "target": row.target,
-                "progress": row.total_cumulative_progress,
-                "status": row.pd_output_progress_status,
-                "report": row.report_number,
-                "period_end": row.period_end,
-            },
+                "display_type": row.display_type,
+                "reached": row.reached,
+                "achieved": row.achieved,
+                "awaiting": row.awaiting,
+                "awaiting_reports": row.awaiting_reports,
+                "tracking": row.tracking,
+                "tracking_label": row.tracking_label,
+                "value_status": row.value_status,
+                "status": row.partner_status,
+                "report": latest.number if latest else "",
+                "report_status": latest.status_label if latest else "",
+                "report_type": row.report_type,
+                "period_end": row.as_of,
+                "method": row.method_label,
+                "additive": row.additive,
+            }
         )
-    return list(rows.values())
+    return out
 
 
 def _flag_overdue(points: list[dm.ActionPoint]) -> list[dm.ActionPoint]:
@@ -254,6 +268,7 @@ def _flag_overdue(points: list[dm.ActionPoint]) -> list[dm.ActionPoint]:
 def programme_datamart(pd: PCA) -> dict[str, Any]:
     lines = list(dm.FundsReservation.objects.filter(intervention=pd))
     action_points = dm.ActionPoint.objects.filter(intervention=pd)
+    monitoring = _monitoring_summary(pd_monitoring.Filters(pd_ids=[pd.id], scope="all"))
     return {
         "fr_lines": lines,
         **_fr_totals(pd, lines),
@@ -265,22 +280,26 @@ def programme_datamart(pd: PCA) -> dict[str, Any]:
         "visits": visits_by_year(pd),
         "tpm_activities": list(pd.tpm_activities.order_by("-date")[:20]),
         "reports": list(progress_reports(pd.reported_indicators.all())[:12]),
-        "latest_progress": latest_progress(pd),
-        "monitoring": _monitoring_summary(pd_monitoring.Filters(pds=[pd.number or ""], scope="all")),
+        "latest_progress": latest_progress(pd, rows=monitoring["rows"]),
+        "monitoring": monitoring,
     }
 
 
 def _monitoring_summary(filters: pd_monitoring.Filters) -> dict[str, Any]:
-    """On/off-track counts of the PD indicators the partner monitoring page shows for ``filters``."""
+    """On/off-track counts of the PD indicators the partner monitoring page shows for ``filters``
+    ("with Reached": a counted report carries a value, as the grid counts it)."""
     rows = pd_monitoring.indicators(filters)
     counts = Counter(r.tracking for r in rows)
+    with_reached = sum(1 for r in rows if r.reached is not None)
     return {
         "rows": rows,
         "indicators": len(rows),
         "status_counts": {key: counts.get(key, 0) for key in pd_monitoring.LABELS},
         # ahead of schedule is on track too, as the daily review and the brief count it
         "on_track_or_ahead": counts.get("on_track", 0) + counts.get("over_target", 0),
-        "reported": sum(1 for r in rows if r.reports),
+        "with_reached": with_reached,
+        "reported": with_reached,
+        "awaiting_acceptance": sum(1 for r in rows if r.awaiting_reports),
     }
 
 
@@ -294,24 +313,33 @@ def reports_by_year(queryset: QuerySet[dm.ReportedIndicator]) -> list[tuple[str,
     return sorted(years.items())
 
 
-def reporting_summary(queryset: QuerySet[dm.ReportedIndicator]) -> dict[str, int]:
+def report_status(report: dict[str, Any], today: datetime.date) -> str:
+    """One of the six report statuses (``reached.status_of``) of a ``progress_reports`` row."""
+    return reached.status_of(
+        report.get("report_status"),
+        period_end=report.get("period_end"),
+        due_date=report.get("due_date"),
+        submission_date=report.get("submission_date"),
+        today=today,
+    )
+
+
+def reporting_summary(queryset: QuerySet[dm.ReportedIndicator]) -> dict[str, Any]:
+    """Progress reports by status: Accepted, Submitted (awaiting acceptance), Sent back, Due, Overdue
+    and Not yet due (``reached.status_of``, one status each, so they add up to ``reports``), and
+    those submitted after their due date. Overdue follows ``monitoring.pending_q`` as every page does."""
     today = datetime.date.today()
     reports = list(progress_reports(queryset))
-    submitted = [pd_monitoring.is_submitted(r) for r in reports]  # the rule of the review and the brief
+    statuses = Counter(report_status(r, today) for r in reports)
     return {
         "reports": len(reports),
-        "submitted": sum(submitted),
+        "statuses": {key: statuses.get(key, 0) for key in reached.STATUS_LABELS},
+        **{key: statuses.get(key, 0) for key in reached.STATUS_LABELS},
         "late": sum(
             1
             for r in reports
             if r["submission_date"] and r["due_date"] and r["submission_date"] > r["due_date"]
         ),
-        "overdue": sum(
-            1
-            for r, sent in zip(reports, submitted, strict=True)
-            if not sent and r["due_date"] and r["due_date"] < today
-        ),
-        "accepted": sum(1 for r in reports if "accept" in (r["report_status"] or "").lower()),
     }
 
 
@@ -1202,11 +1230,14 @@ def partner_reporting(params) -> dict[str, Any]:
         rows = rows.filter(pd_monitoring.pending_q(), due_date__lt=today)
     summary = reporting_summary(rows)
     reports = progress_reports(rows)
-    by_status = Counter(r["report_status"] or "—" for r in reports)
+    for report in reports:
+        report["status"] = report_status(report, today)
+        report["status_label"] = reached.STATUS_LABELS[report["status"]]
+    by_status = [(reached.STATUS_LABELS[k], n) for k, n in summary["statuses"].items() if n]
     return {
         "reports": reports,
         "summary": summary,
-        "by_status": by_status.most_common(),
+        "by_status": by_status,
         "today": today,
         "options": {
             "statuses": sorted(
@@ -1234,3 +1265,85 @@ def report_indicators(progress_report: str) -> list[dm.ReportedIndicator]:
             "pd_output", "indicator", "location"
         )
     )
+
+
+def report_detail(progress_report: str, today: datetime.date | None = None) -> dict[str, Any] | None:
+    """One progress report, indicator by indicator: each location's value in the report (the
+    disaggregation total "()", as ``reached`` reads it, parsed), PRP's value to date there, and a
+    total row that combines the locations by the indicator's method (never a sum of a percentage,
+    never the report total repeated on each row added up)."""
+    today = today or datetime.date.today()
+    rows = list(
+        dm.ReportedIndicator.objects.filter(progress_report=progress_report)
+        .order_by(*reached.ROW_ORDER)
+        .values(*reached.ROW_FIELDS, "pd_output", "target")
+    )
+    if not rows:
+        return None
+    report = (
+        dm.ReportedIndicator.objects.filter(progress_report=progress_report).order_by("datamart_id").first()
+    )
+    definitions = {}
+    if report.intervention_id:
+        for source_id, title, display_type, unit in dm.PDIndicator.objects.filter(
+            intervention_id=report.intervention_id
+        ).values_list("source_id", "title", "display_type", "unit"):
+            definitions.setdefault(str(source_id or ""), (display_type, unit))
+            definitions.setdefault(pd_monitoring.norm(title), (display_type, unit))
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        groups[(row["etools_indicator_id"] or "", row["indicator"] or "")].append(row)
+    totals = reached.progress_values(r["indicator_report"] for r in rows)
+    indicators = []
+    for (etools_id, title), group in sorted(
+        groups.items(), key=lambda kv: (kv[1][0]["pd_output"] or "", kv[0][1])
+    ):
+        display_type, unit = (
+            definitions.get(etools_id) or definitions.get(pd_monitoring.norm(title)) or ("", "")
+        )
+        ratio = reached.is_ratio(
+            display_type,
+            unit,
+            group[0]["calculation_across_locations"],
+            group[0]["calculation_across_periods"],
+        )
+        percentage = display_type == "percentage" or unit == "percentage"
+        (item,) = reached.build_reports(
+            group, ratio=ratio, percentage=percentage, today=today, progress_values=totals
+        )
+        indicators.append(
+            {
+                "indicator": title,
+                "pd_output": group[0]["pd_output"],
+                "partner_status": item.partner_status,
+                "target": pd_monitoring.number(group[0]["target"]),
+                "locations": [
+                    {
+                        "name": item.places.get(place, {}).get("name") or "—",
+                        "p_code": item.places.get(place, {}).get("p_code") or "",
+                        "value": None if cell.repeated else cell.value,
+                        "prp_to_date": cell.prp_cumulative,
+                    }
+                    for place, cell in item.cells.items()
+                ],
+                "total": item.value,
+                "prp_cumulative": item.prp_cumulative,
+                "method": reached.location_method_label(item.method, ratio),
+                "notes": item.notes,
+                "percentage": percentage,
+            }
+        )
+    status = reached.status_of(
+        report.report_status,
+        period_end=report.period_end,
+        due_date=report.due_date,
+        submission_date=report.submission_date,
+        today=today,
+    )
+    return {
+        "report": report,
+        "status": status,
+        "status_label": reached.STATUS_LABELS[status],
+        "counted": status in reached.COUNTED,
+        "indicators": indicators,
+    }

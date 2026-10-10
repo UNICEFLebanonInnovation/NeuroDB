@@ -18,10 +18,25 @@ TODAY = datetime.date(2026, 7, 1)  # half way through a 2026 programme document
 
 
 def report_rows(
-    pd, partner, title, progress_report, number, kind, end, values, cumulative, status="Accepted", **extra
+    pd,
+    partner,
+    title,
+    progress_report,
+    number,
+    kind,
+    end,
+    values,
+    cumulative,
+    status="Accepted",
+    before=None,
+    **extra,
 ):
+    """One report of one indicator, a row per location, as PRP sends it: each location's value in the
+    disaggregation total "()", its running total and the previous one (``before``: the location's
+    total before this report), and the indicator's cumulative repeated on every row."""
     rows = []
     for location, value in values.items():
+        previous = (before or {}).get(location, 0)
         rows.append(
             dm.ReportedIndicator(
                 datamart_id=abs(hash((progress_report, title, location))) % 10**9,
@@ -36,13 +51,17 @@ def report_rows(
                 period_start=end - datetime.timedelta(days=89 if kind == "QPR" else 29),
                 period_end=end,
                 due_date=end + datetime.timedelta(days=15),
-                submission_date=end + datetime.timedelta(days=10) if status != "Due" else None,
+                submission_date=end + datetime.timedelta(days=10)
+                if status in ("Accepted", "Submitted")
+                else None,
                 indicator=title,
                 target="1000",
                 location=location,
                 achievement_in_period=str(value),
+                disaggregation={"()": {"v": value, "d": 1, "c": value}},
                 total_cumulative_progress=str(cumulative),
-                total_cumulative_progress_in_location=str(value * 2),
+                total_cumulative_progress_in_location=str(previous + value),
+                previous_location_progress=str(previous),
                 pd_output_progress_status="On Track",
                 **extra,
             )
@@ -131,15 +150,26 @@ def data(db):
         datetime.date(2026, 6, 30),
         {"Akkar": 150, "Bekaa": 100},
         550,
+        before={"Akkar": 200, "Bekaa": 100},
     )
     report_rows(
         pd, partner, girls, "HR-4", "HR4", "HR", datetime.date(2026, 4, 30), {"Akkar": 90, "Bekaa": 10}, 400
     )
     # boys: one quarterly report, far behind its target
     report_rows(pd, partner, boys, "PR-1", "QPR1", "QPR", datetime.date(2026, 3, 31), {"Akkar": 20}, 20)
-    # a due report not submitted yet
+    # a due report not submitted yet: it never counts, whatever it carries
     report_rows(
-        pd, partner, boys, "PR-3", "QPR3", "QPR", datetime.date(2026, 9, 30), {"Akkar": 0}, 20, status="Due"
+        pd,
+        partner,
+        boys,
+        "PR-3",
+        "QPR3",
+        "QPR",
+        datetime.date(2026, 9, 30),
+        {"Akkar": 0},
+        20,
+        status="Due",
+        before={"Akkar": 20},
     )
     return {"pd": pd, "partner": partner, "closed": closed, "girls": girls, "boys": boys}
 
@@ -155,7 +185,7 @@ def test_tracking_between_uses_the_pd_period():
     assert percentage_elapsed(None, None, datetime.date(2026, 7, 2)) == pytest.approx(50, abs=1)
 
 
-def test_indicators_grid_values_cumulative_and_status(data):
+def test_indicators_grid_values_reached_and_status(data):
     rows = monitoring.indicators(monitoring.Filters(year=2026), today=TODAY)
     by_title = {r.title: r for r in rows}
     assert set(by_title) == {data["girls"], data["boys"]}  # the closed PD is out of the default scope
@@ -164,12 +194,16 @@ def test_indicators_grid_values_cumulative_and_status(data):
         3: 300.0,
         6: 250.0,
     }  # quarterly totals over the locations, in the period-end month
-    assert (girls.cumulative, girls.cumulative_as_of) == (550.0, datetime.date(2026, 6, 30))
+    assert (girls.reached, girls.as_of, girls.reached_in_year) == (550.0, datetime.date(2026, 6, 30), 550.0)
+    assert sum(girls.months.values()) == girls.reached_in_year  # the months add up
+    assert (girls.prp_cumulative, girls.mismatch, girls.awaiting) == (550.0, False, None)
     assert girls.tracking == "on_track" and round(girls.achieved) == 55
     assert girls.locations == ["Akkar", "Bekaa"] and girls.tags["disability"] == "Yes"
     assert girls.partner_status == "On Track" and girls.reports == 2
     boys = by_title[data["boys"]]
-    assert boys.tracking == "off_track" and boys.months == {3: 20.0, 9: 0.0}
+    # the Due report (QPR3) is neither a month nor a counted report
+    assert boys.tracking == "off_track" and boys.months == {3: 20.0} and boys.reports == 1
+    assert boys.reached == 20.0 and boys.as_of == datetime.date(2026, 3, 31)
 
 
 def test_report_type_location_tag_and_status_filters(data):
@@ -177,6 +211,9 @@ def test_report_type_location_tag_and_status_filters(data):
     assert [r.title for r in hr] == [data["girls"]] and hr[0].months == {4: 100.0}
     bekaa = monitoring.indicators(monitoring.Filters(year=2026, locations=["Bekaa"]), today=TODAY)
     assert [r.title for r in bekaa] == [data["girls"]] and bekaa[0].months == {3: 100.0, 6: 100.0}
+    # under a location filter Reached is the location's own (its % a share of the PD target)
+    assert (bekaa[0].reached, round(bekaa[0].achieved)) == (200.0, 20)
+    assert bekaa[0].prp_cumulative is None and list(bekaa[0].by_location) == ["name:bekaa"]
     syrian = monitoring.indicators(
         monitoring.Filters(year=2026, tags={"nationality": ["Syrian"]}), today=TODAY
     )
@@ -199,7 +236,7 @@ def test_reports_match_their_indicator_by_etools_id_before_title(data):
         indicator="# of girls reached (PRP wording)", etools_indicator_id="100"
     )
     rows = {r.title: r for r in monitoring.indicators(monitoring.Filters(year=2026), today=TODAY)}
-    assert rows[data["girls"]].reports == 2 and rows[data["girls"]].cumulative == 550.0
+    assert rows[data["girls"]].reports == 2 and rows[data["girls"]].reached == 550.0
     detail = monitoring.indicator_detail(data["pd"], "100", "QPR", 2026, today=TODAY)
     assert len(detail["periods"]) == 2
 
@@ -216,6 +253,15 @@ def test_summary_and_grouping(data):
         "not_reported": 0,
     }
     assert data_["overdue_reports"] == 1 and data_["programme_documents"] == 1 and data_["partners"] == 1
+    assert (data_["with_reached"], data_["awaiting_acceptance"], data_["differs_from_prp"]) == (2, 0, 0)
+    # an indicator whose only report is due is not reported, never off track (or "with Reached")
+    dm.ReportedIndicator.objects.filter(indicator=data["boys"]).update(
+        report_status="Due", submission_date=None
+    )
+    rows = monitoring.indicators(filters, today=TODAY)
+    data_ = monitoring.summary(rows, filters, today=datetime.date(2026, 11, 1))
+    assert data_["status_counts"]["not_reported"] == 1 and data_["status_counts"]["off_track"] == 0
+    assert data_["with_reached"] == 1
     groups = monitoring.grouped(rows)
     assert (
         groups[0]["section"] == "Child Protection"
@@ -306,6 +352,9 @@ def test_assistant_tool(data, frozen_today):
     assert out["indicators"] == 2 and out["status_counts"]["off_track"] == 1
     girls = next(i for i in out["indicators_detail"] if "girls" in i["indicator"])
     assert girls["by_month"] == {"03": 300.0, "06": 250.0} and girls["status"] == "on_track"
+    assert (girls["reached"], girls["reached_in_year"], girls["prp_cumulative"]) == (550.0, 550.0, 550.0)
+    assert girls["counted_reports"] == 2 and girls["method"] == "sum of locations and periods"
+    assert "Accepted and Submitted" in out["rule"] and out["indicators_with_reached"] == 2
     assert girls["tags"] == {"gender": "Girls", "age_group": "Adolescents", "disability": "Yes"}
     with pytest.raises(tools.ToolInputError):
         tools.run("pd_indicator_progress", {"partner": "nobody"})
@@ -393,8 +442,16 @@ def test_map_points_place_locations_by_etools_coordinates(data, places, frozen_t
         "off_track",
     )
     girls = next(r for r in halba["rows"] if "girls" in r["indicator"])
-    assert (girls["achieved_here"], girls["cumulative_here"], girls["tracking"]) == (350.0, 300.0, "on_track")
+    # the location's own Reached (200 + 150), PRP's running total there, and the indicator's Reached
+    assert (girls["reached_here"], girls["reached_here_in_year"], girls["prp_cumulative_here"]) == (
+        350.0,
+        350.0,
+        350.0,
+    )
+    assert (girls["reached"], girls["tracking"], girls["additive"]) == (550.0, "on_track", True)
     assert girls["period"] == datetime.date(2026, 6, 30) and girls["planned"] and girls["reported"]
+    bekaa_girls = next(r for r in by_key["LB5"]["rows"] if "girls" in r["indicator"])
+    assert girls["reached_here"] + bekaa_girls["reached_here"] == girls["reached"]  # the locations add up
     assert halba["monitoring"] == {
         "findings": 1,
         "findings_off_track": 1,
@@ -449,9 +506,10 @@ def _girls(filters):
     return next(r for r in rows if "girls" in r.title and r.pd.number != "LEB/PD3")
 
 
-def test_report_cumulative_does_not_depend_on_row_order_or_filters(data):
-    """Location rows of one report carrying different totals: the report total is the largest,
-    whichever row is read last, and the same indicator reads the same under every filter."""
+def test_reached_does_not_depend_on_row_order_or_filters(data):
+    """Location rows of one report carrying different PRP cumulatives: PRP's figure for the report is
+    the largest, whichever row is read last; Reached is computed from the reports and the same
+    indicator reads the same under every filter."""
     girls = data["girls"]
     for akkar, bekaa in (("450", "550"), ("550", "450")):
         dm.ReportedIndicator.objects.filter(indicator=girls, progress_report="PR-2", location="Akkar").update(
@@ -460,7 +518,8 @@ def test_report_cumulative_does_not_depend_on_row_order_or_filters(data):
         dm.ReportedIndicator.objects.filter(indicator=girls, progress_report="PR-2", location="Bekaa").update(
             total_cumulative_progress=bekaa
         )
-        assert _girls(monitoring.Filters(year=2026)).cumulative == 550.0
+        row = _girls(monitoring.Filters(year=2026))
+        assert (row.reached, row.prp_cumulative, row.mismatch) == (550.0, 550.0, False)
     # another PD in the query changes nothing for this one
     other = PCA.objects.create(
         etl_id="13",
@@ -486,18 +545,21 @@ def test_report_cumulative_does_not_depend_on_row_order_or_filters(data):
         monitoring.Filters(year=2026, partners=[str(data["partner"].id)]),
         monitoring.Filters(year=2026, sections=["Child Protection"]),
         monitoring.Filters(year=2026, tags={"gender": ["Girls"]}),
+        monitoring.Filters(year=None),
     ]
     seen = {
-        (r.cumulative, r.tracking, round(r.achieved), r.cumulative_as_of, r.partner_status)
+        (r.reached, r.tracking, round(r.achieved), r.as_of, r.partner_status)
         for r in (_girls(f) for f in views)
     }
     assert seen == {(550.0, "on_track", 55, datetime.date(2026, 6, 30), "On Track")}
     detail = monitoring.indicator_detail(data["pd"], "100", "QPR", 2026, today=TODAY)
-    assert detail["indicator"].cumulative == 550.0
-    assert {r["progress_report"]: r["total_cumulative_progress"] for r in detail["reports"]}["PR-2"] == 550.0
+    assert detail["indicator"].reached == 550.0
+    assert {r["progress_report"]: r["prp_cumulative"] for r in detail["reports"]}["PR-2"] == 550.0
 
 
-def test_two_reports_ending_the_same_day_are_read_by_report_id(data):
+def test_reached_is_computed_and_a_different_prp_cumulative_is_flagged(data):
+    """A later report ending the same day (ordered by report id) carrying PRP's cumulative 700: Reached
+    is what the reports add up to (300 + 250 + 1 = 551), shown with PRP's 700 beside it and flagged."""
     report_rows(
         data["pd"],
         data["partner"],
@@ -508,8 +570,12 @@ def test_two_reports_ending_the_same_day_are_read_by_report_id(data):
         datetime.date(2026, 6, 30),
         {"Akkar": 1},
         700,
+        before={"Akkar": 350},
     )
-    assert _girls(monitoring.Filters(year=2026)).cumulative == 700.0  # "PR-2b" sorts after "PR-2"
+    row = _girls(monitoring.Filters(year=2026))
+    assert (row.reached, row.prp_cumulative, row.mismatch) == (551.0, 700.0, True)
+    assert row.result.latest.key == "PR-2b"  # "PR-2b" sorts after "PR-2"
+    assert row.months == {3: 300.0, 6: 251.0}  # two counted reports ending in June add up
 
 
 def test_a_row_of_a_filtered_out_indicator_never_falls_back_to_another_title(data):
@@ -558,12 +624,22 @@ def test_indicator_detail_keys_years_and_report_type_links(client_viewer, data, 
     assert monitoring.year_param("2026") == 2026 and monitoring.year_param("99999") is None
 
 
-def test_indicator_detail_honours_the_year_and_combines_rows(data):
+def test_indicator_detail_matrix_adds_up_and_never_adds_rows_of_one_location(data):
     pd = data["pd"]
+    # every report is in the matrix whatever the year; the year chooses "Reached in"
     before = monitoring.indicator_detail(pd, "100", "QPR", 2025, today=TODAY)
-    assert before["periods"] == [] and before["reports"] == [] and before["by_location"] == []
-    assert before["indicator"].tracking == "not_reported"
-    # a second Akkar row in QPR1 (another disaggregation) adds up in the cell as in the total
+    assert [p["key"] for p in before["periods"]] == ["PR-1", "PR-2"]
+    assert before["indicator"].reached == 550.0 and before["indicator"].reached_in_year is None
+    detail = monitoring.indicator_detail(pd, "100", "QPR", 2026, today=TODAY)
+    rows = {loc["location"]: loc for loc in detail["by_location"]}
+    # row totals = each location's Reached, column totals = each report's value, corner = Reached
+    assert {name: loc["reached"] for name, loc in rows.items()} == {"Akkar": 350.0, "Bekaa": 200.0}
+    assert [p["total"] for p in detail["periods"]] == [300.0, 250.0]
+    assert sum(loc["reached"] for loc in rows.values()) == detail["indicator"].reached == 550.0
+    assert sum(p["total"] for p in detail["periods"]) == detail["indicator"].reached
+    for p in detail["periods"]:
+        assert sum(loc["cells"].get(p["key"]) or 0 for loc in rows.values()) == p["total"]
+    # a second Akkar row in QPR1 (another disaggregation row): one value per location, never 200 + 7
     report_rows(
         pd,
         data["partner"],
@@ -577,13 +653,40 @@ def test_indicator_detail_honours_the_year_and_combines_rows(data):
     )
     detail = monitoring.indicator_detail(pd, "100", "QPR", 2026, today=TODAY)
     akkar = next(loc for loc in detail["by_location"] if loc["location"] == "Akkar")
-    assert akkar["cells"]["PR-1"] == 207.0 and detail["periods"][0]["total"] == 307.0
-    assert sum(loc["cells"].get("PR-1", 0) for loc in detail["by_location"]) == detail["periods"][0]["total"]
+    assert akkar["cells"]["PR-1"] == 200.0 and detail["periods"][0]["total"] == 300.0
+    assert detail["indicator"].reached == 550.0 and any(
+        "never their sum" in n for n in detail["result"].notes
+    )
     # a "max across locations" indicator: the All locations total is the largest, as on the grid
     dm.ReportedIndicator.objects.filter(indicator=data["girls"]).update(calculation_across_locations="max")
     detail = monitoring.indicator_detail(pd, "100", "QPR", 2026, today=TODAY)
     assert [p["total"] for p in detail["periods"]] == [200.0, 150.0]
     assert _girls(monitoring.Filters(year=2026)).months == {3: 200.0, 6: 150.0}
+    assert (
+        not detail["result"].additive
+        and detail["indicator"].method_label == "max of locations, sum of periods"
+    )
+
+
+def test_indicator_detail_greys_reports_that_do_not_count(data):
+    pd = data["pd"]
+    dm.ReportedIndicator.objects.filter(progress_report="PR-2", indicator=data["girls"]).update(
+        report_status="Sent back"
+    )
+    detail = monitoring.indicator_detail(pd, "100", "QPR", 2026, today=TODAY)
+    periods = {p["key"]: p for p in detail["periods"]}
+    assert periods["PR-2"]["status"] == "sent_back" and not periods["PR-2"]["counted"]
+    assert periods["PR-2"]["total"] == 250.0  # shown, but outside every total
+    assert detail["indicator"].reached == 300.0
+    assert {loc["location"]: loc["reached"] for loc in detail["by_location"]} == {
+        "Akkar": 200.0,
+        "Bekaa": 100.0,
+    }
+    # the boys' Due report is in its matrix, greyed; a report not yet due is left out
+    boys = monitoring.indicator_detail(pd, "200", "QPR", 2026, today=datetime.date(2026, 9, 1))
+    assert [(p["key"], p["status"]) for p in boys["periods"]] == [("PR-1", "accepted")]
+    boys = monitoring.indicator_detail(pd, "200", "QPR", 2026, today=datetime.date(2026, 10, 2))
+    assert [(p["key"], p["status"]) for p in boys["periods"]] == [("PR-1", "accepted"), ("PR-3", "due")]
 
 
 def test_r_keys_match_only_their_own_rows(data):
@@ -604,7 +707,7 @@ def test_pd_without_number_or_partner(client_viewer, data, frozen_today):
     grid = client_viewer.get(reverse("reports:pd_monitoring"), {"year": "2026", "scope": "all"})
     assert grid.status_code == 200 and ">None<" not in grid.text and " None " not in grid.text
     detail = monitoring.indicator_detail(PCA.objects.get(pk=pd.pk), "100", "QPR", 2026, today=TODAY)
-    assert detail["indicator"] is not None and detail["indicator"].cumulative == 550.0
+    assert detail["indicator"] is not None and detail["indicator"].reached == 550.0
     # the map counts partners as the grid does: a PD with no linked partner adds none
     out = monitoring.map_points(monitoring.Filters(year=2026, scope="all"), today=TODAY)
     summary = monitoring.summary(

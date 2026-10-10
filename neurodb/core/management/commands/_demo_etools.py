@@ -188,12 +188,15 @@ def _indicators_and_reports(rng, pca, section, places, counters, today, year) ->
             due = end + dt.timedelta(days=30)
             last = q == len(quarters)
             missing = reports_pace == "late" and last
+            # the latest report, still within its due date, waits for the section's acceptance
+            awaiting = last and not missing and due >= today
             per_period = share * pace / max(1, len(quarters))
             this_report = []
             for place in places:
-                value = 0.0 if missing else rng.uniform(per_period * 0.6, per_period * 1.4)
+                value = 0.0 if missing else float(round(rng.uniform(per_period * 0.6, per_period * 1.4)))
                 cumulative += value
-                in_location[place.id] = in_location.get(place.id, 0.0) + value
+                previous = in_location.get(place.id, 0.0)
+                in_location[place.id] = previous + value
                 counters["report"] += 1
                 this_report.append(
                     dm.ReportedIndicator(
@@ -205,7 +208,7 @@ def _indicators_and_reports(rng, pca, section, places, counters, today, year) ->
                         progress_report=f"{pca.number}/QPR{q}",
                         report_number=f"QPR{q}",
                         report_type="QPR",
-                        report_status="Due" if missing else "Accepted",
+                        report_status="Due" if missing else ("Submitted" if awaiting else "Accepted"),
                         period_start=start,
                         period_end=end,
                         due_date=due,
@@ -217,7 +220,12 @@ def _indicators_and_reports(rng, pca, section, places, counters, today, year) ->
                         p_code=place.p_code,
                         location_ref=place,
                         achievement_in_period="" if missing else f"{value:.0f}",
+                        # PRP's location total of the period (the disaggregation total) and running totals
+                        disaggregation={}
+                        if missing
+                        else {"()": {"v": round(value), "d": 1, "c": round(value)}},
                         total_cumulative_progress_in_location=f"{in_location[place.id]:.0f}",
+                        previous_location_progress=f"{previous:.0f}",
                         calculation_across_locations="sum",
                         calculation_across_periods="sum",
                         etools_indicator_id=str(source_id),

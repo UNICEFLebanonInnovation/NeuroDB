@@ -626,12 +626,16 @@ def _link_finding(row, item, links):
 
 
 def _reporting_window() -> dict[str, Any]:
-    """Partner reports of the last ``ETOOLS_DATAMART_REPORTING_YEARS`` years (the table is large)."""
+    """Partner reports of the last ``ETOOLS_DATAMART_REPORTING_YEARS`` years (the table is large) and
+    of every running programme document since its start (``reached.history_start``): Reached adds up
+    every counted report of a PD, so its early reports must be read too."""
     return {"reporting_period_start_date__gte": _reporting_since().isoformat()}
 
 
 def _reporting_since() -> dt.date:
-    return dt.date(timezone.localdate().year - settings.ETOOLS_DATAMART_REPORTING_YEARS + 1, 1, 1)
+    from neurodb.datamart.reached import history_start
+
+    return history_start(timezone.localdate())
 
 
 def _in_reporting_window(queryset: models.QuerySet) -> models.QuerySet:
@@ -649,6 +653,15 @@ def _link_report(row, item, links):
     row.high_frequency = str(item.get("high_frequency") or "").strip().lower() in ("true", "yes", "1", "t")
     row.disaggregation = item.get("disaggregation") if isinstance(item.get("disaggregation"), dict) else {}
     row.location_ref_id = links.location(None, item.get("p_code"))
+    for name, key in (
+        ("indicator_report", "indicator_report"),
+        ("cp_output", "cp_output"),
+        ("etools_cp_output_id", "etools_cp_output_id"),
+    ):
+        value = item.get(key)
+        if isinstance(value, dict):  # a nested record: its name or title, else its id
+            value = value.get("name") or value.get("title") or value.get("id")
+        setattr(row, name, coerce(row._meta.get_field(name), "" if value is None else str(value)))
     _tag(row, item.get("performance_indicator"))
 
 
@@ -1449,6 +1462,9 @@ def sync_dataset(name: str) -> Callable[..., SyncRun]:
                 details = {"removed": 0, "empty_response": True, **links.details()}
             if spec.model is dm.FundsReservation:
                 details["donor_sets"] = _refresh_donor_sets(linked_before)
+            if spec.model is dm.ReportedIndicator:
+                details["cp_outputs"] = derive_cp_outputs()
+                details["read_from"] = (params or {}).get("reporting_period_start_date__gte", "")
             return details
 
         return _run(run, body)
@@ -1528,6 +1544,42 @@ def sync_enrichment(name: str) -> Callable[..., SyncRun]:
 
     sync.__name__ = f"sync_{name}"
     return sync
+
+
+# The CP output of each PD indicator, from its latest partner report row that names one: by the
+# eTools indicator id, else by the title (pd-indicators does not carry it).
+_CP_OUTPUT_BY_ID = """
+UPDATE datamart_pdindicator p SET cp_output = r.cp_output
+FROM (
+    SELECT DISTINCT ON (intervention_id, etools_indicator_id) intervention_id, etools_indicator_id, cp_output
+    FROM datamart_reportedindicator
+    WHERE cp_output <> '' AND etools_indicator_id <> '' AND intervention_id IS NOT NULL
+    ORDER BY intervention_id, etools_indicator_id, period_end DESC NULLS LAST, id DESC
+) r
+WHERE p.intervention_id = r.intervention_id AND p.source_id::text = r.etools_indicator_id
+  AND p.cp_output IS DISTINCT FROM r.cp_output
+"""
+_CP_OUTPUT_BY_TITLE = """
+UPDATE datamart_pdindicator p SET cp_output = r.cp_output
+FROM (
+    SELECT DISTINCT ON (intervention_id, lower(trim(indicator))) intervention_id,
+           lower(trim(indicator)) AS title, cp_output
+    FROM datamart_reportedindicator
+    WHERE cp_output <> '' AND intervention_id IS NOT NULL
+    ORDER BY intervention_id, lower(trim(indicator)), period_end DESC NULLS LAST, id DESC
+) r
+WHERE p.cp_output = '' AND p.intervention_id = r.intervention_id AND lower(trim(p.title)) = r.title
+"""
+
+
+def derive_cp_outputs() -> int:
+    """Give each PD indicator the CP output its partner reports name; returns the rows changed."""
+    changed = 0
+    with connection.cursor() as cursor:
+        for sql in (_CP_OUTPUT_BY_ID, _CP_OUTPUT_BY_TITLE):
+            cursor.execute(sql)
+            changed += max(cursor.rowcount, 0)
+    return changed
 
 
 def _funded_pcas() -> set[int]:

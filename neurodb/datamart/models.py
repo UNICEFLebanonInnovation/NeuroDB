@@ -142,6 +142,12 @@ class PDIndicator(DatamartRecord):
     numerator_label = models.CharField(max_length=256, blank=True)
     denominator_label = models.CharField(max_length=256, blank=True)
     means_of_verification = models.CharField(max_length=255, blank=True)
+    cp_output = models.CharField(
+        "CP output",
+        max_length=500,
+        blank=True,
+        help_text="the country programme output, from the indicator's partner reports (not in pd-indicators)",
+    )
     # Whom the indicator counts, read from its title (neurodb.datamart.tags)
     tag_gender = models.CharField(**TAG)
     tag_age_group = models.CharField(**TAG)
@@ -453,6 +459,9 @@ class ReportedIndicator(DatamartRecord):
     vendor_number = models.CharField(max_length=30, blank=True)
     pd_reference_number = models.CharField(max_length=256, blank=True, db_index=True)
     progress_report = models.CharField(max_length=300, blank=True, db_index=True)
+    indicator_report = models.CharField(
+        max_length=64, blank=True, db_index=True, help_text="PRP's id of this indicator in this report"
+    )
     report_number = models.CharField(max_length=30, blank=True)
     report_type = models.CharField(max_length=30, blank=True, db_index=True)
     report_status = models.CharField(max_length=50, blank=True, db_index=True)
@@ -484,6 +493,8 @@ class ReportedIndicator(DatamartRecord):
     calculation_across_periods = models.CharField(max_length=20, blank=True)
     etools_indicator_id = models.CharField(max_length=64, blank=True, db_index=True)
     etools_pd_result_id = models.CharField(max_length=64, blank=True)
+    cp_output = models.CharField("CP output", max_length=500, blank=True)
+    etools_cp_output_id = models.CharField("eTools CP output id", max_length=64, blank=True)
     narrative_assessment = models.TextField(blank=True)
     disaggregation = models.JSONField(default=dict, blank=True)
     tag_gender = models.CharField(**TAG)

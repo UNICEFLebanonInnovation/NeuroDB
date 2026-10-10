@@ -1129,15 +1129,15 @@ def partner_reporting(request: HttpRequest) -> HttpResponse:
 
 @require_GET
 def progress_report(request: HttpRequest) -> HttpResponse:
-    """Quick view: the indicators of one progress report (``?report=<progress report id>``)."""
-    rows = datamart.report_indicators(request.GET.get("report", "")[:300])
-    if not rows:
+    """Quick view: the indicators of one progress report (``?report=<progress report id>``), with
+    each location's value parsed and a total row that follows the indicator's method."""
+    detail = datamart.report_detail(request.GET.get("report", "")[:300])
+    if detail is None:
         raise Http404
-    report = rows[0]
+    report = detail["report"]
     title = f"{report.pd_reference_number} · {report.report_number}"
     context = {
-        "rows": rows,
-        "report": report,
+        **detail,
         "page_title": title,
         "page_subtitle": report.partner_name,
         "breadcrumbs": [_crumb(_("Progress reports"), reverse("reports:partner_reporting")), _crumb(title)],
@@ -1195,6 +1195,8 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
         "groups": pd_monitoring_service.grouped(list(page_obj.object_list)),
         "data": data,
         "months": pd_monitoring_service.MONTHS,
+        # "All years": one column per year with a counted value, instead of the months
+        "year_columns": pd_monitoring_service.year_columns(rows) if filters.all_years else [],
         "labels": pd_monitoring_service.LABELS,
         "options": options,
         "selected": {
@@ -1258,7 +1260,12 @@ def pd_monitoring_map(request: HttpRequest) -> HttpResponse:
 @require_GET
 def pd_indicator(request: HttpRequest, pk: int, key: str) -> HttpResponse:
     pd = get_object_or_404(PCA.objects.select_related("partner"), pk=pk)
-    year = pd_monitoring_service.year_param(request.GET.get("year")) or datetime.date.today().year
+    raw_year = (request.GET.get("year") or "").strip().lower()
+    year = (
+        None
+        if raw_year == pd_monitoring_service.ALL_YEARS
+        else pd_monitoring_service.year_param(raw_year) or datetime.date.today().year
+    )
     detail = pd_monitoring_service.indicator_detail(
         pd, key, (request.GET.get("report_type") or "").upper(), year
     )

@@ -245,7 +245,10 @@ def test_dashboard_shows_counts_targets_and_etools_side_by_side(client_viewer, e
     digital = skills["subs"][0]
     assert (digital["reached"], digital["target"], digital["percent"]) == (2, 100, 2.0)
     row = data["links"][0]
-    assert row["counted"] == 2 and row["reported"] == 60 and row["difference"] == -58
+    # the eTools figure is the indicator's Reached (its one accepted report: 40), never PRP's raw
+    # cumulative text (60), which is shown beside Reached on Partner monitoring
+    assert row["counted"] == 2 and row["reported"] == 40 and row["difference"] == -38
+    assert row["etools"].prp_cumulative == 60 and row["etools"].mismatch
     assert b"Youth programmes" in response.content
 
     filtered = client_viewer.get(reverse("youth:dashboard"), {"partner": "6"}).context["data"]
