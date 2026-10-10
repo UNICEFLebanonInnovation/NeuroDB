@@ -46,7 +46,7 @@ from neurodb.web.templatetags.ui import half_up
 logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 120
-CACHE_VERSION = 8
+CACHE_VERSION = 9
 MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 STATUSES = ("on_track", "off_track", "over_target", "no_target", NOT_REPORTED)
 LEVEL_GOVERNORATE = monitoring.LEVEL_GOVERNORATE
@@ -62,8 +62,8 @@ DECISION_DISBURSED = 40
 MAX_ATTENTION = 8
 # A children indicator above this many times its target (and above the floor) is set aside as an
 # error rather than added to the children reached; so is one above the country's child population.
-IMPLAUSIBLE_TIMES = 20
-IMPLAUSIBLE_FLOOR = 1000
+IMPLAUSIBLE_TIMES = headline.IMPLAUSIBLE_TIMES  # the set-aside guard (neurodb.datamart.headline.implausible)
+IMPLAUSIBLE_FLOOR = headline.IMPLAUSIBLE_FLOOR
 MAX_DONORS = 8
 HIGH_RISK = ("high", "significant")
 SEX_RULES = (("Girls", r"\bgirls?\b", r"\bboys?\b"), ("Boys", r"\bboys?\b", r"\bgirls?\b"))
@@ -259,6 +259,34 @@ def build(scope: Scope, *, cache: bool = True) -> dict[str, Any]:
     return data
 
 
+def children_population(year: int) -> tuple[dict[str, tuple[str, int]], int | None]:
+    """``{governorate key: (name, children)}`` of the latest year of child figures up to ``year``, and
+    that year (the overview's coverage, and the child population the set-aside guard compares with)."""
+    from neurodb.core.models import PopulationFigure
+
+    base = PopulationFigure.objects.filter(
+        category="children",
+        level="governorate",
+        age_group="",
+        sex="",
+        vulnerability_level="",
+        year__lte=year,
+    )
+    found = base.order_by("-year").values_list("year", flat=True).first()
+    if found is None:
+        return {}, None
+    rows = base.filter(year=found).values("area_name", "nationality", "value")
+    with_all = {governorate_key(r["area_name"]) for r in rows if r["nationality"] == "ALL"}
+    out: dict[str, list[Any]] = {}
+    for r in rows:
+        key = governorate_key(r["area_name"])
+        if not key or (key in with_all and r["nationality"] != "ALL"):
+            continue
+        entry = out.setdefault(key, [r["area_name"], 0])
+        entry[1] += r["value"] or 0
+    return {k: (v[0], v[1]) for k, v in out.items()}, found
+
+
 class _Builder:
     def __init__(self, scope: Scope):
         self.scope = scope
@@ -316,19 +344,27 @@ class _Builder:
 
     def _choose_mains(self) -> None:
         """Each PD's main indicator (its unique beneficiaries indicator, else its largest children
-        indicator by Reached in the year), and the children indicators that can be added: a value too
-        large to be true is set aside and listed, never added nor chosen."""
-        children = [r for r in self.every_rows if self._is_children(r)]
-        aside = self._implausible(children, self._national_children())
+        indicator by Reached in the year: :func:`neurodb.datamart.headline.choose`), and the children
+        indicators that can be added: a value too large to be true is set aside and listed, never added
+        nor chosen (a flagged indicator's too)."""
+        flags = headline.flagged_keys({r.pd.id for r in self.every_rows})
+        aside = self._implausible(
+            headline.candidates(self.every_rows, self._is_children, flags), self._national_children()
+        )
         aside_ids = {id(r) for r, _reason in aside}
         in_scope = {id(r) for r in self.rows}
         in_sections = {id(r) for r in self.all_rows}
-        self.children_rows = [r for r in children if id(r) in in_scope and id(r) not in aside_ids]
+        self.children_rows = [
+            r
+            for r in self.every_rows
+            if self._is_children(r) and id(r) in in_scope and id(r) not in aside_ids
+        ]
         self.implausible = [_aside_entry(r, reason) for r, reason in aside if id(r) in in_scope]
         self.mains = headline.choose(
             self.every_rows,
             is_children=self._is_children,
-            value=lambda r: r.reached_in_year,
+            year=self.year,
+            flags=flags,
             exclude=[r for r, _reason in aside],
         )
         # the PDs whose main indicator is in the sections shown: each counts there, and only there
@@ -481,12 +517,15 @@ class _Builder:
         gov_names: dict[str, str] = {}
         by_district: dict[tuple[str, str], float] = defaultdict(float)
         rules: Counter[str] = Counter()
+        awaiting = 0.0  # of the eTools figure, from reports awaiting acceptance (the whole country only)
         for main in self.scope_mains.values():
             row = main.row
             value = self._year_value(row)
             etools_total += value
             if value:
                 rules[main.rule] += 1
+                if not self.gov_key and row.result is not None:
+                    awaiting += row.result.awaiting_in(self.year) or 0.0
             for month, month_value in self._months(row).items():
                 if month_value and 1 <= month <= 12:
                     etools_months[month - 1] += month_value
@@ -546,6 +585,9 @@ class _Builder:
             "children_etools": etools_value,
             "children_activityinfo": ai_value,
             "children_rule": headline.TOTAL_RULE,
+            # of children_etools, from Submitted reports not yet accepted (a send-back takes it off);
+            # None with a governorate chosen (not split by place)
+            "children_awaiting": None if self.gov_key else half_up(awaiting),
             # how many programme documents add a value, by how their main indicator was chosen
             "main_indicators": {
                 "flagged": rules.get(headline.FLAGGED, 0),
@@ -673,52 +715,14 @@ class _Builder:
 
     @staticmethod
     def _implausible(rows: list[Indicator], national_children: int | None) -> list[tuple[Indicator, str]]:
-        """Children indicators whose figures cannot be true, with the reason: a value above the whole
-        country's child population, or more than IMPLAUSIBLE_TIMES its own target, is a reporting or
-        reading error, not a result (one such value once showed billions of children). They are never
-        added nor chosen as a PD's main indicator, and are listed on the page so someone checks them in
+        """The indicators whose figures cannot be true (:func:`neurodb.datamart.headline.implausible`):
+        never added nor chosen as a PD's main indicator, and listed on the page so someone checks them in
         eTools."""
-        aside = []
-        for row in rows:
-            value = _largest_value(row)
-            too_many = national_children and value > national_children
-            too_far = row.target and value > IMPLAUSIBLE_TIMES * row.target and value > IMPLAUSIBLE_FLOOR
-            if too_many or too_far:
-                aside.append(
-                    (
-                        row,
-                        "above the child population of Lebanon"
-                        if too_many
-                        else f"more than {IMPLAUSIBLE_TIMES} times its target",
-                    )
-                )
-        return aside
+        return headline.implausible(rows, national_children)
 
     def _children_population(self) -> tuple[dict[str, tuple[str, int]], int | None]:
         """``{governorate key: (name, children)}`` of the latest year of child figures up to the scope's."""
-        from neurodb.core.models import PopulationFigure
-
-        base = PopulationFigure.objects.filter(
-            category="children",
-            level="governorate",
-            age_group="",
-            sex="",
-            vulnerability_level="",
-            year__lte=self.year,
-        )
-        year = base.order_by("-year").values_list("year", flat=True).first()
-        if year is None:
-            return {}, None
-        rows = base.filter(year=year).values("area_name", "nationality", "value")
-        with_all = {governorate_key(r["area_name"]) for r in rows if r["nationality"] == "ALL"}
-        out: dict[str, list[Any]] = {}
-        for r in rows:
-            key = governorate_key(r["area_name"])
-            if not key or (key in with_all and r["nationality"] != "ALL"):
-                continue
-            entry = out.setdefault(key, [r["area_name"], 0])
-            entry[1] += r["value"] or 0
-        return {k: (v[0], v[1]) for k, v in out.items()}, year
+        return children_population(self.year)
 
     # ------------------------------------------------------------------ money
     def _fr_headers(self):
@@ -1403,6 +1407,7 @@ __all__ = [
     "build",
     "children_by_pd",
     "children_masters",
+    "children_population",
     "governorate_key",
     "options",
     "section_matches",
@@ -1416,7 +1421,8 @@ def children_by_pd(scope: Scope) -> dict[int, dict[str, Any]]:
     its unique beneficiaries indicator, else its largest children indicator, with the overview's
     set-aside guard): children reached in the year, Reached to date against its target, where (by
     governorate, indicators summed across locations only), girls and boys and the age as its title names
-    them; with the PD's section and the status of all its indicators."""
+    them; with the PD's section (its main indicator's when it reached children in the year, else the one
+    most of its indicators are in, as the overview's money) and the status of all its indicators."""
     b = _Builder(scope)
     rows = b._rows()
     b.rows = rows
@@ -1459,6 +1465,8 @@ def children_by_pd(scope: Scope) -> dict[int, dict[str, Any]]:
             "rule": main.rule,
             "rule_label": main.label,
         }
+        if value:  # as the overview's money: a PD without children reached splits by its indicators
+            e["main_section"] = row.section or "Other"
         tags = _title_tags(row)
         e["sex"][tags["sex"] or "Not named"] += value
         e["age"][tags["age_group"] or "Not named"] += value
@@ -1472,13 +1480,11 @@ def children_by_pd(scope: Scope) -> dict[int, dict[str, Any]]:
                     e["names"].setdefault(key, gov)
             e["by_governorate"] = dict(by_governorate)
     for e in out.values():
-        e["section"] = e.pop("sections").most_common(1)[0][0]
+        sections = e.pop("sections")
+        # a PD with children reached counts in the section of its main indicator, as on the overview
+        # (its money and its children, so a donor's cost per child is set against the same section's)
+        e["section"] = e.pop("main_section", None) or sections.most_common(1)[0][0]
     return out
-
-
-def _largest_value(row: Indicator) -> float:
-    """The larger of the indicator's Reached to date and in the year (the set-aside guard reads it)."""
-    return max(row.reached or 0.0, row.reached_in_year or 0.0)
 
 
 def _aside_entry(row: Indicator, reason: str) -> dict[str, Any]:
@@ -1487,7 +1493,7 @@ def _aside_entry(row: Indicator, reason: str) -> dict[str, Any]:
         "partner": _partner(row.pd),
         "section": row.section or "",
         "title": row.title,
-        "value": half_up(_largest_value(row)),
+        "value": half_up(headline.largest_value(row)),
         "target": half_up(row.target) if row.target else None,
         "reason": reason,
         "url": row.url,

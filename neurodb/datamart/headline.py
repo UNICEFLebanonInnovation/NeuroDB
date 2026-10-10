@@ -9,8 +9,14 @@ child twice. Each PD therefore contributes the value of one indicator, its **mai
   (``IndicatorFlag.unique_beneficiaries``, set on the PD page or in the admin), when it is a plain
   number;
 * until one is flagged, its **largest children indicator** (the children rule of
-  :mod:`neurodb.datamart.children`), labelled "largest single indicator": the largest by the figure
-  the page shows (Reached in the year on the overview, Reached to date on the PD page).
+  :mod:`neurodb.datamart.children`), labelled "largest single indicator": the largest by Reached in
+  the year (then Reached to date, the target, the indicator key), the best single-indicator figure of
+  the children the PD reached that year. Every page ranks by a year: the overview, the brief and the
+  donor page by their year, the PD page and the daily review by the current year, so for one year
+  every page names the same indicator.
+
+An indicator whose value cannot be true (:func:`implausible`: above the country's child population,
+or more than :data:`IMPLAUSIBLE_TIMES` its own target) is never chosen nor added.
 
 A total over several PDs (a section, a partner, a donor, the country) is the sum of each PD's main
 indicator, labelled :data:`TOTAL_RULE`: partners may reach the same children. Percentages and ratios
@@ -34,6 +40,8 @@ FLAGGED = "flagged"
 LARGEST = "largest"
 RULE_LABELS = {FLAGGED: "unique beneficiaries indicator", LARGEST: "largest single indicator"}
 TOTAL_RULE = "sum of each PD's main indicator; partners may reach the same children"
+IMPLAUSIBLE_TIMES = 20  # a value more than this many times its own target is a reporting error...
+IMPLAUSIBLE_FLOOR = 1000  # ...when it is above this many people too
 TOTAL_RULE_LONG = (
     "Each programme document counts once: its unique beneficiaries indicator, else its largest children "
     "indicator (largest single indicator). The total is the sum over the programme documents; partners "
@@ -97,19 +105,26 @@ def flagged_keys(pd_ids: Iterable[int] | None = None) -> dict[int, str]:
     return dict(flags.values_list("intervention_id", "key"))
 
 
+def rank(row: Row, year: int | None) -> tuple[float, float, float, str]:
+    """What "largest" compares: Reached in ``year``, then Reached to date, then the target, then the
+    indicator key (so ties fall the same way on every page)."""
+    in_year = (row.years or {}).get(year) if year is not None else None
+    return (in_year or 0.0, row.reached or 0.0, row.target or 0.0, row.key or "")
+
+
 def choose(
     rows: Iterable[Row],
     *,
     is_children: Callable[[Row], bool],
-    value: Callable[[Row], float | None],
+    year: int | None,
     flags: dict[int, str] | None = None,
     exclude: Iterable[Row] = (),
 ) -> dict[int, Main]:
     """Each PD's main indicator among ``rows`` (every indicator of the PDs, whatever section or place
-    the page shows, so a PD has the same main indicator on every page). ``value``: the figure "largest"
-    compares (then Reached to date, then the target; ties keep the first row). ``exclude``: rows set
-    aside (values too large to be true). A PD with neither a flagged indicator nor a children
-    indicator has none."""
+    the page shows, so a PD has the same main indicator on every page of the same year): its flagged
+    indicator, else its largest children indicator by :func:`rank` in ``year``. ``exclude``: rows set
+    aside (values too large to be true, :func:`implausible`). A PD with neither a flagged indicator
+    nor a children indicator has none."""
     rows = list(rows)
     flags = flagged_keys({r.pd.id for r in rows}) if flags is None else flags
     left_out = {id(r) for r in exclude}
@@ -126,9 +141,64 @@ def choose(
             continue
         kids = [r for r in candidates if is_children(r)]
         if kids:
-            best = max(kids, key=lambda r: (value(r) or 0.0, r.reached or 0.0, r.target or 0.0))
-            out[pd_id] = Main(best, LARGEST)
+            out[pd_id] = Main(max(kids, key=lambda r: rank(r, year)), LARGEST)
     return out
+
+
+def largest_value(row: Row) -> float:
+    """The larger of an indicator's Reached to date and in the year (what the set-aside guard reads)."""
+    return max(row.reached or 0.0, row.reached_in_year or 0.0)
+
+
+def implausible(rows: Iterable[Row], national: int | None) -> list[tuple[Row, str]]:
+    """The indicators among ``rows`` whose figures cannot be true, with the reason: a value above the
+    whole country's child population (``national``), or more than IMPLAUSIBLE_TIMES its own target (and above
+    IMPLAUSIBLE_FLOOR), is a reporting or reading error, not a result (one such value once showed
+    billions of children). They are never added nor chosen as a PD's main indicator."""
+    aside = []
+    for row in rows:
+        value = largest_value(row)
+        too_many = bool(national) and value > national
+        too_far = bool(row.target) and value > IMPLAUSIBLE_TIMES * row.target and value > IMPLAUSIBLE_FLOOR
+        if too_many or too_far:
+            reason = (
+                "above the child population of Lebanon"
+                if too_many
+                else f"more than {IMPLAUSIBLE_TIMES} times its target"
+            )
+            aside.append((row, reason))
+    return aside
+
+
+def candidates(rows: Iterable[Row], is_children: Callable[[Row], bool], flags: dict[int, str]) -> list[Row]:
+    """The rows that may become a PD's main indicator: its children indicators and its flagged one (the
+    rows the set-aside guard must look at)."""
+    return [r for r in rows if is_children(r) or flags.get(r.pd.id) == r.key]
+
+
+def mains_of(
+    rows: Iterable[Row],
+    *,
+    year: int,
+    is_children: Callable[[Row], bool] | None = None,
+) -> dict[int, Main]:
+    """:func:`choose` with the set-aside guard, for a page that shows a PD's main indicator without the
+    overview (the PD page, the daily review: ``year`` the current year): the overview's choice for the
+    same year."""
+    rows = list(rows)
+    is_children = is_children or children_rule()
+    flags = flagged_keys({r.pd.id for r in rows})
+    aside = implausible(candidates(rows, is_children, flags), national_children(year))
+    return choose(rows, is_children=is_children, year=year, flags=flags, exclude=[r for r, _reason in aside])
+
+
+def national_children(year: int) -> int | None:
+    """Lebanon's child population in the latest governorate figures up to ``year`` (the overview's
+    figure, :func:`neurodb.reports.overview.children_population`); None without figures."""
+    from neurodb.reports.overview import children_population
+
+    by_governorate, _year = children_population(year)
+    return sum(n for _name, n in by_governorate.values()) or None
 
 
 def gap(row: Row) -> float | None:

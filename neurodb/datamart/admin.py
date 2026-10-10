@@ -305,9 +305,40 @@ class IndicatorFlagForm(forms.ModelForm):
                     "unique_beneficiaries",
                     _("Only an eTools PD indicator can be a unique beneficiaries indicator."),
                 )
-            if not data.get("intervention"):
+            elif not data.get("intervention"):
                 self.add_error("intervention", _("Choose the programme document this indicator belongs to."))
+            elif data.get("key"):
+                self._check_indicator(data)
         return data
+
+    def _check_indicator(self, data) -> None:
+        """The key must name one of the programme document's indicators, and one that counts people (as
+        on the programme document page): otherwise the flag would change nothing."""
+        from . import headline
+        from . import monitoring as pd_monitoring
+
+        pd = data["intervention"]
+        key = str(data["key"]).strip()
+        rows = pd_monitoring.indicators(pd_monitoring.Filters(pd_ids=[pd.pk], scope="all"))
+        row = next((r for r in rows if r.key == key), None)
+        if row is None:
+            self.add_error(
+                "key",
+                _(
+                    "This is not the eTools id of one of this programme document's indicators. Choosing "
+                    "the indicator on the programme document page avoids this."
+                ),
+            )
+        elif not headline.is_number(row):
+            self.add_error(
+                "unique_beneficiaries",
+                _(
+                    "A percentage or a ratio cannot count beneficiaries: choose an indicator that counts "
+                    "people."
+                ),
+            )
+        elif not data.get("label"):
+            data["label"] = row.title[:1024]
 
 
 @admin.register(dm.IndicatorFlag)

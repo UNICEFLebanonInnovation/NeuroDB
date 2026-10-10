@@ -269,17 +269,30 @@ def _flag_overdue(points: list[dm.ActionPoint]) -> list[dm.ActionPoint]:
     return points
 
 
-def programme_datamart(pd: PCA) -> dict[str, Any]:
+def programme_datamart(pd: PCA, today: datetime.date | None = None) -> dict[str, Any]:
     lines = list(dm.FundsReservation.objects.filter(intervention=pd))
     action_points = dm.ActionPoint.objects.filter(intervention=pd)
     monitoring = _monitoring_summary(pd_monitoring.Filters(pd_ids=[pd.id], scope="all"))
     # the PD's main indicator (its children reached on the overview, the brief and the donor page): its
-    # unique beneficiaries indicator, else its largest children indicator to date
-    mains = headline.choose(
-        monitoring["rows"], is_children=headline.children_rule(), value=lambda r: r.reached
-    )
-    monitoring["main"] = mains.get(pd.id)
+    # unique beneficiaries indicator, else its largest children indicator in the current year, with the
+    # overview's set-aside guard, so the PD page names the indicator the other pages count this year
+    year = (today or datetime.date.today()).year
+    mains = headline.mains_of(monitoring["rows"], year=year)
+    main = monitoring["main"] = mains.get(pd.id)
+    monitoring["main_year"] = year
     monitoring["number_keys"] = {r.key for r in monitoring["rows"] if headline.is_number(r)}
+    # the unique beneficiaries indicator chosen for the PD, and why it does not count when it does not
+    # (so the page says so and offers to undo the choice, instead of hiding it)
+    flagged = monitoring["flagged_key"] = headline.flagged_keys([pd.id]).get(pd.id)
+    monitoring["flag_unused"] = ""
+    if flagged and not (main is not None and main.flagged):
+        row = next((r for r in monitoring["rows"] if r.key == flagged), None)
+        if row is None:
+            monitoring["flag_unused"] = "missing"  # no longer among the PD's indicators in eTools
+        elif not headline.is_number(row):
+            monitoring["flag_unused"] = "not_number"  # now a percentage or a ratio
+        else:
+            monitoring["flag_unused"] = "implausible"  # set aside: its value cannot be true
     return {
         "fr_lines": lines,
         **_fr_totals(pd, lines),

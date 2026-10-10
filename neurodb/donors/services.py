@@ -35,7 +35,7 @@ from neurodb.partnerships.models.legacy import PCA
 from neurodb.reports import overview
 
 CACHE_SECONDS = 300
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 SECTION_SLOTS = 5  # the categorical colours of the page (--s1 .. --s5), then "other"
 GOVERNORATES = {  # overview.governorate_key -> the name and place on the page's schematic map
     "akkar": ("Akkar", 1, 0),

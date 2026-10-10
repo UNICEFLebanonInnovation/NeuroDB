@@ -46,7 +46,7 @@ from neurodb.web.templatetags.ui import money as money_text
 logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 120
-CACHE_VERSION = 4
+CACHE_VERSION = 5
 RULES_VERSION = "v2"
 MONTH_LABELS = overview.MONTH_LABELS
 PROJECTION_MONTHS = 3  # the pace is the average of the last three reported months
@@ -376,8 +376,14 @@ class _Builder:
                 "format": "number",
                 "delta": _delta(children_now, children_prev, "vs same period last year"),
                 "hint": (
-                    f"eTools {impact['children_etools']:,} ({main_indicators.TOTAL_RULE}) · ActivityInfo "
-                    f"{impact['children_activityinfo']:,} in the year; the larger of the two, never added"
+                    f"eTools {impact['children_etools']:,} ({main_indicators.TOTAL_RULE}"
+                    + (
+                        f"; {impact['children_awaiting']:,} from reports awaiting acceptance"
+                        if impact.get("children_awaiting")
+                        else ""
+                    )
+                    + f") · ActivityInfo {impact['children_activityinfo']:,} in the year; the larger of the "
+                    "two, never added"
                 ),
                 "url": _link(
                     "reports:pd_monitoring", section=self.scope.sections, year=self.year, scope="year"

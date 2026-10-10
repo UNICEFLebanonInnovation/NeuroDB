@@ -575,6 +575,35 @@ class Reached:
     notes: list[str] = field(default_factory=list)
     # each counted report's period end, value and PRP cumulative, oldest first (for :meth:`through`)
     periods: list[tuple[datetime.date | None, Item, float | None]] = field(default_factory=list)
+    # each counted report's value, by report key (for :meth:`awaiting_in`)
+    items: dict[str, Item] = field(default_factory=dict)
+
+    def awaiting_in(self, year: int) -> float | None:
+        """Of Reached in ``year``, the part from reports still awaiting acceptance (Submitted): what a
+        send-back would take off. None when no counted report of that year awaits acceptance."""
+        in_year = [r for r in self.counted if r.period_end and r.period_end.year == year]
+        submitted = [r for r in in_year if r.status == SUBMITTED]
+        if not submitted:
+            return None
+        if self.additive:
+            return sum(self.items[r.key][0] or 0.0 for r in submitted)
+
+        def over(reports: list[Report]) -> float | None:
+            if not reports:
+                return None
+            return combine_items(
+                [self.items[r.key] for r in reports],
+                self.period_method or "sum",
+                ratio=self.ratio,
+                percentage=self.percentage,
+                fallback="latest",
+            )[0]
+
+        every = over(in_year)
+        if every is None:
+            return None
+        accepted = over([r for r in in_year if r.status == ACCEPTED])
+        return max(every - (accepted or 0.0), 0.0)
 
     def through(self, year: int) -> float | None:
         """Reached to the end of ``year``: the counted reports whose period ends by 31 December of that
@@ -690,6 +719,7 @@ def compute(
     values = {r.key: item(r) for r in reports}
     out.counted = counted = [r for r in reports if r.counted and values[r.key][0] is not None]
     out.periods = [(r.period_end, values[r.key], r.prp_cumulative if only is None else None) for r in counted]
+    out.items = {r.key: values[r.key] for r in counted}
     out.reached = over([values[r.key] for r in counted])[0]
     accepted = [r for r in counted if r.status == ACCEPTED]
     out.reached_accepted = over([values[r.key] for r in accepted])[0]

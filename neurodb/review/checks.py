@@ -208,8 +208,10 @@ class Context:
     @cached_property
     def mains(self) -> dict[int, headline.Main]:
         """Each PD's main indicator (:mod:`neurodb.datamart.headline`): its unique beneficiaries
-        indicator, else its largest children indicator by Reached to date."""
-        return headline.choose(self.rows, is_children=self.counts_children, value=lambda r: r.reached)
+        indicator, else its largest children indicator by Reached in the current year, with the
+        overview's set-aside guard (the indicator the overview, the brief and the PD page name for this
+        year)."""
+        return headline.mains_of(self.rows, year=self.year, is_children=self.counts_children)
 
     def behind(self, inds: list[Indicator]) -> tuple[int, Indicator] | None:
         """Children behind target in some indicators of one PD, and on which indicator: never added

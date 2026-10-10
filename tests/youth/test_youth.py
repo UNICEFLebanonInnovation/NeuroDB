@@ -283,3 +283,19 @@ def test_client_sends_the_token_and_treats_an_unknown_year_as_none():
     assert client.figures()["year"] == "2026"
     assert responses.calls[0].request.headers["Authorization"] == "Token abc123"
     assert client.figures("1999") is None
+
+
+def test_compilers_count_is_set_against_etools_reached_in_the_same_year(client_viewer, etools):
+    """The PD also reached 30 young people in 2025: Compiler's 2026 count is compared with the 40 of 2026,
+    never with the PD's 70 to date."""
+    PCA.objects.filter(pk=etools.pk).update(start=datetime.date(2025, 1, 1))
+    earlier = dm.ReportedIndicator.objects.get(datamart_id=77)
+    earlier.pk, earlier.datamart_id, earlier.progress_report, earlier.report_number = None, 76, "PR-0", "QPR0"
+    earlier.period_start, earlier.period_end = datetime.date(2025, 10, 1), datetime.date(2025, 12, 31)
+    earlier.achievement_in_period = earlier.total_cumulative_progress = "30"
+    earlier.total_cumulative_progress_in_location = "30"
+    earlier.save()
+    sync(triggered_by="test", client=FakeClient(["2026"]))
+    row = client_viewer.get(reverse("youth:dashboard")).context["data"]["links"][0]
+    assert row["etools"].reached == 70 and row["reported"] == 40 and row["year"] == 2026
+    assert row["difference"] == 2 - 40

@@ -21,8 +21,13 @@ synced eTools tables and the ActivityInfo history.
 - **One indicator per programme document**: the indicators of one programme document count the same
   children, so they are never added. Each programme document counts once, with its *unique
   beneficiaries indicator* (chosen on the programme document page by an Administrator or a Section
-  editor of its section), else its *largest single indicator* (its largest children indicator). The
-  eTools figure is the sum over the programme documents: partners may reach the same children.
+  editor of its section), else its *largest single indicator* (its largest children indicator that
+  year). The eTools figure is the sum over the programme documents: partners may reach the same
+  children. A value too large to be true is never counted; the page lists it so it can be checked.
+  When the chosen indicator cannot count (its value is too large to be true, or it has become a
+  percentage), the programme document page says so and its largest single indicator stands in.
+  Reports submitted but not yet accepted count, and the tile says how many children come from them
+  (a report sent back later lowers the figure).
 - **Achievement against target**: the median share of the target reached by the children indicators of
   each section (each capped at 100%); targets of different indicators are never added.
 - **Cost per child**: what the programme documents with a children result disbursed to date, over the

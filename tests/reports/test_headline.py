@@ -24,7 +24,7 @@ from neurodb.datamart.tags import tags_of
 from neurodb.geo.models import Location
 from neurodb.partnerships.models import PCA
 from neurodb.reports import brief, overview
-from tests.reports.overview_fixture import TODAY, make_overview_data
+from tests.reports.overview_fixture import CHILDREN_TITLE, TODAY, make_overview_data
 
 pytestmark = pytest.mark.django_db
 
@@ -157,7 +157,7 @@ def test_a_percentage_is_never_a_main_indicator(data, admin_user):
         source="etools", key="400", unique_beneficiaries=True, intervention=data["pd"]
     )
     rows = _rows(data["pd"].id)
-    mains = headline.choose(rows, is_children=headline.children_rule(), value=lambda r: r.reached)
+    mains = headline.choose(rows, is_children=headline.children_rule(), year=2026)
     assert mains[data["pd"].id].row.key == "100" and mains[data["pd"].id].rule == headline.LARGEST
 
 
@@ -174,7 +174,7 @@ def test_behind_target_is_one_indicator_never_a_sum(data):
     _second(data)
     rows = _rows(data["pd"].id)
     rule = headline.children_rule()
-    mains = headline.choose(rows, is_children=rule, value=lambda r: r.reached)
+    mains = headline.choose(rows, is_children=rule, year=2026)
     found = headline.behind(rows, mains[data["pd"].id], rule)
     # the main indicator (700 of 2,000): 1,300 behind, never 1,300 + 500
     assert found[0] == 1300 and found[1].key == "300"
@@ -373,3 +373,195 @@ def test_the_admin_requires_the_programme_document(client, admin_user, data):
     form = IndicatorFlagForm(data={"source": "activityinfo", "key": "7", "unique_beneficiaries": "on",
                                    "counts_children": "false", "intervention": data["pd"].pk})  # fmt: skip
     assert not form.is_valid() and "unique_beneficiaries" in form.errors
+
+
+# ------------------------------------------------------------------- one choice on every page (check)
+def _over_two_years(data):
+    """LEB/PD1 runs 2025-2026; the enrolment indicator reached 900 children in 2025 and none yet in 2026,
+    the psychosocial one 500 in 2026: the larger to date (900) is not the larger this year (500)."""
+    PCA.objects.filter(pk=data["pd"].pk).update(start=datetime.date(2025, 1, 1))
+    data["pd"].refresh_from_db()
+    _indicator(data, 300, ENROLLED, [(datetime.date(2025, 12, 31), "Achrafieh", 900)])
+
+
+def test_the_main_indicator_of_a_year_is_the_same_on_every_page(data, reporting_year):
+    from neurodb.donors import services
+    from neurodb.donors.models import DonorAccount
+    from neurodb.review import checks
+
+    _over_two_years(data)
+    pd = data["pd"]
+    # the overview of each year counts the PD's largest children indicator of that year
+    assert build(reporting_year)["impact"]["children_etools"] == 500
+    assert (
+        overview.build(overview.Scope(year=2025, reporting_year=None, today=TODAY), cache=False)["impact"][
+            "children_etools"
+        ]
+        == 900
+    )
+    # the PD page and the daily review rank by the current year too: the same indicator as the overview
+    main = headline.mains_of(_rows(pd.id), year=2026)[pd.id]
+    assert (main.row.key, main.rule) == ("100", headline.LARGEST)
+    assert headline.mains_of(_rows(pd.id), year=2025)[pd.id].row.key == "300"
+    ctx = checks.Context(TODAY)
+    assert ctx.mains[pd.id].row.key == "100"
+    user = User.objects.create_user(username="eu-donor", password="donor-pass-123456")
+    account = DonorAccount.objects.create(user=user, name="EU", donors=["EU"], must_change_password=False)
+    (row,) = services.contribution(account, 2026, TODAY)["pds"]
+    assert row["indicator"] == CHILDREN_TITLE == main.row.title and row["children_whole"] == 500
+
+
+def test_the_pd_page_names_the_main_indicator_of_the_current_year(client, data, admin_user):
+    from neurodb.datamart import services
+
+    _over_two_years(data)
+    block = services.programme_datamart(data["pd"], today=TODAY)["monitoring"]
+    assert block["main"].row.key == "100" and block["main_year"] == 2026  # not 300, the larger to date
+    client.force_login(admin_user)
+    page = client.get(reverse("reports:programme_detail", args=[data["pd"].pk])).content.decode()
+    year = datetime.date.today().year
+    assert f"children reached in {year} (its largest children indicator that year)" in page
+
+
+def test_an_impossible_value_is_never_the_main_indicator_even_when_flagged(data, admin_user):
+    """A section made a "people reached" indicator the PD's unique beneficiaries indicator, but its value
+    (5 million against a target of 2,000) is a reporting error: it is set aside on every page, listed on
+    the overview, and the PD's largest children indicator stands in."""
+    _indicator(data, 700, "# of people reached with awareness sessions",
+               [(datetime.date(2026, 6, 30), "Halba", 5_000_000)])  # fmt: skip
+    headline.set_main(data["pd"], "700", "awareness", admin_user)
+    impact = build()["impact"]
+    assert impact["children_etools"] == 500  # never 5,000,000
+    assert impact["main_indicators"] == {"flagged": 0, "largest": 1}
+    assert [a["title"] for a in impact["implausible"]] == ["# of people reached with awareness sessions"]
+    main = headline.mains_of(_rows(data["pd"].id), year=2026)[data["pd"].id]
+    assert (main.row.key, main.rule) == ("100", headline.LARGEST)
+
+
+def test_the_donor_page_puts_a_pd_in_the_section_of_its_main_indicator(data, reporting_year):
+    """Two of the PD's three indicators are Child Protection's, but its main indicator (700 children) is
+    Education's: on the overview the PD's money and children count in Education, so on the donor page
+    too (its cost per child is set against Education's)."""
+    from neurodb.donors import services
+    from neurodb.donors.models import DonorAccount
+
+    _indicator(data, 300, ENROLLED, [(datetime.date(2026, 6, 30), "Achrafieh", 700)], section="Education")
+    sections = {s["section"]: s for s in build(reporting_year)["money"]["by_section"]}
+    assert sections["Education"]["children"] == 700 and "Child Protection" not in sections
+    user = User.objects.create_user(username="eu-donor", password="donor-pass-123456")
+    account = DonorAccount.objects.create(user=user, name="EU", donors=["EU"], must_change_password=False)
+    (row,) = services.contribution(account, 2026, TODAY)["pds"]
+    assert row["section"] == "Education"
+
+
+def test_the_admin_checks_the_indicator_belongs_to_the_pd_and_counts_people(data):
+    from neurodb.datamart.admin import IndicatorFlagForm
+
+    _indicator(data, 400, "% of children attending school", [(datetime.date(2026, 6, 30), "Halba", 90)],
+               target=100, display_type="percentage")  # fmt: skip
+    base = {
+        "source": "etools",
+        "unique_beneficiaries": "on",
+        "counts_children": "",
+        "intervention": data["pd"].pk,
+    }
+    form = IndicatorFlagForm(data={**base, "key": "999"})  # no indicator of this PD
+    assert not form.is_valid() and "key" in form.errors
+    form = IndicatorFlagForm(data={**base, "key": "400"})  # a percentage
+    assert not form.is_valid() and "unique_beneficiaries" in form.errors
+    form = IndicatorFlagForm(data={**base, "key": "100"})
+    assert form.is_valid(), form.errors
+    flag = form.save()
+    assert flag.label == CHILDREN_TITLE  # the indicator's title, for the list
+    _second(data)
+    form = IndicatorFlagForm(data={**base, "key": "300"})  # a second one for the same PD
+    assert not form.is_valid()  # refused in the form, not by a server error
+
+
+def test_the_headline_says_how_much_awaits_acceptance(data, reporting_year):
+    """The enrolment indicator (the PD's main one) reached 300 in an accepted Q1 report and 400 more in a
+    Q2 report still awaiting acceptance: children reached 700, of which 400 a send-back would take off."""
+    _indicator(data, 300, ENROLLED, [(datetime.date(2026, 3, 31), "Achrafieh", 300),
+                                     (datetime.date(2026, 6, 30), "Achrafieh", 400)])  # fmt: skip
+    dm.ReportedIndicator.objects.filter(etools_indicator_id="300", period_end__month=6).update(
+        report_status="Submitted"
+    )
+    impact = build()["impact"]
+    assert (impact["children_etools"], impact["children_awaiting"]) == (700, 400)
+    assert build(governorate="Beirut")["impact"]["children_awaiting"] is None  # not split by place
+    result = brief.build(
+        brief.Scope(year=2026, reporting_year=reporting_year, sections=[], today=TODAY), cache=False
+    )
+    tiles = {t["key"]: t for t in result["headline"]["tiles"]}
+    assert "400 from reports awaiting acceptance" in tiles["children"]["hint"]
+    # a "latest" indicator: the year's figure is the latest report (400); without it, 300: 100 awaits
+    dm.ReportedIndicator.objects.filter(etools_indicator_id="300").update(calculation_across_periods="latest")
+    impact = build()["impact"]
+    assert (impact["children_etools"], impact["children_awaiting"]) == (500, 0)  # 100's 500 is larger now
+    (row,) = [r for r in _rows(data["pd"].id) if r.key == "300"]
+    assert row.result.awaiting_in(2026) == 100 and row.result.awaiting_in(2025) is None
+
+
+def test_a_chosen_indicator_that_does_not_count_is_shown_and_can_be_undone(client, data, viewer, admin_user):
+    """The unique beneficiaries indicator is chosen but its value cannot be true: the PD page says it is not
+    counted (the largest single indicator stands in) and offers to undo the choice, instead of hiding it
+    behind a "Make it..." button that would change nothing."""
+    _indicator(data, 700, "# of people reached with awareness sessions",
+               [(datetime.date(2026, 6, 30), "Halba", 5_000_000)])  # fmt: skip
+    headline.set_main(data["pd"], "700", "awareness", admin_user)
+    url = reverse("reports:programme_detail", args=[data["pd"].pk])
+    client.force_login(viewer)
+    page = client.get(url).content.decode()
+    assert "Unique beneficiaries, not counted" in page and "too large to be true" in page
+    assert "No longer the unique beneficiaries indicator" not in page  # a Viewer may not change it
+    client.force_login(admin_user)
+    page = client.get(url).content.decode()
+    assert page.count("No longer the unique beneficiaries indicator") == 1
+    assert page.count("Make it the unique beneficiaries indicator") == 2  # the two other plain numbers
+    client.post(reverse("reports:pd_main_indicator", args=[data["pd"].pk]), {"clear": "1"})
+    assert headline.flagged_keys() == {}
+    page = client.get(url).content.decode()
+    assert "not counted" not in page and page.count("Make it the unique beneficiaries indicator") == 3
+
+
+def test_a_chosen_indicator_gone_from_etools_is_shown_and_can_be_removed(client, data, admin_user):
+    _second(data)
+    headline.set_main(data["pd"], "300", "enrolment", admin_user)
+    dm.PDIndicator.objects.filter(source_id=300).delete()  # removed from the PD in eTools
+    dm.ReportedIndicator.objects.filter(etools_indicator_id="300").delete()
+    from neurodb.datamart import services
+
+    block = services.programme_datamart(data["pd"], today=TODAY)
+    assert block["monitoring"]["flag_unused"] == "missing"
+    assert (block["monitoring"]["main"].row.key, block["monitoring"]["main"].rule) == (
+        "100",
+        headline.LARGEST,
+    )
+    client.force_login(admin_user)
+    url = reverse("reports:programme_detail", args=[data["pd"].pk])
+    page = client.get(url).content.decode()
+    assert "no longer among its indicators in eTools" in page and "Remove that choice" in page
+    client.post(reverse("reports:pd_main_indicator", args=[data["pd"].pk]), {"clear": "1"})
+    assert headline.flagged_keys() == {}
+    assert "no longer among its indicators" not in client.get(url).content.decode()
+
+
+def test_a_pd_without_children_this_year_keeps_the_section_most_of_its_indicators_are_in(
+    data, reporting_year
+):
+    """No children reached this year (its reports were sent back): the overview splits the PD's money by
+    its indicators' sections (two Child Protection, one Education), so the donor page puts it in Child
+    Protection, even though its main indicator (the largest target) is Education's."""
+    from neurodb.donors import services
+    from neurodb.donors.models import DonorAccount
+
+    _indicator(data, 300, ENROLLED, [], section="Education", target=5000)
+    dm.ReportedIndicator.objects.filter(etools_indicator_id="100").update(report_status="Sent back")
+    result = build(reporting_year)
+    assert result["impact"]["children_etools"] == 0
+    reserved = {s["section"]: s["reserved"] for s in result["money"]["by_section"]}
+    assert reserved["Child Protection"] > reserved["Education"]
+    user = User.objects.create_user(username="eu-donor", password="donor-pass-123456")
+    account = DonorAccount.objects.create(user=user, name="EU", donors=["EU"], must_change_password=False)
+    (row,) = services.contribution(account, 2026, TODAY)["pds"]
+    assert row["section"] == "Child Protection" and row["indicator"] == ENROLLED

@@ -1146,8 +1146,19 @@ indicator**:
   *Indicator flags* (*Unique beneficiaries* with its programme document; one per PD). Only a plain
   number can be chosen: a percentage or a ratio never counts people;
 * until one is chosen, its **largest children indicator**, labelled *largest single indicator*:
-  the largest by the figure shown (Reached in the year on the overview, the brief and the donor
-  page; Reached to date on the PD page and in the daily review).
+  the largest by Reached in the year (then by Reached to date): the year of the overview, the brief
+  or the donor page, and the current year on the PD page and in the daily review, so for one year
+  every page names the same indicator. A past year's overview may count another indicator of the
+  same PD, its largest that year.
+
+An indicator whose value cannot be true (above the country's child population, or more than 20 times
+its own target and above 1,000) is never chosen nor added, on any of these pages, even when it is the
+unique beneficiaries indicator: the overview and the brief list it so someone checks it in eTools.
+The PD page then marks the chosen indicator *Unique beneficiaries, not counted* with the reason (its
+value cannot be true, or it has become a percentage or a ratio) and offers *No longer the unique
+beneficiaries indicator*; a chosen indicator that eTools no longer lists under the PD is named in a
+line under the table, with *Remove that choice*. In both cases the largest single indicator stands in
+until the choice is corrected.
 
 A total over several PDs (a section, a partner, a donor, the country) is the **sum of each PD's main
 indicator**, labelled so: partners may reach the same children. A PD counts in the section of its
@@ -1156,7 +1167,9 @@ nothing), so the sections add up to the country. The overview's tile says how ma
 their unique beneficiaries indicator and how many by their largest single indicator. Values come
 from Partner monitoring's Reached (`neurodb/datamart/reached.py`): Accepted and Submitted reports,
 the year's value combined by the indicator's method (a sum adds the reports, a max or the latest
-does not).
+does not). The tile (and the brief's) says how much of the eTools figure comes from reports still
+awaiting acceptance: what a send-back would take off (for the whole country; not split by
+governorate).
 
 **Two sources, never added.** The same children are often reported in both eTools PRP and
 ActivityInfo, so the headline *Children reached* is the larger of the two, with both shown beside
@@ -1281,8 +1294,8 @@ still open, never resolved. The two checks that describe a change (`new_off_trac
 are always *new*. Findings are ranked by severity, then by the children behind target. Children
 behind target are counted on one indicator, never added across indicators (they count the same
 children): the PD's main indicator (its unique beneficiaries indicator, else its largest children
-indicator to date) when it is among the finding's indicators, else the children indicator furthest
-behind; the finding names it.
+indicator this year, as on the PD page and the overview) when it is among the finding's indicators,
+else the children indicator furthest behind; the finding names it.
 
 **The summary.** With the AI assistant configured (`OPENAI_API_KEY`), the model reads only the
 day's findings and counts (titles, details and numbers; no staff names, `store=false`) and writes four to six plain sentences;
@@ -3009,8 +3022,10 @@ Disbursed is the FR's disbursed amount times the donor's share of that FR's line
 children (its main indicator: its unique beneficiaries indicator, else its largest children
 indicator, never several indicators added; see the overview's headline rule) are attributed in
 proportion to the donor's share of the programme's funds; its progress to target is that indicator's
-Reached against its target. The programme table names the main indicator and how it was chosen. The
-page explains this to the donor under "How to read these figures".
+Reached against its target. The programme table names the main indicator and how it was chosen. A
+programme with children reached belongs to the programme area of its main indicator, as on the
+overview, so its cost per child is set against the same area's country figure. The page explains
+this to the donor under "How to read these figures".
 
 **Creating an account** (admin → Users and access → Donor accounts → Add). The sign-in is either:
 - **an existing user** ("Existing user"): a user already created in Users, not staff, not an
