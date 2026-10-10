@@ -2,10 +2,14 @@
 partner reporting behind each output.
 
 An indicator's value for a year is the value typed in the admin for that year, else the sum of its
-confirmed linked sources for that year (eTools PD indicators: the partners' cumulative progress;
-ActivityInfo: the master indicator's result; Compiler: young people reached, children enrolled).
-The cycle's value is the latest year's value (a level) or the sum over the cycle's years (people
-reached), as the indicator says.
+confirmed linked sources for that year (eTools PD indicators: what the partner reached, from
+``neurodb.datamart.reached``; ActivityInfo: the master indicator's result; Compiler: young people
+reached, children enrolled). Linked sources of one year are different partners' figures added up:
+they may reach the same people. The cycle's value is the latest year's value (a level) or the sum over
+the cycle's years (people reached), as the indicator says; so an eTools PD indicator counts, for a
+year, its Reached in that year when the CP indicator sums over the cycle (a PD running over several
+years is never counted twice), and its Reached to the end of that year when it takes the latest year's
+value.
 
 Status: the share of the way from baseline to target that the value has covered, compared with the
 share of the cycle elapsed (or with 100 % of the year's milestone when one is set): within 10 points
@@ -56,6 +60,9 @@ def elapsed_share(programme: CountryProgramme, today: datetime.date) -> float:
 
 # ------------------------------------------------------------------------------ linked sources
 def _etools_values(links: list[Link]) -> dict[int, float | None]:
+    """Each eTools link's figure for its year (:mod:`neurodb.datamart.reached`): the PD indicator's
+    Reached in that year when its CP indicator sums over the cycle (``Accumulate.SUM``), else its
+    Reached to the end of that year (``Accumulate.LATEST``)."""
     from neurodb.datamart import monitoring
 
     out: dict[int, float | None] = {}
@@ -67,9 +74,15 @@ def _etools_values(links: list[Link]) -> dict[int, float | None]:
         rows = (
             monitoring.indicators(monitoring.Filters(pd_ids=pd_ids, scope="all", year=year)) if pd_ids else []
         )
-        cumulative = {(row.pd.id, row.key): row.cumulative for row in rows}
+        found = {(row.pd.id, row.key): row for row in rows}
         for link in year_links:
-            out[link.pk] = cumulative.get((link.pd_id, link.etools_key))
+            row = found.get((link.pd_id, link.etools_key))
+            if row is None:
+                out[link.pk] = None
+            elif link.indicator.accumulate == Indicator.Accumulate.SUM:
+                out[link.pk] = row.reached_in_year
+            else:
+                out[link.pk] = row.result.through(year) if row.result is not None else row.reached
     return out
 
 

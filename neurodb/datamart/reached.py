@@ -573,6 +573,26 @@ class Reached:
     source: str = "computed"  # computed | prp_cumulative (partial history)
     location_filtered: bool = False
     notes: list[str] = field(default_factory=list)
+    # each counted report's period end, value and PRP cumulative, oldest first (for :meth:`through`)
+    periods: list[tuple[datetime.date | None, Item, float | None]] = field(default_factory=list)
+
+    def through(self, year: int) -> float | None:
+        """Reached to the end of ``year``: the counted reports whose period ends by 31 December of that
+        year, combined as Reached is (with a partial history, PRP's cumulative on the latest of them
+        when it gives one). None when no counted report ends by then."""
+        cut = datetime.date(year, 12, 31)
+        upto = [p for p in self.periods if p[0] is not None and p[0] <= cut]
+        if not upto:
+            return None
+        if self.partial and upto[-1][2] is not None:
+            return upto[-1][2]
+        return combine_items(
+            [item for _end, item, _prp in upto],
+            self.period_method or "sum",
+            ratio=self.ratio,
+            percentage=self.percentage,
+            fallback="latest",
+        )[0]
 
     @property
     def additive(self) -> bool:
@@ -669,6 +689,7 @@ def compute(
 
     values = {r.key: item(r) for r in reports}
     out.counted = counted = [r for r in reports if r.counted and values[r.key][0] is not None]
+    out.periods = [(r.period_end, values[r.key], r.prp_cumulative if only is None else None) for r in counted]
     out.reached = over([values[r.key] for r in counted])[0]
     accepted = [r for r in counted if r.status == ACCEPTED]
     out.reached_accepted = over([values[r.key] for r in accepted])[0]

@@ -209,6 +209,7 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .kpi__unit { font-size: 0.85rem; color: var(--nd-muted); font-weight: 500; }
 .kpi__meta { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem; }
 .kpi__hint { font-size: 0.78rem; color: var(--nd-muted); }
+.kpi__rule { display: block; margin-top: 0.3rem; line-height: 1.35; }
 .kpi__more { display: inline-block; margin-top: 0.3rem; }
 
 /* ------------------------------------------------------------------ status pills & progress */

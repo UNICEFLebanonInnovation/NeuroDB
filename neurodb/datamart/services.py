@@ -14,7 +14,7 @@ from django.db.models.functions import ExtractYear
 
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
-from . import fm, reached
+from . import fm, headline, reached
 from . import models as dm
 from . import monitoring as pd_monitoring
 
@@ -273,6 +273,13 @@ def programme_datamart(pd: PCA) -> dict[str, Any]:
     lines = list(dm.FundsReservation.objects.filter(intervention=pd))
     action_points = dm.ActionPoint.objects.filter(intervention=pd)
     monitoring = _monitoring_summary(pd_monitoring.Filters(pd_ids=[pd.id], scope="all"))
+    # the PD's main indicator (its children reached on the overview, the brief and the donor page): its
+    # unique beneficiaries indicator, else its largest children indicator to date
+    mains = headline.choose(
+        monitoring["rows"], is_children=headline.children_rule(), value=lambda r: r.reached
+    )
+    monitoring["main"] = mains.get(pd.id)
+    monitoring["number_keys"] = {r.key for r in monitoring["rows"] if headline.is_number(r)}
     return {
         "fr_lines": lines,
         **_fr_totals(pd, lines),

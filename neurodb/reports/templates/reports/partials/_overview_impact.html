@@ -13,7 +13,7 @@
     <a class="gov-tile gov-tile--l{{ g.level|default:1 }}" href="?{% if base_query %}{{ base_query }}&amp;{% endif %}governorate={{ g.name|urlencode }}"{% if g.name == selected.governorate %} aria-current="true"{% endif %} title="{% blocktrans with e=g.etools|intcomma a=g.activityinfo|intcomma %}eTools {{ e }}, ActivityInfo {{ a }}{% endblocktrans %}">
       <span class="gov-tile__name">{{ g.name }}</span>
       <span class="gov-tile__value">{{ g.reached|intcomma }}</span>
-      <span class="gov-tile__sub">{% if g.coverage is not None %}{% blocktrans with p=g.coverage|floatformat:"0" %}at least {{ p }}% of children{% endblocktrans %}{% else %}{% trans "children reached" %}{% endif %}</span>
+      <span class="gov-tile__sub">{% if g.coverage is not None %}{% blocktrans with p=g.coverage|floatformat:"0" %}{{ p }}% of children{% endblocktrans %}{% else %}{% trans "children reached" %}{% endif %}</span>
     </a>
     {% endfor %}
   </div>
@@ -33,14 +33,14 @@
   <section class="panel" aria-labelledby="target-title">
     <div class="panel__header">
       <h3 class="panel__title" id="target-title">{% trans "Achievement against target" %}</h3>
-      <span class="panel__hint">{% if selected.governorate %}{% blocktrans with g=selected.governorate %}Whole-PD achievement and target of the children indicators active in {{ g }} (PRP has no target per location); the marker is the share of the PD period elapsed{% endblocktrans %}{% else %}{% trans "Children indicators by section; the marker is the share of the PD period elapsed" %}{% endif %}</span>
+      <span class="panel__hint">{% if selected.governorate %}{% blocktrans with g=selected.governorate %}Median share of the target reached by the children indicators active in {{ g }}, whole PD (PRP has no target per location), each capped at 100 %; the marker is the median share of the PD period elapsed{% endblocktrans %}{% else %}{% trans "Median share of the target reached by the children indicators of each section, each capped at 100 % (targets of different indicators are never added); the marker is the median share of the PD period elapsed" %}{% endif %}</span>
     </div>
-    <div class="chart chart--sm" data-module="charts" data-chart="hbars-target" data-source="overview-chart-data" data-key="impact.by_section" data-height="240" data-empty-title="{% trans 'No children indicators with a target' %}" aria-label="{% trans 'Children achieved against target by section' %}"></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="hbars-target" data-source="overview-chart-data" data-key="impact.by_section" data-height="240" data-empty-title="{% trans 'No children indicators with a target' %}" aria-label="{% trans 'Median share of the target reached by section' %}"></div>
   </section>
   <section class="panel" aria-labelledby="monthly-title">
     <div class="panel__header">
       <h3 class="panel__title" id="monthly-title">{% trans "Children reached by month" %}</h3>
-      <span class="panel__hint">{% trans "eTools progress reports and ActivityInfo records, kept separate" %}</span>
+      <span class="panel__hint">{% trans "eTools: each programme document's main indicator, by the month its report period ends; ActivityInfo records; kept separate" %}</span>
     </div>
     <div class="chart chart--sm" data-module="charts" data-chart="grouped" data-source="overview-chart-data" data-key="impact.monthly" data-height="240" data-empty-title="{% trans 'No monthly values yet' %}" aria-label="{% trans 'Children reached per month by source' %}"></div>
   </section>
@@ -49,7 +49,7 @@
 <section class="panel" aria-labelledby="coverage-title">
   <div class="panel__header">
     <h3 class="panel__title" id="coverage-title">{% trans "Coverage of children in need" %}</h3>
-    <span class="panel__hint">{% trans "At least: the larger of the two sources against the population of children" %}</span>
+    <span class="panel__hint">{% trans "The larger of the two sources against the population of children; eTools adds each programme document's main indicator, and partners may reach the same children" %}</span>
   </div>
   {% if impact.by_governorate %}
   <div class="table-wrap"><table class="table table-sm table-hover" id="overview-coverage">
@@ -57,7 +57,7 @@
       <th scope="col">{% trans "Governorate" %}</th>
       <th scope="col" class="num">eTools</th>
       <th scope="col" class="num">ActivityInfo</th>
-      <th scope="col" class="num">{% trans "Reached (at least)" %}</th>
+      <th scope="col" class="num">{% trans "Reached (larger source)" %}</th>
       <th scope="col" class="num">{% trans "Children" %}</th>
       <th scope="col">{% trans "Coverage" %}</th>
     </tr></thead>

@@ -25,7 +25,7 @@ from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
 from neurodb.core.models import SyncRun
-from neurodb.datamart import children, monitoring
+from neurodb.datamart import children, headline, monitoring
 from neurodb.datamart import models as dm
 from neurodb.datamart.monitoring import ACTIVE_PD_STATUSES, NOT_REPORTED, Filters, Indicator
 from neurodb.indicators.services.tracking import OFF_TRACK, ON_TRACK, OVER_TARGET, percentage_elapsed
@@ -205,14 +205,26 @@ class Context:
             unit=ind.unit,
         )
 
+    @cached_property
+    def mains(self) -> dict[int, headline.Main]:
+        """Each PD's main indicator (:mod:`neurodb.datamart.headline`): its unique beneficiaries
+        indicator, else its largest children indicator by Reached to date."""
+        return headline.choose(self.rows, is_children=self.counts_children, value=lambda r: r.reached)
+
+    def behind(self, inds: list[Indicator]) -> tuple[int, Indicator] | None:
+        """Children behind target in some indicators of one PD, and on which indicator: never added
+        across indicators (they count the same children), but the PD's main indicator's target minus
+        its Reached when it is among them, else the children indicator furthest behind. None when no
+        children indicator has a target."""
+        if not inds:
+            return None
+        found = headline.behind(inds, self.mains.get(inds[0].pd.id), self.counts_children)
+        return (round(found[0]), found[1]) if found else None
+
     def children_behind(self, inds: list[Indicator]) -> int | None:
-        """Target minus cumulative, summed over the children indicators; None when there is none."""
-        total: float | None = None
-        for ind in inds:
-            if not ind.target or not self.counts_children(ind):
-                continue
-            total = (total or 0.0) + max(ind.target - (ind.cumulative or 0.0), 0.0)
-        return round(total) if total is not None else None
+        """The number of :meth:`behind`."""
+        found = self.behind(inds)
+        return found[0] if found else None
 
     def elapsed(self, pd: PCA) -> float:
         return percentage_elapsed(pd.start, pd.end, self.today)
@@ -239,6 +251,16 @@ class Context:
 
 
 # ------------------------------------------------------------------------------------- checks
+def _behind_on(ind: Indicator, ctx: Context) -> str:
+    """Which indicator the children behind target are counted on, in words."""
+    main = ctx.mains.get(ind.pd.id)
+    if main is not None and main.row is ind:
+        how = "its unique beneficiaries indicator" if main.flagged else "its largest children indicator"
+    else:
+        how = "the children indicator furthest behind"
+    return f"{how}, {ind.title}"
+
+
 def _grouped_by_section_and_pd(rows: list[Indicator]) -> list[tuple[str, PCA, list[Indicator]]]:
     groups: dict[tuple[str, int], list[Indicator]] = defaultdict(list)
     for ind in rows:
@@ -261,7 +283,8 @@ def check_new_off_track(ctx: Context) -> list[Draft]:
     since = "since the previous review" if ctx.previous else "at this first review"
     drafts = []
     for section, pd, inds in _grouped_by_section_and_pd(off)[:MAX_PER_CHECK]:
-        children = ctx.children_behind(inds)
+        found = ctx.behind(inds)
+        children = found[0] if found else None
         elapsed = pct(ctx.elapsed(pd))
         total = sum(1 for i in ctx.by_pd.get(pd.id, []) if i.section == section)
         worst = sorted(inds, key=lambda i: i.achieved or 0)
@@ -270,7 +293,7 @@ def check_new_off_track(ctx: Context) -> list[Draft]:
             f"fell off track {since}, with {elapsed} % of the programme document period elapsed."
         )
         if children:
-            detail += f" About {children:,} children are behind target."
+            detail += f" About {children:,} children are behind target on {_behind_on(found[1], ctx)}."
         drafts.append(
             Draft(
                 key=f"new_off_track:{pd_number(pd)}:{section}",
@@ -465,7 +488,8 @@ def check_pd_ending_soon(ctx: Context) -> list[Draft]:
             continue
         days = (pd.end - ctx.today).days
         inds = ctx.by_pd.get(pd.id, [])
-        children = ctx.children_behind(inds)
+        found = ctx.behind(inds)
+        children = found[0] if found else None
         stand = f"at {pct(achieved)} % of target" if achieved is not None else "with no reported value"
         drafts.append(
             Draft(
@@ -477,7 +501,11 @@ def check_pd_ending_soon(ctx: Context) -> list[Draft]:
                 detail=(
                     f"The programme document ends on {pd.end:%d %b %Y}"
                     + (f" and its {len(inds)} indicators stand {stand} on average." if inds else ".")
-                    + (f" About {children:,} children are behind target." if children else "")
+                    + (
+                        f" About {children:,} children are behind target on {_behind_on(found[1], ctx)}."
+                        if children
+                        else ""
+                    )
                 ),
                 evidence=_evidence(
                     "Decide early: amendment, no-cost extension or closure; check the final report "

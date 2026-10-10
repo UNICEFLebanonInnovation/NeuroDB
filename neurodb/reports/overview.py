@@ -30,8 +30,9 @@ from django.core.cache import cache as django_cache
 from django.db.models import Count, Max, Q, Sum
 from django.urls import reverse
 
-from neurodb.datamart import fm, monitoring
+from neurodb.datamart import fm, headline, monitoring
 from neurodb.datamart import models as dm
+from neurodb.datamart import reached as rc
 from neurodb.datamart.children import counts_children
 from neurodb.datamart.children import overrides as children_overrides
 from neurodb.datamart.monitoring import ACTIVE_PD_STATUSES, NOT_REPORTED, Filters, Indicator
@@ -45,7 +46,7 @@ from neurodb.web.templatetags.ui import half_up
 logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 120
-CACHE_VERSION = 7
+CACHE_VERSION = 8
 MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 STATUSES = ("on_track", "off_track", "over_target", "no_target", NOT_REPORTED)
 LEVEL_GOVERNORATE = monitoring.LEVEL_GOVERNORATE
@@ -69,7 +70,8 @@ SEX_RULES = (("Girls", r"\bgirls?\b", r"\bboys?\b"), ("Boys", r"\bboys?\b", r"\b
 NATIONALITY_OF_TAG = {"Lebanese": "Lebanese", "Syrian": "Syrian", "Palestinian": "Palestinian"}
 COST_CAVEAT = (
     "Disbursed to date (supplies and operating costs included) over the children reached this year in "
-    "eTools partner reports, the same programmes on both sides: compare sections, not absolute values."
+    "eTools partner reports (each programme document's main indicator), the same programmes on both "
+    "sides: compare sections, not absolute values."
 )
 
 
@@ -222,18 +224,24 @@ def latest_sync_run() -> int | None:
     )
 
 
-def _cache_key(scope: Scope) -> str:
-    """Everything the result depends on, the children flags and the last finished sync included (a new
-    flag or a sync shows at once)."""
+def flags_fingerprint() -> str:
+    """The indicator flags (children, unique beneficiaries) as a short text that changes whenever one is
+    added, changed or removed: in the cache keys of every page that reads the headline rule."""
     from neurodb.datamart.models import IndicatorFlag
 
     flags = IndicatorFlag.objects.aggregate(n=Count("pk"), last=Max("updated_at"))
+    last = flags["last"].isoformat() if flags["last"] else ""
+    return f"{flags['n']}:{last}".replace(" ", "_")  # no spaces: memcached-safe
+
+
+def _cache_key(scope: Scope) -> str:
+    """Everything the result depends on, the indicator flags and the last finished sync included (a new
+    flag or a sync shows at once)."""
     sections = "|".join(sorted(scope.sections))
     ryear = getattr(scope.reporting_year, "pk", "")
-    last = flags["last"].isoformat() if flags["last"] else ""  # no spaces: memcached-safe
     return (
         f"overview:v{CACHE_VERSION}:{scope.year}:{ryear}:{sections}:{scope.governorate}:{scope.today}:"
-        f"{flags['n']}:{last}:{latest_sync_run() or ''}"
+        f"{flags_fingerprint()}:{latest_sync_run() or ''}"
     ).replace(" ", "_")
 
 
@@ -264,7 +272,9 @@ class _Builder:
     # ------------------------------------------------------------------ shared reads
     def _rows(self) -> list[Indicator]:
         """The PD indicators of the scope (partner monitoring rows, read once), narrowed to the
-        governorate when one is chosen."""
+        governorate when one is chosen. ``every_rows``: every indicator of the same PDs, whatever its
+        section, among which each PD's main indicator is chosen (:mod:`neurodb.datamart.headline`), so a
+        PD counts once and in one section only."""
         rows = monitoring.indicators(
             Filters(
                 year=self.year,
@@ -274,8 +284,21 @@ class _Builder:
             ),
             self.today,
         )
+        every = rows
+        if self.scope.sections and rows:
+            computed = {(r.pd.id, r.key): r for r in rows}
+            others = monitoring.indicators(
+                Filters(
+                    year=self.year,
+                    pd_ids=sorted({r.pd.id for r in rows}),
+                    report_type=monitoring.DEFAULT_REPORT_TYPE,
+                    scope="year",
+                ),
+                self.today,
+            )
+            every = [computed.get((r.pd.id, r.key), r) for r in others]
         ids: set[int] = set()
-        for row in rows:
+        for row in every:
             ids.update(p["id"] for p in row.planned.values() if p.get("id"))
             ids.update(p["id"] for p in row.by_location.values() if p.get("id"))
         self.gazetteer = monitoring._gazetteer(ids)
@@ -285,10 +308,31 @@ class _Builder:
             place = monitoring._place(location_id, self.gazetteer)
             self.governorate_of[location_id] = place["governorate"]
             self.district_of[location_id] = place["district"]
-        self.all_rows = rows  # the whole country, for a PD's share of children in the governorate
+        self.every_rows = every  # every section of the PDs in scope, the whole country
+        self.all_rows = rows  # the sections chosen, the whole country
         if self.gov_key:
             rows = [r for r in rows if self.gov_key in self._governorate_keys(r)]
         return rows
+
+    def _choose_mains(self) -> None:
+        """Each PD's main indicator (its unique beneficiaries indicator, else its largest children
+        indicator by Reached in the year), and the children indicators that can be added: a value too
+        large to be true is set aside and listed, never added nor chosen."""
+        children = [r for r in self.every_rows if self._is_children(r)]
+        aside = self._implausible(children, self._national_children())
+        aside_ids = {id(r) for r, _reason in aside}
+        in_scope = {id(r) for r in self.rows}
+        in_sections = {id(r) for r in self.all_rows}
+        self.children_rows = [r for r in children if id(r) in in_scope and id(r) not in aside_ids]
+        self.implausible = [_aside_entry(r, reason) for r, reason in aside if id(r) in in_scope]
+        self.mains = headline.choose(
+            self.every_rows,
+            is_children=self._is_children,
+            value=lambda r: r.reached_in_year,
+            exclude=[r for r, _reason in aside],
+        )
+        # the PDs whose main indicator is in the sections shown: each counts there, and only there
+        self.scope_mains = {pd: m for pd, m in self.mains.items() if id(m.row) in in_sections}
 
     def _governorate_keys(self, row: Indicator) -> set[str]:
         places = list(row.planned.values()) + list(row.by_location.values())
@@ -307,8 +351,9 @@ class _Builder:
 
     @staticmethod
     def _additive(row: Indicator) -> bool:
-        """Whether the indicator's locations add up (PRP "sum"); a max or an average never does."""
-        return row.method in ("", "sum")
+        """Whether the indicator's locations add up (PRP "sum", a number); a max, an average or a
+        ratio never does."""
+        return row.method in ("", "sum") and not (row.result is not None and row.result.ratio)
 
     def _places_in(self, row: Indicator, key: str):
         for place in row.by_location.values():
@@ -316,10 +361,11 @@ class _Builder:
                 yield place
 
     def _year_value(self, row: Indicator) -> float:
-        """What the indicator's reports of the year add up to; with a governorate chosen, what its
-        locations there add up to (additive indicators only: a max across locations cannot be split)."""
+        """The indicator's Reached in the year (:mod:`neurodb.datamart.reached`: its counted reports
+        combined by PRP's methods); with a governorate chosen, what its locations there reached
+        (indicators summed across locations only: a max across locations cannot be split)."""
         if not self.gov_key:
-            return sum(v for v in row.months.values() if v)
+            return row.reached_in_year or 0.0
         if not self._additive(row):
             return 0.0
         return sum(place.get("achieved") or 0 for place in self._places_in(row, self.gov_key))
@@ -334,13 +380,26 @@ class _Builder:
                     out[month] += value or 0
         return out
 
+    def _to_month(self, row: Indicator, last: int) -> float:
+        """Reached from January to the end of month ``last``: the months combined by the indicator's
+        method across periods (a sum adds them, a max or the latest does not); with a governorate, its
+        locations there, each combined the same way."""
+
+        def upto(months: dict[int, float]) -> float:
+            values = [v for m, v in sorted(months.items()) if m <= last and v is not None]
+            return (rc.combine(values, row.period_method or "sum") or 0.0) if values else 0.0
+
+        if not self.gov_key:
+            return upto(row.months)
+        if not self._additive(row):
+            return 0.0
+        return sum(upto(place.get("months") or {}) for place in self._places_in(row, self.gov_key))
+
     # ------------------------------------------------------------------ build
     def build(self) -> dict[str, Any]:
         rows = self._rows()
         self.rows = rows
-        self.children_rows, self.implausible = self._plausible(
-            [r for r in rows if self._is_children(r)], self._national_children()
-        )
+        self._choose_mains()
         self.pds = {r.pd.id: r.pd for r in rows}
         self.section_of_pd = self._pd_sections()
         activityinfo = self._activityinfo_children()
@@ -411,16 +470,28 @@ class _Builder:
 
     # ------------------------------------------------------------------ impact
     def _impact(self, activityinfo: dict[str, Any]) -> dict[str, Any]:
+        """Children reached: per source, by month, governorate and district. The eTools figure is the
+        sum over the programme documents of each one's main indicator (never several indicators of one
+        PD); ActivityInfo's is its additive children indicators. The two are shown apart and the
+        headline is the larger, never their sum."""
         etools_months = [0.0] * 12
+        etools_to_date = [0.0] * 12
         etools_total = 0.0
         by_gov: dict[str, float] = defaultdict(float)
         gov_names: dict[str, str] = {}
         by_district: dict[tuple[str, str], float] = defaultdict(float)
-        for row in self.children_rows:
-            etools_total += self._year_value(row)
-            for month, value in self._months(row).items():
-                if value and 1 <= month <= 12:
-                    etools_months[month - 1] += value
+        rules: Counter[str] = Counter()
+        for main in self.scope_mains.values():
+            row = main.row
+            value = self._year_value(row)
+            etools_total += value
+            if value:
+                rules[main.rule] += 1
+            for month, month_value in self._months(row).items():
+                if month_value and 1 <= month <= 12:
+                    etools_months[month - 1] += month_value
+            for month in range(1, 13):
+                etools_to_date[month - 1] += self._to_month(row, month)
             if not self._additive(row):
                 continue  # a max or an average across locations is not split by governorate
             for place in row.by_location.values():
@@ -474,6 +545,12 @@ class _Builder:
             "children_reached": max(etools_value, ai_value),
             "children_etools": etools_value,
             "children_activityinfo": ai_value,
+            "children_rule": headline.TOTAL_RULE,
+            # how many programme documents add a value, by how their main indicator was chosen
+            "main_indicators": {
+                "flagged": rules.get(headline.FLAGGED, 0),
+                "largest": rules.get(headline.LARGEST, 0),
+            },
             "delta_previous_year": None,
             "by_governorate": governorates,
             "by_district": sorted(
@@ -485,106 +562,137 @@ class _Builder:
                 key=lambda r: (-r["etools"], r["district"]),
             ),
             "by_section": self._achievement_by_section(),
+            "achievement": self._achievement(),
+            "main_by_section": self._main_by_section(),
             "children_by_tag": self._children_by_tag(),
             "monthly": {
                 "labels": list(MONTH_LABELS),
                 "etools": [half_up(v) for v in etools_months],
+                # Reached from January to each month (what the months add up to for a summed indicator;
+                # a max or the latest is not added up)
+                "etools_to_date": [half_up(v) for v in etools_to_date],
                 "activityinfo": [half_up(v) for v in activityinfo["months"]],
             },
             "population_year": population_year,
             "implausible": self.implausible,
             "source": (
-                "eTools PRP progress reports of the PD indicators that count children, and the additive "
-                f"ActivityInfo HPM indicators that count children, {self.year}; the two sources are shown "
-                "apart, and a total is the larger of the two (at least that many children)"
+                f"eTools PRP progress reports, {self.year}: each programme document's main indicator (its "
+                "unique beneficiaries indicator, else its largest children indicator), summed over the "
+                "programme documents, as partners may reach the same children; and the additive "
+                f"ActivityInfo HPM indicators that count children, {self.year}. The two sources are shown "
+                "apart, and a total is the larger of the two"
             ),
         }
 
     def _children_by_tag(self) -> list[dict[str, Any]]:
-        """Each children indicator's value of the year with what its title names: one sex (girls
-        without boys, or the reverse), an age band, a nationality, disability. For the management
-        brief's equity blocks; a title naming both sexes names neither."""
+        """Each programme document's main indicator, its value of the year and what its title names: one
+        sex (girls without boys, or the reverse), an age band, a nationality, disability. For the
+        management brief's equity blocks; a title naming both sexes names neither."""
         out = []
-        for row in self.children_rows:
+        for main in self.scope_mains.values():
+            row = main.row
             value = self._year_value(row)
             if not value:
                 continue
-            title = (row.title or "").lower()
-            sex = next(
-                (label for label, yes, no in SEX_RULES if re.search(yes, title) and not re.search(no, title)),
-                "",
+            out.append({"value": half_up(value), **_title_tags(row)})
+        return out
+
+    def _main_by_section(self) -> list[dict[str, Any]]:
+        """Per section, the programme documents whose main indicator is in it: the children reached in
+        the year and to date, the main indicators' targets and what was expected by now (target × share
+        of each PD's period elapsed). Sums over PDs of one indicator each (the headline rule)."""
+        groups: dict[str, dict[str, float]] = {}
+        for main in self.scope_mains.values():
+            row = main.row
+            g = groups.setdefault(
+                row.section or "Other",
+                {"children": 0.0, "reached": 0.0, "target": 0.0, "expected": 0.0, "programme_documents": 0},
             )
+            g["programme_documents"] += 1
+            g["children"] += self._year_value(row)
+            if row.target:
+                g["reached"] += row.reached or 0.0
+                g["target"] += row.target
+                g["expected"] += row.target * percentage_elapsed(row.pd.start, row.pd.end, self.today) / 100
+        return [
+            {
+                "section": section,
+                "programme_documents": g["programme_documents"],
+                "children": half_up(g["children"]),
+                "reached": half_up(g["reached"]),
+                "target": half_up(g["target"]),
+                "expected": half_up(g["expected"]),
+                "percent": _pct(g["reached"], g["target"]),
+            }
+            for section, g in sorted(groups.items())
+        ]
+
+    def _achievement_by_section(self) -> list[dict[str, Any]]:
+        """Per section, the children indicators with a target: how many, how many with Reached, their
+        statuses, and the median % of the target reached (each capped at 100), against the median share
+        of their PD period elapsed. Never a sum of different indicators."""
+        groups: dict[str, list[Indicator]] = defaultdict(list)
+        for row in self.children_rows:
+            if row.target:
+                groups[row.section or "Other"].append(row)
+        out = []
+        for section, rows in sorted(groups.items()):
+            block = self._median_achievement(rows)
+            # for the chart: the median share of the target, out of 100
             out.append(
-                {
-                    "value": half_up(value),
-                    "sex": sex,
-                    "age_group": row.tags.get("age_group") or "",
-                    "nationality": NATIONALITY_OF_TAG.get(row.tags.get("nationality") or "", ""),
-                    "disability": bool(row.tags.get("disability")),
-                }
+                {"section": section, **block, "achieved": block["percent"], "target": 100.0, "unit": "%"}
             )
         return out
 
-    def _achievement_by_section(self) -> list[dict[str, Any]]:
-        groups: dict[str, dict[str, Any]] = {}
-        for row in self.children_rows:
-            if not row.target:
-                continue
-            g = groups.setdefault(
-                row.section or "Other",
-                {"achieved": 0.0, "target": 0.0, "elapsed_weight": 0.0, "indicators": 0},
-            )
-            g["achieved"] += row.cumulative or 0
-            g["target"] += row.target
-            g["elapsed_weight"] += percentage_elapsed(row.pd.start, row.pd.end, self.today) * row.target
-            g["indicators"] += 1
-        out = []
-        for section, g in sorted(groups.items()):
-            out.append(
-                {
-                    "section": section,
-                    "achieved": half_up(g["achieved"]),
-                    "target": half_up(g["target"]),
-                    "percent": _pct(g["achieved"], g["target"]),
-                    "elapsed": half_up(g["elapsed_weight"] / g["target"], 1) if g["target"] else None,
-                    "indicators": g["indicators"],
-                }
-            )
-        return out
+    def _achievement(self) -> dict[str, Any]:
+        """The same as one section's achievement, over every children indicator with a target in scope
+        (the brief's "Achievement of PD targets")."""
+        return self._median_achievement([r for r in self.children_rows if r.target])
+
+    def _median_achievement(self, rows: list[Indicator]) -> dict[str, Any]:
+        statuses = Counter(r.tracking for r in rows)
+        percents, elapsed, every_elapsed = [], [], []
+        for row in rows:
+            share = percentage_elapsed(row.pd.start, row.pd.end, self.today)
+            every_elapsed.append(share)
+            if row.achieved is not None and row.reached is not None:
+                percents.append(min(row.achieved, 100.0))
+                elapsed.append(share)
+        elapsed = elapsed or every_elapsed
+        return {
+            "indicators": len(rows),
+            "with_reached": len(percents),
+            **{k: statuses.get(k, 0) for k in STATUSES},
+            "percent": half_up(statistics.median(percents), 1) if percents else None,
+            "elapsed": half_up(statistics.median(elapsed), 1) if elapsed else None,
+        }
 
     def _national_children(self) -> int | None:
         by_governorate, _year = self._children_population()
         return sum(n for _name, n in by_governorate.values()) or None
 
     @staticmethod
-    def _plausible(rows: list[Indicator], national_children: int | None) -> tuple[list, list]:
-        """Children indicators whose figures can be added up, and the ones set aside: a value above
-        the whole country's child population, or more than IMPLAUSIBLE_TIMES its own target, is a
-        reporting or reading error, not a result (one such value once showed billions of children).
-        The set-aside ones are listed on the page so someone checks them in eTools."""
-        kept, aside = [], []
+    def _implausible(rows: list[Indicator], national_children: int | None) -> list[tuple[Indicator, str]]:
+        """Children indicators whose figures cannot be true, with the reason: a value above the whole
+        country's child population, or more than IMPLAUSIBLE_TIMES its own target, is a reporting or
+        reading error, not a result (one such value once showed billions of children). They are never
+        added nor chosen as a PD's main indicator, and are listed on the page so someone checks them in
+        eTools."""
+        aside = []
         for row in rows:
-            value = max(row.cumulative or 0, sum(v for v in row.months.values() if v))
+            value = _largest_value(row)
             too_many = national_children and value > national_children
             too_far = row.target and value > IMPLAUSIBLE_TIMES * row.target and value > IMPLAUSIBLE_FLOOR
             if too_many or too_far:
                 aside.append(
-                    {
-                        "pd": row.pd.number or "",
-                        "partner": _partner(row.pd),
-                        "section": row.section or "",
-                        "title": row.title,
-                        "value": half_up(value),
-                        "target": half_up(row.target) if row.target else None,
-                        "reason": "above the child population of Lebanon"
+                    (
+                        row,
+                        "above the child population of Lebanon"
                         if too_many
                         else f"more than {IMPLAUSIBLE_TIMES} times its target",
-                        "url": row.url,
-                    }
+                    )
                 )
-            else:
-                kept.append(row)
-        return kept, aside
+        return aside
 
     def _children_population(self) -> tuple[dict[str, tuple[str, int]], int | None]:
         """``{governorate key: (name, children)}`` of the latest year of child figures up to the scope's."""
@@ -623,10 +731,10 @@ class _Builder:
     def _money(self, impact: dict[str, Any]) -> dict[str, Any]:
         """Funds of the PDs in scope, and cost per child on the same PDs on both sides.
 
-        A PD's money is split across sections in proportion to the children its indicators of each
-        section reached (by indicator count when it has no children indicator). With a governorate
-        chosen, each PD counts for its share of children reached there (PDs without children results
-        cannot be split and are left out)."""
+        A PD with children reached (its main indicator, :mod:`neurodb.datamart.headline`) counts its
+        money and its children in the section of that indicator; a PD without one splits its money by
+        its indicators' sections. With a governorate chosen, each PD counts for its share of children
+        reached there (PDs without children results cannot be split and are left out)."""
         headers = list(
             self._fr_headers().values(
                 "intervention_id", "fr_number", "total_amt", "actual_amt", "outstanding_amt"
@@ -640,16 +748,15 @@ class _Builder:
             per_pd[h["intervention_id"]]["disbursed"] += _money(h["actual_amt"])
             per_pd[h["intervention_id"]]["outstanding"] += _money(h["outstanding_amt"])
         children_pd_section: dict[int, Counter[str]] = defaultdict(Counter)  # in scope (governorate aware)
-        children_pd_country: dict[int, float] = defaultdict(float)  # the whole PD, for the governorate share
+        children_pd_country: dict[int, float] = {}  # the whole PD, for the governorate share
         indicators_pd_section: dict[int, Counter[str]] = defaultdict(Counter)
         for row in self.rows:
             indicators_pd_section[row.pd.id][row.section or "Other"] += 1
-        for row in self.children_rows:
-            children_pd_section[row.pd.id][row.section or "Other"] += self._year_value(row)
-        in_scope = {id(r) for r in self.children_rows}
-        for row in self.all_rows:  # every children indicator of the PD, wherever it is located
-            if row.pd.id in per_pd and (id(row) in in_scope or self._is_children(row)):
-                children_pd_country[row.pd.id] += sum(v for v in row.months.values() if v)
+        for pd_id, main in self.scope_mains.items():
+            value = self._year_value(main.row)
+            if value:
+                children_pd_section[pd_id][main.row.section or "Other"] += value
+            children_pd_country[pd_id] = main.row.reached_in_year or 0.0
         totals = {"reserved": 0.0, "disbursed": 0.0, "outstanding": 0.0, "for_children": 0.0, "children": 0.0}
         sections: dict[str, dict[str, float]] = defaultdict(
             lambda: {"reserved": 0.0, "disbursed": 0.0, "for_children": 0.0, "children": 0.0}
@@ -734,7 +841,8 @@ class _Builder:
             "source": (
                 f"eTools funds reservations of the programme documents running in {self.year} "
                 f"(reserved and disbursed to date, all years, USD){where}; cost per child = what the PDs "
-                f"with children results disbursed to date, over the children they reached in {self.year}"
+                f"with children results disbursed to date, over the children they reached in {self.year} "
+                "(each PD's main indicator, summed over the PDs)"
             ),
         }
 
@@ -857,9 +965,10 @@ class _Builder:
 
     def _by_partner(self) -> list[dict[str, Any]]:
         """One row per partner for the management brief's scorecard: its PDs and indicators in
-        scope, the tracking counts, the mean achievement (capped at 100 %) and the children reached."""
+        scope, the tracking counts, the mean achievement (capped at 100 %) and the children reached (the
+        sum over its PDs of each one's main indicator)."""
         groups: dict[int, dict[str, Any]] = {}
-        children_ids = {id(r) for r in self.children_rows}
+        main_ids = {id(m.row) for m in self.scope_mains.values()}
         for row in self.rows:
             pd = row.pd
             key = pd.partner_id or -pd.id
@@ -883,7 +992,7 @@ class _Builder:
                 g["reported"] += 1
             if row.achieved is not None:
                 g["achieved"].append(min(row.achieved, 100.0))
-            if id(row) in children_ids:
+            if id(row) in main_ids:
                 g["children"] += self._year_value(row)
         out = []
         for g in groups.values():
@@ -1013,9 +1122,10 @@ class _Builder:
         for (section, _pd_id), group in off.items():
             pd = group[0].pd
             # The raw section in the link: a blank one is left out, as partner monitoring has no "Other".
-            behind = sum(
-                max((r.target or 0) - (r.cumulative or 0), 0) for r in group if id(r) in children_ids
-            )
+            # Children behind: the PD's main indicator's gap, else one children indicator's largest gap
+            # (different indicators count the same children: their gaps are never added)
+            found = headline.behind(group, self.mains.get(pd.id), lambda r: id(r) in children_ids)
+            behind = found[0] if found else 0.0
             achieved = [min(r.achieved, 999.0) for r in group if r.achieved is not None]
             detail = (
                 f"{half_up(sum(achieved) / len(achieved))}% of target on average, "
@@ -1302,23 +1412,25 @@ __all__ = [
 # ------------------------------------------------------------------ per programme document
 def children_by_pd(scope: Scope) -> dict[int, dict[str, Any]]:
     """Each programme document of the year with its children and results, for pages that attribute
-    them (the donor page): children reached (the overview's children rule and its set-aside guard),
-    where (by governorate, additive indicators only), girls and boys as the titles name them, the
-    age tags, the main indicator (largest target), its section and the status of its indicators."""
+    them (the donor page). One indicator per PD, its main indicator (:mod:`neurodb.datamart.headline`:
+    its unique beneficiaries indicator, else its largest children indicator, with the overview's
+    set-aside guard): children reached in the year, Reached to date against its target, where (by
+    governorate, indicators summed across locations only), girls and boys and the age as its title names
+    them; with the PD's section and the status of all its indicators."""
     b = _Builder(scope)
     rows = b._rows()
-    kids, _aside = b._plausible([r for r in rows if b._is_children(r)], b._national_children())
+    b.rows = rows
+    b._choose_mains()
     out: dict[int, dict[str, Any]] = {}
-
-    def entry(row: Indicator) -> dict[str, Any]:
-        return out.setdefault(
+    for row in rows:
+        e = out.setdefault(
             row.pd.id,
             {
                 "sections": Counter(),
                 "children": 0.0,
                 "achieved": 0.0,
                 "target": 0.0,
-                "by_governorate": defaultdict(float),
+                "by_governorate": {},
                 "names": {},
                 "sex": Counter(),
                 "age": Counter(),
@@ -1327,39 +1439,71 @@ def children_by_pd(scope: Scope) -> dict[int, dict[str, Any]]:
                 "elapsed": percentage_elapsed(row.pd.start, row.pd.end, scope.today),
             },
         )
-
-    for row in rows:
-        e = entry(row)
         e["sections"][row.section or "Other"] += 1
         e["statuses"][row.tracking] += 1
-    for row in kids:
-        e = entry(row)
+    for pd_id, main in b.scope_mains.items():
+        e = out.get(pd_id)
+        if e is None:
+            continue
+        row = main.row
         value = b._year_value(row)
-        e["children"] += value
-        if row.target:
-            e["achieved"] += row.cumulative or 0
-            e["target"] += row.target
-            if e["main"] is None or row.target > e["main"]["target"]:
-                e["main"] = {
-                    "title": row.title,
-                    "cumulative": half_up(row.cumulative or 0),
-                    "target": half_up(row.target),
-                    "tracking": row.tracking,
-                }
-        title = (row.title or "").lower()
-        sex = next(
-            (label for label, yes, no in SEX_RULES if re.search(yes, title) and not re.search(no, title)), ""
-        )
-        e["sex"][sex or "Not named"] += value
-        e["age"][row.tags.get("age_group") or "Not named"] += value
+        e["children"] = value
+        e["achieved"] = (row.reached or 0.0) if row.target else 0.0
+        e["target"] = row.target or 0.0
+        e["main"] = {
+            "title": row.title,
+            "cumulative": half_up(row.reached or 0),
+            "reached": half_up(row.reached or 0),
+            "target": half_up(row.target) if row.target else None,
+            "tracking": row.tracking,
+            "rule": main.rule,
+            "rule_label": main.label,
+        }
+        tags = _title_tags(row)
+        e["sex"][tags["sex"] or "Not named"] += value
+        e["age"][tags["age_group"] or "Not named"] += value
         if b._additive(row):
+            by_governorate: dict[str, float] = defaultdict(float)
             for place in row.by_location.values():
                 gov = b.governorate_of.get(place.get("id")) or ""
                 key = governorate_key(gov)
                 if place.get("achieved") and key:
-                    e["by_governorate"][key] += place["achieved"]
+                    by_governorate[key] += place["achieved"]
                     e["names"].setdefault(key, gov)
+            e["by_governorate"] = dict(by_governorate)
     for e in out.values():
         e["section"] = e.pop("sections").most_common(1)[0][0]
-        e["by_governorate"] = dict(e["by_governorate"])
     return out
+
+
+def _largest_value(row: Indicator) -> float:
+    """The larger of the indicator's Reached to date and in the year (the set-aside guard reads it)."""
+    return max(row.reached or 0.0, row.reached_in_year or 0.0)
+
+
+def _aside_entry(row: Indicator, reason: str) -> dict[str, Any]:
+    return {
+        "pd": row.pd.number or "",
+        "partner": _partner(row.pd),
+        "section": row.section or "",
+        "title": row.title,
+        "value": half_up(_largest_value(row)),
+        "target": half_up(row.target) if row.target else None,
+        "reason": reason,
+        "url": row.url,
+    }
+
+
+def _title_tags(row: Indicator) -> dict[str, Any]:
+    """What an indicator's title names: one sex (girls without boys, or the reverse), an age band, a
+    nationality, disability."""
+    title = (row.title or "").lower()
+    sex = next(
+        (label for label, yes, no in SEX_RULES if re.search(yes, title) and not re.search(no, title)), ""
+    )
+    return {
+        "sex": sex,
+        "age_group": row.tags.get("age_group") or "",
+        "nationality": NATIONALITY_OF_TAG.get(row.tags.get("nationality") or "", ""),
+        "disability": bool(row.tags.get("disability")),
+    }

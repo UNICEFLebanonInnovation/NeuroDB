@@ -4,10 +4,12 @@
 account's donors (and grants, when the account lists some), on the FRs running in the year (the
 overview's window). A line's amount is what the donor committed to the programme document (PD).
 Disbursed: the FR's disbursed amount (header) times the donor's share of the FR's lines. The PD's
-children, targets, girls and boys and governorates come from the overview's children rule
-(``overview.children_by_pd``); the donor is attributed its share of the PD, the donor's lines over
-all the lines of the PD's FRs. Cost per child: disbursed over children attributed, set against the
-country's cost per child of the same section (the overview's funds block, every donor).
+children, target, girls and boys and governorates come from one indicator, the PD's main indicator
+(``overview.children_by_pd``: its unique beneficiaries indicator, else its largest children
+indicator), never from several indicators added; the donor is attributed its share of the PD, the
+donor's lines over all the lines of the PD's FRs. Totals over PDs add one main indicator per PD.
+Cost per child: disbursed over children attributed, set against the country's cost per child of the
+same section (the overview's funds block, every donor).
 
 **UNICEF Lebanon overall.** The overview of the whole country for the year, reduced to aggregates:
 children reached, by month, section and governorate; results on track; programme and partner
@@ -33,7 +35,7 @@ from neurodb.partnerships.models.legacy import PCA
 from neurodb.reports import overview
 
 CACHE_SECONDS = 300
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 SECTION_SLOTS = 5  # the categorical colours of the page (--s1 .. --s5), then "other"
 GOVERNORATES = {  # overview.governorate_key -> the name and place on the page's schematic map
     "akkar": ("Akkar", 1, 0),
@@ -208,8 +210,11 @@ def contribution(account, year: int, today: datetime.date) -> dict[str, Any]:
                 "sex": _fractions(sex, whole),
                 "age": _fractions(ages, whole),
                 "indicator": main.get("title") or "",
-                "indicator_cumulative": main.get("cumulative"),
+                "indicator_cumulative": main.get("reached"),
                 "indicator_target": main.get("target"),
+                # how the main indicator was chosen: "unique beneficiaries indicator" or "largest single
+                # indicator"
+                "indicator_rule": main.get("rule_label") or "",
                 "status": tracking,
             }
         )
@@ -356,7 +361,10 @@ def country(data: dict[str, Any]) -> dict[str, Any]:
 def build(account, year: int, today: datetime.date | None = None, *, cache: bool = True) -> dict[str, Any]:
     today = today or datetime.date.today()
     use_cache = cache and not settings.DEBUG
-    settings_seen = f"{account.show_partner_names}:{sorted(account.donors)}:{sorted(account.grants)}"
+    settings_seen = (
+        f"{account.show_partner_names}:{sorted(account.donors)}:{sorted(account.grants)}:"
+        f"{overview.flags_fingerprint()}"  # a PD's main indicator changes its children at once
+    )
     digest = hashlib.sha256(settings_seen.encode()).hexdigest()[:16]  # memcached-safe
     key = f"donor:v{CACHE_VERSION}:{account.pk}:{year}:{today}:{overview.latest_sync_run() or ''}:{digest}"
     if use_cache:

@@ -705,13 +705,18 @@ class MonitoringSite(DatamartRecord):
 
 
 class IndicatorFlag(models.Model):
-    """Whether an indicator counts children, set by a section once and kept across syncs.
+    """What a section says about one indicator, set once and kept across syncs. Two roles:
 
-    The overview's "children reached" is read from the indicators whose title names children (the
-    age-group tag) unless a flag says otherwise: a flag with ``counts_children=True`` adds an
-    indicator the title rule misses, ``False`` removes one it wrongly includes. Keyed by the source
-    (eTools PD indicator or ActivityInfo master indicator) and the indicator's own id there, so the
-    Datamart sync, which rewrites the indicator rows, never loses it.
+    * **Counts children.** The overview's children indicators are those whose title names children
+      (the age-group tag) unless a flag says otherwise: ``counts_children=True`` adds an indicator
+      the title rule misses, ``False`` removes one it wrongly includes, empty follows the title rule.
+    * **Unique beneficiaries** (eTools PD indicators only). The one indicator of a programme document
+      that counts each child or person it reached once: the PD's headline "children / beneficiaries
+      reached" (``neurodb.datamart.headline``). One per PD, set on the PD page by an Administrator or a
+      Section editor of the PD's section, or here.
+
+    Keyed by the source (eTools PD indicator or ActivityInfo master indicator) and the indicator's own
+    id there, so the Datamart sync, which rewrites the indicator rows, never loses it.
     """
 
     class Source(models.TextChoices):
@@ -724,17 +729,43 @@ class IndicatorFlag(models.Model):
         help_text="eTools indicator id (source_id) or ActivityInfo master indicator id",
     )
     label = models.CharField(max_length=1024, blank=True, help_text="the indicator title, for the list")
-    counts_children = models.BooleanField(default=True)
+    counts_children = models.BooleanField(
+        null=True,
+        blank=True,
+        default=True,
+        help_text="whether the indicator counts children; empty: the title decides",
+    )
+    unique_beneficiaries = models.BooleanField(
+        "unique beneficiaries",
+        default=False,
+        help_text=(
+            "the programme document's unique beneficiaries indicator: each child or person counted once, "
+            "the PD's figure in every children reached total (one per programme document)"
+        ),
+    )
+    intervention = _intervention("indicator_flags")
     note = models.CharField(max_length=500, blank=True)
     updated_by = models.CharField(max_length=150, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["source", "key"], name="datamart_indicatorflag_key")]
+        constraints = [
+            models.UniqueConstraint(fields=["source", "key"], name="datamart_indicatorflag_key"),
+            models.UniqueConstraint(
+                fields=["intervention"],
+                condition=models.Q(unique_beneficiaries=True),
+                name="datamart_indicatorflag_one_unique_per_pd",
+            ),
+        ]
         ordering = ("source", "label")
-        verbose_name = "children indicator flag"
-        verbose_name_plural = "children indicator flags"
+        verbose_name = "indicator flag"
+        verbose_name_plural = "indicator flags"
 
     def __str__(self):
-        verdict = "counts children" if self.counts_children else "does not count children"
+        if self.counts_children is None:
+            verdict = "title rule"
+        else:
+            verdict = "counts children" if self.counts_children else "does not count children"
+        if self.unique_beneficiaries:
+            verdict += ", unique beneficiaries of its programme document"
         return f"{self.get_source_display()} {self.key}: {verdict}"

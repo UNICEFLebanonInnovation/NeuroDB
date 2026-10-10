@@ -1130,28 +1130,59 @@ its months. Only *Decisions this quarter* is limited to the PDs still active.
 names children (the age-group tag: under 5, under 18, adolescents, children). An ActivityInfo master
 indicator counts when it is an additive (SUM) master of the year's HPM report, in a database shown
 on the dashboard, and its label names children. Sections correct the rule once in admin → Datamart →
-*Children indicator flags* (eTools indicator id or master indicator id, counts / does not count);
-the flag survives every sync and shows on the page at once. A flag on an ActivityInfo master only
-acts on masters that meet the other conditions (additive, HPM report, displayed database).
+*Indicator flags* (eTools indicator id or master indicator id; counts children / does not / the
+title decides); the flag survives every sync and shows on the page at once. A flag on an
+ActivityInfo master only acts on masters that meet the other conditions (additive, HPM report,
+displayed database).
+
+**One indicator per programme document (the headline rule, `neurodb/datamart/headline.py`).** The
+indicators of one PD count overlapping children (the child enrolled in non-formal education also
+receives the learning materials), so they are never added. Each PD counts once, with its **main
+indicator**:
+
+* its **unique beneficiaries indicator**: the indicator that counts each child or person once,
+  chosen on the PD page (*Make it the unique beneficiaries indicator*, under the PD's indicators) by
+  an Administrator or a Section editor of one of the PD's sections, or in admin → Datamart →
+  *Indicator flags* (*Unique beneficiaries* with its programme document; one per PD). Only a plain
+  number can be chosen: a percentage or a ratio never counts people;
+* until one is chosen, its **largest children indicator**, labelled *largest single indicator*:
+  the largest by the figure shown (Reached in the year on the overview, the brief and the donor
+  page; Reached to date on the PD page and in the daily review).
+
+A total over several PDs (a section, a partner, a donor, the country) is the **sum of each PD's main
+indicator**, labelled so: partners may reach the same children. A PD counts in the section of its
+main indicator only (with a section chosen, a PD whose main indicator is in another section adds
+nothing), so the sections add up to the country. The overview's tile says how many PDs count by
+their unique beneficiaries indicator and how many by their largest single indicator. Values come
+from Partner monitoring's Reached (`neurodb/datamart/reached.py`): Accepted and Submitted reports,
+the year's value combined by the indicator's method (a sum adds the reports, a max or the latest
+does not).
 
 **Two sources, never added.** The same children are often reported in both eTools PRP and
-ActivityInfo, so the headline *Children reached, at least* is the larger of the two, with both shown
-beside it; the governorate tiles and the coverage table take the larger of the two per governorate.
+ActivityInfo, so the headline *Children reached* is the larger of the two, with both shown beside
+it; the governorate tiles and the coverage table take the larger of the two per governorate.
 
-**Governorates.** A governorate's eTools figure adds the values reported at the locations inside
-it, for indicators whose locations add up (PRP "sum"); an indicator reported as the maximum or the
-average across locations is counted nationally but not split by governorate. With a governorate
-chosen, the monthly bars, the money and the cost per child follow the same rule: a PD's funds count
-for its share of the children it reached there, and PDs without a children result are left out.
+**Achievement against target** (per section, and the brief's *Achievement of PD targets (median)*):
+the children indicators with a target, how many have a Reached, their statuses, and the **median**
+share of the target reached (each capped at 100 %) against the median share of their PD period
+elapsed. Targets of different indicators are never added.
+
+**Governorates.** A governorate's eTools figure adds, for each PD's main indicator, the values
+reported at the locations inside it, for indicators whose locations add up (PRP "sum"); an indicator
+reported as the maximum or the average across locations is counted nationally but not split by
+governorate. With a governorate chosen, the monthly bars, the money and the cost per child follow
+the same rule: a PD's funds count for its share of the children its main indicator reached there,
+and PDs without a children result are left out.
 
 **Cost per child** is what the PDs with a children result disbursed to date (all the years of their
 funds reservations, supplies and operating costs included) over the children they reached in the
-selected year. A PD's money is split across sections in proportion to the children of each section.
-Compare sections, not absolute values. It is empty when no children indicator reported.
+selected year (each PD's main indicator). A PD with a children result counts its money and its
+children in the section of its main indicator; a PD without one splits its money by its indicators'
+sections. Compare sections, not absolute values. It is empty when no children indicator reported.
 
 **Caching.** The page's data is cached for 2 minutes per (year, sections, governorate, day), in each
-web worker's memory; a new children flag and the end of any sync run change the cache key, so every
-worker shows the new figures at once. The freshness strip at the bottom shows when each source last
+web worker's memory; a new or changed indicator flag (children or unique beneficiaries) and the end
+of any sync run change the cache key, so every worker shows the new figures at once. The freshness strip at the bottom shows when each source last
 changed.
 
 ## Management brief (`/brief/`)
@@ -1164,7 +1195,7 @@ management meeting asks for. Eight blocks, one tab each:
 | Block | What it shows | Source |
 |---|---|---|
 | Brief | Five tiles with a comparison (children reached against the same months of last year, achievement against the elapsed period, disbursed of reserved, cost per child against last year's PDs, indicators on track against the review 30 days ago), *Things to decide* (up to five decisions chosen and written by the AI daily review from its findings, each with one reason, a suggested owner and when, and the findings it rests on (marked *AI-suggested*; the model's name stays on the stored review only); without the assistant, the review's five most important open findings), and *Sections at a glance*: one row per section, weakest first, with five status cells (pace: target reached against time elapsed; indicators on track; spending: disbursed against achieved; reporting; confidence), each with an icon, its value and, on hover, its figures (the rules are under the table). *Copy summary* copies the headline figures and decisions as plain text for minutes | The overview blocks of both years, the latest daily review, the finding assignments |
-| Ahead or behind | Achievement against the expected point and the Country Programme target per section; the cumulative reach of both sources projected to December at the last three months' pace | PD indicators and PRP reports, ActivityInfo HPM masters, **section plans** |
+| Ahead or behind | Per section, the main indicator of each PD summed (Reached to date against those indicators' targets and the expected point), with the Country Programme target; the year's reach of both sources projected to December at the last three months' pace | PD indicators and PRP reports, ActivityInfo HPM masters, **section plans** |
 | How sure | Confidence per section (indicators reported, PDs verified by a TPM activity or a field monitoring finding, partners linked across sources, days since the eTools sync; High / Medium / Low, with what keeps it from High next to the badge, e.g. "because partners are not linked to ActivityInfo"; Low whenever a value was set aside, see below), the two sources per partner side by side with the gap, quarterly reporting timeliness per partner | PRP reports, TPM activities, monitoring findings, ActivityInfo partner links, sync runs |
 | Who and where | Children by sex and age band, by nationality and disability against the population share (from the indicators' titles), coverage per governorate, districts with high need and low coverage | Indicator title tags, population figures (governorate and district level), eTools locations |
 | Partners | Scorecard (PDs, reserved, on track, reports on time, action points on time, HACT risk, latest finding, disbursed against achieved), delivery-against-spending bubbles, partnerships that need a decision | The same tables per partner |
@@ -1186,8 +1217,11 @@ management meeting asks for. Eight blocks, one tab each:
 (`neurodb/datamart/reached.py`): only Accepted and Submitted reports count, a report's month is the
 month its period ends, and its value combines the locations by the indicator's method, never adding
 what PRP repeats on each row; an indicator's achievement is its Reached to date against its target.
+Children reached is the overview's headline rule (one main indicator per PD, summed over the PDs);
+achievement of PD targets is the median over the children indicators, never a sum of targets.
 Every comparison is against the same rule: the same months of the year before for children reached
-(month to date, the larger of the two sources), the elapsed PD period for achievement, the daily
+(January to the same month, each PD's main indicator combined by its method, the larger of the two
+sources), the elapsed PD period for achievement, the daily
 review of 30 days ago for the on-track share (the same formula and the PDs running in the year, only
 when that review is of the selected year). The projection is the average of the last three reported
 months, extended to December; it is a pace, not a forecast.
@@ -1196,7 +1230,8 @@ one short = medium, two or more = low. A grant's unspent balance is each funds r
 outstanding amount in the grant's share of the reservation's lines (eTools carries the
 outstanding amount per reservation, not per grant). Sex, age, nationality and disability come from
 the indicators' titles: a title naming both girls and boys names neither, so most children fall
-under "not named" until PRP disaggregations carry labels.
+under "not named" until PRP disaggregations carry labels; they are read from each PD's main
+indicator, as the children reached are.
 
 **Values that cannot be right are left out.** A children indicator whose reported value is above
 the child population of Lebanon (the latest population figures), or more than 20 times its target
@@ -1243,7 +1278,11 @@ in one *Data problems* line that links to the Data health page.
 the next review marks it *still open* when it appears again, and adds a *resolved* entry for every
 key that disappeared. When a check fails, its findings of the day before are carried forward as
 still open, never resolved. The two checks that describe a change (`new_off_track`, `improvements`)
-are always *new*. Findings are ranked by severity, then by the children behind target.
+are always *new*. Findings are ranked by severity, then by the children behind target. Children
+behind target are counted on one indicator, never added across indicators (they count the same
+children): the PD's main indicator (its unique beneficiaries indicator, else its largest children
+indicator to date) when it is among the finding's indicators, else the children indicator furthest
+behind; the finding names it.
 
 **The summary.** With the AI assistant configured (`OPENAI_API_KEY`), the model reads only the
 day's findings and counts (titles, details and numbers; no staff names, `store=false`) and writes four to six plain sentences;
@@ -2967,8 +3006,11 @@ latest successful eTools or ActivityInfo data sync.
 **How the donor's figures are counted.** The donor's money is the funds reservation lines that name
 one of the account's donors (and grants, when the account lists some) on FRs running in the year.
 Disbursed is the FR's disbursed amount times the donor's share of that FR's lines. A programme's
-children (the overview's children rule) are attributed in proportion to the donor's share of the
-programme's funds. The page explains this to the donor under "How to read these figures".
+children (its main indicator: its unique beneficiaries indicator, else its largest children
+indicator, never several indicators added; see the overview's headline rule) are attributed in
+proportion to the donor's share of the programme's funds; its progress to target is that indicator's
+Reached against its target. The programme table names the main indicator and how it was chosen. The
+page explains this to the donor under "How to read these figures".
 
 **Creating an account** (admin → Users and access → Donor accounts → Add). The sign-in is either:
 - **an existing user** ("Existing user"): a user already created in Users, not staff, not an
@@ -3021,11 +3063,12 @@ document), and the page reads the table that matches its filters.
 **The page** (Partnerships → Youth programmes; filters: year, master indicator, partner, donor,
 governorate): young people reached, female and male; each master and sub indicator with young people
 reached, the target (sum of the Compiler programme documents' targets; hidden under a governorate
-filter, targets are not set per place) and the linked eTools indicator with what the partner
-reported and its status; breakdowns by partner, donor, governorate, district, sex, age group and
-nationality; **Compiler and eTools side by side** (per link: young people Compiler counted in the
-programme document, the eTools target, the partner's last cumulative progress, the difference); and
-the Compiler programme documents.
+filter, targets are not set per place) and the linked eTools indicator with its Reached to date and
+its status; breakdowns by partner, donor, governorate, district, sex, age group and nationality;
+**Compiler and eTools side by side** (per link: young people Compiler counted in the programme
+document, the eTools target, what the partner reached on the eTools indicator **in the same year**
+(Partner monitoring's Reached in that year, never the PD to date), the difference); and the Compiler
+programme documents.
 
 **Links to eTools.** After every read, NeuroDB suggests links: a Compiler programme document whose
 project code is an eTools reference number (`LEB/PCA2026005` matches `LEB/PCA2026005-1`; an
@@ -3209,12 +3252,15 @@ people reached), baseline and its year, the end-of-cycle target, and optional ye
 
 **4. What measures progress.** On an indicator:
 
-- *Linked sources* (summed for their year): pick the source from the list — the eTools PD indicators
-  of the programme documents under the output (partner reporting: the partner's cumulative progress
-  in the year), the ActivityInfo master indicators of the cycle's years (the master indicator's
-  result), the Compiler youth indicators (young people reached) or Makani / Dirasa (children
-  enrolled). The year fills itself from the source when it can. Untick *Confirmed* to keep a link
-  without counting it.
+- *Linked sources* (summed for their year: different partners may reach the same people): pick the
+  source from the list — the eTools PD indicators of the programme documents under the output
+  (partner reporting, read from Partner monitoring's Reached: for an indicator whose cycle value is
+  the sum of the years, what the partner reached **in that year**; for one whose cycle value is the
+  latest year's, what it reached **to the end of that year**; so a programme document running over
+  several years is never counted twice), the ActivityInfo master indicators of the cycle's years (the
+  master indicator's result), the Compiler youth indicators (young people reached) or Makani /
+  Dirasa (children enrolled). The year fills itself from the source when it can. Untick *Confirmed*
+  to keep a link without counting it. The knowledge hub reads the same values.
 - *Values typed here*: a survey, ministry data, an annual report. A typed value replaces the linked
   sources for its year.
 

@@ -555,10 +555,12 @@ export const BUILDERS = {
   },
   // ---- overview dashboard builders
   "hbars-target"(el, data) {
-    // [{section, achieved, target, percent, elapsed}] -> grey target bar, accent achieved bar, elapsed marker
+    // [{section, achieved, target, percent, elapsed, unit?}] -> grey target bar, accent achieved bar, elapsed marker;
+    // unit "%": achieved is a median share of the target (out of 100), never a sum of indicators
     const rows = (Array.isArray(data) ? data : [])
       .slice()
       .sort((a, b) => num(a.target) - num(b.target) || num(a.achieved) - num(b.achieved));
+    const shares = rows.length > 0 && rows.every((r) => r.unit === "%");
     const names = rows.map((r) => String(r.section ?? r.name ?? ""));
     const text = cssVar("--nd-text");
     const shapes = rows
@@ -578,18 +580,20 @@ export const BUILDERS = {
           x: rows.map((r) => num(r.target)),
           width: 0.64,
           marker: { color: withAlpha(cssVar("--nd-neutral"), 0.28), line: { width: 0 } },
-          hovertemplate: "%{y} · target: %{x:,.0f}<extra></extra>",
+          hovertemplate: shares ? "%{y} · target: 100%<extra></extra>" : "%{y} · target: %{x:,.0f}<extra></extra>",
         },
         {
           type: "bar",
           orientation: "h",
-          name: "Achieved",
+          name: shares ? "Median % of target" : "Achieved",
           y: names,
           x: rows.map((r) => num(r.achieved)),
           width: 0.38,
           customdata: rows.map((r) => (r.percent == null ? "–" : `${Math.round(num(r.percent))}%`)),
           marker: { color: cssVar("--nd-primary"), line: { width: 0 } },
-          hovertemplate: "%{y} · achieved: %{x:,.0f} (%{customdata} of target)<extra></extra>",
+          hovertemplate: shares
+            ? "%{y} · median: %{customdata} of target<extra></extra>"
+            : "%{y} · achieved: %{x:,.0f} (%{customdata} of target)<extra></extra>",
         },
         {
           type: "scatter",

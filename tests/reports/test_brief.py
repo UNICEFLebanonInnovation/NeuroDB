@@ -247,12 +247,15 @@ def test_a_finding_the_review_sees_resolved_counts_as_closed(data, reporting_yea
 
 def test_the_brief_as_text_carries_the_figures_on_screen(data, reporting_year):
     text = build(reporting_year)["text"]
-    assert "Children reached, at least: 500." in text
-    assert "Achievement of PD targets: 50%" in text and "Funds: $4k disbursed (40% of $10k reserved)." in text
+    assert "Children reached: 500." in text
+    assert (
+        "Achievement of PD targets (median): 50%" in text
+        and "Funds: $4k disbursed (40% of $10k reserved)." in text
+    )
     assert "Cost per child: $8." in text and "Indicators on track: 100%" in text
     assert "Grants expiring within 90 days with an unspent balance: SC1 (EU, $6k)." in text
     assert "Low confidence in the figures of: Child Protection." in text
-    assert text.endswith("rules v1.")
+    assert text.endswith("rules v2.")  # v2: one main indicator per programme document
 
 
 def test_section_filter_and_empty_database(data, reporting_year, db):
@@ -460,8 +463,8 @@ def test_brief_text_rounds_and_formats_like_the_tiles():
     text = brief.brief_text(data)
     # Halves round up, as floatformat does on the tile pills (44.5 -> 45, -2.5 -> -3, 12.5 -> 13).
     assert floatformat(44.5, "0") == "45" and floatformat(-2.5, "0") == "-3"
-    assert "Children reached, at least: 1,000 (-3% vs same period last year)." in text
-    assert "Achievement of PD targets: 13%." in text and "Indicators on track: 1% (h)." in text
+    assert "Children reached: 1,000 (-3% vs same period last year)." in text
+    assert "Achievement of PD targets (median): 13%." in text and "Indicators on track: 1% (h)." in text
     # Money as the money filter shows it on the same page.
     assert (
         f"Funds: {money(7_000_000)} disbursed (45% of $15.5M reserved)." in text and money(7_000_000) == "$7M"
@@ -513,7 +516,7 @@ def test_an_impossible_children_value_is_set_aside_and_flagged(data, reporting_y
     dm.ReportedIndicator.objects.update(total_cumulative_progress="9999999", achievement_in_period="9999999")
     result = build(reporting_year)
     tiles = {t["key"]: t for t in result["headline"]["tiles"]}
-    assert tiles["children"]["hint"].startswith("eTools 0 ·")  # not 20 million children (500 is ActivityInfo)
+    assert tiles["children"]["hint"].startswith("eTools 0 (")  # not 20 million children (500 is ActivityInfo)
     (aside,) = result["confidence"]["implausible"]
     assert aside["value"] == 19999998 and "child population" in aside["reason"]
     (row,) = result["confidence"]["rows"]

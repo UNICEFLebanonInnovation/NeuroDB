@@ -18,10 +18,13 @@ Overrides = dict[tuple[str, str], bool]
 
 
 def overrides() -> Overrides:
-    """Every flag, as ``{(source, key): counts_children}``."""
+    """Every flag that says whether its indicator counts children, as ``{(source, key): counts_children}``
+    (a flag set only for the unique beneficiaries role leaves it to the title rule)."""
     return {
         (source, key): counts
-        for source, key, counts in IndicatorFlag.objects.values_list("source", "key", "counts_children")
+        for source, key, counts in IndicatorFlag.objects.exclude(counts_children=None).values_list(
+            "source", "key", "counts_children"
+        )
     }
 
 

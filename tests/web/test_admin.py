@@ -267,6 +267,6 @@ def test_developer_sections_are_listed_for_superusers_only(client, client_super,
 
     client.force_login(admin_user)
     html = client.get(reverse("admin:index")).content.decode()
-    assert "Scheduled jobs" in html and "Daily reviews" in html and "Children indicator flags" in html
+    assert "Scheduled jobs" in html and "Daily reviews" in html and "Indicator flags" in html
     for hidden in ("Social application", "Email addresses", "eTools Datamart (read-only)", "</span>Sites"):
         assert hidden not in html

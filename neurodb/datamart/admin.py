@@ -1,6 +1,7 @@
 """Read-only admin over the eTools Datamart tables (refreshed by ``sync_etools_datamart``), and the
 eTools reporting checks page (admin/datamart/reporting-checks/, Administrators only)."""
 
+from django import forms
 from django.contrib import admin
 from django.http import Http404
 from django.shortcuts import render
@@ -271,14 +272,64 @@ class DatamartDocumentAdmin(ReadOnlyModelAdmin):
     list_per_page = 50
 
 
+class IndicatorFlagForm(forms.ModelForm):
+    """The two roles of a flag, in plain words: whether the indicator counts children (or the title
+    decides), and whether it is its programme document's unique beneficiaries indicator."""
+
+    counts_children = forms.TypedChoiceField(
+        label=_("Counts children"),
+        choices=(
+            ("", _("The title decides")),
+            ("true", _("Counts children")),
+            ("false", _("Does not count children")),
+        ),
+        coerce=lambda v: v == "true",
+        empty_value=None,
+        required=False,
+    )
+
+    class Meta:
+        model = dm.IndicatorFlag
+        fields = ("source", "key", "label", "counts_children", "unique_beneficiaries", "intervention", "note")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        value = self.initial.get("counts_children")
+        self.initial["counts_children"] = "" if value is None else ("true" if value else "false")
+
+    def clean(self):
+        data = super().clean()
+        if data.get("unique_beneficiaries"):
+            if data.get("source") != dm.IndicatorFlag.Source.ETOOLS:
+                self.add_error(
+                    "unique_beneficiaries",
+                    _("Only an eTools PD indicator can be a unique beneficiaries indicator."),
+                )
+            if not data.get("intervention"):
+                self.add_error("intervention", _("Choose the programme document this indicator belongs to."))
+        return data
+
+
 @admin.register(dm.IndicatorFlag)
 class IndicatorFlagAdmin(ModelAdmin):
-    """The one Datamart table people edit: which indicators count children on the overview."""
+    """The one Datamart table people edit: which indicators count children on the overview, and each
+    programme document's unique beneficiaries indicator (its headline children reached)."""
 
-    list_display = ("source", "key", "label", "counts_children", "updated_by", "updated_at")
-    list_filter = ("source", "counts_children")
+    form = IndicatorFlagForm
+    list_display = (
+        "source",
+        "key",
+        "label",
+        "counts_children",
+        "unique_beneficiaries",
+        "intervention",
+        "updated_by",
+        "updated_at",
+    )
+    list_filter = ("source", "counts_children", "unique_beneficiaries")
     search_fields = ("key", "label", "note")
     readonly_fields = ("updated_by", "updated_at")
+    raw_id_fields = ("intervention",)
     list_per_page = 50
 
     def save_model(self, request, obj, form, change):

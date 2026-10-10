@@ -16,10 +16,17 @@ synced eTools tables and the ActivityInfo history.
   section, with every section one click away.
 - **Which programme documents**: every one running in the selected year, whatever its status now,
   except drafts and cancelled ones.
-- **Children reached, at least**: the same children are often reported in both eTools and ActivityInfo,
-  so the headline is the **larger** of the two, never their sum; both are shown beside it.
+- **Children reached**: the same children are often reported in both eTools and ActivityInfo, so the
+  headline is the **larger** of the two, never their sum; both are shown beside it.
+- **One indicator per programme document**: the indicators of one programme document count the same
+  children, so they are never added. Each programme document counts once, with its *unique
+  beneficiaries indicator* (chosen on the programme document page by an Administrator or a Section
+  editor of its section), else its *largest single indicator* (its largest children indicator). The
+  eTools figure is the sum over the programme documents: partners may reach the same children.
+- **Achievement against target**: the median share of the target reached by the children indicators of
+  each section (each capped at 100%); targets of different indicators are never added.
 - **Cost per child**: what the programme documents with a children result disbursed to date, over the
-  children they reached in the year. Compare sections, not absolute values.
+  children they reached in the year (each one's main indicator). Compare sections, not absolute values.
 - Figures are kept 2 minutes; the end of any sync shows at once. The strip at the bottom says when each
   source last changed.
 

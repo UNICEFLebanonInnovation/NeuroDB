@@ -32,6 +32,7 @@ from django.views.decorators.http import require_GET, require_POST
 from neurodb.accounts.roles import SECTION_EDITOR, can_edit_section, role_of
 from neurodb.core.models import PopulationFigure, SavedView, SyncRun
 from neurodb.core.services import population as population_service
+from neurodb.datamart import headline
 from neurodb.datamart import monitoring as pd_monitoring_service
 from neurodb.datamart import services as datamart
 from neurodb.datamart.models import AuditEngagement, AuditFinding
@@ -900,9 +901,48 @@ def programme_detail(request: HttpRequest, pk: int) -> HttpResponse:
         "datamart": datamart.programme_datamart(pd),
         "knowledge_documents": linked_documents("programme_document", pd.pk),
         "fmm_pd": _fmm_panel("pd_summary", pd.pk),
+        "can_set_main": headline.can_set(request.user, pd),
     }
     template = "reports/partials/programme_detail.html" if request.htmx else "reports/programme_detail.html"
     return render(request, template, context)
+
+
+@require_POST
+def pd_main_indicator(request: HttpRequest, pk: int) -> HttpResponse:
+    """Choose the programme document's unique beneficiaries indicator (``key``), or stop using one
+    (``clear``): Administrators and Section editors of the PD's section. Its value is then the PD's
+    children reached on the overview, the brief and the donor page."""
+    pd = get_object_or_404(PCA.objects.select_related("partner"), pk=pk)
+    if not headline.can_set(request.user, pd):
+        raise PermissionDenied
+    if request.POST.get("clear"):
+        if headline.clear_main(pd, request.user):
+            messages.success(
+                request,
+                _(
+                    "This programme document has no unique beneficiaries indicator any more: its largest "
+                    "children indicator stands in for it."
+                ),
+            )
+        return redirect("reports:programme_detail", pk=pd.pk)
+    key = (request.POST.get("key") or "").strip()
+    rows = pd_monitoring_service.indicators(pd_monitoring_service.Filters(pd_ids=[pd.id], scope="all"))
+    row = next((r for r in rows if r.key == key), None) if key else None
+    if row is None:
+        messages.error(request, _("Choose one of this programme document's indicators."))
+    elif not headline.is_number(row):
+        messages.error(
+            request,
+            _("A percentage or a ratio cannot count beneficiaries: choose an indicator that counts people."),
+        )
+    else:
+        headline.set_main(pd, row.key, row.title, request.user)
+        messages.success(
+            request,
+            _("“%(title)s” is now this programme document's unique beneficiaries indicator.")
+            % {"title": row.title},
+        )
+    return redirect("reports:programme_detail", pk=pd.pk)
 
 
 def _fmm_panel(name: str, pk: int) -> dict[str, Any] | None:

@@ -460,7 +460,7 @@ function renderTable(list) {
     const disb = (100 * r.disbursed) / (r.committed || 1);
     const reached = r.indicator_target ? `${num(r.indicator_cumulative)} of ${num(r.indicator_target)} (${pct((100 * (r.indicator_cumulative || 0)) / r.indicator_target)})` : "";
     const result = r.indicator
-      ? `${esc(r.indicator)}<small>${r.closed ? `Final result${reached ? `: ${reached}` : ""}, ended ${fmtDate(r.end, month)}` : `${reached ? `${reached}, ` : ""}${pct(r.elapsed)} of the time elapsed`}</small>`
+      ? `${esc(r.indicator)}${r.indicator_rule ? `<small>${esc(r.indicator_rule)}</small>` : ""}<small>${r.closed ? `Final result${reached ? `: ${reached}` : ""}, ended ${fmtDate(r.end, month)}` : `${reached ? `${reached}, ` : ""}${pct(r.elapsed)} of the time elapsed`}</small>`
       : `<small>No children result reported yet</small>`;
     return `<tr>
       <td class="pd">${esc(r.title)}<small>${esc(r.partner)} · ${fmtDate(r.start, month)} to ${fmtDate(r.end, month)}</small><small class="ref">eTools ref. ${esc(r.id)}</small></td>

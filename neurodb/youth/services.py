@@ -122,7 +122,8 @@ def _links(figures: Figures, filters: YouthFilters) -> tuple[list[dict[str, Any]
         else:
             counted = by_pd_master.get((link.youth_indicator_id, link.compiler_pd_id))
         indicator = etools.get((link.pd_id, link.etools_key)) if link.pd_id else None
-        reported = indicator.cumulative if indicator else None
+        # what the partner reached in the same year as Compiler's count, never the PD to date
+        reported = indicator.reached_in_year if indicator else None
         document = documents.get(link.compiler_pd_id) or {}
         entry = {
             "link": link,
@@ -134,6 +135,7 @@ def _links(figures: Figures, filters: YouthFilters) -> tuple[list[dict[str, Any]
             or None,
             "etools": indicator,
             "reported": reported,
+            "year": linking.year_number(figures.year),
             "difference": (counted or 0) - reported if reported is not None else None,
         }
         out.append(entry)
