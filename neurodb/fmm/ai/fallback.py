@@ -56,8 +56,8 @@ def _coverage(facts: Facts) -> list[dict[str, Any]]:
     k = facts.payload["kpi"]
     out = [
         {
-            "text": f"{_plural(k['visits'], 'visit', 'visits')} and "
-            f"{_plural(k['entities'], 'entity', 'entities')} in the period.",
+            "text": f"{_plural(k['visits'], 'visit', 'visits')} holding "
+            f"{_plural(k['records'], 'record', 'records')} (one per entity assessed) in the period.",
             "keys": ["kpi"],
         }
     ]
@@ -86,13 +86,13 @@ def _coverage(facts: Facts) -> list[dict[str, Any]]:
     if k["avg_quality"] is not None:
         out.append(
             {
-                "text": f"The average quality score was {k['avg_quality']}% on "
-                f"{_plural(k['scored_visits'], 'scored visit', 'scored visits')}.",
+                "text": f"The average quality score per record was {k['avg_quality']}% on "
+                f"{_plural(k['scored_records'], 'scored record', 'scored records')}.",
                 "keys": ["kpi"],
             }
         )
     else:
-        out.append({"text": "No visit in this filter could be scored for quality.", "keys": ["kpi"]})
+        out.append({"text": "No record in this filter could be scored for quality.", "keys": ["kpi"]})
     previous = facts.payload.get("previous") or {}
     if previous.get("visits"):
         change = previous["visits_change"]

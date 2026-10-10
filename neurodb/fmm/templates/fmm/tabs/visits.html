@@ -1,4 +1,5 @@
 {% load i18n %}
+{% if view == "visits" %}<input type="hidden" name="view" value="visits" form="fmm-filters">{% endif %}
 <section class="panel fmm-lookup" aria-labelledby="fmm-lookup-title">
   <form class="fmm-lookup__form" method="get" action="{% url 'fmm:lookup' %}" hx-get="{% url 'fmm:lookup' %}" hx-target="#fmm-lookup-result" role="search">
     <label class="form-label h6 mb-0" id="fmm-lookup-title" for="fmm-lookup-id">{% trans "Find a visit" %}</label>

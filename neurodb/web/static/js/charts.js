@@ -370,7 +370,9 @@ export const BUILDERS = {
     // The monthly payload above, drawn as FMS draws it (Monitoring insights' Quality tab), each series on its own
     // axis and the legend centred on top: data-primary="area" (quality score trends) gives two smooth lines with
     // markers, the first filled to zero on a 0-100 axis; data-primary="bar" (monitoring volume) gives light bars
-    // and a smooth line. data-y-title and data-y2-title name the axes; a point or bar opens its month's visits.
+    // and a smooth line. data-y-title and data-y2-title name the axes; a point or bar opens its month's records.
+    // An indicator's "extra" counts (the distinct visits of each month's records) join the bar's tooltip,
+    // named by data.extra_label.
     const series = (data?.indicators || [])[0];
     const months = data?.months || [];
     if (!series || !months.length) return emptyState(el);
@@ -385,6 +387,8 @@ export const BUILDERS = {
     const smooth = { shape: "spline", smoothing: 0.8, width: 2.5 };
     const values = (series.values || []).map((v) => (v === null || v === undefined ? null : num(v)));
     const line = (series.reports || []).map((v) => (v === null || v === undefined ? null : num(v)));
+    const extra = Array.isArray(series.extra) ? series.extra.map((v) => num(v)) : null;
+    const extraLabel = plotlyText(data.extra_label || "");
     const primary = area
       ? {
           type: "scatter",
@@ -399,7 +403,10 @@ export const BUILDERS = {
       : {
           type: "bar",
           marker: { color: withAlpha(cssVar("--nd-chart-sky"), 0.85), line: { width: 0 } },
-          hovertemplate: `${barName}: %{y:,}<extra></extra>`,
+          ...(extra ? { customdata: extra } : {}),
+          hovertemplate: extra
+            ? `${barName}: %{y:,} (%{customdata:,} ${extraLabel})<extra></extra>`
+            : `${barName}: %{y:,}<extra></extra>`,
         };
     const title = (text) => (text ? { title: { text: plotlyText(text), font: { size: 11, color: muted } } } : {});
     return {
@@ -1291,7 +1298,7 @@ function clickThrough(el) {
   const hint = document.createElement("span");
   hint.className = "visually-hidden";
   hint.id = `chart-drill-hint-${++hints}`;
-  hint.textContent = "Click a bar to list its visits";
+  hint.textContent = el.dataset.hrefHint || "Click a bar to list its visits";
   el.after(hint);
   el.setAttribute("aria-describedby", hint.id);
   // bound once per plot: a plot purged (an empty state) and drawn again gets a new emitter

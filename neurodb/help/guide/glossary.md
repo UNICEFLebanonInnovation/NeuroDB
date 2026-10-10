@@ -6,11 +6,12 @@ monitoring visit, or kept in NeuroDB only (a **NeuroDB action point**). **Open**
 open; **overdue** when it is also past its due date. See [Action points](/help/action-points/).
 
 ## Average quality
-The mean quality score of the scored visits of the filter, rounded half up to one decimal.
+The mean quality score of the scored records of the filter (as FMS averages), rounded half up to one
+decimal.
 
 ## Band
-A visit's quality band: **High** from 80, **Medium** from 50, **Low** below 50, or **Pending** when it
-is not scored. Its urgency band: **red** from 70, **amber** from 40.
+A record's (or a visit's) quality band: **High** from 80, **Medium** from 50, **Low** below 50, or
+**Pending** when it is not scored. Its urgency band: **red** from 70, **amber** from 40.
 
 ## Category (score category)
 A part of the quality score with a weight: Completeness 30, Evidence 20, Alignment 20, Coherence 15,
@@ -27,10 +28,10 @@ The points a quality rule takes off its category when it fires.
 
 ## Entity
 What a monitoring visit looked at: a partner, a programme document (PD/SSFA) or a CP output. Each
-entity is one finding row of the visit.
+entity assessed is one **record** of the visit.
 
 ## Flag
-A quality rule that fired on a visit. 3 flags or more make a high-flag visit.
+A quality rule that fired on a record. 3 flags or more make a high-flag record.
 
 ## HACT
 The Harmonized Approach to Cash Transfers: the assurance of partners (assessments, audits, spot checks,
@@ -50,19 +51,26 @@ A visit whose eTools status is not one of the scored statuses (report finalizati
 score, no urgency.
 
 ## Provisional
-A scored visit whose AI checks are not all done: its score so far is shown on its page, but it counts as
-not scored until the checks are done.
+A record whose AI checks are not all done: its score so far is shown on its visit's page, but it counts
+as not scored until the checks are done, and so does its visit.
 
 ## PSEA
 Protection from sexual exploitation and abuse. A visit is PSEA-flagged when a PSEA answer reads Yes,
 Constrained or Off track.
 
 ## Quality score
-100 less the deductions of the quality rules that fired, each category at most its weight. See
+Of a record: 100 less the deductions of the quality rules that fired on it, each category at most its
+weight. A visit's quality is the mean of its records. See
 [The quality score](/help/monitoring-insights/#the-quality-score).
 
 ## Rating
-On track, Constrained, Off track or Not monitored. A visit's rating is its worst rated entity.
+On track, Constrained, Off track or Not monitored, given to each record. A visit's rating is its worst
+rated record.
+
+## Record
+One entity assessed on a visit (a partner, CP output or PD/SSFA), with its own rating, narrative and
+Q1–Q3. As in FMS, each record is scored, flagged and given an urgency on its own; quality, ratings,
+flags and urgency figures count records, and "Monitoring visits" counts distinct visits.
 
 ## Rules version
 A saved state of the quality rules and score settings. Every change makes a new version, and each visit
@@ -79,8 +87,8 @@ first.
 Third-party monitoring: visits made by a monitoring company on UNICEF's behalf.
 
 ## Urgency
-0 to 100: 0.50 × (100 − quality) + 0.30 × recency + 0.20 × flags, for scored visits only. See
-[Urgency](/help/monitoring-insights/#urgency).
+0 to 100: 0.50 × (100 − quality) + 0.30 × recency + 0.20 × flags, for each scored record (a visit's
+is its most urgent record's). See [Urgency](/help/monitoring-insights/#urgency).
 
 ## Visit
-One eTools field monitoring activity: the finding rows that share an activity id.
+One eTools field monitoring activity: its records (one per entity assessed) share an activity id.

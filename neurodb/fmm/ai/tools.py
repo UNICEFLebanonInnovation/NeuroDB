@@ -381,7 +381,7 @@ def fm_summary(
     limits = metrics.thresholds()
     k = metrics.kpis(scope, limits=limits)
     data = metrics.summary(scope, limits=limits)
-    rated = {code: data["by_rating"][code]["visits"] for code in metrics.RATED}
+    rated = {code: data["visit_ratings"][code] for code in metrics.RATED}  # each visit under its own
     total = sum(rated.values())
     out: dict[str, Any] = {
         "label": "Monitoring visits",
@@ -397,11 +397,14 @@ def fm_summary(
             code: (float(metrics._pct(n, total)) if total else None) for code, n in rated.items()
         },
         "not_monitored_visits": data["gaps"],
-        "entities": k["entities"],
-        "entities_rated": k["entities_rated"],
-        "entities_not_monitored": k["entities_not_monitored"],
+        "entities": k["records"],
+        "entities_rated": k["records_rated"],
+        "entities_not_monitored": k["records_not_monitored"],
+        # per record, as FMS: each record (an entity assessed) is scored and given an urgency on its own
+        "records": k["records"],
         "avg_quality": _quality(k["avg_quality"]),
-        "scored_visits": k["scored"],
+        "scored_records": k["scored"],
+        "scored_visits": k["scored_visits"],
         "high_urgency": k["high_urgency"],
         "amber_urgency": k["amber"],
         "high_urgency_from": limits["red"],

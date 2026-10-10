@@ -24,7 +24,7 @@ from neurodb.core.models import SyncRun
 from neurodb.datamart.models import MonitoringFinding
 from neurodb.fmm import privacy
 from neurodb.fmm.ai import FMM_NAMED_FIELDS, facts, fallback, insights, profiles, sections
-from neurodb.fmm.models import Insight, Visit
+from neurodb.fmm.models import Insight, Visit, VisitEntity
 from neurodb.fmm.scope import Scope
 from neurodb.integrations import background
 from neurodb.watch import grounding
@@ -174,8 +174,10 @@ def test_every_entry_of_the_payload_is_citable_and_shares_are_precomputed(built,
     assert set(found.citable) >= {"scope", "kpi", "previous", "ap:summary", "hact:2026", "gap:governorates"}
     kpi = payload["kpi"]
     assert (kpi["visits"], kpi["entities"], kpi["entities_rated"]) == (8, 12, 8)
-    # the mean of the visits' qualities, each the mean of its records' (Release 2 step 5)
-    assert "entities_not_monitored_share" not in kpi and kpi["avg_quality"] == 79.7
+    # the mean of the records' own scores, as FMS (Release 2 step 5)
+    assert "entities_not_monitored_share" not in kpi and kpi["avg_quality"] == 80.3
+    assert kpi["scored_visits"] == 6  # the visits scored (10 records)
+    assert (kpi["records"], kpi["scored_records"]) == (12, 10)  # the average is over these
     # every share of ratings is over the rated visits (entities); Not monitored is a count apart
     assert (kpi["rated_visits"], kpi["on_track_visits"], kpi["off_track_visits"]) == (5, 3, 2)
     assert (kpi["on_track_share_of_rated"], kpi["off_track_share_of_rated"]) == (60.0, 40.0)
@@ -503,13 +505,13 @@ def test_the_code_written_brief_words(built):
     written = written["sections"]
     texts = [s["text"] for s in written["coverage_summary"]]
     assert texts[:3] == [
-        "8 visits and 12 entities in the period.",
+        "8 visits holding 12 records (one per entity assessed) in the period.",
         # shares of the rated visits only; Not monitored (planned, not conducted) apart, never a share
         "Of the 5 rated visits, 3 were On track (60.0%), 0 Constrained (0.0%) and 2 Off track (40.0%).",
         "1 visit was Not monitored (planned, not conducted), counted apart from the rated visits.",
     ]
     assert texts[3] == "6 visits were reported, 1 is in progress and 0 are planned."
-    assert texts[4] == "The average quality score was 79.7% on 6 scored visits."
+    assert texts[4] == "The average quality score per record was 80.3% on 10 scored records."
     challenges = [s["text"] for s in written["challenges"]]
     assert challenges[0].startswith("R23 flagged 3 visits: Visit location not among registered PD locations")
     assert not [t for t in texts + challenges if "monitoring gap" in t or "not monitored (" in t]
@@ -665,7 +667,7 @@ def test_a_stopped_brief_is_shown_as_stopped(built, ai_on, client_viewer, viewer
 def test_the_card_without_the_ai_shows_the_code_written_brief(built, client_viewer):
     html = client_viewer.get(f"{reverse('fmm:insights')}?{YEAR}").content.decode()
     assert "Written by NeuroDB from the figures — AI not used: AI is switched off" in html
-    assert "8 visits and 12 entities in the period" in html and fallback.FINDINGS_NOTE in html
+    assert "8 visits holding 12 records" in html and fallback.FINDINGS_NOTE in html
     assert "AI switched off" in html and "disabled" in html  # Regenerate is disabled, with the reason
     assert "What was sent" not in html
     response = client_viewer.post(f"{reverse('fmm:insights')}?{YEAR}")  # pressed anyway: kept, no call
@@ -758,8 +760,12 @@ def test_the_visit_page_and_the_visits_table_show_what_the_brief_cites(
     visit = sorted(found.payload["visits"])[0][6:]
     page = client_viewer.get(reverse("fmm:visit", args=[visit])).content.decode()
     assert "Cited in the AI brief" in page and "Follow up the visit&#x27;s findings with the partner" in page
+    # the records list marks every record of a cited visit; grouped by visit, each cited visit once
     table = client_viewer.get(f"{reverse('fmm:visits')}?section=").content.decode()
-    assert table.count("cited in the AI brief</span>") == len(row.cited_keys)
+    cited = VisitEntity.objects.filter(visit__key__in=row.cited_keys).count()
+    assert cited >= len(row.cited_keys) and table.count("cited in the AI brief</span>") == cited
+    grouped = client_viewer.get(f"{reverse('fmm:visits')}?section=&view=visits").content.decode()
+    assert grouped.count("cited in the AI brief</span>") == len(row.cited_keys)
     other = next(v.key for v in Visit.objects.all() if v.key not in row.cited_keys)
     assert (
         "Cited in the AI brief" not in client_viewer.get(reverse("fmm:visit", args=[other])).content.decode()

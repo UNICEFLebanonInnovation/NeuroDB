@@ -61,7 +61,12 @@ def test_the_partner_panel_equals_monitoring_insights(built, fm_world):
     kpis = metrics.kpis(scope)
     assert panel["visits"] == kpis["visits"] == 3  # 1722, 1725 (cancelled) and 1727
     assert panel["avg_quality"] == kpis["avg_quality"] and panel["scored"] == kpis["scored"]
-    assert panel["off_track"] == scope.visits().filter(rating="off_track").count() == 1
+    # its own records off track (1722's CP output), as the panel's link, a rating filter, counts them
+    assert panel["off_track"] == scope.records().filter(rating="off_track").count() == 1
+    concern = Scope.from_params(
+        {"partner": str(amel.pk), "year": str(YEAR), "section": "", "rating": ["off_track", "constrained"]}
+    )
+    assert panel["off_track"] + panel["constrained"] == metrics.kpis(concern)["records"]
     follow_up = metrics.action_points(scope)
     assert (panel["action_points_open"], panel["action_points_overdue"]) == (
         follow_up["open"],

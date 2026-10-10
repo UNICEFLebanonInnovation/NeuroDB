@@ -9,7 +9,7 @@ disagree for the same filter.
 
 | In the menu | What you get |
 |---|---|
-| CSV (visits) | The visits table as a CSV file. |
+| CSV (records list) | The records list as a CSV file, one row per record; grouped by visit, one row per visit. |
 | Excel workbook | `monitoring-insights-YYYY-MM-DD.xlsx`, described below. |
 | PDF report | A printable A4 report that opens the browser's print dialog: choose *Save as PDF*. |
 | Power BI package | A zip of CSV files and a Power Query script for Power BI Desktop. |

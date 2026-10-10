@@ -15,7 +15,7 @@ from django.http import QueryDict
 
 from neurodb.fmm import metrics
 from neurodb.fmm import scope as scope_module
-from neurodb.fmm.models import Visit, VisitRuleResult
+from neurodb.fmm.models import RecordRuleResult, VisitEntity
 from neurodb.fmm.scope import Scope
 
 pytestmark = pytest.mark.django_db
@@ -31,14 +31,14 @@ def _scope(query: str = "year=2026&section=") -> Scope:
     return Scope.from_params(QueryDict(query), None, TODAY)
 
 
-def test_entities_not_monitored_are_those_of_reported_visits_only(built):
+def test_records_not_monitored_are_those_of_reported_visits_only(built):
     k = metrics.kpis(_scope())
-    # 1723 (completed): a blank and a "Not Monitored" row; 1724 (data collection): a blank row, not
-    # rated yet; 1725 (cancelled): a blank row, in neither count
-    assert k["entities_not_monitored"] == 2
-    assert k["entities_not_rated_yet"] == 1
-    total = k["entities_rated"] + k["entities_not_monitored"] + k["entities_not_rated_yet"]
-    assert k["entities_other"] == k["entities"] - total
+    # 1723 (completed): a blank and a "Not Monitored" record; 1724 (data collection): a blank record, not
+    # rated yet; 1725 (cancelled): a blank record, in neither count
+    assert k["records_not_monitored"] == 2
+    assert k["records_not_rated_yet"] == 1
+    total = k["records_rated"] + k["records_not_monitored"] + k["records_not_rated_yet"]
+    assert k["records_other"] == k["records"] - total
 
 
 def test_the_entities_tile_says_how_many_are_not_rated_yet(built, client_viewer):
@@ -46,20 +46,22 @@ def test_the_entities_tile_says_how_many_are_not_rated_yet(built, client_viewer)
     assert "2 not monitored · 1 not rated yet" in html
 
 
-def test_an_issues_mean_urgency_leaves_out_the_visits_without_one(built):
+def test_an_issues_mean_urgency_leaves_out_the_records_without_one(built):
+    # an issue's mean urgency is its records' (each record has its own urgency)
     flagged = list(
-        VisitRuleResult.objects.filter(status="fail").values_list("rule", "detail_key", "visit__key")
+        RecordRuleResult.objects.filter(status="fail").values_list("rule", "detail_key", "entity_id")
     )
     groups: dict = {}
-    for rule, key, visit in flagged:
-        groups.setdefault((rule, key), []).append(visit)
-    (rule, key), visits = max(groups.items(), key=lambda kv: len(kv[1]))
-    assert len(visits) >= 2  # counted as 0, the unscored visit would pull the mean below 40
-    Visit.objects.filter(key__in=visits).update(urgency=40)
-    Visit.objects.filter(key=visits[0]).update(urgency=None)
+    for rule, key, record in flagged:
+        groups.setdefault((rule, key), []).append(record)
+    (rule, key), records = max(groups.items(), key=lambda kv: len(kv[1]))
+    assert len(records) >= 2  # counted as 0, the record without urgency would pull the mean below 40
+    VisitEntity.objects.filter(pk__in=records).update(urgency=40)
+    VisitEntity.objects.filter(pk=records[0]).update(urgency=None)
+    metrics.cache.clear()
     row = next(r for r in metrics.top_issues(_scope(), 50) if r["drill"] == f"{rule}:{key}")
     assert row["urgency"] == 40
-    Visit.objects.filter(key__in=visits).update(urgency=None)
+    VisitEntity.objects.filter(pk__in=records).update(urgency=None)
     metrics.cache.clear()
     row = next(r for r in metrics.top_issues(_scope(), 50) if r["drill"] == f"{rule}:{key}")
     assert row["urgency"] is None

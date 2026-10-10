@@ -202,7 +202,7 @@ def test_the_visit_page_shows_the_row_answers_and_modality(exported, client_view
     _refresh()
     html = client_viewer.get(reverse("fmm:visit", args=["1722"])).content.decode()
     assert "TPM - iAPS" in html and "Learning, Water" in html
-    assert "Observed two BLN classes" in html and "Answers on this row" in html
+    assert "Observed two BLN classes" in html and "Answers on this record" in html
     assert "Verify attendance." in html  # the visit's objective, once
     # an answer naming someone shows the name to staff, never an e-mail address
     html = client_viewer.get(reverse("fmm:visit", args=["1723"])).content.decode()

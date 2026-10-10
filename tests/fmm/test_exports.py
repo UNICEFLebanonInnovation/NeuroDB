@@ -98,7 +98,7 @@ def test_the_page_header_has_the_export_menu_for_the_filter(built, client_viewer
         f"{reverse('fmm:visits')}?{query}&amp;export=csv" in html
         and 'data-current-query="export=csv"' in html
     )
-    for label in ("Excel workbook", "PDF report", "Power BI package", "CSV (visits)"):
+    for label in ("Excel workbook", "PDF report", "Power BI package", "CSV (records list)"):
         assert label in html
     assert "Power BI live connection" not in html  # Administrators only
     # the table toolbar keeps its own CSV and the charts their PNG buttons

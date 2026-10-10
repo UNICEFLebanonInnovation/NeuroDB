@@ -123,10 +123,10 @@ def _action_point_counts(visits, today: datetime.date) -> dict[str, int]:
 # ------------------------------------------------------------------------------------- partner page
 def partner_summary(partner_id: int, year: int) -> dict[str, Any] | None:
     """The partner page's "Monitoring insights" panel for ``year``: the partner's FM visits (with the
-    status breakdown), the average quality, the off-track and constrained visits, the open and overdue
-    FM action points of those visits, and its last visit (any year). None when no visit ever monitored
-    the partner. The figures are those of ``/fmm/?partner=<id>&year=<year>&section=``, the panel's
-    own link."""
+    status breakdown), the average quality of its own records (each scored on its own), its off-track and
+    constrained records, the open and overdue FM action points of those visits, and its last visit (any
+    year). None when no visit ever monitored the partner. The figures are those of
+    ``/fmm/?partner=<id>&year=<year>&section=``, the panel's own link."""
     from . import metrics
     from .models import Visit
     from .scope import link
@@ -139,7 +139,7 @@ def partner_summary(partner_id: int, year: int) -> dict[str, Any] | None:
     limits = metrics.thresholds()
     scope = _scope(partner=partner_id, year=year)
     kpis = metrics.kpis(scope, metrics.stamp(), limits)
-    ratings = scope.visits().aggregate(
+    ratings = scope.records().aggregate(  # the partner's own records, as the link's rating filter reads
         off_track=Count("pk", filter=Q(rating="off_track")),
         constrained=Count("pk", filter=Q(rating="constrained")),
     )
@@ -168,14 +168,17 @@ def pd_summary(pd_id: int, year: int) -> dict[str, Any] | None:
     (``PlannedVisits`` q1-q4), its 3 latest visits (any year) and the block of :func:`pd_context` for the
     year. None when no visit ever monitored the PD and eTools plans none for the year. The visits are
     those of ``/fmm/?pd=<id>&year=<year>&section=``, the panel's own link."""
+    from django.db.models import Exists, OuterRef
+
     from neurodb.datamart.models import PlannedVisits
 
     from . import metrics
-    from .models import Visit
+    from .models import Visit, VisitEntity
     from .scope import link
 
     pd_id = int(pd_id)
-    every = Visit.objects.filter(pd_ids__contains=[pd_id])
+    # the visits with a record of the programme document, as the page's ``pd`` filter keeps them
+    every = Visit.objects.filter(Exists(VisitEntity.objects.filter(visit=OuterRef("pk"), pd_id=pd_id)))
     planned = PlannedVisits.objects.filter(intervention_id=pd_id, year=year).aggregate(
         rows=Count("pk"), q1=Sum("q1"), q2=Sum("q2"), q3=Sum("q3"), q4=Sum("q4")
     )

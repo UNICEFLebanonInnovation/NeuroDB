@@ -1,9 +1,9 @@
 """Monitoring insights counts as the overview and the field monitoring page do (§0.4, invariants 1-5):
 the visits of a calendar year with no filter equal the overview's field monitoring visits and the
-field monitoring page's "Monitoring activities"; the monitored entities equal its "Findings". A row
-without an activity reference is the one known difference, and the page's data note says so. The
-average quality is one figure everywhere, and the partner and PD pages' panels equal the page their
-link opens, for every user."""
+field monitoring page's "Monitoring activities"; the records (one per entity assessed) equal its
+"Findings". A row without an activity reference is the one known difference, and the page's data note
+says so. The average quality (per record) is one figure everywhere, and the partner and PD pages' panels
+equal the page their link opens, for every user."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def test_visits_and_entities_equal_the_overview_and_the_field_monitoring_page(bu
     page = services.monitoring({"year": "2026"})
     kpis = _fmm()
     assert kpis["visits"] == _overview_visits(reporting_year) == page["activities"] == 8
-    assert kpis["entities"] == page["findings"].count() == 12
+    assert kpis["records"] == page["findings"].count() == 12
     # another year: nothing on either side
     assert _fmm(2025)["visits"] == services.monitoring({"year": "2025"})["activities"] == 0
 
@@ -50,18 +50,19 @@ def test_a_row_without_a_reference_is_the_difference_and_the_note_says_so(built,
         == _overview_visits(reporting_year) + 1
         == services.monitoring({"year": "2026"})["activities"] + 1
     )
-    assert kpis["entities"] == services.monitoring({"year": "2026"})["findings"].count() == 13
+    assert kpis["records"] == services.monitoring({"year": "2026"})["findings"].count() == 13
     notes = metrics.notes(Scope.from_params({"year": "2026", "section": ""}))
     assert {"key": "no_reference", "n": 1} in notes
 
 
 def test_the_average_quality_is_one_definition(built):
-    from neurodb.fmm.models import Visit
+    from neurodb.fmm.models import VisitEntity
     from neurodb.fmm.score import average_quality
 
+    # per record, as FMS: the mean of the records' own scores (not of the visits' means)
     scope = Scope.from_params({"year": "2026", "section": ""})
-    scores = list(Visit.objects.values_list("quality_score", flat=True))
-    assert _fmm()["avg_quality"] == metrics.avg_quality(scope.visits()) == average_quality(scores)
+    scores = list(VisitEntity.objects.values_list("quality_score", flat=True))
+    assert _fmm()["avg_quality"] == metrics.avg_quality(scope.records()) == average_quality(scores)
 
 
 @pytest.mark.parametrize(
@@ -78,11 +79,11 @@ def test_the_average_quality_tile_equals_the_analysis_highlight(built, client_vi
         reverse("fmm:dashboard"), {"tab": "analysis", "year": "2026", "section": "", **params}
     )
     text = " ".join(re.sub(r"<[^>]+>", " ", html.content.decode()).split())
-    tile = re.search(r"Average quality score ([\d.]+%|—)", text).group(1)
-    highlight = re.search(r"([\d.]+%|—) Average quality · \d+ scored visits?", text).group(1)
+    tile = re.search(r"Average quality score \(per record\) ([\d.]+%|—)", text).group(1)
+    highlight = re.search(r"([\d.]+%|—) Average quality · \d+ scored records?", text).group(1)
     expected = metrics.kpis(scope)["avg_quality"]
     assert tile == highlight == (f"{expected}%" if expected is not None else "—")
-    assert metrics.highlights(scope)["avg_quality"] == expected == metrics.avg_quality(scope.visits())
+    assert metrics.highlights(scope)["avg_quality"] == expected == metrics.avg_quality(scope.records())
     # the AI brief's facts, sent and checked against, carry the same figure (stage 6b)
     from neurodb.fmm.ai import facts
 
@@ -179,7 +180,7 @@ def test_a_visit_across_the_new_year_counts_in_its_start_year_on_every_page(buil
     for year, visits in ((2025, 1), (2026, 8)):
         page = services.monitoring({"year": str(year)})
         assert _fmm(year)["visits"] == _overview_visits(reporting_year, year) == page["activities"] == visits
-        assert _fmm(year)["entities"] == page["findings"].count()
+        assert _fmm(year)["records"] == page["findings"].count()
     panel = fmm_services.partner_summary(mercy.pk, 2025)
     scope = Scope.from_params({"year": "2025", "partner": str(mercy.pk), "section": ""})
     assert panel["visits"] == metrics.kpis(scope)["visits"] == 1

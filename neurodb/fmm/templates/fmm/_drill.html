@@ -1,34 +1,37 @@
 {% load i18n ui %}
+{% comment %}The records behind a chart cell or a count (views.drill), most urgent first: FMS's columns (SPEC4
+§8.6), one row per record, each opening its visit's page at the record.{% endcomment %}
 <div class="modal-header visit-modal">
   <div>
     <div class="small text-muted">{{ scope.label }}</div>
-    <h2 class="modal-title h5" id="modal-title">{% blocktrans count n=total %}{{ n }} visit{% plural %}{{ n }} visits{% endblocktrans %}</h2>
+    <h2 class="modal-title h5" id="modal-title">{% blocktrans count n=total %}{{ n }} record{% plural %}{{ n }} records{% endblocktrans %} <span class="small text-muted fw-normal">· {% blocktrans count n=visits %}{{ n }} visit{% plural %}{{ n }} visits{% endblocktrans %}</span> <span class="fmm-info" tabindex="0" role="note" title="{{ glossary }}" aria-label="{{ glossary }}">ⓘ</span></h2>
   </div>
   <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
 </div>
 <div class="modal-body fmm-drill">
   {% if chips %}<div class="chips mb-2">{% for chip in chips %}<span class="chip">{{ chip.label }}</span>{% endfor %}</div>{% endif %}
-  {% if visits %}
+  {% if records %}
   <div class="table-wrap"><table class="table table-sm fmm-visits">
-    <thead><tr><th scope="col">{% trans "Visit" %}</th><th scope="col">{% trans "Date" %}</th><th scope="col">{% trans "Entity" %}</th><th scope="col">{% trans "Partner" %}</th><th scope="col">{% trans "PD number" %}</th><th scope="col">{% trans "Location" %}</th><th scope="col">{% trans "Section" %}</th><th scope="col">{% trans "Rating" %}</th><th scope="col">{% trans "Quality" %}</th><th scope="col">{% trans "Urgency" %}</th><th scope="col">{% trans "Flags" %}</th></tr></thead>
-    <tbody>{% for v in visits %}{% url 'fmm:visit' v.key as visit_url %}
-    <tr data-key="{{ v.key }}"{% if v.row_band %} class="row--{{ v.row_band }}"{% endif %}>
-      <td class="text-nowrap"><a href="{{ visit_url }}" hx-get="{{ visit_url }}" hx-target="#modal-content">{{ v.label }}</a></td>
-      <td class="small text-nowrap"{% if v.end_date and v.end_date != v.visit_date %} title="{% blocktrans with day=v.end_date|date:'j M Y' %}Ends {{ day }}{% endblocktrans %}"{% endif %}>{{ v.visit_date|date:"j M Y"|default:"—" }}</td>
-      <td class="small">{% if v.entity %}<span data-synced title="{{ v.entity }}">{{ v.entity|truncatechars:60 }}</span>{% else %}—{% endif %}</td>
-      <td class="small">{% if v.partner %}<span data-synced>{{ v.partner.name|default:v.partner.short_name }}</span>{% else %}—{% endif %}</td>
-      <td class="small mono text-nowrap">{% if v.pd_numbers %}<span data-synced>{{ v.pd_numbers.0 }}</span>{% if v.pd_numbers|length > 1 %} +{{ v.pd_numbers|length|add:"-1" }}{% endif %}{% else %}—{% endif %}</td>
+    <thead><tr><th scope="col">{% trans "Visit" %}</th><th scope="col">{% trans "Entity" %}</th><th scope="col">{% trans "Type" %}</th><th scope="col">{% trans "Partner" %}</th><th scope="col">{% trans "PD number" %}</th><th scope="col">{% trans "Location" %}</th><th scope="col">{% trans "Section" %}</th><th scope="col">{% trans "Visit date" %}</th><th scope="col">{% trans "Rating" %}</th><th scope="col">{% trans "Quality" %}</th><th scope="col">{% trans "Urgency" %}</th><th scope="col">{% trans "Flags" %}</th></tr></thead>
+    <tbody>{% for r in records %}{% with v=r.visit %}{% url 'fmm:visit' v.key as visit_url %}
+    <tr data-key="{{ v.key }}" data-record="{{ r.datamart_id }}"{% if r.row_band %} class="row--{{ r.row_band }}"{% endif %}>
+      <td class="text-nowrap"><a href="{{ visit_url }}#record-{{ r.datamart_id }}" hx-get="{{ visit_url }}" hx-target="#modal-content">{{ v.label }}</a></td>
+      <td class="small">{% if r.name %}<span data-synced title="{{ r.name }}">{{ r.name|truncatechars:60 }}</span>{% else %}—{% endif %}</td>
+      <td class="small text-nowrap"><span class="fmm-type fmm-type--{{ r.kind|default:'other' }}">{{ r.kind_label }}</span></td>
+      <td class="small">{% if r.partner %}<span data-synced>{{ r.partner.name|default:r.partner.short_name }}</span>{% else %}—{% endif %}</td>
+      <td class="small mono text-nowrap">{% if r.pd %}<span data-synced>{{ r.pd.number }}</span>{% else %}—{% endif %}</td>
       <td class="small"><span data-synced>{{ v.place_name|default:"—" }}</span>{% if v.governorate_name %}<span class="cell-sub" data-synced>{{ v.governorate_name }}</span>{% endif %}</td>
       <td class="small"><span data-synced>{{ v.section_names|join:", "|default:"—" }}</span></td>
-      <td class="text-nowrap">{% status_pill v.rating v.rating_label "sm" %}<span class="cell-sub">{% if v.not_rated_yet %}{% blocktrans with day=v.end_date|date:"j M Y"|default:"—" %}ends {{ day }}{% endblocktrans %}{% else %}{% blocktrans with day=v.end_date|date:"j M Y"|default:"—" %}rated {{ day }}{% endblocktrans %}{% endif %}</span></td>
-      <td class="text-nowrap">{% if v.quality_score is not None %}<span class="fmm-score fmm-score--{{ v.score_band|default:'none' }}">{{ v.quality_score|percent }}</span>{% elif v.score_band == "pending" %}<span class="pill pill--sm pill--neutral" title="{{ v.not_scored_reason }}">{% trans "Pending" %}</span>{% else %}<span class="text-muted" title="{{ v.not_scored_reason }}">—</span>{% endif %}</td>
-      <td><span class="pill pill--sm pill--{% if v.row_band == 'red' %}danger{% elif v.row_band == 'amber' %}warning{% else %}neutral{% endif %}" title="{{ v.urgency_title }}">{{ v.urgency|default_if_none:"—" }}</span></td>
-      <td>{% if v.flags %}{% for f in v.flags %}<span class="pill pill--sm pill--danger">{{ f }}</span> {% endfor %}{% elif v.evaluated_rules %}<span class="text-success small">✓ {% trans "No flags" %}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
-    </tr>{% endfor %}</tbody>
+      <td class="small text-nowrap"{% if v.end_date and v.end_date != v.visit_date %} title="{% blocktrans with day=v.end_date|date:'j M Y' %}Ends {{ day }}{% endblocktrans %}"{% endif %}>{{ v.visit_date|date:"j M Y"|default:"—" }}</td>
+      <td class="text-nowrap">{% status_pill r.rating r.rating_label "sm" %}<span class="cell-sub">{% if r.not_rated_yet %}{% blocktrans with day=v.end_date|date:"j M Y"|default:"—" %}ends {{ day }}{% endblocktrans %}{% else %}{% blocktrans with day=v.end_date|date:"j M Y"|default:"—" %}rated {{ day }}{% endblocktrans %}{% endif %}</span></td>
+      <td class="text-nowrap">{% if r.quality_score is not None %}<span class="fmm-score fmm-score--{{ r.score_band|default:'none' }}">{{ r.quality_score|percent }}</span>{% elif r.score_band == "pending" %}<span class="pill pill--sm pill--neutral" title="{{ r.not_scored_reason }}">{% trans "Pending" %}</span>{% else %}<span class="text-muted" title="{{ r.not_scored_reason }}">—</span>{% endif %}</td>
+      <td><span class="pill pill--sm pill--{% if r.row_band == 'red' %}danger{% elif r.row_band == 'amber' %}warning{% else %}neutral{% endif %}" title="{{ r.urgency_title }}">{{ r.urgency|default_if_none:"—" }}</span></td>
+      <td>{% if r.flags %}{% for f in r.flags %}<span class="pill pill--sm pill--danger">{{ f }}</span> {% endfor %}{% elif r.evaluated_rules %}<span class="text-success small">✓ {% trans "No flags" %}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+    </tr>{% endwith %}{% endfor %}</tbody>
   </table></div>
-  {% if more %}<p class="small text-muted mb-2">{% blocktrans count n=more %}{{ n }} more visit is in the Visits tab.{% plural %}{{ n }} more visits are in the Visits tab.{% endblocktrans %}</p>{% endif %}
+  {% if more %}<p class="small text-muted mb-2">{% blocktrans count n=more %}{{ n }} more record is in the records list.{% plural %}{{ n }} more records are in the records list.{% endblocktrans %}</p>{% endif %}
   {% else %}
-  {% include "components/empty_state.html" with title=_("No visits in this filter — widen the period") %}
+  {% include "components/empty_state.html" with title=_("No records in this filter — widen the period") %}
   {% endif %}
-  <p class="mb-0"><a class="btn btn-outline-primary btn-sm" href="{{ visits_url }}">{% trans "Open in the Visits tab" %}</a></p>
+  <p class="mb-0"><a class="btn btn-outline-primary btn-sm" href="{{ records_url }}">{% trans "Open in the records list" %}</a></p>
 </div>

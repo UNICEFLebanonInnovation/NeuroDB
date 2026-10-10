@@ -1,13 +1,25 @@
-"""The filter of the Monitoring insights page (:class:`Scope`): which visits a page, a link, a chart cell
-or a chat answer is about.
+"""The filter of the Monitoring insights page (:class:`Scope`): which records and visits a page, a link, a
+chart cell or a chat answer is about.
 
-A scope is a period (a preset such as "this year" or "all time", a calendar year or two dates) and
-filters on the visits: sections, governorate, field offices, partners, a programme document, entity
-types, ratings, status groups, monitoring modalities, quality bands (High, Medium, Low, Pending: no
-score), urgency levels (High, Medium, Low; a visit without a score has none), programmatic visits only,
-a search text, and the drill-downs that charts and links add. Periods read the visit's start date
-(``Visit.visit_date``: the start date, else the end date when eTools has no start date); a visit
-with neither is left out of every period.
+A **visit** is one eTools monitoring activity; it holds one **record** per entity assessed (a partner,
+CP output or PD/SSFA: ``VisitEntity``), each scored, flagged and given an urgency on its own, as FMS
+does. A scope is a period (a preset such as "this year" or "all time", a calendar year or two dates)
+and filters of two kinds:
+
+- **visit filters**, on what belongs to the visit: sections, governorate, field offices, status groups,
+  monitoring modalities, programmatic visits only, a search text, and the drill-downs of a month, an
+  eTools status, a visit rating, a place and a review;
+- **record filters**, on each record: entity types, partners, a programme document, ratings, quality
+  bands (High, Medium, Low, Pending: no score), urgency levels (High, Medium, Low; a record without a
+  score has none), and the drill-downs of a score bucket, a flag, a flag count, an urgency band, a
+  HACT Q1 answer and a rule result.
+
+:meth:`Scope.records` gives the records every filter keeps; :meth:`Scope.visits` the visits the visit
+filters keep, and, when a record filter is on, only those with at least one record it keeps: the
+visits counted are always the distinct visits of the records counted, so a filter gives the same
+numbers in both units. Records follow their visit for the period, status, sections, offices,
+governorate and modality. Periods read the visit's start date (``Visit.visit_date``: the start date,
+else the end date when eTools has no start date); a visit with neither is left out of every period.
 
 **Sections.** A user with a section sees it by default, as on the overview, but only on a bare visit
 to the page (no ``section`` key in the address). Every link FMM writes carries ``section`` explicitly
@@ -18,8 +30,8 @@ re-applies the default and the figures equal those of the page the link came fro
 the overview sends names; both are read with ``reports.overview.governorate_key``. "none" means the
 visits whose governorate is not known.
 
-**Entity-level filters** (entity type, partner) keep a visit when at least one of its entities
-matches; :meth:`Scope.entities` then counts the matching rows only.
+**Record filters** keep a visit when at least one of its records matches; the record figures count
+the matching records only (:attr:`Scope.record_filtered`).
 """
 
 from __future__ import annotations
@@ -103,6 +115,7 @@ REVIEW_STATES = ("reviewed", "follow_up", "data_issue", NONE)
 DRILL_KEYS = (
     "month",
     "visit_status",
+    "visit_rating",
     "hact_q1",
     "bucket",
     "flag",
@@ -114,6 +127,8 @@ DRILL_KEYS = (
     "rule_state",
     "review",
 )
+# The drill-downs that read each record (the others read its visit); rule_state is read with rule
+RECORD_DRILLS = frozenset({"hact_q1", "bucket", "flag", "flags", "urgency", "issue", "rule"})
 MAX_VALUES = 50  # values kept per filter
 Q_CHARS = 200
 _MONTH = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
@@ -126,8 +141,10 @@ def _drill_ok(key: str, value: str) -> bool:
         return bool(_MONTH.match(value))
     if key == "visit_status":  # an eTools status (the morning briefing's tiles)
         return value in fm.STATUSES
-    if key == "hact_q1":
-        return value in ("on_track", "constrained", "off_track", NONE)
+    if key == "visit_rating":  # the visit's own rating (its worst record's): the monitoring gaps
+        return value in RATINGS
+    if key == "hact_q1":  # a record's Q1; "not_monitored" also holds the records not monitored
+        return value in ("on_track", "constrained", "off_track", "not_monitored", NONE)
     if key == "bucket":
         return value in BUCKETS or value == NONE
     if key in ("flag", "rule"):
@@ -228,7 +245,7 @@ class Scope:
     partners: tuple[int, ...] = ()
     pd: int | None = None  # set by the PD page's link; shown as a removable chip
     entity_types: tuple[str, ...] = ()  # pd | cp_output | partner | other
-    ratings: tuple[str, ...] = ()  # visit rating: on_track | constrained | off_track | not_monitored
+    ratings: tuple[str, ...] = ()  # record rating: on_track | constrained | off_track | not_monitored
     statuses: tuple[str, ...] = ()  # status groups
     modalities: tuple[str, ...] = ()  # eTools' monitoring modality; "none" = not known
     quality_bands: tuple[str, ...] = ()  # high | medium | low | pending (no score)
@@ -320,108 +337,147 @@ class Scope:
         )
 
     # -------------------------------------------------------------------------------- querying
-    def filtered(self, qs: QuerySet | None = None) -> QuerySet:
-        """``qs`` (every visit by default) narrowed by every filter of the scope but the period."""
-        from .models import Visit
-
-        qs = Visit.objects.all() if qs is None else qs
-        if self.empty:
-            return qs.none()
+    def _visit_filters(self, qs: QuerySet, prefix: str = "") -> QuerySet:
+        """``qs`` narrowed by the visit filters and drill-downs; ``prefix`` "visit__" reads them through a
+        record's visit."""
         if self.sections:
             names = [s for s in self.sections if s != NONE]
-            match = Q(section_names__overlap=names) if names else Q(pk__in=[])
+            match = Q(**{f"{prefix}section_names__overlap": names}) if names else Q(pk__in=[])
             if NONE in self.sections:
-                match |= Q(section_names=[])
+                match |= Q(**{f"{prefix}section_names": []})
             qs = qs.filter(match)
         if self.governorate:
-            qs = qs.filter(governorate_key="" if self.governorate == NONE else self.governorate)
+            qs = qs.filter(
+                **{f"{prefix}governorate_key": "" if self.governorate == NONE else self.governorate}
+            )
         if self.offices:
             names = [o for o in self.offices if o != NONE]
-            match = Q(offices__overlap=names) if names else Q(pk__in=[])
+            match = Q(**{f"{prefix}offices__overlap": names}) if names else Q(pk__in=[])
             if NONE in self.offices:
-                match |= Q(offices=[])
-            qs = qs.filter(match)
-        if self.partners and self.entity_types:  # one entity must match both
-            from .models import VisitEntity
-
-            rows = VisitEntity.objects.filter(
-                visit=OuterRef("pk"), kind__in=self.entity_types, partner_id__in=self.partners
-            )
-            qs = qs.filter(Exists(rows))
-        elif self.partners:
-            qs = qs.filter(partner_ids__overlap=list(self.partners))
-        elif self.entity_types:
-            qs = qs.filter(entity_kinds__overlap=list(self.entity_types))
-        if self.pd is not None:
-            qs = qs.filter(pd_ids__contains=[self.pd])
-        if self.ratings:
-            # Not monitored (planned, not conducted) is a reported visit with nothing rated; a planned or
-            # in-progress one is not rated yet (metrics.counted_rating)
-            rated = [r for r in self.ratings if r != "not_monitored"]
-            match = Q(rating__in=rated) if rated else Q(pk__in=[])
-            if "not_monitored" in self.ratings:
-                match |= Q(rating="not_monitored", status_group="reported")
+                match |= Q(**{f"{prefix}offices": []})
             qs = qs.filter(match)
         if self.statuses:
-            qs = qs.filter(status_group__in=self.statuses)
+            qs = qs.filter(**{f"{prefix}status_group__in": self.statuses})
         if self.modalities:
             names = [m for m in self.modalities if m != NONE]
-            match = Q(modality__in=names) if names else Q(pk__in=[])
+            match = Q(**{f"{prefix}modality__in": names}) if names else Q(pk__in=[])
             if NONE in self.modalities:
-                match |= Q(modality="")
-            qs = qs.filter(match)
-        if self.quality_bands:
-            match = Q(pk__in=[])
-            for band in self.quality_bands:
-                match |= Q(quality_score__isnull=True) if band == "pending" else Q(score_band=band)
-            qs = qs.filter(match)
-        if self.urgency_levels:  # the bands the scoring gave, from the urgency thresholds (Score settings)
-            levels = {
-                "high": Q(urgency_band="red"),
-                "medium": Q(urgency_band="amber"),
-                "low": Q(urgency_band="", urgency__isnull=False),
-            }
-            match = Q(pk__in=[])
-            for level in self.urgency_levels:
-                match |= levels[level]
+                match |= Q(**{f"{prefix}modality": ""})
             qs = qs.filter(match)
         if self.programmatic:
-            qs = qs.filter(is_programmatic=True)
+            qs = qs.filter(**{f"{prefix}is_programmatic": True})
         if self.q:
             from .build import search_text
 
             needle = search_text(self.q)
             if needle:
-                qs = qs.filter(search__contains=needle)
+                qs = qs.filter(**{f"{prefix}search__contains": needle})
         for key, value in self.drill:
-            qs = _drill(qs, key, value, self.drill)
+            if key not in RECORD_DRILLS:
+                qs = _visit_drill(qs, key, value, prefix)
+        return qs
+
+    def _record_filters(self, qs: QuerySet, prefix: str = "") -> QuerySet:
+        """``qs`` (records) narrowed by the record filters and drill-downs; ``prefix`` "entity__" reads them
+        through a check result's record."""
+        p = prefix
+        if self.entity_types:
+            qs = qs.filter(**{f"{p}kind__in": self.entity_types})
+        if self.partners:
+            qs = qs.filter(**{f"{p}partner_id__in": self.partners})
+        if self.pd is not None:
+            qs = qs.filter(**{f"{p}pd_id": self.pd})
+        if self.ratings:
+            # Not monitored (planned, not conducted) is a record of a reported visit with nothing rated;
+            # on a planned or in-progress visit it is not rated yet (metrics.counted_rating)
+            rated = [r for r in self.ratings if r != "not_monitored"]
+            match = Q(**{f"{p}rating__in": rated}) if rated else Q(pk__in=[])
+            if "not_monitored" in self.ratings:
+                match |= Q(**{f"{p}rating": "not_monitored", f"{p}visit__status_group": "reported"})
+            qs = qs.filter(match)
+        if self.quality_bands:
+            match = Q(pk__in=[])
+            for band in self.quality_bands:
+                match |= (
+                    Q(**{f"{p}quality_score__isnull": True})
+                    if band == "pending"
+                    else Q(**{f"{p}score_band": band})
+                )
+            qs = qs.filter(match)
+        if self.urgency_levels:  # the bands the scoring gave, from the urgency thresholds (Score settings)
+            levels = {
+                "high": Q(**{f"{p}urgency_band": "red"}),
+                "medium": Q(**{f"{p}urgency_band": "amber"}),
+                "low": Q(**{f"{p}urgency_band": "", f"{p}urgency__isnull": False}),
+            }
+            match = Q(pk__in=[])
+            for level in self.urgency_levels:
+                match |= levels[level]
+            qs = qs.filter(match)
+        for key, value in self.drill:
+            if key in RECORD_DRILLS:
+                qs = _record_drill(qs, key, value, self.drill, p)
+        return qs
+
+    @property
+    def record_filtered(self) -> bool:
+        """A record filter or drill-down is on: the record figures count the matching records only, and
+        the visits are those with at least one of them."""
+        return bool(
+            self.entity_types
+            or self.partners
+            or self.pd is not None
+            or self.ratings
+            or self.quality_bands
+            or self.urgency_levels
+            or any(key in RECORD_DRILLS for key, _value in self.drill)
+        )
+
+    def filtered(self, qs: QuerySet | None = None) -> QuerySet:
+        """``qs`` (every visit by default) narrowed by every filter of the scope but the period: the visit
+        filters, and, when a record filter is on, the visits with at least one record it keeps."""
+        from .models import Visit, VisitEntity
+
+        qs = Visit.objects.all() if qs is None else qs
+        if self.empty:
+            return qs.none()
+        qs = self._visit_filters(qs)
+        if self.record_filtered:
+            qs = qs.filter(Exists(self._record_filters(VisitEntity.objects.filter(visit=OuterRef("pk")))))
         return qs
 
     def visits(self) -> QuerySet:
         """The visits of the scope: visit date (start, else end) in the period (a visit without one
-        is left out), every filter and drill-down applied."""
+        is left out), every filter and drill-down applied (the distinct visits of :meth:`records`)."""
         return self.filtered().filter(visit_date__gte=self.start, visit_date__lte=self.end)
 
     def undated(self) -> QuerySet:
         """The visits every filter but the period keeps that have no date at all (the data note)."""
         return self.filtered().filter(visit_date=None)
 
-    def entities(self) -> QuerySet:
-        """The finding rows of the scope's visits; the entity type and partner filters also filter the
-        rows themselves."""
+    def records(self) -> QuerySet:
+        """The records of the scope (``VisitEntity``): those of the visits of the period that every visit
+        filter keeps, narrowed by the record filters and drill-downs."""
         from .models import VisitEntity
 
-        qs = VisitEntity.objects.filter(visit__in=self.visits().values("pk"))
-        if self.entity_types:
-            qs = qs.filter(kind__in=self.entity_types)
-        if self.partners:
-            qs = qs.filter(partner_id__in=self.partners)
-        return qs
+        qs = VisitEntity.objects.all()
+        if self.empty:
+            return qs.none()
+        qs = self._visit_filters(qs, "visit__").filter(
+            visit__visit_date__gte=self.start, visit__visit_date__lte=self.end
+        )
+        return self._record_filters(qs)
 
-    @property
-    def entity_filtered(self) -> bool:
-        """An entity-level filter is on: the entity figures count the matching rows only."""
-        return bool(self.entity_types or self.partners)
+    def record_results(self, qs: QuerySet) -> QuerySet:
+        """``qs`` (``RecordRuleResult`` rows) narrowed to the checks of the records of the scope: the
+        filters of :meth:`records`, read through each result's record (joined once, not a list of the
+        records to look up)."""
+        if self.empty:
+            return qs.none()
+        qs = self._visit_filters(qs, "entity__visit__").filter(
+            entity__visit__visit_date__gte=self.start, entity__visit__visit_date__lte=self.end
+        )
+        return self._record_filters(qs, "entity__")
 
     # -------------------------------------------------------------------------------- identity
     def canonical(self) -> dict[str, Any]:
@@ -600,55 +656,81 @@ class Scope:
         return " · ".join(parts)
 
 
-def _drill(qs: QuerySet, key: str, value: str, drill: tuple[tuple[str, str], ...]) -> QuerySet:
-    """One drill-down applied to ``qs`` (codes only: see ``_drill_ok``)."""
-    from .models import VisitReview, VisitRuleResult
+def _visit_drill(qs: QuerySet, key: str, value: str, prefix: str = "") -> QuerySet:
+    """One visit drill-down applied to ``qs`` (visits, or records with ``prefix`` "visit__"; codes only:
+    see ``_drill_ok``)."""
+    from .models import VisitReview
 
     if key == "month":
         year, month = (int(part) for part in value.split("-"))
-        return qs.filter(visit_date__year=year, visit_date__month=month)
+        return qs.filter(**{f"{prefix}visit_date__year": year, f"{prefix}visit_date__month": month})
     if key == "visit_status":
-        return qs.filter(status=value)
-    if key == "hact_q1":
-        return qs.filter(hact_q1="" if value == NONE else value)
-    if key == "bucket":
-        if value == NONE:
-            return qs.filter(quality_score=None)
-        low, high = BUCKETS[value]
-        qs = qs.filter(quality_score__gte=low)
-        return qs.filter(quality_score__lte=high) if high == 100 else qs.filter(quality_score__lt=high)
-    if key == "flag":
-        return qs.filter(flags__contains=[value])
-    if key == "flags":
-        count, more = _FLAGS.match(value).groups()
-        qs = qs.exclude(quality_score=None)  # flags per visit count the scored visits
-        return qs.filter(flag_count__gte=int(count)) if more else qs.filter(flag_count=int(count))
-    if key == "urgency":  # "none": below amber; a visit without urgency (not scored) is in no band
-        if value == NONE:
-            return qs.filter(urgency_band="", urgency__isnull=False)
-        return qs.filter(urgency_band=value)
+        return qs.filter(**{f"{prefix}status": value})
+    if key == "visit_rating":  # the visit's own rating, Not monitored only for a reported visit
+        if value == "not_monitored":
+            return qs.filter(**{f"{prefix}rating": value, f"{prefix}status_group": "reported"})
+        return qs.filter(**{f"{prefix}rating": value})
     if key == "location":
-        return qs.filter(location_id=int(value))
-    if key == "issue":
-        rule, detail_key = _ISSUE.match(value).groups()
-        results = VisitRuleResult.objects.filter(
-            visit=OuterRef("pk"), rule=rule, detail_key=detail_key, status="fail"
-        )
-        return qs.filter(Exists(results))
-    if key == "rule":
-        state = dict(drill).get("rule_state", "fail")
-        return qs.filter(
-            Exists(VisitRuleResult.objects.filter(visit=OuterRef("pk"), rule=value, status=state))
-        )
+        return qs.filter(**{f"{prefix}location_id": int(value)})
     if key == "review":
-        latest = VisitReview.objects.filter(visit_key=OuterRef("key")).order_by("-created_at", "-pk")
+        latest = VisitReview.objects.filter(visit_key=OuterRef(f"{prefix}key")).order_by("-created_at", "-pk")
         qs = qs.annotate(_review=Subquery(latest.values("status")[:1]))
         return qs.filter(_review=None) if value == NONE else qs.filter(_review=value)
     if key == "q":
         from .build import search_text
 
-        return qs.filter(search__contains=search_text(value))
+        return qs.filter(**{f"{prefix}search__contains": search_text(value)})
     return qs  # rule_state is read with rule
+
+
+def _record_drill(
+    qs: QuerySet, key: str, value: str, drill: tuple[tuple[str, str], ...], prefix: str = ""
+) -> QuerySet:
+    """One record drill-down applied to ``qs`` (records, or check results with ``prefix`` "entity__";
+    codes only: see ``_drill_ok``)."""
+    from .models import RecordRuleResult
+
+    p = prefix
+    if key == "hact_q1":
+        if value == NONE:
+            return qs.filter(**{f"{p}hact_q1": ""})
+        if value == "not_monitored":  # its Q1 reads "not monitored", or nothing rated on a reported visit
+            return qs.filter(
+                Q(**{f"{p}hact_q1": value})
+                | Q(**{f"{p}rating": value, f"{p}visit__status_group": "reported"})
+            )
+        return qs.filter(**{f"{p}hact_q1": value})
+    if key == "bucket":
+        if value == NONE:
+            return qs.filter(**{f"{p}quality_score": None})
+        low, high = BUCKETS[value]
+        qs = qs.filter(**{f"{p}quality_score__gte": low})
+        if high == 100:
+            return qs.filter(**{f"{p}quality_score__lte": high})
+        return qs.filter(**{f"{p}quality_score__lt": high})
+    if key == "flag":
+        return qs.filter(**{f"{p}flags__contains": [value]})
+    if key == "flags":
+        count, more = _FLAGS.match(value).groups()
+        qs = qs.exclude(**{f"{p}quality_score": None})  # flags per record count the scored records
+        if more:
+            return qs.filter(**{f"{p}flag_count__gte": int(count)})
+        return qs.filter(**{f"{p}flag_count": int(count)})
+    if key == "urgency":  # "none": below amber; a record without urgency (not scored) is in no band
+        if value == NONE:
+            return qs.filter(**{f"{p}urgency_band": "", f"{p}urgency__isnull": False})
+        return qs.filter(**{f"{p}urgency_band": value})
+    record = OuterRef(f"{p}pk")
+    if key == "issue":
+        rule, detail_key = _ISSUE.match(value).groups()
+        results = RecordRuleResult.objects.filter(
+            entity=record, rule=rule, detail_key=detail_key, status="fail"
+        )
+        return qs.filter(Exists(results))
+    if key == "rule":
+        state = dict(drill).get("rule_state", "fail")
+        return qs.filter(Exists(RecordRuleResult.objects.filter(entity=record, rule=value, status=state)))
+    return qs
 
 
 def link(**params: Any) -> str:

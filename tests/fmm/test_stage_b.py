@@ -350,10 +350,13 @@ def test_what_quality_means_lists_the_thresholds_and_the_core_and_additional_rul
 
 def test_points_by_category_rule_analysis_and_flag_frequency(built, client_viewer):
     rows = {r["code"]: r for r in metrics.dimension_breakdown(_scope())["rows"]}
-    assert rows["completeness"]["max"] == 30 and rows["completeness"]["earned"] == Decimal("23.9")
+    # per record (Release 2 step 5): the mean over the 10 scored records, each with its own deductions
+    assert rows["completeness"]["max"] == 30 and rows["completeness"]["earned"] == Decimal("24.3")
+    assert rows["completeness"]["records"] == 10
     analysis = {r["code"]: r for r in metrics.rule_analysis(_scope())}
     assert [r["code"] for r in metrics.rule_analysis(_scope())][:4] == ["R1", "R2", "R3", "R4"]
-    assert analysis["R23"]["flag_only"] and analysis["R1"]["flagged"] == 6
+    assert analysis["R23"]["flag_only"]
+    assert (analysis["R1"]["flagged"], analysis["R1"]["evaluated"]) == (8, 10)  # records
     frequency = {r["code"] for r in metrics.flag_frequency(_scope())["rows"]}
     assert {"R1", "R2", "R19", "R20", "R23", "R32", "R7", "R8"} <= frequency
     html = client_viewer.get(PAGE, {"year": "2026", "section": "", "tab": "analysis"}, HTTP_HX_REQUEST="true")
@@ -363,16 +366,26 @@ def test_points_by_category_rule_analysis_and_flag_frequency(built, client_viewe
 
 def test_the_visit_page_lists_each_rules_result_and_its_points_off(built, client_viewer):
     html = client_viewer.get("/fmm/visits/1723/").content.decode()
-    quality = html.split("Quality checks", 1)[1].split("Questions and answers", 1)[0]
-    assert 'data-rule="R1"' in quality and 'data-rule="R2"' in quality
-    assert "R2: Only 33.3% of monitoring questions answered" in quality
-    assert "Switched off:" in quality and "R3" in quality.split("Switched off:", 1)[1]
-    # the means of its two records' deductions
-    assert "100 less Completeness 17, Coherence 15, Evidence 10, Alignment 10" in html
+    # a card per record, each with its own results: the SSFA answered 33.3% of its questions, the partner none
+    cards = dict(re.findall(r'<article class="fmm-record[^"]*" id="record-(\d+)"(.*?)</article>', html, re.S))
+    ssfa, partner = cards["111"], cards["112"]
+    assert 'data-rule="R1"' in ssfa and 'data-rule="R2"' in ssfa and 'data-rule="R2"' in partner
+    assert "R2: Only 33.3% of monitoring questions answered" in ssfa
+    assert "R2: Only 0% of monitoring questions answered" in partner
+    # the checks of the whole visit (R19) once, then the rules switched off (R3 ran on each record)
+    whole = html.split("Checks of the whole visit", 1)[1].split("Questions and answers", 1)[0]
+    assert whole.count('data-rule="R19"') == 1 and 'data-rule="R1"' not in whole
+    switched = whole.split("Switched off:", 1)[1]
+    assert "R4," in switched and not re.search(r"\bR3\b", switched)
+    # each record's own deductions
+    text = " ".join(re.sub(r"<[^>]+>", " ", html).split())
+    assert "100 less Alignment 20, Completeness 17, Coherence 15" in text  # the SSFA's
+    assert "100 less Evidence 20, Completeness 17, Coherence 15" in text  # the partner's
 
 
 def test_a_recurring_issue_is_named_from_the_rules_flag(built):
     labels = {row["drill"]: row["label"] for row in metrics.top_issues(_scope(), 30)}
-    assert labels["R2:band"] == "R2: Only 33.3% of monitoring questions answered (target: 80%+)"
+    # the band of its records' measures: 1723's partner answered none of its questions, its SSFA 33.3%
+    assert labels["R2:band"] == "R2: Only 0–33.3% of monitoring questions answered (target: 80%+)"
     assert any(label.startswith("R1: Incomplete monitoring report — missing:") for label in labels.values())
     assert rules.render("x {value}") == "x"

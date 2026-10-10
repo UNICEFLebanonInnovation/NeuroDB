@@ -1169,6 +1169,19 @@ a.fmm-rating-pill:hover, a.fmm-rating-pill:focus-visible { color: #fff; filter: 
 .fmm-office-chip { padding: 0.08rem 0.4rem; border-radius: 4px; font-family: var(--nd-font-mono); font-size: 0.75rem; }
 .fmm-office-chip--warning { background: var(--fmm-tint-yellow); color: var(--fmm-ink-amber); }
 .fmm-office-chip--danger { background: var(--fmm-tint-red); color: var(--nd-danger); }
+/* a visit's records (the visit page): one card each, tinted by its urgency band */
+.fmm-record { margin-bottom: 0.75rem; padding: 0.7rem 0.85rem; border: 1px solid var(--nd-border); border-left: 4px solid var(--nd-border); border-radius: var(--nd-radius-sm); scroll-margin-top: 4.5rem; }
+.fmm-record:last-child { margin-bottom: 0; }
+.fmm-record:target { box-shadow: 0 0 0 2px var(--nd-primary); }
+.fmm-record--red { border-left-color: var(--nd-danger); background: var(--fmm-tint-red); }
+.fmm-record--amber { border-left-color: var(--fmm-ink-amber); background: var(--fmm-tint-yellow); }
+.fmm-record__head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 0.4rem 0.75rem; margin-bottom: 0.45rem; }
+.fmm-record__title { margin-top: 0.2rem; overflow-wrap: anywhere; }
+.fmm-record__score { font-size: 0.85rem; }
+.fmm-record__rules summary { color: var(--nd-muted); }
+/* the Records tab: records or grouped by visit, with what a record is */
+.fmm-view-toggle .segmented { flex: none; }
+.fmm-glossary { max-width: 70ch; }
 /* the visits table's rows per page */
 .fmm-page-size { display: inline-flex; align-items: center; gap: 0.35rem; }
 .fmm-page-size__opt { padding: 0.05rem 0.45rem; border-radius: var(--nd-radius-sm); text-decoration: none; }

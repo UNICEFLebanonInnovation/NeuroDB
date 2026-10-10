@@ -1,9 +1,9 @@
 """The Monitoring insights page (``/fmm/``): its shell, filters, key figures and tabs.
 
 On ``fm_world`` built on 5 October 2026 with its AI checks (conftest ``built``): 8 visits dated in 2026
-(6 reported, 1 in progress, 1 cancelled), 12 finding rows (8 rated, 2 not monitored), 6 scored visits
-averaging 79.7% (1722 94.3, 1723 48, 1726 88, 1727 80, 1728 93, the one known by its reference only 75),
-no red visit and one amber (1723, urgency 58).
+(6 reported, 1 in progress, 1 cancelled) holding 12 records (8 rated, 2 not monitored), 10 scored records
+averaging 80.3% (1722's 95, 95 and 93, 1723's 48 and 48, 1726's 88 and 88, 1727's 80, 1728's 93, the
+reference visit's 75), no red record and two amber (1723's, urgency 58).
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from neurodb.datamart import fm
 from neurodb.datamart import models as dm
 from neurodb.fmm import refresh
 from neurodb.fmm import scope as scope_module
-from neurodb.fmm.models import RuleSetVersion, Visit, VisitReview
+from neurodb.fmm.models import RuleSetVersion, Visit, VisitEntity, VisitReview
 from neurodb.fmm.scope import Scope, link
 from neurodb.reports.overview import governorate_key
 
@@ -67,14 +67,14 @@ def test_the_page_opens_for_a_viewer_with_its_key_figures(built, client_viewer):
     assert "<title>Monitoring insights ·" in html
     text = " ".join(visible(html).split())
     assert "Monitoring visits 8 6 reported · 1 in progress · 0 planned · 1 cancelled" in text
-    assert "Monitored entities 12 8 rated · 2 not monitored · 1 not rated yet · 1 other" in text
-    assert "Average quality score 79.7% on 6 scored visits · rules v2" in text
-    assert "High urgency 0 ≥ 70 · 1 amber (40–69)" in text
+    assert "Records 12 8 rated · 2 not monitored · 1 not rated yet · 1 other" in text
+    assert "Average quality score (per record) 80.3% on 10 scored records · rules v2" in text
+    assert "High urgency (records) 0 ≥ 70 · 2 amber (40–69)" in text
     assert "Showing 1 Jan – 31 Dec 2026 · Lebanon" in text
     assert "scores computed" in text and "with quality rules v2" in text
     assert "What does quality mean for Lebanon?" in html and "Field Office - Team Member Validation" in html
     assert 'class="kpi kpi--off_track"' not in html  # the high urgency tile is red while any visit is
-    assert "View urgent visits →" in html
+    assert "View urgent records →" in html
     assert 'hx-get="/fmm/insights/?section=" hx-trigger="load"' in html  # the AI brief loads on its own
 
 
@@ -82,7 +82,7 @@ TAB_MARKERS = {
     "insights": 'hx-get="/fmm/insights/?',
     "quality": "Top recurring issues",
     "analysis": "Programmatic visits and HACT",
-    "visits": "Monitoring visits — detail and flags",
+    "visits": "Records — detail and flags",
     "map": "Visit locations map",
 }
 
@@ -103,7 +103,7 @@ def test_each_tab_is_an_htmx_partial(built, client_viewer, tab):
 def test_the_tab_bar_lists_the_tabs_of_this_stage_with_the_scope(built, client_viewer):
     html = client_viewer.get(PAGE, {"year": "2026", "rating": "off_track"}).content.decode()
     nav = html.split('class="segmented segmented--scroll fmm-tabs"', 1)[1].split("</nav>", 1)[0]
-    assert re.findall(r">(\w+)</a>", nav) == ["Insights", "Quality", "Analysis", "Visits", "Map"]
+    assert re.findall(r">(\w+)</a>", nav) == ["Insights", "Quality", "Analysis", "Records", "Map"]
     assert "year=2026&amp;section=&amp;rating=off_track&amp;tab=visits" in nav
     assert 'hx-target="#fmm-results"' in nav and 'hx-push-url="true"' in nav
 
@@ -119,8 +119,10 @@ def test_an_empty_database_shows_the_empty_states(db, client_viewer):
 
 def test_a_filter_with_no_visit_offers_to_clear_it(built, client_viewer):
     html = client_viewer.get(PAGE, {"tab": "visits", "year": "2025"}).content.decode()
-    assert "No visits in this filter — widen the period" in html
+    assert "No records in this filter — widen the period" in html
     assert "Clear filters" in html and "Try this year" in html
+    html = client_viewer.get(PAGE, {"tab": "visits", "year": "2025", "view": "visits"}).content.decode()
+    assert "No visits in this filter — widen the period" in html
 
 
 def test_a_signed_out_visitor_is_sent_to_sign_in(db, client):
@@ -203,7 +205,9 @@ def test_the_year_menu_keeps_the_page_and_its_filters(built, client_viewer, repo
         ({"q": "fm/2026/9"}, {REFERENCE_KEY}),
         ({"month": "2026-05"}, {"1722"}),
         ({"hact_q1": "constrained"}, {"1723", "1727"}),
-        ({"hact_q1": "none"}, {"1724", "1725", "1728"}),
+        # the record drills keep the visits with one record that matches (a record's own Q1)
+        ({"hact_q1": "none"}, {"1722", "1723", "1724", "1725", "1728"}),
+        ({"hact_q1": "not_monitored"}, {"1723"}),  # nothing rated on a reported visit
         ({"bucket": "40-60"}, {"1723"}),
         ({"bucket": "60-80"}, {REFERENCE_KEY}),
         ({"bucket": "80-90"}, {"1726", "1727"}),
@@ -211,11 +215,11 @@ def test_the_year_menu_keeps_the_page_and_its_filters(built, client_viewer, repo
         ({"bucket": "none"}, {"1724", "1725"}),
         ({"flag": "R1"}, {"1722", "1723", "1726", "1727", "1728", REFERENCE_KEY}),
         ({"flag": "R23"}, {"1722", "1723", "1728"}),
-        ({"flags": "2"}, {"1727", "1728", REFERENCE_KEY}),
-        ({"flags": "1"}, set()),
-        ({"flags": "3+"}, {"1722", "1723", "1726"}),
+        ({"flags": "2"}, {"1722", "1727", "1728", REFERENCE_KEY}),
+        ({"flags": "1"}, {"1722"}),  # its PD record: R7 only
+        ({"flags": "3+"}, {"1723", "1726"}),
         ({"flags": "1+"}, {"1722", "1723", "1726", "1727", "1728", REFERENCE_KEY}),
-        ({"urgency": "red"}, set()),  # FMS's urgency: 1723 59, 1727 39, 1726 37, 1722 24, ref 23, 1728 14
+        ({"urgency": "red"}, set()),  # each record's: 1723's 58, 1727's 39, 1726's 37, ref 23, 1722's 19
         ({"urgency": "amber"}, {"1723"}),
         ({"urgency": "none"}, {"1722", "1726", "1727", "1728", REFERENCE_KEY}),  # unscored ones have none
         ({"modality": "none"}, ALL),
@@ -234,6 +238,8 @@ def test_the_year_menu_keeps_the_page_and_its_filters(built, client_viewer, repo
         ({"rule": "R32", "rule_state": "fail"}, {"1726"}),
         ({"issue": "R3:ai"}, {"1723"}),
         ({"issue": "R1:missing:3"}, {"1726"}),
+        ({"visit_rating": "not_monitored"}, {"1723"}),  # the visit's own rating: the monitoring gaps
+        ({"visit_rating": "off_track"}, {"1722", REFERENCE_KEY}),
         ({"month": "May 2026"}, ALL),  # a drawn label is not a drill value: ignored
         ({"bucket": "80–100"}, ALL),
     ],
@@ -254,7 +260,7 @@ def test_an_entity_must_match_the_partner_and_the_entity_type_together(built, fm
     assert _keys({"partner": str(amel.pk), "entity_type": "partner"}) == {"1722"}
     assert _keys({"partner": str(mercy.pk), "entity_type": "cp_output"}) == set()
     scope = Scope.from_params({"partner": str(mercy.pk), "entity_type": "partner", "section": ""})
-    assert scope.entities().count() == 1  # the partner row of 1723
+    assert scope.records().count() == 1  # the partner record of 1723
 
 
 def test_a_drill_on_the_latest_review(built, admin_user):
@@ -266,11 +272,13 @@ def test_a_drill_on_the_latest_review(built, admin_user):
     assert _keys({"review": "none"}) == ALL - {"1722", "1723"}
 
 
-def test_entity_filters_count_the_matching_rows_only(built, client_viewer):
+def test_record_filters_count_the_matching_records_only(built, client_viewer):
     html = client_viewer.get(PAGE, {"entity_type": "partner"}).content.decode()
     text = " ".join(visible(html).split())
-    assert "Monitoring visits 2" in text and "Monitored entities 2 1 rated · 1 not monitored" in text
-    assert "Monitored entities counts only the finding rows that match" in text
+    assert "Monitoring visits 2" in text and "Records 2 1 rated · 1 not monitored" in text
+    assert "The record figures count only the records that match" in text
+    # the average is the partners' own records' (1722's 93, 1723's 48)
+    assert "Average quality score (per record) 70.5% on 2 scored records" in text
 
 
 def test_a_pd_from_a_link_shows_as_a_removable_chip(built, client_viewer, fm_world):
@@ -286,7 +294,8 @@ def test_drill_values_show_as_removable_chips_and_go_with_the_filter_bar(built, 
     html = client_viewer.get(PAGE, {"urgency": "amber", "section": ""}).content.decode()
     assert "Urgency: amber" in html
     assert '<input type="hidden" name="urgency" value="amber" form="fmm-filters">' in html
-    assert "Monitoring visits 1" in " ".join(visible(html).split())
+    text = " ".join(visible(html).split())
+    assert "Monitoring visits 1" in text and "Records 2" in text  # 1723 and its two amber records
 
 
 # ------------------------------------------------------------------------------------------ sections
@@ -381,23 +390,25 @@ def test_no_forbidden_word_none_or_nan_on_the_page(built, client_viewer):
 
 
 def test_a_reference_date_next_to_every_rating_and_status(built, client_viewer):
-    html = client_viewer.get(PAGE, {"tab": "visits"}).content.decode()
-    body = html.split('id="fmm-visits-table"', 1)[1].split("</table>", 1)[0]
-    rows = re.findall(r"<tr data-href.*?</tr>", body, re.S)
-    assert len(rows) == 8
-    for row in rows:
-        rating = re.search(r'data-status="[a-z_]+".*?</span>(.*?)</td>', row, re.S)
-        assert rating and re.search(r"(rated|ends) \d{1,2} \w{3} 2026", rating.group(1)), row
+    for params, n in (({"tab": "visits"}, 12), ({"tab": "visits", "view": "visits"}, 8)):
+        html = client_viewer.get(PAGE, params).content.decode()
+        body = html.split('id="fmm-visits-table"', 1)[1].split("</table>", 1)[0]
+        rows = re.findall(r"<tr data-href.*?</tr>", body, re.S)
+        assert len(rows) == n
+        for row in rows:
+            rating = re.search(r'data-status="[a-z_]+".*?</span>(.*?)</td>', row, re.S)
+            assert rating and re.search(r"(rated|ends) \d{1,2} \w{3} 2026", rating.group(1)), row
     page = client_viewer.get(reverse("fmm:visit", args=["1722"])).content.decode()
     assert re.search(
         r'data-status="reported".*?</span>\s*<span[^>]*>as of (eTools sync \d|the last eTools sync)',
         page,
         re.S,
     )
-    entities = page.split("Monitored entities</h3>", 1)[1].split("</table>", 1)[0]
-    for row in re.findall(r"<tr>.*?</tr>", entities.split("<tbody>", 1)[1], re.S):
-        rating = row.split("</td>", 2)[1]
-        assert re.search(r"rated 12 May 2026", rating), row
+    cards = re.findall(r'<article class="fmm-record.*?</article>', page, re.S)
+    assert len(cards) == 3
+    for card in cards:
+        rating = card.split(">Rating</dt>", 1)[1].split("</dd>", 1)[0]
+        assert re.search(r"rated 12 May 2026", rating), card
 
 
 def test_how_scores_work_lists_the_rules_and_links_administrators_to_their_settings(
@@ -446,13 +457,13 @@ def test_each_tab_and_the_page_stay_within_their_query_budget(
     from django.core.cache import cache
 
     # stage C: +2, +3 for the extras (the NeuroDB action points in the cache stamp, the visits they follow
-    # up)
+    # up); per record (stage F3): +2, the key figures and the one pass read the visits, then their records
     for tab in ("insights", "quality", "analysis", "visits", "map"):
         cache.clear()
-        with django_assert_max_num_queries(22):
+        with django_assert_max_num_queries(24):
             client_viewer.get(PAGE, {"tab": tab}, HTTP_HX_REQUEST="true")
         cache.clear()
-        with django_assert_max_num_queries(32):
+        with django_assert_max_num_queries(34):
             client_viewer.get(PAGE, {"tab": tab})
     # the parts a tab loads when they are reached or opened (the entity table, a place list's "Show
     # all") are tab partials too, within the same budget
@@ -464,7 +475,7 @@ def test_each_tab_and_the_page_stay_within_their_query_budget(
     ):
         cache.clear()
         # the entity table's own queries on top of the tab's
-        with django_assert_max_num_queries(24):
+        with django_assert_max_num_queries(26):
             response = client_viewer.get(PAGE, extra, HTTP_HX_REQUEST="true")
         assert response.status_code == 200, extra
 
@@ -476,7 +487,7 @@ def test_the_data_note_counts_rows_without_a_reference(built, client_viewer):
     dm.MonitoringFinding.objects.create(datamart_id=998, overall_finding_rating="On Track")  # no date
     refresh.run(triggered_by="test", today=TODAY)
     text = " ".join(visible(client_viewer.get(PAGE).content.decode()).split())
-    assert "1 finding row has no activity reference and counts as its own visit here" in text
+    assert "1 record has no activity reference and counts as its own visit here" in text
     assert "1 visit has no start or end date and is left out of the period" in text
     assert "visits have no start date in eTools and are dated by their end date" in text
     assert Visit.objects.filter(visit_date=None).count() == 1
@@ -504,13 +515,13 @@ def test_a_review_drill_counts_a_new_review_at_once(built, client_viewer, admin_
     VisitReview.objects.create(visit_key="1722", status="follow_up", reviewed_by=admin_user)
     assert metrics.kpis(scope)["visits"] == 1
     html = client_viewer.get(PAGE, {"review": "follow_up", "section": "", "tab": "visits"}).content.decode()
-    assert "Showing 1 visit ·" in html
+    assert "Showing 3 records ·" in html  # the three records of 1722
 
 
-def test_one_scored_visit_is_written_in_the_singular(built, client_viewer):
-    Visit.objects.exclude(key="1722").update(quality_score=None)
+def test_one_scored_record_is_written_in_the_singular(built, client_viewer):
+    VisitEntity.objects.exclude(datamart_id=101).update(quality_score=None)
     html = client_viewer.get(PAGE, {"section": ""}).content.decode()
-    assert "on 1 scored visit · rules v2" in " ".join(visible(html).split())
+    assert "on 1 scored record · rules v2" in " ".join(visible(html).split())
 
 
 # ------------------------------------------------------------------------------------------ Quality and Analysis
@@ -540,9 +551,10 @@ def test_the_quality_tab_shows_its_blocks(built, client_viewer):
     assert "Flag count distribution" not in text and "Flags per visit" not in text  # Analysis too
     # the HACT Q1 drill-down pills, in FMS's order
     pills = _text(html.split('class="fmm-drillbox"', 1)[1].split("</section>", 1)[0])
-    assert "Drill down — click a rating to see individual visits" in pills
-    assert pills.index("On track 1") < pills.index("Off track 2") < pills.index("Constrained 2")
-    assert pills.index("Constrained 2") < pills.index("Not Monitored 1")
+    assert "Drill down — click a rating to see individual records" in pills
+    # each record by its own Q1; Not monitored: 1723's two records (nothing rated on a reported visit)
+    assert pills.index("On track 3") < pills.index("Off track 2") < pills.index("Constrained 2")
+    assert pills.index("Constrained 2") < pills.index("Not Monitored 2")
     # the two monthly charts as FMS draws them: smooth lines on two axes, bars and a line
     assert html.count('data-chart="dual-axis"') == 2
     assert 'data-primary="area"' in html and 'data-primary="bar"' in html
@@ -563,8 +575,8 @@ def test_the_analysis_tab_shows_its_blocks(built, client_viewer):
         for t in ("Quality score distribution", "Rule score trends over time", "Quality rule analysis")
     ]
     assert -1 not in first and first == sorted(first) and first[-1] < text.find("Highlights")
-    assert "R1 Report Completeness" in text and "6 / 6 visits flagged" in text
-    assert "Not scored: 2 visits" in text and "&amp;bucket={drill}" in html
+    assert "R1 Report Completeness" in text and "8 / 10 records flagged" in text
+    assert "Not scored: 2 records" in text and "&amp;bucket={drill}" in html
     for title in (
         "Highlights",
         "Governorates not visited",
@@ -584,7 +596,7 @@ def test_the_analysis_tab_shows_its_blocks(built, client_viewer):
     assert "2 of 2 Governorates covered" in text
     assert "1 PSEA flagged · of 2 visits with a PSEA question" in text
     assert "Every governorate was visited in this period." in text
-    assert "office from: activity 1 · PD 3 · action points 0" in text
+    assert "office from (visits): activity 1 · PD 3 · action points 0" in text
     assert "R23 is a flag only (no deduction)." in text
     assert "flag=R1" in html and 'data-rows-png="#fmm-flag-frequency"' in html
     assert 'id="fmm-entities"' in html and 'hx-select="#fmm-entities"' in html
@@ -610,7 +622,7 @@ def test_a_reference_date_next_to_every_rating_in_the_lists(built, client_viewer
     html = client_viewer.get(PAGE, {"tab": "analysis", "entity_kind": "pd"}).content.decode()
     sections = html.split('id="fmm-sections-title"', 1)[1].split("</section>", 1)[0]
     lines = re.findall(r"<li>.*?</li>", sections, re.S)
-    assert len(lines) == 8  # 3 Education visits, 5 without a section
+    assert len(lines) == 12  # one per record: 4 of Education visits, 8 of visits without a section
     for line in lines:
         assert re.search(r"\((rated|ends) \d{1,2} \w{3} 2026\)", visible(line)), line
     entities = html.split('id="fmm-entities"', 1)[1].split("</table>", 1)[0]
@@ -618,7 +630,7 @@ def test_a_reference_date_next_to_every_rating_in_the_lists(built, client_viewer
         assert re.search(r"(rated|ends) \d{1,2} \w{3} 2026", visible(row)), row
     drill = client_viewer.get(reverse("fmm:drill"), {"section": ""}, HTTP_HX_REQUEST="true").content.decode()
     rows = re.findall(r"<tr data-key.*?</tr>", drill, re.S)
-    assert len(rows) == 8
+    assert len(rows) == 12
     for row in rows:
         assert re.search(r"(rated|ends) \d{1,2} \w{3} 2026", visible(row)), row
 
@@ -631,8 +643,9 @@ def test_the_hact_q1_chart_switches_to_overall_ratings_without_q1(built, client_
         "HACT Q1 — Finding rating distribution" in html and "Overall finding rating distribution" not in html
     )
     assert "Have the activities been implemented as planned" in html  # the Q1 question quoted
-    # no visit of the filter has a Q1 answer, but other visits do
+    # no record of the filter has a Q1 answer, but other records do
     Visit.objects.filter(end_date__month__in=(3, 5, 6, 7, 8)).update(hact_q1="")
+    VisitEntity.objects.filter(visit__end_date__month__in=(3, 5, 6, 7, 8)).update(hact_q1="")
     from django.core.cache import cache
 
     cache.clear()
@@ -640,7 +653,7 @@ def test_the_hact_q1_chart_switches_to_overall_ratings_without_q1(built, client_
     assert (
         "Overall finding rating distribution" in html and "HACT Q1 — Finding rating distribution" not in html
     )
-    assert "No visit in this filter has a HACT Q1 answer" in html
+    assert "No record in this filter has a HACT Q1 answer" in html
     assert "&amp;month={drill}&amp;rating={series_drill}" in html
     # no Q1 in the data at all
     QuestionAnswer.objects.filter(role="q1").update(role="")

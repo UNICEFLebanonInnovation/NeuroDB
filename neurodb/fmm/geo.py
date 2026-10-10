@@ -19,8 +19,9 @@ governorate (``active``).
 
 :func:`map_points` gives the ``edumap.js`` configuration (points mode), the counts of the legend and
 the rows of the text table below the map, which lists every point drawn with its link (the keyboard
-route: the map's popups open on hover or tap only). No point carries a team member, a visit lead or a
-narrative.
+route: the map's popups open on hover or tap only). One pin per visit: the records of a visit share its
+place, and its popup lists them with their scores (those the filter keeps). No point carries a team
+member, a visit lead or a narrative.
 """
 
 from __future__ import annotations
@@ -34,9 +35,10 @@ from django.conf import settings
 from django.urls import reverse
 from django.utils.dateformat import format as date_format
 from django.utils.translation import gettext as _
+from django.utils.translation import ngettext
 
 from . import place
-from .models import Visit
+from .models import Visit, VisitEntity
 from .scope import NONE, RATING_LABELS, Scope
 
 MAX_POINTS = 1000  # points drawn at most (visits first, most urgent first; then planned locations)
@@ -85,7 +87,9 @@ MAP_COLUMNS = (
     "partner__short_name",
     "partner__name",
     "site__parent_id",
+    "entities",
 )
+POPUP_RECORDS = 4  # records listed in a visit's popup (the rest as "+N more")
 
 
 class MapVisit:
@@ -451,7 +455,17 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
     # what every point repeats is worked out once: the labels, the dates, the ratings and the links
     words = {
         key: _(key)
-        for key in ("Partner", "Date", "Rating", "Quality", "Match", "Distance", "PD location", "Where")
+        for key in (
+            "Partner",
+            "Date",
+            "Rating",
+            "Quality",
+            "Match",
+            "Distance",
+            "PD location",
+            "Where",
+            "Records",
+        )
     }
     matches = {kind: match_label(kind) for kind in MATCHES}
     rating_words = functools.lru_cache(maxsize=None)(_rating_words)
@@ -461,6 +475,22 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
 
     mapped = [v for v in visits if v.latitude is not None and v.longitude is not None]
     unlocated = [v for v in visits if v.latitude is None or v.longitude is None]
+    # the records of the visits: one pin per visit, its popup lists its records (those the filter keeps)
+    drawn = [v.pk for v in mapped[:MAX_POINTS]]
+    if scope.record_filtered:
+        from django.db.models import Count
+
+        record_counts = dict(
+            scope.records()
+            .filter(visit_id__in=[v.pk for v in mapped])
+            .order_by()
+            .values("visit_id")
+            .annotate(n=Count("pk"))
+            .values_list("visit_id", "n")
+        )
+    else:
+        record_counts = {v.pk: v.entities for v in mapped}
+    popup = _popup_records(scope, drawn)
     points: list[dict[str, Any]] = []
     visit_rows: list[dict[str, Any]] = []
     counts = {kind: 0 for kind in MATCHES}
@@ -471,13 +501,22 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
             continue
         url = visit_url(v.key)
         approximate = _approximate_text(v)
+        n_records = record_counts.get(v.pk, 0)
+        quality = _percent(v.quality_score)
+        if v.quality_score is not None and n_records > 1:
+            quality = _("%(quality)s (mean of its records)") % {"quality": quality}
         lines = [
             [words["Partner"], v.partner_short_name or v.partner_name or "—"],
             [words["Date"], day(v.visit_date) or "—"],  # the visit date; the rating line: the end
             [words["Rating"], rating_words(v.rating, v.status_group, v.end_date)],
-            [words["Quality"], _percent(v.quality_score)],
+            [words["Quality"], quality],
             [words["Match"], matches[kind]],
         ]
+        records = popup.get(v.pk, [])
+        lines += [[label, text] for label, text in records[:POPUP_RECORDS]]
+        if n_records > min(len(records), POPUP_RECORDS):
+            more = n_records - min(len(records), POPUP_RECORDS)
+            lines.append([words["Records"], ngettext("+%(n)s more", "+%(n)s more", more) % {"n": more}])
         if distance is not None:
             lines.append([words["Distance"], _km(distance)])
         if loc is not None:
@@ -603,6 +642,7 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
         "counts": {
             "visits": len(visits),
             "mapped": len(mapped),
+            "records_mapped": sum(record_counts.get(v.pk, 0) for v in mapped),
             **counts,
             "approximate": sum(1 for v in mapped if not v.point_precise),
             "unlocated": len(unlocated),
@@ -622,6 +662,37 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
         "pd_scope": pd_scope,
         "km": km,
     }
+
+
+def _popup_records(scope: Scope, visit_ids: list[int]) -> dict[int, list[tuple[str, str]]]:
+    """The records of the visits drawn (those the filter keeps), each as a popup line: its type and
+    entity, its score ("PD/SSFA LEB/PCA…/PD2025123", "95%"). One query, for the pins drawn only."""
+    from . import metrics
+    from .scope import KIND_LABELS
+
+    if not visit_ids:
+        return {}
+    out: dict[int, list[tuple[str, str]]] = defaultdict(list)
+    # the visits drawn are the scope's: their records are the scope's too, but for a record filter
+    records = scope.records() if scope.record_filtered else VisitEntity.objects.all()
+    rows = (
+        records.filter(visit_id__in=visit_ids)
+        .order_by("visit_id", "datamart_id")
+        .values_list(
+            "visit_id", "kind", "entity", "cp_output", "pd__number", "partner__name", "quality_score"
+        )
+    )
+    labels: dict[str, str] = {}  # each type's label, translated once
+    percent = functools.lru_cache(maxsize=None)(_percent)
+    for visit_id, kind, entity, cp_output, pd_number, partner_name, quality in rows:
+        name = metrics.record_name(kind, entity, cp_output, pd_number or "", partner_name or "") or "—"
+        label = labels.get(kind)
+        if label is None:
+            label = labels[kind] = _("Record · %(type)s") % {
+                "type": KIND_LABELS.get(kind or "other", KIND_LABELS["other"])
+            }
+        out[visit_id].append((label, f"{name[:60]} · {percent(quality)}"))
+    return out
 
 
 def _url_maker(name: str):

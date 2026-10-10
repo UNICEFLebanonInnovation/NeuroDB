@@ -1,7 +1,7 @@
 """Monitoring insights drawn as FMS draws it (stage E1): the Insights tab's morning briefing (tinted
 tiles, top critical partners, governorate chips by band), the AI brief's generation settings, the
-critical visits requiring attention; the Quality tab's order and charts; a PDF button on every chart
-card; and an action point in progress counting as open."""
+critical records requiring attention (one card per record, as FMS lists them); the Quality tab's order
+and charts; a PDF button on every chart card; and an action point in progress counting as open."""
 
 from __future__ import annotations
 
@@ -26,7 +26,14 @@ from neurodb.datamart import services as datamart
 from neurodb.fmm import metrics, refresh
 from neurodb.fmm import scope as scope_module
 from neurodb.fmm.ai import profiles
-from neurodb.fmm.models import ModelCapability, PromptVersion, ScoreSetting, Visit, VisitRuleResult
+from neurodb.fmm.models import (
+    ModelCapability,
+    PromptVersion,
+    RecordRuleResult,
+    ScoreSetting,
+    Visit,
+    VisitEntity,
+)
 from neurodb.fmm.scope import Scope
 
 pytestmark = pytest.mark.django_db
@@ -78,22 +85,24 @@ def test_the_briefing_tiles_are_tinted_as_fms_shows_them(built, client_viewer):
     briefing = _section(_tab(client_viewer, "insights"), "fmm-briefing")
     for key in ("critical", "avg_quality", "low", "critical_partners", "visits", "review", "completed"):
         assert f'class="kpi fmm-tile fmm-tile--{key}" data-tile="{key}"' in briefing, key
-    assert "This year (&lt; 50%)" in briefing  # the low quality visits' threshold, as FMS writes it
+    assert "Records · this year (&lt; 50%)" in briefing  # the low quality records' threshold
+    assert "Low quality records" in briefing  # FMS writes "visits"; NeuroDB counts records, and says so
     css = (STATIC / "css" / "app.css").read_text()
     for token in ("--fmm-tint-red", "--fmm-tint-yellow", "--fmm-tint-purple", "--fmm-ink-amber"):
         assert css.count(f"{token}:") == 2, token  # the light and the dark theme
 
 
-def test_top_critical_partners_count_the_critical_visits_and_open_them(built, client_viewer):
-    _settings(urgency_red=1, urgency_amber=0)  # every scored visit is critical
+def test_top_critical_partners_count_the_critical_records_and_open_them(built, client_viewer):
+    _settings(urgency_red=1, urgency_amber=0)  # every scored record is critical
     data = metrics.briefing(_scope())
-    critical = Visit.objects.filter(end_date__year=2026, urgency__gte=1)
-    assert data["top_partners"], "a critical visit has a partner"
+    critical = VisitEntity.objects.filter(visit__visit_date__year=2026, urgency__gte=1)
+    assert data["top_partners"], "a critical record has a partner"
     assert len(data["top_partners"]) <= metrics.TOP_PARTNERS
-    for partner in data["top_partners"]:
-        assert partner["visits"] == critical.filter(partner_ids__contains=[partner["id"]]).count()
-    counts = [p["visits"] for p in data["top_partners"]]
-    assert counts == sorted(counts, reverse=True)  # most critical visits first
+    for partner in data["top_partners"]:  # each record under its own partner
+        assert partner["records"] == critical.filter(partner_id=partner["id"]).count()
+    assert data["critical_partners"] == critical.values("partner_id").distinct().count()
+    counts = [p["records"] for p in data["top_partners"]]
+    assert counts == sorted(counts, reverse=True)  # most critical records first
     html = _section(_tab(client_viewer, "insights"), "fmm-briefing")
     chips = html.split("Top critical partners (this year)", 1)[1].split("</div>", 1)[0]
     assert "Amel Association" in chips and "@" not in chips  # partner names only
@@ -103,9 +112,9 @@ def test_top_critical_partners_count_the_critical_visits_and_open_them(built, cl
     url = next(u for u in urls if f"partner={amel['id']}&" in u + "&").replace("&amp;", "&")
     assert "urgency_level=high" in url
     opened = client_viewer.get(url, HTTP_HX_REQUEST="true").content.decode()
-    keys = set(re.findall(r"/fmm/visits/([\w-]+)/", opened))
-    expected = {v.key for v in critical.filter(partner_ids__contains=[amel["id"]])}
-    assert keys == expected
+    records = {int(n) for n in re.findall(r'data-record="(\d+)"', opened)}
+    expected = set(critical.filter(partner_id=amel["id"]).values_list("datamart_id", flat=True))
+    assert records == expected and len(records) == amel["records"]
 
 
 def test_the_governorate_chips_are_tinted_by_band(built, client_viewer):
@@ -120,12 +129,16 @@ def test_the_governorate_chips_are_tinted_by_band(built, client_viewer):
         assert band == metrics.band_of(float(avg), limits), (band, avg)
 
 
-# ------------------------------------------------------------------------------------------ critical visits
-def test_critical_visits_come_worst_first_with_their_flags_and_no_address(built, client_viewer):
+# ------------------------------------------------------------------------------------------ critical records
+def test_critical_records_come_worst_first_with_their_flags_and_no_address(built, client_viewer):
     _settings(urgency_red=40, urgency_amber=20)
-    worst = Visit.objects.filter(end_date__year=2026, urgency__gte=40).order_by("-urgency").first()
-    VisitRuleResult.objects.update_or_create(
-        visit=worst,
+    worst = (
+        VisitEntity.objects.filter(visit__visit_date__year=2026, urgency__gte=40)
+        .order_by("-urgency", "datamart_id")
+        .first()
+    )
+    RecordRuleResult.objects.update_or_create(
+        entity=worst,
         rule="R19",
         defaults={
             "status": "fail",
@@ -139,48 +152,55 @@ def test_critical_visits_come_worst_first_with_their_flags_and_no_address(built,
     assert data["band"] == "red" and 0 < len(data["items"]) <= metrics.CRITICAL_ITEMS
     urgencies = [i["urgency"] for i in data["items"]]
     assert urgencies == sorted(urgencies, reverse=True) and min(urgencies) >= 40
-    assert data["items"][0]["key"] == worst.key
+    # one card per record: 1723's two (58), then 1727's (39 is below 40: not listed)
+    assert [(i["key"], i["record"]) for i in data["items"]] == [("1723", 111), ("1723", 112)]
+    assert data["items"][0]["record"] == worst.datamart_id
+    assert (data["items"][0]["entity"], data["items"][0]["type"]) == ("LEB/SSFA2024001", "PD/SSFA")
+    assert (data["items"][1]["entity"], data["items"][1]["type"]) == ("Mercy Corps Lebanon", "Partner")
     html = _section(_tab(client_viewer, "insights"), "fmm-critical")
     text = unescape(_text(html))
-    assert "Critical visits requiring attention" in text
+    assert "Critical records requiring attention" in text
+    assert "#1723 · LEB/SSFA2024001 (PD/SSFA)" in text and "#1723 · Mercy Corps Lebanon (Partner)" in text
+    assert 'href="/fmm/visits/1723/#record-111"' in html
     assert "2 monitors not on the staff list of Beirut — verify the assignment" in text
     assert "@" not in html and "monitor@" not in text
     shown = [int(n) for n in re.findall(r"Urgency: (\d+)", text)]
     assert shown == urgencies
     # each flag line: the rule id and the stored flag (an AI check's with the AI's explanation)
-    failed = VisitRuleResult.objects.filter(visit=worst, status="fail").exclude(rule="R19")
+    failed = RecordRuleResult.objects.filter(entity=worst, status="fail").exclude(rule="R19")
     for result in failed:
         message = result.detail.split(":", 1)[1].split(" — ", 1)[0].strip()
         assert message in text, result.rule
     assert "HIGH" in text
 
 
-def test_without_a_red_visit_the_most_urgent_amber_ones_are_listed(built, client_viewer):
+def test_without_a_red_record_the_most_urgent_amber_ones_are_listed(built, client_viewer):
     limits = metrics.thresholds()
-    assert not Visit.objects.filter(end_date__year=2026, urgency__gte=limits["red"]).exists()
+    assert not VisitEntity.objects.filter(urgency__gte=limits["red"]).exists()
     data = metrics.critical_items(_scope())
-    amber = Visit.objects.filter(end_date__year=2026, urgency__gte=limits["amber"]).order_by("-urgency")
-    assert data["band"] == ("amber" if amber.exists() else "")
-    assert [i["key"] for i in data["items"]] == [v.key for v in amber[: metrics.CRITICAL_AMBER]]
+    amber = VisitEntity.objects.filter(visit__visit_date__year=2026, urgency__gte=limits["amber"]).order_by(
+        "-urgency", "datamart_id"
+    )
+    assert data["band"] == "amber" and amber.count() == 2  # 1723's two records
+    assert [i["record"] for i in data["items"]] == [r.datamart_id for r in amber[: metrics.CRITICAL_AMBER]]
     text = _text(_section(_tab(client_viewer, "insights"), "fmm-critical"))
-    if amber.exists():
-        assert "the most urgent amber visits" in text and "MEDIUM" in text
+    assert "the most urgent amber records" in text and "MEDIUM" in text
 
 
-def test_at_most_ten_critical_visits_and_a_link_to_all(built, client_viewer, monkeypatch):
+def test_at_most_ten_critical_records_and_a_link_to_all(built, client_viewer, monkeypatch):
     _settings(urgency_red=1, urgency_amber=0)
     monkeypatch.setattr(metrics, "CRITICAL_ITEMS", 2)
     cache.clear()
-    total = Visit.objects.filter(end_date__year=2026, urgency__gte=1).count()
-    assert total > 2
+    total = VisitEntity.objects.filter(visit__visit_date__year=2026, urgency__gte=1).count()
+    assert total == 10
     html = _section(_tab(client_viewer, "insights"), "fmm-critical")
     assert len(re.findall(r'class="fmm-critical-item ', html)) == 2
     link = re.search(r'href="([^"]+)"[^>]*>Show all (\d+)', html)
     assert link and int(link.group(2)) == total
     assert "tab=visits" in link.group(1) and "urgency=red" in link.group(1)
-    # the Visits tab it opens lists exactly those visits
+    # the records list it opens lists exactly those records
     opened = client_viewer.get(unescape(link.group(1)), HTTP_HX_REQUEST="true").content.decode()
-    assert f"Showing {total} visits" in _text(opened)
+    assert f"Showing {total} records" in _text(opened)
 
 
 # ------------------------------------------------------------------------------------------ AI brief settings
@@ -256,7 +276,9 @@ def test_the_help_guide_names_the_panels_as_the_page_does():
     for name in (
         "Top critical partners",
         "Generation settings",
-        "Critical visits requiring attention",
+        "Critical records requiring attention",
+        "Low quality records",
+        "Group by visit",
         "Quality score trends",
         "Monitoring volume over time",
         "HACT Q1 — Finding rating distribution",

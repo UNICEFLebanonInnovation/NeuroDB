@@ -73,8 +73,10 @@ def test_without_a_chat_they_cover_this_year_in_the_whole_country(built, in_2026
     from neurodb.fmm import metrics
 
     k = metrics.kpis(ctx.scope)
-    assert summary["visits"] == k["visits"] > 0 and summary["entities"] == k["entities"]
+    assert summary["visits"] == k["visits"] > 0 and summary["entities"] == k["records"]
     assert summary["avg_quality"] == float(k["avg_quality"])
+    # the average is per record, over the scored records (as FMS)
+    assert (summary["records"], summary["scored_records"]) == (k["records"], k["scored"])
     assert summary["url"].startswith("/fmm/?") and "section=" in summary["url"]
 
 

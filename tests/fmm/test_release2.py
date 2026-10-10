@@ -3,8 +3,9 @@ counted apart from the rated visits (A2), the scored statuses (A3), the morning 
 filters and All time (A6), the brief's parts and its checks (A7), the compliance depth (A8), and the
 chat's starter questions, the rule trends and the chart downloads (A9).
 
-On ``fm_world`` built on 5 October 2026 (see test_pages): 8 visits, 6 scored averaging 64.4%, 1723 the
-only low one (40.4) and the most urgent (57, amber); no visit at or above 70.
+On ``fm_world`` built on 5 October 2026 (see test_pages): 8 visits holding 12 records, 10 records scored
+averaging 80.3%, 1723's two records the only low ones (48) and the most urgent (58, amber); no record at or
+above 70.
 """
 
 from __future__ import annotations
@@ -79,14 +80,16 @@ def test_ask_gives_rating_shares_of_the_rated_visits_only(built):
 def test_the_q1_chips_count_not_monitored_apart(built, client_viewer):
     html = _tab(client_viewer, "quality")
     pills = html.split('class="fmm-drillbox__pills"', 1)[1].split("</div>", 1)[0]
-    assert "Not Monitored 1" in " ".join(re.sub(r"<[^>]+>", " ", pills).split())
-    assert "rating=not_monitored" in pills  # it opens the planned visits not conducted
+    # 1723's two records: nothing rated on a reported visit
+    assert "Not Monitored 2" in " ".join(re.sub(r"<[^>]+>", " ", pills).split())
+    assert "hact_q1=not_monitored" in pills  # it opens the records of the planned visits not conducted
 
 
 def test_quality_by_finding_rating_always_has_a_not_monitored_bar(built):
     rows = metrics.quality_by_rating(_scope())
     assert [r["code"] for r in rows] == ["on_track", "off_track", "not_monitored"]
-    assert rows[-1]["visits"] == 1  # 1723: reported with nothing rated; 1724 (in progress) not counted
+    # 1723's two records: reported with nothing rated; 1724's (in progress) not counted
+    assert (rows[-1]["records"], rows[-1]["visits"]) == (2, 1)
     narrowed = metrics.quality_by_rating(_scope("year=2026&section=&rating=off_track"))
     assert [r["code"] for r in narrowed] == ["off_track"]
 
@@ -119,8 +122,8 @@ def test_the_morning_briefing_tiles(built, client_viewer):
     # this year so far, whatever the page's period (2025 here)
     assert values == {
         "critical": "0",
-        "avg_quality": "79.7%",
-        "low": "1",
+        "avg_quality": "80.3%",  # per record
+        "low": "2",  # 1723's two records
         "critical_partners": "0",
         "visits": "8",
         "review": "0",
@@ -131,28 +134,30 @@ def test_the_morning_briefing_tiles(built, client_viewer):
     }
     assert "This year: 1 Jan – 5 Oct 2026" in html
     # the ten tiles' definitions, and the two of the critical partners and the quality by governorate
-    assert html.count('class="fmm-info"') == 12 and 'title="Scored visits below 50."' in html
+    assert html.count('class="fmm-info"') == 12 and 'title="Scored records below 50.' in html
+    assert "This year · 12 records" in html  # the visits tile's records
     assert tiles["critical"][1] == "" and tiles["review"][1] == ""  # nothing to open
     assert "quality=low" in tiles["low"][1] and "visit_status=data_collection" in tiles["data_collection"][1]
     assert "tab=visits" in tiles["avg_quality"][1] and "sort=quality" in tiles["avg_quality"][1]
-    assert "No partner has a critical visit this year." in html
-    # the quality by governorate, each tinted by its band and opening the visits there
+    assert "No partner has a critical record this year." in html
+    # the quality by governorate (its records' average, its records), tinted by band and opening them
     assert re.search(
-        r'fmm-chip--medium"[^>]*><span data-synced>Bekaa</span> · 78\.8% · <span class="fmm-chip__count">5<',
+        r'fmm-chip--medium"[^>]*><span data-synced>Bekaa</span> · 78\.9% · <span class="fmm-chip__count">8<',
         html,
     )
     assert re.search(
-        r'fmm-chip--high"[^>]*><span data-synced>North</span> · 81\.5% · <span class="fmm-chip__count">3<',
+        r'fmm-chip--high"[^>]*><span data-synced>North</span> · 83\.7% · <span class="fmm-chip__count">4<',
         html,
     )
     assert "governorate=beqaa" in html
 
 
-def test_the_briefing_drills_open_its_visits(built, client_viewer):
+def test_the_briefing_drills_open_its_records(built, client_viewer):
     html = _briefing(_tab(client_viewer, "insights"))
     tiles = {key: url for key, url, _value in TILE.findall(html)}
     low = client_viewer.get(tiles["low"].replace("&amp;", "&"), HTTP_HX_REQUEST="true").content.decode()
     assert "/fmm/visits/1723/" in low and "/fmm/visits/1722/" not in low
+    assert re.findall(r'data-record="(\d+)"', low) == ["111", "112"]  # 1723's two low records
     collecting = client_viewer.get(
         tiles["data_collection"].replace("&amp;", "&"), HTTP_HX_REQUEST="true"
     ).content.decode()
@@ -163,15 +168,15 @@ def test_the_briefing_names_the_critical_partners(built, client_viewer):
     _settings(urgency_red=50, urgency_amber=30)
     html = _briefing(_tab(client_viewer, "insights"))
     tiles = {key: (value.strip(), url) for key, url, value in TILE.findall(html)}
-    assert tiles["critical"][0] == "1" and tiles["critical_partners"][0] == "1"
+    assert tiles["critical"][0] == "2" and tiles["critical_partners"][0] == "1"  # 1723's two, one partner
     assert 'class="kpi fmm-tile fmm-tile--critical" data-tile="critical"' in html
     critical = client_viewer.get(
         tiles["critical"][1].replace("&amp;", "&"), HTTP_HX_REQUEST="true"
     ).content.decode()
     assert "/fmm/visits/1723/" in critical and "/fmm/visits/1722/" not in critical
     partners = html.split("Top critical partners", 1)[1].split("</div>", 1)[0]
-    # the partner's full name and its critical visits, opening those visits
-    assert re.search(r'Mercy Corps Lebanon</span> <span class="fmm-chip__count">1</span>', partners)
+    # the partner's full name and its critical records, opening those records
+    assert re.search(r'Mercy Corps Lebanon</span> <span class="fmm-chip__count">2</span>', partners)
     url = re.search(r'class="fmm-chip fmm-chip--danger" href="([^"]+)"', partners).group(1)
     assert "/fmm/drill/" in url and "urgency_level=high" in url
     opened = client_viewer.get(url.replace("&amp;", "&"), HTTP_HX_REQUEST="true").content.decode()
@@ -336,8 +341,9 @@ def test_comp_is_the_number_of_quality_flags_sent(built, ai_on):
         assert len(found.payload["issues"]) == found.sent["flags"] <= depth
         assert found.sent["flags_allowed"] == depth
         # the most frequent flags of the filter
-        sent = sorted((e["visits"] for e in found.payload["issues"].values()), reverse=True)
-        assert sent == [row["visits"] for row in metrics.top_issues(_scope(), depth)]
+        assert set(found.payload["issues"]) == {
+            f"issue:{row['drill']}" for row in metrics.top_issues(_scope(), depth)
+        }
 
 
 # ------------------------------------------------------------------------------------------ A9
@@ -390,7 +396,7 @@ def test_every_chart_can_be_saved_as_a_png(built, client_viewer):
     assert "Plotly.downloadImage" in script and '"share-lines"(el, data)' in script
 
 
-def test_the_high_urgency_tile_opens_the_urgent_visits(built, client_viewer):
+def test_the_high_urgency_tile_opens_the_urgent_records(built, client_viewer):
     html = client_viewer.get(PAGE, {"year": "2026", "section": ""}).content.decode()
-    link = re.search(r'<a class="kpi__more small" href="([^"]+)"[^>]*>View urgent visits →</a>', html)
+    link = re.search(r'<a class="kpi__more small" href="([^"]+)"[^>]*>View urgent records →</a>', html)
     assert link and "urgency=red" in link.group(1) and "tab=visits" in link.group(1)

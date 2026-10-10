@@ -56,39 +56,39 @@
 
   <div class="grid grid--2 fmm-report__block">
     <section class="panel" aria-labelledby="r-ratings">
-      <div class="panel__header"><h2 class="panel__title" id="r-ratings">{% trans "Overall finding rating" %}</h2><span class="panel__hint">{% trans "visits" %}</span></div>
-      <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-static="1" data-width="330" data-suffix=" visits" data-source="fmm-report-data" data-key="ratings" data-empty-title="{% trans 'No rated visits' %}" aria-label="{% trans 'Visits by overall finding rating' %}"></div>
-      <table class="table table-sm small mb-0"><thead><tr><th>{% trans "Rating" %}</th><th class="num">{% trans "Visits" %}</th><th class="num">{% trans "Average quality" %}</th></tr></thead>
-        <tbody>{% for r in ratings %}<tr><td>{{ r.label }}</td><td class="num">{{ r.visits|number }}</td><td class="num">{% if r.avg is not None %}{{ r.avg|percent }}{% else %}—{% endif %}</td></tr>{% endfor %}</tbody></table>
-      <p class="small text-muted mb-0">{% trans "Not monitored: a reported visit with nothing rated (planned, not conducted)." %}</p>
+      <div class="panel__header"><h2 class="panel__title" id="r-ratings">{% trans "Overall finding rating" %}</h2><span class="panel__hint">{% trans "records" %}</span></div>
+      <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-static="1" data-width="330" data-suffix=" records" data-source="fmm-report-data" data-key="ratings" data-empty-title="{% trans 'No rated records' %}" aria-label="{% trans 'Records by overall finding rating' %}"></div>
+      <table class="table table-sm small mb-0"><thead><tr><th>{% trans "Rating" %}</th><th class="num">{% trans "Records" %}</th><th class="num">{% trans "Average quality" %}</th></tr></thead>
+        <tbody>{% for r in ratings %}<tr><td>{{ r.label }}</td><td class="num">{{ r.records|number }}</td><td class="num">{% if r.avg is not None %}{{ r.avg|percent }}{% else %}—{% endif %}</td></tr>{% endfor %}</tbody></table>
+      <p class="small text-muted mb-0">{% trans "Not monitored: a record of a reported visit with nothing rated (planned, not conducted)." %}</p>
     </section>
     <section class="panel" aria-labelledby="r-bands">
-      <div class="panel__header"><h2 class="panel__title" id="r-bands">{% trans "Quality bands" %}</h2><span class="panel__hint">{% blocktrans count n=highlights.scored %}{{ n }} scored visit{% plural %}{{ n }} scored visits{% endblocktrans %}</span></div>
-      {% if highlights.bands %}<div class="chart chart--share" data-module="charts" data-chart="share-bar" data-static="1" data-width="330" data-source="fmm-report-data" data-key="bands" aria-label="{% trans 'Scored visits by band: High, Medium, Low' %}"></div>
+      <div class="panel__header"><h2 class="panel__title" id="r-bands">{% trans "Quality bands" %}</h2><span class="panel__hint">{% blocktrans count n=highlights.scored %}{{ n }} scored record{% plural %}{{ n }} scored records{% endblocktrans %}</span></div>
+      {% if highlights.bands %}<div class="chart chart--share" data-module="charts" data-chart="share-bar" data-static="1" data-width="330" data-source="fmm-report-data" data-key="bands" aria-label="{% trans 'Scored records by band: High, Medium, Low' %}"></div>
       <ul class="small mb-1 ps-3">{% for b in highlights.bands %}<li>{{ b.label }}: {{ b.value|number }}</li>{% endfor %}</ul>
-      {% else %}<p class="small text-muted">{% trans "No visit in this filter is scored." %}</p>{% endif %}
+      {% else %}<p class="small text-muted">{% trans "No record in this filter is scored." %}</p>{% endif %}
       <p class="small text-muted mb-0">{% blocktrans with high=limits.band_high medium=limits.band_medium %}High from {{ high }} · Medium from {{ medium }} · Low below {{ medium }}{% endblocktrans %} · {% blocktrans with avg=kpis.avg_quality|percent %}average {{ avg }}{% endblocktrans %}</p>
     </section>
   </div>
 
   <section class="panel p-0 fmm-report__block" aria-labelledby="r-sections">
-    <div class="panel__header px-3 pt-3"><h2 class="panel__title" id="r-sections">{% trans "Ratings by section" %}</h2><span class="panel__hint">{% trans "shares of the rated visits" %}</span></div>
+    <div class="panel__header px-3 pt-3"><h2 class="panel__title" id="r-sections">{% trans "Ratings by section" %}</h2><span class="panel__hint">{% trans "shares of the rated records" %}</span></div>
     {% include "fmm/_report_groups.html" with rows=by_section first=_("Section") none=_("No section") %}
   </section>
   <section class="panel p-0 fmm-report__block" aria-labelledby="r-offices">
-    <div class="panel__header px-3 pt-3"><h2 class="panel__title" id="r-offices">{% trans "Ratings by field office" %}</h2><span class="panel__hint">{% trans "shares of the rated visits" %}</span></div>
+    <div class="panel__header px-3 pt-3"><h2 class="panel__title" id="r-offices">{% trans "Ratings by field office" %}</h2><span class="panel__hint">{% trans "shares of the rated records" %}</span></div>
     {% include "fmm/_report_groups.html" with rows=by_office first=_("Field office") none=_("Office not known") %}
   </section>
   <section class="panel p-0 fmm-report__block" aria-labelledby="r-partners">
-    <div class="panel__header px-3 pt-3"><h2 class="panel__title" id="r-partners">{% trans "Partners" %}</h2><span class="panel__hint">{% if partners_more %}{% blocktrans with n=partners_more %}the 15 with the most visits; {{ n }} more in the Excel workbook{% endblocktrans %}{% else %}{% trans "by visits" %}{% endif %}</span></div>
+    <div class="panel__header px-3 pt-3"><h2 class="panel__title" id="r-partners">{% trans "Partners" %}</h2><span class="panel__hint">{% if partners_more %}{% blocktrans with n=partners_more %}the 15 with the most records; {{ n }} more in the Excel workbook{% endblocktrans %}{% else %}{% trans "by records" %}{% endif %}</span></div>
     {% include "fmm/_report_groups.html" with rows=partners first=_("Partner") none=_("No partner") %}
   </section>
 
   <section class="panel fmm-report__block" aria-labelledby="r-flags">
-    <div class="panel__header"><h2 class="panel__title" id="r-flags">{% trans "Most frequent flags" %}</h2><span class="panel__hint">{% trans "visits flagged by each rule" %}</span></div>
+    <div class="panel__header"><h2 class="panel__title" id="r-flags">{% trans "Most frequent flags" %}</h2><span class="panel__hint">{% trans "records flagged by each rule" %}</span></div>
     {% if flags %}
-    <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-static="1" data-width="680" data-suffix=" visits" data-source="fmm-report-data" data-key="flags" aria-label="{% trans 'Flags by rule' %}"></div>
-    <table class="table table-sm small mb-0"><thead><tr><th>{% trans "Rule" %}</th><th class="num">{% trans "Visits flagged" %}</th><th class="num">{% trans "Of visits checked" %}</th><th class="num">%</th></tr></thead>
+    <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-static="1" data-width="680" data-suffix=" records" data-source="fmm-report-data" data-key="flags" aria-label="{% trans 'Flags by rule' %}"></div>
+    <table class="table table-sm small mb-0"><thead><tr><th>{% trans "Rule" %}</th><th class="num">{% trans "Records flagged" %}</th><th class="num">{% trans "Of records checked" %}</th><th class="num">%</th></tr></thead>
       <tbody>{% for r in flags %}<tr><td>{{ r.label }}</td><td class="num">{{ r.n|number }}</td><td class="num">{{ r.evaluated|number }}</td><td class="num">{% if r.pct is not None %}{{ r.pct|percent }}{% else %}—{% endif %}</td></tr>{% endfor %}</tbody></table>
     {% else %}<p class="small text-muted mb-0">{% trans "No quality flags in this filter." %}</p>{% endif %}
   </section>
@@ -134,9 +134,9 @@
     <div class="panel__header"><h2 class="panel__title" id="r-method">{% trans "Method" %}</h2></div>
     <ul class="small mb-0 ps-3">
       <li>{% blocktrans with country=how.country %}Quality score (0–100): 100 less the points the quality rules for {{ country }} took off; each score category loses at most its weight.{% endblocktrans %} {% for c in how.categories %}{{ c.label }} {{ c.weight }}{% if not forloop.last %}, {% endif %}{% endfor %}.</li>
-      <li>{% blocktrans with high=limits.band_high medium=limits.band_medium %}Bands: High from {{ high }}, Medium from {{ medium }}, Low below {{ medium }}. Only visits at a scored status have a score.{% endblocktrans %}</li>
+      <li>{% blocktrans with high=limits.band_high medium=limits.band_medium %}Bands: High from {{ high }}, Medium from {{ medium }}, Low below {{ medium }}. Only the records of visits at a scored status have a score.{% endblocktrans %}</li>
       <li>{% blocktrans with red=limits.red amber=limits.amber %}Urgency (0–100): high from {{ red }}, medium from {{ amber }}.{% endblocktrans %} {% for name, share in urgency_weights %}{{ name }} {{ share }}%{% if not forloop.last %} · {% endif %}{% endfor %}</li>
-      <li>{% trans "Ratings: a visit's rating is its worst rated entity. Not monitored is a reported visit with nothing rated (planned, not conducted); a planned or in-progress visit is not rated yet. Shares by section, office and partner are over the rated visits; a visit counts in each of its sections, offices and partners." %}</li>
+      <li>{{ glossary }} {% trans "Ratings, quality and flags count records: each record under its own rating. Not monitored is a record of a reported visit with nothing rated (planned, not conducted); on a planned or in-progress visit it is not rated yet. Shares by section, office and partner are over the rated records; a record counts in each of its visit's sections and offices, and under its own partner." %}</li>
       <li>{% trans "Privacy: no person's name or e-mail address is in this report; the AI brief was checked for names, e-mail addresses, links and phone numbers before it was kept." %}</li>
     </ul>
   </section>

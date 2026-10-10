@@ -503,7 +503,7 @@ def _group_row(row: dict[str, Any], first: str, by: str) -> dict[str, Any]:
         "avg_quality_score": row["avg"],
         "scored": row["scored"],
         **{band: row["bands"][band] for band in metrics.BANDS},
-        "flagged_visits": row["flagged"],
+        "flagged_visits": row["flagged_visits"],  # the visits with a flagged record
         "flags": row["flags"],
         "open_action_points": row["open_action_points"],
     }
@@ -621,10 +621,11 @@ def about_rows(scope: Scope, ctx: Context, when: str | None = None) -> list[dict
     ]
     rows += [(f"Visits {row['label']}", row["n"]) for row in kpis["by_status"]]
     rows += [
-        ("Scored visits", kpis["scored"]),
-        ("Average quality score", kpis["avg_quality"]),
-        ("Monitored entities", kpis["entities"]),
-        ("High urgency visits", kpis["high_urgency"]),
+        ("Scored visits", kpis["scored_visits"]),
+        ("Average quality score (per record)", kpis["avg_quality"]),
+        ("Records", kpis["records"]),
+        ("Scored records", kpis["scored"]),
+        ("High urgency records", kpis["high_urgency"]),
         (
             "quality_score",
             "0-100: 100 less the points the quality rules took off (each score category loses at most "

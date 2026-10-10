@@ -10,8 +10,9 @@
 <div class="modal-body">
 {% endif %}
 <div class="fmm-visit">
-  {% comment %}1. Header: reference and dates, status and rating with their dates, HACT Q1, quality, urgency
-  and its parts, programmatic and remote tags.{% endcomment %}
+  {% comment %}1. Header: reference and dates, status and rating with their dates, HACT Q1, the visit's
+  quality (the mean of its records, with the lowest and the most urgent), urgency and its parts,
+  programmatic and remote tags.{% endcomment %}
   <section class="panel fmm-visit__header" aria-label="{% trans 'Summary' %}">
     <p class="mb-2">{% if visit.reference %}<span class="mono" data-synced>{{ visit.reference }}</span>{% endif %}{% if visit.reference_number and visit.reference_number != visit.reference %} · <span class="mono" data-synced>{{ visit.reference_number }}</span>{% endif %}
       · {% if visit.start_date and visit.start_date != visit.end_date %}{{ visit.start_date|date:"j M Y" }} – {% endif %}{{ visit.end_date|date:"j M Y"|default:_("no end date") }}</p>
@@ -24,17 +25,17 @@
     <dl class="row small mb-0">
       <dt class="col-sm-3 text-muted">{% trans "HACT Q1" %}</dt>
       <dd class="col-sm-9">{% if visit.hact_q1 %}{% status_pill visit.hact_q1 hact_q1_label "sm" %}{% elif answers_available %}{% trans "No HACT Q1 answer for this visit" %}{% else %}{% trans "Not available — the checklist answers were not found in the eTools data" %}{% endif %}</dd>
-      <dt class="col-sm-3 text-muted">{% trans "Quality" %}</dt>
-      <dd class="col-sm-9">{% if visit.quality_score is not None %}<span class="fmm-score fmm-score--{{ visit.score_band|default:'none' }}">{{ visit.quality_score|percent }}</span> ({{ band_label }})
-        <span class="text-muted">· {% if category_deductions %}{% trans "100 less" %} {% for c in category_deductions %}{{ c.label }} {{ c.points|number }}{% if not forloop.last %}, {% endif %}{% endfor %}{% else %}{% trans "no rule took points off" %}{% endif %}</span>
+      <dt class="col-sm-3 text-muted">{% trans "Visit quality" %} <span class="fmm-info" tabindex="0" role="note" title="{{ glossary }}" aria-label="{{ glossary }}">ⓘ</span></dt>
+      <dd class="col-sm-9 fmm-visit__quality">{% if visit.quality_score is not None %}<span class="fmm-score fmm-score--{{ visit.score_band|default:'none' }}">{{ visit.quality_score|percent }}</span> ({{ band_label }})
+        <span class="text-muted">· {% blocktrans count n=records_scored %}mean of {{ n }} record{% plural %}mean of {{ n }} records{% endblocktrans %}{% if visit.lowest_score is not None %} · {% blocktrans with lowest=visit.lowest_score|percent %}lowest {{ lowest }}{% endblocktrans %}{% endif %}{% if visit.urgency is not None %} · {% blocktrans with urgency=visit.urgency %}most urgent {{ urgency }}{% endblocktrans %}{% endif %}</span>
         {% elif visit.provisional_score is not None %}<span class="fmm-score fmm-score--none">{{ visit.provisional_score|percent }}</span>
-        <span class="text-muted">{% blocktrans count n=visit.ai_pending %}provisional ({{ n }} AI check pending){% plural %}provisional ({{ n }} AI checks pending){% endblocktrans %}: {% trans "it counts as not scored until its checks are done, and has no urgency yet" %}</span>
+        <span class="text-muted">{% blocktrans count n=visit.ai_pending %}provisional ({{ n }} AI check pending){% plural %}provisional ({{ n }} AI checks pending){% endblocktrans %}: {% trans "it counts as not scored until the checks of its records are done, and has no urgency yet" %}</span>
         {% else %}— <span class="text-muted">{{ visit.not_scored_reason|default:_("not scored") }}</span>{% endif %}</dd>
       {% for label, text in visit_texts %}<dt class="col-sm-3 text-muted">{{ label }}</dt>
       <dd class="col-sm-9" data-synced>{{ text|linebreaksbr }}</dd>{% endfor %}
       <dt class="col-sm-3 text-muted">{% trans "Urgency" %}</dt>
       <dd class="col-sm-9">{% if visit.urgency is not None %}<span class="pill pill--sm pill--{% if visit.row_band == 'red' %}danger{% elif visit.row_band == 'amber' %}warning{% else %}neutral{% endif %}">{{ visit.urgency }}</span>
-        <span class="text-muted">{% blocktrans with n=visit.urgency parts=visit.urgency_title %}Why urgency {{ n }}: {{ parts }}{% endblocktrans %}</span>{% else %}— <span class="text-muted">{% trans "no urgency: the visit has no score" %}</span>{% endif %}</dd>
+        <span class="text-muted">{% blocktrans with n=visit.urgency parts=visit.urgency_title %}Why urgency {{ n }} (its most urgent record): {{ parts }}{% endblocktrans %}</span>{% else %}— <span class="text-muted">{% trans "no urgency: the visit has no score" %}</span>{% endif %}</dd>
       <dt class="col-sm-3 text-muted">{% trans "Follow-up" %}</dt>
       <dd class="col-sm-9">{% if visit.signal_lines %}<ul class="list-unstyled mb-0">{% for line in visit.signal_lines %}<li><span class="pill pill--sm pill--warning">!</span> {{ line }}</li>{% endfor %}</ul>{% else %}<span class="text-muted">{% trans "Nothing late or missing" %}</span>{% endif %}
         <span class="d-block text-muted">{% trans "Signals of follow-up and late reports; they are not part of urgency." %}</span></dd>
@@ -76,44 +77,79 @@
     </dl>
   </section>
 
-  {% comment %}6. Entities: kind, entity, rating (normalised and as written), Q1, PD match and the narrative.{% endcomment %}
-  <section class="panel p-0" aria-labelledby="fmm-entities-{{ visit.key }}">
-    <div class="table-toolbar"><div class="table-toolbar__title"><h3 class="h6 mb-0" id="fmm-entities-{{ visit.key }}">{% trans "Monitored entities" %}</h3></div></div>
-    <div class="table-wrap"><table class="table table-sm">
-      <thead><tr><th>{% trans "Entity" %}</th><th>{% trans "Rating" %}</th><th>{% trans "HACT Q1" %}</th><th>{% trans "Narrative" %}</th></tr></thead>
-      <tbody>{% for e in entities %}<tr>
-        <td><span class="small text-muted">{{ e.kind_label }}</span><br>
-          {% if e.pd %}<a class="mono" href="{% url 'reports:programme_detail' e.pd_id %}" data-synced>{{ e.entity|default:e.pd.number }}</a>{% elif e.kind == "partner" and e.partner %}<a href="{% url 'reports:partner_profile' e.partner_id %}" data-synced>{{ e.entity|default:e.partner.name }}</a>{% else %}<span data-synced>{{ e.entity|default:"—" }}</span>{% endif %}
-          {% if e.kind == "pd" %}<span class="cell-sub">{% if e.match_label %}{{ e.match_label }}{% else %}{% trans "programme document not found in NeuroDB" %}{% endif %}</span>{% endif %}</td>
-        <td class="text-nowrap">{% status_pill e.rating e.rating_label "sm" %}{% if e.rating_raw and e.rating_raw|lower != e.rating_label|lower %}<span class="cell-sub" data-synced>{{ e.rating_raw }}</span>{% endif %}<span class="cell-sub">{% if e.not_rated_yet %}{% blocktrans with day=visit.end_date|date:"j M Y"|default:"—" %}ends {{ day }}{% endblocktrans %}{% else %}{% blocktrans with day=visit.end_date|date:"j M Y"|default:"—" %}rated {{ day }}{% endblocktrans %}{% endif %}</span></td>
-        <td class="small">{% if e.hact_q1 %}{% status_pill e.hact_q1 e.hact_q1_label "sm" %}{% if e.hact_q1_from != "entity" %}<span class="cell-sub">{{ e.hact_q1_from_label }}</span>{% endif %}{% else %}—{% endif %}</td>
-        <td class="small">{% if e.narrative %}<details><summary>{% blocktrans count n=e.narrative_words %}{{ n }} word{% plural %}{{ n }} words{% endblocktrans %}</summary><p class="mb-0 fmm-narrative" data-synced>{{ e.narrative|linebreaksbr }}</p></details>{% else %}<span class="text-muted">{% trans "No narrative" %}</span>{% endif %}
-          {% if e.row_texts %}<details class="mt-1"><summary>{% trans "Answers on this row" %}</summary><dl class="mb-0">{% for name, label, text in e.row_texts %}<dt class="text-muted fw-normal">{{ label }}</dt><dd class="mb-1" data-synced>{{ text|linebreaksbr }}</dd>{% endfor %}</dl></details>{% endif %}</td>
-      </tr>{% endfor %}</tbody>
-    </table></div>
+  {% comment %}6-7. Records: a card per entity assessed (its kind, entity, rating as written, Q1, PD match and
+  narrative), with its own score, band, urgency, flags, the points each category lost and its rule results (an
+  AI check's explanation cleaned of names; "Pending" while the check is not done yet). The rules read once for
+  the whole visit (R19) are listed once after the cards, then the rules switched off.{% endcomment %}
+  <section class="panel" aria-labelledby="fmm-entities-{{ visit.key }}">
+    <h3 class="h6" id="fmm-entities-{{ visit.key }}">{% blocktrans count n=entities|length %}Record ({{ n }}){% plural %}Records ({{ n }}){% endblocktrans %} <span class="fmm-info" tabindex="0" role="note" title="{{ glossary }}" aria-label="{{ glossary }}">ⓘ</span>
+      <span class="small text-muted fw-normal">· {% blocktrans with version=visit.rules_version when=visit.refreshed_at|date:"j M Y H:i" %}rules v{{ version }} · as of {{ when }}{% endblocktrans %}</span></h3>
+    {% for e in entities %}
+    <article class="fmm-record{% if e.row_band %} fmm-record--{{ e.row_band }}{% endif %}" id="{{ e.anchor }}" aria-labelledby="{{ e.anchor }}-title" data-record="{{ e.datamart_id }}">
+      <div class="fmm-record__head">
+        <div>
+          <span class="fmm-type fmm-type--{{ e.kind|default:'other' }}">{{ e.kind_label }}</span>
+          <h4 class="fmm-record__title h6 mb-0" id="{{ e.anchor }}-title">{% if e.pd %}<a class="mono" href="{% url 'reports:programme_detail' e.pd_id %}" data-synced>{{ e.entity|default:e.pd.number }}</a>{% elif e.kind == "partner" and e.partner %}<a href="{% url 'reports:partner_profile' e.partner_id %}" data-synced>{{ e.entity|default:e.partner.name }}</a>{% else %}<span data-synced>{{ e.entity|default:"—" }}</span>{% endif %}</h4>
+          {% if e.kind == "pd" %}<span class="cell-sub">{% if e.match_label %}{{ e.match_label }}{% else %}{% trans "programme document not found in NeuroDB" %}{% endif %}</span>{% endif %}
+        </div>
+        <div class="fmm-record__score text-nowrap">
+          {% if e.quality_score is not None %}<span class="fmm-score fmm-score--{{ e.score_band|default:'none' }}">{{ e.quality_score|percent }}</span> <span class="small text-muted">({{ e.band_label }})</span>
+          {% elif e.provisional_score is not None %}<span class="fmm-score fmm-score--none">{{ e.provisional_score|percent }}</span> <span class="small text-muted">{% blocktrans count n=e.ai_pending %}provisional ({{ n }} AI check pending){% plural %}provisional ({{ n }} AI checks pending){% endblocktrans %}</span>
+          {% else %}<span class="text-muted">—</span> <span class="small text-muted">{{ e.not_scored_reason|default:_("not scored") }}</span>{% endif %}
+          · {% trans "Urgency" %} <span class="pill pill--sm pill--{% if e.row_band == 'red' %}danger{% elif e.row_band == 'amber' %}warning{% else %}neutral{% endif %}" title="{% if e.urgency is None %}{% trans 'No urgency: the record has no score' %}{% else %}{{ e.urgency_title }}{% endif %}">{{ e.urgency|default_if_none:"—" }}</span>
+        </div>
+      </div>
+      <dl class="row small mb-2">
+        <dt class="col-sm-3 text-muted">{% trans "Rating" %}</dt>
+        <dd class="col-sm-9">{% status_pill e.rating e.rating_label "sm" %}{% if e.rating_raw and e.rating_raw|lower != e.rating_label|lower %} <span class="text-muted" data-synced>{{ e.rating_raw }}</span>{% endif %} <span class="text-muted">{% if e.not_rated_yet %}{% blocktrans with day=visit.end_date|date:"j M Y"|default:"—" %}ends {{ day }}{% endblocktrans %}{% else %}{% blocktrans with day=visit.end_date|date:"j M Y"|default:"—" %}rated {{ day }}{% endblocktrans %}{% endif %}</span></dd>
+        <dt class="col-sm-3 text-muted">{% trans "HACT Q1" %}</dt>
+        <dd class="col-sm-9">{% if e.hact_q1 %}{% status_pill e.hact_q1 e.hact_q1_label "sm" %}{% if e.hact_q1_from != "entity" %} <span class="text-muted">{{ e.hact_q1_from_label }}</span>{% endif %}{% else %}—{% endif %}</dd>
+        <dt class="col-sm-3 text-muted">{% trans "Flags" %}</dt>
+        <dd class="col-sm-9">{% if e.flags %}<span class="d-inline-flex flex-wrap gap-1">{% for f in e.flags %}<span class="pill pill--sm pill--danger">{{ f }}</span>{% endfor %}</span>{% elif e.evaluated_rules %}<span class="text-success">✓ {% trans "No flags" %}</span>{% else %}<span class="text-muted">—</span>{% endif %}</dd>
+        {% if e.quality_score is not None or e.provisional_score is not None %}<dt class="col-sm-3 text-muted">{% trans "Points off" %}</dt>
+        <dd class="col-sm-9">{% if e.deductions %}{% trans "100 less" %} {% for c in e.deductions %}{{ c.label }} {{ c.points|number }}{% if not forloop.last %}, {% endif %}{% endfor %}{% else %}{% trans "no rule took points off" %}{% endif %}</dd>{% endif %}
+        <dt class="col-sm-3 text-muted">{% trans "Narrative" %}</dt>
+        <dd class="col-sm-9">{% if e.narrative %}<details><summary>{% blocktrans count n=e.narrative_words %}{{ n }} word{% plural %}{{ n }} words{% endblocktrans %}</summary><p class="mb-0 fmm-narrative" data-synced>{{ e.narrative|linebreaksbr }}</p></details>{% else %}<span class="text-muted">{% trans "No narrative" %}</span>{% endif %}
+          {% if e.row_texts %}<details class="mt-1"><summary>{% trans "Answers on this record" %}</summary><dl class="mb-0">{% for name, label, text in e.row_texts %}<dt class="text-muted fw-normal">{{ label }}</dt><dd class="mb-1" data-synced>{{ text|linebreaksbr }}</dd>{% endfor %}</dl></details>{% endif %}</dd>
+      </dl>
+      {% if e.results %}
+      <details class="fmm-record__rules"{% if e.flags %} open{% endif %}><summary class="small">{% blocktrans count n=e.results|length %}Its quality check ({{ n }}){% plural %}Its quality checks ({{ n }}){% endblocktrans %}</summary>
+      <div class="table-wrap"><table class="table table-sm mb-0">
+        <thead><tr><th>{% trans "Rule" %}</th><th>{% trans "Result" %}</th><th>{% trans "Points off" %}</th><th>{% trans "Detail" %}</th></tr></thead>
+        <tbody>{% for r in e.results %}<tr data-rule="{{ r.rule }}">
+          <td class="text-nowrap">{{ r.rule }} {{ r.label }}<span class="cell-sub">{{ r.category_label }}{% if r.type_label %} · {{ r.type_label }}{% endif %}</span></td>
+          <td class="text-nowrap"><span class="pill pill--sm pill--{% if r.status == 'fail' %}danger{% elif r.status == 'pass' %}success{% elif r.status == 'pending' %}warning{% else %}neutral{% endif %}">{{ r.state_label }}</span></td>
+          <td class="text-nowrap">{% if not r.max_points %}{% trans "a flag only" %}{% elif r.status == 'fail' %}{{ r.deducted|number }} / {{ r.max_points|number }}{% else %}<span class="text-muted">0 / {{ r.max_points|number }}</span>{% endif %}</td>
+          <td class="small fmm-detail" data-synced>{{ r.detail|default:"—" }}{% if r.measure is not None %}<span class="cell-sub">{% blocktrans with m=r.measure|number %}measured: {{ m }}{% endblocktrans %}</span>{% endif %}</td>
+        </tr>{% endfor %}</tbody>
+      </table></div>
+      </details>
+      {% endif %}
+    </article>
+    {% empty %}
+    <p class="small text-muted mb-0">{% trans "No record of this visit is in NeuroDB." %}</p>
+    {% endfor %}
   </section>
 
-  {% comment %}
-  7. Quality: each rule's result with its points off and its flag (an AI check's explanation, cleaned
-  of names; "Pending" while the check is not done yet), then the rules switched off.
-{% endcomment %}
   <section class="panel p-0" aria-labelledby="fmm-quality-{{ visit.key }}">
-    <div class="table-toolbar"><div class="table-toolbar__title"><h3 class="h6 mb-0" id="fmm-quality-{{ visit.key }}">{% trans "Quality checks" %}</h3>
-      <span class="small text-muted">{% blocktrans with version=visit.rules_version when=visit.refreshed_at|date:"j M Y H:i" %}rules v{{ version }} · as of {{ when }}{% endblocktrans %}</span></div></div>
+    <div class="table-toolbar"><div class="table-toolbar__title"><h3 class="h6 mb-0" id="fmm-quality-{{ visit.key }}">{% trans "Checks of the whole visit" %}</h3>
+      <span class="small text-muted">{% trans "Read once for the visit (its monitors and field offices) and applied to every record" %}</span></div></div>
     {% if results %}
     <div class="table-wrap"><table class="table table-sm">
       <thead><tr><th>{% trans "Rule" %}</th><th>{% trans "Result" %}</th><th>{% trans "Points off" %}</th><th>{% trans "Detail" %}</th></tr></thead>
       <tbody>{% for r in results %}<tr data-rule="{{ r.rule }}">
-        <td class="text-nowrap">{{ r.rule }} {{ r.label }}<span class="cell-sub">{{ r.category_label }}{% if r.type_label %} · {{ r.type_label }}{% endif %}</span></td>
+        <td class="text-nowrap">{{ r.rule }} {{ r.label }}<span class="cell-sub">{{ r.category_label }}{% if r.type_label %} · {{ r.type_label }}{% endif %} · {% trans "applies to every record" %}</span></td>
         <td class="text-nowrap"><span class="pill pill--sm pill--{% if r.status == 'fail' %}danger{% elif r.status == 'pass' %}success{% elif r.status == 'pending' %}warning{% else %}neutral{% endif %}">{{ r.state_label }}</span></td>
         <td class="text-nowrap">{% if not r.max_points %}{% trans "a flag only" %}{% elif r.status == 'fail' %}{{ r.deducted|number }} / {{ r.max_points|number }}{% else %}<span class="text-muted">0 / {{ r.max_points|number }}</span>{% endif %}</td>
         <td class="small fmm-detail" data-synced>{{ r.detail|default:"—" }}{% if r.measure is not None %}<span class="cell-sub">{% blocktrans with m=r.measure|number %}measured: {{ m }}{% endblocktrans %}</span>{% endif %}</td>
       </tr>{% endfor %}</tbody>
     </table></div>
-    {% if results_off %}<p class="small text-muted px-3 pb-3 mb-0">{% trans "Switched off:" %} {% for code in results_off %}{{ code }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+    {% elif entities %}
+    <p class="small text-muted px-3 pb-2 mb-0">{% if visit.evaluated_rules or visit.score_band %}{% trans "No rule switched on reads the whole visit." %}{% else %}{{ visit.not_scored_reason|default:_("The quality rules have not run on this visit yet.") }}{% endif %}</p>
     {% else %}
-    <p class="small text-muted px-3 pb-3 mb-0">{{ visit.not_scored_reason|default:_("The quality rules have not run on this visit yet.") }}</p>
+    <p class="small text-muted px-3 pb-2 mb-0">{{ visit.not_scored_reason|default:_("The quality rules have not run on this visit yet.") }}</p>
     {% endif %}
+    {% if results_off %}<p class="small text-muted px-3 pb-3 mb-0">{% trans "Switched off:" %} {% for code in results_off %}{{ code }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
   </section>
 
   {% comment %}8. Questions and answers, read from the checklist records on demand.{% endcomment %}

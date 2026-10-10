@@ -1,20 +1,20 @@
 {% load i18n %}
-{% comment %}Critical visits requiring attention (FMS §7.3, "Critical items requiring attention"): the most urgent scored visits, worst first, each a
-red-tinted card with its partner, rating, urgency and one line per rule it failed (the rule's flag and, for
-an AI check, the AI's explanation). R19 says how many monitors are not on the field office's staff list,
-never who.{% endcomment %}
+{% comment %}Critical records requiring attention (FMS §7.3, "Critical items requiring attention"): the most urgent scored
+records, worst first, each a red-tinted card ("#1722 · entity (type)") with its rating, urgency and one line
+per rule it failed (the rule's flag and, for an AI check, the AI's explanation). R19 says how many monitors
+are not on the field office's staff list, never who.{% endcomment %}
 <section class="panel fmm-critical" id="fmm-critical" aria-labelledby="fmm-critical-title">
   <div class="panel__header">
-    <h2 class="panel__title fmm-critical__title" id="fmm-critical-title"><span aria-hidden="true">⚠</span> {% trans "Critical visits requiring attention" %}</h2>
-    <span class="fmm-info" tabindex="0" role="note" title="{% blocktrans with red=critical.red_at %}The scored visits of urgency {{ red }} or more, most urgent first (at most 10); when there is none, the five most urgent amber visits. Each line is a quality rule the visit failed.{% endblocktrans %}">ⓘ</span>
+    <h2 class="panel__title fmm-critical__title" id="fmm-critical-title"><span aria-hidden="true">⚠</span> {% trans "Critical records requiring attention" %}</h2>
+    <span class="fmm-info" tabindex="0" role="note" title="{% blocktrans with red=critical.red_at %}The scored records of urgency {{ red }} or more, most urgent first (at most 10); when there is none, the five most urgent amber records. Each record of a visit has its own urgency; each line is a quality rule the record failed.{% endblocktrans %}">ⓘ</span>
   </div>
   {% if critical.items %}
-  {% if critical.band == "amber" %}<p class="small text-muted mb-2">{% blocktrans with red=critical.red_at %}No visit in this filter has an urgency of {{ red }} or more: the most urgent amber visits.{% endblocktrans %}</p>{% endif %}
+  {% if critical.band == "amber" %}<p class="small text-muted mb-2">{% blocktrans with red=critical.red_at %}No record in this filter has an urgency of {{ red }} or more: the most urgent amber records.{% endblocktrans %}</p>{% endif %}
   {% for item in critical.items %}
-  <article class="fmm-critical-item fmm-critical-item--{{ item.level }}" aria-labelledby="fmm-critical-{{ item.key }}">
+  <article class="fmm-critical-item fmm-critical-item--{{ item.level }}" aria-labelledby="fmm-critical-{{ item.record }}">
     <div class="fmm-critical-item__head">
       <div class="fmm-critical-item__who">
-        <h3 class="fmm-critical-item__title" id="fmm-critical-{{ item.key }}"><a class="fmm-critical-item__id" href="{{ item.url }}" hx-get="{{ item.url }}" hx-target="#modal-content" hx-push-url="false">{{ item.name }}</a>{% if item.entity %} <span class="fmm-critical-item__entity">· <span data-synced>{{ item.entity }}</span></span>{% endif %}</h3>
+        <h3 class="fmm-critical-item__title" id="fmm-critical-{{ item.record }}"><a class="fmm-critical-item__id" href="{{ item.url }}#{{ item.anchor }}" hx-get="{{ item.url }}" hx-target="#modal-content" hx-push-url="false">{{ item.name }}</a> <span class="fmm-critical-item__entity">· {% if item.entity %}<span data-synced>{{ item.entity }}</span> {% endif %}({{ item.type }})</span></h3>
         <div class="fmm-critical-item__rating">{{ item.rating_label }}</div>
       </div>
       <div class="fmm-critical-item__urgency">
@@ -27,12 +27,12 @@ never who.{% endcomment %}
       {% for line in item.lines %}<li><span class="fmm-rule-badge">{{ line.rule }}</span> {% if line.r19 %}<span>{% if line.r19.office %}{% blocktrans with office=line.r19.office count n=line.r19.n %}{{ n }} monitor not on the staff list of {{ office }}{% plural %}{{ n }} monitors not on the staff list of {{ office }}{% endblocktrans %}{% else %}{% blocktrans count n=line.r19.n %}{{ n }} monitor not on the field office's staff list{% plural %}{{ n }} monitors not on the field office's staff list{% endblocktrans %}{% endif %} — {% trans "verify the assignment" %}</span>{% else %}<span data-synced>{{ line.message }}</span>{% if line.explanation %} <span class="fmm-critical-item__detail">— <span data-synced>{{ line.explanation }}</span></span>{% endif %}{% endif %}</li>{% endfor %}
     </ul>
     {% else %}
-    <p class="small text-muted mb-0">{% trans "No quality rule flagged this visit; its page shows what its urgency is made of." %}</p>
+    <p class="small text-muted mb-0">{% trans "No quality rule flagged this record; its visit's page shows what its urgency is made of." %}</p>
     {% endif %}
   </article>
   {% endfor %}
   {% if critical.total > critical.items|length %}<p class="mb-0 small"><a href="{{ critical.all_url }}" hx-get="{{ critical.all_url }}" hx-target="#fmm-results" hx-push-url="true">{% blocktrans with n=critical.total %}Show all {{ n }}{% endblocktrans %} →</a></p>{% endif %}
   {% else %}
-  <p class="small text-muted mb-0">{% blocktrans with amber=critical.amber_at %}No visit in this filter has an urgency of {{ amber }} or more.{% endblocktrans %}</p>
+  <p class="small text-muted mb-0">{% blocktrans with amber=critical.amber_at %}No record in this filter has an urgency of {{ amber }} or more.{% endblocktrans %}</p>
   {% endif %}
 </section>

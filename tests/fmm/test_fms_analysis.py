@@ -1,8 +1,8 @@
 """Monitoring insights drawn as FMS draws it (stage E2): the Analysis tab in FMS's order (the five-bucket
 quality score distribution, the rule score trends, the quality rule analysis, the quality flag frequency,
 the flag count distribution, entity performance with All, quality by field office, section performance);
-the Map tab's legend wording; the drill-down window's columns; the visits table's page size; and the help
-guide."""
+the Map tab's legend wording; the drill-down window's columns; the records list's page size; and the help
+guide. Every block counts records (each scored on its own), as FMS does."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from django.urls import reverse
 
 from neurodb.fmm import metrics, views
 from neurodb.fmm import scope as scope_module
-from neurodb.fmm.models import Visit
+from neurodb.fmm.models import Visit, VisitEntity
 from neurodb.fmm.scope import Scope
 
 pytestmark = pytest.mark.django_db
@@ -57,8 +57,9 @@ def _panel(html: str, title_id: str) -> str:
 
 
 def _drill_count(client, url: str) -> int:
+    """The records a drill-down window lists."""
     html = client.get(unescape(url), HTTP_HX_REQUEST="true").content.decode()
-    return int(re.search(r'id="modal-title">\s*(\d+) visits?', html).group(1))
+    return int(re.search(r'id="modal-title">\s*(\d+) records?', html).group(1))
 
 
 ANALYSIS_ORDER = (  # FMS's order, then NeuroDB's own blocks
@@ -93,25 +94,25 @@ def test_the_analysis_tab_follows_fms_order(built, client_viewer):
 
 
 # ------------------------------------------------------------------------------------------ s07
-def test_the_score_distribution_has_fms_five_buckets_that_sum_to_the_scored_visits(built, client_viewer):
+def test_the_score_distribution_has_fms_five_buckets_that_sum_to_the_scored_records(built, client_viewer):
     scope = _scope()
     data = metrics.score_buckets(scope)
     assert [i["drill"] for i in data["items"]] == ["0-20", "20-40", "40-60", "60-80", "80-100"]
     assert [i["label"] for i in data["items"]] == ["0–20", "20–40", "40–60", "60–80", "80–100"]
     assert [i["color"] for i in data["items"]] == [f"--fmm-score-{n}" for n in range(5)]
     assert sum(i["value"] for i in data["items"]) == metrics.kpis(scope)["scored"]
-    for item in data["items"]:  # each bar opens exactly its visits
-        assert _scope(f"year=2026&section=&bucket={item['drill']}").visits().count() == item["value"], item
-    # 1723 scores 48, 1727 80 (in the top bucket), 1722 94.3 and 1728 93
+    for item in data["items"]:  # each bar opens exactly its records
+        assert _scope(f"year=2026&section=&bucket={item['drill']}").records().count() == item["value"], item
+    # 1723's two records score 48, 1727's 80 (in the top bucket), 1722's 95, 95 and 93
     values = {i["drill"]: i["value"] for i in data["items"]}
-    assert values["40-60"] == 1 and values["80-100"] >= 3
-    Visit.objects.filter(key="1722").update(quality_score=Decimal("100.0"))
+    assert values["40-60"] == 2 and values["80-100"] == 7
+    VisitEntity.objects.filter(visit__key="1722").update(quality_score=Decimal("100.0"))
     cache.clear()
     assert metrics.score_buckets(_scope())["items"][-1]["value"] == values["80-100"]  # 100 is in 80-100
     html = _tab(client_viewer, "analysis")
     panel = _panel(html, "fmm-dist-title")
-    assert 'data-value-title="Visit count"' in panel and "&amp;bucket={drill}" in panel
-    assert "Not scored: 2 visits" in _text(panel)
+    assert 'data-value-title="Record count"' in panel and "&amp;bucket={drill}" in panel
+    assert "Not scored: 2 records" in _text(panel)
     css = (STATIC / "css" / "app.css").read_text()
     for n in range(5):
         assert css.count(f"--fmm-score-{n}:") == 2, n  # a light and a dark colour
@@ -134,7 +135,9 @@ def test_rule_analysis_flag_frequency_and_the_rule_list_agree(built, client_view
     rules = _panel(html, "fmm-rules-title")
     checked = rules.split('<details class="fmm-rules-all', 1)[0]
     shown = [
-        re.search(r'fmm-bar__label">(?:<a [^>]*>)?(R\d+) .*?(\d+) / (\d+) visits flagged', row, re.S).groups()
+        re.search(
+            r'fmm-bar__label">(?:<a [^>]*>)?(R\d+) .*?(\d+) / (\d+) records flagged', row, re.S
+        ).groups()
         for row in checked.split("data-png-row>")[1:]
     ]
     assert shown and [c for c, *_ in shown] == [
@@ -157,7 +160,7 @@ def test_rule_analysis_flag_frequency_and_the_rule_list_agree(built, client_view
     assert "Every quality rule (" in rules and "rules=all" in rules and "What it checks" not in rules
     every = _panel(_tab(client_viewer, "analysis", rules="all"), "fmm-rules-title")
     listed = every.split('id="fmm-rules-all"', 1)[1]
-    assert "What it checks" in listed and "6 / 6 visits flagged" in _text(listed)
+    assert "What it checks" in listed and "8 / 10 records flagged" in _text(listed)
     assert listed.count('class="fmm-meter-row"') == len(analysis)
 
 
@@ -214,7 +217,7 @@ def test_entity_performance_shows_all_entities_by_default(built, client_viewer):
     scored = [r["avg"] for r in rows if r["avg"] is not None]
     assert scored == sorted(scored) and all(r["avg"] is None for r in rows[len(scored) :])
     assert len(rows) == sum(len(v) for v in metrics.entity_rows(_scope())["entities"].values())
-    for header in ("Entity", "Type", "Visits", "Avg quality", "High / Med / Low", "Top issue"):
+    for header in ("Entity", "Type", "Records", "Avg quality", "High / Med / Low", "Top issue"):
         assert f">{header}</th>" in table, header
     assert 'class="fmm-rule-badge"' in table and re.search(
         r'class="fmm-avg fmm-avg--(high|medium|low)"', table
@@ -248,10 +251,10 @@ def test_quality_by_field_office_is_one_row_per_office(built, client_viewer):
             chip = f'fmm-office-chip fmm-office-chip--{badge["level"]}" title="{badge["label"]}">{badge["rule"]}: {badge["flagged"]}/{badge["total"]}<'
             assert chip in unescape(panel), chip
             assert badge["level"] == ("danger" if 2 * badge["flagged"] >= badge["total"] else "warning")
-    assert re.search(r"\d+ visits? scored", _text(panel))
+    assert re.search(r"\d+ records? scored · \d+ records?", _text(panel))
 
 
-def test_section_performance_lists_the_first_ten_visits(built, client_viewer, monkeypatch):
+def test_section_performance_lists_the_first_ten_records(built, client_viewer, monkeypatch):
     monkeypatch.setattr(views, "SECTION_TOP", 2)
     html = _tab(client_viewer, "analysis")
     assert "Section performance" in _text(html) and ">Sections<" not in html
@@ -265,7 +268,7 @@ def test_section_performance_lists_the_first_ten_visits(built, client_viewer, mo
         assert block.split("<details", 1)[0].count("<li>") == min(2, len(section["lines"]))
         if len(section["lines"]) > 2:
             # "Show all" loads the rest when it is opened, as the places tables do
-            assert f"Show all {section['visits']}" in block and "sections=all" in block
+            assert f"Show all {section['records']}" in block and "sections=all" in block
             assert f'hx-select="#fmm-section-rest-{i}"' in block and 'hx-trigger="toggle once"' in block
             assert whole.count("<li>") == len(section["lines"]) + (1 if section["more"] else 0)
             assert f'id="fmm-section-rest-{i}"' in whole and " open>" in whole
@@ -273,9 +276,12 @@ def test_section_performance_lists_the_first_ten_visits(built, client_viewer, mo
         scores = [line["quality"] for line in section["lines"]]
         scored = [q for q in scores if q is not None]
         assert scored == sorted(scored) and scores[len(scored) :] == [None] * (len(scores) - len(scored))
-    entities = metrics.visit_entities(_scope(), [line["key"] for s in sections for line in s["lines"]])
+    # one line per record, with its own entity and a link to its card on the visit page
+    entities = metrics.record_names([line["record"] for s in sections for line in s["lines"]])
     shown = unescape(every).upper()
     assert entities and all(e[:20].upper() in shown for e in entities.values())
+    assert sum(len(s["lines"]) for s in sections) == metrics.kpis(_scope())["records"] == 12
+    assert 'href="/fmm/visits/1726/#record-121"' in every and 'href="/fmm/visits/1726/#record-122"' in every
 
 
 # ------------------------------------------------------------------------------------------ PNG and PDF
@@ -368,31 +374,33 @@ def test_the_drill_window_shows_fms_columns_and_no_people(built, client_viewer):
     heads = re.findall(r'<th scope="col">([^<]+)</th>', html)
     assert heads == [
         "Visit",
-        "Date",
         "Entity",
+        "Type",
         "Partner",
         "PD number",
         "Location",
         "Section",
+        "Visit date",
         "Rating",
         "Quality",
         "Urgency",
         "Flags",
     ]
     assert "Amel Association" in html  # the partner's full name
-    # eleven columns: the window is extra-large on a wide screen, not the visit window's large one
+    # twelve columns: the window is extra-large on a wide screen, not the visit window's large one
     assert ".modal-dialog:has(.fmm-drill) { max-width: 1140px; }" in (STATIC / "css" / "app.css").read_text()
     assert "@" not in _text(html.split("<tbody>", 1)[1])
-    # with an entity type filter, the entity is the row that was counted
+    # one row per record: with an entity type filter, the records that match
     narrowed = client_viewer.get(
         DRILL, {"year": "2026", "section": "", "entity_type": "partner"}, HTTP_HX_REQUEST="true"
     ).content.decode()
-    rows = re.findall(r"<tr data-key=\"(\w+)\".*?</tr>", narrowed, re.S)
-    entities = metrics.visit_entities(_scope("year=2026&section=&entity_type=partner"), rows)
-    assert entities and set(entities.values()) <= {"Amel Association", "Mercy Corps Lebanon"}
+    rows = re.findall(r'<tr data-key="\w+" data-record="(\d+)"', narrowed)
+    entities = metrics.record_names([int(r) for r in rows])
+    assert sorted(rows) == ["103", "112"]
+    assert set(entities.values()) == {"Amel Association", "Mercy Corps Lebanon"}
 
 
-def test_the_visits_table_takes_25_50_or_100_a_page(built, client_viewer, monkeypatch):
+def test_the_records_list_takes_25_50_or_100_a_page(built, client_viewer, monkeypatch):
     html = _tab(client_viewer, "visits")
     assert re.search(r'class="fmm-page-size__opt" aria-current="true">50<', html)
     small = client_viewer.get(

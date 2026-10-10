@@ -194,9 +194,10 @@ def _kpi(scope: Scope, when: str, limits: dict[str, int]) -> dict[str, Any]:
     data = metrics.summary(scope, when, limits)
     covered = metrics.coverage(scope, when, limits)
     groups = {row["group"]: row["n"] for row in k["by_status"]}
-    by_rating = {code: data["by_rating"][code]["visits"] for code in RATED}
+    # each visit under its own rating (its worst record's); the records' ratings are the entities' below
+    by_rating = {code: data["visit_ratings"][code] for code in RATED}
     rated = sum(by_rating.values())
-    entity_ratings = k["entity_ratings"]
+    entity_ratings = k["record_ratings"]
     out = {
         "key": "kpi",
         "visits": k["visits"],
@@ -216,20 +217,23 @@ def _kpi(scope: Scope, when: str, limits: dict[str, int]) -> dict[str, Any]:
     )
     out.update(
         {
-            "entities": k["entities"],
-            "entities_rated": k["entities_rated"],
-            "entities_not_monitored": k["entities_not_monitored"],
-            "entities_not_rated_yet": k["entities_not_rated_yet"],
+            "entities": k["records"],
+            "entities_rated": k["records_rated"],
+            "entities_not_monitored": k["records_not_monitored"],
+            "entities_not_rated_yet": k["records_not_rated_yet"],
         }
     )
     for code in RATED:
         out[f"entities_{code}"] = entity_ratings[code]
-        out[f"entities_{code}_share_of_rated"] = _share(entity_ratings[code], k["entities_rated"])
+        out[f"entities_{code}_share_of_rated"] = _share(entity_ratings[code], k["records_rated"])
     out.update(
         {
+            # per record, as FMS: the mean of the scored records (each scored on its own)
+            "records": k["records"],
             "avg_quality": _num(k["avg_quality"]),
-            "scored_visits": k["scored"],
-            "high_urgency": k["high_urgency"],
+            "scored_records": k["scored"],
+            "scored_visits": k["scored_visits"],
+            "high_urgency": k["high_urgency"],  # records at or above red
             "amber_urgency": k["amber"],
             "psea_flagged_visits": data["psea_flagged"],
             "governorates_covered": covered["covered"],
@@ -486,8 +490,8 @@ def _notes(scope: Scope, kpi: dict[str, Any], when: str) -> list[str]:
             lines.append(
                 f"{note['n']} finding rows have no activity reference and count as their own visits."
             )
-        elif note["key"] == "entity_filter":
-            lines.append("An entity filter is on: the entity figures count the matching entities only.")
+        elif note["key"] == "record_filter":
+            lines.append("A record filter is on: the entity figures count the matching records only.")
     if kpi["visits_planned"] or kpi["visits_in_progress"]:
         lines.append(
             "Planned and in-progress visits are not rated yet; they are not counted as Not monitored."
@@ -612,7 +616,7 @@ def narrative_order(scope: Scope, limits: dict[str, int] | None = None) -> list[
     limits = limits or metrics.thresholds()
     rows = [
         dict(zip(NARRATIVE_COLUMNS, row, strict=True))
-        for row in scope.entities()
+        for row in scope.records()
         .filter(finding_id__isnull=False, narrative_words__gt=0)
         .values_list(*NARRATIVE_COLUMNS)
     ]

@@ -447,7 +447,7 @@ def test_each_kind_of_entity_alone_equals_its_part_of_every_kind(built):
         for kind in ("pd", "cp_output", "partner", "other"):
             one = metrics.entities_performance(scope, kind)
             assert one["rows"] == every["entities"].get(kind, []), (query, kind)
-        rows = list(scope.entities().values_list("kind", flat=True))
+        rows = list(scope.records().values_list("kind", flat=True))
         assert metrics.entity_kinds(scope) == {k: rows.count(k) for k in set(rows)}, query
 
 

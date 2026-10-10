@@ -1576,43 +1576,49 @@ the rest of NeuroDB*, below).
 
 ### What each block shows
 
-Every figure is computed from the visits the last refresh built (`neurodb/fmm/metrics.py`, one function
-per block, each taking the page's filter), kept 10 minutes.
+Every figure is computed from the visits and records the last refresh built (`neurodb/fmm/metrics.py`,
+one function per block, each taking the page's filter), kept 10 minutes. A **visit** is one eTools
+monitoring activity; it holds one **record** per entity assessed (partner, CP output or PD/SSFA:
+`fmm.VisitEntity`), each with its own rating, narrative and Q1–Q3. As in FMS, each record is scored,
+flagged and given an urgency on its own, so quality, ratings, flags, rules and urgency count
+**records** (`Scope.records`); *Monitoring visits*, the status tiles, places, PSEA, the monitoring
+gaps and the follow-up count **distinct visits** (`Scope.visits`: with a record filter, the visits
+of the records counted). Each block says which it counts.
 
 | Block | What it shows | Source |
 |---|---|---|
-| Key figures (every tab) | Monitoring visits (whatever their status, with the breakdown reported / in progress / planned / cancelled / status unknown), monitored entities (rated / not monitored), the average quality of the scored visits, and the visits of high urgency (red, with the amber ones, and *View urgent visits →*) | `kpis`: `fmm.Visit`, `fmm.VisitEntity` |
-| Insights › Morning briefing | This year so far (1 January to today, whatever the page's period; its other filters kept), tinted as FMS shows them: critical flags (urgency at or above red), average quality, low quality visits (below the Medium band), critical partners (a visit at or above red), the visits, and the visits in review, submitted, in data collection, assigned and completed; each tile with its definition (ⓘ) and the visits behind it; *Top critical partners*: the five partners with the most critical visits as red chips, each opening those visits; *Quality by governorate*: "NAME · average · visits", the chip tinted by quality band | `briefing` |
+| Key figures (every tab) | Monitoring visits (distinct visits, whatever their status, with the breakdown reported / in progress / planned / cancelled / status unknown; it opens the list grouped by visit), records (rated / not monitored / not rated yet), the average quality score per record (the mean of the scored records), and the records of high urgency (red, with the amber ones, and *View urgent records →*) | `kpis`: `fmm.Visit`, `fmm.VisitEntity` |
+| Insights › Morning briefing | This year so far (1 January to today, whatever the page's period; its other filters kept), tinted as FMS shows them: critical flags (records at or above red urgency), average quality (per record), **Low quality records** (scored records below the Medium band; FMS's tile says "visits" for the same records), critical partners (the partners of a record at or above red), monitoring visits (distinct visits, "N records" beside them), and the visits in review, submitted, in data collection, assigned and completed (a status is the visit's); each tile with its definition (ⓘ) and the records behind it; *Top critical partners*: the five partners with the most critical records (each record under its own partner) as red chips, each opening those records; *Quality by governorate*: "NAME · record average · records", the chip tinted by quality band | `briefing` |
 | Insights › AI monitoring insights | The parts the published prompt version lists (v2: a coverage and quality summary, key programmatic findings, operational challenges, recommendations, and up to five priority action points written "[PRIORITY: High] Section / Partner — action — responsible — timeframe"), each sentence with the visits it rests on; *Generation settings* (read-only: the published version's model, effort, output token limit, narrative samples, compliance depth, temperature or top-p only when set and used, the sections; *Edit in admin* for administrators); the chips (model, effort, tokens, temperature and top-p, notes and quality flags sent, prompt and rules versions, quota); *Regenerate*, *What was sent* | `fmm.ai.insights.current`: the latest `Insight` of the filter, else the brief written by NeuroDB (`fmm.ai.fallback`) |
-| Insights › Critical visits requiring attention | FMS's "Critical items requiring attention": the scored visits at or above red urgency, most urgent first, at most 10 (else the five most urgent amber ones), each with its partner, rating, HIGH/MEDIUM and urgency, and one line per rule it failed (the stored flag, with the AI's explanation for an AI check; R19 as "N monitors not on the staff list of <office>", never who); *Show all N* opens the Visits tab on that urgency band | `critical_items`: `fmm.Visit`, `fmm.VisitRuleResult` |
+| Insights › Critical records requiring attention | FMS's "Critical items requiring attention", one card per record: the scored records at or above red urgency, most urgent first, at most 10 (else the five most urgent amber ones), each "#<activity id> · <entity> (<type>)" with its rating, HIGH/MEDIUM and urgency, and one line per rule it failed (the stored flag, with the AI's explanation for an AI check; R19 as "N monitors not on the staff list of <office>", never who); the card opens its visit's page at the record; *Show all N* opens the records list on that urgency band | `critical_items`: `fmm.VisitEntity`, `fmm.RecordRuleResult` |
 | Insights › Chat with Data | Questions about the visits of the filter, answered with four look-ups, links to the visits checked; the published prompt version's starter questions | `fmm:chat_stream`, `fmm.ai.chat`, the `fm_*` look-ups |
-| Quality › Quality score trends | Two smooth lines per month (by visit date: start, else end): the average quality score (left axis, 0–100, filled) and the reports (right axis); a point opens the month's visits | `monthly_quality` |
-| Quality › Monitoring volume over time | Visits per month (by visit date: start, else end) as bars, with their average quality as a line on its own axis (0–100%) | `monthly_volume` |
-| Quality › HACT Q1 — Finding rating distribution | Visits per month by their worst HACT Q1 answer, stacked On track / Constrained / Off track in FMS's colours; the overall finding rating instead ("Overall finding rating distribution"), with a note, when no visit of the filter has a Q1 answer; the drill-down box's pills On track, Off track, Constrained and Not Monitored (apart) open their visits | `hact_q1_by_month`, `rating_by_month` |
-| Quality › Geographic coverage | The places visited, their governorate, visits and last visit (top 10; *Show all* loads the rest, up to 500) | `locations` |
-| Quality › Top recurring issues | Flags grouped by rule and reason, with their visits and mean urgency | `top_issues`: `fmm.VisitRuleResult` |
-| Quality › Quality issues summary | Narrative and rating coherence flags (R6, an AI check), Not monitored (planned, not conducted: reported visits with no entity rated), visits with 3 or more flags | `issues_summary` |
-| Analysis › Quality score distribution | Scored visits in FMS's five bars of 20 points (0–20 red, 20–40 orange, 40–60 amber, 60–80 light green, 80–100 green, 100 included) along a "Visit count" axis, and the visits not scored | `score_buckets` (summed from the pass's buckets of 10) |
-| Analysis › Rule score trends over time | Per rule with points, a smooth line of the share of its maximum points the visits that started each month earned ("% of max score", legend on top, FMS's colours for the first five); a point opens the visits the rule flagged that month (worked out when the panel scrolls into view) | `rule_trends` (with `rule_stats`, from `rule_months`) |
-| Analysis › Quality rule analysis | One row per rule that checked visits, in the order of the ids: "N / M visits flagged" and a bar of the share not flagged (green under 25% flagged, amber 25–50%, red over 50%); under it, every rule with what it checks and "not available", "AI check pending", "AI check switched off", "off" or "flag only" | `rule_analysis` |
-| Analysis › Quality flag frequency | Every rule that flagged a visit, most first: id, bar and "N (share of the visits it checked)"; the same counts as the rule analysis | `flag_frequency` |
-| Analysis › Flag count distribution | Scored visits with 0 flags (green), 1 flag (blue), 2 flags (amber), 3+ flags (red), the share inside the bar | `flag_distribution` |
-| Analysis › Highlights | Visits, reported, governorates covered of the gazetteer's, average quality (the key figure's), off-track visits, PSEA-flagged visits of those with a PSEA question, High / Medium / Low shares, entities by type | `highlights` |
+| Quality › Quality score trends | Two smooth lines per month (by visit date: start, else end): the average quality score of the scored records (left axis, 0–100, filled) and the reports, the records of reported visits (right axis); a point opens the month's records | `monthly_quality` |
+| Quality › Monitoring volume over time | Records per month (by visit date: start, else end) as bars, as FMS counts them, the distinct visits in the tooltip, with their average quality as a line on its own axis (0–100%) | `monthly_volume` |
+| Quality › HACT Q1 — Finding rating distribution | Records per month by their own HACT Q1 (the record's answer, else its partner's, else the visit's), stacked On track / Constrained / Off track in FMS's colours; the records' overall finding rating instead ("Overall finding rating distribution"), with a note, when no record of the filter has a Q1 answer; the drill-down box's pills On track, Off track, Constrained and Not Monitored (apart: the records not monitored on a reported visit, or whose Q1 reads "not monitored") open their records | `hact_q1_by_month`, `rating_by_month` |
+| Quality › Geographic coverage | The places visited, their governorate, records, visits and last visit (top 10; *Show all* loads the rest, up to 500) | `locations` |
+| Quality › Top recurring issues | The records' flags grouped by rule and reason, with their records, their visits and mean urgency, and the visits of the most urgent records | `top_issues`: `fmm.RecordRuleResult` |
+| Quality › Quality issues summary | Records flagged by narrative and rating coherence (R6, an AI check), Not monitored (planned, not conducted: reported visits none of whose records is rated, a count of visits), records with 3 or more flags | `issues_summary` |
+| Analysis › Quality score distribution | Scored records in FMS's five bars of 20 points (0–20 red, 20–40 orange, 40–60 amber, 60–80 light green, 80–100 green, 100 included) along a "Record count" axis, and the records not scored | `score_buckets` (summed from the pass's buckets of 10) |
+| Analysis › Rule score trends over time | Per rule with points, a smooth line of the share of its maximum points the records of the visits that started each month earned ("% of max score", legend on top, FMS's colours for the first five); a point opens the records the rule flagged that month (worked out when the panel scrolls into view) | `rule_trends` (with `rule_stats`, from `rule_months`: `fmm.RecordRuleResult`) |
+| Analysis › Quality rule analysis | One row per rule that checked records, in the order of the ids: "N / M records flagged" and a bar of the share not flagged (green under 25% flagged, amber 25–50%, red over 50%); R19 reads the whole visit and counts on each of its records, as FMS counts it; under it, every rule with what it checks and "not available", "AI check pending", "AI check switched off", "off" or "flag only" | `rule_analysis` |
+| Analysis › Quality flag frequency | Every rule that flagged a record, most first: id, bar and "N (share of the records it checked)"; the same counts as the rule analysis | `flag_frequency` |
+| Analysis › Flag count distribution | Scored records with 0 flags (green), 1 flag (blue), 2 flags (amber), 3+ flags (red), the share inside the bar | `flag_distribution` |
+| Analysis › Highlights | Visits, records, reported visits, governorates covered of the gazetteer's, average quality per record (the key figure's), off-track records, PSEA-flagged visits of those with a PSEA question, the scored records by High / Medium / Low band, records by entity type | `highlights` |
 | Analysis › Governorates not visited | The gazetteer's governorates no visit of the filter is placed in | `governorate_gaps` |
-| Analysis › Field offices | Visits and average quality per field office ("Office not known" too), and where the offices came from | `offices` |
-| Analysis › Entity performance | All the monitored entities (FMS's default *All* chip) or one kind (Partner, CP output, PD/SSFA), each with its type badge (CSO partner, CP output, PD/SSFA…), visits, average quality coloured by band, High / Med / Low, top issue and last rating, worst average quality first, unscored last; partners by their full name; a PD shows its planned visits for the year (the table loads when it scrolls into view) | `entities_performance` (`"all"` merges the kinds) |
-| Analysis › Quality by field office | One row per office, its scored visits, its flags by rule ("R1: 6/16", amber under half, red from half) | `office_rule_badges` |
-| Analysis › Section performance | Per section, its visits, average quality and High / Medium / Low, a bar coloured by band, and its first 10 visits ("#id ENTITY score rating", lowest score first, unscored after), *Show all* for the rest | `sections`, `visit_entities` |
-| Analysis › Visit frequency by location | Visits, average quality and coverage (rated ÷ monitored entities) per place (top 10; *Show all* loads the rest) | `locations` |
-| Analysis › Quality by finding rating | Visits, average quality and bands per overall rating; Not monitored always has its own bar | `quality_by_rating` |
-| Analysis › Points by category | Each score category's points the scored visits kept of its weight on average (its weight less the visit's deductions in it, each at most the weight), weakest first; the rules that are a flag only listed under it | `dimension_breakdown`: `Visit.category_deductions` |
+| Analysis › Field offices | Records, visits and average quality per field office ("Office not known" too; a record counts in each office of its visit), and where the offices came from (per visit) | `offices` |
+| Analysis › Entity performance | All the entities assessed (FMS's default *All* chip) or one kind (Partner, CP output, PD/SSFA), each with its type badge (CSO partner, CP output, PD/SSFA…), its records (usually its visits), the average quality of its **own** records coloured by band (a PD no longer takes its visit's worst score), High / Med / Low, top issue (from its records' flags) and last rating, worst average quality first, unscored last; partners by their full name; a PD shows its planned visits for the year (the table loads when it scrolls into view) | `entities_performance` (`"all"` merges the kinds) |
+| Analysis › Quality by field office | One row per office, its scored records and records, its flags by rule over its scored records ("R1: 347/782", amber under half, red from half) | `office_rule_badges` |
+| Analysis › Section performance | Per section, its records and visits, average quality and High / Medium / Low, a bar coloured by band, and its first 10 records, one line each ("#id ENTITY score rating", lowest score first, unscored after; a line opens the visit at the record), *Show all* for the rest | `sections`, `record_names` |
+| Analysis › Visit frequency by location | Visits, records, average quality and coverage (rated records ÷ records) per place (top 10; *Show all* loads the rest) | `locations` |
+| Analysis › Quality by finding rating | Records (each under its own rating), average quality and bands per overall rating; Not monitored always has its own bar | `quality_by_rating` |
+| Analysis › Points by category | Each score category's points the scored records kept of its weight on average (its weight less the record's deductions in it, each at most the weight), weakest first; the rules that are a flag only listed under it | `dimension_breakdown`: `VisitEntity.category_deductions` |
 | Analysis › Programmatic visits and HACT | For the partners of the filter with programmatic visits required: required, planned and completed in eTools, NeuroDB's completed programmatic FM visits, and the gap | `hact_programmatic`: `PartnerHACTYear`, `datamart.fm.programmatic_visits_by_partner` |
 | Analysis › Follow-up | FM action points of these visits (open, overdue, high priority) and the off-track or constrained visits without one | `action_points`: `fmm.VisitActionPoint`, `datamart.ActionPoint` |
-| Visits › Find a visit | An id, "#1722", "Visit 1722", a key, a reference or a reference number | `fmm:lookup` |
-| Visits › Monitoring visits — detail & flags | The visits, most urgent first, 50 a page (*Per page* 25, 50 or 100, `?page_size=`), with *All rows (CSV)* | `fmm:visits` |
-| Visit page | Everything known of one visit (below) | `fmm:visit` |
-| Map › Visit locations map | Each visit with a point against the places its programme documents planned, in FMS's legend: actual visit, matched by coordinates, matched by name only, PD locations not visited; the visits not shown for want of coordinates | `fmm.geo.map_points` |
-| Drill-down window | The visits behind a chart bar, a chip or a count: visit, date, entity (the counted row's), partner (full name), PD number, location, section, rating, quality, urgency, flags | `fmm:drill`, `visit_entities` |
+| Records › Find a visit | An id, "#1722", "Visit 1722", a key, a reference or a reference number | `fmm:lookup` |
+| Records › Records — detail and flags | One row per record (as FMS lists them), most urgent first, 50 a page (*Per page* 25, 50 or 100, `?page_size=`); *Group by visit* (`?view=visits`) lists the visits instead, each with its mean, lowest record, records and most urgent record (their number equals *Monitoring visits*); *All rows (CSV)* follows the list shown | `fmm:visits` |
+| Visit page | Everything known of one visit, with a card per record (below) | `fmm:visit` |
+| Map › Visit locations map | One point per visit (its records share its place; the popup lists them with their scores) against the places its programme documents planned, in FMS's legend: actual visit, matched by coordinates, matched by name only, PD locations not visited; "N visits mapped (M records)"; the visits not shown for want of coordinates | `fmm.geo.map_points` |
+| Drill-down window | The records behind a chart bar, a chip or a count (a figure of visits: the records of those visits), with the visits they belong to: visit, entity, type, partner (full name), PD number, location, section, visit date, rating, quality, urgency, flags; *Open in the records list* | `fmm:drill`, `Scope.records` |
 | Every chart | *Download PNG* saves the chart as drawn (Plotly's own `downloadImage`; the bar lists drawn in HTML on a canvas, `data-rows-png`; no other library); *PDF* prints its card alone (A4 width; "Save as PDF" in the print window) | `charts.js`, `app.js` (`data-card-pdf`) |
 
 ### Using the page
@@ -1633,76 +1639,92 @@ is hidden.
   note. A user with a section sees it by default, as on the overview, but only on a
   bare visit to `/fmm/`: every link the page writes carries `section` (empty for every section), and a
   chip "Your section: … ×" shows every section. A governorate can be given as its gazetteer name
-  ("Beqaa") or its key ("bekaa"). The entity type and partner filters keep a visit when one of its
-  entities matches; the entity figure then counts the matching rows only. Links from charts add
-  drill-downs (month, HACT Q1, score band, flag, flag count, urgency band, place, recurring issue,
-  rule, review), shown as removable chips.
+  ("Beqaa") or its key ("bekaa"). The **record filters** (entity type, partner, programme document,
+  rating, quality band, urgency band) read each record: they keep the records that match and the
+  visits with at least one of them, and the record figures then count the matching records only (a
+  data note says so). Links from charts add drill-downs (month, status, visit rating, HACT Q1, score
+  band, flag, flag count, urgency band, place, recurring issue, rule, review), shown as removable chips.
 - **Reference line**: the filter, when the field monitoring rows were synced, when the scores were
   computed and with which rules version ("recomputing with rules v8" while a rescore waits), a warning
-  when the last refresh failed, and *What does quality mean for Lebanon?* (FMS's methodology panel,
+  when the last refresh failed, the release banner of scores per record ("Scores are now per record, as
+  in FMS (rules vN). AI checks for N records are still running.", shown while the rules version the
+  records migration made is current and the records are not yet all scored and checked), and *What does quality mean for Lebanon?* (FMS's methodology panel,
   rendered from the rule set the engine applies: the three bands, the score categories and their
   weights, the core rules with their HACT rule, the additional rules switched on with their category
   and deduction, and urgency; rules switched off are not listed).
 - **Data notes**, each only when it applies: the section rule differs from the overview's, visits
-  placed in the governorate through their monitoring site only, finding rows without an activity
+  placed in the governorate through their monitoring site only, records without an activity
   reference (counted as their own visits here, not by the overview), visits with no start date
-  (dated by their end date), visits with no date at all.
+  (dated by their end date), visits with no date at all, a record filter on (the record figures count
+  the matching records only).
   With no filter, the visits of a year equal the overview's field monitoring visits and the field
-  monitoring page's "Monitoring activities", and the monitored entities its "Findings".
+  monitoring page's "Monitoring activities", and the records its "Findings".
 - **Morning briefing** (first on the Insights tab): ten tiles over **this year so far**, 1 January to
   today, whatever the page's period (the page's other filters are kept and named): critical flags
-  (visits at or above *urgency red*), average quality, low quality visits (scored below the Medium
-  band), critical partners (with a visit at or above red; the top five as red chips, each opening the
-  partner's critical visits), monitoring visits, and the visits at review status (*Pending report review*: awaiting the
+  (records at or above *urgency red*), average quality per record, low quality records (scored
+  below the Medium band), critical partners (the partners of a record at or above red; the top five
+  as red chips, each opening the partner's critical records), monitoring visits (distinct visits,
+  with their records), and the visits at review status (*Pending report review*: awaiting the
   reviewer's sign-off), submitted, in data collection, assigned and completed. Each tile has its
-  definition under ⓘ and opens the visits behind it; *Quality by governorate* gives each
-  governorate's average quality and visits this year, each opening its visits.
-- **Key figures**: monitoring visits (whatever their status, with the breakdown), monitored entities
-  (rated / not monitored), the average quality score of the scored visits, and the visits of high
-  urgency (red, with the amber ones, and *View urgent visits →*). Each links to the Visits tab. Figures are kept 10 minutes, and a
-  refresh or a new day shows at once.
-- **Critical visits requiring attention** (Insights tab, after the AI brief): the scored visits at or
-  above red urgency, most urgent first, at most 10 (the five most urgent amber ones when none is red),
-  each with the rules it failed; R19 counts the monitors not on the staff list, never naming them.
+  definition under ⓘ and opens the records behind it; *Quality by governorate* gives each
+  governorate's average quality and records this year, each opening its records.
+- **Key figures**: monitoring visits (distinct visits, whatever their status, with the breakdown),
+  records (rated / not monitored / not rated yet), the average quality score per record (the mean of
+  the scored records), and the records of high urgency (red, with the amber ones, and *View urgent
+  records →*). Each links to the Records tab (*Monitoring visits* to the list grouped by visit).
+  Figures are kept 10 minutes, and a refresh or a new day shows at once.
+- **Critical records requiring attention** (Insights tab, after the AI brief): one card per record,
+  the scored records at or above red urgency, most urgent first, at most 10 (the five most urgent
+  amber ones when none is red), each with the rules it failed; R19 counts the monitors not on the
+  staff list, never naming them.
 - **Quality tab**, in FMS's order: the quality score trends (average quality score and reports per
-  month, two smooth lines on two axes), the monitoring volume over time (visits per month as bars,
-  their average quality as a line), the HACT Q1 finding rating distribution (visits, each counted once
-  with its worst Q1 answer; the overall finding rating instead, with a note, when no visit of the
-  filter has a Q1 answer; the drill-down pills count each rating, and Not Monitored apart), the places
-  visited (top 10, *Show all*); then the top recurring issues (flags grouped by rule and reason, with
-  their visits and mean urgency), the quality issues summary (rating-quality flags, Not monitored:
-  planned, not conducted, and visits with three or more flags). The quality score distribution, the
+  month, two smooth lines on two axes), the monitoring volume over time (records per month as bars,
+  their visits in the tooltip, their average quality as a line), the HACT Q1 finding rating
+  distribution (records, each with its own Q1 answer; the overall finding rating instead, with a note,
+  when no record of the filter has a Q1 answer; the drill-down pills count each rating, and Not
+  Monitored apart), the places visited with their records and visits (top 10, *Show all*); then the
+  top recurring issues (the records' flags grouped by rule and reason, with their records, visits and
+  mean urgency), the quality issues summary (records flagged by R6, Not monitored: reported visits none
+  of whose records is rated, and records with three or more flags). The quality score distribution, the
   rule score trends, the rule analysis and the flag counts are first on the Analysis tab. Every chart card has *Download PNG* and *PDF* (the card alone, printed or saved as a PDF).
 - **Analysis tab**: first, in FMS's order, the quality score distribution (five bars of 20 points in
-  FMS's colours, 100 in the top one, and the visits not scored), the rule score trends (per rule, the
-  share of its maximum points earned by the visits of each month; worked out when the panel scrolls
-  into view), the quality rule analysis (each rule that checked visits: its visits flagged and a bar of
-  the share not flagged; every rule under it, "not available" when the checklist answers are missing,
-  see Fields found), the quality flag frequency, the flag count distribution, entity performance (All
-  by default), quality by field office and section performance (first 10 visits, *Show all*); then
-  highlights (visits, reported, governorates covered out of the gazetteer's,
-  average quality: the same figure as the key figure, off-track visits, PSEA-flagged visits out of
-  those with a PSEA question, the High / Medium / Low shares, the monitored entities by type), the
-  governorates not visited, the field offices (a visit to a PD with two offices counts in both), the
-  visit frequency and coverage (rated ÷ monitored entities) by place,
-  the quality by finding rating (Not monitored always its own bar), the points earned per rule (weakest first; a rule
+  FMS's colours, 100 in the top one, and the records not scored), the rule score trends (per rule, the
+  share of its maximum points earned by the records of each month; worked out when the panel scrolls
+  into view), the quality rule analysis (each rule that checked records: its records flagged and a bar
+  of the share not flagged; every rule under it, "not available" when the checklist answers are
+  missing, see Fields found), the quality flag frequency, the flag count distribution, entity
+  performance (All by default; each entity's own records), quality by field office and section
+  performance (first 10 records, *Show all*); then highlights (visits, records, reported visits,
+  governorates covered out of the gazetteer's, average quality per record: the same figure as the key
+  figure, off-track records, PSEA-flagged visits out of those with a PSEA question, the scored
+  records by band, the records by entity type), the governorates not visited, the field offices (the
+  records of a visit to a PD with two offices count in both), the visit frequency, records and
+  coverage (rated records ÷ records) by place,
+  the quality by finding rating (records; Not monitored always its own bar), the points earned per rule (weakest first; a rule
   at 0 points is a flag only), the HACT programmatic visits of the partners of the filter (required,
   planned and completed in eTools next to NeuroDB's count of completed programmatic FM visits; gap =
   required − completed in eTools) and the follow-up (FM action points of these visits: open, overdue,
   high priority; the off-track or constrained visits without one).
-- **Drill-down window** (`/fmm/drill/`): a chart bar, a chip or a count opens the visits behind it,
-  most urgent first (50 at most), with *Open in the Visits tab* for the rest. Charts carry codes
+- **Drill-down window** (`/fmm/drill/`): a chart bar, a chip or a count opens the records behind it
+  (a figure of visits: the records of those visits), most urgent first (50 at most), with how many
+  visits they belong to and *Open in the records list* for the rest. Charts carry codes
   (`month=2026-05`, `bucket=80-90`, `hact_q1=constrained`, `flag=R1`); an address with a label as a
   chart draws it ("May 2026", "80–100", "On track") is refused, so a cut or translated label can never
-  open the wrong visits.
-- **Visits tab**: *Find a visit* (an id, "#1722", "Visit 1722", a key, a reference or a reference
-  number; a miss offers the three nearest ids of the filter), then the table, 50 rows a page, most
-  urgent first (sortable by date, partner, quality and urgency). Red rows are at or above the red
-  urgency threshold, amber rows between amber and red (Score settings). The Team column shows names
-  only, is hidden on phones and is never copied or exported. *All rows (CSV)* gives every visit of the
-  filter with its references, dates, status, partner, programme documents, place, sections, offices,
-  rating, HACT Q1, quality, flags, urgency, action point counts and review, and never the team, the
-  visit lead or a narrative.
+  open the wrong records.
+- **Records tab** (the address keeps `tab=visits`): *Find a visit* (an id, "#1722", "Visit 1722", a
+  key, a reference or a reference number; a miss offers the three nearest ids of the filter), then the
+  **records list**, one row per record as FMS lists them, 50 rows a page, most urgent first (sortable
+  by date, partner, quality and urgency), with what a visit and a record are written above it. *Group
+  by visit* (`?view=visits`) lists the visits instead, each with its quality (the mean of its
+  records), its lowest record, its records and its most urgent record. Red rows are at or above the
+  red urgency threshold, amber rows between amber and red (Score settings). The Team column shows
+  names only, is hidden on phones and is never copied or exported. *All rows (CSV)* follows the list
+  shown: one row per record (the record id, its visit's references, dates, status, place, sections
+  and offices, its entity type, entity, partner, programme document, CP output, rating, HACT Q1,
+  quality, flags, urgency and its visit's review), or one row per visit (its references, dates,
+  status, partner, programme documents, place, sections, offices, rating, HACT Q1, quality, lowest
+  record score, records, records scored, flags, urgency, action point counts and review); never the
+  team, the visit lead or a narrative.
 - **Map tab** (*Visit locations map*, in FMS's legend wording: actual visit, matched by coordinates,
   matched by name only, PD locations not visited): each visit with a point, set against the places its own programme documents planned
   (`PCA.locations`, placed through the gazetteer). A visit is *matched by coordinates* (green) when
@@ -1730,10 +1752,13 @@ is hidden.
   programme documents, HACT assurance, *On the map* when the visit has a point, the visit's action
   points, and *Open in eTools* once `FMM_ETOOLS_ACTIVITY_URL` is set), place and how it was located, the
   monitoring modality and programme areas, the visit goals and objective, sections and offices with
-  their source, the team (names only, shown to NeuroDB users only), each entity with its rating, HACT
-  Q1, programme document match, the narrative in full and the Q1, Q2 and Q3 answers written on its
-  row (e-mail addresses hidden), each rule's
-  result, the checklist questions and answers (read from the eTools records when the page opens),
+  their source, the team (names only, shown to NeuroDB users only), the visit's quality ("Visit
+  quality 52.3 · mean of 3 records · lowest 31.0 · most urgent 78"), then a **card per record**
+  (`#record-<datamart_id>` opens it): its entity and type, rating, HACT Q1, programme document match,
+  score and band, urgency, flags, the points each category lost, the narrative in full and the Q1, Q2
+  and Q3 answers written on its row (e-mail addresses hidden) and its own rule results; the checks of
+  the whole visit (R19, read from its monitors and field offices) are listed once after the cards,
+  as they apply to every record; the checklist questions and answers (read from the eTools records when the page opens),
   programme activities and CP outputs (linked to the country programme when they match), the action
   points, the partner's programmatic visits for HACT and each programme document's planned visits of
   the quarter, then, for each programme document, *what the partner reported, and other visits*: its
@@ -1759,22 +1784,22 @@ chat, so the same figure never differs between two places.
 |---|---|
 | Visit | One eTools monitoring activity: the finding rows that share an activity id (else an activity reference, else the row alone) (`datamart.fm.visit_key`). |
 | Visit date | The earliest start date of its rows, else (eTools left the start blank) the latest end date (`Visit.visit_date`). Every period, month and year reads it: Monitoring insights, the overview's *Field monitoring visits* and `/field-monitoring/` (`datamart.fm.finding_year_q`), so a visit from 30 December to 3 January counts in the year it started on every page. A visit with neither date is left out of every period and counted in a data note. The rating date, urgency recency, the follow-up and late-report signals and the HACT programmatic count still read the end date. |
-| Monitoring visits (key figure) | Every visit of the period, whatever its status, as the overview counts them. |
-| Monitored entities | The finding rows of the visits (the partners, programme documents and CP outputs monitored); "Findings" on `/field-monitoring/`. An entity filter counts the matching rows only. |
-| Entity rated | Its rating reads On track, Constrained or Off track. Every share of ratings (key figures, charts, highlights, the AI facts, the brief written by NeuroDB, the chat's look-ups) is a share of the rated visits or entities only. |
+| Monitoring visits (key figure) | Every visit of the period, whatever its status, as the overview counts them: distinct visits however many records each holds (with a record filter, the visits of the records counted). |
+| Record | One finding row of a visit: an entity assessed (partner, CP output or PD/SSFA) with its own rating, narrative and Q1–Q3, scored, flagged and given an urgency on its own (`fmm.VisitEntity`; its stable id is the eTools `datamart_id`). The records of a year are the "Findings" of `/field-monitoring/`. A record follows its visit for the period, status, sections, offices, governorate and modality; a record filter (entity type, partner, programme document, rating, quality, urgency) counts the matching records only. |
+| Record rated | Its rating reads On track, Constrained or Off track. Every share of ratings (key figures, charts, highlights, the AI facts, the brief written by NeuroDB, the chat's look-ups) is a share of the rated records (or, where a block counts visits, the rated visits) only. |
 | Status group | planned (draft, checklist, review, assigned), in progress (data collection, report finalization), reported (submitted, completed), cancelled, status unknown. |
 | Visit status | The most advanced status of its rows; rows that disagree are noted on the visit. |
-| Visit rating | Its worst rated entity (Off track, then Constrained, then On track); *Not monitored* when none is rated. |
-| HACT Q1 | Of an entity: its own Q1 answer, else the one given for its partner, else the one given for the whole visit. Of a visit: the worst of these and of the visit-level answers. Charts count visits. |
+| Visit rating | Its worst rated record (Off track, then Constrained, then On track); *Not monitored* when none is rated. Watch, the signals and the monitoring gaps read it; the rating figures count records. |
+| HACT Q1 | Of a record: its own Q1 answer, else the one given for its partner, else the one given for the whole visit. Of a visit: the worst of these and of the visit-level answers. Charts count records. |
 | PSEA flag | A PSEA answer coded in *Answers that flag* (Yes, Constrained or Off track by default) flags the visit; asked and answered otherwise: not flagged; no PSEA question: not known. |
 | Not monitored | eTools' rating "Not Monitored": the visit was **planned but not conducted** (the monitor did not attend, the partner was unavailable, access was denied), a planning status, not a programme outcome. A visit is Not monitored when it is reported and none of its entities is rated; a planned or in-progress visit with blank ratings is "not rated yet". It is always a count apart, never inside a share of ratings and never a share of all visits. |
-| Scored visit | A visit whose status is one of the *scored statuses* (Score settings; report finalization and completed by default). Every other visit is **pending**: no score, no urgency, quality band "Pending" (cancelled ones read "cancelled"). Not monitored visits of a scored status are scored. |
+| Scored visit | A visit whose status is one of the *scored statuses* (Score settings; report finalization and completed by default); its records are scored. Every other visit is **pending**: its records have no score and no urgency, quality band "Pending" (cancelled ones read "cancelled"). Not monitored visits of a scored status are scored. |
 | Quality score | FMS's, per record (an entity row of a visit): 100 less the deductions of the quality rules that fired, each score category's deductions at most its weight, never below 0, rounded half up to one decimal. A visit's is the mean of its records' scores. A record whose AI checks are not all done is *provisional* and counts as not scored, and so does its visit. |
-| Average quality | The mean score of the scored visits of the filter (half up, one decimal): the key figure, the Analysis highlight, the AI facts and the chat's `fm_summary` are this one figure. |
-| High urgency | Urgency at or above *urgency red* (70); amber (Medium) from *urgency amber* (40) to 69; Low below. A visit without a score has no urgency and is in no urgency figure. |
+| Average quality | The mean score of the scored records of the filter (half up, one decimal), as FMS averages: the key figure, the briefing tile, the Analysis highlight, the AI facts and the chat's `fm_summary` are this one figure. A visit's own quality (the records list grouped by visit, the visit page) is the mean of its records. |
+| High urgency | Urgency at or above *urgency red* (70); amber (Medium) from *urgency amber* (40) to 69; Low below. Each record has its own urgency (a visit's is its most urgent record's); a record without a score has no urgency and is in no urgency figure. |
 | Governorates covered | Governorates with a visit, out of the gazetteer's active governorates. |
 | Open / overdue action point | Status open or in progress (`in_progress`, "in progress", "in-progress": FMS counts them as open); overdue when also past its due date (the action points page's, the overview's, Monitoring insights' and Watch's definition, `ActionPoint.OPEN_STATUSES`). The page's *Open* status filter keeps the ones in progress. |
-| FM programmatic visits (NeuroDB) | The completed, programmatic visits that ended in the year, counted once per visit for each partner of its rows. |
+| FM programmatic visits (NeuroDB) | The completed, programmatic visits that ended in the year, counted once per visit for each partner of its records. |
 
 R19 (the monitor is on the staff list of the visit's field office) reads the **field office staff
 lists** administrators keep (admin → *Field office staff lists*); it skips a visit silently while its
@@ -1959,8 +1984,8 @@ it was scored with.
 ### How Monitoring insights differs from the overview
 
 With no filter, the visits of a calendar year equal the overview's *Field monitoring visits* and the
-field monitoring page's *Monitoring activities* for that year, and the monitored entities its
-*Findings* (tests pin these). Where Monitoring insights counts differently on purpose, the data note
+field monitoring page's *Monitoring activities* for that year, and the records its *Findings*
+(tests pin these). Where Monitoring insights counts differently on purpose, the data note
 under the reference line says so, each line only when it applies, with its count:
 
 - the section is each visit's programme-document section; the overview counts every visit of a partner
@@ -2483,7 +2508,7 @@ and nothing is written. Every figure comes from the functions that draw the page
 
 | In the menu | What you get |
 |---|---|
-| *CSV (visits)* | The visits table's CSV, as before (`/fmm/visits/?…&export=csv`). |
+| *CSV (records list)* | The records list's CSV, one row per record (`/fmm/visits/?…&export=csv`); grouped by visit (`&view=visits`), one row per visit, as before. |
 | *Excel workbook* | `monitoring-insights-YYYY-MM-DD.xlsx` (`/fmm/export.xlsx`), described below. |
 | *PDF report* | A printable A4 report (`/fmm/report/`) that opens the browser's print dialog: choose *Save as PDF*. |
 | *Power BI package* | `monitoring-insights-powerbi-YYYY-MM-DD.zip` (`/fmm/export-powerbi.zip`): CSV files and a Power Query script. |

@@ -1,30 +1,39 @@
 """The figures of the Monitoring insights page, each from one function that takes a
-:class:`~neurodb.fmm.scope.Scope` and reads the stored visits (never the eTools records).
+:class:`~neurodb.fmm.scope.Scope` and reads the stored visits and records (never the eTools rows).
+
+As in FMS, each **record** (an entity assessed on a visit: a partner, CP output or PD/SSFA) is scored,
+flagged and given an urgency on its own, and the figures of quality, ratings, flags, rules and urgency
+count records (:meth:`Scope.records`); "Monitoring visits", the status breakdown, places, PSEA, the
+monitoring gaps and the follow-up count distinct visits (:meth:`Scope.visits`), as FMS does. Each block
+says which it counts, and gives both where both matter.
 
 This module holds the key figures (:func:`kpis`), the data notes that say where FMM counts differently
 from the overview (:func:`notes`), the shared definitions the other blocks reuse (the average quality,
 :func:`avg_quality`, one function for the tile, the highlights, the AI facts and the chat tools; the
 urgency bands, :func:`urgency_counts`), and the blocks of the Quality and Analysis tabs: quality and
-visits by month, HACT Q1 by month, the score distribution, recurring issues, places, rule analysis,
+records by month, HACT Q1 by month, the score distribution, recurring issues, places, rule analysis,
 flags, highlights, governorates, field offices, entities, sections, ratings, points per rule, HACT
 programmatic visits and follow-up.
 
-Most blocks read one pass over the scope's visits (:func:`summary`), so a tab runs a handful of
-queries whatever the number of visits; the rule results, entity rows, HACT figures and action points
-have one query each. Every drill value a block gives (``drill``) is a code the scope parses, and the
-visits a drill-down lists are exactly those the block counted.
+Most blocks read one pass over the scope's visits and their records (:func:`summary`), so a tab runs a
+handful of queries whatever the number of visits; the rule results, the entity table, HACT figures and
+action points have one query each. Every drill value a block gives (``drill``) is a code the scope
+parses, and the records a drill-down lists are exactly those the block counted (for a block that counts
+visits, the records of those visits).
 
-Every block is cached for ten minutes under ``fmm:v4:<scope hash>:<last refresh run>:<rules
+Every block is cached for ten minutes under ``fmm:v5:<scope hash>:<last refresh run>:<rules
 version>:<day>:<block>`` (:func:`cached`), so a refresh, a rescore or a new day shows at once.
 """
 
 from __future__ import annotations
 
 import datetime
+import heapq
 import re
 from collections import Counter
 from collections.abc import Callable
 from decimal import Decimal
+from itertools import chain
 from typing import Any
 
 from django.conf import settings
@@ -74,7 +83,7 @@ def cached(scope: Scope, block: str, compute: Callable[[], Any], when: str | Non
     saved a minute ago must count at once, and no refresh marks it."""
     if settings.DEBUG or any(key == "review" for key, _value in scope.drill):
         return compute()
-    key = f"fmm:v4:{scope.hash()}:{when if when is not None else stamp()}:{block}"
+    key = f"fmm:v5:{scope.hash()}:{when if when is not None else stamp()}:{block}"
     found = cache.get(key)
     if found is not None:
         return found
@@ -87,10 +96,10 @@ def kept(scope: Scope, block: str, when: str | None = None) -> Any:
     """What :func:`cached` keeps for ``scope``'s ``block`` (None when nothing is kept), never computed."""
     if settings.DEBUG or any(key == "review" for key, _value in scope.drill):
         return None
-    return cache.get(f"fmm:v4:{scope.hash()}:{when if when is not None else stamp()}:{block}")
+    return cache.get(f"fmm:v5:{scope.hash()}:{when if when is not None else stamp()}:{block}")
 
 
-# The aggregates the average quality is computed from, so a block that aggregates the visits anyway
+# The aggregates the average quality is computed from, so a block that aggregates the records anyway
 # reads them in the same query (:func:`mean_quality`)
 QUALITY_AGGREGATES = {
     "quality_sum": Sum("quality_score"),
@@ -108,11 +117,11 @@ def mean_quality(quality_sum: Any, quality_n: int) -> Decimal | None:
     return half_up(Decimal(str(quality_sum)) / quality_n, 1)
 
 
-def avg_quality(visits_qs: QuerySet) -> Decimal | None:
-    """The average quality score of the scored visits of ``visits_qs`` (half up, one decimal), or
-    None when none is scored. The one definition of the KPI, the highlights, the AI facts and the
-    chat tools."""
-    return mean_quality(**visits_qs.aggregate(**QUALITY_AGGREGATES))
+def avg_quality(records_qs: QuerySet) -> Decimal | None:
+    """The average quality score of the scored records of ``records_qs`` (``Scope.records``; half up,
+    one decimal), or None when none is scored. The one definition of the KPI, the highlights, the AI
+    facts and the chat tools: as in FMS, the mean over records, each scored on its own."""
+    return mean_quality(**records_qs.aggregate(**QUALITY_AGGREGATES))
 
 
 def thresholds(setting=None) -> dict[str, int]:
@@ -129,10 +138,10 @@ def thresholds(setting=None) -> dict[str, int]:
     }
 
 
-def urgency_counts(visits_qs: QuerySet, limits: dict[str, int] | None = None) -> dict[str, int]:
-    """``{"red": n, "amber": n}``: visits at or above the red threshold, and between amber and red."""
+def urgency_counts(records_qs: QuerySet, limits: dict[str, int] | None = None) -> dict[str, int]:
+    """``{"red": n, "amber": n}``: records at or above the red threshold, and between amber and red."""
     limits = limits or thresholds()
-    return visits_qs.aggregate(
+    return records_qs.aggregate(
         red=Count("pk", filter=Q(urgency__gte=limits["red"])),
         amber=Count("pk", filter=Q(urgency__gte=limits["amber"], urgency__lt=limits["red"])),
     )
@@ -142,63 +151,64 @@ COUNTED_KINDS = ("pd", "cp_output", "partner")  # the kinds counted by name; the
 
 
 def kpis(scope: Scope, when: str | None = None, limits: dict[str, int] | None = None) -> dict[str, Any]:
-    """The four key figures: visits (with the status breakdown), monitored entities (rated, by rating,
-    and Not monitored: planned, not conducted, a count apart), the average quality (with the scored
-    visits and the rules version) and the visits of high urgency (with the amber ones; a visit
-    without a score has no urgency)."""
+    """The four key figures: the monitoring visits (distinct visits, with the status breakdown); the
+    records (rated, by rating, and Not monitored: planned, not conducted, a count apart; not rated yet on
+    a planned or in-progress visit); the average quality per record (with the scored records and the
+    rules version); and the records of high urgency (with the amber ones; a record without a score has
+    no urgency). Two queries: the visits, then their records."""
 
     def compute() -> dict[str, Any]:
         nonlocal limits
         limits = limits or thresholds()
-        visits = scope.visits()
-        counts = visits.aggregate(
+        visits = scope.visits().aggregate(
+            total=Count("pk"),
+            scored=Count("pk", filter=Q(quality_score__isnull=False)),
+            version=Max("rules_version"),
+            **{group: Count("pk", filter=Q(status_group=group)) for group in STATUS_ORDER},
+        )
+        records = scope.records().aggregate(
             total=Count("pk"),
             red=Count("pk", filter=Q(urgency__gte=limits["red"])),
             amber=Count("pk", filter=Q(urgency__gte=limits["amber"], urgency__lt=limits["red"])),
-            scored=Count("pk", filter=Q(quality_score__isnull=False)),
-            version=Max("rules_version"),
-            **QUALITY_AGGREGATES,
-            **{group: Count("pk", filter=Q(status_group=group)) for group in STATUS_ORDER},
-        )
-        entities = scope.entities().aggregate(
-            total=Count("pk"),
             rated=Count("pk", filter=Q(rating__in=RATED)),
             # Not monitored (planned, not conducted) on a reported visit only; on a planned or
-            # in-progress visit a blank rating is "not rated yet", as for the visits (``counted_rating``)
+            # in-progress visit a blank rating is "not rated yet" (``counted_rating``)
             not_monitored=Count("pk", filter=Q(rating="not_monitored", visit__status_group="reported")),
             not_rated_yet=Count(
                 "pk",
                 filter=Q(rating="not_monitored", visit__status_group__in=("planned", "in_progress")),
             ),
+            **QUALITY_AGGREGATES,
             **{f"rating_{code}": Count("pk", filter=Q(rating=code)) for code in RATED},
             **{f"kind_{kind}": Count("pk", filter=Q(kind=kind)) for kind in COUNTED_KINDS},
         )
-        by_kind = {kind: entities[f"kind_{kind}"] for kind in COUNTED_KINDS}
-        by_kind["other"] = entities["total"] - sum(by_kind.values())  # "other", or no kind at all
+        by_kind = {kind: records[f"kind_{kind}"] for kind in COUNTED_KINDS}
+        by_kind["other"] = records["total"] - sum(by_kind.values())  # "other", or no kind at all
         breakdown = [
-            {"group": g, "n": counts[g], "label": STATUS_WORDS[g]}
+            {"group": g, "n": visits[g], "label": STATUS_WORDS[g]}
             for g in STATUS_ORDER
-            if counts[g] or g != "unknown"
+            if visits[g] or g != "unknown"
         ]
         return {
-            "visits": counts["total"],
+            "visits": visits["total"],
             "by_status": breakdown,
-            "entities": entities["total"],
-            "entities_rated": entities["rated"],
-            "entities_not_monitored": entities["not_monitored"],
-            # the rated entities by rating: every share of ratings is over the rated ones only
-            "entity_ratings": {code: entities[f"rating_{code}"] for code in RATED},
-            "entities_not_rated_yet": entities["not_rated_yet"],
-            "entities_other": entities["total"]
-            - entities["rated"]
-            - entities["not_monitored"]
-            - entities["not_rated_yet"],
-            "entity_kinds": {kind: n for kind, n in by_kind.items() if n},
-            "avg_quality": mean_quality(counts["quality_sum"], counts["quality_n"]),
-            "scored": counts["scored"],
-            "rules_version": counts["version"] or 0,
-            "high_urgency": counts["red"],
-            "amber": counts["amber"],
+            "records": records["total"],
+            "records_rated": records["rated"],
+            "records_not_monitored": records["not_monitored"],
+            # the rated records by rating: every share of ratings is over the rated ones only
+            "record_ratings": {code: records[f"rating_{code}"] for code in RATED},
+            "records_not_rated_yet": records["not_rated_yet"],
+            "records_other": records["total"]
+            - records["rated"]
+            - records["not_monitored"]
+            - records["not_rated_yet"],
+            "record_kinds": {kind: n for kind, n in by_kind.items() if n},
+            "avg_quality": mean_quality(records["quality_sum"], records["quality_n"]),
+            "scored": records["quality_n"],  # scored records
+            "scored_visits": visits["scored"],
+            "rules_version": visits["version"] or 0,
+            "high_urgency": records["red"],
+            "amber": records["amber"],
             "red_at": limits["red"],
             "amber_at": limits["amber"],
         }
@@ -241,8 +251,8 @@ def notes(scope: Scope, when: str | None = None) -> list[dict[str, Any]]:
         for key in ("no_reference", "no_date", "dated_by_end"):
             if counts[key]:
                 lines.append({"key": key, "n": counts[key]})
-        if scope.entity_filtered:
-            lines.append({"key": "entity_filter", "n": None})
+        if scope.record_filtered:
+            lines.append({"key": "record_filter", "n": None})
         return lines
 
     return cached(scope, "notes", compute, when)
@@ -266,10 +276,11 @@ def briefing_scope(scope: Scope, today: datetime.date | None = None) -> Scope:
 
 def briefing(scope: Scope, when: str | None = None, limits: dict[str, int] | None = None) -> dict[str, Any]:
     """The morning briefing (FMS §7.1), over this year so far (:func:`briefing_scope`): critical flags
-    (visits of urgency at or above red), the average quality, the low-quality visits (below the Medium
-    band), the critical partners (with a visit of urgency at or above red; the top five with their
-    visits), the visits, the visits in review, submitted, in data collection, assigned and completed,
-    and the average quality and visits of each governorate."""
+    (records of urgency at or above red), the average quality per record, the low-quality records (below
+    the Medium band), the critical partners (the partners of a record of urgency at or above red; the
+    top five with their critical records), the monitoring visits (distinct visits, with their records),
+    the visits in review, submitted, in data collection, assigned and completed (a status is the visit's),
+    and the average quality and records of each governorate."""
     from neurodb.partnerships.models import PartnerOrganization
 
     year = briefing_scope(scope)
@@ -277,17 +288,22 @@ def briefing(scope: Scope, when: str | None = None, limits: dict[str, int] | Non
     def compute() -> dict[str, Any]:
         nonlocal limits
         limits = limits or thresholds()
-        visits = year.visits()
-        counts = visits.aggregate(
-            visits=Count("pk"),
+        records = year.records()
+        counts = records.aggregate(
+            records=Count("pk"),
             critical=Count("pk", filter=Q(urgency__gte=limits["red"])),
             low=Count("pk", filter=Q(quality_score__lt=limits["band_medium"])),
             **QUALITY_AGGREGATES,
+        )
+        visits = year.visits().aggregate(
+            visits=Count("pk"),
             **{f"status_{code}": Count("pk", filter=Q(status=code)) for code in BRIEFING_STATUSES},
         )
-        partners: Counter = Counter()
-        for ids in visits.filter(urgency__gte=limits["red"]).values_list("partner_ids", flat=True):
-            partners.update(set(ids or ()))
+        partners: Counter = Counter(
+            records.filter(urgency__gte=limits["red"], partner_id__isnull=False)
+            .order_by()
+            .values_list("partner_id", flat=True)
+        )
         names = {
             p.pk: p.name or p.short_name
             for p in PartnerOrganization.objects.filter(pk__in=list(partners)).only(
@@ -295,31 +311,39 @@ def briefing(scope: Scope, when: str | None = None, limits: dict[str, int] | Non
             )
         }
         top = sorted(partners.items(), key=lambda kv: (-kv[1], str(names.get(kv[0], kv[0])).casefold()))
+        # each governorate's records and their visits (the distinct visits of its records)
         governorates = (
-            visits.exclude(governorate_key="")
+            records.exclude(visit__governorate_key="")
             .order_by()
-            .values("governorate_key")
-            .annotate(n=Count("pk"), name=Max("governorate_name"), **QUALITY_AGGREGATES)
-            .order_by("-n", "governorate_key")
+            .values("visit__governorate_key")
+            .annotate(
+                n=Count("pk"),
+                visits=Count("visit_id", distinct=True),
+                name=Max("visit__governorate_name"),
+                **QUALITY_AGGREGATES,
+            )
+            .order_by("-n", "visit__governorate_key")
         )
         return {
             "start": year.start,
             "end": year.end,
-            "visits": counts["visits"],
+            "visits": visits["visits"],
+            "records": counts["records"],
             "critical": counts["critical"],
             "avg_quality": mean_quality(counts["quality_sum"], counts["quality_n"]),
             "scored": counts["quality_n"],
             "low": counts["low"],
             "critical_partners": len(partners),
             "top_partners": [
-                {"id": pk, "name": names.get(pk, str(pk)), "visits": n} for pk, n in top[:TOP_PARTNERS]
+                {"id": pk, "name": names.get(pk, str(pk)), "records": n} for pk, n in top[:TOP_PARTNERS]
             ],
-            "statuses": {code: counts[f"status_{code}"] for code in BRIEFING_STATUSES},
+            "statuses": {code: visits[f"status_{code}"] for code in BRIEFING_STATUSES},
             "governorates": [
                 {
-                    "key": row["governorate_key"],
+                    "key": row["visit__governorate_key"],
                     "name": row["name"],
-                    "visits": row["n"],
+                    "records": row["n"],
+                    "visits": row["visits"],
                     "avg_quality": mean_quality(row["quality_sum"], row["quality_n"]),
                 }
                 for row in governorates
@@ -332,53 +356,96 @@ def briefing(scope: Scope, when: str | None = None, limits: dict[str, int] | Non
 
 
 # ------------------------------------------------------------------------------------------ critical items
-CRITICAL_ITEMS = 10  # red visits listed
-CRITICAL_AMBER = 5  # amber visits listed when no visit is red
+CRITICAL_ITEMS = 10  # red records listed
+CRITICAL_AMBER = 5  # amber records listed when no record is red
 _OFFICE_IN_FLAG = re.compile(r"field office '([^']+)'")
-_RECORD_IN_FLAG = re.compile(r"\(([^()]{1,40})\) ")  # a visit's flag opens with the failing record's type
+_RECORD_IN_FLAG = re.compile(r"\(([^()]{1,40})\) ")  # a visit's derived flag opens with the record's type
+ENTITY_TYPE_LABELS = {"pd": "PD/SSFA", "cp_output": "CP output", "partner": "Partner", "other": "Other"}
+
+
+def record_name(
+    kind: str, entity: str, cp_output: str = "", pd_number: str = "", partner_name: str = ""
+) -> str:
+    """A record's entity in words: the CP output, the partner's full name or the PD number, else the
+    entity as eTools wrote it ("" when it has none)."""
+    own = {"cp_output": cp_output, "partner": partner_name, "pd": pd_number}.get(kind)
+    return (own or entity or "").strip()
+
+
+def record_names(ids) -> dict[int, str]:
+    """The entity of each record of ``ids`` (``datamart_id``), in words (:func:`record_name`); a
+    record without one is left out. One query, for the records a list shows (the section lines)."""
+    from .models import VisitEntity
+
+    ids = list(ids)
+    if not ids:
+        return {}
+    out: dict[int, str] = {}
+    rows = VisitEntity.objects.filter(datamart_id__in=ids).values_list(
+        "datamart_id", "kind", "entity", "cp_output", "pd__number", "partner__name"
+    )
+    for datamart_id, kind, entity, cp_output, pd_number, partner_name in rows:
+        text = record_name(kind, entity, cp_output, pd_number or "", partner_name or "")
+        if text:
+            out[datamart_id] = text
+    return out
 
 
 def critical_items(scope: Scope, when: str | None = None, limits: dict | None = None) -> dict[str, Any]:
-    """Critical items requiring attention (FMS §7.3): the scored visits of urgency at or above red (the
-    morning briefing's critical flags), most urgent first, at most ``CRITICAL_ITEMS``; when no visit is
-    red, the ``CRITICAL_AMBER`` most urgent amber visits. Each with its partner, rating, urgency and one
-    line per rule it failed: the rule's stored flag (for an AI check, the flag and the AI's explanation),
-    except R19, which says how many monitors are not on the field office's staff list (never who).
-    ``band`` is "red", "amber" or "" (nothing to list)."""
-    from .models import VisitRuleResult
+    """Critical items requiring attention (FMS §7.3), one card per record: the scored records of urgency
+    at or above red (the morning briefing's critical flags), most urgent first, at most
+    ``CRITICAL_ITEMS``; when no record is red, the ``CRITICAL_AMBER`` most urgent amber records. Each
+    with its visit, entity and type, its rating, urgency and one line per rule it failed: the rule's
+    stored flag (for an AI check, the flag and the AI's explanation), except R19, which says how many
+    monitors are not on the field office's staff list (never who). ``band`` is "red", "amber" or ""
+    (nothing to list)."""
+    from .models import RecordRuleResult
     from .rules import code_order
 
     limits = limits or thresholds()
 
     def compute() -> dict[str, Any]:
-        visits = scope.visits().select_related("partner").order_by("-urgency", "-visit_date", "key")
-        fields = ("pk", "key", "label", "activity_id", "rating", "status_group", "urgency", "offices")
-        fields += ("partner__name", "pd_numbers", "cp_outputs")
-        # one query: the most urgent visits from amber up, the red ones first (most urgent first)
-        found = list(visits.filter(urgency__gte=limits["amber"]).only(*fields)[:CRITICAL_ITEMS])
-        red = [v for v in found if v.urgency >= limits["red"]]
+        records = scope.records().order_by("-urgency", "-visit__visit_date", "visit__key", "datamart_id")
+        fields = ("pk", "datamart_id", "kind", "entity", "cp_output", "pd__number", "partner__name", "rating")
+        fields += ("urgency", "visit__key", "visit__label", "visit__activity_id", "visit__status_group")
+        # one query: the most urgent records from amber up, the red ones first (most urgent first)
+        found = list(records.filter(urgency__gte=limits["amber"]).values_list(*fields)[:CRITICAL_ITEMS])
+        red = [r for r in found if r[8] >= limits["red"]]
         band, found = ("red", red) if red else ("amber", found[:CRITICAL_AMBER])
         if not found:
             return {"band": "", "items": []}
-        lines: dict[int, list[dict[str, Any]]] = {v.pk: [] for v in found}
-        results = VisitRuleResult.objects.filter(visit_id__in=list(lines), status="fail").values_list(
-            "visit_id", "rule", "detail", "measure"
+        lines: dict[int, list[dict[str, Any]]] = {r[0]: [] for r in found}
+        results = RecordRuleResult.objects.filter(entity_id__in=list(lines), status="fail").values_list(
+            "entity_id", "rule", "detail", "measure"
         )
-        for visit_id, rule, detail, measure in results:
-            lines[visit_id].append({"rule": rule, **_flag_line(rule, detail, measure)})
+        for entity_id, rule, detail, measure in results:
+            lines[entity_id].append({"rule": rule, **_flag_line(rule, detail, measure)})
         items = []
-        for v in found:
-            entity = (v.partner.name if v.partner_id else "") or next(iter(v.pd_numbers or v.cp_outputs), "")
+        for (
+            pk,
+            datamart_id,
+            kind,
+            entity,
+            cp_output,
+            pd_number,
+            partner_name,
+            rating,
+            urgency,
+            *visit,
+        ) in found:
+            key, label, activity_id, status_group = visit
             items.append(
                 {
-                    "key": v.key,
-                    "name": _visit_name(v.key, v.label, v.activity_id),
-                    "entity": entity,
-                    "rating": v.rating,
-                    "status_group": v.status_group,
-                    "urgency": v.urgency,
-                    "level": "high" if v.urgency >= limits["red"] else "medium",
-                    "lines": sorted(lines[v.pk], key=lambda line: code_order(line["rule"])),
+                    "key": key,
+                    "record": datamart_id,
+                    "name": _visit_name(key, label, activity_id),
+                    "entity": record_name(kind, entity, cp_output, pd_number or "", partner_name or ""),
+                    "type": ENTITY_TYPE_LABELS.get(kind or "other", ENTITY_TYPE_LABELS["other"]),
+                    "rating": rating,
+                    "status_group": status_group,
+                    "urgency": urgency,
+                    "level": "high" if urgency >= limits["red"] else "medium",
+                    "lines": sorted(lines[pk], key=lambda line: code_order(line["rule"])),
                 }
             )
         return {"band": band, "items": items}
@@ -423,7 +490,7 @@ FLAG_ROWS = (  # (drill, label, meter colour), as FMS's flag count distribution 
     ("3+", "3+ flags", "danger"),
 )
 MONTHS_MAX = 36  # the latest months a monthly chart draws
-SECTION_LINES = 50  # visit lines listed under a section
+SECTION_LINES = 50  # record lines listed under a section
 PLACES_MAX = 500  # places kept for the location tables
 CHIP_VISITS = 6  # visit chips on a recurring issue
 FOLLOW_UP_LIST = 10
@@ -463,58 +530,128 @@ def _not_rated_yet(rating: str, status_group: str) -> bool:
 
 
 def counted_rating(rating: str, status_group: str) -> str:
-    """The rating a visit counts under: its own, but "Not monitored" (planned, not conducted: an
-    eTools rating, not a monitoring gap) only for a reported visit; a planned or in-progress visit with
-    nothing rated is "not rated yet", and an unrated visit of another status counts in no rating ("")."""
+    """The rating a record (or a visit) counts under: its own, but "Not monitored" (planned, not
+    conducted: an eTools rating, not a monitoring gap) only on a reported visit; on a planned or
+    in-progress visit nothing rated is "not rated yet", and an unrated record of another status counts
+    in no rating ("")."""
     if rating == "not_monitored" and status_group != "reported":
         return ""
     return rating
 
 
 class Tally:
-    """Visits counted with their quality scores, score bands and ratings."""
+    """Records counted with their quality scores, score bands and ratings, and the distinct visits they
+    belong to. A visit's records are added one after the other (``visit`` given): a visit counts once
+    however many of its records are added."""
 
-    __slots__ = ("bands", "q_n", "q_sum", "ratings", "visits")
+    __slots__ = ("bands", "last", "q_n", "q_sum", "ratings", "records", "visits")
 
     def __init__(self) -> None:
+        self.records = 0
         self.visits = 0
+        self.last: Any = None  # the visit of the last record added
         self.q_sum = Decimal(0)
         self.q_n = 0
-        self.bands: Counter = Counter()
-        self.ratings: Counter = Counter()
+        self.bands = dict.fromkeys(BANDS, 0)
+        self.ratings: dict[str, int] = {}
 
-    def add(self, quality: Decimal | None, band: str, rating: str) -> None:
-        self.visits += 1
+    def add(self, quality: Decimal | None, band: str, rating: str, visit: Any = None) -> None:
+        self.records += 1
+        if visit is None or visit != self.last:
+            self.visits += 1
+            self.last = visit
         if quality is not None:
             self.q_sum += quality
             self.q_n += 1
-        if band:
+        if band in self.bands:
             self.bands[band] += 1
-        self.ratings[rating] += 1
+        ratings = self.ratings
+        ratings[rating] = ratings.get(rating, 0) + 1
+
+    def merge(self, part: tuple) -> None:
+        """One visit's records at once (``part``: their count, score sum, scores, bands and ratings, as
+        :func:`summary` adds them up): the visit counts once."""
+        n, q_sum, q_n, bands, ratings = part
+        self.records += n
+        self.visits += 1
+        self.q_sum += q_sum
+        self.q_n += q_n
+        own = self.bands
+        for band, count in bands.items():
+            if band in own:
+                own[band] += count
+        own = self.ratings
+        for rating, count in ratings.items():
+            own[rating] = own.get(rating, 0) + count
 
     def out(self) -> dict[str, Any]:
         return {
+            "records": self.records,
             "visits": self.visits,
             "avg": mean_quality(self.q_sum, self.q_n),
             "scored": self.q_n,
-            "bands": {band: self.bands[band] for band in BANDS},
-            "ratings": {rating: self.ratings[rating] for rating in RATINGS},
+            "bands": dict(self.bands),
+            "ratings": {rating: self.ratings.get(rating, 0) for rating in RATINGS},
         }
 
 
+def _parts_out(parts: list[tuple]) -> dict[str, Any]:
+    """:meth:`Tally.out` of a group from the parts of its visits, as :func:`summary` adds them up: each
+    part is one visit's records (their count, score sum, scored ones, High / Medium / Low bands, and On
+    track / Constrained / Off track / Not monitored ratings), and the visits are the parts. Summed column
+    by column, not visit by visit."""
+    if parts:
+        n, q_sum, q_n, high, medium, low, on_track, constrained, off_track, not_monitored = map(
+            sum, zip(*parts, strict=True)
+        )
+    else:
+        n = q_sum = q_n = high = medium = low = on_track = constrained = off_track = not_monitored = 0
+    return {
+        "records": n,
+        "visits": len(parts),
+        "avg": mean_quality(q_sum, q_n),
+        "scored": q_n,
+        "bands": {"high": high, "medium": medium, "low": low},
+        "ratings": {
+            "on_track": on_track,
+            "constrained": constrained,
+            "off_track": off_track,
+            "not_monitored": not_monitored,
+        },
+    }
+
+
+def _rated_out(code: str, records: list[tuple]) -> dict[str, Any]:
+    """:meth:`Tally.out` of the records that count under the rating ``code`` (``(visit, score, band)``
+    each, as :func:`summary` lists them)."""
+    scores = [quality for _visit, quality, _band in records if quality is not None]
+    bands = Counter(band for _visit, _quality, band in records)
+    return {
+        "records": len(records),
+        "visits": len({visit for visit, _quality, _band in records}),
+        "avg": mean_quality(sum(scores), len(scores)),
+        "scored": len(scores),
+        "bands": {band: bands.get(band, 0) for band in BANDS},
+        "ratings": {rating: len(records) if rating == code else 0 for rating in RATINGS},
+    }
+
+
+_FLAG_KEYS = ("0", "1", "2")  # the flags-per-record chart's keys below "3+"
 _BUCKET_KEYS = tuple(CHART_BUCKETS)  # in order: bucket n holds the scores from 10n to below 10(n + 1)
 
 
 def _bucket(quality: Decimal) -> str:
     """The score bucket of a score (0 to 100), as the ``bucket`` drill-down reads it (90-100 holds
-    100): worked out, not searched, as the one pass over the visits calls it for every scored one."""
+    100): worked out, not searched, as the one pass over the records calls it for every scored one."""
     if quality < 0 or quality > 100:
         return ""
     return _BUCKET_KEYS[min(int(quality // 10), len(_BUCKET_KEYS) - 1)]
 
 
-# The columns of the one pass over the scope's visits most blocks are computed from
+# The columns of the one pass over the scope's visits most blocks are computed from, and of their
+# records (read apart and joined here: a visit's columns are not read again for each of its records)
 SUMMARY_COLUMNS = (
+    "pk",
     "key",
     "label",
     "activity_id",
@@ -522,10 +659,6 @@ SUMMARY_COLUMNS = (
     "status_group",
     "rating",
     "hact_q1",
-    "quality_score",
-    "score_band",
-    "flags",
-    "flag_count",
     "offices",
     "offices_from",
     "section_names",
@@ -537,27 +670,41 @@ SUMMARY_COLUMNS = (
     "governorate_name",
     "partner_ids",
     "psea_flag",
-    "entities",
     "entities_rated",
     "action_points",
+)
+RECORD_COLUMNS = (
+    "visit_id",
+    "datamart_id",
+    "quality_score",
+    "score_band",
+    "rating",
+    "hact_q1",
+    "flags",
+    "flag_count",
 )
 
 
 def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None = None) -> dict[str, Any]:
-    """One pass over the scope's visits, kept with the other blocks: the figures by month, score
-    bucket, flag count, rating, field office, section and place, the governorates visited, the
-    partners, and the visits without follow-up. Every count here is a count of visits."""
+    """One pass over the scope's visits and their records (two queries), kept with the other blocks: the
+    figures by month, score bucket, flag count, rating, field office, section and place, the
+    governorates visited, the partners, and the visits without follow-up. Quality, bands, ratings,
+    flags and the section lines count records; each group gives its distinct visits too. The reported
+    visits, PSEA, the places without a location, the monitoring gaps and the follow-up count visits."""
 
     def compute() -> dict[str, Any]:
         nonlocal limits
         limits = limits or thresholds()
         high_flag = limits.get("high_flag", 3)
         months: dict[str, dict[str, Any]] = {}
-        everyone = Tally()
-        by_rating: dict[str, Tally] = {r: Tally() for r in RATINGS}
-        buckets: Counter = Counter()
-        flags_dist: Counter = Counter()
-        rule_flags: Counter = Counter()
+        month_counts: dict[str, Counter] = {}  # per month, the records by their Q1 and their rating
+        everyone: list[tuple] = []  # the part of each visit with records (see _parts_out)
+        # per rating, its records (visit, score, band): each record under the rating it counts under
+        by_rating: dict[str, list[tuple]] = {r: [] for r in RATINGS}
+        visit_ratings: Counter = Counter()  # each visit under its own rating (its worst record's)
+        scores: list[Decimal] = []  # the scored records' scores
+        flag_counts: list[int] = []  # the scored records' numbers of flags
+        flag_lists: list[list[str]] = []  # the flags of each flagged record
         offices: dict[str, dict[str, Any]] = {}
         sections: dict[str, dict[str, Any]] = {}
         places: dict[tuple, dict[str, Any]] = {}
@@ -580,88 +727,66 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
                 local_open.setdefault(local_key, []).append(due)
         today = _today()
         counts: Counter = Counter()
+        # the records of the scope by visit (every filter applied: a record filter keeps its records)
+        by_visit: dict[int, list[tuple]] = {}
+        for record in scope.records().order_by().values_list(*RECORD_COLUMNS):
+            found = by_visit.get(record[0])
+            if found is None:
+                by_visit[record[0]] = [record]
+            else:
+                found.append(record)
         # read at once: a year of visits is a few thousand rows, and a server-side cursor's round
         # trips cost more than the rows
         rows = scope.visits().order_by("visit_date", "key").values_list(*SUMMARY_COLUMNS)
-        add_everyone = everyone.add
-        last_day, month = None, ""
+        last_day, month, m, m_counts = None, "", None, None
+        n_visits = 0
         for row in rows:
-            (key, label, activity_id, visit_date, group, rating, hact_q1, quality, band, flags, flag_count,
-             visit_offices, offices_from, section_names, governorate_key, location_id, location_name, site_id,
-             place_name, governorate_name, partner_ids, psea_flag, entities, entities_rated,
-             action_points) = row  # fmt: skip
-            quality = _quality(quality)
-            rating = rating or "not_monitored"
+            (pk, key, label, activity_id, visit_date, group, visit_rating, visit_q1, visit_offices,
+             offices_from, section_names, governorate_key, location_id, location_name, site_id, place_name,
+             governorate_name, partner_ids, psea_flag, entities_rated, action_points) = row  # fmt: skip
+            n_visits += 1
+            visit_rating = visit_rating or "not_monitored"
             reported = group == "reported"
-            # counted_rating(rating, group), written out: it runs for every visit of the scope
-            counted = "" if rating == "not_monitored" and not reported else rating
-            add_everyone(quality, band, counted)
-            if counted in by_rating:
-                by_rating[counted].add(quality, band, counted)
+            visit_ratings["" if visit_rating == "not_monitored" and not reported else visit_rating] += 1
             counts["reported"] += reported
-            counts["off_track"] += rating == "off_track"
             counts["gaps"] += reported and not entities_rated
             counts["psea_asked"] += psea_flag is not None
             counts["psea_flagged"] += psea_flag is True
             counts["no_place"] += location_id is None and site_id is None
             counts["unlocated"] += not governorate_key
-            for code in flags or ():
-                rule_flags[code] += 1
-            if quality is None:
-                buckets["none"] += 1
-            else:
-                buckets[_bucket(quality)] += 1
-                count = flag_count or 0
-                flags_dist["3+" if count >= 3 else str(count)] += 1
-                counts["high_flag"] += count >= high_flag
             # by month (start, else end date: every visit here has one; the rows come in date order)
             if visit_date != last_day:
-                last_day, month = visit_date, f"{visit_date.year:04d}-{visit_date.month:02d}"
-            m = months.get(month)
-            if m is None:
-                m = months[month] = {"visits": 0, "reported": 0, "q_sum": Decimal(0), "q_n": 0}
+                last_day = visit_date
+                month = f"{visit_date.year:04d}-{visit_date.month:02d}"
+                m = months.get(month)
+                if m is None:
+                    m = months[month] = {
+                        "visits": 0,
+                        "records": 0,
+                        "reported": 0,
+                        "q_sum": Decimal(0),
+                        "q_n": 0,
+                    }
+                    month_counts[month] = Counter()
+                m_counts = month_counts[month]
             m["visits"] += 1
-            m["reported"] += reported
-            if quality is not None:
-                m["q_sum"] += quality
-                m["q_n"] += 1
-            if hact_q1:
-                m[f"q1:{hact_q1}"] = m.get(f"q1:{hact_q1}", 0) + 1
-            if counted:
-                m[f"rating:{counted}"] = m.get(f"rating:{counted}", 0) + 1
-            # field offices ("none": office not known); a visit counts in each of its offices
+            # the groups the visit counts in, each once: field offices ("none": not known), sections
+            # ("none": no section) and its place (the gazetteer location, else the place eTools wrote)
             office_from = offices_from or "none"
             office_sources[office_from] += 1
+            office_groups = []
             for name in visit_offices or ["none"]:
                 o = offices.get(name)
                 if o is None:  # (not setdefault: its default would be built for every visit)
-                    o = offices[name] = {"tally": Tally(), "from": Counter(), "flags": Counter()}
-                o["tally"].add(quality, band, counted)
+                    o = offices[name] = {"parts": [], "from": Counter(), "flags": []}
                 o["from"][office_from] += 1
-                if quality is not None and flags:
-                    o["flags"].update(flags)
-            # sections ("none": no section); a visit counts in each of its sections (its line is a
-            # tuple: only the first SECTION_LINES of a section are written out)
-            line = (
-                quality is None,
-                quality or 0,
-                visit_date,
-                key,
-                quality,
-                activity_id,
-                label,
-                band,
-                rating,
-                group,
-            )
+                office_groups.append(o)
+            section_groups = []
             for name in section_names or ["none"]:
-                s = sections.get(name)
-                if s is None:
-                    s = sections[name] = {"tally": Tally(), "lines": [], "flagged": 0}
-                s["tally"].add(quality, band, counted)
-                s["lines"].append(line)
-                s["flagged"] += bool(flags)
-            # places: the gazetteer location, else the place eTools wrote (a site or a name)
+                sec = sections.get(name)
+                if sec is None:
+                    sec = sections[name] = {"parts": [], "lines": [], "flagged": 0}
+                section_groups.append(sec)
             if location_id is not None:
                 place_key: tuple | None = ("location", location_id)
                 name = location_name or place_name
@@ -669,23 +794,110 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
                 place_key, name = ("place", place_name), place_name
             else:
                 place_key = None
+            place = None
             if place_key is not None:
-                p = places.get(place_key)
-                if p is None:
-                    p = places[place_key] = {
+                place = places.get(place_key)
+                if place is None:
+                    place = places[place_key] = {
                         "name": name,
                         "location_id": location_id,
                         "governorate": governorate_name,
-                        "tally": Tally(),
+                        "parts": [],
                         "last": None,
-                        "entities": 0,
                         "rated": 0,
                     }
-                p["tally"].add(quality, band, counted)
-                p["last"] = max(p["last"] or visit_date, visit_date)
-                p["entities"] += entities or 0
-                p["rated"] += entities_rated or 0
-                p["governorate"] = p["governorate"] or governorate_name
+                place["last"] = max(place["last"] or visit_date, visit_date)
+                place["governorate"] = place["governorate"] or governorate_name
+            # its records, each counted on its own: added up for the visit first (its part), then the
+            # visit's part given to each group it counts in (the visit once)
+            records = by_visit.get(pk)
+            if records:
+                q_sum = Decimal(0)
+                q_n = high = medium = low = on_track = constrained = off_track = not_monitored = 0
+                flagged = rated = 0
+                lines_v: list[tuple] = []
+                office_flags: list[str] = []
+                for _visit, datamart_id, quality, band, rating, q1, flags, flag_count in records:
+                    if not rating or rating == "not_monitored":
+                        # counted_rating, written out (it runs for every record of the scope): Not
+                        # monitored on a reported visit only, else not rated yet (in no rating)
+                        rating = "not_monitored"
+                        counted = rating if reported else ""
+                    else:
+                        counted = rating
+                    if counted == "on_track":
+                        on_track += 1
+                        rated += 1
+                    elif counted == "off_track":
+                        off_track += 1
+                        rated += 1
+                    elif counted == "constrained":
+                        constrained += 1
+                        rated += 1
+                    elif counted == "not_monitored":
+                        not_monitored += 1
+                    if counted:
+                        m_counts[counted] += 1
+                        if counted in by_rating:
+                            by_rating[counted].append((pk, quality, band))
+                    if band == "high":
+                        high += 1
+                    elif band == "medium":
+                        medium += 1
+                    elif band == "low":
+                        low += 1
+                    if quality is not None:
+                        q_sum += quality
+                        q_n += 1
+                        scores.append(quality)
+                        flag_counts.append(flag_count or 0)
+                    if flags:
+                        flagged += 1
+                        flag_lists.append(flags)
+                        if quality is not None:
+                            office_flags.extend(flags)
+                    if q1:
+                        m_counts["q1:" + q1] += 1
+                    # HACT Q1's Not monitored: its Q1 reads "not monitored", or nothing rated on a
+                    # reported visit
+                    if q1 == "not_monitored" or counted == "not_monitored":
+                        counts["q1_not_monitored"] += 1
+                    # a record's line (a tuple: only the first SECTION_LINES of a section are written out)
+                    lines_v.append(
+                        (
+                            quality is None,
+                            quality or 0,
+                            visit_date,
+                            key,
+                            datamart_id,
+                            quality,
+                            activity_id,
+                            label,
+                            band,
+                            rating,
+                            group,
+                        )
+                    )
+                n = len(records)
+                part = (n, q_sum, q_n, high, medium, low, on_track, constrained, off_track, not_monitored)
+                everyone.append(part)
+                counts["off_track"] += off_track
+                m["records"] += n
+                if reported:
+                    m["reported"] += n
+                m["q_sum"] += q_sum
+                m["q_n"] += q_n
+                for o in office_groups:
+                    o["parts"].append(part)
+                    if office_flags:
+                        o["flags"].extend(office_flags)  # counted once at the end
+                for sec in section_groups:
+                    sec["parts"].append(part)
+                    sec["lines"].extend(lines_v)
+                    sec["flagged"] += flagged
+                if place is not None:
+                    place["parts"].append(part)
+                    place["rated"] += rated
             if governorate_key:
                 governorates.add(governorate_key)
             if partner_ids:
@@ -694,19 +906,41 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
                 counts["local_open"] += len(local_open[key])
                 counts["local_overdue"] += sum(1 for due in local_open[key] if due and due < today)
             if reported and not action_points and key not in followed:
-                worse = max([rating, hact_q1 or "not_monitored"], key=_rating_rank)
+                worse = max([visit_rating, visit_q1 or "not_monitored"], key=_rating_rank)
                 if worse in ("off_track", "constrained"):
                     no_follow_up.append((key, _visit_name(key, label, activity_id)))
 
+        # the month's records by Q1 and by rating, as the monthly charts read them ("q1:on_track")
+        for month, found in month_counts.items():
+            m = months[month]
+            for code, n in found.items():
+                m[code if code.startswith("q1:") else f"rating:{code}"] = n
+        # the scored records by score bucket (each distinct score's bucket worked out once) and by
+        # number of flags; the records not scored
+        buckets: Counter = Counter()
+        for quality, n in Counter(scores).items():
+            buckets[_bucket(quality)] += n
+        unscored = sum(part[0] for part in everyone) - len(scores)
+        if unscored:
+            buckets["none"] = unscored
+        flags_dist: Counter = Counter()
+        for count, n in Counter(flag_counts).items():
+            flags_dist[_FLAG_KEYS[count] if count < 3 else "3+"] += n
+            if count >= high_flag:
+                counts["high_flag"] += n
+        rule_flags = Counter(chain.from_iterable(flag_lists))
         out_sections = {}
-        for name, s in sections.items():
-            lines = sorted(s["lines"], key=lambda ln: ln[:4])  # lowest score first, unscored last
+        for name, sec in sections.items():
+            lines = sec["lines"]
+            # lowest score first, unscored last (a record's id ends the sort key): the first only
+            first = heapq.nsmallest(SECTION_LINES, lines)
             out_sections[name] = {
-                **s["tally"].out(),
-                "flagged": s["flagged"],
+                **_parts_out(sec["parts"]),
+                "flagged": sec["flagged"],
                 "lines": [
                     {
                         "key": key,
+                        "record": datamart_id,
                         "name": f"#{activity_id}" if activity_id else label,  # _visit_name
                         "quality": quality,
                         "band": band,
@@ -714,8 +948,8 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
                         "not_rated_yet": _not_rated_yet(rating, group),
                         "date": visit_date,
                     }
-                    for *_sort, visit_date, key, quality, activity_id, label, band, rating, group in (
-                        ln[2:] for ln in lines[:SECTION_LINES]
+                    for visit_date, key, datamart_id, quality, activity_id, label, band, rating, group in (
+                        ln[2:] for ln in first
                     )
                 ],
                 "more": max(len(lines) - SECTION_LINES, 0),
@@ -727,19 +961,20 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
                     "location_id": p["location_id"],
                     "governorate": p["governorate"],
                     "last": p["last"],
-                    "entities": p["entities"],
                     "rated": p["rated"],
-                    **p["tally"].out(),
+                    **_parts_out(p["parts"]),
                 }
                 for p in places.values()
             ),
             key=lambda p: (-p["visits"], -(p["last"].toordinal() if p["last"] else 0), p["name"].casefold()),
         )
         return {
-            **everyone.out(),
+            **_parts_out(everyone),
+            "visits": n_visits,
             "reported": counts["reported"],
             "off_track": counts["off_track"],
             "gaps": counts["gaps"],
+            "q1_not_monitored": counts["q1_not_monitored"],
             "psea_asked": counts["psea_asked"],
             "psea_flagged": counts["psea_flagged"],
             "no_place": counts["no_place"],
@@ -750,9 +985,10 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
             "flags": dict(flags_dist),
             "rule_flags": dict(rule_flags),
             "months": months,
-            "by_rating": {code: t.out() for code, t in by_rating.items()},
+            "by_rating": {code: _rated_out(code, found) for code, found in by_rating.items()},
+            "visit_ratings": {code: visit_ratings[code] for code in RATINGS},
             "offices": {
-                name: {**o["tally"].out(), "from": dict(o["from"]), "flags": dict(o["flags"])}
+                name: {**_parts_out(o["parts"]), "from": dict(o["from"]), "flags": dict(Counter(o["flags"]))}
                 for name, o in offices.items()
             },
             "office_sources": dict(office_sources),
@@ -802,9 +1038,9 @@ def _month_label(day: datetime.date) -> str:
 
 
 def monthly_quality(scope: Scope, when: str | None = None, limits: dict | None = None) -> dict[str, Any]:
-    """Block 4, quality score trends: the average quality of the visits that started each month and the
-    reported visits (two lines, each on its own axis); ``{}`` when no visit of the scope is scored. A
-    point opens the visits of its month."""
+    """Block 4, quality score trends: the average quality of the records of the visits that started each
+    month and the reports (the records of reported visits; two lines, each on its own axis); ``{}`` when
+    no record of the scope is scored. A point opens the records of its month."""
     axis, months = _months(scope, when, limits)
     if not any(m["q_n"] for m in months.values()):
         return {}
@@ -831,8 +1067,9 @@ def monthly_quality(scope: Scope, when: str | None = None, limits: dict | None =
 
 
 def monthly_volume(scope: Scope, when: str | None = None, limits: dict | None = None) -> dict[str, Any]:
-    """Block 5, monitoring volume over time: the visits that started each month (bars, whatever their
-    status) and their average quality (line); ``{}`` when the scope has no visit."""
+    """Block 5, monitoring volume over time: the records of the visits that started each month (bars,
+    whatever their status; FMS counts records), with the distinct visits in the tooltip, and their
+    average quality (line); ``{}`` when the scope has no visit."""
     axis, months = _months(scope, when, limits)
     if not months:
         return {}
@@ -841,17 +1078,19 @@ def monthly_volume(scope: Scope, when: str | None = None, limits: dict | None = 
         "months": [_month_label(d) for d in axis],
         "indicators": [
             {
-                "id": "visits",
-                "label": "Visit count",
-                "unit": "visits",
-                "values": [months.get(k, {}).get("visits", 0) for k in keys],
+                "id": "records",
+                "label": "Record count",
+                "unit": "records",
+                "values": [months.get(k, {}).get("records", 0) for k in keys],
+                "extra": [months.get(k, {}).get("visits", 0) for k in keys],
                 "reports": [
                     _float(mean_quality(months[k]["q_sum"], months[k]["q_n"])) if k in months else None
                     for k in keys
                 ],
             }
         ],
-        "bar_name": "Visit count",
+        "bar_name": "Record count",
+        "extra_label": "visits",
         "line_name": "Avg quality %",
         "line_unit": "%",
         "drill": {"labels": keys, "series": {}},
@@ -880,13 +1119,14 @@ def _by_month(scope: Scope, when, limits, prefix: str, codes: tuple[str, ...]) -
 
 
 def hact_q1_by_month(scope: Scope, when: str | None = None, limits: dict | None = None) -> dict | None:
-    """Block 6: the visits of each month by their HACT Q1 (the worst of the visit's Q1 answers):
-    On track, Constrained, Off track. None when no visit of the scope has a Q1 rating."""
+    """Block 6: the records of each month by their own HACT Q1 (the record's answer, else its partner's,
+    else the visit's): On track, Constrained, Off track. None when no record of the scope has a Q1
+    rating."""
     return _by_month(scope, when, limits, "q1", ("on_track", "constrained", "off_track"))
 
 
 def rating_by_month(scope: Scope, when: str | None = None, limits: dict | None = None) -> dict | None:
-    """Block 6 without Q1 answers: the visits of each month by their overall rating."""
+    """Block 6 without Q1 answers: the records of each month by their overall rating."""
     return _by_month(scope, when, limits, "rating", RATINGS)
 
 
@@ -895,7 +1135,7 @@ def q1_question(when: str | None = None) -> str:
     is Q1, in the whole data), "" when no Q1 question was found. Kept ten minutes per refresh."""
     from .models import QuestionAnswer
 
-    key = f"fmm:v4:q1:{when if when is not None else stamp()}"
+    key = f"fmm:v5:q1:{when if when is not None else stamp()}"
     found = None if settings.DEBUG else cache.get(key)
     if found is not None:
         return found
@@ -924,10 +1164,10 @@ SCORE_BUCKETS = (  # FMS's five buckets of 20 points (80-100 holds 100), each wi
 
 
 def score_buckets(scope: Scope, when: str | None = None, limits: dict | None = None) -> dict[str, Any]:
-    """Block 7: scored visits in FMS's five score buckets of 20 points (80–100 holds 100), each with its
+    """Block 7: scored records in FMS's five score buckets of 20 points (80–100 holds 100), each with its
     drill value, its colour (red, orange, amber, light green, green, as FMS draws them) and the band of
     its lowest score (High from 80, Medium from 50, else Low, as Score settings set them); and the
-    visits not scored. Summed from the pass's buckets of 10 points: two of them make one of 20."""
+    records not scored. Summed from the pass's buckets of 10 points: two of them make one of 20."""
     limits = limits or thresholds()
     data = summary(scope, when, limits)
     found = data["buckets"]
@@ -953,8 +1193,8 @@ def band_of(score: float, limits: dict[str, int]) -> str:
 
 def issue_label(rule: str, key: str, measures: list[float], setting: Any) -> str:
     """A recurring issue in words, written by NeuroDB from the rule's flag template and the detail code
-    (the fields missing, the band, or "ai" for an AI check: its explanation differs from visit to
-    visit, so the issue is the rule's flag without it)."""
+    (the fields missing, the band, or "ai" for an AI check: its explanation differs from record to
+    record, so the issue is the rule's flag without it)."""
     from .rules import COLUMNS, number, param, render
 
     template = getattr(setting, "flag_template", "") or ""
@@ -982,63 +1222,94 @@ def issue_label(rule: str, key: str, measures: list[float], setting: Any) -> str
 def top_issues(
     scope: Scope, limit: int = 10, when: str | None = None, rules: list | None = None
 ) -> list[dict[str, Any]]:
-    """Block 8: the flags of the scope grouped by rule and detail (``R2:below_threshold``), most
-    frequent first: the issue in words, its visits, their mean urgency and the first visits."""
-    from .models import RuleSetting, VisitRuleResult
+    """Block 8: the flags of the scope's records grouped by rule and detail (``R2:below_threshold``), most
+    frequent first: the issue in words, its records, their mean urgency and the first visits (the
+    visits of its most urgent records, each once)."""
+    from .models import RecordRuleResult, RuleSetting, Visit
     from .rules import half_up
     from .scope import _ISSUE
 
     def compute() -> list[dict[str, Any]]:
         settings_ = {r.code: r for r in (rules if rules is not None else RuleSetting.objects.all())}
-        rows = list(
-            VisitRuleResult.objects.filter(status="fail", visit__in=scope.visits().values("pk"))
+        # the failed checks of the scope's records, added up per issue and visit by the database (a
+        # visit's records often share an issue)
+        rows = (
+            scope.record_results(RecordRuleResult.objects.filter(status="fail"))
             .order_by()
+            .values("rule", "detail_key", "entity__visit_id")
+            .annotate(
+                n=Count("pk"),
+                u_sum=Sum("entity__urgency"),
+                u_n=Count("entity__urgency"),
+                u_max=Max("entity__urgency"),
+                low=Min("measure"),
+                high=Max("measure"),
+            )
             .values_list(
-                "rule",
-                "detail_key",
-                "measure",
-                "visit__key",
-                "visit__label",
-                "visit__activity_id",
-                "visit__urgency",
-                "visit__visit_date",
+                "rule", "detail_key", "entity__visit_id", "n", "u_sum", "u_n", "u_max", "low", "high"
             )
         )
-        # most urgent visit first, then the latest, then by key: sorted here, where it costs a third of
-        # what the database took to sort the joined rows
-        rows.sort(key=lambda r: (-(r[6] or 0), -(r[7].toordinal() if r[7] else 0), r[3]))
-        groups: dict[tuple[str, str], dict[str, Any]] = {}
-        for rule, key, measure, visit_key, label, activity_id, urgency, _day in rows:
+        groups: dict[tuple[str, str], list] = {}
+        for rule, key, visit_id, n, u_sum, u_n, u_max, low, high in rows:
             g = groups.get((rule, key))
-            if g is None:  # (not setdefault: its default would be built for every flag)
-                g = groups[(rule, key)] = {"visits": [], "n": 0, "urgency": 0, "urgent_n": 0, "measures": []}
-            g["n"] += 1
-            if len(g["visits"]) < CHIP_VISITS:  # the first visits (most urgent) are the chips
-                g["visits"].append({"key": visit_key, "name": _visit_name(visit_key, label, activity_id)})
-            if urgency is not None:  # a visit without a score has no urgency: left out of the mean
-                g["urgency"] += urgency
-                g["urgent_n"] += 1
-            if measure is not None:
-                g["measures"].append(measure)
+            if g is None:  # records, urgency sum, urgent records, lowest and highest measure, visits
+                g = groups[(rule, key)] = [0, 0, 0, None, None, {}]
+            g[0] += n
+            if u_n:  # a record without a score has no urgency: left out of the mean
+                g[1] += u_sum
+                g[2] += u_n
+            if low is not None and (g[3] is None or low < g[3]):
+                g[3] = low
+            if high is not None and (g[4] is None or high > g[4]):
+                g[4] = high
+            # each visit with its most urgent record's urgency
+            g[5][visit_id] = u_max or 0
+        # the chips: the visits of the most urgent records (each once), then the latest, then by key;
+        # only the visits that can be among the first are read
+        candidates: dict[tuple[str, str], list[int]] = {}
+        for found, g in groups.items():
+            visits = g[5]
+            if len(visits) <= CHIP_VISITS:
+                candidates[found] = list(visits)
+            else:
+                floor = heapq.nlargest(CHIP_VISITS, visits.values())[-1]
+                candidates[found] = [pk for pk, urgency in visits.items() if urgency >= floor]
+        named = {
+            pk: (key, label, activity_id, day)
+            for pk, key, label, activity_id, day in Visit.objects.filter(
+                pk__in={pk for pks in candidates.values() for pk in pks}
+            ).values_list("pk", "key", "label", "activity_id", "visit_date")
+        }
         out = []
-        for (rule, key), g in groups.items():
-            n = g["n"]
+        for (rule, key), (n, urgency_sum, urgent_n, low, high, visits) in groups.items():
             drill = f"{rule}:{key}"
+            first = heapq.nsmallest(
+                CHIP_VISITS,
+                (
+                    (-visits[pk], -(named[pk][3].toordinal() if named[pk][3] else 0), named[pk][0], pk)
+                    for pk in candidates[(rule, key)]
+                    if pk in named
+                ),
+            )
+            chips = [
+                {"key": visit_key, "name": _visit_name(visit_key, named[pk][1], named[pk][2])}
+                for _urgency, _day, visit_key, pk in first
+            ]
+            measures = [m for m in (low, high) if m is not None]
             out.append(
                 {
                     "rule": rule,
-                    "label": issue_label(rule, key, g["measures"], settings_.get(rule)),
-                    "visits": n,
-                    "urgency": int(half_up(Decimal(g["urgency"]) / g["urgent_n"], 0))
-                    if g["urgent_n"]
-                    else None,
-                    "lowest": min(g["measures"]) if g["measures"] else None,
-                    "chips": g["visits"][:CHIP_VISITS],
-                    "more": max(n - CHIP_VISITS, 0),
+                    "label": issue_label(rule, key, measures, settings_.get(rule)),
+                    "records": n,
+                    "visits": len(visits),
+                    "urgency": int(half_up(Decimal(urgency_sum) / urgent_n, 0)) if urgent_n else None,
+                    "lowest": low,
+                    "chips": chips,
+                    "more": max(len(visits) - CHIP_VISITS, 0),
                     "drill": drill if _ISSUE.match(drill) else "",
                 }
             )
-        out.sort(key=lambda r: (-r["visits"], -(r["urgency"] or 0), r["rule"], r["label"]))
+        out.sort(key=lambda r: (-r["records"], -(r["urgency"] or 0), r["rule"], r["label"]))
         return out
 
     return cached(scope, "issues", compute, when)[:limit]
@@ -1046,15 +1317,16 @@ def top_issues(
 
 def locations(scope: Scope, when: str | None = None, limits: dict | None = None) -> dict[str, Any]:
     """Blocks 9 and 19: the places of the scope's visits (the gazetteer location, else the site or
-    place eTools wrote), most visited first: visits, last visit, average quality ("—" when no visit
-    is scored), and coverage (rated entities ÷ entities); plus the visits with no place at all."""
+    place eTools wrote), most visited first: visits and their records, last visit, average quality per
+    record ("—" when no record is scored), and coverage (rated records ÷ records); plus the visits with
+    no place at all."""
     data = summary(scope, when, limits)
     rows = []
     for p in data["places"]:
         rows.append(
             {
                 **p,
-                "coverage": _pct(p["rated"], p["entities"]),
+                "coverage": _pct(p["rated"], p["records"]),
                 "drill": str(p["location_id"]) if p["location_id"] is not None else "",
             }
         )
@@ -1063,31 +1335,52 @@ def locations(scope: Scope, when: str | None = None, limits: dict | None = None)
 
 def _rule_rows(scope: Scope, by_month: bool) -> list[dict[str, Any]]:
     """Per rule (and month of the visits' date, start else end, ``by_month``), over the scope's
-    visits: the visits in each result state, and the points earned (each capped at its maximum) over
-    the points evaluated. One query."""
+    records: the records in each result state, and the points earned (each capped at its maximum)
+    over the points evaluated. One query."""
     from django.db.models import DecimalField
     from django.db.models.functions import Cast, Least, TruncMonth
 
-    from .models import VisitRuleResult
+    from .models import RecordRuleResult
     from .rules import STATES
 
-    evaluated = Q(status__in=("pass", "fail"), max_points__gt=0)
-    rows = VisitRuleResult.objects.filter(visit__in=scope.visits().values("pk")).order_by()
+    # grouped by rule and state, the points only where they count (each result is in one group): one
+    # aggregate pass over the checks of the records, not a filtered count per state for every check
+    with_points = Q(max_points__gt=0)
+    rows = scope.record_results(RecordRuleResult.objects.all()).order_by()
+    keys = ("rule", "status")
     if by_month:
-        rows = rows.annotate(month=TruncMonth("visit__visit_date")).values("rule", "month")
-    else:
-        rows = rows.values("rule")
-    return list(
-        rows.annotate(
-            **{state: Count("pk", filter=Q(status=state)) for state in STATES},
-            earned=Sum(
-                Least("points", Cast("max_points", DecimalField(max_digits=5, decimal_places=1))),
-                filter=evaluated,
-            ),
-            points_max=Sum("max_points", filter=evaluated),
-            points_n=Count("pk", filter=evaluated),
-        )
+        rows = rows.annotate(month=TruncMonth("entity__visit__visit_date"))
+        keys = ("rule", "month", "status")
+    found = rows.values(*keys).annotate(
+        n=Count("pk"),
+        earned=Sum(
+            Least("points", Cast("max_points", DecimalField(max_digits=5, decimal_places=1))),
+            filter=with_points,
+        ),
+        points_max=Sum("max_points", filter=with_points),
+        points_n=Count("pk", filter=with_points),
     )
+    out: dict[tuple, dict[str, Any]] = {}
+    for row in found:
+        group = (row["rule"], row["month"]) if by_month else (row["rule"],)
+        r = out.get(group)
+        if r is None:
+            r = out[group] = {
+                "rule": row["rule"],
+                **({"month": row["month"]} if by_month else {}),
+                **dict.fromkeys(STATES, 0),
+                "earned": None,
+                "points_max": None,
+                "points_n": 0,
+            }
+        status = row["status"]
+        if status in r:
+            r[status] += row["n"]
+        if status in ("pass", "fail") and row["points_n"]:  # the points evaluated: passed or flagged
+            r["earned"] = (r["earned"] or 0) + (row["earned"] or 0)
+            r["points_max"] = (r["points_max"] or 0) + (row["points_max"] or 0)
+            r["points_n"] += row["points_n"]
+    return list(out.values())
 
 
 def rule_months(scope: Scope, when: str | None = None) -> list[dict[str, Any]]:
@@ -1104,7 +1397,7 @@ def rule_months(scope: Scope, when: str | None = None) -> list[dict[str, Any]]:
 
 
 def rule_stats(scope: Scope, when: str | None = None) -> dict[str, dict[str, Any]]:
-    """Per rule over the scope's visits: the visits in each result state, and the points earned (each
+    """Per rule over the scope's records: the records in each result state, and the points earned (each
     capped at its maximum) over the points evaluated: the rule months summed when they are kept
     already, else a query of its own without the months (cheaper: no join to the visits' dates)."""
     from .rules import STATES
@@ -1146,16 +1439,16 @@ def _rule_settings(rules: list | None) -> list:
 
 
 def rule_tone(share: Decimal | None) -> str:
-    """FMS's colour of a rule by the share of its checked visits it flagged: green under 25 %, amber from
-    25 % to 50 %, red over 50 %."""
+    """FMS's colour of a rule by the share of its checked records it flagged: green under 25 %, amber
+    from 25 % to 50 %, red over 50 %."""
     if share is None or share < 25:
         return "success"
     return "warning" if share <= 50 else "danger"
 
 
 def rule_analysis(scope: Scope, rules: list | None = None, when: str | None = None) -> list[dict[str, Any]]:
-    """Block 10: per rule, the visits flagged out of the visits evaluated (passed or flagged), the
-    visits where it was not available and those whose AI check is pending; "off" for a rule switched
+    """Block 10: per rule, the records flagged out of the records evaluated (passed or flagged), the
+    records where it was not available and those whose AI check is pending; "off" for a rule switched
     off and "flag only" for a rule without a deduction. In the order of the rule ids."""
     from .rules import TYPE_LABELS, code_order, nominal, param
 
@@ -1200,8 +1493,8 @@ def rule_analysis(scope: Scope, rules: list | None = None, when: str | None = No
                 else "warning"
                 if flagged
                 else "success",
-                # Quality rule analysis (FMS): the bar is the share of the checked visits not flagged, green
-                # under 25 % flagged, amber up to 50 %, red over 50 %
+                # Quality rule analysis (FMS): the bar is the share of the checked records not flagged,
+                # green under 25 % flagged, amber up to 50 %, red over 50 %
                 "clean_fill": float(100 - share) if share is not None else 0.0,
                 "tone": rule_tone(share),
                 # a rule read from the checklist answers (fm_questions), "not available" without them
@@ -1212,8 +1505,8 @@ def rule_analysis(scope: Scope, rules: list | None = None, when: str | None = No
 
 
 def issues_summary(scope: Scope, when: str | None = None, limits: dict | None = None) -> dict[str, Any]:
-    """Block 11: R6 failures and high-flag visits (with their share of the scored visits), and the
-    monitoring gaps: reported visits none of whose entities is rated (§0.3)."""
+    """Block 11: the records R6 flagged and the high-flag records (each with its share of the scored
+    records), and the monitoring gaps: reported visits none of whose records is rated (§0.3)."""
     data = summary(scope, when, limits)
     scored = data["scored"]
     r6 = data["rule_flags"].get("R6", 0)
@@ -1230,7 +1523,7 @@ def issues_summary(scope: Scope, when: str | None = None, limits: dict | None = 
 
 
 def flag_distribution(scope: Scope, when: str | None = None, limits: dict | None = None) -> dict[str, Any]:
-    """Block 12: the scored visits by their number of flags (0, 1, 2, 3 or more)."""
+    """Block 12: the scored records by their number of flags (0, 1, 2, 3 or more)."""
     data = summary(scope, when, limits)
     scored = data["scored"]
     rows = []
@@ -1274,8 +1567,9 @@ def _within(values: tuple[str, ...], name: str) -> bool:
 
 
 def offices(scope: Scope, when: str | None = None, limits: dict | None = None) -> dict[str, Any]:
-    """Block 15: per field office, its visits, their average quality and where the office came from;
-    the visits whose office is not known in one row. A visit to a PD with two offices counts in both."""
+    """Block 15: per field office, its records and visits, their average quality and where the office
+    came from (per visit); the records whose visit's office is not known in one row. A record of a visit
+    to a PD with two offices counts in both. Most records first."""
     data = summary(scope, when, limits)
     rows, unknown = [], None
     for name, o in data["offices"].items():
@@ -1286,7 +1580,7 @@ def offices(scope: Scope, when: str | None = None, limits: dict | None = None) -
             unknown = row
         else:
             rows.append(row)
-    rows.sort(key=lambda r: (-r["visits"], r["name"].casefold()))
+    rows.sort(key=lambda r: (-r["records"], -r["visits"], r["name"].casefold()))
     sources = data["office_sources"]
     return {
         "rows": rows,
@@ -1299,8 +1593,8 @@ def offices(scope: Scope, when: str | None = None, limits: dict | None = None) -
 def office_rule_badges(
     scope: Scope, rules: list | None = None, when: str | None = None, limits: dict | None = None
 ) -> list[dict[str, Any]]:
-    """Block 17: per field office, its scored visits and, for each rule with flags, the scored visits it
-    flagged ("R1: 6/16")."""
+    """Block 17: per field office, its scored records and, for each rule with flags, the scored records
+    it flagged ("R1: 6/16")."""
     rules = _rule_settings(rules)
     data = summary(scope, when, limits)
     labels = {r.code: r.label for r in rules}
@@ -1320,35 +1614,46 @@ def office_rule_badges(
             for code, n in sorted(o["flags"].items())
             if n
         ]
-        out.append({"name": name, "drill": name, "scored": scored, "visits": o["visits"], "badges": badges})
+        out.append(
+            {
+                "name": name,
+                "drill": name,
+                "scored": scored,
+                "records": o["records"],
+                "visits": o["visits"],
+                "badges": badges,
+            }
+        )
     out.sort(key=lambda r: (r["name"] == "none", -r["scored"], r["name"].casefold()))
     return out
 
 
 def sections(scope: Scope, when: str | None = None, limits: dict | None = None) -> list[dict[str, Any]]:
-    """Block 18: per eTools section, its visits, their average quality, ratings and bands, and a line
-    per visit (worst score first, unscored last). A visit with two sections counts in both."""
+    """Block 18: per eTools section, its records and visits, their average quality, ratings and bands,
+    and a line per record (worst score first, unscored last). A record of a visit with two sections
+    counts in both."""
     data = summary(scope, when, limits)
     out = [
         {"name": name, "drill": name, **s}
         for name, s in data["sections"].items()
         if _within(scope.sections, name)
     ]
-    out.sort(key=lambda r: (r["name"] == "none", -r["visits"], r["name"].casefold()))
+    out.sort(key=lambda r: (r["name"] == "none", -r["records"], r["name"].casefold()))
     return out
 
 
 BREAKDOWN_KINDS = ("partner", "office", "section")
 BREAKDOWN_COLUMNS = (
-    "partner_ids",
-    "offices",
-    "section_names",
+    "partner_id",
+    "visit_id",
+    "visit__offices",
+    "visit__section_names",
     "quality_score",
     "score_band",
     "rating",
-    "status_group",
+    "visit__status_group",
     "flags",
-    "action_points_open",
+    "visit__action_points_open",
 )
 
 
@@ -1356,12 +1661,13 @@ def breakdown(
     scope: Scope, by: str, when: str | None = None, limits: dict | None = None
 ) -> list[dict[str, Any]]:
     """The exports' aggregates (Excel workbook, PDF report, Power BI package) per partner, field office
-    or section (``by``): the visits, the rated ones (On track, Constrained, Off track) and each rating's
-    share of them, the average quality with the bands, the visits flagged and their flags, and the open
-    FM action points of the visits. A visit counts in each of its partners, offices or sections ("none":
-    without one), as the page's field office and section blocks count it, with the same ratings and
-    average (:class:`Tally`, :func:`counted_rating`); only the rows the filter keeps are given. Most
-    visits first."""
+    or section (``by``), over the scope's records: the records and their distinct visits, the rated
+    records (On track, Constrained, Off track) and each rating's share of them, the average quality with
+    the bands, the records flagged (and their visits) and their flags, and the open FM action points of
+    the visits (each visit once). A record counts under its own partner, and in each of its visit's
+    offices or sections ("none": without one), as the page's field office and section blocks count it,
+    with the same ratings and average (:class:`Tally`, :func:`counted_rating`); only the rows the filter
+    keeps are given. Most records first."""
     from neurodb.partnerships.models import PartnerOrganization
 
     if by not in BREAKDOWN_KINDS:
@@ -1369,19 +1675,33 @@ def breakdown(
 
     def compute() -> list[dict[str, Any]]:
         groups: dict[Any, dict[str, Any]] = {}
-        rows = scope.visits().order_by().values_list(*BREAKDOWN_COLUMNS)
-        for partner_ids, offices, sections, quality, band, rating, group, flags, open_points in rows:
-            keys = {"partner": partner_ids, "office": offices, "section": sections}[by] or ["none"]
+        rows = scope.records().order_by("visit_id").values_list(*BREAKDOWN_COLUMNS)
+        for partner_id, visit, offices, sections, quality, band, rating, group, flags, open_points in rows:
+            keys = {"partner": [partner_id] if partner_id else [], "office": offices, "section": sections}[
+                by
+            ] or ["none"]
             counted = counted_rating(rating or "not_monitored", group)
-            quality = _quality(quality)
             for key in keys:
                 g = groups.get(key)
                 if g is None:
-                    g = groups[key] = {"tally": Tally(), "flagged": 0, "flags": 0, "open": 0}
-                g["tally"].add(quality, band, counted)
-                g["flagged"] += bool(flags)
+                    g = groups[key] = {
+                        "tally": Tally(),
+                        "flagged": 0,
+                        "flagged_visits": 0,
+                        "flags": 0,
+                        "open": 0,
+                        "flagged_last": None,
+                    }
+                tally = g["tally"]
+                if tally.last != visit:  # the visit's action points, once per group
+                    g["open"] += open_points or 0
+                tally.add(quality, band, counted, visit)
+                if flags:
+                    g["flagged"] += 1
+                    if g["flagged_last"] != visit:  # the visits with a flagged record, each once
+                        g["flagged_visits"] += 1
+                        g["flagged_last"] = visit
                 g["flags"] += len(flags or ())
-                g["open"] += open_points or 0
         names: dict[Any, tuple[str, str, str]] = {}
         if by == "partner":
             names = {
@@ -1408,11 +1728,12 @@ def breakdown(
                     "rated": rated,
                     "shares": {code: _pct(tally["ratings"][code], rated) for code in RATED},
                     "flagged": g["flagged"],
+                    "flagged_visits": g["flagged_visits"],
                     "flags": g["flags"],
                     "open_action_points": g["open"],
                 }
             )
-        out.sort(key=lambda r: (r["key"] == "none", -r["visits"], str(r["name"]).casefold()))
+        out.sort(key=lambda r: (r["key"] == "none", -r["records"], str(r["name"]).casefold()))
         return out
 
     return cached(scope, f"breakdown:{by}", compute, when)
@@ -1421,23 +1742,24 @@ def breakdown(
 def quality_by_rating(
     scope: Scope, when: str | None = None, limits: dict | None = None
 ) -> list[dict[str, Any]]:
-    """Block 20: per visit rating, its visits, their average quality and bands; Not monitored (a
-    reported visit with nothing rated: planned, not conducted) always has its own bar."""
+    """Block 20: per finding rating, its records (each under its own rating), their visits, average
+    quality and bands; Not monitored (a record of a reported visit with nothing rated: planned, not
+    conducted) always has its own bar."""
     from .scope import RATING_LABELS
 
     data = summary(scope, when, limits)
     out = []
     for code in RATINGS:
         row = data["by_rating"][code]
-        if (row["visits"] or code == "not_monitored") and _within(scope.ratings, code):
+        if (row["records"] or code == "not_monitored") and _within(scope.ratings, code):
             avg = row["avg"]
             out.append({"code": code, "label": RATING_LABELS[code], "fill": float(avg or 0), **row})
     return out
 
 
 def flag_frequency(scope: Scope, rules: list | None = None, when: str | None = None) -> dict[str, Any]:
-    """Block 21: the visits each rule flagged, most first, as ``[label, visits, drill]`` triples for the
-    chart, with each rule's share of the visits it evaluated."""
+    """Block 21: the records each rule flagged, most first, as ``[label, records, drill]`` triples for the
+    chart, with each rule's share of the records it evaluated."""
     rules = _rule_settings(rules)
     stats = rule_stats(scope, when)
     rows = []
@@ -1453,7 +1775,7 @@ def flag_frequency(scope: Scope, rules: list | None = None, when: str | None = N
                 "n": flagged,
                 "evaluated": evaluated,
                 "pct": _pct(flagged, evaluated),
-                "fill": float(_pct(flagged, evaluated) or 0),  # the bar: the share of the visits it checked
+                "fill": float(_pct(flagged, evaluated) or 0),  # the bar: the share of the records it checked
             }
         )
     rows.sort(key=lambda r: (-r["n"], r["code"]))
@@ -1463,7 +1785,7 @@ def flag_frequency(scope: Scope, rules: list | None = None, when: str | None = N
 def dimension_breakdown(
     scope: Scope, rules: list | None = None, when: str | None = None, setting=None
 ) -> dict[str, Any]:
-    """Block 22, points by category: per score category, its weight and the points the scored visits
+    """Block 22, points by category: per score category, its weight and the points the scored records
     kept of it on average (the weight less the category's deductions, each at most the weight), weakest
     first; the categories no rule switched on uses are listed apart."""
     from .models import ScoreSetting
@@ -1476,7 +1798,7 @@ def dimension_breakdown(
     labels = category_labels(setting)
 
     def compute() -> dict[str, Any]:
-        # one aggregate: each visit's deduction per category is stored already capped at its weight
+        # one aggregate: each record's deduction per category is stored already capped at its weight
         sums = {
             f"c{i}": Sum(
                 Cast(
@@ -1486,7 +1808,7 @@ def dimension_breakdown(
             )
             for i, key in enumerate(weights)
         }
-        found = scope.visits().exclude(quality_score=None).aggregate(n=Count("id"), **sums)
+        found = scope.records().exclude(quality_score=None).aggregate(n=Count("id"), **sums)
         totals = {key: str(found[f"c{i}"] or 0) for i, key in enumerate(weights)}
         return {"n": found["n"], "totals": totals}
 
@@ -1510,7 +1832,7 @@ def dimension_breakdown(
                 "max": half_up(weight, 1),
                 "pct": pct,
                 "fill": float(pct),
-                "visits": data["n"],
+                "records": data["n"],
             }
         )
     rows.sort(key=lambda r: (r["pct"], r["code"]))
@@ -1520,8 +1842,8 @@ def dimension_breakdown(
 
 def rule_trends(scope: Scope, rules: list | None = None, when: str | None = None) -> dict[str, Any]:
     """Rule score trends over time: per rule with points, the share of its maximum points earned by the
-    visits that started each month (the results that passed or failed; each capped at its maximum); a
-    month where the rule checked no visit has no value. ``{}`` when no rule checked a visit."""
+    records of the visits that started each month (the results that passed or failed; each capped at its
+    maximum); a month where the rule checked no record has no value. ``{}`` when no rule checked one."""
     from .rules import code_order, half_up, max_deduction
 
     rules = [r for r in _rule_settings(rules) if r.enabled and max_deduction(r)]
@@ -1547,15 +1869,16 @@ def rule_trends(scope: Scope, rules: list | None = None, when: str | None = None
 
 
 def highlights(scope: Scope, when: str | None = None, limits: dict | None = None) -> dict[str, Any]:
-    """Block 13: visits, reported, governorates covered, the average quality (the KPI's own
-    definition), off-track visits, PSEA-flagged visits out of those with a PSEA question, the share
-    of High / Medium / Low scores and the monitored entities by kind."""
+    """Block 13: visits and their records, reported visits, governorates covered, the average quality
+    per record (the KPI's own definition), off-track records, PSEA-flagged visits out of those with a
+    PSEA question, the scored records by High / Medium / Low band and the records by kind."""
     data = summary(scope, when, limits)
     kinds = entity_kinds(scope, when)
     from .scope import KIND_LABELS
 
     return {
         "visits": data["visits"],
+        "records": data["records"],
         "reported": data["reported"],
         "coverage": coverage(scope, when, limits),
         "avg_quality": data["avg"],
@@ -1588,15 +1911,14 @@ ENTITY_COLUMNS = (
     "rating",
     "visit_id",
     "visit__visit_date",
-    "visit__quality_score",
-    "visit__score_band",
-    "visit__flags",
+    "quality_score",
+    "score_band",
+    "flags",
     "visit__status_group",
-    "visit__urgency",
+    "urgency",
     "datamart_id",
     "partner__partner_type",
 )
-ENTITY_TYPE_LABELS = {"pd": "PD/SSFA", "cp_output": "CP output", "partner": "Partner", "other": "Other"}
 # The type badge of a partner in the entity table, from the start of its eTools partner type ("Civil Society
 # Organization" or "CSO" -> "CSO partner", as FMS writes it)
 PARTNER_TYPES = (
@@ -1622,16 +1944,17 @@ def _year(scope: Scope) -> int:
 
 
 def entity_kinds(scope: Scope, when: str | None = None) -> dict[str, int]:
-    """The monitored entities of the scope (the finding rows; an entity filter keeps the matching rows
-    only) counted by kind: the key figures' own count (:func:`kpis`), so no query of its own."""
-    return kpis(scope, when)["entity_kinds"]
+    """The records of the scope (a record filter keeps the matching records only) counted by the kind of
+    their entity: the key figures' own count (:func:`kpis`), so no query of its own."""
+    return kpis(scope, when)["record_kinds"]
 
 
 def entity_rows(scope: Scope, when: str | None = None, kind: str | None = None) -> dict[str, Any]:
-    """The monitored entities of the scope (the finding rows; an entity filter keeps the matching rows
-    only): their count by kind, and per kind each entity with its visits, average quality, bands, most
-    frequent flag and latest rating; PD rows add the visits planned for the year. With ``kind``, only
-    the entities of that kind are worked out (the table shows one kind at a time)."""
+    """The entities of the scope's records (a record filter keeps the matching records only): the records
+    by kind, and per kind each entity with its records and their visits, its own average quality and
+    bands (each record is scored on its own), its most frequent flag and its latest rating; PD rows add
+    the visits planned for the year. With ``kind``, only the entities of that kind are worked out (the
+    table shows one kind at a time)."""
     from django.db.models import F
 
     from neurodb.datamart.models import PlannedVisits
@@ -1651,15 +1974,15 @@ def entity_rows(scope: Scope, when: str | None = None, kind: str | None = None) 
             if kind in (None, "pd")
             else {}
         )
-        # the rows in the entities' own order (most urgent visit first), sorted here rather than by the
+        # the records in the entities' own order (most urgent first), sorted here rather than by the
         # database, which sorted the whole joined rows (a third of the block at 15,000 rows)
-        found = scope.entities().order_by()
+        found = scope.records().order_by()
         if kind == "other":
             found = found.filter(Q(kind="other") | Q(kind=""))
         elif kind:
             found = found.filter(kind=kind)
         rows = list(found.values_list(*ENTITY_COLUMNS))
-        # most urgent first; a visit without urgency (not scored) after every one that has it
+        # most urgent first; a record without urgency (not scored) after every one that has it
         rows.sort(
             key=lambda r: (
                 -(r[15] if r[15] is not None else -1),
@@ -1694,29 +2017,28 @@ def entity_rows(scope: Scope, when: str | None = None, kind: str | None = None) 
                 g = of_kind[key] = {
                     "name": name,
                     "link": link,
-                    "visits": {},
+                    "tally": Tally(),
+                    "visits": set(),
+                    "flags": Counter(),
+                    "last": None,
                     "planned": planned.get(pd_id),
                     "type": partner_type_label(partner_type)
                     if row_kind == "partner"
                     else ENTITY_TYPE_LABELS.get(row_kind, ENTITY_TYPE_LABELS["other"]),
                 }
-            g["visits"][visit_id] = (
-                visit_date,
-                _quality(quality),
-                band,
-                tuple(flags or ()),
-                status_group,
-                rating,
-            )
+            g["tally"].add(quality, band, counted_rating(rating, status_group))
+            g["visits"].add(visit_id)
+            if flags:
+                g["flags"].update(flags)
+            last = g["last"]
+            if last is None or (visit_date or datetime.date.min) > (last[0] or datetime.date.min):
+                g["last"] = (visit_date, rating, status_group)
         out: dict[str, list[dict[str, Any]]] = {}
         for group_kind, entities in groups.items():
             rows_out = []
             for g in entities.values():
-                tally, flags = Tally(), Counter()
-                for _day, quality, band, visit_flags, group, rating in g["visits"].values():
-                    tally.add(quality, band, counted_rating(rating, group))
-                    flags.update(visit_flags)
-                last = max(g["visits"].values(), key=lambda v: v[0] or datetime.date.min)
+                flags = g["flags"]
+                last = g["last"]
                 top = min(flags.items(), key=lambda kv: (-kv[1], kv[0])) if flags else None
                 rows_out.append(
                     {
@@ -1728,10 +2050,11 @@ def entity_rows(scope: Scope, when: str | None = None, kind: str | None = None) 
                         "top_issue": {"rule": top[0], "n": top[1]} if top else None,
                         "last": {
                             "date": last[0],
-                            "rating": last[5],
-                            "not_rated_yet": _not_rated_yet(last[5], last[4]),
+                            "rating": last[1],
+                            "not_rated_yet": _not_rated_yet(last[1], last[2]),
                         },
-                        **tally.out(),
+                        **g["tally"].out(),
+                        "visits": len(g["visits"]),
                     }
                 )
             rows_out.sort(key=_worst_first)
@@ -1742,37 +2065,8 @@ def entity_rows(scope: Scope, when: str | None = None, kind: str | None = None) 
 
 
 def _worst_first(row: dict[str, Any]) -> tuple:
-    """Worst average quality first, unscored last; then the most visits, then the name."""
-    return (row["avg"] is None, row["avg"] or 0, -row["visits"], row["name"].casefold())
-
-
-def visit_entities(scope: Scope, keys) -> dict[str, str]:
-    """The assessed entity of each visit of ``keys``: its first finding row the scope counts (an entity
-    type or partner filter keeps the matching rows only), in words: the CP output, the partner's full
-    name or the PD number, else the entity as eTools wrote it. A visit with no such row is left out.
-    One query, for the visits a list shows (the drill-down window, the section lines)."""
-    from .models import VisitEntity
-
-    keys = list(keys)
-    if not keys:
-        return {}
-    qs = VisitEntity.objects.filter(visit__key__in=keys)
-    if scope.entity_types:
-        qs = qs.filter(kind__in=scope.entity_types)
-    if scope.partners:
-        qs = qs.filter(partner_id__in=scope.partners)
-    out: dict[str, str] = {}
-    rows = qs.order_by("visit_id", "datamart_id").values_list(
-        "visit__key", "kind", "entity", "cp_output", "pd__number", "partner__name"
-    )
-    for key, kind, entity, cp_output, pd_number, partner_name in rows:
-        if key in out:
-            continue
-        own = {"cp_output": cp_output, "partner": partner_name, "pd": pd_number}.get(kind)
-        text = (own or entity or "").strip()
-        if text:
-            out[key] = text
-    return out
+    """Worst average quality first, unscored last; then the most records, then the name."""
+    return (row["avg"] is None, row["avg"] or 0, -row["records"], row["name"].casefold())
 
 
 def entities_performance(scope: Scope, kind: str = "all", when: str | None = None) -> dict[str, Any]:

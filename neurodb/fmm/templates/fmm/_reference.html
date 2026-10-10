@@ -7,6 +7,11 @@
   {% if reference.pending_version %}· <span class="text-warning-emphasis">{% blocktrans with version=reference.pending_version %}recomputing with rules v{{ version }}{% endblocktrans %}</span>{% endif %}
   · <button type="button" class="btn btn-link btn-sm p-0 align-baseline fmm-how-link" data-bs-toggle="modal" data-bs-target="#fmm-how">{% blocktrans with country=how.country %}What does quality mean for {{ country }}?{% endblocktrans %}</button>
 </p>
+{% if reference.release %}
+<div class="alert alert-info py-2 small fmm-release" role="status">{% blocktrans with version=reference.release.version %}Scores are now per record, as in FMS (rules v{{ version }}).{% endblocktrans %}
+  {% if reference.release.recomputing %}{% trans "They are being recomputed: the figures below are the last ones computed before." %}{% endif %}
+  {% if reference.release.pending %}{% blocktrans count n=reference.release.pending %}AI checks for {{ n }} record are still running.{% plural %}AI checks for {{ n }} records are still running.{% endblocktrans %}{% endif %}</div>
+{% endif %}
 {% if reference.failed %}
 <div class="alert alert-warning py-2 small" role="alert">{% blocktrans with when=reference.failed.started_at|date:"j M Y H:i" %}The last refresh of Monitoring insights failed ({{ when }}). The figures below are those of the refresh before it.{% endblocktrans %}</div>
 {% endif %}
@@ -29,7 +34,8 @@
           <span class="pill pill--warning">{% blocktrans with medium=how.setting.band_medium below=how.setting.band_high|add:"-1" %}Medium {{ medium }}–{{ below }}{% endblocktrans %}</span>
           <span class="pill pill--danger">{% blocktrans with medium=how.setting.band_medium %}Low &lt; {{ medium }}{% endblocktrans %}</span>
         </div>
-        <p>{% blocktrans with statuses=how.scored|join:", " %}Each visit in a scored status ({{ statuses }}) starts at 100; each quality rule that fires takes its deduction off, and each category loses at most its weight. A visit in any other status is "pending", without a score. A visit whose AI checks are not all done yet is provisional: it counts as not scored until they are.{% endblocktrans %}</p>
+        <p>{{ glossary }}</p>
+        <p>{% blocktrans with statuses=how.scored|join:", " %}Each record of a visit in a scored status ({{ statuses }}) starts at 100; each quality rule that fires on it takes its deduction off, and each category loses at most its weight. A record of a visit in any other status is "pending", without a score. A record whose AI checks are not all done yet is provisional: it counts as not scored until they are, and so does its visit.{% endblocktrans %}</p>
         <p>{% trans "Categories:" %} {% for c in how.categories %}<span class="chip">{{ c.label }} {{ c.weight|number }}</span> {% endfor %}</p>
         <h3 class="h6">{% trans "Core rules" %}</h3>
         {% if how.core %}<div class="table-wrap"><table class="table table-sm">
@@ -52,7 +58,7 @@
           </tr>{% endfor %}</tbody>
         </table></div>{% else %}<p class="text-muted">{% trans "No additional rule is switched on." %}</p>{% endif %}
         {% if how.off %}<p class="text-muted">{% blocktrans count n=how.off %}{{ n }} rule is switched off and not listed.{% plural %}{{ n }} rules are switched off and not listed.{% endblocktrans %}</p>{% endif %}
-        <p>{% blocktrans with red=how.setting.urgency_red amber=how.setting.urgency_amber gap=how.weights.quality_gap recency=how.weights.recency flags=how.weights.red_flags days=how.setting.recency_days %}Urgency (0–100) = {{ gap }}% the gap from the maximum score + {{ recency }}% recency (100 on the day the visit ended, 0 after {{ days }} days) + {{ flags }}% red flags (25 per failed rule, at most 100). A visit without a score has no urgency. Red from {{ red }}, amber from {{ amber }}.{% endblocktrans %}</p>
+        <p>{% blocktrans with red=how.setting.urgency_red amber=how.setting.urgency_amber gap=how.weights.quality_gap recency=how.weights.recency flags=how.weights.red_flags days=how.setting.recency_days %}Urgency (0–100), per record = {{ gap }}% the gap from the maximum score + {{ recency }}% recency (100 on the day the visit ended, 0 after {{ days }} days) + {{ flags }}% red flags (25 per failed rule, at most 100). A record without a score has no urgency; a visit's urgency is its most urgent record's. Red from {{ red }}, amber from {{ amber }}.{% endblocktrans %}</p>
         <p class="mb-0">{% trans "Missing follow-up action points and late reports are shown on each visit's page; they are not part of urgency." %}
         {% if user_role == "Administrator" %}<a href="{% url 'admin:fmm_rulesetting_changelist' %}">{% trans "Quality rules" %}</a> · <a href="{% url 'admin:fmm_scoresetting_changelist' %}">{% trans "Score settings" %}</a> · <a href="{% url 'admin:fmm_fieldofficestaff_changelist' %}">{% trans "Field office staff lists" %}</a> · <a href="{% url 'admin:fmm_fieldmapping_changelist' %}">{% trans "Fields found" %}</a>{% endif %}</p>
       </div>

@@ -1,20 +1,32 @@
 {% load i18n ui %}
+{% comment %}The Records tab's list (views._table): one row per record (FMS §8.1 lists records), or, grouped by
+visit (?view=visits), one row per visit with its mean quality, lowest record, records and most urgent record.
+Every sort, page and size link keeps the view.{% endcomment %}
 {% url 'fmm:dashboard' as page_url %}{% url 'fmm:visits' as table_url %}
-<section class="panel p-0" aria-label="{% trans 'Monitoring visits' %}">
-  {% trans "Monitoring visits — detail and flags" as table_title %}
-  {% include "components/table_toolbar.html" with title=table_title count=page_obj.paginator.count table_id="fmm-visits-table" filename="monitoring-visits" downloads=downloads %}
-  {% if visits %}
+<section class="panel p-0" aria-label="{% if view == 'visits' %}{% trans 'Monitoring visits' %}{% else %}{% trans 'Records' %}{% endif %}">
+  {% if view == "visits" %}{% trans "Monitoring visits — grouped by visit" as table_title %}{% else %}{% trans "Records — detail and flags" as table_title %}{% endif %}
+  {% include "components/table_toolbar.html" with title=table_title count=page_obj.paginator.count table_id="fmm-visits-table" filename="monitoring-records" downloads=downloads %}
+  <div class="fmm-view-toggle px-3 pb-2 d-flex flex-wrap gap-2 align-items-center">
+    <nav class="segmented" aria-label="{% trans 'List' %}">
+      {% if view == "visits" %}<a href="{{ page_url }}?{{ view_queries.records }}" hx-get="{{ page_url }}?{{ view_queries.records }}" hx-target="#fmm-results" hx-push-url="true">{% trans "Records" %}</a><a aria-current="page">{% trans "Group by visit" %}</a>
+      {% else %}<a aria-current="page">{% trans "Records" %}</a><a href="{{ page_url }}?{{ view_queries.visits }}" hx-get="{{ page_url }}?{{ view_queries.visits }}" hx-target="#fmm-results" hx-push-url="true">{% trans "Group by visit" %}</a>{% endif %}
+    </nav>
+    <p class="small text-muted mb-0 fmm-glossary">{{ glossary }}</p>
+  </div>
+  {% if view == "visits" and visits or view != "visits" and records %}
   <div class="table-wrap table-wrap--tall"><table class="table table-hover fmm-visits" id="fmm-visits-table">
     <thead><tr>
       {% for key, label in sort_columns %}{% if key %}<th scope="col" {% if sort == key or sort == "-"|add:key %}aria-sort="{% if sort|first == '-' %}descending{% else %}ascending{% endif %}"{% endif %}>
-        {% with next=sort_next|get_item:key %}<a href="{{ page_url }}?{{ scope.query }}&amp;tab=visits&amp;sort={{ next }}{{ size_query }}" hx-get="{{ table_url }}?{{ scope.query }}&amp;sort={{ next }}{{ size_query }}" hx-target="#fmm-visits" hx-push-url="{{ page_url }}?{{ scope.query }}&amp;tab=visits&amp;sort={{ next }}{{ size_query }}">{{ label }}</a>{% endwith %}</th>
-      {% else %}<th scope="col">{{ label }}</th>{% endif %}{% if forloop.counter == 5 %}
+        {% with next=sort_next|get_item:key %}<a href="{{ page_url }}?{{ scope.query }}&amp;tab=visits&amp;sort={{ next }}{{ size_query }}" hx-get="{{ table_url }}?{{ scope.query }}&amp;sort={{ next }}{{ size_query }}" hx-target="#fmm-visits" hx-push-url="{{ page_url }}?{{ scope.query }}&amp;tab=visits&amp;sort={{ next }}{{ size_query }}">{% if key == "quality" and view == "visits" %}{% trans "Quality (mean)" %}{% elif key == "urgency" and view == "visits" %}{% trans "Most urgent" %}{% else %}{{ label }}{% endif %}</a>{% endwith %}</th>
+      {% else %}<th scope="col">{{ label }}</th>{% endif %}{% if forloop.last and view == "visits" %}
+      <th scope="col">{% trans "Lowest" %}</th><th scope="col">{% trans "Records" %}</th>{% endif %}{% if forloop.counter == team_after %}
       <th scope="col" class="d-none d-md-table-cell" data-export="no">{% trans "Team" %}</th>{% endif %}{% endfor %}
       <th scope="col">{% trans "Rating" %}</th>
       <th scope="col">{% trans "Flags" %}</th>
       <th scope="col" class="d-none d-md-table-cell" title="{% trans 'Cited in the AI brief of this filter' %}">{% trans "AI" %}</th>
       <th scope="col" class="d-none d-md-table-cell">{% trans "Review" %}</th>
     </tr></thead>
+    {% if view == "visits" %}
     <tbody>{% for v in visits %}{% url 'fmm:visit' v.key as visit_url %}
     <tr data-href="{{ visit_url }}"{% if v.row_band %} class="row--{{ v.row_band }}"{% endif %}>
       <td class="text-nowrap"><a href="{{ visit_url }}" hx-get="{{ visit_url }}" hx-target="#modal-content" hx-push-url="false">{{ v.label }}</a>{% if v.reference and v.reference != v.label %}<span class="cell-sub mono" data-synced>{{ v.reference }}</span>{% endif %}</td>
@@ -25,18 +37,39 @@
       <td><span data-synced>{{ v.place_name|default:"—" }}</span>{% if v.governorate_name %}<span class="cell-sub" data-synced>{{ v.governorate_name }}</span>{% endif %}</td>
       <td class="small"><span data-synced>{{ v.section_names|join:", "|default:"—" }}</span>{% if v.sections_from == "partner" %} <span class="chip" title="{% trans 'inferred from the partner' %}">{% trans "inferred" %}</span>{% endif %}</td>
       <td class="small d-none d-md-table-cell" data-export="no">{% if v.team_shown %}<span data-synced>{{ v.team_shown|join:", " }}</span>{% if v.team_more %} +{{ v.team_more }}{% endif %}{% elif v.team_unnamed %}{% blocktrans count n=v.team_unnamed %}{{ n }} member (no names in eTools){% plural %}{{ n }} members (no names in eTools){% endblocktrans %}{% else %}—{% endif %}</td>
-      <td class="text-nowrap" data-value="{{ v.quality_score|default_if_none:'' }}">{% if v.quality_score is not None %}<span class="fmm-score fmm-score--{{ v.score_band|default:'none' }}">{{ v.quality_score|percent }}</span>{% elif v.score_band == "pending" %}<span class="pill pill--sm pill--neutral" title="{{ v.not_scored_reason }}">{% trans "Pending" %}</span>{% else %}<span class="text-muted" title="{{ v.not_scored_reason }}">—</span>{% endif %}</td>
+      <td class="text-nowrap" data-value="{{ v.quality_score|default_if_none:'' }}">{% if v.quality_score is not None %}<span class="fmm-score fmm-score--{{ v.score_band|default:'none' }}" title="{% blocktrans count n=v.records_scored %}mean of {{ n }} record{% plural %}mean of {{ n }} records{% endblocktrans %}">{{ v.quality_score|percent }}</span>{% elif v.score_band == "pending" %}<span class="pill pill--sm pill--neutral" title="{{ v.not_scored_reason }}">{% trans "Pending" %}</span>{% else %}<span class="text-muted" title="{{ v.not_scored_reason }}">—</span>{% endif %}</td>
       <td data-value="{{ v.urgency|default_if_none:'-1' }}"><span class="pill pill--sm pill--{% if v.row_band == 'red' %}danger{% elif v.row_band == 'amber' %}warning{% else %}neutral{% endif %}" title="{% if v.urgency is None %}{% trans 'No urgency: the visit has no score' %}{% else %}{{ v.urgency_title }}{% endif %}">{{ v.urgency|default_if_none:"—" }}</span></td>
+      <td class="text-nowrap" data-value="{{ v.lowest_score|default_if_none:'' }}">{% if v.lowest_score is not None %}{{ v.lowest_score|percent }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+      <td class="num">{{ v.entities }}</td>
       <td class="text-nowrap">{% status_pill v.rating v.rating_label "sm" %}<span class="cell-sub">{% if v.not_rated_yet %}{% blocktrans with day=v.end_date|date:"j M Y"|default:"—" %}ends {{ day }}{% endblocktrans %}{% else %}{% blocktrans with day=v.end_date|date:"j M Y"|default:"—" %}rated {{ day }}{% endblocktrans %}{% endif %}</span></td>
       <td>{% if v.flags %}<span class="d-inline-flex flex-wrap gap-1">{% for f in v.flags %}<span class="pill pill--sm pill--danger">{{ f }}</span>{% endfor %}</span>{% elif v.evaluated_rules %}<span class="text-success small">✓ {% trans "No flags" %}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
       <td class="d-none d-md-table-cell">{% if v.ai_cited %}<span class="text-success" title="{% trans 'Cited in the AI brief of this filter' %}">✓<span class="visually-hidden"> {% trans "cited in the AI brief" %}</span></span>{% endif %}</td>
       <td class="small text-nowrap d-none d-md-table-cell">{% if v.review %}{% status_pill v.review.status v.review.get_status_display "sm" %}<span class="cell-sub">{{ v.review.created_at|date:"j M Y" }}</span>{% else %}—{% endif %}</td>
     </tr>{% endfor %}</tbody>
+    {% else %}
+    <tbody>{% for r in records %}{% with v=r.visit %}{% url 'fmm:visit' v.key as visit_url %}
+    <tr data-href="{{ visit_url }}#record-{{ r.datamart_id }}" data-record="{{ r.datamart_id }}"{% if r.row_band %} class="row--{{ r.row_band }}"{% endif %}>
+      <td class="text-nowrap"><a href="{{ visit_url }}#record-{{ r.datamart_id }}" hx-get="{{ visit_url }}" hx-target="#modal-content" hx-push-url="false">{{ v.label }}</a>{% if v.reference and v.reference != v.label %}<span class="cell-sub mono" data-synced>{{ v.reference }}</span>{% endif %}</td>
+      <td class="small">{% if r.name %}<span data-synced title="{{ r.name }}">{{ r.name|truncatechars:60 }}</span>{% else %}—{% endif %}<span class="cell-sub"><span class="fmm-type fmm-type--{{ r.kind|default:'other' }}">{{ r.kind_label }}</span></span></td>
+      <td class="small text-nowrap" data-value="{{ v.visit_date|date:'Y-m-d' }}"{% if v.end_date and v.end_date != v.visit_date %} title="{% blocktrans with day=v.end_date|date:'j M Y' %}Ends {{ day }}{% endblocktrans %}"{% endif %}>{{ v.visit_date|date:"j M Y"|default:"—" }}</td>
+      <td>{% if r.partner %}<a href="{% url 'reports:partner_profile' r.partner.id %}" data-synced>{{ r.partner.short_name|default:r.partner.name }}</a>{% else %}—{% endif %}
+        {% if r.pd %}<span class="cell-sub mono"><a href="{% url 'reports:programme_detail' r.pd_id %}" data-synced>{{ r.pd.number }}</a></span>{% endif %}</td>
+      <td><span data-synced>{{ v.place_name|default:"—" }}</span>{% if v.governorate_name %}<span class="cell-sub" data-synced>{{ v.governorate_name }}</span>{% endif %}</td>
+      <td class="small"><span data-synced>{{ v.section_names|join:", "|default:"—" }}</span>{% if v.sections_from == "partner" %} <span class="chip" title="{% trans 'inferred from the partner' %}">{% trans "inferred" %}</span>{% endif %}</td>
+      <td class="small d-none d-md-table-cell" data-export="no">{% if v.team_shown %}<span data-synced>{{ v.team_shown|join:", " }}</span>{% if v.team_more %} +{{ v.team_more }}{% endif %}{% elif v.team_unnamed %}{% blocktrans count n=v.team_unnamed %}{{ n }} member (no names in eTools){% plural %}{{ n }} members (no names in eTools){% endblocktrans %}{% else %}—{% endif %}</td>
+      <td class="text-nowrap" data-value="{{ r.quality_score|default_if_none:'' }}">{% if r.quality_score is not None %}<span class="fmm-score fmm-score--{{ r.score_band|default:'none' }}">{{ r.quality_score|percent }}</span>{% elif r.score_band == "pending" %}<span class="pill pill--sm pill--neutral" title="{{ r.not_scored_reason }}">{% trans "Pending" %}</span>{% else %}<span class="text-muted" title="{{ r.not_scored_reason }}">—</span>{% endif %}</td>
+      <td data-value="{{ r.urgency|default_if_none:'-1' }}"><span class="pill pill--sm pill--{% if r.row_band == 'red' %}danger{% elif r.row_band == 'amber' %}warning{% else %}neutral{% endif %}" title="{% if r.urgency is None %}{% trans 'No urgency: the record has no score' %}{% else %}{{ r.urgency_title }}{% endif %}">{{ r.urgency|default_if_none:"—" }}</span></td>
+      <td class="text-nowrap">{% status_pill r.rating r.rating_label "sm" %}<span class="cell-sub">{% if r.not_rated_yet %}{% blocktrans with day=v.end_date|date:"j M Y"|default:"—" %}ends {{ day }}{% endblocktrans %}{% else %}{% blocktrans with day=v.end_date|date:"j M Y"|default:"—" %}rated {{ day }}{% endblocktrans %}{% endif %}</span></td>
+      <td>{% if r.flags %}<span class="d-inline-flex flex-wrap gap-1">{% for f in r.flags %}<span class="pill pill--sm pill--danger">{{ f }}</span>{% endfor %}</span>{% elif r.evaluated_rules %}<span class="text-success small">✓ {% trans "No flags" %}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+      <td class="d-none d-md-table-cell">{% if r.ai_cited %}<span class="text-success" title="{% trans 'Its visit is cited in the AI brief of this filter' %}">✓<span class="visually-hidden"> {% trans "cited in the AI brief" %}</span></span>{% endif %}</td>
+      <td class="small text-nowrap d-none d-md-table-cell">{% if r.review %}{% status_pill r.review.status r.review.get_status_display "sm" %}<span class="cell-sub">{{ r.review.created_at|date:"j M Y" }}</span>{% else %}—{% endif %}</td>
+    </tr>{% endwith %}{% endfor %}</tbody>
+    {% endif %}
   </table></div>
-  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans with red=limits.red amber=limits.amber below=limits.red|add:"-1" count n=page_obj.paginator.count %}Showing {{ n }} visit · Red rows = high urgency (≥ {{ red }}) · Amber rows = medium ({{ amber }}–{{ below }}){% plural %}Showing {{ n }} visits · Red rows = high urgency (≥ {{ red }}) · Amber rows = medium ({{ amber }}–{{ below }}){% endblocktrans %}</p>
+  <p class="small text-muted px-3 py-2 mb-0">{% if view == "visits" %}{% blocktrans with red=limits.red amber=limits.amber below=limits.red|add:"-1" count n=page_obj.paginator.count %}Showing {{ n }} visit · Red rows = high urgency (≥ {{ red }}) · Amber rows = medium ({{ amber }}–{{ below }}){% plural %}Showing {{ n }} visits · Red rows = high urgency (≥ {{ red }}) · Amber rows = medium ({{ amber }}–{{ below }}){% endblocktrans %}{% else %}{% blocktrans with red=limits.red amber=limits.amber below=limits.red|add:"-1" count n=page_obj.paginator.count %}Showing {{ n }} record · Red rows = high urgency (≥ {{ red }}) · Amber rows = medium ({{ amber }}–{{ below }}){% plural %}Showing {{ n }} records · Red rows = high urgency (≥ {{ red }}) · Amber rows = medium ({{ amber }}–{{ below }}){% endblocktrans %}{% endif %}</p>
   <nav class="pagination-bar" aria-label="{% trans 'Pagination' %}">
     <span class="text-muted small">{% if page_obj.paginator.num_pages > 1 %}{% blocktrans with start=page_obj.start_index end=page_obj.end_index total=page_obj.paginator.count %}Showing {{ start }}–{{ end }} of {{ total }}{% endblocktrans %}{% endif %}</span>
-    <span class="fmm-page-size small" role="group" aria-label="{% trans 'Visits per page' %}"><span class="text-muted">{% trans "Per page:" %}</span>{% for n in page_sizes %}{% if n == page_size %}<a class="fmm-page-size__opt" aria-current="true">{{ n }}</a>{% else %}<a class="fmm-page-size__opt" href="{{ page_url }}?{{ scope.query }}&amp;tab=visits&amp;sort={{ sort }}&amp;page_size={{ n }}" hx-get="{{ table_url }}?{{ scope.query }}&amp;sort={{ sort }}&amp;page_size={{ n }}" hx-target="#fmm-visits" hx-push-url="{{ page_url }}?{{ scope.query }}&amp;tab=visits&amp;sort={{ sort }}&amp;page_size={{ n }}">{{ n }}</a>{% endif %}{% endfor %}</span>
+    <span class="fmm-page-size small" role="group" aria-label="{% trans 'Rows per page' %}"><span class="text-muted">{% trans "Per page:" %}</span>{% for n in page_sizes %}{% if n == page_size %}<a class="fmm-page-size__opt" aria-current="true">{{ n }}</a>{% else %}<a class="fmm-page-size__opt" href="{{ page_url }}?{{ scope.query }}&amp;tab=visits&amp;sort={{ sort }}&amp;page_size={{ n }}{% if view == 'visits' %}&amp;view=visits{% endif %}" hx-get="{{ table_url }}?{{ scope.query }}&amp;sort={{ sort }}&amp;page_size={{ n }}{% if view == 'visits' %}&amp;view=visits{% endif %}" hx-target="#fmm-visits" hx-push-url="{{ page_url }}?{{ scope.query }}&amp;tab=visits&amp;sort={{ sort }}&amp;page_size={{ n }}{% if view == 'visits' %}&amp;view=visits{% endif %}">{{ n }}</a>{% endif %}{% endfor %}</span>
     {% if page_obj.paginator.num_pages > 1 %}
     <ul class="pagination pagination-sm mb-0">
       {% for n in page_obj.paginator.get_elided_page_range %}
@@ -49,7 +82,7 @@
   {% else %}
   <div class="state state--empty" role="status">
     {% include "components/icon.html" with name="inbox" class="state__icon" %}
-    <p class="state__title">{% trans "No visits in this filter — widen the period" %}</p>
+    <p class="state__title">{% if view == "visits" %}{% trans "No visits in this filter — widen the period" %}{% else %}{% trans "No records in this filter — widen the period" %}{% endif %}</p>
     <div class="d-flex gap-2 flex-wrap justify-content-center">
       <a class="btn btn-outline-primary btn-sm" href="{{ page_url }}?section=&amp;tab=visits">{% trans "Clear filters" %}</a>
       <a class="btn btn-outline-secondary btn-sm" href="{{ page_url }}?{{ this_year_query }}&amp;tab=visits">{% trans "Try this year" %}</a>

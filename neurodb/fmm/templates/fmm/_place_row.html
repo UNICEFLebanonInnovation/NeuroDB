@@ -1,6 +1,7 @@
 {% load i18n %}{% for p in rows %}<tr>
   <td><span data-synced>{{ p.name }}</span></td>
   <td class="small"><span data-synced>{{ p.governorate|default:"—" }}</span></td>
-  <td>{% if p.url %}<a href="{{ p.url }}" hx-get="{{ p.url }}" hx-target="#modal-content">{{ p.visits }}</a>{% else %}{{ p.visits }}{% endif %}</td>
+  <td>{% if p.url %}<a href="{{ p.url }}" hx-get="{{ p.url }}" hx-target="#modal-content">{{ p.records }}</a>{% else %}{{ p.records }}{% endif %}</td>
+  <td>{{ p.visits }}</td>
   <td class="small text-nowrap" data-value="{{ p.last_iso }}">{{ p.last_text }}</td>
 </tr>{% endfor %}

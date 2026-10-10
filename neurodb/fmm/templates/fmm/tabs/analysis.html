@@ -10,23 +10,23 @@ rows on a canvas (charts.js, data-rows-png).{% endcomment %}
 <section class="panel" aria-labelledby="fmm-dist-title">
   <div class="panel__header">
     <h2 class="panel__title" id="fmm-dist-title">{% trans "Quality score distribution" %}</h2>
-    <span class="panel__hint">{% trans "Scored visits by score; a bar opens its visits" %}</span>
+    <span class="panel__hint">{% trans "Scored records by score; a bar opens its records" %}</span>
   </div>
-  <div id="fmm-chart-buckets" class="chart chart--sm" data-module="charts" data-chart="dist" data-orientation="h" data-show="value" data-value-title="{% trans 'Visit count' %}" data-source="fmm-chart-data" data-key="buckets" data-href-template="{{ bucket_template }}" data-empty-title="{% trans 'No visit in this filter is scored' %}" aria-label="{% trans 'Quality score distribution' %}"></div>
-  <p class="small text-muted mb-0">{% if not_scored_url %}<a href="{{ not_scored_url }}" hx-get="{{ not_scored_url }}" hx-target="#modal-content">{% blocktrans count n=not_scored %}Not scored: {{ n }} visit{% plural %}Not scored: {{ n }} visits{% endblocktrans %}</a>{% else %}{% trans "Every visit in this filter is scored." %}{% endif %}</p>
+  <div id="fmm-chart-buckets" class="chart chart--sm" data-module="charts" data-chart="dist" data-orientation="h" data-show="value" data-value-title="{% trans 'Record count' %}" data-source="fmm-chart-data" data-key="buckets" data-href-template="{{ bucket_template }}" data-href-hint="{% trans 'Click a bar to list its records' %}" data-empty-title="{% trans 'No record in this filter is scored' %}" aria-label="{% trans 'Quality score distribution' %}"></div>
+  <p class="small text-muted mb-0">{% if not_scored_url %}<a href="{{ not_scored_url }}" hx-get="{{ not_scored_url }}" hx-target="#modal-content">{% blocktrans count n=not_scored %}Not scored: {{ n }} record{% plural %}Not scored: {{ n }} records{% endblocktrans %}</a>{% else %}{% trans "Every record in this filter is scored." %}{% endif %}</p>
   {% include "fmm/_card_tools.html" with chart="fmm-chart-buckets" filename="monitoring-score-distribution" %}
 </section>
 
 <section class="panel" id="fmm-rule-trends-panel" aria-labelledby="fmm-rule-trends-title">
   <div class="panel__header">
     <h2 class="panel__title" id="fmm-rule-trends-title">{% trans "Rule score trends over time" %}</h2>
-    <span class="panel__hint">{% trans "Per rule, the share of its maximum points the visits that started each month earned; a point opens the visits it flagged that month" %}</span>
+    <span class="panel__hint">{% trans "Per rule, the share of its maximum points the records of the visits that started each month earned; a point opens the records it flagged that month" %}</span>
   </div>
   {% comment %}Worked out when the panel scrolls into view: the tab itself, with rule_trends=1, gives
   this panel with its own chart data (the other blocks are kept from the first view).{% endcomment %}
   {% if rule_trends is not None %}
   {{ rule_trends|json_script:"fmm-rule-trend-data" }}
-  <div id="fmm-chart-rule-trends" class="chart chart--lg" data-module="charts" data-chart="share-lines" data-y-title="{% trans '% of max score' %}" data-source="fmm-rule-trend-data" data-key="rule_trends" data-href-template="{{ rule_trend_template }}" data-empty-title="{% trans 'No rule checked a visit in this filter' %}" aria-label="{% trans 'Rule score trends over time' %}"></div>
+  <div id="fmm-chart-rule-trends" class="chart chart--lg" data-module="charts" data-chart="share-lines" data-y-title="{% trans '% of max score' %}" data-source="fmm-rule-trend-data" data-key="rule_trends" data-href-template="{{ rule_trend_template }}" data-href-hint="{% trans 'Click a point to list its records' %}" data-empty-title="{% trans 'No rule checked a record in this filter' %}" aria-label="{% trans 'Rule score trends over time' %}"></div>
   {% include "fmm/_card_tools.html" with chart="fmm-chart-rule-trends" filename="monitoring-rule-trends" %}
   {% else %}
   <p class="px-3 pb-3 mb-0 small" hx-get="{% url 'fmm:dashboard' %}?{{ rule_trends_query }}" hx-trigger="revealed" hx-target="#fmm-rule-trends-panel" hx-select="#fmm-rule-trends-panel" hx-swap="outerHTML"><a href="{% url 'fmm:dashboard' %}?{{ rule_trends_query }}">{% trans "Loading the rule trends…" %}</a></p>
@@ -34,21 +34,21 @@ rows on a canvas (charts.js, data-rows-png).{% endcomment %}
 </section>
 
 <section class="panel" aria-labelledby="fmm-rules-title">
-  <div class="panel__header"><h2 class="panel__title" id="fmm-rules-title">{% trans "Quality rule analysis" %}</h2><span class="panel__hint">{% trans "Visits flagged out of the visits each rule checked; the bar is the share not flagged" %}</span></div>
+  <div class="panel__header"><h2 class="panel__title" id="fmm-rules-title">{% trans "Quality rule analysis" %}</h2><span class="panel__hint">{% trans "Records flagged out of the records each rule checked; the bar is the share not flagged" %}</span></div>
   {% if rule_checked %}
   <div class="fmm-bars" id="fmm-rule-analysis" data-png-title="{% trans 'Quality rule analysis' %}">
     {% for r in rule_checked %}
     <div class="fmm-bar" data-png-row>
       <div class="fmm-bar__head">
         <span class="fmm-bar__label">{% if r.url %}<a href="{{ r.url }}" hx-get="{{ r.url }}" hx-target="#modal-content">{{ r.code }} {{ r.label }}</a>{% else %}{{ r.code }} {{ r.label }}{% endif %}{% if r.flag_only %} <span class="pill pill--sm pill--neutral">{% trans "flag only" %}</span>{% endif %}</span>
-        <span class="fmm-bar__value fmm-tone--{{ r.tone }}">{% blocktrans with flagged=r.flagged evaluated=r.evaluated %}{{ flagged }} / {{ evaluated }} visits flagged{% endblocktrans %}</span>
+        <span class="fmm-bar__value fmm-tone--{{ r.tone }}">{% blocktrans with flagged=r.flagged evaluated=r.evaluated %}{{ flagged }} / {{ evaluated }} records flagged{% endblocktrans %}</span>
       </div>
       <div class="fmm-bar__track" role="img" aria-label="{% blocktrans with pct=r.clean_fill|floatformat:1 %}{{ pct }}% not flagged{% endblocktrans %}"><span class="fmm-bar__fill fmm-bar__fill--{{ r.tone }}" style="width: {{ r.clean_fill|floatformat:0 }}%"></span></div>
     </div>
     {% endfor %}
   </div>
-  <p class="legend mt-2 mb-0">{% trans "Green = under 25% of the checked visits flagged · Amber = 25–50% · Red = over 50%" %}</p>
-  {% else %}<p class="small text-muted mb-0">{% trans "No rule checked a visit in this filter." %}</p>{% endif %}
+  <p class="legend mt-2 mb-0">{% trans "Green = under 25% of the checked records flagged · Amber = 25–50% · Red = over 50%" %}</p>
+  {% else %}<p class="small text-muted mb-0">{% trans "No rule checked a record in this filter." %}</p>{% endif %}
   {% comment %}Every rule, with what it checks: written out when the list is opened (``?rules=all``), as
   the places tables do.{% endcomment %}
   <details class="fmm-rules-all mt-2"{% if rules_all %} open{% else %} hx-get="{% url 'fmm:dashboard' %}?{{ rules_all_query }}" hx-trigger="toggle once" hx-select="#fmm-rules-all" hx-target="find #fmm-rules-all" hx-swap="outerHTML"{% endif %}>
@@ -60,11 +60,11 @@ rows on a canvas (charts.js, data-rows-png).{% endcomment %}
       <span>{% if r.url %}<a href="{{ r.url }}" hx-get="{{ r.url }}" hx-target="#modal-content">{{ r.code }} {{ r.label }}</a>{% else %}{{ r.code }} {{ r.label }}{% endif %}{% if r.flag_only %} <span class="pill pill--sm pill--neutral">{% trans "flag only" %}</span>{% endif %}</span>
       <span class="small {% if r.state == 'ok' %}text-{{ r.level }}{% else %}text-muted{% endif %}">
         {% if r.state == "off" %}{% trans "off" %}
-        {% elif r.state == "na" %}{% if r.needs_answers %}{% trans "Not available — needs question answers (fm_questions); see Fields found" %}{% else %}{% blocktrans count n=r.na %}Not available on {{ n }} visit{% plural %}Not available on {{ n }} visits{% endblocktrans %}{% endif %}
+        {% elif r.state == "na" %}{% if r.needs_answers %}{% trans "Not available — needs question answers (fm_questions); see Fields found" %}{% else %}{% blocktrans count n=r.na %}Not available on {{ n }} record{% plural %}Not available on {{ n }} records{% endblocktrans %}{% endif %}
         {% elif r.state == "ai_off" %}{% trans "AI check switched off" %}
-        {% elif r.state == "none" %}{% trans "does not apply to these visits" %}
-        {% elif r.state == "pending" %}{% blocktrans count n=r.pending %}AI check pending on {{ n }} visit{% plural %}AI check pending on {{ n }} visits{% endblocktrans %}
-        {% else %}{% blocktrans with flagged=r.flagged evaluated=r.evaluated %}{{ flagged }} / {{ evaluated }} visits flagged{% endblocktrans %}{% if r.na %} · {% blocktrans with n=r.na %}not available on {{ n }}{% endblocktrans %}{% endif %}{% if r.pending %} · {% blocktrans with n=r.pending %}pending on {{ n }}{% endblocktrans %}{% endif %}{% endif %}
+        {% elif r.state == "none" %}{% trans "does not apply to these records" %}
+        {% elif r.state == "pending" %}{% blocktrans count n=r.pending %}AI check pending on {{ n }} record{% plural %}AI check pending on {{ n }} records{% endblocktrans %}
+        {% else %}{% blocktrans with flagged=r.flagged evaluated=r.evaluated %}{{ flagged }} / {{ evaluated }} records flagged{% endblocktrans %}{% if r.na %} · {% blocktrans with n=r.na %}not available on {{ n }}{% endblocktrans %}{% endif %}{% if r.pending %} · {% blocktrans with n=r.pending %}pending on {{ n }}{% endblocktrans %}{% endif %}{% endif %}
       </span>
     </div>
     {% if r.state == "ok" %}<div class="meter"><div class="meter__track"><span class="meter__fill meter__fill--{{ r.level }}" style="width: {{ r.fill|floatformat:0 }}%"></span></div></div>{% endif %}
@@ -78,7 +78,7 @@ rows on a canvas (charts.js, data-rows-png).{% endcomment %}
 </section>
 
 <section class="panel" aria-labelledby="fmm-flag-rule-title">
-  <div class="panel__header"><h2 class="panel__title" id="fmm-flag-rule-title">{% trans "Quality flag frequency" %}</h2><span class="panel__hint">{% trans "Visits each rule flagged, most first, and their share of the visits it checked; a row opens its visits" %}</span></div>
+  <div class="panel__header"><h2 class="panel__title" id="fmm-flag-rule-title">{% trans "Quality flag frequency" %}</h2><span class="panel__hint">{% trans "Records each rule flagged, most first, and their share of the records it checked; a row opens its records" %}</span></div>
   {% if flag_frequency_rows %}
   <div class="fmm-bars fmm-bars--inline" id="fmm-flag-frequency" data-png-title="{% trans 'Quality flag frequency' %}">
     {% for r in flag_frequency_rows %}
@@ -96,24 +96,24 @@ rows on a canvas (charts.js, data-rows-png).{% endcomment %}
 </section>
 
 <section class="panel" aria-labelledby="fmm-flags-title">
-  <div class="panel__header"><h2 class="panel__title" id="fmm-flags-title">{% trans "Flag count distribution" %}</h2><span class="panel__hint">{% trans "Scored visits by their number of quality flags; a row opens its visits" %}</span></div>
+  <div class="panel__header"><h2 class="panel__title" id="fmm-flags-title">{% trans "Flag count distribution" %}</h2><span class="panel__hint">{% trans "Scored records by their number of quality flags; a row opens its records" %}</span></div>
   {% if flags_scored %}
   <div class="fmm-bars" id="fmm-flag-counts" data-png-title="{% trans 'Flag count distribution' %}">
     {% for r in flag_count_rows %}
     <div class="fmm-bar" data-png-row>
-      <div class="fmm-bar__head"><span class="fmm-bar__label">{% if r.url %}<a href="{{ r.url }}" hx-get="{{ r.url }}" hx-target="#modal-content">{{ r.label }}</a>{% else %}{{ r.label }}{% endif %}</span><span class="fmm-bar__value fmm-tone--{{ r.color }}">{% blocktrans count n=r.n %}{{ n }} visit{% plural %}{{ n }} visits{% endblocktrans %}</span></div>
+      <div class="fmm-bar__head"><span class="fmm-bar__label">{% if r.url %}<a href="{{ r.url }}" hx-get="{{ r.url }}" hx-target="#modal-content">{{ r.label }}</a>{% else %}{{ r.label }}{% endif %}</span><span class="fmm-bar__value fmm-tone--{{ r.color }}">{% blocktrans count n=r.n %}{{ n }} record{% plural %}{{ n }} records{% endblocktrans %}</span></div>
       <div class="fmm-bar__track fmm-bar__track--thick">{% if r.n %}<span class="fmm-bar__fill fmm-bar__fill--{{ r.color }}" style="width: {{ r.fill|floatformat:0 }}%"><span class="fmm-bar__pct">{{ r.pct|floatformat:0 }}%</span></span>{% endif %}</div>
     </div>
     {% endfor %}
   </div>
   <p class="legend mt-2 mb-0">{% trans "Green = no issues · Blue = minor · Amber = moderate · Red = critical attention needed" %}</p>
   {% include "fmm/_card_tools.html" with rows="fmm-flag-counts" filename="monitoring-flag-count-distribution" %}
-  {% else %}<p class="small text-muted mb-0">{% trans "No visit in this filter is scored." %}</p>{% endif %}
+  {% else %}<p class="small text-muted mb-0">{% trans "No record in this filter is scored." %}</p>{% endif %}
 </section>
 
 <section class="panel" id="fmm-entities" aria-labelledby="fmm-entities-title">
   <div class="panel__header"><h2 class="panel__title" id="fmm-entities-title">{% trans "Entity performance" %}</h2></div>
-  <p class="small text-muted mb-2">{% trans "Ranks the monitored entities (partners, CP outputs and PD/SSFAs) worst average quality first, so the ones that need closer monitoring follow-up come first; unscored entities come last. Use the chips to focus on one entity type." %}</p>
+  <p class="small text-muted mb-2">{% trans "Ranks the entities assessed (partners, CP outputs and PD/SSFAs) by the average quality of their own records, worst first, so the ones that need closer monitoring follow-up come first; unscored entities come last. Use the chips to focus on one entity type." %}</p>
   <nav class="fmm-chip-row mb-2" aria-label="{% trans 'Entity type' %}">
     {% for k in entity_kinds %}<a class="fmm-chip fmm-chip--choice" href="{{ page_url }}?{{ k.query }}" hx-get="{{ page_url }}?{{ k.query }}" hx-target="#fmm-entities" hx-select="#fmm-entities" hx-swap="outerHTML" hx-push-url="true" {% if k.key == entity_kind %}aria-current="page"{% endif %}>{{ k.label }} <span class="fmm-chip__count">{{ k.n }}</span></a>{% endfor %}
   </nav>
@@ -121,14 +121,14 @@ rows on a canvas (charts.js, data-rows-png).{% endcomment %}
   <p class="pb-1 mb-0 small" hx-get="{{ page_url }}?{{ entity_lazy_query }}" hx-trigger="revealed" hx-target="#fmm-entities" hx-select="#fmm-entities" hx-swap="outerHTML"><a href="{{ page_url }}?{{ entity_lazy_query }}">{% trans "Loading the entities…" %}</a></p>
   {% elif entity_rows %}
   <div class="table-wrap"><table class="table table-sm fmm-entity-table">
-    <thead><tr><th scope="col">{% trans "Entity" %}</th><th scope="col">{% trans "Type" %}</th><th scope="col" class="num">{% trans "Visits" %}</th><th scope="col" class="num">{% trans "Avg quality" %}</th><th scope="col" class="num">{% trans "High / Med / Low" %}</th><th scope="col">{% trans "Top issue" %}</th><th scope="col">{% trans "Last rating" %}</th>{% if entity_kind == "pd" %}<th scope="col">{% blocktrans with year=entity_year %}Planned visits {{ year }}{% endblocktrans %}</th>{% endif %}</tr></thead>
+    <thead><tr><th scope="col">{% trans "Entity" %}</th><th scope="col">{% trans "Type" %}</th><th scope="col" class="num">{% trans "Records" %}</th><th scope="col" class="num">{% trans "Avg quality" %}</th><th scope="col" class="num">{% trans "High / Med / Low" %}</th><th scope="col">{% trans "Top issue" %}</th><th scope="col">{% trans "Last rating" %}</th>{% if entity_kind == "pd" %}<th scope="col">{% blocktrans with year=entity_year %}Planned visits {{ year }}{% endblocktrans %}</th>{% endif %}</tr></thead>
     <tbody>{% for e in entity_rows %}<tr>
       <td>{% if e.url %}<a href="{{ e.url }}" data-synced title="{{ e.name }}">{{ e.name|truncatechars:70 }}</a>{% else %}<span data-synced title="{{ e.name }}">{{ e.name|truncatechars:70 }}</span>{% endif %}</td>
       <td><span class="fmm-type fmm-type--{{ e.kind }}">{{ e.type }}</span></td>
-      <td class="num">{{ e.visits }}</td>
+      <td class="num">{{ e.records }}{% if e.visits != e.records %}<span class="cell-sub">{% blocktrans count n=e.visits %}{{ n }} visit{% plural %}{{ n }} visits{% endblocktrans %}</span>{% endif %}</td>
       <td class="num">{% if e.avg is not None %}<span class="fmm-avg fmm-avg--{{ e.band }}">{{ e.avg|percent }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
       <td class="num text-nowrap"><span class="fmm-tone--success">{{ e.bands.high }}</span> / <span class="fmm-tone--warning">{{ e.bands.medium }}</span> / <span class="fmm-tone--danger">{{ e.bands.low }}</span></td>
-      <td>{% if e.top_issue %}<span class="fmm-rule-badge" title="{% blocktrans count n=e.top_issue.n %}{{ n }} visit{% plural %}{{ n }} visits{% endblocktrans %}">{{ e.top_issue.rule }}</span>{% else %}—{% endif %}</td>
+      <td>{% if e.top_issue %}<span class="fmm-rule-badge" title="{% blocktrans count n=e.top_issue.n %}{{ n }} record{% plural %}{{ n }} records{% endblocktrans %}">{{ e.top_issue.rule }}</span>{% else %}—{% endif %}</td>
       <td class="text-nowrap">{% status_pill e.last.rating e.last_label "sm" %}<span class="cell-sub">{% if e.last.not_rated_yet %}{% blocktrans with day=e.last.date|date:"j M Y"|default:"—" %}ends {{ day }}{% endblocktrans %}{% else %}{% blocktrans with day=e.last.date|date:"j M Y"|default:"—" %}rated {{ day }}{% endblocktrans %}{% endif %}</span></td>
       {% if entity_kind == "pd" %}<td class="small">{% if e.planned is not None %}{% blocktrans with planned=e.planned visits=e.visits %}{{ planned }} planned · {{ visits }} FM visits{% endblocktrans %}{% else %}—{% endif %}</td>{% endif %}
     </tr>{% endfor %}</tbody>
@@ -141,13 +141,13 @@ rows on a canvas (charts.js, data-rows-png).{% endcomment %}
 </section>
 
 <section class="panel" aria-labelledby="fmm-office-rules-title">
-  <div class="panel__header"><h2 class="panel__title" id="fmm-office-rules-title">{% trans "Quality by field office" %}</h2><span class="panel__hint">{% trans "Scored visits each rule flagged, out of the office's scored visits; amber under half, red from half" %}</span></div>
+  <div class="panel__header"><h2 class="panel__title" id="fmm-office-rules-title">{% trans "Quality by field office" %}</h2><span class="panel__hint">{% trans "Scored records each rule flagged, out of the office's scored records; amber under half, red from half" %}</span></div>
   <div class="fmm-office-rows">
     {% for o in office_badges %}
     <div class="fmm-office-row">
       <div class="fmm-office-row__head">
         <a class="fmm-office-row__name" href="{{ o.url }}" hx-get="{{ o.url }}" hx-target="#modal-content">{% if o.name == "none" %}{% trans "Office not known" %}{% else %}<span data-synced>{{ o.name }}</span>{% endif %}</a>
-        <span class="small text-muted">{% blocktrans count n=o.scored %}{{ n }} visit scored{% plural %}{{ n }} visits scored{% endblocktrans %}</span>
+        <span class="small text-muted">{% blocktrans count n=o.scored %}{{ n }} record scored{% plural %}{{ n }} records scored{% endblocktrans %} · {% blocktrans count n=o.records %}{{ n }} record{% plural %}{{ n }} records{% endblocktrans %}</span>
       </div>
       {% if o.badges %}<div class="fmm-badges">{% for b in o.badges %}<span class="fmm-office-chip fmm-office-chip--{{ b.level }}" title="{{ b.label }}">{{ b.rule }}: {{ b.flagged }}/{{ b.total }}</span>{% endfor %}</div>
       {% elif o.scored %}<span class="small text-success">✓ {% trans "No flags" %}</span>{% endif %}
@@ -158,20 +158,20 @@ rows on a canvas (charts.js, data-rows-png).{% endcomment %}
 </section>
 
 <section class="panel" aria-labelledby="fmm-sections-title">
-  <div class="panel__header"><h2 class="panel__title" id="fmm-sections-title">{% trans "Section performance" %}</h2><span class="panel__hint">{% trans "Per section, its visits' average quality and their visits, lowest score first" %}</span></div>
+  <div class="panel__header"><h2 class="panel__title" id="fmm-sections-title">{% trans "Section performance" %}</h2><span class="panel__hint">{% trans "Per section, its records' average quality and one line per record, lowest score first" %}</span></div>
   {% for s in section_rows %}
   <div class="fmm-section">
     <div class="fmm-meter-row__head"><a class="fw-semibold" href="{{ s.url }}" hx-get="{{ s.url }}" hx-target="#modal-content">{% if s.name == "none" %}{% trans "No section" %}{% else %}<span data-synced>{{ s.name }}</span>{% endif %}</a>
-    <span class="small text-muted">{% blocktrans count n=s.visits %}{{ n }} visit{% plural %}{{ n }} visits{% endblocktrans %} · {% if s.avg is not None %}<span class="fmm-avg fmm-avg--{{ s.band }}">{{ s.avg|percent }}</span>{% else %}—{% endif %} · <span title="{% trans 'High / Medium / Low' %}"><span class="fmm-tone--success">{{ s.bands.high }}</span>/<span class="fmm-tone--warning">{{ s.bands.medium }}</span>/<span class="fmm-tone--danger">{{ s.bands.low }}</span></span></span></div>
+    <span class="small text-muted">{% blocktrans count n=s.records %}{{ n }} record{% plural %}{{ n }} records{% endblocktrans %} · {% blocktrans count n=s.visits %}{{ n }} visit{% plural %}{{ n }} visits{% endblocktrans %} · {% if s.avg is not None %}<span class="fmm-avg fmm-avg--{{ s.band }}">{{ s.avg|percent }}</span>{% else %}—{% endif %} · <span title="{% trans 'High / Medium / Low' %}"><span class="fmm-tone--success">{{ s.bands.high }}</span>/<span class="fmm-tone--warning">{{ s.bands.medium }}</span>/<span class="fmm-tone--danger">{{ s.bands.low }}</span></span></span></div>
     <div class="meter"><div class="meter__track"><span class="meter__fill meter__fill--{% if s.avg is None %}not_reported{% elif s.avg >= limits.band_high %}success{% elif s.avg >= limits.band_medium %}warning{% else %}danger{% endif %}" style="width: {{ s.avg|default_if_none:0|floatformat:0 }}%"></span></div></div>
     <ul class="fmm-visit-lines">{% include "fmm/_section_line.html" with lines=s.top %}</ul>
-    {% if s.rest_count or s.more %}<details class="fmm-section__more"{% if s.rest %} open{% else %} hx-get="{% url 'fmm:dashboard' %}?{{ sections_all_query }}" hx-trigger="toggle once" hx-select="#fmm-section-rest-{{ forloop.counter }}" hx-target="find #fmm-section-rest-{{ forloop.counter }}" hx-swap="outerHTML"{% endif %}><summary class="small">{% blocktrans with n=s.visits %}Show all {{ n }}{% endblocktrans %}</summary>
+    {% if s.rest_count or s.more %}<details class="fmm-section__more"{% if s.rest %} open{% else %} hx-get="{% url 'fmm:dashboard' %}?{{ sections_all_query }}" hx-trigger="toggle once" hx-select="#fmm-section-rest-{{ forloop.counter }}" hx-target="find #fmm-section-rest-{{ forloop.counter }}" hx-swap="outerHTML"{% endif %}><summary class="small">{% blocktrans with n=s.records %}Show all {{ n }}{% endblocktrans %}</summary>
       <ul class="fmm-visit-lines" id="fmm-section-rest-{{ forloop.counter }}">{% if s.rest %}{% include "fmm/_section_line.html" with lines=s.rest %}{% elif s.rest_count %}<li><a href="{% url 'fmm:dashboard' %}?{{ sections_all_query }}">{% trans "Loading the list…" %}</a></li>{% endif %}
-      {% if s.more %}<li><a href="{{ s.url }}" hx-get="{{ s.url }}" hx-target="#modal-content">{% blocktrans count n=s.more %}+{{ n }} more visit{% plural %}+{{ n }} more visits{% endblocktrans %}</a></li>{% endif %}</ul>
+      {% if s.more %}<li><a href="{{ s.url }}" hx-get="{{ s.url }}" hx-target="#modal-content">{% blocktrans count n=s.more %}+{{ n }} more record{% plural %}+{{ n }} more records{% endblocktrans %}</a></li>{% endif %}</ul>
     </details>{% endif %}
   </div>
   {% endfor %}
-  <p class="source-line">{% blocktrans with high=limits.band_high medium=limits.band_medium %}Section here is each visit's programme-document section; a visit with two sections counts in both. High / Medium / Low = High from {{ high }}% / Medium from {{ medium }}% / Low below {{ medium }}%.{% endblocktrans %}</p>
+  <p class="source-line">{% blocktrans with high=limits.band_high medium=limits.band_medium %}Section here is each visit's programme-document section; the records of a visit with two sections count in both. High / Medium / Low = High from {{ high }}% / Medium from {{ medium }}% / Low below {{ medium }}%.{% endblocktrans %}</p>
   {% include "fmm/_card_tools.html" %}
 </section>
 
@@ -180,10 +180,11 @@ rows on a canvas (charts.js, data-rows-png).{% endcomment %}
   {% with h=highlights %}
   <div class="mini-grid">
     <div class="mini"><div class="mini__value">{{ h.visits|number }}</div><div class="mini__label">{% trans "Visits" %}</div></div>
+    <a class="mini" {% if h.records_url %}href="{{ h.records_url }}" hx-get="{{ h.records_url }}" hx-target="#modal-content"{% endif %}><div class="mini__value">{{ h.records|number }}</div><div class="mini__label">{% trans "Records" %}</div></a>
     <a class="mini" {% if h.reported_url %}href="{{ h.reported_url }}" hx-get="{{ h.reported_url }}" hx-target="#modal-content"{% endif %}><div class="mini__value">{{ h.reported|number }}</div><div class="mini__label">{% trans "Reported" %}</div></a>
     <div class="mini"><div class="mini__value">{% blocktrans with covered=h.coverage.covered total=h.coverage.total %}{{ covered }} of {{ total }}{% endblocktrans %}</div><div class="mini__label">{% trans "Governorates covered" %}</div></div>
-    <div class="mini{% if h.avg_quality is not None %} mini--{% if h.avg_quality >= limits.band_high %}success{% elif h.avg_quality >= limits.band_medium %}warning{% else %}danger{% endif %}{% endif %}"><div class="mini__value">{% if h.avg_quality is not None %}{{ h.avg_quality|percent }}{% else %}—{% endif %}</div><div class="mini__label">{% blocktrans count n=h.scored %}Average quality · {{ n }} scored visit{% plural %}Average quality · {{ n }} scored visits{% endblocktrans %}</div></div>
-    <a class="mini{% if h.off_track %} mini--danger{% endif %}" {% if h.off_track_url %}href="{{ h.off_track_url }}" hx-get="{{ h.off_track_url }}" hx-target="#modal-content"{% endif %}><div class="mini__value">{{ h.off_track|number }}</div><div class="mini__label">{% trans "Off track" %}</div></a>
+    <div class="mini{% if h.avg_quality is not None %} mini--{% if h.avg_quality >= limits.band_high %}success{% elif h.avg_quality >= limits.band_medium %}warning{% else %}danger{% endif %}{% endif %}"><div class="mini__value">{% if h.avg_quality is not None %}{{ h.avg_quality|percent }}{% else %}—{% endif %}</div><div class="mini__label">{% blocktrans count n=h.scored %}Average quality · {{ n }} scored record{% plural %}Average quality · {{ n }} scored records{% endblocktrans %}</div></div>
+    <a class="mini{% if h.off_track %} mini--danger{% endif %}" {% if h.off_track_url %}href="{{ h.off_track_url }}" hx-get="{{ h.off_track_url }}" hx-target="#modal-content"{% endif %}><div class="mini__value">{{ h.off_track|number }}</div><div class="mini__label">{% trans "Off-track records" %}</div></a>
     {% if h.psea.asked %}
     <div class="mini{% if h.psea.flagged %} mini--warning{% endif %}"><div class="mini__value">{{ h.psea.flagged|number }}</div><div class="mini__label">{% blocktrans count n=h.psea.asked %}PSEA flagged · of {{ n }} visit with a PSEA question{% plural %}PSEA flagged · of {{ n }} visits with a PSEA question{% endblocktrans %}</div></div>
     {% else %}
@@ -192,11 +193,11 @@ rows on a canvas (charts.js, data-rows-png).{% endcomment %}
   </div>
   <h3 class="small fw-semibold mb-1">{% trans "Quality distribution" %}</h3>
   {% if h.bands %}
-    <div id="fmm-chart-bands" class="chart chart--share" data-module="charts" data-chart="share-bar" data-source="fmm-chart-data" data-key="bands" aria-label="{% trans 'Scored visits by band: High, Medium, Low' %}"></div>
+    <div id="fmm-chart-bands" class="chart chart--share" data-module="charts" data-chart="share-bar" data-source="fmm-chart-data" data-key="bands" aria-label="{% trans 'Scored records by band: High, Medium, Low' %}"></div>
   {% include "fmm/_card_tools.html" with chart="fmm-chart-bands" filename="monitoring-bands" %}
   <p class="small text-muted">{% blocktrans with high=limits.band_high medium=limits.band_medium %}High from {{ high }}% · Medium from {{ medium }}% · Low below {{ medium }}%{% endblocktrans %}</p>
-  {% else %}<p class="small text-muted">{% trans "No visit in this filter is scored." %}</p>{% endif %}
-  <div class="chips" aria-label="{% trans 'Monitored entities by type' %}">{% for k in h.kinds %}<a class="chip" href="{{ k.url }}" hx-get="{{ k.url }}" hx-target="#fmm-results" hx-push-url="true">{{ k.label }} <strong>{{ k.n|number }}</strong></a>{% endfor %}</div>
+  {% else %}<p class="small text-muted">{% trans "No record in this filter is scored." %}</p>{% endif %}
+  <div class="chips" aria-label="{% trans 'Records by entity type' %}">{% for k in h.kinds %}<a class="chip" href="{{ k.url }}" hx-get="{{ k.url }}" hx-target="#fmm-results" hx-push-url="true">{{ k.label }} <strong>{{ k.n|number }}</strong></a>{% endfor %}</div>
   {% endwith %}
 </section>
 
@@ -213,11 +214,11 @@ rows on a canvas (charts.js, data-rows-png).{% endcomment %}
   <div class="panel__header px-3 pt-3"><h2 class="panel__title" id="fmm-offices-title">{% trans "Field offices" %}</h2></div>
   {% if offices.known %}
   <div class="table-wrap"><table class="table table-sm">
-    <thead><tr><th scope="col">{% trans "Field office" %}</th><th scope="col">{% trans "Visits" %}</th><th scope="col">{% trans "Average quality" %}</th></tr></thead>
-    <tbody>{% for o in offices.rows %}<tr><td data-synced>{{ o.name }}</td><td><a href="{{ o.url }}" hx-get="{{ o.url }}" hx-target="#modal-content">{{ o.visits }}</a></td><td>{% if o.avg is not None %}{{ o.avg|percent }}{% else %}—{% endif %}</td></tr>{% endfor %}
-    {% if offices.unknown %}<tr><td class="text-muted">{% trans "Office not known" %}</td><td><a href="{{ offices.unknown.url }}" hx-get="{{ offices.unknown.url }}" hx-target="#modal-content">{{ offices.unknown.visits }}</a></td><td>{% if offices.unknown.avg is not None %}{{ offices.unknown.avg|percent }}{% else %}—{% endif %}</td></tr>{% endif %}</tbody>
+    <thead><tr><th scope="col">{% trans "Field office" %}</th><th scope="col">{% trans "Records" %}</th><th scope="col">{% trans "Visits" %}</th><th scope="col">{% trans "Average quality" %}</th></tr></thead>
+    <tbody>{% for o in offices.rows %}<tr><td data-synced>{{ o.name }}</td><td><a href="{{ o.url }}" hx-get="{{ o.url }}" hx-target="#modal-content">{{ o.records }}</a></td><td>{{ o.visits }}</td><td>{% if o.avg is not None %}{{ o.avg|percent }}{% else %}—{% endif %}</td></tr>{% endfor %}
+    {% if offices.unknown %}<tr><td class="text-muted">{% trans "Office not known" %}</td><td><a href="{{ offices.unknown.url }}" hx-get="{{ offices.unknown.url }}" hx-target="#modal-content">{{ offices.unknown.records }}</a></td><td>{{ offices.unknown.visits }}</td><td>{% if offices.unknown.avg is not None %}{{ offices.unknown.avg|percent }}{% else %}—{% endif %}</td></tr>{% endif %}</tbody>
   </table></div>
-  <p class="small text-muted px-3 pb-3 mb-0">{% blocktrans with activity=offices.sources.activity pd=offices.sources.pd ap=offices.sources.action_point %}A visit to a PD with two offices counts in both · office from: activity {{ activity }} · PD {{ pd }} · action points {{ ap }}{% endblocktrans %}</p>
+  <p class="small text-muted px-3 pb-3 mb-0">{% blocktrans with activity=offices.sources.activity pd=offices.sources.pd ap=offices.sources.action_point %}The records of a visit to a PD with two offices count in both · office from (visits): activity {{ activity }} · PD {{ pd }} · action points {{ ap }}{% endblocktrans %}</p>
   {% else %}
   <p class="small text-muted px-3 pb-3 mb-0">{% trans "Field office not available: neither the visits, their programme documents nor their action points name one." %}</p>
   {% endif %}
@@ -227,31 +228,31 @@ rows on a canvas (charts.js, data-rows-png).{% endcomment %}
   <div class="panel__header px-3 pt-3"><h2 class="panel__title" id="fmm-frequency-title">{% trans "Visit frequency by location" %}</h2></div>
   {% if places.rows %}
   <div class="table-wrap"><table class="table table-sm">
-    <thead><tr><th scope="col">{% trans "Place" %}</th><th scope="col">{% trans "Visits" %}</th><th scope="col">{% trans "Average quality" %}</th><th scope="col">{% trans "Coverage" %}</th></tr></thead>
+    <thead><tr><th scope="col">{% trans "Place" %}</th><th scope="col">{% trans "Visits" %}</th><th scope="col">{% trans "Records" %}</th><th scope="col">{% trans "Average quality" %}</th><th scope="col">{% trans "Coverage" %}</th></tr></thead>
     <tbody>{% include "fmm/_frequency_row.html" with rows=places.top %}</tbody>
   </table></div>
   {% if places.rest_count %}<details class="px-3 pb-2"{% if places.rest %} open{% else %} hx-get="{% url 'fmm:dashboard' %}?{{ places.all_query }}" hx-trigger="toggle once" hx-select="#fmm-frequency-rest" hx-target="find #fmm-frequency-rest" hx-swap="outerHTML"{% endif %}><summary class="small">{% if places.total > places.rows|length %}{% blocktrans with n=places.rows|length total=places.total %}Show the {{ n }} most visited of {{ total }} places{% endblocktrans %}{% else %}{% blocktrans count n=places.rows|length %}Show all {{ n }} place{% plural %}Show all {{ n }} places{% endblocktrans %}{% endif %}</summary>
     <div class="table-wrap" id="fmm-frequency-rest">{% if places.rest %}<table class="table table-sm"><tbody>{% include "fmm/_frequency_row.html" with rows=places.rest %}</tbody></table>{% else %}<p class="small text-muted mb-0"><a href="{% url 'fmm:dashboard' %}?{{ places.all_query }}">{% trans "Loading the list…" %}</a></p>{% endif %}</div>
   </details>{% endif %}
   {% endif %}
-  <p class="small text-muted px-3 pb-3 mb-0">{% trans "Coverage = rated entities ÷ monitored entities of the visits to the place." %}{% if places.unlinked %} {% blocktrans count n=places.unlinked %}{{ n }} visit has no linked location.{% plural %}{{ n }} visits have no linked location.{% endblocktrans %}{% endif %}</p>
+  <p class="small text-muted px-3 pb-3 mb-0">{% trans "Coverage = rated records ÷ records of the visits to the place; a number opens the records." %}{% if places.unlinked %} {% blocktrans count n=places.unlinked %}{{ n }} visit has no linked location.{% plural %}{{ n }} visits have no linked location.{% endblocktrans %}{% endif %}</p>
 </section>
 
 <section class="panel" aria-labelledby="fmm-by-rating-title">
-  <div class="panel__header"><h2 class="panel__title" id="fmm-by-rating-title">{% trans "Quality by finding rating" %}</h2><span class="panel__hint">{% trans "Average quality of the visits with each overall rating" %}</span></div>
+  <div class="panel__header"><h2 class="panel__title" id="fmm-by-rating-title">{% trans "Quality by finding rating" %}</h2><span class="panel__hint">{% trans "Average quality of the records with each overall rating" %}</span></div>
   {% for r in rating_rows %}
   <div class="fmm-meter-row">
-    <div class="fmm-meter-row__head"><span>{% if r.url %}<a href="{{ r.url }}" hx-get="{{ r.url }}" hx-target="#modal-content">{{ r.label }}</a>{% else %}{{ r.label }}{% endif %}{% if r.code == "not_monitored" %} <span class="small text-muted">{% trans "(planned, not conducted)" %}</span>{% endif %}</span><span class="small text-muted">{% blocktrans count n=r.visits %}{{ n }} visit{% plural %}{{ n }} visits{% endblocktrans %} · {% if r.avg is not None %}{% blocktrans with avg=r.avg|percent %}avg {{ avg }}{% endblocktrans %}{% else %}{% trans "not scored" %}{% endif %} · {% trans "H/M/L" %} {{ r.bands.high }}/{{ r.bands.medium }}/{{ r.bands.low }}</span></div>
+    <div class="fmm-meter-row__head"><span>{% if r.url %}<a href="{{ r.url }}" hx-get="{{ r.url }}" hx-target="#modal-content">{{ r.label }}</a>{% else %}{{ r.label }}{% endif %}{% if r.code == "not_monitored" %} <span class="small text-muted">{% trans "(planned, not conducted)" %}</span>{% endif %}</span><span class="small text-muted">{% blocktrans count n=r.records %}{{ n }} record{% plural %}{{ n }} records{% endblocktrans %} · {% if r.avg is not None %}{% blocktrans with avg=r.avg|percent %}avg {{ avg }}{% endblocktrans %}{% else %}{% trans "not scored" %}{% endif %} · {% trans "H/M/L" %} {{ r.bands.high }}/{{ r.bands.medium }}/{{ r.bands.low }}</span></div>
     <div class="meter"><div class="meter__track"><span class="meter__fill meter__fill--{{ r.code }}" style="width: {{ r.fill|floatformat:0 }}%"></span></div></div>
   </div>
   {% endfor %}
 </section>
 
 <section class="panel" aria-labelledby="fmm-points-title">
-  <div class="panel__header"><h2 class="panel__title" id="fmm-points-title">{% trans "Points by category" %}</h2><span class="panel__hint">{% trans "The points the scored visits kept of each category's weight, on average, weakest first" %}</span></div>
+  <div class="panel__header"><h2 class="panel__title" id="fmm-points-title">{% trans "Points by category" %}</h2><span class="panel__hint">{% trans "The points the scored records kept of each category's weight, on average, weakest first" %}</span></div>
   {% for r in dimensions.rows %}
   <div class="fmm-meter-row" data-category="{{ r.code }}">
-    <div class="fmm-meter-row__head"><span>{{ r.label }} <span class="small text-muted">{% blocktrans with weight=r.max|number %}weight {{ weight }}{% endblocktrans %}</span></span><span class="small text-muted">{% blocktrans with earned=r.earned|number max=r.max|number pct=r.pct|percent visits=r.visits %}{{ earned }}/{{ max }} pts · {{ pct }} · on {{ visits }} visits{% endblocktrans %}</span></div>
+    <div class="fmm-meter-row__head"><span>{{ r.label }} <span class="small text-muted">{% blocktrans with weight=r.max|number %}weight {{ weight }}{% endblocktrans %}</span></span><span class="small text-muted">{% blocktrans with earned=r.earned|number max=r.max|number pct=r.pct|percent records=r.records %}{{ earned }}/{{ max }} pts · {{ pct }} · on {{ records }} records{% endblocktrans %}</span></div>
     <div class="meter"><div class="meter__track"><span class="meter__fill meter__fill--{% if r.pct >= limits.band_high %}success{% elif r.pct >= limits.band_medium %}warning{% else %}danger{% endif %}" style="width: {{ r.fill|floatformat:0 }}%"></span></div></div>
   </div>
   {% endfor %}
@@ -273,7 +274,7 @@ rows on a canvas (charts.js, data-rows-png).{% endcomment %}
   {% else %}
   {% include "components/empty_state.html" with title=_("No HACT requirement in this period") %}
   {% endif %}
-  <p class="small text-muted px-3 pb-3 mb-0">{% trans "FM programmatic visits (NeuroDB): the completed eTools field monitoring visits marked programmatic that ended in the year, counted for each partner of each finding row (a visit with two partners counts for both). Gap = required − completed in eTools." %}</p>
+  <p class="small text-muted px-3 pb-3 mb-0">{% trans "FM programmatic visits (NeuroDB): the completed eTools field monitoring visits marked programmatic that ended in the year, counted for each partner of its records (a visit with two partners counts for both). Gap = required − completed in eTools." %}</p>
 </section>
 
 <section class="panel" aria-labelledby="fmm-follow-title">
