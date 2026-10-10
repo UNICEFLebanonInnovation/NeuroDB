@@ -212,10 +212,56 @@ def _hub_and_watch() -> list:
     return [visits, items, changes]
 
 
-def _tables() -> dict[str, list]:
-    """Every text, character, list and JSON value of every table of Monitoring insights."""
+def _exports(client) -> dict[str, str]:
+    """The text of every file of the exports (Release 2 step 5: the records, one row per record with its
+    own narrative and HACT answers): the Excel workbook's cells and the Power BI package's files, each
+    by where it came from."""
+    import io
+    import zipfile
+
+    from openpyxl import load_workbook
+
+    params = {"year": "2026", "section": ""}
     out = {}
+    response = client.get(reverse("fmm:export_xlsx"), params)
+    assert response.status_code == 200
+    book = load_workbook(io.BytesIO(response.content))
+    for sheet in book.worksheets:
+        out[f"the workbook's {sheet.title} sheet"] = "\n".join(
+            str(value) for row in sheet.iter_rows(values_only=True) for value in row if value is not None
+        )
+    response = client.get(reverse("fmm:export_powerbi"), params)
+    assert response.status_code == 200
+    package = zipfile.ZipFile(io.BytesIO(response.content))
+    for name in package.namelist():
+        out[f"the Power BI package's {name}"] = package.read(name).decode("utf-8")
+    return out
+
+
+def _explained(viewer) -> list:
+    """The Help assistant's explanation of two visits' scores, record by record."""
+    from neurodb.assistant import tools as assistant_tools
+    from neurodb.help import assistant
+    from neurodb.help import tools as help_tools
+
+    with help_tools.bind(viewer):
+        return [
+            assistant_tools.run("explain_visit_score", {"visit": key}, registry=assistant.REGISTRY)
+            for key in ("1722", "1726")
+        ]
+
+
+def _tables() -> dict[str, list]:
+    """Every text, character, list and JSON value of every table of Monitoring insights (a table no
+    longer there is left out: the AI checks made per visit before records, ``VisitAICheck``, dropped by
+    migration 0020 once none is left)."""
+    from django.db import connection
+
+    out = {}
+    tables = set(connection.introspection.table_names())
     for model in apps.get_app_config("fmm").get_models():
+        if model._meta.db_table not in tables:
+            continue
         names = [
             f.name
             for f in model._meta.concrete_fields
@@ -239,6 +285,8 @@ def test_no_canary_leaves_monitoring_insights_by_any_path(canary_world, monkeypa
         chat_requests, shown = _chat(monkeypatch, client)
         ask = _ask()
         csv = client.get(reverse("fmm:visits"), {"year": "2026", "section": "", "export": "csv"})
+        files = _exports(client)
+        explained = _explained(viewer)
         hub_watch = _hub_and_watch()
 
     # the brief: what was sent (the redacted notes keep their figures), and what was kept
@@ -263,6 +311,13 @@ def test_no_canary_leaves_monitoring_insights_by_any_path(canary_world, monkeypa
     rows = csv.content.decode()
     assert rows.count("\n") > 5 and "Visit 1722" in rows
     assert_free("the visits CSV", rows)
+    # the exports: the Excel workbook and the Power BI package, the records' own texts included
+    assert "data/records.csv" in " ".join(files) and "Classes held as planned" in json.dumps(files)
+    for where, text in files.items():
+        assert_free(where, text)
+    # the Help assistant's explanation of a score, record by record
+    assert all(len(found["records"]) >= 2 for found in explained)
+    assert_free("the Help assistant's explanation", explained)
     # the knowledge hub, What's new and NeuroDB Watch
     for where, blob in zip(("the hub's visits", "Watch's records", "What's new"), hub_watch, strict=True):
         assert_free(where, blob)

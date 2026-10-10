@@ -2345,8 +2345,10 @@ action points), R8 (problems without action points) and R32 (key challenges with
   texts cannot be given to one record), so its records are provisional until they are checked, and they
   come first in the job's order. A check is carried over for every AI rule whose instructions the
   published prompt version holds, switched on or not (a rule switched off finds its answers when it is
-  switched on again; unused, they go after 120 days like any answer). Each visit check dealt with is
-  deleted, so one pass deals with them all; `carried` and `legacy_checks_left` in the AI checks run
+  switched on again; unused, they go after 120 days like any answer). While no published prompt version
+  holds the AI checks' instructions, nothing is carried over or dropped: the checks wait, still counted
+  in `legacy_checks_left`, until one does. Each visit check dealt with is deleted, so one pass deals with
+  them all; `carried` and `legacy_checks_left` in the AI checks run
   details, and `ai_checks_carried` in the refresh's, say how many. Once the
   checks are up to date, *Score settings → Re-check carried answers* deletes up to 500 carried answers,
   the oldest first, so the next runs check those records properly while the budget allows; press it

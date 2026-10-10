@@ -306,3 +306,33 @@ def test_the_clean_up_keeps_the_legacy_checks_until_none_is_left(db, legacy_chec
     assert not checks.legacy_table() and checks.legacy_left() == 0  # dropped once empty
     with connection.schema_editor() as editor:
         cleanup.drop_legacy_checks_when_done(None, editor)  # and again: nothing to do
+
+
+def test_the_legacy_checks_wait_while_no_prompt_version_holds_their_instructions(built, legacy_checks_table):
+    """A verdict made per visit is checked against the instructions it was made with before it is carried
+    over: while no prompt version is published (or none holds the AI checks' instructions), nothing can
+    be checked, so every check is kept for later, never dropped (once dropped, a record would need a new,
+    paid check)."""
+    from neurodb.fmm import refresh, score
+    from neurodb.fmm.ai import checks
+    from neurodb.fmm.models import PromptVersion
+
+    legacy_checks_table.objects.create(
+        visit_key="1727",
+        rule="R3",
+        input_hash="x",
+        prompt_hash="y",
+        passed=True,
+        checked_at=datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC),
+    )
+    published = list(PromptVersion.objects.filter(status="published").values_list("pk", flat=True))
+    PromptVersion.objects.filter(pk__in=published).update(status="retired")
+    assert not score.Rulebook.load().prompts
+    assert checks.carry_over(score.Rulebook.load()) == {"carried": 0, "dropped": 0, "left": 1}
+    run = refresh.run(triggered_by="test", today=TODAY)  # the refresh carries over before it scores
+    assert run.status == "succeeded", run.error
+    assert run.details["ai_checks_carried"] == {"carried": 0, "dropped": 0, "left": 1}
+    assert checks.legacy_left() == 1
+    # published again: the check is dealt with (dropped here: its hashes are not those of a real check)
+    PromptVersion.objects.filter(pk__in=published).update(status="published")
+    assert checks.carry_over(score.Rulebook.load()) == {"carried": 0, "dropped": 1, "left": 0}

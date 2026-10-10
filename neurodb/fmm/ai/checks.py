@@ -34,7 +34,8 @@ are copied for the visits with a single record, whose record was then the whole 
 to date against what the visit sent then (:func:`legacy_payload`) becomes that record's answer
 (``carried``), for every narrative rule whose instructions the published prompt version holds, switched
 on or not (one switched off finds its answers when it is switched on again; unused, they go after 120
-days like any answer). A visit with several records inherits nothing (a verdict on merged texts cannot be
+days like any answer); while no prompt version holds those instructions (none published), every check
+waits, never dropped. A visit with several records inherits nothing (a verdict on merged texts cannot be
 given to one row): its records stay provisional until they are checked, first in the job's order. Each
 visit check dealt with is deleted, so one pass deals with them all; ``legacy_checks_left`` in the run
 details counts those left (:func:`legacy_left`: 0 once the table is gone too). The clean-up migration of
@@ -682,12 +683,17 @@ def carry_over(book) -> dict[str, int]:
     then (:func:`legacy_payload`, the prompt hash of then) is kept as that record's answer (``carried``),
     for each rule of :func:`legacy_rules`; the checks of a visit with several records, of a visit gone,
     out of date, or of a rule without instructions now are dropped. Each check dealt with is deleted, so
-    none is left after one pass (unless a batch failed). Nothing to do once the table is empty or gone.
+    none is left after one pass (unless a batch failed). Nothing to do once the table is empty or gone,
+    nor while no prompt version holds the AI checks' instructions (none published, or one without them):
+    the verdicts cannot be checked against their prompt then, and are kept, never dropped, until one does.
     Returns ``{"carried", "dropped", "left"}``."""
     out = {"carried": 0, "dropped": 0, "left": 0}
-    if not legacy_left():
+    if not (left := legacy_left()):
         return out
     ai_rules = legacy_rules(book)
+    if not ai_rules:  # no instructions to check a verdict against: every check is kept for later
+        out["left"] = left
+        return out
     prompts_ = {code: book.prompts[rules.param(rule, "ai_prompt_key")] for code, rule in ai_rules.items()}
     new_hashes = {code: prompt_hash(rule, prompts_[code]) for code, rule in ai_rules.items()}
     old_hashes = {code: legacy_prompt_hash(rule, prompts_[code]) for code, rule in ai_rules.items()}
