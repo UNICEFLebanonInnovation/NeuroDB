@@ -1,0 +1,31 @@
+{% load i18n ui humanize %}
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Reports by location") count=page_obj.paginator.count table_id="report-locations" filename="report-locations" downloads=downloads %}
+  {% if locations.too_many %}
+  <p class="px-3 py-2 mb-0 text-warning small">{% blocktrans with n=locations.too_many|intcomma limit=locations.limit|intcomma %}The filter holds {{ n }} report rows, more than the {{ limit }} this view reads at once: choose a reporting year, a section or a partner.{% endblocktrans %}</p>
+  {% elif page_obj.object_list %}
+  <div class="table-wrap table-wrap--tall"><table class="table table-sm" id="report-locations">
+    <thead><tr><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Partner" %}</th><th scope="col">{% trans "Section" %}</th><th scope="col">{% trans "CP output" %}</th><th scope="col">{% trans "Indicator" %}</th><th scope="col">{% trans "Emergency" %}</th><th scope="col">{% trans "Report" %}</th><th scope="col">{% trans "Status" %}</th><th scope="col">{% trans "Period start" %}</th><th scope="col">{% trans "Period end" %}</th><th scope="col">{% trans "Location" %}</th><th scope="col">{% trans "P-code" %}</th><th scope="col" class="num"><span class="has-tip" title="{% trans 'What the partner reported at the location for this period: the total of its disaggregation' %}">{% trans "In the period" %}</span></th><th scope="col" class="num"><span class="has-tip" title="{% trans 'The figure to date at the location that the Partner Reporting Portal gives' %}">{% trans "PRP to date here" %}</span></th></tr></thead>
+    <tbody>{% for r in page_obj %}<tr{% if not r.counted %} class="is-uncounted"{% endif %}>
+      <td class="small text-nowrap">{% if r.pd_id %}<a href="{% url 'reports:programme_detail' r.pd_id %}">{{ r.programme_document|default:"—" }}</a>{% else %}{{ r.programme_document|default:"—" }}{% endif %}{% if r.pd_status %}<span class="cell-sub">{{ r.pd_status }}</span>{% endif %}</td>
+      <td class="small cell-wrap">{{ r.partner|default:"—" }}</td>
+      <td class="small">{{ r.section|default:"—" }}</td>
+      <td class="small cell-wrap">{{ r.cp_output|default:"—" }}</td>
+      <td class="small cell-wrap">{{ r.indicator }}</td>
+      <td class="small">{{ r.emergency }}</td>
+      <td class="text-nowrap">{% url 'reports:progress_report' as report_url %}{% if r.progress_report %}<a class="mono small" href="{{ report_url }}?report={{ r.progress_report|urlencode }}" hx-get="{{ report_url }}?report={{ r.progress_report|urlencode }}" hx-target="#modal-content" hx-push-url="false">{{ r.report|default:"—" }}</a>{% else %}<span class="mono small">{{ r.report|default:"—" }}</span>{% endif %}<span class="cell-sub">{{ r.report_type }}</span></td>
+      <td>{% status_pill r.status r.report_status "sm" %}</td>
+      <td class="small text-nowrap">{{ r.period_start|date:"j M Y"|default:"—" }}</td>
+      <td class="small text-nowrap">{{ r.period_end|date:"j M Y"|default:"—" }}</td>
+      <td class="small">{{ r.location|default:"—" }}</td>
+      <td class="small mono">{{ r.p_code|default:"—" }}</td>
+      <td class="num">{% if r.repeated %}<span class="text-muted small" title="{% trans 'Every location row of this report carries the same value: it is the report total, not this location’s' %}">{% trans "report total" %}</span>{% else %}{{ r.value_in_period|number:0 }}{% if r.percentage and r.value_in_period is not None %}%{% endif %}{% endif %}{% if r.rows > 1 %}<span class="cell-sub" title="{% trans 'Several rows for this location: the largest value is used, never their sum' %}">{% blocktrans with n=r.rows %}{{ n }} rows{% endblocktrans %}</span>{% endif %}</td>
+      <td class="num">{{ r.prp_to_date|number:0 }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% include "components/pagination.html" with hx_target="#reporting-results" %}
+  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}One row per indicator, report and location. The value in the period is the total of the location's disaggregation, read the way Reached reads it: a value repeated on every location is the report total and is not shown as the location's, and two rows of one location are never added. Rows of reports that do not count in Reached (Sent back, Due, Overdue, Not yet due) are greyed. Values are not added up here: Reached is on Partner monitoring.{% endblocktrans %}</p>
+  {% else %}
+  {% include "reports/partials/_datamart_empty.html" with icon="pin" title=_("No report rows match") empty_title=_("No progress reports synced yet") %}
+  {% endif %}
+</section>

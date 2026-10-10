@@ -186,8 +186,9 @@ def test_partner_reporting_counts_and_overdue_filter(client_viewer, data):
     summary = partner_reporting({})["summary"]
     statuses = {"accepted": 1, "submitted": 0, "sent_back": 0, "due": 0, "overdue": 1, "not_yet_due": 0}
     assert summary == {"reports": 2, "late": 1, "statuses": statuses, **statuses}
-    text = client_viewer.get(reverse("reports:partner_reporting"), {"overdue": "1"}).text
-    assert "QPR3" in text and "QPR2" not in text
+    page = client_viewer.get(reverse("reports:partner_reporting"), {"overdue": "1"})
+    assert [r["report_number"] for r in page.context["page_obj"]] == ["QPR3"]
+    assert ">QPR3</a>" in page.text and ">QPR2</a>" not in page.text
 
 
 def test_progress_report_quick_view_and_page(client_viewer, data):

@@ -809,13 +809,22 @@ def partner_reporting(
             "period": [r["period_start"], r["period_end"]],
             "due": r["due_date"],
             "submitted": r["submission_date"],
-            "status": r["report_status"],
+            "status": r["status_label"],
             "indicators": r["indicators"],
         }
         for r in data["reports"][: MAX_ROWS + 1]
     ]
     return {
         **data["summary"],
+        # what the Progress reports page's tiles count: indicator reports (one indicator in one
+        # progress report) per status, with the progress reports beside them
+        "indicator_reports": {
+            s["label"]: {
+                "indicator_reports": s["indicator_reports"],
+                "progress_reports": s["progress_reports"],
+            }
+            for s in data["counts"]["statuses"]
+        },
         "by_status": dict(data["by_status"]),
         **_cut(rows, "progress_reports"),
         "url": reverse("reports:partner_reporting"),
@@ -1330,9 +1339,11 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
     ),
     "partner_reporting": (
         partner_reporting,
-        "Partner progress reports (Partner Reporting Portal): counts submitted, late, overdue and accepted, "
-        "reports by status, and the list of reports with period, due and submission dates. Filter by partner "
-        "name/vendor/PD text, year the period ends, or overdue only.",
+        "Partner progress reports (Partner Reporting Portal): progress reports per status (Accepted, "
+        "Submitted, Sent back, Due, Overdue, Not yet due) and late, the indicator reports per status (one "
+        "indicator in one progress report: what the Progress reports page counts, as Power BI does), and "
+        "the list of reports with period, due and submission dates. Filter by partner name/vendor/PD text, "
+        "year the period ends, or overdue only.",
         _schema(
             {
                 "partner": {"type": "string"},

@@ -10,6 +10,7 @@ import dataclasses
 import datetime
 import io
 import mimetypes
+from collections import Counter
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -34,6 +35,7 @@ from neurodb.core.models import PopulationFigure, SavedView, SyncRun
 from neurodb.core.services import population as population_service
 from neurodb.datamart import headline
 from neurodb.datamart import monitoring as pd_monitoring_service
+from neurodb.datamart import reporting as reporting_service
 from neurodb.datamart import services as datamart
 from neurodb.datamart.models import AuditEngagement, AuditFinding
 from neurodb.facts.services import dashboard as facts
@@ -816,21 +818,70 @@ def report_hpm(request: HttpRequest, pk: int) -> HttpResponse:
 
 @require_GET
 def programmes(request: HttpRequest) -> HttpResponse:
+    """Programme documents, and their indicators in one flat list (``tab=indicators``, Power BI's PD/SPD
+    Indicators), with the same filter; the indicator list exports whole."""
     scope = request.GET.get("scope", "all")
     if scope not in services.PD_SCOPES:
         scope = "all"
+    tab = "indicators" if request.GET.get("tab") == "indicators" else "documents"
     filters = partnerships.PDFilters.from_params(request.GET)
-    page_obj = _paginate(request, partnerships.programme_documents(filters, scope=scope))
-    counts = partnerships.pd_intervention_counts([pd.number for pd in page_obj if pd.number])
-    rows = [
-        {
-            **services.pd_as_dict(pd, counts),
-            "budget_currency": pd.budget_currency or "",
-            "past_end": partnerships.past_end_date(pd.status, pd.end),
-        }
-        for pd in page_obj
-    ]
+    params = request.GET.copy()
+    if tab == "indicators":
+        # the section of each indicator, not of its programme document
+        pds = partnerships.programme_documents(dataclasses.replace(filters, sections=[]), scope=scope)
+        indicator_rows = reporting_service.pd_indicators(pds, request.GET)
+        export = request.GET.get("export")
+        if export in exports.FORMATS:
+            columns = reporting_service.INDICATOR_COLUMNS
+            if export == "xlsx":
+                return exports.xlsx_response(
+                    exports.export_filename("pd-indicators", "xlsx"),
+                    [("PD indicators", columns, indicator_rows)],
+                    typed=True,
+                )
+            return exports.stream_csv(
+                exports.export_filename("pd-indicators", "csv"), columns, indicator_rows
+            )
+        page_obj = _paginate(request, indicator_rows)
+        rows: list[dict[str, Any]] = []
+    else:
+        documents = partnerships.programme_documents(filters, scope=scope)
+        if (request.GET.get("pd_q") or "").strip():
+            documents = documents.filter(number__icontains=request.GET["pd_q"].strip())
+        page_obj = _paginate(request, documents)
+        counts = partnerships.pd_intervention_counts([pd.number for pd in page_obj if pd.number])
+        rows = [
+            {
+                **services.pd_as_dict(pd, counts),
+                "budget_currency": pd.budget_currency or "",
+                "past_end": partnerships.past_end_date(pd.status, pd.end),
+            }
+            for pd in page_obj
+        ]
     context = {
+        "tab": tab,
+        "tab_urls": {
+            "documents": request.path
+            + "?"
+            + _query_with(params, ("tab", "export", "emergency", "indicator")),
+            "indicators": request.path + "?" + _query_with(params, ("export",), tab="indicators"),
+        },
+        # the indicator list exports whole; the PD list keeps its Copy and CSV of the page
+        "downloads": [
+            {
+                "label": _("Excel of the filter"),
+                "url": "?" + _query_with(params, (), tab="indicators", export="xlsx"),
+            },
+            {
+                "label": _("CSV of the filter"),
+                "url": "?" + _query_with(params, (), tab="indicators", export="csv"),
+            },
+        ]
+        if tab == "indicators"
+        else [],
+        "emergency": request.GET.get("emergency", ""),
+        "indicator_q": request.GET.get("indicator", ""),
+        "pd_q": request.GET.get("pd_q", ""),
         "page_title": _("Programme documents"),
         "page_subtitle": _("eTools partnerships with their donors, grants and ActivityInfo interventions"),
         "breadcrumbs": [_crumb(_("Programme documents"))],
@@ -1145,10 +1196,119 @@ def funds(request: HttpRequest) -> HttpResponse:
     return render(request, template, context)
 
 
+REPORTING_TABS = ("reports", "partners", "locations")
+REPORTING_LISTS = (
+    "status",
+    "report_type",
+    "section",
+    "report_number",
+    "partner",
+    "partner_type",
+    "pd_status",
+)
+REPORT_COLUMNS = (
+    "programme_document",
+    "pd_status",
+    "partner",
+    "section",
+    "document_type",
+    "report",
+    "report_type",
+    "report_status",
+    "due_date",
+    "period_start",
+    "period_end",
+    "submission_date",
+    "indicator_reports",
+    "unicef_focal_points",
+)
+FOLLOW_UP_COLUMNS = (
+    "programme_document",
+    "partner",
+    "section",
+    "report_status",
+    "due_date",
+    "report",
+    "report_type",
+    "indicator_reports",
+)
+LOCATION_COLUMNS = (
+    "programme_document",
+    "pd_status",
+    "partner",
+    "section",
+    "cp_output",
+    "indicator",
+    "emergency",
+    "report",
+    "report_type",
+    "report_status",
+    "period_start",
+    "period_end",
+    "location",
+    "p_code",
+    "value_in_period",
+    "prp_to_date_in_location",
+    "note",
+)
+
+
+def _report_row(r: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "programme_document": r["pd_reference_number"],
+        "pd_status": r.get("pd_status_label", ""),
+        "partner": r["partner_name"],
+        "section": r["section"],
+        "document_type": r.get("document_type", ""),
+        "report": r["report_number"],
+        "report_type": r["report_type"],
+        "report_status": r["status_label"],
+        "due_date": r["due_date"],
+        "period_start": r["period_start"],
+        "period_end": r["period_end"],
+        "submission_date": r["submission_date"],
+        "indicator_reports": r["indicators"],
+        "unicef_focal_points": ", ".join(r.get("focal_points", [])),
+    }
+
+
+def _location_row(r: dict[str, Any]) -> dict[str, Any]:
+    note = ""
+    if r["repeated"]:
+        note = "The report total is repeated on every location: no value of its own"
+    elif r["rows"] > 1:
+        note = f"{r['rows']} rows for this location: the largest value is used, never their sum"
+    return {
+        **{k: r.get(k) for k in LOCATION_COLUMNS},
+        "prp_to_date_in_location": r["prp_to_date"],
+        "note": note,
+    }
+
+
+def _reporting_locations(data: dict[str, Any]) -> dict[str, Any]:
+    statuses = {r["progress_report"]: r["status"] for r in data["reports"] if r["progress_report"]}
+    wanted = set(data["filters"].statuses) or None
+    return reporting_service.location_rows(data["rows"], statuses, data["today"], wanted)
+
+
 @require_GET
 def partner_reporting(request: HttpRequest) -> HttpResponse:
+    """Progress reports: Reporting Progress (indicator reports by status, section and month of the due
+    date, and the report table), Partner Performance (``tab=partners``) and Report/Location
+    (``tab=locations``), with one filter for the three and exports of the whole filtered set."""
+    tab = request.GET.get("tab") if request.GET.get("tab") in REPORTING_TABS else "reports"
     data = datamart.partner_reporting(request.GET)
-    page_obj = _paginate(request, data["reports"])
+    export = request.GET.get("export")
+    if export in exports.FORMATS:
+        return _reporting_export(data, tab, export)
+    locations = _reporting_locations(data) if tab == "locations" else None
+    if tab == "locations":
+        page_obj = _paginate(request, locations["rows"])
+    elif tab == "partners":
+        page_obj = _paginate(request, data["partners"]["follow_up"])
+    else:
+        page_obj = _paginate(request, data["reports"])
+    params = request.GET.copy()
     context = {
         "page_title": _("Progress reports"),
         "page_subtitle": _(
@@ -1156,15 +1316,93 @@ def partner_reporting(request: HttpRequest) -> HttpResponse:
         ),
         "breadcrumbs": [_crumb(_("Progress reports"))],
         "data": data,
+        "f": data["filters"],
+        "tab": tab,
         "page_obj": page_obj,
-        "selected": {key: request.GET.getlist(key) for key in ("status", "report_type")},
+        "locations": locations,
+        "selected": {key: request.GET.getlist(key) for key in REPORTING_LISTS}
+        | {"status": data["filters"].statuses},
         "year": request.GET.get("year", ""),
         "q": request.GET.get("q", ""),
         "overdue": request.GET.get("overdue") == "1",
-        "chart_data": {"by_status": data["by_status"]},
+        "tab_urls": {
+            name: request.path + "?" + _query_with(params, ("tab", "export"), tab=name)
+            for name in REPORTING_TABS
+        },
+        "downloads": [
+            {"label": _("Excel of the filter"), "url": "?" + _query_with(params, (), tab=tab, export="xlsx")},
+            {"label": _("CSV of the filter"), "url": "?" + _query_with(params, (), tab=tab, export="csv")},
+        ],
+        "chart_data": {
+            "by_status": data["by_status"],
+            "by_month": data["by_month"],
+        },
     }
     template = "reports/partials/reporting_table.html" if request.htmx else "reports/partner_reporting.html"
     return render(request, template, context)
+
+
+def _reporting_export(data: dict[str, Any], tab: str, fmt: str) -> HttpResponse:
+    """The tab's table, every row of the filter (not only the page shown). The Excel file adds the
+    counts of the tiles: indicator reports and progress reports per status, and by section."""
+    if tab == "locations":
+        found = _reporting_locations(data)
+        if found["too_many"]:
+            return HttpResponse(
+                _(
+                    "The filter holds %(n)s report rows, more than %(limit)s: choose a year, a section or a "
+                    "partner first."
+                )
+                % {"n": f"{found['too_many']:,}", "limit": f"{found['limit']:,}"},
+                status=400,
+                content_type="text/plain; charset=utf-8",
+            )
+        label, title, columns = "report-locations", "Report by location", LOCATION_COLUMNS
+        rows: Any = (_location_row(r) for r in found["rows"])
+    elif tab == "partners":
+        label, title, columns = "partners-follow-up", "Follow up", FOLLOW_UP_COLUMNS
+        rows = (_report_row(r) for r in data["partners"]["follow_up"])
+    else:
+        label, title, columns = "progress-reports", "Progress reports", REPORT_COLUMNS
+        rows = (_report_row(r) for r in data["reports"])
+    if fmt == "csv":
+        return exports.stream_csv(exports.export_filename(label, "csv"), columns, rows)
+    sheets: list[tuple[str, Any, Any]] = [(title, columns, rows)]
+    status_rows = [
+        {
+            "status": s["label"],
+            "indicator_reports": s["indicator_reports"],
+            "progress_reports": s["progress_reports"],
+        }
+        for s in data["counts"]["statuses"]
+    ]
+    sheets.append(("By status", ("status", "indicator_reports", "progress_reports"), status_rows))
+    labels = list(reporting_service.rc.STATUS_LABELS.values())
+    section_rows = [
+        {"section": row["section"], **dict(zip(labels, row["counts"], strict=True)), "Total": row["total"]}
+        for row in data["by_section"]["rows"]
+    ]
+    sheets.append(("By section", ("section", *labels, "Total"), section_rows))
+    if tab == "partners":
+        perf = data["partners"]
+        sheets.append(
+            (
+                "Partners by status",
+                ("status", "partners"),
+                [{"status": s["label"], "partners": s["partners"]} for s in perf["by_status"]],
+            )
+        )
+        sheets.append(
+            (
+                "Partners not reported",
+                ("partner", "programme_documents"),
+                [
+                    {"partner": p["name"], "programme_documents": ", ".join(p["pds"])}
+                    for p in perf["not_reported_list"]
+                ],
+            )
+        )
+    return exports.xlsx_response(exports.export_filename(label, "xlsx"), sheets, typed=True)
 
 
 @require_GET
@@ -1210,19 +1448,50 @@ def monitoring(request: HttpRequest) -> HttpResponse:
 # ------------------------------------------------------------------------- partner monitoring (eTools)
 
 
+MONITORING_VIEWS = ("grid", "table", "quality")
+MONITORING_KEYS = ("section", "partner", "pd", "location", *pd_monitoring_service.TAG_FIELDS)
+MONITORING_LISTS = (*MONITORING_KEYS, "pd_status", "document_type", "office", "partner_type")
+# the columns sorted lowest first on the first click (the figures start with the highest)
+ASCENDING_FIRST = ("section", "cp_output", "indicator", "partner", "pd")
+
+
+def _query_with(params: QueryDict, drop: tuple[str, ...] = (), **changes: Any) -> str:
+    """``params`` as a query string without ``drop`` (and the page), with ``changes`` (None removes)."""
+    out = params.copy()
+    for key in (*drop, "page"):
+        out.pop(key, None)
+    for key, value in changes.items():
+        out.pop(key, None)
+        if isinstance(value, list):
+            out.setlist(key, value)
+        elif value is not None:
+            out[key] = value
+    return out.urlencode()
+
+
 @require_GET
 def pd_monitoring(request: HttpRequest) -> HttpResponse:
-    filters = pd_monitoring_service.Filters.from_params(request.GET)
+    """Partner monitoring: the grid (indicators by section, PD and output, with their months), Program
+    Performance (``view=table``: one sortable row per indicator, exported whole) and Data quality
+    (``view=quality``). One filter for the three, so the same filter gives the same figures."""
+    view = request.GET.get("view") if request.GET.get("view") in MONITORING_VIEWS else "grid"
+    # the grid opens on this year; Program Performance and Data quality on every year, as Power BI does
+    filters = pd_monitoring_service.Filters.from_params(request.GET, default_year=view == "grid")
     options = pd_monitoring_service.filter_options(filters)
     own_section: list[str] = []
+    params = request.GET.copy()
     if not request.GET:  # first load, no choice made yet: the user's own section
         own_section = pd_monitoring_service.default_sections(request.user, options["sections"])
         if own_section:
             filters = dataclasses.replace(filters, sections=own_section)
-    rows = pd_monitoring_service.indicators(filters)
+            params.setlist("section", own_section)
+    export = request.GET.get("export")
+    if export in exports.FORMATS:
+        return _monitoring_export(request, filters, export)
+    section_counts: Counter | None = Counter() if view == "table" else None
+    rows = pd_monitoring_service.indicators(filters, section_counts=section_counts)
     data = pd_monitoring_service.summary(rows, filters)
-    page_obj = _paginate(request, rows, pd_monitoring_service.PAGE_SIZE)
-    context = {
+    context: dict[str, Any] = {
         "page_title": _("Partner monitoring"),
         "page_subtitle": _(
             "What partners reported on each programme document indicator, by reporting period and location, "
@@ -1231,26 +1500,121 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
         "breadcrumbs": [_crumb(_("Partner monitoring"))],
         "filters": filters,
         "rows": rows,
-        "page_obj": page_obj,
-        "groups": pd_monitoring_service.grouped(list(page_obj.object_list)),
         "data": data,
-        "months": pd_monitoring_service.MONTHS,
-        # "All years": one column per year with a counted value, instead of the months
-        "year_columns": pd_monitoring_service.year_columns(rows) if filters.all_years else [],
         "labels": pd_monitoring_service.LABELS,
         "options": options,
-        "selected": {
-            key: request.GET.getlist(key)
-            for key in ("section", "partner", "pd", "location", *pd_monitoring_service.TAG_FIELDS)
-        }
+        "selected": {key: request.GET.getlist(key) for key in MONITORING_LISTS}
         | ({"section": own_section} if own_section else {}),
         "own_section": own_section,
-        "view": "grid",
-        "chart_data": {"status_counts": data["status_counts"], "by_section": data["by_section"]},
+        "view": view,
+        "tab_urls": {
+            name: request.path + "?" + _query_with(params, ("view", "sort", "export"), view=name)
+            for name in MONITORING_VIEWS
+        }
+        | {
+            "map": reverse("reports:pd_monitoring_map")
+            + "?"
+            + _query_with(params, ("view", "sort", "export"))
+        },
         "truncated": len(rows) >= pd_monitoring_service.MAX_INDICATORS,
     }
-    template = "reports/partials/monitoring_grid.html" if request.htmx else "reports/pd_monitoring.html"
-    return render(request, template, context)
+    if view == "table":
+        rows, sort = pd_monitoring_service.sorted_rows(rows, request.GET.get("sort", ""))
+        page_obj = _paginate(request, rows, pd_monitoring_service.PAGE_SIZE)
+        current = sort.lstrip("-")
+        context.update(
+            {
+                "rows": rows,
+                "page_obj": page_obj,
+                "sort": sort,
+                "sort_key": current,
+                "sort_desc": sort.startswith("-"),
+                "table_headings": [
+                    ("section", _("Section"), False),
+                    ("cp_output", _("CP output"), False),
+                    ("emergency", _("Emergency"), False),
+                    ("indicator", _("Indicator"), False),
+                    ("target", _("Target"), True),
+                    ("reached", _("Reached"), True),
+                    *(
+                        [("reached_in_year", _("Reached in %(year)s") % {"year": filters.year}, True)]
+                        if filters.year
+                        else []
+                    ),
+                    ("achieved", _("% Reached"), True),
+                    ("partner", _("Partner"), False),
+                    ("pd", _("Programme document"), False),
+                ],
+                "sort_urls": {
+                    key: "?"
+                    + _query_with(
+                        params,
+                        ("export",),
+                        sort=(
+                            ("" if sort.startswith("-") else "-") + key
+                            if key == current
+                            else (key if key in ASCENDING_FIRST else f"-{key}")
+                        ),
+                    )
+                    for key in pd_monitoring_service.TABLE_SORTS
+                },
+                "section_tiles": [
+                    {
+                        "name": name,
+                        "count": count,
+                        "url": "?" + _query_with(params, ("section",), section=name),
+                        "current": name in filters.sections,
+                    }
+                    for name, count in sorted(section_counts.items())
+                ],
+                "all_sections_url": "?" + _query_with(params, ("section",), section=""),
+                "downloads": [
+                    {
+                        "label": _("Excel of the filter"),
+                        "url": "?" + _query_with(params, ("page",), view="table", export="xlsx"),
+                    },
+                    {
+                        "label": _("CSV of the filter"),
+                        "url": "?" + _query_with(params, ("page",), view="table", export="csv"),
+                    },
+                ],
+            }
+        )
+        partial = "reports/partials/pd_monitoring_table.html"
+    elif view == "quality":
+        context["quality"] = pd_monitoring_service.data_quality(rows, filters)
+        partial = "reports/partials/pd_monitoring_quality.html"
+    else:
+        page_obj = _paginate(request, rows, pd_monitoring_service.PAGE_SIZE)
+        context.update(
+            {
+                "page_obj": page_obj,
+                "groups": pd_monitoring_service.grouped(list(page_obj.object_list)),
+                "months": pd_monitoring_service.MONTHS,
+                # "All years": one column per year with a counted value, instead of the months
+                "year_columns": pd_monitoring_service.year_columns(rows) if filters.all_years else [],
+                "chart_data": {"status_counts": data["status_counts"], "by_section": data["by_section"]},
+            }
+        )
+        partial = "reports/partials/monitoring_grid.html"
+    context["partial"] = partial
+    return render(request, partial if request.htmx else "reports/pd_monitoring.html", context)
+
+
+def _monitoring_export(request: HttpRequest, filters, fmt: str) -> HttpResponse:
+    """Program Performance, every indicator of the filter (not only the page shown), in its sort."""
+    rows = pd_monitoring_service.indicators(filters)
+    rows, _sort = pd_monitoring_service.sorted_rows(rows, request.GET.get("sort", ""))
+    columns = pd_monitoring_service.TABLE_COLUMNS
+    if not filters.year:
+        columns = tuple(c for c in columns if c != "reached_in_year")
+    out = pd_monitoring_service.table_rows(rows, filters, request.build_absolute_uri("/").rstrip("/"))
+    label = "program-performance" + (f"-{filters.year}" if filters.year else "")
+    if fmt == "xlsx":
+        return exports.xlsx_response(
+            exports.export_filename(label, "xlsx"), [("Program Performance", columns, out)], typed=True
+        )
+    return exports.stream_csv(exports.export_filename(label, "csv"), columns, out)
 
 
 @require_GET
@@ -1264,9 +1628,8 @@ def pd_monitoring_map(request: HttpRequest) -> HttpResponse:
         if own_section:
             filters = dataclasses.replace(filters, sections=own_section)
     params = request.GET.copy()
-    for key in ("section", "partner", "pd", "location", *pd_monitoring_service.TAG_FIELDS):
-        if own_section and key == "section":
-            params.setlist(key, own_section)
+    if own_section:
+        params.setlist("section", own_section)
     context = {
         "page_title": _("Partner monitoring map"),
         "page_subtitle": _(
@@ -1280,13 +1643,15 @@ def pd_monitoring_map(request: HttpRequest) -> HttpResponse:
         "filters": filters,
         "labels": pd_monitoring_service.LABELS,
         "options": options,
-        "selected": {
-            key: request.GET.getlist(key)
-            for key in ("section", "partner", "pd", "location", *pd_monitoring_service.TAG_FIELDS)
-        }
+        "selected": {key: request.GET.getlist(key) for key in MONITORING_LISTS}
         | ({"section": own_section} if own_section else {}),
         "own_section": own_section,
         "view": "map",
+        "tab_urls": {
+            name: reverse("reports:pd_monitoring") + "?" + _query_with(params, ("view", "sort"), view=name)
+            for name in MONITORING_VIEWS
+        }
+        | {"map": request.path + "?" + _query_with(params, ("view", "sort"))},
         "map_config": {
             "api": reverse("api:pd_map") + ("?" + params.urlencode() if params else ""),
             "labels": pd_monitoring_service.LABELS,

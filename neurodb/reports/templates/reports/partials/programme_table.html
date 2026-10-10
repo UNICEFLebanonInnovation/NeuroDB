@@ -1,4 +1,11 @@
 {% load i18n ui %}
+<div class="toolbar px-3 pt-3">
+  <div class="segmented segmented--scroll" role="group" aria-label="{% trans 'Programme documents or their indicators' %}">
+    <a href="{{ tab_urls.documents }}" {% if tab != "indicators" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="file" %} {% trans "Programme documents" %}</a>
+    <a href="{{ tab_urls.indicators }}" {% if tab == "indicators" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="target" %} {% trans "Indicators" %}</a>
+  </div>
+</div>
+{% if tab == "indicators" %}{% include "reports/partials/_programme_indicators.html" %}{% else %}
 {% include "components/table_toolbar.html" with title=_("Programme documents") count=page_obj.paginator.count table_id="pds" filename="programme-documents" %}
 {% if rows %}
 <div class="table-wrap"><table class="table table-hover" id="pds" data-sortable>
@@ -22,4 +29,5 @@
 {% include "components/pagination.html" with hx_target="#pd-table" %}
 {% else %}
 {% include "components/empty_state.html" with icon="filter" title=_("No programme documents match") message=_("Remove some filters. If the list stays empty, the eTools data has not been synced yet.") action_url=request.path %}
+{% endif %}
 {% endif %}

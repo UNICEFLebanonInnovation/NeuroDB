@@ -1,28 +1,56 @@
 {% extends "base.html" %}
 {% load i18n ui %}
 {% block content %}
+<div class="filters-collapse" data-filters-collapse>
 <form method="get" class="filter-bar" data-filter-bar data-hx-target="#reporting-results" role="search" aria-label="{% trans 'Partner reporting filters' %}">
+  {% if tab != "reports" %}<input type="hidden" name="tab" value="{{ tab }}">{% endif %}
+  {% if overdue %}<input type="hidden" name="overdue" value="1">{% endif %}
   <div class="filter-bar__field">
     <label class="form-label" for="f-q">{% trans "Search" %}</label>
-    <input class="form-control form-control-sm" type="search" id="f-q" name="q" value="{{ q }}" placeholder="{% trans 'Partner, vendor, PD or indicator' %}">
+    <input class="form-control form-control-sm" type="search" id="f-q" name="q" value="{{ q }}" placeholder="{% trans 'Partner, vendor, PD reference or indicator' %}">
   </div>
-  {% trans "Status" as l %}{% include "reports/_multiselect.html" with name="status" label=l options=data.options.statuses values=selected.status %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-status">{% trans "Report status" %}</label>
+    <select class="form-select form-select-sm" id="f-status" name="status" multiple data-tom placeholder="{% trans 'All' %}">
+      {% for s in data.options.statuses %}<option value="{{ s.value }}" {% if s.value in selected.status %}selected{% endif %}>{{ s.label }}</option>{% endfor %}
+    </select>
+  </div>
   {% trans "Report type" as l %}{% include "reports/_multiselect.html" with name="report_type" label=l options=data.options.types values=selected.report_type %}
   <div class="filter-bar__field">
-    <label class="form-label" for="f-year">{% trans "Period ending in" %}</label>
+    <label class="form-label" for="f-year">{% trans "Reporting year" %}</label>
     <select class="form-select form-select-sm" id="f-year" name="year">
       <option value="">{% trans "All years" %}</option>
       {% for y in data.options.years %}<option value="{{ y }}" {% if y|stringformat:"s" == year %}selected{% endif %}>{{ y }}</option>{% endfor %}
     </select>
   </div>
+  {% trans "Section" as l %}{% include "reports/_multiselect.html" with name="section" label=l options=data.options.sections values=selected.section %}
+  {% trans "Report #" as l %}{% include "reports/_multiselect.html" with name="report_number" label=l options=data.options.report_numbers values=selected.report_number %}
   <div class="filter-bar__field">
-    <span class="form-label">{% trans "Show only" %}</span>
-    <label class="form-check mb-0 small"><input class="form-check-input" type="checkbox" name="overdue" value="1" {% if overdue %}checked{% endif %}> {% trans "Overdue, not submitted" %}</label>
+    <label class="form-label" for="f-partner">{% trans "Partner" %}</label>
+    <select class="form-select form-select-sm" id="f-partner" name="partner" multiple data-tom placeholder="{% trans 'All' %}">
+      {% for p in data.options.partners %}<option value="{{ p.value }}" {% if p.value in selected.partner %}selected{% endif %}>{{ p.label }}</option>{% endfor %}
+    </select>
+  </div>
+  {% trans "Partner type" as l %}{% include "reports/_multiselect.html" with name="partner_type" label=l options=data.options.partner_types values=selected.partner_type %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-pd-status">{% trans "PD status" %}</label>
+    <select class="form-select form-select-sm" id="f-pd-status" name="pd_status" multiple data-tom placeholder="{% trans 'All' %}">
+      {% for s in data.options.pd_statuses %}<option value="{{ s }}" {% if s in selected.pd_status %}selected{% endif %}>{{ s|code_label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <span class="form-label">{% trans "Period start between" %}</span>
+    <div class="date-range"><input class="form-control form-control-sm" type="date" name="start_from" value="{{ f.start_from|date:'Y-m-d' }}" aria-label="{% trans 'Period start from' %}"><input class="form-control form-control-sm" type="date" name="start_to" value="{{ f.start_to|date:'Y-m-d' }}" aria-label="{% trans 'Period start to' %}"></div>
+  </div>
+  <div class="filter-bar__field">
+    <span class="form-label">{% trans "Period end between" %}</span>
+    <div class="date-range"><input class="form-control form-control-sm" type="date" name="end_from" value="{{ f.end_from|date:'Y-m-d' }}" aria-label="{% trans 'Period end from' %}"><input class="form-control form-control-sm" type="date" name="end_to" value="{{ f.end_to|date:'Y-m-d' }}" aria-label="{% trans 'Period end to' %}"></div>
   </div>
   <div class="filter-bar__actions">
     <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
-    <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}{% if tab != 'reports' %}?tab={{ tab }}{% endif %}">{% trans "Reset" %}</a>
   </div>
 </form>
+</div>
 <div id="reporting-results" aria-live="polite">{% include "reports/partials/reporting_table.html" %}</div>
 {% endblock %}

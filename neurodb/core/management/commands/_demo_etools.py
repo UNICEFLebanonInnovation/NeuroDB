@@ -52,6 +52,13 @@ INDICATORS = {
         ("# of pregnant women receiving micronutrients", 1500),
     ],
 }
+# the country programme output each section's indicators report under (from the partner reports)
+CP_OUTPUTS = {
+    "Child Protection": "3.1 Children at risk reached with protection services",
+    "Education": "2.4 Multiple flexible learning pathways",
+    "WASH": "4.2 Water, sanitation and hygiene services for marginalised communities",
+    "Health and Nutrition": "1.3 Primary health care and nutrition services for children and women",
+}
 TPM_STATUSES_PAST = ["unicef_approved", "unicef_approved", "tpm_reported", "tpm_accepted", "cancelled"]
 MODULES = ["tpm", "fm", "audit"]
 
@@ -168,6 +175,7 @@ def _indicators_and_reports(rng, pca, section, places, counters, today, year) ->
                     target_numerator=Decimal(target),
                     section_name=section,
                     lower_result_name=f"Output {i_index}: {section} services",
+                    cp_output=CP_OUTPUTS.get(section, "") if reports_pace != "none" else "",
                     location_name=place.name,
                     location_pcode=place.p_code,
                     location_source_id=place.id,
@@ -214,6 +222,7 @@ def _indicators_and_reports(rng, pca, section, places, counters, today, year) ->
                         due_date=due,
                         submission_date=None if missing else min(due, today) - dt.timedelta(days=3),
                         section=section,
+                        cp_output=CP_OUTPUTS.get(section, ""),
                         indicator=title,
                         target=str(target),
                         location=place.name,

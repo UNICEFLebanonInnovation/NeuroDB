@@ -961,8 +961,9 @@ left out): each row ends with the location's Reached, each column with the repor
 corner is Reached; reports that do not count are greyed and stay out of every total. The progress
 report pop-up shows each location's value parsed (never PRP's raw text) and a total row that follows
 the method. The programme document page lists Reached on each indicator with its latest counted
-report. *Progress reports* counts reports by the six statuses (they add up to the total), and the
-report lists of the programme document and partner pages show the same status for each report.
+report. *Progress reports* counts indicator reports by the six statuses (they add up to the total;
+see *The Power BI views* below), and the report lists of the programme document and partner pages
+show the same status for each report.
 
 **Statuses.** *On track / Off track / Ahead of schedule* compare Reached's share of the target with
 the share of the PD period (start to end) elapsed, ±10 points, the same rule the ActivityInfo pages
@@ -986,6 +987,63 @@ and whether the financial contribution repeats on every indicator of a report), 
 and what NeuroDB does whatever the answer. Every query is aggregate and stopped after 20 seconds.
 Nothing needs running: the page reads what the nightly eTools Datamart sync stored (Run a job →
 *Sync eTools (Datamart)* refreshes it).
+
+**The Power BI views.** The eTools Power BI report's pages live on NeuroDB's own pages, with the same
+figures as everywhere else (they read the rule above; nothing is added across indicators):
+
+* **Programme document statuses** have one definition (`neurodb/partnerships/statuses.py`): *Active*
+  is the eTools status active alone (the Programmes page's *Active*, the partner pages' active count,
+  the *Active PDs* tile); *Running* is active, signed or suspended (the default of the PD status
+  filter on Partner monitoring, and what the overview, the daily review and the watch read); *Ended*
+  is ended, closed, terminated or expired. Clearing the PD status filter shows every status.
+* **Partner monitoring** has four views on one filter: *Grid* (by section, PD and output, with the
+  months), **Program Performance** (one row per indicator: Section, CP output, Emergency, Indicator,
+  Target, Reached, % Reached, Partner, PD; sorted by % Reached, highest first; click a heading to
+  sort; section tiles with their indicator counts filter the table), **Data quality** and *Map*.
+  Filters: PD status, Section, Partner, Partner type (eTools partner type or CSO type), Programme
+  document, Document type, Office, Emergency (the high-frequency indicators, reported monthly),
+  CP output (words in it), Indicator (title or output), locations, the title tags, report type,
+  Reporting year and status. Program Performance and Data quality open on *All years* (Reached to
+  date), the grid on this year; with a year chosen they add *Reached in* that year. An indicator's CP
+  output comes from its partner reports; one not reported yet takes its PD's CP output when the PD
+  has only one. *Excel of the filter* / *CSV of the filter* export every indicator of the filter, not
+  only the page shown.
+* **Data quality** tiles: programme documents (running, active, ended), indicators, with and without
+  Reached ("with Reached": a counted report carries a value; with a year chosen, Reached in that
+  year), with and without a target (a target of zero is missing). Lists: indicators without a
+  target; without Reached or with zero Reached; and NeuroDB's own checks: Reached differs from PRP's
+  cumulative, the same title twice in one PD (kept apart, never merged), partial history. Each list
+  shows its first 500 rows; the counts are complete.
+* **Progress reports** has three tabs on one filter (search, report status, report type, reporting
+  year, section, report #, partner, partner type, PD status, period start and period end between):
+  * *Reporting progress*: tiles of **indicator reports** (one indicator in one progress report, as
+    Power BI counts them) per status, with the number of progress reports under each; indicator
+    reports by section and status with a total row (a report counts under its rows' section, else its
+    PD's sections, never twice); indicator reports by month of the due date and status, Not yet due
+    included; and the report table (PD, PD status, partner, section, report, status, document type,
+    due date, period start and end, submission, UNICEF focal points, indicators).
+  * *Partners* (Partner Performance): partners with a progress report in the filter (whatever its
+    status), those with at least one Submitted or Accepted report, those without (listed), the
+    partners with a report in each status, and the reports to follow up: Overdue, Sent back, Due and
+    Submitted, in that order and by due date. A partner whose PDs have no report in PRP at all is
+    not counted.
+  * *By location* (Report/Location): one row per indicator, report and location with the value in
+    the period (the disaggregation total, read as Reached reads it: a value repeated on every
+    location is the report total and is not shown as the location's; two rows of one location are
+    never added, the row count is noted) and PRP's figure to date at the location. Reports that do
+    not count are greyed. It reads at most 60,000 report rows at once; above that it asks for a
+    narrower filter.
+  The exports hold every row of the tab's filter; the Excel file adds the indicator reports and
+  progress reports per status and the section table (and, on *Partners*, partners per status and
+  those not reported). The status filter uses the six statuses (an old link with PRP's word, such as
+  `status=Accepted`, still works).
+* **UNICEF focal points** are shown by name only (`PCA.unicef_focal_points`); an entry that is or
+  holds an e-mail address is left out. Partner focal points are never shown.
+* **Programmes → Indicators** (PD/SPD Indicators): one row per indicator of the filtered programme
+  documents (eTools lists an indicator once per location and disaggregation) with the PD's number,
+  status, partner, document type, title, start, end and office, the indicator's own section, CP
+  output, PD output, baseline, target and emergency flag; filters add PD reference, indicator title
+  and Emergency; exported whole.
 
 ### One programme implementation ecosystem: how the eTools records are linked
 

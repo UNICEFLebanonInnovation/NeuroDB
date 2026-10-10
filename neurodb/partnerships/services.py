@@ -12,12 +12,13 @@ from django.db.models import Count, Exists, IntegerField, OuterRef, Q, QuerySet,
 from neurodb.datamart.models import ReportedIndicator
 from neurodb.facts.models import ActivityReportNew
 
+from . import statuses
 from .models import PCA, Engagement, PartnerLink, PartnerOrganization, TravelActivity
 
-ACTIVE_STATUSES = ("active",)
+ACTIVE_STATUSES = statuses.ACTIVE  # the eTools status "active" (neurodb.partnerships.statuses)
 EXCLUDED_STATUSES = ("draft",)
 # statuses of a programme document still running; eTools can lag in closing one after its end date
-RUNNING_STATUSES = ("active", "signed", "suspended")
+RUNNING_STATUSES = statuses.RUNNING
 
 
 def past_end_date(status: str | None, end: datetime.date | None, today: datetime.date | None = None) -> bool:

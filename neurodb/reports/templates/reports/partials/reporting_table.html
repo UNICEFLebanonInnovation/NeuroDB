@@ -1,38 +1,64 @@
-{% load i18n ui %}
+{% load i18n ui humanize %}
+<div class="toolbar">
+  <div class="segmented segmented--scroll" role="group" aria-label="{% trans 'Progress report views' %}">
+    <a href="{{ tab_urls.reports }}" {% if tab == "reports" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="chart" %} {% trans "Reporting progress" %}</a>
+    <a href="{{ tab_urls.partners }}" {% if tab == "partners" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="users" %} {% trans "Partners" %}</a>
+    <a href="{{ tab_urls.locations }}" {% if tab == "locations" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="pin" %} {% trans "By location" %}</a>
+  </div>
+</div>
+{% if tab == "partners" %}{% include "reports/partials/_reporting_partners.html" %}
+{% elif tab == "locations" %}{% include "reports/partials/_reporting_locations.html" %}
+{% else %}
+{% with c=data.counts %}
 <div class="kpi-grid">
-  {% blocktrans asvar h0 with n=data.summary.late|number %}{{ n }} submitted after their due date{% endblocktrans %}
-  {% trans "Progress reports" as l0 %}{% include "components/kpi_tile.html" with label=l0 value=data.summary.reports|number hint=h0 %}
-  {% trans "Accepted" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=data.summary.accepted|number %}
-  {% trans "Submitted" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.summary.submitted|number hint=_("awaiting acceptance") %}
-  {% trans "Sent back" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.summary.sent_back|number status=data.summary.sent_back|yesno:"over_target," %}
-  {% trans "Due" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.summary.due|number hint=_("period ended, due date not passed") %}
-  {% trans "Overdue" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=data.summary.overdue|number status=data.summary.overdue|yesno:"off_track," hint=_("not submitted by the due date") %}
-  {% trans "Not yet due" as l6 %}{% include "components/kpi_tile.html" with label=l6 value=data.summary.not_yet_due|number hint=_("period still running") %}
+  {% blocktrans asvar h0 count counter=c.progress_reports %}in {{ counter }} progress report{% plural %}in {{ counter }} progress reports{% endblocktrans %}
+  {% trans "Indicator reports" as l0 %}{% include "components/kpi_tile.html" with label=l0 value=c.indicator_reports|intcomma hint=h0 %}
+  {% for s in c.statuses %}
+  {% blocktrans asvar hint count counter=s.progress_reports %}{{ counter }} progress report{% plural %}{{ counter }} progress reports{% endblocktrans %}
+  {% if s.key == "overdue" %}{% include "components/kpi_tile.html" with label=s.label value=s.indicator_reports|intcomma hint=hint status=s.indicator_reports|yesno:"off_track," %}{% elif s.key == "sent_back" %}{% include "components/kpi_tile.html" with label=s.label value=s.indicator_reports|intcomma hint=hint status=s.indicator_reports|yesno:"over_target," %}{% else %}{% include "components/kpi_tile.html" with label=s.label value=s.indicator_reports|intcomma hint=hint %}{% endif %}
+  {% endfor %}
 </div>
-<div class="grid grid--2 mb-3">
-  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Reports by status" %}</h2></div>
-    <div class="chart chart--sm" data-module="charts" data-chart="bars" data-source="reporting-chart-data" data-key="by_status" data-empty-title="{% trans 'No progress reports' %}"></div></section>
-  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "About partner reporting" %}</h2></div>
-    <p class="small text-muted mb-0">{% blocktrans %}Partners report progress on their programme document indicators in the Partner Reporting Portal (PRP): quarterly progress reports (QPR), humanitarian reports (HR) and special reports (SR). Open a report to see each indicator's value in the period by location, and its total. Accepted and Submitted reports count in Reached on Partner monitoring; Sent back, Due and Overdue reports do not.{% endblocktrans %}</p></section>
-</div>
+<p class="small text-muted mb-3">{% blocktrans with late=data.summary.late|intcomma %}Each tile counts indicator reports: one indicator in one progress report, as the eTools Power BI report counts them; the number of progress reports is under it. Every report has one status, so the tiles add up to the total. Submitted means awaiting acceptance; Not yet due, that the reporting period is still running. {{ late }} progress reports were submitted after their due date.{% endblocktrans %}</p>
+{% endwith %}
+<section class="panel p-0 mb-3">
+    {% include "components/table_toolbar.html" with title=_("Indicator reports by section") count=None table_id="reporting-sections" filename="indicator-reports-by-section" downloads=None %}
+    {% if data.by_section.rows %}
+    <div class="table-wrap"><table class="table table-sm status-matrix" id="reporting-sections">
+      <thead><tr><th scope="col">{% trans "Section" %}</th>{% for s in data.counts.statuses %}<th scope="col" class="num">{{ s.label }}</th>{% endfor %}<th scope="col" class="num">{% trans "Total" %}</th></tr></thead>
+      <tbody>{% for row in data.by_section.rows %}<tr><th scope="row" class="fw-normal small">{{ row.section }}</th>{% for n in row.counts %}<td class="num">{{ n|intcomma }}</td>{% endfor %}<td class="num fw-semibold">{{ row.total|intcomma }}</td></tr>{% endfor %}</tbody>
+      <tfoot><tr><th scope="row">{% trans "Total" %}</th>{% for n in data.by_section.totals %}<td class="num">{{ n|intcomma }}</td>{% endfor %}<td class="num">{{ data.by_section.total|intcomma }}</td></tr></tfoot>
+    </table></div>
+    {% else %}<p class="small text-muted px-3 py-2 mb-0">{% trans "No progress reports match." %}</p>{% endif %}
+</section>
+<section class="panel mb-3">
+  <div class="panel__header"><h2 class="panel__title">{% trans "Indicator reports by month of the due date" %}</h2><span class="panel__hint">{% trans "Not yet due included" %}</span></div>
+  <div class="chart" data-module="charts" data-chart="grouped" data-source="reporting-chart-data" data-key="by_month" data-legend="top" data-height="300" data-empty-title="{% trans 'No progress reports' %}" aria-label="{% trans 'Indicator reports by month of the due date and status' %}"></div>
+</section>
 <section class="panel p-0">
-  {% include "components/table_toolbar.html" with title=_("Progress reports") count=page_obj.paginator.count table_id="progress-reports" filename="progress-reports" %}
+  {% include "components/table_toolbar.html" with title=_("Progress reports") count=page_obj.paginator.count table_id="progress-reports" filename="progress-reports" downloads=downloads %}
   {% if page_obj.object_list %}
-  <div class="table-wrap"><table class="table table-hover" id="progress-reports" data-sortable>
-    <thead><tr><th>{% trans "Report" %}</th><th>{% trans "Partner / PD" %}</th><th>{% trans "Period" %}</th><th>{% trans "Due" %}</th><th>{% trans "Submitted" %}</th><th>{% trans "Status" %}</th><th class="num">{% trans "Indicators" %}</th></tr></thead>
+  <div class="table-wrap"><table class="table table-hover table-sm" id="progress-reports" data-sortable>
+    <thead><tr><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Partner" %}</th><th scope="col">{% trans "Section" %}</th><th scope="col">{% trans "Report" %}</th><th scope="col">{% trans "Status" %}</th><th scope="col">{% trans "Document type" %}</th><th scope="col">{% trans "Due" %}</th><th scope="col">{% trans "Period start" %}</th><th scope="col">{% trans "Period end" %}</th><th scope="col">{% trans "Submitted" %}</th><th scope="col">{% trans "UNICEF focal points" %}</th><th scope="col" class="num"><span class="has-tip" title="{% trans 'Indicator reports: the indicators this progress report covers' %}">{% trans "Indicators" %}</span></th></tr></thead>
     <tbody>{% for r in page_obj %}{% url 'reports:progress_report' as report_url %}<tr>
-      <td><a class="mono small" href="{{ report_url }}?report={{ r.progress_report|urlencode }}" hx-get="{{ report_url }}?report={{ r.progress_report|urlencode }}" hx-target="#modal-content" hx-push-url="false">{{ r.report_number|default:"—" }}</a><span class="cell-sub">{{ r.report_type }}</span></td>
-      <td>{% if r.partner_id %}<a href="{% url 'reports:partner_profile' r.partner_id %}">{{ r.partner_name|default:"—" }}</a>{% else %}{{ r.partner_name|default:"—" }}{% endif %}{% if r.intervention_id %}<span class="cell-sub"><a href="{% url 'reports:programme_detail' r.intervention_id %}">{{ r.pd_reference_number }}</a></span>{% else %}<span class="cell-sub mono">{{ r.pd_reference_number }}</span>{% endif %}</td>
-      <td class="small text-nowrap">{{ r.period_start|date:"j M Y"|default:"—" }} – {{ r.period_end|date:"j M Y"|default:"—" }}</td>
-      <td class="small text-nowrap" data-value="{{ r.due_date|date:'Y-m-d' }}">{{ r.due_date|date:"j M Y"|default:"—" }}</td>
-      <td class="small text-nowrap" data-value="{{ r.submission_date|date:'Y-m-d' }}">{% if r.submission_date %}{{ r.submission_date|date:"j M Y" }}{% if r.due_date and r.submission_date > r.due_date %}<span class="cell-sub text-warning">{% trans "Late" %}</span>{% endif %}{% elif r.status == "overdue" %}<span class="text-danger">{% trans "Overdue" %}</span>{% else %}—{% endif %}</td>
+      <td class="small text-nowrap">{% if r.intervention_id %}<a href="{% url 'reports:programme_detail' r.intervention_id %}">{{ r.pd_reference_number|default:"—" }}</a>{% else %}<span class="mono">{{ r.pd_reference_number|default:"—" }}</span>{% endif %}{% if r.pd_status %}<span class="cell-sub">{{ r.pd_status_label }}</span>{% endif %}</td>
+      <td class="small cell-wrap">{% if r.partner_id %}<a href="{% url 'reports:partner_profile' r.partner_id %}">{{ r.partner_name|default:"—" }}</a>{% else %}{{ r.partner_name|default:"—" }}{% endif %}</td>
+      <td class="small">{{ r.section|default:"—" }}</td>
+      <td class="text-nowrap">{% if r.progress_report %}<a class="mono small" href="{{ report_url }}?report={{ r.progress_report|urlencode }}" hx-get="{{ report_url }}?report={{ r.progress_report|urlencode }}" hx-target="#modal-content" hx-push-url="false">{{ r.report_number|default:"—" }}</a>{% else %}<span class="mono small">{{ r.report_number|default:"—" }}</span>{% endif %}<span class="cell-sub">{{ r.report_type }}</span></td>
       <td>{% status_pill r.status r.status_label "sm" %}</td>
+      <td class="small">{{ r.document_type|default:"—" }}</td>
+      <td class="small text-nowrap" data-value="{{ r.due_date|date:'Y-m-d' }}">{{ r.due_date|date:"j M Y"|default:"—" }}</td>
+      <td class="small text-nowrap" data-value="{{ r.period_start|date:'Y-m-d' }}">{{ r.period_start|date:"j M Y"|default:"—" }}</td>
+      <td class="small text-nowrap" data-value="{{ r.period_end|date:'Y-m-d' }}">{{ r.period_end|date:"j M Y"|default:"—" }}</td>
+      <td class="small text-nowrap" data-value="{{ r.submission_date|date:'Y-m-d' }}">{% if r.submission_date %}{{ r.submission_date|date:"j M Y" }}{% if r.due_date and r.submission_date > r.due_date %}<span class="cell-sub text-warning">{% trans "Late" %}</span>{% endif %}{% elif r.status == "overdue" %}<span class="text-danger">{% trans "Overdue" %}</span>{% else %}—{% endif %}</td>
+      <td class="small cell-wrap">{{ r.focal_points|join:", "|default:"—" }}</td>
       <td class="num">{{ r.indicators }}</td>
     </tr>{% endfor %}</tbody>
   </table></div>
   {% include "components/pagination.html" with hx_target="#reporting-results" %}
+  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}Open a report to see each indicator's value in the period by location, and its total. Accepted and Submitted reports count in Reached on Partner monitoring; Sent back, Due and Overdue reports do not. UNICEF focal points are shown by name only. The Excel and CSV files hold every report of the filter; the Excel file also has the counts by status and by section.{% endblocktrans %}</p>
   {% else %}
   {% include "reports/partials/_datamart_empty.html" with icon="file" title=_("No progress reports match") empty_title=_("No progress reports synced yet") %}
   {% endif %}
 </section>
+{% endif %}
 {{ chart_data|json_script:"reporting-chart-data" }}

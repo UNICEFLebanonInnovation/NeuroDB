@@ -23,12 +23,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from django.db.models import Q, QuerySet
-from django.db.models.functions import Trim
 from django.urls import reverse
 
 from neurodb.geo.models import Location
 from neurodb.indicators.services import tracking
 from neurodb.indicators.services.tracking import NO_TARGET, tracking_between
+from neurodb.partnerships import statuses as pd_statuses
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
 from . import models as dm
@@ -38,7 +38,8 @@ from .tags import TAG_FIELDS
 
 REPORT_TYPES = {"QPR": "Quarterly progress reports", "HR": "Humanitarian reports (monthly)"}
 DEFAULT_REPORT_TYPE = "QPR"
-ACTIVE_PD_STATUSES = ("active", "signed", "suspended")
+# the running programme documents (active, signed or suspended), as every page reads them
+ACTIVE_PD_STATUSES = pd_statuses.RUNNING
 SUBMITTED = ("submitted", "accepted", "sent back", "sen", "sub", "acc")  # report_status: word or code
 # SUBMITTED as one pattern for the database: the whole status, any case, spaces around allowed
 SUBMITTED_REGEX = r"^\s*(" + "|".join(re.escape(s) for s in SUBMITTED) + r")\s*$"
@@ -103,6 +104,14 @@ class Filters:
     status: str = ""  # on_track | off_track | over_target | no_target | not_reported
     q: str = ""
     tags: dict[str, list[str]] = field(default_factory=dict)
+    # eTools PD statuses chosen in the filter: None follows ``scope`` (the running PDs by default), an
+    # empty list is every status
+    pd_statuses: list[str] | None = None
+    document_types: list[str] = field(default_factory=list)  # PD, SPD...
+    offices: list[str] = field(default_factory=list)  # the PD's UNICEF offices
+    partner_types: list[str] = field(default_factory=list)  # partner type or CSO type
+    emergency: str = ""  # yes: the emergency (high-frequency) indicators, no: the others
+    cp_output: str = ""  # words in the indicator's country programme output
 
     @property
     def all_years(self) -> bool:
@@ -113,23 +122,49 @@ class Filters:
         """The year as the page's links carry it ("all" for every year)."""
         return str(self.year) if self.year else ALL_YEARS
 
+    @property
+    def status_choice(self) -> list[str]:
+        """The PD statuses the filter shows as chosen (none: every status)."""
+        if self.pd_statuses is not None:
+            return list(self.pd_statuses)
+        return list(ACTIVE_PD_STATUSES) if self.scope == "active" else []
+
     @classmethod
-    def from_params(cls, params, today: datetime.date | None = None) -> Filters:
+    def from_params(cls, params, today: datetime.date | None = None, default_year: bool = True) -> Filters:
+        """The page's filter from its query. ``default_year``: without a year, this calendar year (the
+        grid); else every year (Program Performance and Data quality, as Power BI opens them)."""
         today = today or datetime.date.today()
-        getlist = params.getlist if hasattr(params, "getlist") else (lambda k: params.get(k, []) or [])
+
+        def getlist(key: str) -> list[str]:
+            # a query (several values per key) or a plain dict (Ask NeuroDB, tests): one value or a list
+            values = params.getlist(key) if hasattr(params, "getlist") else params.get(key, [])
+            return [values] if isinstance(values, str) else list(values or [])
+
         report_type = (params.get("report_type") or DEFAULT_REPORT_TYPE).upper()
         raw_year = str(params.get("year") or "").strip().lower()
+        if raw_year == ALL_YEARS or (not raw_year and not default_year):
+            year = None
+        else:
+            year = year_param(raw_year) or today.year
+        emergency = str(params.get("emergency") or "").strip().lower()
         return cls(
             sections=[x for x in getlist("section") if x],
             partners=[x for x in getlist("partner") if x],
             pds=[x for x in getlist("pd") if x],
             locations=[x for x in getlist("location") if x],
             report_type=report_type if report_type in REPORT_TYPES else DEFAULT_REPORT_TYPE,
-            year=None if raw_year == ALL_YEARS else (year_param(raw_year) or today.year),
+            year=year,
             scope=params.get("scope") if params.get("scope") in ("all", "year") else "active",
             status=params.get("status") or "",
             q=(params.get("q") or "").strip(),
             tags={t: [x for x in getlist(t) if x] for t in TAG_FIELDS},
+            # "pd_status=" alone (nothing chosen) is every status; no key at all, the running PDs
+            pd_statuses=[x for x in getlist("pd_status") if x] if "pd_status" in params else None,
+            document_types=[x for x in getlist("document_type") if x],
+            offices=[x for x in getlist("office") if x],
+            partner_types=[x for x in getlist("partner_type") if x],
+            emergency=emergency if emergency in ("yes", "no") else "",
+            cp_output=(params.get("cp_output") or "").strip(),
         )
 
 
@@ -151,10 +186,12 @@ def default_sections(user, options: list[str]) -> list[str]:
 
 
 def _pd_queryset(filters: Filters) -> QuerySet[PCA]:
-    qs = PCA.objects.select_related("partner").exclude(status__in=("draft", "cancelled"))
-    if filters.scope == "active":
+    qs = PCA.objects.select_related("partner").exclude(status__in=pd_statuses.NOT_A_PARTNERSHIP)
+    if filters.pd_statuses:  # the statuses chosen in the filter
+        qs = qs.filter(status__in=filters.pd_statuses)
+    elif filters.pd_statuses is None and filters.scope == "active":
         qs = qs.filter(status__in=ACTIVE_PD_STATUSES)
-    elif filters.scope == "year" and filters.year:  # every PD running in the year, closed ones too
+    if filters.scope == "year" and filters.year:  # every PD running in the year, closed ones too
         first, last = datetime.date(filters.year, 1, 1), datetime.date(filters.year, 12, 31)
         qs = qs.filter(Q(start__isnull=True) | Q(start__lte=last), Q(end__isnull=True) | Q(end__gte=first))
     if filters.partners:
@@ -163,19 +200,28 @@ def _pd_queryset(filters: Filters) -> QuerySet[PCA]:
         qs = qs.filter(number__in=filters.pds)
     if filters.pd_ids:
         qs = qs.filter(id__in=filters.pd_ids)
+    if filters.document_types:
+        qs = qs.filter(document_type__in=filters.document_types)
+    if filters.offices:
+        qs = qs.filter(offices_set__overlap=filters.offices)
+    if filters.partner_types:
+        qs = qs.filter(
+            Q(partner__partner_type__in=filters.partner_types)
+            | Q(partner__cso_type__in=filters.partner_types)
+        )
     return qs
 
 
 def _indicator_rows(filters: Filters, pd_ids: list[int]) -> QuerySet[dm.PDIndicator]:
+    """The PD indicator rows the filters keep (the section is chosen per indicator, in :func:`indicators`)."""
     qs = dm.PDIndicator.objects.filter(intervention_id__in=pd_ids)
-    if filters.sections:  # trimmed: rows synced before names were trimmed may end with a space
-        wanted = [s.strip() for s in filters.sections]
-        qs = qs.annotate(_section=Trim("section_name")).filter(_section__in=wanted)
     if filters.q:
         qs = qs.filter(Q(title__icontains=filters.q) | Q(lower_result_name__icontains=filters.q))
     for tag, values in filters.tags.items():
         if values:
             qs = qs.filter(**{f"tag_{tag}__in": values})
+    if filters.emergency:
+        qs = qs.filter(is_high_frequency=filters.emergency == "yes")
     if filters.report_type == "HR":
         qs = qs.filter(Q(is_high_frequency=True) | ~Q(cluster_name=""))
     return qs
@@ -321,8 +367,16 @@ def ident_of(pd_id: int, source_id: int | None, title: str | None) -> tuple[int,
     return (pd_id, f"s{source_id}") if source_id else (pd_id, f"t{norm(title)}")
 
 
-def indicators(filters: Filters, today: datetime.date | None = None) -> list[Indicator]:
-    """One entry per PD indicator, with its Reached from the selected report type."""
+def indicators(
+    filters: Filters,
+    today: datetime.date | None = None,
+    *,
+    section_counts: Counter | None = None,
+) -> list[Indicator]:
+    """One entry per PD indicator, with its Reached from the selected report type.
+
+    ``section_counts``: filled with the number of indicators of each section that every other filter
+    keeps (the section tiles of Program Performance); every section's Reached is then computed."""
     today = today or datetime.date.today()
     pds = {pd.id: pd for pd in _pd_queryset(filters)}
     if not pds:
@@ -382,11 +436,25 @@ def indicators(filters: Filters, today: datetime.date | None = None) -> list[Ind
                     "id": row["location_id"],
                 },
             )
+    for entry in found.values():
+        if not entry.cp_output:  # not reported yet: the PD's own CP output when it has only one
+            outputs = [x for x in (entry.pd.cp_outputs or []) if x]
+            entry.cp_output = outputs[0] if len(outputs) == 1 else ""
+    if filters.cp_output:
+        words = norm(filters.cp_output)
+        found = {k: e for k, e in found.items() if words in norm(e.cp_output)}
     if filters.locations:
         wanted = {norm(x) for x in filters.locations}
         found = {k: e for k, e in found.items() if any(norm(loc) in wanted for loc in e.locations)}
+    sections = {s.strip() for s in filters.sections if s.strip()}
+    if section_counts is None and sections:  # only the chosen sections' Reached is computed
+        found = {k: e for k, e in found.items() if e.section in sections}
     _attach_reached(found, filters, today)
     result = [e for e in found.values() if not filters.status or e.tracking == filters.status]
+    if section_counts is not None:
+        section_counts.update(e.section or "—" for e in result)
+        if sections:
+            result = [e for e in result if e.section in sections]
     return result[:MAX_INDICATORS]
 
 
@@ -725,6 +793,168 @@ def summary(rows: list[Indicator], filters: Filters, today: datetime.date | None
     }
 
 
+# ------------------------------------------------------------------------- Program Performance
+def _partner_name(row: Indicator) -> str:
+    return row.partner.name if row.partner else (row.pd.partner_name or "")
+
+
+# the columns Program Performance sorts by (None values always last)
+TABLE_SORTS: dict[str, Any] = {
+    "section": lambda r: norm(r.section) or None,
+    "cp_output": lambda r: norm(r.cp_output) or None,
+    "emergency": lambda r: r.high_frequency,
+    "indicator": lambda r: norm(r.title) or None,
+    "target": lambda r: r.target,
+    "reached": lambda r: r.reached,
+    "achieved": lambda r: r.achieved,
+    "reached_in_year": lambda r: r.reached_in_year,
+    "partner": lambda r: norm(_partner_name(r)) or None,
+    "pd": lambda r: (r.pd.number or "").lower() or None,
+}
+DEFAULT_SORT = "-achieved"  # % Reached, highest first, as Power BI opens Program Performance
+
+
+def sorted_rows(rows: list[Indicator], sort: str) -> tuple[list[Indicator], str]:
+    """The indicators in the order of ``sort`` (a column of :data:`TABLE_SORTS`, "-" first for highest
+    first), ties by PD and title; indicators without a value go last either way. Also the sort applied."""
+    key, desc = (sort or "").lstrip("-"), (sort or "").startswith("-")
+    if key not in TABLE_SORTS:
+        key, desc = DEFAULT_SORT.lstrip("-"), True
+    value = TABLE_SORTS[key]
+    present = [r for r in rows if value(r) is not None]
+    missing = [r for r in rows if value(r) is None]
+    tie = lambda r: ((r.pd.number or "").lower(), norm(r.title))  # noqa: E731
+    present.sort(key=tie)
+    present.sort(key=value, reverse=desc)  # stable: equal values keep the PD and title order
+    missing.sort(key=tie)
+    return present + missing, ("-" if desc else "") + key
+
+
+TABLE_COLUMNS = (
+    "section",
+    "cp_output",
+    "emergency",
+    "pd_output",
+    "indicator",
+    "unit",
+    "baseline",
+    "target",
+    "reached",
+    "reached_as_of",
+    "reached_in_year",
+    "awaiting_acceptance",
+    "achieved_percent",
+    "status",
+    "reported",
+    "partner",
+    "programme_document",
+    "pd_status",
+    "document_type",
+    "read_from",
+    "method",
+    "prp_cumulative",
+    "differs_from_prp",
+    "partial_history",
+    "link",
+)
+
+
+def table_rows(rows: list[Indicator], filters: Filters, base_url: str = "") -> Any:
+    """Program Performance as rows for the CSV and Excel exports, one per indicator (every row of the
+    filter, not only the page shown): the figures of the page, nothing added across indicators."""
+    for r in rows:
+        yield {
+            "section": r.section,
+            "cp_output": r.cp_output,
+            "emergency": "Yes" if r.high_frequency else "No",
+            "pd_output": r.output,
+            "indicator": r.title,
+            "unit": r.unit,
+            "baseline": r.baseline,
+            "target": r.target,
+            "reached": r.reached,
+            "reached_as_of": r.as_of,
+            "reached_in_year": r.reached_in_year if filters.year else None,
+            "awaiting_acceptance": r.awaiting if r.awaiting_reports else None,
+            "achieved_percent": round(r.achieved, 1) if r.achieved is not None else None,
+            "status": r.tracking_label,
+            "reported": rc.VALUE_LABELS.get(r.value_status, ""),
+            "partner": _partner_name(r),
+            "programme_document": r.pd.number or "",
+            "pd_status": pd_statuses.label(r.pd.status),
+            "document_type": r.pd.document_type or "",
+            "read_from": REPORT_TYPES.get(r.report_type, r.report_type),
+            "method": r.method_label,
+            "prp_cumulative": r.prp_cumulative,
+            "differs_from_prp": "Yes" if r.mismatch else "",
+            "partial_history": "Yes" if r.partial else "",
+            "link": base_url + r.url,
+        }
+
+
+# ---------------------------------------------------------------------------------- data quality
+QUALITY_LIMIT = 500  # rows each Data quality table lists (the counts are complete)
+
+
+def data_quality(
+    rows: list[Indicator], filters: Filters, today: datetime.date | None = None
+) -> dict[str, Any]:
+    """Data quality of the filtered PD indicators (Power BI's Data Quality page, plus checks only NeuroDB
+    makes): programme documents (running, active, ended), indicators with and without Reached and a
+    target, and the lists to follow up. "Reached" is Reached to date, or Reached in the year when one is
+    chosen; "with Reached" means a counted report (Accepted or Submitted) carries a value."""
+    today = today or datetime.date.today()
+    pds = {r.pd.id: r.pd for r in rows}
+
+    def reached(row: Indicator) -> float | None:
+        return row.reached_in_year if filters.year else row.reached
+
+    without = [r for r in rows if reached(r) is None]
+    zero = [r for r in rows if reached(r) == 0]
+    missing_target = [r for r in rows if not r.target]
+    titles: dict[tuple[int, str], list[Indicator]] = defaultdict(list)
+    for r in rows:
+        titles[(r.pd.id, norm(r.title))].append(r)
+    same_title = [
+        {"pd": group[0].pd, "title": group[0].title, "count": len(group), "rows": group}
+        for group in titles.values()
+        if len(group) > 1
+    ]
+    same_title.sort(key=lambda g: ((g["pd"].number or "").lower(), norm(g["title"])))
+    partial = sorted(
+        {r.pd.id: r.pd for r in rows if r.partial}.values(), key=lambda pd: pd.start or datetime.date.min
+    )
+
+    def order(items: list[Indicator]) -> list[Indicator]:
+        return sorted(items, key=lambda r: (norm(r.section), (r.pd.number or "").lower(), norm(r.title)))
+
+    no_reached = order(without + zero)
+    mismatch = order([r for r in rows if r.mismatch])
+    return {
+        "programme_documents": len(pds),
+        "active_pds": sum(1 for pd in pds.values() if pd.status in pd_statuses.ACTIVE),
+        "running_pds": sum(1 for pd in pds.values() if pd.status in pd_statuses.RUNNING),
+        "ended_pds": sum(1 for pd in pds.values() if pd.status in pd_statuses.ENDED),
+        "indicators": len(rows),
+        "with_reached": len(rows) - len(without),
+        "without_reached": len(without),
+        "zero_reached": len(zero),
+        "with_target": len(rows) - len(missing_target),
+        "without_target": len(missing_target),
+        "missing_target": order(missing_target)[:QUALITY_LIMIT],
+        "no_reached": no_reached[:QUALITY_LIMIT],
+        "no_reached_count": len(no_reached),
+        "mismatch": mismatch[:QUALITY_LIMIT],
+        "mismatch_count": len(mismatch),
+        "same_title": same_title[:QUALITY_LIMIT],
+        "same_title_count": len(same_title),
+        "partial": partial[:QUALITY_LIMIT],
+        "partial_count": len(partial),
+        "read_from": rc.reports_read_from(today) if partial else None,
+        "limit": QUALITY_LIMIT,
+    }
+
+
 def year_columns(rows: list[Indicator]) -> list[int]:
     """The years the "All years" grid shows, one column each: every year with a counted value."""
     return sorted({y for r in rows for y in r.years})
@@ -768,6 +998,10 @@ def filter_options(filters: Filters) -> dict[str, Any]:
         },
         reverse=True,
     )
+    offices: set[str] = set()
+    for row in pds.order_by().values_list("offices_set", flat=True):
+        offices.update(x for x in row or [] if x)
+    partner_rows = PartnerOrganization.objects.filter(interventions__in=pds).order_by()
     options = {
         "sections": sorted({(x or "").strip() for x in base.values_list("section_name", flat=True)} - {""}),
         "partners": [{"value": str(pk), "label": name} for pk, name in partners],
@@ -775,6 +1009,16 @@ def filter_options(filters: Filters) -> dict[str, Any]:
         "locations": sorted({x for x in base.values_list("location_name", flat=True) if x}),
         "years": years or ([filters.year] if filters.year else []),
         "report_types": REPORT_TYPES,
+        # eTools PD statuses, the running ones first (the filter's default)
+        "pd_statuses": sorted(
+            {x for x in pds.order_by().values_list("status", flat=True) if x} | set(ACTIVE_PD_STATUSES),
+            key=lambda x: (x not in ACTIVE_PD_STATUSES, x),
+        ),
+        "document_types": sorted({x for x in pds.order_by().values_list("document_type", flat=True) if x}),
+        "offices": sorted(offices),
+        "partner_types": sorted(
+            {x for pair in partner_rows.values_list("partner_type", "cso_type") for x in pair if x}
+        ),
     }
     for tag in TAG_FIELDS:
         options[tag] = sorted(x for x in base.order_by().values_list(f"tag_{tag}", flat=True).distinct() if x)
