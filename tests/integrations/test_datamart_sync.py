@@ -609,29 +609,43 @@ def test_partner_reports_of_running_pds_are_read_from_their_start_with_their_cp_
 
 
 def test_the_migration_fills_the_new_columns_from_the_records(linked):
+    """0010 fills the columns of 0009 from the records already synced, the way the sync reads them (a
+    nested record by its name), in batches committed one by one (not atomic), and can run twice."""
     import importlib
 
     from django.db import connection
 
     _, pd = linked
-    migration = importlib.import_module("neurodb.datamart.migrations.0009_reached_columns")
+    migration = importlib.import_module("neurodb.datamart.migrations.0010_fill_reached_columns")
+    assert migration.Migration.atomic is False
     indicator = dm.PDIndicator.objects.create(datamart_id=5, source_id=77, intervention=pd, title="Children")
+    teachers = dm.PDIndicator.objects.create(datamart_id=6, intervention=pd, title="Teachers trained")
     row = dm.ReportedIndicator.objects.create(
         datamart_id=1,
         intervention=pd,
         etools_indicator_id="77",
         data={"indicator_report": 501, "cp_output": "Output 2.1", "etools_cp_output_id": 3301},
     )
+    nested = dm.ReportedIndicator.objects.create(
+        datamart_id=2,
+        intervention=pd,
+        indicator="Teachers trained",
+        data={"indicator_report": "502", "cp_output": {"id": 9, "name": "Output 3.1 Teachers"}},
+    )
+    untouched = dm.ReportedIndicator.objects.create(datamart_id=3, intervention=pd, data={"other": 1})
 
     class Editor:
         pass
 
     Editor.connection = connection
-    migration.fill(None, Editor())
-    row.refresh_from_db()
-    indicator.refresh_from_db()
+    for _ in range(2):
+        migration.fill(None, Editor())
+    for record in (row, nested, indicator, teachers):
+        record.refresh_from_db()
     assert (row.indicator_report, row.cp_output, row.etools_cp_output_id) == ("501", "Output 2.1", "3301")
-    assert indicator.cp_output == "Output 2.1"
+    assert (nested.indicator_report, nested.cp_output) == ("502", "Output 3.1 Teachers")
+    assert (indicator.cp_output, teachers.cp_output) == ("Output 2.1", "Output 3.1 Teachers")
+    assert dm.ReportedIndicator.objects.get(pk=untouched.pk).cp_output == ""
 
 
 @responses.activate

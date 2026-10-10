@@ -283,7 +283,139 @@ def test_progress_reports_page_counts_six_statuses(client_viewer, submitted, mon
         assert f">{label}<" in page.text
 
 
+def _girls(data):
+    rows = monitoring.indicators(monitoring.Filters(year=2026), today=TODAY)
+    return next(r for r in rows if r.title == data["girls"])
+
+
+def test_a_prp_report_total_about_another_indicator_is_never_used(client_viewer, data):
+    """PRP's report totals (prp_indicator_reports) are found by the indicator report id; that the two
+    datasets share their ids is not confirmed, so a total about another programme document or
+    indicator never stands in for this one's, even where the locations cannot say."""
+    pd = data["pd"]
+    # QPR1 of the girls: each location row repeats the report total (300), with no value of its own
+    dm.ReportedIndicator.objects.filter(progress_report="PR-1", indicator=data["girls"]).update(
+        indicator_report="900",
+        disaggregation={},
+        achievement_in_period="300",
+        total_cumulative_progress_in_location="",
+        previous_location_progress="",
+    )
+    doc = dm.DatamartDocument.objects.create(
+        dataset="prp_indicator_reports",
+        record_key="900",
+        source_id=900,
+        data={"progress_value": "5000", "performance_indicator": "# of teachers trained"},
+    )
+    girls = _girls(data)
+    assert (girls.reached, girls.result.reports[0].source) == (550.0, "report_total")
+    # the record of this indicator in this PD: PRP's own total is used (the locations cannot say)
+    doc.intervention = pd
+    doc.data = {"progress_value": "310", "performance_indicator": data["girls"].upper()}
+    doc.save()
+    girls = _girls(data)
+    assert (girls.reached, girls.result.reports[0].source) == (560.0, "prp")
+    pop_up = services.report_detail("PR-1", today=TODAY)
+    assert next(i for i in pop_up["indicators"] if i["indicator"] == data["girls"])["total"] == 310.0
+    # the same id about another indicator of the PD, or about another PD: never used
+    doc.data = {"progress_value": "310", "performance_indicator": data["boys"]}
+    doc.save()
+    assert _girls(data).reached == 550.0
+    doc.intervention = data["closed"]
+    doc.data = {"progress_value": "310", "performance_indicator": data["girls"]}
+    doc.save()
+    assert _girls(data).reached == 550.0
+    # the eTools reporting checks page counts such records
+    check = next(c for c in checks.run_all() if c["key"] == "8")
+    assert dict(check["figures"])["… about another programme document"] == 1
+    assert "another programme document" in check["verdict"] and check["tone"] == "warning"
+    # nothing to confirm it (no PD link, no title): never used either
+    doc.intervention = None
+    doc.data = {"progress_value": "310"}
+    doc.save()
+    assert _girls(data).reached == 550.0
+
+
+def test_a_progress_report_without_an_id_is_not_found(client_viewer, data):
+    """Rows without a progress report id belong to no one report: ``?report=`` (empty) is not found,
+    never a page that pools them (or fails on them)."""
+    for number, end, place in (
+        ("QPR7", datetime.date(2025, 3, 31), "Akkar"),
+        ("QPR8", datetime.date(2025, 6, 30), "Bekaa"),
+    ):
+        report_rows(data["pd"], data["partner"], data["girls"], "", number, "QPR", end, {place: 5}, 5)
+    assert services.report_detail("") is None and services.report_detail("  ") is None
+    page = client_viewer.get(reverse("reports:progress_report"), {"report": ""}, headers=HX)
+    assert page.status_code == 404
+
+
+def test_report_lists_show_the_six_statuses_on_every_page(client_viewer, submitted, monkeypatch):
+    """The programme document and partner pages list progress reports with the six statuses of the
+    Progress reports page (a report whose period still runs is "Not yet due", whatever PRP's word),
+    and the partner page counts accepted reports apart from those awaiting acceptance."""
+    monkeypatch.setattr(services, "datetime", _FrozenDatetime)
+    data = submitted
+    dm.ReportedIndicator.objects.filter(progress_report="PR-1").update(submitted_by="someone@example.org")
+    pd_page = services.programme_datamart(data["pd"])
+    statuses = {r["report_number"]: r["status_label"] for r in pd_page["reports"]}
+    assert statuses == {
+        "QPR1": "Accepted",
+        "QPR2": "Accepted",
+        "QPR2s": "Submitted",
+        "HR4": "Accepted",
+        "QPR3": "Not yet due",
+    }
+    summary = services.partner_datamart(data["partner"])["reporting"]
+    assert (summary["accepted"], summary["submitted"], summary["not_yet_due"]) == (3, 1, 1)
+    monkeypatch.undo()
+    page = client_viewer.get(reverse("reports:partner_profile", args=[data["partner"].id]))
+    assert "3 accepted · 1 awaiting acceptance" in page.text
+    # the pop-up never shows an e-mail address
+    pop_up = client_viewer.get(reverse("reports:progress_report"), {"report": "PR-1"}, headers=HX)
+    assert pop_up.status_code == 200 and "@example.org" not in pop_up.text
+    # a report PRP accepted without its submission date is Accepted, never "Overdue" in the table
+    dm.ReportedIndicator.objects.filter(progress_report="PR-1").update(submission_date=None)
+    table = client_viewer.get(reverse("reports:partner_reporting"), headers=HX)
+    assert table.status_code == 200 and '<span class="text-danger">Overdue</span>' not in table.text
+    dm.ReportedIndicator.objects.filter(progress_report="PR-1").update(report_status="Due")
+    table = client_viewer.get(reverse("reports:partner_reporting"), headers=HX)
+    assert '<span class="text-danger">Overdue</span>' in table.text
+
+
+def test_an_indicator_read_from_monthly_reports_says_so_in_its_detail(client_viewer, data, frozen_today):
+    pd, partner = data["pd"], data["partner"]
+    dm.PDIndicator.objects.create(
+        datamart_id=40,
+        source_id=400,
+        intervention=pd,
+        title="# of emergency kits distributed",
+        target_numerator=100,
+        is_high_frequency=True,
+        location_name="Akkar",
+    )
+    report_rows(
+        pd,
+        partner,
+        "# of emergency kits distributed",
+        "HR-1",
+        "HR1",
+        "HR",
+        datetime.date(2026, 4, 30),
+        {"Akkar": 30},
+        30,
+    )
+    page = client_viewer.get(
+        reverse("reports:pd_indicator", args=[pd.id, "400"]),
+        {"report_type": "QPR", "year": "2026"},
+        headers=HX,
+    )
+    assert page.context["read_type"] == "HR" and "read from the monthly humanitarian reports" in page.text
+    assert "HR1" in page.text and page.context["indicator"].reached == 30.0
+
+
 def test_ask_never_adds_partner_report_values(data):
+    with pytest.raises(tools.ToolInputError, match="pd_indicator_progress"):
+        tools.run("etools_query", {"dataset": "pd_indicators", "sum": "target_numerator"})
     for dataset in ("partner_reports", "prp_indicator_reports"):
         for extra in ({}, {"group_by": "programme_document"}):
             with pytest.raises(tools.ToolInputError, match="pd_indicator_progress"):
@@ -331,3 +463,120 @@ def test_reporting_checks_run_on_an_empty_database(db):
     found = checks.run_all()
     assert [c["key"] for c in found] == [str(n) for n in range(1, 10)]
     assert all(c["tone"] in ("ok", "info", "warning") and c["verdict"] for c in found)
+
+
+def test_a_widened_window_counts_once_a_sync_has_read_it(data, settings):
+    """Until a partner reports sync has read a running PD's early reports, the PD shows PRP's own
+    cumulative as a partial history, never the sum of its later reports alone."""
+    from django.utils import timezone
+
+    from neurodb.core.models import SyncRun
+
+    settings.ETOOLS_DATAMART_REPORTING_YEARS = 3
+    older = PCA.objects.create(
+        etl_id="16",
+        partner=data["partner"],
+        partner_name=data["partner"].name,
+        number="LEB/PD6",
+        title="Running since 2020",
+        status="active",
+        start=datetime.date(2020, 1, 1),
+        end=datetime.date(2027, 12, 31),
+    )
+    dm.PDIndicator.objects.create(
+        datamart_id=43, source_id=700, intervention=older, title="# of boys", target_numerator=1000
+    )
+    report_rows(
+        older,
+        data["partner"],
+        "# of boys",
+        "OLD-2",
+        "QPR22",
+        "QPR",
+        datetime.date(2025, 9, 30),
+        {"Akkar": 10},
+        900,
+    )
+
+    def boys():
+        (row,) = monitoring.indicators(monitoring.Filters(pds=["LEB/PD6"]), today=TODAY)
+        return row.reached, row.partial
+
+    def sync(day, **details):
+        SyncRun.objects.create(
+            job=SyncRun.Job.ETOOLS_DATAMART,
+            target="partner_reports",
+            status=SyncRun.Status.SUCCEEDED,
+            started_at=timezone.make_aware(datetime.datetime(2026, 6, day, 3, 0)),
+            details=details,
+        )
+
+    assert boys() == (10.0, False)  # no sync recorded: the window the sync reads (the PD's start)
+    sync(1, removed=0)  # the last sync read the last three years only (2024 on)
+    assert boys() == (900.0, True)
+    sync(2, read_from="2020-01-01")  # the next one read from the PD's start
+    assert boys() == (10.0, False)
+
+
+def test_the_matrix_says_when_its_rows_do_not_add_up(client_viewer, data, frozen_today):
+    url = reverse("reports:pd_indicator", args=[data["pd"].id, "100"])
+    page = client_viewer.get(url, {"year": "2026"}, headers=HX)
+    assert page.context["adds_up"] and "so the rows and the columns add up to it" in page.text
+    # QPR1 gives only its total (300 repeated on both locations): the rows no longer add up to Reached
+    dm.ReportedIndicator.objects.filter(progress_report="PR-1", indicator=data["girls"]).update(
+        disaggregation={},
+        achievement_in_period="300",
+        total_cumulative_progress_in_location="",
+        previous_location_progress="",
+    )
+    page = client_viewer.get(url, {"year": "2026"}, headers=HX)
+    assert not page.context["adds_up"] and page.context["indicator"].reached == 550.0
+    assert (
+        "the rows do not add up to it" in page.text and "so the rows and the columns add up" not in page.text
+    )
+    assert sum(loc["reached"] for loc in page.context["by_location"]) == 250.0
+
+
+def test_the_pop_up_reads_each_indicator_with_its_own_type(data):
+    """A report row without an eTools id takes the type of the PD indicator with its title, never that
+    of another indicator without an id (a percentage would turn 10 + 20 people into 3,000 %)."""
+    pd, partner = data["pd"], data["partner"]
+    for n, (title, display_type) in enumerate(
+        (("% of schools assessed", "percentage"), ("# of teachers", "number"))
+    ):
+        dm.PDIndicator.objects.create(
+            datamart_id=50 + n, intervention=pd, title=title, display_type=display_type, unit=display_type
+        )
+    report_rows(
+        pd,
+        partner,
+        "# of teachers",
+        "PR-9",
+        "QPR9",
+        "QPR",
+        datetime.date(2026, 3, 31),
+        {"Akkar": 10, "Bekaa": 20},
+        30,
+    )
+    detail = services.report_detail("PR-9", today=TODAY)
+    (teachers,) = detail["indicators"]
+    assert (teachers["total"], teachers["method"], teachers["percentage"]) == (
+        30.0,
+        "sum of locations",
+        False,
+    )
+
+
+def test_reporting_check_4_follows_the_six_statuses(admin_user, data):
+    """Check 4 counts the value of every report that does not count: PRP's own Due with a submission
+    date among them; a report without a word but with a submission date counts (Submitted)."""
+    found = {c["key"]: c for c in checks.run_all()}
+    assert found["4"]["figures"][0][1] == 0
+    dm.ReportedIndicator.objects.filter(progress_report="PR-3").update(
+        achievement_in_period="5", submission_date=datetime.date(2026, 10, 1)
+    )
+    dm.ReportedIndicator.objects.filter(progress_report="PR-2").update(report_status="")
+    found = {c["key"]: c for c in checks.run_all()}
+    assert found["4"]["figures"][0][1] == 1
+    table = {(r[0], r[1]) for r in found["4"]["table"]["rows"]}
+    assert ("Due", "no") in table and ("(none)", "yes") in table

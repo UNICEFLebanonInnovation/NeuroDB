@@ -14,15 +14,18 @@ progress report and location, and repeat report-level fields on each of them. Th
   note says so). Two rows of one location in one report are never added: the largest is used.
 * **A report's value** combines its locations with ``calculation_across_locations`` (sum, max, avg;
   percentages and ratios Σv/Σd). PRP's own report total (``progress_value`` of
-  ``prp/indicator-report-v2``) is used when it is there and agrees, or when the locations cannot say.
+  ``prp/indicator-report-v2``, only from a record naming the same PD and indicator) stands in when the
+  locations cannot say; one that differs from them (beyond rounding: half a person, half a point) is
+  noted, and the locations are used.
 * **Reached** combines the counted reports with ``calculation_across_periods`` (sum, max, avg,
   latest; percentages and ratios Σv/Σd): to date, in a year, per month, per location and per
   disaggregation key. For an indicator summed across locations and periods, the months of every year
   add up to Reached, and so do the locations.
 * Different indicators, quarterly and humanitarian reports, and percentages are never added.
 
-A programme document that started before the partner reports are synced from (:func:`history_start`)
-has a partial history: its Reached is PRP's own cumulative from the latest counted report.
+A programme document that started before the partner reports NeuroDB holds were read from
+(:func:`reports_read_from`) has a partial history: its Reached is PRP's own cumulative from the
+latest counted report.
 """
 
 from __future__ import annotations
@@ -62,6 +65,8 @@ _STATUS_WORDS = {
     "sent back": SENT_BACK,
     "sen": SENT_BACK,
 }
+# PRP's word for a report still to be submitted: it never counts, whatever dates it carries
+_DUE_WORDS = frozenset({"due", "ove", "overdue"})
 
 # what an indicator's value says about it
 NOT_REPORTED = "not_reported"  # no counted report with a value
@@ -80,15 +85,17 @@ def status_of(
     submission_date: datetime.date | None = None,
     today: datetime.date,
 ) -> str:
-    """One of the six report statuses. PRP's word or code decides Accepted, Submitted and Sent back;
-    a submission date makes any other report Submitted (the rule of ``monitoring.pending_q``, so a
+    """One of the six report statuses. PRP's word or code decides Accepted, Submitted and Sent back.
+    A report PRP calls Due or Overdue never counts: with a submission date (PRP reopened it) it is
+    Due, never Overdue, as ``monitoring.pending_q`` leaves it out of every overdue figure. A
+    submission date makes any report without a word Submitted (the rule of ``pending_q``, so a
     report is overdue on every page or on none); a report not submitted is Overdue once its due date
     has passed, Not yet due while its period runs, else Due."""
     word = " ".join(str(text or "").lower().replace("_", " ").split())
     if word in _STATUS_WORDS:
         return _STATUS_WORDS[word]
     if submission_date is not None:
-        return SUBMITTED
+        return DUE if word in _DUE_WORDS else SUBMITTED
     if due_date is not None and due_date < today:
         return OVERDUE
     if period_end is not None and period_end > today:
@@ -187,11 +194,15 @@ def parts(value: Any) -> Parts | None:
     return Parts(v=n) if n is not None else None
 
 
-def close(a: float | None, b: float | None) -> bool:
-    """Two figures that are the same once rounding is allowed for (half a unit, or 0.5 %)."""
+def close(a: float | None, b: float | None, *, ratio: bool = False, percentage: bool = False) -> bool:
+    """Two figures that are the same once rounding is allowed for: half a person for a count (people
+    are whole: 10,040 is never "the same" as 10,000), half a point for a percentage, 0.5 % of the
+    larger for a ratio."""
     if a is None or b is None:
         return False
-    return abs(a - b) <= max(0.5, 0.005 * max(abs(a), abs(b)))
+    if percentage or not ratio:
+        return abs(a - b) <= 0.5
+    return abs(a - b) <= 0.005 * max(abs(a), abs(b))
 
 
 def norm(text: str | None) -> str:
@@ -518,10 +529,13 @@ def _report_value(report: Report, ratio: bool, percentage: bool, progress_value:
     if total_value is None:
         return
     report.progress_value = total_value
-    if report.value is None or report.source == "report_total" or close(total_value, report.value):
-        if report.value is None or report.source == "report_total":
-            report.source = "prp"
-        report.value, report.v, report.d = total_value, total.v, total.d
+    if report.value is None or report.source == "report_total":
+        # the locations cannot say: PRP's own total for the report
+        report.value, report.v, report.d, report.source = total_value, total.v, total.d, "prp"
+    elif close(total_value, report.value, ratio=ratio, percentage=percentage):
+        # they agree (to the rounding): the locations' figure stays, so they add up to the report
+        # exactly and a percentage keeps the numerator and denominator its periods are combined by
+        pass
     else:
         report.notes.append(
             f"PRP's own total for this report ({total_value:g}) differs from its locations "
@@ -683,8 +697,8 @@ def compute(
         out.mismatch = (
             out.prp_cumulative is not None
             and out.reached is not None
-            and not close(out.prp_cumulative, out.reached)
-            and not close(out.prp_cumulative, out.reached_accepted)
+            and not close(out.prp_cumulative, out.reached, ratio=ratio, percentage=percentage)
+            and not close(out.prp_cumulative, out.reached_accepted, ratio=ratio, percentage=percentage)
         )
         if partial and out.prp_cumulative is not None:
             out.reached, out.source, out.mismatch = out.prp_cumulative, "prp_cumulative", False
@@ -780,8 +794,8 @@ def history_start(today: datetime.date | None = None) -> datetime.date:
     """The first period start the partner reports are synced from: the last
     ``ETOOLS_DATAMART_REPORTING_YEARS`` years and, unless ``ETOOLS_DATAMART_REPORTING_FROM_PD_START``
     is off, the start of every running programme document (never more than ``MAX_HISTORY_YEARS``
-    back). The Datamart sync reads from this date, and a PD that started before it has a partial
-    history."""
+    back). The Datamart sync reads from this date (:func:`reports_read_from` is the date the latest
+    sync did read from)."""
     from django.conf import settings
     from django.db.models import Min, Q
     from django.utils import timezone
@@ -804,6 +818,35 @@ def history_start(today: datetime.date | None = None) -> datetime.date:
     return since
 
 
+def reports_read_from(today: datetime.date | None = None) -> datetime.date:
+    """The first period start NeuroDB holds partner reports from: the window of the latest partner
+    reports sync that finished (``read_from`` in its details; a run made before that was recorded
+    read the last ``ETOOLS_DATAMART_REPORTING_YEARS`` years of its day), else :func:`history_start`.
+    A PD that started before it has a partial history. It is the window actually read, not the one
+    the next sync will read: when the window is widened (a new running PD, the setting turned on,
+    a deployment), the early reports count only once a sync has read them."""
+    from django.conf import settings
+    from django.utils import timezone
+
+    from neurodb.core.models import SyncRun
+
+    runs = SyncRun.objects.filter(
+        job=SyncRun.Job.ETOOLS_DATAMART,
+        target="partner_reports",
+        status__in=(SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL),
+    ).order_by("-started_at", "-pk")
+    for started, details in runs.values_list("started_at", "details")[:20]:
+        details = details if isinstance(details, dict) else {}
+        if details.get("empty_response"):
+            continue  # nothing was read: the rows held are those of an earlier run
+        try:
+            return datetime.date.fromisoformat(str(details.get("read_from") or "")[:10])
+        except ValueError:
+            day = timezone.localtime(started).date() if timezone.is_aware(started) else started.date()
+            return datetime.date(day.year - settings.ETOOLS_DATAMART_REPORTING_YEARS + 1, 1, 1)
+    return history_start(today)
+
+
 def report_rows(pd_ids: Iterable[int], report_types: Iterable[str]):
     """The partner report rows of these PDs and report types, every year, in ``ROW_ORDER``."""
     from . import models as dm
@@ -817,23 +860,44 @@ def report_rows(pd_ids: Iterable[int], report_types: Iterable[str]):
     )
 
 
-def progress_values(indicator_reports: Iterable[str]) -> dict[str, Any]:
-    """PRP's own report totals (``progress_value`` of ``prp/indicator-report-v2``) by indicator report."""
+def progress_values(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    """PRP's own report totals (``progress_value`` of ``prp/indicator-report-v2``) by indicator report,
+    for these report rows. A v2 record is found by its id and kept only when it is about the same
+    programme document and indicator as the rows (its PD link, its ``performance_indicator``): that the
+    two datasets share their ids is not confirmed, and another indicator's total must never stand in
+    for this one's."""
     from django.db.models.fields.json import KT
 
     from .models import DatamartDocument
 
-    ids = sorted({int(x) for x in indicator_reports if str(x or "").isdigit() and len(str(x)) <= 18})
+    expected: dict[int, tuple[set[int], set[str]]] = {}
+    for row in rows:
+        key = str(row.get("indicator_report") or "")
+        if not key.isdigit() or len(key) > 18:
+            continue
+        pds, titles = expected.setdefault(int(key), (set(), set()))
+        if row.get("intervention_id"):
+            pds.add(row["intervention_id"])
+        if norm(row.get("indicator")):
+            titles.add(norm(row.get("indicator")))
+    ids = sorted(expected)
     out: dict[str, Any] = {}
     for start in range(0, len(ids), 5000):
-        rows = (
+        found = (
             DatamartDocument.objects.filter(
                 dataset="prp_indicator_reports", source_id__in=ids[start : start + 5000]
             )
-            .annotate(_value=KT("data__progress_value"))
-            .values_list("source_id", "_value")
+            .annotate(_value=KT("data__progress_value"), _title=KT("data__performance_indicator"))
+            .values_list("source_id", "intervention_id", "_title", "_value")
         )
-        for source_id, value in rows:
-            if value not in (None, ""):
+        for source_id, pd_id, title, value in found:
+            if value in (None, ""):
+                continue
+            pds, titles = expected[source_id]
+            title = norm(title)
+            same = (pd_id is not None and pd_id in pds) or (bool(title) and title in titles)
+            other_pd = pd_id is not None and bool(pds) and pd_id not in pds
+            other_title = bool(title) and bool(titles) and title not in titles
+            if same and not other_pd and not other_title:
                 out[str(source_id)] = value
     return out

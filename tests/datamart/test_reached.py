@@ -133,6 +133,11 @@ def test_the_worked_example():
         ("", None, datetime.date(2026, 12, 31), None, "not_yet_due"),
         ("", datetime.date(2026, 7, 2), datetime.date(2026, 6, 30), None, "submitted"),  # a date settles it
         ("Accepted later", None, datetime.date(2026, 6, 30), datetime.date(2026, 7, 30), "overdue"),
+        # PRP's own Due or Overdue never counts, even with a submission date (a reopened report); it is
+        # then Due, never Overdue, as monitoring.pending_q leaves it out of every overdue figure
+        ("Due", datetime.date(2026, 7, 2), datetime.date(2026, 6, 30), datetime.date(2026, 7, 30), "due"),
+        ("Ove", datetime.date(2026, 7, 2), datetime.date(2026, 6, 30), datetime.date(2026, 7, 30), "due"),
+        ("overdue", datetime.date(2026, 7, 2), datetime.date(2026, 6, 30), None, "due"),
     ],
 )
 def test_six_statuses(text, submitted, end, due, expected):
@@ -378,7 +383,7 @@ def test_a_max_across_periods_is_not_three_times_the_children():
 
 
 # ----------------------------------------------------------------- PRP's own totals and history
-def test_prp_report_total_is_used_when_it_agrees_or_the_locations_cannot_say():
+def test_prp_report_total_stands_in_when_the_locations_cannot_say():
     rows = [row("QPR1", datetime.date(2026, 3, 31), p, None, achievement_in_period="50") for p in ("A", "B")]
     out = compute(rows, progress_values={"ir-QPR1": "{'v': 50, 'd': 1, 'c': 50.0}"})
     assert out.reached == 50.0 and out.reports[0].source == "prp"
@@ -387,6 +392,39 @@ def test_prp_report_total_is_used_when_it_agrees_or_the_locations_cannot_say():
     assert out.reached == 50.0 and not out.notes
     out = compute(rows, progress_values={"ir-QPR1": "75"})
     assert out.reached == 50.0 and any("differs" in n for n in out.notes)
+
+
+def test_people_are_whole_a_small_share_is_still_a_difference():
+    """For a count, "agrees" means the same number of people: 10,040 is not 10,000 (0.4 % apart), so
+    PRP's report total never replaces the locations' sum, and the cumulative is flagged."""
+    rows = [
+        row("QPR1", datetime.date(2026, 3, 31), p, v, total_cumulative_progress="10040")
+        for p, v in (("Akkar", 6000), ("Bekaa", 4000))
+    ]
+    out = compute(rows, progress_values={"ir-QPR1": "10040"})
+    assert out.reached == 10000.0 and out.mismatch and out.prp_cumulative == 10040.0
+    assert sum(loc["reached"] for loc in out.by_location.values()) == out.reached
+    assert any("differs from its locations" in n for n in out.notes)
+    # the same number: the locations' sum stays, and they add up to the report exactly
+    out = compute(rows, progress_values={"ir-QPR1": "10000"})
+    assert out.reached == 10000.0 and out.reports[0].source == "locations" and not out.notes
+    # a percentage agrees within half a point: the locations' numerators over denominators stay
+    pct = [
+        row(
+            "QPR1",
+            datetime.date(2026, 3, 31),
+            p,
+            None,
+            disaggregation={"()": {"v": v, "d": d, "c": v / d}},
+            total_cumulative_progress="{'v': 503, 'd': 1000, 'c': 0.503}",
+        )
+        for p, v, d in (("Akkar", 30, 60), ("Bekaa", 20, 40))
+    ]
+    out = compute(pct, display_type="percentage", progress_values={"ir-QPR1": "{'c': 50.3}"})
+    assert out.reached == pytest.approx(50.0) and not out.mismatch and out.prp_cumulative == 50.3
+    assert (out.reports[0].v, out.reports[0].d, out.reports[0].source) == (50.0, 100.0, "locations")
+    assert reached.close(80.0, 80.4, ratio=True, percentage=True)
+    assert not reached.close(0.80, 0.85, ratio=True) and reached.close(0.800, 0.803, ratio=True)
 
 
 def test_prp_cumulative_beside_reached_and_partial_history():
@@ -454,3 +492,40 @@ def test_history_start_reaches_back_to_running_pds_never_too_far(settings):
     assert reached.history_start(TODAY) == datetime.date(2021, 7, 1)  # never more than 10 years back
     settings.ETOOLS_DATAMART_REPORTING_FROM_PD_START = False
     assert reached.history_start(TODAY) == datetime.date(2024, 1, 1)
+
+
+@pytest.mark.django_db
+def test_partial_history_follows_the_window_the_latest_sync_read(settings):
+    """A PD has a partial history when it started before the reports NeuroDB holds: the window the
+    latest finished partner reports sync read from, not the one the next sync will read (a widened
+    window counts once a sync has read it)."""
+    from django.utils import timezone
+
+    from neurodb.core.models import SyncRun
+    from neurodb.partnerships.models import PCA
+
+    settings.ETOOLS_DATAMART_REPORTING_YEARS = 3
+    PCA.objects.create(etl_id="1", number="A", status="active", start=datetime.date(2021, 7, 1))
+    # no sync yet: the window the sync will read
+    assert reached.reports_read_from(TODAY) == reached.history_start(TODAY) == datetime.date(2021, 7, 1)
+
+    def run(status=SyncRun.Status.SUCCEEDED, target="partner_reports", day=1, **details):
+        return SyncRun.objects.create(
+            job=SyncRun.Job.ETOOLS_DATAMART,
+            target=target,
+            status=status,
+            started_at=timezone.make_aware(datetime.datetime(2026, 10, day, 3, 0)),
+            details=details,
+        )
+
+    # a run of the code before the window was recorded read the last three years of its day
+    run(day=1, removed=0)
+    assert reached.reports_read_from(TODAY) == datetime.date(2024, 1, 1)
+    # a later run that failed, read nothing, or synced another dataset changes nothing
+    run(SyncRun.Status.FAILED, day=2, read_from="2021-07-01")
+    run(day=3, read_from="2021-07-01", empty_response=True)
+    run(target="pd_indicators", day=4, read_from="2021-07-01")
+    assert reached.reports_read_from(TODAY) == datetime.date(2024, 1, 1)
+    # the next sync reads from the PD's start (a run with errors still wrote its rows)
+    run(SyncRun.Status.PARTIAL, day=5, read_from="2021-07-01")
+    assert reached.reports_read_from(TODAY) == datetime.date(2021, 7, 1)

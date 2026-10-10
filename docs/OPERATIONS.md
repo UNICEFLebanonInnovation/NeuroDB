@@ -917,9 +917,10 @@ the map, the programme and partner pages, the progress report pop-up and Ask Neu
 * **Which reports count.** Accepted and Submitted reports. What Submitted reports add is shown as
   *awaiting acceptance*, so a later send-back is understood. Sent back, Due, Overdue and not-yet-due
   reports never count, whatever they carry; *the latest report* is the latest counted one. The six
-  statuses: PRP's word or code decides Accepted, Submitted and Sent back; any other report with a
-  submission date is Submitted; a report not submitted is Overdue once its due date has passed, Not
-  yet due while its period runs, else Due (the same rule as every "overdue" figure).
+  statuses: PRP's word or code decides Accepted, Submitted and Sent back; a report PRP calls Due or
+  Overdue never counts (with a submission date it is Due); any other report with a submission date
+  is Submitted; a report not submitted is Overdue once its due date has passed, Not yet due while
+  its period runs, else Due (the same rule as every "overdue" figure).
 * **A location's value in a report** is the disaggregation total `"()"` (its calculated value, else
   numerator over denominator), else the location's running total minus its previous one, else the
   value in the period. When every location row of a report carries the same value in the period,
@@ -927,8 +928,11 @@ the map, the programme and partner pages, the progress report pop-up and Ask Neu
   of one location in one report are never added: the largest is used.
 * **A report's value** combines its locations by the indicator's method across locations (sum,
   maximum, average; percentages and ratios as the sum of numerators over the sum of denominators).
-  PRP's own report total (`progress_value` of `prp_indicator_reports`) is used when it agrees, or
-  when the locations cannot say.
+  PRP's own report total (`progress_value` of `prp_indicator_reports`, found by the indicator report
+  id and used only when that record names the same programme document and indicator) stands in when
+  the locations cannot say; when it differs from them a data note says so and the locations are
+  used. "The same" allows only for rounding: half a person for a count, half a point for a
+  percentage.
 * **Reached** combines the counted reports by the method across reporting periods (sum, maximum,
   average, latest; percentages and ratios as numerators over denominators): to date, in a year, per
   month (each report in the month its period ends), per location and per disaggregation key. For an
@@ -939,10 +943,13 @@ the map, the programme and partner pages, the progress report pop-up and Ask Neu
   default; HR only for high-frequency and cluster indicators), and an indicator with no quarterly
   report at all is read from its monthly ones (marked *From monthly reports*).
 * **PRP's own cumulative** (`total_cumulative_progress` on the latest counted report) is shown beside
-  Reached; an indicator where the two differ is marked *Differs from PRP*. A programme document that
-  started before the partner reports are read from (see `partner_reports` above: only closed PDs,
-  while the setting is on) has a partial history: its Reached is PRP's cumulative, marked *Partial
-  history*.
+  Reached; an indicator where the two differ (by more than rounding, as above) is marked *Differs
+  from PRP*. A programme document that started before the date the latest partner reports sync
+  read from (`details.read_from` of that run, see `partner_reports` above: only closed PDs while the
+  setting is on, once a sync has run with it) has a partial history: its Reached is PRP's
+  cumulative, marked *Partial history*. After the window is widened (the setting turned on, a
+  deployment), a running PD's early reports count from the next eTools Datamart sync on; until then
+  it shows *Partial history*.
 * **A location filter** shows each indicator's Reached at the chosen locations; its % is a share of
   the whole PD target.
 
@@ -954,7 +961,8 @@ left out): each row ends with the location's Reached, each column with the repor
 corner is Reached; reports that do not count are greyed and stay out of every total. The progress
 report pop-up shows each location's value parsed (never PRP's raw text) and a total row that follows
 the method. The programme document page lists Reached on each indicator with its latest counted
-report. *Progress reports* counts reports by the six statuses (they add up to the total).
+report. *Progress reports* counts reports by the six statuses (they add up to the total), and the
+report lists of the programme document and partner pages show the same status for each report.
 
 **Statuses.** *On track / Off track / Ahead of schedule* compare Reached's share of the target with
 the share of the PD period (start to end) elapsed, ±10 points, the same rule the ActivityInfo pages
@@ -965,7 +973,8 @@ reports are due, is never called off track); *Reported zero* is noted under the 
 group, nationality and disability tags are read from the indicator titles
 (`neurodb/datamart/tags.py`). The assistant answers with `pd_indicator_progress` (Reached fields);
 `etools_query` refuses to add up partner report values (`partner_reports`, `prp_indicator_reports`)
-and points to it. Per-location targets are not in any country-filterable Datamart endpoint, so
+and PD indicator targets (`pd_indicators`, one row per location and disaggregation), and points to
+it. Per-location targets are not in any country-filterable Datamart endpoint, so
 locations are compared on reported values only.
 
 **eTools reporting checks** (admin → *eTools reporting checks*, Administrators only; linked from

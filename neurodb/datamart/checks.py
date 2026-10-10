@@ -131,18 +131,27 @@ def _disaggregation(cursor) -> dict[str, Any]:
     }
 
 
+# A report counts in Reached by the rule of ``reached.status_of``: PRP's word Accepted or Submitted,
+# or a submission date with no word that says otherwise (Sent back, Due, Overdue).
+_WORD = "lower(trim(regexp_replace(replace(coalesce(report_status, ''), '_', ' '), '\\s+', ' ', 'g')))"
+COUNTS_SQL = (
+    f"CASE WHEN {_WORD} IN ('accepted', 'acc', 'submitted', 'sub') OR (submission_date IS NOT NULL "
+    f"AND {_WORD} NOT IN ('sent back', 'sen', 'due', 'ove', 'overdue')) THEN 'yes' ELSE 'no' END"
+)
+
+
 def _unsubmitted(cursor) -> dict[str, Any]:
     rows = _all(
         cursor,
-        "SELECT coalesce(nullif(trim(report_status), ''), '(none)'), "
+        "SELECT coalesce(nullif(trim(report_status), ''), '(none)'), "  # noqa: S608 (constants only)
+        f"{COUNTS_SQL}, "
         "CASE WHEN period_end > current_date THEN 'yes' ELSE 'no' END, count(*), "
         "count(*) FILTER (WHERE total_cumulative_progress ~ '^\\s*0+(\\.0+)?\\s*$'), "
         "count(*) FILTER (WHERE total_cumulative_progress = ''), "
         "count(*) FILTER (WHERE achievement_in_period NOT IN ('', '0')) "
-        "FROM datamart_reportedindicator GROUP BY 1, 2 ORDER BY 1, 2",
+        "FROM datamart_reportedindicator GROUP BY 1, 2, 3 ORDER BY 1, 2, 3",
     )
-    counted = {"accepted", "acc", "submitted", "sub"}
-    carrying = sum(r[5] for r in rows if r[0].strip().lower() not in counted)
+    carrying = sum(r[6] for r in rows if r[1] == "no")
     return {
         "tone": INFO if carrying else OK,
         "verdict": (
@@ -155,6 +164,7 @@ def _unsubmitted(cursor) -> dict[str, Any]:
         "table": {
             "columns": (
                 "PRP status",
+                "Counts in Reached",
                 "Period not ended",
                 "Rows",
                 "Cumulative 0",
@@ -267,28 +277,42 @@ def _identity(cursor) -> dict[str, Any]:
 
 
 def _report_totals(cursor) -> dict[str, Any]:
-    reports, compared, equal = _one(
+    reports, compared, equal, other_pd = _one(
         cursor,
-        "WITH r AS MATERIALIZED (SELECT indicator_report, sum(CASE WHEN (disaggregation->'()'->>'c') ~ %s "
-        "THEN (disaggregation->'()'->>'c')::numeric END) s "
+        "WITH r AS MATERIALIZED (SELECT indicator_report, min(intervention_id) pd, "
+        "sum(CASE WHEN (disaggregation->'()'->>'c') ~ %s THEN (disaggregation->'()'->>'c')::numeric END) s "
         "FROM datamart_reportedindicator WHERE indicator_report ~ '^[0-9]{1,18}$' GROUP BY 1) "
         "SELECT count(*), count(*) FILTER (WHERE d.v IS NOT NULL AND r.s IS NOT NULL), "
-        "count(*) FILTER (WHERE d.v IS NOT NULL AND r.s IS NOT NULL AND abs(d.v - r.s) <= 0.5) "
+        "count(*) FILTER (WHERE d.v IS NOT NULL AND r.s IS NOT NULL AND abs(d.v - r.s) <= 0.5), "
+        "count(*) FILTER (WHERE d.pd IS NOT NULL AND r.pd IS NOT NULL AND d.pd <> r.pd) "
         "FROM r JOIN LATERAL (SELECT CASE WHEN (x.data->>'progress_value') ~ %s "
         "THEN (x.data->>'progress_value')::numeric WHEN (x.data->'progress_value'->>'c') ~ %s "
-        "THEN (x.data->'progress_value'->>'c')::numeric END v FROM datamart_datamartdocument x "
+        "THEN (x.data->'progress_value'->>'c')::numeric END v, x.intervention_id pd "
+        "FROM datamart_datamartdocument x "
         "WHERE x.dataset = 'prp_indicator_reports' AND x.source_id = r.indicator_report::bigint LIMIT 1) d "
         "ON true",
         [NUM, NUM, NUM],
     )
-    if not compared:
-        verdict, tone = "No indicator report can be compared with PRP's own total yet.", INFO
+    if not reports:
+        verdict, tone = "No indicator report can be found in PRP's indicator reports yet.", INFO
     else:
         verdict = (
             f"PRP's report total equals the sum of the location totals on {equal:,} of {compared:,} "
-            f"indicator reports ({_share(equal, compared)})."
+            f"indicator reports that can be compared ({_share(equal, compared)})."
+            if compared
+            else "No indicator report can be compared with PRP's own total yet."
         )
-        tone = OK if equal == compared else WARN
+        if other_pd:
+            verdict += (
+                f" {other_pd:,} PRP {'record' if other_pd == 1 else 'records'} with the same id "
+                f"{'is' if other_pd == 1 else 'are'} about another programme document: the two datasets "
+                "do not share their ids, and NeuroDB uses no PRP total that names another programme "
+                "document or indicator."
+            )
+        if other_pd or (compared and equal != compared):
+            tone = WARN
+        else:
+            tone = OK if compared else INFO
     return {
         "tone": tone,
         "verdict": verdict,
@@ -296,6 +320,7 @@ def _report_totals(cursor) -> dict[str, Any]:
             ("Indicator reports found in PRP's indicator reports", reports),
             ("… that can be compared", compared),
             ("… equal", equal),
+            ("… about another programme document", other_pd),
         ],
     }
 
@@ -389,7 +414,8 @@ CHECKS: tuple[Check, ...] = (
         "8",
         "PRP's report totals",
         "Does PRP's own report total equal the sum of the location totals?",
-        "PRP's report total is used when it agrees with the locations, or when the locations cannot say.",
+        "PRP's report total stands in only when the locations cannot say, and only when its record names "
+        "the same programme document and indicator; when it differs from the locations, they are used.",
         _report_totals,
     ),
     Check(

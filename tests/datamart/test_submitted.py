@@ -41,10 +41,15 @@ def test_the_rule_reads_the_same_in_python_and_in_the_database(status, date, sub
     assert monitoring.is_submitted(row) is submitted
     assert monitoring.is_submitted({"report_status": status, "submission_date": date}) is submitted
     assert dm.ReportedIndicator.objects.filter(monitoring.pending_q()).exists() is not submitted
-    # the six report statuses follow the same rule: a report not submitted is Due, Overdue or Not yet due
+    # the six report statuses follow the same rule: a report not submitted is Due, Overdue or Not yet due,
+    # so a report is overdue on every page or on none
     six = reached.status_of(status, due_date=SENT, submission_date=date, today=datetime.date(2026, 6, 1))
-    assert (six in (reached.ACCEPTED, reached.SUBMITTED, reached.SENT_BACK)) is submitted
     assert (six == reached.OVERDUE) is (not submitted)
+    if status.strip().lower() in ("due", "ove", "overdue"):
+        # PRP's own Due never counts in Reached, even with a submission date: it is then Due
+        assert six not in reached.COUNTED and (six == reached.DUE) is submitted
+    else:
+        assert (six in (reached.ACCEPTED, reached.SUBMITTED, reached.SENT_BACK)) is submitted
 
 
 def test_a_missing_status_is_not_submitted():

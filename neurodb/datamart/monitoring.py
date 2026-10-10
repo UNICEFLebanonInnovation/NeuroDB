@@ -440,8 +440,8 @@ def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, t
                 humanitarian[ident].append(row)
         for ident, rows in humanitarian.items():
             per[ident], read_from[ident] = rows, "HR"
-    totals = rc.progress_values(row["indicator_report"] for rows in per.values() for row in rows)
-    since = rc.history_start(today)
+    totals = rc.progress_values(row for rows in per.values() for row in rows)
+    since = rc.reports_read_from(today)  # a PD that started before it has a partial history
     only = {norm(x) for x in filters.locations} or None
     for ident, entry in found.items():
         result = rc.compute(
@@ -866,7 +866,18 @@ def indicator_detail(
         "by_location": by_location,
         "reports": newest_first,
         "repeated_totals": any(r.source == "report_total" for r in reports),
+        # the margins add up only for a sum of locations and periods whose counted reports each come
+        # from their locations (not a report total without values per location, not PRP's cumulative)
+        "adds_up": bool(
+            result
+            and result.additive
+            and result.source == "computed"
+            and all(r.source == "locations" for r in result.counted)
+        ),
         "report_type": report_type,
+        # the reports the matrix shows: the type chosen, or the monthly ones of an indicator that has no
+        # quarterly report at all
+        "read_type": indicator.report_type if indicator else report_type,
         "year": year,
         "year_param": str(year) if year else ALL_YEARS,
         "report_statuses": REPORT_STATUSES,

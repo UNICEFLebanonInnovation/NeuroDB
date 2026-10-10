@@ -214,6 +214,10 @@ def progress_reports(queryset: QuerySet[dm.ReportedIndicator]) -> list[dict[str,
     out = sorted(reports.values(), key=lambda r: (r["pd_reference_number"], r["report_number"]))
     # latest period first, reports without a period end at the top (as the database sorts them)
     out.sort(key=lambda r: r["period_end"] or datetime.date.max, reverse=True)
+    today = datetime.date.today()
+    for report in out:  # one of the six statuses, the same on every page that lists the report
+        report["status"] = report_status(report, today)
+        report["status_label"] = reached.STATUS_LABELS[report["status"]]
     return out
 
 
@@ -328,9 +332,8 @@ def reporting_summary(queryset: QuerySet[dm.ReportedIndicator]) -> dict[str, Any
     """Progress reports by status: Accepted, Submitted (awaiting acceptance), Sent back, Due, Overdue
     and Not yet due (``reached.status_of``, one status each, so they add up to ``reports``), and
     those submitted after their due date. Overdue follows ``monitoring.pending_q`` as every page does."""
-    today = datetime.date.today()
     reports = list(progress_reports(queryset))
-    statuses = Counter(report_status(r, today) for r in reports)
+    statuses = Counter(r["status"] for r in reports)
     return {
         "reports": len(reports),
         "statuses": {key: statuses.get(key, 0) for key in reached.STATUS_LABELS},
@@ -1230,9 +1233,6 @@ def partner_reporting(params) -> dict[str, Any]:
         rows = rows.filter(pd_monitoring.pending_q(), due_date__lt=today)
     summary = reporting_summary(rows)
     reports = progress_reports(rows)
-    for report in reports:
-        report["status"] = report_status(report, today)
-        report["status_label"] = reached.STATUS_LABELS[report["status"]]
     by_status = [(reached.STATUS_LABELS[k], n) for k, n in summary["statuses"].items() if n]
     return {
         "reports": reports,
@@ -1273,6 +1273,8 @@ def report_detail(progress_report: str, today: datetime.date | None = None) -> d
     total row that combines the locations by the indicator's method (never a sum of a percentage,
     never the report total repeated on each row added up)."""
     today = today or datetime.date.today()
+    if not (progress_report or "").strip():
+        return None  # rows without a report id belong to no one report
     rows = list(
         dm.ReportedIndicator.objects.filter(progress_report=progress_report)
         .order_by(*reached.ROW_ORDER)
@@ -1288,18 +1290,23 @@ def report_detail(progress_report: str, today: datetime.date | None = None) -> d
         for source_id, title, display_type, unit in dm.PDIndicator.objects.filter(
             intervention_id=report.intervention_id
         ).values_list("source_id", "title", "display_type", "unit"):
-            definitions.setdefault(str(source_id or ""), (display_type, unit))
-            definitions.setdefault(pd_monitoring.norm(title), (display_type, unit))
+            # by eTools id ("s…"), else by title ("t…"): a row without an id never takes the type of
+            # an indicator that has none
+            if source_id:
+                definitions.setdefault(f"s{source_id}", (display_type, unit))
+            definitions.setdefault(f"t{pd_monitoring.norm(title)}", (display_type, unit))
     groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         groups[(row["etools_indicator_id"] or "", row["indicator"] or "")].append(row)
-    totals = reached.progress_values(r["indicator_report"] for r in rows)
+    totals = reached.progress_values(rows)
     indicators = []
     for (etools_id, title), group in sorted(
         groups.items(), key=lambda kv: (kv[1][0]["pd_output"] or "", kv[0][1])
     ):
         display_type, unit = (
-            definitions.get(etools_id) or definitions.get(pd_monitoring.norm(title)) or ("", "")
+            (definitions.get(f"s{etools_id.strip()}") if etools_id.strip() else None)
+            or definitions.get(f"t{pd_monitoring.norm(title)}")
+            or ("", "")
         )
         ratio = reached.is_ratio(
             display_type,

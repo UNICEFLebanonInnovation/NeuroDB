@@ -1406,9 +1406,10 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         "(choose fields to keep answers short) or, with group_by (a field, or partner, programme_document, "
         "year, month), counts per group, with sum to add up a numeric field. Records carry links to the "
         "NeuroDB partner and programme document pages. Partner report values (partner_reports, "
-        "prp_indicator_reports) repeat across locations, reports and indicators and are never summed: "
-        "use pd_indicator_progress for what was reached. Field monitoring records come without people's "
-        "names and without long texts; for visits use fm_visits / fm_visit.",
+        "prp_indicator_reports) repeat across locations, reports and indicators, and PD indicator targets "
+        "(pd_indicators) across locations and disaggregations, so they are never summed: use "
+        "pd_indicator_progress for targets and what was reached. Field monitoring records come without "
+        "people's names and without long texts; for visits use fm_visits / fm_visit.",
         _schema(
             {
                 "dataset": {"type": "string", "description": "A name from etools_datasets."},

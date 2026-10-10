@@ -49,10 +49,12 @@ PART = r"['\"]%s['\"]\s*:\s*['\"]?(-?[0-9]+(\.[0-9]+)?)"
 NO_SUM = {
     "partner_reports": "Partner report values repeat on every location, report and indicator row",
     "prp_indicator_reports": "PRP indicator report values repeat across reports and indicators",
+    # one row per indicator, location and disaggregation: a sum of targets counts each one many times
+    "pd_indicators": "PD indicator rows repeat the indicator's target on every location and disaggregation",
 }
 NO_SUM_HINT = (
-    "{why}, so they are never added up. Use pd_indicator_progress for what a partner reached (Reached, "
-    "per indicator, by PRP's own rules), or list the records without sum."
+    "{why}, so they are never added up. Use pd_indicator_progress for each indicator's target and what "
+    "a partner reached (Reached, per indicator, by PRP's own rules), or list the records without sum."
 )
 
 
