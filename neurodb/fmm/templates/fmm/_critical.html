@@ -14,7 +14,7 @@ are not on the field office's staff list, never who.{% endcomment %}
   <article class="fmm-critical-item fmm-critical-item--{{ item.level }}" aria-labelledby="fmm-critical-{{ item.record }}">
     <div class="fmm-critical-item__head">
       <div class="fmm-critical-item__who">
-        <h3 class="fmm-critical-item__title" id="fmm-critical-{{ item.record }}"><a class="fmm-critical-item__id" href="{{ item.url }}#{{ item.anchor }}" hx-get="{{ item.url }}" hx-target="#modal-content" hx-push-url="false">{{ item.name }}</a> <span class="fmm-critical-item__entity">· {% if item.entity %}<span data-synced>{{ item.entity }}</span> {% endif %}({{ item.type }})</span></h3>
+        <h3 class="fmm-critical-item__title" id="fmm-critical-{{ item.record }}"><a class="fmm-critical-item__id" href="{{ item.url }}#{{ item.anchor }}" hx-get="{{ item.url }}#{{ item.anchor }}" hx-target="#modal-content" hx-push-url="false">{{ item.name }}</a> <span class="fmm-critical-item__entity">· {% if item.entity %}<span data-synced>{{ item.entity }}</span> {% endif %}({{ item.type }})</span></h3>
         <div class="fmm-critical-item__rating">{{ item.rating_label }}</div>
       </div>
       <div class="fmm-critical-item__urgency">

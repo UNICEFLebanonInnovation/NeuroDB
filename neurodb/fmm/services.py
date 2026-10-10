@@ -261,8 +261,8 @@ def pd_context(
     """One block per programme document of ``pd_ids``: what the partner reported on it (its indicators
     with the tracking status of the latest period reported, ``datamart.monitoring.indicators``), the
     other visits to it (TPM activities, UNICEF staff programmatic trips, never the traveller's name,
-    and FM visits), the country programme outputs it contributes to and, with ``knowledge``, the
-    knowledge base documents that mention it (else those that mention its partner).
+    and the FM visits with a record of it), the country programme outputs it contributes to and, with
+    ``knowledge``, the knowledge base documents that mention it (else those that mention its partner).
 
     The visits are those within ``AROUND_DAYS`` of ``around`` (the visit page, ``exclude_key`` leaving
     the visit itself out), else those of the calendar year ``year`` (the PD page; this year by
@@ -272,7 +272,7 @@ def pd_context(
     from neurodb.partnerships.models import PCA
 
     from . import metrics
-    from .models import Visit
+    from .models import Visit, VisitEntity
 
     ids = list(dict.fromkeys(int(pk) for pk in pd_ids))
     if not ids:
@@ -321,14 +321,22 @@ def pd_context(
         trips[t["intervention_id"]].append(
             {"reference": t["travel_reference_number"], "date": t["date"], "place": t["location_name"]}
         )
+    # the FM visits with a record of each programme document, as the page's ``pd`` filter, the PD panel
+    # and the visit page's quarter count them (not the documents a visit's other columns name)
     visits: dict[int, list[dict[str, Any]]] = {pk: [] for pk in pds}
-    rows = Visit.objects.filter(pd_ids__overlap=found, visit_date__gte=start, visit_date__lte=end)
+    pairs = VisitEntity.objects.filter(
+        pd_id__in=found, visit__visit_date__gte=start, visit__visit_date__lte=end
+    )
     if exclude_key:
-        rows = rows.exclude(key=exclude_key)
-    for v in rows.order_by("-visit_date", "-pk")[:500]:
-        for pk in v.pd_ids:
+        pairs = pairs.exclude(visit__key=exclude_key)
+    of_visit: dict[int, set[int]] = {}
+    for visit_id, pd_id in pairs.order_by().values_list("visit_id", "pd_id").distinct():
+        of_visit.setdefault(visit_id, set()).add(pd_id)
+    for v in Visit.objects.filter(pk__in=list(of_visit)).order_by("-visit_date", "-pk")[:500]:
+        line = _visit_line(v, limits)
+        for pk in sorted(of_visit[v.pk]):
             if pk in visits:
-                visits[pk].append(_visit_line(v, limits))
+                visits[pk].append(line)
 
     blocks = []
     for pk in ids:

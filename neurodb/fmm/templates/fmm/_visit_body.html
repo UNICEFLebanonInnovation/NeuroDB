@@ -90,7 +90,7 @@
         <div>
           <span class="fmm-type fmm-type--{{ e.kind|default:'other' }}">{{ e.kind_label }}</span>
           <h4 class="fmm-record__title h6 mb-0" id="{{ e.anchor }}-title">{% if e.pd %}<a class="mono" href="{% url 'reports:programme_detail' e.pd_id %}" data-synced>{{ e.entity|default:e.pd.number }}</a>{% elif e.kind == "partner" and e.partner %}<a href="{% url 'reports:partner_profile' e.partner_id %}" data-synced>{{ e.entity|default:e.partner.name }}</a>{% else %}<span data-synced>{{ e.entity|default:"—" }}</span>{% endif %}</h4>
-          {% if e.kind == "pd" %}<span class="cell-sub">{% if e.match_label %}{{ e.match_label }}{% else %}{% trans "programme document not found in NeuroDB" %}{% endif %}</span>{% endif %}
+          {% if e.kind == "pd" %}<span class="fmm-record__sub">{% if e.match_label %}{{ e.match_label }}{% else %}{% trans "programme document not found in NeuroDB" %}{% endif %}</span>{% endif %}
         </div>
         <div class="fmm-record__score text-nowrap">
           {% if e.quality_score is not None %}<span class="fmm-score fmm-score--{{ e.score_band|default:'none' }}">{{ e.quality_score|percent }}</span> <span class="small text-muted">({{ e.band_label }})</span>
@@ -246,7 +246,7 @@
 {% if modal %}
 </div>
 <div class="modal-footer">
-  <a class="btn btn-link btn-sm me-auto" href="{% url 'fmm:visit' visit.key %}">{% trans "Open as page" %}</a>
+  <a class="btn btn-link btn-sm me-auto" href="{% url 'fmm:visit' visit.key %}" data-page-link>{% trans "Open as page" %}</a>
   <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">{% trans "Close" %}</button>
 </div>
 {% endif %}

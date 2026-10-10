@@ -49,7 +49,7 @@ Every sort, page and size link keeps the view.{% endcomment %}
     {% else %}
     <tbody>{% for r in records %}{% with v=r.visit %}{% url 'fmm:visit' v.key as visit_url %}
     <tr data-href="{{ visit_url }}#record-{{ r.datamart_id }}" data-record="{{ r.datamart_id }}"{% if r.row_band %} class="row--{{ r.row_band }}"{% endif %}>
-      <td class="text-nowrap"><a href="{{ visit_url }}#record-{{ r.datamart_id }}" hx-get="{{ visit_url }}" hx-target="#modal-content" hx-push-url="false">{{ v.label }}</a>{% if v.reference and v.reference != v.label %}<span class="cell-sub mono" data-synced>{{ v.reference }}</span>{% endif %}</td>
+      <td class="text-nowrap"><a href="{{ visit_url }}#record-{{ r.datamart_id }}" hx-get="{{ visit_url }}#record-{{ r.datamart_id }}" hx-target="#modal-content" hx-push-url="false">{{ v.label }}</a>{% if v.reference and v.reference != v.label %}<span class="cell-sub mono" data-synced>{{ v.reference }}</span>{% endif %}</td>
       <td class="small">{% if r.name %}<span data-synced title="{{ r.name }}">{{ r.name|truncatechars:60 }}</span>{% else %}—{% endif %}<span class="cell-sub"><span class="fmm-type fmm-type--{{ r.kind|default:'other' }}">{{ r.kind_label }}</span></span></td>
       <td class="small text-nowrap" data-value="{{ v.visit_date|date:'Y-m-d' }}"{% if v.end_date and v.end_date != v.visit_date %} title="{% blocktrans with day=v.end_date|date:'j M Y' %}Ends {{ day }}{% endblocktrans %}"{% endif %}>{{ v.visit_date|date:"j M Y"|default:"—" }}</td>
       <td>{% if r.partner %}<a href="{% url 'reports:partner_profile' r.partner.id %}" data-synced>{{ r.partner.short_name|default:r.partner.name }}</a>{% else %}—{% endif %}

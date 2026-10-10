@@ -150,11 +150,29 @@ function initHtmx() {
   document.body.addEventListener("htmx:sendError", () => toast("Network error — check your connection.", "error"));
   document.body.addEventListener("htmx:afterSwap", (e) => {
     if (e.detail.target?.id === "modal-content" && window.bootstrap) {
-      window.bootstrap.Modal.getOrCreateInstance($("#modal")).show();
+      const modal = $("#modal");
+      revealAnchor(modal, e.detail.pathInfo?.anchor);
+      window.bootstrap.Modal.getOrCreateInstance(modal).show();
     }
   });
   // New content (partials, modals) gets the same enhancements as the first page load.
   document.body.addEventListener("htmx:load", (e) => enhance(e.detail.elt));
+}
+
+// A window opened from a link to one of its parts (hx-get="/fmm/visits/1723/#record-112": htmx hands the
+// anchor over as pathInfo.anchor) shows that part, as the page itself would: marked, scrolled to once the
+// window is open, and its "Open as page" link (data-page-link) keeps the anchor.
+function revealAnchor(modal, anchor) {
+  if (!modal || !anchor) return;
+  const target = modal.querySelector(`#${CSS.escape(anchor)}`);
+  if (!target) return;
+  target.classList.add("is-target");
+  $$("a[data-page-link]", modal).forEach((a) => {
+    a.hash = anchor;
+  });
+  const reveal = () => target.scrollIntoView({ block: "start" });
+  if (modal.classList.contains("show")) reveal();
+  else modal.addEventListener("shown.bs.modal", reveal, { once: true });
 }
 
 // ------------------------------------------------------------------ filter bars driven by HTMX

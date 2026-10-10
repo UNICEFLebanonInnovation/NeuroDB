@@ -15,7 +15,7 @@
     <thead><tr><th scope="col">{% trans "Visit" %}</th><th scope="col">{% trans "Entity" %}</th><th scope="col">{% trans "Type" %}</th><th scope="col">{% trans "Partner" %}</th><th scope="col">{% trans "PD number" %}</th><th scope="col">{% trans "Location" %}</th><th scope="col">{% trans "Section" %}</th><th scope="col">{% trans "Visit date" %}</th><th scope="col">{% trans "Rating" %}</th><th scope="col">{% trans "Quality" %}</th><th scope="col">{% trans "Urgency" %}</th><th scope="col">{% trans "Flags" %}</th></tr></thead>
     <tbody>{% for r in records %}{% with v=r.visit %}{% url 'fmm:visit' v.key as visit_url %}
     <tr data-key="{{ v.key }}" data-record="{{ r.datamart_id }}"{% if r.row_band %} class="row--{{ r.row_band }}"{% endif %}>
-      <td class="text-nowrap"><a href="{{ visit_url }}#record-{{ r.datamart_id }}" hx-get="{{ visit_url }}" hx-target="#modal-content">{{ v.label }}</a></td>
+      <td class="text-nowrap"><a href="{{ visit_url }}#record-{{ r.datamart_id }}" hx-get="{{ visit_url }}#record-{{ r.datamart_id }}" hx-target="#modal-content">{{ v.label }}</a></td>
       <td class="small">{% if r.name %}<span data-synced title="{{ r.name }}">{{ r.name|truncatechars:60 }}</span>{% else %}—{% endif %}</td>
       <td class="small text-nowrap"><span class="fmm-type fmm-type--{{ r.kind|default:'other' }}">{{ r.kind_label }}</span></td>
       <td class="small">{% if r.partner %}<span data-synced>{{ r.partner.name|default:r.partner.short_name }}</span>{% else %}—{% endif %}</td>

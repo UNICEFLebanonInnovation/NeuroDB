@@ -2,11 +2,12 @@
 
 :func:`build` gathers, for one :class:`~neurodb.fmm.scope.Scope`, the figures the page shows (the key
 figures with the rating distribution over the rated visits, the previous period, the quality rules,
-the breakdowns per section, field office, partner, modality and governorate, follow-up and HACT); the
-``comp`` most frequent quality flags (the compliance depth: rule, visits, example visits); the cards of
-the most urgent visits and of the flags' examples (structured, never a narrative); and up to ``narr``
-monitors' notes with their Q1, Q2 and Q3 answers, each cleaned (``privacy.clean``). Every share of
-ratings is over the rated visits only; Not monitored (planned, not conducted) is a count apart. Every
+the breakdowns per section, field office, partner, modality and governorate, each counting records with
+their visits as the page does, follow-up and HACT); the ``comp`` most frequent quality flags (the
+compliance depth: rule, records, visits, example visits); the cards of the most urgent visits and of
+the flags' examples (structured, never a narrative); and up to ``narr`` monitors' notes with their Q1,
+Q2 and Q3 answers, each cleaned (``privacy.clean``). Every share of ratings is over the rated visits
+(in the breakdowns, the rated records) only; Not monitored (planned, not conducted) is a count apart. Every
 entry carries a ``key`` the brief's sentences cite, and :attr:`Facts.citable` maps each key to its
 entry, so that every number and date of a kept sentence can be checked against the entries it cites.
 
@@ -58,7 +59,7 @@ TEXT_BATCH = 200  # narratives read from the findings at once
 ISSUE_VISITS = 3  # example visits listed per quality flag
 EXAMPLE_CARDS = 30  # visit cards added for the flags' examples, at most (beyond VISIT_CARDS)
 VISIT_CARDS = 15  # the most urgent visits sent as cards
-PARTNERS = 30  # partners in the breakdown, most visits first
+PARTNERS = 30  # partners in the breakdown, most records first
 ANSWER_CHARS = 400  # characters of a Q1, Q2 or Q3 answer sent with a narrative
 FILTER_CHARS = 300
 NAME_CHARS = 200
@@ -259,8 +260,9 @@ def _previous(scope: Scope, kpi: dict[str, Any], when: str, limits: dict[str, in
 
 
 def _rules(scope: Scope, when: str, rules: list) -> dict[str, dict[str, Any]]:
-    """One entry per quality rule switched on: its category, the visits it flagged out of those it
-    checked, and the mean points the visits kept of its deduction."""
+    """One entry per quality rule switched on: its category, the records it flagged out of those it
+    checked (as the page's rule analysis counts them), and the mean points the records kept of its
+    deduction."""
     stats = metrics.rule_stats(scope, when)
     out = {}
     for row in metrics.rule_analysis(scope, rules, when):
@@ -287,8 +289,9 @@ def _rules(scope: Scope, when: str, rules: list) -> dict[str, dict[str, Any]]:
 
 
 def _issues(scope: Scope, when: str, rules: list, comp: int) -> dict[str, dict[str, Any]]:
-    """The ``comp`` most frequent quality flags (the compliance depth), each with its rule, label,
-    visits and up to three example visits (``visit:<key>``: their cards are sent too)."""
+    """The ``comp`` most frequent quality flags (the compliance depth), each with its rule, label, the
+    records it flagged and their visits (the page's Top recurring issues), and up to three example
+    visits (``visit:<key>``: their cards are sent too)."""
     out = {}
     for row in metrics.top_issues(scope, comp, when, rules):
         if not row["drill"]:
@@ -298,6 +301,7 @@ def _issues(scope: Scope, when: str, rules: list, comp: int) -> dict[str, dict[s
             "key": key,
             "rule": row["rule"],
             "label": row["label"],
+            "records": row["records"],
             "visits": row["visits"],
             "mean_urgency": row["urgency"],
             "lowest": _num(row["lowest"]),
@@ -307,16 +311,19 @@ def _issues(scope: Scope, when: str, rules: list, comp: int) -> dict[str, dict[s
 
 
 class _Tally:
-    """Visits of a group: their average quality and their ratings (Not monitored counted apart)."""
+    """Records of a group (each under its own rating; Not monitored counted apart), their distinct
+    visits and their average quality per record: the figures the page shows for the same filter."""
 
     def __init__(self, name: str) -> None:
-        self.name, self.visits, self.q_sum, self.q_n = name, 0, Decimal(0), 0
+        self.name, self.records, self.q_sum, self.q_n = name, 0, Decimal(0), 0
+        self.visits: set[int] = set()
         self.ratings: Counter = Counter()
 
-    def add(self, quality: Any, rating: str) -> None:
-        self.visits += 1
-        if quality is not None:
-            self.q_sum += Decimal(str(quality))
+    def add(self, visit: int, quality: Any, rating: str) -> None:
+        self.records += 1
+        self.visits.add(visit)
+        if quality is not None:  # a DecimalField reads as a Decimal already
+            self.q_sum += quality if isinstance(quality, Decimal) else Decimal(str(quality))
             self.q_n += 1
         self.ratings[rating] += 1
 
@@ -325,7 +332,8 @@ class _Tally:
         return {
             "key": key,
             "name": self.name,
-            "visits": self.visits,
+            "records": self.records,
+            "visits": len(self.visits),
             "avg_quality": _num(metrics.mean_quality(self.q_sum, self.q_n)),
             "rated": rated,
             **{code: self.ratings[code] for code in RATED},
@@ -337,41 +345,55 @@ class _Tally:
 
 
 BREAKDOWN_COLUMNS = (
+    "visit_id",
     "partner_id",
-    "partner__name",
-    "partner__short_name",
-    "modality",
-    "governorate_key",
+    "visit__modality",
+    "visit__governorate_key",
     "quality_score",
     "rating",
-    "status_group",
+    "visit__status_group",
 )
 
 
 def _breakdowns(scope: Scope, names_) -> dict[str, dict[str, dict[str, Any]]]:
-    """Per partner (the visit's main partner; the most visited first, at most ``PARTNERS``), per
-    monitoring modality and per governorate: visits, average quality, the rated visits by rating with
-    the share Off track or Constrained of the rated ones, and the Not monitored ones apart."""
+    """Per partner (each record under its own partner, as the page's entity table and the exports count
+    it; the most records first, at most ``PARTNERS``), per monitoring modality and per governorate (its
+    visit's): the records and their distinct visits, the average quality per record (the governorate
+    chips' and the key figure's, for the same filter), the rated records by rating with the share Off
+    track or Constrained of the rated ones, and the Not monitored ones apart. One pass over the records."""
+    from neurodb.partnerships.models import PartnerOrganization
+
     partners: dict[int, _Tally] = {}
     modalities: dict[str, _Tally] = {}
     governorates: dict[str, _Tally] = {}
-    for row in scope.visits().order_by().values_list(*BREAKDOWN_COLUMNS):
-        pid, name, short, modality, gov, quality, rating, group = row
+    for row in scope.records().order_by().values_list(*BREAKDOWN_COLUMNS):
+        visit, pid, modality, gov, quality, rating, group = row
         counted = metrics.counted_rating(rating or "not_monitored", group)
         if pid:
-            partners.setdefault(pid, _Tally(_text(short or name, names_))).add(quality, counted)
-        modalities.setdefault(modality or "", _Tally(_text(modality, names_) or "Modality not known")).add(
-            quality, counted
-        )
+            tally = partners.get(pid)
+            if tally is None:
+                tally = partners[pid] = _Tally("")  # named below: the partners sent only
+            tally.add(visit, quality, counted)
+        tally = modalities.get(modality or "")
+        if tally is None:
+            tally = modalities[modality or ""] = _Tally(_text(modality, names_) or "Modality not known")
+        tally.add(visit, quality, counted)
         if gov:
-            governorates.setdefault(gov, _Tally("")).add(quality, counted)
-    top = sorted(partners.items(), key=lambda kv: (-kv[1].visits, kv[1].name.casefold()))[:PARTNERS]
+            tally = governorates.get(gov)
+            if tally is None:
+                tally = governorates[gov] = _Tally("")
+            tally.add(visit, quality, counted)
+    for pk, name, short in PartnerOrganization.objects.filter(pk__in=list(partners)).values_list(
+        "pk", "name", "short_name"
+    ):
+        partners[pk].name = _text(short or name, names_)
+    top = sorted(partners.items(), key=lambda kv: (-kv[1].records, kv[1].name.casefold()))[:PARTNERS]
     taken: set[str] = set()
     return {
         "partners": {f"partner:{pid}": tally.entry(f"partner:{pid}") for pid, tally in top},
         "modalities": {
             (key := f"modality:{_slug(name, taken) if name else 'none'}"): tally.entry(key)
-            for name, tally in sorted(modalities.items(), key=lambda kv: (-kv[1].visits, kv[0]))
+            for name, tally in sorted(modalities.items(), key=lambda kv: (-kv[1].records, kv[0]))
         },
         "governorates": {gov: tally.entry(f"gov:{gov}") for gov, tally in governorates.items()},
     }
@@ -386,6 +408,7 @@ def _sections(scope: Scope, when: str, limits: dict[str, int], names_) -> dict[s
         out[key] = {
             "key": key,
             "name": name,
+            "records": row["records"],
             "visits": row["visits"],
             "avg_quality": _num(row["avg"]),
             "rated": sum(ratings[code] for code in RATED),
@@ -408,6 +431,7 @@ def _offices(scope: Scope, when: str, limits: dict[str, int], names_) -> dict[st
         out[key] = {
             "key": key,
             "name": "Office not known" if unknown else _text(row["name"], names_),
+            "records": row["records"],
             "visits": row["visits"],
             "avg_quality": _num(row["avg"]),
         }
@@ -476,9 +500,22 @@ def _hact(scope: Scope, when: str, limits: dict[str, int]) -> dict[str, Any] | N
     }
 
 
+# what the figures count, said once (a visit holds one record per entity assessed; the brief must not call
+# a count of records a count of visits)
+RECORDS_NOTE = (
+    "A visit holds one record per entity assessed (partner, CP output or PD/SSFA), each scored, flagged "
+    "and given an urgency on its own, as in FMS. The average quality is the mean of the scored records; "
+    "high and amber urgency count records; a rule's flagged and evaluated counts are records. Sections, "
+    "field offices, partners, modalities and governorates count records too (their ratings, shares and "
+    "average quality are the records' own), with the distinct visits of those records. The rated, on "
+    "track, constrained, off track and Not monitored visits of the key figures count each visit once, "
+    "under its worst record's rating."
+)
+
+
 def _notes(scope: Scope, kpi: dict[str, Any], when: str) -> list[str]:
-    """What the data does not cover, in words (not facts to cite)."""
-    lines = []
+    """What the data does not cover, in words (not facts to cite), and what the breakdowns count."""
+    lines = [RECORDS_NOTE]
     asked = scope.visits().filter(questions_asked__isnull=False).count() if kpi["visits"] else 0
     lines.append(f"Question answers are available for {asked} of {kpi['visits']} visits.")
     for note in metrics.notes(scope, when):
@@ -487,11 +524,9 @@ def _notes(scope: Scope, kpi: dict[str, Any], when: str) -> list[str]:
         elif note["key"] == "dated_by_end":
             lines.append(f"{note['n']} visits have no start date and are dated by their end date.")
         elif note["key"] == "no_reference":
-            lines.append(
-                f"{note['n']} finding rows have no activity reference and count as their own visits."
-            )
+            lines.append(f"{note['n']} records have no activity reference and count as their own visits.")
         elif note["key"] == "record_filter":
-            lines.append("A record filter is on: the entity figures count the matching records only.")
+            lines.append("A record filter is on: the record figures count the matching records only.")
     if kpi["visits_planned"] or kpi["visits_in_progress"]:
         lines.append(
             "Planned and in-progress visits are not rated yet; they are not counted as Not monitored."

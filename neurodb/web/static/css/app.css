@@ -1172,7 +1172,8 @@ a.fmm-rating-pill:hover, a.fmm-rating-pill:focus-visible { color: #fff; filter: 
 /* a visit's records (the visit page): one card each, tinted by its urgency band */
 .fmm-record { margin-bottom: 0.75rem; padding: 0.7rem 0.85rem; border: 1px solid var(--nd-border); border-left: 4px solid var(--nd-border); border-radius: var(--nd-radius-sm); scroll-margin-top: 4.5rem; }
 .fmm-record:last-child { margin-bottom: 0; }
-.fmm-record:target { box-shadow: 0 0 0 2px var(--nd-primary); }
+.fmm-record:target, .fmm-record.is-target { box-shadow: 0 0 0 2px var(--nd-primary); }
+.fmm-record__sub { display: block; color: var(--nd-muted); font-size: 0.78rem; }
 .fmm-record--red { border-left-color: var(--nd-danger); background: var(--fmm-tint-red); }
 .fmm-record--amber { border-left-color: var(--fmm-ink-amber); background: var(--fmm-tint-yellow); }
 .fmm-record__head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 0.4rem 0.75rem; margin-bottom: 0.45rem; }

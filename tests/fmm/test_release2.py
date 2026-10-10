@@ -259,24 +259,28 @@ def test_an_action_point_is_written_out_by_neurodb():
     assert sections.action_line({**action, "partner": ""}).startswith("[PRIORITY: High] Child Protection — ")
 
 
-def test_the_facts_break_the_visits_down_by_partner_modality_and_governorate(built, ai_on):
+def test_the_facts_break_the_records_down_by_partner_modality_and_governorate(built, ai_on):
+    # per record, as the page counts them (stage F3a check): each record under its own partner and rating,
+    # with the distinct visits of those records
     found = facts.build(_scope(), ai_on, TODAY)
     partners = {e["name"]: e for e in found.payload["partners"].values()}
     assert set(partners) == {"AMEL", "MCL"}
     mercy = partners["MCL"]
-    assert (mercy["visits"], mercy["rated"], mercy["on_track"], mercy["off_track"]) == (5, 3, 2, 1)
-    assert (mercy["not_monitored"], mercy["off_track_or_constrained_share_of_rated"]) == (1, 33.3)
-    assert partners["AMEL"]["off_track_or_constrained_share_of_rated"] == 50.0
+    # its 7 records of 5 visits: 1726's two, 1728's and the reference visit's rated (3 on track, 1 off
+    # track), 1723's two Not monitored, 1724's not rated yet (in progress)
+    assert (mercy["records"], mercy["visits"]) == (7, 5)
+    assert (mercy["rated"], mercy["on_track"], mercy["off_track"], mercy["not_monitored"]) == (4, 3, 1, 2)
+    assert (mercy["off_track_or_constrained_share_of_rated"], mercy["avg_quality"]) == (25.0, 73.3)
+    # AMEL: 1722's three (one off track), 1727's; 1725's cancelled record counts in no rating
+    assert partners["AMEL"]["off_track_or_constrained_share_of_rated"] == 25.0
+    assert (partners["AMEL"]["records"], partners["AMEL"]["avg_quality"]) == (5, 90.8)
     modalities = found.payload["modalities"]
-    assert list(modalities) == ["modality:none"] and modalities["modality:none"]["visits"] == 8
+    assert list(modalities) == ["modality:none"]
+    assert (modalities["modality:none"]["records"], modalities["modality:none"]["visits"]) == (12, 8)
     bekaa = found.payload["places"]["gov:beqaa"]
-    # the mean of 1722, 1723, 1727 and 1728's qualities, each the mean of its records' (94.3, 48, 80, 93)
-    assert (bekaa["rated"], bekaa["off_track"], bekaa["not_monitored"], bekaa["avg_quality"]) == (
-        3,
-        1,
-        1,
-        78.8,
-    )
+    # the mean of its 7 scored records (1722's 95, 95, 93, 1723's 48, 48, 1727's 80, 1728's 93)
+    assert (bekaa["records"], bekaa["visits"], bekaa["rated"], bekaa["off_track"]) == (8, 5, 5, 1)
+    assert (bekaa["not_monitored"], bekaa["avg_quality"]) == (2, 78.9)
 
 
 def test_the_notes_carry_their_q1_q2_and_q3_answers(built, ai_on):
