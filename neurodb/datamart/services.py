@@ -1183,11 +1183,15 @@ def partner_reporting(params, today: datetime.date | None = None) -> dict[str, A
     """The Progress reports page: the progress reports of the filter (one of six statuses each, with
     their PD's status, document type and UNICEF focal points), the progress reports per status
     (``summary``), the indicator reports per status (``counts``: what the tiles show), by section and
-    by month of the due date, and Partner Performance."""
+    by month of the due date, and Partner Performance. ``statuses``: the status of every progress report
+    of the filter, read before the status filter (Report/Location reads each report's status there, so a
+    report left out by the status filter is never let back in by one of its rows); ``by_status``: the
+    progress reports per status, by name (as ``summary`` counts them)."""
     today = today or datetime.date.today()
     filters = reporting.ReportFilters.from_params(params)
     rows = filters.queryset(today)
     reports = reporting.progress_reports(rows, today)
+    statuses = {r["progress_report"]: r["status"] for r in reports if r["progress_report"]}
     if filters.statuses:
         reports = [r for r in reports if r["status"] in filters.statuses]
     reporting.with_pd_details(reports)
@@ -1197,11 +1201,10 @@ def partner_reporting(params, today: datetime.date | None = None) -> dict[str, A
         "filters": filters,
         "rows": rows,
         "reports": reports,
+        "statuses": statuses,
         "summary": summary,
         "counts": counts,
-        "by_status": [
-            (s["label"], s["indicator_reports"]) for s in counts["statuses"] if s["indicator_reports"]
-        ],
+        "by_status": [(reached.STATUS_LABELS[k], n) for k, n in summary["statuses"].items() if n],
         "by_section": reporting.by_section(reports),
         "by_month": reporting.by_month(reports),
         "partners": reporting.partner_performance(reports),

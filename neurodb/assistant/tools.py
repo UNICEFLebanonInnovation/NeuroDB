@@ -825,6 +825,7 @@ def partner_reporting(
             }
             for s in data["counts"]["statuses"]
         },
+        # progress reports per status, by name: the same counts as ``reports`` and the status keys above
         "by_status": dict(data["by_status"]),
         **_cut(rows, "progress_reports"),
         "url": reverse("reports:partner_reporting"),

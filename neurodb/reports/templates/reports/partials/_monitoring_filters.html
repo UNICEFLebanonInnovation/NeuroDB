@@ -1,12 +1,13 @@
 {% load i18n ui %}
+{# the view links follow the filter in the address bar (data-current-query): a filter changed through HTMX is kept #}
 <div class="toolbar">
   <div class="segmented segmented--scroll" role="group" aria-label="{% trans 'Partner monitoring views' %}">
-    <a href="{{ tab_urls.grid }}" {% if view == "grid" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="table" %} {% trans "Grid" %}</a>
-    <a href="{{ tab_urls.table }}" {% if view == "table" %}aria-current="page"{% endif %} title="{% trans 'One row per indicator, sorted by % Reached (Program Performance)' %}">{% include "components/icon.html" with name="list" %} {% trans "Program Performance" %}</a>
-    <a href="{{ tab_urls.quality }}" {% if view == "quality" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="check" %} {% trans "Data quality" %}</a>
-    <a href="{{ tab_urls.map }}" {% if view == "map" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="map" %} {% trans "Map" %}</a>
+    <a href="{{ tab_urls.grid }}" data-current-query="view=grid" {% if view == "grid" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="table" %} {% trans "Grid" %}</a>
+    <a href="{{ tab_urls.table }}" data-current-query="view=table" {% if view == "table" %}aria-current="page"{% endif %} title="{% trans 'One row per indicator, sorted by % Reached (Program Performance)' %}">{% include "components/icon.html" with name="list" %} {% trans "Program Performance" %}</a>
+    <a href="{{ tab_urls.quality }}" data-current-query="view=quality" {% if view == "quality" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="check" %} {% trans "Data quality" %}</a>
+    <a href="{{ tab_urls.map }}" data-current-query="" {% if view == "map" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="map" %} {% trans "Map" %}</a>
   </div>
-  {% if own_section %}<span class="small text-muted">{% blocktrans with section=own_section|join:", " %}Your section, {{ section }}, by default{% endblocktrans %} · <a href="?section={% if view != 'grid' and view != 'map' %}&amp;view={{ view }}{% endif %}">{% trans "every section" %}</a></span>{% endif %}
+  {% if own_section %}<span class="small text-muted">{% blocktrans with section=own_section|join:", " %}Your section, {{ section }}, by default{% endblocktrans %} · <a href="?section={% if view != 'grid' and view != 'map' %}&amp;view={{ view }}{% endif %}" data-current-query="section=">{% trans "every section" %}</a></span>{% endif %}
 </div>
 <form method="get" class="filter-bar" {% if view != "map" %}data-filter-bar data-hx-target="#monitoring-grid"{% endif %} role="search" aria-label="{% trans 'Partner monitoring filters' %}">
   {% if view != "map" and view != "grid" %}<input type="hidden" name="view" value="{{ view }}">{% endif %}

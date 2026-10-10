@@ -6,7 +6,7 @@
 <section class="panel p-0">
   {% include "components/table_toolbar.html" with title=_("Program Performance") count=rows|length table_id="program-performance" filename="program-performance" downloads=downloads %}
   {% if rows %}
-  {% if truncated %}<p class="small text-warning px-3 mb-2">{% trans "Only the first 2,000 indicators are counted: narrow the filters." %}</p>{% endif %}
+  {% if truncated %}<p class="small text-warning px-3 mb-2">{% trans "Only the first 2,000 indicators are listed and sorted here: narrow the filters. The Excel and CSV files hold every indicator of the filter." %}</p>{% endif %}
   <div class="table-wrap table-wrap--tall"><table class="table table-hover table-sm" id="program-performance">
     <thead><tr>
       {% for key, label, numeric in table_headings %}<th scope="col"{% if numeric %} class="num"{% endif %}{% if key == sort_key %} aria-sort="{% if sort_desc %}descending{% else %}ascending{% endif %}"{% endif %}><a class="sort-link" href="{{ sort_urls|get_item:key }}" hx-get="{{ sort_urls|get_item:key }}" hx-target="#monitoring-grid" hx-push-url="true">{{ label }}</a></th>{% endfor %}

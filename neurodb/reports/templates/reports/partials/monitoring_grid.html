@@ -25,7 +25,7 @@
 <section class="panel p-0">
   {% include "components/table_toolbar.html" with title=_("Indicators") count=rows|length table_id="pd-indicators" filename="partner-monitoring" %}
   {% if rows %}
-  {% if truncated %}<p class="small text-warning px-3 mb-2">{% trans "Only the first 2,000 indicators are counted: narrow the filters." %}</p>{% endif %}
+  {% if truncated %}<p class="small text-warning px-3 mb-2">{% trans "Only the first 2,000 indicators are listed: narrow the filters. The figures above count every indicator of the filter." %}</p>{% endif %}
   <p class="small text-muted px-3 mb-2">{% if filters.all_years %}{% trans "One column per year on the right: scroll the table sideways to see them." %}{% else %}{% trans "The months are on the right: scroll the table sideways to see them." %}{% endif %}</p>
   <div class="table-wrap table-wrap--tall"><table class="table table-hover table-sm monitoring-grid" id="pd-indicators">
     <thead><tr>

@@ -37,7 +37,7 @@ from neurodb.datamart import headline
 from neurodb.datamart import monitoring as pd_monitoring_service
 from neurodb.datamart import reporting as reporting_service
 from neurodb.datamart import services as datamart
-from neurodb.datamart.models import AuditEngagement, AuditFinding
+from neurodb.datamart.models import AuditEngagement, AuditFinding, PDIndicator
 from neurodb.facts.services import dashboard as facts
 from neurodb.facts.services import partners as partner_facts
 from neurodb.indicators.models import Database, MasterIndicator, NeuroReport, ReportingYear
@@ -896,7 +896,7 @@ def programmes(request: HttpRequest) -> HttpResponse:
         "scope": scope,
         "page_obj": page_obj,
         "rows": rows,
-        "options": partnerships.pd_filter_options(),
+        "options": _programme_options(tab),
         "selected": {
             key: request.GET.getlist(key)
             for key in (
@@ -913,6 +913,17 @@ def programmes(request: HttpRequest) -> HttpResponse:
     }
     template = "reports/partials/programme_table.html" if request.htmx else "reports/programmes.html"
     return render(request, template, context)
+
+
+def _programme_options(tab: str) -> dict[str, Any]:
+    """The Programmes filter's options. The Indicators tab filters on each indicator's own section, so
+    its Section list also holds the sections the indicators name (a section only an indicator names
+    can be chosen too)."""
+    options = partnerships.pd_filter_options()
+    if tab == "indicators":
+        named = PDIndicator.objects.order_by().values_list("section_name", flat=True).distinct()
+        options["sections"] = sorted(set(options["sections"]) | {(x or "").strip() for x in named} - {""})
+    return options
 
 
 @require_GET
@@ -1286,9 +1297,10 @@ def _location_row(r: dict[str, Any]) -> dict[str, Any]:
 
 
 def _reporting_locations(data: dict[str, Any]) -> dict[str, Any]:
-    statuses = {r["progress_report"]: r["status"] for r in data["reports"] if r["progress_report"]}
+    # every progress report's own status, read before the status filter: a row is kept by its report's
+    # status, never by a status its own fields would give
     wanted = set(data["filters"].statuses) or None
-    return reporting_service.location_rows(data["rows"], statuses, data["today"], wanted)
+    return reporting_service.location_rows(data["rows"], data["statuses"], data["today"], wanted)
 
 
 @require_GET
@@ -1333,10 +1345,7 @@ def partner_reporting(request: HttpRequest) -> HttpResponse:
             {"label": _("Excel of the filter"), "url": "?" + _query_with(params, (), tab=tab, export="xlsx")},
             {"label": _("CSV of the filter"), "url": "?" + _query_with(params, (), tab=tab, export="csv")},
         ],
-        "chart_data": {
-            "by_status": data["by_status"],
-            "by_month": data["by_month"],
-        },
+        "chart_data": {"by_month": data["by_month"]},
     }
     template = "reports/partials/reporting_table.html" if request.htmx else "reports/partner_reporting.html"
     return render(request, template, context)
@@ -1489,8 +1498,13 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
     if export in exports.FORMATS:
         return _monitoring_export(request, filters, export)
     section_counts: Counter | None = Counter() if view == "table" else None
-    rows = pd_monitoring_service.indicators(filters, section_counts=section_counts)
-    data = pd_monitoring_service.summary(rows, filters)
+    # Every indicator of the filter is computed and counted (the tiles, the section tiles, Data quality,
+    # the exports), so the same filter gives the same counts on every view; the grid and Program
+    # Performance list at most MAX_INDICATORS of them (Program Performance the first in its sort).
+    every = pd_monitoring_service.indicators(filters, section_counts=section_counts)
+    limit = pd_monitoring_service.MAX_INDICATORS
+    rows = every[:limit]
+    data = pd_monitoring_service.summary(every, filters)
     context: dict[str, Any] = {
         "page_title": _("Partner monitoring"),
         "page_subtitle": _(
@@ -1516,10 +1530,11 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
             + "?"
             + _query_with(params, ("view", "sort", "export"))
         },
-        "truncated": len(rows) >= pd_monitoring_service.MAX_INDICATORS,
+        "truncated": view != "quality" and len(every) > limit,
     }
     if view == "table":
-        rows, sort = pd_monitoring_service.sorted_rows(rows, request.GET.get("sort", ""))
+        ordered, sort = pd_monitoring_service.sorted_rows(every, request.GET.get("sort", ""))
+        rows = ordered[:limit]
         page_obj = _paginate(request, rows, pd_monitoring_service.PAGE_SIZE)
         current = sort.lstrip("-")
         context.update(
@@ -1582,7 +1597,7 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
         )
         partial = "reports/partials/pd_monitoring_table.html"
     elif view == "quality":
-        context["quality"] = pd_monitoring_service.data_quality(rows, filters)
+        context["quality"] = pd_monitoring_service.data_quality(every, filters)
         partial = "reports/partials/pd_monitoring_quality.html"
     else:
         page_obj = _paginate(request, rows, pd_monitoring_service.PAGE_SIZE)
@@ -1602,7 +1617,8 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
 
 
 def _monitoring_export(request: HttpRequest, filters, fmt: str) -> HttpResponse:
-    """Program Performance, every indicator of the filter (not only the page shown), in its sort."""
+    """Program Performance, every indicator of the filter (not only the page shown, and not cut at the
+    page's 2,000 rows), in its sort."""
     rows = pd_monitoring_service.indicators(filters)
     rows, _sort = pd_monitoring_service.sorted_rows(rows, request.GET.get("sort", ""))
     columns = pd_monitoring_service.TABLE_COLUMNS

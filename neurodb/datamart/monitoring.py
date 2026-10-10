@@ -48,8 +48,11 @@ NOT_REPORTED = rc.NOT_REPORTED  # no counted report with a value: never "off tra
 LABELS = {**tracking.LABELS, NOT_REPORTED: "Not reported"}
 REPORT_STATUSES = rc.STATUS_LABELS  # Accepted, Submitted, Sent back, Due, Overdue, Not yet due
 ALL_YEARS = "all"
-MAX_INDICATORS = 2000  # rows a request computes; the page shows PAGE_SIZE of them at a time
+# rows the grid and Program Performance list (PAGE_SIZE at a time); every count, export, headline and
+# Ask NeuroDB tool reads every indicator of the filter (``indicators`` returns them all)
+MAX_INDICATORS = 2000
 PAGE_SIZE = 100
+NO_SECTION = "—"  # the section of an indicator that names none (a section tile and filter value)
 
 
 # ------------------------------------------------------------------------------ report submitted
@@ -376,7 +379,10 @@ def indicators(
     """One entry per PD indicator, with its Reached from the selected report type.
 
     ``section_counts``: filled with the number of indicators of each section that every other filter
-    keeps (the section tiles of Program Performance); every section's Reached is then computed."""
+    keeps (the section tiles of Program Performance, :data:`NO_SECTION` for those without one); every
+    section's Reached is then computed. Every indicator of the filter is returned: the country figures,
+    the counts and the exports read them all, and a page that lists them cuts the list itself
+    (:data:`MAX_INDICATORS`)."""
     today = today or datetime.date.today()
     pds = {pd.id: pd for pd in _pd_queryset(filters)}
     if not pds:
@@ -446,16 +452,17 @@ def indicators(
     if filters.locations:
         wanted = {norm(x) for x in filters.locations}
         found = {k: e for k, e in found.items() if any(norm(loc) in wanted for loc in e.locations)}
+    # the chosen sections: NO_SECTION (the tile of the indicators that name none) keeps those
     sections = {s.strip() for s in filters.sections if s.strip()}
     if section_counts is None and sections:  # only the chosen sections' Reached is computed
-        found = {k: e for k, e in found.items() if e.section in sections}
+        found = {k: e for k, e in found.items() if (e.section or NO_SECTION) in sections}
     _attach_reached(found, filters, today)
     result = [e for e in found.values() if not filters.status or e.tracking == filters.status]
     if section_counts is not None:
-        section_counts.update(e.section or "—" for e in result)
+        section_counts.update(e.section or NO_SECTION for e in result)
         if sections:
-            result = [e for e in result if e.section in sections]
-    return result[:MAX_INDICATORS]
+            result = [e for e in result if (e.section or NO_SECTION) in sections]
+    return result
 
 
 class _Idents:
@@ -789,7 +796,7 @@ def summary(rows: list[Indicator], filters: Filters, today: datetime.date | None
         "differs_from_prp": sum(1 for r in rows if r.mismatch),
         "status_counts": {key: counts.get(key, 0) for key in LABELS},
         "overdue_reports": overdue,
-        "by_section": Counter(r.section or "—" for r in rows).most_common(),
+        "by_section": Counter(r.section or NO_SECTION for r in rows).most_common(),
     }
 
 
@@ -965,7 +972,7 @@ def grouped(rows: list[Indicator]) -> list[dict[str, Any]]:
     sections: dict[str, dict[str, Any]] = {}
     for row in rows:
         section = sections.setdefault(
-            row.section or "—", {"section": row.section or "—", "pds": {}, "count": 0}
+            row.section or NO_SECTION, {"section": row.section or NO_SECTION, "pds": {}, "count": 0}
         )
         section["count"] += 1
         pd = section["pds"].setdefault(row.pd.id, {"pd": row.pd, "outputs": {}, "count": 0})

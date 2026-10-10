@@ -21,6 +21,7 @@
       <thead><tr><th scope="col">{% trans "Section" %}</th><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Indicator" %}</th><th scope="col" class="num">{% trans "Target" %}</th></tr></thead>
       <tbody>{% for i in q.missing_target %}<tr><td class="small">{{ i.section|default:"—" }}</td><td class="small text-nowrap"><a href="{% url 'reports:programme_detail' i.pd.id %}">{{ i.pd.number|default:"—" }}</a></td><td class="cell-wrap"><a href="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year_param }}" hx-get="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year_param }}" hx-target="#modal-content" hx-push-url="false">{{ i.title }}</a></td><td class="num">{{ i.target|number:0 }}</td></tr>{% endfor %}</tbody>
     </table></div>
+    {% if q.without_target > q.limit %}<p class="small text-muted px-3 py-2 mb-0">{% blocktrans with n=q.limit %}The first {{ n }} are listed: narrow the filters to see the others.{% endblocktrans %}</p>{% endif %}
     {% else %}<p class="small text-muted px-3 py-2 mb-0">{% trans "Every indicator has a target." %}</p>{% endif %}
   </section>
   <section class="panel">
@@ -47,6 +48,7 @@
     <thead><tr><th scope="col">{% trans "Section" %}</th><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Indicator" %}</th><th scope="col" class="num">{% trans "Reached" %}</th><th scope="col" class="num">{% trans "PRP's cumulative" %}</th><th scope="col">{% trans "As of" %}</th></tr></thead>
     <tbody>{% for i in q.mismatch %}<tr><td class="small">{{ i.section|default:"—" }}</td><td class="small text-nowrap"><a href="{% url 'reports:programme_detail' i.pd.id %}">{{ i.pd.number|default:"—" }}</a></td><td class="cell-wrap"><a href="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year_param }}" hx-get="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year_param }}" hx-target="#modal-content" hx-push-url="false">{{ i.title }}</a></td><td class="num">{{ i.reached|number:0 }}</td><td class="num">{{ i.prp_cumulative|number:0 }}</td><td class="small text-nowrap">{{ i.as_of|date:"j M Y"|default:"—" }}</td></tr>{% endfor %}</tbody>
   </table></div>
+  {% if q.mismatch_count > q.limit %}<p class="small text-muted px-3 py-2 mb-0">{% blocktrans with n=q.limit %}The first {{ n }} are listed: narrow the filters to see the others.{% endblocktrans %}</p>{% endif %}
   {% else %}<p class="small text-muted px-3 py-2 mb-0">{% trans "None: wherever PRP gives a cumulative, NeuroDB's Reached agrees with it." %}</p>{% endif %}
 </section>
 <div class="grid grid--2 mb-3">
@@ -57,6 +59,7 @@
       <thead><tr><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Indicator title" %}</th><th scope="col" class="num">{% trans "Indicators" %}</th></tr></thead>
       <tbody>{% for g in q.same_title %}<tr><td class="small text-nowrap"><a href="{% url 'reports:programme_detail' g.pd.id %}">{{ g.pd.number|default:"—" }}</a></td><td class="cell-wrap">{{ g.title }}</td><td class="num">{{ g.count }}</td></tr>{% endfor %}</tbody>
     </table></div>
+    {% if q.same_title_count > q.limit %}<p class="small text-muted px-3 py-2 mb-0">{% blocktrans with n=q.limit %}The first {{ n }} are listed: narrow the filters to see the others.{% endblocktrans %}</p>{% endif %}
     {% else %}<p class="small text-muted px-3 py-2 mb-0">{% trans "None." %}</p>{% endif %}
   </section>
   <section class="panel p-0">
@@ -67,6 +70,7 @@
       <thead><tr><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Partner" %}</th><th scope="col">{% trans "Start" %}</th></tr></thead>
       <tbody>{% for pd in q.partial %}<tr><td class="small text-nowrap"><a href="{% url 'reports:programme_detail' pd.id %}">{{ pd.number|default:"—" }}</a></td><td class="small">{{ pd.partner_name|default:"—" }}</td><td class="small text-nowrap">{{ pd.start|date:"j M Y"|default:"—" }}</td></tr>{% endfor %}</tbody>
     </table></div>
+    {% if q.partial_count > q.limit %}<p class="small text-muted px-3 py-2 mb-0">{% blocktrans with n=q.limit %}The first {{ n }} are listed: narrow the filters to see the others.{% endblocktrans %}</p>{% endif %}
     {% else %}<p class="small text-muted px-3 py-2 mb-0">{% trans "None: NeuroDB holds every report since each programme document started." %}</p>{% endif %}
   </section>
 </div>

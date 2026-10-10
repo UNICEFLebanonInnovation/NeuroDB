@@ -999,7 +999,8 @@ figures as everywhere else (they read the rule above; nothing is added across in
 * **Partner monitoring** has four views on one filter: *Grid* (by section, PD and output, with the
   months), **Program Performance** (one row per indicator: Section, CP output, Emergency, Indicator,
   Target, Reached, % Reached, Partner, PD; sorted by % Reached, highest first; click a heading to
-  sort; section tiles with their indicator counts filter the table), **Data quality** and *Map*.
+  sort; section tiles with their indicator counts filter the table, the tile "—" lists the indicators
+  that name no section), **Data quality** and *Map*.
   Filters: PD status, Section, Partner, Partner type (eTools partner type or CSO type), Programme
   document, Document type, Office, Emergency (the high-frequency indicators, reported monthly),
   CP output (words in it), Indicator (title or output), locations, the title tags, report type,
@@ -1007,7 +1008,10 @@ figures as everywhere else (they read the rule above; nothing is added across in
   date), the grid on this year; with a year chosen they add *Reached in* that year. An indicator's CP
   output comes from its partner reports; one not reported yet takes its PD's CP output when the PD
   has only one. *Excel of the filter* / *CSV of the filter* export every indicator of the filter, not
-  only the page shown.
+  only the page shown. The grid and Program Performance list at most 2,000 indicators (Program
+  Performance the first 2,000 in its sort, with a note); every count (the tiles, the section tiles,
+  Data quality, Ask NeuroDB) and the exports read every indicator of the filter, so they agree. The
+  view links keep the filter last applied, also when it was changed without reloading the page.
 * **Data quality** tiles: programme documents (running, active, ended), indicators, with and without
   Reached ("with Reached": a counted report carries a value; with a year chosen, Reached in that
   year), with and without a target (a target of zero is missing). Lists: indicators without a
@@ -1031,7 +1035,8 @@ figures as everywhere else (they read the rule above; nothing is added across in
     the period (the disaggregation total, read as Reached reads it: a value repeated on every
     location is the report total and is not shown as the location's; two rows of one location are
     never added, the row count is noted) and PRP's figure to date at the location. Reports that do
-    not count are greyed. It reads at most 60,000 report rows at once; above that it asks for a
+    not count are greyed. A row keeps its progress report's status (the one the tiles count), also
+    under a status filter. It reads at most 60,000 report rows at once; above that it asks for a
     narrower filter.
   The exports hold every row of the tab's filter; the Excel file adds the indicator reports and
   progress reports per status and the section table (and, on *Partners*, partners per status and
@@ -1043,7 +1048,8 @@ figures as everywhere else (they read the rule above; nothing is added across in
   documents (eTools lists an indicator once per location and disaggregation) with the PD's number,
   status, partner, document type, title, start, end and office, the indicator's own section, CP
   output, PD output, baseline, target and emergency flag; filters add PD reference, indicator title
-  and Emergency; exported whole.
+  and Emergency, and the Section list also offers the sections the indicators name (the tab filters
+  on each indicator's own section); exported whole.
 
 ### One programme implementation ecosystem: how the eTools records are linked
 

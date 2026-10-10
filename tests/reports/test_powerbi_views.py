@@ -555,3 +555,113 @@ def test_same_filter_same_numbers_across_the_new_views(client_viewer, more, froz
         **grid_reached,
         CLASSROOMS: None,
     }
+
+
+# ------------------------------------------------------------------------------ the stage check
+def test_indicators_without_a_section_have_a_tile_that_lists_them(client_viewer, more, frozen):
+    dm.PDIndicator.objects.filter(source_id=500).update(section_name="")
+    page = client_viewer.get(reverse("reports:pd_monitoring"), {"view": "table"})
+    tiles = {t["name"]: t for t in page.context["section_tiles"]}
+    assert {name: t["count"] for name, t in tiles.items()} == {
+        "Child Protection": 2,
+        monitoring.NO_SECTION: 1,
+    }
+    # the tile of the indicators that name no section lists them (it used to list nothing)
+    listed = client_viewer.get(
+        reverse("reports:pd_monitoring") + tiles[monitoring.NO_SECTION]["url"], headers=HX
+    )
+    assert [r.title for r in listed.context["page_obj"]] == [CLASSROOMS]
+    assert {t["name"]: t["count"] for t in listed.context["section_tiles"]} == {
+        name: t["count"] for name, t in tiles.items()
+    }
+    # the grid, Data quality and the export read the same filter alike
+    assert [r.title for r in _rows(section=monitoring.NO_SECTION)] == [CLASSROOMS]
+    quality = client_viewer.get(reverse("reports:pd_monitoring"), {"view": "quality", "section": "—"})
+    assert quality.context["quality"]["indicators"] == 1
+
+
+def test_program_performance_export_is_not_cut_at_the_page_limit(client_viewer, more, frozen, monkeypatch):
+    monkeypatch.setattr(monitoring, "MAX_INDICATORS", 2)
+    page = client_viewer.get(reverse("reports:pd_monitoring"), {"view": "table"})
+    assert len(page.context["rows"]) == 2 and page.context["truncated"]  # the page lists two...
+    assert "The Excel and CSV files hold every indicator" in page.text
+    response = client_viewer.get(reverse("reports:pd_monitoring"), {"view": "table", "export": "csv"})
+    lines = list(csv.DictReader(io.StringIO(b"".join(response.streaming_content).decode("utf-8-sig"))))
+    assert sorted(line["indicator"] for line in lines) == sorted(  # ... the file holds all three
+        [more["girls"], more["boys"], CLASSROOMS]
+    )
+    workbook = client_viewer.get(reverse("reports:pd_monitoring"), {"view": "table", "export": "xlsx"})
+    assert load_workbook(io.BytesIO(workbook.content))["Program Performance"].max_row == 4
+    # the page lists the first two in its sort (% Reached, highest first), not two taken before sorting
+    assert [r.title for r in page.context["rows"]] == [more["girls"], more["boys"]]
+    # every count reads the whole filter, whatever a page lists: grid tiles, section tiles, Data quality
+    # and Ask NeuroDB agree on three indicators
+    assert sum(t["count"] for t in page.context["section_tiles"]) == 3
+    grid = client_viewer.get(reverse("reports:pd_monitoring"), {"year": "all"})
+    assert grid.context["data"]["indicators"] == 3 and len(grid.context["rows"]) == 2
+    assert "The figures above count every indicator" in grid.text
+    quality = client_viewer.get(reverse("reports:pd_monitoring"), {"view": "quality"})
+    assert quality.context["quality"]["indicators"] == 3 and not quality.context["truncated"]
+    assert tools.run("pd_indicator_progress", {"partner": "amel"})["indicators"] == 3
+
+
+def test_ask_counts_progress_reports_by_status_like_its_totals(more):
+    out = tools.run("partner_reporting", {})
+    # "by_status" counts progress reports, as "reports" and the status keys do; the indicator reports
+    # (what the page's tiles count) are under "indicator_reports"
+    assert sum(out["by_status"].values()) == out["reports"] == 5
+    assert out["by_status"]["Accepted"] == out["accepted"] == 3
+    assert out["indicator_reports"]["Accepted"] == {"indicator_reports": 4, "progress_reports": 3}
+
+
+def test_report_by_location_keeps_each_report_by_its_own_status(client_viewer, more, frozen):
+    # one row of PR-1 names no status and no submission date: alone, it would read as overdue, but the
+    # progress report is Accepted (its other rows say so), as the tiles and the report table count it
+    dm.ReportedIndicator.objects.filter(progress_report="PR-1", indicator=more["boys"]).update(
+        report_status="", submission_date=None
+    )
+    data = _reporting()
+    assert next(r for r in data["reports"] if r["progress_report"] == "PR-1")["status"] == "accepted"
+    assert data["statuses"]["PR-1"] == "accepted"
+    page = client_viewer.get(reverse("reports:partner_reporting"), {"tab": "locations", "status": "overdue"})
+    assert {(r["progress_report"], r["report_status"]) for r in page.context["page_obj"]} == {
+        ("PR-9", "Overdue")
+    }
+    accepted = client_viewer.get(
+        reverse("reports:partner_reporting"), {"tab": "locations", "status": "accepted"}
+    )
+    boys = [r for r in accepted.context["page_obj"] if r["indicator"] == more["boys"]]
+    assert [(r["progress_report"], r["report_status"]) for r in boys] == [("PR-1", "Accepted")]
+
+
+def test_partner_monitoring_view_links_follow_the_filter_in_the_address_bar(client_viewer, more, frozen):
+    """A filter changed through HTMX changes the address, not the links drawn with the page: the view
+    links take the address bar's filter when clicked (data-current-query), so switching from Program
+    Performance to Data quality keeps the filter just chosen."""
+    page = client_viewer.get(reverse("reports:pd_monitoring"), {"view": "table", "year": "2026"})
+    for view in ("grid", "table", "quality"):
+        assert f'data-current-query="view={view}"' in page.text
+    assert page.context["tab_urls"]["quality"].endswith("?year=2026&view=quality")
+
+
+def test_programme_indicators_tab_offers_the_sections_indicators_name(client_viewer, more):
+    documents = client_viewer.get(reverse("reports:programmes"))
+    assert documents.context["options"]["sections"] == ["Child Protection"]  # the PDs' sections
+    indicators = client_viewer.get(reverse("reports:programmes"), {"tab": "indicators"})
+    # the Indicators tab filters on each indicator's own section: those are offered too
+    assert indicators.context["options"]["sections"] == ["Child Protection", "Education"]
+    chosen = client_viewer.get(reverse("reports:programmes"), {"tab": "indicators", "section": "Education"})
+    assert sorted(r["indicator"] for r in chosen.context["page_obj"]) == sorted([CLASSROOMS, "# of schools"])
+
+
+def test_country_figures_read_every_indicator_whatever_a_page_lists(more, frozen, monkeypatch):
+    """The 2,000 rows a page lists never cut a count or a total: the country overview, the home page,
+    the map and Ask NeuroDB read every indicator of their filter (a country with more indicators than a
+    page lists would otherwise lose the rest from its figures)."""
+    from neurodb.web import services as web_services
+
+    monkeypatch.setattr(monitoring, "MAX_INDICATORS", 1)
+    assert len(_rows()) == 3
+    assert monitoring.map_points(monitoring.Filters(year=None), TODAY)["totals"]["indicators"] == 3
+    assert web_services._etools_counts(None)["pd_indicators"] == 3  # PD1 runs in this year
+    assert tools.run("pd_indicator_progress", {"partner": "amel"})["indicators"] == 3
