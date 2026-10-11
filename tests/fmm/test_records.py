@@ -368,6 +368,20 @@ def test_the_figures_kept_per_visit_are_those_of_the_records_and_checks(built, m
     assert written == [set()] and tallies.valid_now()
 
 
+def test_records_whose_visit_the_one_pass_did_not_read_are_left_out(built, monkeypatch):
+    # the one pass reads the visits, then the records grouped by month: a refresh that commits between the
+    # two reads leaves records of a month no visit read gave (here: no visit read at all), which are left
+    # out instead of failing the page
+    from neurodb.fmm.scope import Scope
+
+    scope = Scope.from_params({"year": "2026", "section": ""}, None, TODAY)
+    by_month, _groups = metrics._record_groups(scope)
+    assert by_month  # records of the year, grouped by month
+    monkeypatch.setattr(metrics, "_visit_rows", lambda s: [])
+    data = metrics.summary(scope)
+    assert data["visits"] == 0 and data["months"] == {} and data["q1_not_monitored"] == 0
+
+
 def test_the_visits_keep_their_pks_with_or_without_a_temporary_table(built, monkeypatch):
     rows, keys = _record_rows(), dict(Visit.objects.values_list("key", "pk"))
     _refresh()  # through a temporary table

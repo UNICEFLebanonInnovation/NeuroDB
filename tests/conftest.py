@@ -26,11 +26,17 @@ def _clear_cache():
     """Navigation and landing figures are cached; every test starts from an empty cache."""
     from django.core.cache import cache
 
+    from neurodb.fmm import metrics
     from neurodb.watch import people
 
+    # the Monitoring insights blocks a request keeps for the rest of it, and whether the figures kept per
+    # visit are up to date: a streamed response a test never reads leaves its request open, and what it
+    # kept would serve the tests after it (outside any request) on the same thread
+    metrics.request_finished()
     cache.clear()
     people.forget()  # NeuroDB Watch keeps the person names it read for a run
     yield
+    metrics.request_finished()
     cache.clear()
 
 

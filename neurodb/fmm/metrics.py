@@ -1059,7 +1059,9 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
         month_counts: dict[str, Counter] = {}
         by_month, groups = _record_groups(scope)
         for rating, q1, month, on_reported, n, q_sum, q_n in by_month:
-            m = months[month]
+            m = months.get(month)
+            if m is None:  # a month no visit read above has: a refresh committed between the two reads
+                continue
             m["records"] += n
             if on_reported:
                 m["reported"] += n
