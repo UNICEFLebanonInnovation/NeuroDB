@@ -340,8 +340,16 @@ def partner_contributions(filters: FundFilters, today: datetime.date) -> dict[st
             }
         )
     totals = _currency_totals(rows, ("unicef_planned", "total", "partner_contribution"))
+    # the share of a currency: its partner contributions over its total budgets, of the programme
+    # documents that give both (a contribution without its budget is never set against another's)
+    shares: dict[str, list[Decimal]] = defaultdict(lambda: [Decimal(0), Decimal(0)])
+    for r in rows:
+        if r["partner_contribution"] is not None and r["total"]:
+            shares[r["currency"] or ""][0] += r["partner_contribution"]
+            shares[r["currency"] or ""][1] += r["total"]
     for t in totals:
-        t["partner_share"] = t["partner_contribution"] / t["total"] * 100 if t["total"] else None
+        part, whole = shares.get(t["currency"], (Decimal(0), Decimal(0)))
+        t["partner_share"] = part / whole * 100 if whole else None
     reported_rows = [
         {"currency": r["reported"]["currency"], "value": r["reported"]["value"]}
         for r in rows

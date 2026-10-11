@@ -656,8 +656,10 @@ def _link_report(row, item, links):
     row.high_frequency = str(item.get("high_frequency") or "").strip().lower() in ("true", "yes", "1", "t")
     row.disaggregation = item.get("disaggregation") if isinstance(item.get("disaggregation"), dict) else {}
     row.location_ref_id = links.location(None, item.get("p_code"))
-    if "@" in (row.submitted_by or ""):  # who submitted, by name only: never an e-mail address
+    if "@" in (row.submitted_by or "") or "@" in str(item.get("submitted_by") or ""):
+        # who submitted, by name only: never an e-mail address, in its column or in the record kept
         row.submitted_by = ""
+        item["submitted_by"] = ""
     for name, key in (
         ("indicator_report", "indicator_report"),
         ("cp_output", "cp_output"),

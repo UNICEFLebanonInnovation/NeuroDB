@@ -4,7 +4,7 @@
   {% trans "Programme documents" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=p.pds|intcomma %}
   {% trans "Grants" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=p.grants|intcomma %}
   {% trans "Funds reserved (USD)" as l3 %}{% trans "The funds reservation lines of each programme document and grant" as h3 %}{% include "components/kpi_tile.html" with label=l3 value=p.reserved|number:0 hint=h3 %}
-  {% trans "Disbursed (USD)" as l4 %}{% trans "Each programme document counted once, whatever its number of grants" as h4 %}{% include "components/kpi_tile.html" with label=l4 value=p.disbursed|number:0 hint=h4 %}
+  {% trans "Disbursed to these PDs (USD)" as l4 %}{% trans "Each PD's whole disbursement, counted once, whatever the donor, grant or FR filter" as h4 %}{% include "components/kpi_tile.html" with label=l4 value=p.disbursed|number:0 hint=h4 %}
   {% with t=p.totals.0 %}{% if t %}{% if p.totals|length > 1 %}{% blocktrans asvar h5 count counter=p.totals|length|add:"-1" %}and {{ counter }} other currency{% plural %}and {{ counter }} other currencies{% endblocktrans %}{% else %}{% trans "Each programme document counted once" as h5 %}{% endif %}
   {% blocktrans asvar l5 with cur=t.currency|default:"no currency" %}Partner contribution ({{ cur }}){% endblocktrans %}{% include "components/kpi_tile.html" with label=l5 value=t.partner_contribution|number:0 hint=h5 %}{% endif %}{% endwith %}
 </div>

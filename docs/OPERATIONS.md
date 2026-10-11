@@ -1097,11 +1097,15 @@ figures as everywhere else (they read the rule above; nothing is added across in
   its first row only), so no total counts them twice. Amounts in different currencies are never added:
   the tiles and the currency table give totals per currency. Both tabs export the whole filter.
 * **Privacy.** A UNICEF focal point eTools knows only by an e-mail address is no longer stored under it
-  (`person_names`), a progress report's `submitted_by` is kept only when it is a name, and the typed
-  eTools tables keep each record without the keys naming an e-mail address, a phone or a mobile, as the
-  records kept whole always were (`catalogue.scrub`). Migration `datamart 0013` removed what earlier
-  syncs had stored (batched, not atomic; nothing to run). The progress report pop-up no longer names
-  the partner's staff member who submitted: only UNICEF focal points are named, on the report table.
+  (`person_names`; the eTools REST sync keeps the names the Datamart sync wrote when its list gives
+  user ids only, and the report table never shows an id as a name), a progress report's
+  `submitted_by` is kept only when it is a name (in its column and in the record kept beside it), and
+  the typed eTools tables keep each record without the keys naming an e-mail address, a phone or a
+  mobile, as the records kept whole always were (`catalogue.scrub`). Ask NeuroDB also withholds any
+  e-mail address left in a text of a record it reads ("[email withheld]"). Migration `datamart 0013`
+  removed what earlier syncs had stored (batched, not atomic; nothing to run). The progress report
+  pop-up no longer names the partner's staff member who submitted: only UNICEF focal points are named,
+  on the report table.
 
 ### One programme implementation ecosystem: how the eTools records are linked
 
@@ -1192,8 +1196,8 @@ The PRP views have no `country_name`: they are filtered by the country office's 
 found from `datamart/workspaces` (or set `ETOOLS_DATAMART_BUSINESS_AREA`). A record from another
 country that an API filter let through is dropped (`details.other_country_skipped`). Keys naming
 an e-mail address, a phone or a mobile are removed from the records kept whole here, from the records
-of the typed eTools tables, and from every
-assistant answer; the field monitoring records reach the assistant without people and without long texts
+of the typed eTools tables, and from every assistant answer, which also withholds any e-mail address
+left in a text; the field monitoring records reach the assistant without people and without long texts
 (see *Data leaves Azure* under Ask NeuroDB).
 
 Not read, and why:

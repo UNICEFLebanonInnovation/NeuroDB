@@ -4,10 +4,10 @@ Until now the typed eTools tables kept each record whole in ``data`` (and the au
 ``AuditEngagement.details``) without removing contact details, as the records kept whole in
 ``DatamartDocument`` always were; a UNICEF focal point eTools knew only by an e-mail address was
 stored under that address in ``PCA.unicef_focal_points``; and a progress report's ``submitted_by`` was
-kept even when it was an e-mail address. The sync no longer does any of these; this removes what
-earlier syncs stored: the keys naming an e-mail address, a phone or a mobile (at any depth, as
-``catalogue.scrub`` removes them), every focal point entry holding an e-mail address, and every
-``submitted_by`` holding one.
+kept even when it was an e-mail address (in its column and in the record kept beside it). The sync no
+longer does any of these; this removes what earlier syncs stored: the keys naming an e-mail address, a
+phone or a mobile (at any depth, as ``catalogue.scrub`` removes them), every focal point entry holding
+an e-mail address, and every ``submitted_by`` holding one, in the column and in the record.
 
 Batched and not atomic, so a large table is never locked whole; running it twice changes nothing.
 """
@@ -75,8 +75,15 @@ WHERE EXISTS (SELECT 1 FROM unnest(unicef_focal_points) AS x WHERE position('@' 
 
 
 SUBMITTED_BY = """
-UPDATE datamart_reportedindicator SET submitted_by = '' WHERE id IN (
-    SELECT id FROM datamart_reportedindicator WHERE position('@' in submitted_by) > 0 LIMIT %s
+UPDATE datamart_reportedindicator SET
+    submitted_by = CASE WHEN position('@' in submitted_by) > 0 THEN '' ELSE submitted_by END,
+    data = CASE WHEN position('@' in coalesce(data->>'submitted_by', '')) > 0
+        THEN jsonb_set(data, '{submitted_by}', '""'::jsonb) ELSE data END
+WHERE id IN (
+    SELECT id FROM datamart_reportedindicator
+    WHERE position('@' in submitted_by) > 0
+        OR (jsonb_typeof(data) = 'object' AND position('@' in coalesce(data->>'submitted_by', '')) > 0)
+    LIMIT %s
 )
 """
 

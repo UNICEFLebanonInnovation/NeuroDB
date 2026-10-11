@@ -574,6 +574,9 @@ def test_the_partner_reports_keep_who_submitted_by_name_only(labelled, client_vi
     sync.sync_all(only=["partner_reports"], triggered_by="test", client=_client())
     by_id = dict(dm.ReportedIndicator.objects.filter(datamart_id__in=[101, 102]).values_list("datamart_id", "submitted_by"))  # fmt: skip
     assert by_id == {101: "", 102: "Partner Staff"}
+    # nor in the record kept beside it (which Ask NeuroDB reads)
+    records = dict(dm.ReportedIndicator.objects.filter(datamart_id__in=[101, 102]).values_list("datamart_id", "data"))  # fmt: skip
+    assert (records[101]["submitted_by"], records[102]["submitted_by"]) == ("", "Partner Staff")
     pop_up = client_viewer.get(reverse("reports:progress_report"), {"report": "PR-8"}, headers=HX)
     assert pop_up.status_code == 200 and "Partner Staff" not in pop_up.text
 

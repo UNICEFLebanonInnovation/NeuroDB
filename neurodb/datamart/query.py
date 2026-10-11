@@ -118,10 +118,23 @@ def shorten(value: Any) -> Any:
     return value
 
 
+def _no_addresses(value: Any) -> Any:
+    """A record value as Ask may send it: every e-mail address in a text withheld, whatever its key (the
+    contact keys are out already, ``catalogue.scrub``)."""
+    from neurodb.watch import people  # lazy: watch already reads the datamart lazily
+
+    if isinstance(value, dict):
+        return {k: _no_addresses(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_no_addresses(v) for v in value]
+    if isinstance(value, str) and "@" in value:
+        return people.EMAIL.sub(people.EMAIL_WITHHELD, value)
+    return value
+
+
 def public(data: dict[str, Any], fields: list[str] | None = None, dataset: str = "") -> dict[str, Any]:
     data = catalogue.scrub(data or {})
-    if dataset in catalogue.FM_PRIVATE:
-        data = _fm_safe(data)
+    data = _fm_safe(data) if dataset in catalogue.FM_PRIVATE else _no_addresses(data)
     if fields:
         return {f: shorten(data.get(f)) for f in fields}
     return {k: shorten(v) for k, v in data.items() if k not in NOISE and v not in (None, "", [], {})}

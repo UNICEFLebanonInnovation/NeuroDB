@@ -125,8 +125,9 @@ never counts a figure twice.
 ## People and privacy
 
 UNICEF focal points are shown by name only; an entry that holds an e-mail address is left out.
-Partner focal points and the partner's staff who submitted a report are never shown. NeuroDB keeps no
-e-mail address, phone or mobile number from eTools in the records it stores.
+Partner focal points and the partner's staff who submitted a report are never shown. The records
+NeuroDB stores from eTools keep no e-mail address, phone or mobile number field, and Ask NeuroDB
+withholds any e-mail address written in a text.
 
 ## Checking the data
 

@@ -19,6 +19,7 @@ Report/Location and Report/Disaggregation, as the eTools Power BI report shows t
 from __future__ import annotations
 
 import datetime
+import json
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -245,11 +246,20 @@ def progress_reports(
 
 
 def focal_point_names(values: Any) -> list[str]:
-    """UNICEF focal points by name: an entry that is (or holds) an e-mail address is never shown."""
+    """UNICEF focal points by name: an entry that is (or holds) an e-mail address is never shown, nor
+    one that is a bare user id or a record's text (as an older eTools REST sync could store them)."""
     names = []
     for value in values or []:
         text = " ".join(str(value or "").split())
-        if text and not EMAIL.search(text) and text not in names:
+        if text.startswith("{"):
+            try:
+                record = json.loads(text)
+            except ValueError:
+                record = None
+            record = record if isinstance(record, dict) else {}
+            full = " ".join(str(record.get(k) or "").strip() for k in ("first_name", "last_name")).strip()
+            text = " ".join((full or str(record.get("name") or "")).split())
+        if text and not text.isdigit() and not EMAIL.search(text) and text not in names:
             names.append(text)
     return names
 
