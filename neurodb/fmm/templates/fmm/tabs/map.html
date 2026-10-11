@@ -61,7 +61,7 @@
     <thead><tr><th scope="col">{% trans "Visit" %}</th><th scope="col">{% trans "Date" %}</th><th scope="col">{% trans "Match" %}</th><th scope="col" class="num">{% trans "Distance" %}</th><th scope="col">{% trans "PD location" %}</th></tr></thead>
     <tbody>{% for r in map.visit_rows %}<tr{% if r.key == map_focus.key %} class="table-active"{% endif %}>
       <td><a href="{{ r.url }}" hx-get="{{ r.url }}" hx-target="#modal-content">{{ r.label }}</a></td>
-      <td class="text-nowrap">{{ r.date|date:"j M Y"|default:"—" }}</td>
+      <td class="text-nowrap">{{ r.date|day|default:"—" }}</td>
       <td><span class="fmm-swatch fmm-swatch--{{ r.match }}" aria-hidden="true"></span>{{ r.match_label }}{% if r.approximate %}<div class="small text-muted">{{ r.approximate }}</div>{% endif %}</td>
       <td class="num text-nowrap">{{ r.distance|default:"—" }}</td>
       <td>{% if r.pd_url %}<span data-synced>{{ r.pd_location }}</span> · <a class="mono" href="{{ r.pd_url }}" data-synced>{{ r.pd_number }}</a>{% else %}—{% endif %}</td>
@@ -95,7 +95,7 @@
     <thead><tr><th scope="col">{% trans "Visit" %}</th><th scope="col">{% trans "Date" %}</th><th scope="col">{% trans "Place in eTools" %}</th><th scope="col">{% trans "Match" %}</th></tr></thead>
     <tbody>{% for r in map.unlocated_rows %}<tr{% if r.key == map_focus.key %} class="table-active"{% endif %}>
       <td><a href="{{ r.url }}" hx-get="{{ r.url }}" hx-target="#modal-content">{{ r.label }}</a></td>
-      <td class="text-nowrap">{{ r.date|date:"j M Y"|default:"—" }}</td>
+      <td class="text-nowrap">{{ r.date|day|default:"—" }}</td>
       <td data-synced>{{ r.place|default:"—" }}</td>
       <td>{{ r.match_label }}</td>
     </tr>{% endfor %}</tbody>

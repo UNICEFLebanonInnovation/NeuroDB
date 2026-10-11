@@ -8,6 +8,14 @@ class FmmConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
 
     def ready(self):
+        # the figures a request has read are kept for the rest of it (metrics.cached)
+        from django.core.signals import request_finished, request_started
+
+        from . import metrics
+
+        request_started.connect(metrics.request_started, dispatch_uid="fmm-blocks-request-started")
+        request_finished.connect(metrics.request_finished, dispatch_uid="fmm-blocks-request-finished")
+
         # The field monitoring team names join the names NeuroDB removes from every text it sends
         from neurodb.watch import people
 

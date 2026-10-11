@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import datetime
+import functools
 import math
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from urllib.parse import urlencode
 
 from django import template
+from django.template.defaultfilters import date as date_filter
 from django.urls import reverse
 from django.utils.safestring import mark_safe
+from django.utils.translation import get_language
 from django.utils.translation import gettext_lazy as _
 
 from neurodb.indicators.services.tracking import LABELS
@@ -215,6 +219,23 @@ def month_name(value: Any) -> str:
         return str(names[int(value) - 1])
     except (TypeError, ValueError, IndexError):
         return str(value)
+
+
+@register.filter
+def day(value: Any) -> str:
+    """``value|date:"j M Y"`` ("12 May 2026"; "" without a date), each day written once per language: a
+    table of a thousand visits repeats a few hundred days, and the ``date`` filter formats every one. A
+    date and time is formatted each time (in the current time zone)."""
+    if value in (None, ""):
+        return ""
+    if type(value) is datetime.date:
+        return _day(value, get_language())
+    return date_filter(value, "j M Y")
+
+
+@functools.lru_cache(maxsize=4096)
+def _day(value: datetime.date, language: str | None) -> str:
+    return date_filter(value, "j M Y")
 
 
 # Vendor scripts and page modules loaded on demand by static/js/app.js. Hashed URLs come from the

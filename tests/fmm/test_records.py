@@ -15,20 +15,26 @@ from decimal import Decimal
 import pytest
 from django.apps import apps
 from django.db import IntegrityError, transaction
+from django.db.models import Count
 from django.test import override_settings
 
 from neurodb.datamart import models as dm
-from neurodb.fmm import metrics, refresh, score, versions
+from neurodb.fmm import metrics, refresh, score, tallies, versions
 from neurodb.fmm.ai import checks
 from neurodb.fmm.models import (
     AICheckAnswer,
+    DayRuleTally,
     FieldOfficeStaff,
     RecordRuleResult,
     RefreshRequest,
+    RuleSetting,
     RuleSetVersion,
     ScoreSetting,
     Visit,
     VisitEntity,
+    VisitFigures,
+    VisitIssueTally,
+    VisitRuleTally,
 )
 
 from .conftest import CP_OUTPUT, PD_LEBA, rule_states
@@ -286,6 +292,80 @@ def test_a_scores_only_pass_writes_only_the_results_that_changed(built):
         assert refresh.update_results(RecordRuleResult, []) == 0
         assert not RecordRuleResult.objects.exists()
         transaction.set_rollback(True)
+
+
+def _kept_figures() -> tuple[dict[str, set], dict[str, set]]:
+    """The figures kept per visit, and those the records and checks give now (the pages' own queries);
+    the flags of a visit's records as a sorted list (the database joins them in any order)."""
+
+    def figures(rows) -> set:
+        return {(*row[:-2], *(tuple(sorted((text or "").split(","))) for text in row[-2:])) for row in rows}
+
+    kept = {
+        "figures": figures(VisitFigures.objects.values_list("visit_id", *tallies.FIGURE_COLUMNS)),
+        "issues": set(
+            VisitIssueTally.objects.values_list("rule", "detail_key", "visit_id", *tallies.ISSUE_COLUMNS)
+        ),
+        "rules": set(VisitRuleTally.objects.values_list("visit_id", "rule", "status", *tallies.RULE_COLUMNS)),
+        "days": set(DayRuleTally.objects.values_list("day", "rule", "status", *tallies.RULE_COLUMNS)),
+    }
+    now = {
+        "figures": figures(tallies.record_figures(VisitEntity.objects.all())),
+        "issues": set(tallies.issue_tallies(RecordRuleResult.objects.all())),
+        "rules": set(tallies.rule_tallies(RecordRuleResult.objects.all())),
+        "days": set(
+            RecordRuleResult.objects.filter(entity__visit__visit_date__isnull=False)
+            .values("entity__visit__visit_date", "rule", "status")
+            .annotate(records=Count("*"), **tallies.rule_points())
+            .values_list("entity__visit__visit_date", "rule", "status", *tallies.RULE_COLUMNS)
+        ),
+    }
+    return kept, now
+
+
+def test_the_figures_kept_per_visit_are_those_of_the_records_and_checks(built, monkeypatch):
+    # written by the refresh: those of the records and checks
+    kept, now = _kept_figures()
+    assert tallies.valid_now() and kept == now
+    assert len(kept["figures"]) == Visit.objects.filter(entity_rows__isnull=False).distinct().count()
+    assert kept["issues"] and len(kept["rules"]) > len(kept["figures"]) and kept["days"]
+    # any change to a record or to a check marks them out of date at once, and the pages add up the
+    # records and checks themselves; the next refresh writes them again
+    VisitEntity.objects.filter(datamart_id=101).update(urgency=99)
+    assert not tallies.valid_now()
+    _refresh(scores_only=True)
+    kept, now = _kept_figures()
+    assert tallies.valid_now() and kept == now
+    RecordRuleResult.objects.filter(entity__datamart_id=111, rule="R2").delete()
+    assert not tallies.valid_now()
+    _refresh()
+    kept, now = _kept_figures()
+    assert tallies.valid_now() and kept == now
+    # a visit's date too (the rule figures are kept per day as well)
+    Visit.objects.filter(key="1722").update(visit_date=datetime.date(2026, 3, 3))
+    assert not tallies.valid_now()
+    _refresh()
+    kept, now = _kept_figures()
+    assert tallies.valid_now() and kept == now
+    # a scores-only refresh writes again those of the visits whose records or checks it changed only (the
+    # others' are theirs): R2 lowered, the record at 33.3% passes
+    written = []
+    rebuild = tallies.rebuild
+    monkeypatch.setattr(
+        tallies, "rebuild", lambda visit_ids=None: written.append(visit_ids) or rebuild(visit_ids)
+    )
+    r2 = RuleSetting.objects.get(code="R2")
+    r2.params = {**r2.params, "scoring": [{"min": 30, "deduction": 0}, {"min": 0, "deduction": 10}]}
+    r2.save()
+    _refresh(scores_only=True)
+    assert written == [{VisitEntity.objects.get(datamart_id=111).visit_id}]
+    kept, now = _kept_figures()
+    assert tallies.valid_now() and kept == now
+    assert _results(111)["R2"].status == "pass"
+    # nothing changed: nothing written again
+    written.clear()
+    _refresh(scores_only=True)
+    assert written == [set()] and tallies.valid_now()
 
 
 def test_the_visits_keep_their_pks_with_or_without_a_temporary_table(built, monkeypatch):

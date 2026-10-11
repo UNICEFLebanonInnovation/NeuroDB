@@ -105,6 +105,11 @@ def test_demo_field_monitoring_adds_without_moving_the_rest(monkeypatch):
         "fmm.QuestionAnswer",
         "fmm.VisitActionPoint",
         "fmm.RecordRuleResult",
+        # the figures the refresh keeps per visit (and per day) for the pages
+        "fmm.VisitFigures",
+        "fmm.VisitIssueTally",
+        "fmm.VisitRuleTally",
+        "fmm.DayRuleTally",
         "fmm.AICheckAnswer",  # the demo's AI check answers, written without any AI call
         "fmm.LocalActionPoint",  # the refresh's NeuroDB action points for the Low visits it flags
         "fmm.KeyProbe",

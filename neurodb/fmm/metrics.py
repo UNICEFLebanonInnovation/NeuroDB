@@ -15,14 +15,18 @@ records by month, HACT Q1 by month, the score distribution, recurring issues, pl
 flags, highlights, governorates, field offices, entities, sections, ratings, points per rule, HACT
 programmatic visits and follow-up.
 
-Most blocks read one pass over the scope's visits and their records (:func:`summary`), so a tab runs a
-handful of queries whatever the number of visits; the rule results, the entity table, HACT figures and
-action points have one query each. Every drill value a block gives (``drill``) is a code the scope
-parses, and the records a drill-down lists are exactly those the block counted (for a block that counts
-visits, the records of those visits).
+Most blocks read one pass over the scope's visits, each with its records added up by the database, and
+the scope's records grouped by month and by score (:func:`summary`), so a tab runs a handful of queries
+whatever the number of visits; the rule results, the entity table, HACT figures and action points have
+one query each. Where the filters keep whole visits (no record filter), the records and their checks
+are read added up already, as the refresh keeps them per visit (``tallies``): the same figures, from a
+few thousand rows instead of every record and check. Every drill value a block gives (``drill``) is a
+code the scope parses, and the records a drill-down lists are exactly those the block counted (for a
+block that counts visits, the records of those visits).
 
 Every block is cached for ten minutes under ``fmm:v5:<scope hash>:<last refresh run>:<rules
-version>:<day>:<block>`` (:func:`cached`), so a refresh, a rescore or a new day shows at once.
+version>:<day>:<block>`` (:func:`cached`), so a refresh, a rescore or a new day shows at once, and for the
+rest of the request that read it (:func:`request_started`).
 """
 
 from __future__ import annotations
@@ -30,14 +34,15 @@ from __future__ import annotations
 import datetime
 import heapq
 import re
+import threading
 from collections import Counter
 from collections.abc import Callable
 from decimal import Decimal
-from itertools import chain
 from typing import Any
 
 from django.conf import settings
 from django.core.cache import cache
+from django.core.exceptions import EmptyResultSet
 from django.db.models import Count, DecimalField, Max, Min, Q, QuerySet, Sum
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast
@@ -46,6 +51,7 @@ from django.utils.dateformat import format as date_format
 
 from neurodb.datamart.fm import RATING_ORDER
 
+from . import tallies
 from .scope import BUCKETS, CHART_BUCKETS, Scope
 
 CACHE_SECONDS = 600
@@ -66,37 +72,79 @@ _READ = object()
 def stamp(last: Any = _READ) -> str:
     """What every cached figure depends on besides its scope: the last refresh that finished (given,
     or read), the rules version it computed the scores with, the day (rolling periods move at
-    midnight) and the last change to the NeuroDB action points (they count as follow-up at once)."""
+    midnight) and the last change to the NeuroDB action points (they count as follow-up at once). Read
+    with them, for the rest of the request: whether the figures kept per visit are those of the stored
+    records (``tallies.ready``; the figures are the same either way, only the reading differs)."""
+    from django.db import connection
+
     from . import status
-    from .models import LocalActionPoint
+    from .models import FigureState, LocalActionPoint
 
     last = status.last_refresh() if last is _READ else last
     version = (last.details or {}).get("rules_version", 0) if last else 0
-    local = LocalActionPoint.objects.aggregate(n=Count("pk"), at=Max("updated_at"))
-    changed = f"{local['n']}.{local['at'].timestamp():.6f}" if local["at"] else "0"
+    quote = connection.ops.quote_name
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT count(*), max({at}), (SELECT {valid} FROM {state} WHERE {pk} = 1) FROM {local}".format(  # noqa: S608
+                at=quote(LocalActionPoint._meta.get_field("updated_at").column),
+                valid=quote(FigureState._meta.get_field("valid").column),
+                state=quote(FigureState._meta.db_table),
+                pk=quote(FigureState._meta.pk.column),
+                local=quote(LocalActionPoint._meta.db_table),
+            )
+        )
+        n, at, valid = cursor.fetchone()
+    tallies.remember(bool(valid))
+    changed = f"{n}.{at.timestamp():.6f}" if at else "0"
     return f"{last.pk if last else 0}:{version}:{timezone.localdate().isoformat()}:{changed}"
 
 
+# The blocks the current request has read already, by their cache key: a request reads the figures of its
+# scope many times over (the one pass some fifteen times on the Analysis tab), and each read from the cache
+# unpickles them again. Kept for that request only (from ``request_started`` to ``request_finished``, each
+# thread its own); outside a request (a job, a test) every read goes to the cache. The figures a block
+# gives are never changed in place by its readers: they build their own rows from them.
+_request = threading.local()
+
+
+def request_started(**kwargs: Any) -> None:
+    _request.blocks = {}
+    tallies.request_started()
+
+
+def request_finished(**kwargs: Any) -> None:
+    _request.blocks = None
+    tallies.request_finished()
+
+
 def cached(scope: Scope, block: str, compute: Callable[[], Any], when: str | None = None) -> Any:
-    """``compute()`` for ``scope``, kept ten minutes (not in DEBUG); ``when`` is :func:`stamp`, read
-    once per request by the caller. A scope that drills into the reviews is never kept: a review
-    saved a minute ago must count at once, and no refresh marks it."""
+    """``compute()`` for ``scope``, kept ten minutes (not in DEBUG), and for the rest of the request;
+    ``when`` is :func:`stamp`, read once per request by the caller. A scope that drills into the reviews
+    is never kept: a review saved a minute ago must count at once, and no refresh marks it."""
     if settings.DEBUG or any(key == "review" for key, _value in scope.drill):
         return compute()
     key = f"fmm:v5:{scope.hash()}:{when if when is not None else stamp()}:{block}"
+    blocks = getattr(_request, "blocks", None)
+    if blocks is not None and key in blocks:
+        return blocks[key]
     found = cache.get(key)
-    if found is not None:
-        return found
-    value = compute()
-    cache.set(key, value, CACHE_SECONDS)
-    return value
+    if found is None:
+        found = compute()
+        cache.set(key, found, CACHE_SECONDS)
+    if blocks is not None:
+        blocks[key] = found
+    return found
 
 
 def kept(scope: Scope, block: str, when: str | None = None) -> Any:
     """What :func:`cached` keeps for ``scope``'s ``block`` (None when nothing is kept), never computed."""
     if settings.DEBUG or any(key == "review" for key, _value in scope.drill):
         return None
-    return cache.get(f"fmm:v5:{scope.hash()}:{when if when is not None else stamp()}:{block}")
+    key = f"fmm:v5:{scope.hash()}:{when if when is not None else stamp()}:{block}"
+    blocks = getattr(_request, "blocks", None)
+    if blocks is not None and key in blocks:
+        return blocks[key]
+    return cache.get(key)
 
 
 # The aggregates the average quality is computed from, so a block that aggregates the records anyway
@@ -621,18 +669,17 @@ def _parts_out(parts: list[tuple]) -> dict[str, Any]:
     }
 
 
-def _rated_out(code: str, records: list[tuple]) -> dict[str, Any]:
-    """:meth:`Tally.out` of the records that count under the rating ``code`` (``(visit, score, band)``
-    each, as :func:`summary` lists them)."""
-    scores = [quality for _visit, quality, _band in records if quality is not None]
-    bands = Counter(band for _visit, _quality, band in records)
+def _rated_out(code: str, n: int, visits: int, q_sum: Any, q_n: int, bands: Counter) -> dict[str, Any]:
+    """:meth:`Tally.out` of the ``n`` records that count under the rating ``code`` (of ``visits`` visits;
+    ``q_sum`` and ``q_n`` their scores' sum and number, ``bands`` their bands), as :func:`summary` adds
+    them up."""
     return {
-        "records": len(records),
-        "visits": len({visit for visit, _quality, _band in records}),
-        "avg": mean_quality(sum(scores), len(scores)),
-        "scored": len(scores),
+        "records": n,
+        "visits": visits,
+        "avg": mean_quality(q_sum, q_n),
+        "scored": q_n,
         "bands": {band: bands.get(band, 0) for band in BANDS},
-        "ratings": {rating: len(records) if rating == code else 0 for rating in RATINGS},
+        "ratings": {rating: n if rating == code else 0 for rating in RATINGS},
     }
 
 
@@ -648,8 +695,8 @@ def _bucket(quality: Decimal) -> str:
     return _BUCKET_KEYS[min(int(quality // 10), len(_BUCKET_KEYS) - 1)]
 
 
-# The columns of the one pass over the scope's visits most blocks are computed from, and of their
-# records (read apart and joined here: a visit's columns are not read again for each of its records)
+# The columns of the one pass over the scope's visits most blocks are computed from (their records are
+# added up by the database, or kept added up per visit: :func:`_visit_rows`; and :func:`_record_groups`)
 SUMMARY_COLUMNS = (
     "pk",
     "key",
@@ -673,38 +720,153 @@ SUMMARY_COLUMNS = (
     "entities_rated",
     "action_points",
 )
-RECORD_COLUMNS = (
-    "visit_id",
-    "datamart_id",
-    "quality_score",
-    "score_band",
-    "rating",
-    "hact_q1",
-    "flags",
-    "flag_count",
-)
+_UNRATED = ("", "not_monitored")  # a record's rating that counts as Not monitored on a reported visit only
+_ZERO = Decimal(0)  # the score sum of a visit without scored records
+
+
+# The scope's visits (``SUMMARY_COLUMNS``, in date and key order), each followed by its records added up
+# (``tallies.FIGURE_COLUMNS``; none for a visit without records the filter keeps)
+VISIT_ROWS_SQL = """
+    SELECT v.*, {figures} FROM ({visits}) v {records} ORDER BY v.visit_date, v.key
+"""
+
+
+def _visit_rows(scope: Scope) -> list[tuple]:
+    """The scope's visits in date and key order (``SUMMARY_COLUMNS``), each with its records' figures
+    (``tallies.FIGURE_COLUMNS``; None for a visit without records): those kept per visit when the filters
+    keep whole visits (``tallies.usable``), else the records the filters keep added up by the database
+    (``tallies.record_figures``). In one query read at once: a year of visits is a few thousand rows,
+    and a server-side cursor's round trips cost more than the rows."""
+    from django.db import connection
+
+    from .models import VisitFigures
+
+    visits = _sql(scope.visits().order_by().values_list(*SUMMARY_COLUMNS))
+    if visits is None:  # a filter that keeps nothing
+        return []
+    columns = tallies.FIGURE_COLUMNS
+    if tallies.usable(scope):
+        records = (connection.ops.quote_name(VisitFigures._meta.db_table), ())
+    else:
+        found = _sql(tallies.record_figures(scope.records()))
+        records = None if found is None else (f"({found[0]})", found[1])
+    if records is None:  # no record kept: no visit has figures
+        figures, join, params = ", ".join("NULL" for _column in columns), "", visits[1]
+    else:
+        figures = ", ".join(f"f.{column}" for column in columns)
+        join, params = f"LEFT JOIN {records[0]} f ON f.visit_id = v.pk", (*visits[1], *records[1])
+    with connection.cursor() as cursor:
+        cursor.execute(VISIT_ROWS_SQL.format(figures=figures, visits=visits[0], records=join), params)
+        return cursor.fetchall()
+
+
+def _sql(qs: QuerySet) -> tuple[str, tuple] | None:
+    """The SQL and parameters of ``qs`` (a ``values_list`` whose annotations come in the order they were
+    made; None when a filter keeps nothing), to be read without Django's converter for each value of each
+    row: allowed only where the database's own value is the one the converter would give (a count's
+    integer, a sum's Decimal; a column without one)."""
+    query = qs.query
+    names = [*query.extra_select, *query.values_select, *query.annotation_select]
+    if names != list(qs._fields):  # (the columns would come in another order)
+        raise ValueError(f"the columns of {names} are not read in the order asked for")
+    compiler = query.get_compiler(qs.db)
+    try:
+        sql, params = compiler.as_sql()
+    except EmptyResultSet:
+        return None
+    connection = compiler.connection
+    for expression, _sql, alias in compiler.select:
+        kind = expression.output_field.get_internal_type()
+        same = kind == "DecimalField" or kind.endswith("IntegerField")
+        for converter in (
+            *connection.ops.get_db_converters(expression),
+            *expression.get_db_converters(connection),
+        ):
+            if not (same and converter == expression.convert_value):
+                raise ValueError(f"the column {alias} needs its converter")
+    return sql, tuple(params)
+
+
+def _rows(qs: QuerySet) -> list[tuple]:
+    """The rows of ``qs`` as the database gives them (:func:`_sql`)."""
+    from django.db import connection
+
+    found = _sql(qs)
+    if found is None:  # a filter that keeps nothing
+        return []
+    with connection.cursor() as cursor:
+        cursor.execute(*found)
+        return cursor.fetchall()
+
+
+# the scope's records grouped two ways in one pass: by rating, HACT Q1, the month of their visit and
+# whether their visit is reported (``GROUPING(score_band)`` 1), and by rating, whether their visit is
+# reported, band, score and number of flags (0)
+RECORD_GROUPS_SQL = """
+    SELECT r.rating, r.hact_q1, date_trunc('month', r.visit__visit_date::timestamp)::date, r.reported,
+           r.score_band, r.quality_score, r.flag_count, GROUPING(r.score_band), count(*),
+           sum(r.quality_score), count(r.quality_score)
+    FROM ({records}) r
+    GROUP BY GROUPING SETS (
+        (r.rating, r.hact_q1, date_trunc('month', r.visit__visit_date::timestamp)::date, r.reported),
+        (r.rating, r.reported, r.score_band, r.quality_score, r.flag_count)
+    )
+"""
+
+
+def _record_groups(scope: Scope) -> tuple[list[tuple], list[tuple]]:
+    """The scope's records grouped by what the monthly charts read: (rating, Q1, month of their visit
+    ("2026-05"), on a reported visit, records, score sum, scored); and by what the score buckets, the
+    flag counts and the quality by rating read: (rating, band, score, number of flags, on a reported
+    visit, records). One query."""
+    from django.db import connection
+    from django.db.models import BooleanField, ExpressionWrapper
+
+    reported = ExpressionWrapper(Q(visit__status_group="reported"), output_field=BooleanField())
+    records = (
+        scope.records()
+        .order_by()
+        .annotate(reported=reported)
+        .values_list(
+            "rating", "hact_q1", "visit__visit_date", "score_band", "quality_score", "flag_count", "reported"
+        )
+    )
+    try:
+        sql, params = records.query.sql_with_params()
+    except EmptyResultSet:  # a filter that keeps nothing
+        return [], []
+    with connection.cursor() as cursor:
+        cursor.execute(RECORD_GROUPS_SQL.format(records=sql), params)
+        rows = cursor.fetchall()
+    by_month, groups = [], []
+    months: dict[Any, str] = {}
+    for rating, q1, day, on_reported, band, quality, flag_count, monthly, n, q_sum, q_n in rows:
+        if monthly:
+            month = months.get(day)
+            if month is None:
+                month = months[day] = f"{day.year:04d}-{day.month:02d}"
+            by_month.append((rating, q1, month, on_reported, n, q_sum, q_n))
+        else:
+            groups.append((rating, band, quality, flag_count, on_reported, n))
+    return by_month, groups
 
 
 def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None = None) -> dict[str, Any]:
-    """One pass over the scope's visits and their records (two queries), kept with the other blocks: the
-    figures by month, score bucket, flag count, rating, field office, section and place, the
-    governorates visited, the partners, and the visits without follow-up. Quality, bands, ratings,
-    flags and the section lines count records; each group gives its distinct visits too. The reported
-    visits, PSEA, the places without a location, the monitoring gaps and the follow-up count visits."""
+    """One pass over the scope's visits, each with its records added up by the database, and the scope's
+    records grouped by month, rating and Q1, and by score, band and number of flags (three queries), kept
+    with the other blocks: the figures by month, score bucket, flag count, rating, field office, section
+    and place, the governorates visited, the partners, and the visits without follow-up. Quality, bands,
+    ratings and flags count records; each group gives its distinct visits too. The reported visits,
+    PSEA, the places without a location, the monitoring gaps and the follow-up count visits. The records
+    listed under each section are :func:`section_lines`'."""
 
     def compute() -> dict[str, Any]:
         nonlocal limits
         limits = limits or thresholds()
         high_flag = limits.get("high_flag", 3)
         months: dict[str, dict[str, Any]] = {}
-        month_counts: dict[str, Counter] = {}  # per month, the records by their Q1 and their rating
         everyone: list[tuple] = []  # the part of each visit with records (see _parts_out)
-        # per rating, its records (visit, score, band): each record under the rating it counts under
-        by_rating: dict[str, list[tuple]] = {r: [] for r in RATINGS}
         visit_ratings: Counter = Counter()  # each visit under its own rating (its worst record's)
-        scores: list[Decimal] = []  # the scored records' scores
-        flag_counts: list[int] = []  # the scored records' numbers of flags
-        flag_lists: list[list[str]] = []  # the flags of each flagged record
         offices: dict[str, dict[str, Any]] = {}
         sections: dict[str, dict[str, Any]] = {}
         places: dict[tuple, dict[str, Any]] = {}
@@ -726,35 +888,41 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
             if local_status == LocalActionPoint.Status.OPEN:
                 local_open.setdefault(local_key, []).append(due)
         today = _today()
-        counts: Counter = Counter()
-        # the records of the scope by visit (every filter applied: a record filter keeps its records)
-        by_visit: dict[int, list[tuple]] = {}
-        for record in scope.records().order_by().values_list(*RECORD_COLUMNS):
-            found = by_visit.get(record[0])
-            if found is None:
-                by_visit[record[0]] = [record]
-            else:
-                found.append(record)
-        # read at once: a year of visits is a few thousand rows, and a server-side cursor's round
-        # trips cost more than the rows
-        rows = scope.visits().order_by("visit_date", "key").values_list(*SUMMARY_COLUMNS)
-        last_day, month, m, m_counts = None, "", None, None
-        n_visits = 0
-        for row in rows:
-            (pk, key, label, activity_id, visit_date, group, visit_rating, visit_q1, visit_offices,
+        counts: Counter = Counter()  # the figures counted by month and by record group below
+        # every visit of the scope runs through this loop: what it counts is kept in local names and the
+        # flags as their text, split once at the end
+        rows = _visit_rows(scope)
+        reported_n = gaps = psea_asked = psea_flagged = no_place = unlocated = off_track_n = 0
+        on_track_visits = constrained_visits = off_track_visits = not_monitored_visits = 0
+        local_open_n = local_overdue = 0
+        office_from: Counter = Counter()  # (the visit's field offices, where they come from)
+        office_lists: dict[tuple, list] = {}
+        section_lists: dict[tuple, list] = {}
+        flag_texts: list[str] = []  # the flags of the records flagged, as each visit's text
+        last_day, m = None, None
+        add_part = everyone.append
+        for (_pk, key, label, activity_id, visit_date, group, visit_rating, visit_q1, visit_offices,
              offices_from, section_names, governorate_key, location_id, location_name, site_id, place_name,
-             governorate_name, partner_ids, psea_flag, entities_rated, action_points) = row  # fmt: skip
-            n_visits += 1
+             governorate_name, partner_ids, psea_flag, entities_rated, action_points,
+             n, q_sum, q_n, high, medium, low, on_track, constrained, off_track, unrated, flagged,
+             scored_flags, unscored_flags) in rows:  # fmt: skip
             visit_rating = visit_rating or "not_monitored"
             reported = group == "reported"
             visit_ratings["" if visit_rating == "not_monitored" and not reported else visit_rating] += 1
-            counts["reported"] += reported
-            counts["gaps"] += reported and not entities_rated
-            counts["psea_asked"] += psea_flag is not None
-            counts["psea_flagged"] += psea_flag is True
-            counts["no_place"] += location_id is None and site_id is None
-            counts["unlocated"] += not governorate_key
-            # by month (start, else end date: every visit here has one; the rows come in date order)
+            if reported:
+                reported_n += 1
+                if not entities_rated:
+                    gaps += 1
+            if psea_flag is not None:
+                psea_asked += 1
+                if psea_flag is True:
+                    psea_flagged += 1
+            if location_id is None and site_id is None:
+                no_place += 1
+            if not governorate_key:
+                unlocated += 1
+            # by month (start, else end date: every visit here has one; the rows come in date order); its
+            # records are counted by month below
             if visit_date != last_day:
                 last_day = visit_date
                 month = f"{visit_date.year:04d}-{visit_date.month:02d}"
@@ -767,193 +935,183 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
                         "q_sum": Decimal(0),
                         "q_n": 0,
                     }
-                    month_counts[month] = Counter()
-                m_counts = month_counts[month]
             m["visits"] += 1
             # the groups the visit counts in, each once: field offices ("none": not known), sections
             # ("none": no section) and its place (the gazetteer location, else the place eTools wrote)
-            office_from = offices_from or "none"
-            office_sources[office_from] += 1
-            office_groups = []
-            for name in visit_offices or ["none"]:
-                o = offices.get(name)
-                if o is None:  # (not setdefault: its default would be built for every visit)
-                    o = offices[name] = {"parts": [], "from": Counter(), "flags": []}
-                o["from"][office_from] += 1
-                office_groups.append(o)
-            section_groups = []
-            for name in section_names or ["none"]:
-                sec = sections.get(name)
-                if sec is None:
-                    sec = sections[name] = {"parts": [], "lines": [], "flagged": 0}
-                section_groups.append(sec)
-            if location_id is not None:
-                place_key: tuple | None = ("location", location_id)
-                name = location_name or place_name
-            elif place_name:
-                place_key, name = ("place", place_name), place_name
-            else:
-                place_key = None
+            # (the groups of each list of offices and of sections are looked up once)
+            source = offices_from or "none"
+            office_sources[source] += 1
+            names = tuple(visit_offices) if visit_offices else ("none",)
+            office_groups = office_lists.get(names)
+            if office_groups is None:
+                office_groups = office_lists[names] = []
+                for name in names:
+                    o = offices.get(name)
+                    if o is None:
+                        o = offices[name] = {"parts": [], "flags": []}
+                    office_groups.append(o)
+            office_from[names, source] += 1
+            names = tuple(section_names) if section_names else ("none",)
+            section_groups = section_lists.get(names)
+            if section_groups is None:
+                section_groups = section_lists[names] = []
+                for name in names:
+                    sec = sections.get(name)
+                    if sec is None:
+                        sec = sections[name] = {"parts": [], "flagged": 0}
+                    section_groups.append(sec)
             place = None
-            if place_key is not None:
-                place = places.get(place_key)
+            if location_id is not None:
+                place = places.get(("location", location_id))
                 if place is None:
-                    place = places[place_key] = {
-                        "name": name,
+                    place = places["location", location_id] = {
+                        "name": location_name or place_name,
                         "location_id": location_id,
                         "governorate": governorate_name,
                         "parts": [],
                         "last": None,
                         "rated": 0,
                     }
-                place["last"] = max(place["last"] or visit_date, visit_date)
-                place["governorate"] = place["governorate"] or governorate_name
-            # its records, each counted on its own: added up for the visit first (its part), then the
-            # visit's part given to each group it counts in (the visit once)
-            records = by_visit.get(pk)
-            if records:
-                q_sum = Decimal(0)
-                q_n = high = medium = low = on_track = constrained = off_track = not_monitored = 0
-                flagged = rated = 0
-                lines_v: list[tuple] = []
-                office_flags: list[str] = []
-                for _visit, datamart_id, quality, band, rating, q1, flags, flag_count in records:
-                    if not rating or rating == "not_monitored":
-                        # counted_rating, written out (it runs for every record of the scope): Not
-                        # monitored on a reported visit only, else not rated yet (in no rating)
-                        rating = "not_monitored"
-                        counted = rating if reported else ""
-                    else:
-                        counted = rating
-                    if counted == "on_track":
-                        on_track += 1
-                        rated += 1
-                    elif counted == "off_track":
-                        off_track += 1
-                        rated += 1
-                    elif counted == "constrained":
-                        constrained += 1
-                        rated += 1
-                    elif counted == "not_monitored":
-                        not_monitored += 1
-                    if counted:
-                        m_counts[counted] += 1
-                        if counted in by_rating:
-                            by_rating[counted].append((pk, quality, band))
-                    if band == "high":
-                        high += 1
-                    elif band == "medium":
-                        medium += 1
-                    elif band == "low":
-                        low += 1
-                    if quality is not None:
-                        q_sum += quality
-                        q_n += 1
-                        scores.append(quality)
-                        flag_counts.append(flag_count or 0)
-                    if flags:
-                        flagged += 1
-                        flag_lists.append(flags)
-                        if quality is not None:
-                            office_flags.extend(flags)
-                    if q1:
-                        m_counts["q1:" + q1] += 1
-                    # HACT Q1's Not monitored: its Q1 reads "not monitored", or nothing rated on a
-                    # reported visit
-                    if q1 == "not_monitored" or counted == "not_monitored":
-                        counts["q1_not_monitored"] += 1
-                    # a record's line (a tuple: only the first SECTION_LINES of a section are written out)
-                    lines_v.append(
-                        (
-                            quality is None,
-                            quality or 0,
-                            visit_date,
-                            key,
-                            datamart_id,
-                            quality,
-                            activity_id,
-                            label,
-                            band,
-                            rating,
-                            group,
-                        )
-                    )
-                n = len(records)
-                part = (n, q_sum, q_n, high, medium, low, on_track, constrained, off_track, not_monitored)
-                everyone.append(part)
-                counts["off_track"] += off_track
-                m["records"] += n
-                if reported:
-                    m["reported"] += n
-                m["q_sum"] += q_sum
-                m["q_n"] += q_n
-                for o in office_groups:
-                    o["parts"].append(part)
-                    if office_flags:
-                        o["flags"].extend(office_flags)  # counted once at the end
+            elif place_name:
+                place = places.get(("place", place_name))
+                if place is None:
+                    place = places["place", place_name] = {
+                        "name": place_name,
+                        "location_id": location_id,
+                        "governorate": governorate_name,
+                        "parts": [],
+                        "last": None,
+                        "rated": 0,
+                    }
+            if place is not None:
+                place["last"] = visit_date  # (the rows come in date order: the latest so far)
+                if not place["governorate"]:
+                    place["governorate"] = governorate_name
+            # its records, added up by the database: the visit's part, given to each group it counts in
+            # (the visit once). A blank rating or "not monitored" counts as Not monitored on a reported
+            # visit only, else in no rating (not rated yet: counted_rating)
+            if n is not None:
+                not_monitored = unrated if reported else 0
+                part = (
+                    n,
+                    _ZERO if q_sum is None else q_sum,
+                    q_n,
+                    high,
+                    medium,
+                    low,
+                    on_track,
+                    constrained,
+                    off_track,
+                    not_monitored,
+                )
+                add_part(part)
+                if on_track:
+                    on_track_visits += 1
+                if constrained:
+                    constrained_visits += 1
+                if off_track:
+                    off_track_n += off_track
+                    off_track_visits += 1
+                if not_monitored:
+                    not_monitored_visits += 1
+                if scored_flags:
+                    flag_texts.append(scored_flags)
+                    for o in office_groups:
+                        o["parts"].append(part)
+                        o["flags"].append(scored_flags)  # counted once at the end
+                else:
+                    for o in office_groups:
+                        o["parts"].append(part)
+                if unscored_flags:
+                    flag_texts.append(unscored_flags)
                 for sec in section_groups:
                     sec["parts"].append(part)
-                    sec["lines"].extend(lines_v)
                     sec["flagged"] += flagged
                 if place is not None:
                     place["parts"].append(part)
-                    place["rated"] += rated
+                    place["rated"] += on_track + constrained + off_track
             if governorate_key:
                 governorates.add(governorate_key)
             if partner_ids:
                 partners.update(partner_ids)
             if local_open and key in local_open:
-                counts["local_open"] += len(local_open[key])
-                counts["local_overdue"] += sum(1 for due in local_open[key] if due and due < today)
+                local_open_n += len(local_open[key])
+                local_overdue += sum(1 for due in local_open[key] if due and due < today)
             if reported and not action_points and key not in followed:
-                worse = max([visit_rating, visit_q1 or "not_monitored"], key=_rating_rank)
+                worse = visit_q1 or "not_monitored"  # the worse of the two, the visit's on a tie
+                if RATING_ORDER.get(worse, 0) <= RATING_ORDER.get(visit_rating, 0):
+                    worse = visit_rating
                 if worse in ("off_track", "constrained"):
                     no_follow_up.append((key, _visit_name(key, label, activity_id)))
-
-        # the month's records by Q1 and by rating, as the monthly charts read them ("q1:on_track")
-        for month, found in month_counts.items():
+        n_visits = len(rows)
+        # per rating, the visits with a record that counts under it (counted_rating)
+        rating_visits = {
+            "on_track": on_track_visits,
+            "constrained": constrained_visits,
+            "off_track": off_track_visits,
+            "not_monitored": not_monitored_visits,
+        }
+        # the flags of the records flagged, each counted (in the order the visits first name them)
+        rule_flags = Counter(",".join(flag_texts).split(",")) if flag_texts else Counter()
+        # the month's records, those of its reported visits and their scores, then by Q1 and by the
+        # rating each counts under, as the monthly charts read them ("q1:on_track", "rating:on_track");
+        # HACT Q1's Not monitored: a Q1 that reads "not monitored", or nothing rated on a reported visit
+        month_counts: dict[str, Counter] = {}
+        by_month, groups = _record_groups(scope)
+        for rating, q1, month, on_reported, n, q_sum, q_n in by_month:
             m = months[month]
-            for code, n in found.items():
-                m[code if code.startswith("q1:") else f"rating:{code}"] = n
-        # the scored records by score bucket (each distinct score's bucket worked out once) and by
-        # number of flags; the records not scored
+            m["records"] += n
+            if on_reported:
+                m["reported"] += n
+            if q_sum is not None:
+                m["q_sum"] += q_sum
+            m["q_n"] += q_n
+            if rating in _UNRATED:
+                rating = "not_monitored" if on_reported else ""
+            found = month_counts.get(month)
+            if found is None:
+                found = month_counts[month] = Counter()
+            if rating:
+                found["rating:" + rating] += n
+            if q1:
+                found["q1:" + q1] += n
+            if q1 == "not_monitored" or rating == "not_monitored":
+                counts["q1_not_monitored"] += n
+        for month, m in months.items():  # each month's codes in the order the old pass met them
+            for code, n in sorted(month_counts.get(month, {}).items()):
+                m[code] = n
+        # the records by score bucket (each distinct score's bucket worked out once), by number of flags
+        # (the scored ones) and under the rating each counts under, with their scores and bands; the
+        # records not scored
         buckets: Counter = Counter()
-        for quality, n in Counter(scores).items():
-            buckets[_bucket(quality)] += n
-        unscored = sum(part[0] for part in everyone) - len(scores)
+        flags_dist: Counter = Counter()
+        by_rating = {code: [0, Decimal(0), 0, Counter()] for code in RATINGS}
+        unscored = 0
+        for rating, band, quality, flag_count, on_reported, n in groups:
+            if quality is None:
+                unscored += n
+            else:
+                buckets[_bucket(quality)] += n
+                count = flag_count or 0
+                flags_dist[_FLAG_KEYS[count] if count < 3 else "3+"] += n
+                if count >= high_flag:
+                    counts["high_flag"] += n
+            if rating in _UNRATED:
+                rating = "not_monitored" if on_reported else ""
+            r = by_rating.get(rating)
+            if r is not None:
+                r[0] += n
+                if quality is not None:
+                    r[1] += quality * n
+                    r[2] += n
+                r[3][band] += n
         if unscored:
             buckets["none"] = unscored
-        flags_dist: Counter = Counter()
-        for count, n in Counter(flag_counts).items():
-            flags_dist[_FLAG_KEYS[count] if count < 3 else "3+"] += n
-            if count >= high_flag:
-                counts["high_flag"] += n
-        rule_flags = Counter(chain.from_iterable(flag_lists))
-        out_sections = {}
-        for name, sec in sections.items():
-            lines = sec["lines"]
-            # lowest score first, unscored last (a record's id ends the sort key): the first only
-            first = heapq.nsmallest(SECTION_LINES, lines)
-            out_sections[name] = {
-                **_parts_out(sec["parts"]),
-                "flagged": sec["flagged"],
-                "lines": [
-                    {
-                        "key": key,
-                        "record": datamart_id,
-                        "name": f"#{activity_id}" if activity_id else label,  # _visit_name
-                        "quality": quality,
-                        "band": band,
-                        "rating": rating,
-                        "not_rated_yet": _not_rated_yet(rating, group),
-                        "date": visit_date,
-                    }
-                    for visit_date, key, datamart_id, quality, activity_id, label, band, rating, group in (
-                        ln[2:] for ln in first
-                    )
-                ],
-                "more": max(len(lines) - SECTION_LINES, 0),
-            }
+        sources_of: dict[str, dict[str, int]] = {name: {} for name in offices}  # (in the order met)
+        for (names, source), n in office_from.items():
+            for name in names:
+                found = sources_of[name]
+                found[source] = found.get(source, 0) + n
         out_places = sorted(
             (
                 {
@@ -971,42 +1129,177 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
         return {
             **_parts_out(everyone),
             "visits": n_visits,
-            "reported": counts["reported"],
-            "off_track": counts["off_track"],
-            "gaps": counts["gaps"],
+            "reported": reported_n,
+            "off_track": off_track_n,
+            "gaps": gaps,
             "q1_not_monitored": counts["q1_not_monitored"],
-            "psea_asked": counts["psea_asked"],
-            "psea_flagged": counts["psea_flagged"],
-            "no_place": counts["no_place"],
-            "unlocated": counts["unlocated"],
+            "psea_asked": psea_asked,
+            "psea_flagged": psea_flagged,
+            "no_place": no_place,
+            "unlocated": unlocated,
             "high_flag": counts["high_flag"],
             "high_flag_at": high_flag,
             "buckets": dict(buckets),
             "flags": dict(flags_dist),
             "rule_flags": dict(rule_flags),
             "months": months,
-            "by_rating": {code: _rated_out(code, found) for code, found in by_rating.items()},
+            "by_rating": {
+                code: _rated_out(code, n, rating_visits[code], q_sum, q_n, bands)
+                for code, (n, q_sum, q_n, bands) in by_rating.items()
+            },
             "visit_ratings": {code: visit_ratings[code] for code in RATINGS},
             "offices": {
-                name: {**_parts_out(o["parts"]), "from": dict(o["from"]), "flags": dict(Counter(o["flags"]))}
+                name: {
+                    **_parts_out(o["parts"]),
+                    "from": sources_of[name],
+                    "flags": dict(Counter(",".join(o["flags"]).split(","))) if o["flags"] else {},
+                }
                 for name, o in offices.items()
             },
             "office_sources": dict(office_sources),
-            "sections": out_sections,
+            "sections": {
+                name: {**_parts_out(sec["parts"]), "flagged": sec["flagged"]}
+                for name, sec in sections.items()
+            },
             "places": out_places[:PLACES_MAX],
             "places_total": len(out_places),
             "governorates": sorted(governorates),
             "partners": sorted(partners),
             "no_follow_up": {"n": len(no_follow_up), "visits": no_follow_up[-FOLLOW_UP_LIST:][::-1]},
-            "local_open": counts["local_open"],
-            "local_overdue": counts["local_overdue"],
+            "local_open": local_open_n,
+            "local_overdue": local_overdue,
         }
 
     return cached(scope, "summary", compute, when)
 
 
-def _rating_rank(code: str) -> int:
-    return RATING_ORDER.get(code, 0)
+LINE_COLUMNS = (
+    "visit__key",
+    "datamart_id",
+    "quality_score",
+    "visit__activity_id",
+    "visit__label",
+    "score_band",
+    "rating",
+    "visit__status_group",
+    "visit__visit_date",
+)
+
+
+NAME_COLUMNS = ("kind", "entity", "cp_output", "pd__number", "partner__name")  # a record's name (record_name)
+
+
+def _line(key, datamart_id, quality, activity_id, label, band, rating, group, visit_date) -> dict[str, Any]:
+    """A record's line under its sections (a blank rating reads as "not monitored", as the records'
+    figures count it)."""
+    rating = "not_monitored" if not rating or rating == "not_monitored" else rating
+    return {
+        "key": key,
+        "record": datamart_id,
+        "name": f"#{activity_id}" if activity_id else label,  # _visit_name
+        "quality": quality,
+        "band": band,
+        "rating": rating,
+        "not_rated_yet": _not_rated_yet(rating, group),
+        "date": visit_date,
+    }
+
+
+def section_lines(
+    scope: Scope, when: str | None = None, limits: dict | None = None, top: int = SECTION_LINES
+) -> dict[str, list[dict[str, Any]]]:
+    """Per section of the scope (:func:`summary`'s; "none": the visits without a section), its first
+    ``top`` records (at most ``SECTION_LINES``): lowest score first, unscored last, then by visit date,
+    visit key and record. The scope's records are read in that order until each section has its lines
+    (a section read to its end without them, its own records only); fewer lines than ``SECTION_LINES``
+    are the first of the full lists when those are kept already."""
+    return _section_lines(scope, when, limits, top)[0]
+
+
+def section_line_names(
+    scope: Scope, when: str | None = None, limits: dict | None = None, top: int = SECTION_LINES
+) -> dict[int, str]:
+    """The entity of each record :func:`section_lines` lists (``datamart_id``), in words
+    (:func:`record_name`; a record without one is left out), read with the lines."""
+    return _section_lines(scope, when, limits, top)[1]
+
+
+def _section_lines(
+    scope: Scope, when: str | None, limits: dict | None, top: int
+) -> tuple[dict[str, list[dict[str, Any]]], dict[int, str]]:
+    from django.db.models import F
+    from django.db.models.functions import Collate
+
+    top = min(top, SECTION_LINES)
+    if top < SECTION_LINES:
+        full = kept(scope, "section_lines", when)
+        if full is not None:
+            return {name: lines[:top] for name, lines in full[0].items()}, full[1]
+
+    def compute() -> tuple[dict[str, list[dict[str, Any]]], dict[int, str]]:
+        sections = summary(scope, when, limits)["sections"]
+        out: dict[str, list[dict[str, Any]]] = {name: [] for name in sections}
+        named: dict[int, str] = {}
+        if not sections or scope.empty:
+            return out, named
+        order = (
+            F("quality_score").asc(nulls_last=True),
+            "visit__visit_date",
+            Collate("visit__key", "C"),  # as Python compares the keys, whatever the database's collation
+            "datamart_id",
+        )
+        wanted = {name: min(s["records"], top) for name, s in sections.items()}
+        missing = {name for name, n in wanted.items() if n}
+        width = len(LINE_COLUMNS)
+
+        def line_of(row: tuple) -> dict[str, Any]:
+            """The line of a record read with its name (``LINE_COLUMNS``, then ``NAME_COLUMNS``)."""
+            kind, entity, cp_output, pd_number, partner_name = row[width : width + len(NAME_COLUMNS)]
+            text = record_name(kind, entity, cp_output, pd_number or "", partner_name or "")
+            if text:
+                named[row[1]] = text
+            return _line(*row[:width])
+
+        def of_section(name: str) -> Q:
+            return Q(visit__section_names=[]) if name == "none" else Q(visit__section_names__contains=[name])
+
+        def read(records: QuerySet, lines: dict[str, list]) -> None:
+            """The first records of ``records`` (enough, for sections of some size, to give each of
+            ``lines`` its lines), each under the sections of ``lines`` its visit has, until each has its
+            lines."""
+            rows = _rows(
+                records.order_by(*order).values_list(*LINE_COLUMNS, *NAME_COLUMNS, "visit__section_names")[
+                    : top * 2 * len(lines)
+                ]
+            )
+            for row in rows:
+                line = None
+                for name in row[-1] or ["none"]:
+                    found = lines.get(name)
+                    if found is not None and len(found) < top:
+                        found.append(line if line is not None else (line := line_of(row)))
+                        if len(found) == wanted[name]:
+                            missing.discard(name)
+                if not missing:
+                    break
+
+        # the first records of the scope; then the first records of the sections still without their
+        # lines (a section's records come in the same order); a section still without them after that:
+        # its own records, in the same order
+        read(scope.records(), out)
+        if len(missing) > 1:
+            rest = {name: [] for name in missing}
+            either = Q()
+            for name in sorted(missing):
+                either |= of_section(name)
+            read(scope.records().filter(either), rest)
+            out.update((name, lines) for name, lines in rest.items() if name not in missing)
+        for name in sorted(missing):
+            found = scope.records().filter(of_section(name)).order_by(*order)
+            out[name] = [line_of(row) for row in _rows(found.values_list(*LINE_COLUMNS, *NAME_COLUMNS)[:top])]
+        return out, named
+
+    return cached(scope, "section_lines" if top == SECTION_LINES else f"section_lines:{top}", compute, when)
 
 
 # ------------------------------------------------------------------------------------------ by month
@@ -1219,75 +1512,90 @@ def issue_label(rule: str, key: str, measures: list[float], setting: Any) -> str
     return render(template, value=value)
 
 
+# The failed checks of a scope's records added up per issue (rule and detail) and visit (a visit's records
+# often share an issue), then per issue (its rows, ``visit`` empty), and the visits that can be among each
+# issue's first (fewer than CHIP_VISITS of its visits have a more urgent record: the chips are picked from
+# them), each with its most urgent record's urgency
+ISSUE_SQL = """
+WITH g AS MATERIALIZED ({grouped})
+SELECT rule, detail_key, sum(n)::bigint, sum(u_sum)::bigint, sum(u_n)::bigint, min(low), max(high), count(*),
+       NULL::bigint, NULL::int
+FROM g GROUP BY rule, detail_key
+UNION ALL
+SELECT rule, detail_key, NULL, NULL, NULL, NULL, NULL, NULL, visit_id, u_max
+FROM (
+    SELECT g.*, rank() OVER (PARTITION BY rule, detail_key ORDER BY coalesce(u_max, 0) DESC) AS place FROM g
+) AS ranked
+WHERE place <= {chips}
+"""
+
+
+def _issue_rows(scope: Scope) -> list[tuple]:
+    """The rows of :data:`ISSUE_SQL` for ``scope``: (rule, detail, records, urgency sum, urgent records,
+    lowest and highest measure, visits, visit, its most urgent record's urgency). The failed checks per
+    issue and visit are those kept per visit when the filters keep whole visits (``tallies.usable``),
+    else those of the records the filters keep."""
+    from django.db import connection
+
+    from .models import RecordRuleResult, VisitIssueTally
+
+    if tallies.usable(scope):
+        grouped = scope.of_visits(VisitIssueTally.objects.all()).values_list(
+            "rule", "detail_key", "visit_id", *tallies.ISSUE_COLUMNS
+        )
+    else:
+        grouped = tallies.issue_tallies(scope.record_results(RecordRuleResult.objects.all()))
+    try:
+        found = tallies.select(grouped)  # (summed by the database: no column is read as it stands)
+    except EmptyResultSet:  # a filter that keeps nothing
+        return []
+    columns = "rule, detail_key, visit_id, n, u_sum, u_n, u_max, low, high"
+    with connection.cursor() as cursor:
+        cursor.execute(
+            ISSUE_SQL.format(grouped=f"SELECT * FROM ({found[0]}) AS found ({columns})", chips=CHIP_VISITS),  # noqa: S608
+            found[1],
+        )
+        return cursor.fetchall()
+
+
 def top_issues(
     scope: Scope, limit: int = 10, when: str | None = None, rules: list | None = None
 ) -> list[dict[str, Any]]:
     """Block 8: the flags of the scope's records grouped by rule and detail (``R2:below_threshold``), most
     frequent first: the issue in words, its records, their mean urgency and the first visits (the
     visits of its most urgent records, each once)."""
-    from .models import RecordRuleResult, RuleSetting, Visit
+    from .models import RuleSetting, Visit
     from .rules import half_up
     from .scope import _ISSUE
 
     def compute() -> list[dict[str, Any]]:
         settings_ = {r.code: r for r in (rules if rules is not None else RuleSetting.objects.all())}
-        # the failed checks of the scope's records, added up per issue and visit by the database (a
-        # visit's records often share an issue)
-        rows = (
-            scope.record_results(RecordRuleResult.objects.filter(status="fail"))
-            .order_by()
-            .values("rule", "detail_key", "entity__visit_id")
-            .annotate(
-                n=Count("pk"),
-                u_sum=Sum("entity__urgency"),
-                u_n=Count("entity__urgency"),
-                u_max=Max("entity__urgency"),
-                low=Min("measure"),
-                high=Max("measure"),
-            )
-            .values_list(
-                "rule", "detail_key", "entity__visit_id", "n", "u_sum", "u_n", "u_max", "low", "high"
-            )
-        )
-        groups: dict[tuple[str, str], list] = {}
-        for rule, key, visit_id, n, u_sum, u_n, u_max, low, high in rows:
-            g = groups.get((rule, key))
-            if g is None:  # records, urgency sum, urgent records, lowest and highest measure, visits
-                g = groups[(rule, key)] = [0, 0, 0, None, None, {}]
-            g[0] += n
-            if u_n:  # a record without a score has no urgency: left out of the mean
-                g[1] += u_sum
-                g[2] += u_n
-            if low is not None and (g[3] is None or low < g[3]):
-                g[3] = low
-            if high is not None and (g[4] is None or high > g[4]):
-                g[4] = high
-            # each visit with its most urgent record's urgency
-            g[5][visit_id] = u_max or 0
-        # the chips: the visits of the most urgent records (each once), then the latest, then by key;
-        # only the visits that can be among the first are read
-        candidates: dict[tuple[str, str], list[int]] = {}
-        for found, g in groups.items():
-            visits = g[5]
-            if len(visits) <= CHIP_VISITS:
-                candidates[found] = list(visits)
-            else:
-                floor = heapq.nlargest(CHIP_VISITS, visits.values())[-1]
-                candidates[found] = [pk for pk, urgency in visits.items() if urgency >= floor]
+        # per issue its records, their urgency (summed over the records that have one, which the mean
+        # counts), lowest and highest measure and their visits; and the visits that can be among its
+        # first (:func:`_issue_rows`)
+        groups: dict[tuple[str, str], tuple] = {}
+        candidates: dict[tuple[str, str], dict[int, int]] = {}
+        for rule, key, n, u_sum, u_n, low, high, n_visits, visit_id, u_max in _issue_rows(scope):
+            if visit_id is None:
+                groups[(rule, key)] = (n, u_sum or 0, u_n, low, high, n_visits)
+            else:  # each visit with its most urgent record's urgency
+                candidates.setdefault((rule, key), {})[visit_id] = u_max or 0
+        # the chips: the visits of the most urgent records (each once), then the latest, then by key
         named = {
             pk: (key, label, activity_id, day)
             for pk, key, label, activity_id, day in Visit.objects.filter(
-                pk__in={pk for pks in candidates.values() for pk in pks}
+                pk__in={pk for found in candidates.values() for pk in found}
             ).values_list("pk", "key", "label", "activity_id", "visit_date")
         }
         out = []
-        for (rule, key), (n, urgency_sum, urgent_n, low, high, visits) in groups.items():
+        for (rule, key), (n, urgency_sum, urgent_n, low, high, n_visits) in groups.items():
             drill = f"{rule}:{key}"
+            visits = candidates.get((rule, key), {})
             first = heapq.nsmallest(
                 CHIP_VISITS,
                 (
-                    (-visits[pk], -(named[pk][3].toordinal() if named[pk][3] else 0), named[pk][0], pk)
-                    for pk in candidates[(rule, key)]
+                    (-urgency, -(named[pk][3].toordinal() if named[pk][3] else 0), named[pk][0], pk)
+                    for pk, urgency in visits.items()
                     if pk in named
                 ),
             )
@@ -1301,11 +1609,11 @@ def top_issues(
                     "rule": rule,
                     "label": issue_label(rule, key, measures, settings_.get(rule)),
                     "records": n,
-                    "visits": len(visits),
+                    "visits": n_visits,
                     "urgency": int(half_up(Decimal(urgency_sum) / urgent_n, 0)) if urgent_n else None,
                     "lowest": low,
                     "chips": chips,
-                    "more": max(len(visits) - CHIP_VISITS, 0),
+                    "more": max(n_visits - CHIP_VISITS, 0),
                     "drill": drill if _ISSUE.match(drill) else "",
                 }
             )
@@ -1333,33 +1641,47 @@ def locations(scope: Scope, when: str | None = None, limits: dict | None = None)
     return {"rows": rows, "total": data["places_total"], "unlinked": data["no_place"]}
 
 
+def _rule_tallies(scope: Scope) -> tuple[QuerySet, str]:
+    """The rule figures kept for ``scope`` (``tallies.usable``): per day when no filter but the period
+    applies (``tallies.by_day``), else per visit of the scope; and the date their month is read from."""
+    from .models import DayRuleTally, VisitRuleTally
+
+    if tallies.by_day(scope):
+        return DayRuleTally.objects.filter(day__gte=scope.start, day__lte=scope.end).order_by(), "day"
+    return scope.of_visits(VisitRuleTally.objects.all()).order_by(), "visit__visit_date"
+
+
 def _rule_rows(scope: Scope, by_month: bool) -> list[dict[str, Any]]:
     """Per rule (and month of the visits' date, start else end, ``by_month``), over the scope's
     records: the records in each result state, and the points earned (each capped at its maximum)
     over the points evaluated. One query."""
-    from django.db.models import DecimalField
-    from django.db.models.functions import Cast, Least, TruncMonth
+    from django.db.models.functions import TruncMonth
 
     from .models import RecordRuleResult
     from .rules import STATES
 
-    # grouped by rule and state, the points only where they count (each result is in one group): one
-    # aggregate pass over the checks of the records, not a filtered count per state for every check
-    with_points = Q(max_points__gt=0)
-    rows = scope.record_results(RecordRuleResult.objects.all()).order_by()
-    keys = ("rule", "status")
-    if by_month:
-        rows = rows.annotate(month=TruncMonth("entity__visit__visit_date"))
-        keys = ("rule", "month", "status")
-    found = rows.values(*keys).annotate(
-        n=Count("pk"),
-        earned=Sum(
-            Least("points", Cast("max_points", DecimalField(max_digits=5, decimal_places=1))),
-            filter=with_points,
-        ),
-        points_max=Sum("max_points", filter=with_points),
-        points_n=Count("pk", filter=with_points),
-    )
+    keys = ("rule", "month", "status") if by_month else ("rule", "status")
+    if tallies.usable(scope):
+        # the checks per rule and result kept per visit (``tallies.rule_tallies``), or per day when no
+        # filter but the period applies, summed
+        rows, day = _rule_tallies(scope)
+        if by_month:
+            rows = rows.annotate(month=TruncMonth(day))
+        found = rows.values(*keys).annotate(
+            n=Sum("records"), earned=Sum("earned"), points_max=Sum("points_max"), points_n=Sum("points_n")
+        )
+    else:
+        # grouped by rule and state, the points only where they count (each result is in one group):
+        # one aggregate pass over the checks of the records, not a filtered count per state for every
+        # check. The checks are those of the scope's records (without the months, picked by their
+        # record alone, not joined to it), read from their covering index (``fmm_result_points``):
+        # nothing counted is a column the index lacks
+        if by_month:
+            rows = scope.record_results(RecordRuleResult.objects.all()).order_by()
+            rows = rows.annotate(month=TruncMonth("entity__visit__visit_date"))
+        else:
+            rows = RecordRuleResult.objects.filter(entity__in=scope.records().values("pk")).order_by()
+        found = rows.values(*keys).annotate(n=Count("*"), **tallies.rule_points())
     out: dict[tuple, dict[str, Any]] = {}
     for row in found:
         group = (row["rule"], row["month"]) if by_month else (row["rule"],)
@@ -1428,6 +1750,48 @@ def rule_stats(scope: Scope, when: str | None = None) -> dict[str, dict[str, Any
     return cached(scope, "rules", compute, when)
 
 
+def rule_counts(scope: Scope, when: str | None = None) -> dict[str, dict[str, int]]:
+    """Per rule over the scope's records, the records in each result state: :func:`rule_stats` without
+    the points, which the rule analysis and the flag frequency read. Taken from the rule figures or the
+    rule months when they are kept already, else one count per rule and state (cheaper than the
+    points: no sum over every check)."""
+    from .models import RecordRuleResult
+    from .rules import STATES
+
+    def compute() -> dict[str, dict[str, int]]:
+        stats = kept(scope, "rules", when)
+        if stats is not None:
+            return {rule: {state: s[state] for state in STATES} for rule, s in stats.items()}
+        months = kept(scope, "rule_months", when)
+        if months is not None:
+            rows = ((row["rule"], state, row[state]) for row in months for state in STATES)
+        elif tallies.usable(scope):  # the checks per rule and result kept per visit or day, summed
+            rows = _rows(
+                _rule_tallies(scope)[0]
+                .values("rule", "status")
+                .annotate(n=Sum("records"))
+                .values_list("rule", "status", "n")
+            )
+        else:
+            rows = _rows(
+                RecordRuleResult.objects.filter(entity__in=scope.records().values("pk"))
+                .order_by()
+                .values("rule", "status")
+                .annotate(n=Count("*"))
+                .values_list("rule", "status", "n")
+            )
+        out: dict[str, dict[str, int]] = {}
+        for rule, status, n in rows:
+            r = out.get(rule)
+            if r is None:
+                r = out[rule] = dict.fromkeys(STATES, 0)
+            if status in r:
+                r[status] += n
+        return out
+
+    return cached(scope, "rule_counts", compute, when)
+
+
 ANSWER_COLUMNS = ("fmq_answered_pct", "fmq_answered_categories", "method_count", "red_flag_count")
 
 
@@ -1453,7 +1817,7 @@ def rule_analysis(scope: Scope, rules: list | None = None, when: str | None = No
     from .rules import TYPE_LABELS, code_order, nominal, param
 
     rules = sorted(_rule_settings(rules), key=lambda r: code_order(r.code))
-    stats = rule_stats(scope, when)
+    stats = rule_counts(scope, when)
     out = []
     for rule in rules:
         s = stats.get(rule.code, {})
@@ -1628,13 +1992,26 @@ def office_rule_badges(
     return out
 
 
-def sections(scope: Scope, when: str | None = None, limits: dict | None = None) -> list[dict[str, Any]]:
+def sections(
+    scope: Scope, when: str | None = None, limits: dict | None = None, lines: int | None = SECTION_LINES
+) -> list[dict[str, Any]]:
     """Block 18: per eTools section, its records and visits, their average quality, ratings and bands,
-    and a line per record (worst score first, unscored last). A record of a visit with two sections
-    counts in both."""
+    and a line per record (worst score first, unscored last), up to ``SECTION_LINES`` (``more``: the
+    records past them). ``lines``: the first lines only (the page's before "Show all"); None: the figures
+    alone, without reading the lines. A record of a visit with two sections counts in both."""
     data = summary(scope, when, limits)
+    found = section_lines(scope, when, limits, lines) if lines is not None else None
     out = [
-        {"name": name, "drill": name, **s}
+        {
+            "name": name,
+            "drill": name,
+            **s,
+            **(
+                {"lines": found.get(name, []), "more": max(s["records"] - SECTION_LINES, 0)}
+                if found is not None
+                else {}
+            ),
+        }
         for name, s in data["sections"].items()
         if _within(scope.sections, name)
     ]
@@ -1761,7 +2138,7 @@ def flag_frequency(scope: Scope, rules: list | None = None, when: str | None = N
     """Block 21: the records each rule flagged, most first, as ``[label, records, drill]`` triples for the
     chart, with each rule's share of the records it evaluated."""
     rules = _rule_settings(rules)
-    stats = rule_stats(scope, when)
+    stats = rule_counts(scope, when)
     rows = []
     for rule in rules:
         if not rule.enabled:
@@ -2155,17 +2532,16 @@ def action_points(scope: Scope, when: str | None = None, limits: dict | None = N
         )
         points: dict[int, dict[str, Any]] = {}
         for pk, status_, due, high, reference, category, key, label, activity_id in rows:
-            p = points.setdefault(
-                pk,
-                {
+            p = points.get(pk)
+            if p is None:  # (an action point of several visits comes once per visit)
+                p = points[pk] = {
                     "reference": reference,
                     "category": category,
                     "due": due,
                     "high": bool(high),
                     "open": status_ in ActionPoint.OPEN_STATUSES,
                     "visits": [],
-                },
-            )
+                }
             p["visits"].append({"key": key, "name": _visit_name(key, label, activity_id)})
         open_ = [p for p in points.values() if p["open"]]
         overdue = [p for p in open_ if p["due"] and p["due"] < today]

@@ -433,6 +433,14 @@ class Scope:
             or any(key in RECORD_DRILLS for key, _value in self.drill)
         )
 
+    @property
+    def visit_filtered(self) -> bool:
+        """A visit filter or drill-down is on (anything that keeps some of the visits of the period
+        only), as :meth:`_visit_filters` applies them."""
+        from .models import Visit
+
+        return bool(self._visit_filters(Visit.objects.all()).query.where)
+
     def filtered(self, qs: QuerySet | None = None) -> QuerySet:
         """``qs`` (every visit by default) narrowed by every filter of the scope but the period: the visit
         filters, and, when a record filter is on, the visits with at least one record it keeps."""
@@ -463,10 +471,17 @@ class Scope:
         qs = VisitEntity.objects.all()
         if self.empty:
             return qs.none()
-        qs = self._visit_filters(qs, "visit__").filter(
+        return self._record_filters(self.of_visits(qs))
+
+    def of_visits(self, qs: QuerySet) -> QuerySet:
+        """``qs`` (rows that belong to a visit: records, the figures kept per visit) narrowed to those of
+        the visits of the period that every visit filter keeps, read through their visit (``visit__``);
+        no record filter is applied (:meth:`records` applies them)."""
+        if self.empty:
+            return qs.none()
+        return self._visit_filters(qs, "visit__").filter(
             visit__visit_date__gte=self.start, visit__visit_date__lte=self.end
         )
-        return self._record_filters(qs)
 
     def record_results(self, qs: QuerySet) -> QuerySet:
         """``qs`` (``RecordRuleResult`` rows) narrowed to the checks of the records of the scope: the

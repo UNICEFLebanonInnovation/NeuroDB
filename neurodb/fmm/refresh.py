@@ -68,7 +68,7 @@ from neurodb.integrations.background import FMM_REFRESH_LOCK_ID
 from neurodb.integrations.runs import fail, finish_by_counts, new_run, note_error
 from neurodb.watch import people
 
-from . import build, fields, privacy, score, versions
+from . import build, fields, privacy, score, tallies, versions
 from .models import (
     AICheckAnswer,
     FieldMapping,
@@ -400,6 +400,10 @@ def _scores(triggered_by: str, today: date) -> SyncRun:
         for visit in visits:
             visit.rules_version, visit.refreshed_at = version_used, now
         with transaction.atomic():
+            # the figures kept per visit: only those of the visits whose records or checks change here
+            # are written again, when the others' are those of the stored ones (read, and held, before
+            # any write)
+            kept = tallies.hold()
             fm.update_rows(Visit, visits, SCORE_FIELDS)
             changed = [
                 entity
@@ -409,7 +413,11 @@ def _scores(triggered_by: str, today: date) -> SyncRun:
             ]
             fm.update_rows(VisitEntity, changed, ENTITY_SCORE_FIELDS)
             _write_roles(scored.roles)
-            update_results(RecordRuleResult, scored.record_results)
+            checked: set[int] = set()  # the records whose checks changed
+            update_results(RecordRuleResult, scored.record_results, checked)
+            visit_of = {entity.pk: entity.visit_id for rows in source.entities.values() for entity in rows}
+            touched = {entity.visit_id for entity in changed} | {visit_of.get(pk) for pk in checked}
+            tallies.rebuild(touched - {None} if kept else None)
     except Exception as exc:
         return fail(sync_run, exc, duration_ms=_ms(clock))
     followed = _action_points(sync_run, today, full=False)
@@ -579,11 +587,13 @@ def _scratch(cursor, table: str, names: str) -> bool:
     return True
 
 
-def update_results(model, rows: Iterable[score.ResultRow]) -> int:
+def update_results(model, rows: Iterable[score.ResultRow], changed: set[int] | None = None) -> int:
     """A scores-only pass: the stored rule results made those of the scoring by writing only what
     changed (most results of a day are those of the day before): the new rows are copied into a
     temporary table, the stored rows that differ from theirs (or have none) are deleted and the new
-    rows missing then are inserted. Returns the rows inserted."""
+    rows missing then are inserted. Returns the rows inserted; ``changed`` (given) receives the records
+    whose results were deleted or inserted (every record that had or has one, without the temporary
+    table)."""
     _owner, columns = _result_columns(model)
     quote = connection.ops.quote_name
     table = quote(model._meta.db_table)
@@ -591,20 +601,29 @@ def update_results(model, rows: Iterable[score.ResultRow]) -> int:
     key = " AND ".join(f"n.{quote(c)} = r.{quote(c)}" for c in columns[:2])
     same = " AND ".join(f"n.{quote(c)} IS NOT DISTINCT FROM r.{quote(c)}" for c in columns[2:])
     with transaction.atomic(), connection.cursor() as cursor:
+        owner = quote(columns[0])
         if connection.vendor != "postgresql" or not _scratch(cursor, table, names):
+            rows = list(rows)
+            if changed is not None:
+                changed.update(model.objects.values_list(columns[0], flat=True).distinct())
+                changed.update(row[0].pk for row in rows)
             model.objects.all().delete()
             return copy_results(model, rows)
         copy_results(model, rows, table=SCRATCH)
         cursor.execute(f"ANALYZE {SCRATCH}")
         cursor.execute(
             f"DELETE FROM {table} AS r WHERE NOT EXISTS "  # noqa: S608
-            f"(SELECT 1 FROM {SCRATCH} AS n WHERE {key} AND {same})"
+            f"(SELECT 1 FROM {SCRATCH} AS n WHERE {key} AND {same}) RETURNING r.{owner}"
         )
+        gone = cursor.fetchall()
         cursor.execute(
             f"INSERT INTO {table} ({names}) SELECT {names} FROM {SCRATCH} AS n "  # noqa: S608
-            f"WHERE NOT EXISTS (SELECT 1 FROM {table} AS r WHERE {key})"
+            f"WHERE NOT EXISTS (SELECT 1 FROM {table} AS r WHERE {key}) RETURNING {owner}"
         )
         inserted = cursor.rowcount
+        if changed is not None:
+            changed.update(pk for (pk,) in gone)
+            changed.update(pk for (pk,) in cursor.fetchall())
         cursor.execute(f"DROP TABLE {SCRATCH}")
     return inserted
 
@@ -618,6 +637,7 @@ def _swap(result: build.BuildResult, version: int, scored: score.Scored | None =
     for visit in visits:
         visit.rules_version = version
     with transaction.atomic():
+        tallies.hold()  # (written again below, after the records and checks)
         RecordRuleResult.objects.all().delete()
         QuestionAnswer.objects.all().delete()
         VisitActionPoint.objects.all().delete()
@@ -632,6 +652,7 @@ def _swap(result: build.BuildResult, version: int, scored: score.Scored | None =
         VisitActionPoint.objects.bulk_create(result.links, batch_size=BATCH)
         if scored is not None:
             copy_results(RecordRuleResult, scored.record_results)
+        tallies.rebuild()  # the figures kept per visit, after the last write to the records and checks
         transaction.on_commit(people.forget)  # the team names, read again by the next look-up
     return len(visits)
 

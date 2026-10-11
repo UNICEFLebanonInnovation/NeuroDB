@@ -27,7 +27,7 @@ member, a visit lead or a narrative.
 from __future__ import annotations
 
 import functools
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -92,15 +92,12 @@ MAP_COLUMNS = (
 POPUP_RECORDS = 4  # records listed in a visit's popup (the rest as "+N more")
 
 
-class MapVisit:
+class MapVisit(namedtuple("_MapRow", [column.replace("__", "_") for column in MAP_COLUMNS])):
     """A visit as the map reads it: the values of ``MAP_COLUMNS`` as attributes ("partner__name" is
-    ``partner_name``), which :func:`match` reads as it reads a ``Visit``."""
+    ``partner_name``), which :func:`match` reads as it reads a ``Visit``; made from a row at once
+    (``MapVisit._make(row)``), a few thousand per map."""
 
-    __slots__ = tuple(column.replace("__", "_") for column in MAP_COLUMNS)
-
-    def __init__(self, row: tuple) -> None:
-        for name, value in zip(self.__slots__, row, strict=True):
-            setattr(self, name, value)
+    __slots__ = ()
 
 
 @dataclass(frozen=True)
@@ -273,9 +270,10 @@ def match(
         lambda loc: bool(name and _folded(loc.name or "") == name),
     ):
         hits = [loc for loc in pd_locations if found(loc)]
-        if hits:
-            loc = min(hits, key=lambda h: (_distance(visit, h) is None, _distance(visit, h) or 0.0))
-            return "place", loc, _distance(visit, loc)
+        if hits:  # the nearest (one without a distance last; the first of equals), each measured once
+            distances = [_distance(visit, h) for h in hits]
+            best = min(range(len(hits)), key=lambda i: (distances[i] is None, distances[i] or 0.0))
+            return "place", hits[best], distances[best]
     return "none", None, None
 
 
@@ -298,12 +296,14 @@ def _rating_text(v: Visit | MapVisit) -> str:
     return _rating_words(v.rating, v.status_group, v.end_date)
 
 
-def _rating_words(rating: str, status_group: str, end_date) -> str:
+def _rating_words(rating: str, status_group: str, end_date, day=None, gettext=None) -> str:
+    day = day or _day  # (the map's own, kept for each date)
+    gettext = gettext or _  # (the map's own, each text translated once)
     if rating == "not_monitored" and status_group in ("planned", "in_progress"):
-        text = _("Not rated yet")
-        return f"{text} · {_('ends %(date)s') % {'date': _day(end_date)}}" if end_date else text
-    text = _(RATING_LABELS.get(rating, "Other"))
-    return f"{text} · {_('rated %(date)s') % {'date': _day(end_date)}}" if end_date else text
+        text = gettext("Not rated yet")
+        return f"{text} · {gettext('ends %(date)s') % {'date': day(end_date)}}" if end_date else text
+    text = gettext(RATING_LABELS.get(rating, "Other"))
+    return f"{text} · {gettext('rated %(date)s') % {'date': day(end_date)}}" if end_date else text
 
 
 def _approximate_text(v: Visit | MapVisit) -> str:
@@ -383,11 +383,16 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
 
     from neurodb.partnerships.models import PCA
 
+    from . import metrics
+
+    # read at once, as the database gives them (a few thousand rows)
     visits = [
-        MapVisit(row)
-        for row in scope.visits()
-        .order_by(F("urgency").desc(nulls_last=True), F("visit_date").desc(nulls_last=True), "key")
-        .values_list(*MAP_COLUMNS)
+        MapVisit._make(row)
+        for row in metrics._rows(
+            scope.visits()
+            .order_by(F("urgency").desc(nulls_last=True), F("visit_date").desc(nulls_last=True), "key")
+            .values_list(*MAP_COLUMNS)
+        )
     ]
 
     # the programme documents whose planned locations are drawn, and those the visits are matched to
@@ -428,9 +433,10 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
     # every visit of the filter is matched (one without a point can still match by place)
     matched: set[tuple[int, int]] = set()
     results: dict[int, tuple[str, PdLocation | None, float | None]] = {}
+    ancestors_of = functools.lru_cache(maxsize=None)(lambda start: _ancestors(start, gazetteer))  # (shared)
     for v in visits:
         own = [loc for pk in v.pd_ids for loc in by_pd.get(pk, ())]
-        found = match(v, own, km, ancestors=_ancestors(starts[v.pk], gazetteer))
+        found = match(v, own, km, ancestors=ancestors_of(starts[v.pk]))
         results[v.pk] = found
         if found[1] is not None:
             # the place is visited for each of the visit's programme documents that planned it, not
@@ -468,8 +474,17 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
         )
     }
     matches = {kind: match_label(kind) for kind in MATCHES}
-    rating_words = functools.lru_cache(maxsize=None)(_rating_words)
     day = functools.lru_cache(maxsize=None)(_day)
+    translated = functools.lru_cache(maxsize=None)(_)
+    rating_words = functools.lru_cache(maxsize=None)(
+        functools.partial(_rating_words, day=day, gettext=translated)
+    )
+    mean_of_records = _("%(quality)s (mean of its records)")
+
+    @functools.cache
+    def more_records(more: int) -> str:
+        return ngettext("+%(n)s more", "+%(n)s more", more) % {"n": more}
+
     visit_url = _url_maker("fmm:visit")
     pd_url = _url_maker("reports:programme_detail")
 
@@ -504,7 +519,7 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
         n_records = record_counts.get(v.pk, 0)
         quality = _percent(v.quality_score)
         if v.quality_score is not None and n_records > 1:
-            quality = _("%(quality)s (mean of its records)") % {"quality": quality}
+            quality = mean_of_records % {"quality": quality}
         lines = [
             [words["Partner"], v.partner_short_name or v.partner_name or "—"],
             [words["Date"], day(v.visit_date) or "—"],  # the visit date; the rating line: the end
@@ -516,7 +531,7 @@ def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:
         lines += [[label, text] for label, text in records[:POPUP_RECORDS]]
         if n_records > min(len(records), POPUP_RECORDS):
             more = n_records - min(len(records), POPUP_RECORDS)
-            lines.append([words["Records"], ngettext("+%(n)s more", "+%(n)s more", more) % {"n": more}])
+            lines.append([words["Records"], more_records(more)])
         if distance is not None:
             lines.append([words["Distance"], _km(distance)])
         if loc is not None:
@@ -675,7 +690,7 @@ def _popup_records(scope: Scope, visit_ids: list[int]) -> dict[int, list[tuple[s
     out: dict[int, list[tuple[str, str]]] = defaultdict(list)
     # the visits drawn are the scope's: their records are the scope's too, but for a record filter
     records = scope.records() if scope.record_filtered else VisitEntity.objects.all()
-    rows = (
+    rows = metrics._rows(  # (as the database gives them: up to a few thousand rows)
         records.filter(visit_id__in=visit_ids)
         .order_by("visit_id", "datamart_id")
         .values_list(

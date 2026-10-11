@@ -319,38 +319,25 @@ def _issues(scope: Scope, when: str, rules: list, comp: int) -> dict[str, dict[s
     return out
 
 
-class _Tally:
-    """Records of a group (each under its own rating; Not monitored counted apart), their distinct
-    visits and their average quality per record: the figures the page shows for the same filter."""
-
-    def __init__(self, name: str) -> None:
-        self.name, self.records, self.q_sum, self.q_n = name, 0, Decimal(0), 0
-        self.visits: set[int] = set()
-        self.ratings: Counter = Counter()
-
-    def add(self, visit: int, quality: Any, rating: str) -> None:
-        self.records += 1
-        self.visits.add(visit)
-        if quality is not None:  # a DecimalField reads as a Decimal already
-            self.q_sum += quality if isinstance(quality, Decimal) else Decimal(str(quality))
-            self.q_n += 1
-        self.ratings[rating] += 1
-
-    def entry(self, key: str) -> dict[str, Any]:
-        rated = sum(self.ratings[code] for code in RATED)
-        return {
-            "key": key,
-            "name": self.name,
-            "records": self.records,
-            "visits": len(self.visits),
-            "avg_quality": _num(metrics.mean_quality(self.q_sum, self.q_n)),
-            "rated": rated,
-            **{code: self.ratings[code] for code in RATED},
-            "off_track_or_constrained_share_of_rated": _share(
-                self.ratings["off_track"] + self.ratings["constrained"], rated
-            ),
-            "not_monitored": self.ratings["not_monitored"],
-        }
+def _entry(key: str, name: str, row: tuple) -> dict[str, Any]:
+    """A group's entry: its records (each under its own rating; Not monitored counted apart), their
+    distinct visits and their average quality per record, the figures the page shows for the same filter
+    (``row``: as :data:`BREAKDOWN_SQL` adds them up)."""
+    records, visits, q_sum, q_n, on_track, constrained, off_track, not_monitored = row
+    rated = on_track + constrained + off_track
+    return {
+        "key": key,
+        "name": name,
+        "records": records,
+        "visits": visits,
+        "avg_quality": _num(metrics.mean_quality(q_sum or 0, q_n)),
+        "rated": rated,
+        "on_track": on_track,
+        "constrained": constrained,
+        "off_track": off_track,
+        "off_track_or_constrained_share_of_rated": _share(off_track + constrained, rated),
+        "not_monitored": not_monitored,
+    }
 
 
 BREAKDOWN_COLUMNS = (
@@ -362,6 +349,40 @@ BREAKDOWN_COLUMNS = (
     "rating",
     "visit__status_group",
 )
+# The records of a scope added up per partner (the record's own), per monitoring modality and per
+# governorate (its visit's), in one pass: their number, distinct visits, score sum and number scored, and
+# the rated ones by the rating each counts under (``metrics.counted_rating``: a blank rating or "not
+# monitored" is Not monitored on a reported visit only)
+BREAKDOWN_SQL = """
+SELECT GROUPING(e.partner_id, e.modality, e.governorate_key), e.partner_id, e.modality, e.governorate_key,
+       count(*),
+       count(DISTINCT e.visit_id),
+       sum(e.quality_score),
+       count(e.quality_score),
+       count(*) FILTER (WHERE e.rating = 'on_track'),
+       count(*) FILTER (WHERE e.rating = 'constrained'),
+       count(*) FILTER (WHERE e.rating = 'off_track'),
+       count(*) FILTER (WHERE e.rating IN ('', 'not_monitored') AND e.status_group = 'reported')
+FROM ({records}) AS e (visit_id, partner_id, modality, governorate_key, quality_score, rating, status_group)
+GROUP BY GROUPING SETS ((e.partner_id), (e.modality), (e.governorate_key))
+"""
+
+
+def _breakdown_rows(scope: Scope) -> list[tuple]:
+    """The rows of :data:`BREAKDOWN_SQL` for ``scope``: (grouping, partner, modality, governorate, figures
+    ...); the grouping says which of the three the row adds up (3: partner, 5: modality, 6: governorate)."""
+    from django.core.exceptions import EmptyResultSet
+    from django.db import connection
+
+    if scope.empty:
+        return []
+    try:
+        sql, params = scope.records().order_by().values_list(*BREAKDOWN_COLUMNS).query.sql_with_params()
+    except EmptyResultSet:  # a filter that keeps nothing
+        return []
+    with connection.cursor() as cursor:
+        cursor.execute(BREAKDOWN_SQL.format(records=sql), params)
+        return cursor.fetchall()
 
 
 def _breakdowns(scope: Scope, names_) -> dict[str, dict[str, dict[str, Any]]]:
@@ -369,48 +390,43 @@ def _breakdowns(scope: Scope, names_) -> dict[str, dict[str, dict[str, Any]]]:
     it; the most records first, at most ``PARTNERS``), per monitoring modality and per governorate (its
     visit's): the records and their distinct visits, the average quality per record (the governorate
     chips' and the key figure's, for the same filter), the rated records by rating with the share Off
-    track or Constrained of the rated ones, and the Not monitored ones apart. One pass over the records."""
+    track or Constrained of the rated ones, and the Not monitored ones apart. One query."""
     from neurodb.partnerships.models import PartnerOrganization
 
-    partners: dict[int, _Tally] = {}
-    modalities: dict[str, _Tally] = {}
-    governorates: dict[str, _Tally] = {}
-    for row in scope.records().order_by().values_list(*BREAKDOWN_COLUMNS):
-        visit, pid, modality, gov, quality, rating, group = row
-        counted = metrics.counted_rating(rating or "not_monitored", group)
-        if pid:
-            tally = partners.get(pid)
-            if tally is None:
-                tally = partners[pid] = _Tally("")  # named below: the partners sent only
-            tally.add(visit, quality, counted)
-        tally = modalities.get(modality or "")
-        if tally is None:
-            tally = modalities[modality or ""] = _Tally(_text(modality, names_) or "Modality not known")
-        tally.add(visit, quality, counted)
-        if gov:
-            tally = governorates.get(gov)
-            if tally is None:
-                tally = governorates[gov] = _Tally("")
-            tally.add(visit, quality, counted)
-    for pk, name, short in PartnerOrganization.objects.filter(pk__in=list(partners)).values_list(
-        "pk", "name", "short_name"
-    ):
-        partners[pk].name = _text(short or name, names_)
-    top = sorted(partners.items(), key=lambda kv: (-kv[1].records, kv[1].name.casefold()))[:PARTNERS]
+    partners: dict[int, tuple] = {}
+    modalities: dict[str, tuple] = {}
+    governorates: dict[str, tuple] = {}
+    for grouping, pid, modality, gov, *figures in _breakdown_rows(scope):
+        if grouping == 3 and pid:  # the records of a partner
+            partners[pid] = tuple(figures)
+        elif grouping == 5:  # of a modality ("" or none: not known)
+            modalities[modality or ""] = tuple(figures)
+        elif grouping == 6 and gov:  # of a governorate
+            governorates[gov] = tuple(figures)
+    named = {
+        pk: _text(short or name, names_)
+        for pk, name, short in PartnerOrganization.objects.filter(pk__in=list(partners)).values_list(
+            "pk", "name", "short_name"
+        )
+    }
+    top = sorted(partners.items(), key=lambda kv: (-kv[1][0], named.get(kv[0], "").casefold()))[:PARTNERS]
     taken: set[str] = set()
+    out_modalities = {}
+    for modality, figures in sorted(modalities.items(), key=lambda kv: (-kv[1][0], kv[0])):
+        key = f"modality:{_slug(modality, taken) if modality else 'none'}"
+        out_modalities[key] = _entry(key, _text(modality, names_) or "Modality not known", figures)
     return {
-        "partners": {f"partner:{pid}": tally.entry(f"partner:{pid}") for pid, tally in top},
-        "modalities": {
-            (key := f"modality:{_slug(name, taken) if name else 'none'}"): tally.entry(key)
-            for name, tally in sorted(modalities.items(), key=lambda kv: (-kv[1].records, kv[0]))
+        "partners": {
+            f"partner:{pid}": _entry(f"partner:{pid}", named.get(pid, ""), figures) for pid, figures in top
         },
-        "governorates": {gov: tally.entry(f"gov:{gov}") for gov, tally in governorates.items()},
+        "modalities": out_modalities,
+        "governorates": {gov: _entry(f"gov:{gov}", "", figures) for gov, figures in governorates.items()},
     }
 
 
 def _sections(scope: Scope, when: str, limits: dict[str, int], names_) -> dict[str, dict[str, Any]]:
     out, taken = {}, set()
-    for row in metrics.sections(scope, when, limits):
+    for row in metrics.sections(scope, when, limits, lines=None):  # (the figures: no record listed)
         name = "No section" if row["name"] == NONE else _text(row["name"], names_)
         key = f"section:{'none' if row['name'] == NONE else _slug(row['name'], taken)}"
         ratings = row["ratings"]
@@ -550,23 +566,21 @@ CARD_COLUMNS = ("pk", "key", "urgency", "visit_date", "section_names", "rating",
 CONCERN = ("off_track", "constrained")
 
 
-def _pick(
-    rows: list[dict[str, Any]], limit: int, chosen: list[int], taken: set[int], cap: int | None
-) -> None:
+def _pick(rows: list[tuple], limit: int, chosen: list[int], taken: set[int], cap: int | None) -> None:
     """Add the rows' visits to ``chosen`` in their order, at most ``cap`` per section (the first
-    section of each visit), until ``limit`` visits are chosen."""
+    section of each visit), until ``limit`` visits are chosen. A row is ``(pk, key, urgency, visit date,
+    first section, concern)`` (:func:`_card_rows`)."""
     per_section: Counter = Counter()
-    for row in rows:
+    for pk, _key, _urgency, _day, section, _concern in rows:
         if len(chosen) >= limit:
             return
-        if row["pk"] in taken:
+        if pk in taken:
             continue
-        section = (row["section_names"] or [""])[0]
         if cap is not None and per_section[section] >= cap:
             continue
         per_section[section] += 1
-        taken.add(row["pk"])
-        chosen.append(row["pk"])
+        taken.add(pk)
+        chosen.append(pk)
 
 
 def _urgency(value: int | None) -> int:
@@ -574,19 +588,19 @@ def _urgency(value: int | None) -> int:
     return -1 if value is None else value
 
 
-def _by_urgency(row: dict[str, Any]) -> tuple:
-    return (-_urgency(row["urgency"]), -row["visit_date"].toordinal(), row["key"])
+def _by_urgency(row: tuple) -> tuple:
+    return (-_urgency(row[2]), -row[3].toordinal(), row[1])
 
 
-def _newest(row: dict[str, Any]) -> tuple:
-    return (-row["visit_date"].toordinal(), row["key"])
+def _newest(row: tuple) -> tuple:
+    return (-row[3].toordinal(), row[1])
 
 
-def _card_rows(scope: Scope) -> list[dict[str, Any]]:
+def _card_rows(scope: Scope) -> list[tuple]:
     """The visits of the scope, each with its most urgent record's urgency (a visit's own urgency is its
     most urgent record's; a provisional visit, another of whose records waits for its AI checks, has none
-    of its own: its scored records' are read) and its worst record's rating and Q1."""
-    rows = [dict(zip(CARD_COLUMNS, row, strict=True)) for row in scope.visits().values_list(*CARD_COLUMNS)]
+    of its own: its scored records' are read) and its worst record's rating and Q1: ``(pk, key, urgency,
+    visit date, first section, concern: off track or constrained)``."""
     waiting = dict(
         scope.records()
         .filter(visit__urgency__isnull=True, urgency__isnull=False)
@@ -595,11 +609,19 @@ def _card_rows(scope: Scope) -> list[dict[str, Any]]:
         .annotate(top=Max("urgency"))
         .values_list("visit_id", "top")
     )
-    for row in rows:
-        if row["urgency"] is None:
-            row["urgency"] = waiting.get(row["pk"])
-        row["concern"] = row["rating"] in CONCERN or row["hact_q1"] in CONCERN
-    return rows
+    return [
+        (
+            pk,
+            key,
+            waiting.get(pk) if urgency is None else urgency,
+            day,
+            (sections or [""])[0],
+            rating in CONCERN or q1 in CONCERN,
+        )
+        for pk, key, urgency, day, sections, rating, q1 in scope.visits()
+        .order_by()
+        .values_list(*CARD_COLUMNS)
+    ]
 
 
 def card_order(scope: Scope, limit: int, limits: dict[str, int] | None = None) -> list[int]:
@@ -613,11 +635,9 @@ def card_order(scope: Scope, limit: int, limits: dict[str, int] | None = None) -
     rows = _card_rows(scope)
     cap = math.ceil(limit / 3)
     passes = [
-        sorted((r for r in rows if _urgency(r["urgency"]) >= limits["red"]), key=_by_urgency),
-        sorted(
-            (r for r in rows if limits["amber"] <= _urgency(r["urgency"]) < limits["red"]), key=_by_urgency
-        ),
-        sorted((r for r in rows if r["concern"]), key=_by_urgency),
+        sorted((r for r in rows if _urgency(r[2]) >= limits["red"]), key=_by_urgency),
+        sorted((r for r in rows if limits["amber"] <= _urgency(r[2]) < limits["red"]), key=_by_urgency),
+        sorted((r for r in rows if r[5]), key=_by_urgency),
         sorted(rows, key=_newest),
     ]
     chosen: list[int] = []

@@ -137,7 +137,7 @@ class Visit(models.Model):
     end_date = models.DateField(null=True, blank=True, db_index=True)
     # THE visit date, which every period reads: the start date, else the end date (eTools left the
     # start blank). Urgency recency and the follow-up signals still count from the end date.
-    visit_date = models.DateField(null=True, blank=True, db_index=True)
+    visit_date = models.DateField(null=True, blank=True)  # indexed with the status group (Meta)
     last_modified = models.DateTimeField(null=True, blank=True)  # latest change in eTools: "status as of"
     status = models.CharField(max_length=24, blank=True)  # normalised, the most advanced of its rows
     status_raw = models.CharField(max_length=40, blank=True)
@@ -238,6 +238,31 @@ class Visit(models.Model):
         ordering = (models.F("urgency").desc(nulls_last=True), models.F("visit_date").desc(nulls_last=True))
         indexes = [
             models.Index(fields=["visit_date", "status_group"]),
+            # a period's visits read from the index alone, as the records' and checks' figures join them
+            # (``Scope.records``) and the key figures and the briefing count them: with their date, their
+            # id, status (and its group), score, urgency and rules version, and the modality and
+            # governorate the brief's breakdowns and the briefing add the records up by
+            models.Index(
+                fields=["visit_date"],
+                include=[
+                    "id",
+                    "status_group",
+                    "status",
+                    "quality_score",
+                    "urgency",
+                    "rules_version",
+                    "modality",
+                    "governorate_key",
+                    "governorate_name",
+                ],
+                name="fmm_visit_period",
+            ),
+            # the data notes (``metrics.notes``: every visit the filters keep, dated or not) likewise
+            models.Index(
+                fields=["visit_date"],
+                include=["id", "start_date", "end_date", "location", "site", "reference"],
+                name="fmm_visit_notes",
+            ),
             GinIndex(fields=["section_names"]),
             GinIndex(fields=["partner_ids"]),
             GinIndex(fields=["pd_ids"]),
@@ -324,6 +349,30 @@ class VisitEntity(models.Model):
         indexes = [
             models.Index(fields=["visit", "quality_score"]),
             GinIndex(fields=["flags"]),
+            # the columns the figures add up (``metrics``), read from the index alone for each visit
+            models.Index(
+                fields=["visit"],
+                include=[
+                    "id",
+                    "quality_score",
+                    "score_band",
+                    "rating",
+                    "hact_q1",
+                    "flags",
+                    "flag_count",
+                    "urgency",
+                    "kind",
+                    "partner",
+                ],
+                name="fmm_record_figures",
+            ),
+            # the points by category (``metrics.dimension_breakdown``) of the scored records, likewise
+            models.Index(
+                fields=["visit"],
+                include=["id", "category_deductions"],
+                condition=models.Q(quality_score__isnull=False),
+                name="fmm_record_categories",
+            ),
         ]
         verbose_name = "record"
         verbose_name_plural = "records"
@@ -666,8 +715,8 @@ class RecordRuleResult(models.Model):
     template, with an AI check's explanation (cleaned of names, e-mail addresses and links). Rewritten
     by every scoring, like the records' scores."""
 
-    # no index of its own: the unique (record, rule) index serves the look-ups by record, and each pass
-    # writes some 180,000 results through one index less
+    # no index of its own: the unique (record, rule) index serves the look-ups by record (the covering
+    # indexes of Meta serve the figures)
     entity = models.ForeignKey(
         VisitEntity, on_delete=models.CASCADE, related_name="rule_results", db_index=False
     )
@@ -682,7 +731,22 @@ class RecordRuleResult(models.Model):
     class Meta:
         ordering = ("entity", "rule")
         constraints = [models.UniqueConstraint(fields=["entity", "rule"], name="fmm_record_rule")]
-        indexes = [models.Index(fields=["rule", "status"])]
+        indexes = [
+            models.Index(fields=["rule", "status"]),
+            # the figures of the rules (``metrics.rule_stats``) and the flags (``metrics.top_issues``),
+            # read from these indexes alone for the records of a scope
+            models.Index(
+                fields=["entity"],
+                include=["rule", "status", "points", "max_points"],
+                name="fmm_result_points",
+            ),
+            models.Index(
+                fields=["entity"],
+                include=["rule", "detail_key", "measure"],
+                condition=models.Q(status="fail"),
+                name="fmm_result_flags",
+            ),
+        ]
         verbose_name = "record rule result"
         verbose_name_plural = "record rule results"
 
@@ -693,6 +757,120 @@ class RecordRuleResult(models.Model):
     def deducted(self) -> Decimal:
         """The points the rule took off the record."""
         return Decimal(self.max_points or 0) - Decimal(self.points or 0)
+
+
+# The figures kept per visit (``tallies``): its records and their checks added up as the pages add them
+# up, written by the refresh with the records and checks, and read only while they are theirs
+# (:class:`FigureState`). Each is what the pages' own queries give, grouped by visit as well (and the rule
+# figures by day too).
+class FigureState(models.Model):
+    """Whether the figures kept per visit are those of the records and checks stored (one row; none:
+    not written yet). ``tallies.rebuild`` sets it; any change to the records or their checks clears it
+    at once, whatever makes it (a trigger of the database: migration 0021)."""
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1)
+    valid = models.BooleanField(default=False)
+    written_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "figure state"
+        verbose_name_plural = "figure state"
+
+    def __str__(self):
+        return "figures kept per visit: " + ("up to date" if self.valid else "out of date")
+
+
+class VisitFigures(models.Model):
+    """A visit's records added up (none: a visit without records): their number, the sum and number of
+    their scores, their High / Medium / Low bands, their ratings (a blank rating or "not monitored":
+    ``unrated``), the records flagged, and the flags of the scored and of the unscored records flagged,
+    comma-separated (``metrics.summary``)."""
+
+    visit = models.OneToOneField(Visit, primary_key=True, on_delete=models.CASCADE, related_name="+")
+    records = models.PositiveIntegerField()
+    q_sum = models.DecimalField(max_digits=9, decimal_places=1, null=True, blank=True)
+    q_n = models.PositiveIntegerField()
+    high = models.PositiveIntegerField()
+    medium = models.PositiveIntegerField()
+    low = models.PositiveIntegerField()
+    on_track = models.PositiveIntegerField()
+    constrained = models.PositiveIntegerField()
+    off_track = models.PositiveIntegerField()
+    unrated = models.PositiveIntegerField()
+    flagged = models.PositiveIntegerField()
+    scored_flags = models.TextField(null=True, blank=True)
+    unscored_flags = models.TextField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "visit figures"
+        verbose_name_plural = "visit figures"
+
+    def __str__(self):
+        return f"{self.visit_id}: {self.records} records"
+
+
+class VisitIssueTally(models.Model):
+    """A visit's records that failed one issue (a rule and its detail, ``R2:below_threshold``): their
+    number, the sum, number and highest of their urgencies, and the lowest and highest measure
+    (``metrics.top_issues``)."""
+
+    visit = models.ForeignKey(Visit, on_delete=models.CASCADE, related_name="+")
+    rule = models.CharField(max_length=4)
+    detail_key = models.CharField(max_length=40, blank=True)
+    records = models.PositiveIntegerField()
+    urgency_sum = models.BigIntegerField(null=True, blank=True)
+    urgency_n = models.PositiveIntegerField()
+    urgency_max = models.PositiveSmallIntegerField(null=True, blank=True)
+    low = models.FloatField(null=True, blank=True)
+    high = models.FloatField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "visit issue tally"
+        verbose_name_plural = "visit issue tallies"
+
+    def __str__(self):
+        return f"{self.visit_id} {self.rule}:{self.detail_key}: {self.records}"
+
+
+class VisitRuleTally(models.Model):
+    """A visit's records with one result of one rule (passed, failed...): their number and, over those
+    whose rule takes points off, the points they kept (each capped at its maximum), the points the rule
+    takes off at most and their number (``metrics.rule_stats``)."""
+
+    visit = models.ForeignKey(Visit, on_delete=models.CASCADE, related_name="+")
+    rule = models.CharField(max_length=4)
+    status = models.CharField(max_length=8)
+    records = models.PositiveIntegerField()
+    earned = models.DecimalField(max_digits=9, decimal_places=1, null=True, blank=True)
+    points_max = models.DecimalField(max_digits=9, decimal_places=1, null=True, blank=True)
+    points_n = models.PositiveIntegerField()
+
+    class Meta:
+        verbose_name = "visit rule tally"
+        verbose_name_plural = "visit rule tallies"
+
+    def __str__(self):
+        return f"{self.visit_id} {self.rule} {self.status}: {self.records}"
+
+
+class DayRuleTally(models.Model):
+    """The :class:`VisitRuleTally` rows of the visits of one day (their visit date) summed: what a
+    period's rule figures add up to when no filter but the period applies (``metrics.rule_stats``)."""
+
+    day = models.DateField(db_index=True)
+    rule = models.CharField(max_length=4)
+    status = models.CharField(max_length=8)
+    records = models.PositiveIntegerField()
+    earned = models.DecimalField(max_digits=11, decimal_places=1, null=True, blank=True)
+    points_max = models.DecimalField(max_digits=11, decimal_places=1, null=True, blank=True)
+    points_n = models.PositiveIntegerField()
+
+    class Meta:
+        verbose_name = "day rule tally"
+        verbose_name_plural = "day rule tallies"
+
+    def __str__(self):
+        return f"{self.day} {self.rule} {self.status}: {self.records}"
 
 
 class AICheckAnswer(models.Model):

@@ -2104,7 +2104,15 @@ found*):
    pages see the old visits until it commits, a visit keeps its id while its key stays, and the visit
    reviews are never touched. The visits and rule results go through a temporary table where the
    database user may create one (PostgreSQL allows it by default; otherwise the same rows are written
-   the slower way), and a scores-only pass rewrites only the rule results that changed.
+   the slower way), and a scores-only pass rewrites only the rule results that changed. In the same
+   transaction it writes the figures the pages add up, kept per visit (each visit's records added up,
+   its failed checks per issue, its checks per rule and result, and those summed per day: `fmm.tallies`),
+   all of them after a full pass and only those of the visits it changed after a scores-only one. A
+   page whose filters keep whole visits reads them instead of every record and check (the same figures);
+   any other change to the records, their checks or the visits' dates (the admin, a shell, a restore)
+   marks them out of date at once (a database trigger, migration `fmm/0021_figures`), and the
+   pages add up the records and checks themselves, a little more slowly, until the next refresh. Right
+   after the migration that adds them they are out of date until the first refresh.
 
 **The eTools FMM export's own names** (FMS user manual, §13.2) come first in `CANDIDATES` since
 Release 2: `hact_q1_answer`, `hact_q2_answer` and `hact_q3_answer` (the Q1, Q2 and Q3 answers written
@@ -2808,9 +2816,15 @@ scrolls into view, about 210 ms more, and a place list's *Show all* about 40 ms.
 record (Release 2 step 5: 15,000 records, some 180,000 record rule results) the same test measured
 41-47 s and 126 MB for the full refresh and 12-14 s for scores-only, against 43-47 s, 129 MB and 10 s
 just before on the same machine, with the tabs as before; the visits and their records go through
-COPY, and a scores-only pass rewrites only the rule results that changed. The *Preview effect* of a
-rule change rescores the year's visits twice in memory inside the admin request: about 9-10 s at that
-size, 16-18 s since each record is scored. If the
+COPY, and a scores-only pass rewrites only the rule results that changed. Counting records made the
+tabs slower (Quality about 410 ms, Analysis 450, the AI brief card 680); with the figures kept per visit
+(`fmm.tallies`, see *the refresh* above) and covering indexes they measured, side by side on a shared
+machine, Insights 76 ms, Quality 207, Analysis 239, Visits 131, Map 257 and the brief card 341, against
+104, 282, 328, 155, 297 and 466 before records were counted; the full refresh about 1 s more (38-42 s),
+scores-only 10 s. A test (`tests/fmm/test_records_figures_equal.py`) holds every figure of the page,
+the map and the brief to those of the plain per-record computation, for some 40 filters, read both
+ways. The *Preview effect* of a rule change rescores the year's visits twice in memory inside the admin
+request: about 9-10 s at that size, 16-18 s since each record is scored. If the
 refresh's memory ever grows past what the sync's process can afford, set
 `FMM_REFRESH_AFTER_SYNC=background`.
 

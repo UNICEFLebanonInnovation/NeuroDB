@@ -1,0 +1,4808 @@
+{
+ "preset=all_time&section=": {
+  "alone": {
+   "action_points": "973cd0743c4f3ddbc4e43cb5cae02eb5",
+   "breakdown_office": "5c266f1078f3d16bbea9749128992924",
+   "breakdown_partner": "db7ebd2f889c39f22b4cf3ad882077ed",
+   "breakdown_section": "d294050e4d6ae1e20f0f82f2efafcc96",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "872864bf211b97bb179a11c6367c7d9d",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "1ae64803722c5e8348c4aea9b67a3f4c",
+   "dimension_breakdown": "74c9a6c30a6c9877ab905d6d5493bd5e",
+   "drill": "46db56bc574d03d52c6d3290e4b6d272",
+   "entities_all": "a2f51c2f5617b0ec5fe4a91c641b0384",
+   "entities_cp_output": "8dcea75b8733508ba8095b4958b5d396",
+   "entities_other": "04bdeb1c8de5279c8df5143b719fdbdf",
+   "entities_partner": "d5a9895c999d9443aef78ff58a2245c8",
+   "entities_pd": "52b20c67332ca8d3ea9b9dba4acb469d",
+   "entity_kinds": "1c89fc8c9cef066ce09cf662b9e20c8b",
+   "flag_distribution": "b5a130c2659be674e73a01a1a6d64deb",
+   "flag_frequency": "eccbfa580b94495840464041c2b3b761",
+   "governorate_gaps": "98d0beacddc98393795bfc2fca67c5fb",
+   "hact_programmatic": "09843ef9af9ec1dd985ace5c97b71d01",
+   "hact_q1_by_month": "d1cf613a8d30a44b66e170357bbb5636",
+   "highlights": "c11dc64cd713da73214f4b04f51ae762",
+   "issues_summary": "bd54bfa83532d8a85c3f4d6cac3ab297",
+   "kpis": "599142a53085c7f89b0703c964fe13cc",
+   "locations": "919bd428dc173ba7977705c5d05c14e8",
+   "map_active": "bc0f2057c8df7d82214636412da0ceed",
+   "map_visited": "8eb4343e7a1e9f16880ee106d97d5f1d",
+   "monthly_quality": "b7402caa915229110b52f4f074732950",
+   "monthly_volume": "998b5ba7b17534f44c681ced1618d4a9",
+   "narratives": "42cacb19d20e64ec017053ee4704d91b",
+   "notes": "63f2f49a5a9e9b5dc2151f56529c440b",
+   "office_rule_badges": "54d77717b5056ba38e7a3475ea20ab15",
+   "offices": "0981dd86eed68ac9c43c2cde597b94dd",
+   "quality_by_rating": "9559efc40b7a45a0869685e63f415e6e",
+   "rating_by_month": "1cb2e2ddf6fc2fd17e8895502a8b304c",
+   "rule_analysis": "7d721fb18420c7b8feb7bb251c2d37ed",
+   "rule_months": "82070ed48b95a7ffea12ac1d42afbde7",
+   "rule_stats": "0172b1f6a8c797044def8ff26f93e6f3",
+   "rule_stats_after_months": "66ddbbd3cf9889642bc9cdf907555446",
+   "rule_trends": "c4f94474bfc467be084e2176f64c7dfa",
+   "score_buckets": "bceade1a38be1aedaafa4f328161c5da",
+   "sections": "7412373f39914c30542fbcea8d4d8aaf",
+   "summary": "70a0e53deed7493c17e916ef704a93ae",
+   "top_issues": "ed7724ce04e2e964be6ab08835d07aa0"
+  },
+  "kpis": {
+   "amber": 63,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "74.5"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 79
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 18
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 40
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 11
+    }
+   ],
+   "high_urgency": 8,
+   "record_kinds": {
+    "cp_output": 64,
+    "other": 75,
+    "partner": 67,
+    "pd": 145
+   },
+   "record_ratings": {
+    "constrained": 51,
+    "off_track": 25,
+    "on_track": 83
+   },
+   "records": 351,
+   "records_not_monitored": 59,
+   "records_not_rated_yet": 112,
+   "records_other": 21,
+   "records_rated": 159,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 137,
+   "scored_visits": 55,
+   "visits": 148
+  },
+  "page": {
+   "analysis_tab": "82baea327b94a993d3458877a109dec0",
+   "analysis_tab_all": "4f4bc5f40893bda45e478a25989078f7",
+   "brief": "061bd45bfc44e15792c7c5db9220e244",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "a158e3a06ce664056c518881328888e2",
+   "facts": "f9215786d130185cec0554cd89dcff37",
+   "kpis": "599142a53085c7f89b0703c964fe13cc",
+   "map_tab": "aacf6c8bbd6363986c8bfd5089b8b741",
+   "map_tab_active": "90515b68a708bfdba9852d7639261390",
+   "notes": "63f2f49a5a9e9b5dc2151f56529c440b",
+   "quality_tab": "5fbcab0392f60f23b7a3d58157b7681c",
+   "quality_tab_all": "a87dceaef219b4f27bc673c4bc9403c0",
+   "tiles": "91a62c144c150a680f7f771e3cef151f",
+   "window": "eebc6fc2707720f5727302b6c05a7378"
+  }
+ },
+ "preset=all_time&section=&rule=R5&rule_state=pending": {
+  "alone": {
+   "action_points": "5b9b0b9865f8631333aa8577f50d95cc",
+   "breakdown_office": "bb10bcf36ab9b6ef7a9732f7b716b6d6",
+   "breakdown_partner": "35a895c77cd4b9bc64b727c735b3a21d",
+   "breakdown_section": "de3119d2e30d4632ed265563f1761af9",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "c8eb9af0164ba5f52423c05bce60d467",
+   "coverage": "aade4651f927d7c430daaa72c24d83b9",
+   "critical_items": "f2ff608fa54d69ca935962285496510f",
+   "dimension_breakdown": "6aa44d0e59fa3d4801e563590980a82f",
+   "drill": "34b8fefbe7846a432d172829ffc78010",
+   "entities_all": "efbb57d2de77994fe5812ea22aad39ea",
+   "entities_cp_output": "174f4018792f76dbef5278237e5f4eab",
+   "entities_other": "0f006e7879004a868a19cf6cd7b70e65",
+   "entities_partner": "ddfbfea6578e9a2a32f72ab4674ad8fe",
+   "entities_pd": "5492f3c7f57d3f38dc65c5e2840ee644",
+   "entity_kinds": "7a879f1cbe41415a10010112bd2facb3",
+   "flag_distribution": "38cd5812c9530cd4bcd41f143ce0dc6b",
+   "flag_frequency": "7ae33a876270d4779a8b93f91681636c",
+   "governorate_gaps": "25180ae496f29880713e4e4f325c5ae2",
+   "hact_programmatic": "09843ef9af9ec1dd985ace5c97b71d01",
+   "hact_q1_by_month": "194cb8bf2e6e5fae7a8f1eea0a8eb69b",
+   "highlights": "4c1c8dbc52acd00ff17fae23a725f635",
+   "issues_summary": "c8d4604fdba59f50a1a0795a174985f7",
+   "kpis": "3fe79a9e892feeef0512078da6b65367",
+   "locations": "5d426825606eeef0cdee3682162f7612",
+   "map_active": "c5b0c85ee5570bcf3bafaaa1c5591103",
+   "map_visited": "ccbf582e8f568b5286a0ccedd8f49da4",
+   "monthly_quality": "44136fa355b3678a1146ad16f7e8649e",
+   "monthly_volume": "b1895df2d576775be5c4b40f7b6498e2",
+   "narratives": "ee0b65f4b1e480b2fa3a4626a1885a38",
+   "notes": "13e650f48600a7be211c93c017dafb01",
+   "office_rule_badges": "d2ec52534f2d9766e6f5d9b5d387f848",
+   "offices": "c0d3832fa0390d8351fc67923fe8f83b",
+   "quality_by_rating": "ccfd656740df6422b9ff0f6e99b88ad8",
+   "rating_by_month": "baca767483716fecfb6af04398ed9ed9",
+   "rule_analysis": "275d3c4fc4334ca97c50ee580526460d",
+   "rule_months": "0597aa4663c2f09fc3de6bdb09971140",
+   "rule_stats": "2fe8e8ef88635fcea347253424cb13a4",
+   "rule_stats_after_months": "e98f465a144c5cbc639f808dcf15cbbb",
+   "rule_trends": "c39ebb1f00a23dc628e8852b19a5beeb",
+   "score_buckets": "e5ff596ea233701d02341a410d09358f",
+   "sections": "89ca64b23de4218e08ec52f60559b297",
+   "summary": "34af7cbda51358661f98ec31249aa7a1",
+   "top_issues": "0f67f965b0192e05beb399fff02536f9"
+  },
+  "kpis": {
+   "amber": 0,
+   "amber_at": 40,
+   "avg_quality": null,
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 9
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 0
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 0,
+   "record_kinds": {
+    "cp_output": 2,
+    "other": 5,
+    "partner": 3,
+    "pd": 8
+   },
+   "record_ratings": {
+    "constrained": 4,
+    "off_track": 1,
+    "on_track": 8
+   },
+   "records": 18,
+   "records_not_monitored": 5,
+   "records_not_rated_yet": 0,
+   "records_other": 0,
+   "records_rated": 13,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 0,
+   "scored_visits": 0,
+   "visits": 9
+  },
+  "page": {
+   "analysis_tab": "53312e83db5ad45fc79f4af3599962fd",
+   "analysis_tab_all": "6323830632058309f8163f38b36a5f6a",
+   "brief": "f23e1c4d0d6b7be815f9d0787d82f9e8",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "d997e3f01a301b3534959005d2f66691",
+   "facts": "de8c007686183938139cd8daa903f6f9",
+   "kpis": "3fe79a9e892feeef0512078da6b65367",
+   "map_tab": "56136f6aa34e9888cc929f429b9a86e8",
+   "map_tab_active": "d5bfa417f4e1ee01f023d103ff786ad6",
+   "notes": "13e650f48600a7be211c93c017dafb01",
+   "quality_tab": "cf6e34bf3627c574d53eaf90459f6aa5",
+   "quality_tab_all": "cf6e34bf3627c574d53eaf90459f6aa5",
+   "tiles": "16446f1ad44a9673840021abebe04999",
+   "window": "ed918b460588d1abb732fc5e59d09db8"
+  }
+ },
+ "preset=custom&from=2026-03-01&to=2026-06-30&section=": {
+  "alone": {
+   "action_points": "2fe8660606521910cb96611f731bfdfd",
+   "breakdown_office": "564bb13817f5d0b3bd4aff74d0db4f20",
+   "breakdown_partner": "974e9b95a23022c2f9c4c63f7c1b9e8a",
+   "breakdown_section": "037c906adc9be553e8764720be3577e5",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "5804129b38b4fd6d08398be1345730aa",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "ae16f32f8dfb68e8cdfa2fa60383a795",
+   "dimension_breakdown": "1a8506c4ce7ade40caa12feb9bc0f1d7",
+   "drill": "911ba8dcb87f430229521fb8b2fbe5d5",
+   "entities_all": "da38f65a8eecdaa091d121d29ee5b387",
+   "entities_cp_output": "2c9ca91d9070493745a53dddd485c75f",
+   "entities_other": "58c20ef8776c42ae88c868c2c3658db9",
+   "entities_partner": "bde5613572ac3e51f7a0847abc16ff2f",
+   "entities_pd": "42584ab4caa23d44a069057045d68e88",
+   "entity_kinds": "cf8f118dc6054d0f92bc0c8f1501311b",
+   "flag_distribution": "a086b7ce8c4af0ec961a2fbad769f850",
+   "flag_frequency": "fc01b818a5d2c0cd5fe2f8a65c8bf043",
+   "governorate_gaps": "864b01155201af9b980a70a7bb9a63cd",
+   "hact_programmatic": "8bb32e5fe3862311e48f062a5770972c",
+   "hact_q1_by_month": "7e07f85eabfbc0ac164d3661ac4e747c",
+   "highlights": "4cda128f11ed5225079f6a496571bdbb",
+   "issues_summary": "6cbc3ac8b45166f5ba170fcc8c0ec322",
+   "kpis": "bcee296dca9f6b1c3d2fab35c7fca824",
+   "locations": "fc271e4dd32b8c003714c8142dec0aea",
+   "map_active": "6989ca641b162827b56916be63c6a796",
+   "map_visited": "9232ed3a7d35c4ab61ff682313c8fa60",
+   "monthly_quality": "1c9486ccffb45be06e6a3a75bc1a624d",
+   "monthly_volume": "678fb4d816bf183a6829fd0fd719333d",
+   "narratives": "aa7d386df7ecb0914fbaac54aa107845",
+   "notes": "a09628b580dfb9acf72cb601a93923bd",
+   "office_rule_badges": "34d3f2f2e5f66280e526e5278d559d38",
+   "offices": "ec22534f680d5dff663b8f13f00061c1",
+   "quality_by_rating": "870af7758ae45f857562c79dde3fda87",
+   "rating_by_month": "da3a1b9b54982ed4d738d8ce15ee73d7",
+   "rule_analysis": "a479520119cd7ac1f4407ecc0a6787a7",
+   "rule_months": "a2134f5625c365ea1a8115dd41dd281c",
+   "rule_stats": "d5d48fa96c626b776a22f5aef4d35840",
+   "rule_stats_after_months": "cf80223df0d40f0deea2588c4ee17103",
+   "rule_trends": "c61d578849a63fe4fa5092a61434b4e7",
+   "score_buckets": "7537897204fef04ca0ef2d2d50bc830b",
+   "sections": "a40877132c6f8cded3028a116ebb5e06",
+   "summary": "b80c4bc3bb112e242145a86eaa60085f",
+   "top_issues": "6c5878a1e42373297de7b43e59f212c4"
+  },
+  "kpis": {
+   "amber": 14,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "73.3"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 16
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 8
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 10
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 2
+    }
+   ],
+   "high_urgency": 0,
+   "record_kinds": {
+    "cp_output": 22,
+    "other": 16,
+    "partner": 19,
+    "pd": 34
+   },
+   "record_ratings": {
+    "constrained": 10,
+    "off_track": 9,
+    "on_track": 19
+   },
+   "records": 91,
+   "records_not_monitored": 16,
+   "records_not_rated_yet": 34,
+   "records_other": 3,
+   "records_rated": 38,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 44,
+   "scored_visits": 16,
+   "visits": 36
+  },
+  "page": {
+   "analysis_tab": "3e310f1ba01283af0e8d132915aca100",
+   "analysis_tab_all": "fbea0de61c02edeac23573242f557b76",
+   "brief": "4a2e2310631b2b86206a452bcdfa6700",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "c2dfe65839f886fec6e50800308dfcae",
+   "facts": "c3cdd7c455328aa8e79366e8c2663025",
+   "kpis": "bcee296dca9f6b1c3d2fab35c7fca824",
+   "map_tab": "162ddc831b79104957c1a5ef27acedb2",
+   "map_tab_active": "31fad91bc36070f335880b38932e994a",
+   "notes": "a09628b580dfb9acf72cb601a93923bd",
+   "quality_tab": "35fe40e9670956fa4e87b5666bdb6651",
+   "quality_tab_all": "070790b39479ef6115afd1ec3e19aa42",
+   "tiles": "4b93fd61bfa4aef0f62ca904681da72c",
+   "window": "eebc6fc2707720f5727302b6c05a7378"
+  }
+ },
+ "preset=last_90&section=": {
+  "alone": {
+   "action_points": "81fe0d0891731cfe34cb0763de2730ca",
+   "breakdown_office": "e45b41adacfaf38a3595103e42eab384",
+   "breakdown_partner": "ed7e233920bbda1f3263d956de6fa072",
+   "breakdown_section": "f2f4f4b0905396e819f2fd4482a1316f",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "a6d499291727091c2c730d0afa6bdf43",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "af5fe1ecf3cc028ef881a32582b8b982",
+   "dimension_breakdown": "dddc30d9345d724ee0907465f6913a20",
+   "drill": "71354c3289f36c65dedb1ef7d911bf05",
+   "entities_all": "0c429ff512ed17edf47d6d081c3bdfb1",
+   "entities_cp_output": "cf41287fb9398f6848cdfc8a45c13431",
+   "entities_other": "563176e563cf34175f35bd00715ccccf",
+   "entities_partner": "1316527825c4ed02e7b5b6d22f8de784",
+   "entities_pd": "f93c8f17b933bd0c72ba5939740c36a2",
+   "entity_kinds": "6604dacdb7ce20f4e37579e33a2f7c6b",
+   "flag_distribution": "ff240f0cb3eeae09b86c57aa7faeee79",
+   "flag_frequency": "6e24459bf369d019f058e4668af73150",
+   "governorate_gaps": "32fc4885626c62bfc0ba21b5e521de73",
+   "hact_programmatic": "d801994dfbbe37fb3999993220614377",
+   "hact_q1_by_month": "3276a1317dfd4f3154f94013e428e5b3",
+   "highlights": "9913fb4d8b971d046a08b879c678ad24",
+   "issues_summary": "c80122258ca6964e649674a99339af07",
+   "kpis": "5a4ac4590c812424cca0784bc8cb9b34",
+   "locations": "85c382ab68d262cc5c42b245d3db1e36",
+   "map_active": "e092193bb10a82685fe4333552e7cc81",
+   "map_visited": "fde8f180b85e9bf0bd6dd270a5610dd2",
+   "monthly_quality": "c1380178ef09be9f0a0792e8abc9b498",
+   "monthly_volume": "0d81b9ba0efb88affb8d41ebee300831",
+   "narratives": "c3f50dcadb9118aca99381d4ee84f580",
+   "notes": "937bc505eb0acacbacd12372fe100b9a",
+   "office_rule_badges": "6b62ede4a3014abcf667565d63273686",
+   "offices": "48cdb425e04a1017148900f2b711325b",
+   "quality_by_rating": "b4d8b59d47077c443c3a890f4b3bc29b",
+   "rating_by_month": "a244bae744bfdd11b7f51d68f0932ed4",
+   "rule_analysis": "ca6a090f09bef2b4123f95d97e184fc5",
+   "rule_months": "d07ad19184b9f10b4b30d49951f4aa16",
+   "rule_stats": "42a6389a0e0793c30ef94268925b345a",
+   "rule_stats_after_months": "35d500819c6f4db391336eb8c327b986",
+   "rule_trends": "90cc4dcd666ddc4d3beb2c750d4570c7",
+   "score_buckets": "5b10f7e596e26fb41ff93111e27796a3",
+   "sections": "daf4c87f9819f438b96a9a95868fef16",
+   "summary": "67ee9f59b3d0e6bf60c95145cec70527",
+   "top_issues": "09fd2aacccdfe3a36609ae66fca615f0"
+  },
+  "kpis": {
+   "amber": 19,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "76.8"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 11
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 1
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 5
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 2
+    }
+   ],
+   "high_urgency": 0,
+   "record_kinds": {
+    "cp_output": 8,
+    "other": 9,
+    "partner": 7,
+    "pd": 17
+   },
+   "record_ratings": {
+    "constrained": 9,
+    "off_track": 1,
+    "on_track": 14
+   },
+   "records": 41,
+   "records_not_monitored": 9,
+   "records_not_rated_yet": 6,
+   "records_other": 2,
+   "records_rated": 24,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 22,
+   "scored_visits": 9,
+   "visits": 19
+  },
+  "page": {
+   "analysis_tab": "6f60e5b0bec32db53fbdfaba5859d617",
+   "analysis_tab_all": "30f7220235e8b46b32ce4cfac3c8dd7d",
+   "brief": "66603afdaf17d46a6399666cf198ab55",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "986fc44ed6e09865d4bf1eca1f3fc6e0",
+   "facts": "d9b7bd3c50f1832a518d633aeba51d60",
+   "kpis": "5a4ac4590c812424cca0784bc8cb9b34",
+   "map_tab": "68a061c51aba0345ffbb071ce97acc10",
+   "map_tab_active": "ff61b99e51df2c8026ef34227e02cce6",
+   "notes": "937bc505eb0acacbacd12372fe100b9a",
+   "quality_tab": "a4308422520de1b1e4b8104a68274d6e",
+   "quality_tab_all": "51b6dc3f3a1156ab3856dc43c98ff354",
+   "tiles": "9f448a0c5527ac9189bc9aef4b1afcfd",
+   "window": "eebc6fc2707720f5727302b6c05a7378"
+  }
+ },
+ "section=": {
+  "alone": {
+   "action_points": "a833f2595eff66964ee46fb33e022243",
+   "breakdown_office": "261660b4889e23340f41649479d745f6",
+   "breakdown_partner": "7a01b677efdbf8c019f6a765e35fe573",
+   "breakdown_section": "a6f9cd4f8df2a3e91ff410d7500f25ce",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "5b05eb2dc9f14280d2b3c6c4276d8733",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "1ae64803722c5e8348c4aea9b67a3f4c",
+   "dimension_breakdown": "7d5c65cc0817ff992b555403d59471cc",
+   "drill": "f9c1955653171d275fbb13efa3f1f3da",
+   "entities_all": "a93121122542a072c6147f3f0c6d48ff",
+   "entities_cp_output": "b95b3759cf7d78d65110a46df18ea48f",
+   "entities_other": "73cfacb766b1cd8b5af42a504a384834",
+   "entities_partner": "74ac5b18e3e0db2f4c570b6e9e9d3dd9",
+   "entities_pd": "72073a8d5d9b8af83a3107401ae386cb",
+   "entity_kinds": "8a9bc50e2ac581001950d4c862c7d3fd",
+   "flag_distribution": "bd64dfac5c54449a3aa5f4688d1bd02a",
+   "flag_frequency": "e72968c0f40c3d02d8d41d6f18bf9b7d",
+   "governorate_gaps": "eebe7636de14ee7885801a3b160a5df3",
+   "hact_programmatic": "8bb32e5fe3862311e48f062a5770972c",
+   "hact_q1_by_month": "8c03b686f52a589eeed9ae3795ad102b",
+   "highlights": "7474b585f4dc014ca339b1143137e714",
+   "issues_summary": "54eda6f70a782c67d8b5b914866fae40",
+   "kpis": "a2e3dd8b30957ac26c7505af3fb8037f",
+   "locations": "8f6352297617b926c39b74f1eb383de2",
+   "map_active": "2124f66bdcd499cdf7c0347183e295f8",
+   "map_visited": "d25fa2a390122f7d3b0b74ebb73689e8",
+   "monthly_quality": "772676475177fb2cceaf1680ec9cd505",
+   "monthly_volume": "b310cca49ca73d33cac14b27d042da6c",
+   "narratives": "42cacb19d20e64ec017053ee4704d91b",
+   "notes": "a90f7c5b25658718cf7763afbf30d196",
+   "office_rule_badges": "f16c6fd7600a538db7a3a4382c4c65d4",
+   "offices": "61beef3b32d3a8f5a37fea59f7e2e0da",
+   "quality_by_rating": "9e39d9773ed3ad28b57276540291e012",
+   "rating_by_month": "209cc98da63c00652197056521b5c72f",
+   "rule_analysis": "1410c59ea1a06978e75f2395af0ef21d",
+   "rule_months": "3f0875fa79dbd57abe102372ba8099a3",
+   "rule_stats": "e173ce4f017f784407b421d3cc3beb1c",
+   "rule_stats_after_months": "e67bcb3ccebb3712d12abda70a631b37",
+   "rule_trends": "2b8e9c769cbdae03644577e8c5c03c3e",
+   "score_buckets": "6a60d50083019b0e7ca5454aef338a94",
+   "sections": "53e087f12debbdd6f7ff495c206b1c2d",
+   "summary": "134d81e4500c2e46a7714e340553b9ea",
+   "top_issues": "b764c0e88e40caaeb829e4ee4ae46afc"
+  },
+  "kpis": {
+   "amber": 57,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "73.6"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 47
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 14
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 25
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 7
+    }
+   ],
+   "high_urgency": 8,
+   "record_kinds": {
+    "cp_output": 38,
+    "other": 42,
+    "partner": 44,
+    "pd": 89
+   },
+   "record_ratings": {
+    "constrained": 29,
+    "off_track": 14,
+    "on_track": 49
+   },
+   "records": 213,
+   "records_not_monitored": 39,
+   "records_not_rated_yet": 71,
+   "records_other": 11,
+   "records_rated": 92,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 109,
+   "scored_visits": 46,
+   "visits": 93
+  },
+  "page": {
+   "analysis_tab": "d3e7bca9526e2649429fd56be9c5faf1",
+   "analysis_tab_all": "83af7b47960e27ac3187955fcfeb67c7",
+   "brief": "8f8f90ec1bf623607e0406ea2dc9558e",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "184a6b4c74ecd63ccb056a13a1b8320f",
+   "facts": "3a5dd144ecdfbedee95b0dd9cb5472b0",
+   "kpis": "a2e3dd8b30957ac26c7505af3fb8037f",
+   "map_tab": "c80173debf4d71496dd213d0997d3707",
+   "map_tab_active": "2dfeaaeff53213473565841eee4c82fd",
+   "notes": "a90f7c5b25658718cf7763afbf30d196",
+   "quality_tab": "630f83d5a0f900005cc3a5699114b1c3",
+   "quality_tab_all": "df8549c9089f28077de459e2d8384023",
+   "tiles": "6d50413d5bb3924dc9e0d00a6d42a657",
+   "window": "eebc6fc2707720f5727302b6c05a7378"
+  }
+ },
+ "year=2025&section=": {
+  "alone": {
+   "action_points": "10e9b52122b639fc575ed770b4b5f03f",
+   "breakdown_office": "6a697590d12611285471f74a294c2335",
+   "breakdown_partner": "4920bb19f0f3dba032e5d8421c133cf8",
+   "breakdown_section": "2e42bda2be7d5e0f855fd3ce4deb9fca",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "6e658c89eee76f6b06216b5d593858d4",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "10e9b9cc24eb622c7ce03176ff68b750",
+   "dimension_breakdown": "8b2c5b8dac9ee276df0383e5788ae4f8",
+   "drill": "bb7d5230ac0ec8e213c4d85768a3561f",
+   "entities_all": "f8c4122cb176c272efed81ec63fab340",
+   "entities_cp_output": "189c5a10302f65c73e25c2d44531ef88",
+   "entities_other": "c1c4853f8e3052dddb4f02f806033f88",
+   "entities_partner": "8921e16deaba28192f68f664a702f954",
+   "entities_pd": "b1cc339d0f011c2b4917df59fc3d021a",
+   "entity_kinds": "6a45d026ec54c43e57d25ad517020981",
+   "flag_distribution": "929cc93fcdf8480a89e988cd761ccf0f",
+   "flag_frequency": "8d90e18d07a57740c7bfe8db5a2c78df",
+   "governorate_gaps": "d8e4a3ed9d0b46bfa0eebba664c68e40",
+   "hact_programmatic": "9659f7d43cb6cbaf8b1bd9d6fcc948fc",
+   "hact_q1_by_month": "1185d99efc5091cac955449c4d7bd576",
+   "highlights": "bfa170552b358ef7d9dc9cd30b21cf19",
+   "issues_summary": "725de13bdea8e03ddf5156d97b2f49f4",
+   "kpis": "6ef13d1acf6570e73725ba4e79f69242",
+   "locations": "b03993b38e840e78c25239085ffa3002",
+   "map_active": "683da82a8afb8682f173c562d9fc8a6f",
+   "map_visited": "b658592d937972df0ef77cd3bcfb0ac8",
+   "monthly_quality": "cef9c5a15187c25eab833f630220a391",
+   "monthly_volume": "6100c97db3d30f8647825a108c8c0e8c",
+   "narratives": "80cc08c2be72309bf3332c05b086d7a1",
+   "notes": "93010b4fa8f19ce1995cadb674b8fad0",
+   "office_rule_badges": "b5ba455cff852336be81d7e7bd0afdee",
+   "offices": "7c6b6947265c3d22fbd31a8e9c8e03bd",
+   "quality_by_rating": "fae0cf4970cf4d11d0ea861ec14af1c1",
+   "rating_by_month": "1bed00154dee16f4291961153af27764",
+   "rule_analysis": "f5d47a3ddd69002eba27252bc2c0acab",
+   "rule_months": "b895bb8c79cceb5d6809c12badfc3f0a",
+   "rule_stats": "3f6aaeab84a07f7de8d8c678c54c08b5",
+   "rule_stats_after_months": "09ae5cd43329331b4a0fbdb26a61329f",
+   "rule_trends": "ec865e95e974bd44185c08a60cb2a376",
+   "score_buckets": "6e969c26242ab074a29a6e99164d4251",
+   "sections": "633d44bd27304a5da732bf75b054640e",
+   "summary": "75afc890198771a43d5b6caa9682080d",
+   "top_issues": "7382992d5a56b9c43c67ab739cad3e8e"
+  },
+  "kpis": {
+   "amber": 2,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "77.1"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 29
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 4
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 15
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 4
+    }
+   ],
+   "high_urgency": 0,
+   "record_kinds": {
+    "cp_output": 25,
+    "other": 31,
+    "partner": 23,
+    "pd": 54
+   },
+   "record_ratings": {
+    "constrained": 21,
+    "off_track": 10,
+    "on_track": 32
+   },
+   "records": 133,
+   "records_not_monitored": 19,
+   "records_not_rated_yet": 41,
+   "records_other": 10,
+   "records_rated": 63,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 24,
+   "scored_visits": 7,
+   "visits": 52
+  },
+  "page": {
+   "analysis_tab": "fb140b3b7be0fcc366998ac27436fa08",
+   "analysis_tab_all": "fa3072b779dc90a9ad0edec6c0785246",
+   "brief": "548f0202198436fa9291966bffb87f11",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "a53f77e27237319c7ebd17f4e026f759",
+   "facts": "f3ec5c2cbcd38afee5c63c749157daf3",
+   "kpis": "6ef13d1acf6570e73725ba4e79f69242",
+   "map_tab": "4995c3aead4c2b1e77168275aa5960d7",
+   "map_tab_active": "2be2745c23b5b1c8dfda5de448f7e05d",
+   "notes": "93010b4fa8f19ce1995cadb674b8fad0",
+   "quality_tab": "fe5068cfaef8237ad10b7921682c8ea5",
+   "quality_tab_all": "c0e93a55bda1dd3484d41fe3f0d30e77",
+   "tiles": "bae4f2b5be28c7f7b365a5f2dab0866e",
+   "window": "eebc6fc2707720f5727302b6c05a7378"
+  }
+ },
+ "year=2026&section=": {
+  "alone": {
+   "action_points": "a833f2595eff66964ee46fb33e022243",
+   "breakdown_office": "261660b4889e23340f41649479d745f6",
+   "breakdown_partner": "7a01b677efdbf8c019f6a765e35fe573",
+   "breakdown_section": "a6f9cd4f8df2a3e91ff410d7500f25ce",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "5b05eb2dc9f14280d2b3c6c4276d8733",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "1ae64803722c5e8348c4aea9b67a3f4c",
+   "dimension_breakdown": "7d5c65cc0817ff992b555403d59471cc",
+   "drill": "f9c1955653171d275fbb13efa3f1f3da",
+   "entities_all": "a93121122542a072c6147f3f0c6d48ff",
+   "entities_cp_output": "b95b3759cf7d78d65110a46df18ea48f",
+   "entities_other": "73cfacb766b1cd8b5af42a504a384834",
+   "entities_partner": "74ac5b18e3e0db2f4c570b6e9e9d3dd9",
+   "entities_pd": "72073a8d5d9b8af83a3107401ae386cb",
+   "entity_kinds": "8a9bc50e2ac581001950d4c862c7d3fd",
+   "flag_distribution": "bd64dfac5c54449a3aa5f4688d1bd02a",
+   "flag_frequency": "e72968c0f40c3d02d8d41d6f18bf9b7d",
+   "governorate_gaps": "eebe7636de14ee7885801a3b160a5df3",
+   "hact_programmatic": "8bb32e5fe3862311e48f062a5770972c",
+   "hact_q1_by_month": "8c03b686f52a589eeed9ae3795ad102b",
+   "highlights": "7474b585f4dc014ca339b1143137e714",
+   "issues_summary": "54eda6f70a782c67d8b5b914866fae40",
+   "kpis": "a2e3dd8b30957ac26c7505af3fb8037f",
+   "locations": "8f6352297617b926c39b74f1eb383de2",
+   "map_active": "2124f66bdcd499cdf7c0347183e295f8",
+   "map_visited": "d25fa2a390122f7d3b0b74ebb73689e8",
+   "monthly_quality": "772676475177fb2cceaf1680ec9cd505",
+   "monthly_volume": "b310cca49ca73d33cac14b27d042da6c",
+   "narratives": "42cacb19d20e64ec017053ee4704d91b",
+   "notes": "a90f7c5b25658718cf7763afbf30d196",
+   "office_rule_badges": "f16c6fd7600a538db7a3a4382c4c65d4",
+   "offices": "61beef3b32d3a8f5a37fea59f7e2e0da",
+   "quality_by_rating": "9e39d9773ed3ad28b57276540291e012",
+   "rating_by_month": "209cc98da63c00652197056521b5c72f",
+   "rule_analysis": "1410c59ea1a06978e75f2395af0ef21d",
+   "rule_months": "3f0875fa79dbd57abe102372ba8099a3",
+   "rule_stats": "e173ce4f017f784407b421d3cc3beb1c",
+   "rule_stats_after_months": "e67bcb3ccebb3712d12abda70a631b37",
+   "rule_trends": "2b8e9c769cbdae03644577e8c5c03c3e",
+   "score_buckets": "6a60d50083019b0e7ca5454aef338a94",
+   "sections": "53e087f12debbdd6f7ff495c206b1c2d",
+   "summary": "134d81e4500c2e46a7714e340553b9ea",
+   "top_issues": "b764c0e88e40caaeb829e4ee4ae46afc"
+  },
+  "kpis": {
+   "amber": 57,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "73.6"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 47
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 14
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 25
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 7
+    }
+   ],
+   "high_urgency": 8,
+   "record_kinds": {
+    "cp_output": 38,
+    "other": 42,
+    "partner": 44,
+    "pd": 89
+   },
+   "record_ratings": {
+    "constrained": 29,
+    "off_track": 14,
+    "on_track": 49
+   },
+   "records": 213,
+   "records_not_monitored": 39,
+   "records_not_rated_yet": 71,
+   "records_other": 11,
+   "records_rated": 92,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 109,
+   "scored_visits": 46,
+   "visits": 93
+  },
+  "page": {
+   "analysis_tab": "4d07d709bbf1b2df57ab0270d6286945",
+   "analysis_tab_all": "ab90e0503c4147d82b4495a23d36d162",
+   "brief": "8f8f90ec1bf623607e0406ea2dc9558e",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "4ab31bd9ffd0f7cf7885961cb769ede3",
+   "facts": "c98cfbe8cf6ab3b73244b5ea2afac795",
+   "kpis": "a2e3dd8b30957ac26c7505af3fb8037f",
+   "map_tab": "2a8772297635c0540ee5afcd8a79b5fd",
+   "map_tab_active": "0eedbbae569df14c546837512485ff1f",
+   "notes": "a90f7c5b25658718cf7763afbf30d196",
+   "quality_tab": "ee48c7876ddee172ba8263b0b3972226",
+   "quality_tab_all": "26978e3585309d3e1017fabc2fda4f4b",
+   "tiles": "4eccedc488d076952f6e12a3e6098d09",
+   "window": "eebc6fc2707720f5727302b6c05a7378"
+  }
+ },
+ "year=2026&section=&bucket=none": {
+  "alone": {
+   "action_points": "d7e25f7bda6770785c5baeace08e210f",
+   "breakdown_office": "047905e8352ed8ae5f20287f2fc95d88",
+   "breakdown_partner": "5ff434e608282a680eab71bd6790b0d1",
+   "breakdown_section": "bac2264e8f79cd8adb75b0d2d22f7abe",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "f2fb62f5357cc60454567342bb685407",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "f2ff608fa54d69ca935962285496510f",
+   "dimension_breakdown": "6aa44d0e59fa3d4801e563590980a82f",
+   "drill": "34e5925669a676c3687395bfbe042575",
+   "entities_all": "3aeb7bac648739f3ad48d5c963851df1",
+   "entities_cp_output": "f8f6b0aa0f6e2d23735b8b23b2144b0f",
+   "entities_other": "06c3d2649a568cd375a42632f0fae877",
+   "entities_partner": "d2eac74f319502fae4571df964996fcb",
+   "entities_pd": "27b1e553626583ae7eecb8814f6791a0",
+   "entity_kinds": "46b91e29898d5befce77e25ffda4843c",
+   "flag_distribution": "38cd5812c9530cd4bcd41f143ce0dc6b",
+   "flag_frequency": "5b4090bfbf63af813df9250b2df1c185",
+   "governorate_gaps": "864b01155201af9b980a70a7bb9a63cd",
+   "hact_programmatic": "8bb32e5fe3862311e48f062a5770972c",
+   "hact_q1_by_month": "2f0ca4ea6fac4f60469ecb19cf5002a2",
+   "highlights": "a488239705b1f58c44406f3253cd7bef",
+   "issues_summary": "c409c9f0584f5b3ee60c29906cc5e60b",
+   "kpis": "ac2cef3ac9eb844889daac15521ec6c5",
+   "locations": "5cd45a60df64c8266dc381b175a819a8",
+   "map_active": "b6b090a62f9d7c8406b804af5f21fbae",
+   "map_visited": "dbb65acba699109dcbde1b3597bebcb6",
+   "monthly_quality": "44136fa355b3678a1146ad16f7e8649e",
+   "monthly_volume": "77b873c531fe15f87e814a3ef51e3f72",
+   "narratives": "6b5fdbd43229cb281ebc59243eba9816",
+   "notes": "cdea23fdbf499dfab341638de2cd8055",
+   "office_rule_badges": "516750506439cf5a1a9b9c285583c034",
+   "offices": "a02071dddb9c9a59d654d3b0fbed7c85",
+   "quality_by_rating": "6fbd0f5a94af0ecc6c8284d7b1780189",
+   "rating_by_month": "3c414fe9b343d2f54979d4d8f94a265b",
+   "rule_analysis": "4c31bbd02373fc052feb1000f58ff0e4",
+   "rule_months": "b0e90ccc3f2670da8e3d7dc0b1463245",
+   "rule_stats": "65a155a0e5c111f7fdb91bc3143d71aa",
+   "rule_stats_after_months": "76ad0bead1842c1f1ef2edd43852d4e1",
+   "rule_trends": "44136fa355b3678a1146ad16f7e8649e",
+   "score_buckets": "2bd617bf09752cecfe5677b7d5736117",
+   "sections": "3435530e4705407e656b4e3f7f08be38",
+   "summary": "86da55b3189fd7b0d695f6eb3d3949f2",
+   "top_issues": "4f53cda18c2baa0c0354bb5f9a3ecbe5"
+  },
+  "kpis": {
+   "amber": 0,
+   "amber_at": 40,
+   "avg_quality": null,
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 5
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 10
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 25
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 7
+    }
+   ],
+   "high_urgency": 0,
+   "record_kinds": {
+    "cp_output": 19,
+    "other": 20,
+    "partner": 21,
+    "pd": 44
+   },
+   "record_ratings": {
+    "constrained": 7,
+    "off_track": 5,
+    "on_track": 11
+   },
+   "records": 104,
+   "records_not_monitored": 3,
+   "records_not_rated_yet": 67,
+   "records_other": 11,
+   "records_rated": 23,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 0,
+   "scored_visits": 0,
+   "visits": 47
+  },
+  "page": {
+   "analysis_tab": "388d948532b04cef5a38621abe14ff35",
+   "analysis_tab_all": "7b5c01d8037661d349d3ecbc02aa8a5a",
+   "brief": "696cf17d6623ea03511d08be467bb706",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "d997e3f01a301b3534959005d2f66691",
+   "facts": "f3a01e4bfb00dc3909101e7667034e25",
+   "kpis": "ac2cef3ac9eb844889daac15521ec6c5",
+   "map_tab": "4dfe9ffc12e8ce65d7a70fada8575c16",
+   "map_tab_active": "97c9adce14bdabee5f4c8674bd2dfded",
+   "notes": "cdea23fdbf499dfab341638de2cd8055",
+   "quality_tab": "1eb8086d328b70261bf6a211f11b22d6",
+   "quality_tab_all": "682b224176d21ca8c63e1e114758ef86",
+   "tiles": "806d859cf87cb1f0fc183d9b5624dc57",
+   "window": "1a43f3d20099920fff475e2bceb265f3"
+  }
+ },
+ "year=2026&section=&entity_type=other&entity_type=cp_output": {
+  "alone": {
+   "action_points": "70892087befc7f9728da3740eb3b3062",
+   "breakdown_office": "e08227ec73a4e40b977c797ed799b8de",
+   "breakdown_partner": "6be33d989d2bc84ffd386f60129058a2",
+   "breakdown_section": "1ffc037c681af357120cd2e97f5a1696",
+   "briefing": "2462b5f43cc88abbc1ee5062ffe23ea5",
+   "card_order": "61b66d768b6ab3404517fdd011b9f5c8",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "135f99df87e6968cfc0342b0871043be",
+   "dimension_breakdown": "2815df58cc592b0ec46e71e63f7d7d68",
+   "drill": "6b22432b8de2443a19e2c62f8fdd3145",
+   "entities_all": "91fe70c17c99d4f984851cb04889065f",
+   "entities_cp_output": "c12e37467847dec0e068d2a85fbd4d7a",
+   "entities_other": "0894bdfa4bc544ba072b21614bcf7965",
+   "entities_partner": "3935a92ce4464468645049b32322af0d",
+   "entities_pd": "c3a7b20c791cdf1b87ce2661696c609e",
+   "entity_kinds": "f8b69e83835991161704463c90f27bb7",
+   "flag_distribution": "1271edb3aa515540a8aea5f1cddfaf03",
+   "flag_frequency": "2f4253a2f662d2e1629c91f13ae3019b",
+   "governorate_gaps": "42c16218a95bd56f32b24f036c08ac89",
+   "hact_programmatic": "8bb32e5fe3862311e48f062a5770972c",
+   "hact_q1_by_month": "aa26cecd22da38c6359b565738b0c55c",
+   "highlights": "ce18e36d32292729665ce7728753f0eb",
+   "issues_summary": "a6a06bcb2228435bb141b7d5194cfe0a",
+   "kpis": "46025939fc249f4acf65be9a26bd7946",
+   "locations": "e5a7a974b53a7393b7889d858bcff952",
+   "map_active": "fba4abf7104d3992e409a0643d237880",
+   "map_visited": "0cd3587b2730b1a34577ca1e12096fba",
+   "monthly_quality": "afb2e2011664b61104a6d5bf78f00b5b",
+   "monthly_volume": "0ca7d01acd036e6a9c1a7ee7eb55452b",
+   "narratives": "db8d99ee83b8db785360ead6dffca874",
+   "notes": "9f703ac7f823dba8466b1d7466289618",
+   "office_rule_badges": "be45bb6789d9fa8871edf58860504152",
+   "offices": "576412ca4a5ebf36d405c0ac2cd99826",
+   "quality_by_rating": "8b452fb4ddc139bd9bbe654927b8e25c",
+   "rating_by_month": "35e3eb7e116a86bcde3cf328ba5619e7",
+   "rule_analysis": "fcf771e7ca66aaae6b73c98a7de85dd3",
+   "rule_months": "8dd11a1e23d71d31e7ddb34a769e1ff5",
+   "rule_stats": "5e669ec411e2686fbafec4f3ef2881c4",
+   "rule_stats_after_months": "404eb003f4c78982e62c97873743f377",
+   "rule_trends": "6a80139cb03af4b1fcc70afaf703c220",
+   "score_buckets": "f8319a58eb2b71a5e9a9d1876d6fd681",
+   "sections": "3a9c7b401177d0d07f9422e4385885d4",
+   "summary": "26764364776840092b54c61193cfbe35",
+   "top_issues": "5be90232c195a74a34ccb20099abc3c1"
+  },
+  "kpis": {
+   "amber": 21,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "74.9"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 33
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 10
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 19
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 4
+    }
+   ],
+   "high_urgency": 1,
+   "record_kinds": {
+    "cp_output": 38,
+    "other": 42
+   },
+   "record_ratings": {
+    "constrained": 11,
+    "off_track": 7,
+    "on_track": 16
+   },
+   "records": 80,
+   "records_not_monitored": 14,
+   "records_not_rated_yet": 28,
+   "records_other": 4,
+   "records_rated": 34,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 41,
+   "scored_visits": 32,
+   "visits": 66
+  },
+  "page": {
+   "analysis_tab": "ec9014de5891adb8e53d408c26d11b69",
+   "analysis_tab_all": "694ba9f0764a8099376fb7ed1e7d84d5",
+   "brief": "9adcc574a1e0c7364f03709cacff8381",
+   "briefing": "8190431203e0020eb0aded16ef598769",
+   "critical": "31fe011650de5138d2eeecbfcbd68c7d",
+   "facts": "24e8a0995efdf473c610fc935db31a36",
+   "kpis": "46025939fc249f4acf65be9a26bd7946",
+   "map_tab": "9e2b4abc231c5ec145789b59221b084b",
+   "map_tab_active": "092cf4b4eaddeeb9038bf98cf719a908",
+   "notes": "9f703ac7f823dba8466b1d7466289618",
+   "quality_tab": "92de5171d61305c8646587bf827dd43a",
+   "quality_tab_all": "259313ad11775ac2b7423a546a23f9d2",
+   "tiles": "da2b548c530cdb4c940ca6cfa185f22a",
+   "window": "eebc6fc2707720f5727302b6c05a7378"
+  }
+ },
+ "year=2026&section=&entity_type=partner": {
+  "alone": {
+   "action_points": "a53310c33d5b8337e0546456f0bb52ff",
+   "breakdown_office": "1ff3faed10e5307820416de3dd42f637",
+   "breakdown_partner": "2acf287a765c5c1f2f8614ff908f0aa8",
+   "breakdown_section": "3dcc2bcf441d9acf615ce37298e42dc3",
+   "briefing": "c400706371c2da4e9ac64f8a939fa395",
+   "card_order": "e9c8e8ab4e7fd9f6bb082589b5e30a73",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "f8fc342e58b6a36378156d8ca0e26cc5",
+   "dimension_breakdown": "2d39807296403c333647d84705ae5705",
+   "drill": "bbefebccf9e180d6ebd1b7a51804ade1",
+   "entities_all": "bd09db07aee6aa8d4852606c723c6436",
+   "entities_cp_output": "db83b1d5d045ff5dfbc638b18518573d",
+   "entities_other": "6135787af6bdd55e589ffc0f7173ea27",
+   "entities_partner": "a101598ac96d80c54f0a23ba96aa8bbb",
+   "entities_pd": "ad9d32ab022d1b464838112ab1733b4c",
+   "entity_kinds": "abb4c40924f7b92d6d669fad6c246bff",
+   "flag_distribution": "78b4d64e67cfb63ae29c0ec75e1c6deb",
+   "flag_frequency": "cf6a6d01f9721a63e4c2f521929e45d3",
+   "governorate_gaps": "474af1ea2e1322b05cd05cb6d060464f",
+   "hact_programmatic": "8bb32e5fe3862311e48f062a5770972c",
+   "hact_q1_by_month": "8cab3cab97958984b8ff61e774ae4766",
+   "highlights": "6c487b6254ed6701ea9b96b22cb7ffda",
+   "issues_summary": "804523ad7474b5d554ab65a4f2fc7615",
+   "kpis": "f1b9d6bcb1fb4cc733dc5c6c9d229fe6",
+   "locations": "620cd09c5377a19c9073fd6df9676701",
+   "map_active": "6cb12dfffe42a0e6af5847919026920c",
+   "map_visited": "cd79c5cfe61732235266c52ec7ebebe7",
+   "monthly_quality": "01d448d9ebcf49063ea1a5de8391885c",
+   "monthly_volume": "2495e10982a5b5251162b507ec66757b",
+   "narratives": "2d12d50e4dc075c7814b2a7004bd1991",
+   "notes": "7bf2f57be6c6c6b2638f249d8a83a172",
+   "office_rule_badges": "8d4742469dd11e04f908bfb99f001d0b",
+   "offices": "dafb12a6b7459d45b202bc8094660304",
+   "quality_by_rating": "bb45e0e5044bed3b9d33ea57e0f5b454",
+   "rating_by_month": "adffad2f6a74439c486cc283187d7bcf",
+   "rule_analysis": "6747e46ba365ce1a29adc872f49ae4a9",
+   "rule_months": "dde01f314b5c025c147db592fa667462",
+   "rule_stats": "f0e5301524bd00d5473fb380550a8372",
+   "rule_stats_after_months": "8cb02fe17c5413234a19de652d124e4c",
+   "rule_trends": "16cee32ea5ebef35a012605ee97bb6bb",
+   "score_buckets": "760329bb006b1329e665353f417f1005",
+   "sections": "2065e68a395b5e7d2a78a383e558252e",
+   "summary": "6579f2197f648a8f3532e3d37843a374",
+   "top_issues": "602259eb881b31cc5d94b0545c40aed5"
+  },
+  "kpis": {
+   "amber": 9,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "76.7"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 25
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 6
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 11
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 2
+    }
+   ],
+   "high_urgency": 2,
+   "record_kinds": {
+    "partner": 44
+   },
+   "record_ratings": {
+    "constrained": 5,
+    "off_track": 4,
+    "on_track": 12
+   },
+   "records": 44,
+   "records_not_monitored": 8,
+   "records_not_rated_yet": 13,
+   "records_other": 2,
+   "records_rated": 21,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 23,
+   "scored_visits": 23,
+   "visits": 44
+  },
+  "page": {
+   "analysis_tab": "8a05f34d9d292280dfcbbf4c09a27793",
+   "analysis_tab_all": "472e835e2291623bd823973d35ee7cd6",
+   "brief": "417d3fb19f7824d784c2e556c6e522f7",
+   "briefing": "d86956c085ba8dc2332fc8d722156612",
+   "critical": "fcedcc4d629610213f955fcd44130909",
+   "facts": "490f720a84cd10ae506dc9bd02b40bdc",
+   "kpis": "f1b9d6bcb1fb4cc733dc5c6c9d229fe6",
+   "map_tab": "0fcad0baa00da0572044a136bc436209",
+   "map_tab_active": "d6902527a46c608b56a22fa56d202df4",
+   "notes": "7bf2f57be6c6c6b2638f249d8a83a172",
+   "quality_tab": "054c99da4fa2643a18a42586cf4c8527",
+   "quality_tab_all": "94575959b10faf87d5d259ab12a9f9e3",
+   "tiles": "9c5c6b64b0c31e1ce7419d9e62d4c975",
+   "window": "95a8099d2f517c0f6c181e523f702668"
+  }
+ },
+ "year=2026&section=&flag=R6": {
+  "alone": {
+   "action_points": "45665f1c71d8888f41d459792446c4e8",
+   "breakdown_office": "8f91c6a0360be59b1053997b511238fe",
+   "breakdown_partner": "3c30565a2f7b44217fc01e5c545e7619",
+   "breakdown_section": "6c708f75ce893b91701f0851b871601b",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "0b4a93db5e6d90c77284a07caf2bc529",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "5a5d37c9885ef29a9d7598493a6001db",
+   "dimension_breakdown": "821bac2a8be9b8ee179d5cb81b9d0bba",
+   "drill": "1d0f4af70be99b6af011ddc650a131a7",
+   "entities_all": "9a679ce11361286ff7ae7de1419ef47b",
+   "entities_cp_output": "97919886c43204565d99fb048c0e1d55",
+   "entities_other": "a351b34f8eadead5440c0fea94dbc8a3",
+   "entities_partner": "897a41e2269dd1a8687aeab8ffcae4a9",
+   "entities_pd": "a4b1a430f8700598f6cb6ba3de0e88ca",
+   "entity_kinds": "5f625d42d596dd42551848ee35f38ce9",
+   "flag_distribution": "f4517e2ff4d2ba94d1913e22b0daa1a9",
+   "flag_frequency": "ab097a5e70cca100563297c388517da7",
+   "governorate_gaps": "d8e4a3ed9d0b46bfa0eebba664c68e40",
+   "hact_programmatic": "8bb32e5fe3862311e48f062a5770972c",
+   "hact_q1_by_month": "9af216cb3e2d556e16481ff23c3ba714",
+   "highlights": "41ed13b6bf04507388677b85bc08d77e",
+   "issues_summary": "06be97e89cc6d8d237fe99bdcb4743c5",
+   "kpis": "28406823fcd59b70ef6df0895ace6a6f",
+   "locations": "a569afa9f6b386be96dde58cba34cba6",
+   "map_active": "190b75b35ecb04170af06da87709074b",
+   "map_visited": "bd46d3da860547f53c87ce6a41a242f7",
+   "monthly_quality": "0c2ef4cbcccbd96c1d6bdda7275e03e2",
+   "monthly_volume": "d9e380fcd4772be20bd079179eb22439",
+   "narratives": "a23f7ffe4681734c61fc162ecda3f10a",
+   "notes": "0eda4f27877e8ef200cbc1cfc79ad91e",
+   "office_rule_badges": "283be9d5bc50f5fe9053dfa4eeb7b6f1",
+   "offices": "1795877cc91c9004c4c7d2444530da25",
+   "quality_by_rating": "34f436cbe94ddff219e17421d9aa9362",
+   "rating_by_month": "9db8f8354d68e311e8580273cb484509",
+   "rule_analysis": "ad9ea498e5060e8019b07806c7bb3b1e",
+   "rule_months": "cb81576c032c6dd32c958484eefbb192",
+   "rule_stats": "2460b09478104cbbe97570818c6971e6",
+   "rule_stats_after_months": "e5cdfce5eef6603a2cda4c891a31cd5f",
+   "rule_trends": "252edb5a219dfb33b926492ecbaddc80",
+   "score_buckets": "6d9404163b2124bf61ec703f30210cc9",
+   "sections": "96b999cd3b26b9f8b28e0cd6907bb003",
+   "summary": "12d750e9dd073838b64b5ae9840cc341",
+   "top_issues": "b7e7d84661d1389837df2daa47a08013"
+  },
+  "kpis": {
+   "amber": 21,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "65.6"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 21
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 1
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 3,
+   "record_kinds": {
+    "cp_output": 5,
+    "other": 4,
+    "partner": 5,
+    "pd": 14
+   },
+   "record_ratings": {
+    "constrained": 5,
+    "off_track": 0,
+    "on_track": 14
+   },
+   "records": 28,
+   "records_not_monitored": 8,
+   "records_not_rated_yet": 1,
+   "records_other": 0,
+   "records_rated": 19,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 28,
+   "scored_visits": 22,
+   "visits": 22
+  },
+  "page": {
+   "analysis_tab": "db9bcf7fb929e2937c601d3d44b2e3ae",
+   "analysis_tab_all": "f40006c17bc3745dbb956e162de962d3",
+   "brief": "da5bf57f71dcb87af9e050680aaf3c4c",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "4ab5b888abcc89324223dfe22d520de5",
+   "facts": "d99baad157792b719a53e47d1f8225d1",
+   "kpis": "28406823fcd59b70ef6df0895ace6a6f",
+   "map_tab": "724210c15d652aad3f5b833963fa30ad",
+   "map_tab_active": "8a68b3a289c4ba642add7d70153c5cec",
+   "notes": "0eda4f27877e8ef200cbc1cfc79ad91e",
+   "quality_tab": "dcde0f573c04af164ecde833eb902600",
+   "quality_tab_all": "78018cf8d01d3cebb9776162fbfc5bc1",
+   "tiles": "28c7820d612129e593dd2a1dbf132194",
+   "window": "21bb475c226fc0fc5c8944ac6f0aee5b"
+  }
+ },
+ "year=2026&section=&flags=1": {
+  "alone": {
+   "action_points": "e370932dbd7f72257057c3f7df07d423",
+   "breakdown_office": "6d1ef161a320dba773675659df9d704a",
+   "breakdown_partner": "7c93cc172e08687712d474a415edac9f",
+   "breakdown_section": "194a8896ec1c08a001847436f4ff5302",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "46803d5a59f82ae834668bb77f71d862",
+   "coverage": "7ed835399db6cf9e4ce977d4463f9b96",
+   "critical_items": "f2ff608fa54d69ca935962285496510f",
+   "dimension_breakdown": "d1559051052a9da6ea751481f23b55f4",
+   "drill": "73379e0d3e4c2b1479f462366ba41cb9",
+   "entities_all": "04825628e002e99e6279a7181f384687",
+   "entities_cp_output": "59f6cc687aae9baf810388ca38a6bae8",
+   "entities_other": "633968910d2606633d69c597db0f3ee4",
+   "entities_partner": "6fc3adb28bc1aaeb00f4ccd2597ba26e",
+   "entities_pd": "e655248ab429bd4bf0dd83afa5df4f53",
+   "entity_kinds": "68b09eb851bebc9f298b6c916f42c4a9",
+   "flag_distribution": "ababe0345772a029beb09e75a9eec536",
+   "flag_frequency": "388db21d5625a104f12fc53b1f1f2298",
+   "governorate_gaps": "5e054f6e4da10728b7714d904eaa9689",
+   "hact_programmatic": "afccadf734361cc8a3c18d3a9f4f507e",
+   "hact_q1_by_month": "76ee0cf46d88647721e985cbdac7a675",
+   "highlights": "4d3b8366e5ef4d48f9fc3f9a3b64e2ec",
+   "issues_summary": "134f6fa9e4d5bce942fb20ba70c6fe60",
+   "kpis": "6e903eb6565fb05110a73aa65a10b76a",
+   "locations": "ed67cc28aba041a3384f31cdd54898db",
+   "map_active": "7bcfa57ff4cdb8181ee127ec0da1d341",
+   "map_visited": "7889d7afa9ab520953e420adffeaa0a4",
+   "monthly_quality": "b4a3437747d1d94496df5a1b6b11fba5",
+   "monthly_volume": "177b75e355ca049d73c9957318f79d35",
+   "narratives": "44232ede9d964c77bd4807271429c964",
+   "notes": "6ca1ea6299234fdcdf63d44b1cb5d72d",
+   "office_rule_badges": "232c6ace92964bb89af229c997ad6d2a",
+   "offices": "740664d0770fd4b46859eec797f366e0",
+   "quality_by_rating": "1a9026d0b69e69a287c4acaa215c739c",
+   "rating_by_month": "d9f633d9b1d4cf20ae7ba81d88c5e3e2",
+   "rule_analysis": "938acf58d5f794e9d4b402b8583605ba",
+   "rule_months": "4dac2892152689817907569ced8c97c4",
+   "rule_stats": "b0c7ae901616b7324708e60c1167e8f1",
+   "rule_stats_after_months": "30853dc3f79d9dc3084a3f51c79ef1b1",
+   "rule_trends": "7a781155b1490f3df0c498d6f015f22f",
+   "score_buckets": "74fb3626a10d6568fd128480a5f2edf3",
+   "sections": "c0a9d2af1a68a76b03d20b7f3cc28dfa",
+   "summary": "f0f13d042b0e10413e9498679670e3b7",
+   "top_issues": "a00ad2e0800477a65c07f5ac1a3bf89b"
+  },
+  "kpis": {
+   "amber": 0,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "98.0"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 1
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 0
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 0,
+   "record_kinds": {
+    "partner": 1
+   },
+   "record_ratings": {
+    "constrained": 0,
+    "off_track": 0,
+    "on_track": 1
+   },
+   "records": 1,
+   "records_not_monitored": 0,
+   "records_not_rated_yet": 0,
+   "records_other": 0,
+   "records_rated": 1,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 1,
+   "scored_visits": 1,
+   "visits": 1
+  },
+  "page": {
+   "analysis_tab": "8cd3aa1a2ebdf9a4cff5d52208dbae88",
+   "analysis_tab_all": "a9db2a24548bfffac64f69d385b12c61",
+   "brief": "430496da38caac9019c5e54592684f1f",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "d997e3f01a301b3534959005d2f66691",
+   "facts": "1b4cdf4d40871546212a4a7a6a20389e",
+   "kpis": "6e903eb6565fb05110a73aa65a10b76a",
+   "map_tab": "8d9dc5e18bb255ee4b86e0b48f80c49f",
+   "map_tab_active": "501bacb296b741cbcaa77c2dd9d3ce40",
+   "notes": "6ca1ea6299234fdcdf63d44b1cb5d72d",
+   "quality_tab": "759e23ade8a025f834a40c9b885803b4",
+   "quality_tab_all": "759e23ade8a025f834a40c9b885803b4",
+   "tiles": "5cf02ae1ed4bb491295a61376d2466ca",
+   "window": "dbff2bbba91ce024fd11d82f470745c8"
+  }
+ },
+ "year=2026&section=&flags=2&urgency=none": {
+  "alone": {
+   "action_points": "9e33094c499e906ba249b98bc8e7b64b",
+   "breakdown_office": "aee9f7d2e5dee3dd3b5bbde5c4e812f2",
+   "breakdown_partner": "286bbae5d8981d4b6014a4736282d855",
+   "breakdown_section": "d140d655b84f8cad128e185861af8aa4",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "5e2fd8f2b5a7fa5ae669daa06ed9e082",
+   "coverage": "1a6a15281738b452fb32b8475bdddb60",
+   "critical_items": "f2ff608fa54d69ca935962285496510f",
+   "dimension_breakdown": "d64e2a6227c74e7188878d72a7882d24",
+   "drill": "5b16500957d1ba2896cd06fe6cefa425",
+   "entities_all": "002eb8459147ccff4f1aac97fd9dbf21",
+   "entities_cp_output": "d253a81dfc1dccd8c1c36f144fe6861d",
+   "entities_other": "5bfcd86ac627ec986a700a0e2811f4e5",
+   "entities_partner": "92ace1a2ec63af2986cd0ae8f4a625a2",
+   "entities_pd": "543bc64b53200fb323e52e8d387b1d2c",
+   "entity_kinds": "4d8955a65cfd1969c3838e6c07845a23",
+   "flag_distribution": "fd4a75a8af85c7fe3c1736f91ebf7342",
+   "flag_frequency": "a0f3f31ba8490aff7ca5f34f0ef7e370",
+   "governorate_gaps": "639afbc48701bbcf1f6f866a3a25df0e",
+   "hact_programmatic": "c8dd51233239b733f217f9255bfaa4e8",
+   "hact_q1_by_month": "bdf56eecbf479a34ddad74f3492afe4f",
+   "highlights": "9c7893d683e59241cc637d15bf41c34f",
+   "issues_summary": "3c366552d8541e60116d7cfa9ba13ca5",
+   "kpis": "6695105944ba9014ed192770111d4d8f",
+   "locations": "9c4f056e8a9b8b602362b880d1643d5d",
+   "map_active": "c725854e52db4d149f83b7aa907ce280",
+   "map_visited": "b14e48a410f8e617a44ceb9d8b12515a",
+   "monthly_quality": "a96a145a0b2fd41f8e6f2b238c072813",
+   "monthly_volume": "4af87e439c0a5d0b3f575293188eba51",
+   "narratives": "a709a43d3ee126983ac40664b979cb79",
+   "notes": "b1009e1fb21e91da760be38a4a6718fa",
+   "office_rule_badges": "06f55ccbd5f5f4795833c3a484e0c36a",
+   "offices": "a62ccd832b621e5ef36ba960011e307a",
+   "quality_by_rating": "0805e52c5599b0942c9fb1d2e7ab4300",
+   "rating_by_month": "b725169691a051e6c6d3d51d78d59ad7",
+   "rule_analysis": "da5e97b62968620cff62ac7249774c75",
+   "rule_months": "e70dd57d35443dc7fbed03bab39e7851",
+   "rule_stats": "d61c3e35d618607a187e23d091d5fa88",
+   "rule_stats_after_months": "a04139217f6b0b23e0d55d81335a0a42",
+   "rule_trends": "e4fbafe03a461df2013bbdeda6b22d2f",
+   "score_buckets": "4018d4d6204d1c3810cef653734bac70",
+   "sections": "6056342893b0898688199702066a8b09",
+   "summary": "2b9ece5e6299b9c6d582b084c1fea0c8",
+   "top_issues": "464fce826ed3a3ea9e728457eca7fdf9"
+  },
+  "kpis": {
+   "amber": 0,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "85.8"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 3
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 2
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 0,
+   "record_kinds": {
+    "cp_output": 1,
+    "other": 3,
+    "partner": 2,
+    "pd": 3
+   },
+   "record_ratings": {
+    "constrained": 1,
+    "off_track": 2,
+    "on_track": 2
+   },
+   "records": 9,
+   "records_not_monitored": 2,
+   "records_not_rated_yet": 2,
+   "records_other": 0,
+   "records_rated": 5,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 9,
+   "scored_visits": 5,
+   "visits": 5
+  },
+  "page": {
+   "analysis_tab": "36189419eb04b791bc2c2d37d23e5802",
+   "analysis_tab_all": "0cb2436df227908f71fe157d44e4b889",
+   "brief": "2e83f4585f9f0987042ffb7c24c4024a",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "d997e3f01a301b3534959005d2f66691",
+   "facts": "f090ee77f8070622f9bc78da912ee085",
+   "kpis": "6695105944ba9014ed192770111d4d8f",
+   "map_tab": "169250d0b4d94b7e9ff5e69aaa37daf1",
+   "map_tab_active": "a189bee08f1027ee6e5ebe8902013c3a",
+   "notes": "b1009e1fb21e91da760be38a4a6718fa",
+   "quality_tab": "111bfd45ca8850d9963b23e8becbf833",
+   "quality_tab_all": "111bfd45ca8850d9963b23e8becbf833",
+   "tiles": "b6a3f7155823828b84cd383ea29ed4db",
+   "window": "dff607076d83df478dd8e448741c1ec9"
+  }
+ },
+ "year=2026&section=&flags=3+": {
+  "alone": {
+   "action_points": "05362bbb934db520b73f8823cd156aca",
+   "breakdown_office": "3a0e5a3471b2c5aa3ddadc7b974a81de",
+   "breakdown_partner": "f6b6e2191487c4ee1b97e3e927e937e9",
+   "breakdown_section": "bd4fb4a5b8f64c52b4d1ce5b2958bf0e",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "8e2c5b213feff835292d224fbac71273",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "f220d1777e969da756483de0eb369fa9",
+   "dimension_breakdown": "96618e6748d9cc856f2d248d9562482d",
+   "drill": "ae5fab9c290cc9cf0affd0cc3c874bfa",
+   "entities_all": "bce6d4a25bb73a15209f3886fbdf8b0a",
+   "entities_cp_output": "9f9c6d037ffb9983d58dd77f5229857a",
+   "entities_other": "10774c9c5bf40a0b03ffb8e183e3fe43",
+   "entities_partner": "205f5e3319772efdd204332c6c295082",
+   "entities_pd": "f7a6a726576218dc319612da476e58aa",
+   "entity_kinds": "a6a0901fa6bafee83daf5439a99d548c",
+   "flag_distribution": "5d2c9405ad513354d2f4a7262082875a",
+   "flag_frequency": "ba50ca7504e5cff0ad6f14c90dd4694a",
+   "governorate_gaps": "d8e4a3ed9d0b46bfa0eebba664c68e40",
+   "hact_programmatic": "8bb32e5fe3862311e48f062a5770972c",
+   "hact_q1_by_month": "7a3efa5d946d1dd54ad92bce520fe7e9",
+   "highlights": "a12b09c5cc82193e4519c684fde20d44",
+   "issues_summary": "5fd269f63a0549e7283f5b2ed0a8012d",
+   "kpis": "e6b68209c08daa55ed64ebeec4e4558c",
+   "locations": "411ea0e23ae19d54b69a7c57c2d6de12",
+   "map_active": "b1418e5bd9f3886bd782b1464d2ee7dd",
+   "map_visited": "9f48866ac5b901322e07937adf13e9da",
+   "monthly_quality": "08ef588c6d0e331c410410503807d319",
+   "monthly_volume": "f0ded1edaffa2c33f2a5f166e44a53de",
+   "narratives": "a8948e63751941f2968a8b2c4ab660b2",
+   "notes": "0eda4f27877e8ef200cbc1cfc79ad91e",
+   "office_rule_badges": "85fefd675b3a77d5fe3e2be8a722dc65",
+   "offices": "061f2e2593619c4bf7cf43f55e19b920",
+   "quality_by_rating": "da33f35156865ba9ad195278a01b09e3",
+   "rating_by_month": "5d2980fec50a356b891c000006097081",
+   "rule_analysis": "10e792dcac707d8657c030a6b32dfe13",
+   "rule_months": "34c439049dd22a2c94df23a8d0023aa0",
+   "rule_stats": "49547975a287853dd485ec4f730290d1",
+   "rule_stats_after_months": "bd421443c4b2dea3297358a7c332a8b8",
+   "rule_trends": "ad4de61354a6e1c5ec6c48d5f2f82940",
+   "score_buckets": "1cdcdf3d4fdc2ec426073fc5f928d234",
+   "sections": "5b9a88eee73294285014bb9eeac88d4d",
+   "summary": "50112cbf2cf29a3b2308d17f5e5b0c73",
+   "top_issues": "2acf9fa453ea36ee2adf34a2508b67bb"
+  },
+  "kpis": {
+   "amber": 12,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "82.4"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 24
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 0
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 0,
+   "record_kinds": {
+    "cp_output": 11,
+    "other": 9,
+    "partner": 6,
+    "pd": 2
+   },
+   "record_ratings": {
+    "constrained": 8,
+    "off_track": 4,
+    "on_track": 10
+   },
+   "records": 28,
+   "records_not_monitored": 6,
+   "records_not_rated_yet": 0,
+   "records_other": 0,
+   "records_rated": 22,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 28,
+   "scored_visits": 24,
+   "visits": 24
+  },
+  "page": {
+   "analysis_tab": "865e3f55333c97a4a0ad1ed1ae734d80",
+   "analysis_tab_all": "b8d8ebf6abd716ce594178d577ba2e99",
+   "brief": "781a01e71d9e53ac662fef5972cd8cd2",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "464fb82c3c489fa0826a8a0f064d0a64",
+   "facts": "7b311137fe9340fed1517a292fd7599f",
+   "kpis": "e6b68209c08daa55ed64ebeec4e4558c",
+   "map_tab": "5577865c670e3a464b3331bb305bcb8c",
+   "map_tab_active": "72a60e5977e9d1a8bfec1d6a41e7c5fe",
+   "notes": "0eda4f27877e8ef200cbc1cfc79ad91e",
+   "quality_tab": "158178dfaed0d25329c661f29680fcfd",
+   "quality_tab_all": "c9b35908f0576c8308e1738013b991a5",
+   "tiles": "7cbdb68d4669a6f262c21d01df6e4a7d",
+   "window": "6d99abae4710fb0346bc2be1698d5d50"
+  }
+ },
+ "year=2026&section=&governorate=bekaa": {
+  "alone": {
+   "action_points": "768bfeb7f0add2a51e6acf411b2791f8",
+   "breakdown_office": "c064076629ef8e8234a0ccec3db00383",
+   "breakdown_partner": "79216d037e4594dad9ae54b42e1e0ad3",
+   "breakdown_section": "6eb6b4255d776b48b912bb174e7f58ce",
+   "briefing": "739c99d849260a44b80a281713d016d6",
+   "card_order": "01570dc1ccc80c927573091f4bf7f3f7",
+   "coverage": "3a05663eb80733cfe17baf1d1ad32701",
+   "critical_items": "30fbdcf452bb597ffc9b44bbc469d41c",
+   "dimension_breakdown": "58ff0ffd1b0cce5884e57e0f75e533bf",
+   "drill": "2cf622117ab3ac61f666e1494cf1471b",
+   "entities_all": "a6eb48d4caf39508a3cafb5e61cbb1bb",
+   "entities_cp_output": "6f382c595f6b1155938adfd91a9e9a25",
+   "entities_other": "1c0eb8c88c2234ac2d1910a2037dd69f",
+   "entities_partner": "b5a701601ef383ccd68aff0024bad24b",
+   "entities_pd": "d7dd9b8c609d28d6e7d5b3c0e92f51e6",
+   "entity_kinds": "3fb92e1e1e1307305eadc0aac673ab1e",
+   "flag_distribution": "c3475ea982dcc06161b208764b205411",
+   "flag_frequency": "85260822803cfab52b6e2c017e40d2a5",
+   "governorate_gaps": "8473a9fa168c1b2c8a0983076ad21d9f",
+   "hact_programmatic": "d801994dfbbe37fb3999993220614377",
+   "hact_q1_by_month": "2d39b3c5cbd3edaca0e968d2b981c121",
+   "highlights": "0001545f0c5ac447b84ec94ee077db38",
+   "issues_summary": "8786104fa388ff6e6f118eb5672dcdb7",
+   "kpis": "c80f48e6105180b6fb43f1ab5b114ba4",
+   "locations": "9e04378191e155c85b370231154f51f0",
+   "map_active": "9a4f2dad0aaf8587d555f3f7060f92ab",
+   "map_visited": "6c5a2ae14e370b83c15b9bcae7e0787b",
+   "monthly_quality": "0e0f0c8b33726da015963dd456d1215b",
+   "monthly_volume": "e035343e88cd0fcdd2445c46c487fd2b",
+   "narratives": "b43897c81a67bb4a15d2bd84d960b8d2",
+   "notes": "b4624b366b64652e341961cb39571144",
+   "office_rule_badges": "b5ddffb7d8eeb6c059c04e3ac5702dde",
+   "offices": "1a5075fa79fc7dfa41359e1ba2189720",
+   "quality_by_rating": "26d9f688e5a00201ee1bb4d5df1b105a",
+   "rating_by_month": "6e979d158f427051cc3d1e02392b0b11",
+   "rule_analysis": "befd7901aec7f67a030674713b3905be",
+   "rule_months": "22b05ed16348551717b4419e490aebe5",
+   "rule_stats": "026cf13137e947885c773e70a3afb77d",
+   "rule_stats_after_months": "1788c8ddb95dd136be103d47b521a63b",
+   "rule_trends": "4bc44b5a959fd065263ecc1470a82c85",
+   "score_buckets": "c5a5b420f13047f02b56ea108ea0daed",
+   "sections": "067b542ce4a1e70d1b2cdea091150669",
+   "summary": "7fd349ffc9370c04eb79896f97c4cbf3",
+   "top_issues": "6d379dbafd87f5bc8b5c304c2400f7fc"
+  },
+  "kpis": {
+   "amber": 11,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "72.1"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 8
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 4
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 5
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 3
+    }
+   ],
+   "high_urgency": 0,
+   "record_kinds": {
+    "cp_output": 10,
+    "other": 9,
+    "partner": 6,
+    "pd": 14
+   },
+   "record_ratings": {
+    "constrained": 3,
+    "off_track": 3,
+    "on_track": 11
+   },
+   "records": 39,
+   "records_not_monitored": 2,
+   "records_not_rated_yet": 16,
+   "records_other": 4,
+   "records_rated": 17,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 18,
+   "scored_visits": 9,
+   "visits": 20
+  },
+  "page": {
+   "analysis_tab": "e231c6512c6f0758d0215a558328fd09",
+   "analysis_tab_all": "2cc95956610f90abe3f1d4d9dd9bed9c",
+   "brief": "6856b9be3eb53837da32bac7d646af82",
+   "briefing": "1c32e9801c2fb7f9e6d35e2d1bbe4e1e",
+   "critical": "64272cbab07e309ddcccffe75dcd5425",
+   "facts": "a1993ef468425baa234d8d4a2d941850",
+   "kpis": "c80f48e6105180b6fb43f1ab5b114ba4",
+   "map_tab": "4738b404186b04a4a72c41132bd9a41f",
+   "map_tab_active": "16e3637c42c4ea7f7b61fb34f2b0dd30",
+   "notes": "b4624b366b64652e341961cb39571144",
+   "quality_tab": "ad030f25cab3852b5ff1a0ff71918fbe",
+   "quality_tab_all": "a09d01dcdb480b2232a4ee09a616459e",
+   "tiles": "9f15864137c5bc89ca317c70ba12863b",
+   "window": "595c8a9fc839fffdd96a4964310fcc17"
+  }
+ },
+ "year=2026&section=&governorate=none": {
+  "alone": {
+   "action_points": "aecb1912df7af38ea3ca5a4f260cefea",
+   "breakdown_office": "24d0940071a168e0bcb185fb6208500b",
+   "breakdown_partner": "36ca3ea3cda24c0156bedb5c72ce40e0",
+   "breakdown_section": "d1521d4448bb0e8de831ee5ffa069846",
+   "briefing": "3a63360b1bd094f8c107e390a8eeb96a",
+   "card_order": "7a28f3340e5b0728114c3967efee2d7e",
+   "coverage": "7ed835399db6cf9e4ce977d4463f9b96",
+   "critical_items": "9eb9cdec1251bcda5fd4d28c5294ed97",
+   "dimension_breakdown": "6d048f5189a68145a85aacc3ff466494",
+   "drill": "6c2da6141ff7a4f08a7db64a3559b692",
+   "entities_all": "1106ffe8ad78d634236aeac35acb8e75",
+   "entities_cp_output": "6c6566cea251517afeecefe28fe9cc96",
+   "entities_other": "4c85ea8a746707f5cfe73db765060674",
+   "entities_partner": "bb89726c31a0e3addd439662b8243490",
+   "entities_pd": "e29e9faacd3b7666454e40a6d8f49939",
+   "entity_kinds": "2a969d4e298bb4644941d6d7525e78ee",
+   "flag_distribution": "29c94ac50472ea51358afbf4ffadfb9d",
+   "flag_frequency": "90ed900bea031655848b31abf7b12a64",
+   "governorate_gaps": "f5c7ba398bedcce0eeb8cf9baa5a0b28",
+   "hact_programmatic": "c8dd51233239b733f217f9255bfaa4e8",
+   "hact_q1_by_month": "5b27d86580d820475217dceb75fb5870",
+   "highlights": "0d9a42651737d20fcd8c80e1b14cedd3",
+   "issues_summary": "f3da363fdd3285ffc8d72d367c86f29c",
+   "kpis": "72e846c4051994b460a60a6a17c1b89d",
+   "locations": "24ca6f1f3f3b47d87697836c7471f3e5",
+   "map_active": "440961073d7a926389770ac1448046a7",
+   "map_visited": "55d649f597c5d1de55a8226de78f4939",
+   "monthly_quality": "452e78ff1152897931fda83dac4e8ed5",
+   "monthly_volume": "d693f3243fc2b7b248aad75f35570565",
+   "narratives": "9ad47a5f671d7f11d56551f916d76b97",
+   "notes": "b93b21be2faab231a10a7bd92319cf76",
+   "office_rule_badges": "85b79c4693738f8056b9fa78ba58ba0f",
+   "offices": "efa641d492cefe0871b297268641f2b7",
+   "quality_by_rating": "c52c2a7ea59b8c1595366ce0977bd71a",
+   "rating_by_month": "f44cb6d20cde252d40e61fe2ca577c47",
+   "rule_analysis": "940fe1b51df9d572b887d2126947f578",
+   "rule_months": "bb36605bc0f62358a06f808b5caa94a2",
+   "rule_stats": "7d40c96660a4151636978168e0e5570b",
+   "rule_stats_after_months": "81ce1ab71b1a7f403ff4220ebb508f1d",
+   "rule_trends": "5079eb27f050bc6d8c41f4e26a76734a",
+   "score_buckets": "36dabe486c3cc76f8e10a6c5a37d7cb5",
+   "sections": "b4786c00ab202bf03aff3f564b32f043",
+   "summary": "0f592e4c0b81519fe5714ff346980f4c",
+   "top_issues": "fc01f542b5d8d2b301b608dd7ce4784a"
+  },
+  "kpis": {
+   "amber": 7,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "72.8"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 9
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 1
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 1
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 2
+    }
+   ],
+   "high_urgency": 3,
+   "record_kinds": {
+    "cp_output": 4,
+    "other": 6,
+    "partner": 6,
+    "pd": 10
+   },
+   "record_ratings": {
+    "constrained": 6,
+    "off_track": 4,
+    "on_track": 7
+   },
+   "records": 26,
+   "records_not_monitored": 3,
+   "records_not_rated_yet": 1,
+   "records_other": 5,
+   "records_rated": 17,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 18,
+   "scored_visits": 9,
+   "visits": 13
+  },
+  "page": {
+   "analysis_tab": "3272f0d1393e0e63ecf664372fc44103",
+   "analysis_tab_all": "377d83903ee9b8af212af21fe5b8aabe",
+   "brief": "302134144bfa22a4858b51e7c0d7a441",
+   "briefing": "6541a7428bdf55224961129a94a0386f",
+   "critical": "56160e83db4fbe64501f8464a250e394",
+   "facts": "4e31ef5816774c4a28252635e0781203",
+   "kpis": "72e846c4051994b460a60a6a17c1b89d",
+   "map_tab": "14b2cfbe1b11d973ee553f0bf739de77",
+   "map_tab_active": "800f4a2e17af0820f4d817238a9b2ca4",
+   "notes": "b93b21be2faab231a10a7bd92319cf76",
+   "quality_tab": "66dbeda24fb5f51b7764f3e606fe4f96",
+   "quality_tab_all": "66dbeda24fb5f51b7764f3e606fe4f96",
+   "tiles": "d79e3783501c76371439059ad5a1dbb7",
+   "window": "ab639414deccccf3966fbe769bddd927"
+  }
+ },
+ "year=2026&section=&hact_q1=none&bucket=80-100": {
+  "alone": {
+   "action_points": "793c60cba147959d238234fbb4b5800c",
+   "breakdown_office": "98270838a6b84e3133975fec4495ef07",
+   "breakdown_partner": "d7cb90d2a9f096a64ad891063486dcb5",
+   "breakdown_section": "900e7de6a10657790f90dc35f1a12830",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "28241962fce35274ad0830a404816e79",
+   "coverage": "3f3a83a5e8f77b75253f3e1df13ccd47",
+   "critical_items": "2186b1262ba79fc25968e84995fe8261",
+   "dimension_breakdown": "263012b024bdb72a4574092de7e4d6c6",
+   "drill": "efcb4eba0ee71f43335d6884eee2e42f",
+   "entities_all": "5433231c37476eb182010c3336167cc5",
+   "entities_cp_output": "5f3ef37990be673d9771d65d9ecdd2b1",
+   "entities_other": "b6a9e21a8c2301f8688f29dbf4e8e1cb",
+   "entities_partner": "ff15fda71e503183e1657dbc969ea820",
+   "entities_pd": "8d02cda4ad5f45e7939f3cc2752a0252",
+   "entity_kinds": "1bb910676313165db03f5f563e9dea3e",
+   "flag_distribution": "705a49234e9fd32fc46340a8141d14ba",
+   "flag_frequency": "9f3357e6dc2ed6d51013d3761fbc5ad4",
+   "governorate_gaps": "695e1f0464bdadffa8128e533a0e997c",
+   "hact_programmatic": "a3b4e839aa99271266d38052d31e733f",
+   "hact_q1_by_month": "74234e98afe7498fb5daf1f36ac2d78a",
+   "highlights": "f273f3e5be9a94e8ba614d161dbbc5da",
+   "issues_summary": "63d17e67e20a3558ca92e52194462be4",
+   "kpis": "68cadc7d33a9b22c914db6698ba5eafb",
+   "locations": "cf966272cac1c5c2e63fe5e410decde5",
+   "map_active": "2c94d7d265b01863af9ea2712cdd8588",
+   "map_visited": "0d8d48fcd4b64fe37e4b8db63b775460",
+   "monthly_quality": "6b1954fbf7fdfa0ce325af7aa8c65a02",
+   "monthly_volume": "8939a887c3ba8dca59dd797b56e4485e",
+   "narratives": "6c51df9a86ee51119707d7e7bdf12e10",
+   "notes": "6762767ec68cbb9f5a50219bd34889b8",
+   "office_rule_badges": "b153f3b7c235ba596c1f90d72f53b7cb",
+   "offices": "e3b64c0a8371e02d4845b4786bc3db39",
+   "quality_by_rating": "95fb58dea95fe9a03a0da081b3210777",
+   "rating_by_month": "f6c075ffbcbf17615e931b172e2cbc45",
+   "rule_analysis": "70dcf18c8c8ee33543fbc1f40156a7bd",
+   "rule_months": "37817675e118d163d09df3430a18e9d0",
+   "rule_stats": "d3f01324dd60f426ad5636497f3493ba",
+   "rule_stats_after_months": "b3f20463528a00c62a5665cb5a8b4eeb",
+   "rule_trends": "cf897102ea01c01066c75f2021afe6c3",
+   "score_buckets": "74b3853b14f21204867c2ce6332c1c8d",
+   "sections": "bfc9556ecdc1ba517a6e4dc13526bbe3",
+   "summary": "317472ffa48db3193196086b01a52077",
+   "top_issues": "e7744f28dffc29ca564843edf3551521"
+  },
+  "kpis": {
+   "amber": 7,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "83.5"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 8
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 1
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 0,
+   "record_kinds": {
+    "cp_output": 3,
+    "other": 4,
+    "partner": 3,
+    "pd": 3
+   },
+   "record_ratings": {
+    "constrained": 4,
+    "off_track": 4,
+    "on_track": 3
+   },
+   "records": 13,
+   "records_not_monitored": 2,
+   "records_not_rated_yet": 0,
+   "records_other": 0,
+   "records_rated": 11,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 13,
+   "scored_visits": 9,
+   "visits": 9
+  },
+  "page": {
+   "analysis_tab": "b7ed792d878e6df548b7ca08a4faa649",
+   "analysis_tab_all": "523ca666a831b726cadb5b1965e9ccd9",
+   "brief": "b3c197e3561983823c24405c431f8838",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "ea9e7efc5e61a6cbed9e317e8ca4c48f",
+   "facts": "b1e8dd1d7d36af350a3ce5a8bec19f69",
+   "kpis": "68cadc7d33a9b22c914db6698ba5eafb",
+   "map_tab": "deb143741eb9f6fa877dc279ba5421b4",
+   "map_tab_active": "17db641388ce25888d599414c82e30a2",
+   "notes": "6762767ec68cbb9f5a50219bd34889b8",
+   "quality_tab": "2077351bec56e4a05180dd8a7d4ac97c",
+   "quality_tab_all": "2077351bec56e4a05180dd8a7d4ac97c",
+   "tiles": "c208cacfc4de8c8c91b66da4a8f6da1e",
+   "window": "547e07758945ca6093fedbd42d7ec234"
+  }
+ },
+ "year=2026&section=&hact_q1=not_monitored": {
+  "alone": {
+   "action_points": "1b5ecd72307572c746fcf0f047de6371",
+   "breakdown_office": "3bcf6064c3801f30516593c8f5d8fea3",
+   "breakdown_partner": "f32e67a89d36b95e043fad088dcc3de3",
+   "breakdown_section": "dc3b3fd23fae384322824e6fa844925f",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "7850ff4bbd80103b3a45d8692661de29",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "d312fa39471d7f19317c2a0ac32e3ce4",
+   "dimension_breakdown": "3863ffc9e98663ef9bf100bae1fe64f1",
+   "drill": "0fa4cc5c9f5d32b4dfa1657b4ec771a7",
+   "entities_all": "521043c58ae7a0d34f99a394ddea48a2",
+   "entities_cp_output": "7d49994fbe748ef80491a26a14c21966",
+   "entities_other": "c12d14dd2c93dd63a3433abf8aa9ffc8",
+   "entities_partner": "a5a40b9669629fdf405b3802d5c79a1c",
+   "entities_pd": "72023a7ba2b44e434daf01a4f87a1990",
+   "entity_kinds": "ecd3700e1a8060bba76fbb10fc8ea74d",
+   "flag_distribution": "b8601aa0f8b96e79dd314b14663f7663",
+   "flag_frequency": "2ec65cd2a3f1ba4237d0bf4c7a2f1eac",
+   "governorate_gaps": "ab1d83b05be91a8a0966ecd8069f6f0b",
+   "hact_programmatic": "8bb32e5fe3862311e48f062a5770972c",
+   "hact_q1_by_month": "79b7497ffad01bc67dca9bf3dbc06bcd",
+   "highlights": "da02c0f6e92b7938d9db148f5dfb8b60",
+   "issues_summary": "0317d7b5fe372244c37cb4a4286dee96",
+   "kpis": "f8d203cad25a0b87f2957c9fc861caa5",
+   "locations": "b50b644ed1f00fd827bc4c003ea1c748",
+   "map_active": "dbf005232a85f387da6606ea1a98d0e2",
+   "map_visited": "0d09c6b62af6b50f60692a1518853992",
+   "monthly_quality": "778d345e67c9a53af085480ab778dead",
+   "monthly_volume": "9f43cc97b3ef5c6165d601f2204db46e",
+   "narratives": "81b2b013387f4572ba2c9a57b4dac053",
+   "notes": "62d78dbf92556dfb58c866025a00b0dc",
+   "office_rule_badges": "1dc8478dc53a2cfa6ace80734bd7f6df",
+   "offices": "8667b3cbf1c754d13b7630b6089e4258",
+   "quality_by_rating": "f01552530ae6583ee35c51e6f31dd518",
+   "rating_by_month": "91929cb5444a6a6ca4fb6a16b205821f",
+   "rule_analysis": "36dda7169f71f4375b721c80cf30a61f",
+   "rule_months": "95e79339796bed7c2b77fa93530c304a",
+   "rule_stats": "e2ac3951bf8a89cef9d92fffcd2ae925",
+   "rule_stats_after_months": "041b34d488c720fa9d2aa81c87723f6f",
+   "rule_trends": "235c827a70bec43d9cb8e0c0b0b7193e",
+   "score_buckets": "9c4c8fdcb17001e5c9e0f8041a88ce17",
+   "sections": "7ebff1702e13f15f75a4d0007a51edaf",
+   "summary": "01167b59dd09052e1081396213d1f6e0",
+   "top_issues": "6de8f7c96ad6ab53237dc27b0db41bf9"
+  },
+  "kpis": {
+   "amber": 19,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "71.2"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 25
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 0
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 5,
+   "record_kinds": {
+    "cp_output": 6,
+    "other": 8,
+    "partner": 8,
+    "pd": 17
+   },
+   "record_ratings": {
+    "constrained": 0,
+    "off_track": 0,
+    "on_track": 0
+   },
+   "records": 39,
+   "records_not_monitored": 39,
+   "records_not_rated_yet": 0,
+   "records_other": 0,
+   "records_rated": 0,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 36,
+   "scored_visits": 22,
+   "visits": 25
+  },
+  "page": {
+   "analysis_tab": "49dc1e047cbd91163d20f334dea2ffb8",
+   "analysis_tab_all": "4474b1ff5310a12992a0846de3a0d1ba",
+   "brief": "b4344cc57aa19a243e37c90be5ffe5be",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "b841dfd8ecc3f31da15ab0fda8f54996",
+   "facts": "9ef98022f193ef1a019de41a2a3ae7ce",
+   "kpis": "f8d203cad25a0b87f2957c9fc861caa5",
+   "map_tab": "4699653f9fa22e375bce49193c64a9ac",
+   "map_tab_active": "1453612dfe34f7f997295380dee848d1",
+   "notes": "62d78dbf92556dfb58c866025a00b0dc",
+   "quality_tab": "e66d1b3da8cf588c2505c9d8b8eed1cf",
+   "quality_tab_all": "962e8db26b2eb2078726e3cc6407e0cf",
+   "tiles": "dd5e373311962d1233bf75c4c11a6291",
+   "window": "40402a23effd98fea35e5fb631d76f5c"
+  }
+ },
+ "year=2026&section=&issue=R1:missing:3": {
+  "alone": {
+   "action_points": "f1644cc4a78fd1e9c0835ddf1973b187",
+   "breakdown_office": "5fbd30ced1f2d272720514d2a59f9e56",
+   "breakdown_partner": "49694009348ef72fb5572c7330de443b",
+   "breakdown_section": "3cb3c624646b0ffdd0183758aa0a377a",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "acc99e613c1a3a92659785850a50f8a1",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "eb6939ff10a663f6f06a6bd5089b830e",
+   "dimension_breakdown": "7e3bf2f46b048b483f8412437a39f3c9",
+   "drill": "c9cef341680b7c8dc2420146f8832ffd",
+   "entities_all": "1e1ca02002219abebb33d923349c2a5f",
+   "entities_cp_output": "2073e4e2fb873d3063bec74af54d27ee",
+   "entities_other": "5809a970b4f5634ac30f4021f01e36c5",
+   "entities_partner": "7f0bc6ab029e50b54bf4a17bd9a05743",
+   "entities_pd": "bad6279ed1658a5d9ed48662bda1cab6",
+   "entity_kinds": "205e303cef860b0569a0b7752efd3e8e",
+   "flag_distribution": "e37cc721ed4bde131ef206caf06cab7b",
+   "flag_frequency": "a888ae07761831f037bc298fedb68adf",
+   "governorate_gaps": "ab1d83b05be91a8a0966ecd8069f6f0b",
+   "hact_programmatic": "d801994dfbbe37fb3999993220614377",
+   "hact_q1_by_month": "f6a969082b57eb5bcb0f0262eb632aef",
+   "highlights": "afd59f95f9e73016abbe298450d1f13f",
+   "issues_summary": "429f8d88614312f961ca8be64070e2f0",
+   "kpis": "30b52f57f633d9918b788be40d806fa8",
+   "locations": "38c33e3edfd055d958a372800c8239b0",
+   "map_active": "e9260d745a79185da61700f8b234c18e",
+   "map_visited": "8cd19fa365b437782cf604a8ccb54f5f",
+   "monthly_quality": "40436cc2c6b0d7fe051f8d51068bceb7",
+   "monthly_volume": "1fc5865e6f09da947dc35991ec21f584",
+   "narratives": "c60fec2524ad386730ebd20ead336e07",
+   "notes": "6da78d2d8bbfc6a78cb9c0a4653e4dfc",
+   "office_rule_badges": "ed66dc0b8c471e9ec17d750d9751f9db",
+   "offices": "8dfbd14cdb601c230dfcfa085ca14dfa",
+   "quality_by_rating": "ca991b74adbc8d8b0b416f78c47faf88",
+   "rating_by_month": "8dda5cea3e0bd581cc01dcb2c0c498d2",
+   "rule_analysis": "88870d5340f94d99f8f8b44f60977ed0",
+   "rule_months": "6c9b2366f3e3a1c5695906d4620887c1",
+   "rule_stats": "22730044a47fb19ba6e9f5088430aabe",
+   "rule_stats_after_months": "632e4408a5d83983091301669d93f521",
+   "rule_trends": "a5443cc4af85d7c5f8cd3b4bd7de1809",
+   "score_buckets": "cdbd24ab4ee1e6a3f4ada1ce35a4cee3",
+   "sections": "26c887cece5ef6a580af98a4b662c444",
+   "summary": "6293ee30c8bcb115f5510b099b988741",
+   "top_issues": "781df2b3776eb3d917120398c393db2a"
+  },
+  "kpis": {
+   "amber": 15,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "74.6"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 18
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 3
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 3,
+   "record_kinds": {
+    "cp_output": 7,
+    "other": 6,
+    "partner": 6,
+    "pd": 17
+   },
+   "record_ratings": {
+    "constrained": 8,
+    "off_track": 3,
+    "on_track": 19
+   },
+   "records": 36,
+   "records_not_monitored": 6,
+   "records_not_rated_yet": 0,
+   "records_other": 0,
+   "records_rated": 30,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 36,
+   "scored_visits": 21,
+   "visits": 21
+  },
+  "page": {
+   "analysis_tab": "bdb4b6c741bbe947ac7d1466f50f37ac",
+   "analysis_tab_all": "72ba6ac28bce455f2701275666b37159",
+   "brief": "f6cdd3ebdd9131de0dd596f2eb11330b",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "a108e0bf6c86fddd9b964b1bd5e9a2b2",
+   "facts": "55c2d3682818295fa481e9704c89c819",
+   "kpis": "30b52f57f633d9918b788be40d806fa8",
+   "map_tab": "86e0e5bfb74eadf5ad22b8c248f95a73",
+   "map_tab_active": "f2cd4cb94cfb2fc3ea796ec1c6431803",
+   "notes": "6da78d2d8bbfc6a78cb9c0a4653e4dfc",
+   "quality_tab": "8b6c9fd907c4f4820cf4145b568654b4",
+   "quality_tab_all": "257dbebb6deca4e82ecda3331cfb5ba6",
+   "tiles": "69a1d343885d2624ae403cddb2fc7f15",
+   "window": "d2e11547db0e76da46a8dc88effb63c7"
+  }
+ },
+ "year=2026&section=&issue=R23:not_registered": {
+  "alone": {
+   "action_points": "b728a702eb088552b8ac98474ac86932",
+   "breakdown_office": "eec2717754a59cec275261855c3552dd",
+   "breakdown_partner": "1f7f52f48af5203c2697776075db1c41",
+   "breakdown_section": "9349d87d02b70abffaa6bfa9d3035ad7",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "01040a6ffbda31e8cd19144c9e8140aa",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "08db82c9954a5c125ff81b4cfc51b87d",
+   "dimension_breakdown": "c0203e82538d3a1921674589fbe8b8dd",
+   "drill": "0d97cb22fbc044069baf87fc8e6de0f1",
+   "entities_all": "7b072938f64225f720aee0b95bcda295",
+   "entities_cp_output": "0e7893d97d984702792b7654d5dc952d",
+   "entities_other": "15a77cdf78cef4e4855cca82f45c4d7b",
+   "entities_partner": "6c25646792c0bcf31e941f23563a5991",
+   "entities_pd": "088c3a0ef6432affc768d78490de5a4f",
+   "entity_kinds": "040a86ef2ee9063078cbf095f8e82cea",
+   "flag_distribution": "44cc988c6480c21ce8bb2d417aefbd0b",
+   "flag_frequency": "af2641de45eda4f106b5aa6822a421f1",
+   "governorate_gaps": "8473a9fa168c1b2c8a0983076ad21d9f",
+   "hact_programmatic": "a3b4e839aa99271266d38052d31e733f",
+   "hact_q1_by_month": "f4206a5ebabd66b56a246e4db5d31e97",
+   "highlights": "0c6f85a74bc53b9182cd8b6b6cb0272b",
+   "issues_summary": "1cd2f589293dfefdb352a6f18ce284b5",
+   "kpis": "1b7445df4282f8d113cbdb33f1efaf56",
+   "locations": "593e91155a70b3835aef28a57b99ba4c",
+   "map_active": "a60cee7264e98c2ef4387c98581a2801",
+   "map_visited": "2df49225ca7481826c1bc2f854b35822",
+   "monthly_quality": "0d28b610db436b752d05a8d94458721a",
+   "monthly_volume": "c7a215ddaa60346aa62c157b280df83a",
+   "narratives": "3d32f81bfc8688f95313b648e8cbec73",
+   "notes": "fa0de27239e8c4e95558760d9ad550e6",
+   "office_rule_badges": "9eb536318c221447c1543371038ffd7e",
+   "offices": "3f73bb35900b42edc9749fda31f43e12",
+   "quality_by_rating": "99d67d769662343c75509ef4a434ee37",
+   "rating_by_month": "9b9c7f520fc50e380871574948a3e0f6",
+   "rule_analysis": "b4a58e142f7ed09710cb02e5e024591c",
+   "rule_months": "e7ba233e24669103acb9236be340afbc",
+   "rule_stats": "c2988eb82a73372ed3948e5463113eb1",
+   "rule_stats_after_months": "8506f276393c20e9726b52c46348e0d8",
+   "rule_trends": "11837b06f48aa69545329adc943f1601",
+   "score_buckets": "5ec31676931f9c9d0973b6a4c1673a53",
+   "sections": "2c3032ab3c23e4e21e22c6edc9590432",
+   "summary": "f0cec9b1056bcd9c14d9225235b1a570",
+   "top_issues": "e3bbe79ef43fd60007b079b7bbc3ee51"
+  },
+  "kpis": {
+   "amber": 45,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "73.2"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 28
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 2
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 3,
+   "record_kinds": {
+    "cp_output": 13,
+    "other": 15,
+    "partner": 12,
+    "pd": 31
+   },
+   "record_ratings": {
+    "constrained": 14,
+    "off_track": 3,
+    "on_track": 24
+   },
+   "records": 71,
+   "records_not_monitored": 28,
+   "records_not_rated_yet": 2,
+   "records_other": 0,
+   "records_rated": 41,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 71,
+   "scored_visits": 30,
+   "visits": 30
+  },
+  "page": {
+   "analysis_tab": "d138b59f3a0a2a2cf232fe8d400dadfc",
+   "analysis_tab_all": "5993cbe9daa9561ac5e38cd9a88449ee",
+   "brief": "3fa407265f4ca937173d8bb75372cd4e",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "ff5cc8778528f2de8664d6391cbc578b",
+   "facts": "1e153a23c8937b3eaf09b71b0a36ff71",
+   "kpis": "1b7445df4282f8d113cbdb33f1efaf56",
+   "map_tab": "8c61bd5db0c0495ec45fd749be48dff7",
+   "map_tab_active": "7580a6dd5ffa9f7c3c3e52ff7988ae6e",
+   "notes": "fa0de27239e8c4e95558760d9ad550e6",
+   "quality_tab": "ac52c70ea287b0589b3d5f10c57d9a17",
+   "quality_tab_all": "2101aa1dfbc846bb44c9001489531cfe",
+   "tiles": "64f77ded610b33984ab4e1378ba4c8d6",
+   "window": "89e0589bc754244d92f7ce78a43af464"
+  }
+ },
+ "year=2026&section=&issue=R2:band": {
+  "alone": {
+   "action_points": "9f6aeeea24c4222bee40f3af40e6ca1c",
+   "breakdown_office": "386ab23714d3d20bcb385eab1f0e5f13",
+   "breakdown_partner": "2c4fb42f467a2d37ac0af4bca84b2292",
+   "breakdown_section": "b806170b611f21ae4d6ed35226204838",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "5b05eb2dc9f14280d2b3c6c4276d8733",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "1ae64803722c5e8348c4aea9b67a3f4c",
+   "dimension_breakdown": "467d19828b3938694f12605f6eb25061",
+   "drill": "201cc62209ae77f4429e05a5e0f017b0",
+   "entities_all": "ea1905660d27ddecf13e8f5b452222fd",
+   "entities_cp_output": "92bcd1e71a68ff3500a2bcf63e269eb3",
+   "entities_other": "34c6e045991baca7a712227aebb81ac1",
+   "entities_partner": "18a0a8f5a621140764319015bbd4856a",
+   "entities_pd": "57a6fd2519d52d05d5e3868f03257b90",
+   "entity_kinds": "b2093db62f5db82555f5b0d2ce436934",
+   "flag_distribution": "72eb6c20482a2e9afdbf79134957b19a",
+   "flag_frequency": "8e49d9cc182f74465e34961847e5ac87",
+   "governorate_gaps": "cf645f432c64cc9465f4100819845aa5",
+   "hact_programmatic": "8bb32e5fe3862311e48f062a5770972c",
+   "hact_q1_by_month": "d55d76660a8428817a124c3215b672e6",
+   "highlights": "3365bd3acba8b4c916667a853df36cad",
+   "issues_summary": "ce3608823318ed0936884b3a7cd1b4d7",
+   "kpis": "7752348b42b0b25cdd0b3b394f2a6e4a",
+   "locations": "5d3415f4501aa37b4b49baeddac113cc",
+   "map_active": "805f8e6482fc9fad760fa5454527ba45",
+   "map_visited": "9d70c8379038f3fe68ff4caa7290293c",
+   "monthly_quality": "01f1622dc419f2d067dc385ddd5cf88f",
+   "monthly_volume": "85aedddf2054403239557239f96d0a3a",
+   "narratives": "42cacb19d20e64ec017053ee4704d91b",
+   "notes": "5a8186b1f0d7e75978164ec9054cabf0",
+   "office_rule_badges": "c9e27b83e226d8988f033cc1336e2606",
+   "offices": "c03b7ac90cc5da4106a315f166f987c0",
+   "quality_by_rating": "624ff54045ae6a3e12c61bfc55f81375",
+   "rating_by_month": "3ef7b8b47941374e95399dea06f2f830",
+   "rule_analysis": "1421a16d14f25a2a4b1edec1416c1e32",
+   "rule_months": "66ff536c8ed348d9b55c051fb94a8660",
+   "rule_stats": "b4d1e5ac490afe42f77d9d64f23ca129",
+   "rule_stats_after_months": "bcd17e7a95e289a13ec26dff8f7d0062",
+   "rule_trends": "5cb776f4a3550f9c0c02e1351d01c3b0",
+   "score_buckets": "b3a22881fb3364a4ba1641ab1c4f5c2a",
+   "sections": "fcca0929d513f545fcac1dba6b93fcfd",
+   "summary": "2de401c2472583a698ccbd8bd505890f",
+   "top_issues": "853c97a9518591ce288a6eabad19b1c2"
+  },
+  "kpis": {
+   "amber": 54,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "73.1"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 41
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 4
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 8,
+   "record_kinds": {
+    "cp_output": 18,
+    "other": 20,
+    "partner": 21,
+    "pd": 44
+   },
+   "record_ratings": {
+    "constrained": 22,
+    "off_track": 8,
+    "on_track": 35
+   },
+   "records": 103,
+   "records_not_monitored": 34,
+   "records_not_rated_yet": 4,
+   "records_other": 0,
+   "records_rated": 65,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 103,
+   "scored_visits": 45,
+   "visits": 45
+  },
+  "page": {
+   "analysis_tab": "1e07308ed3f9d18a9ef137d2670d7b8d",
+   "analysis_tab_all": "b4737ad2a66f11337953d83b32003c39",
+   "brief": "937f1802947861caaa76f0c381264525",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "09eb33475e24cbfc5583146517027bd8",
+   "facts": "a3d9488a5dce5dbddc082f35fdc5b2a1",
+   "kpis": "7752348b42b0b25cdd0b3b394f2a6e4a",
+   "map_tab": "a956a0a20322f729786269076cad5e43",
+   "map_tab_active": "0a5a935bca761c14dd8699984bc6c80b",
+   "notes": "5a8186b1f0d7e75978164ec9054cabf0",
+   "quality_tab": "75b25b9de42b9284cd24f186db82bef4",
+   "quality_tab_all": "2e0b40837d7d1754273ea8eb5819ae35",
+   "tiles": "de5d716cadfe416fd7db42b482d5a7d5",
+   "window": "d2e11547db0e76da46a8dc88effb63c7"
+  }
+ },
+ "year=2026&section=&location=7301003": {
+  "alone": {
+   "action_points": "e7a01c6035e7b57d2d9ea9f1ae1b7f49",
+   "breakdown_office": "3dfe396cbdbc6ef9f71447ffdc8207e5",
+   "breakdown_partner": "fb64706ca055a5b6f83abaf80103cadb",
+   "breakdown_section": "3dfe396cbdbc6ef9f71447ffdc8207e5",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "105ea8f009c367d8b78f45deebc58d38",
+   "coverage": "2733e3ab751326ca7fe7dbf47eaf388a",
+   "critical_items": "f2ff608fa54d69ca935962285496510f",
+   "dimension_breakdown": "6aa44d0e59fa3d4801e563590980a82f",
+   "drill": "c9f1894c5db4eee2894cdecb5dac3973",
+   "entities_all": "4b5f4a4ab6b331a173a5bad2099270b2",
+   "entities_cp_output": "877c1937bceb8949451de3471b699e8f",
+   "entities_other": "e5ec52319a478d366e3f8d481764897f",
+   "entities_partner": "3714de9a3e293b00a9edd5e9e96daef5",
+   "entities_pd": "479a6a4412fa0862cac854981a6b8920",
+   "entity_kinds": "6a28d88b223917a9b95e7cb7ea608339",
+   "flag_distribution": "38cd5812c9530cd4bcd41f143ce0dc6b",
+   "flag_frequency": "5b4090bfbf63af813df9250b2df1c185",
+   "governorate_gaps": "90e2ce259095047a663bc178a4bc4778",
+   "hact_programmatic": "afccadf734361cc8a3c18d3a9f4f507e",
+   "hact_q1_by_month": "74234e98afe7498fb5daf1f36ac2d78a",
+   "highlights": "9bd94e29dac27347eabb39ed366bbb20",
+   "issues_summary": "c409c9f0584f5b3ee60c29906cc5e60b",
+   "kpis": "a1bf3a414513a0db013f090f89960575",
+   "locations": "5561962edec444d6567d64821e559fd1",
+   "map_active": "c227789690cd3434f0c8bb856efdb5b3",
+   "map_visited": "438db5687ef44cc17b9386fc59140291",
+   "monthly_quality": "44136fa355b3678a1146ad16f7e8649e",
+   "monthly_volume": "c0a0620ac948235423caabc1f820580c",
+   "narratives": "5f5a7bad6e378f067fac8bdcb6aa867d",
+   "notes": "c58877ea167aa19eb6b3afac1493b7b8",
+   "office_rule_badges": "122aa916b8617069e6dd2dcb541f8caf",
+   "offices": "0115bfe4d67bdc18e63ea10ef3f7f9b8",
+   "quality_by_rating": "a5a1537d847928824d9ff24392358f35",
+   "rating_by_month": "74234e98afe7498fb5daf1f36ac2d78a",
+   "rule_analysis": "4c31bbd02373fc052feb1000f58ff0e4",
+   "rule_months": "db61a3132911bd1c8e355b62d30854be",
+   "rule_stats": "e3f148c02e7a1765202140d033e0792b",
+   "rule_stats_after_months": "605e6a3ab419fe8eac79e997796d2cd4",
+   "rule_trends": "44136fa355b3678a1146ad16f7e8649e",
+   "score_buckets": "834e2f6bf032331289d1dfeedc479849",
+   "sections": "c91f55fd56c9e9ade9be106bad28fcfb",
+   "summary": "30e85b75a34632962649cb7edb11fd31",
+   "top_issues": "4f53cda18c2baa0c0354bb5f9a3ecbe5"
+  },
+  "kpis": {
+   "amber": 0,
+   "amber_at": 40,
+   "avg_quality": null,
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 0
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 0
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 1
+    }
+   ],
+   "high_urgency": 0,
+   "record_kinds": {
+    "pd": 1
+   },
+   "record_ratings": {
+    "constrained": 0,
+    "off_track": 0,
+    "on_track": 0
+   },
+   "records": 1,
+   "records_not_monitored": 0,
+   "records_not_rated_yet": 0,
+   "records_other": 1,
+   "records_rated": 0,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 0,
+   "scored_visits": 0,
+   "visits": 1
+  },
+  "page": {
+   "analysis_tab": "57b2b0c15966334d82c30a51eb4f6e7f",
+   "analysis_tab_all": "61768a1ccd79bbc8e0a8e7b9e3db7524",
+   "brief": "ac736f5316821b3081613c1649787725",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "d997e3f01a301b3534959005d2f66691",
+   "facts": "7e62b25cf74800f9dd72ecae9177e891",
+   "kpis": "a1bf3a414513a0db013f090f89960575",
+   "map_tab": "6a788379fdea4ceb745b7b5171067d87",
+   "map_tab_active": "9db5f0abdd829e3ada57474b04d1babe",
+   "notes": "c58877ea167aa19eb6b3afac1493b7b8",
+   "quality_tab": "21e22d9be3d4ad415cb5acfd6cab839c",
+   "quality_tab_all": "21e22d9be3d4ad415cb5acfd6cab839c",
+   "tiles": "e6356c3d12fb69e800741d63dd0c4fe4",
+   "window": "8d22fa0a3f7cc45228aefceec5d3ce7e"
+  }
+ },
+ "year=2026&section=&modality=TPM - iAPS&programmatic=1": {
+  "alone": {
+   "action_points": "61bc34935c29c204b7abfa68f20e6845",
+   "breakdown_office": "843602745398c88c96e6cfd5e2d42acd",
+   "breakdown_partner": "2e2f0f6de368b42732eae9b30849e6b4",
+   "breakdown_section": "b20e613cfd5bbad0d52052efcd9fe83a",
+   "briefing": "f5b43c7dd26259eb2b0fccc002c3e48a",
+   "card_order": "04c8fa82d39023af52f58dded31f1a77",
+   "coverage": "362521a70cee0fc0715c8cbfdbcbe024",
+   "critical_items": "e68a7ba24c3e52c6667e18da8d23cca0",
+   "dimension_breakdown": "48cb109daa0a40c7b430aeec6af59888",
+   "drill": "f9d4071e0296777f4d8ed23541e72789",
+   "entities_all": "79318e539db714df0660813ad6bf8634",
+   "entities_cp_output": "51adee41afbe015bc3399005ce2c5cb6",
+   "entities_other": "fdf75ebe3664d8e6346778ecbeb55883",
+   "entities_partner": "67cc9b7a23b260a04bbf37269dc06b06",
+   "entities_pd": "15b6bf120ae0e134723c85fbf1af8309",
+   "entity_kinds": "00285339f2a5778879fa8e38f3c48e84",
+   "flag_distribution": "9c7b54ee948f43a171ba5e8d06842df6",
+   "flag_frequency": "4d48babe583f7f21cc385a47b2c9aa1c",
+   "governorate_gaps": "b2cc551cfbf779b27bebec95d8e2fdf6",
+   "hact_programmatic": "3e0fb504236ff8ecb3f10f1675ab95ad",
+   "hact_q1_by_month": "7f85dde45c5e53f8942962c2fd7092ad",
+   "highlights": "d5bb7f551628a4aad58588646f8c9366",
+   "issues_summary": "88ee3d5d8571db974646ee092fff224c",
+   "kpis": "8d700e3702a3bf05ec66ee82b20d9068",
+   "locations": "e6a022f0f74de1e8570e5a12cf3ff946",
+   "map_active": "22305cee4f4d7a669ee3d9f784553094",
+   "map_visited": "93c4a599fc040e6e862b8f0436e1b278",
+   "monthly_quality": "4a9b0595158bef00fcd8e71f8f52ccbe",
+   "monthly_volume": "0148f90e38b941884873e355e68e9a5b",
+   "narratives": "982923fbf7c5792a3b20f50d5005b194",
+   "notes": "1012f4f69370548f75e5026cd6586857",
+   "office_rule_badges": "5c3b52ee4fd3c6dfe173b01d9ad42bba",
+   "offices": "a3147cee0918c8036b0454897d1afde5",
+   "quality_by_rating": "a5ba39da987698edfd7c2b5de362ff56",
+   "rating_by_month": "7e5e3ac1754e66da1d9d5bef1debc550",
+   "rule_analysis": "4767b0b3cdd59f6de85219e30bd95e0e",
+   "rule_months": "dbbf638a2ae70acca1c46ae4cb0f3853",
+   "rule_stats": "44701bf96c953c47d9d93c5d3bc4312d",
+   "rule_stats_after_months": "a26eb4d689d103aa52362b0b64389c6f",
+   "rule_trends": "78fad8e199a22df524512a04a63f37f2",
+   "score_buckets": "bbd954ac91319de5ae9413e776ba6d38",
+   "sections": "60a9f747aeea1a165e05923d77094f05",
+   "summary": "42ae33c4650c388c9c530d43c5fcea8b",
+   "top_issues": "ac3398271e0a8153f1d8313ff4fda192"
+  },
+  "kpis": {
+   "amber": 10,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "69.0"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 7
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 2
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 3
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 1
+    }
+   ],
+   "high_urgency": 2,
+   "record_kinds": {
+    "cp_output": 6,
+    "other": 8,
+    "partner": 3,
+    "pd": 18
+   },
+   "record_ratings": {
+    "constrained": 4,
+    "off_track": 1,
+    "on_track": 12
+   },
+   "records": 35,
+   "records_not_monitored": 5,
+   "records_not_rated_yet": 12,
+   "records_other": 1,
+   "records_rated": 17,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 22,
+   "scored_visits": 7,
+   "visits": 13
+  },
+  "page": {
+   "analysis_tab": "330dd8b8d240e93bf4e1c2943511e65d",
+   "analysis_tab_all": "bb31b652154d4054eeb5245f20f9059c",
+   "brief": "c383fc38a556a1cd8c42666258374cd2",
+   "briefing": "6ce84bcab0ccaf4627a29a7cf9010c37",
+   "critical": "16060180fe131774e3002c1fab1290c3",
+   "facts": "e89b9668c50ae9d393843715fc93a06e",
+   "kpis": "8d700e3702a3bf05ec66ee82b20d9068",
+   "map_tab": "31df2762a57c63c265d375af5ebb8c2a",
+   "map_tab_active": "d3c60aa2ccc05ac5a8520ec58dc0e06c",
+   "notes": "1012f4f69370548f75e5026cd6586857",
+   "quality_tab": "357f6b438ba3f509efc8ebb83acfde5f",
+   "quality_tab_all": "43462cfd77dffe01c9cc911b14f297a1",
+   "tiles": "357224f29177145692961bf49662a861",
+   "window": "48a5c858cacd36d74622e14d996ca5a8"
+  }
+ },
+ "year=2026&section=&month=2026-05": {
+  "alone": {
+   "action_points": "d4740d334a9e61caf3694e78b3b30c68",
+   "breakdown_office": "8486b168b4ca80d92590b57720c95f7b",
+   "breakdown_partner": "0529f31acac12ddc23101e670d9194e5",
+   "breakdown_section": "a1e8be4512ed2e6d877c5da1ff8da1ee",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "8941e26e3b99caa0927cfefdd194d638",
+   "coverage": "f8300277eb9caef21ffed19dc4ee6a67",
+   "critical_items": "7e85dc580e45ac0f97de4c0224875b71",
+   "dimension_breakdown": "427a036a00f7608d8c570b38194dec69",
+   "drill": "7adc4c7018203b4fc07452f75efe4799",
+   "entities_all": "56dcde3c02b5d454c7334acab18d42d1",
+   "entities_cp_output": "059d2d622a62df682531cc870550bcbd",
+   "entities_other": "bb175d86ac1005a4a14650983279f5bb",
+   "entities_partner": "683346bdfe4efa2bac1febc70778dc38",
+   "entities_pd": "e339a0d15eac444cca9b1ebf42e30b1a",
+   "entity_kinds": "ba1f15fe06abbb3ed8ed97e6ef0a7fc0",
+   "flag_distribution": "dd3446a2b119d33553ac72520e4241e7",
+   "flag_frequency": "2378ef2ce61a7d392adeeb74f61eb93e",
+   "governorate_gaps": "2ba7a1c65f7600879ede080db9e1a2d0",
+   "hact_programmatic": "40926fa3007fe9747c8b8f18e7102639",
+   "hact_q1_by_month": "73544b776a467afae6d2660e19a172c2",
+   "highlights": "20b058884d2fe283f56e62769f0dd9c5",
+   "issues_summary": "e7e81152eab4b345b3c16e9492ed4322",
+   "kpis": "dc3b94739d26eb963b3ad1e400ee7df0",
+   "locations": "29e3e31e06ac00df52e7d5af9029729b",
+   "map_active": "e9869ad93f43a8e7a75f744ce61fd7fa",
+   "map_visited": "45de55442ac889d35c4001094a7114fe",
+   "monthly_quality": "7d9530cbee70a32fb1d9682d9c6bb32e",
+   "monthly_volume": "b46439ef18156648b9e622fd25adb225",
+   "narratives": "a9172c4fe2f42a0bc66cf53c73209817",
+   "notes": "4f53cda18c2baa0c0354bb5f9a3ecbe5",
+   "office_rule_badges": "e8a35f1b04910988d90a296f3d61a6a3",
+   "offices": "f5d5dfaee48d0773ad799b797f103f2a",
+   "quality_by_rating": "682d1155e1aebe85b1ae0bc3fc036556",
+   "rating_by_month": "b6edacd26f256daaf25525f302bdd9d1",
+   "rule_analysis": "b227baaf49fff1b20b92a62638dab258",
+   "rule_months": "6117b10a041a67a5498298544dd40afd",
+   "rule_stats": "af13c1b32f0a7251c94924a612200b32",
+   "rule_stats_after_months": "1d2d7644ce252c738ef202a86221f151",
+   "rule_trends": "d558ab7e3182eeadc10f9b71dc2f6022",
+   "score_buckets": "6561e944bcbc99605ae7cc4c6fa9c424",
+   "sections": "46ebc9cadef5a42c8004e40f45cac50b",
+   "summary": "0d1ba888394cc60442894dd46e531620",
+   "top_issues": "ae8ac2bbbe1329acf3e9cb388d8cc2f0"
+  },
+  "kpis": {
+   "amber": 4,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "73.9"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 4
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 1
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 0,
+   "record_kinds": {
+    "cp_output": 3,
+    "other": 3,
+    "partner": 2,
+    "pd": 3
+   },
+   "record_ratings": {
+    "constrained": 1,
+    "off_track": 0,
+    "on_track": 2
+   },
+   "records": 11,
+   "records_not_monitored": 6,
+   "records_not_rated_yet": 2,
+   "records_other": 0,
+   "records_rated": 3,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 9,
+   "scored_visits": 4,
+   "visits": 5
+  },
+  "page": {
+   "analysis_tab": "d24d1f67beafcfd3cf12e41180f07c34",
+   "analysis_tab_all": "2bc5441b1d9dca4c667f706dbf35d5d0",
+   "brief": "92d1e2daf23079d853646644653f7967",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "4393fb2ae0f432f939562ecba5c5b2a2",
+   "facts": "6cf948dae6ca51521b70285d3934054f",
+   "kpis": "dc3b94739d26eb963b3ad1e400ee7df0",
+   "map_tab": "b1b39c731af24bf6a23f409456195487",
+   "map_tab_active": "1bf007166827006a39feabaaf3610549",
+   "notes": "4f53cda18c2baa0c0354bb5f9a3ecbe5",
+   "quality_tab": "43fa7f90421a39fbe35414c06be38084",
+   "quality_tab_all": "43fa7f90421a39fbe35414c06be38084",
+   "tiles": "c0c801c9403261f7201be645634d73b8",
+   "window": "bc14080b3013abbe98895767fadf7ec4"
+  }
+ },
+ "year=2026&section=&office=Zahle&office=none": {
+  "alone": {
+   "action_points": "728ecd8462818a355196208b234aa4fd",
+   "breakdown_office": "b9b3c0b46d081d58bd24f0ecf86ac5cd",
+   "breakdown_partner": "8056905443e1c838c7c26d5e089e764f",
+   "breakdown_section": "d9229879cf2442f48a3f7832d5a591e3",
+   "briefing": "d77e66d5c64694a148145248beaa338e",
+   "card_order": "d736c61131c0080c857fadb4358dd5b5",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "e2ab669473643583e03052514bb3387d",
+   "dimension_breakdown": "9a05052a847b9a9c343e963e0b8fe682",
+   "drill": "5179aa17e5ad9fe933a5ef060d91704b",
+   "entities_all": "67c0e0af5e48490be38abd5e1ad944dd",
+   "entities_cp_output": "26b26e15c7358a704cc92ac6b7fc3625",
+   "entities_other": "6abf376f6a59338eb1f0bba75b79cbc1",
+   "entities_partner": "dc27dfcfaa31a5369353accbe7debb8f",
+   "entities_pd": "fbecd0742fd93c0d9ad92cdd83f7b4f5",
+   "entity_kinds": "da0e355e41498b26a4f99d9cb75433cb",
+   "flag_distribution": "c5a209a61c96ef181e40a5fba6a26828",
+   "flag_frequency": "9e8c69069bd956b4d4f9423f256e843f",
+   "governorate_gaps": "864b01155201af9b980a70a7bb9a63cd",
+   "hact_programmatic": "8bb32e5fe3862311e48f062a5770972c",
+   "hact_q1_by_month": "583c4bf000fa4487074fef36989d3299",
+   "highlights": "341e3c7bbe231441532a971f371eb10b",
+   "issues_summary": "691ccbe161d389ca8cec40c81c4f8b08",
+   "kpis": "8c6f1897fe8a4dc24b09243cad2d4d3b",
+   "locations": "e3b081ed3e8fd6fc384b44212e4ac4e3",
+   "map_active": "4b9718cea2d9bf2c3e1692bced3d792b",
+   "map_visited": "756285d8d6913a99f2784c6f7baf93b1",
+   "monthly_quality": "58921f793315077ad486e35a0da5d8c5",
+   "monthly_volume": "b23a8af1290708bfadc9ba390e213b24",
+   "narratives": "b5098d9505625335ea0faf79980ce494",
+   "notes": "41f57e19ebcde6d1d732a0909384b1d6",
+   "office_rule_badges": "4cdd10afa4ae4a2f9894e997b22ab0fd",
+   "offices": "ae18ed4399aa285dc3a273d969d744c2",
+   "quality_by_rating": "d3919c3cc5c8df0447b09ca0c88cb75f",
+   "rating_by_month": "de9fd0593f10c7ed61606c3a1abe60ef",
+   "rule_analysis": "1e2272958ee86403c11155fa5d49fff3",
+   "rule_months": "361fb1cd78dc48891ca014e6d96ba41f",
+   "rule_stats": "a831023cee49a17f273bda9bee854f5f",
+   "rule_stats_after_months": "bfa9faf4be3eb0aa8e7038311e057e59",
+   "rule_trends": "d2ad3ce45cd50ddba9cba79f2ed512dd",
+   "score_buckets": "1474256e4f51274bf3b2aee25726f68d",
+   "sections": "7f0c23c471bc056b0b822641725cd48b",
+   "summary": "28173c4c68e6c3d4eac5c532a70e80c3",
+   "top_issues": "e4916ae9a450e4f17e95407dce257d1e"
+  },
+  "kpis": {
+   "amber": 28,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "76.0"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 20
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 4
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 11
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 3
+    }
+   ],
+   "high_urgency": 2,
+   "record_kinds": {
+    "cp_output": 16,
+    "other": 16,
+    "partner": 20,
+    "pd": 37
+   },
+   "record_ratings": {
+    "constrained": 14,
+    "off_track": 5,
+    "on_track": 21
+   },
+   "records": 89,
+   "records_not_monitored": 17,
+   "records_not_rated_yet": 29,
+   "records_other": 3,
+   "records_rated": 40,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 47,
+   "scored_visits": 19,
+   "visits": 38
+  },
+  "page": {
+   "analysis_tab": "25bc84f7f068e22e4fe66ecc41d59563",
+   "analysis_tab_all": "53ee5ed6bffb76f4774019d10f8685d0",
+   "brief": "5336f9e577fb01e3d6d107327ffb6a6a",
+   "briefing": "41dbdda3281d0ad2352a6a8910727573",
+   "critical": "61b7c7ee4ddd2346678694ef73bf0b74",
+   "facts": "b1620627d41bedbcf7d7b71c92f07240",
+   "kpis": "8c6f1897fe8a4dc24b09243cad2d4d3b",
+   "map_tab": "8714f53c93b954827d1d1baeb7026778",
+   "map_tab_active": "ead2ffcfc5c960f163a844d7de77bc31",
+   "notes": "41f57e19ebcde6d1d732a0909384b1d6",
+   "quality_tab": "f498f4da1bc17d1e460f6f4ebbf8fa1d",
+   "quality_tab_all": "bb366a8c89a2ff7870f92de1643ada0c",
+   "tiles": "6006882cceb0f62726a12ba7262422db",
+   "window": "f0fd28d71b6082d4453f37a452717e71"
+  }
+ },
+ "year=2026&section=&partner=7300001&partner=7300004": {
+  "alone": {
+   "action_points": "0abeeab20041c1ba9173dcc6286adbd3",
+   "breakdown_office": "6c702087c0dce541aaadfe18f5468983",
+   "breakdown_partner": "f6911cb04a93ed0a37d8ffd65271d452",
+   "breakdown_section": "e041a002a618d2f4b15029112d760345",
+   "briefing": "a2a8f8a95c91eeb71ccd5835e21df638",
+   "card_order": "c689ea696484abddbc5f89f93873f1ad",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "e68a7ba24c3e52c6667e18da8d23cca0",
+   "dimension_breakdown": "105124773697e86a0155671bac4ad5de",
+   "drill": "5d615d7da1bc108ed43b129d0688cad8",
+   "entities_all": "e1c950e4c42831e3eff3dc44063931ae",
+   "entities_cp_output": "c7a848a94224db8055ddb67028f3ba6a",
+   "entities_other": "a398394ad8f6bf15101bd010fb9caca3",
+   "entities_partner": "5b86a1c6692a1ea4818195863578870d",
+   "entities_pd": "bb224094430ad273f987e277fe5740c4",
+   "entity_kinds": "cfc227ce8c12d74c05765ff85666db1c",
+   "flag_distribution": "bef33bbfef36a9562bd3a63b4518cf71",
+   "flag_frequency": "0f4d36b798262f616684176536a699af",
+   "governorate_gaps": "d8e4a3ed9d0b46bfa0eebba664c68e40",
+   "hact_programmatic": "c2209165654200f58b42a935e0cceba5",
+   "hact_q1_by_month": "5d0c4286da817e9e7019d1de5073bb00",
+   "highlights": "cafb50130f7f97d8116512db45b1f624",
+   "issues_summary": "4aae36a2f4b2189d87d143bdd8dec1f8",
+   "kpis": "29612c7b1478784675b8c277a4e886fc",
+   "locations": "b5baf73c443c3d38bfd5dbe6a71820bc",
+   "map_active": "fa437fc975fc4043b3ef999e409e4bed",
+   "map_visited": "2095880676ddbfb783449b3f5cda2951",
+   "monthly_quality": "b7e72efda85a648b247f90382e5cbf21",
+   "monthly_volume": "d5c5b4a33b62454536dad8b36d6e64b0",
+   "narratives": "59cd48534efd4b7806202dd99fff528e",
+   "notes": "0eda4f27877e8ef200cbc1cfc79ad91e",
+   "office_rule_badges": "d281585a4d5a7b4aae06bdaf70ffea76",
+   "offices": "7a187cff89314c8fa1c5fe328273999b",
+   "quality_by_rating": "6f7b644b56f17e51d8f0d83910f05a02",
+   "rating_by_month": "37ef50675e1c65051d3402095dd63a28",
+   "rule_analysis": "b6ea95c3b3a1ac00807d00a5a1f22736",
+   "rule_months": "df0a5eb2c4a9630ad8c848a8952ddd0e",
+   "rule_stats": "46dfb94eb67148ff009da1bfe25f5d98",
+   "rule_stats_after_months": "8077cfc74ce906d3e6e8aa906daa9740",
+   "rule_trends": "9a48fd2c070f1729415337c9a2521db5",
+   "score_buckets": "ada284648c4e73710f5a686fbf1f8de8",
+   "sections": "6fca0bcc4d0f8e2d02b172aeaace469c",
+   "summary": "be94f0db64895d379a0b8f30e7a23ea1",
+   "top_issues": "bd26223d1a29c3d82c99c37ee2611e8e"
+  },
+  "kpis": {
+   "amber": 15,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "74.4"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 17
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 3
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 5
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 2,
+   "record_kinds": {
+    "cp_output": 13,
+    "other": 15,
+    "partner": 12,
+    "pd": 25
+   },
+   "record_ratings": {
+    "constrained": 10,
+    "off_track": 9,
+    "on_track": 24
+   },
+   "records": 65,
+   "records_not_monitored": 7,
+   "records_not_rated_yet": 15,
+   "records_other": 0,
+   "records_rated": 43,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 34,
+   "scored_visits": 14,
+   "visits": 25
+  },
+  "page": {
+   "analysis_tab": "bfa35ccf7460de83579272be602ca361",
+   "analysis_tab_all": "27788522a4fd18dd0514a99459d104e8",
+   "brief": "3726224389c9b52df022ad81519a9994",
+   "briefing": "33c544abe6bb89962fb86b89947456ad",
+   "critical": "388adb4c3466d5f1e9092ce989a29b4e",
+   "facts": "c039d2a776a466d2e80446277fa5d7be",
+   "kpis": "29612c7b1478784675b8c277a4e886fc",
+   "map_tab": "39bf9e5e795852416e9a347b47d6892b",
+   "map_tab_active": "a33662e6387a126b889297cd24a490c5",
+   "notes": "0eda4f27877e8ef200cbc1cfc79ad91e",
+   "quality_tab": "17b130247d04aeeeede7bbe6c78ea38f",
+   "quality_tab_all": "3cac81dd2147d36b1171bef8abdf6768",
+   "tiles": "18d1c48f3f5185962b2d4a4a7311990e",
+   "window": "70d1bb6230c04188c835212ef408a99b"
+  }
+ },
+ "year=2026&section=&pd=7300001": {
+  "alone": {
+   "action_points": "3244b4cbecea30e74ada158411ac415a",
+   "breakdown_office": "c6f7e5860fc7debf69dd96dcd4f2a170",
+   "breakdown_partner": "a3a865de62c28351b4cd21851a102040",
+   "breakdown_section": "aafd2d3a1b88404ec5becef7b02b414d",
+   "briefing": "8e99cc3707807f22dba904abb52088e1",
+   "card_order": "309253931820b22811fb4da1d16a41b4",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "3347b8e4fd6c59938a68d45221274fe5",
+   "dimension_breakdown": "28e687cfd23b19ecc4afbe9cb42425aa",
+   "drill": "9878e6de17a95d842714f9938f488f7a",
+   "entities_all": "92a76064b0821eac822f6f1132e8b1dc",
+   "entities_cp_output": "c0409654f46dd08707675e835dfb1796",
+   "entities_other": "762264d3b536e4a93b71d6e3f60d499e",
+   "entities_partner": "24fb0ece02f5feb2974f6247a8678085",
+   "entities_pd": "6e4a33cbeca4c9e842740090f61c4410",
+   "entity_kinds": "5432059c28d038331511a3c9a800646b",
+   "flag_distribution": "0ed26336397e0515113f4c3c0faf4c1e",
+   "flag_frequency": "514e5f86cc78b78b55f69b523e7c4914",
+   "governorate_gaps": "8473a9fa168c1b2c8a0983076ad21d9f",
+   "hact_programmatic": "c2209165654200f58b42a935e0cceba5",
+   "hact_q1_by_month": "7d02693ae069bc297def73e4694c879d",
+   "highlights": "33ca0d1b6ec6f2f3c52f0ee8cc5758df",
+   "issues_summary": "246f0d73e7165996fbb3cbd6a409ee15",
+   "kpis": "4bacd3bec3c2feffae0ea63f610270a8",
+   "locations": "0281ae3683133a56fb611f5e0ae358a6",
+   "map_active": "b70558c92c74a5374a4a97afa364f2ef",
+   "map_visited": "945d22da0f440aa11e002f14c5083227",
+   "monthly_quality": "96050d13b438424bf8327b4ca31af49c",
+   "monthly_volume": "d2f42d84fe0167bc51ffe08b9d2a917d",
+   "narratives": "0d5d3f67884dd88606715f9e927879e2",
+   "notes": "b1009e1fb21e91da760be38a4a6718fa",
+   "office_rule_badges": "10d5072dbda6051517eedbdffacfeaf7",
+   "offices": "6209d047df788ae309dc7bb2813bab2a",
+   "quality_by_rating": "89d07402627efb11aadff683faf943fb",
+   "rating_by_month": "3446c968cbf19d3053cfb306b59d7a65",
+   "rule_analysis": "348b2f296028e09da4f338f53c9d6eee",
+   "rule_months": "eceec0f92b0d314d42e720a2cd47cd24",
+   "rule_stats": "103c89e5a9e6054d2b0641c1a0d2b017",
+   "rule_stats_after_months": "a857712eb12f9a4998431fc248ca7293",
+   "rule_trends": "942a0709420c518d205f27fcfac2c0a8",
+   "score_buckets": "dc9172d0d828dfe26b52a2ed446d7958",
+   "sections": "8f32d10cf0794a4296d30e2a1181cf40",
+   "summary": "0e69d512d7425957b8d06aefcf229c8f",
+   "top_issues": "64c5ff85f24cf2de0224c814bd3ea3bb"
+  },
+  "kpis": {
+   "amber": 2,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "79.5"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 4
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 2
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 0,
+   "record_kinds": {
+    "pd": 6
+   },
+   "record_ratings": {
+    "constrained": 2,
+    "off_track": 0,
+    "on_track": 2
+   },
+   "records": 6,
+   "records_not_monitored": 0,
+   "records_not_rated_yet": 2,
+   "records_other": 0,
+   "records_rated": 4,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 2,
+   "scored_visits": 2,
+   "visits": 6
+  },
+  "page": {
+   "analysis_tab": "f12d2d78e9fe7bc8c0a9f3d7c50570b9",
+   "analysis_tab_all": "3d9e734ecd8dc8cea515e8ce7ebd395e",
+   "brief": "243ca814a6d4d0db47577116211f6561",
+   "briefing": "a73746c7cf71dc48a0dfc234c2928d12",
+   "critical": "1add3a22e7c1834a372347926797007b",
+   "facts": "cc496a49d6e236f249c66bcfb5d717d3",
+   "kpis": "4bacd3bec3c2feffae0ea63f610270a8",
+   "map_tab": "9ce90cd815ace2dd92df895ceb911a15",
+   "map_tab_active": "e67733a12036e786fda94faefb5e1dcf",
+   "notes": "b1009e1fb21e91da760be38a4a6718fa",
+   "quality_tab": "4d0698060eb4fb795f3e7ae6ab6d36ad",
+   "quality_tab_all": "4d0698060eb4fb795f3e7ae6ab6d36ad",
+   "tiles": "ab9045a543a3604c151c378143b12883",
+   "window": "3b2ca9990c425cceace82b689dccd4f6"
+  }
+ },
+ "year=2026&section=&q=partner organisation 3": {
+  "alone": {
+   "action_points": "6fe277f98c0edbab62f6f8aa7cfd4f82",
+   "breakdown_office": "5b29a1d35dc5a1e1dd2da3386f7820fa",
+   "breakdown_partner": "cae24ed99346c57c0b5a61939325fb8f",
+   "breakdown_section": "81846b0ebfd5fa48de721ccf259ef86e",
+   "briefing": "b20dae44c892c5f1d2b3bad4185ca9dd",
+   "card_order": "666616e199c207fa79230c6a85400250",
+   "coverage": "520e486adb95a7793492f7d588a570eb",
+   "critical_items": "162c11853d2969694ff746dcdc50e84d",
+   "dimension_breakdown": "b6cb4cc40a283e5635889b9b40f3440c",
+   "drill": "8bb50951056ce3a0ea1f476b98249e02",
+   "entities_all": "98998a13aa4bb423fee045f9e2a95e7b",
+   "entities_cp_output": "ee790dd7e8d44298fafec5997383c91f",
+   "entities_other": "dbd0046026ffab1d9993f7b3ae05758a",
+   "entities_partner": "d832d2048f61e3a0876aeac0bae40af7",
+   "entities_pd": "f779d7eabd847debf9b87f881f1f0c73",
+   "entity_kinds": "29797a3b2a04d60a952e9a0a73aeec00",
+   "flag_distribution": "8283c0e958a1d1e9ca6db5094dcd2749",
+   "flag_frequency": "0f522c5eb85d18988ba67c2bb3a04b27",
+   "governorate_gaps": "7456aec484b760f41f972f72a239036c",
+   "hact_programmatic": "ea9978af9db4125700bb47c37db83d69",
+   "hact_q1_by_month": "10a6fb9a33d8b908dad371e0f945907e",
+   "highlights": "cd78936f53c70ea1459e31920fa6c9ab",
+   "issues_summary": "f2d2fc74b661f46ed2b7eaf715e4d4ff",
+   "kpis": "aa4cb3381602d73c2bf833a6e4dccfcf",
+   "locations": "11ac6a9fd140770c003c97c8cf008ca5",
+   "map_active": "dd1d6f870bee5d1ab6c475a97a4514d7",
+   "map_visited": "67f950f4c6e8efa241e51686f4095447",
+   "monthly_quality": "76a9d2995c24e4d1f3e4d831ff0fa5ad",
+   "monthly_volume": "3b6effacbdda6691b5bb0d0ed552ab8e",
+   "narratives": "41118addb45adb73d7578890b33108eb",
+   "notes": "4f53cda18c2baa0c0354bb5f9a3ecbe5",
+   "office_rule_badges": "fe37313fb241a97b4f626fa36bf9e827",
+   "offices": "6a6c05c0fc7c39d62aff12808ccb3751",
+   "quality_by_rating": "932645474c9df73eed37f70519cfeb9d",
+   "rating_by_month": "47c8b556092d947b155e6525b6d92a46",
+   "rule_analysis": "1c868d19d1cae78d9e064de4b7974ffa",
+   "rule_months": "4de9ca3a22a691611b7bcd8fec9a2d79",
+   "rule_stats": "bb51eabdd737b1eb82aaa915a43143b8",
+   "rule_stats_after_months": "fb6c4ee8c43212bca2ff4f8848865756",
+   "rule_trends": "1ce3affd33e2cf3a6c7e4031efe06f29",
+   "score_buckets": "3b988f1bf5e6193472178e0233eb8230",
+   "sections": "2c76c9057d34083f12cedd23e8f196f3",
+   "summary": "e5307aff923a0f910e8829f3b5823b02",
+   "top_issues": "cd153c931bb4fa579ec8553c9b5648b0"
+  },
+  "kpis": {
+   "amber": 1,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "70.8"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 2
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 0
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 1
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 1
+    }
+   ],
+   "high_urgency": 0,
+   "record_kinds": {
+    "other": 1,
+    "partner": 2,
+    "pd": 4
+   },
+   "record_ratings": {
+    "constrained": 0,
+    "off_track": 1,
+    "on_track": 2
+   },
+   "records": 7,
+   "records_not_monitored": 2,
+   "records_not_rated_yet": 1,
+   "records_other": 1,
+   "records_rated": 3,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 5,
+   "scored_visits": 2,
+   "visits": 4
+  },
+  "page": {
+   "analysis_tab": "f5ae3a3edf8bcb6adb195bf3ca9dc020",
+   "analysis_tab_all": "ccf08c34f3c6b779b54fd201536294bc",
+   "brief": "889a525da89ed291d528ce9c5ab5ff79",
+   "briefing": "dc91e2f9376cfa0a7512cfb6496bd633",
+   "critical": "a4950447ab12e7c887628eded57adfbd",
+   "facts": "ee553286a29407ba38636d17a9543973",
+   "kpis": "aa4cb3381602d73c2bf833a6e4dccfcf",
+   "map_tab": "f5040632d08238714c7013dca078f59c",
+   "map_tab_active": "6c3162cda8d994e5580f3b55b5017a78",
+   "notes": "4f53cda18c2baa0c0354bb5f9a3ecbe5",
+   "quality_tab": "d42b02718920af6d3b280d51becc29cd",
+   "quality_tab_all": "d42b02718920af6d3b280d51becc29cd",
+   "tiles": "5c3c9d6dd767b8e2f6c517facdcc54e9",
+   "window": "2a0ba5c053c500df529937d395799aa3"
+  }
+ },
+ "year=2026&section=&quality=low&quality=pending": {
+  "alone": {
+   "action_points": "e1f72f67a72c0f59d8f8675f24febeb4",
+   "breakdown_office": "9a05680f1383572fbf30f8a889f15563",
+   "breakdown_partner": "cb597550d45d8845ffdcadd6a35dc95e",
+   "breakdown_section": "a02f1b23607319bd7ebc1ffa4afe499e",
+   "briefing": "4f7d27ea3193057543fa0e0ac363b388",
+   "card_order": "00b8c5a4f9d5bd7568c056bbf6233663",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "e801014c1a3706e2950257337040f5c0",
+   "dimension_breakdown": "f995732c3cbc08b12199fb8f486bf80f",
+   "drill": "22491317a92210dd102bcdd95dd60bc3",
+   "entities_all": "3ae7f9971d70645b4597083a752ee67b",
+   "entities_cp_output": "445b97325e886125aae10e3d7bcbc133",
+   "entities_other": "1dfa7d3c8a9f7b09d2fc08bc5b079c81",
+   "entities_partner": "2a17a2f0f5eb5b0ea61e1ec14eaffb4e",
+   "entities_pd": "82e054674330d4dfdd7e3c3c3023ec2f",
+   "entity_kinds": "3883889ed2dda8c141b069de9c7baa47",
+   "flag_distribution": "f17b49e538d9f9e3e7f522b5dcaf6620",
+   "flag_frequency": "3dcab339a74c147094844d3f8e30fb48",
+   "governorate_gaps": "1f2c62326a7f25e7dd441de63db64dba",
+   "hact_programmatic": "8bb32e5fe3862311e48f062a5770972c",
+   "hact_q1_by_month": "b8f392d28b3cef1a7ebf83739ed2eb4a",
+   "highlights": "1837d49b6dc705eb73c0c11f5dac3f66",
+   "issues_summary": "76ec5810b0f27e2cef9f3790b321f7df",
+   "kpis": "4dd49de57a9e1ce53d47371402f09e8c",
+   "locations": "3a8454f067ad633bb3fd4f9153904c26",
+   "map_active": "6cc0d1860126fcda8c5ea02d5fa5647e",
+   "map_visited": "1880260e1897a57ce9dab06fb83bcf8f",
+   "monthly_quality": "c9b4b4a5862d4b66ffc2421782b0907f",
+   "monthly_volume": "8b7c15cc7ce47218df8576311060b1fd",
+   "narratives": "6b5fdbd43229cb281ebc59243eba9816",
+   "notes": "9f1762f87fbe2147d6be4460bfb732da",
+   "office_rule_badges": "1514f81f17d3f137183ca5c53b23ffa8",
+   "offices": "7098ea995f69d60dee08a2dca784dfea",
+   "quality_by_rating": "8ea8326d2c29fdf06fceb1c2eb056988",
+   "rating_by_month": "0acc8ce7cf40015670055b02bea953b1",
+   "rule_analysis": "c72b6828aa8a257f1c20514d0e1ac4a5",
+   "rule_months": "92333008e3ff0b028e7c90b44fcaf1fc",
+   "rule_stats": "6bd5269a1c7a4602d927a71778a31748",
+   "rule_stats_after_months": "a4bd02962dcdaf999b74d91b68ba647b",
+   "rule_trends": "303edd5926311bf330a55724b505309a",
+   "score_buckets": "0f4303f1775594bd9fac2e0654ad3b63",
+   "sections": "9e68cc68c74aae3cad5535f7a31c751e",
+   "summary": "0adff87817f3ab40079dbc7b4b92aff6",
+   "top_issues": "a03c9046b80e2a13e3442bb817b761a7"
+  },
+  "kpis": {
+   "amber": 4,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "42.8"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 10
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 11
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 25
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 7
+    }
+   ],
+   "high_urgency": 2,
+   "record_kinds": {
+    "cp_output": 20,
+    "other": 23,
+    "partner": 21,
+    "pd": 46
+   },
+   "record_ratings": {
+    "constrained": 7,
+    "off_track": 5,
+    "on_track": 13
+   },
+   "records": 110,
+   "records_not_monitored": 6,
+   "records_not_rated_yet": 68,
+   "records_other": 11,
+   "records_rated": 25,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 6,
+   "scored_visits": 6,
+   "visits": 53
+  },
+  "page": {
+   "analysis_tab": "4fc48e46be3321c745cac6ed51b82354",
+   "analysis_tab_all": "f28340ae1327dfe2217c03e3ae3cad4c",
+   "brief": "eee11a378f198e3ab1ac9ccbd50ce048",
+   "briefing": "a7f7f6e25031ccb33cadac20da928921",
+   "critical": "1ad90f836048915acb05b56e969400ef",
+   "facts": "140e131a5f8a7c1ee49746551808614f",
+   "kpis": "4dd49de57a9e1ce53d47371402f09e8c",
+   "map_tab": "04dae0436f8575dfd04821a2aa1e7159",
+   "map_tab_active": "066751aff1ac5e083ee0b19c24aee3e5",
+   "notes": "9f1762f87fbe2147d6be4460bfb732da",
+   "quality_tab": "1c68c0f057e1d2f83727e3de288cbcc3",
+   "quality_tab_all": "19a1f38556eacb4049088da2cc7cf997",
+   "tiles": "272842aa485136c277871718daa38816",
+   "window": "1a43f3d20099920fff475e2bceb265f3"
+  }
+ },
+ "year=2026&section=&rating=off_track&rating=not_monitored": {
+  "alone": {
+   "action_points": "e20dcf3f0a1003e312e1fe90950fd54a",
+   "breakdown_office": "b8cc41e58009c46b3041fb4e37592e4f",
+   "breakdown_partner": "65cd4d9a9a97186207ebbd015ddc5aee",
+   "breakdown_section": "85cd5e8bfcaa3ffe9c0c21d9ee56da52",
+   "briefing": "07cc56692467055bae2656da2c780b48",
+   "card_order": "99f96491bbe17491d3316d3f7f68b4d9",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "d312fa39471d7f19317c2a0ac32e3ce4",
+   "dimension_breakdown": "fc092263d146b59bb9b1c6053ec41efa",
+   "drill": "f16be980d4e2d4cb2818e551431ab860",
+   "entities_all": "86d1e5ce7315cef3c3ba73731961245d",
+   "entities_cp_output": "6689d572d5233f46e8e9e408896749f5",
+   "entities_other": "69e408a6ef39efa53747d9ad08e19c51",
+   "entities_partner": "b94a288677e9063028b5723c78f254b5",
+   "entities_pd": "05dc1e7b0498cd2629d750071b89deac",
+   "entity_kinds": "51116634cf6151bf7da2662db55b138d",
+   "flag_distribution": "c954cfa6725b6766c1886c4d05b529d5",
+   "flag_frequency": "7879f721246d629bd8bd0a57b56428d6",
+   "governorate_gaps": "474af1ea2e1322b05cd05cb6d060464f",
+   "hact_programmatic": "8bb32e5fe3862311e48f062a5770972c",
+   "hact_q1_by_month": "6c33797cfa6ece4353770fc393e8ce8a",
+   "highlights": "f383683b3300829ab5634acc6a06fc07",
+   "issues_summary": "73dc48c5e16d2e601e2df4d99daaf9e1",
+   "kpis": "9b2d473f7d49c686c48d020c48fd2dd9",
+   "locations": "aca3cd418f762a4bfbf9c80441e8bcc4",
+   "map_active": "9120c69d4b579486b6604975317ad793",
+   "map_visited": "79ed28f3ecd4ff03cae1ca767e08f714",
+   "monthly_quality": "256744e780762bc98e78165729c806ea",
+   "monthly_volume": "7356df5a7a128a78961832fb35b55dc9",
+   "narratives": "8ff16baa1f8bdcabce23529bca5e5e5f",
+   "notes": "6da78d2d8bbfc6a78cb9c0a4653e4dfc",
+   "office_rule_badges": "e9d78c7b637c0e4fdac9a1229f5225c0",
+   "offices": "c39072fe815e9ce9e44822ae82ea8a67",
+   "quality_by_rating": "520a8dfdb130586e26e92feab5803072",
+   "rating_by_month": "abd5488bf2da3bb7c226a80becab5e8f",
+   "rule_analysis": "b5516985828c9de15666aab23cacc84b",
+   "rule_months": "f23d2d8e4624117707f06ac59d0348be",
+   "rule_stats": "b00cb6fdad11b5cfa875947565f6c980",
+   "rule_stats_after_months": "beef925dd054019c7b5f2f8bad82ae93",
+   "rule_trends": "25435caa2f686d32287c0caef25c13ca",
+   "score_buckets": "4ab65a277e015184ab73cb753fd9df03",
+   "sections": "1e98c342557d186c9270fd76057ea3db",
+   "summary": "8b30d449dd0bc279dff7d3be2233bd1c",
+   "top_issues": "81f69ef91559c222d50512aa30bb6125"
+  },
+  "kpis": {
+   "amber": 22,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "72.5"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 33
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 1
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 2
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 5,
+   "record_kinds": {
+    "cp_output": 7,
+    "other": 14,
+    "partner": 12,
+    "pd": 20
+   },
+   "record_ratings": {
+    "constrained": 0,
+    "off_track": 14,
+    "on_track": 0
+   },
+   "records": 53,
+   "records_not_monitored": 39,
+   "records_not_rated_yet": 0,
+   "records_other": 0,
+   "records_rated": 14,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 45,
+   "scored_visits": 29,
+   "visits": 36
+  },
+  "page": {
+   "analysis_tab": "a9a2ae7e719249c4a60ec9843d507fa2",
+   "analysis_tab_all": "e1a40dc513fc47be404c9cbac29214a8",
+   "brief": "08bedc2ab5bef01c2df27a94ea27125b",
+   "briefing": "ff7b2312e878a8ee5c6ca21687f6bab3",
+   "critical": "d82dc58e97c9c341e88ad60e20601fa5",
+   "facts": "4dadca6291db3adda1a3df5d77ca7c39",
+   "kpis": "9b2d473f7d49c686c48d020c48fd2dd9",
+   "map_tab": "668cb749ec90d27c85332128c52677ba",
+   "map_tab_active": "acab34dd278a6914c9e71bcebcea55d1",
+   "notes": "6da78d2d8bbfc6a78cb9c0a4653e4dfc",
+   "quality_tab": "cf082b7c28f3e99d4169b8b57231f15f",
+   "quality_tab_all": "1f4007f288880106e15b0bcaa2caa296",
+   "tiles": "80d3f1af0618d424131893163d1bd38c",
+   "window": "40402a23effd98fea35e5fb631d76f5c"
+  }
+ },
+ "year=2026&section=&review=follow_up": {
+  "alone": {
+   "action_points": "ec96f9209c188b66907614fa8c383549",
+   "breakdown_office": "116a2654cc447535d5bf15f9042a035c",
+   "breakdown_partner": "fcd628fa8d21c885ed43032108cb2a6c",
+   "breakdown_section": "ee0f0d6ad804b88608bd7de8550d0eeb",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "ae25b0d0fcc43f5557db84a9e4c9d00c",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "50decd824d1923d33ac3a4ada57432ff",
+   "dimension_breakdown": "dc31d71f60f8ad64a6cb9dc6507f6735",
+   "drill": "cc66ba3afe43f4819606b42904d91a5e",
+   "entities_all": "814083c9392c6134f3cb5f8bde7d5c9c",
+   "entities_cp_output": "1041eb1182e40562f03dd788fde40a09",
+   "entities_other": "88df22a4b0692111df61b00813447d0c",
+   "entities_partner": "a574e1d756061c87b09f6d5c2977bd82",
+   "entities_pd": "caf1e63aedf9dde3af715dcfd1b07b8a",
+   "entity_kinds": "c0526ac0343c712d84c272f6353372e3",
+   "flag_distribution": "7b3e6a07fcca3010ec5379f92ca47316",
+   "flag_frequency": "80dde36459c3f0e548e6b632e3498029",
+   "governorate_gaps": "32fc4885626c62bfc0ba21b5e521de73",
+   "hact_programmatic": "a3b4e839aa99271266d38052d31e733f",
+   "hact_q1_by_month": "7dfebf9fc6f3931d737af4e5f1cd4fe9",
+   "highlights": "b33a0b24fd27c35d4a2df16b4df5a09f",
+   "issues_summary": "8123707dd61561f7ea87fe7cbc5b50ce",
+   "kpis": "7531b3aa993006fce9504dc438930ca7",
+   "locations": "da772a49a2c5040baab57d11506f7f16",
+   "map_active": "e0c512c19c8b5eb4bd92d5a514ccb62f",
+   "map_visited": "a015376929243a37be9240fdb497b21a",
+   "monthly_quality": "03496d36da3133eb3ff527c0ee2cb3b9",
+   "monthly_volume": "92e7f39e05e0a0d66b961bd01d212445",
+   "narratives": "5c324086a7902116d2c539a63604001a",
+   "notes": "483d3a2809b7cf936e6a11258fcd8b33",
+   "office_rule_badges": "49ed3f6fc6d7ec2b7ba64b2853b35932",
+   "offices": "50a084b4cf9068db1043811398219333",
+   "quality_by_rating": "7d4017a0a356251b961c3852a5aa13dc",
+   "rating_by_month": "8d53061e3d182b549f46681bd0c76176",
+   "rule_analysis": "5b13cfee6b9e00a80da9bb67c1f6133f",
+   "rule_months": "fd4658508c57ed2fcddab2ffc57db737",
+   "rule_stats": "73c34bee73b05a9763438da3324275fa",
+   "rule_stats_after_months": "cb4605bb42b8090a884b23ee8329787f",
+   "rule_trends": "2a1d2dc9d3888403f1fe62ba7ad336c6",
+   "score_buckets": "a20c5b279bdbc548fc15b74fa616d92b",
+   "sections": "64470ab9a66764f686300e0875d8983d",
+   "summary": "07dbd192e399f6cc08282bd837d52823",
+   "top_issues": "b8be96424c65f42fd72add27fb661aa7"
+  },
+  "kpis": {
+   "amber": 6,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "70.9"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 4
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 2
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 4
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 1,
+   "record_kinds": {
+    "cp_output": 4,
+    "other": 6,
+    "partner": 3,
+    "pd": 11
+   },
+   "record_ratings": {
+    "constrained": 2,
+    "off_track": 2,
+    "on_track": 3
+   },
+   "records": 24,
+   "records_not_monitored": 5,
+   "records_not_rated_yet": 12,
+   "records_other": 0,
+   "records_rated": 7,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 14,
+   "scored_visits": 5,
+   "visits": 10
+  },
+  "page": {
+   "analysis_tab": "168288bb8ab16215e18d9d1ea6850b32",
+   "analysis_tab_all": "391033ed20b956ef7344d698f838f14f",
+   "brief": "366089c8d73f2c756130049d5472ee02",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "2068a0485de8bedf8198e5d8ea786292",
+   "facts": "4130d24be02f7ad6e136eace3c3f7404",
+   "kpis": "7531b3aa993006fce9504dc438930ca7",
+   "map_tab": "91ae821dfe668aa7e9c3284a54ff485a",
+   "map_tab_active": "f405812436a589f5ea5268080b3674ec",
+   "notes": "483d3a2809b7cf936e6a11258fcd8b33",
+   "quality_tab": "5e71f9afa31a625fdf9b7f35369dbfdf",
+   "quality_tab_all": "5e71f9afa31a625fdf9b7f35369dbfdf",
+   "tiles": "c6feec9544b37ac57a894fb06d7c522e",
+   "window": "e50bfd9f2629509fdadb3d0033240388"
+  }
+ },
+ "year=2026&section=&review=none": {
+  "alone": {
+   "action_points": "db92c7684673358c308cfc16cd72c553",
+   "breakdown_office": "8ed26060b45ce033adce8b5e8205e747",
+   "breakdown_partner": "685e5dbb4c997b2b52a6d2dd0be089ae",
+   "breakdown_section": "5c7422cfa1b44b430209336c9b94167a",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "0863ea00a990658b3172306d5dca5b43",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "4383555c265e38faad28dd2f6ab4ed10",
+   "dimension_breakdown": "95f27ba01fd19027308ad72b34dc861e",
+   "drill": "b1d2b4f07844b86f8ae224e97e3b3167",
+   "entities_all": "502d2e5b7cbd8def49cc8e7373f3707c",
+   "entities_cp_output": "5a81fc14827d22876a713de7f3a35fc8",
+   "entities_other": "c80ee624f98c49710035f297c9c753cf",
+   "entities_partner": "e2cd1a8e960e83bc2dc8996149528a8d",
+   "entities_pd": "5da454dc7360f43cfd747c4c1c3e4353",
+   "entity_kinds": "6e33a5d507199c000709eb1c107f0e6a",
+   "flag_distribution": "8ae4b422b13f93a277a999d27d1a1386",
+   "flag_frequency": "62a97fbdfde1c19b6110afa04ca51c4e",
+   "governorate_gaps": "837642ba5da5f6b0cb30e1ff26fdeb59",
+   "hact_programmatic": "8bb32e5fe3862311e48f062a5770972c",
+   "hact_q1_by_month": "06fd55d87d1c26532b7e4ecf9092f2b1",
+   "highlights": "c80bce2c709c69fa3aa3fdf4bed14a34",
+   "issues_summary": "9f4289f4596678b972db08511736680e",
+   "kpis": "d1717fe41310010c3d6b65b3bd598f67",
+   "locations": "345bdf85b58eff011aa357cdad5a2252",
+   "map_active": "ff13eee1f7556004663330de4c2eb283",
+   "map_visited": "0dd5fbdd91f3d1e729d43ffce3322acf",
+   "monthly_quality": "7b2ad6e26d8e4564d7b4017cb5ccad27",
+   "monthly_volume": "3bba0577b8b20d99b68e7bb9f0701085",
+   "narratives": "b3c33785beae732b6cdda42191187d40",
+   "notes": "f66a146e72d96804f3f655457b3901e1",
+   "office_rule_badges": "9ad2f9fff83c2465f1b077b5fce9e9f8",
+   "offices": "18479b833493a21f49bf689bc615890b",
+   "quality_by_rating": "8795249fca180f32c7559d7ee035a196",
+   "rating_by_month": "999927984b4700a9bc293fc8a6daea60",
+   "rule_analysis": "5802a77f6620c7539f356a6f18ff6898",
+   "rule_months": "12bd4bf0e078aa1dfe939e3bf94ed535",
+   "rule_stats": "c3cc005a77eaf48048fbd9c895fe8d43",
+   "rule_stats_after_months": "92ad0223d8de2f996949909920438fb4",
+   "rule_trends": "19dd2121be0191a34c3c6eb9edba0384",
+   "score_buckets": "9272c7921a9a4500b39bc95f0f729616",
+   "sections": "60f90202085a96449a8fca217d26c002",
+   "summary": "f162eb63b3e95b38682186da6ee4297b",
+   "top_issues": "98b087c64df067282425160d9b09f150"
+  },
+  "kpis": {
+   "amber": 44,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "73.0"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 40
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 10
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 21
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 6
+    }
+   ],
+   "high_urgency": 7,
+   "record_kinds": {
+    "cp_output": 29,
+    "other": 34,
+    "partner": 38,
+    "pd": 73
+   },
+   "record_ratings": {
+    "constrained": 25,
+    "off_track": 11,
+    "on_track": 41
+   },
+   "records": 174,
+   "records_not_monitored": 32,
+   "records_not_rated_yet": 55,
+   "records_other": 10,
+   "records_rated": 77,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 83,
+   "scored_visits": 37,
+   "visits": 77
+  },
+  "page": {
+   "analysis_tab": "2d9a0f02a4619c149934604169a28b68",
+   "analysis_tab_all": "57d81532cca953b85eb6baeb02f12738",
+   "brief": "cbab47a1ddce5ada37a2ca499c61ee4a",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "19a6e49588e2af4c0a7f0dbcb7168c25",
+   "facts": "77ae61dab25e2ba7cdc6c79934d01514",
+   "kpis": "d1717fe41310010c3d6b65b3bd598f67",
+   "map_tab": "3829ea0691df1b3eab22dbe5715fe1a3",
+   "map_tab_active": "2747a1da8f4506ddee67da74f1461835",
+   "notes": "f66a146e72d96804f3f655457b3901e1",
+   "quality_tab": "8fda794db08f4a7cf41565b9d607c259",
+   "quality_tab_all": "6e9b294afc6f4aafbd01ee70f27fbd10",
+   "tiles": "58cae4957a86dbda8e998a6675596cea",
+   "window": "eebc6fc2707720f5727302b6c05a7378"
+  }
+ },
+ "year=2026&section=&rule=R1&rule_state=pass": {
+  "alone": {
+   "action_points": "58fd8b8be4be19e5a442d152e875180c",
+   "breakdown_office": "8ebef9128ea5afd9ab161bf4ad2af4ab",
+   "breakdown_partner": "6f5cd98e9a5d89f202a7cfef8655ea29",
+   "breakdown_section": "33c3640e2a50b52e594553c03e7ab9c5",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "eae26835b8f4298db0168f7766e58a9c",
+   "coverage": "362521a70cee0fc0715c8cbfdbcbe024",
+   "critical_items": "e68a7ba24c3e52c6667e18da8d23cca0",
+   "dimension_breakdown": "106bf053339850556bd9dae598db304c",
+   "drill": "44206a3479f015fedd0374c466b463fa",
+   "entities_all": "e1fe1977a964d96bda4d37763e4a0c31",
+   "entities_cp_output": "6f4b3ceb35127f68e30137dee01547bb",
+   "entities_other": "39984bcd7245b85e012e371f4b8345ba",
+   "entities_partner": "59a6f8b912b8eb12f42b900daabcfa91",
+   "entities_pd": "6fa4b7b9f97bfb914711ee6c7ff1d3df",
+   "entity_kinds": "ba082e4f14724e11e9720f3f84938be3",
+   "flag_distribution": "2aaa4e5cd435ef499f222a2953d4e3be",
+   "flag_frequency": "09560084dd4926e24162b9f6ad75643d",
+   "governorate_gaps": "b2cc551cfbf779b27bebec95d8e2fdf6",
+   "hact_programmatic": "12438585568ac5f80be87dc183ecd29f",
+   "hact_q1_by_month": "d7c2fbf7050b000a511b45bfdfdd1c69",
+   "highlights": "0e517481031d67baba30fa74bf02f50c",
+   "issues_summary": "ea19fd249f1259e4201fdea93b02fb60",
+   "kpis": "05fb3cf7654ddbac1f259cc5c35f5936",
+   "locations": "6810917813d30558a04636c899b00e96",
+   "map_active": "07b19abaed17f9fe7a385d9e45851f6b",
+   "map_visited": "3a47ea072f831139d0b0cfb76c0f80fc",
+   "monthly_quality": "7f9f7c7eb9b1f29908c6be72a16d1e64",
+   "monthly_volume": "b79d84f7b727b90c37f5df97c9b9f6c5",
+   "narratives": "0a5b68ef8c9d75402080586e290791ea",
+   "notes": "6ca1ea6299234fdcdf63d44b1cb5d72d",
+   "office_rule_badges": "f1ec2d89530dc0dcf4515c0a3f65a0d8",
+   "offices": "235c010032b326abbb6aa84163dd7252",
+   "quality_by_rating": "0a73fce97f37a4426586cd15720aa7f8",
+   "rating_by_month": "4fdde3828dcc81deb3eb13db7ff39799",
+   "rule_analysis": "18662a76c1f7d8b233a65bc96dbb94d2",
+   "rule_months": "24c9cf0f1e7ca136fb22091ea1756bd2",
+   "rule_stats": "bd0da3270cc281a1e8fbe0981616a43c",
+   "rule_stats_after_months": "c35d9b8637694ade574563cdc43976f8",
+   "rule_trends": "64d2ef5b3294b1d2b98654db67ebee25",
+   "score_buckets": "6cbdfaf2dcd3f2b9ca0067174f7c5e05",
+   "sections": "f005febb8ba1acf8ecc63bbf000bb625",
+   "summary": "671db18a5ee5260fb1d0db21580ce94f",
+   "top_issues": "f1d28bf38b0594eff2bd068c107f4cc3"
+  },
+  "kpis": {
+   "amber": 7,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "72.2"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 9
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 0
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 2,
+   "record_kinds": {
+    "cp_output": 3,
+    "other": 4,
+    "partner": 2,
+    "pd": 7
+   },
+   "record_ratings": {
+    "constrained": 5,
+    "off_track": 0,
+    "on_track": 9
+   },
+   "records": 16,
+   "records_not_monitored": 2,
+   "records_not_rated_yet": 0,
+   "records_other": 0,
+   "records_rated": 14,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 16,
+   "scored_visits": 9,
+   "visits": 9
+  },
+  "page": {
+   "analysis_tab": "9408a3b24f8bd5bf0d3a6353ed35d43f",
+   "analysis_tab_all": "9614085046d4de2b23acdb870c2a8f4a",
+   "brief": "287ee765a92fa1aa4f1b66d78b6cd617",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "07adb6680f362bec72d7e14a3b7af7b4",
+   "facts": "5eaf168d80875f5020f597fcd4f3fdc5",
+   "kpis": "05fb3cf7654ddbac1f259cc5c35f5936",
+   "map_tab": "9ce5f3f1f826004de2ec4b12b4e1d5e5",
+   "map_tab_active": "675b190b5507c5342cda732b910131df",
+   "notes": "6ca1ea6299234fdcdf63d44b1cb5d72d",
+   "quality_tab": "7544a34f05ed86c1eb911e10f3880cf3",
+   "quality_tab_all": "7544a34f05ed86c1eb911e10f3880cf3",
+   "tiles": "85846484a691f4afba1a0dd149591114",
+   "window": "96e0ca72e4bda1f008aa16986c68f094"
+  }
+ },
+ "year=2026&section=&status=planned&status=in_progress": {
+  "alone": {
+   "action_points": "ee15b74f464ece7a9b9262fd2dff0ee7",
+   "breakdown_office": "6abcb1b36d43cbc2eb3d8473969fd53f",
+   "breakdown_partner": "90275dfb861a98229d7bea9a25b8b774",
+   "breakdown_section": "bc247594eddaff9d4cb8a372450e4f24",
+   "briefing": "e92e778d467a7132303a6f58b6969bdc",
+   "card_order": "d2f317454edd29c71b6eee4302347cb7",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "c1f9f2376e7ad6f797166a4623f539a5",
+   "dimension_breakdown": "1570f1f2451ba307b9b848a68fe56d6c",
+   "drill": "842e42c4e744636e0935ad0674170ad5",
+   "entities_all": "30c89742db552639dde715f141edd4ed",
+   "entities_cp_output": "03a86757977b8daf4cb6e6f56b006936",
+   "entities_other": "f2ae4633dbeb719e7ff816dad3b2d72d",
+   "entities_partner": "b563f5a871a9145aa5f303ca79af6be0",
+   "entities_pd": "f57110de61c3eb324da2de24f44189af",
+   "entity_kinds": "12c71df06cc3225dc8153047beced2a8",
+   "flag_distribution": "854a4d571a842a663e9b5c865fbf4967",
+   "flag_frequency": "81c4047f013943235932617fe3387ce7",
+   "governorate_gaps": "f7251c921c6a2a1853cbe4da97a05172",
+   "hact_programmatic": "8bb32e5fe3862311e48f062a5770972c",
+   "hact_q1_by_month": "d3e41e643240d99b0479e5b2f49038e9",
+   "highlights": "98bceddd66430df8abbd529d26e4bdc5",
+   "issues_summary": "664b01aaf17b6e5715e313db5e24ad9b",
+   "kpis": "808f4cde8d6c827e748fa493d759ff06",
+   "locations": "2af7aa16e4588a122c3f99105aa089c2",
+   "map_active": "03ea75a93c801c31cfb06b53cb4f1610",
+   "map_visited": "6fba2fc516c12d94b8ed33105a59d6ad",
+   "monthly_quality": "f80111d73b6e5277c69160046b050e82",
+   "monthly_volume": "62b883cd2e6450a47f0c628eaa7daa44",
+   "narratives": "db5f50702f06aa7d240d3ceef4b72539",
+   "notes": "12e194d6d3a923b8b38c9dc302fc1201",
+   "office_rule_badges": "3f59d0f70b28267d2e856ae60344b4a7",
+   "offices": "6efd1019e04c5850d625b90f25bce6b2",
+   "quality_by_rating": "9f828137aedf3cfffaf6d61347900e12",
+   "rating_by_month": "c69ef36db6e3f9a224a47180e4255765",
+   "rule_analysis": "d78d698855323db09b9125dcf961668d",
+   "rule_months": "94cfd8f4b8184d2941c5b66a9318548c",
+   "rule_stats": "1393f7ae798fdcc65b5b224085357451",
+   "rule_stats_after_months": "e624411a114e46c02ad48d57133eaf14",
+   "rule_trends": "f007aa8078a6955d8cf72ef823145a4e",
+   "score_buckets": "aed6b74a091eee14bc33deea30781a04",
+   "sections": "59f0d9393364bf32d81b6fbec35b4380",
+   "summary": "c623c7f3e118eac72ea70c03ca681f84",
+   "top_issues": "f8b62cb95084655e0738785ad4aa04c8"
+  },
+  "kpis": {
+   "amber": 3,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "72.6"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 0
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 14
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 25
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 0,
+   "record_kinds": {
+    "cp_output": 17,
+    "other": 18,
+    "partner": 17,
+    "pd": 38
+   },
+   "record_ratings": {
+    "constrained": 8,
+    "off_track": 3,
+    "on_track": 8
+   },
+   "records": 90,
+   "records_not_monitored": 0,
+   "records_not_rated_yet": 71,
+   "records_other": 0,
+   "records_rated": 19,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 9,
+   "scored_visits": 4,
+   "visits": 39
+  },
+  "page": {
+   "analysis_tab": "a5465c069a2e4395536af406be469fb3",
+   "analysis_tab_all": "8370d9804280fbd2f3c569153328410c",
+   "brief": "64ecf91ecab59058e503a914403b676d",
+   "briefing": "05a8102a21412f3e77a6272a1e0f6604",
+   "critical": "fac3f2173bb0bfea88b373302fec4986",
+   "facts": "c6282e1f749645c7d52d7757b861e98e",
+   "kpis": "808f4cde8d6c827e748fa493d759ff06",
+   "map_tab": "6bfdc3a064daf79973656691706322fe",
+   "map_tab_active": "47e1d44f70cb5d5228111a78b4ed97d9",
+   "notes": "12e194d6d3a923b8b38c9dc302fc1201",
+   "quality_tab": "e526242b58e2a950a266b7f48752c4c6",
+   "quality_tab_all": "52c191d967c944f5c27a0eaa9e1c64fd",
+   "tiles": "56c10bd173042d876b0e21d5ea0e6d5b",
+   "window": "ff5ad013ad0b8d66823e5a4d91dc5e15"
+  }
+ },
+ "year=2026&section=&status=reported": {
+  "alone": {
+   "action_points": "df2cd0fc3a61ae9d8fc42dc8cee8f65f",
+   "breakdown_office": "90270d2d7c52055320c20b332438a247",
+   "breakdown_partner": "9252fb2990e9f5fecf9ae0652f3b9aba",
+   "breakdown_section": "76c65d0585dd0b8e83e4021f03a3fe4c",
+   "briefing": "6516f418e9f89229e793704ece761473",
+   "card_order": "5b05eb2dc9f14280d2b3c6c4276d8733",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "1ae64803722c5e8348c4aea9b67a3f4c",
+   "dimension_breakdown": "31a78f07ef35d7c577f30ff78779fb52",
+   "drill": "ad00f16a5efeebc3d9a77a9ea151f5a8",
+   "entities_all": "87e7ed49cc45e47e368319c97bfcd5da",
+   "entities_cp_output": "b13a1299bf4220155b9ad8581d3dba08",
+   "entities_other": "e7ef3ca955e9b9c3ffeb005b09babe16",
+   "entities_partner": "49eebba9ebd3990a4261db65d31855e2",
+   "entities_pd": "06b04bf5a28d578f853a293fe1acb849",
+   "entity_kinds": "df7b88b9c7b4299a545ab3478d6b381f",
+   "flag_distribution": "c2c94bb97b15893e25dc2817e1102d3c",
+   "flag_frequency": "bbc801e4acc56ed81e65f72042a89b62",
+   "governorate_gaps": "f63d03aec05584f7f6275e08073aa8b3",
+   "hact_programmatic": "8bb32e5fe3862311e48f062a5770972c",
+   "hact_q1_by_month": "2eae545180795cc9da436fb2a4228d71",
+   "highlights": "3898c5a67f7c6fb3c64aa055e3882080",
+   "issues_summary": "2b73383e2f20e9c6a1c8ad50c3cb56bd",
+   "kpis": "c5e0eb444c773a51744241136c08a4dd",
+   "locations": "b3ca5dce6353cfe36aa0d643a2d94078",
+   "map_active": "56a4da56d542d5199390e9a2c45229a6",
+   "map_visited": "eb31f77f40f35d298a761f748cb9825e",
+   "monthly_quality": "d98095d4c4778a25e1d7360ec31ac5b9",
+   "monthly_volume": "d6008f79740f4164269f24a4991ce1f0",
+   "narratives": "e5c056c3472c12fe9ae0e4c3f9327177",
+   "notes": "27f3db8b2548fd2c30164323936c8973",
+   "office_rule_badges": "52f43cdcdae7c301c068e126919edef6",
+   "offices": "48e029860948683dd188d700c7978126",
+   "quality_by_rating": "dcf1c8a42747a96665da02ab857e1d2f",
+   "rating_by_month": "d40e80a960a54e3338bc3814318ecded",
+   "rule_analysis": "c70580e9baf111c6047e5099d8ad248b",
+   "rule_months": "31687b9be3eb38d96a1b7b569d1f8c2b",
+   "rule_stats": "eaca7c9254b4ddee62c80433a11a9670",
+   "rule_stats_after_months": "00746e2b59053b4fc28e7781ea39c812",
+   "rule_trends": "e0c84a0efba9e06e65d44c9bdea12284",
+   "score_buckets": "56684ccd11cc118385fb650521514389",
+   "sections": "7260f44defa351b9de47f478ff8a4553",
+   "summary": "9abfb7412bd241eb7ac489ad69ae75ef",
+   "top_issues": "8e7b8f6bfe89390bb34bb3f9016cb193"
+  },
+  "kpis": {
+   "amber": 54,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "73.7"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 47
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 0
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 8,
+   "record_kinds": {
+    "cp_output": 18,
+    "other": 23,
+    "partner": 25,
+    "pd": 46
+   },
+   "record_ratings": {
+    "constrained": 21,
+    "off_track": 11,
+    "on_track": 41
+   },
+   "records": 112,
+   "records_not_monitored": 39,
+   "records_not_rated_yet": 0,
+   "records_other": 0,
+   "records_rated": 73,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 100,
+   "scored_visits": 42,
+   "visits": 47
+  },
+  "page": {
+   "analysis_tab": "2afca9d33bb015bf4dc20836f6111b81",
+   "analysis_tab_all": "b0a13edf3ca9d111ea318a2feacd0320",
+   "brief": "fd4b10c65bcc5aed55019de7133e0cc2",
+   "briefing": "680d6bdd97e68b5f3ef66678360b88cb",
+   "critical": "0b09cc9e546120709b17879807d0152e",
+   "facts": "5b4ed55c65667c93c2a32bdfc22e2f9f",
+   "kpis": "c5e0eb444c773a51744241136c08a4dd",
+   "map_tab": "282b1a741402bea62e069fd229121058",
+   "map_tab_active": "b3ed19707c13e75b2ebf2425eecd05e1",
+   "notes": "27f3db8b2548fd2c30164323936c8973",
+   "quality_tab": "3fe6a88e7474684412a0cc148bef9562",
+   "quality_tab_all": "bf64a815b2600ca6cd5af81e8c2c4d03",
+   "tiles": "0f836950febc7cdf746edfd325faa4da",
+   "window": "d2e11547db0e76da46a8dc88effb63c7"
+  }
+ },
+ "year=2026&section=&urgency=red": {
+  "alone": {
+   "action_points": "7be9085ce1d2f0a7f7fda0bdb0b6729b",
+   "breakdown_office": "8f6d9eb192e821103e74ed50c7348400",
+   "breakdown_partner": "4dfb76ffc6d463947023416a0de7f32d",
+   "breakdown_section": "e343aa6e84b35d9c6de81e5c1f98f3c1",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "38982f93aa883380de2d0509805c9390",
+   "coverage": "380f93882ac3646e1087773349364d8f",
+   "critical_items": "1ae64803722c5e8348c4aea9b67a3f4c",
+   "dimension_breakdown": "b6ed6e0214a9489a31636148c7cac58e",
+   "drill": "fb58c3aa5c59bff60296cad090c4b909",
+   "entities_all": "63d13ac107162383afc368b1a5576e9b",
+   "entities_cp_output": "529b76ef8843fa36a951e4200fc4b133",
+   "entities_other": "0671e63041f9aa3b12094fbf79255497",
+   "entities_partner": "c157713abdbd9835b1980b9596858f77",
+   "entities_pd": "64a08fa43c7cd6e2db8b5184626db727",
+   "entity_kinds": "fb627e412440069ba8c4881162422ce1",
+   "flag_distribution": "89ba8bcc50dfe0770a1da6c3e348d449",
+   "flag_frequency": "54cc7c93ac678a3f538d45c6166ddd02",
+   "governorate_gaps": "e0c2bfa661d9fc5082632d6bb1572b77",
+   "hact_programmatic": "afccadf734361cc8a3c18d3a9f4f507e",
+   "hact_q1_by_month": "4f534bc0b7bf4f3fa9f9ab14fd446991",
+   "highlights": "a476ae4ebacb12ca6bfd33fd82311d2b",
+   "issues_summary": "1dcd3aac90e35c341b31aab5d2ffd792",
+   "kpis": "9fdc9184bdb72022d7ef0b99b3085bc5",
+   "locations": "3296d9ce872270d9995ba8ee187c4a2b",
+   "map_active": "2cd2644e336fe588574c651ddb8025af",
+   "map_visited": "410a3efd03d2b2852b1ba5380b8d2a03",
+   "monthly_quality": "e798ee67f6d65dd42fd5b64df1a248bf",
+   "monthly_volume": "5271f76ed4d1bc99254ae04191db328c",
+   "narratives": "40980a1fe0ceb98add178e3f2d9491bd",
+   "notes": "b1009e1fb21e91da760be38a4a6718fa",
+   "office_rule_badges": "7cd5b1191d548936379042ee0e40eef8",
+   "offices": "f8a095cd443305e0c1408caad743de5b",
+   "quality_by_rating": "e6021beb59a99c34644f3cd42b28be19",
+   "rating_by_month": "6f7aafe66db18d8484e39c0a4b35d1af",
+   "rule_analysis": "4af20709602561725100176d65574ae7",
+   "rule_months": "0d5dfbd5dccdab6a6640d89941353d45",
+   "rule_stats": "2408ad4e889be0514cad038fc98749a1",
+   "rule_stats_after_months": "2d97aabab88b684c267962fb16fdf540",
+   "rule_trends": "9d56ac9001aad60ffccba0931a935aed",
+   "score_buckets": "70cb7c271c5c46cb5b2f59375603bd8a",
+   "sections": "6051919c09d7ab0d7e26e33f7295908b",
+   "summary": "eaebd84e1ae41ed2c7b8af6bc44f1f15",
+   "top_issues": "5f5428d82fa8bc4c310513e869816848"
+  },
+  "kpis": {
+   "amber": 0,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "53.1"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 6
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 0
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 8,
+   "record_kinds": {
+    "other": 1,
+    "partner": 2,
+    "pd": 5
+   },
+   "record_ratings": {
+    "constrained": 0,
+    "off_track": 0,
+    "on_track": 3
+   },
+   "records": 8,
+   "records_not_monitored": 5,
+   "records_not_rated_yet": 0,
+   "records_other": 0,
+   "records_rated": 3,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 8,
+   "scored_visits": 6,
+   "visits": 6
+  },
+  "page": {
+   "analysis_tab": "6072939f79b79468ba4f70f74691ac81",
+   "analysis_tab_all": "b9c9fbc0e9a5a6e20325c3f685c95907",
+   "brief": "a6cb64bc6831d82456ea4a62a8f9ddf9",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "4ab31bd9ffd0f7cf7885961cb769ede3",
+   "facts": "0206ec9086e36c4ad0996930988ec94e",
+   "kpis": "9fdc9184bdb72022d7ef0b99b3085bc5",
+   "map_tab": "ed5b47f973571d149598046a990df9f3",
+   "map_tab_active": "c8ad3c2115ea212210c5d1f8f3f1792f",
+   "notes": "b1009e1fb21e91da760be38a4a6718fa",
+   "quality_tab": "dfdefd4a1311ced5ed67a4dd5ed6e073",
+   "quality_tab_all": "dfdefd4a1311ced5ed67a4dd5ed6e073",
+   "tiles": "eb130fb6ae8515c1a6f37d232e174cd7",
+   "window": "fb8761ce91aebd83cbd8ba9de28e24fa"
+  }
+ },
+ "year=2026&section=&urgency_level=high&urgency_level=low": {
+  "alone": {
+   "action_points": "241a76cba060172f3693b01b1fe2d4ce",
+   "breakdown_office": "ded14fd170b1502c6fae81fedda54bf8",
+   "breakdown_partner": "9a3678c609f2025ec9413086333df660",
+   "breakdown_section": "791fe1e2cc92f69a34629e6296ecb921",
+   "briefing": "74f10eb35bf6d98ca0d4f44af53c53f1",
+   "card_order": "b14f9d4f5664725846a92443f36d5853",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "1ae64803722c5e8348c4aea9b67a3f4c",
+   "dimension_breakdown": "606fd03eca2ac8ec013c5818a9bfe632",
+   "drill": "3dcaf8f6af2c6a85a80f4760f9326890",
+   "entities_all": "b2cdcdb8e6f347a7faf46b3aeeaba8dc",
+   "entities_cp_output": "dcbf43ede529a6d76529aebb61b4d191",
+   "entities_other": "08d59eb5ec3c3e1370f5b095852a1265",
+   "entities_partner": "e5c612e617e4a3efb2fe78f9926b6c66",
+   "entities_pd": "04631dc0b41fbe8f98a8ac7aad64c03b",
+   "entity_kinds": "8e22ea57afe8501f3eb18e4d44facdbb",
+   "flag_distribution": "50710ad5c4a47d68ecdb7044e0002a8b",
+   "flag_frequency": "c5fe7ebe920419264829eb2324dc3ad2",
+   "governorate_gaps": "474af1ea2e1322b05cd05cb6d060464f",
+   "hact_programmatic": "8bb32e5fe3862311e48f062a5770972c",
+   "hact_q1_by_month": "85dec821bec870ae42623b8ae6918902",
+   "highlights": "e1c2c8e4988f63dfe86402f01d623bc5",
+   "issues_summary": "dbe0a13a034d718d751b5c6ad85e1ddf",
+   "kpis": "0d88f1d2694c5ccc096bea68386f2746",
+   "locations": "d11cd5cd3c955189b6a0dcaa0160d00e",
+   "map_active": "eb4b18997004aa5038a8f0e63471fcd0",
+   "map_visited": "2789036c2f1cf5dd0ba00c03576c6bd6",
+   "monthly_quality": "024022581b9c041f20ff2aa028a579c8",
+   "monthly_volume": "1c124cdb3fa249bc5f0a7294c4e8140a",
+   "narratives": "92f8633a74217dad8732700538e715b4",
+   "notes": "f3b98130be67372b935ac11e80920953",
+   "office_rule_badges": "b295613132affa614feb096d0f6b6543",
+   "offices": "accd7027714798fa3126e0e54af849a3",
+   "quality_by_rating": "edeb905c416b65b1b5985192902abf5d",
+   "rating_by_month": "1bee8e0a80831a6c81ae8b8bc7cb8a37",
+   "rule_analysis": "222ea862291b4550683aa22a3c5cadc4",
+   "rule_months": "c236e9c865705d74443c4e8ac4e95f41",
+   "rule_stats": "c057e990e8d17d8d1fdc296614e3e382",
+   "rule_stats_after_months": "b4e59b53713b0da4e6e0db7abcb92c5e",
+   "rule_trends": "fe5335675863e47965381af36390c6f3",
+   "score_buckets": "126242326e1a82ae09248417ccc1a162",
+   "sections": "ab3a98f2018a5b89d6538452c4c8e378",
+   "summary": "e1d4fdd546857c126788a1b6b7f148cf",
+   "top_issues": "836e6baa8765d1d5fbb257780e1c8fc7"
+  },
+  "kpis": {
+   "amber": 0,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "77.3"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 27
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 3
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 8,
+   "record_kinds": {
+    "cp_output": 11,
+    "other": 9,
+    "partner": 14,
+    "pd": 18
+   },
+   "record_ratings": {
+    "constrained": 6,
+    "off_track": 6,
+    "on_track": 21
+   },
+   "records": 52,
+   "records_not_monitored": 17,
+   "records_not_rated_yet": 2,
+   "records_other": 0,
+   "records_rated": 33,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 52,
+   "scored_visits": 30,
+   "visits": 30
+  },
+  "page": {
+   "analysis_tab": "637a7e6928746712fe0c793b8eaae9a9",
+   "analysis_tab_all": "da3ce378678878d9ed4bd46877835ef8",
+   "brief": "855ff8e00dcbd28e8ea66385e384b092",
+   "briefing": "3872e72aa7d3f3731bfb254bd92da62a",
+   "critical": "221e90c988b577d514493bd41fcdf098",
+   "facts": "e8c59812a2392765660a3e374332107c",
+   "kpis": "0d88f1d2694c5ccc096bea68386f2746",
+   "map_tab": "dc3a2416e27023bc5912c7fb6af48fb8",
+   "map_tab_active": "8427cd392529f2b3af9c5849b75acdf3",
+   "notes": "f3b98130be67372b935ac11e80920953",
+   "quality_tab": "6d36f2429b3bb3dc051fdd3887ca1f36",
+   "quality_tab_all": "08267b44a566e1ba9e3fd1defec3152f",
+   "tiles": "1e2787580ee4c22099695598f759007f",
+   "window": "32cefef40178ec2fe94ded64b65456e9"
+  }
+ },
+ "year=2026&section=&visit_rating=not_monitored": {
+  "alone": {
+   "action_points": "0e54f7b10e27fb02b7c5690d6b48e40c",
+   "breakdown_office": "3c7f81223d5d50e6d09d6770c5679f97",
+   "breakdown_partner": "0f9ca857a05fd58cda69133679a5d52f",
+   "breakdown_section": "00e67ecdc458799912868b4cc6ecd1d2",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "9c5a77ba251cec938b16f6e3dffed3b2",
+   "coverage": "380f93882ac3646e1087773349364d8f",
+   "critical_items": "d312fa39471d7f19317c2a0ac32e3ce4",
+   "dimension_breakdown": "9c8b7b5b73539e461f52967ecddd9cf0",
+   "drill": "910ec50e2ba9facdef7925de1ec0a8d8",
+   "entities_all": "a9e4db35b1139233124bb0f24ab10307",
+   "entities_cp_output": "5b1889fc88986fb0e29fde79c30869fc",
+   "entities_other": "c25af632664546e70483c3cf1edf5845",
+   "entities_partner": "8bcd416cc671288402149af7b056df5d",
+   "entities_pd": "d6b1ba52e64bc434f7cce8e2b0381119",
+   "entity_kinds": "f4d052e2d36d59b23343716b38fec7e5",
+   "flag_distribution": "c358d280e2d386af6844065f9b6259b5",
+   "flag_frequency": "d1ffac292cb011da3298212a6028470b",
+   "governorate_gaps": "4fe9af98f7c239fc1cbf934cb8272567",
+   "hact_programmatic": "d791c143f56bc571ba961771811e68dd",
+   "hact_q1_by_month": "3e9e0ab8224f8edf461eda69d09aad28",
+   "highlights": "0b1daacad5be34727a09505698430e30",
+   "issues_summary": "f7cb2c20d841bbb21cff06530d91a006",
+   "kpis": "516d46971018ec2b18ca4717146c8260",
+   "locations": "2d537b566bbdaaaeca29f9286116f413",
+   "map_active": "3854edd89b500af624904914bd5f0297",
+   "map_visited": "51559bab4c9e5ca12d8497382d3ffaf2",
+   "monthly_quality": "6072eba5441184d6b2e32f55d43c6357",
+   "monthly_volume": "4c2df6afaf673f72d9dfc5baa7fb74a8",
+   "narratives": "81b2b013387f4572ba2c9a57b4dac053",
+   "notes": "c58877ea167aa19eb6b3afac1493b7b8",
+   "office_rule_badges": "a97a7b991f6722d09d457efbb96c9d90",
+   "offices": "a150670de1cda21e6b8706c49706d25d",
+   "quality_by_rating": "f23d7f5ad461f2cdbbf61270b4cd432f",
+   "rating_by_month": "932d6cfd6c50a2f940db1a545bb66f3b",
+   "rule_analysis": "2ccfdb99b38f85981e986bda05402b9e",
+   "rule_months": "4400a07a8aedde9f9a23892ac8a2a47a",
+   "rule_stats": "1c28ce52859cda8e8c6ad50891959470",
+   "rule_stats_after_months": "7055ce8097d39ea58f7b319bc155e095",
+   "rule_trends": "60f7af7cdb9d9c0d34a658be60fda4f9",
+   "score_buckets": "e6136f0d0d410da5682dd1a492e7d513",
+   "sections": "3196539529436cde4fc92c5b172471cf",
+   "summary": "79a45c896c3ab6bac860aea1602ae3b0",
+   "top_issues": "083f057d61cd121abcfa5b5672e46909"
+  },
+  "kpis": {
+   "amber": 8,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "64.5"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 7
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 0
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 5,
+   "record_kinds": {
+    "cp_output": 1,
+    "other": 2,
+    "partner": 3,
+    "pd": 7
+   },
+   "record_ratings": {
+    "constrained": 0,
+    "off_track": 0,
+    "on_track": 0
+   },
+   "records": 13,
+   "records_not_monitored": 13,
+   "records_not_rated_yet": 0,
+   "records_other": 0,
+   "records_rated": 0,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 13,
+   "scored_visits": 7,
+   "visits": 7
+  },
+  "page": {
+   "analysis_tab": "a7d86c6cf8c9c97f83e977f7c0f24fc3",
+   "analysis_tab_all": "50204aca8f38c3dc5b31f6c557aa7ed0",
+   "brief": "0f77f00178e9898a831401d140292b13",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "887f54a9cbb4543b88d543f71ae0dcd8",
+   "facts": "749d730b7ce222514c00f1080d737175",
+   "kpis": "516d46971018ec2b18ca4717146c8260",
+   "map_tab": "0eabe93bafb7530cc1751765ccadd11b",
+   "map_tab_active": "f672e2864b31b1bce20d0d982ffa9847",
+   "notes": "c58877ea167aa19eb6b3afac1493b7b8",
+   "quality_tab": "979198356e41ff1773e854d85b540145",
+   "quality_tab_all": "979198356e41ff1773e854d85b540145",
+   "tiles": "dd93c76faa1c144ff6493082c11cda4b",
+   "window": "630239c83943f3bb1bcf1b483060dae9"
+  }
+ },
+ "year=2026&section=&visit_status=completed&visit_rating=off_track": {
+  "alone": {
+   "action_points": "183ab9f303d56aedd805667f3c4409f7",
+   "breakdown_office": "6c016c687fec8d42165ec19f5c2732ae",
+   "breakdown_partner": "cc082b4823ecfac0fa07115eec5d67f8",
+   "breakdown_section": "addcba52a9f347c408aee444dcfb7461",
+   "briefing": "f952091d9aa25120fb50c6aeeaf003ff",
+   "card_order": "ad5cb4113e0c86e8afdc5eb9cc0e7dde",
+   "coverage": "245778f0ee3440392bd6478840c89dbd",
+   "critical_items": "3017e074f64b8e81954d1107d78c1e57",
+   "dimension_breakdown": "917eaa1b5074d2a1ed24b421e2040243",
+   "drill": "e049b938ea40e84d76dc541f93020d37",
+   "entities_all": "ae5808416e1110916876103bbcc7bffc",
+   "entities_cp_output": "823d6a0210fa7b6231ff2a9e60b5bc62",
+   "entities_other": "088a10291727d90b028e0d933f5664b8",
+   "entities_partner": "a92ca51eeb02114da863615e1cb3c742",
+   "entities_pd": "a70eb02998fae8153e071a84c4be962a",
+   "entity_kinds": "47f971733f0e6d7b050c2644c96cc06f",
+   "flag_distribution": "7a0d40159dcaf65fcb8265a1fafe19e9",
+   "flag_frequency": "22cd1f826bc96abb81b2069a6b4778a0",
+   "governorate_gaps": "e6e63262ec5a38c585b41a1ab4c981fb",
+   "hact_programmatic": "41a92e28139cb7078b1ae2632d0517f2",
+   "hact_q1_by_month": "3c86927f332254fb4462fc37f4c47f42",
+   "highlights": "57925fea74818bd41eb99814d95b431e",
+   "issues_summary": "f25cd4a3e91bb98bd0406eb35057933d",
+   "kpis": "356996aa50be13ed4d43f346650aae93",
+   "locations": "0aebea7c4b9c0c0b4d324af35181eb34",
+   "map_active": "0f32db87e6e32ca9bc0b2056f67d909f",
+   "map_visited": "cfb27b14a5e7a839291c08854c360338",
+   "monthly_quality": "bafe198fc18ed77f2184ebd6392d5620",
+   "monthly_volume": "1c14748f11b289655f7aa13950a5cf0f",
+   "narratives": "40e20a60da00fec327c67139f3b5e5f5",
+   "notes": "779fc1228931c403fb13bc3f5fb780c2",
+   "office_rule_badges": "a6021d007c951f8dc055076bd81cf3af",
+   "offices": "2032589842badd7aeedaf25caff4a5cb",
+   "quality_by_rating": "4e9b35e3a32df3430fdd3da9262c68ec",
+   "rating_by_month": "465bf75fd98fbcd7baa8bfbc4b95a1ab",
+   "rule_analysis": "f083a864f1b165a912ce1ebcdd856224",
+   "rule_months": "2bb89e4fb7308854b21a892f6ad6cda9",
+   "rule_stats": "3196f8f3e526a46849514b746ffcc6b2",
+   "rule_stats_after_months": "12a71ce224f6d24b9310a372bb4f4459",
+   "rule_trends": "0bdcf5deede4560d1d047263fc1586c4",
+   "score_buckets": "a5d4157ae0c58db97648718f4c0e7bf8",
+   "sections": "33bc14f47725664a233c685785c4743c",
+   "summary": "70c9406deb73c71a6ca12b8c17792dae",
+   "top_issues": "91d2ba06bb0f7961940a08f1853d364b"
+  },
+  "kpis": {
+   "amber": 6,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "75.1"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 7
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 0
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 0,
+   "record_kinds": {
+    "cp_output": 4,
+    "other": 2,
+    "partner": 5,
+    "pd": 5
+   },
+   "record_ratings": {
+    "constrained": 3,
+    "off_track": 8,
+    "on_track": 4
+   },
+   "records": 16,
+   "records_not_monitored": 1,
+   "records_not_rated_yet": 0,
+   "records_other": 0,
+   "records_rated": 15,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 16,
+   "scored_visits": 7,
+   "visits": 7
+  },
+  "page": {
+   "analysis_tab": "c98b3c142c5b070b10ad3534a8c98d81",
+   "analysis_tab_all": "c0413463d3bec643c1227aea088a793c",
+   "brief": "5a6278fef93477a08a0033f02275080f",
+   "briefing": "0ad10f2e7f93e9559ef9ed3b7763986f",
+   "critical": "a906a7a9d8dfea74d31e8d1ea3590387",
+   "facts": "b7ae15eb555eadcc22044ffbc80a5798",
+   "kpis": "356996aa50be13ed4d43f346650aae93",
+   "map_tab": "b05e8bb3dd421ea9dcd8218d297cf820",
+   "map_tab_active": "ca5fe9ecfa2c69270e4da38bf3f5d1d7",
+   "notes": "779fc1228931c403fb13bc3f5fb780c2",
+   "quality_tab": "0871398819c1d8b00007f356e7906a39",
+   "quality_tab_all": "0871398819c1d8b00007f356e7906a39",
+   "tiles": "7adf02ed98f28c8c36b52fd178770283",
+   "window": "e9ae806d66f56387b92fb73055696d57"
+  }
+ },
+ "year=2026&section=Education": {
+  "alone": {
+   "action_points": "476c0276b3a89af169358912886a2c64",
+   "breakdown_office": "82bdaf6f24e1b2944cb87de3b6dbe28e",
+   "breakdown_partner": "d651c2703c6bef51bc2f61f159c2f258",
+   "breakdown_section": "eeda42cb359e1cb59104c62f00888f15",
+   "briefing": "76eb18a8996b1d0272f13ba10dc4e304",
+   "card_order": "3605c610fb4efb483542f7692b2eb3df",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "3429433a7f45a695bfa392d6b00c148c",
+   "dimension_breakdown": "811baff99a5fd7f327c3a86192b21e5a",
+   "drill": "b4b4e99e7b45ef8f193ec6c317a5010d",
+   "entities_all": "8b725220892c0179d6bf1dc47ad7aefa",
+   "entities_cp_output": "34dfe0e066da8827d4d80745de743290",
+   "entities_other": "c14e326afa89c811090d13a496e956ac",
+   "entities_partner": "d0a00b5217152818ff3ebe4a003f4eec",
+   "entities_pd": "56253c7a458b8dee0f0ea67e4936344d",
+   "entity_kinds": "0400e1fa1a38af42531025975b6eaee7",
+   "flag_distribution": "1100ec08133032b640a4d19e69824093",
+   "flag_frequency": "e7e23853084425140adc1cdae2bd07c0",
+   "governorate_gaps": "474af1ea2e1322b05cd05cb6d060464f",
+   "hact_programmatic": "72459048beb403bce2195706aff9e78b",
+   "hact_q1_by_month": "b48d423a2c69310496da9227b2ab181d",
+   "highlights": "04418f24dc34e2de8574e2179fa62733",
+   "issues_summary": "7cd80e22378eb41277da1abb79fb8469",
+   "kpis": "218276bda0c4286cc0293bffdc029bd9",
+   "locations": "06eb3a5a6b2aa81e9fc85f6c738cc305",
+   "map_active": "976e7601b5829e57ebd08024b22e3c04",
+   "map_visited": "55f41a2a601f4193ef24fdda93d0f0d1",
+   "monthly_quality": "3d67772fb7514e9f18978593a32b7bdf",
+   "monthly_volume": "0ad9d2bae0b12887e411fb69e0145482",
+   "narratives": "9bd5f8ff939a4d0624b119fed5b9aedf",
+   "notes": "64fd2a0906b028874ee2126e68e98b6c",
+   "office_rule_badges": "0377d28699249bd47929662b4789e01a",
+   "offices": "946655b48779675690c0c359eada5589",
+   "quality_by_rating": "8bd1ae484798e79f8d9c8e57d8d158ef",
+   "rating_by_month": "73ebec1b51cbad4733fc6cbb24c26e16",
+   "rule_analysis": "97d0d9475077ba4000b98fd712be52be",
+   "rule_months": "4a15e8ec47a647f848d5ccaca8ccbf05",
+   "rule_stats": "4f2342ea8fc042411c4d16fb5bbcbe0d",
+   "rule_stats_after_months": "04a677ca4f1c6f6b282643d1e2b82026",
+   "rule_trends": "619b17f56254f84f452bd03c851a07ec",
+   "score_buckets": "365d66108031a9d3073ae5e642569b9c",
+   "sections": "125613e1419a3c3586e818f616ff3d6d",
+   "summary": "d5e72bfc89ebf5c06b34b335d5a03f08",
+   "top_issues": "879b1a312657f6114f353e4de064dac3"
+  },
+  "kpis": {
+   "amber": 15,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "72.3"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 14
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 5
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 6
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 2
+    }
+   ],
+   "high_urgency": 4,
+   "record_kinds": {
+    "cp_output": 10,
+    "other": 11,
+    "partner": 11,
+    "pd": 32
+   },
+   "record_ratings": {
+    "constrained": 7,
+    "off_track": 4,
+    "on_track": 14
+   },
+   "records": 64,
+   "records_not_monitored": 9,
+   "records_not_rated_yet": 25,
+   "records_other": 5,
+   "records_rated": 25,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 31,
+   "scored_visits": 14,
+   "visits": 27
+  },
+  "page": {
+   "analysis_tab": "9d8e2867d2e42feb340afa1d02b084ba",
+   "analysis_tab_all": "104aa6a8419d507a036ae150785fe0a0",
+   "brief": "d849c8168da74a57f7fa4911e1244ac5",
+   "briefing": "29f1dc7130e9078a8b3443cfe043e740",
+   "critical": "644daf35c0b27c64039d5be61d0cdad1",
+   "facts": "bc99b101ae2e948c65072f404aca5a5e",
+   "kpis": "218276bda0c4286cc0293bffdc029bd9",
+   "map_tab": "5850a6665bb39b20ff711113fbc3dd34",
+   "map_tab_active": "09b4055dbb0bcc1c97b39c8e9426270b",
+   "notes": "64fd2a0906b028874ee2126e68e98b6c",
+   "quality_tab": "35b21ab05c0f85eeed5694e054895d17",
+   "quality_tab_all": "faf9d92285713abcd68150e88184cc11",
+   "tiles": "c4884c610cd617f6effad1988676b47d",
+   "window": "7c9e2ee91ef7f3306739f744281d233c"
+  }
+ },
+ "year=2026&section=Health&rating=on_track&quality=high": {
+  "alone": {
+   "action_points": "924836bbe1f9df91e19e9912a281d108",
+   "breakdown_office": "dc4bce5e7d9dcefa23b0b5eb0adc4fbe",
+   "breakdown_partner": "ec7ed7a16b37a5bdd23a273703262a09",
+   "breakdown_section": "a2373323d7ccd0f30715a6f7fa900c7a",
+   "briefing": "3f44f6408c67925cd33d0dc0f680683f",
+   "card_order": "69ad2c686a3d1644bf240f483f605c0e",
+   "coverage": "177e19b55dcb0d8c2455cff18f2ea08a",
+   "critical_items": "ace48a9351f326f05c63b36d9a9a33f7",
+   "dimension_breakdown": "b0c402abc563bdb028f15cd292eae6c2",
+   "drill": "373d32652fbcd5849bea567df68e63ad",
+   "entities_all": "5d9d1e0ee1e728f1de6e49d8de793415",
+   "entities_cp_output": "7db852bac54879e5bf667e9a9319c872",
+   "entities_other": "bc3c6cf35957b5c9b41152b16ff93e9a",
+   "entities_partner": "5736921cfd33b425a5cedc18b083b0c0",
+   "entities_pd": "181bef664b9c4ebe080c8ac6b4ec5d8c",
+   "entity_kinds": "dc4fef77ed05a8e7a0906f0f6593880f",
+   "flag_distribution": "0ed26336397e0515113f4c3c0faf4c1e",
+   "flag_frequency": "ff9af563e7fba24a7fe2ae8ffd3aa2b8",
+   "governorate_gaps": "27e6534394e54c23e3346a448e21a3e2",
+   "hact_programmatic": "afccadf734361cc8a3c18d3a9f4f507e",
+   "hact_q1_by_month": "11de8feba83863f88079cc503e631a6d",
+   "highlights": "428fdada5b83061e5383f7b0e0a08b69",
+   "issues_summary": "246f0d73e7165996fbb3cbd6a409ee15",
+   "kpis": "9b7559099e445ef5d37072942bdaba7e",
+   "locations": "db43b1fec1787556e26549852cc4f6ef",
+   "map_active": "62f33859f6a5db183eaeb68cd34e897d",
+   "map_visited": "ed683661161319245087397a2a65f35d",
+   "monthly_quality": "071bd3f4ba46601a6e43890591db8c39",
+   "monthly_volume": "6d9ee0c72c7c18cfba1c34cd5683d226",
+   "narratives": "e2b311011db8ae851d33a15208ff1226",
+   "notes": "50ad1baed189495c2415064ac9d43797",
+   "office_rule_badges": "63e8d897bb7e7dbc4f88f73773985f05",
+   "offices": "5c4dba9821773c27341658d4a09f3e0a",
+   "quality_by_rating": "7b2faf4c83b6fd4001d10ab46d3f6d09",
+   "rating_by_month": "65a01e2e28f52b15931a5798d352613c",
+   "rule_analysis": "8870af3e86ca85d767a1d73a25f81b47",
+   "rule_months": "902d436e010690ce937df9c9b1cb23d9",
+   "rule_stats": "fde4f8efca5fe908924e9e2aa9bd4ae4",
+   "rule_stats_after_months": "c6f969c1efee0317b59f0e19d09fa7bb",
+   "rule_trends": "4bf21406a310126e8813ebe0dcdf6202",
+   "score_buckets": "a9480b843030d9d73039ebc8db8df60b",
+   "sections": "b95109a486e10cd93c07abb4691ceff7",
+   "summary": "5f7adaa7ac2fd6d000b2914e0624891e",
+   "top_issues": "444d69658f4d630b139f55c3de1963cc"
+  },
+  "kpis": {
+   "amber": 1,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "89.5"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 2
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 0
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 0
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 0
+    }
+   ],
+   "high_urgency": 0,
+   "record_kinds": {
+    "other": 1,
+    "partner": 1
+   },
+   "record_ratings": {
+    "constrained": 0,
+    "off_track": 0,
+    "on_track": 2
+   },
+   "records": 2,
+   "records_not_monitored": 0,
+   "records_not_rated_yet": 0,
+   "records_other": 0,
+   "records_rated": 2,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 2,
+   "scored_visits": 2,
+   "visits": 2
+  },
+  "page": {
+   "analysis_tab": "bdd090db7f26dc96851ae5116d627e21",
+   "analysis_tab_all": "ca8f5d179937017113c50add42d4e46a",
+   "brief": "09b22ce1d686d9b88dfb13113ae2ddb7",
+   "briefing": "31320d5fa8bc3ec7bc23570301bee97e",
+   "critical": "c16d007455be244d70d8446b3913faeb",
+   "facts": "e981adbafcbe00f2e6a8216741793f8b",
+   "kpis": "9b7559099e445ef5d37072942bdaba7e",
+   "map_tab": "e54535f9294fb9cbdb470b51e22c7c8b",
+   "map_tab_active": "a551c6a28b21d5f4e752f1158ed720e7",
+   "notes": "50ad1baed189495c2415064ac9d43797",
+   "quality_tab": "0b35702609e53353002a54f6f25d0be3",
+   "quality_tab_all": "0b35702609e53353002a54f6f25d0be3",
+   "tiles": "edbf082489523cad62e324446ab604e2",
+   "window": "0724afe3c8192acd1f0725443f621584"
+  }
+ },
+ "year=2026&section=none&section=WASH": {
+  "alone": {
+   "action_points": "f0517c603c60ed816a509872662728e6",
+   "breakdown_office": "e05fb1e5e85949bc45893455378f7cf4",
+   "breakdown_partner": "dad65f84bf257e325b589c1543e965e3",
+   "breakdown_section": "5e5a32663dcb42a06744f7fe686a9e2a",
+   "briefing": "44a906f56176388f117ede94e6b803eb",
+   "card_order": "ff1c56cf61b6e6a64ab13e805bf0d6cd",
+   "coverage": "917ebb50593b6b059a500a332da64e7f",
+   "critical_items": "0aeb1e83340ba5cff6e58e9fb7cfed85",
+   "dimension_breakdown": "e62713e66cabf10f846221cf5484e4d8",
+   "drill": "6842cc450b06f325a4aed4a6d4cf303d",
+   "entities_all": "337cdc8eb748b7504d02934fec394064",
+   "entities_cp_output": "3195e7d5959baec61c7f6274b726fe52",
+   "entities_other": "66dcde3ece7391dd3a12158d536bf0f3",
+   "entities_partner": "d8a0278745b4d230c5822b96d431ff71",
+   "entities_pd": "fdad5ad6680d2783841d356ac9978309",
+   "entity_kinds": "f769ac960c016d0d0a4202f045f7cf0b",
+   "flag_distribution": "03e0184e1f06efe9cd55a612d2f389d8",
+   "flag_frequency": "72c898aafd1f0d2a863d5e408e76b388",
+   "governorate_gaps": "cf645f432c64cc9465f4100819845aa5",
+   "hact_programmatic": "8bb32e5fe3862311e48f062a5770972c",
+   "hact_q1_by_month": "f2725f553157d7a44a12deb173ea138e",
+   "highlights": "b352a1dcf80204e740d3ce2b8866121d",
+   "issues_summary": "a16555b79c9e977fea5f71c5a2191ee8",
+   "kpis": "041227f3f3ad9c2c7565d62ed402547d",
+   "locations": "f8a5a27520877ea173b2bc6fa8f18ead",
+   "map_active": "53ee409a073efdf784541baa2f5e0fa7",
+   "map_visited": "adf9803e0dfafe360cfce8eea2a41096",
+   "monthly_quality": "b1ff7725ef3ac54495743f89040dccdb",
+   "monthly_volume": "f7b9f7f0e528814fb800deb99240d91b",
+   "narratives": "df614cd1ff23b6280b3bd10831b20d68",
+   "notes": "2c51dffef495ba5679721c2ee6c02b18",
+   "office_rule_badges": "6de326db67a6b8a698df4d8f26403abe",
+   "offices": "9985043ea35278112deebd880211a8dc",
+   "quality_by_rating": "53118a1d3dbab37ccec3d896152ef978",
+   "rating_by_month": "7b2f111f223d15edf62723a52d771576",
+   "rule_analysis": "f828f8c4cfad9080d992431428e63ecf",
+   "rule_months": "1ddb4147854cc70067cefaaf2fa66e5f",
+   "rule_stats": "1a2bc24c259c79f630889d75236504cc",
+   "rule_stats_after_months": "ebb1110b49ff76a14470d9c724277483",
+   "rule_trends": "2383ee1dfd5b8bfc039ebd0b7b643d5c",
+   "score_buckets": "b4ddc7f16b0fb525fc6cece7eef94313",
+   "sections": "604097bd44b842a40045624d0446d8f3",
+   "summary": "3b4462f7e8d25138e73f4aa281326ba6",
+   "top_issues": "9928539bc7e91c3d4e8c531d52f2bb1a"
+  },
+  "kpis": {
+   "amber": 29,
+   "amber_at": 40,
+   "avg_quality": {
+    "$d": "74.3"
+   },
+   "by_status": [
+    {
+     "group": "reported",
+     "label": "reported",
+     "n": 23
+    },
+    {
+     "group": "in_progress",
+     "label": "in progress",
+     "n": 7
+    },
+    {
+     "group": "planned",
+     "label": "planned",
+     "n": 16
+    },
+    {
+     "group": "cancelled",
+     "label": "cancelled",
+     "n": 4
+    }
+   ],
+   "high_urgency": 4,
+   "record_kinds": {
+    "cp_output": 18,
+    "other": 21,
+    "partner": 25,
+    "pd": 47
+   },
+   "record_ratings": {
+    "constrained": 17,
+    "off_track": 5,
+    "on_track": 20
+   },
+   "records": 111,
+   "records_not_monitored": 23,
+   "records_not_rated_yet": 41,
+   "records_other": 5,
+   "records_rated": 42,
+   "red_at": 70,
+   "rules_version": 2,
+   "scored": 53,
+   "scored_visits": 21,
+   "visits": 50
+  },
+  "page": {
+   "analysis_tab": "602192ae44c2dbee029167c4b556cb50",
+   "analysis_tab_all": "63c1e21803807d8a3e7c289bbf8be4eb",
+   "brief": "79c0db46ae1beb5e3e7154e898b887bc",
+   "briefing": "e35bff7c09ad609663954262c1dff780",
+   "critical": "22cf87f41c22d45446d65bc30765a284",
+   "facts": "d5e781de93b0ab9075d86f8c15b4b86f",
+   "kpis": "041227f3f3ad9c2c7565d62ed402547d",
+   "map_tab": "4b4eb92117d94920ea16760804eb6701",
+   "map_tab_active": "ca8616510133eb53ff2c44f060b642d5",
+   "notes": "2c51dffef495ba5679721c2ee6c02b18",
+   "quality_tab": "116fd0e9680a74f7c427e332ab97619d",
+   "quality_tab_all": "b801a1b51dfa3dbe336975e8255be968",
+   "tiles": "810c7112cbb820f3fa6b6ad5276aad11",
+   "window": "f0fd28d71b6082d4453f37a452717e71"
+  }
+ }
+}

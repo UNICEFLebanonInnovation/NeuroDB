@@ -1213,13 +1213,15 @@ def _analysis_tab(
     place_rows = _with_urls(_shown_places(places, _places_all(request)), scope, "location")
     section_rows = []
     day = functools.lru_cache(maxsize=None)(lambda d: date_format(d, "j M Y") if d else "")
-    found_sections = metrics.sections(scope, when, limits)
-    # the first SECTION_TOP lines of each section are written out; the rest only when "Show all" asks for
-    # them (``?sections=all``), as the places tables do: up to 50 lines a section, most of the block's weight
+    # the first SECTION_TOP lines of each section are written out (and read: the rest are not); the rest
+    # only when "Show all" asks for them (``?sections=all``), as the places tables do: up to 50 lines a
+    # section, most of the block's weight
     sections_all = request.GET.get("sections") == "all"
+    read = metrics.SECTION_LINES if sections_all else SECTION_TOP
+    found_sections = metrics.sections(scope, when, limits, lines=read)
     shown = {id(row): row["lines"] if sections_all else row["lines"][:SECTION_TOP] for row in found_sections}
-    # each record's entity, as FMS lists it ("#1067 1.4 NUTRITION OF YO… — On track"): one query
-    entities = metrics.record_names({line["record"] for lines in shown.values() for line in lines})
+    # each record's entity, as FMS lists it ("#1067 1.4 NUTRITION OF YO… — On track"): read with the lines
+    entities = metrics.section_line_names(scope, when, limits, read)
     for row in found_sections:
         lines = []
         for line in shown[id(row)]:
@@ -1246,7 +1248,8 @@ def _analysis_tab(
                 "band": metrics.band_of(row["avg"], limits) if row["avg"] is not None else "none",
                 "top": lines[:SECTION_TOP],
                 "rest": lines[SECTION_TOP:],
-                "rest_count": max(len(row["lines"]) - SECTION_TOP, 0),
+                # the lines "Show all" lists: the records up to SECTION_LINES (``more``: those past them)
+                "rest_count": max(row["records"] - row["more"] - SECTION_TOP, 0),
                 "url": drill_url(scope, section=row["drill"]),
             }
         )
