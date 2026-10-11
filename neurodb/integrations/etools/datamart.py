@@ -82,6 +82,14 @@ class DatamartClient:
             raise IntegrationError(f"refusing to follow a next link to another host ({parts.netloc})")
         return urlunsplit((self.origin[0], *parts[1:]))
 
+    def get(self, dataset: str, pk: Any) -> dict[str, Any]:
+        """One record by its id (``<dataset>/<id>/``, as PRP's source tables offer it). An id names one
+        record, so no country filter is added; a record that does not exist raises with status 404."""
+        payload = get_json(self.session, self.url(f"{dataset.strip('/')}/{int(pk)}"))
+        if not isinstance(payload, dict):
+            raise IntegrationError(f"unrecognised record payload from {dataset}")
+        return payload
+
     def list(
         self, dataset: str, params: dict[str, Any] | None = None, *, country: bool = True
     ) -> Iterator[dict[str, Any]]:

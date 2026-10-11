@@ -78,6 +78,13 @@ STATUS_VARIANTS = {
     "pending": "neutral",
     "done": "success",
     "dropped": "neutral",
+    # eTools progress report statuses (neurodb.datamart.reached)
+    "accepted": "success",
+    "submitted": "info",
+    "sent_back": "warning",
+    "due": "neutral",
+    "overdue": "danger",
+    "not_yet_due": "neutral",
 }
 
 

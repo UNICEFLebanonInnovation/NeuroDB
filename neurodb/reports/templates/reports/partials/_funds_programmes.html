@@ -1,0 +1,45 @@
+{% load i18n ui humanize %}
+{% with p=programmes %}
+<div class="kpi-grid kpi-grid--money">
+  {% trans "Programme documents" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=p.pds|intcomma %}
+  {% trans "Grants" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=p.grants|intcomma %}
+  {% trans "Funds reserved (USD)" as l3 %}{% trans "The funds reservation lines of each programme document and grant" as h3 %}{% include "components/kpi_tile.html" with label=l3 value=p.reserved|number:0 hint=h3 %}
+  {% trans "Disbursed to these PDs (USD)" as l4 %}{% trans "Each PD's whole disbursement, counted once, whatever the donor, grant or FR filter" as h4 %}{% include "components/kpi_tile.html" with label=l4 value=p.disbursed|number:0 hint=h4 %}
+  {% with t=p.totals.0 %}{% if t %}{% if p.totals|length > 1 %}{% blocktrans asvar h5 count counter=p.totals|length|add:"-1" %}and {{ counter }} other currency{% plural %}and {{ counter }} other currencies{% endblocktrans %}{% else %}{% trans "Each programme document counted once" as h5 %}{% endif %}
+  {% blocktrans asvar l5 with cur=t.currency|default:"no currency" %}Partner contribution ({{ cur }}){% endblocktrans %}{% include "components/kpi_tile.html" with label=l5 value=t.partner_contribution|number:0 hint=h5 %}{% endif %}{% endwith %}
+</div>
+<section class="panel p-0">
+  {% blocktrans asvar count_label count counter=p.rows|length %}{{ counter }} row, one per programme document and grant{% plural %}{{ counter }} rows, one per programme document and grant{% endblocktrans %}
+  {% include "components/table_toolbar.html" with title=_("Funded programmes") count_label=count_label table_id="fund-programmes" filename="funded-programmes" downloads=downloads no_copy=True %}
+  {% if page_obj.object_list %}
+  <p class="small px-3 pt-2 mb-1 d-flex flex-wrap gap-2">{% status_pill "on_track" _("Active") "sm" %}{% status_pill "planned" _("Signed") "sm" %}{% status_pill "stale" _("Ended, closed, suspended, terminated or cancelled") "sm" %}{% status_pill "off_track" _("In review") "sm" %}</p>
+  <div class="table-wrap"><table class="table table-sm funded-table" id="fund-programmes">
+    <thead><tr><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Grant" %}</th><th scope="col">{% trans "Donor" %}</th><th scope="col">{% trans "Start" %}</th><th scope="col">{% trans "End" %}</th><th scope="col" class="num"><span class="has-tip" title="{% trans 'Days from today to the end date; −1 once it has ended' %}">{% trans "Days to end" %}</span></th><th scope="col">{% trans "Partner" %}</th><th scope="col">{% trans "Currency" %}</th><th scope="col" class="num">{% trans "UNICEF planned budget" %}</th><th scope="col" class="num">{% trans "Total budget" %}</th><th scope="col" class="num"><span class="has-tip" title="{% trans 'The funds reservation lines of this grant for this programme document (USD)' %}">{% trans "Funds reserved (USD)" %}</span></th><th scope="col" class="num"><span class="has-tip" title="{% trans 'Disbursed to the partner for the whole programme document (USD)' %}">{% trans "Disbursed (USD)" %}</span></th><th scope="col" class="num">{% trans "Partner contribution" %}</th></tr></thead>
+    {% for g in page_obj %}{% with n=g.rows|length %}
+    <tbody class="fund-block">{% for row in g.rows %}<tr>
+      {% if forloop.first %}<td class="small text-nowrap" rowspan="{{ n }}"><a href="{% url 'reports:programme_detail' g.pd_id %}">{{ g.programme_document|default:"—" }}</a><span class="cell-sub">{% status_pill g.tone g.pd_status "sm" %}</span></td>{% endif %}
+      <td class="mono small">{{ row.grant|default:"—" }}</td>
+      <td class="small cell-wrap">{{ row.donor|default:"—" }}</td>
+      {% if forloop.first %}
+      <td class="small text-nowrap" rowspan="{{ n }}">{{ g.start|date:"j M Y"|default:"—" }}</td>
+      <td class="small text-nowrap" rowspan="{{ n }}">{{ g.end|date:"j M Y"|default:"—" }}</td>
+      <td class="num" rowspan="{{ n }}">{% if g.days_to_end is None %}—{% elif g.days_to_end < 0 %}<span class="text-muted" title="{% trans 'Ended' %}">−1</span>{% else %}{{ g.days_to_end|intcomma }}{% endif %}</td>
+      <td class="small cell-wrap" rowspan="{{ n }}">{% if g.partner_id %}<a href="{% url 'reports:partner_profile' g.partner_id %}">{{ g.partner|default:"—" }}</a>{% else %}{{ g.partner|default:"—" }}{% endif %}{% if g.partner_type %}<span class="cell-sub">{{ g.partner_type }}</span>{% endif %}</td>
+      <td class="small" rowspan="{{ n }}">{{ g.currency|default:"—" }}</td>
+      <td class="num" rowspan="{{ n }}">{{ g.unicef_planned|number:0 }}</td>
+      <td class="num" rowspan="{{ n }}">{{ g.total|number:0 }}</td>
+      {% endif %}
+      <td class="num">{{ row.reserved|number:0 }}</td>
+      {% if forloop.first %}
+      <td class="num" rowspan="{{ n }}">{{ g.disbursed|number:0 }}</td>
+      <td class="num" rowspan="{{ n }}">{{ g.partner_contribution|number:0 }}</td>
+      {% endif %}
+    </tr>{% endfor %}</tbody>{% endwith %}{% endfor %}
+  </table></div>
+  {% include "components/pagination.html" with hx_target="#funds-results" %}
+  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}One row per programme document and grant: the funds reserved are the funds reservation lines of that grant. The budget, the disbursement and the partner contribution belong to the programme document as a whole: they are shown once for it, whatever its number of grants, so they are never counted twice. Budgets are in the programme document's currency, funds reservations and disbursements in US dollars. The Excel and CSV files hold every row of the filter, with the programme document's own amounts on its first row only.{% endblocktrans %}</p>
+  {% else %}
+  {% include "reports/partials/_datamart_empty.html" with icon="table" title=_("No funded programme documents match") empty_title=_("No funds reservations synced yet") %}
+  {% endif %}
+</section>
+{% endwith %}

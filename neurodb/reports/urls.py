@@ -20,6 +20,7 @@ urlpatterns = [
     path("programmes/", views.programmes, name="programmes"),
     path("programmes/summary/", views.programme_summary, name="programme_summary"),
     path("programmes/<int:pk>/detail/", views.programme_detail, name="programme_detail"),
+    path("programmes/<int:pk>/main-indicator/", views.pd_main_indicator, name="pd_main_indicator"),
     path("donors/", views.donors, name="donors"),
     path("partners/", views.partners, name="partners"),
     path("partners/<int:pk>/", views.partner_profile, name="partner_profile"),

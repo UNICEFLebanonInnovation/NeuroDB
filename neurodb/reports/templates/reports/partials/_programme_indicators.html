@@ -1,0 +1,29 @@
+{% load i18n ui %}
+{% include "components/table_toolbar.html" with title=_("Programme document indicators") count=page_obj.paginator.count table_id="pd-indicator-list" filename="pd-indicators" downloads=downloads %}
+{% if page_obj.object_list %}
+<div class="table-wrap"><table class="table table-hover table-sm" id="pd-indicator-list" data-sortable>
+  <thead><tr>
+    <th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Partner" %}</th><th scope="col">{% trans "Title" %}</th><th scope="col">{% trans "Start" %}</th><th scope="col">{% trans "End" %}</th><th scope="col">{% trans "Office" %}</th><th scope="col">{% trans "Section" %}</th><th scope="col">{% trans "CP output" %}</th><th scope="col">{% trans "Indicator" %}</th><th scope="col" class="num">{% trans "Baseline" %}</th><th scope="col" class="num">{% trans "Target" %}</th><th scope="col">{% trans "Emergency" %}</th>
+  </tr></thead>
+  <tbody>{% for i in page_obj %}
+    <tr>
+      <td class="small text-nowrap"><a href="{% url 'reports:programme_detail' i.pd.id %}">{{ i.programme_document|default:"—" }}</a><span class="cell-sub">{{ i.pd_status }}{% if i.document_type %} · {{ i.document_type }}{% endif %}</span></td>
+      <td class="small cell-wrap">{{ i.partner|default:"—" }}</td>
+      <td class="small cell-wrap">{{ i.pd_title|truncatechars:120 }}</td>
+      <td class="small text-nowrap" data-value="{{ i.start|date:'Y-m-d' }}">{{ i.start|date:"j M Y"|default:"—" }}</td>
+      <td class="small text-nowrap" data-value="{{ i.end|date:'Y-m-d' }}">{{ i.end|date:"j M Y"|default:"—" }}</td>
+      <td class="small">{{ i.office|default:"—" }}</td>
+      <td class="small">{{ i.section|default:"—" }}</td>
+      <td class="small cell-wrap">{{ i.cp_output|default:"—" }}</td>
+      <td class="cell-wrap">{{ i.indicator }}{% if i.pd_output %}<span class="cell-sub">{{ i.pd_output|truncatechars:120 }}</span>{% endif %}</td>
+      <td class="num" data-value="{{ i.baseline|default:'' }}">{{ i.baseline|number:0 }}</td>
+      <td class="num" data-value="{{ i.target|default:'' }}">{{ i.target|number:0 }}{% if i.display_type == "percentage" and i.target is not None %}%{% endif %}{% if i.unit and i.unit != "number" and i.unit != "percentage" %}<span class="cell-sub">{{ i.unit }}</span>{% endif %}</td>
+      <td class="small">{{ i.emergency }}</td>
+    </tr>
+  {% endfor %}</tbody>
+</table></div>
+{% include "components/pagination.html" with hx_target="#pd-table" %}
+<p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}One row per indicator of the programme documents of the filter (eTools lists an indicator once per location and disaggregation). Section is the indicator's own. What partners reached on each is on Partner monitoring. The Excel and CSV files hold every indicator of the filter.{% endblocktrans %}</p>
+{% else %}
+{% include "components/empty_state.html" with icon="filter" title=_("No indicators match") message=_("Remove some filters. If the list stays empty, the eTools data has not been synced yet.") action_url=request.path %}
+{% endif %}

@@ -23,7 +23,7 @@
   <section class="panel" aria-labelledby="scatter-title">
     <div class="panel__header">
       <h3 class="panel__title" id="scatter-title">{% trans "Spending against delivery" %}</h3>
-      <span class="panel__hint">{% trans "Share disbursed against share of the children target achieved, per section" %}</span>
+      <span class="panel__hint">{% trans "Share disbursed against the median share of the target reached by the section's children indicators" %}</span>
     </div>
     <div class="chart chart--sm" data-module="charts" data-chart="scatter-xy" data-source="overview-chart-data" data-key="money.scatter" data-height="260" data-empty-title="{% trans 'No section has both a disbursement and a children target yet' %}" aria-label="{% trans 'Disbursed share against achieved share by section' %}"></div>
   </section>

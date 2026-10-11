@@ -271,7 +271,7 @@ def test_interventions_run_in_the_cycle_under_its_country_programme(framework, i
     assert services.interventions(framework.cycle) == []
 
 
-def test_an_etools_link_reads_the_partners_cumulative_progress(framework, intervention):
+def test_an_etools_link_reads_what_the_partner_reached_in_its_year(framework, intervention):
     row = monitoring.indicators(monitoring.Filters(pd_ids=[intervention.pk], scope="all", year=2027))[0]
     link = sources.apply(Link(indicator=framework.reached, year=2027), f"etools:{intervention.pk}:{row.key}")
     link.full_clean()
@@ -279,6 +279,35 @@ def test_an_etools_link_reads_the_partners_cumulative_progress(framework, interv
     assert link.kind == "etools" and "children enrolled" in link.label
     assert services.link_values([link]) == {link.pk: 6000.0}
     assert sources.value_of(link) == f"etools:{intervention.pk}:{row.key}"
+
+
+def test_a_pd_over_two_years_is_never_counted_twice(framework, intervention):
+    """A 2027-2028 PD reaching 6,000 in 2027 and 3,000 more in 2028, linked in both years: a CP indicator
+    summing its years reads each year's Reached (6,000 + 3,000 = 9,000, never 6,000 + 9,000); one taking
+    the latest year's value reads the Reached to the end of each year (6,000, then 9,000)."""
+    PCA.objects.filter(pk=intervention.pk).update(end=datetime.date(2028, 12, 31))
+    first = dm.ReportedIndicator.objects.get(datamart_id=77)
+    first.pk, first.datamart_id, first.progress_report, first.report_number = None, 78, "PR-2", "QPR5"
+    first.period_start, first.period_end = datetime.date(2028, 1, 1), datetime.date(2028, 3, 31)
+    first.achievement_in_period = first.total_cumulative_progress = "3000"
+    first.total_cumulative_progress_in_location = "9000"
+    first.save()
+    row = monitoring.indicators(monitoring.Filters(pd_ids=[intervention.pk], scope="all", year=2027))[0]
+    reached = framework.reached
+    links = [
+        Link.objects.create(
+            indicator=reached, kind="etools", year=year, pd=intervention, etools_key=row.key, label="NFE"
+        )
+        for year in (2027, 2028)
+    ]
+    values = services.link_values(links)
+    assert [values[link.pk] for link in links] == [6000.0, 3000.0]
+    assert _progress(reached, values).value == 9000
+    reached.accumulate = Indicator.Accumulate.LATEST
+    reached.save()
+    values = services.link_values(list(Link.objects.filter(pk__in=[lk.pk for lk in links])))
+    assert [values[link.pk] for link in links] == [6000.0, 9000.0]
+    assert _progress(reached, values).value == 9000
 
 
 def test_source_choices_list_the_pd_indicators_of_the_output(framework, intervention):

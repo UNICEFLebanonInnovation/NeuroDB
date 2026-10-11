@@ -30,6 +30,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from neurodb.core.models import PopulationFigure, SyncRun
+from neurodb.datamart import headline as main_indicators
 from neurodb.datamart import models as dm
 from neurodb.datamart.children import overrides as children_overrides
 from neurodb.datamart.monitoring import is_submitted
@@ -45,8 +46,8 @@ from neurodb.web.templatetags.ui import money as money_text
 logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 120
-CACHE_VERSION = 3
-RULES_VERSION = "v1"
+CACHE_VERSION = 5
+RULES_VERSION = "v2"
 MONTH_LABELS = overview.MONTH_LABELS
 PROJECTION_MONTHS = 3  # the pace is the average of the last three reported months
 CONFIDENCE = {"reported": 80, "verified": 30, "linked": 90, "sync_days": 2}
@@ -342,9 +343,15 @@ class _Builder:
 
     # ------------------------------------------------------------------ 1 headline
     def _month_to_date(self, block: dict[str, Any]) -> int:
-        """Children reached from January to the current month, the larger of the two sources."""
+        """Children reached from January to the current month, the larger of the two sources. eTools:
+        each programme document's main indicator from January to that month (its months combined by its
+        method: a sum adds them, a max or the latest does not), summed over the PDs."""
         monthly = block.get("monthly") or {}
-        etools = sum((monthly.get("etools") or [])[: self.months_shown])
+        to_date = monthly.get("etools_to_date") or []
+        if len(to_date) >= self.months_shown:
+            etools = to_date[self.months_shown - 1]
+        else:  # an overview cached before the to-date series existed
+            etools = sum((monthly.get("etools") or [])[: self.months_shown])
         ai = sum((monthly.get("activityinfo") or [])[: self.months_shown])
         return half_up(max(etools, ai))
 
@@ -353,12 +360,8 @@ class _Builder:
         impact, money, delivery = now["impact"], now["money"], now["delivery"]
         children_now = self._month_to_date(impact)
         children_prev = self._month_to_date(prev["impact"])
-        achieved = sum(s["achieved"] for s in impact["by_section"])
-        target = sum(s["target"] for s in impact["by_section"])
-        elapsed = (
-            sum((s["elapsed"] or 0) * s["target"] for s in impact["by_section"]) / target if target else None
-        )
-        percent = _pct(achieved, target)
+        achievement = impact.get("achievement") or {}
+        percent, elapsed = achievement.get("percent"), achievement.get("elapsed")
         counts = delivery["status_counts"]
         tracked = counts["on_track"] + counts["off_track"] + counts["over_target"]
         on_track = _pct(counts["on_track"] + counts["over_target"], tracked)
@@ -368,13 +371,19 @@ class _Builder:
         tiles = [
             {
                 "key": "children",
-                "label": "Children reached, at least",
+                "label": "Children reached",
                 "value": children_now,
                 "format": "number",
                 "delta": _delta(children_now, children_prev, "vs same period last year"),
                 "hint": (
-                    f"eTools {impact['children_etools']:,} · ActivityInfo "
-                    f"{impact['children_activityinfo']:,} in the year; the two are never added"
+                    f"eTools {impact['children_etools']:,} ({main_indicators.TOTAL_RULE}"
+                    + (
+                        f"; {impact['children_awaiting']:,} from reports awaiting acceptance"
+                        if impact.get("children_awaiting")
+                        else ""
+                    )
+                    + f") · ActivityInfo {impact['children_activityinfo']:,} in the year; the larger of the "
+                    "two, never added"
                 ),
                 "url": _link(
                     "reports:pd_monitoring", section=self.scope.sections, year=self.year, scope="year"
@@ -382,7 +391,7 @@ class _Builder:
             },
             {
                 "key": "achievement",
-                "label": "Achievement of PD targets",
+                "label": "Achievement of PD targets (median)",
                 "value": percent,
                 "format": "percent",
                 "delta": (
@@ -395,7 +404,10 @@ class _Builder:
                     if percent is not None and elapsed is not None
                     else None
                 ),
-                "hint": "cumulative children against the sum of the PD targets",
+                "hint": (
+                    "median share of the target reached by the children indicators (each capped at 100 %), "
+                    "against the median share of their PD period elapsed"
+                ),
                 "url": _link(
                     "reports:pd_monitoring", section=self.scope.sections, year=self.year, scope="year"
                 ),
@@ -610,23 +622,29 @@ class _Builder:
 
     # ------------------------------------------------------------------ 2 pace
     def _pace(self) -> dict[str, Any]:
+        """Per section, the programme documents' main indicators (one per PD, the headline rule):
+        Reached to date against their targets and what was expected by now, with the Country Programme
+        target; and the children reached this year, projected to December."""
         plans = self._plans()
+        medians = {s["section"]: s for s in self.now["impact"]["by_section"]}
         bullets = []
-        for s in self.now["impact"]["by_section"]:
+        mains = [s for s in self.now["impact"].get("main_by_section") or [] if s.get("target")]
+        for s in mains:
             plan = plans.get(s["section"])
             bullets.append(
                 {
                     "section": s["section"],
-                    "achieved": s["achieved"],
+                    "achieved": s["reached"],
                     "target": s["target"],
-                    "expected": half_up(s["target"] * (s["elapsed"] or 0) / 100),
+                    "expected": s["expected"],
                     "cp_target": plan.children_target if plan and plan.children_target else None,
                     "percent": s["percent"],
-                    "elapsed": s["elapsed"],
+                    "elapsed": (medians.get(s["section"]) or {}).get("elapsed"),
+                    "programme_documents": s["programme_documents"],
                 }
             )
         monthly = self.now["impact"]["monthly"]
-        target = sum(s["target"] for s in self.now["impact"]["by_section"])
+        target = sum(s["target"] for s in mains)
         return {
             "bullets": bullets,
             "has_cp_targets": any(b["cp_target"] for b in bullets),
@@ -634,17 +652,21 @@ class _Builder:
                 "labels": list(MONTH_LABELS),
                 "actual_months": self.months_shown,
                 "series": {
-                    "eTools": _project(monthly["etools"], self.months_shown),
+                    "eTools": _project_to_date(
+                        monthly.get("etools_to_date"), monthly["etools"], self.months_shown
+                    ),
                     "ActivityInfo": _project(monthly["activityinfo"], self.months_shown),
                 },
                 "target": target,
                 "colors": {"eTools": "--nd-primary", "ActivityInfo": "--nd-series-2"},
             },
             "source": (
-                "PD indicators and PRP reports (children indicators with a target); expected = target × "
-                "share of the PD period elapsed; Country Programme targets from the section plans entered "
-                f"in the admin; projection = the last {PROJECTION_MONTHS} reported months' average, to "
-                "December"
+                "Each programme document's main indicator (its unique beneficiaries indicator, else its "
+                "largest children indicator), summed over the section's PDs: Reached to date against the "
+                "sum of those indicators' targets; expected = target × share of the PD period elapsed; "
+                "Country Programme targets from the section plans entered in the admin; projection = the "
+                f"last {PROJECTION_MONTHS} reported months' average, to December. Partners may reach the "
+                "same children"
             ),
         }
 
@@ -1058,7 +1080,7 @@ class _Builder:
             )
             donor_section[(line["donor"] or "Unknown", section or "Other")] += amount
         balances = grant_balances(lines)
-        children = {s["section"]: s["achieved"] for s in self.now["impact"]["by_section"]}
+        children = {s["section"]: s["children"] for s in self.now["impact"].get("main_by_section") or []}
         donors = Counter()
         for (donor, _section), amount in donor_section.items():
             donors[donor] += amount
@@ -1137,7 +1159,8 @@ class _Builder:
             "disbursed": self.now["money"]["disbursed"],
             "source": (
                 "Funds reservation lines (donor, grant) of the FRs of the PDs running this year, each PD's "
-                "section from its indicators, children from the section's indicators; a grant's unspent "
+                "section from its indicators, children reached this year by the main indicator of each "
+                "programme document of the section (summed over the PDs); a grant's unspent "
                 "balance = each FR's outstanding amount, in the grant's share of the FR's lines; grant "
                 "expiry from the grants table; requirements from the section plans entered in the admin"
             ),
@@ -1273,7 +1296,9 @@ class _Builder:
             "population_year": self.now["impact"]["population_year"],
             "rules": RULES_VERSION,
             "rules_text": (
-                "children rule (title tag plus flags), tracking rule ±10 points against the elapsed PD "
+                "children rule (title tag plus flags), one main indicator per programme document (its "
+                "unique beneficiaries indicator, else its largest children indicator), Reached from "
+                "Accepted and Submitted reports, tracking rule ±10 points against the elapsed PD "
                 "period, two sources never added, cost per child on the same PDs, confidence thresholds "
                 f"{CONFIDENCE['reported']}/{CONFIDENCE['verified']}/{CONFIDENCE['linked']} % and "
                 f"{CONFIDENCE['sync_days']} days"
@@ -1320,6 +1345,16 @@ def _project(monthly: list[float], shown: int) -> list[float | None]:
     return out
 
 
+def _project_to_date(to_date: list[float] | None, monthly: list[float], shown: int) -> list[float | None]:
+    """:func:`_project` from Reached from January to each month (what a max or the latest does not
+    add up month by month); the monthly values when the series is missing."""
+    if not to_date:
+        return _project(monthly, shown)
+    values = [float(v or 0) for v in to_date[:12]]
+    steps = [values[0]] + [values[i] - values[i - 1] for i in range(1, len(values))]
+    return _project(steps, shown)
+
+
 def _quadrant(disbursed: float | None, achieved: float | None) -> str:
     if disbursed is None or achieved is None:
         return ""
@@ -1342,9 +1377,16 @@ def _assign_url(finding: ReviewFinding, owner: FindingAssignment | None) -> str:
 
 DICTIONARY = [
     (
-        "Children reached, at least",
+        "Children reached",
         "The larger of the eTools PRP and ActivityInfo figures. The two are never added because the same "
-        "children are often reported in both.",
+        "children are often reported in both. eTools: each programme document counts once, with its main "
+        "indicator (its unique beneficiaries indicator, else its largest children indicator), summed over "
+        "the programme documents; partners may reach the same children.",
+    ),
+    (
+        "Achievement of PD targets (median)",
+        "The median share of the target reached by the children indicators, each capped at 100 %. Targets "
+        "of different indicators are never added.",
     ),
     (
         "Expected at this point",
@@ -1358,8 +1400,8 @@ DICTIONARY = [
     ),
     (
         "Cost per child",
-        "Disbursed to date by the PDs with a children result, over the children they reached this year. "
-        "Compare sections, not absolute values.",
+        "Disbursed to date by the PDs with a children result, over the children they reached this year "
+        "(each PD's main indicator). Compare sections, not absolute values.",
     ),
     (
         "Confidence",
@@ -1407,7 +1449,7 @@ def _pace_cell(row: dict[str, Any] | None) -> dict[str, str]:
         "Pace",
         _band(gap, -10, -20),
         percent(row["percent"], 0),
-        f"{percent(row['percent'], 0)} of the target reached, "
+        f"median {percent(row['percent'], 0)} of the target reached by the children indicators, "
         f"{percent(row['elapsed'], 0)} of the time elapsed",
     )
 
@@ -1481,14 +1523,14 @@ def brief_text(data: dict[str, Any]) -> str:
     children = tiles["children"]
     delta = children["delta"]
     lines.append(
-        f"Children reached, at least: {children['value']:,}"
+        f"Children reached: {children['value']:,}"
         + (f" ({_signed(delta['value'])}% {delta['label']})" if delta else "")
         + "."
     )
     ach = tiles["achievement"]
     if ach["value"] is not None:
         lines.append(
-            f"Achievement of PD targets: {percent(ach['value'], 0)}"
+            f"Achievement of PD targets (median): {percent(ach['value'], 0)}"
             + (f" ({ach['delta']['label']})" if ach["delta"] else "")
             + "."
         )

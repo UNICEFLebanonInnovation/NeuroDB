@@ -362,6 +362,9 @@ ETOOLS_DATAMART_PAGE_SIZE = env.int("ETOOLS_DATAMART_PAGE_SIZE", default=500)
 ETOOLS_DATAMART_REPORTING_YEARS = env.int(
     "ETOOLS_DATAMART_REPORTING_YEARS", default=3
 )  # partner reports kept
+# Partner reports are also read from the start of every running programme document (else a PD that
+# started before the window above would add up only its later reports): "Reached" sums them all.
+ETOOLS_DATAMART_REPORTING_FROM_PD_START = env.bool("ETOOLS_DATAMART_REPORTING_FROM_PD_START", default=True)
 # Business area code for the PRP datasets (found from the Datamart workspaces when empty)
 ETOOLS_DATAMART_BUSINESS_AREA = env("ETOOLS_DATAMART_BUSINESS_AREA", default="").strip()
 ETOOLS_USERNAME = env("ETOOLS_USERNAME", default="").strip()

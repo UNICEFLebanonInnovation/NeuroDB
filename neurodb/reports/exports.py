@@ -1,12 +1,14 @@
 """CSV (streamed) and XLSX (openpyxl write-only) exports with database-labelled filenames. A typed workbook
 (``xlsx_response(..., typed=True)``, written by :mod:`neurodb.reports.xlsx`) keeps numbers as numbers and
-dates as dates, never lets a text become a formula, and stays fast for millions of cells."""
+dates as dates, never lets a text become a formula, and stays fast for millions of cells; a CSV keeps a
+text that starts like a formula a text (:func:`csv_cell`)."""
 
 from __future__ import annotations
 
 import csv
 import datetime
 import io
+import re
 from collections.abc import Iterable, Iterator, Sequence
 from typing import Any
 
@@ -50,6 +52,22 @@ def _cell(value: Any) -> Any:
     return value
 
 
+# a text starting with one of these is read by a spreadsheet as a formula (or a formula's start)
+FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+PLAIN_NUMBER = re.compile(r"[+-]?[0-9]+([.,][0-9]+)*")  # a number written as text runs nothing
+
+
+def csv_cell(value: Any) -> Any:
+    """A value as a CSV cell: as :func:`_cell`, and a text that a spreadsheet would run as a formula
+    (``=HYPERLINK(...)`` in a partner's or eTools' text) kept as text by a leading apostrophe, as the
+    Excel files keep every text a text. Numbers and dates are never changed, nor a number written as
+    text ("-12.5")."""
+    value = _cell(value)
+    if isinstance(value, str) and value.startswith(FORMULA_START) and not PLAIN_NUMBER.fullmatch(value):
+        return "'" + value
+    return value
+
+
 class _Echo:
     """A pseudo file object that returns what csv.writer hands it (streaming pattern from the Django docs)."""
 
@@ -66,7 +84,7 @@ def stream_csv(
         yield "﻿"  # BOM so that Excel opens the file as UTF-8
         yield writer.writerow(list(columns))
         for row in rows:
-            yield writer.writerow([_cell(row.get(c)) for c in columns])
+            yield writer.writerow([csv_cell(row.get(c)) for c in columns])
 
     response = StreamingHttpResponse(lines(), content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="{filename}"'

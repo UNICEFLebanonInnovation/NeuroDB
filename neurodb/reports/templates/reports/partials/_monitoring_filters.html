@@ -1,24 +1,51 @@
 {% load i18n ui %}
+{# the view links follow the filter in the address bar (data-current-query): a filter changed through HTMX is kept #}
 <div class="toolbar">
-  <div class="segmented" role="group" aria-label="{% trans 'Grid or map' %}">
-    <a href="{% url 'reports:pd_monitoring' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" {% if view == "grid" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="table" %} {% trans "Grid" %}</a>
-    <a href="{% url 'reports:pd_monitoring_map' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" {% if view == "map" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="map" %} {% trans "Map" %}</a>
+  <div class="segmented segmented--scroll" role="group" aria-label="{% trans 'Partner monitoring views' %}">
+    <a href="{{ tab_urls.grid }}" data-current-query="view=grid" {% if view == "grid" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="table" %} {% trans "Grid" %}</a>
+    <a href="{{ tab_urls.table }}" data-current-query="view=table" {% if view == "table" %}aria-current="page"{% endif %} title="{% trans 'One row per indicator, sorted by % Reached (Program Performance)' %}">{% include "components/icon.html" with name="list" %} {% trans "Program Performance" %}</a>
+    <a href="{{ tab_urls.quality }}" data-current-query="view=quality" {% if view == "quality" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="check" %} {% trans "Data quality" %}</a>
+    <a href="{{ tab_urls.map }}" data-current-query="" {% if view == "map" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="map" %} {% trans "Map" %}</a>
   </div>
-  {% if own_section %}<span class="small text-muted">{% blocktrans with section=own_section|join:", " %}Your section, {{ section }}, by default{% endblocktrans %} · <a href="?section=">{% trans "every section" %}</a></span>{% endif %}
+  {% if own_section %}<span class="small text-muted">{% blocktrans with section=own_section|join:", " %}Your section, {{ section }}, by default{% endblocktrans %} · <a href="?section={% if view != 'grid' and view != 'map' %}&amp;view={{ view }}{% endif %}" data-current-query="section=">{% trans "every section" %}</a></span>{% endif %}
 </div>
-<form method="get" class="filter-bar" {% if view == "grid" %}data-filter-bar data-hx-target="#monitoring-grid"{% endif %} role="search" aria-label="{% trans 'Partner monitoring filters' %}">
+<form method="get" class="filter-bar" {% if view != "map" %}data-filter-bar data-hx-target="#monitoring-grid"{% endif %} role="search" aria-label="{% trans 'Partner monitoring filters' %}">
+  {% if view != "map" and view != "grid" %}<input type="hidden" name="view" value="{{ view }}">{% endif %}
+  {% if filters.scope == "year" %}<input type="hidden" name="scope" value="year">{% endif %}
   <div class="filter-bar__field">
-    <label class="form-label" for="f-q">{% trans "Search" %}</label>
+    <label class="form-label" for="f-q">{% trans "Indicator" %}</label>
     <input class="form-control form-control-sm" type="search" id="f-q" name="q" value="{{ filters.q }}" placeholder="{% trans 'Indicator or output' %}">
   </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-cp-output">{% trans "CP output" %}</label>
+    <input class="form-control form-control-sm" type="search" id="f-cp-output" name="cp_output" value="{{ filters.cp_output }}" placeholder="{% trans 'Country programme output' %}">
+  </div>
   {% trans "Section" as l %}{% include "reports/_multiselect.html" with name="section" label=l options=options.sections values=selected.section %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-pd-status"><span class="has-tip" title="{% trans 'The programme document status in eTools. By default the running ones: active, signed or suspended. Clear the choice for every status.' %}">{% trans "PD status" %}</span></label>
+    <input type="hidden" name="pd_status" value="" data-keep-empty>
+    <select class="form-select form-select-sm" id="f-pd-status" name="pd_status" multiple data-tom data-keep-empty placeholder="{% trans 'All' %}">
+      {% for s in options.pd_statuses %}<option value="{{ s }}" {% if s in filters.status_choice %}selected{% endif %}>{{ s|code_label }}</option>{% endfor %}
+    </select>
+  </div>
   <div class="filter-bar__field">
     <label class="form-label" for="f-partner">{% trans "Partner" %}</label>
     <select class="form-select form-select-sm" id="f-partner" name="partner" multiple data-tom placeholder="{% trans 'All' %}">
       {% for p in options.partners %}<option value="{{ p.value }}" {% if p.value in selected.partner %}selected{% endif %}>{{ p.label }}</option>{% endfor %}
     </select>
   </div>
+  {% trans "Partner type" as l %}{% include "reports/_multiselect.html" with name="partner_type" label=l options=options.partner_types values=selected.partner_type %}
   {% trans "Programme document" as l %}{% include "reports/_multiselect.html" with name="pd" label=l options=options.pds values=selected.pd %}
+  {% trans "Document type" as l %}{% include "reports/_multiselect.html" with name="document_type" label=l options=options.document_types values=selected.document_type %}
+  {% trans "Office" as l %}{% include "reports/_multiselect.html" with name="office" label=l options=options.offices values=selected.office %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-emergency"><span class="has-tip" title="{% trans 'Emergency indicators are the high-frequency ones, reported monthly in humanitarian reports' %}">{% trans "Emergency" %}</span></label>
+    <select class="form-select form-select-sm" id="f-emergency" name="emergency">
+      <option value="">{% trans "All" %}</option>
+      <option value="yes" {% if filters.emergency == "yes" %}selected{% endif %}>{% trans "Yes" %}</option>
+      <option value="no" {% if filters.emergency == "no" %}selected{% endif %}>{% trans "No" %}</option>
+    </select>
+  </div>
   {% trans "Location" as l %}{% include "reports/_multiselect.html" with name="location" label=l options=options.locations values=selected.location %}
   {% trans "Gender" as l %}{% include "reports/_multiselect.html" with name="gender" label=l options=options.gender values=selected.gender %}
   {% trans "Age group" as l %}{% include "reports/_multiselect.html" with name="age_group" label=l options=options.age_group values=selected.age_group %}
@@ -31,10 +58,11 @@
     </select>
   </div>
   <div class="filter-bar__field">
-    <label class="form-label" for="f-year">{% trans "Year" %}</label>
+    <label class="form-label" for="f-year">{% trans "Reporting year" %}</label>
     <select class="form-select form-select-sm" id="f-year" name="year">
+      <option value="all" {% if filters.all_years %}selected{% endif %}>{% trans "All years" %}</option>
       {% for y in options.years %}<option value="{{ y }}" {% if y == filters.year %}selected{% endif %}>{{ y }}</option>{% endfor %}
-      {% if filters.year not in options.years %}<option value="{{ filters.year }}" selected>{{ filters.year }}</option>{% endif %}
+      {% if filters.year and filters.year not in options.years %}<option value="{{ filters.year }}" selected>{{ filters.year }}</option>{% endif %}
     </select>
   </div>
   <div class="filter-bar__field">
@@ -44,12 +72,8 @@
       {% for key, label in labels.items %}<option value="{{ key }}" {% if key == filters.status %}selected{% endif %}>{{ label }}</option>{% endfor %}
     </select>
   </div>
-  <div class="filter-bar__field">
-    <span class="form-label">{% trans "Programme documents" %}</span>
-    <label class="form-check mb-0 small"><input class="form-check-input" type="checkbox" name="scope" value="all" {% if filters.scope == "all" %}checked{% endif %}> {% trans "Include closed and ended" %}</label>
-  </div>
   <div class="filter-bar__actions">
     <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
-    <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}{% if view != 'grid' and view != 'map' %}?view={{ view }}{% endif %}">{% trans "Reset" %}</a>
   </div>
 </form>

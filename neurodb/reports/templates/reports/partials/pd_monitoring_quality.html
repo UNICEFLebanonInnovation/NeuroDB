@@ -1,0 +1,77 @@
+{% load i18n ui humanize %}
+{% with q=quality %}
+<div class="kpi-grid">
+  {% blocktrans asvar h0 with n=q.running_pds %}{{ n }} running (active, signed or suspended){% endblocktrans %}
+  {% trans "Programme documents" as l0 %}{% include "components/kpi_tile.html" with label=l0 value=q.programme_documents|intcomma hint=h0 %}
+  {% trans "Active PDs" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=q.active_pds|intcomma hint=_("eTools status active") %}
+  {% trans "Ended PDs" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=q.ended_pds|intcomma hint=_("ended, closed, terminated or expired") %}
+  {% trans "Indicators" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=q.indicators|intcomma %}
+  {% if filters.year %}{% blocktrans asvar l4 with year=filters.year %}With Reached in {{ year }}{% endblocktrans %}{% blocktrans asvar l5 with year=filters.year %}Without Reached in {{ year }}{% endblocktrans %}{% else %}{% trans "With Reached" as l4 %}{% trans "Without Reached" as l5 %}{% endif %}
+  {% blocktrans asvar h4 with n=q.zero_reached %}{{ n }} of them reported zero{% endblocktrans %}
+  {% include "components/kpi_tile.html" with label=l4 value=q.with_reached|intcomma hint=h4 %}
+  {% include "components/kpi_tile.html" with label=l5 value=q.without_reached|intcomma status=q.without_reached|yesno:"over_target," hint=_("no counted report (Accepted or Submitted) yet") %}
+  {% trans "With a target" as l6 %}{% include "components/kpi_tile.html" with label=l6 value=q.with_target|intcomma %}
+  {% trans "Without a target" as l7 %}{% include "components/kpi_tile.html" with label=l7 value=q.without_target|intcomma status=q.without_target|yesno:"off_track," %}
+</div>
+<div class="grid grid--2 mb-3">
+  <section class="panel p-0">
+    {% include "components/table_toolbar.html" with title=_("Indicators with missing targets") count=q.without_target table_id="dq-targets" filename="indicators-without-target" downloads=None %}
+    {% if q.missing_target %}
+    <div class="table-wrap table-wrap--tall"><table class="table table-sm" id="dq-targets">
+      <thead><tr><th scope="col">{% trans "Section" %}</th><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Indicator" %}</th><th scope="col" class="num">{% trans "Target" %}</th></tr></thead>
+      <tbody>{% for i in q.missing_target %}<tr><td class="small">{{ i.section|default:"—" }}</td><td class="small text-nowrap"><a href="{% url 'reports:programme_detail' i.pd.id %}">{{ i.pd.number|default:"—" }}</a></td><td class="cell-wrap"><a href="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year_param }}" hx-get="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year_param }}" hx-target="#modal-content" hx-push-url="false">{{ i.title }}</a></td><td class="num">{{ i.target|number:0 }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% if q.without_target > q.limit %}<p class="small text-muted px-3 py-2 mb-0">{% blocktrans with n=q.limit %}The first {{ n }} are listed: narrow the filters to see the others.{% endblocktrans %}</p>{% endif %}
+    {% else %}<p class="small text-muted px-3 py-2 mb-0">{% trans "Every indicator has a target." %}</p>{% endif %}
+  </section>
+  <section class="panel">
+    <div class="panel__header"><h2 class="panel__title">{% trans "What the counts mean" %}</h2></div>
+    <p class="small text-muted mb-2">{% blocktrans %}An indicator has Reached when a counted report (Accepted or Submitted) carries a value for it; Due, Sent back and Overdue reports never count. A target of zero counts as missing.{% endblocktrans %}{% if filters.year %} {% blocktrans with year=filters.year %}With a reporting year chosen, Reached here is Reached in {{ year }}: the reports whose period ends in {{ year }}.{% endblocktrans %}{% else %} {% trans "Reached here is Reached to date, every reporting year." %}{% endif %}</p>
+    <p class="small text-muted mb-0">{% blocktrans %}The last three lists are NeuroDB's own checks: where its Reached differs from the cumulative the Partner Reporting Portal (PRP) gives, where one programme document has two indicators with the same title (they are kept apart, never merged), and where a programme document started before the reports NeuroDB holds.{% endblocktrans %}</p>
+  </section>
+</div>
+<section class="panel p-0 mb-3">
+  {% if filters.year %}{% blocktrans asvar t1 with year=filters.year %}Indicators without Reached in {{ year }} or with zero{% endblocktrans %}{% else %}{% trans "Indicators without Reached or with zero Reached" as t1 %}{% endif %}
+  {% include "components/table_toolbar.html" with title=t1 count=q.no_reached_count table_id="dq-reached" filename="indicators-without-reached" downloads=None %}
+  {% if q.no_reached %}
+  <div class="table-wrap table-wrap--tall"><table class="table table-sm" id="dq-reached">
+    <thead><tr><th scope="col">{% trans "Section" %}</th><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "CP output" %}</th><th scope="col">{% trans "PD output" %}</th><th scope="col">{% trans "Indicator" %}</th><th scope="col" class="num">{% if filters.year %}{% blocktrans with year=filters.year %}Reached in {{ year }}{% endblocktrans %}{% else %}{% trans "Reached" %}{% endif %}</th></tr></thead>
+    <tbody>{% for i in q.no_reached %}<tr><td class="small">{{ i.section|default:"—" }}</td><td class="small text-nowrap"><a href="{% url 'reports:programme_detail' i.pd.id %}">{{ i.pd.number|default:"—" }}</a><span class="cell-sub">{{ i.pd.partner_name|default:"" }}</span></td><td class="small cell-wrap">{{ i.cp_output|default:"—" }}</td><td class="small cell-wrap">{{ i.output|default:"—" }}</td><td class="cell-wrap"><a href="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year_param }}" hx-get="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year_param }}" hx-target="#modal-content" hx-push-url="false">{{ i.title }}</a></td><td class="num">{% if filters.year %}{% if i.reached_in_year is None %}<span class="text-muted">{% trans "Not reported" %}</span>{% else %}{{ i.reached_in_year|number:0 }}{% endif %}{% elif i.reached is None %}<span class="text-muted">{% trans "Not reported" %}</span>{% else %}{{ i.reached|number:0 }}{% endif %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% if q.no_reached_count > q.limit %}<p class="small text-muted px-3 py-2 mb-0">{% blocktrans with n=q.limit %}The first {{ n }} are listed: narrow the filters to see the others.{% endblocktrans %}</p>{% endif %}
+  {% else %}<p class="small text-muted px-3 py-2 mb-0">{% trans "Every indicator has a Reached above zero." %}</p>{% endif %}
+</section>
+<section class="panel p-0 mb-3">
+  {% include "components/table_toolbar.html" with title=_("NeuroDB's Reached differs from PRP's cumulative") count=q.mismatch_count table_id="dq-prp" filename="reached-differs-from-prp" downloads=None %}
+  {% if q.mismatch %}
+  <div class="table-wrap"><table class="table table-sm" id="dq-prp">
+    <thead><tr><th scope="col">{% trans "Section" %}</th><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Indicator" %}</th><th scope="col" class="num">{% trans "Reached" %}</th><th scope="col" class="num">{% trans "PRP's cumulative" %}</th><th scope="col">{% trans "As of" %}</th></tr></thead>
+    <tbody>{% for i in q.mismatch %}<tr><td class="small">{{ i.section|default:"—" }}</td><td class="small text-nowrap"><a href="{% url 'reports:programme_detail' i.pd.id %}">{{ i.pd.number|default:"—" }}</a></td><td class="cell-wrap"><a href="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year_param }}" hx-get="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year_param }}" hx-target="#modal-content" hx-push-url="false">{{ i.title }}</a></td><td class="num">{{ i.reached|number:0 }}</td><td class="num">{{ i.prp_cumulative|number:0 }}</td><td class="small text-nowrap">{{ i.as_of|date:"j M Y"|default:"—" }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% if q.mismatch_count > q.limit %}<p class="small text-muted px-3 py-2 mb-0">{% blocktrans with n=q.limit %}The first {{ n }} are listed: narrow the filters to see the others.{% endblocktrans %}</p>{% endif %}
+  {% else %}<p class="small text-muted px-3 py-2 mb-0">{% trans "None: wherever PRP gives a cumulative, NeuroDB's Reached agrees with it." %}</p>{% endif %}
+</section>
+<div class="grid grid--2 mb-3">
+  <section class="panel p-0">
+    {% include "components/table_toolbar.html" with title=_("Same title twice in one PD") count=q.same_title_count table_id="dq-titles" filename="same-indicator-title" downloads=None %}
+    {% if q.same_title %}
+    <div class="table-wrap"><table class="table table-sm" id="dq-titles">
+      <thead><tr><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Indicator title" %}</th><th scope="col" class="num">{% trans "Indicators" %}</th></tr></thead>
+      <tbody>{% for g in q.same_title %}<tr><td class="small text-nowrap"><a href="{% url 'reports:programme_detail' g.pd.id %}">{{ g.pd.number|default:"—" }}</a></td><td class="cell-wrap">{{ g.title }}</td><td class="num">{{ g.count }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% if q.same_title_count > q.limit %}<p class="small text-muted px-3 py-2 mb-0">{% blocktrans with n=q.limit %}The first {{ n }} are listed: narrow the filters to see the others.{% endblocktrans %}</p>{% endif %}
+    {% else %}<p class="small text-muted px-3 py-2 mb-0">{% trans "None." %}</p>{% endif %}
+  </section>
+  <section class="panel p-0">
+    {% include "components/table_toolbar.html" with title=_("Partial history") count=q.partial_count table_id="dq-partial" filename="partial-history" downloads=None %}
+    {% if q.partial %}
+    <p class="small text-muted px-3 mb-2">{% blocktrans with day=q.read_from|date:"j M Y" %}These programme documents started before {{ day }}, the first reporting period NeuroDB holds: their Reached is PRP's own cumulative when PRP gives one.{% endblocktrans %}</p>
+    <div class="table-wrap"><table class="table table-sm" id="dq-partial">
+      <thead><tr><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Partner" %}</th><th scope="col">{% trans "Start" %}</th></tr></thead>
+      <tbody>{% for pd in q.partial %}<tr><td class="small text-nowrap"><a href="{% url 'reports:programme_detail' pd.id %}">{{ pd.number|default:"—" }}</a></td><td class="small">{{ pd.partner_name|default:"—" }}</td><td class="small text-nowrap">{{ pd.start|date:"j M Y"|default:"—" }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% if q.partial_count > q.limit %}<p class="small text-muted px-3 py-2 mb-0">{% blocktrans with n=q.limit %}The first {{ n }} are listed: narrow the filters to see the others.{% endblocktrans %}</p>{% endif %}
+    {% else %}<p class="small text-muted px-3 py-2 mb-0">{% trans "None: NeuroDB holds every report since each programme document started." %}</p>{% endif %}
+  </section>
+</div>
+{% endwith %}

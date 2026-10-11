@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime as dt
 import random
+from collections import defaultdict
 from decimal import Decimal
 
 from neurodb.core.models import PopulationFigure
@@ -52,6 +53,22 @@ INDICATORS = {
         ("# of pregnant women receiving micronutrients", 1500),
     ],
 }
+# the country programme output each section's indicators report under (from the partner reports)
+CP_OUTPUTS = {
+    "Child Protection": "3.1 Children at risk reached with protection services",
+    "Education": "2.4 Multiple flexible learning pathways",
+    "WASH": "4.2 Water, sanitation and hygiene services for marginalised communities",
+    "Health and Nutrition": "1.3 Primary health care and nutrition services for children and women",
+}
+# PRP's disaggregations, keyed by made-up PRP ids as the partner reports key their values: (label, type)
+DISAGGREGATION_TYPES = {901: "Sex", 902: "Nationality"}
+DISAGGREGATION_VALUES = {
+    9011: ("female", 901),
+    9012: ("male", 901),
+    9021: ("Lebanese", 902),
+    9022: ("Syrian", 902),
+}
+PARTNER_SHARES = (Decimal("0.05"), Decimal("0.08"), Decimal("0.095"), Decimal("0.12"), Decimal("0"))
 TPM_STATUSES_PAST = ["unicef_approved", "unicef_approved", "tpm_reported", "tpm_accepted", "cancelled"]
 MODULES = ["tpm", "fm", "audit"]
 
@@ -80,6 +97,10 @@ def seed_etools(rng: random.Random, today: dt.date) -> None:
         _indicators_and_reports(rng, pca, section, places, counters, today, year)
         _funds(rng, pca, counters)
     _grants(rng, today)
+    # no random draw below these two: every other demo figure stays where it was
+    _disaggregation_labels()
+    _partner_contributions(pcas)
+    _focal_points_and_changes(pcas)
     _tpm(rng, pcas, gazetteer, today, year)
     _action_points(rng, pcas, gazetteer, today, year)
     _findings(rng, pcas, gazetteer, today, year)
@@ -168,6 +189,7 @@ def _indicators_and_reports(rng, pca, section, places, counters, today, year) ->
                     target_numerator=Decimal(target),
                     section_name=section,
                     lower_result_name=f"Output {i_index}: {section} services",
+                    cp_output=CP_OUTPUTS.get(section, "") if reports_pace != "none" else "",
                     location_name=place.name,
                     location_pcode=place.p_code,
                     location_source_id=place.id,
@@ -188,12 +210,15 @@ def _indicators_and_reports(rng, pca, section, places, counters, today, year) ->
             due = end + dt.timedelta(days=30)
             last = q == len(quarters)
             missing = reports_pace == "late" and last
+            # the latest report, still within its due date, waits for the section's acceptance
+            awaiting = last and not missing and due >= today
             per_period = share * pace / max(1, len(quarters))
             this_report = []
             for place in places:
-                value = 0.0 if missing else rng.uniform(per_period * 0.6, per_period * 1.4)
+                value = 0.0 if missing else float(round(rng.uniform(per_period * 0.6, per_period * 1.4)))
                 cumulative += value
-                in_location[place.id] = in_location.get(place.id, 0.0) + value
+                previous = in_location.get(place.id, 0.0)
+                in_location[place.id] = previous + value
                 counters["report"] += 1
                 this_report.append(
                     dm.ReportedIndicator(
@@ -205,19 +230,24 @@ def _indicators_and_reports(rng, pca, section, places, counters, today, year) ->
                         progress_report=f"{pca.number}/QPR{q}",
                         report_number=f"QPR{q}",
                         report_type="QPR",
-                        report_status="Due" if missing else "Accepted",
+                        report_status="Due" if missing else ("Submitted" if awaiting else "Accepted"),
                         period_start=start,
                         period_end=end,
                         due_date=due,
                         submission_date=None if missing else min(due, today) - dt.timedelta(days=3),
                         section=section,
+                        cp_output=CP_OUTPUTS.get(section, ""),
                         indicator=title,
                         target=str(target),
                         location=place.name,
                         p_code=place.p_code,
                         location_ref=place,
                         achievement_in_period="" if missing else f"{value:.0f}",
+                        # PRP's location total of the period (the disaggregation total), its values by
+                        # sex and by nationality, and running totals
+                        disaggregation={} if missing else _disaggregation(round(value)),
                         total_cumulative_progress_in_location=f"{in_location[place.id]:.0f}",
+                        previous_location_progress=f"{previous:.0f}",
                         calculation_across_locations="sum",
                         calculation_across_periods="sum",
                         etools_indicator_id=str(source_id),
@@ -233,6 +263,122 @@ def _indicators_and_reports(rng, pca, section, places, counters, today, year) ->
                 row.total_cumulative_progress = f"{cumulative:.0f}"
             report_rows.extend(this_report)
         dm.ReportedIndicator.objects.bulk_create(report_rows)
+
+
+def _disaggregation(total: int) -> dict[str, dict[str, int]]:
+    """A location's value as PRP keys it: the total "()", female + male = total, Lebanese + Syrian =
+    total (no random draw)."""
+    female, lebanese = round(total * 0.52), round(total * 0.6)
+
+    def part(n: int) -> dict[str, int]:
+        return {"v": n, "d": 1, "c": n}
+
+    return {
+        "()": part(total),
+        "(9011,)": part(female),
+        "(9012,)": part(total - female),
+        "(9021,)": part(lebanese),
+        "(9022,)": part(total - lebanese),
+    }
+
+
+def _disaggregation_labels() -> None:
+    """The labels the eTools sync reads from PRP for the ids above."""
+    labels = [
+        dm.DisaggregationLabel(kind="type", prp_id=pk, label=name)
+        for pk, name in DISAGGREGATION_TYPES.items()
+    ]
+    labels += [
+        dm.DisaggregationLabel(kind="value", prp_id=pk, label=label, disaggregation_id=type_id)
+        for pk, (label, type_id) in DISAGGREGATION_VALUES.items()
+    ]
+    dm.DisaggregationLabel.objects.bulk_create(labels)
+
+
+# UNICEF focal points of the demo PDs: placeholders, never a person's name (nor a phrase found in other
+# texts: Watch treats every focal point as a name to keep out of what it writes)
+DEMO_FOCAL_POINTS = (
+    ("Demo focal point A", "Demo focal point B"),
+    ("Demo focal point C",),
+    ("Demo focal point D", "Demo focal point E"),
+    ("Demo focal point F",),
+)
+
+
+def _focal_points_and_changes(pcas) -> None:
+    """The columns Power BI fills that the demo would leave empty (no random draw): each PD's UNICEF
+    focal points (placeholders, never a name) and country programme outputs (those of its indicators'
+    sections: what an indicator nobody reported on yet shows as its CP output), and, for each
+    submitted report row, the day it last changed in the Datamart (its submission date)."""
+    from django.utils import timezone
+
+    sections: dict[int, set[str]] = defaultdict(set)
+    for pd_id, section in dm.PDIndicator.objects.values_list("intervention_id", "section_name"):
+        sections[pd_id].add(section or "")
+    for n, pca in enumerate(pcas):
+        PCA.objects.filter(pk=pca.pk).update(
+            unicef_focal_points=list(DEMO_FOCAL_POINTS[n % len(DEMO_FOCAL_POINTS)]),
+            cp_outputs=[CP_OUTPUTS[s] for s in sorted(sections[pca.pk]) if s in CP_OUTPUTS],
+        )
+    rows = list(dm.ReportedIndicator.objects.exclude(submission_date=None).only("pk", "submission_date"))
+    for row in rows:
+        row.last_modify_date = timezone.make_aware(dt.datetime.combine(row.submission_date, dt.time(9)))
+    dm.ReportedIndicator.objects.bulk_update(rows, ["last_modify_date"], batch_size=500)
+
+
+def _partner_contributions(pcas) -> None:
+    """Each programme document's budget split (UNICEF and partner, in USD) and, for each of its counted
+    progress reports, PRP's financial contribution to date repeated on every indicator, as the
+    ``prp_indicator_reports`` records carry it (no random draw)."""
+    from neurodb.datamart import reached as rc
+
+    docs, n = [], 0
+    for pca in pcas:
+        total = Decimal(pca.total_budget or 0)
+        partner = (total * PARTNER_SHARES[pca.id % len(PARTNER_SHARES)]).quantize(Decimal("1"))
+        PCA.objects.filter(pk=pca.pk).update(
+            total_unicef_budget=str(total - partner), cso_contribution=str(partner), budget_currency="USD"
+        )
+        reports = (
+            dm.ReportedIndicator.objects.filter(intervention=pca)
+            .values_list(
+                "report_number", "report_status", "period_end", "due_date", "submission_date", "indicator"
+            )
+            .distinct()
+            .order_by("period_end", "indicator")
+        )
+        numbers = sorted({r[0] for r in reports})
+        for number, status, end, due, submitted, indicator in reports:
+            if (
+                not partner
+                or rc.status_of(status, submission_date=submitted, today=dt.date.max) not in rc.COUNTED
+            ):
+                continue
+            n += 1
+            share = Decimal(numbers.index(number) + 1) / Decimal(max(4, len(numbers)))
+            docs.append(
+                dm.DatamartDocument(
+                    dataset="prp_indicator_reports",
+                    record_key=f"demo-{n}",
+                    partner_id=pca.partner_id,
+                    intervention=pca,
+                    title=f"{pca.number} · {indicator}"[:500],
+                    date=end,
+                    data={
+                        "pd_reference_number": pca.number,
+                        "report_type": "QPR",
+                        "report_number": int(number.removeprefix("QPR")),
+                        "report_status": status[:3],
+                        "time_period_end": end.isoformat(),
+                        "due_date": due.isoformat() if due else None,
+                        "submission_date": submitted.isoformat() if submitted else None,
+                        "performance_indicator": indicator,
+                        "financial_contribution_to_date": str((partner * share).quantize(Decimal("0.01"))),
+                        "financial_contribution_currency": "USD",
+                    },
+                )
+            )
+    dm.DatamartDocument.objects.bulk_create(docs)
 
 
 def _funds(rng, pca, counters) -> None:

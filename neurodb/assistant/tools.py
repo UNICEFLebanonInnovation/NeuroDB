@@ -457,11 +457,31 @@ def programme_details(number: str) -> dict[str, Any]:
                 "report": r["report_number"],
                 "period_end": r["period_end"],
                 "submitted": r["submission_date"],
-                "status": r["report_status"],
+                # one of the six statuses, as the pages show it (never PRP's raw word: "Due" may be
+                # Overdue or Not yet due)
+                "status": r["status_label"],
             }
             for r in extra["reports"]
         ],
-        "latest_indicator_progress": extra["latest_progress"],
+        # Reached on each indicator, as Partner monitoring computes it (never PRP's raw text)
+        "indicators_reached": [
+            {
+                k: p[k]
+                for k in (
+                    "indicator",
+                    "target",
+                    "reached",
+                    "awaiting",
+                    "achieved",
+                    "tracking",
+                    "report",
+                    "report_status",
+                    "period_end",
+                    "method",
+                )
+            }
+            for p in extra["latest_progress"]
+        ],
         "linked_etools_records": dmq.linked_counts(pd=pd),
         "workplan_outputs": [
             {
@@ -791,13 +811,25 @@ def partner_reporting(
             "period": [r["period_start"], r["period_end"]],
             "due": r["due_date"],
             "submitted": r["submission_date"],
-            "status": r["report_status"],
+            "status": r["status_label"],
             "indicators": r["indicators"],
         }
         for r in data["reports"][: MAX_ROWS + 1]
     ]
     return {
         **data["summary"],
+        # the programme documents read, as the page opens: the running ones (never draft or cancelled)
+        "pd_statuses": data["filters"].status_choice,
+        # what the Progress reports page's tiles count: indicator reports (one indicator in one
+        # progress report) per status, with the progress reports beside them
+        "indicator_reports": {
+            s["label"]: {
+                "indicator_reports": s["indicator_reports"],
+                "progress_reports": s["progress_reports"],
+            }
+            for s in data["counts"]["statuses"]
+        },
+        # progress reports per status, by name: the same counts as ``reports`` and the status keys above
         "by_status": dict(data["by_status"]),
         **_cut(rows, "progress_reports"),
         "url": reverse("reports:partner_reporting"),
@@ -871,8 +903,9 @@ def pd_indicator_progress(
     year: int | None = None,
     include_closed: bool = False,
 ) -> dict[str, Any]:
-    """Partner implementation monitoring: PD indicators with what partners reported (PRP) against the
-    PD target, month by month, with the on/off-track status."""
+    """Partner implementation monitoring: PD indicators with what partners reached (PRP, the rule of
+    ``neurodb.datamart.reached``) against the PD target, with Reached in the year by month and the
+    on/off-track status."""
     params: dict[str, Any] = {
         "report_type": report_type or monitoring.DEFAULT_REPORT_TYPE,
         "year": str(year) if year else "",
@@ -922,9 +955,15 @@ def pd_indicator_progress(
         "programme_documents": data["programme_documents"],
         "partners": data["partners"],
         "status_counts": data["status_counts"],
+        "indicators_with_reached": data["with_reached"],
         "overdue_reports": data["overdue_reports"],
         "rule": (
-            "achieved % of the PD target compared with the % of the PD period elapsed; ±10 points is on track"
+            "Reached = the indicator's Accepted and Submitted reports since the PD started, locations and "
+            "periods combined as PRP says (sum, max, average, latest; percentages as numerators over "
+            "denominators); awaiting_acceptance is the part from Submitted reports; Sent back, Due and "
+            "Overdue reports never count. Status: % of the PD target reached compared with the % of the PD "
+            "period elapsed; ±10 points is on track. Never add Reached of different indicators: partners "
+            "and indicators may reach the same people."
         ),
         **_cut([r.as_dict() for r in rows], "indicators_detail"),
         "url": reverse("reports:pd_monitoring"),
@@ -1305,9 +1344,12 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
     ),
     "partner_reporting": (
         partner_reporting,
-        "Partner progress reports (Partner Reporting Portal): counts submitted, late, overdue and accepted, "
-        "reports by status, and the list of reports with period, due and submission dates. Filter by partner "
-        "name/vendor/PD text, year the period ends, or overdue only.",
+        "Partner progress reports (Partner Reporting Portal): progress reports per status (Accepted, "
+        "Submitted, Sent back, Due, Overdue, Not yet due) and late, the indicator reports per status (one "
+        "indicator in one progress report: what the Progress reports page counts, as Power BI does), and "
+        "the list of reports with period, due and submission dates, of the running programme documents "
+        "(active, signed or suspended: pd_statuses), as the page opens. Filter by partner name/vendor/PD "
+        "text, year the period ends, or overdue only.",
         _schema(
             {
                 "partner": {"type": "string"},
@@ -1320,12 +1362,17 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
     "pd_indicator_progress": (
         pd_indicator_progress,
         "Partner implementation monitoring from eTools/PRP: each programme document indicator with its "
-        "target, cumulative achievement, % achieved, on/off-track status (achievement vs share of the PD "
-        "period elapsed), the partner's own assessment, and the value reported per month of the year "
-        "(quarterly QPR by default, or monthly humanitarian HR reports). Filter by partner, PD number, "
-        "section, status (on_track, off_track, over_target, no_target, not_reported: no progress report read "
-        "yet), report type and year. Use it for "
-        "'is partner X on track', 'which indicators are off track', 'what did the partner report in March'.",
+        "target, Reached (what the partner reached to date: its Accepted and Submitted reports since the "
+        "PD started, combined by PRP's location and period methods, never adding repeated values), the part "
+        "awaiting acceptance, % of the target reached, on/off-track status (Reached vs share of the PD "
+        "period elapsed), PRP's own cumulative for comparison, the partner's assessment, Reached in the "
+        "year and per month of that year (quarterly QPR by default, or monthly humanitarian HR reports). "
+        "Filter by partner, PD number, section, status (on_track, off_track, over_target, no_target, "
+        "not_reported: no counted report yet), report type and year. This is the only correct source for "
+        "how many people an "
+        "indicator reached: never add partner report rows. Different indicators are never added together. "
+        "Use it for 'is partner X on track', 'how many did PD Y reach', 'which indicators are off track', "
+        "'what did the partner report in March'.",
         _schema(
             {
                 "partner": {"type": "string"},
@@ -1375,8 +1422,11 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         "numbers, ISO dates as text) and date_from/date_to on the dataset's main date. Returns records "
         "(choose fields to keep answers short) or, with group_by (a field, or partner, programme_document, "
         "year, month), counts per group, with sum to add up a numeric field. Records carry links to the "
-        "NeuroDB partner and programme document pages. Field monitoring records come without people's "
-        "names and without long texts; for visits use fm_visits / fm_visit.",
+        "NeuroDB partner and programme document pages. Partner report values (partner_reports, "
+        "prp_indicator_reports) repeat across locations, reports and indicators, and PD indicator targets "
+        "(pd_indicators) across locations and disaggregations, so they are never summed: use "
+        "pd_indicator_progress for targets and what was reached. Field monitoring records come without "
+        "people's names and without long texts; for visits use fm_visits / fm_visit.",
         _schema(
             {
                 "dataset": {"type": "string", "description": "A name from etools_datasets."},

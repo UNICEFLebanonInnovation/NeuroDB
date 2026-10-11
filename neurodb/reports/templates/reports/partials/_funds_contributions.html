@@ -1,0 +1,49 @@
+{% load i18n ui humanize %}
+{% with c=contributions %}
+<div class="kpi-grid kpi-grid--money">
+  {% trans "Programme documents" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=c.rows|length|intcomma %}
+  {% with t=c.totals.0 %}{% if t %}
+  {% if c.totals|length > 1 %}{% blocktrans asvar more count counter=c.totals|length|add:"-1" %}and {{ counter }} other currency: see the table{% plural %}and {{ counter }} other currencies: see the table{% endblocktrans %}{% else %}{% blocktrans asvar more with n=t.pds %}{{ n }} programme documents{% endblocktrans %}{% endif %}
+  {% blocktrans asvar l2 with cur=t.currency|default:"no currency" %}Planned UNICEF contribution ({{ cur }}){% endblocktrans %}{% include "components/kpi_tile.html" with label=l2 value=t.unicef_planned|number:0 hint=more %}
+  {% blocktrans asvar l3 with cur=t.currency|default:"no currency" %}Total budget ({{ cur }}){% endblocktrans %}{% include "components/kpi_tile.html" with label=l3 value=t.total|number:0 %}
+  {% blocktrans asvar h4 with share=t.partner_share|percent:1 %}{{ share }} of the total budget{% endblocktrans %}
+  {% blocktrans asvar l4 with cur=t.currency|default:"no currency" %}Partner contribution ({{ cur }}){% endblocktrans %}{% include "components/kpi_tile.html" with label=l4 value=t.partner_contribution|number:0 hint=h4 %}
+  {% endif %}{% endwith %}
+  {% with r=c.reported_totals.0 %}
+  {% blocktrans asvar h5 count counter=c.reported %}reported in PRP for {{ counter }} programme document{% plural %}reported in PRP for {{ counter }} programme documents{% endblocktrans %}
+  {% if r %}{% blocktrans asvar l5 with cur=r.currency|default:"no currency" %}Financial contribution during reporting periods ({{ cur }}){% endblocktrans %}{% else %}{% trans "Financial contribution during reporting periods" as l5 %}{% endif %}
+  {% include "components/kpi_tile.html" with label=l5 value=r.value|number:0 hint=h5 %}
+  {% endwith %}
+</div>
+{% if c.totals|length > 1 %}
+<section class="panel p-0 mb-3">
+  {% include "components/table_toolbar.html" with title=_("Totals per currency") count=None table_id="fund-currencies" filename="partner-contributions-by-currency" downloads=None %}
+  <div class="table-wrap"><table class="table table-sm" id="fund-currencies">
+    <thead><tr><th scope="col">{% trans "Currency" %}</th><th scope="col" class="num">{% trans "Programme documents" %}</th><th scope="col" class="num">{% trans "Planned UNICEF contribution" %}</th><th scope="col" class="num">{% trans "Total budget" %}</th><th scope="col" class="num">{% trans "Partner contribution" %}</th><th scope="col" class="num">{% trans "Partner share" %}</th></tr></thead>
+    <tbody>{% for t in c.totals %}<tr><td>{{ t.currency|default:"—" }}</td><td class="num">{{ t.pds|intcomma }}</td><td class="num">{{ t.unicef_planned|number:0 }}</td><td class="num">{{ t.total|number:0 }}</td><td class="num">{{ t.partner_contribution|number:0 }}</td><td class="num">{{ t.partner_share|percent:1 }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Partner fund monitoring") count=page_obj.paginator.count table_id="fund-contributions" filename="partner-fund-monitoring" downloads=downloads %}
+  {% if page_obj.object_list %}
+  <div class="table-wrap"><table class="table table-sm table-hover" id="fund-contributions" data-sortable>
+    <thead><tr><th scope="col">{% trans "Partner" %}</th><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Currency" %}</th><th scope="col" class="num"><span class="has-tip" title="{% trans 'Planned UNICEF contribution: cash and supplies' %}">{% trans "UNICEF planned" %}</span></th><th scope="col" class="num">{% trans "Total budget" %}</th><th scope="col" class="num">{% trans "Partner contribution" %}</th><th scope="col" class="num"><span class="has-tip" title="{% trans 'The partner contribution over the total budget' %}">{% trans "Partner share" %}</span></th><th scope="col" class="num"><span class="has-tip" title="{% trans 'What the partner reported in PRP as its financial contribution to date, read once from the latest progress report that counts (Accepted or Submitted)' %}">{% trans "Financial contribution during reporting periods" %}</span></th></tr></thead>
+    <tbody>{% for r in page_obj %}<tr>
+      <td class="small cell-wrap">{% if r.partner_id %}<a href="{% url 'reports:partner_profile' r.partner_id %}">{{ r.partner|default:"—" }}</a>{% else %}{{ r.partner|default:"—" }}{% endif %}{% if r.partner_type %}<span class="cell-sub">{{ r.partner_type }}{% if r.cso_type %} · {{ r.cso_type }}{% endif %}</span>{% endif %}</td>
+      <td class="small text-nowrap"><a href="{% url 'reports:programme_detail' r.pd_id %}">{{ r.programme_document|default:"—" }}</a><span class="cell-sub">{{ r.pd_status }}</span></td>
+      <td class="small">{{ r.currency|default:"—" }}</td>
+      <td class="num" data-value="{{ r.unicef_planned|default:'' }}">{{ r.unicef_planned|number:0 }}</td>
+      <td class="num" data-value="{{ r.total|default:'' }}">{{ r.total|number:0 }}</td>
+      <td class="num" data-value="{{ r.partner_contribution|default:'' }}">{{ r.partner_contribution|number:0 }}</td>
+      <td class="num" data-value="{{ r.partner_share|default:'' }}">{{ r.partner_share|percent:1 }}</td>
+      <td class="num" data-value="{{ r.reported.value|default:'' }}">{% if r.reported %}{{ r.reported.value|number:0 }}{% if r.reported.currency and r.reported.currency != r.currency %} {{ r.reported.currency }}{% endif %}<span class="cell-sub">{% blocktrans with report=r.reported.report when=r.reported.as_of|date:"j M Y" %}{{ report }} · to {{ when }}{% endblocktrans %}{% if r.reported.status == "submitted" %} · {% trans "awaiting acceptance" %}{% endif %}{% if r.reported.varies %} · <span title="{% trans 'The indicators of this progress report carry different values: the largest is shown, never their sum' %}">{% trans "varies" %}</span>{% endif %}</span>{% else %}—{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% include "components/pagination.html" with hx_target="#funds-results" %}
+  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}One row per programme document of the filter, with its budget as eTools gives it, in its own currency (amounts in different currencies are never added together). The partner share is the partner contribution over the total budget. The financial contribution during reporting periods is what the partner reported in the Partner Reporting Portal, to date: PRP repeats it on every indicator of a progress report, so it is read once, from the latest progress report that counts (Accepted, or Submitted and awaiting acceptance). Partner focal points are not shown. The Excel and CSV files hold every programme document of the filter.{% endblocktrans %}</p>
+  {% else %}
+  {% include "reports/partials/_datamart_empty.html" with icon="users" title=_("No programme documents match") empty_title=_("No programme documents synced yet") %}
+  {% endif %}
+</section>
+{% endwith %}

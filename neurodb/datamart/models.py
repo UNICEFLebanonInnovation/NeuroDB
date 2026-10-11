@@ -142,6 +142,12 @@ class PDIndicator(DatamartRecord):
     numerator_label = models.CharField(max_length=256, blank=True)
     denominator_label = models.CharField(max_length=256, blank=True)
     means_of_verification = models.CharField(max_length=255, blank=True)
+    cp_output = models.CharField(
+        "CP output",
+        max_length=500,
+        blank=True,
+        help_text="the country programme output, from the indicator's partner reports (not in pd-indicators)",
+    )
     # Whom the indicator counts, read from its title (neurodb.datamart.tags)
     tag_gender = models.CharField(**TAG)
     tag_age_group = models.CharField(**TAG)
@@ -453,6 +459,9 @@ class ReportedIndicator(DatamartRecord):
     vendor_number = models.CharField(max_length=30, blank=True)
     pd_reference_number = models.CharField(max_length=256, blank=True, db_index=True)
     progress_report = models.CharField(max_length=300, blank=True, db_index=True)
+    indicator_report = models.CharField(
+        max_length=64, blank=True, db_index=True, help_text="PRP's id of this indicator in this report"
+    )
     report_number = models.CharField(max_length=30, blank=True)
     report_type = models.CharField(max_length=30, blank=True, db_index=True)
     report_status = models.CharField(max_length=50, blank=True, db_index=True)
@@ -484,6 +493,8 @@ class ReportedIndicator(DatamartRecord):
     calculation_across_periods = models.CharField(max_length=20, blank=True)
     etools_indicator_id = models.CharField(max_length=64, blank=True, db_index=True)
     etools_pd_result_id = models.CharField(max_length=64, blank=True)
+    cp_output = models.CharField("CP output", max_length=500, blank=True)
+    etools_cp_output_id = models.CharField("eTools CP output id", max_length=64, blank=True)
     narrative_assessment = models.TextField(blank=True)
     disaggregation = models.JSONField(default=dict, blank=True)
     tag_gender = models.CharField(**TAG)
@@ -674,6 +685,38 @@ class DatamartDocument(models.Model):
         return f"{self.dataset}: {self.title or self.record_key}"
 
 
+class DisaggregationLabel(models.Model):
+    """The name of a PRP disaggregation ("Sex") or of one of its values ("female"). The partner reports
+    key their disaggregation values by PRP ids (``"(12,)"``, a cross-tab cell ``"(12, 31)"``, the
+    location total ``"()"``); the eTools Datamart sync reads the labels of the ids it sees there, one
+    by one (``sources/prp/indicatordisaggregationvalue/<id>/`` and ``indicatordisaggregation/<id>/``).
+    Labels only: no value, no person."""
+
+    class Kind(models.TextChoices):
+        VALUE = "value", "disaggregation value"
+        TYPE = "type", "disaggregation"
+
+    kind = models.CharField(max_length=8, choices=Kind.choices)
+    prp_id = models.BigIntegerField(help_text="the id in the Partner Reporting Portal")
+    label = models.CharField(max_length=255, blank=True)
+    disaggregation_id = models.BigIntegerField(
+        null=True, blank=True, help_text="a value's disaggregation (its type), as a PRP id"
+    )
+    active = models.BooleanField(default=True)
+    not_found = models.BooleanField(default=False, help_text="PRP answered that the id does not exist")
+    synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["kind", "prp_id"], name="datamart_disaggregationlabel_key")
+        ]
+        ordering = ("kind", "label")
+        verbose_name = "disaggregation label"
+
+    def __str__(self):
+        return f"{self.get_kind_display()} {self.prp_id}: {self.label or '?'}"
+
+
 class MonitoringSite(DatamartRecord):
     """A field-monitoring site of eTools (``location-sites``): a named point inside an admin location."""
 
@@ -694,13 +737,18 @@ class MonitoringSite(DatamartRecord):
 
 
 class IndicatorFlag(models.Model):
-    """Whether an indicator counts children, set by a section once and kept across syncs.
+    """What a section says about one indicator, set once and kept across syncs. Two roles:
 
-    The overview's "children reached" is read from the indicators whose title names children (the
-    age-group tag) unless a flag says otherwise: a flag with ``counts_children=True`` adds an
-    indicator the title rule misses, ``False`` removes one it wrongly includes. Keyed by the source
-    (eTools PD indicator or ActivityInfo master indicator) and the indicator's own id there, so the
-    Datamart sync, which rewrites the indicator rows, never loses it.
+    * **Counts children.** The overview's children indicators are those whose title names children
+      (the age-group tag) unless a flag says otherwise: ``counts_children=True`` adds an indicator
+      the title rule misses, ``False`` removes one it wrongly includes, empty follows the title rule.
+    * **Unique beneficiaries** (eTools PD indicators only). The one indicator of a programme document
+      that counts each child or person it reached once: the PD's headline "children / beneficiaries
+      reached" (``neurodb.datamart.headline``). One per PD, set on the PD page by an Administrator or a
+      Section editor of the PD's section, or here.
+
+    Keyed by the source (eTools PD indicator or ActivityInfo master indicator) and the indicator's own
+    id there, so the Datamart sync, which rewrites the indicator rows, never loses it.
     """
 
     class Source(models.TextChoices):
@@ -713,17 +761,43 @@ class IndicatorFlag(models.Model):
         help_text="eTools indicator id (source_id) or ActivityInfo master indicator id",
     )
     label = models.CharField(max_length=1024, blank=True, help_text="the indicator title, for the list")
-    counts_children = models.BooleanField(default=True)
+    counts_children = models.BooleanField(
+        null=True,
+        blank=True,
+        default=True,
+        help_text="whether the indicator counts children; empty: the title decides",
+    )
+    unique_beneficiaries = models.BooleanField(
+        "unique beneficiaries",
+        default=False,
+        help_text=(
+            "the programme document's unique beneficiaries indicator: each child or person counted once, "
+            "the PD's figure in every children reached total (one per programme document)"
+        ),
+    )
+    intervention = _intervention("indicator_flags")
     note = models.CharField(max_length=500, blank=True)
     updated_by = models.CharField(max_length=150, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["source", "key"], name="datamart_indicatorflag_key")]
+        constraints = [
+            models.UniqueConstraint(fields=["source", "key"], name="datamart_indicatorflag_key"),
+            models.UniqueConstraint(
+                fields=["intervention"],
+                condition=models.Q(unique_beneficiaries=True),
+                name="datamart_indicatorflag_one_unique_per_pd",
+            ),
+        ]
         ordering = ("source", "label")
-        verbose_name = "children indicator flag"
-        verbose_name_plural = "children indicator flags"
+        verbose_name = "indicator flag"
+        verbose_name_plural = "indicator flags"
 
     def __str__(self):
-        verdict = "counts children" if self.counts_children else "does not count children"
+        if self.counts_children is None:
+            verdict = "title rule"
+        else:
+            verdict = "counts children" if self.counts_children else "does not count children"
+        if self.unique_beneficiaries:
+            verdict += ", unique beneficiaries of its programme document"
         return f"{self.get_source_display()} {self.key}: {verdict}"

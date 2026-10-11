@@ -1,0 +1,48 @@
+{% load i18n ui humanize %}
+{% with p=data.partners %}
+<div class="kpi-grid">
+  {% trans "Partners" as l0 %}{% include "components/kpi_tile.html" with label=l0 value=p.partners|intcomma hint=_("with a progress report in the filter, whatever its status") %}
+  {% trans "With at least one report" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=p.reported|intcomma status=p.reported|yesno:"on_track," hint=_("Submitted or Accepted") %}
+  {% trans "Not reported" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=p.not_reported|intcomma status=p.not_reported|yesno:"off_track," hint=_("no Submitted or Accepted report yet") %}
+</div>
+<div class="grid grid--2 mb-3">
+  <section class="panel p-0">
+    {% include "components/table_toolbar.html" with title=_("Partners with a report in each status") count=None table_id="partners-by-status" filename="partners-by-status" downloads=None %}
+    <div class="table-wrap"><table class="table table-sm status-matrix" id="partners-by-status">
+      <thead><tr><th scope="col">{% trans "Report status" %}</th><th scope="col" class="num">{% trans "Partners" %}</th></tr></thead>
+      <tbody>{% for s in p.by_status %}<tr><th scope="row" class="fw-normal">{% status_pill s.key s.label "sm" %}</th><td class="num">{{ s.partners|intcomma }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    <p class="small text-muted px-3 py-2 mb-0">{% trans "A partner with reports in several statuses is counted in each of them, so these do not add up to the number of partners." %}</p>
+  </section>
+  <section class="panel p-0">
+    {% include "components/table_toolbar.html" with title=_("Partners not reported") count=p.not_reported table_id="partners-not-reported" filename="partners-not-reported" downloads=None %}
+    {% if p.not_reported_list %}
+    <div class="table-wrap table-wrap--tall"><table class="table table-sm" id="partners-not-reported">
+      <thead><tr><th scope="col">{% trans "Partner" %}</th><th scope="col">{% trans "Programme documents" %}</th><th scope="col">{% trans "Their reports" %}</th></tr></thead>
+      <tbody>{% for row in p.not_reported_list %}<tr><td class="small cell-wrap">{% if row.id %}<a href="{% url 'reports:partner_profile' row.id %}">{{ row.name }}</a>{% else %}{{ row.name }}{% endif %}</td><td class="small">{{ row.pds|join:", "|default:"—" }}</td><td class="small">{% for label, n in row.statuses.items %}{{ n }} {{ label|lower }}{% if not forloop.last %}, {% endif %}{% endfor %}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}<p class="small text-muted px-3 py-2 mb-0">{% trans "Every partner in the filter has a Submitted or Accepted report." %}</p>{% endif %}
+  </section>
+</div>
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Reports to follow up: Overdue, Sent back, Due and Submitted") count=page_obj.paginator.count table_id="follow-up" filename="reports-to-follow-up" downloads=downloads %}
+  {% if page_obj.object_list %}
+  <div class="table-wrap"><table class="table table-hover table-sm" id="follow-up">
+    <thead><tr><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Partner" %}</th><th scope="col">{% trans "Section" %}</th><th scope="col">{% trans "Status" %}</th><th scope="col">{% trans "Report due date" %}</th><th scope="col">{% trans "Report" %}</th><th scope="col" class="num">{% trans "Indicators" %}</th></tr></thead>
+    <tbody>{% for r in page_obj %}{% url 'reports:progress_report' as report_url %}<tr>
+      <td class="small text-nowrap">{% if r.intervention_id %}<a href="{% url 'reports:programme_detail' r.intervention_id %}">{{ r.pd_reference_number|default:"—" }}</a>{% else %}{{ r.pd_reference_number|default:"—" }}{% endif %}</td>
+      <td class="small cell-wrap">{% if r.partner_id %}<a href="{% url 'reports:partner_profile' r.partner_id %}">{{ r.partner_name|default:"—" }}</a>{% else %}{{ r.partner_name|default:"—" }}{% endif %}</td>
+      <td class="small">{{ r.section|default:"—" }}</td>
+      <td>{% status_pill r.status r.status_label "sm" %}</td>
+      <td class="small text-nowrap">{{ r.due_date|date:"j M Y"|default:"—" }}</td>
+      <td class="text-nowrap">{% if r.progress_report %}<a class="mono small" href="{{ report_url }}?report={{ r.progress_report|urlencode }}" hx-get="{{ report_url }}?report={{ r.progress_report|urlencode }}" hx-target="#modal-content" hx-push-url="false">{{ r.report_number|default:"—" }}</a>{% else %}{{ r.report_number|default:"—" }}{% endif %}<span class="cell-sub">{{ r.report_type }}</span></td>
+      <td class="num">{{ r.indicators }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% include "components/pagination.html" with hx_target="#reporting-results" %}
+  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}Overdue first, then Sent back, Due and Submitted (awaiting acceptance), each by due date. Partners here are those with a progress report in the filter; a partner whose programme documents have no report in the Partner Reporting Portal yet is not counted.{% endblocktrans %}</p>
+  {% else %}
+  <p class="small text-muted px-3 py-2 mb-0">{% trans "Nothing to follow up: every report in the filter is Accepted or not yet due." %}</p>
+  {% endif %}
+</section>
+{% endwith %}

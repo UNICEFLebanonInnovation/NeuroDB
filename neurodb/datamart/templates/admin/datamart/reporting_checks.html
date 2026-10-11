@@ -1,0 +1,45 @@
+{% extends "admin/base_site.html" %}
+{% load i18n humanize unfold %}
+
+{% comment %}
+  eTools reporting checks (context: datamart.admin.reporting_checks_view, Administrators only): how the
+  partner report data NeuroDB holds answers the questions the "Reached" rule depends on, each with a
+  plain verdict and what NeuroDB does whatever the answer. Read-only; reloading runs the checks again.
+{% endcomment %}
+
+{% block content %}
+<div id="content-main" class="nd-found">
+  <p class="nd-list-note">
+    <span class="material-symbols-outlined" aria-hidden="true">info</span>
+    <span>{% blocktrans trimmed with when=checked_at|date:"j M Y, H:i" rows_url=rows_url health_url=health_url %}
+      Partner monitoring's "Reached" adds up the Accepted and Submitted reports of each indicator without ever adding a value the reports repeat. These checks show how the eTools partner reports NeuroDB holds look, so the rule can be confirmed on real data. They only read counts; reload the page to run them again (checked {{ when }}). Back to <a class="nd-link" href="{{ health_url }}">Data health</a> · <a class="nd-link" href="{{ rows_url }}">Reported indicators</a>.
+    {% endblocktrans %}</span>
+  </p>
+
+  {% for check in checks %}
+    {% blocktrans asvar card_title with n=check.key title=check.title %}Check {{ n }} · {{ title }}{% endblocktrans %}
+    {% component "unfold/components/card.html" with title=card_title title_icon="fact_check" %}
+      <p class="mb-2"><strong>{{ check.question }}</strong></p>
+      <div class="nd-scheduler {% if check.tone == 'ok' %}nd-scheduler--ok{% elif check.tone == 'warning' %}nd-scheduler--warn{% endif %}" role="status">
+        <span class="material-symbols-outlined" aria-hidden="true">{% if check.tone == "ok" %}check_circle{% elif check.tone == "warning" %}warning{% else %}info{% endif %}</span>
+        <div><strong>{% trans "Verdict" %}:</strong> {{ check.verdict }}<p><strong>{% trans "What NeuroDB does" %}:</strong> {{ check.neurodb }}</p></div>
+      </div>
+      {% if check.figures %}
+        <div class="nd-scroll">
+          <table class="nd-jobs">
+            <tbody>{% for label, value in check.figures %}<tr><th scope="row">{{ label }}</th><td>{{ value|intcomma }}</td></tr>{% endfor %}</tbody>
+          </table>
+        </div>
+      {% endif %}
+      {% if check.table and check.table.rows %}
+        <div class="nd-scroll mt-3">
+          <table class="nd-jobs">
+            <thead><tr>{% for c in check.table.columns %}<th scope="col">{{ c }}</th>{% endfor %}</tr></thead>
+            <tbody>{% for row in check.table.rows %}<tr>{% for cell in row %}<td>{{ cell|default_if_none:"—" }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+          </table>
+        </div>
+      {% endif %}
+    {% endcomponent %}
+  {% endfor %}
+</div>
+{% endblock %}

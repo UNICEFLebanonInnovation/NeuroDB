@@ -46,12 +46,13 @@
   <div class="dropdown">
     <button class="btn btn-ghost dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="year-menu">
       {% include "components/icon.html" with name="calendar" %}
-      <span>{% if year.name %}{{ year.name }}{% elif nav.year %}{{ nav.year.name }}{% endif %}</span>
+      <span>{% if year_all_active %}{% trans "All years" %}{% elif year.name %}{{ year.name }}{% elif nav.year %}{{ nav.year.name }}{% endif %}</span>
     </button>
     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="year-menu">
       <li><h6 class="dropdown-header">{% trans "Reporting year" %}</h6></li>
+      {% if year_all_url %}<li><a class="dropdown-item {% if year_all_active %}active{% endif %}" href="{{ year_all_url }}">{% trans "All years" %}</a></li>{% endif %}
       {% for y in nav.years %}
-      <li><a class="dropdown-item {% if year.id and y.id == year.id or not year.id and y.id == nav.year.id %}active{% endif %}" href="{% year_url y.name %}">{{ y.name }}{% if y.current %} <span class="text-muted small">({% trans "current" %})</span>{% endif %}</a></li>
+      <li><a class="dropdown-item {% if not year_all_active %}{% if year.id and y.id == year.id or not year.id and y.id == nav.year.id %}active{% endif %}{% endif %}" href="{% year_url y.name %}">{{ y.name }}{% if y.current %} <span class="text-muted small">({% trans "current" %})</span>{% endif %}</a></li>
       {% endfor %}
     </ul>
   </div>

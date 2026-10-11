@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% load i18n ui %}
 {% block content %}
+<div class="filters-collapse" data-filters-collapse>
 <form method="get" class="filter-bar" data-filter-bar data-hx-target="#funds-results" role="search" aria-label="{% trans 'Funds filters' %}">
+  {% if tab != "reservations" %}<input type="hidden" name="tab" value="{{ tab }}">{% endif %}
   <div class="filter-bar__field">
     <label class="form-label" for="f-q">{% trans "Search" %}</label>
     <input class="form-control form-control-sm" type="search" id="f-q" name="q" value="{{ q }}" placeholder="{% trans 'PD, partner, vendor or FR' %}">
@@ -9,16 +11,34 @@
   {% trans "Donor" as l %}{% include "reports/_multiselect.html" with name="donor" label=l options=data.options.donors values=selected.donor %}
   {% trans "Grant" as l %}{% include "reports/_multiselect.html" with name="grant" label=l options=data.options.grants values=selected.grant %}
   <div class="filter-bar__field">
+    <label class="form-label" for="f-fr">{% trans "FR number" %}</label>
+    <input class="form-control form-control-sm" type="search" id="f-fr" name="fr" value="{{ f.fr }}" placeholder="{% trans 'Part of an FR number' %}">
+  </div>
+  <div class="filter-bar__field">
     <label class="form-label" for="f-year">{% trans "FR start year" %}</label>
     <select class="form-select form-select-sm" id="f-year" name="year">
       <option value="">{% trans "All years" %}</option>
       {% for y in data.options.years %}<option value="{{ y }}" {% if y|stringformat:"s" == year %}selected{% endif %}>{{ y }}</option>{% endfor %}
     </select>
   </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-pd-status">{% trans "PD status" %}</label>
+    <select class="form-select form-select-sm" id="f-pd-status" name="pd_status" multiple data-tom placeholder="{% trans 'All' %}">
+      {% for s in data.options.pd_statuses %}<option value="{{ s }}" {% if s in selected.pd_status %}selected{% endif %}>{{ s|code_label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-partner">{% trans "Partner" %}</label>
+    <select class="form-select form-select-sm" id="f-partner" name="partner" multiple data-tom placeholder="{% trans 'All' %}">
+      {% for p in data.options.partners %}<option value="{{ p.value }}" {% if p.value in selected.partner %}selected{% endif %}>{{ p.label }}</option>{% endfor %}
+    </select>
+  </div>
+  {% trans "Partner type" as l %}{% include "reports/_multiselect.html" with name="partner_type" label=l options=data.options.partner_types values=selected.partner_type %}
   <div class="filter-bar__actions">
     <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
-    <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}{% if tab != 'reservations' %}?tab={{ tab }}{% endif %}">{% trans "Reset" %}</a>
   </div>
 </form>
+</div>
 <div id="funds-results" aria-live="polite">{% include "reports/partials/funds_table.html" %}</div>
 {% endblock %}

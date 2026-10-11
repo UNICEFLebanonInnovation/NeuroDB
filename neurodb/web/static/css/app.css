@@ -209,6 +209,7 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .kpi__unit { font-size: 0.85rem; color: var(--nd-muted); font-weight: 500; }
 .kpi__meta { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem; }
 .kpi__hint { font-size: 0.78rem; color: var(--nd-muted); }
+.kpi__rule { display: block; margin-top: 0.3rem; line-height: 1.35; }
 .kpi__more { display: inline-block; margin-top: 0.3rem; }
 
 /* ------------------------------------------------------------------ status pills & progress */
@@ -472,6 +473,10 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .monitoring-grid__section th { background: var(--nd-surface-2); font-size: 0.82rem; text-transform: none; letter-spacing: 0; position: static; }
 .monitoring-grid__pd th { background: var(--nd-surface); font-weight: 600; font-size: 0.82rem; text-transform: none; letter-spacing: 0; position: static; border-top: 2px solid var(--nd-border); }
 .monitoring-grid__output td { padding-top: 0.15rem; padding-bottom: 0.15rem; }
+/* total rows (Bootstrap's light row is white in the dark theme: it follows the theme's tokens instead) */
+.table .table-light { --bs-table-color: var(--nd-text); --bs-table-bg: var(--nd-surface-2); --bs-table-border-color: var(--nd-border); --bs-table-hover-bg: var(--nd-surface-2); --bs-table-hover-color: var(--nd-text); }
+/* eTools Reached: reports that do not count (Sent back, Due, Overdue) are greyed and outside every total */
+.reached-uncounted, tr.reached-uncounted td { color: var(--nd-muted); background: var(--nd-surface-2); font-style: italic; }
 .pdmap-side .table-toolbar__actions { flex: 1 1 200px; justify-content: flex-end; }
 .pdmap-list tr[data-pdmap-row] { cursor: pointer; }
 .map-legend .legend { margin-top: 0.25rem; }
@@ -607,6 +612,8 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .brief-stamp { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.75rem; margin: -0.5rem 0 0.75rem; font-size: 0.78rem; color: var(--nd-muted); }
 .brief-stamp__run { font-family: var(--nd-mono, ui-monospace, monospace); font-size: 0.72rem; padding: 0.05rem 0.45rem; border-radius: 6px; background: var(--nd-surface-2); }
 .kpi-grid--5 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 172px), 1fr)); }
+/* Seven tiles (Progress reports: every indicator report and the six statuses): one row on a wide screen */
+.kpi-grid--7 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 128px), 1fr)); }
 .flow { width: 100%; height: auto; font-size: 12px; }
 .flow text { fill: var(--nd-text); }
 .flow .flow__muted { fill: var(--nd-muted); font-size: 11px; }
@@ -1270,3 +1277,32 @@ tr.is-rejected > td:not(:last-child) { text-decoration: line-through; color: var
 .review-theme h3 { font-size: 0.92rem; }
 .review-paragraph { background: var(--nd-surface-2); }
 @media (max-width: 767.98px) { .review-layout { grid-template-columns: minmax(0, 1fr); } }
+/* eTools reporting views (Program Performance, Data quality, Progress reports): section tiles that filter,
+   sortable headers, long titles that wrap in a column of their own, reports that do not count greyed */
+.section-tiles { display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); }
+.section-tile { display: flex; flex-direction: column; justify-content: center; gap: 0.1rem; min-height: 3.6rem; padding: 0.55rem 0.75rem; border-radius: var(--nd-radius-sm); border: 1px solid var(--nd-border); background: var(--nd-surface); color: var(--nd-text); text-align: center; text-decoration: none; }
+.section-tile:hover, .section-tile:focus-visible { color: inherit; border-color: var(--nd-primary); }
+.section-tile[aria-current="true"] { border-color: var(--nd-primary); background: var(--nd-primary-soft); box-shadow: inset 0 0 0 1px var(--nd-primary); }
+.section-tile__name { font-size: 0.82rem; font-weight: 650; line-height: 1.25; }
+.section-tile__value { font-size: 0.72rem; color: var(--nd-muted); }
+.sort-link { color: inherit; text-decoration: none; }
+.sort-link:hover { text-decoration: underline; }
+th[aria-sort="descending"] .sort-link::after { content: " ▾"; }
+th[aria-sort="ascending"] .sort-link::after { content: " ▴"; }
+.cell-wrap { min-width: 12rem; max-width: 28rem; white-space: normal; }
+tr.is-uncounted > td { color: var(--nd-muted); }
+/* Report/Disaggregation: one block per location, a subtotal per disaggregation, the location total last */
+.disaggregation-table > tbody.disaggregation-block > tr:first-child > * { border-top: 2px solid var(--nd-border); }
+.disaggregation-table tr.is-subtotal > td { font-weight: 600; background: var(--nd-surface-2); }
+.disaggregation-table tr.is-total > td { font-weight: 700; background: var(--nd-primary-soft); }
+.disaggregation-table tr > td[rowspan] { vertical-align: top; background: var(--nd-surface); font-weight: 400; }
+/* Funded programmes: one block per programme document, its own amounts once (cells spanning its grants) */
+.funded-table > tbody.fund-block > tr:first-child > * { border-top: 2px solid var(--nd-border); }
+.funded-table td[rowspan] { vertical-align: top; }
+/* money tiles: amounts of ten digits and more fit a phone's two-column tiles */
+.kpi-grid--money .kpi__value { font-size: clamp(1.1rem, 5.2vw, 1.6rem); }
+.status-matrix th, .status-matrix td { white-space: nowrap; }
+.status-matrix tfoot th, .status-matrix tfoot td { font-weight: 700; border-top: 2px solid var(--nd-border); }
+@media (max-width: 575.98px) { .section-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cell-wrap { min-width: 9rem; } }
+.date-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.25rem; }
+.date-range input { min-width: 0; padding-left: 0.4rem; padding-right: 0.25rem; }

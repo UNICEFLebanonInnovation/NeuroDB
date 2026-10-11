@@ -12,9 +12,10 @@ from typing import Any
 from django.db.models import Count, Q, QuerySet, Sum
 from django.db.models.functions import ExtractYear
 
+from neurodb.partnerships import statuses as pd_statuses
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
-from . import fm
+from . import fm, headline, reached, reporting
 from . import models as dm
 from . import monitoring as pd_monitoring
 
@@ -167,78 +168,51 @@ def visits_by_year(pd: PCA) -> list[dict[str, Any]]:
     return [{"year": y, **v} for y, v in sorted(years.items(), reverse=True)]
 
 
-REPORT_FIELDS = (
-    "pd_reference_number",
-    "intervention_id",
-    "partner_id",
-    "partner_name",
-    "report_number",
-    "report_type",
-    "report_status",
-    "report_accepted_status",
-    "period_start",
-    "period_end",
-    "due_date",
-    "submission_date",
-    "acceptance_date",
-)
+REPORT_FIELDS = reporting.REPORT_FIELDS
 
 
 def progress_reports(queryset: QuerySet[dm.ReportedIndicator]) -> list[dict[str, Any]]:
-    """One row per progress report (the Datamart has one row per indicator and location).
-
-    A report whose rows disagree on a field (a partial re-sync, a partner link set on some rows
-    only) is still listed and counted once: each field takes the first non-empty value of its rows,
-    in a fixed order. Rows without a progress report id stay grouped by all their fields."""
-    grouped = (
-        queryset.values("progress_report", *REPORT_FIELDS)
-        .annotate(indicators=Count("indicator", distinct=True))
-        .order_by("progress_report", *REPORT_FIELDS)
-    )
-    counts = dict(
-        queryset.exclude(progress_report="")
-        .values_list("progress_report")
-        .annotate(n=Count("indicator", distinct=True))
-        .order_by()
-    )
-    reports: dict[Any, dict[str, Any]] = {}
-    for row in grouped:
-        key = row["progress_report"] or tuple(row[f] for f in REPORT_FIELDS)
-        report = reports.get(key)
-        if report is None:
-            reports[key] = {**row, "indicators": counts.get(row["progress_report"], row["indicators"])}
-            continue
-        for f in REPORT_FIELDS:
-            if report[f] in (None, "") and row[f] not in (None, ""):
-                report[f] = row[f]
-    out = sorted(reports.values(), key=lambda r: (r["pd_reference_number"], r["report_number"]))
-    # latest period first, reports without a period end at the top (as the database sorts them)
-    out.sort(key=lambda r: r["period_end"] or datetime.date.max, reverse=True)
-    return out
+    """One row per progress report, with its status and its indicator reports
+    (:func:`neurodb.datamart.reporting.progress_reports`, the one place that groups them)."""
+    return reporting.progress_reports(queryset, datetime.date.today())
 
 
-def latest_progress(pd: PCA) -> list[dict[str, Any]]:
-    """Cumulative progress per indicator from the PD's latest progress report."""
-    latest = pd.reported_indicators.exclude(period_end=None).order_by("-period_end").first()
-    if latest is None:
-        return []
-    rows = {}
-    for row in pd.reported_indicators.filter(progress_report=latest.progress_report).order_by(
-        "pd_output", "indicator"
-    ):
-        rows.setdefault(
-            row.indicator,
+def latest_progress(
+    pd: PCA, today: datetime.date | None = None, rows: list[pd_monitoring.Indicator] | None = None
+) -> list[dict[str, Any]]:
+    """Each indicator of the PD with its Reached (``neurodb.datamart.reached``, the rule of every
+    page): target, Reached to date, % of the target, what awaits acceptance and the latest counted
+    report. Indicators nobody reported on yet are listed too, as not reported. ``rows``: the PD's
+    partner monitoring rows when already read."""
+    if rows is None:
+        rows = pd_monitoring.indicators(pd_monitoring.Filters(pd_ids=[pd.id], scope="all"), today)
+    out = []
+    for row in rows:
+        latest = row.result.latest if row.result else None
+        out.append(
             {
-                "indicator": row.indicator,
-                "output": row.pd_output,
+                "indicator": row.title,
+                "output": row.output,
+                "url": row.url,
                 "target": row.target,
-                "progress": row.total_cumulative_progress,
-                "status": row.pd_output_progress_status,
-                "report": row.report_number,
-                "period_end": row.period_end,
-            },
+                "display_type": row.display_type,
+                "reached": row.reached,
+                "achieved": row.achieved,
+                "awaiting": row.awaiting,
+                "awaiting_reports": row.awaiting_reports,
+                "tracking": row.tracking,
+                "tracking_label": row.tracking_label,
+                "value_status": row.value_status,
+                "status": row.partner_status,
+                "report": latest.number if latest else "",
+                "report_status": latest.status_label if latest else "",
+                "report_type": row.report_type,
+                "period_end": row.as_of,
+                "method": row.method_label,
+                "additive": row.additive,
+            }
         )
-    return list(rows.values())
+    return out
 
 
 def _flag_overdue(points: list[dm.ActionPoint]) -> list[dm.ActionPoint]:
@@ -251,9 +225,30 @@ def _flag_overdue(points: list[dm.ActionPoint]) -> list[dm.ActionPoint]:
     return points
 
 
-def programme_datamart(pd: PCA) -> dict[str, Any]:
+def programme_datamart(pd: PCA, today: datetime.date | None = None) -> dict[str, Any]:
     lines = list(dm.FundsReservation.objects.filter(intervention=pd))
     action_points = dm.ActionPoint.objects.filter(intervention=pd)
+    monitoring = _monitoring_summary(pd_monitoring.Filters(pd_ids=[pd.id], scope="all"))
+    # the PD's main indicator (its children reached on the overview, the brief and the donor page): its
+    # unique beneficiaries indicator, else its largest children indicator in the current year, with the
+    # overview's set-aside guard, so the PD page names the indicator the other pages count this year
+    year = (today or datetime.date.today()).year
+    mains = headline.mains_of(monitoring["rows"], year=year)
+    main = monitoring["main"] = mains.get(pd.id)
+    monitoring["main_year"] = year
+    monitoring["number_keys"] = {r.key for r in monitoring["rows"] if headline.is_number(r)}
+    # the unique beneficiaries indicator chosen for the PD, and why it does not count when it does not
+    # (so the page says so and offers to undo the choice, instead of hiding it)
+    flagged = monitoring["flagged_key"] = headline.flagged_keys([pd.id]).get(pd.id)
+    monitoring["flag_unused"] = ""
+    if flagged and not (main is not None and main.flagged):
+        row = next((r for r in monitoring["rows"] if r.key == flagged), None)
+        if row is None:
+            monitoring["flag_unused"] = "missing"  # no longer among the PD's indicators in eTools
+        elif not headline.is_number(row):
+            monitoring["flag_unused"] = "not_number"  # now a percentage or a ratio
+        else:
+            monitoring["flag_unused"] = "implausible"  # set aside: its value cannot be true
     return {
         "fr_lines": lines,
         **_fr_totals(pd, lines),
@@ -265,22 +260,26 @@ def programme_datamart(pd: PCA) -> dict[str, Any]:
         "visits": visits_by_year(pd),
         "tpm_activities": list(pd.tpm_activities.order_by("-date")[:20]),
         "reports": list(progress_reports(pd.reported_indicators.all())[:12]),
-        "latest_progress": latest_progress(pd),
-        "monitoring": _monitoring_summary(pd_monitoring.Filters(pds=[pd.number or ""], scope="all")),
+        "latest_progress": latest_progress(pd, rows=monitoring["rows"]),
+        "monitoring": monitoring,
     }
 
 
 def _monitoring_summary(filters: pd_monitoring.Filters) -> dict[str, Any]:
-    """On/off-track counts of the PD indicators the partner monitoring page shows for ``filters``."""
+    """On/off-track counts of the PD indicators the partner monitoring page shows for ``filters``
+    ("with Reached": a counted report carries a value, as the grid counts it)."""
     rows = pd_monitoring.indicators(filters)
     counts = Counter(r.tracking for r in rows)
+    with_reached = sum(1 for r in rows if r.reached is not None)
     return {
         "rows": rows,
         "indicators": len(rows),
         "status_counts": {key: counts.get(key, 0) for key in pd_monitoring.LABELS},
         # ahead of schedule is on track too, as the daily review and the brief count it
         "on_track_or_ahead": counts.get("on_track", 0) + counts.get("over_target", 0),
-        "reported": sum(1 for r in rows if r.reports),
+        "with_reached": with_reached,
+        "reported": with_reached,
+        "awaiting_acceptance": sum(1 for r in rows if r.awaiting_reports),
     }
 
 
@@ -294,24 +293,29 @@ def reports_by_year(queryset: QuerySet[dm.ReportedIndicator]) -> list[tuple[str,
     return sorted(years.items())
 
 
-def reporting_summary(queryset: QuerySet[dm.ReportedIndicator]) -> dict[str, int]:
-    today = datetime.date.today()
-    reports = list(progress_reports(queryset))
-    submitted = [pd_monitoring.is_submitted(r) for r in reports]  # the rule of the review and the brief
+def report_status(report: dict[str, Any], today: datetime.date) -> str:
+    """One of the six report statuses (``reached.status_of``) of a ``progress_reports`` row."""
+    return reporting.report_status(report, today)
+
+
+def reporting_summary(queryset: QuerySet[dm.ReportedIndicator]) -> dict[str, Any]:
+    """Progress reports by status: Accepted, Submitted (awaiting acceptance), Sent back, Due, Overdue
+    and Not yet due (``reached.status_of``, one status each, so they add up to ``reports``), and
+    those submitted after their due date. Overdue follows ``monitoring.pending_q`` as every page does."""
+    return _status_summary(progress_reports(queryset))
+
+
+def _status_summary(reports: list[dict[str, Any]]) -> dict[str, Any]:
+    statuses = Counter(r["status"] for r in reports)
     return {
         "reports": len(reports),
-        "submitted": sum(submitted),
+        "statuses": {key: statuses.get(key, 0) for key in reached.STATUS_LABELS},
+        **{key: statuses.get(key, 0) for key in reached.STATUS_LABELS},
         "late": sum(
             1
             for r in reports
             if r["submission_date"] and r["due_date"] and r["submission_date"] > r["due_date"]
         ),
-        "overdue": sum(
-            1
-            for r, sent in zip(reports, submitted, strict=True)
-            if not sent and r["due_date"] and r["due_date"] < today
-        ),
-        "accepted": sum(1 for r in reports if "accept" in (r["report_status"] or "").lower()),
     }
 
 
@@ -329,6 +333,10 @@ def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
     visits: dict[int, int] = defaultdict(int)
     for day in staff_visits.filter(travel_type__icontains="programmatic").values_list("date", flat=True):
         visits[day.year] += 1
+    # the partner's progress reports as the Progress reports page reads them for the partner (its
+    # "All reports" link: ``?partner=<id>&pd_status=``): by the partner link, every PD status but
+    # draft and cancelled
+    reported = partner.reported_indicators.exclude(intervention__status__in=pd_statuses.NOT_A_PARTNERSHIP)
     return {
         "assessments": list(
             dm.PartnerAssessment.objects.filter(partner=partner).order_by("-completed_date")[:20]
@@ -352,9 +360,9 @@ def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
         "finding_ratings": dict(Counter(f.overall_finding_rating or "—" for f in findings)),
         "hact_years": list(partner.hact_years.order_by("-year")[:4]),
         "monitoring": _monitoring_summary(pd_monitoring.Filters(partners=[str(partner.pk)])),
-        "reporting": reporting_summary(partner.reported_indicators.all()),
-        "reports": list(progress_reports(partner.reported_indicators.all())[:10]),
-        "reports_by_year": reports_by_year(partner.reported_indicators.all()),
+        "reporting": reporting_summary(reported),
+        "reports": list(progress_reports(reported)[:10]),
+        "reports_by_year": reports_by_year(reported),
         "staff_visits_by_year": sorted(visits.items()),
         "monitoring_visits_by_year": _monitoring_visits_by_year(partner),
     }
@@ -1098,19 +1106,20 @@ def hact_compliance(year: int | None = None) -> dict[str, Any]:
 
 # ------------------------------------------------------------------------------------------- funds
 def funds(params) -> dict[str, Any]:
-    donors = _getlist(params, "donor")
-    grants = _getlist(params, "grant")
-    year = _year(params)
-    q = (params.get("q") or "").strip()
-    lines = dm.FundsReservation.objects.all()
-    headers = dm.FundsReservationHeader.objects.select_related("intervention", "intervention__partner")
-    if donors:
-        lines = lines.filter(donor__in=donors)
-    if grants:
-        lines = lines.filter(grant_number__in=grants)
+    """The Funds page's funds reservations tab: FRs, grants and their amounts, on the page's filter
+    (``funds.FundFilters``, shared with Partner Fund Monitoring and Funded Programs)."""
+    from . import funds as fund_views
+
+    f = fund_views.FundFilters.from_params(params)
+    donors, grants, year, q = f.donors, f.grants, f.year, f.q
+    lines = f.lines().filter(f.pd_q("intervention__"))
+    headers = dm.FundsReservationHeader.objects.select_related(
+        "intervention", "intervention__partner"
+    ).filter(f.pd_q("intervention__"))
     if year:
-        lines = lines.filter(start_date__year=year)
         headers = headers.filter(start_date__year=year)
+    if f.fr:
+        headers = headers.filter(fr_number__icontains=f.fr)
     if q:
         match = (
             Q(intervention__number__icontains=q)
@@ -1171,60 +1180,44 @@ def funds(params) -> dict[str, Any]:
                 if x
             ),
             "years": _years(dm.FundsReservationHeader.objects.exclude(start_date=None), "start_date"),
+            **fund_views.filter_options(),
         },
+        "filters": f,
     }
 
 
 # -------------------------------------------------------------------------------- partner reporting
-def partner_reporting(params) -> dict[str, Any]:
-    statuses = _getlist(params, "status")
-    types = _getlist(params, "report_type")
-    year = _year(params)
-    q = (params.get("q") or "").strip()
-    only_overdue = params.get("overdue") == "1"
-    today = datetime.date.today()
-    rows = dm.ReportedIndicator.objects.all()
-    if statuses:
-        rows = rows.filter(report_status__in=statuses)
-    if types:
-        rows = rows.filter(report_type__in=types)
-    if year:
-        rows = rows.filter(period_end__year=year)
-    if q:
-        rows = rows.filter(
-            Q(partner_name__icontains=q)
-            | Q(vendor_number__icontains=q)
-            | Q(pd_reference_number__icontains=q)
-            | Q(indicator__icontains=q)
-            | _partner_q(q)
-        )
-    if only_overdue:
-        rows = rows.filter(pd_monitoring.pending_q(), due_date__lt=today)
-    summary = reporting_summary(rows)
-    reports = progress_reports(rows)
-    by_status = Counter(r["report_status"] or "—" for r in reports)
+def partner_reporting(params, today: datetime.date | None = None) -> dict[str, Any]:
+    """The Progress reports page: the progress reports of the filter (one of six statuses each, with
+    their PD's status, document type and UNICEF focal points), the progress reports per status
+    (``summary``), the indicator reports per status (``counts``: what the tiles show), by section and
+    by month of the reporting period's end, and Partner Performance. ``statuses``: the status of every
+    progress report of the filter, read before the status filter (Report/Location reads each report's
+    status there, so a report left out by the status filter is never let back in by one of its rows);
+    ``by_status``: the progress reports per status, by name (as ``summary`` counts them)."""
+    today = today or datetime.date.today()
+    filters = reporting.ReportFilters.from_params(params)
+    rows = filters.queryset(today)
+    reports = reporting.progress_reports(rows, today)
+    statuses = {r["progress_report"]: r["status"] for r in reports if r["progress_report"]}
+    if filters.statuses:
+        reports = [r for r in reports if r["status"] in filters.statuses]
+    reporting.with_pd_details(reports)
+    summary = _status_summary(reports)  # progress reports per status
+    counts = reporting.counts(reports)  # indicator reports per status (the tiles)
     return {
+        "filters": filters,
+        "rows": rows,
         "reports": reports,
+        "statuses": statuses,
         "summary": summary,
-        "by_status": by_status.most_common(),
+        "counts": counts,
+        "by_status": [(reached.STATUS_LABELS[k], n) for k, n in summary["statuses"].items() if n],
+        "by_section": reporting.by_section(reports),
+        "by_month": reporting.by_month(reports),
+        "partners": reporting.partner_performance(reports),
         "today": today,
-        "options": {
-            "statuses": sorted(
-                x
-                for x in dm.ReportedIndicator.objects.order_by()
-                .values_list("report_status", flat=True)
-                .distinct()
-                if x
-            ),
-            "types": sorted(
-                x
-                for x in dm.ReportedIndicator.objects.order_by()
-                .values_list("report_type", flat=True)
-                .distinct()
-                if x
-            ),
-            "years": _years(dm.ReportedIndicator.objects.exclude(period_end=None), "period_end"),
-        },
+        "options": reporting.filter_options(),
     }
 
 
@@ -1234,3 +1227,102 @@ def report_indicators(progress_report: str) -> list[dm.ReportedIndicator]:
             "pd_output", "indicator", "location"
         )
     )
+
+
+def report_detail(progress_report: str, today: datetime.date | None = None) -> dict[str, Any] | None:
+    """One progress report, indicator by indicator: each location's value in the report (the
+    disaggregation total "()", as ``reached`` reads it, parsed), PRP's value to date there, and a
+    total row that combines the locations by the indicator's method (never a sum of a percentage,
+    never the report total repeated on each row added up)."""
+    today = today or datetime.date.today()
+    if not (progress_report or "").strip():
+        return None  # rows without a report id belong to no one report
+    rows = list(
+        dm.ReportedIndicator.objects.filter(progress_report=progress_report)
+        .order_by(*reached.ROW_ORDER)
+        .values(*reached.ROW_FIELDS, "pd_output", "target")
+    )
+    if not rows:
+        return None
+    report = (
+        dm.ReportedIndicator.objects.filter(progress_report=progress_report).order_by("datamart_id").first()
+    )
+    definitions: dict[str, tuple[str, str, float | None]] = {}
+    if report.intervention_id:
+        for row in dm.PDIndicator.objects.filter(intervention_id=report.intervention_id).values(
+            "source_id", "title", "display_type", "unit", "target_numerator", "target_denominator"
+        ):
+            # by eTools id ("s…"), else by title ("t…"): a row without an id never takes the type of
+            # an indicator that has none. The target as Partner monitoring reads it (a percentage × 100)
+            found = (row["display_type"], row["unit"], pd_monitoring._target(row))
+            if row["source_id"]:
+                definitions.setdefault(f"s{row['source_id']}", found)
+            definitions.setdefault(f"t{pd_monitoring.norm(row['title'])}", found)
+    # one entry per indicator report (one indicator in this report), as the tiles count them: two
+    # indicators that share a title or an eTools id are never one line
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        groups[reached.indicator_report_key(row)].append(row)
+    totals = reached.progress_values(rows)
+    words = reached.report_status_texts(rows)  # the report's one status, from all its rows
+    indicators = []
+    for _key, group in sorted(
+        groups.items(), key=lambda kv: (kv[1][0]["pd_output"] or "", kv[1][0]["indicator"] or "", kv[0])
+    ):
+        etools_id, title = (group[0]["etools_indicator_id"] or "").strip(), group[0]["indicator"] or ""
+        display_type, unit, target = (
+            (definitions.get(f"s{etools_id}") if etools_id else None)
+            or definitions.get(f"t{pd_monitoring.norm(title)}")
+            or ("", "", None)
+        )
+        ratio = reached.is_ratio(
+            display_type,
+            unit,
+            group[0]["calculation_across_locations"],
+            group[0]["calculation_across_periods"],
+        )
+        percentage = display_type == "percentage" or unit == "percentage"
+        (item,) = reached.build_reports(
+            group,
+            ratio=ratio,
+            percentage=percentage,
+            today=today,
+            progress_values=totals,
+            report_status=words,
+        )
+        if target is None:  # the report's own copy of the target, read as the values are
+            found = reached.parts(group[0]["target"])
+            target = found.value(ratio, percentage) if found else None
+        indicators.append(
+            {
+                "indicator": title,
+                "pd_output": group[0]["pd_output"],
+                "partner_status": item.partner_status,
+                "target": target,
+                "locations": [
+                    {
+                        "name": item.places.get(place, {}).get("name") or "—",
+                        "p_code": item.places.get(place, {}).get("p_code") or "",
+                        "value": None if cell.repeated else cell.value,
+                        "prp_to_date": cell.prp_cumulative,
+                    }
+                    for place, cell in item.cells.items()
+                ],
+                "total": item.value,
+                "prp_cumulative": item.prp_cumulative,
+                "method": reached.location_method_label(item.method, ratio),
+                "notes": item.notes,
+                "percentage": percentage,
+            }
+        )
+    # the report's status as every page reads it: its rows' newest word, and the first date its rows
+    # give (in the order Reached reads them)
+    (whole,) = reached.build_reports(rows, ratio=False, percentage=False, today=today, report_status=words)
+    status = whole.status
+    return {
+        "report": report,
+        "status": status,
+        "status_label": reached.STATUS_LABELS[status],
+        "counted": status in reached.COUNTED,
+        "indicators": indicators,
+    }

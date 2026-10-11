@@ -127,7 +127,17 @@ def test_filter_options_list_each_value_once(partner):
     assert datamart.action_points({})["options"]["modules"] == ["audit"]
     assert datamart.funds({})["options"]["donors"] == ["CERF"]
     assert datamart.funds({})["options"]["grants"] == ["SC1"]
-    assert datamart.partner_reporting({})["options"]["statuses"] == ["Submitted"]
+    # the Progress reports page filters on the six report statuses, each listed once
+    statuses = datamart.partner_reporting({})["options"]["statuses"]
+    assert [s["label"] for s in statuses] == [
+        "Accepted",
+        "Submitted",
+        "Sent back",
+        "Due",
+        "Overdue",
+        "Not yet due",
+    ]
+    assert datamart.partner_reporting({})["options"]["types"] == ["QPR"]
     assert datamart.partner_reporting({})["options"]["types"] == ["QPR"]
     assert datamart.assurance({})["options"]["statuses"] == ["final"]
     assert datamart.monitoring({})["options"]["ratings"] == ["On Track"]

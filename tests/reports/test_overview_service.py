@@ -48,13 +48,26 @@ def test_impact_counts_children_from_both_sources_apart(data, reporting_year):
     )
     assert by_gov["Akkar"]["level"] == 6 and impact["population_year"] == 2025
     (section,) = impact["by_section"]  # the teachers indicator does not count children
-    assert (section["section"], section["achieved"], section["target"], section["percent"]) == (
+    # indicator counts and the median share of the target (500 of 1,000), never a sum of indicators
+    assert (section["section"], section["indicators"], section["with_reached"], section["percent"]) == (
         "Child Protection",
-        500,
-        1000,
+        1,
+        1,
         50.0,
     )
+    assert section["on_track"] == 1 and (section["achieved"], section["target"]) == (50.0, 100.0)
     assert 49 < section["elapsed"] < 50
+    assert impact["main_by_section"] == [
+        {
+            "section": "Child Protection",
+            "programme_documents": 1,
+            "children": 500,
+            "reached": 500,
+            "target": 1000,
+            "expected": 497,
+            "percent": 50.0,
+        }
+    ]
 
 
 def test_money_blocks(data, reporting_year):
@@ -292,13 +305,24 @@ def _children_indicator_in_beirut(data, source_id=300, value=500):
     )  # fmt: skip
 
 
-def test_governorate_share_of_a_pd_counts_all_its_children_indicators(data, reporting_year):
-    _children_indicator_in_beirut(data)
+def test_governorate_share_of_a_pd_follows_its_main_indicator(data, reporting_year):
+    """The PD's two children indicators count the same children: its share in a governorate is its main
+    indicator's (the larger, 600 in Beirut), never 300 of 1,100 children from both added."""
+    _children_indicator_in_beirut(data, value=600)
+    akkar = build(reporting_year, governorate="Akkar")
+    beirut = build(reporting_year, governorate="Beirut")
+    assert (akkar["impact"]["children_etools"], beirut["impact"]["children_etools"]) == (0, 600)
+    # Akkar has none of the main indicator's children: the PD's money cannot be placed there
+    assert (akkar["money"]["reserved"], beirut["money"]["reserved"]) == (0.0, 10000.0)
+    assert (
+        akkar["money"]["reserved"] + beirut["money"]["reserved"] == build(reporting_year)["money"]["reserved"]
+    )
+    from neurodb.datamart import headline
+
+    headline.set_main(data["pd"], "100", "psychosocial support", None)  # 300 Akkar + 200 Beirut
     akkar = build(reporting_year, governorate="Akkar")["money"]
     beirut = build(reporting_year, governorate="Beirut")["money"]
-    # Akkar: 300 of the PD's 1,000 children (not of the 500 of the one indicator located there).
-    assert (akkar["reserved"], beirut["reserved"]) == (3000.0, 7000.0)
-    assert akkar["reserved"] + beirut["reserved"] == build(reporting_year)["money"]["reserved"]
+    assert (akkar["reserved"], beirut["reserved"]) == (6000.0, 4000.0)  # 300 and 200 of its 500
 
 
 def test_attention_keeps_overdue_action_points_and_says_what_it_left_out(data, reporting_year, monkeypatch):

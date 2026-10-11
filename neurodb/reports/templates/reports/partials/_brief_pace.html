@@ -6,7 +6,7 @@
   <section class="panel" aria-labelledby="bullet-title">
     <div class="panel__header">
       <h3 class="panel__title" id="bullet-title">{% trans "Achievement, expectation and Country Programme target" %}</h3>
-      <span class="panel__hint">{% trans "Children indicators by section" %}</span>
+      <span class="panel__hint">{% trans "Each programme document's main indicator, summed over the section's PDs: Reached to date against their targets" %}</span>
     </div>
     <div class="chart chart--sm" data-module="charts" data-chart="bullet" data-source="brief-chart-data" data-key="bullets" data-height="240" data-empty-title="{% trans 'No children indicators with a target' %}" aria-label="{% trans 'Achieved against expected and Country Programme target by section' %}"></div>
     {% if not pace.has_cp_targets %}<p class="caveat mt-2">{% url 'admin:reports_sectionplan_changelist' as plans_url %}{% blocktrans %}No Country Programme target entered yet: add one per section under <a href="{{ plans_url }}">Section plans</a> in the administration pages.{% endblocktrans %}</p>{% endif %}
@@ -15,7 +15,7 @@
   <section class="panel" aria-labelledby="projection-title">
     <div class="panel__header">
       <h3 class="panel__title" id="projection-title">{% trans "Where the year ends at this pace" %}</h3>
-      <span class="panel__hint">{% trans "Children reached, cumulative, projected to December" %}</span>
+      <span class="panel__hint">{% trans "Children reached this year (each programme document's main indicator), from January, projected to December" %}</span>
     </div>
     <div class="chart chart--sm" data-module="charts" data-chart="projection" data-source="brief-chart-data" data-key="projection" data-height="260" data-empty-title="{% trans 'No monthly values yet' %}" aria-label="{% trans 'Cumulative children reached and projection' %}"></div>
     <p class="source-line">{{ pace.source }}</p>

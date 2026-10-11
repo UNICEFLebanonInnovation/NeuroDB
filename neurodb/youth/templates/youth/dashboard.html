@@ -102,17 +102,17 @@
 
 <section class="panel p-0 mb-3">
   {% include "components/table_toolbar.html" with title=_("Compiler and eTools, side by side") count=data.links|length table_id="youth-reconciliation" filename="youth-compiler-etools" %}
-  <p class="text-muted small px-3 mb-2">{% trans "For each link: the young people Compiler counted in the whole programme document (whatever the place or master indicator filter) and the progress the partner last reported on the eTools indicator. A large gap means one of the two needs a look." %}</p>
+  <p class="text-muted small px-3 mb-2">{% trans "For each link: the young people Compiler counted in the whole programme document (whatever the place or master indicator filter) and what the partner reached on the eTools indicator in the same year (Accepted and Submitted reports, as on Partner monitoring). A large gap means one of the two needs a look." %}</p>
   {% if data.links %}
   <div class="table-wrap"><table class="table table-sm" id="youth-reconciliation" data-sortable>
-    <thead><tr><th>{% trans "Programme document" %}</th><th>{% trans "Youth indicator" %}</th><th class="num">{% trans "Counted in Compiler" %}</th><th>{% trans "eTools indicator" %}</th><th class="num">{% trans "eTools target" %}</th><th class="num">{% trans "Reported in eTools" %}</th><th class="num">{% trans "Difference" %}</th><th>{% trans "Status" %}</th><th>{% trans "Link" %}</th></tr></thead>
+    <thead><tr><th>{% trans "Programme document" %}</th><th>{% trans "Youth indicator" %}</th><th class="num">{% trans "Counted in Compiler" %}</th><th>{% trans "eTools indicator" %}</th><th class="num">{% trans "eTools target" %}</th><th class="num">{% trans "Reached in eTools in the year" %}</th><th class="num">{% trans "Difference" %}</th><th>{% trans "Status" %}</th><th>{% trans "Link" %}</th></tr></thead>
     <tbody>{% for r in data.links %}<tr>
       <td class="mono small">{% if r.link.pd_id %}<a href="{% url 'reports:programme_detail' r.link.pd_id %}">{{ r.compiler_pd }}</a>{% else %}{{ r.compiler_pd }}{% endif %}<span class="cell-sub">{{ r.partner }}</span></td>
       <td>{{ r.youth_indicator }}</td>
       <td class="num" data-value="{{ r.counted }}">{{ r.counted|number }}</td>
       <td>{% if r.etools %}<a href="{{ r.etools.url }}">{{ r.link.etools_title }}</a>{% else %}{{ r.link.etools_title }}{% endif %}</td>
       <td class="num">{% if r.etools %}{{ r.etools.target|number }}{% else %}—{% endif %}</td>
-      <td class="num" data-value="{{ r.reported|default:'' }}">{{ r.reported|number }}{% if r.etools.cumulative_as_of %}<span class="cell-sub">{{ r.etools.cumulative_as_of|date:"j M Y" }}</span>{% endif %}</td>
+      <td class="num" data-value="{{ r.reported|default:'' }}">{{ r.reported|number }}{% if r.etools %}<span class="cell-sub">{% blocktrans with y=r.year %}in {{ y }}{% endblocktrans %}</span>{% endif %}</td>
       <td class="num" data-value="{{ r.difference|default:'' }}">{% if r.difference is not None %}{% if r.difference > 0 %}+{% endif %}{{ r.difference|number }}{% else %}—{% endif %}</td>
       <td>{% if r.etools %}{% status_pill r.etools.tracking r.etools.tracking_label "sm" %}{% else %}—{% endif %}</td>
       <td>{% if r.link.source == "confirmed" %}{% status_pill "succeeded" _("Confirmed") "sm" %}{% else %}{% status_pill "stale" _("Suggested") "sm" %}{% endif %}</td>

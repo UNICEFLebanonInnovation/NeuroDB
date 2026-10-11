@@ -44,8 +44,9 @@ The sidebar groups the pages:
   (Bridging), youth programmes, funds, assurance, field monitoring, **Monitoring insights** (marked
   AI; [Monitoring insights](/help/monitoring-insights/)) and **Action points**
   ([Action points](/help/action-points/)).
-- **Partner progress (eTools)**: partner monitoring (PD indicators by month and location) and the
-  partners' progress reports.
+- **Partner progress (eTools)**: partner monitoring (what each programme document indicator reached,
+  by month and location) and the partners' progress reports
+  ([Partner progress](/help/partner-progress/)); the Funds page is under Partnerships.
 - **Resources**: population, library, knowledge base
   ([Knowledge base and documents](/help/knowledge-and-documents/)), maps and Data health.
 - **Help**: this guide.

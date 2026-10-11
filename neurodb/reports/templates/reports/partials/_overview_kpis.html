@@ -2,12 +2,13 @@
 {% with impact=data.impact money=data.money delivery=data.delivery %}
 <div class="kpi-grid" aria-label="{% trans 'Key figures' %}">
   <div class="kpi kpi--split">
-    <div class="kpi__label" title="{% trans 'The same children are often reported in both sources: the figure is the larger of the two' %}">{% trans "Children reached, at least" %}</div>
+    <div class="kpi__label" title="{% trans 'The same children are often reported in both sources: the figure is the larger of the two, never their sum' %}">{% trans "Children reached" %}</div>
     <div class="kpi__value"><a href="{% url 'reports:pd_monitoring' %}?{{ keep_query }}">{{ impact.children_reached|intcomma }}</a></div>
     <div class="kpi__meta">
       {% if impact.delta_previous_year is not None %}<span class="pill pill--sm {% if impact.delta_previous_year >= 0 %}pill--success{% else %}pill--danger{% endif %}" title="{% trans 'Against the same months of the previous year, both sources' %}">{% if impact.delta_previous_year > 0 %}+{% endif %}{{ impact.delta_previous_year|floatformat:"0" }}% {% trans "vs last year" %}</span>{% endif %}
       <span class="kpi__hint">{% blocktrans with e=impact.children_etools|intcomma a=impact.children_activityinfo|intcomma %}eTools {{ e }} · ActivityInfo {{ a }}{% endblocktrans %}</span>
     </div>
+    <div class="kpi__hint kpi__rule" title="{% trans 'Each programme document counts once: its unique beneficiaries indicator, else its largest children indicator (largest single indicator).' %}">{% blocktrans with f=impact.main_indicators.flagged|default:0 l=impact.main_indicators.largest|default:0 %}eTools adds one main indicator per programme document ({{ f }} unique beneficiaries, {{ l }} largest single indicator); partners may reach the same children.{% endblocktrans %}{% if impact.children_awaiting %} {% blocktrans with n=impact.children_awaiting|intcomma %}Of the eTools figure, {{ n }} come from reports still awaiting acceptance.{% endblocktrans %}{% endif %}</div>
   </div>
   {% blocktrans asvar h2 with n=delivery.partners|intcomma g=delivery.partners_government|intcomma c=delivery.partners_cso|intcomma o=delivery.partners_other|default:0 %}{{ n }} partners: {{ g }} government, {{ c }} civil society, {{ o }} other{% endblocktrans %}
   {% trans "Programme documents running" as l2 %}{% url 'reports:programmes' as programmes_url %}{% include "components/kpi_tile.html" with label=l2 value=delivery.programme_documents|intcomma hint=h2 href=programmes_url|add:programmes_query %}
@@ -16,7 +17,7 @@
   <div class="kpi">
     <div class="kpi__label">{% trans "Cost per child" %}</div>
     <div class="kpi__value">{{ money.cost_per_child|money }}{% if money.cost_per_child_previous is not None %} <span class="kpi__unit">{% blocktrans with v=money.cost_per_child_previous|money %}last year {{ v }}{% endblocktrans %}</span>{% endif %}</div>
-    <div class="kpi__meta"><span class="kpi__hint">{% if money.cost_children %}{% blocktrans with d=money.cost_disbursed|money n=money.cost_children|intcomma %}{{ d }} disbursed over {{ n }} children in eTools partner reports (not the headline figure). Supplies and running costs included: compare sections, not absolute values.{% endblocktrans %}{% else %}{{ money.cost_caveat }}{% endif %}</span></div>
+    <div class="kpi__meta"><span class="kpi__hint">{% if money.cost_children %}{% blocktrans with d=money.cost_disbursed|money n=money.cost_children|intcomma %}{{ d }} disbursed over {{ n }} children in eTools partner reports (each PD's main indicator; not the headline figure). Supplies and running costs included: compare sections, not absolute values.{% endblocktrans %}{% else %}{{ money.cost_caveat }}{% endif %}</span></div>
   </div>
   <div class="kpi">
     <div class="kpi__label">{% trans "Delivery status" %}</div>

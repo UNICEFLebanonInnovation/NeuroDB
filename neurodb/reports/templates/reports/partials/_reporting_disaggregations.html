@@ -1,0 +1,40 @@
+{% load i18n ui humanize %}
+<section class="panel p-0">
+  {% blocktrans asvar count_label count counter=page_obj.paginator.count %}{{ counter }} location in a report{% plural %}{{ counter }} locations in reports{% endblocktrans %}
+  {% include "components/table_toolbar.html" with title=_("Reports by disaggregation") count_label=count_label table_id="report-disaggregations" filename="report-disaggregations" downloads=downloads no_copy=True %}
+  {% if disaggregations.too_many %}
+  <p class="px-3 py-2 mb-0 text-warning small">{% blocktrans with n=disaggregations.too_many|intcomma limit=disaggregations.limit|intcomma %}The filter holds {{ n }} report rows, more than the {{ limit }} this view reads at once: choose a reporting year, a section or a partner.{% endblocktrans %}</p>
+  {% elif page_obj.object_list %}
+  <div class="table-wrap table-wrap--tall"><table class="table table-sm disaggregation-table" id="report-disaggregations">
+    <thead><tr><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Indicator" %}</th><th scope="col">{% trans "Report" %}</th><th scope="col">{% trans "Status" %}</th><th scope="col">{% trans "Location" %}</th><th scope="col">{% trans "Disaggregation" %}</th><th scope="col" class="num"><span class="has-tip" title="{% trans 'What the partner reported at the location for this period, for this value of the disaggregation' %}">{% trans "In the period" %}</span></th></tr></thead>
+    {% for b in page_obj %}{% url 'reports:progress_report' as report_url %}
+    <tbody class="disaggregation-block">
+      {% for ln in b.table_lines %}
+      <tr class="{% if ln.line == 'subtotal' %}is-subtotal{% elif ln.line == 'total' %}is-total{% endif %}{% if not b.counted %} is-uncounted{% endif %}">
+        {% if forloop.first %}
+        <td class="small cell-wrap" rowspan="{{ b.table_lines|length }}">{% if b.pd_id %}<a class="text-nowrap" href="{% url 'reports:programme_detail' b.pd_id %}">{{ b.programme_document|default:"—" }}</a>{% else %}{{ b.programme_document|default:"—" }}{% endif %}<span class="cell-sub">{{ b.partner|default:"—" }}{% if b.pd_status %} · {{ b.pd_status }}{% endif %}</span></td>
+        <td class="small cell-wrap" rowspan="{{ b.table_lines|length }}">{{ b.indicator }}{% if b.section %}<span class="cell-sub">{{ b.section }}</span>{% endif %}</td>
+        <td rowspan="{{ b.table_lines|length }}">{% if b.progress_report %}<a class="mono small" href="{{ report_url }}?report={{ b.progress_report|urlencode }}" hx-get="{{ report_url }}?report={{ b.progress_report|urlencode }}" hx-target="#modal-content" hx-push-url="false">{{ b.report|default:"—" }}</a>{% else %}<span class="mono small">{{ b.report|default:"—" }}</span>{% endif %}<span class="cell-sub">{{ b.report_type }}</span><span class="cell-sub text-nowrap">{{ b.period_start|date:"j M Y"|default:"—" }} –</span><span class="cell-sub text-nowrap">{{ b.period_end|date:"j M Y"|default:"—" }}</span></td>
+        <td rowspan="{{ b.table_lines|length }}">{% status_pill b.status b.report_status "sm" %}{% if b.due_date %}<span class="cell-sub">{% blocktrans with d=b.due_date|date:"j M Y" %}due {{ d }}{% endblocktrans %}</span>{% endif %}</td>
+        <td class="small" rowspan="{{ b.table_lines|length }}">{{ b.location|default:"—" }}{% if b.p_code %}<span class="cell-sub mono">{{ b.p_code }}</span>{% endif %}{% if b.modified %}<span class="cell-sub text-nowrap">{% blocktrans with d=b.modified|date:"j M Y" %}changed {{ d }}{% endblocktrans %}</span>{% endif %}</td>
+        {% endif %}
+        {% if ln.line == "value" %}
+        <td class="small text-nowrap"><span class="text-muted">{{ ln.type }}:</span> {{ ln.label }}</td>
+        <td class="num">{{ ln.value|number:0 }}{% if b.percentage and ln.value is not None %}%{% endif %}</td>
+        {% elif ln.line == "subtotal" %}
+        <td class="small text-nowrap"><span class="text-muted">{{ ln.type }}:</span> {% if ln.label == "Subtotal" %}{% trans "subtotal" %}{% else %}{% trans "subtotal of the cross-tab" %}{% endif %}</td>
+        <td class="num">{% if ln.subtotal is None %}<span class="text-muted small" title="{% trans 'A percentage or ratio without its numerators and denominators is never added up' %}">—</span>{% else %}{{ ln.subtotal|number:0 }}{% if b.percentage %}%{% endif %}{% endif %}{% if ln.hidden %}{% blocktrans asvar hidden_tip count counter=ln.hidden %}The subtotal of every value of the disaggregation: {{ counter }} value is left out by the filter{% plural %}The subtotal of every value of the disaggregation: {{ counter }} values are left out by the filter{% endblocktrans %}<span class="cell-sub has-tip" title="{{ hidden_tip }}">{% trans "all values" %}</span>{% endif %}{% if ln.matches is False %}<span class="cell-sub text-warning">{% trans "differs from the location total" %}</span>{% endif %}</td>
+        {% else %}
+        <td class="small">{% trans "Location total" %}{% if b.unlabelled %}<span class="cell-sub">{% blocktrans count counter=b.unlabelled %}{{ counter }} value without its label yet, not listed{% plural %}{{ counter }} values without their labels yet, not listed{% endblocktrans %}</span>{% endif %}</td>
+        <td class="num">{% if b.repeated %}<span class="text-muted small" title="{% trans 'Every location row of this report carries the same value: it is the report total, not this location’s' %}">{% trans "report total" %}</span>{% else %}{{ b.total|number:0 }}{% if b.percentage and b.total is not None %}%{% endif %}{% if b.total is not None and not b.total_is_prp %}<span class="cell-sub" title="{% trans 'PRP gives no disaggregation total here: the location’s value in the period, read as Reached reads it' %}">{% trans "value in the period" %}</span>{% endif %}{% endif %}{% if b.rows > 1 %}<span class="cell-sub" title="{% trans 'Several rows for this location: the largest value is used, never their sum' %}">{% blocktrans with n=b.rows %}{{ n }} rows{% endblocktrans %}</span>{% endif %}</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>{% endfor %}
+  </table></div>
+  {% include "components/pagination.html" with hx_target="#reporting-results" %}
+  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}Per indicator, report and location: what the partner reported for each value of each disaggregation, a subtotal per disaggregation and the location total. Values add up only within one disaggregation (female + male, or Lebanese + Syrian…), never across disaggregations: female 5, male 15 and Lebanese 20 are a location total of 20, not 40. A subtotal that differs from the location total is marked. Values whose labels the eTools sync has not read yet are not listed; the location total is. Reports that do not count in Reached are greyed. The Excel and CSV files hold every line of the filter, with values, subtotals and totals in columns of their own.{% endblocktrans %}</p>
+  {% else %}
+  {% include "reports/partials/_datamart_empty.html" with icon="layers" title=_("No report rows match") empty_title=_("No progress reports synced yet") %}
+  {% endif %}
+</section>

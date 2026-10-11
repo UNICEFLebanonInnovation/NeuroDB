@@ -5,15 +5,15 @@
   {% blocktrans asvar h2 with n=data.status_counts.over_target %}and {{ n }} ahead of schedule{% endblocktrans %}
   {% trans "On track" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.status_counts.on_track status="on_track" hint=h2 %}
   {% trans "Off track" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.status_counts.off_track status="off_track" %}
-  {% trans "Not reported" as l7 %}{% include "components/kpi_tile.html" with label=l7 value=data.status_counts.not_reported hint=_("no progress report read yet") %}
-  {% blocktrans asvar h4 with n=data.reported %}{{ n }} indicators reported on{% endblocktrans %}
+  {% trans "Not reported" as l7 %}{% include "components/kpi_tile.html" with label=l7 value=data.status_counts.not_reported hint=_("no counted report yet (Accepted or Submitted)") %}
+  {% blocktrans asvar h4 with n=data.with_reached %}{{ n }} indicators with Reached{% endblocktrans %}
   {% trans "Programme documents" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.programme_documents hint=h4 %}
   {% trans "Partners" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=data.partners %}
   {% trans "Overdue reports" as l6 %}{% include "components/kpi_tile.html" with label=l6 value=data.overdue_reports status=data.overdue_reports|yesno:"off_track," %}
 </div>
 <div class="grid grid--2 mb-3">
   <section class="panel">
-    <div class="panel__header"><h2 class="panel__title">{% trans "Tracking status" %}</h2><span class="panel__hint">{% trans "Cumulative achievement vs share of the PD period elapsed" %}</span></div>
+    <div class="panel__header"><h2 class="panel__title">{% trans "Tracking status" %}</h2><span class="panel__hint">{% trans "Reached vs share of the PD period elapsed" %}</span></div>
     <div class="chart chart--sm" data-module="charts" data-chart="status-donut" data-source="monitoring-chart-data" data-key="status_counts" data-height="220" aria-label="{% trans 'Indicator status distribution' %}"></div>
     <div class="legend">{% for key, label in labels.items %}<span class="legend__item">{% status_pill key label "sm" %} {{ data.status_counts|get_item:key }}</span>{% endfor %}</div>
   </section>
@@ -25,35 +25,39 @@
 <section class="panel p-0">
   {% include "components/table_toolbar.html" with title=_("Indicators") count=rows|length table_id="pd-indicators" filename="partner-monitoring" %}
   {% if rows %}
-  {% if truncated %}<p class="small text-warning px-3 mb-2">{% trans "Only the first 2,000 indicators are counted: narrow the filters." %}</p>{% endif %}
-  <p class="small text-muted px-3 mb-2">{% trans "The months are on the right: scroll the table sideways to see them." %}</p>
+  {% if truncated %}<p class="small text-warning px-3 mb-2">{% trans "Only the first 2,000 indicators are listed: narrow the filters. The figures above count every indicator of the filter." %}</p>{% endif %}
+  <p class="small text-muted px-3 mb-2">{% if filters.all_years %}{% trans "One column per year on the right: scroll the table sideways to see them." %}{% else %}{% trans "The months are on the right: scroll the table sideways to see them." %}{% endif %}</p>
   <div class="table-wrap table-wrap--tall"><table class="table table-hover table-sm monitoring-grid" id="pd-indicators">
     <thead><tr>
       <th scope="col" class="monitoring-grid__indicator">{% trans "Indicator" %}</th>
       <th scope="col" class="num">{% trans "Target" %}</th>
-      <th scope="col" class="num">{% trans "Cumulative" %}</th>
-      <th scope="col">{% trans "Progress" %}</th>
+      <th scope="col" class="num">{% trans "Reached" %}</th>
+      <th scope="col">{% trans "% Reached" %}</th>
+      {% if not filters.all_years %}<th scope="col" class="num">{% blocktrans with year=filters.year %}Reached in {{ year }}{% endblocktrans %}</th>{% endif %}
+      <th scope="col" class="num">{% trans "Awaiting acceptance" %}</th>
       <th scope="col">{% trans "Status" %}</th>
       <th scope="col">{% trans "Partner's view" %}</th>
-      {% for m in months %}<th scope="col" class="num monitoring-grid__month">{{ m|month_name|slice:":3" }}</th>{% endfor %}
+      {% if filters.all_years %}{% for y in year_columns %}<th scope="col" class="num monitoring-grid__month">{{ y }}</th>{% endfor %}{% else %}{% for m in months %}<th scope="col" class="num monitoring-grid__month">{{ m|month_name|slice:":3" }}</th>{% endfor %}{% endif %}
     </tr></thead>
     <tbody>
     {% for group in groups %}
-      <tr class="monitoring-grid__section"><th colspan="18" scope="rowgroup">{{ group.section }} <span class="text-muted fw-normal">· {% blocktrans count counter=group.count %}{{ counter }} indicator{% plural %}{{ counter }} indicators{% endblocktrans %}</span></th></tr>
+      <tr class="monitoring-grid__section"><th colspan="40" scope="rowgroup">{{ group.section }} <span class="text-muted fw-normal">· {% blocktrans count counter=group.count %}{{ counter }} indicator{% plural %}{{ counter }} indicators{% endblocktrans %}</span></th></tr>
       {% for p in group.pds %}
-      <tr class="monitoring-grid__pd"><th colspan="18" scope="rowgroup"><a href="{% url 'reports:programme_detail' p.pd.id %}">{{ p.pd.number|default:"—" }}</a> · {% if p.pd.partner %}<a href="{% url 'reports:partner_profile' p.pd.partner.id %}">{{ p.pd.partner.name }}</a>{% else %}{{ p.pd.partner_name|default:"—" }}{% endif %} <span class="text-muted fw-normal small">{{ p.pd.start|date:"M Y" }} – {{ p.pd.end|date:"M Y" }} · {{ p.pd.status|code_label }}</span></th></tr>
+      <tr class="monitoring-grid__pd"><th colspan="40" scope="rowgroup"><a href="{% url 'reports:programme_detail' p.pd.id %}">{{ p.pd.number|default:"—" }}</a> · {% if p.pd.partner %}<a href="{% url 'reports:partner_profile' p.pd.partner.id %}">{{ p.pd.partner.name }}</a>{% else %}{{ p.pd.partner_name|default:"—" }}{% endif %} <span class="text-muted fw-normal small">{{ p.pd.start|date:"M Y" }} – {{ p.pd.end|date:"M Y" }} · {{ p.pd.status|code_label }}</span></th></tr>
         {% for o in p.outputs %}
-        {% if o.output != "—" %}<tr class="monitoring-grid__output"><td colspan="18" class="small text-muted">{{ o.output }}</td></tr>{% endif %}
+        {% if o.output != "—" %}<tr class="monitoring-grid__output"><td colspan="40" class="small text-muted">{{ o.output }}</td></tr>{% endif %}
         {% for i in o.indicators %}
         <tr>
-          <td><a class="cell-title" href="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year }}" hx-get="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year }}" hx-target="#modal-content" hx-push-url="false">{{ i.title }}</a>
-            <span class="cell-sub"><span class="chips">{% for k, v in i.tags.items %}{% if v %}<span class="chip">{% if k == "disability" %}{% trans "Disability" %}{% else %}{{ v }}{% endif %}</span>{% endif %}{% endfor %}{% if i.high_frequency %}<span class="chip">{% trans "Monthly (HF)" %}</span>{% endif %}{% if i.cluster %}<span class="chip">{% trans "Cluster" %}</span>{% endif %}</span></span></td>
+          <td><a class="cell-title" href="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year_param }}" hx-get="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year_param }}" hx-target="#modal-content" hx-push-url="false">{{ i.title }}</a>
+            <span class="cell-sub"><span class="chips">{% for k, v in i.tags.items %}{% if v %}<span class="chip">{% if k == "disability" %}{% trans "Disability" %}{% else %}{{ v }}{% endif %}</span>{% endif %}{% endfor %}{% if i.high_frequency %}<span class="chip">{% trans "Monthly (HF)" %}</span>{% endif %}{% if i.cluster %}<span class="chip">{% trans "Cluster" %}</span>{% endif %}{% if i.report_type != filters.report_type %}<span class="chip" title="{% trans 'No quarterly report: read from the monthly humanitarian reports' %}">{% trans "From monthly reports" %}</span>{% endif %}{% if i.partial %}<span class="chip" title="{% trans 'The PD started before the reports NeuroDB reads: Reached is PRP’s own cumulative' %}">{% trans "Partial history" %}</span>{% endif %}{% if i.mismatch %}<span class="chip" title="{% blocktrans with v=i.prp_cumulative|number:0 %}PRP’s own cumulative is {{ v }}{% endblocktrans %}">{% trans "Differs from PRP" %}</span>{% endif %}</span></span></td>
           <td class="num" data-value="{{ i.target|default:'' }}">{{ i.target|number:0 }}{% if i.display_type == "percentage" and i.target is not None %}%{% endif %}</td>
-          <td class="num" data-value="{{ i.cumulative|default:'' }}">{{ i.cumulative|number:0 }}{% if i.cumulative_as_of %}<span class="cell-sub">{{ i.cumulative_as_of|date:"M Y" }}</span>{% endif %}</td>
+          <td class="num" data-value="{{ i.reached|default:'' }}">{{ i.reached|number:0 }}{% if i.display_type == "percentage" and i.reached is not None %}%{% endif %}{% if i.as_of %}<span class="cell-sub">{{ i.as_of|date:"M Y" }}</span>{% endif %}{% if not i.additive and i.reached is not None %}<span class="cell-sub">{{ i.method_label }}</span>{% endif %}</td>
           <td data-value="{{ i.achieved|default:'' }}">{% if i.achieved is not None %}<div class="meter"><div class="meter__track"><span class="meter__fill meter__fill--{{ i.tracking }}" style="width: {% if i.achieved > 100 %}100{% else %}{{ i.achieved|floatformat:0 }}{% endif %}%"></span></div><span class="meter__value">{{ i.achieved|percent:0 }}</span></div>{% else %}<span class="text-muted small">—</span>{% endif %}</td>
-          <td>{% status_pill i.tracking i.tracking_label "sm" %}</td>
-          <td class="small">{{ i.partner_status|code_label }}{% if i.report_status %}<span class="cell-sub">{{ i.report_status|code_label }}</span>{% endif %}</td>
-          {% for m in months %}<td class="num monitoring-grid__month">{% with v=i.months|get_item:m %}{% if v is not None %}{{ v|number:0 }}{% else %}<span class="text-muted">·</span>{% endif %}{% endwith %}</td>{% endfor %}
+          {% if not filters.all_years %}<td class="num" data-value="{{ i.reached_in_year|default:'' }}">{{ i.reached_in_year|number:0 }}</td>{% endif %}
+          <td class="num" data-value="{{ i.awaiting|default:'' }}">{% if i.awaiting_reports %}{{ i.awaiting|number:0 }}<span class="cell-sub">{% blocktrans count counter=i.awaiting_reports %}{{ counter }} report{% plural %}{{ counter }} reports{% endblocktrans %}</span>{% else %}<span class="text-muted">·</span>{% endif %}</td>
+          <td>{% status_pill i.tracking i.tracking_label "sm" %}{% if i.value_status == "reported_zero" %}<span class="cell-sub">{% trans "Reported zero" %}</span>{% endif %}</td>
+          <td class="small">{{ i.partner_status|code_label }}{% if i.report_status %}<span class="cell-sub">{{ i.report_status }}</span>{% endif %}</td>
+          {% if filters.all_years %}{% for y in year_columns %}<td class="num monitoring-grid__month">{% with v=i.years|get_item:y %}{% if v is not None %}{{ v|number:0 }}{% else %}<span class="text-muted">·</span>{% endif %}{% endwith %}</td>{% endfor %}{% else %}{% for m in months %}<td class="num monitoring-grid__month">{% with v=i.months|get_item:m %}{% if v is not None %}{{ v|number:0 }}{% else %}<span class="text-muted">·</span>{% endif %}{% endwith %}</td>{% endfor %}{% endif %}
         </tr>
         {% endfor %}
         {% endfor %}
@@ -62,7 +66,7 @@
     </tbody>
   </table></div>
   {% include "components/pagination.html" with hx_target="#monitoring-grid" %}
-  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans with kind=options.report_types|get_item:filters.report_type year=filters.year %}Monthly columns show each report's total for its reporting period, in the month the period ends ({{ kind }}, {{ year }}). Cumulative is the value carried by the latest report; the status compares its share of the target with the share of the PD period elapsed (±10 points).{% endblocktrans %}</p>
+  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}Reached adds up the Accepted and Submitted reports of each indicator since its programme document started, combining locations and reporting periods the way the Partner Reporting Portal says (sum, maximum, average or latest; percentages as numerators over denominators), and never adding a value the reports repeat. Awaiting acceptance is the part of Reached that comes from Submitted reports. Sent back, Due and Overdue reports never count.{% endblocktrans %} {% if filters.all_years %}{% blocktrans with kind=options.report_types|get_item:filters.report_type %}Each year column is Reached in that year ({{ kind }}); for an indicator summed over periods the years add up to Reached.{% endblocktrans %}{% else %}{% blocktrans with kind=options.report_types|get_item:filters.report_type year=filters.year %}Each month shows the value of the counted reports whose period ends in it ({{ kind }}, {{ year }}); for an indicator summed over periods the months add up to Reached in {{ year }}.{% endblocktrans %}{% endif %} {% trans "The status compares Reached's share of the target with the share of the PD period elapsed (±10 points)." %}</p>
   {% else %}
   {% if user.is_staff %}{% include "components/empty_state.html" with icon="target" title=_("No indicators match") message=_("Change the filters, or run the eTools Datamart sync if the list is empty.") action_url=request.path %}{% else %}{% include "components/empty_state.html" with icon="target" title=_("No indicators match") message=_("Change the filters.") action_url=request.path %}{% endif %}
   {% endif %}

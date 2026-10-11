@@ -42,6 +42,28 @@ def test_demo_seed_is_self_consistent():
     # no action point completed after today
     assert dm.ActionPoint.objects.filter(date_of_completion__isnull=False).exists()
     assert not dm.ActionPoint.objects.filter(date_of_completion__date__gt=dt.date.today()).exists()
+    _children_indicators_of_one_pd_are_never_added()
+
+
+def _children_indicators_of_one_pd_are_never_added():
+    """The demo case of the eTools reporting review: most demo PDs have two children indicators (e.g.
+    children enrolled in non-formal education, students receiving learning materials). Children
+    reached counts each PD once, with its largest one, never both added."""
+    from neurodb.datamart import headline, monitoring
+    from neurodb.reports import overview
+
+    today = dt.date.today()
+    rows = monitoring.indicators(monitoring.Filters(year=today.year, scope="year"), today)
+    rule = headline.children_rule()
+    per_pd: dict[int, list[float]] = {}
+    for row in rows:
+        if headline.is_number(row) and rule(row):
+            per_pd.setdefault(row.pd.id, []).append(row.reached_in_year or 0.0)
+    assert any(len([v for v in values if v]) > 1 for values in per_pd.values())  # the case exists
+    result = overview.build(overview.Scope(year=today.year, today=today), cache=False)["impact"]
+    expected = sum(max(values) for values in per_pd.values())
+    assert result["children_etools"] == round(expected)
+    assert result["children_etools"] < round(sum(sum(values) for values in per_pd.values()))
 
 
 # ------------------------------------------------------------------------------ field monitoring

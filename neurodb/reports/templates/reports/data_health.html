@@ -35,7 +35,7 @@
 </div>
 <section class="panel p-0 mt-3">
   {% include "components/table_toolbar.html" with title=_("eTools Datamart datasets") count=health.datasets|length table_id="datasets" %}
-  <p class="small text-muted px-3 mb-2">{% trans "Per dataset: the last run, the records read and written, what could not be linked (a partner, programme document or location not in NeuroDB yet), and the rows NeuroDB holds. Read this before trusting a number on an eTools page." %}</p>
+  <p class="small text-muted px-3 mb-2">{% trans "Per dataset: the last run, the records read and written, what could not be linked (a partner, programme document or location not in NeuroDB yet), and the rows NeuroDB holds. Read this before trusting a number on an eTools page." %}{% if user_role == "Administrator" %} <a href="{% url 'admin:datamart_reporting_checks' %}">{% trans "eTools reporting checks" %}</a>: {% trans "how the partner reports behind Reached look, with a verdict for each question." %}{% endif %}</p>
   <div class="table-wrap" style="max-height: 560px"><table class="table table-sm" id="datasets">
     <thead><tr><th>{% trans "Dataset" %}</th><th>{% trans "Last run" %}</th><th class="num">{% trans "Read / written" %}</th><th class="num">{% trans "Failed" %}</th><th>{% trans "Not linked" %}</th><th class="num">{% trans "Rows held" %}</th></tr></thead>
     <tbody>{% for d in health.datasets %}<tr>

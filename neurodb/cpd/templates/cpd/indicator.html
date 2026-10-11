@@ -21,7 +21,7 @@
 
 <section class="panel p-0">
   {% include "components/table_toolbar.html" with title=_("Year by year") count=rows|length table_id="cpd-years" filename="cpd-indicator" %}
-  <p class="text-muted small px-3 mb-2">{% trans "A value entered in the admin for a year replaces the linked sources of that year. Linked sources of the same year are added up." %}</p>
+  <p class="text-muted small px-3 mb-2">{% trans "A value entered in the admin for a year replaces the linked sources of that year. Linked sources of the same year are added up: different partners may reach the same people. An eTools PD indicator counts what the partner reached in that year when this indicator sums over the cycle, and what it reached to the end of that year when it takes the latest year's value, so a programme document running over several years is never counted twice." %}</p>
   <div class="table-wrap"><table class="table table-sm" id="cpd-years">
     <thead><tr><th>{% trans "Year" %}</th><th class="num">{% trans "Milestone" %}</th><th class="num">{% trans "Value" %}</th><th>{% trans "From" %}</th></tr></thead>
     <tbody>{% for r in rows %}<tr>

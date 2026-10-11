@@ -1,7 +1,27 @@
 {% extends "base.html" %}
 {% load i18n ui %}
 {% block content %}
+<div class="filters-collapse" data-filters-collapse>
 <form method="get" class="filter-bar" data-filter-bar data-hx-target="#pd-table" role="search" aria-label="{% trans 'Programme filters' %}">
+  {% if tab == "indicators" %}<input type="hidden" name="tab" value="indicators">{% endif %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-pd-q">{% trans "PD reference" %}</label>
+    <input class="form-control form-control-sm" type="search" id="f-pd-q" name="pd_q" value="{{ pd_q }}" placeholder="{% trans 'Part of the reference number' %}">
+  </div>
+  {% if tab == "indicators" %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-indicator">{% trans "Indicator" %}</label>
+    <input class="form-control form-control-sm" type="search" id="f-indicator" name="indicator" value="{{ indicator_q }}" placeholder="{% trans 'Words in the title' %}">
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-emergency"><span class="has-tip" title="{% trans 'Emergency indicators are the high-frequency ones, reported monthly in humanitarian reports' %}">{% trans "Emergency" %}</span></label>
+    <select class="form-select form-select-sm" id="f-emergency" name="emergency">
+      <option value="">{% trans "All" %}</option>
+      <option value="yes" {% if emergency == "yes" %}selected{% endif %}>{% trans "Yes" %}</option>
+      <option value="no" {% if emergency == "no" %}selected{% endif %}>{% trans "No" %}</option>
+    </select>
+  </div>
+  {% endif %}
   <div class="filter-bar__field" style="flex: 0 0 auto; min-width: 0">
     <span class="form-label">{% trans "Scope" %}</span>
     <div class="segmented" role="radiogroup" aria-label="{% trans 'Scope' %}">
@@ -24,8 +44,9 @@
   </div>
   <div class="filter-bar__actions">
     <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
-    <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}{% if tab == 'indicators' %}?tab=indicators{% endif %}">{% trans "Reset" %}</a>
   </div>
 </form>
+</div>
 <section class="panel p-0" id="pd-table" aria-live="polite">{% include "reports/partials/programme_table.html" %}</section>
 {% endblock %}

@@ -115,7 +115,6 @@ INTERVENTION_FIELDS = (
     "sections",
     "section_names",
     "cp_outputs",
-    "unicef_focal_points",
     "frs_total_intervention_amt",
     "frs_total_outstanding_amt",
     "offices",
@@ -323,6 +322,14 @@ def sync_agreements(run: SyncRun, *, client: EToolsClient | None = None) -> Sync
 
 
 # -------------------------------------------------------------------------------- interventions
+def unicef_focal_point_names(value: Any) -> list[str]:
+    """The UNICEF focal points of an intervention by name: never an e-mail address (``person_names``),
+    and never a bare user id (the list endpoint may give ids only)."""
+    from neurodb.integrations.etools.datamart_sync import person_names  # lazy: the Datamart sync is large
+
+    return [name[:200] for name in person_names(value) if not name.isdigit()]  # varchar(200) elements
+
+
 def _add_locations_by_p_code(intervention: PCA, p_codes: Iterable[str]) -> None:
     for p_code in p_codes or []:
         location = Location.objects.filter(p_code=p_code).first()
@@ -338,6 +345,9 @@ def sync_interventions(run: SyncRun, *, client: EToolsClient | None = None) -> S
         intervention, _ = PCA.objects.get_or_create(etl_id=str(item["id"]), defaults={"title": ""})
         assign(intervention, item, INTERVENTION_FIELDS)
         assign(intervention, item, {"end_date": "end", "offices_set": "offices_names"})
+        focal_points = unicef_focal_point_names(item.get("unicef_focal_points"))
+        if focal_points:  # names only; user ids say nothing, and the Datamart sync's names are kept
+            intervention.unicef_focal_points = focal_points
         intervention.save()
         _add_locations_by_p_code(intervention, item.get("location_p_codes") or [])
 

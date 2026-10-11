@@ -30,6 +30,7 @@ ORDER = (
     "overview",
     "monitoring-insights",
     "action-points",
+    "partner-progress",
     "exports",
     "knowledge-and-documents",
     "ask-neurodb",

@@ -228,6 +228,12 @@ def screen(question: str) -> str | None:
 GUIDE_FOR = {
     "fmm": "monitoring-insights",
     "reports:action_points": "action-points",
+    "reports:pd_monitoring": "partner-progress",
+    "reports:pd_monitoring_map": "partner-progress",
+    "reports:pd_indicator": "partner-progress",
+    "reports:partner_reporting": "partner-progress",
+    "reports:progress_report": "partner-progress",
+    "reports:funds": "partner-progress",
     "assistant": "ask-neurodb",
     "watch": "watch",
     "graph": "watch",
