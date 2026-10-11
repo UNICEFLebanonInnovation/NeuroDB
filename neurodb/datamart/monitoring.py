@@ -19,7 +19,7 @@ from __future__ import annotations
 import datetime
 import re
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from django.db.models import Q, QuerySet
@@ -298,6 +298,14 @@ class Indicator:
         )
 
     @property
+    def achieved_in_year(self) -> float | None:
+        """% of the target reached in the year chosen (Reached in the year over the target, as Power BI's
+        Reporting year reads % Reached); None without a year, a target or a value in the year."""
+        if not self.year or not self.target or self.reached_in_year is None:
+            return None
+        return self.reached_in_year * 100 / self.target
+
+    @property
     def additive(self) -> bool:
         return self.result.additive if self.result else self.method in ("", "sum")
 
@@ -360,6 +368,12 @@ def _target(row: dict[str, Any]) -> float | None:
             numerator / denominator * 100 if row["display_type"] == "percentage" else numerator / denominator
         )
     return numerator
+
+
+def pd_cp_outputs(pd: PCA) -> str:
+    """A PD's country programme outputs, joined: the CP output of an indicator no partner report names
+    yet (Power BI shows the PD's outputs the same way)."""
+    return ", ".join(dict.fromkeys(str(x).strip() for x in (pd.cp_outputs or []) if str(x or "").strip()))
 
 
 def _key(source_id: int | None, datamart_id: int) -> str:
@@ -444,15 +458,19 @@ def indicators(
                 },
             )
     for entry in found.values():
-        if not entry.cp_output:  # not reported yet: the PD's own CP output when it has only one
-            outputs = [x for x in (entry.pd.cp_outputs or []) if x]
-            entry.cp_output = outputs[0] if len(outputs) == 1 else ""
+        if not entry.cp_output:  # not reported yet: the PD's own CP outputs, joined (as Power BI shows them)
+            entry.cp_output = pd_cp_outputs(entry.pd)
     if filters.cp_output:
         words = norm(filters.cp_output)
         found = {k: e for k, e in found.items() if words in norm(e.cp_output)}
-    if filters.locations:
-        wanted = {norm(x) for x in filters.locations}
-        found = {k: e for k, e in found.items() if any(norm(loc) in wanted for loc in e.locations)}
+    only = location_filter(filters)
+    if only is not None:  # planned at a chosen location: by its P-code, or by its name
+        found = {
+            k: e
+            for k, e in found.items()
+            if any(key in only or norm(p["name"]) in only for key, p in e.planned.items())
+            or any(norm(loc) in only for loc in e.locations)
+        }
     # the chosen sections: NO_SECTION (the tile of the indicators that name none) keeps those
     sections = {s.strip() for s in filters.sections if s.strip()}
     if section_counts is None and sections:  # only the chosen sections' Reached is computed
@@ -464,6 +482,28 @@ def indicators(
         if sections:
             result = [e for e in result if (e.section or NO_SECTION) in sections]
     return result
+
+
+def location_filter(filters: Filters) -> set[str] | None:
+    """The locations a location filter keeps (None: no filter), as :func:`reached.compute` reads them:
+    the names chosen (normalised) and the P-code of every PD indicator location of that name
+    (:func:`reached.location_key`), so a partner report that spells the place differently ("Akkar
+    Governorate", P-code LB11, for the planned "Akkar") is still that place."""
+    names = {norm(x) for x in filters.locations if norm(x)}
+    if not names:
+        return None
+    match = Q()
+    for name in {x.strip() for x in filters.locations if x.strip()}:
+        match |= Q(location_name__iexact=name)
+    keys = {
+        location_key(code, name)
+        for code, name in dm.PDIndicator.objects.filter(match)
+        .order_by()
+        .values_list("location_pcode", "location_name")
+        .distinct()
+        if norm(name) in names
+    }
+    return names | keys
 
 
 class _Idents:
@@ -501,7 +541,16 @@ def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, t
     pd_ids = sorted({ident[0] for ident in found})
     idents = _Idents(pd_ids)
     per: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
+    # each progress report's status, read from every row of the report (all its indicators), so each
+    # indicator of a report whose rows disagree (a partial re-sync) has the status the reports' list shows
+    words: dict[str, dict[str, rc.Stamp]] = defaultdict(dict)
+
+    def note(row: dict[str, Any]) -> None:
+        text, mine = row["report_status"] or "", words[rc.report_key(row)]
+        mine[text] = rc.stamp(mine.get(text), rc.row_stamp(row))
+
     for row in rc.report_rows(pd_ids, [filters.report_type]):
+        note(row)
         ident = idents.of(row["intervention_id"], row["etools_indicator_id"], row["indicator"])
         if ident in found:
             per[ident].append(row)
@@ -511,14 +560,16 @@ def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, t
         humanitarian: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
         wanted = set(missing)
         for row in rc.report_rows(sorted({ident[0] for ident in missing}), ["HR"]):
+            note(row)
             ident = idents.of(row["intervention_id"], row["etools_indicator_id"], row["indicator"])
             if ident in wanted:
                 humanitarian[ident].append(row)
         for ident, rows in humanitarian.items():
             per[ident], read_from[ident] = rows, "HR"
+    statuses = {key: rc.newest_status(texts) for key, texts in words.items()}
     totals = rc.progress_values(row for rows in per.values() for row in rows)
     since = rc.reports_read_from(today)  # a PD that started before it has a partial history
-    only = {norm(x) for x in filters.locations} or None
+    only = location_filter(filters)
     for ident, entry in found.items():
         result = rc.compute(
             per.get(ident, []),
@@ -529,6 +580,7 @@ def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, t
             progress_values=totals,
             only=only,
             partial=bool(entry.pd.start and entry.pd.start < since),
+            report_status=statuses,
         )
         _apply(entry, result, read_from.get(ident, filters.report_type))
         if result.reached is None:
@@ -665,11 +717,22 @@ def map_points(filters: Filters, today: datetime.date | None = None) -> dict[str
     location is placed by its own eTools coordinates, else by the nearest ancestor with coordinates
     (flagged approximate); names alone never place anything."""
     rows = indicators(filters, today)
+    only = location_filter(filters)
+    whole: dict[tuple[int, str], Indicator] = {}
+    if only is not None and rows:
+        # under a location filter each row is that location's own Reached: the indicator's figures for
+        # every location (its Reached, % and status) are read once more without the filter
+        every = replace(filters, locations=[], status="", pd_ids=sorted({r.pd.id for r in rows}))
+        whole = {r.ident: r for r in indicators(every, today)}
     places: dict[str, dict[str, Any]] = {}
     pds: dict[int, dict[str, Any]] = {}
     for ind in rows:
         pds.setdefault(ind.pd.id, _funding(ind.pd))
-        keys = set(ind.planned) | set(ind.by_location)
+        full = whole.get(ind.ident, ind)
+        planned_here = {
+            k for k, p in ind.planned.items() if only is None or k in only or norm(p.get("name")) in only
+        }
+        keys = planned_here | set(ind.by_location)
         for key in keys:
             planned, reported = ind.planned.get(key), ind.by_location.get(key)
             meta = planned or reported or {}
@@ -703,12 +766,13 @@ def map_points(filters: Filters, today: datetime.date | None = None) -> dict[str
                     "reached_here": reported["reached"] if reported else None,
                     "reached_here_in_year": reported["achieved"] if reported else None,
                     "prp_cumulative_here": reported["prp_cumulative"] if reported else None,
-                    "reached": ind.reached,
-                    "additive": ind.additive,
-                    "method": ind.method_label,
-                    "achieved_percent": round(ind.achieved, 1) if ind.achieved is not None else None,
-                    "tracking": ind.tracking,
-                    "tracking_label": ind.tracking_label,
+                    # the indicator's Reached over every location, its % of the target and status
+                    "reached": full.reached,
+                    "additive": full.additive,
+                    "method": full.method_label,
+                    "achieved_percent": round(full.achieved, 1) if full.achieved is not None else None,
+                    "tracking": full.tracking,
+                    "tracking_label": full.tracking_label,
                     "period": reported["period"] if reported else None,
                     "report": reported["report"] if reported else "",
                     "planned": planned is not None,
@@ -816,18 +880,21 @@ TABLE_SORTS: dict[str, Any] = {
     "reached": lambda r: r.reached,
     "achieved": lambda r: r.achieved,
     "reached_in_year": lambda r: r.reached_in_year,
+    "achieved_in_year": lambda r: r.achieved_in_year,
     "partner": lambda r: norm(_partner_name(r)) or None,
     "pd": lambda r: (r.pd.number or "").lower() or None,
 }
 DEFAULT_SORT = "-achieved"  # % Reached, highest first, as Power BI opens Program Performance
+YEAR_SORT = "-achieved_in_year"  # with a Reporting year: % Reached in that year, highest first
 
 
-def sorted_rows(rows: list[Indicator], sort: str) -> tuple[list[Indicator], str]:
+def sorted_rows(rows: list[Indicator], sort: str, year: int | None = None) -> tuple[list[Indicator], str]:
     """The indicators in the order of ``sort`` (a column of :data:`TABLE_SORTS`, "-" first for highest
-    first), ties by PD and title; indicators without a value go last either way. Also the sort applied."""
+    first), ties by PD and title; indicators without a value go last either way. Also the sort applied.
+    By default % Reached, highest first; with a ``year``, % Reached in that year."""
     key, desc = (sort or "").lstrip("-"), (sort or "").startswith("-")
-    if key not in TABLE_SORTS:
-        key, desc = DEFAULT_SORT.lstrip("-"), True
+    if key not in TABLE_SORTS or (key in ("reached_in_year", "achieved_in_year") and not year):
+        key, desc = (YEAR_SORT if year else DEFAULT_SORT).lstrip("-"), True
     value = TABLE_SORTS[key]
     present = [r for r in rows if value(r) is not None]
     missing = [r for r in rows if value(r) is None]
@@ -850,6 +917,7 @@ TABLE_COLUMNS = (
     "reached",
     "reached_as_of",
     "reached_in_year",
+    "achieved_percent_in_year",
     "awaiting_acceptance",
     "achieved_percent",
     "status",
@@ -883,6 +951,9 @@ def table_rows(rows: list[Indicator], filters: Filters, base_url: str = "") -> A
             "reached": r.reached,
             "reached_as_of": r.as_of,
             "reached_in_year": r.reached_in_year if filters.year else None,
+            "achieved_percent_in_year": (
+                round(r.achieved_in_year, 1) if filters.year and r.achieved_in_year is not None else None
+            ),
             "awaiting_acceptance": r.awaiting if r.awaiting_reports else None,
             "achieved_percent": round(r.achieved, 1) if r.achieved is not None else None,
             "status": r.tracking_label,

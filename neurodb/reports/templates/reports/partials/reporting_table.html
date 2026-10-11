@@ -12,7 +12,7 @@
 {% elif tab == "disaggregations" %}{% include "reports/partials/_reporting_disaggregations.html" %}
 {% else %}
 {% with c=data.counts %}
-<div class="kpi-grid">
+<div class="kpi-grid kpi-grid--7">
   {% blocktrans asvar h0 count counter=c.progress_reports %}in {{ counter }} progress report{% plural %}in {{ counter }} progress reports{% endblocktrans %}
   {% trans "Indicator reports" as l0 %}{% include "components/kpi_tile.html" with label=l0 value=c.indicator_reports|intcomma hint=h0 %}
   {% for s in c.statuses %}
@@ -33,8 +33,8 @@
     {% else %}<p class="small text-muted px-3 py-2 mb-0">{% trans "No progress reports match." %}</p>{% endif %}
 </section>
 <section class="panel mb-3">
-  <div class="panel__header"><h2 class="panel__title">{% trans "Indicator reports by month of the due date" %}</h2><span class="panel__hint">{% trans "Not yet due included" %}</span></div>
-  <div class="chart" data-module="charts" data-chart="grouped" data-source="reporting-chart-data" data-key="by_month" data-legend="top" data-height="300" data-empty-title="{% trans 'No progress reports' %}" aria-label="{% trans 'Indicator reports by month of the due date and status' %}"></div>
+  <div class="panel__header"><h2 class="panel__title">{% trans "Indicator reports by month of the reporting period's end" %}</h2><span class="panel__hint">{% trans "Not yet due included" %}</span></div>
+  <div class="chart" data-module="charts" data-chart="grouped" data-source="reporting-chart-data" data-key="by_month" data-legend="top" data-height="300" data-empty-title="{% trans 'No progress reports' %}" aria-label="{% trans 'Indicator reports by month of the reporting period end and status' %}"></div>
 </section>
 <section class="panel p-0">
   {% include "components/table_toolbar.html" with title=_("Progress reports") count=page_obj.paginator.count table_id="progress-reports" filename="progress-reports" downloads=downloads %}

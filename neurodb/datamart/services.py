@@ -12,6 +12,7 @@ from typing import Any
 from django.db.models import Count, Q, QuerySet, Sum
 from django.db.models.functions import ExtractYear
 
+from neurodb.partnerships import statuses as pd_statuses
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
 from . import fm, headline, reached, reporting
@@ -332,6 +333,10 @@ def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
     visits: dict[int, int] = defaultdict(int)
     for day in staff_visits.filter(travel_type__icontains="programmatic").values_list("date", flat=True):
         visits[day.year] += 1
+    # the partner's progress reports as the Progress reports page reads them for the partner (its
+    # "All reports" link: ``?partner=<id>&pd_status=``): by the partner link, every PD status but
+    # draft and cancelled
+    reported = partner.reported_indicators.exclude(intervention__status__in=pd_statuses.NOT_A_PARTNERSHIP)
     return {
         "assessments": list(
             dm.PartnerAssessment.objects.filter(partner=partner).order_by("-completed_date")[:20]
@@ -355,9 +360,9 @@ def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
         "finding_ratings": dict(Counter(f.overall_finding_rating or "—" for f in findings)),
         "hact_years": list(partner.hact_years.order_by("-year")[:4]),
         "monitoring": _monitoring_summary(pd_monitoring.Filters(partners=[str(partner.pk)])),
-        "reporting": reporting_summary(partner.reported_indicators.all()),
-        "reports": list(progress_reports(partner.reported_indicators.all())[:10]),
-        "reports_by_year": reports_by_year(partner.reported_indicators.all()),
+        "reporting": reporting_summary(reported),
+        "reports": list(progress_reports(reported)[:10]),
+        "reports_by_year": reports_by_year(reported),
         "staff_visits_by_year": sorted(visits.items()),
         "monitoring_visits_by_year": _monitoring_visits_by_year(partner),
     }
@@ -1186,10 +1191,10 @@ def partner_reporting(params, today: datetime.date | None = None) -> dict[str, A
     """The Progress reports page: the progress reports of the filter (one of six statuses each, with
     their PD's status, document type and UNICEF focal points), the progress reports per status
     (``summary``), the indicator reports per status (``counts``: what the tiles show), by section and
-    by month of the due date, and Partner Performance. ``statuses``: the status of every progress report
-    of the filter, read before the status filter (Report/Location reads each report's status there, so a
-    report left out by the status filter is never let back in by one of its rows); ``by_status``: the
-    progress reports per status, by name (as ``summary`` counts them)."""
+    by month of the reporting period's end, and Partner Performance. ``statuses``: the status of every
+    progress report of the filter, read before the status filter (Report/Location reads each report's
+    status there, so a report left out by the status filter is never let back in by one of its rows);
+    ``by_status``: the progress reports per status, by name (as ``summary`` counts them)."""
     today = today or datetime.date.today()
     filters = reporting.ReportFilters.from_params(params)
     rows = filters.queryset(today)
@@ -1242,28 +1247,33 @@ def report_detail(progress_report: str, today: datetime.date | None = None) -> d
     report = (
         dm.ReportedIndicator.objects.filter(progress_report=progress_report).order_by("datamart_id").first()
     )
-    definitions = {}
+    definitions: dict[str, tuple[str, str, float | None]] = {}
     if report.intervention_id:
-        for source_id, title, display_type, unit in dm.PDIndicator.objects.filter(
-            intervention_id=report.intervention_id
-        ).values_list("source_id", "title", "display_type", "unit"):
+        for row in dm.PDIndicator.objects.filter(intervention_id=report.intervention_id).values(
+            "source_id", "title", "display_type", "unit", "target_numerator", "target_denominator"
+        ):
             # by eTools id ("s…"), else by title ("t…"): a row without an id never takes the type of
-            # an indicator that has none
-            if source_id:
-                definitions.setdefault(f"s{source_id}", (display_type, unit))
-            definitions.setdefault(f"t{pd_monitoring.norm(title)}", (display_type, unit))
-    groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+            # an indicator that has none. The target as Partner monitoring reads it (a percentage × 100)
+            found = (row["display_type"], row["unit"], pd_monitoring._target(row))
+            if row["source_id"]:
+                definitions.setdefault(f"s{row['source_id']}", found)
+            definitions.setdefault(f"t{pd_monitoring.norm(row['title'])}", found)
+    # one entry per indicator report (one indicator in this report), as the tiles count them: two
+    # indicators that share a title or an eTools id are never one line
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
-        groups[(row["etools_indicator_id"] or "", row["indicator"] or "")].append(row)
+        groups[reached.indicator_report_key(row)].append(row)
     totals = reached.progress_values(rows)
+    words = reached.report_status_texts(rows)  # the report's one status, from all its rows
     indicators = []
-    for (etools_id, title), group in sorted(
-        groups.items(), key=lambda kv: (kv[1][0]["pd_output"] or "", kv[0][1])
+    for _key, group in sorted(
+        groups.items(), key=lambda kv: (kv[1][0]["pd_output"] or "", kv[1][0]["indicator"] or "", kv[0])
     ):
-        display_type, unit = (
-            (definitions.get(f"s{etools_id.strip()}") if etools_id.strip() else None)
+        etools_id, title = (group[0]["etools_indicator_id"] or "").strip(), group[0]["indicator"] or ""
+        display_type, unit, target = (
+            (definitions.get(f"s{etools_id}") if etools_id else None)
             or definitions.get(f"t{pd_monitoring.norm(title)}")
-            or ("", "")
+            or ("", "", None)
         )
         ratio = reached.is_ratio(
             display_type,
@@ -1273,14 +1283,22 @@ def report_detail(progress_report: str, today: datetime.date | None = None) -> d
         )
         percentage = display_type == "percentage" or unit == "percentage"
         (item,) = reached.build_reports(
-            group, ratio=ratio, percentage=percentage, today=today, progress_values=totals
+            group,
+            ratio=ratio,
+            percentage=percentage,
+            today=today,
+            progress_values=totals,
+            report_status=words,
         )
+        if target is None:  # the report's own copy of the target, read as the values are
+            found = reached.parts(group[0]["target"])
+            target = found.value(ratio, percentage) if found else None
         indicators.append(
             {
                 "indicator": title,
                 "pd_output": group[0]["pd_output"],
                 "partner_status": item.partner_status,
-                "target": pd_monitoring.number(group[0]["target"]),
+                "target": target,
                 "locations": [
                     {
                         "name": item.places.get(place, {}).get("name") or "—",
@@ -1297,13 +1315,10 @@ def report_detail(progress_report: str, today: datetime.date | None = None) -> d
                 "percentage": percentage,
             }
         )
-    status = reached.status_of(
-        report.report_status,
-        period_end=report.period_end,
-        due_date=report.due_date,
-        submission_date=report.submission_date,
-        today=today,
-    )
+    # the report's status as every page reads it: its rows' newest word, and the first date its rows
+    # give (in the order Reached reads them)
+    (whole,) = reached.build_reports(rows, ratio=False, percentage=False, today=today, report_status=words)
+    status = whole.status
     return {
         "report": report,
         "status": status,

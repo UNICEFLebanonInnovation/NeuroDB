@@ -9,7 +9,9 @@ longer does any of these; this removes what earlier syncs stored: the keys namin
 phone or a mobile (at any depth, as ``catalogue.scrub`` removes them), every focal point entry holding
 an e-mail address, and every ``submitted_by`` holding one, in the column and in the record.
 
-Batched and not atomic, so a large table is never locked whole; running it twice changes nothing.
+Batched and not atomic, so a large table is never locked whole: one UPDATE (one commit) per batch of
+500 records, never one per record, so a table with many records to clean is done within the migrate
+job's time. Running it twice changes nothing.
 """
 
 import json
@@ -55,11 +57,16 @@ def scrub_records(apps, schema_editor):
                     [last, KEY_PATTERN, BATCH],
                 )
                 rows = cursor.fetchall()
-                for pk, value in rows:
-                    value = json.loads(value) if isinstance(value, str) else value
+                if rows:  # the whole batch in one statement
+                    params = []
+                    for pk, value in rows:
+                        value = json.loads(value) if isinstance(value, str) else value
+                        params += [pk, json.dumps(scrub(value))]
                     cursor.execute(
-                        f"UPDATE {quote(table)} SET {quote(column)} = %s::jsonb WHERE id = %s",
-                        [json.dumps(scrub(value)), pk],
+                        f"UPDATE {quote(table)} AS t SET {quote(column)} = v.value "
+                        f"FROM (VALUES {', '.join(['(%s::bigint, %s::jsonb)'] * len(rows))}) AS v(id, value) "
+                        "WHERE t.id = v.id",
+                        params,
                     )
             if len(rows) < BATCH:
                 break

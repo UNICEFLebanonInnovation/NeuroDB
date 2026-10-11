@@ -951,7 +951,17 @@ the map, the programme and partner pages, the progress report pop-up and Ask Neu
   deployment), a running PD's early reports count from the next eTools Datamart sync on; until then
   it shows *Partial history*.
 * **A location filter** shows each indicator's Reached at the chosen locations; its % is a share of
-  the whole PD target.
+  the whole PD target. A place is matched by name and by the P-code the PD indicators give that name,
+  so a partner report that spells it differently ("Akkar Governorate" for the planned "Akkar", same
+  P-code) is still that place. On the map, the chosen places only are listed, each row with the
+  location's own Reached beside the indicator's Reached over every location, its % and status.
+* **One status per progress report.** A report whose rows disagree on its status (a partial re-sync:
+  some indicators' rows still carry the old word) has one status on every page: the word of its rows
+  changed last in the Datamart (`last_modify_date`), then synced last, then with the highest Datamart
+  id, read from every row of the report whatever the filter. One indicator in one progress report
+  (an *indicator report*) is identified by PRP's indicator report id, else by its eTools id and title:
+  two indicators that share a title or an eTools id are never read as one, on the pop-up and on
+  *By location* as on the tiles.
 
 **The pages.** The grid lists, per indicator: Target, Reached (as of the latest counted report),
 % Reached, Reached in the chosen year, Awaiting acceptance, Status, the partner's own view, and the
@@ -984,8 +994,10 @@ location, whether the value in the period is the report total repeated, disaggre
 `"()"` total, what reports that do not count carry, PRP's cumulative against Reached, the
 calculation methods in use, whether report rows carry the PD indicator's id, PRP's report totals,
 and whether the financial contribution repeats on every indicator of a report), each with a verdict
-and what NeuroDB does whatever the answer. Every query is aggregate and stopped after 20 seconds.
-Nothing needs running: the page reads what the nightly eTools Datamart sync stored (Run a job →
+and what NeuroDB does whatever the answer. Every query is aggregate and stopped after 20 seconds,
+and the nine checks together after 75 seconds (below the web server's 120-second limit, so the page
+always answers): a check left out by that limit says so, and the comparison of Reached with PRP's
+cumulative (check 5) runs only with 30 seconds left. Nothing needs running: the page reads what the nightly eTools Datamart sync stored (Run a job →
 *Sync eTools (Datamart)* refreshes it).
 
 **The Power BI views.** The eTools Power BI report's pages live on NeuroDB's own pages, with the same
@@ -1005,10 +1017,14 @@ figures as everywhere else (they read the rule above; nothing is added across in
   document, Document type, Office, Emergency (the high-frequency indicators, reported monthly),
   CP output (words in it), Indicator (title or output), locations, the title tags, report type,
   Reporting year and status. Program Performance and Data quality open on *All years* (Reached to
-  date), the grid on this year; with a year chosen they add *Reached in* that year. An indicator's CP
-  output comes from its partner reports; one not reported yet takes its PD's CP output when the PD
-  has only one. *Excel of the filter* / *CSV of the filter* export every indicator of the filter, not
-  only the page shown. The grid and Program Performance list at most 2,000 indicators (Program
+  date), the grid on this year; the view links and the map carry the year shown, so changing view
+  never changes the year, and the year menu offers *All years* on these pages. With a year chosen,
+  Program Performance reads that year as Power BI does (*Reached in* the year, *% Reached in* the year,
+  sorted by it), with Reached to date, its % and its status beside them; Data quality counts *with
+  Reached in* the year. An indicator's CP output comes from its partner reports; one not reported yet
+  shows its PD's CP outputs, joined (as Power BI shows them). *Excel of the filter* / *CSV of the
+  filter* (Program Performance) export every indicator of the filter, not only the page shown; the
+  grid and Data quality have no file of their own. The grid and Program Performance list at most 2,000 indicators (Program
   Performance the first 2,000 in its sort, with a note); every count (the tiles, the section tiles,
   Data quality, Ask NeuroDB) and the exports read every indicator of the filter, so they agree. The
   view links keep the filter last applied, also when it was changed without reloading the page.
@@ -1019,12 +1035,15 @@ figures as everywhere else (they read the rule above; nothing is added across in
   cumulative, the same title twice in one PD (kept apart, never merged), partial history. Each list
   shows its first 500 rows; the counts are complete.
 * **Progress reports** has four tabs on one filter (search, report status, report type, reporting
-  year, section, report #, partner, partner type, PD status, period start and period end between):
+  year, section, report #, partner, partner type, PD status, emergency indicator, period start and
+  period end between). The PD status filter opens on the running programme documents (active, signed,
+  suspended), as Partner monitoring does; with every status chosen, reports without a PD link are
+  listed too. Draft and cancelled programme documents are never read:
   * *Reporting progress*: tiles of **indicator reports** (one indicator in one progress report, as
     Power BI counts them) per status, with the number of progress reports under each; indicator
     reports by section and status with a total row (a report counts under its rows' section, else its
-    PD's sections, never twice); indicator reports by month of the due date and status, Not yet due
-    included; and the report table (PD, PD status, partner, section, report, status, document type,
+    PD's sections, never twice); indicator reports by month of the reporting period's end and
+    status, Not yet due included (the month a report is about, as Power BI places it); and the report table (PD, PD status, partner, section, report, status, document type,
     due date, period start and end, submission, UNICEF focal points, indicators).
   * *Partners* (Partner Performance): partners with a progress report in the filter (whatever its
     status), those with at least one Submitted or Accepted report, those without (listed), the
@@ -1036,13 +1055,18 @@ figures as everywhere else (they read the rule above; nothing is added across in
     location is the report total and is not shown as the location's; two rows of one location are
     never added, the row count is noted) and PRP's figure to date at the location. Reports that do
     not count are greyed. A row keeps its progress report's status (the one the tiles count), also
-    under a status filter. It reads at most 60,000 report rows at once; above that it asks for a
-    narrower filter.
-  * *By disaggregation* (Report/Disaggregation): see below; same row limit.
+    under a status filter. It reads at most 20,000 report rows at once, only the "()" total of each (a web worker holds them all
+    in memory); above that it asks for a narrower filter, and its export refuses.
+  * *By disaggregation* (Report/Disaggregation): see below. It reads at most 10,000 report rows at
+    once (each can give many lines), and makes the lines of the 25 locations a page shows only; the
+    export writes them location by location.
   The exports hold every row of the tab's filter; the Excel file adds the indicator reports and
   progress reports per status and the section table (and, on *Partners*, partners per status and
   those not reported). The status filter uses the six statuses (an old link with PRP's word, such as
-  `status=Accepted`, still works).
+  `status=Accepted`, still works). In every CSV file (these and the others NeuroDB writes), a text
+  that a spreadsheet would run as a formula (one starting with `=`, `+`, `-` or `@`, such as a title
+  `=HYPERLINK(...)` typed in eTools or PRP) starts with an apostrophe, so it stays text; a number
+  written as text ("-12.5") is left as it is. The Excel files keep every text a text already.
 * **UNICEF focal points** are shown by name only (`PCA.unicef_focal_points`); an entry that is or
   holds an e-mail address is left out. Partner focal points are never shown.
 * **Programmes → Indicators** (PD/SPD Indicators): one row per indicator of the filtered programme

@@ -52,11 +52,18 @@ total:
 - **Grid**: by section, programme document and output, each indicator with its target, Reached, %
   Reached, Reached in the chosen year, awaiting acceptance, status and the months of the year.
 - **Program Performance**: one row per indicator (section, CP output, emergency, target, Reached, %
-  Reached, partner, programme document), sorted by % Reached; the section tiles filter it.
+  Reached, partner, programme document), sorted by % Reached; the section tiles filter it. With a
+  reporting year chosen, it shows Reached in that year and its % of the target first (sorted by it),
+  as Power BI does, with Reached to date beside them.
 - **Data quality**: programme documents and indicators with and without a target or Reached, and the
   lists to fix (missing targets, no or zero Reached, Reached differing from PRP, the same title twice in
   one programme document, partial history).
 - **Map**: the implementation locations, coloured by the worst status there.
+
+Switching views keeps the year shown; the year menu at the top offers *All years* on these pages. The
+**location** filter shows each indicator's Reached at the chosen place (a place is found by its name and
+by its P-code, so "Akkar Governorate" in a partner report is the planned "Akkar"); on the map, each row
+then gives the place's own Reached and, beside it, the indicator's Reached over every location.
 
 An indicator opens on its own page: a location × report table whose rows end with each location's
 Reached and whose columns end with each report's value, the reports that do not count greyed, and
@@ -66,12 +73,15 @@ disaggregation when the indicator adds up.
 ## Progress reports
 
 [Progress reports](/partner-reporting/) has four tabs on one filter (search, report status, report
-type, reporting year, section, report number, partner, partner type, PD status, and the period start and
-end):
+type, reporting year, section, report number, partner, partner type, PD status, emergency indicator, and
+the period start and end). Like Partner monitoring, it opens on the running programme documents
+(active, signed or suspended); clear the PD status choice to see every status. Draft and cancelled
+programme documents are never listed.
 
 - **Reporting progress**: the tiles count *indicator reports* (one indicator in one progress report, as
   Power BI counts them) per status, with the number of progress reports under each; then by section and
-  by month of the due date, and the report table with the PD status, document type and UNICEF focal
+  by month of the end of the reporting period (the month a report is about, as Power BI shows it),
+  and the report table with the PD status, document type and UNICEF focal
   points (names only).
 - **Partners**: partners with reports, with at least one submitted or accepted, and without; partners
   per status; the reports to follow up (Overdue, Sent back, Due, Submitted).
@@ -116,8 +126,11 @@ currency, funds reservations and disbursements in US dollars.
 
 ## Exports
 
-Every tab of Partner monitoring, Progress reports and the two Power BI tabs of Funds has *Excel of the
-filter* and *CSV of the filter*: every row of the filter, not only the page shown. In the
+Program Performance (the *Table* view of Partner monitoring), every tab of Progress reports and the two
+Power BI tabs of Funds have *Excel of the filter* and *CSV of the filter*: every row of the filter, not
+only the page shown. The grid and the Data quality tab have no file of their own: Program Performance's
+file holds the same indicators with their figures, and each Data quality list (at most 500 rows on the
+page; its count is complete) can be copied or saved as CSV with the rows it shows. In the
 disaggregation export, values, subtotals and location totals are in columns of their own, and in the
 funds export the programme document's own amounts are on its first row only, so adding up a column
 never counts a figure twice.

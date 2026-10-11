@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime as dt
 import random
+from collections import defaultdict
 from decimal import Decimal
 
 from neurodb.core.models import PopulationFigure
@@ -99,6 +100,7 @@ def seed_etools(rng: random.Random, today: dt.date) -> None:
     # no random draw below these two: every other demo figure stays where it was
     _disaggregation_labels()
     _partner_contributions(pcas)
+    _focal_points_and_changes(pcas)
     _tpm(rng, pcas, gazetteer, today, year)
     _action_points(rng, pcas, gazetteer, today, year)
     _findings(rng, pcas, gazetteer, today, year)
@@ -291,6 +293,37 @@ def _disaggregation_labels() -> None:
         for pk, (label, type_id) in DISAGGREGATION_VALUES.items()
     ]
     dm.DisaggregationLabel.objects.bulk_create(labels)
+
+
+# UNICEF focal points of the demo PDs: placeholders, never a person's name (nor a phrase found in other
+# texts: Watch treats every focal point as a name to keep out of what it writes)
+DEMO_FOCAL_POINTS = (
+    ("Demo focal point A", "Demo focal point B"),
+    ("Demo focal point C",),
+    ("Demo focal point D", "Demo focal point E"),
+    ("Demo focal point F",),
+)
+
+
+def _focal_points_and_changes(pcas) -> None:
+    """The columns Power BI fills that the demo would leave empty (no random draw): each PD's UNICEF
+    focal points (placeholders, never a name) and country programme outputs (those of its indicators'
+    sections: what an indicator nobody reported on yet shows as its CP output), and, for each
+    submitted report row, the day it last changed in the Datamart (its submission date)."""
+    from django.utils import timezone
+
+    sections: dict[int, set[str]] = defaultdict(set)
+    for pd_id, section in dm.PDIndicator.objects.values_list("intervention_id", "section_name"):
+        sections[pd_id].add(section or "")
+    for n, pca in enumerate(pcas):
+        PCA.objects.filter(pk=pca.pk).update(
+            unicef_focal_points=list(DEMO_FOCAL_POINTS[n % len(DEMO_FOCAL_POINTS)]),
+            cp_outputs=[CP_OUTPUTS[s] for s in sorted(sections[pca.pk]) if s in CP_OUTPUTS],
+        )
+    rows = list(dm.ReportedIndicator.objects.exclude(submission_date=None).only("pk", "submission_date"))
+    for row in rows:
+        row.last_modify_date = timezone.make_aware(dt.datetime.combine(row.submission_date, dt.time(9)))
+    dm.ReportedIndicator.objects.bulk_update(rows, ["last_modify_date"], batch_size=500)
 
 
 def _partner_contributions(pcas) -> None:

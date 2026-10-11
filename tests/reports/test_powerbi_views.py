@@ -247,6 +247,10 @@ def test_data_quality_in_a_year_reads_reached_in_that_year(more, frozen):
 
 # ---------------------------------------------------------------------------- Reporting Progress
 def _reporting(**params):
+    """The Progress reports page's data for ``params``, every PD status unless one is chosen (the page
+    opens on the running PDs: :func:`test_progress_reports_open_on_the_running_pds`, so the closed PD's
+    PR-9 is only read with every status)."""
+    params.setdefault("pd_status", "")
     return services.partner_reporting(params, today=TODAY)
 
 
@@ -272,6 +276,9 @@ def test_tiles_count_indicator_reports_with_progress_reports_beside(more):
     # each indicator report is counted once, however many locations it has
     pr1 = next(r for r in data["reports"] if r["progress_report"] == "PR-1")
     assert pr1["indicators"] == 2
+    # the page opens on the running PDs: the closed PD's overdue PR-9 is left out
+    running = services.partner_reporting({}, today=TODAY)["counts"]
+    assert (running["indicator_reports"], running["progress_reports"], running["overdue"]) == (5, 4, 0)
 
 
 def test_section_table_and_section_filter(more):
@@ -351,14 +358,17 @@ def test_report_table_columns_and_focal_point_names_only(client_viewer, more, fr
 
 def test_report_exports_hold_every_report_and_the_tile_counts(client_viewer, more, frozen, monkeypatch):
     monkeypatch.setattr("neurodb.reports.views.PAGE_SIZE", 2)
-    response = client_viewer.get(reverse("reports:partner_reporting"), {"export": "csv"})
+    every = {"pd_status": ""}  # every PD status: the closed PD's PR-9 too
+    response = client_viewer.get(reverse("reports:partner_reporting"), {"export": "csv", **every})
     text = b"".join(response.streaming_content).decode("utf-8-sig")
     lines = list(csv.DictReader(io.StringIO(text)))
     assert len(lines) == 5 and "@" not in text
     pr1 = next(line for line in lines if line["report"] == "QPR1" and line["programme_document"] == "LEB/PD1")
     assert pr1["indicator_reports"] == "2" and pr1["unicef_focal_points"] == "Focal Point One"
     workbook = load_workbook(
-        io.BytesIO(client_viewer.get(reverse("reports:partner_reporting"), {"export": "xlsx"}).content)
+        io.BytesIO(
+            client_viewer.get(reverse("reports:partner_reporting"), {"export": "xlsx", **every}).content
+        )
     )
     assert workbook.sheetnames == ["Progress reports", "By status", "By section"]
     by_status = {r[0]: (r[1], r[2]) for r in workbook["By status"].iter_rows(min_row=2, values_only=True)}
@@ -392,7 +402,7 @@ def test_partners_tab(client_viewer, more, frozen):
     workbook = load_workbook(
         io.BytesIO(
             client_viewer.get(
-                reverse("reports:partner_reporting"), {"tab": "partners", "export": "xlsx"}
+                reverse("reports:partner_reporting"), {"tab": "partners", "export": "xlsx", "pd_status": ""}
             ).content
         )
     )
@@ -433,7 +443,9 @@ def test_report_by_location_reads_each_location_once(client_viewer, more, frozen
     assert page.status_code == 200
     assert {r["report_status"] for r in page.context["page_obj"]} == {"Accepted"}
     assert "report total" in page.text and "is-uncounted" not in page.text
-    response = client_viewer.get(reverse("reports:partner_reporting"), {"tab": "locations", "export": "csv"})
+    response = client_viewer.get(
+        reverse("reports:partner_reporting"), {"tab": "locations", "export": "csv", "pd_status": ""}
+    )
     lines = list(csv.DictReader(io.StringIO(b"".join(response.streaming_content).decode("utf-8-sig"))))
     assert len(lines) == len(found["rows"])
     noted = next(
@@ -608,8 +620,10 @@ def test_program_performance_export_is_not_cut_at_the_page_limit(client_viewer, 
 def test_ask_counts_progress_reports_by_status_like_its_totals(more):
     out = tools.run("partner_reporting", {})
     # "by_status" counts progress reports, as "reports" and the status keys do; the indicator reports
-    # (what the page's tiles count) are under "indicator_reports"
-    assert sum(out["by_status"].values()) == out["reports"] == 5
+    # (what the page's tiles count) are under "indicator_reports". Like the page, it reads the running PDs
+    # (the closed PD's PR-9 is left out)
+    assert sum(out["by_status"].values()) == out["reports"] == 4
+    assert out["pd_statuses"] == ["active", "signed", "suspended"]
     assert out["by_status"]["Accepted"] == out["accepted"] == 3
     assert out["indicator_reports"]["Accepted"] == {"indicator_reports": 4, "progress_reports": 3}
 
@@ -623,7 +637,9 @@ def test_report_by_location_keeps_each_report_by_its_own_status(client_viewer, m
     data = _reporting()
     assert next(r for r in data["reports"] if r["progress_report"] == "PR-1")["status"] == "accepted"
     assert data["statuses"]["PR-1"] == "accepted"
-    page = client_viewer.get(reverse("reports:partner_reporting"), {"tab": "locations", "status": "overdue"})
+    page = client_viewer.get(
+        reverse("reports:partner_reporting"), {"tab": "locations", "status": "overdue", "pd_status": ""}
+    )
     assert {(r["progress_report"], r["report_status"]) for r in page.context["page_obj"]} == {
         ("PR-9", "Overdue")
     }
@@ -641,7 +657,7 @@ def test_partner_monitoring_view_links_follow_the_filter_in_the_address_bar(clie
     page = client_viewer.get(reverse("reports:pd_monitoring"), {"view": "table", "year": "2026"})
     for view in ("grid", "table", "quality"):
         assert f'data-current-query="view={view}"' in page.text
-    assert page.context["tab_urls"]["quality"].endswith("?year=2026&view=quality")
+    assert page.context["tab_urls"]["quality"].endswith("?view=quality&year=2026")
 
 
 def test_programme_indicators_tab_offers_the_sections_indicators_name(client_viewer, more):

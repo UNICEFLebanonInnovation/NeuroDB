@@ -19,9 +19,14 @@
         <td class="small">{% if i.high_frequency %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
         <td class="cell-wrap"><a href="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year_param }}" hx-get="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year_param }}" hx-target="#modal-content" hx-push-url="false">{{ i.title }}</a>{% if i.report_type != filters.report_type or i.partial or i.mismatch or i.awaiting_reports %}<span class="cell-sub"><span class="chips">{% if i.report_type != filters.report_type %}<span class="chip">{% trans "From monthly reports" %}</span>{% endif %}{% if i.partial %}<span class="chip">{% trans "Partial history" %}</span>{% endif %}{% if i.mismatch %}<span class="chip" title="{% blocktrans with v=i.prp_cumulative|number:0 %}PRP’s own cumulative is {{ v }}{% endblocktrans %}">{% trans "Differs from PRP" %}</span>{% endif %}{% if i.awaiting_reports %}<span class="chip" title="{% trans 'Part of Reached comes from Submitted reports not yet accepted' %}">{% blocktrans with n=i.awaiting|number:0 %}{{ n }} awaiting acceptance{% endblocktrans %}</span>{% endif %}</span></span>{% endif %}</td>
         <td class="num">{{ i.target|number:0 }}{% if i.display_type == "percentage" and i.target is not None %}%{% endif %}</td>
+        {% if filters.year %}
+        <td class="num">{{ i.reached_in_year|number:0 }}{% if i.display_type == "percentage" and i.reached_in_year is not None %}%{% endif %}</td>
+        <td class="num">{% if i.achieved_in_year is not None %}{{ i.achieved_in_year|percent:0 }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+        <td class="num">{{ i.reached|number:0 }}{% if i.display_type == "percentage" and i.reached is not None %}%{% endif %}{% if i.as_of %}<span class="cell-sub">{{ i.as_of|date:"M Y" }}</span>{% endif %}{% if not i.additive and i.reached is not None %}<span class="cell-sub">{{ i.method_label }}</span>{% endif %}<span class="cell-sub">{% if i.achieved is not None %}{{ i.achieved|percent:0 }} · {% endif %}{% status_pill i.tracking i.tracking_label "sm" %}</span></td>
+        {% else %}
         <td class="num">{{ i.reached|number:0 }}{% if i.display_type == "percentage" and i.reached is not None %}%{% endif %}{% if i.as_of %}<span class="cell-sub">{{ i.as_of|date:"M Y" }}</span>{% endif %}{% if not i.additive and i.reached is not None %}<span class="cell-sub">{{ i.method_label }}</span>{% endif %}</td>
-        {% if filters.year %}<td class="num">{{ i.reached_in_year|number:0 }}</td>{% endif %}
         <td class="num">{% if i.achieved is not None %}{{ i.achieved|percent:0 }}{% else %}<span class="text-muted">—</span>{% endif %}<span class="cell-sub">{% status_pill i.tracking i.tracking_label "sm" %}</span></td>
+        {% endif %}
         <td class="small cell-wrap">{% if i.pd.partner %}<a href="{% url 'reports:partner_profile' i.pd.partner.id %}">{{ i.pd.partner.name }}</a>{% else %}{{ i.pd.partner_name|default:"—" }}{% endif %}</td>
         <td class="small text-nowrap"><a href="{% url 'reports:programme_detail' i.pd.id %}">{{ i.pd.number|default:"—" }}</a><span class="cell-sub">{{ i.pd.status|code_label }}</span></td>
       </tr>
@@ -29,7 +34,7 @@
     </tbody>
   </table></div>
   {% include "components/pagination.html" with hx_target="#monitoring-grid" %}
-  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}One row per programme document indicator. Reached adds up the Accepted and Submitted reports since the programme document started, combining locations and reporting periods the way the Partner Reporting Portal says; % Reached is Reached over the target. Indicators are never added together. The Excel and CSV files hold every indicator of the filter, not only this page.{% endblocktrans %}{% if filters.year %} {% blocktrans with year=filters.year %}Reached in {{ year }} counts the reports whose period ends in {{ year }}.{% endblocktrans %}{% endif %}</p>
+  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}One row per programme document indicator. Reached adds up the Accepted and Submitted reports since the programme document started, combining locations and reporting periods the way the Partner Reporting Portal says; % Reached is Reached over the target. Indicators are never added together. The Excel and CSV files hold every indicator of the filter, not only this page.{% endblocktrans %}{% if filters.year %} {% blocktrans with year=filters.year %}With a reporting year chosen, as in Power BI, the table reads that year: Reached in {{ year }} counts the reports whose period ends in {{ year }}, and % Reached in {{ year }} is that over the target. Reached to date, its % and its status stay beside them.{% endblocktrans %}{% endif %}</p>
   {% else %}
   {% include "components/empty_state.html" with icon="target" title=_("No indicators match") message=_("Change the filters.") action_url=request.path %}
   {% endif %}

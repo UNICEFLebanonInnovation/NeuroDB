@@ -612,6 +612,8 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .brief-stamp { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.75rem; margin: -0.5rem 0 0.75rem; font-size: 0.78rem; color: var(--nd-muted); }
 .brief-stamp__run { font-family: var(--nd-mono, ui-monospace, monospace); font-size: 0.72rem; padding: 0.05rem 0.45rem; border-radius: 6px; background: var(--nd-surface-2); }
 .kpi-grid--5 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 172px), 1fr)); }
+/* Seven tiles (Progress reports: every indicator report and the six statuses): one row on a wide screen */
+.kpi-grid--7 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 128px), 1fr)); }
 .flow { width: 100%; height: auto; font-size: 12px; }
 .flow text { fill: var(--nd-text); }
 .flow .flow__muted { fill: var(--nd-muted); font-size: 11px; }

@@ -1480,7 +1480,7 @@ def _disaggregation_note(block: dict[str, Any], line: dict[str, Any]) -> str:
 def _disaggregation_export_rows(found: dict[str, Any]):
     """One row per line of each block (``reporting.disaggregation_lines``): a value, a subtotal and a
     location total each in a column of its own, so adding up one column never mixes them."""
-    for block in found["blocks"]:
+    for block in reporting_service.filled_blocks(found):
         modified = block["modified"]
         if isinstance(modified, datetime.datetime):
             modified = timezone.localtime(modified).date() if timezone.is_aware(modified) else modified.date()
@@ -1496,6 +1496,8 @@ def _disaggregation_export_rows(found: dict[str, Any]):
                 "last_modified": modified,
                 "note": _disaggregation_note(block, line),
             }
+        for key in ("groups", "untyped", "table_lines"):  # written: its lines need not stay in memory
+            block.pop(key, None)
 
 
 def _reporting_disaggregations(data: dict[str, Any], params) -> dict[str, Any]:
@@ -1514,8 +1516,8 @@ def _reporting_locations(data: dict[str, Any]) -> dict[str, Any]:
 
 @require_GET
 def partner_reporting(request: HttpRequest) -> HttpResponse:
-    """Progress reports: Reporting Progress (indicator reports by status, section and month of the due
-    date, and the report table), Partner Performance (``tab=partners``), Report/Location
+    """Progress reports: Reporting Progress (indicator reports by status, section and month of the
+    reporting period's end, and the report table), Partner Performance (``tab=partners``), Report/Location
     (``tab=locations``) and Report/Disaggregation (``tab=disaggregations``), with one filter for all of
     them and exports of the whole filtered set."""
     tab = request.GET.get("tab") if request.GET.get("tab") in REPORTING_TABS else "reports"
@@ -1529,6 +1531,8 @@ def partner_reporting(request: HttpRequest) -> HttpResponse:
         page_obj = _paginate(request, locations["rows"])
     elif tab == "disaggregations":
         page_obj = _paginate(request, disaggregations["blocks"], DISAGGREGATION_BLOCKS)
+        # the lines of the blocks shown only, never of every block of the filter
+        list(reporting_service.filled_blocks(disaggregations, list(page_obj.object_list)))
     elif tab == "partners":
         page_obj = _paginate(request, data["partners"]["follow_up"])
     else:
@@ -1560,6 +1564,7 @@ def partner_reporting(request: HttpRequest) -> HttpResponse:
             {"label": _("CSV of the filter"), "url": "?" + _query_with(params, (), tab=tab, export="csv")},
         ],
         "chart_data": {"by_month": data["by_month"]},
+        **_all_years(request, params, not data["filters"].year, None),
     }
     template = "reports/partials/reporting_table.html" if request.htmx else "reports/partner_reporting.html"
     return render(request, template, context)
@@ -1688,6 +1693,16 @@ MONITORING_LISTS = (*MONITORING_KEYS, "pd_status", "document_type", "office", "p
 ASCENDING_FIRST = ("section", "cp_output", "indicator", "partner", "pd")
 
 
+def _all_years(request: HttpRequest, params: QueryDict, active: bool, value: str | None) -> dict[str, Any]:
+    """The year menu's "All years" entry for a page that can show every year: its link (``year`` set
+    to ``value``, or dropped when None) and whether the page shows every year now (the menu then says
+    so instead of the current year)."""
+    return {
+        "year_all_url": request.path + "?" + _query_with(params, ("export",), year=value),
+        "year_all_active": active,
+    }
+
+
 def _query_with(params: QueryDict, drop: tuple[str, ...] = (), **changes: Any) -> str:
     """``params`` as a query string without ``drop`` (and the page), with ``changes`` (None removes)."""
     out = params.copy()
@@ -1708,7 +1723,8 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
     Performance (``view=table``: one sortable row per indicator, exported whole) and Data quality
     (``view=quality``). One filter for the three, so the same filter gives the same figures."""
     view = request.GET.get("view") if request.GET.get("view") in MONITORING_VIEWS else "grid"
-    # the grid opens on this year; Program Performance and Data quality on every year, as Power BI does
+    # the grid opens on this year (its months); Program Performance on every year, as Power BI opens it,
+    # and Data quality with it (Reached to date). A tab keeps the year shown (``tab_urls``)
     filters = pd_monitoring_service.Filters.from_params(request.GET, default_year=view == "grid")
     options = pd_monitoring_service.filter_options(filters)
     own_section: list[str] = []
@@ -1745,19 +1761,24 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
         | ({"section": own_section} if own_section else {}),
         "own_section": own_section,
         "view": view,
+        # the tabs keep the year shown (the grid opens on this year, the others on every year: a tab
+        # never changes the year silently)
         "tab_urls": {
-            name: request.path + "?" + _query_with(params, ("view", "sort", "export"), view=name)
+            name: request.path
+            + "?"
+            + _query_with(params, ("view", "sort", "export"), view=name, year=filters.year_param)
             for name in MONITORING_VIEWS
         }
         | {
             "map": reverse("reports:pd_monitoring_map")
             + "?"
-            + _query_with(params, ("view", "sort", "export"))
+            + _query_with(params, ("view", "sort", "export"), year=filters.year_param)
         },
         "truncated": view != "quality" and len(every) > limit,
+        **_all_years(request, params, filters.year is None, pd_monitoring_service.ALL_YEARS),
     }
     if view == "table":
-        ordered, sort = pd_monitoring_service.sorted_rows(every, request.GET.get("sort", ""))
+        ordered, sort = pd_monitoring_service.sorted_rows(every, request.GET.get("sort", ""), filters.year)
         rows = ordered[:limit]
         page_obj = _paginate(request, rows, pd_monitoring_service.PAGE_SIZE)
         current = sort.lstrip("-")
@@ -1774,13 +1795,17 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
                     ("emergency", _("Emergency"), False),
                     ("indicator", _("Indicator"), False),
                     ("target", _("Target"), True),
-                    ("reached", _("Reached"), True),
+                    # a Reporting year scopes Reached and % Reached, as in Power BI; Reached to date
+                    # stays beside them
                     *(
-                        [("reached_in_year", _("Reached in %(year)s") % {"year": filters.year}, True)]
+                        [
+                            ("reached_in_year", _("Reached in %(year)s") % {"year": filters.year}, True),
+                            ("achieved_in_year", _("%% Reached in %(year)s") % {"year": filters.year}, True),
+                            ("reached", _("Reached to date"), True),
+                        ]
                         if filters.year
-                        else []
+                        else [("reached", _("Reached"), True), ("achieved", _("% Reached"), True)]
                     ),
-                    ("achieved", _("% Reached"), True),
                     ("partner", _("Partner"), False),
                     ("pd", _("Programme document"), False),
                 ],
@@ -1844,10 +1869,10 @@ def _monitoring_export(request: HttpRequest, filters, fmt: str) -> HttpResponse:
     """Program Performance, every indicator of the filter (not only the page shown, and not cut at the
     page's 2,000 rows), in its sort."""
     rows = pd_monitoring_service.indicators(filters)
-    rows, _sort = pd_monitoring_service.sorted_rows(rows, request.GET.get("sort", ""))
+    rows, _sort = pd_monitoring_service.sorted_rows(rows, request.GET.get("sort", ""), filters.year)
     columns = pd_monitoring_service.TABLE_COLUMNS
     if not filters.year:
-        columns = tuple(c for c in columns if c != "reached_in_year")
+        columns = tuple(c for c in columns if c not in ("reached_in_year", "achieved_percent_in_year"))
     out = pd_monitoring_service.table_rows(rows, filters, request.build_absolute_uri("/").rstrip("/"))
     label = "program-performance" + (f"-{filters.year}" if filters.year else "")
     if fmt == "xlsx":
@@ -1888,10 +1913,13 @@ def pd_monitoring_map(request: HttpRequest) -> HttpResponse:
         "own_section": own_section,
         "view": "map",
         "tab_urls": {
-            name: reverse("reports:pd_monitoring") + "?" + _query_with(params, ("view", "sort"), view=name)
+            name: reverse("reports:pd_monitoring")
+            + "?"
+            + _query_with(params, ("view", "sort"), view=name, year=filters.year_param)
             for name in MONITORING_VIEWS
         }
-        | {"map": request.path + "?" + _query_with(params, ("view", "sort"))},
+        | {"map": request.path + "?" + _query_with(params, ("view", "sort"), year=filters.year_param)},
+        **_all_years(request, params, filters.year is None, pd_monitoring_service.ALL_YEARS),
         "map_config": {
             "api": reverse("api:pd_map") + ("?" + params.urlencode() if params else ""),
             "labels": pd_monitoring_service.LABELS,

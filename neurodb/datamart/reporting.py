@@ -25,7 +25,8 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
-from django.db.models import CharField, Count, Q, QuerySet, Value
+from django.db.models import CharField, Count, Max, Q, QuerySet, Value
+from django.db.models.fields.json import KeyTransform
 from django.db.models.functions import Coalesce, Concat, ExtractYear, NullIf
 
 from neurodb.partnerships import statuses as pd_statuses
@@ -61,7 +62,10 @@ STATUS_COLORS = {
     rc.OVERDUE: "--nd-cat-8",
     rc.NOT_YET_DUE: "--nd-cat-10",
 }
-LOCATION_LIMIT = 60_000  # location rows the Report/Location tab and its export read at once
+# report rows the Report/Location tab and its export read at once (a web worker holds them all: about
+# 8 KB of memory each), and the Report/Disaggregation tab and its export (each row can give many lines)
+LOCATION_LIMIT = 20_000
+DISAGGREGATION_LIMIT = 10_000
 NO_SECTION = "—"
 EMAIL = re.compile(r"[^\s@]+@[^\s@]+")
 
@@ -107,7 +111,10 @@ class ReportFilters:
     report_numbers: list[str] = field(default_factory=list)
     partners: list[str] = field(default_factory=list)  # partner ids as text
     partner_types: list[str] = field(default_factory=list)  # partner type or CSO type
-    pd_statuses: list[str] = field(default_factory=list)  # eTools PD statuses
+    # eTools PD statuses chosen: None (no choice made) the running PDs, as on Partner monitoring and in
+    # Power BI; an empty list every status. Draft and cancelled PDs are never read
+    pd_statuses: list[str] | None = None
+    emergency: str = ""  # yes: the emergency (high-frequency) indicators' reports, no: the others
     start_from: datetime.date | None = None  # period start between
     start_to: datetime.date | None = None
     end_from: datetime.date | None = None  # period end between
@@ -127,13 +134,22 @@ class ReportFilters:
             report_numbers=_getlist(params, "report_number"),
             partners=[x for x in _getlist(params, "partner") if re.fullmatch(r"[0-9]{1,18}", x)],
             partner_types=_getlist(params, "partner_type"),
-            pd_statuses=_getlist(params, "pd_status"),
+            # "pd_status=" alone (nothing chosen) is every status; no key at all, the running PDs
+            pd_statuses=_getlist(params, "pd_status") if "pd_status" in params else None,
+            emergency=emergency
+            if (emergency := str(params.get("emergency") or "").strip().lower()) in ("yes", "no")
+            else "",
             start_from=_date(params.get("start_from")),
             start_to=_date(params.get("start_to")),
             end_from=_date(params.get("end_from")),
             end_to=_date(params.get("end_to")),
             overdue=params.get("overdue") == "1",
         )
+
+    @property
+    def status_choice(self) -> list[str]:
+        """The PD statuses the filter shows as chosen (none: every status)."""
+        return list(pd_statuses.RUNNING) if self.pd_statuses is None else list(self.pd_statuses)
 
     def queryset(self, today: datetime.date) -> QuerySet[dm.ReportedIndicator]:
         """The report rows (one per indicator, report and location) every filter but the status keeps
@@ -165,8 +181,13 @@ class ReportFilters:
             rows = rows.filter(
                 Q(partner__partner_type__in=self.partner_types) | Q(partner__cso_type__in=self.partner_types)
             )
-        if self.pd_statuses:
-            rows = rows.filter(intervention__status__in=self.pd_statuses)
+        # never draft or cancelled PDs (not, or no longer, a partnership); a report without a PD link is
+        # read only when every status is chosen
+        rows = rows.exclude(intervention__status__in=pd_statuses.NOT_A_PARTNERSHIP)
+        if self.status_choice:
+            rows = rows.filter(intervention__status__in=self.status_choice)
+        if self.emergency:
+            rows = rows.filter(high_frequency=self.emergency == "yes")
         for name, value in (
             ("period_start__gte", self.start_from),
             ("period_start__lte", self.start_to),
@@ -205,17 +226,26 @@ def progress_reports(
     indicator reports).
 
     A report whose rows disagree on a field (a partial re-sync, a partner link set on some rows only) is
-    still listed and counted once: each field takes the first non-empty value of its rows, in a fixed
-    order. Rows without a progress report id stay grouped by all their fields."""
+    still listed and counted once: its status is the word of its rows changed last
+    (:func:`neurodb.datamart.reached.newest_status`, as every page reads it), read from every row of
+    the report, also those a filter leaves out (a section, a search, the emergency indicators: Partner
+    monitoring and the pop-up read the whole report); every other field is the first non-empty value
+    of its rows, in a fixed order. Rows without a progress report id stay grouped by all their fields."""
     today = today or datetime.date.today()
     grouped = (
         queryset.annotate(_ir=INDICATOR_REPORT)
         .values("progress_report", *REPORT_FIELDS, "section", "_ir")
-        .annotate(locations=Count("pk"))
+        .annotate(
+            locations=Count("pk"),
+            _changed=Max("last_modify_date"),
+            _synced=Max("synced_at"),
+            _id=Max("datamart_id"),
+        )
         .order_by("progress_report", *REPORT_FIELDS, "section", "_ir")
     )
     reports: dict[Any, dict[str, Any]] = {}
     sections: dict[Any, dict[str, str]] = defaultdict(dict)  # report -> indicator report -> section
+    words: dict[Any, dict[str, rc.Stamp]] = defaultdict(dict)  # report -> status word -> latest stamp
     for row in grouped:
         key = report_key(row)
         report = reports.get(key)
@@ -226,15 +256,19 @@ def progress_reports(
             for f in REPORT_FIELDS:
                 if report[f] in (None, "") and row[f] not in (None, ""):
                     report[f] = row[f]
+        text = row["report_status"] or ""
+        words[key][text] = rc.stamp(words[key].get(text), (row["_changed"], row["_synced"], row["_id"]))
         section = (row["section"] or "").strip()
         known = sections[key].get(row["_ir"])
         if known is None or (not known and section):
             sections[key][row["_ir"]] = section
+    words.update(_status_words(queryset))
     out = sorted(reports.values(), key=lambda r: (r["pd_reference_number"], r["report_number"]))
     # latest period first, reports without a period end at the top (as the database sorts them)
     out.sort(key=lambda r: r["period_end"] or datetime.date.max, reverse=True)
     for report in out:  # one of the six statuses, the same on every page that lists the report
         key = report.pop("_group")
+        report["report_status"] = rc.newest_status(words[key])
         by_section = Counter(s or NO_SECTION for s in sections[key].values())
         report["indicators"] = sum(by_section.values())
         report["sections"] = dict(by_section)
@@ -242,6 +276,27 @@ def progress_reports(
         report["status"] = report_status(report, today)
         report["status_label"] = rc.STATUS_LABELS[report["status"]]
         report["key"] = report["progress_report"] or ""
+    return out
+
+
+def _status_words(queryset: QuerySet[dm.ReportedIndicator]) -> dict[str, dict[str, rc.Stamp]]:
+    """Each status word of every row of the progress reports in ``queryset`` (all their rows, not only
+    the filter's) with the latest stamp of its rows (:func:`neurodb.datamart.reached.newest_status`)."""
+    every = (
+        dm.ReportedIndicator.objects.filter(
+            progress_report__in=queryset.exclude(progress_report="").values("progress_report")
+        )
+        .values("progress_report", "report_status")
+        .annotate(_changed=Max("last_modify_date"), _synced=Max("synced_at"), _id=Max("datamart_id"))
+        .order_by()
+    )
+    out: dict[str, dict[str, rc.Stamp]] = defaultdict(dict)
+    for row in every:
+        out[row["progress_report"]][row["report_status"] or ""] = (
+            row["_changed"],
+            row["_synced"],
+            row["_id"],
+        )
     return out
 
 
@@ -361,13 +416,16 @@ def by_section(reports: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def by_month(reports: list[dict[str, Any]]) -> dict[str, Any]:
-    """Indicator reports by month of their due date and status, Not yet due included (a chart)."""
+    """Indicator reports by month of the end of their reporting period and status, Not yet due included
+    (a chart). The month a report is about, as Power BI's "Reports over Reporting Date" places it (a
+    report still Due on the day of the refresh sits in the month its period ended, before its due
+    date), and as the Reporting year filter and Partner monitoring's months read it."""
     months: dict[tuple[int, int] | None, Counter[str]] = defaultdict(Counter)
     for r in reports:
-        due = r["due_date"]
-        months[(due.year, due.month) if due else None][r["status"]] += r["indicators"]
+        end = r["period_end"]
+        months[(end.year, end.month) if end else None][r["status"]] += r["indicators"]
     order = sorted(m for m in months if m is not None) + ([None] if None in months else [])
-    labels = [datetime.date(m[0], m[1], 1).strftime("%b %Y") if m else "No due date" for m in order]
+    labels = [datetime.date(m[0], m[1], 1).strftime("%b %Y") if m else "No period end" for m in order]
     present = [k for k in STATUS_KEYS if any(months[m].get(k) for m in order)]
     return {
         "labels": labels,
@@ -463,10 +521,11 @@ def _location_cells(rows: list[dict[str, Any]], statuses: dict[Any, str], today:
     (``wanted``: the statuses to keep, None: all)."""
     definitions = _definitions({r["intervention_id"] for r in rows if r["intervention_id"]})
     details = pd_details({r["intervention_id"] for r in rows if r["intervention_id"]})
+    # one group per indicator report (one indicator in one progress report, as the tiles count them):
+    # two indicators that share an eTools id or a title are never read as one
     groups: dict[tuple, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
-        ident = (row["etools_indicator_id"] or "").strip() or f"t{rc.norm(row['indicator'])}"
-        groups[(rc.report_key(row), ident)].append(row)
+        groups[(rc.report_key(row), rc.indicator_report_key(row))].append(row)
     for group in groups.values():
         first = group[0]
         status = statuses.get(first["progress_report"]) if first["progress_report"] else None
@@ -550,7 +609,17 @@ def location_rows(
     total = queryset.count()
     if total > LOCATION_LIMIT:
         return {"rows": [], "too_many": total, "limit": LOCATION_LIMIT}
-    rows = list(queryset.order_by(*rc.ROW_ORDER).values(*LOCATION_FIELDS))
+    # only the disaggregation total "()" of each row (the value the tab shows), never every value of
+    # every disaggregation, nor the partner's narrative: a web worker holds every row at once
+    fields = [f for f in LOCATION_FIELDS if f not in ("disaggregation", "narrative_assessment")]
+    rows = list(
+        queryset.order_by(*rc.ROW_ORDER)
+        .annotate(_total=KeyTransform("()", "disaggregation"))
+        .values(*fields, "_total")
+    )
+    for row in rows:
+        found = row.pop("_total")
+        row["disaggregation"] = {"()": found} if found is not None else {}
     out = [
         {
             **fields,
@@ -610,7 +679,11 @@ def disaggregation_rows(
     The location is read as :mod:`reached` reads it: two rows of one location are never added (the one
     whose value is used gives the disaggregation), and a report total repeated on every location gives
     the location no total of its own. ``statuses`` and ``wanted`` as for :func:`location_rows`;
-    ``params``: :class:`DisaggregationFilters`. Read only below :data:`LOCATION_LIMIT` rows."""
+    ``params``: :class:`DisaggregationFilters`. Read only below :data:`DISAGGREGATION_LIMIT` rows.
+
+    Each block carries its location total; its lines (``groups``, ``untyped``, ``unlabelled``,
+    ``table_lines``) are made by :func:`fill_block` for the blocks a page shows or an export writes, never
+    for every block of the filter at once (``labels`` and ``filters`` in the result are what it needs)."""
     from . import disaggregation as dg
 
     tab = DisaggregationFilters.from_params(params or {})
@@ -618,56 +691,85 @@ def disaggregation_rows(
         for word in tab.indicator.split():
             queryset = queryset.filter(indicator__icontains=word)
     total = queryset.count()
-    if total > LOCATION_LIMIT:
-        return {"blocks": [], "too_many": total, "limit": LOCATION_LIMIT, "filters": tab}
-    rows = list(queryset.order_by(*rc.ROW_ORDER).values(*LOCATION_FIELDS, "last_modify_date"))
+    if total > DISAGGREGATION_LIMIT:
+        return {"blocks": [], "too_many": total, "limit": DISAGGREGATION_LIMIT, "filters": tab}
+    rows = list(queryset.order_by(*rc.ROW_ORDER).values(*LOCATION_FIELDS))
     keys = {k for r in rows if isinstance(r["disaggregation"], dict) for k in r["disaggregation"]}
     labels = dg.load_labels(dg.ids_in(keys))
     blocks: list[dict[str, Any]] = []
-    unlabelled = 0
     for fields, cell in _location_cells(rows, statuses, today, wanted):
         if tab.location and not _words(tab.location, fields["location"]):
             continue
         if tab.p_code and rc.norm(tab.p_code) not in rc.norm(fields["p_code"]):
             continue
-        found = dg.breakdown(
-            cell.disaggregation, ratio=fields["ratio"], percentage=fields["percentage"], labels=labels
+        prp_total = (
+            dg.breakdown(
+                {dg.TOTAL_KEY: cell.disaggregation[dg.TOTAL_KEY]},
+                ratio=fields["ratio"],
+                percentage=fields["percentage"],
+                labels=labels,
+            ).total
+            if isinstance(cell.disaggregation, dict) and dg.TOTAL_KEY in cell.disaggregation
+            else None
         )
-        unlabelled += found.unlabelled
-        groups_shown, untyped = found.groups, found.untyped
-        if tab.disaggregation:
-            kept = [
-                (g, [ln for ln in g.lines if _words(tab.disaggregation, g.name, ln.label)])
-                for g in groups_shown
-            ]
-            groups_shown = [
-                dg.Group(g.name, g.cross, lines, g.subtotal, g.matches, hidden=len(g.lines) - len(lines))
-                for g, lines in kept
-                if lines
-            ]
-            untyped = [ln for ln in untyped if _words(tab.disaggregation, ln.label)]
-            if not groups_shown and not untyped:
-                continue
         block = {
             **fields,
             "modified": cell.modified,
-            "groups": groups_shown,
-            "untyped": untyped,
-            "unlabelled": found.unlabelled,
             # the location total: PRP's "()", else the location's value in the period as Reached reads it
-            "total": None if cell.repeated else (found.total if found.total is not None else cell.value),
-            "total_is_prp": found.total is not None and not cell.repeated,
+            "total": None if cell.repeated else (prp_total if prp_total is not None else cell.value),
+            "total_is_prp": prp_total is not None and not cell.repeated,
+            "_cell": cell,
         }
-        block["table_lines"] = disaggregation_lines(block)
+        # the disaggregation filter needs the lines to choose: made now (within the row limit)
+        if tab.disaggregation and not fill_block(block, labels, tab):
+            continue
         blocks.append(block)
+    del rows
     blocks.sort(key=_newest_first)
     return {
         "blocks": blocks,
         "too_many": 0,
-        "limit": LOCATION_LIMIT,
+        "limit": DISAGGREGATION_LIMIT,
         "filters": tab,
-        "unlabelled": unlabelled,
+        "labels": labels,
     }
+
+
+def fill_block(block: dict[str, Any], labels, tab: DisaggregationFilters | None = None) -> bool:
+    """A Report/Disaggregation block's lines (once): PRP's values by disaggregation with their labels, a
+    subtotal per disaggregation (:mod:`neurodb.datamart.disaggregation`: never across them) and the
+    location total. False when the tab's disaggregation filter leaves none of its values."""
+    from . import disaggregation as dg
+
+    if "table_lines" in block:
+        return True
+    cell = block["_cell"]
+    found = dg.breakdown(
+        cell.disaggregation, ratio=block["ratio"], percentage=block["percentage"], labels=labels
+    )
+    groups_shown, untyped = found.groups, found.untyped
+    if tab is not None and tab.disaggregation:
+        kept = [
+            (g, [ln for ln in g.lines if _words(tab.disaggregation, g.name, ln.label)]) for g in groups_shown
+        ]
+        groups_shown = [
+            dg.Group(g.name, g.cross, lines, g.subtotal, g.matches, hidden=len(g.lines) - len(lines))
+            for g, lines in kept
+            if lines
+        ]
+        untyped = [ln for ln in untyped if _words(tab.disaggregation, ln.label)]
+        if not groups_shown and not untyped:
+            return False
+    block.update({"groups": groups_shown, "untyped": untyped, "unlabelled": found.unlabelled})
+    block["table_lines"] = disaggregation_lines(block)
+    return True
+
+
+def filled_blocks(found: dict[str, Any], blocks: list[dict[str, Any]] | None = None):
+    """``blocks`` (every block of ``found`` when None), each with its lines (:func:`fill_block`)."""
+    for block in found["blocks"] if blocks is None else blocks:
+        fill_block(block, found["labels"], found["filters"])
+        yield block
 
 
 def disaggregation_lines(block: dict[str, Any]) -> list[dict[str, Any]]:
@@ -729,7 +831,13 @@ def filter_options() -> dict[str, Any]:
         "partner_types": sorted(
             {x for pair in partner_types.values_list("partner_type", "cso_type") for x in pair if x}
         ),
-        "pd_statuses": sorted({x for x in pds.values_list("status", flat=True).distinct() if x}),
+        # the running statuses first (the filter's default); draft and cancelled PDs are never read
+        "pd_statuses": sorted(
+            {x for x in pds.values_list("status", flat=True).distinct() if x}
+            - set(pd_statuses.NOT_A_PARTNERSHIP)
+            | set(pd_statuses.RUNNING),
+            key=lambda x: (x not in pd_statuses.RUNNING, x),
+        ),
     }
 
 
@@ -760,7 +868,7 @@ def pd_indicators(pds: QuerySet[PCA], params) -> list[dict[str, Any]]:
     as on Partner monitoring), with its PD's attributes, its target and baseline. ``params``: ``emergency``
     (yes/no), ``section`` (the indicator's own section), ``indicator`` (words in its title) and ``pd_q``
     (words in the PD reference)."""
-    from .monitoring import _target, ident_of
+    from .monitoring import _target, ident_of, pd_cp_outputs
 
     pd_q = (params.get("pd_q") or "").strip()
     if pd_q:
@@ -821,9 +929,8 @@ def pd_indicators(pds: QuerySet[PCA], params) -> list[dict[str, Any]]:
         }
     out = []
     for entry in found.values():
-        if not entry["cp_output"]:  # not reported yet: the PD's own CP output when it has only one
-            outputs = [x for x in (entry["pd"].cp_outputs or []) if x]
-            entry["cp_output"] = outputs[0] if len(outputs) == 1 else ""
+        if not entry["cp_output"]:  # not reported yet: the PD's own CP outputs, joined (as Power BI)
+            entry["cp_output"] = pd_cp_outputs(entry["pd"])
         if sections and entry["section"] not in sections:
             continue
         out.append(entry)

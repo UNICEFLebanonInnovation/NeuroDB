@@ -3,12 +3,15 @@
 ``neurodb.datamart.reached`` is built to be right whichever way these questions come out; this page
 (admin → eTools reporting checks, Administrators only, linked from Data health) shows how they do
 come out on the data NeuroDB holds, with a plain verdict and what NeuroDB does in each case. Every
-query is read-only, aggregate (no person's data), and stopped after ``TIMEOUT_MS``.
+query is read-only, aggregate (no person's data), and stopped after ``TIMEOUT_MS``; the whole page
+stops its checks after ``PAGE_BUDGET_S`` (well below the web server's 120-second limit), so it always
+answers: a check left out says so.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -19,7 +22,9 @@ from .disaggregation import ids_in, parse_key
 
 logger = logging.getLogger(__name__)
 
-TIMEOUT_MS = 20_000
+TIMEOUT_MS = 20_000  # one statement
+PAGE_BUDGET_S = 75.0  # every check of the page together
+PRP_COMPARE_MIN_S = 30.0  # the comparison with PRP (check 5) computes Reached: only with this much left
 NUM = r"^\s*-?[0-9]+(\.[0-9]+)?\s*$"
 OK, WARN, INFO = "ok", "warning", "info"
 
@@ -31,6 +36,35 @@ class Check:
     question: str
     neurodb: str  # what NeuroDB does, whatever the answer
     run: Callable[[Any], dict[str, Any]]
+
+
+class OutOfTime(Exception):
+    """The page's time for its checks is used up."""
+
+
+class _Timed:
+    """A cursor whose every statement stops after ``TIMEOUT_MS`` and at the page's deadline, whichever
+    comes first (a check runs several statements: the deadline bounds them all)."""
+
+    def __init__(self, cursor, deadline: float) -> None:
+        self.cursor, self.deadline = cursor, deadline
+
+    def remaining(self) -> float:
+        """Seconds left before the deadline."""
+        return self.deadline - time.monotonic()
+
+    def execute(self, sql: str, params: list[Any] | None = None) -> None:
+        left = min(TIMEOUT_MS, int(self.remaining() * 1000))
+        if left <= 0:
+            raise OutOfTime
+        self.cursor.execute(f"SET LOCAL statement_timeout = {left}")
+        self.cursor.execute(sql, params)
+
+    def fetchone(self) -> tuple:
+        return self.cursor.fetchone()
+
+    def fetchall(self) -> list[tuple]:
+        return self.cursor.fetchall()
 
 
 def _one(cursor, sql: str, params: list[Any] | None = None) -> tuple:
@@ -227,7 +261,11 @@ def _cumulative(cursor) -> dict[str, Any]:
         "FROM datamart_reportedindicator WHERE total_cumulative_progress <> '' GROUP BY 1, 2, 3 "
         "HAVING count(DISTINCT progress_report) > 1) g",
     )
-    differ, compared = _reached_against_prp()
+    # NeuroDB's Reached for every indicator of the running PDs (Python, no statement timeout): only when
+    # the page has the time left for it
+    left = cursor.remaining() if hasattr(cursor, "remaining") else PAGE_BUDGET_S
+    differ, compared = _reached_against_prp() if left >= PRP_COMPARE_MIN_S else (0, 0)
+    skipped = left < PRP_COMPARE_MIN_S
     if not several:
         verdict, tone = "No indicator has several reports with PRP's cumulative yet.", INFO
     else:
@@ -235,20 +273,24 @@ def _cumulative(cursor) -> dict[str, Any]:
             f"{same:,} of {several:,} indicators with several reports carry the same cumulative on every "
             f"report ({_share(same, several)}); "
             + (
-                f"NeuroDB's Reached differs from PRP's cumulative on {differ:,} of {compared:,} indicators "
-                "of the running programme documents."
+                "NeuroDB's Reached was not compared with PRP's cumulative (the checks before it used up "
+                "most of the page's time); the Data quality tab of Partner monitoring lists the indicators "
+                "where they differ."
+                if skipped
+                else f"NeuroDB's Reached differs from PRP's cumulative on {differ:,} of {compared:,} "
+                "indicators of the running programme documents."
                 if compared
                 else "no running programme document has an indicator to compare."
             )
         )
-        tone = WARN if differ else OK
+        tone = WARN if differ else (INFO if skipped else OK)
     return {
         "tone": tone,
         "verdict": verdict,
         "figures": [
             ("Indicators with several reports", several),
             ("… with the same cumulative on every report", same),
-            ("Indicators where Reached differs from PRP", differ),
+            ("Indicators where Reached differs from PRP", "—" if skipped else differ),
         ],
     }
 
@@ -472,16 +514,24 @@ CHECKS: tuple[Check, ...] = (
 )
 
 
-def run_all() -> list[dict[str, Any]]:
-    """Every check, each in its own read-only transaction stopped after ``TIMEOUT_MS``; a check that
-    fails or runs too long says so and the others still run."""
+def run_all(budget: float = PAGE_BUDGET_S) -> list[dict[str, Any]]:
+    """Every check, each in its own read-only transaction whose statements stop after ``TIMEOUT_MS``;
+    a check that fails or runs too long says so and the others still run. The checks share ``budget``
+    seconds: once it is used up, the checks left say they were not run (the page always answers before
+    the web server's limit)."""
     out = []
+    deadline = time.monotonic() + budget
     for check in CHECKS:
         entry = {"key": check.key, "title": check.title, "question": check.question, "neurodb": check.neurodb}
+        if deadline - time.monotonic() < 1:
+            entry.update(_not_run())
+            out.append(entry)
+            continue
         try:
             with transaction.atomic(), connection.cursor() as cursor:
-                cursor.execute(f"SET LOCAL statement_timeout = {int(TIMEOUT_MS)}")
-                entry.update(check.run(cursor))
+                entry.update(check.run(_Timed(cursor, deadline)))
+        except OutOfTime:
+            entry.update(_not_run())
         except DatabaseError as exc:
             logger.warning("eTools reporting check %s failed: %s", check.key, exc)
             entry.update(
@@ -495,3 +545,14 @@ def run_all() -> list[dict[str, Any]]:
             )
         out.append(entry)
     return out
+
+
+def _not_run() -> dict[str, Any]:
+    return {
+        "tone": INFO,
+        "verdict": (
+            f"Not run: the checks before it used up the page's {int(PAGE_BUDGET_S)} seconds (the page "
+            "stops there so that it always answers). The data is large or the database is busy."
+        ),
+        "figures": [],
+    }

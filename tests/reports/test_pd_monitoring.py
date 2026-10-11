@@ -254,9 +254,11 @@ def test_summary_and_grouping(data):
     }
     assert data_["overdue_reports"] == 1 and data_["programme_documents"] == 1 and data_["partners"] == 1
     assert (data_["with_reached"], data_["awaiting_acceptance"], data_["differs_from_prp"]) == (2, 0, 0)
-    # an indicator whose only report is due is not reported, never off track (or "with Reached")
-    dm.ReportedIndicator.objects.filter(indicator=data["boys"]).update(
-        report_status="Due", submission_date=None
+    # an indicator whose only report is due is not reported, never off track (or "with Reached"): the
+    # boys' QPR1 becomes a progress report of its own, still due (a status belongs to a whole progress
+    # report: rows of one report that disagree are read as one, tests/reports/test_cross_page_fixes.py)
+    dm.ReportedIndicator.objects.filter(indicator=data["boys"], progress_report="PR-1").update(
+        progress_report="PR-1B", report_status="Due", submission_date=None
     )
     rows = monitoring.indicators(filters, today=TODAY)
     data_ = monitoring.summary(rows, filters, today=datetime.date(2026, 11, 1))

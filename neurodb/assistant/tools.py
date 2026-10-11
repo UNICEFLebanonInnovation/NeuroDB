@@ -457,7 +457,9 @@ def programme_details(number: str) -> dict[str, Any]:
                 "report": r["report_number"],
                 "period_end": r["period_end"],
                 "submitted": r["submission_date"],
-                "status": r["report_status"],
+                # one of the six statuses, as the pages show it (never PRP's raw word: "Due" may be
+                # Overdue or Not yet due)
+                "status": r["status_label"],
             }
             for r in extra["reports"]
         ],
@@ -816,6 +818,8 @@ def partner_reporting(
     ]
     return {
         **data["summary"],
+        # the programme documents read, as the page opens: the running ones (never draft or cancelled)
+        "pd_statuses": data["filters"].status_choice,
         # what the Progress reports page's tiles count: indicator reports (one indicator in one
         # progress report) per status, with the progress reports beside them
         "indicator_reports": {
@@ -1343,8 +1347,9 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         "Partner progress reports (Partner Reporting Portal): progress reports per status (Accepted, "
         "Submitted, Sent back, Due, Overdue, Not yet due) and late, the indicator reports per status (one "
         "indicator in one progress report: what the Progress reports page counts, as Power BI does), and "
-        "the list of reports with period, due and submission dates. Filter by partner name/vendor/PD text, "
-        "year the period ends, or overdue only.",
+        "the list of reports with period, due and submission dates, of the running programme documents "
+        "(active, signed or suspended: pd_statuses), as the page opens. Filter by partner name/vendor/PD "
+        "text, year the period ends, or overdue only.",
         _schema(
             {
                 "partner": {"type": "string"},

@@ -145,19 +145,26 @@ def choose(
     return out
 
 
-def largest_value(row: Row) -> float:
-    """The larger of an indicator's Reached to date and in the year (what the set-aside guard reads)."""
-    return max(row.reached or 0.0, row.reached_in_year or 0.0)
+def largest_value(row: Row, year: int | None = None) -> float:
+    """The larger of an indicator's Reached to date and in the year (what the set-aside guard reads):
+    ``year`` names the year when the rows were read without one (the PD page, the daily review), so
+    every page judges the same figures (an average over periods can be far larger in one year than to
+    date)."""
+    in_year = row.reached_in_year
+    if year is not None and getattr(row, "year", None) != year:
+        in_year = (row.years or {}).get(year)
+    return max(row.reached or 0.0, in_year or 0.0)
 
 
-def implausible(rows: Iterable[Row], national: int | None) -> list[tuple[Row, str]]:
+def implausible(rows: Iterable[Row], national: int | None, year: int | None = None) -> list[tuple[Row, str]]:
     """The indicators among ``rows`` whose figures cannot be true, with the reason: a value above the
     whole country's child population (``national``), or more than IMPLAUSIBLE_TIMES its own target (and above
     IMPLAUSIBLE_FLOOR), is a reporting or reading error, not a result (one such value once showed
-    billions of children). They are never added nor chosen as a PD's main indicator."""
+    billions of children). They are never added nor chosen as a PD's main indicator. ``year``: the
+    year whose Reached is judged with Reached to date (:func:`largest_value`)."""
     aside = []
     for row in rows:
-        value = largest_value(row)
+        value = largest_value(row, year)
         too_many = bool(national) and value > national
         too_far = bool(row.target) and value > IMPLAUSIBLE_TIMES * row.target and value > IMPLAUSIBLE_FLOOR
         if too_many or too_far:
@@ -188,7 +195,7 @@ def mains_of(
     rows = list(rows)
     is_children = is_children or children_rule()
     flags = flagged_keys({r.pd.id for r in rows})
-    aside = implausible(candidates(rows, is_children, flags), national_children(year))
+    aside = implausible(candidates(rows, is_children, flags), national_children(year), year)
     return choose(rows, is_children=is_children, year=year, flags=flags, exclude=[r for r, _reason in aside])
 
 

@@ -363,6 +363,8 @@ ROW_FIELDS = (
     "location_ref_id",
     "pd_output_progress_status",
     "narrative_assessment",
+    "last_modify_date",
+    "synced_at",
 )
 # a fixed reading order: "the first non-empty field" never depends on the query plan
 ROW_ORDER = ("period_end", "progress_report", "location", "p_code", "datamart_id")
@@ -375,6 +377,64 @@ def report_key(row: dict[str, Any]) -> str:
     if row.get("indicator_report"):
         return f"ir:{row['indicator_report']}"
     return f"{row.get('report_number') or ''}|{row.get('period_start') or ''}|{row.get('period_end') or ''}"
+
+
+def indicator_report_key(row: dict[str, Any]) -> str:
+    """One indicator in one progress report: PRP's indicator report id, else the eTools id and the title
+    (the rule of ``reporting.INDICATOR_REPORT``, which counts them). Two indicators of one report are
+    never read as one, even when they share a title or an eTools id."""
+    found = str(row.get("indicator_report") or "")
+    return found or f"t|{row.get('etools_indicator_id') or ''}|{row.get('indicator') or ''}"
+
+
+# ------------------------------------------------------------------------- one status per report
+Stamp = tuple[Any, Any, Any]  # last change in the Datamart, last sync, Datamart id (None: earliest)
+
+
+def _later(a: Any, b: Any) -> Any:
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return max(a, b)
+
+
+def stamp(current: Stamp | None, new: Stamp) -> Stamp:
+    """Two stamps as one: the latest of each part."""
+    if current is None:
+        return new
+    return (_later(current[0], new[0]), _later(current[1], new[1]), _later(current[2], new[2]))
+
+
+def row_stamp(row: dict[str, Any]) -> Stamp:
+    return (row.get("last_modify_date"), row.get("synced_at"), row.get("datamart_id"))
+
+
+def newest_status(stamps: dict[str, Stamp]) -> str:
+    """The status word of a progress report whose rows disagree (a partial re-sync: some rows still
+    carry the old status): the word of the rows changed last in the Datamart, then synced last, then
+    with the highest Datamart id. ``stamps``: each word PRP gave the report (as stored) and the latest
+    stamp of its rows. Every page reads a report's status this way (the reports' list and tiles, the
+    indicators' Reached, the pop-up), so one report has one status everywhere."""
+    words = {text: s for text, s in stamps.items() if (text or "").strip()}
+    if not words:
+        return ""
+
+    def order(item: tuple[str, Stamp]) -> tuple:
+        return tuple((part is not None, part) for part in item[1])
+
+    return max(words.items(), key=order)[0].strip()
+
+
+def report_status_texts(rows: Iterable[dict[str, Any]]) -> dict[str, str]:
+    """Each progress report's status word (:func:`newest_status`), by :func:`report_key`, from its rows
+    (every indicator's: read them all, so each indicator of the report has the report's status)."""
+    stamps: dict[str, dict[str, Stamp]] = defaultdict(dict)
+    for row in rows:
+        text = row.get("report_status") or ""
+        mine = stamps[report_key(row)]
+        mine[text] = stamp(mine.get(text), row_stamp(row))
+    return {key: newest_status(words) for key, words in stamps.items()}
 
 
 def _cell(row: dict[str, Any], ratio: bool, percentage: bool) -> Cell:
@@ -421,10 +481,14 @@ def build_reports(
     percentage: bool,
     today: datetime.date,
     progress_values: dict[str, float] | None = None,
+    report_status: dict[str, str] | None = None,
 ) -> list[Report]:
-    """The reports of one indicator from its rows (read in ``ROW_ORDER``), oldest first."""
+    """The reports of one indicator from its rows (read in ``ROW_ORDER``), oldest first.
+    ``report_status``: each progress report's status word read from all its rows
+    (:func:`report_status_texts`); else the word of these rows (:func:`newest_status`)."""
     reports: dict[str, Report] = {}
     candidates: dict[str, dict[str, list[Cell]]] = defaultdict(lambda: defaultdict(list))
+    words: dict[str, dict[str, Stamp]] = defaultdict(dict)
     for row in rows:
         key = report_key(row)
         report = reports.get(key)
@@ -432,7 +496,8 @@ def build_reports(
             report = reports[key] = Report(key=key)
         report.number = _first(report.number, row.get("report_number") or "")
         report.report_type = _first(report.report_type, (row.get("report_type") or "").upper())
-        report.status_text = _first(report.status_text, (row.get("report_status") or "").strip())
+        text = row.get("report_status") or ""
+        words[key][text] = stamp(words[key].get(text), row_stamp(row))
         for name in ("period_start", "period_end", "due_date", "submission_date"):
             setattr(report, name, _first(getattr(report, name), row.get(name)))
         report.indicator_report = _first(report.indicator_report, str(row.get("indicator_report") or ""))
@@ -468,6 +533,8 @@ def build_reports(
         candidates[key][place].append(_cell(row, ratio, percentage))
     out = []
     for key, report in reports.items():
+        given = (report_status or {}).get(key)
+        report.status_text = given if given is not None else newest_status(words[key])
         report.status = status_of(
             report.status_text,
             period_end=report.period_end,
@@ -676,11 +743,14 @@ def compute(
     progress_values: dict[str, float] | None = None,
     only: set[str] | None = None,
     partial: bool = False,
+    report_status: dict[str, str] | None = None,
 ) -> Reached:
     """Reached for one indicator from its report rows (one report type, read in ``ROW_ORDER``).
 
-    ``only``: location names (normalised) to keep, for a location filter: the figures are then those
-    locations' own Reached, and PRP's report totals and cumulative (for the whole PD) are not used."""
+    ``only``: the locations to keep, for a location filter, by :func:`location_key` (the P-code) or by
+    normalised name (:func:`location_filter`): the figures are then those locations' own Reached, and
+    PRP's report totals and cumulative (for the whole PD) are not used. ``report_status``: each
+    progress report's status word (:func:`report_status_texts`)."""
     rows = list(rows)
     ratio = is_ratio(
         display_type,
@@ -695,6 +765,7 @@ def compute(
         percentage=percentage,
         today=today,
         progress_values=None if only else progress_values,
+        report_status=report_status,
     )
     out = Reached(reports=reports, year=year, ratio=ratio, percentage=percentage, partial=partial)
     out.location_filtered = only is not None
@@ -703,7 +774,7 @@ def compute(
     out.period_method = latest_any.period_method if latest_any else ""
 
     def wanted(place: str, report: Report) -> bool:
-        return only is None or norm(report.places.get(place, {}).get("name")) in only
+        return only is None or place in only or norm(report.places.get(place, {}).get("name")) in only
 
     def item(report: Report) -> Item:
         if only is None:

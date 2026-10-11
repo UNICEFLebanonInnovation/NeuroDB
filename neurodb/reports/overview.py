@@ -349,7 +349,9 @@ class _Builder:
         nor chosen (a flagged indicator's too)."""
         flags = headline.flagged_keys({r.pd.id for r in self.every_rows})
         aside = self._implausible(
-            headline.candidates(self.every_rows, self._is_children, flags), self._national_children()
+            headline.candidates(self.every_rows, self._is_children, flags),
+            self._national_children(),
+            self.year,
         )
         aside_ids = {id(r) for r, _reason in aside}
         in_scope = {id(r) for r in self.rows}
@@ -714,11 +716,13 @@ class _Builder:
         return sum(n for _name, n in by_governorate.values()) or None
 
     @staticmethod
-    def _implausible(rows: list[Indicator], national_children: int | None) -> list[tuple[Indicator, str]]:
+    def _implausible(
+        rows: list[Indicator], national_children: int | None, year: int | None = None
+    ) -> list[tuple[Indicator, str]]:
         """The indicators whose figures cannot be true (:func:`neurodb.datamart.headline.implausible`):
         never added nor chosen as a PD's main indicator, and listed on the page so someone checks them in
         eTools."""
-        return headline.implausible(rows, national_children)
+        return headline.implausible(rows, national_children, year)
 
     def _children_population(self) -> tuple[dict[str, tuple[str, int]], int | None]:
         """``{governorate key: (name, children)}`` of the latest year of child figures up to the scope's."""
