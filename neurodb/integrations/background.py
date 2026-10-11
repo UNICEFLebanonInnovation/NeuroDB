@@ -49,13 +49,16 @@ LOCK_IDS = {
 def lock_is_held(lock_id: int) -> bool | None:
     """Whether a process holds the advisory lock ``lock_id`` right now; ``None`` when the database
     cannot tell (not PostgreSQL). A session-level advisory lock dies with the process that took it,
-    so this is the truth about a run in progress, unlike the ``SyncRun`` row it may have left behind."""
+    so this is the truth about a run in progress, unlike the ``SyncRun`` row it may have left behind.
+    Advisory locks belong to one database, so a lock with the same id in another database on the
+    same server (another site, another test run) does not count."""
     if connection.vendor != "postgresql":
         return None
     with connection.cursor() as cursor:
         cursor.execute(
             "SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND classid = 0 AND objid = %s "
-            "AND objsubid = 1 LIMIT 1",
+            "AND objsubid = 1 "
+            "AND database = (SELECT oid FROM pg_database WHERE datname = current_database()) LIMIT 1",
             [lock_id],
         )
         return cursor.fetchone() is not None

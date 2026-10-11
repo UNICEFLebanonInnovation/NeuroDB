@@ -104,6 +104,26 @@ def test_the_lock_check_sees_the_lock_the_command_takes():
     assert sync_etools_datamart.LOCK_ID == background.DATAMART_LOCK_ID
 
 
+def test_the_lock_check_ignores_the_same_lock_in_another_database():
+    import psycopg
+    from django.db import connection
+
+    s = connection.settings_dict
+    other = psycopg.connect(
+        dbname="postgres",
+        user=s["USER"] or None,
+        password=s["PASSWORD"] or None,
+        host=s["HOST"] or None,
+        port=s["PORT"] or None,
+        autocommit=True,
+    )
+    try:
+        other.execute("SELECT pg_advisory_lock(%s)", [background.DATAMART_LOCK_ID])
+        assert background.datamart_lock_is_held() is False
+    finally:
+        other.close()
+
+
 def test_selected_datasets_run_alone(admin_client, admin_user, started, credentials):
     data = {"_form_submitted": "on", "scope": "selected", "datasets": ["locations", "partners"]}
     response = admin_client.post(reverse(URL), data)
