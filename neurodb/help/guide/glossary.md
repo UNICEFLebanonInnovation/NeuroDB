@@ -5,6 +5,10 @@ A follow-up action recorded in eTools after an audit, a spot check, a TPM visit,
 monitoring visit, or kept in NeuroDB only (a **NeuroDB action point**). **Open** when its status is
 open; **overdue** when it is also past its due date. See [Action points](/help/action-points/).
 
+## Awaiting acceptance
+The part of an indicator's Reached that comes from Submitted progress reports UNICEF has not accepted
+yet: what a send-back would take off. See [Partner progress](/help/partner-progress/).
+
 ## Average quality
 The mean quality score of the scored visits of the filter, rounded half up to one decimal.
 
@@ -25,6 +29,10 @@ The eTools Datamart: the copy of eTools that NeuroDB reads every night.
 ## Deduction
 The points a quality rule takes off its category when it fires.
 
+## Disaggregation
+A breakdown of a reported value, as PRP records it: by sex (female, male), nationality, age... Values add
+up only within one disaggregation, never across: each has its own subtotal next to the location total.
+
 ## Entity
 What a monitoring visit looked at: a partner, a programme document (PD/SSFA) or a CP output. Each
 entity is one finding row of the visit.
@@ -36,6 +44,10 @@ A quality rule that fired on a visit. 3 flags or more make a high-flag visit.
 The Harmonized Approach to Cash Transfers: the assurance of partners (assessments, audits, spot checks,
 programmatic visits). **HACT Q1** is the checklist question "Have the activities been implemented as
 planned…"; Q2 lists the activities monitored, Q3 the key observations.
+
+## Indicator report
+One indicator in one progress report: the unit the Progress reports tiles count, as the eTools Power BI
+report does.
 
 ## Not monitored
 eTools' rating for a visit that was planned but not conducted. A count apart, never part of a share of
@@ -63,6 +75,12 @@ Constrained or Off track.
 
 ## Rating
 On track, Constrained, Off track or Not monitored. A visit's rating is its worst rated entity.
+
+## Reached
+What a partner reached on one programme document indicator, from its Accepted and Submitted progress
+reports, combined the way the indicator says (a sum, the largest, an average or the latest; numerators
+over denominators for a percentage). Different indicators are never added together. See
+[Partner progress](/help/partner-progress/#reached-one-rule-for-every-page).
 
 ## Rules version
 A saved state of the quality rules and score settings. Every change makes a new version, and each visit

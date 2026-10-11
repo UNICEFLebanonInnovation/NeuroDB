@@ -685,6 +685,38 @@ class DatamartDocument(models.Model):
         return f"{self.dataset}: {self.title or self.record_key}"
 
 
+class DisaggregationLabel(models.Model):
+    """The name of a PRP disaggregation ("Sex") or of one of its values ("female"). The partner reports
+    key their disaggregation values by PRP ids (``"(12,)"``, a cross-tab cell ``"(12, 31)"``, the
+    location total ``"()"``); the eTools Datamart sync reads the labels of the ids it sees there, one
+    by one (``sources/prp/indicatordisaggregationvalue/<id>/`` and ``indicatordisaggregation/<id>/``).
+    Labels only: no value, no person."""
+
+    class Kind(models.TextChoices):
+        VALUE = "value", "disaggregation value"
+        TYPE = "type", "disaggregation"
+
+    kind = models.CharField(max_length=8, choices=Kind.choices)
+    prp_id = models.BigIntegerField(help_text="the id in the Partner Reporting Portal")
+    label = models.CharField(max_length=255, blank=True)
+    disaggregation_id = models.BigIntegerField(
+        null=True, blank=True, help_text="a value's disaggregation (its type), as a PRP id"
+    )
+    active = models.BooleanField(default=True)
+    not_found = models.BooleanField(default=False, help_text="PRP answered that the id does not exist")
+    synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["kind", "prp_id"], name="datamart_disaggregationlabel_key")
+        ]
+        ordering = ("kind", "label")
+        verbose_name = "disaggregation label"
+
+    def __str__(self):
+        return f"{self.get_kind_display()} {self.prp_id}: {self.label or '?'}"
+
+
 class MonitoringSite(DatamartRecord):
     """A field-monitoring site of eTools (``location-sites``): a named point inside an admin location."""
 

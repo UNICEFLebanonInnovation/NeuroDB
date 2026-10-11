@@ -15,6 +15,8 @@ from typing import Any
 
 from django.db import DatabaseError, connection, transaction
 
+from .disaggregation import ids_in, parse_key
+
 logger = logging.getLogger(__name__)
 
 TIMEOUT_MS = 20_000
@@ -112,6 +114,27 @@ def _disaggregation(cursor) -> dict[str, Any]:
         "SELECT k, count(*) FROM datamart_reportedindicator, jsonb_object_keys(disaggregation) k "
         "WHERE jsonb_typeof(disaggregation) = 'object' GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 20",
     )
+    # the labels of the value ids the keys name (read by the partner reports sync, by id)
+    seen = ids_in(
+        k
+        for (k,) in _all(
+            cursor,
+            "SELECT DISTINCT k FROM datamart_reportedindicator, jsonb_object_keys(disaggregation) k "
+            "WHERE jsonb_typeof(disaggregation) = 'object'",
+        )
+    )
+    labels = (
+        dict(
+            _all(
+                cursor,
+                "SELECT prp_id, label FROM datamart_disaggregationlabel "
+                "WHERE kind = 'value' AND label <> '' AND prp_id = ANY(%s)",
+                [sorted(seen)],
+            )
+        )
+        if seen
+        else {}
+    )
     if not with_total:
         verdict, tone = 'No row carries a disaggregation total ("()") yet: the other fields are used.', INFO
     else:
@@ -120,14 +143,33 @@ def _disaggregation(cursor) -> dict[str, Any]:
             f"({_share(equal, with_total)}) it equals the value in the period."
         )
         tone = OK if equal == with_total else INFO
+    if seen:
+        verdict += (
+            f" The labels of {len(labels):,} of the {len(seen):,} disaggregation values named are read."
+        )
+
+    def named(key: str) -> str | None:
+        parts = parse_key(key)
+        if parts == ():
+            return "Location total"
+        if parts and all(isinstance(p, int) for p in parts):
+            found = [labels.get(p) for p in parts]
+            return " × ".join(found) if all(found) else None
+        return None
+
     return {
         "tone": tone,
         "verdict": verdict,
         "figures": [
             ("Rows with a disaggregation total", with_total),
             ("… equal to the value in the period", equal),
+            ("Disaggregation values named by the reports", len(seen)),
+            ("… whose label is read", len(labels)),
         ],
-        "table": {"columns": ("Disaggregation key", "Rows"), "rows": keys},
+        "table": {
+            "columns": ("Disaggregation key", "Label", "Rows"),
+            "rows": [(key, named(key), n) for key, n in keys],
+        },
     }
 
 
@@ -375,7 +417,8 @@ CHECKS: tuple[Check, ...] = (
         "Disaggregations",
         'Which disaggregation keys appear, and does the total ("()") equal the value in the period?',
         'The total "()" is each location\'s value. Disaggregation values add up only within one type; '
-        "they are never added across types.",
+        "they are never added across types. The partner reports sync reads the label of each value id the "
+        "reports name; a value whose label is not read yet is not listed on the By disaggregation tab.",
         _disaggregation,
     ),
     Check(
@@ -422,7 +465,8 @@ CHECKS: tuple[Check, ...] = (
         "9",
         "Financial contribution",
         "Is the financial contribution the same on every indicator of one progress report?",
-        "It is taken once per progress report, never added across its indicators.",
+        "It is taken once per progress report, from the latest one that counts, never added across its "
+        "indicators (Funds → Partner contributions).",
         _financial,
     ),
 )

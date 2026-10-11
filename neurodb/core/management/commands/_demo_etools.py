@@ -59,6 +59,15 @@ CP_OUTPUTS = {
     "WASH": "4.2 Water, sanitation and hygiene services for marginalised communities",
     "Health and Nutrition": "1.3 Primary health care and nutrition services for children and women",
 }
+# PRP's disaggregations, keyed by made-up PRP ids as the partner reports key their values: (label, type)
+DISAGGREGATION_TYPES = {901: "Sex", 902: "Nationality"}
+DISAGGREGATION_VALUES = {
+    9011: ("female", 901),
+    9012: ("male", 901),
+    9021: ("Lebanese", 902),
+    9022: ("Syrian", 902),
+}
+PARTNER_SHARES = (Decimal("0.05"), Decimal("0.08"), Decimal("0.095"), Decimal("0.12"), Decimal("0"))
 TPM_STATUSES_PAST = ["unicef_approved", "unicef_approved", "tpm_reported", "tpm_accepted", "cancelled"]
 MODULES = ["tpm", "fm", "audit"]
 
@@ -87,6 +96,9 @@ def seed_etools(rng: random.Random, today: dt.date) -> None:
         _indicators_and_reports(rng, pca, section, places, counters, today, year)
         _funds(rng, pca, counters)
     _grants(rng, today)
+    # no random draw below these two: every other demo figure stays where it was
+    _disaggregation_labels()
+    _partner_contributions(pcas)
     _tpm(rng, pcas, gazetteer, today, year)
     _action_points(rng, pcas, gazetteer, today, year)
     _findings(rng, pcas, gazetteer, today, year)
@@ -229,10 +241,9 @@ def _indicators_and_reports(rng, pca, section, places, counters, today, year) ->
                         p_code=place.p_code,
                         location_ref=place,
                         achievement_in_period="" if missing else f"{value:.0f}",
-                        # PRP's location total of the period (the disaggregation total) and running totals
-                        disaggregation={}
-                        if missing
-                        else {"()": {"v": round(value), "d": 1, "c": round(value)}},
+                        # PRP's location total of the period (the disaggregation total), its values by
+                        # sex and by nationality, and running totals
+                        disaggregation={} if missing else _disaggregation(round(value)),
                         total_cumulative_progress_in_location=f"{in_location[place.id]:.0f}",
                         previous_location_progress=f"{previous:.0f}",
                         calculation_across_locations="sum",
@@ -250,6 +261,91 @@ def _indicators_and_reports(rng, pca, section, places, counters, today, year) ->
                 row.total_cumulative_progress = f"{cumulative:.0f}"
             report_rows.extend(this_report)
         dm.ReportedIndicator.objects.bulk_create(report_rows)
+
+
+def _disaggregation(total: int) -> dict[str, dict[str, int]]:
+    """A location's value as PRP keys it: the total "()", female + male = total, Lebanese + Syrian =
+    total (no random draw)."""
+    female, lebanese = round(total * 0.52), round(total * 0.6)
+
+    def part(n: int) -> dict[str, int]:
+        return {"v": n, "d": 1, "c": n}
+
+    return {
+        "()": part(total),
+        "(9011,)": part(female),
+        "(9012,)": part(total - female),
+        "(9021,)": part(lebanese),
+        "(9022,)": part(total - lebanese),
+    }
+
+
+def _disaggregation_labels() -> None:
+    """The labels the eTools sync reads from PRP for the ids above."""
+    labels = [
+        dm.DisaggregationLabel(kind="type", prp_id=pk, label=name)
+        for pk, name in DISAGGREGATION_TYPES.items()
+    ]
+    labels += [
+        dm.DisaggregationLabel(kind="value", prp_id=pk, label=label, disaggregation_id=type_id)
+        for pk, (label, type_id) in DISAGGREGATION_VALUES.items()
+    ]
+    dm.DisaggregationLabel.objects.bulk_create(labels)
+
+
+def _partner_contributions(pcas) -> None:
+    """Each programme document's budget split (UNICEF and partner, in USD) and, for each of its counted
+    progress reports, PRP's financial contribution to date repeated on every indicator, as the
+    ``prp_indicator_reports`` records carry it (no random draw)."""
+    from neurodb.datamart import reached as rc
+
+    docs, n = [], 0
+    for pca in pcas:
+        total = Decimal(pca.total_budget or 0)
+        partner = (total * PARTNER_SHARES[pca.id % len(PARTNER_SHARES)]).quantize(Decimal("1"))
+        PCA.objects.filter(pk=pca.pk).update(
+            total_unicef_budget=str(total - partner), cso_contribution=str(partner), budget_currency="USD"
+        )
+        reports = (
+            dm.ReportedIndicator.objects.filter(intervention=pca)
+            .values_list(
+                "report_number", "report_status", "period_end", "due_date", "submission_date", "indicator"
+            )
+            .distinct()
+            .order_by("period_end", "indicator")
+        )
+        numbers = sorted({r[0] for r in reports})
+        for number, status, end, due, submitted, indicator in reports:
+            if (
+                not partner
+                or rc.status_of(status, submission_date=submitted, today=dt.date.max) not in rc.COUNTED
+            ):
+                continue
+            n += 1
+            share = Decimal(numbers.index(number) + 1) / Decimal(max(4, len(numbers)))
+            docs.append(
+                dm.DatamartDocument(
+                    dataset="prp_indicator_reports",
+                    record_key=f"demo-{n}",
+                    partner_id=pca.partner_id,
+                    intervention=pca,
+                    title=f"{pca.number} · {indicator}"[:500],
+                    date=end,
+                    data={
+                        "pd_reference_number": pca.number,
+                        "report_type": "QPR",
+                        "report_number": int(number.removeprefix("QPR")),
+                        "report_status": status[:3],
+                        "time_period_end": end.isoformat(),
+                        "due_date": due.isoformat() if due else None,
+                        "submission_date": submitted.isoformat() if submitted else None,
+                        "performance_indicator": indicator,
+                        "financial_contribution_to_date": str((partner * share).quantize(Decimal("0.01"))),
+                        "financial_contribution_currency": "USD",
+                    },
+                )
+            )
+    dm.DatamartDocument.objects.bulk_create(docs)
 
 
 def _funds(rng, pca, counters) -> None:

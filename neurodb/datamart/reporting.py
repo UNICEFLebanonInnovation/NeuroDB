@@ -1,5 +1,5 @@
-"""Partner reporting: the Progress reports page (Reporting Progress, Partner Performance, the report table
-and Report/Location, as the eTools Power BI report shows them) and its exports.
+"""Partner reporting: the Progress reports page (Reporting Progress, Partner Performance, the report table,
+Report/Location and Report/Disaggregation, as the eTools Power BI report shows them) and its exports.
 
 * **What is counted.** An *indicator report* is one indicator in one progress report (PRP's
   ``indicator_report``); the Datamart sends it once per location. Reporting Progress counts indicator
@@ -9,7 +9,9 @@ and Report/Location, as the eTools Power BI report shows them) and its exports.
   Submitted, Sent back, Due, Overdue, Not yet due): one status per report, the same on every page, so
   the counts add up to the total; Overdue follows ``monitoring.pending_q`` as every page does.
 * **Values per location** are read by :mod:`neurodb.datamart.reached` (the disaggregation total "()",
-  never a sum of repeated or duplicated rows); nothing here adds values up.
+  never a sum of repeated or duplicated rows); nothing here adds values up, except the values of one
+  disaggregation into its subtotal (:mod:`neurodb.datamart.disaggregation`: never across
+  disaggregations).
 * **People.** UNICEF focal points are shown by name only; an entry that holds an e-mail address is
   left out, and partner focal points are never shown.
 """
@@ -443,28 +445,18 @@ def _definitions(pd_ids: set[int]) -> dict[tuple[int, str], tuple[str, str]]:
     return out
 
 
-def location_rows(
-    queryset: QuerySet[dm.ReportedIndicator],
-    statuses: dict[Any, str],
-    today: datetime.date,
-    wanted: set[str] | None = None,
-) -> dict[str, Any]:
-    """Report/Location: one row per indicator report and location, with the value of the location in
-    the period (the disaggregation total "()", read as :mod:`reached` reads it: a report total repeated
-    on every location gives no value of its own, two rows of one location are never added) and PRP's
-    figure to date there. ``statuses``: each progress report's status (``progress_reports``);
-    ``wanted``: the statuses to keep (None: all). Read only below :data:`LOCATION_LIMIT` rows."""
-    total = queryset.count()
-    if total > LOCATION_LIMIT:
-        return {"rows": [], "too_many": total, "limit": LOCATION_LIMIT}
-    rows = list(queryset.order_by(*rc.ROW_ORDER).values(*LOCATION_FIELDS))
+def _location_cells(rows: list[dict[str, Any]], statuses: dict[Any, str], today: datetime.date, wanted):
+    """Each indicator report's locations, read as :mod:`reached` reads them (one value per location:
+    the disaggregation total "()", never a sum of repeated or duplicated rows): ``(fields, cell)`` per
+    location, ``fields`` being what the Report/Location and Report/Disaggregation tabs show of the
+    report. A report keeps its progress report's own status (``statuses``), also under a status filter
+    (``wanted``: the statuses to keep, None: all)."""
     definitions = _definitions({r["intervention_id"] for r in rows if r["intervention_id"]})
     details = pd_details({r["intervention_id"] for r in rows if r["intervention_id"]})
     groups: dict[tuple, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         ident = (row["etools_indicator_id"] or "").strip() or f"t{rc.norm(row['indicator'])}"
         groups[(rc.report_key(row), ident)].append(row)
-    out = []
     for group in groups.values():
         first = group[0]
         status = statuses.get(first["progress_report"]) if first["progress_report"] else None
@@ -493,7 +485,7 @@ def location_rows(
         pd = details.get(pd_id) or {}
         for place, cell in report.cells.items():
             meta = report.places.get(place, {})
-            out.append(
+            yield (
                 {
                     "programme_document": first["pd_reference_number"],
                     "pd_id": pd_id,
@@ -512,25 +504,184 @@ def location_rows(
                     "counted": status in rc.COUNTED,
                     "period_start": report.period_start,
                     "period_end": report.period_end,
+                    "due_date": report.due_date,
                     "location": meta.get("name") or "",
                     "p_code": meta.get("p_code") or "",
-                    "value_in_period": None if cell.repeated else cell.value,
+                    "percentage": percentage,
+                    "ratio": ratio,
                     "repeated": cell.repeated,
                     "rows": cell.rows,
-                    "prp_to_date": cell.prp_cumulative,
-                    "percentage": percentage,
-                }
+                },
+                cell,
             )
-    out.sort(
-        key=lambda r: (
-            -(r["period_end"] or datetime.date.min).toordinal(),
-            r["programme_document"] or "",
-            r["report"] or "",
-            rc.norm(r["indicator"]),
-            rc.norm(r["location"]),
-        )
+
+
+def _newest_first(item: dict[str, Any]) -> tuple:
+    return (
+        -(item["period_end"] or datetime.date.min).toordinal(),
+        item["programme_document"] or "",
+        item["report"] or "",
+        rc.norm(item["indicator"]),
+        rc.norm(item["location"]),
     )
+
+
+def location_rows(
+    queryset: QuerySet[dm.ReportedIndicator],
+    statuses: dict[Any, str],
+    today: datetime.date,
+    wanted: set[str] | None = None,
+) -> dict[str, Any]:
+    """Report/Location: one row per indicator report and location, with the value of the location in
+    the period (the disaggregation total "()", read as :mod:`reached` reads it: a report total repeated
+    on every location gives no value of its own, two rows of one location are never added) and PRP's
+    figure to date there. ``statuses``: each progress report's status (``progress_reports``);
+    ``wanted``: the statuses to keep (None: all). Read only below :data:`LOCATION_LIMIT` rows."""
+    total = queryset.count()
+    if total > LOCATION_LIMIT:
+        return {"rows": [], "too_many": total, "limit": LOCATION_LIMIT}
+    rows = list(queryset.order_by(*rc.ROW_ORDER).values(*LOCATION_FIELDS))
+    out = [
+        {
+            **fields,
+            "value_in_period": None if cell.repeated else cell.value,
+            "prp_to_date": cell.prp_cumulative,
+        }
+        for fields, cell in _location_cells(rows, statuses, today, wanted)
+    ]
+    out.sort(key=_newest_first)
     return {"rows": out, "too_many": 0, "limit": LOCATION_LIMIT}
+
+
+# ---------------------------------------------------------------------------- Report/Disaggregation
+@dataclass
+class DisaggregationFilters:
+    """What the Report/Disaggregation tab adds to the page's filter: words in the indicator, the location,
+    its P-code, and in the disaggregation or its value ("Sex", "female")."""
+
+    indicator: str = ""
+    location: str = ""
+    p_code: str = ""
+    disaggregation: str = ""
+
+    @classmethod
+    def from_params(cls, params) -> DisaggregationFilters:
+        def text(key: str) -> str:
+            return " ".join(str(params.get(key) or "").split())[:200]
+
+        return cls(
+            indicator=text("indicator"),
+            location=text("location"),
+            p_code=text("p_code"),
+            disaggregation=text("disaggregation"),
+        )
+
+    @property
+    def any(self) -> bool:
+        return bool(self.indicator or self.location or self.p_code or self.disaggregation)
+
+
+def _words(needle: str, *haystack: str) -> bool:
+    """Every word of ``needle`` is in one of the texts (case and spacing ignored)."""
+    text = " ".join(rc.norm(h) for h in haystack)
+    return all(word in text for word in rc.norm(needle).split())
+
+
+def disaggregation_rows(
+    queryset: QuerySet[dm.ReportedIndicator],
+    statuses: dict[Any, str],
+    today: datetime.date,
+    wanted: set[str] | None = None,
+    params=None,
+) -> dict[str, Any]:
+    """Report/Disaggregation: per indicator report and location (a *block*), PRP's values by
+    disaggregation with their labels, a subtotal per disaggregation and the location total "()"
+    (:mod:`neurodb.datamart.disaggregation`: values add up only within one disaggregation, never across).
+    The location is read as :mod:`reached` reads it: two rows of one location are never added (the one
+    whose value is used gives the disaggregation), and a report total repeated on every location gives
+    the location no total of its own. ``statuses`` and ``wanted`` as for :func:`location_rows`;
+    ``params``: :class:`DisaggregationFilters`. Read only below :data:`LOCATION_LIMIT` rows."""
+    from . import disaggregation as dg
+
+    tab = DisaggregationFilters.from_params(params or {})
+    if tab.indicator:
+        for word in tab.indicator.split():
+            queryset = queryset.filter(indicator__icontains=word)
+    total = queryset.count()
+    if total > LOCATION_LIMIT:
+        return {"blocks": [], "too_many": total, "limit": LOCATION_LIMIT, "filters": tab}
+    rows = list(queryset.order_by(*rc.ROW_ORDER).values(*LOCATION_FIELDS, "last_modify_date"))
+    keys = {k for r in rows if isinstance(r["disaggregation"], dict) for k in r["disaggregation"]}
+    labels = dg.load_labels(dg.ids_in(keys))
+    blocks: list[dict[str, Any]] = []
+    unlabelled = 0
+    for fields, cell in _location_cells(rows, statuses, today, wanted):
+        if tab.location and not _words(tab.location, fields["location"]):
+            continue
+        if tab.p_code and rc.norm(tab.p_code) not in rc.norm(fields["p_code"]):
+            continue
+        found = dg.breakdown(
+            cell.disaggregation, ratio=fields["ratio"], percentage=fields["percentage"], labels=labels
+        )
+        unlabelled += found.unlabelled
+        groups_shown, untyped = found.groups, found.untyped
+        if tab.disaggregation:
+            kept = [
+                (g, [ln for ln in g.lines if _words(tab.disaggregation, g.name, ln.label)])
+                for g in groups_shown
+            ]
+            groups_shown = [
+                dg.Group(g.name, g.cross, lines, g.subtotal, g.matches, hidden=len(g.lines) - len(lines))
+                for g, lines in kept
+                if lines
+            ]
+            untyped = [ln for ln in untyped if _words(tab.disaggregation, ln.label)]
+            if not groups_shown and not untyped:
+                continue
+        block = {
+            **fields,
+            "modified": cell.modified,
+            "groups": groups_shown,
+            "untyped": untyped,
+            "unlabelled": found.unlabelled,
+            # the location total: PRP's "()", else the location's value in the period as Reached reads it
+            "total": None if cell.repeated else (found.total if found.total is not None else cell.value),
+            "total_is_prp": found.total is not None and not cell.repeated,
+        }
+        block["table_lines"] = disaggregation_lines(block)
+        blocks.append(block)
+    blocks.sort(key=_newest_first)
+    return {
+        "blocks": blocks,
+        "too_many": 0,
+        "limit": LOCATION_LIMIT,
+        "filters": tab,
+        "unlabelled": unlabelled,
+    }
+
+
+def disaggregation_lines(block: dict[str, Any]) -> list[dict[str, Any]]:
+    """A block as the lines the table and the exports show: each value of each disaggregation, the
+    disaggregation's subtotal, the values PRP names without a disaggregation, then the location total.
+    A value, a subtotal and a total are in columns of their own, so no column adds them together."""
+    lines: list[dict[str, Any]] = []
+    for group in block["groups"]:
+        for line in group.lines:
+            lines.append({"line": "value", "type": group.name, "label": line.label, "value": line.value})
+        lines.append(
+            {
+                "line": "subtotal",
+                "type": group.name,
+                "label": "Subtotal" if not group.cross else "Subtotal of the cross-tab",
+                "subtotal": group.subtotal,
+                "matches": group.matches,
+                "hidden": group.hidden,
+            }
+        )
+    for line in block["untyped"]:
+        lines.append({"line": "value", "type": "—", "label": line.label, "value": line.value})
+    lines.append({"line": "total", "type": "", "label": "Location total", "total": block["total"]})
+    return lines
 
 
 # ------------------------------------------------------------------------------------------ options

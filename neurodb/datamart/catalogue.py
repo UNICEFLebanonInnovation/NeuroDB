@@ -394,6 +394,10 @@ EXCLUDED: dict[str, str] = {
     "sources/prp/unicefprogrammedocumentunicefofficers": "personal data (officer links)",
     "rapidpro/*": "RapidPro messaging (contacts are personal data); no country filter",
     "datamart/reports/outcomes, outputs, activities": "global VISION programme structure; no country filter",
+    "sources/prp/indicatordisaggregation, indicatordisaggregationvalue": (
+        "PRP tables of every country, no country filter: only the labels of the ids the partner reports "
+        "name are read, one by one, by the partner_reports sync (datamart.DisaggregationLabel)"
+    ),
     "sources/prp/* (the other source tables)": "raw PRP tables of every country; no country filter",
     "prp/indicator-report": "superseded by prp/indicator-report-v2 (read)",
     "prp/datareport": "read into its own table (partner_reports)",

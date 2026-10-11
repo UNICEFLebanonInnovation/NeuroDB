@@ -23,6 +23,7 @@ import datetime as dt
 import hashlib
 import json
 import logging
+import time
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -71,16 +72,18 @@ def names(value: Any, *keys: str) -> list[str]:
 
 
 def person_names(value: Any) -> list[str]:
-    """Focal points: ``{"first_name", "last_name"}`` or ``name`` or ``email`` dicts."""
+    """Focal points by name: ``{"first_name", "last_name"}`` or ``name`` dicts, or names. Never an e-mail
+    address: a focal point known only by one is left out, and so is a name that holds one."""
     people = []
     for item in value if isinstance(value, list) else []:
         if isinstance(item, dict):
             full = " ".join(str(item.get(k) or "").strip() for k in ("first_name", "last_name")).strip()
-            full = full or str(item.get("name") or item.get("email") or "")
-            if full:
-                people.append(full)
-        elif item:
-            people.append(str(item))
+            full = full or str(item.get("name") or "").strip()
+        else:
+            full = str(item or "").strip()
+        full = " ".join(full.split())
+        if full and "@" not in full and full not in people:
+            people.append(full)
     return people
 
 
@@ -653,6 +656,8 @@ def _link_report(row, item, links):
     row.high_frequency = str(item.get("high_frequency") or "").strip().lower() in ("true", "yes", "1", "t")
     row.disaggregation = item.get("disaggregation") if isinstance(item.get("disaggregation"), dict) else {}
     row.location_ref_id = links.location(None, item.get("p_code"))
+    if "@" in (row.submitted_by or ""):  # who submitted, by name only: never an e-mail address
+        row.submitted_by = ""
     for name, key in (
         ("indicator_report", "indicator_report"),
         ("cp_output", "cp_output"),
@@ -1133,18 +1138,10 @@ DATASETS: dict[str, tuple[str, Dataset]] = {
 
 
 def _stored(item: dict[str, Any]) -> dict[str, Any]:
-    """The record for the ``data`` column; NUL characters are not storable in Postgres JSON."""
-
-    def clean(value):
-        if isinstance(value, str):
-            return value.replace("\x00", "")
-        if isinstance(value, dict):
-            return {k: clean(v) for k, v in value.items()}
-        if isinstance(value, list):
-            return [clean(v) for v in value]
-        return value
-
-    return clean(item)
+    """The record for the ``data`` column, as the records kept whole are stored (``catalogue.scrub``):
+    without the keys naming an e-mail address, a phone or a mobile, and without NUL characters (not
+    storable in Postgres JSON)."""
+    return catalogue.scrub(item)
 
 
 def upsert_record(spec: Dataset, item: dict[str, Any], links: Links, seen: set[int]) -> None:
@@ -1465,6 +1462,12 @@ def sync_dataset(name: str) -> Callable[..., SyncRun]:
             if spec.model is dm.ReportedIndicator:
                 details["cp_outputs"] = derive_cp_outputs()
                 details["read_from"] = (params or {}).get("reporting_period_start_date__gte", "")
+                try:  # the labels never fail the reports: a failure is said, and the run is partial
+                    details["disaggregation_labels"] = sync_disaggregation_labels(client)
+                except Exception as exc:
+                    logger.warning("etools datamart: disaggregation labels not read: %s", exc)
+                    details["disaggregation_labels"] = {"error": str(exc)[:300]}
+                    details["partial"] = True
             return details
 
         return _run(run, body)
@@ -1580,6 +1583,130 @@ def derive_cp_outputs() -> int:
             cursor.execute(sql)
             changed += max(cursor.rowcount, 0)
     return changed
+
+
+# ------------------------------------------------------------------ PRP disaggregation labels
+# The partner reports key their disaggregation values by PRP ids ("(12,)"); the labels are in PRP's own
+# tables, which have no country filter: they are read one id at a time, for the ids the reports name.
+DISAGGREGATION_VALUES = "sources/prp/indicatordisaggregationvalue"
+DISAGGREGATIONS = "sources/prp/indicatordisaggregation"
+LABEL_REQUESTS_PER_RUN = 2000  # the rest are read by the next sync
+LABEL_SECONDS_PER_RUN = 600  # nor longer than this: a slow source never holds the nightly sync up
+LABEL_REFRESH_DAYS = 30  # a label read longer ago is read again (PRP may rename it)
+LABEL_FAILURES_IN_A_ROW = 10  # then the step stops (the source cannot be read)
+
+
+def disaggregation_ids_seen() -> set[int]:
+    """The disaggregation-value ids the partner reports key their values by."""
+    from neurodb.datamart.disaggregation import ids_in
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT DISTINCT k FROM datamart_reportedindicator, jsonb_object_keys(disaggregation) k "
+            "WHERE jsonb_typeof(disaggregation) = 'object'"
+        )
+        return ids_in(row[0] for row in cursor.fetchall())
+
+
+class _LabelReader:
+    """Reads labels by id within a budget of requests and of time; a record PRP does not have is
+    marked, never retried before :data:`LABEL_REFRESH_DAYS`; too many failures in a row stop the
+    step."""
+
+    def __init__(self, client: DatamartClient) -> None:
+        self.client = client
+        self.counts = {"read": 0, "not_found": 0, "failed": 0, "left": 0}
+        self.budget = LABEL_REQUESTS_PER_RUN
+        self.until = time.monotonic() + LABEL_SECONDS_PER_RUN
+        self.failures = 0
+
+    def read(self, kind: str, dataset: str, pk: int, fields: Callable[[dict[str, Any]], dict[str, Any]]):
+        if self.budget <= 0 or time.monotonic() > self.until:
+            self.counts["left"] += 1
+            return
+        self.budget -= 1
+        try:
+            record = self.client.get(dataset, pk)
+        except IntegrationError as exc:
+            if exc.status == 404:
+                self.counts["not_found"] += 1
+                self.failures = 0
+                dm.DisaggregationLabel.objects.update_or_create(
+                    kind=kind, prp_id=pk, defaults={"not_found": True}
+                )
+                return
+            self.counts["failed"] += 1
+            self.failures += 1
+            if self.failures >= LABEL_FAILURES_IN_A_ROW:
+                raise IntegrationError(
+                    f"stopped after {self.failures} failures in a row ({exc})", status=exc.status
+                ) from exc
+            return
+        self.failures = 0
+        self.counts["read"] += 1
+        dm.DisaggregationLabel.objects.update_or_create(
+            kind=kind, prp_id=pk, defaults={**fields(record), "not_found": False}
+        )
+
+
+def _label_text(value: Any) -> str:
+    return " ".join(str(value or "").replace("\x00", "").split())[:255]
+
+
+def _value_label(record: dict[str, Any]) -> dict[str, Any]:
+    """A disaggregation value's label and its disaggregation, given by id (``disaggregation`` or
+    ``disaggregation_id``) or as a nested record (whose name is then kept as well)."""
+    ref = record.get("disaggregation", record.get("disaggregation_id"))
+    nested = ref if isinstance(ref, dict) else None
+    type_id = _int(nested.get("id") if nested else ref)
+    if nested and type_id is not None and _label_text(nested.get("name")):
+        dm.DisaggregationLabel.objects.update_or_create(
+            kind=dm.DisaggregationLabel.Kind.TYPE,
+            prp_id=type_id,
+            defaults={"label": _label_text(nested.get("name")), "not_found": False},
+        )
+    return {
+        "label": _label_text(record.get("value")),
+        "disaggregation_id": type_id,
+        "active": record.get("active") is not False,
+    }
+
+
+def sync_disaggregation_labels(client: DatamartClient) -> dict[str, Any]:
+    """Read the labels of the disaggregation values the partner reports name, and of their
+    disaggregations (``DisaggregationLabel``): the ids not held yet, or read more than
+    :data:`LABEL_REFRESH_DAYS` ago, at most :data:`LABEL_REQUESTS_PER_RUN` requests per run."""
+    stale = timezone.now() - dt.timedelta(days=LABEL_REFRESH_DAYS)
+    labels = dm.DisaggregationLabel.objects
+    seen = disaggregation_ids_seen()
+    reader = _LabelReader(client)
+
+    def fresh(kind: str) -> set[int]:
+        return set(labels.filter(kind=kind, synced_at__gte=stale).values_list("prp_id", flat=True))
+
+    for pk in sorted(seen - fresh(dm.DisaggregationLabel.Kind.VALUE)):
+        reader.read(
+            dm.DisaggregationLabel.Kind.VALUE,
+            DISAGGREGATION_VALUES,
+            pk,
+            _value_label,
+        )
+    types: set[int] = set()
+    ids = sorted(seen)
+    for start in range(0, len(ids), 5000):
+        types.update(
+            labels.filter(kind=dm.DisaggregationLabel.Kind.VALUE, prp_id__in=ids[start : start + 5000])
+            .exclude(disaggregation_id=None)
+            .values_list("disaggregation_id", flat=True)
+        )
+    for pk in sorted(types - fresh(dm.DisaggregationLabel.Kind.TYPE)):
+        reader.read(
+            dm.DisaggregationLabel.Kind.TYPE,
+            DISAGGREGATIONS,
+            pk,
+            lambda r: {"label": _label_text(r.get("name")), "active": r.get("active") is not False},
+        )
+    return {"values_seen": len(seen), "types_seen": len(types), **reader.counts}
 
 
 def _funded_pcas() -> set[int]:

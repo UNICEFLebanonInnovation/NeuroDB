@@ -80,6 +80,14 @@ On the [action points page](/action-points/): *CSV of the filter*, *CSV of every
 the filter*, *Excel of every action point* (without who an action point is assigned to, texts cleaned)
 and a *PDF report* of the filter (see [Action points](/help/action-points/#exports)).
 
+## Partner progress and funds exports
+
+Partner monitoring, every tab of Progress reports and the *Partner contributions* and *By PD and
+grant* tabs of Funds export the whole filter as Excel or CSV (see
+[Partner progress](/help/partner-progress/#exports)). No figure is repeated in a way that a column total
+would count twice: a disaggregation's values, its subtotal and the location total are in separate
+columns, and a programme document's own amounts are on its first row only.
+
 ## Other pages
 
 Most tables have *Copy* (paste into Excel or a document) and *CSV*; columns marked as not exported (such

@@ -1101,19 +1101,20 @@ def hact_compliance(year: int | None = None) -> dict[str, Any]:
 
 # ------------------------------------------------------------------------------------------- funds
 def funds(params) -> dict[str, Any]:
-    donors = _getlist(params, "donor")
-    grants = _getlist(params, "grant")
-    year = _year(params)
-    q = (params.get("q") or "").strip()
-    lines = dm.FundsReservation.objects.all()
-    headers = dm.FundsReservationHeader.objects.select_related("intervention", "intervention__partner")
-    if donors:
-        lines = lines.filter(donor__in=donors)
-    if grants:
-        lines = lines.filter(grant_number__in=grants)
+    """The Funds page's funds reservations tab: FRs, grants and their amounts, on the page's filter
+    (``funds.FundFilters``, shared with Partner Fund Monitoring and Funded Programs)."""
+    from . import funds as fund_views
+
+    f = fund_views.FundFilters.from_params(params)
+    donors, grants, year, q = f.donors, f.grants, f.year, f.q
+    lines = f.lines().filter(f.pd_q("intervention__"))
+    headers = dm.FundsReservationHeader.objects.select_related(
+        "intervention", "intervention__partner"
+    ).filter(f.pd_q("intervention__"))
     if year:
-        lines = lines.filter(start_date__year=year)
         headers = headers.filter(start_date__year=year)
+    if f.fr:
+        headers = headers.filter(fr_number__icontains=f.fr)
     if q:
         match = (
             Q(intervention__number__icontains=q)
@@ -1174,7 +1175,9 @@ def funds(params) -> dict[str, Any]:
                 if x
             ),
             "years": _years(dm.FundsReservationHeader.objects.exclude(start_date=None), "start_date"),
+            **fund_views.filter_options(),
         },
+        "filters": f,
     }
 
 

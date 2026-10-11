@@ -262,6 +262,16 @@ class PDActivityAdmin(DatamartAdmin):
     raw_id_fields = ("intervention",)
 
 
+@admin.register(dm.DisaggregationLabel)
+class DisaggregationLabelAdmin(ReadOnlyModelAdmin):
+    """The PRP disaggregation labels the partner reports sync read (read-only: the sync keeps them)."""
+
+    list_display = ("label", "kind", "prp_id", "disaggregation_id", "active", "not_found", "synced_at")
+    list_filter = ("kind", "active", "not_found")
+    search_fields = ("label",)
+    list_per_page = 50
+
+
 @admin.register(dm.DatamartDocument)
 class DatamartDocumentAdmin(ReadOnlyModelAdmin):
     list_display = ("dataset", "title", "date", "partner", "intervention", "synced_at")

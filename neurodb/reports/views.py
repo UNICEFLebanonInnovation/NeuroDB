@@ -1184,19 +1184,144 @@ def engagement_detail(request: HttpRequest, pk: int) -> HttpResponse:
     return render(request, "reports/engagement_detail.html", context)
 
 
+FUNDS_TABS = ("reservations", "contributions", "programmes")
+FUNDS_LISTS = ("donor", "grant", "pd_status", "partner", "partner_type")
+CONTRIBUTION_COLUMNS = (
+    "partner",
+    "partner_type",
+    "cso_type",
+    "programme_document",
+    "pd_status",
+    "currency",
+    "planned_unicef_contribution",
+    "total_budget",
+    "partner_contribution",
+    "partner_contribution_share_percent",
+    "financial_contribution_during_reporting_periods",
+    "financial_contribution_currency",
+    "financial_contribution_as_of",
+    "financial_contribution_report",
+)
+PROGRAMME_COLUMNS = (
+    "pd_status",
+    "programme_document",
+    "grant",
+    "donor",
+    "start",
+    "end",
+    "days_to_end",
+    "partner",
+    "partner_type",
+    "currency",
+    "unicef_planned_budget",
+    "total_budget",
+    "funds_reserved_usd",
+    "actual_disbursement_usd",
+    "partner_contribution",
+    "note",
+)
+
+
+def _contribution_row(r: dict[str, Any]) -> dict[str, Any]:
+    reported = r["reported"] or {}
+    return {
+        "partner": r["partner"],
+        "partner_type": r["partner_type"],
+        "cso_type": r["cso_type"],
+        "programme_document": r["programme_document"],
+        "pd_status": r["pd_status"],
+        "currency": r["currency"],
+        "planned_unicef_contribution": r["unicef_planned"],
+        "total_budget": r["total"],
+        "partner_contribution": r["partner_contribution"],
+        "partner_contribution_share_percent": (
+            round(r["partner_share"], 1) if r["partner_share"] is not None else None
+        ),
+        "financial_contribution_during_reporting_periods": reported.get("value"),
+        "financial_contribution_currency": reported.get("currency", ""),
+        "financial_contribution_as_of": reported.get("as_of"),
+        "financial_contribution_report": reported.get("report", ""),
+    }
+
+
+def _programme_row(r: dict[str, Any]) -> dict[str, Any]:
+    """A Funded Programs row: the programme document's own amounts only on its first grant row."""
+    own = r["pd_amounts"]
+    return {
+        "pd_status": r["pd_status"],
+        "programme_document": r["programme_document"],
+        "grant": r["grant"],
+        "donor": r["donor"],
+        "start": r["start"],
+        "end": r["end"],
+        "days_to_end": r["days_to_end"],
+        "partner": r["partner"],
+        "partner_type": r["partner_type"],
+        "currency": r["currency"],
+        "unicef_planned_budget": r["unicef_planned"] if own else None,
+        "total_budget": r["total"] if own else None,
+        "funds_reserved_usd": r["reserved"],
+        "actual_disbursement_usd": r["disbursed"] if own else None,
+        "partner_contribution": r["partner_contribution"] if own else None,
+        "note": "" if own else "Programme document amounts are on its first row",
+    }
+
+
 @require_GET
 def funds(request: HttpRequest) -> HttpResponse:
+    """Funds: funds reservations and grants (``tab=reservations``), Partner Fund Monitoring
+    (``tab=contributions``) and Funded Programs (``tab=programmes``), on one filter, with exports of the
+    whole filtered set of the two Power BI views."""
+    from neurodb.datamart import funds as fund_views
+
+    tab = request.GET.get("tab") if request.GET.get("tab") in FUNDS_TABS else "reservations"
     data = datamart.funds(request.GET)
-    page_obj = _paginate(request, data["headers"])
+    today = timezone.localdate()
+    contributions = programmes = None
+    if tab == "contributions":
+        contributions = fund_views.partner_contributions(data["filters"], today)
+    elif tab == "programmes":
+        programmes = fund_views.funded_programmes(data["filters"], today)
+    export = request.GET.get("export")
+    if export in exports.FORMATS and tab in ("contributions", "programmes"):
+        if tab == "contributions":
+            label, title, columns = "partner-fund-monitoring", "Partner fund monitoring", CONTRIBUTION_COLUMNS
+            rows: Any = [_contribution_row(r) for r in contributions["rows"]]
+        else:
+            label, title, columns = "funded-programmes", "Funded programmes", PROGRAMME_COLUMNS
+            rows = [_programme_row(r) for r in programmes["rows"]]
+        if export == "csv":
+            return exports.stream_csv(exports.export_filename(label, "csv"), columns, rows)
+        return exports.xlsx_response(
+            exports.export_filename(label, "xlsx"), [(title, columns, rows)], typed=True
+        )
+    if tab == "contributions":
+        page_obj = _paginate(request, contributions["rows"])
+    elif tab == "programmes":
+        page_obj = _paginate(request, programmes["groups"])
+    else:
+        page_obj = _paginate(request, data["headers"])
+    params = request.GET.copy()
     context = {
         "page_title": _("Funds"),
         "page_subtitle": _("Funds reservations, disbursements and grants by donor, from the eTools Datamart"),
         "breadcrumbs": [_crumb(_("Funds"))],
         "data": data,
+        "f": data["filters"],
+        "tab": tab,
+        "contributions": contributions,
+        "programmes": programmes,
         "page_obj": page_obj,
-        "selected": {key: request.GET.getlist(key) for key in ("donor", "grant")},
+        "selected": {key: request.GET.getlist(key) for key in FUNDS_LISTS},
         "year": request.GET.get("year", ""),
         "q": request.GET.get("q", ""),
+        "tab_urls": {
+            name: request.path + "?" + _query_with(params, ("tab", "export"), tab=name) for name in FUNDS_TABS
+        },
+        "downloads": [
+            {"label": _("Excel of the filter"), "url": "?" + _query_with(params, (), tab=tab, export="xlsx")},
+            {"label": _("CSV of the filter"), "url": "?" + _query_with(params, (), tab=tab, export="csv")},
+        ],
         "chart_data": {
             "by_donor": data["by_donor"],
             "by_year": data["by_year"],
@@ -1207,7 +1332,8 @@ def funds(request: HttpRequest) -> HttpResponse:
     return render(request, template, context)
 
 
-REPORTING_TABS = ("reports", "partners", "locations")
+REPORTING_TABS = ("reports", "partners", "locations", "disaggregations")
+DISAGGREGATION_BLOCKS = 25  # locations (each with its disaggregation lines) per page
 REPORTING_LISTS = (
     "status",
     "report_type",
@@ -1296,6 +1422,89 @@ def _location_row(r: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+DISAGGREGATION_BLOCK_COLUMNS = (
+    "programme_document",
+    "pd_status",
+    "partner",
+    "section",
+    "cp_output",
+    "indicator",
+    "emergency",
+    "report",
+    "report_type",
+    "report_status",
+    "due_date",
+    "period_start",
+    "period_end",
+    "location",
+    "p_code",
+)
+DISAGGREGATION_COLUMNS = (
+    *DISAGGREGATION_BLOCK_COLUMNS,
+    "line",
+    "disaggregation",
+    "value",
+    "value_in_period",
+    "subtotal_of_the_disaggregation",
+    "location_total",
+    "last_modified",
+    "note",
+)
+LINE_NAMES = {"value": "Value", "subtotal": "Subtotal", "total": "Location total"}
+
+
+def _disaggregation_note(block: dict[str, Any], line: dict[str, Any]) -> str:
+    notes = []
+    if line["line"] == "subtotal":
+        if line.get("hidden"):
+            notes.append(
+                f"The subtotal of every value of the disaggregation; {line['hidden']} left out by the filter"
+            )
+        if line.get("matches") is False:
+            notes.append("This subtotal differs from the location total")
+    elif line["line"] == "total":
+        if block["repeated"]:
+            notes.append("The report total is repeated on every location: no value of its own")
+        elif not block["total_is_prp"] and block["total"] is not None:
+            notes.append("No disaggregation total: the location's value in the period")
+        if block["unlabelled"]:
+            n = block["unlabelled"]
+            notes.append(
+                "1 value without its label yet is not listed"
+                if n == 1
+                else f"{n} values without their labels yet are not listed"
+            )
+    return "; ".join(notes)
+
+
+def _disaggregation_export_rows(found: dict[str, Any]):
+    """One row per line of each block (``reporting.disaggregation_lines``): a value, a subtotal and a
+    location total each in a column of its own, so adding up one column never mixes them."""
+    for block in found["blocks"]:
+        modified = block["modified"]
+        if isinstance(modified, datetime.datetime):
+            modified = timezone.localtime(modified).date() if timezone.is_aware(modified) else modified.date()
+        for line in reporting_service.disaggregation_lines(block):
+            yield {
+                **{k: block.get(k) for k in DISAGGREGATION_BLOCK_COLUMNS},
+                "line": LINE_NAMES[line["line"]],
+                "disaggregation": line["type"],
+                "value": line["label"] if line["line"] == "value" else "",
+                "value_in_period": line.get("value"),
+                "subtotal_of_the_disaggregation": line.get("subtotal"),
+                "location_total": line.get("total"),
+                "last_modified": modified,
+                "note": _disaggregation_note(block, line),
+            }
+
+
+def _reporting_disaggregations(data: dict[str, Any], params) -> dict[str, Any]:
+    wanted = set(data["filters"].statuses) or None
+    return reporting_service.disaggregation_rows(
+        data["rows"], data["statuses"], data["today"], wanted, params
+    )
+
+
 def _reporting_locations(data: dict[str, Any]) -> dict[str, Any]:
     # every progress report's own status, read before the status filter: a row is kept by its report's
     # status, never by a status its own fields would give
@@ -1306,16 +1515,20 @@ def _reporting_locations(data: dict[str, Any]) -> dict[str, Any]:
 @require_GET
 def partner_reporting(request: HttpRequest) -> HttpResponse:
     """Progress reports: Reporting Progress (indicator reports by status, section and month of the due
-    date, and the report table), Partner Performance (``tab=partners``) and Report/Location
-    (``tab=locations``), with one filter for the three and exports of the whole filtered set."""
+    date, and the report table), Partner Performance (``tab=partners``), Report/Location
+    (``tab=locations``) and Report/Disaggregation (``tab=disaggregations``), with one filter for all of
+    them and exports of the whole filtered set."""
     tab = request.GET.get("tab") if request.GET.get("tab") in REPORTING_TABS else "reports"
     data = datamart.partner_reporting(request.GET)
     export = request.GET.get("export")
     if export in exports.FORMATS:
-        return _reporting_export(data, tab, export)
+        return _reporting_export(data, tab, export, request.GET)
     locations = _reporting_locations(data) if tab == "locations" else None
+    disaggregations = _reporting_disaggregations(data, request.GET) if tab == "disaggregations" else None
     if tab == "locations":
         page_obj = _paginate(request, locations["rows"])
+    elif tab == "disaggregations":
+        page_obj = _paginate(request, disaggregations["blocks"], DISAGGREGATION_BLOCKS)
     elif tab == "partners":
         page_obj = _paginate(request, data["partners"]["follow_up"])
     else:
@@ -1332,6 +1545,7 @@ def partner_reporting(request: HttpRequest) -> HttpResponse:
         "tab": tab,
         "page_obj": page_obj,
         "locations": locations,
+        "disaggregations": disaggregations,
         "selected": {key: request.GET.getlist(key) for key in REPORTING_LISTS}
         | {"status": data["filters"].statuses},
         "year": request.GET.get("year", ""),
@@ -1351,23 +1565,33 @@ def partner_reporting(request: HttpRequest) -> HttpResponse:
     return render(request, template, context)
 
 
-def _reporting_export(data: dict[str, Any], tab: str, fmt: str) -> HttpResponse:
+def _too_many(found: dict[str, Any]) -> HttpResponse:
+    return HttpResponse(
+        _(
+            "The filter holds %(n)s report rows, more than %(limit)s: choose a year, a section or a "
+            "partner first."
+        )
+        % {"n": f"{found['too_many']:,}", "limit": f"{found['limit']:,}"},
+        status=400,
+        content_type="text/plain; charset=utf-8",
+    )
+
+
+def _reporting_export(data: dict[str, Any], tab: str, fmt: str, params=None) -> HttpResponse:
     """The tab's table, every row of the filter (not only the page shown). The Excel file adds the
     counts of the tiles: indicator reports and progress reports per status, and by section."""
-    if tab == "locations":
+    if tab == "disaggregations":
+        found = _reporting_disaggregations(data, params or {})
+        if found["too_many"]:
+            return _too_many(found)
+        label, title, columns = "report-disaggregations", "Report by disaggregation", DISAGGREGATION_COLUMNS
+        rows: Any = _disaggregation_export_rows(found)
+    elif tab == "locations":
         found = _reporting_locations(data)
         if found["too_many"]:
-            return HttpResponse(
-                _(
-                    "The filter holds %(n)s report rows, more than %(limit)s: choose a year, a section or a "
-                    "partner first."
-                )
-                % {"n": f"{found['too_many']:,}", "limit": f"{found['limit']:,}"},
-                status=400,
-                content_type="text/plain; charset=utf-8",
-            )
+            return _too_many(found)
         label, title, columns = "report-locations", "Report by location", LOCATION_COLUMNS
-        rows: Any = (_location_row(r) for r in found["rows"])
+        rows = (_location_row(r) for r in found["rows"])
     elif tab == "partners":
         label, title, columns = "partners-follow-up", "Follow up", FOLLOW_UP_COLUMNS
         rows = (_report_row(r) for r in data["partners"]["follow_up"])

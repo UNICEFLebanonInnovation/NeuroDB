@@ -836,7 +836,7 @@ Datamart host (a pagination link to any other host is refused). Every request is
 | `tpm_visits`, `field_monitoring` | `tpm-visits/`, `fm-ontrack/` | TPM visits and field monitoring findings (field monitoring and partner pages); each finding is linked to the programme document its entity names, by the PCA/PD pair of the reference so that the `LEBA/` or `LEB/` prefix and the `-2` amendment do not matter (`pd_match` says how: exact, token, base or title; a PD entity that matches none is counted in `not_linked.programme_document_fm`) |
 | `hact` | `hact/aggregate/` | HACT totals per year (assurance page) |
 | `funds_reservation_headers` | `funds/fundsreservationheader/` | FRs: reserved, disbursed, outstanding (funds and programme pages) |
-| `partner_reports` | `prp/datareport/` | partner progress reports per indicator and location (partner monitoring, partner reporting, programme and partner pages), periods starting in the last `ETOOLS_DATAMART_REPORTING_YEARS` years and, while `ETOOLS_DATAMART_REPORTING_FROM_PD_START` is on (the default), since the start of every running programme document (`details.read_from` shows the date read from); the indicator report id, CP output and eTools CP output id get columns, and each PD indicator its CP output from its latest report naming one (`details.cp_outputs`) |
+| `partner_reports` | `prp/datareport/` | partner progress reports per indicator and location (partner monitoring, partner reporting, programme and partner pages), periods starting in the last `ETOOLS_DATAMART_REPORTING_YEARS` years and, while `ETOOLS_DATAMART_REPORTING_FROM_PD_START` is on (the default), since the start of every running programme document (`details.read_from` shows the date read from); the indicator report id, CP output and eTools CP output id get columns, and each PD indicator its CP output from its latest report naming one (`details.cp_outputs`); then the labels of the disaggregation values the reports name (`details.disaggregation_labels`, below) |
 | `tpm_activities` | `tpm-activities/` | the PD, place and date of each TPM visit activity (field monitoring and programme pages) |
 | `staff_visits` | `travel-activities/` | UNICEF staff trip activities: programmatic visits, spot checks, meetings (programme and partner pages) |
 | `planned_visits` | `interventions-planned-visits/` | programmatic visits planned per PD and quarter |
@@ -846,7 +846,7 @@ Datamart host (a pagination link to any other host is refused). Every request is
 | `audit_findings` | `audit/financial-findings/` | financial findings of each engagement (engagement, assurance and partner pages) |
 | `fm_questions`, `fm_options`, `fm_programme_activities`, `offices`, `sections` | `fm-questions/`, `fm-options/`, `fm-programme-activities/`, `office/`, `reports/sections/` | kept whole in `datamart.DatamartDocument` (below); they feed Monitoring insights: the checklist answers and their options, the programme activities and CP outputs of each visit, and the office and section names (see *Monitoring insights*, *Data and its keys*) |
 
-Pages: *Funds*, *Partner reporting* (each report opens with its indicators by location),
+Pages: *Funds* (funds reservations, Partner contributions, By PD and grant), *Partner reporting* (each report opens with its indicators by location),
 *Assurance* (with HACT compliance per partner and an engagement page with its findings and action
 points), *Field monitoring* and *Action points*, plus sections on the programme, partner and donor
 pages. The PRP endpoints other than `prp/datareport/` carry no country field, so they are not read.
@@ -1018,7 +1018,7 @@ figures as everywhere else (they read the rule above; nothing is added across in
   target; without Reached or with zero Reached; and NeuroDB's own checks: Reached differs from PRP's
   cumulative, the same title twice in one PD (kept apart, never merged), partial history. Each list
   shows its first 500 rows; the counts are complete.
-* **Progress reports** has three tabs on one filter (search, report status, report type, reporting
+* **Progress reports** has four tabs on one filter (search, report status, report type, reporting
   year, section, report #, partner, partner type, PD status, period start and period end between):
   * *Reporting progress*: tiles of **indicator reports** (one indicator in one progress report, as
     Power BI counts them) per status, with the number of progress reports under each; indicator
@@ -1038,6 +1038,7 @@ figures as everywhere else (they read the rule above; nothing is added across in
     not count are greyed. A row keeps its progress report's status (the one the tiles count), also
     under a status filter. It reads at most 60,000 report rows at once; above that it asks for a
     narrower filter.
+  * *By disaggregation* (Report/Disaggregation): see below; same row limit.
   The exports hold every row of the tab's filter; the Excel file adds the indicator reports and
   progress reports per status and the section table (and, on *Partners*, partners per status and
   those not reported). The status filter uses the six statuses (an old link with PRP's word, such as
@@ -1050,6 +1051,57 @@ figures as everywhere else (they read the rule above; nothing is added across in
   output, PD output, baseline, target and emergency flag; filters add PD reference, indicator title
   and Emergency, and the Section list also offers the sections the indicators name (the tab filters
   on each indicator's own section); exported whole.
+* **Progress reports → By disaggregation** (PD/SPD Report/Disaggregation): per indicator report and
+  location, PRP's value for each disaggregation value (female, Male; Lebanese, Syrian…) with its label,
+  a **subtotal per disaggregation** (and per cross-tab) and the **location total** `"()"`, never one sum
+  of every value: values add up only within one disaggregation (female 5 + Male 15 + Lebanese 20 is a
+  location total of 20, not 40; `neurodb/datamart/disaggregation.py`). Percentages and ratios are
+  subtotalled as numerators over denominators, and not at all without them. A subtotal that differs
+  from the location total is marked. The location is read as Reached reads it (two rows of one
+  location are never added: the row whose value is used gives the disaggregation; a report total
+  repeated on every location gives no location total); when PRP gives no `"()"`, the location's value
+  in the period stands in, said so. A value whose label is not read yet is not listed and is counted
+  under the total. Extra filters: indicator, location, P-code and disaggregation (words in the
+  disaggregation or its value). The export has one line per value, subtotal and total, each in its own
+  column (`value_in_period`, `subtotal_of_the_disaggregation`, `location_total`), with the row's last
+  change in the Datamart. The indicator page adds **Reached by disaggregation**: per location, each
+  value combined over the counted reports as Reached is, with a subtotal per disaggregation only for an
+  indicator summed across locations and periods.
+* **Disaggregation labels.** The partner reports key their values by PRP ids (`"(12,)"`, a cross-tab
+  cell `"(12, 31)"`). PRP's label tables (`sources/prp/indicatordisaggregationvalue` and
+  `indicatordisaggregation`) have no country filter, so the `partner_reports` sync reads only the ids the
+  reports name, one request per id (`/<id>/`), into `datamart.DisaggregationLabel` (labels only; admin →
+  *eTools Datamart → Disaggregation labels*, read-only): ids not held yet, or read more than 30 days ago,
+  at most 2,000 requests and 10 minutes per run (the rest the next night,
+  `details.disaggregation_labels.left`). A value may name its disaggregation by id or as a nested
+  record (whose name is then kept too). *eTools reporting checks* (check 3) says how many of the ids
+  the reports name have their label read. An id
+  PRP does not have is marked *not found*. When the labels cannot be read at all (ten failures in a row,
+  for example the account cannot read PRP's tables), the step stops, says why in
+  `details.disaggregation_labels.error` and the run ends *Succeeded with errors*; the reports are kept.
+* **Funds → Partner contributions** (Partner Fund Monitoring) and **Funds → By PD and grant** (Funded
+  Programs) share the Funds page's filter (search, donor, grant, FR number, FR start year, PD status,
+  partner, partner type; the FR filters choose the programme documents their lines fund; no PD status
+  chosen means every status but draft and cancelled; `neurodb/datamart/funds.py`). *Partner
+  contributions*: one row per programme document with partner and partner type, currency, planned UNICEF
+  contribution (`total_unicef_budget`), total budget, partner contribution (`cso_contribution`), its share
+  of the total budget, and the **financial contribution during reporting periods**: PRP's
+  `financial_contribution_to_date` (`prp_indicator_reports`), repeated on every indicator of a progress
+  report, read once per progress report from the latest one that counts (Accepted or Submitted, by the
+  six-status rule) and carries it; when its indicators disagree the largest is shown, marked *varies*.
+  *By PD and grant*: one row per programme document and grant with the funds reserved on that grant
+  (the sum of its FR lines' `overall_amount`, USD), donor, start, end, days to end (end − today, −1 once
+  ended) and a status colour (active green, signed grey, ended and the like amber, in review red). The
+  budget, the disbursement (the PD's FR headers' `actual_amt`, USD, for the whole PD) and the partner
+  contribution are the programme document's: shown once (cells spanning its grants; in the export on
+  its first row only), so no total counts them twice. Amounts in different currencies are never added:
+  the tiles and the currency table give totals per currency. Both tabs export the whole filter.
+* **Privacy.** A UNICEF focal point eTools knows only by an e-mail address is no longer stored under it
+  (`person_names`), a progress report's `submitted_by` is kept only when it is a name, and the typed
+  eTools tables keep each record without the keys naming an e-mail address, a phone or a mobile, as the
+  records kept whole always were (`catalogue.scrub`). Migration `datamart 0013` removed what earlier
+  syncs had stored (batched, not atomic; nothing to run). The progress report pop-up no longer names
+  the partner's staff member who submitted: only UNICEF focal points are named, on the report table.
 
 ### One programme implementation ecosystem: how the eTools records are linked
 
@@ -1139,7 +1191,8 @@ sections also feed Monitoring insights, which reads their keys first (see Monito
 The PRP views have no `country_name`: they are filtered by the country office's business area code,
 found from `datamart/workspaces` (or set `ETOOLS_DATAMART_BUSINESS_AREA`). A record from another
 country that an API filter let through is dropped (`details.other_country_skipped`). Keys naming
-an e-mail address, a phone or a mobile are removed from the records kept whole here and from every
+an e-mail address, a phone or a mobile are removed from the records kept whole here, from the records
+of the typed eTools tables, and from every
 assistant answer; the field monitoring records reach the assistant without people and without long texts
 (see *Data leaves Azure* under Ask NeuroDB).
 
@@ -1149,7 +1202,7 @@ Not read, and why:
 |---|---|
 | `datamart/users`, `datamart/partners/contacts`, `sources/prp/unicefperson`, the PRP focal point and officer tables | personal data |
 | `rapidpro/*` | RapidPro messaging; contacts are personal data; no country filter |
-| `datamart/reports/outcomes`, `outputs`, `activities`; the other `sources/prp/*` tables | global tables with no country filter |
+| `datamart/reports/outcomes`, `outputs`, `activities`; the other `sources/prp/*` tables | global tables with no country filter (of `sources/prp/indicatordisaggregation` and `indicatordisaggregationvalue`, only the labels of the ids the partner reports name are read, by id) |
 | `prp/indicator-report` | superseded by `prp/indicator-report-v2` |
 | `datamart/audit/financial-findings`, `audit/engagement-details`, `partners_hact_active` | subsets or summaries of endpoints that are read |
 
@@ -1307,8 +1360,9 @@ one short = medium, two or more = low. A grant's unspent balance is each funds r
 outstanding amount in the grant's share of the reservation's lines (eTools carries the
 outstanding amount per reservation, not per grant). Sex, age, nationality and disability come from
 the indicators' titles: a title naming both girls and boys names neither, so most children fall
-under "not named" until PRP disaggregations carry labels; they are read from each PD's main
-indicator, as the children reached are.
+under "not named" (the brief reads the titles, not PRP's disaggregations, which are on the Progress
+reports page's *By disaggregation* tab); they are read from each PD's main indicator, as the children
+reached are.
 
 **Values that cannot be right are left out.** A children indicator whose reported value is above
 the child population of Lebanon (the latest population figures), or more than 20 times its target

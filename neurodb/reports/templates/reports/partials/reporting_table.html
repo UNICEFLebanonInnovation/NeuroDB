@@ -4,10 +4,12 @@
     <a href="{{ tab_urls.reports }}" {% if tab == "reports" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="chart" %} {% trans "Reporting progress" %}</a>
     <a href="{{ tab_urls.partners }}" {% if tab == "partners" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="users" %} {% trans "Partners" %}</a>
     <a href="{{ tab_urls.locations }}" {% if tab == "locations" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="pin" %} {% trans "By location" %}</a>
+    <a href="{{ tab_urls.disaggregations }}" {% if tab == "disaggregations" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="layers" %} {% trans "By disaggregation" %}</a>
   </div>
 </div>
 {% if tab == "partners" %}{% include "reports/partials/_reporting_partners.html" %}
 {% elif tab == "locations" %}{% include "reports/partials/_reporting_locations.html" %}
+{% elif tab == "disaggregations" %}{% include "reports/partials/_reporting_disaggregations.html" %}
 {% else %}
 {% with c=data.counts %}
 <div class="kpi-grid">

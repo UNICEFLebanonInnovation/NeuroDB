@@ -284,6 +284,8 @@ class Cell:
     prp_cumulative: float | None = None  # PRP's total_cumulative_progress_in_location
     rows: int = 1
     repeated: bool = False  # the report total repeated on every location: no value of its own
+    disaggregation: dict[str, Any] = field(default_factory=dict)  # PRP's raw values of the row read
+    modified: Any = None  # the row's last change in the Datamart (when read)
 
     @property
     def item(self) -> Item:
@@ -386,7 +388,10 @@ def _cell(row: dict[str, Any], ratio: bool, percentage: bool) -> Cell:
             found[str(key)] = value
     prp_cumulative = parts(row.get("total_cumulative_progress_in_location"))
     cell = Cell(
-        parts=found, prp_cumulative=prp_cumulative.value(ratio, percentage) if prp_cumulative else None
+        parts=found,
+        prp_cumulative=prp_cumulative.value(ratio, percentage) if prp_cumulative else None,
+        disaggregation=disaggregation,
+        modified=row.get("last_modify_date"),
     )
     total = parts(disaggregation.get("()")) if disaggregation else None
     if total is not None and total.value(ratio, percentage) is not None:
@@ -829,7 +834,8 @@ def _locations(reports, counted, values, year, over, wanted) -> dict[str, dict[s
 
 
 def _keys(place: str, counted: list[Report], over) -> dict[str, float]:
-    """Reached per disaggregation key at one location (values only: the labels come with R4)."""
+    """Reached per disaggregation key at one location (labelled and grouped by
+    ``disaggregation.reached_by_disaggregation``)."""
     keys: dict[str, list[Item]] = defaultdict(list)
     for report in counted:
         cell = report.cells.get(place)

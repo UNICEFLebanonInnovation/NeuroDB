@@ -31,6 +31,7 @@ from neurodb.indicators.services.tracking import NO_TARGET, tracking_between
 from neurodb.partnerships import statuses as pd_statuses
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
+from . import disaggregation
 from . import models as dm
 from . import reached as rc
 from .reached import location_key, norm, number  # noqa: F401 (the names other modules import from here)
@@ -1115,6 +1116,7 @@ def indicator_detail(
         "planned_locations": sorted({x for x in same.values_list("location_name", flat=True) if x}),
         "periods": periods,
         "by_location": by_location,
+        "by_disaggregation": disaggregation.reached_by_disaggregation(result),
         "reports": newest_first,
         "repeated_totals": any(r.source == "report_total" for r in reports),
         # the margins add up only for a sum of locations and periods whose counted reports each come

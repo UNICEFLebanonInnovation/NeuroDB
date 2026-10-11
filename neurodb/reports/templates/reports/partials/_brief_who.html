@@ -9,7 +9,7 @@
       <span class="panel__hint">{% trans "As the indicators' titles name them (eTools)" %}</span>
     </div>
     <div class="chart chart--sm" data-module="charts" data-chart="stacked-series" data-source="brief-chart-data" data-key="sex_age" data-height="220" data-empty-title="{% trans 'No children indicator reported yet' %}" aria-label="{% trans 'Children reached by age band, girls, boys and not named' %}"></div>
-    <p class="caveat mb-0">{% blocktrans with n=w.children_tagged|intcomma %}{{ n }} children reached this year on the main indicator of each programme document (one indicator per PD, never several added); a title naming both girls and boys names neither, so most fall under "not named" until PRP disaggregations carry labels.{% endblocktrans %}</p>
+    <p class="caveat mb-0">{% blocktrans with n=w.children_tagged|intcomma %}{{ n }} children reached this year on the main indicator of each programme document (one indicator per PD, never several added); a title naming both girls and boys names neither, so most fall under "not named". PRP's disaggregations (female, male…) are on the Progress reports page, By disaggregation.{% endblocktrans %}</p>
     <p class="source-line">{{ w.source }}</p>
   </section>
   <section class="panel" aria-labelledby="nat-title">

@@ -41,6 +41,18 @@
 {% else %}
 <p class="small text-muted">{% trans "No values reported for this report type yet." %}</p>
 {% endif %}
+{% if by_disaggregation %}
+<h3 class="h6 mt-3">{% trans "Reached by disaggregation" %}</h3>
+<div class="table-wrap"><table class="table table-sm disaggregation-table">
+  <thead><tr><th scope="col">{% trans "Location" %}</th><th scope="col">{% trans "Disaggregation" %}</th><th scope="col" class="num">{% trans "Reached" %}</th></tr></thead>
+  {% for loc in by_disaggregation %}<tbody class="disaggregation-block">
+    {% for g in loc.groups %}{% for line in g.lines %}<tr><td class="small">{{ loc.location }}{% if loc.p_code %}<span class="cell-sub mono">{{ loc.p_code }}</span>{% endif %}</td><td class="small"><span class="text-muted">{{ g.name }}:</span> {{ line.label }}</td><td class="num">{{ line.reached|number:0 }}</td></tr>{% endfor %}
+    {% if g.subtotal is not None %}<tr class="is-subtotal"><td class="small">{{ loc.location }}</td><td class="small"><span class="text-muted">{{ g.name }}:</span> {% trans "subtotal" %}</td><td class="num">{{ g.subtotal|number:0 }}{% if g.matches is False %}<span class="cell-sub text-warning">{% trans "differs from the location's Reached" %}</span>{% endif %}</td></tr>{% endif %}{% endfor %}
+    <tr class="is-total"><td class="small">{{ loc.location }}</td><td class="small">{% trans "Location's Reached" %}{% if loc.unlabelled %}<span class="cell-sub">{% blocktrans count counter=loc.unlabelled %}{{ counter }} value without its label yet, not listed{% plural %}{{ counter }} values without their labels yet, not listed{% endblocktrans %}</span>{% endif %}</td><td class="num">{{ loc.reached|number:0 }}</td></tr>
+  </tbody>{% endfor %}
+</table></div>
+<p class="small text-muted">{% if result.additive %}{% trans "Each value is combined over the counted reports as Reached is. Values add up only within one disaggregation (female + male), never across disaggregations, so each has its own subtotal next to the location's Reached." %}{% else %}{% blocktrans with method=indicator.method_label %}Each value is combined over the counted reports as Reached is ({{ method }}): values are not added up into subtotals.{% endblocktrans %}{% endif %}</p>
+{% endif %}
 <h3 class="h6 mt-3">{% trans "Reports" %} <span class="small text-muted fw-normal">{{ report_types|get_item:read_type }}</span></h3>
 <div class="table-wrap"><table class="table table-sm"><thead><tr><th>{% trans "Report" %}</th><th>{% trans "Period" %}</th><th>{% trans "Due" %}</th><th>{% trans "Submitted" %}</th><th>{% trans "Status" %}</th><th>{% trans "Partner's assessment" %}</th><th class="num">{% trans "Value" %}</th><th class="num">{% trans "PRP to date" %}</th></tr></thead>
 <tbody>{% for r in reports %}<tr{% if not r.counted %} class="reached-uncounted"{% endif %}><td class="mono small">{{ r.report_number|default:r.progress_report }}<span class="cell-sub">{{ r.report_type }}</span></td><td class="small text-nowrap">{{ r.period_start|date:"j M Y"|default:"—" }} – {{ r.period_end|date:"j M Y"|default:"—" }}</td><td class="small">{{ r.due_date|date:"j M Y"|default:"—" }}</td><td class="small">{{ r.submission_date|date:"j M Y"|default:"—" }}</td><td>{% status_pill r.status r.status_label "sm" %}{% if not r.counted %}<span class="cell-sub">{% trans "not counted" %}</span>{% endif %}</td><td class="small">{{ r.pd_output_progress_status|code_label }}{% if r.narrative_assessment %}<span class="cell-sub">{{ r.narrative_assessment|truncatechars:160 }}</span>{% endif %}</td><td class="num">{{ r.total|number:0 }}</td><td class="num">{{ r.prp_cumulative|number:0 }}</td></tr>

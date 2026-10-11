@@ -1275,6 +1275,16 @@ th[aria-sort="descending"] .sort-link::after { content: " ▾"; }
 th[aria-sort="ascending"] .sort-link::after { content: " ▴"; }
 .cell-wrap { min-width: 12rem; max-width: 28rem; white-space: normal; }
 tr.is-uncounted > td { color: var(--nd-muted); }
+/* Report/Disaggregation: one block per location, a subtotal per disaggregation, the location total last */
+.disaggregation-table > tbody.disaggregation-block > tr:first-child > * { border-top: 2px solid var(--nd-border); }
+.disaggregation-table tr.is-subtotal > td { font-weight: 600; background: var(--nd-surface-2); }
+.disaggregation-table tr.is-total > td { font-weight: 700; background: var(--nd-primary-soft); }
+.disaggregation-table tr > td[rowspan] { vertical-align: top; background: var(--nd-surface); font-weight: 400; }
+/* Funded programmes: one block per programme document, its own amounts once (cells spanning its grants) */
+.funded-table > tbody.fund-block > tr:first-child > * { border-top: 2px solid var(--nd-border); }
+.funded-table td[rowspan] { vertical-align: top; }
+/* money tiles: amounts of ten digits and more fit a phone's two-column tiles */
+.kpi-grid--money .kpi__value { font-size: clamp(1.1rem, 5.2vw, 1.6rem); }
 .status-matrix th, .status-matrix td { white-space: nowrap; }
 .status-matrix tfoot th, .status-matrix tfoot td { font-weight: 700; border-top: 2px solid var(--nd-border); }
 @media (max-width: 575.98px) { .section-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cell-wrap { min-width: 9rem; } }
