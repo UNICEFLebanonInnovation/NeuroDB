@@ -8,13 +8,11 @@ from __future__ import annotations
 
 import csv
 import datetime
-import importlib
 import io
 from decimal import Decimal
 
 import pytest
 import responses
-from django.db import connection
 from django.urls import reverse
 from django.utils import timezone
 from openpyxl import load_workbook
@@ -603,9 +601,9 @@ def test_the_typed_tables_keep_no_contact_details(db):
     assert dm.Grant.objects.get().data == {"id": 1, "name": "SC1", "donor": "EU", "contacts": [{"name": "A"}]}
 
 
-def test_the_migration_removes_the_contact_details_already_stored(funded):
-    migration = importlib.import_module("neurodb.datamart.migrations.0013_scrub_contact_details")
-    assert migration.Migration.atomic is False
+def test_the_clean_up_removes_the_contact_details_already_stored(funded):
+    from neurodb.datamart import backfill
+
     grant = dm.Grant.objects.create(datamart_id=9, name="SC9", data={"name": "SC9", "Email": "x@example.org", "list": [{"phone": 1, "n": 2}]})  # fmt: skip
     clean = dm.Grant.objects.create(datamart_id=10, name="SC10", data={"name": "SC10"})
     engagement = dm.AuditEngagement.objects.create(datamart_id=1, details={"audits": {"auditor_email": "a@example.org", "x": 1}})  # fmt: skip
@@ -615,15 +613,11 @@ def test_the_migration_removes_the_contact_details_already_stored(funded):
     named = dm.ReportedIndicator.objects.create(datamart_id=7, submitted_by="Partner Staff")
     addressed = dm.ReportedIndicator.objects.create(datamart_id=8, submitted_by="staff@example.org")
 
-    class Editor:
-        pass
-
-    Editor.connection = connection
-    from django.apps import apps
-
-    for _ in range(2):  # running it twice changes nothing more
-        migration.scrub_records(apps, Editor())
-        migration.drop_focal_point_addresses(apps, Editor())
+    counts = backfill.scrub_contact_details()
+    assert counts["records_cleaned"] == 2 and counts["programme_documents_cleaned"] == 1
+    assert backfill.scrub_contact_details() == {  # running it twice changes nothing more
+        "records_cleaned": 0, "programme_documents_cleaned": 0, "submitted_by_cleared": 0
+    }  # fmt: skip
     grant.refresh_from_db()
     engagement.refresh_from_db()
     assert grant.data == {"name": "SC9", "list": [{"n": 2}]}

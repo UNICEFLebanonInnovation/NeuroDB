@@ -12,6 +12,17 @@ switches the jobs to the new image. In addition, every web container applies pen
 before it starts (`RUN_MIGRATIONS=true`, the default), under a database lock so only one container
 migrates at a time. On App Service this is what migrates the database on each deployment.
 
+**Migrations must be quick.** A web container serves nothing until its migrations are done, and App
+Service stops a container that has not started within its start-up limit (about four minutes). A
+longer migration is cut off, rolled back and started again at every restart, and the site answers
+*503 Service Unavailable* until an image without it is deployed (this happened with the eTools
+"Reached" release, whose column fill read every partner report row). So a migration only changes the
+schema or writes small tables (settings, schedules, prompts); work over the large tables (partner
+reports, eTools records kept whole, Monitoring insights rule checks) runs once the site is up, as a
+background job a schedule starts at once: *Finish the eTools update* (below) is the example. The
+test `tests/datamart/test_backfill.py` lists every migration that runs code and fails on a new one
+until it is checked and listed as quick.
+
 Rollback: `infra/scripts/rollback.sh` with the previous image tag. Migrations are not reversed, so
 every migration must stay compatible with the previous release for one deployment.
 
@@ -690,6 +701,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `watch` | `run_watch --daily` | `45 7 * * *`, daily 07:45: NeuroDB Watch's morning pass, the *For you* pages (see NeuroDB Watch); a quick pass also follows new data |
 | `ml-readiness` | `ml_readiness` | `45 6 * * 1`, Mondays 06:45: is the data ready for machine learning (Data health) |
 | `forecast` | `forecast_indicators` | `15 7 * * 1`, Mondays 07:15: year-end forecasts of the indicators, back-tested |
+| `etools-update-cleanup` | `datamart_backfill` | `*/15 * * * *`, every 15 minutes, due at once after the deployment that adds it (the scheduler starts it within a minute of the site starting) and until one run has gone through everything; the job then switches it off ("finished: nothing left to do"). It fills the new columns of the partner reports already synced and removes the contact details older syncs stored (see eTools Datamart, *Finish the eTools update*) |
 | (inside `activityinfo-data` and `etools-datamart`) | `link_partners` | at the end of both jobs |
 | (inside `etools-datamart`) | `fmm_refresh` | at the end of the sync, when it synced a dataset Monitoring insights reads (`FMM_REFRESH_AFTER_SYNC`); its failure never fails the sync |
 
@@ -762,6 +774,7 @@ admin home page, *Quick actions*):
 | Run a job → *Review documents (pending)* (also the admin action *Analyse in the document review* on Knowledge documents) | `review_documents --pending` (`--document <id>` for one document) | background |
 | Run a job → *Review documents (full)* | `review_documents --full` | background |
 | Run a job → *Locate document findings* | `review_documents --locate` | background |
+| Run a job → *Finish the eTools update* | `datamart_backfill` | background |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |
@@ -819,6 +832,19 @@ finishes. Only one Datamart sync runs at a time (a database lock), whoever start
 restarts the container and kills a sync in progress: its run stays *Running* until the next
 **Sync eTools Datamart now**, which sees that nobody holds the lock, closes the run as *Failed* ("Cut off")
 and starts. The scheduled job `etools-datamart` (admin → Scheduled jobs) runs it every night.
+
+**Finish the eTools update.** The work an update leaves for after the site has started runs as the
+job *Finish the eTools update* (`datamart_backfill`, recorded as *eTools update clean-up* in this
+list): it copies PRP's indicator report id and the CP output from each partner report row synced
+before those columns existed (and gives each PD indicator its CP output), and removes from the
+records kept the e-mail addresses, phones and mobiles older syncs stored, the UNICEF focal point
+entries that were e-mail addresses and every `submitted_by` holding one. The schedule
+`etools-update-cleanup` starts it as soon as the site is up and the job switches that schedule off
+once a run has gone through everything. It writes only what is left, in batches committed one by
+one, so a run cut short (a restart) carries on next time and *Run a job → Finish the eTools update*
+can be pressed at any time. It holds the Datamart sync's lock: while a sync runs it waits for the
+schedule's next try (and a sync started meanwhile says another sync is running). Until it has run,
+partner report rows synced before the update show no CP output; the next sync fills them too.
 From a shell with the same settings: `python manage.py sync_etools_datamart [--only a,b]`.
 
 The nightly eTools sync reads the **eTools Datamart** (`https://datamart.unicef.io`, the new eTools
@@ -1138,8 +1164,9 @@ figures as everywhere else (they read the rule above; nothing is added across in
   `submitted_by` is kept only when it is a name (in its column and in the record kept beside it), and
   the typed eTools tables keep each record without the keys naming an e-mail address, a phone or a
   mobile, as the records kept whole always were (`catalogue.scrub`). Ask NeuroDB also withholds any
-  e-mail address left in a text of a record it reads ("[email withheld]"). Migration `datamart 0013`
-  removed what earlier syncs had stored (batched, not atomic; nothing to run). The progress report
+  e-mail address left in a text of a record it reads ("[email withheld]"). The job *Finish the eTools
+  update* removes what earlier syncs had stored (it starts by itself after the deployment; see eTools
+  Datamart). The progress report
   pop-up no longer names the partner's staff member who submitted: only UNICEF focal points are named,
   on the report table.
 

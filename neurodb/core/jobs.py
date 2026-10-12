@@ -85,6 +85,11 @@ COMMANDS: dict[str, JobCommand] = {
         ("review_documents", "--pending"),
         SyncRun.Job.DOC_REVIEW,
     ),
+    "datamart_backfill": JobCommand(
+        _("Finish the eTools update (fill new columns, remove contact details)"),
+        ("datamart_backfill",),
+        SyncRun.Job.DATAMART_BACKFILL,
+    ),
     "freshness": JobCommand(_("Check data freshness"), ("check_sync_freshness",), None, triggered_by=False),
 }
 

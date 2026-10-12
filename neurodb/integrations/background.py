@@ -43,6 +43,7 @@ LOCK_IDS = {
     SyncRun.Job.FMM_AI_CHECKS: FMM_AI_CHECKS_LOCK_ID,
     SyncRun.Job.FMM_AP_REVIEW: FMM_AP_REVIEW_LOCK_ID,
     SyncRun.Job.DOC_REVIEW: DOC_REVIEW_LOCK_ID,
+    SyncRun.Job.DATAMART_BACKFILL: DATAMART_LOCK_ID,  # the clean-up holds the Datamart sync's lock
 }
 
 

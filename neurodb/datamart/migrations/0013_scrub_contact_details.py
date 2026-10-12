@@ -1,118 +1,20 @@
-"""Privacy: no e-mail address, phone or mobile number is kept from eTools.
+"""Formerly: remove the contact details earlier syncs stored (privacy).
 
-Until now the typed eTools tables kept each record whole in ``data`` (and the audit details in
-``AuditEngagement.details``) without removing contact details, as the records kept whole in
-``DatamartDocument`` always were; a UNICEF focal point eTools knew only by an e-mail address was
-stored under that address in ``PCA.unicef_focal_points``; and a progress report's ``submitted_by`` was
-kept even when it was an e-mail address (in its column and in the record kept beside it). The sync no
-longer does any of these; this removes what earlier syncs stored: the keys naming an e-mail address, a
-phone or a mobile (at any depth, as ``catalogue.scrub`` removes them), every focal point entry holding
-an e-mail address, and every ``submitted_by`` holding one, in the column and in the record.
-
-Batched and not atomic, so a large table is never locked whole: one UPDATE (one commit) per batch of
-500 records, never one per record, so a table with many records to clean is done within the migrate
-job's time. Running it twice changes nothing.
-"""
-
-import json
+The sync no longer stores them: the typed eTools tables keep each record without the keys naming an
+e-mail address, a phone or a mobile, a UNICEF focal point eTools knows only by an e-mail address is
+not kept, and a progress report's ``submitted_by`` is kept only when it is a name. Removing what
+earlier syncs stored no longer runs here: it reads every record of every eTools table, which on the
+real tables did not fit in App Service's start-up limit (see 0010). The ``datamart_backfill`` job
+(``neurodb.datamart.backfill``) does it after the site has started: core migration 0025 schedules it
+to start at once. Kept, without operations, so that every database shares one migration history."""
 
 from django.db import migrations
 
-BATCH = 500
-PERSONAL_KEYS = ("email", "phone", "mobile")
-# a key naming one of them, in a column's JSON text ("...": value)
-KEY_PATTERN = r'"[^"]*(email|phone|mobile)[^"]*"\s*:'
-
-
-def scrub(value):
-    """``catalogue.scrub`` as it is today (a migration keeps its own copy)."""
-    if isinstance(value, dict):
-        return {k: scrub(v) for k, v in value.items() if not any(p in str(k).lower() for p in PERSONAL_KEYS)}
-    if isinstance(value, list):
-        return [scrub(v) for v in value]
-    if isinstance(value, str):
-        return value.replace("\x00", "")
-    return value
-
-
-def _columns(apps):
-    """(table, column) of every JSON column of the datamart tables that holds records as received."""
-    for model in apps.get_app_config("datamart").get_models():
-        names = {f.name for f in model._meta.concrete_fields}
-        for column in ("data", "details"):
-            if column in names:
-                yield model._meta.db_table, column
-
-
-def scrub_records(apps, schema_editor):
-    connection = schema_editor.connection
-    quote = connection.ops.quote_name
-    for table, column in _columns(apps):
-        last = 0
-        while True:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    f"SELECT id, {quote(column)} FROM {quote(table)} "
-                    f"WHERE id > %s AND {quote(column)}::text ~* %s ORDER BY id LIMIT %s",
-                    [last, KEY_PATTERN, BATCH],
-                )
-                rows = cursor.fetchall()
-                if rows:  # the whole batch in one statement
-                    params = []
-                    for pk, value in rows:
-                        value = json.loads(value) if isinstance(value, str) else value
-                        params += [pk, json.dumps(scrub(value))]
-                    cursor.execute(
-                        f"UPDATE {quote(table)} AS t SET {quote(column)} = v.value "
-                        f"FROM (VALUES {', '.join(['(%s::bigint, %s::jsonb)'] * len(rows))}) AS v(id, value) "
-                        "WHERE t.id = v.id",
-                        params,
-                    )
-            if len(rows) < BATCH:
-                break
-            last = rows[-1][0]
-
-
-FOCAL_POINTS = """
-UPDATE etools_pca SET unicef_focal_points = ARRAY(
-    SELECT x FROM unnest(unicef_focal_points) WITH ORDINALITY AS t(x, n) WHERE position('@' in x) = 0 ORDER BY n
-)
-WHERE EXISTS (SELECT 1 FROM unnest(unicef_focal_points) AS x WHERE position('@' in x) > 0)
-"""
-
-
-SUBMITTED_BY = """
-UPDATE datamart_reportedindicator SET
-    submitted_by = CASE WHEN position('@' in submitted_by) > 0 THEN '' ELSE submitted_by END,
-    data = CASE WHEN position('@' in coalesce(data->>'submitted_by', '')) > 0
-        THEN jsonb_set(data, '{submitted_by}', '""'::jsonb) ELSE data END
-WHERE id IN (
-    SELECT id FROM datamart_reportedindicator
-    WHERE position('@' in submitted_by) > 0
-        OR (jsonb_typeof(data) = 'object' AND position('@' in coalesce(data->>'submitted_by', '')) > 0)
-    LIMIT %s
-)
-"""
-
-
-def drop_focal_point_addresses(apps, schema_editor):
-    with schema_editor.connection.cursor() as cursor:
-        cursor.execute(FOCAL_POINTS)
-        while True:  # in batches: a large table is never locked whole
-            cursor.execute(SUBMITTED_BY, [BATCH * 10])
-            if cursor.rowcount < BATCH * 10:
-                break
-
 
 class Migration(migrations.Migration):
-    atomic = False
-
     dependencies = [
         ("datamart", "0012_disaggregation_labels"),
         ("etools", "0003_partnerlink"),
     ]
 
-    operations = [
-        migrations.RunPython(scrub_records, migrations.RunPython.noop, elidable=True),
-        migrations.RunPython(drop_focal_point_addresses, migrations.RunPython.noop, elidable=True),
-    ]
+    operations = []

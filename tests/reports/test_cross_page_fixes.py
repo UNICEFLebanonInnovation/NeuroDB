@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import csv
 import datetime
-import importlib
 import io
 from decimal import Decimal
 
@@ -453,14 +452,11 @@ def test_the_contact_scrub_writes_a_batch_in_one_statement(pd):
         dm.ReportedIndicator.objects.create(
             datamart_id=next(_ids), intervention=pd, data={"submitter_email": "x", "keep": n, "phone": "1"}
         )
-    migration = importlib.import_module("neurodb.datamart.migrations.0013_scrub_contact_details")
-    from django.apps import apps
-
-    class Editor:
-        connection = connection
+    from neurodb.datamart import backfill
 
     with CaptureQueriesContext(connection) as queries:
-        migration.scrub_records(apps, Editor())
+        for table, column in backfill._record_columns():
+            backfill._scrub_column(table, column)
     updates = [q for q in queries.captured_queries if q["sql"].lstrip().upper().startswith("UPDATE")]
     assert len(updates) == 1
     assert sorted(r["keep"] for r in dm.ReportedIndicator.objects.values_list("data", flat=True)) == [0, 1, 2]

@@ -608,16 +608,13 @@ def test_partner_reports_of_running_pds_are_read_from_their_start_with_their_cp_
     assert sync._reporting_since() == datetime.date(datetime.date.today().year - 1, 1, 1)
 
 
-def test_the_migration_fills_the_new_columns_from_the_records(linked):
-    """0010 fills the columns of 0009 from the records already synced, the way the sync reads them (a
-    nested record by its name), in batches committed one by one (not atomic), and can run twice."""
-    import importlib
-
-    from django.db import connection
+def test_the_clean_up_fills_the_new_columns_from_the_records(linked):
+    """The eTools update clean-up fills the columns of 0009 from the records already synced, the way
+    the sync reads them (a nested record by its name); a second run writes nothing, and a row the
+    sync already wrote is left as the sync wrote it."""
+    from neurodb.datamart import backfill
 
     _, pd = linked
-    migration = importlib.import_module("neurodb.datamart.migrations.0010_fill_reached_columns")
-    assert migration.Migration.atomic is False
     indicator = dm.PDIndicator.objects.create(datamart_id=5, source_id=77, intervention=pd, title="Children")
     teachers = dm.PDIndicator.objects.create(datamart_id=6, intervention=pd, title="Teachers trained")
     row = dm.ReportedIndicator.objects.create(
@@ -633,13 +630,16 @@ def test_the_migration_fills_the_new_columns_from_the_records(linked):
         data={"indicator_report": "502", "cp_output": {"id": 9, "name": "Output 3.1 Teachers"}},
     )
     untouched = dm.ReportedIndicator.objects.create(datamart_id=3, intervention=pd, data={"other": 1})
+    synced = dm.ReportedIndicator.objects.create(
+        datamart_id=4, intervention=pd, indicator_report="601", cp_output="Output 9 (as synced)",
+        data={"indicator_report": 601, "cp_output": "Output 9"},
+    )  # fmt: skip
 
-    class Editor:
-        pass
-
-    Editor.connection = connection
-    for _ in range(2):
-        migration.fill(None, Editor())
+    first = backfill.fill_reached_columns()
+    assert first["report_rows_filled"] == 2
+    assert backfill.fill_reached_columns()["report_rows_filled"] == 0  # nothing left: nothing written
+    synced.refresh_from_db()
+    assert (synced.indicator_report, synced.cp_output) == ("601", "Output 9 (as synced)")
     for record in (row, nested, indicator, teachers):
         record.refresh_from_db()
     assert (row.indicator_report, row.cp_output, row.etools_cp_output_id) == ("501", "Output 2.1", "3301")

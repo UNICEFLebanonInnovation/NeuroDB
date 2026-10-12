@@ -314,6 +314,21 @@ BACKGROUND_JOBS = [
         ),
         "pin_drop",
     ),
+    BackgroundJob(
+        "run_datamart_backfill",
+        ("datamart_backfill",),
+        SyncRun.Job.DATAMART_BACKFILL,
+        _("Finish the eTools update"),
+        _("Finish the eTools update"),
+        _(
+            "Does the work an update of NeuroDB leaves for after the site has started: it fills the new "
+            "columns of the partner reports already synced (PRP's indicator report and the CP output) and "
+            "removes the e-mail addresses, phones and mobiles older syncs stored. It starts by itself "
+            "after a deployment and switches its schedule off when everything is done; run it again at "
+            "any time, it only writes what is left. It waits while the eTools Datamart sync runs."
+        ),
+        "cleaning_services",
+    ),
 ]
 
 

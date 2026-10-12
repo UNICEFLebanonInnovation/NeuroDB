@@ -9,12 +9,10 @@ whole."""
 from __future__ import annotations
 
 import datetime
-import importlib
 from decimal import Decimal
 
 import pytest
 import responses
-from django.db import connection
 from django.urls import reverse
 
 from neurodb.core.models import SyncRun
@@ -54,8 +52,9 @@ def test_ask_never_reads_an_email_address_under_another_key():
     assert catalogue.scrub(record)["narrative"] == record["narrative"]
 
 
-def test_the_migration_also_empties_an_address_in_the_record_of_a_partner_report():
-    migration = importlib.import_module("neurodb.datamart.migrations.0013_scrub_contact_details")
+def test_the_clean_up_also_empties_an_address_in_the_record_of_a_partner_report():
+    from neurodb.datamart import backfill
+
     both = dm.ReportedIndicator.objects.create(
         datamart_id=1, submitted_by="staff@example.org", data={"submitted_by": "staff@example.org", "a": 1}
     )
@@ -67,14 +66,8 @@ def test_the_migration_also_empties_an_address_in_the_record_of_a_partner_report
     )
     listed = dm.ReportedIndicator.objects.create(datamart_id=4, data=["staff@example.org"])
 
-    class Editor:
-        pass
-
-    Editor.connection = connection
-    from django.apps import apps
-
     for _ in range(2):  # running it twice changes nothing more
-        migration.drop_focal_point_addresses(apps, Editor())
+        backfill.scrub_contact_details()
     for row in (both, record_only, named, listed):
         row.refresh_from_db()
     assert (both.submitted_by, both.data) == ("", {"submitted_by": "", "a": 1})
