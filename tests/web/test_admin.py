@@ -207,6 +207,9 @@ def test_needs_attention_lists_the_scheduler_partial_runs_jobs_and_the_daily_rev
     database.save()
     run = SyncRun.objects.create(job=SyncRun.Job.ETOOLS, status=SyncRun.Status.PARTIAL, rows_failed=20)
     SchedulerState.objects.create(pk=1, last_seen_at=now - datetime.timedelta(hours=15))
+    # only this job is overdue: a schedule seeded due at once (etools-update-cleanup) counts too once the
+    # test database is more than five minutes old
+    ScheduledJob.objects.update(next_run_at=now + datetime.timedelta(hours=1))
     ScheduledJob.objects.filter(key="etools-datamart").update(next_run_at=now - datetime.timedelta(hours=2))
     DailyReview.objects.create(date=timezone.localdate() - datetime.timedelta(days=3), status="succeeded")
 
