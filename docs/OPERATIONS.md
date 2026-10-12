@@ -29,6 +29,19 @@ until it is checked and listed as quick. On App Service the application setting
 sets 600) gives a deployment's migrations more room than the default 230 seconds; it is a safety
 margin, not a reason to write a long migration.
 
+The two migrations of the pages that load in parts are listed in that test as quick, each with its
+reason. Core `0026_shared_cache_table` creates a new, empty table (the shared page figures,
+`neurodb_cache`, see *Pages that load in parts*), so nobody ever runs `createcachetable`. Core
+`0027_syncrun_indexes` adds two indexes over the sync runs (the last finished run, and the latest run
+of each job and target) with a plain `CREATE INDEX` inside the migration's transaction, after
+`SET LOCAL lock_timeout = '10s'`. It never uses `CREATE INDEX CONCURRENTLY`: a concurrent build waits
+for every older transaction in the whole database, so a long job still running in the previous
+container during a deployment would hold the new container's start-up past App Service's limit (the
+503 above). The sync runs table holds a few thousand rows and each index is built in milliseconds;
+only the wait for the table's lock (a job writing its run) could be long, and it is bounded: after
+10 seconds the migration fails, the container stops, and its restart tries again. A new index over a
+small table follows the same pattern.
+
 Rollback: `infra/scripts/rollback.sh` with the previous image tag. Migrations are not reversed, so
 every migration must stay compatible with the previous release for one deployment.
 
@@ -784,6 +797,7 @@ admin home page, *Quick actions*):
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |
+| Run a job → *Empty the stored page figures* | (no command: empties the shared page figures, the table `neurodb_cache`, and says how many entries it removed; see *Pages that load in parts*) | in the request (a second); changes no data |
 
 **Monitoring insights: refresh first, then the AI checks.** The two buttons do different things and are
 pressed in this order when both are wanted: *Monitoring insights* (`fmm_refresh`) rebuilds the visits and
@@ -827,6 +841,109 @@ the source code: the administrator's equivalent is *Download samples (redacted)*
 `fmm_refresh --probe-only` (the full refresh, *Refresh now* on *Fields found* or *Run a job →
 Monitoring insights*, reads the keys too) and `map_watch_sections` (*Match again* on *eTools section
 names*).
+
+## Pages that load in parts
+
+A page that loads in parts answers its frame at once and fetches each of its data blocks in the
+background. So far only the **country overview** works this way (see *Country overview*, below); every
+other page is still drawn whole, as before.
+
+**What staff see.** The frame comes first: the purpose line, the filter bar, the subtitle, the
+freshness strip and, in place of each data block, a grey placeholder of about the block's size, so
+the page does not jump when the block arrives. Each block then appears as soon as it is ready, and the
+rest of the page can be used meanwhile. A block still loading after 8 seconds adds "Still working on
+this part. Large filters take longer." A block that fails shows a message in its place with a **Try
+again** button; the rest of the page keeps working, and no error pop-up appears:
+
+| Message | Cause |
+|---|---|
+| This part could not be loaded. | A server error (500); or a network error, 502, 503 or 504 that failed again after the one automatic retry, 2 seconds later |
+| This part took too long. Try again, or narrow the filter. | No answer within 60 seconds (each block's own limit, below gunicorn's 120 s), also when the server kept answering "still computing" (below) for 60 seconds |
+| You do not have access to this. | 403, for example a donor account |
+| This part is no longer on the page. Reload the page. | 404: the page changed under a tab left open (a new release renamed or removed the block) |
+
+Screen readers hear one short summary ("Loading the figures…", "All figures are shown.", "1 part
+could not be loaded."), never one message per block, and an arriving block never moves the focus.
+Printing with Ctrl+P while blocks are still loading prints a note in place of each of them ("This part
+was still loading when the page was printed."). Without JavaScript each placeholder offers *Show the
+figures*, the same page with its blocks drawn in. A session that has expired sends the browser to the
+sign-in page and back to the page afterwards, never a sign-in form inside a block.
+
+**How it works.** Each block (a *part*) is asked for at the page's own address plus `_part=<name>`,
+as an htmx request, with the filters the frame resolved written out in full (the user's own section
+as `section=<name>`, every section as `section=`, the year always), so the same view answers it under
+the same rules: sign-in, the donor lock-out and the view's own checks. `PartsMiddleware`
+(`neurodb/web/parts.py`) takes `_part` out before any view or link sees it, adds `Vary: HX-Request`
+(one address serves the page or a part) and sends parts with `Cache-Control: no-store`.
+`neurodb/web/static/js/parts.js` asks for at most 3 parts at once per page (2 while the first block of
+a group computes the figures the group shares), the visible ones first and the ones further down one
+at a time afterwards, and swaps each answer in place of its placeholder. The figures several parts
+read are computed once across every worker and every user, and kept in the **shared page figures**
+(`neurodb/core/compute.py`, `once()`): one request computes them under a PostgreSQL advisory lock,
+the others wait and read the stored result. A part request that has waited about 2 seconds answers
+**202** with `X-NeuroDB-Part-Pending: 1`, which frees its web thread, and the browser asks again after
+1.5 seconds, then less often, within the 60 seconds. When the figures a page needs are already
+stored, the frame draws those blocks itself, in the same answer, so a page opened again within their
+lifetime is a single request. Each stored value's key holds everything the figures depend on (the
+filter, the day, the language, the release, the last finished sync run and the indicator flags) and
+nothing about the person asking: two people with the same filter read the same figures, and a user's
+own section only enters as the filter.
+
+**The shared page figures (table `neurodb_cache`).** The table is created by core migration 0026 at
+start-up (nobody runs `createcachetable`) and read through Django's database cache
+(`CACHES["shared"]`: at most 300 entries; when it is full, a third of them are removed). It is
+UNLOGGED: it is not written to the database's log nor copied to replicas, and it comes back empty after
+a database crash or a restore, which loses nothing, since every page computes its figures again. Each
+value lives for its own time (an overview build and the freshness strip two minutes, the filter
+bar's choices ten), is compressed above 64 KB and is not stored at all above 4 MB once compressed
+(it is then kept for that request only). The expired rows are deleted automatically: each web process
+does it at most once every 10 minutes, after storing a value, so there is nothing to schedule. A new
+release never reads what an older one stored (the release is part of every key). Tests keep the
+shared cache in memory.
+
+**Emptying it.** Admin → *Data and sync* → *Import and sync runs* → *Run a job* → **Empty the stored
+page figures** (administrators, after a confirmation) empties the table in the request and says how
+many entries it removed; each page then computes its figures again at its next visit, which makes
+that visit slower.
+It is never needed in normal use: a finished sync or a changed indicator flag already makes every
+page compute its figures again. Use it when a page keeps showing figures that look out of date, or
+before timing a page from a cold start. It changes no data.
+
+**When a part fails.**
+
+1. Press **Try again** on the block. A failure that came from a deployment or a restart (502, 503,
+   504) has usually been retried once by itself already.
+2. If it fails again, find the request in the web container's log (App Service *Log stream*, or Log
+   Analytics). A part request is the page's address with `_part=` in the access log, for example
+   `"GET /?section=&year=2026&_part=figures HTTP/1.1" 500`, and the error with its traceback is logged
+   next to it ("Internal Server Error: /", the path without the query). A **202** on a part request is
+   normal: another request was computing the same figures and the browser asked again.
+3. In Application Insights, each part request carries the custom dimension `neurodb.part` (the part's
+   name), and the exception of a failed one belongs to the same operation, for example
+   `requests | where tostring(customDimensions["neurodb.part"]) == "figures" and success == false`.
+4. To tell a failing block from a browser or network problem, add `_eager=1` to the page's address:
+   the page then draws its blocks itself, in one request (what *Show the figures* does without
+   JavaScript; a block that comes from another address, such as the overview's *For you* card, still
+   loads on its own), and a block that fails fails the whole page with the same error.
+5. Figures that look out of date rather than failing: **Empty the stored page figures** (above).
+
+Nothing here needs a shell: the table comes from a migration that runs at start-up, it is emptied
+from the admin and cleaned up by itself, and the logs and Application Insights are read in the Azure
+portal.
+
+**Server settings.** NeuroDB compresses its own answers (`CompressMiddleware` in
+`neurodb/web/middleware.py`, Django's gzip with its protection against BREACH, right after WhiteNoise):
+App Service does not compress what a Linux container sends, and a part can be large (the daily
+review's folded findings are about 266 KB). It leaves out event streams (the chat answers, written
+line by line), downloads (attachments) and streamed answers; static files come from WhiteNoise, which
+serves its own compressed copies. A worker of gunicorn (`config/gunicorn.conf.py`) restarts after
+`max_requests` = **8000** requests, with a random spread of up to 800 (`max_requests_jitter`) so the
+workers do not restart together; it was 2000 and 200. A page in parts sends several requests per
+visit (the overview: its frame and up to five parts, plus the folded findings when they are opened),
+and each restart loses the worker's own caches and pays its slow first request again. The web
+container still runs 3 workers × 4 threads; the work is mostly CPU, so more workers
+(`WEB_CONCURRENCY`) help only with more vCPU. Each part is its own request in Application Insights:
+watch the volume of requests there after a release that converts a page.
 
 ## eTools Datamart
 
@@ -1388,9 +1505,34 @@ selected year (each PD's main indicator). A PD with a children result counts its
 children in the section of its main indicator; a PD without one splits its money by its indicators'
 sections. Compare sections, not absolute values. It is empty when no children indicator reported.
 
-**Caching.** The page's data is cached for 2 minutes per (year, sections, governorate, day), in each
-web worker's memory; a new or changed indicator flag (children or unique beneficiaries) and the end
-of any sync run change the cache key, so every worker shows the new figures at once. The freshness strip at the bottom shows when each source last
+**Loads in parts** (see *Pages that load in parts*, above). The page answers its frame at once: the
+purpose line, the filter bar, the subtitle, the freshness strip at the bottom and the link to the
+ActivityInfo databases. Then come, each in its own request:
+
+| Part | What it holds | When it loads |
+|---|---|---|
+| `kpis` | The key figure tiles | At once; it computes the overview build that `figures` then reads |
+| `for-you` | The NeuroDB Watch card, from Watch's own address | At once |
+| `figures` | Impact on children, value for money, delivery and assurance, and the two progress blocks, with their headings (their anchors still work) | Once `kpis` has finished, when near the screen |
+| `review` | The *Daily review* card (only when a daily review has ever succeeded); `#daily-review` still leads to it | When near the screen |
+| `review-more` | The card's folded findings (often hundreds of KB) | Only when *Show N more findings* is opened |
+| `news` | What's new and the forecast risk card | After the visible parts |
+
+A part further down loads anyway once the visible ones are done, one at a time; only `review-more`
+waits to be opened. Every part request carries the filter the frame resolved: the user's own section
+written out on a first load (`section=<name>`), `section=` for every section, the year always, and the
+governorate and the review day when chosen. Without a reporting year the page shows its empty state
+and loads no part (nor What's new nor the forecasts). When the build for the chosen filter is already
+stored, the frame draws the tiles and the figures itself, so an overview opened again within two
+minutes is one request.
+
+**Caching.** The overview build is kept 2 minutes per (year, sections, governorate, day) in the shared
+page figures, read by every web worker (it was each worker's own memory before), and computed by one
+request at a time; a new or changed indicator flag (children or unique beneficiaries) and the end of
+any sync run change the key, so every worker shows the new figures at once. The filter bar's choices
+are kept 10 minutes and the freshness strip 2 minutes the same way, both under keys that change with
+the last finished sync run and the flags. Nothing in the build depends on who asks: the user's own
+section only enters as the filter. The freshness strip at the bottom shows when each source last
 changed.
 
 ## Management brief (`/brief/`)
@@ -1462,9 +1604,10 @@ Every morning the `daily-review` job (`manage daily_review`) runs fourteen fixed
 synced data and stores the result as a dated review with its findings (admin → Daily review). The
 overview shows the latest one in its *Daily review* card, with tabs for the day before and the last
 seven days; the card follows the page's section filter (country-wide findings always show). The
-programme findings are listed (the first twelve, the rest under *Show more*); the findings about the
-data pipeline (`sync_failures`, `data_quality`, `stale_sources`, `locations_unplaced`) are summed up
-in one *Data problems* line that links to the Data health page.
+programme findings are listed (the first twelve; the rest under *Show N more findings*, loaded only
+when it is opened); the findings about the data pipeline (`sync_failures`, `data_quality`,
+`stale_sources`, `locations_unplaced`) are summed up in one *Data problems* line that links to the
+Data health page.
 
 | Check | What it looks for | Severity |
 |---|---|---|
@@ -3635,4 +3778,6 @@ into a staging resource group and record the date here.
 
 Logs: `az containerapp logs show -n <prefix>-web -g <rg> --follow`, or Log Analytics
 (`ContainerAppConsoleLogs_CL`). Requests, database calls, outgoing calls to ActivityInfo and eTools,
-and exceptions are traced in Application Insights.
+and exceptions are traced in Application Insights. The requests of a page's parts carry `_part=` in
+the access log and the custom dimension `neurodb.part` in Application Insights (see *Pages that load
+in parts*).

@@ -335,13 +335,19 @@ def test_the_overview_card_is_empty_for_someone_told_nothing(roles, education):
     assert response.status_code == 200 and "For you" not in response.content.decode()
 
 
+@pytest.mark.shell  # the overview's frame itself: the card is one of its parts, loaded after it
 def test_the_overview_reads_no_watch_table_and_loads_the_card_later(team, hierarchy):
+    from tests.web.parts import placeholder_attributes
+
     tell(team.edu, item())
     client = login(team.edu)
     with CaptureQueriesContext(connection) as queries:
         response = client.get(reverse("reports:overview"))
     assert response.status_code == 200
     assert f'hx-get="{reverse("watch:card")}"' in response.content.decode()
+    # the "for-you" part, asked for at its own address once the frame is in
+    card = placeholder_attributes(response.content.decode())["for-you"]
+    assert (card["hx-get"], card["data-part-priority"]) == (reverse("watch:card"), "high")
     assert not [q["sql"] for q in queries.captured_queries if '"watch_' in q["sql"]]
 
 

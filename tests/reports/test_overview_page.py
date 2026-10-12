@@ -2,6 +2,10 @@
 
 The overview service is replaced by the fakes of ``overview_fake.py`` so the page is tested on its own;
 one test renders against the real service and is skipped while the service is a stub.
+
+The page loads in parts (``tests/reports/test_overview_parts.py`` tests the frame and each part): the test
+client answers the page assembled with every part (``tests/conftest.py``), so these tests read the page as
+a browser shows it once every part is in.
 """
 
 import json
@@ -11,8 +15,9 @@ from django.urls import reverse
 
 from neurodb.reports import overview as overview_service
 from neurodb.web.templatetags.ui import money
+from tests.web.parts import get_part, placeholders
 
-from .overview_fake import GOVERNORATES, empty_data, fake_data, fake_options
+from .overview_fake import GOVERNORATES, empty_data, fake_data, fake_freshness, fake_options
 from .overview_fixture import make_overview_data
 
 pytestmark = pytest.mark.django_db
@@ -20,7 +25,8 @@ pytestmark = pytest.mark.django_db
 
 @pytest.fixture
 def fake_service(monkeypatch):
-    """``build`` and ``options`` replaced by the fakes; the scopes passed to ``build`` are recorded."""
+    """``build``, ``options`` and ``freshness`` replaced by the fakes; the scopes passed to ``build`` are
+    recorded."""
     calls: list = []
 
     def build(scope, **kwargs):
@@ -29,6 +35,7 @@ def fake_service(monkeypatch):
 
     monkeypatch.setattr(overview_service, "build", build)
     monkeypatch.setattr(overview_service, "options", lambda year: fake_options())
+    monkeypatch.setattr(overview_service, "freshness", fake_freshness)
     return calls
 
 
@@ -55,7 +62,7 @@ def test_renders_every_block_with_data(client_viewer, reporting_year, fake_servi
     assert 'class="gov-tile gov-tile--l6"' in html and "9,800" in html  # reached formatted with intcomma
     assert "compare sections, not absolute values" in html
     assert "$7.2M" in html and "$12.4M" in html  # disbursed of reserved
-    assert 'id="overview-chart-data"' in html
+    assert 'id="overview-figures-data"' in html  # the figures part's chart JSON
     assert "Data freshness" in html and "Daily AI review" in html
     assert "ActivityInfo databases of the year" in html  # the cards moved to their own page
     assert "LEB/PD2026001" in html and "Himaya" in html  # decisions and attention lists
@@ -68,8 +75,8 @@ def test_renders_every_block_with_data(client_viewer, reporting_year, fake_servi
 
 
 def test_chart_data_has_the_shapes_the_builders_read(client_viewer, reporting_year, fake_service):
-    html = _get(client_viewer, reverse("reports:overview")).text
-    start = html.index('id="overview-chart-data"')
+    html = get_part(client_viewer, reverse("reports:overview"), "figures").text  # every chart is in it
+    start = html.index('id="overview-figures-data"')
     payload = html[html.index(">", start) + 1 : html.index("</script>", start)]
     charts = json.loads(payload)
     assert {"impact", "money", "delivery", "progress", "status_counts", "labels"} <= set(charts)
@@ -145,6 +152,7 @@ def test_governorate_filter_keeps_the_section_in_tile_links(client_viewer, repor
 def test_empty_data_renders_the_empty_states(client_viewer, reporting_year, monkeypatch):
     monkeypatch.setattr(overview_service, "build", lambda scope, **kw: empty_data())
     monkeypatch.setattr(overview_service, "options", lambda year: {"sections": [], "governorates": []})
+    monkeypatch.setattr(overview_service, "freshness", lambda: [])  # no sync has run
     html = _get(client_viewer, reverse("reports:overview")).text
     for text in (
         "No children reached by governorate yet",
@@ -158,7 +166,7 @@ def test_empty_data_renders_the_empty_states(client_viewer, reporting_year, monk
     assert 'data-empty-title="No monthly values yet"' in html
     assert "$0" in html  # disbursed of reserved
     assert "of $0 reserved" in html
-    start = html.index('id="overview-chart-data"')
+    start = html.index('id="overview-figures-data"')
     charts = json.loads(html[html.index(">", start) + 1 : html.index("</script>", start)])
     assert charts["impact"]["monthly"] == {} and charts["progress"]["tpm"] == {}
     assert charts["money"]["by_section"] == [] and charts["money"]["scatter"] == []
@@ -168,11 +176,21 @@ def test_no_reporting_year_keeps_the_empty_state(client_viewer, monkeypatch):
     def build(scope, **kw):
         raise AssertionError("build must not be called without a reporting year")
 
+    def nothing_to_compute(*args, **kwargs):
+        raise AssertionError("no What's new, forecast or freshness work without a reporting year")
+
+    from neurodb.reports import views
+
     monkeypatch.setattr(overview_service, "build", build)
     monkeypatch.setattr(overview_service, "options", lambda year: fake_options())
+    for name in ("_whats_new", "_forecast_risk"):
+        monkeypatch.setattr(views, name, nothing_to_compute)
+    monkeypatch.setattr(overview_service, "freshness", nothing_to_compute)
     html = _get(client_viewer, reverse("reports:overview")).text
     assert "No reporting year is configured" in html
-    assert 'id="overview-chart-data"' in html
+    # no figures to draw: no part, and no chart JSON (it used to be an empty one)
+    assert placeholders(html) == {}
+    assert 'id="overview-figures-data"' not in html and 'id="overview-chart-data"' not in html
 
 
 def test_year_parameter_selects_the_reporting_year(client_viewer, reporting_year, fake_service):
@@ -224,7 +242,7 @@ def test_renders_against_the_real_service(client_viewer, reporting_year, hierarc
         "Cost per child",
         "Third-party visits completed",
         "Child Protection",
-        'id="overview-chart-data"',
+        'id="overview-figures-data"',
     ):
         assert text in html, text
 
@@ -233,8 +251,11 @@ def test_the_page_says_what_it_is_for_and_whether_the_figures_can_be_used(
     client_viewer, reporting_year, monkeypatch
 ):
     data = empty_data()
-    data["freshness_note"] = "eTools: not yet synced on this server, so its figures may be incomplete."
+    jobs = fake_freshness()  # eTools never synced, the other sources current
+    for job in jobs:
+        job["state"] = "unknown" if job["job"] == "etools_datamart" else "fresh"
     monkeypatch.setattr(overview_service, "build", lambda scope, **kw: data)
+    monkeypatch.setattr(overview_service, "freshness", lambda: jobs)
     html = _get(client_viewer, reverse("reports:overview")).text
     assert 'class="page-purpose"' in html and reverse("reports:brief") in html
     assert "so its figures may be incomplete" in html

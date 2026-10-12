@@ -1,0 +1,7 @@
+{% comment %}The overview's figures (part "figures", reports.views.overview): impact, value for money, delivery and assurance,
+TPM visits and action points, each with its section heading, and the JSON their charts read. Context: data, chart.{% endcomment %}
+{% include "reports/partials/_overview_impact.html" %}
+{% include "reports/partials/_overview_money.html" %}
+{% include "reports/partials/_overview_delivery.html" %}
+{% include "reports/partials/_overview_progress.html" %}
+{{ chart|json_script:"overview-figures-data" }}

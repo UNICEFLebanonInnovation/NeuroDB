@@ -1306,3 +1306,65 @@ tr.is-uncounted > td { color: var(--nd-muted); }
 @media (max-width: 575.98px) { .section-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cell-wrap { min-width: 9rem; } }
 .date-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.25rem; }
 .date-range input { min-width: 0; padding-left: 0.4rem; padding-right: 0.25rem; }
+
+/* ---------------------------------------------------------------------------- pages that load in parts (parts.js)
+   A placeholder ([data-part], components/part.html) keeps the height of what it will hold: --part-h by kind, or
+   the tag's height= (inline --part-h) and rows= (inline --part-rows); an optional inline --part-h-sm sets the
+   phone height. So nothing below it jumps when the part arrives. Colours come from the tokens (dark mode too).
+   Containers that receive parts are never aria-live: #parts-status speaks once for the whole page. */
+.part { min-height: var(--part-h, 8rem); }
+.part--tiles { --part-h: calc(88px * var(--part-rows, 1) + 0.6rem * (var(--part-rows, 1) - 1)); }
+.part--chart { --part-h: 320px; }  /* panel header + .chart 260px */
+.part--charts { --part-h: 320px; } /* two charts side by side */
+.part--table { --part-h: 14rem; }
+.part--list { --part-h: 10rem; }
+.part--card { --part-h: 6rem; }
+.part--text { --part-h: 3rem; }
+.part--map { --part-h: min(70vh, 640px); }
+@media (max-width: 767.98px) {
+  .part--charts { --part-h: 660px; } /* stacked on phones */
+  .part { min-height: var(--part-h-sm, var(--part-h, 8rem)); }
+}
+.part.is-loaded { min-height: 0; }
+.part[data-part-priority="low"]:not(.is-loaded) { content-visibility: auto; contain-intrinsic-size: auto var(--part-h, 8rem); }
+.part__slow, .part__print-note { display: none; }
+.part__slow { margin: 0.5rem 0 0; }
+.part[data-part-state="slow"] .part__slow { display: block; }
+.part[data-part-state="error"] .part__skeleton, .part[data-part-state="error"] .part__slow { display: none; }
+.part__error { border: 1px dashed var(--nd-border); border-radius: var(--nd-radius); background: var(--nd-surface);
+               color: var(--nd-muted); padding: 1rem; text-align: center; overflow-wrap: anywhere; }
+.part__error .state__title { color: var(--nd-danger); margin-bottom: 0.6rem; }
+.part__print-note { margin: 0; padding: 0.6rem 0.8rem; border: 1px dashed var(--nd-border); border-radius: var(--nd-radius-sm); color: var(--nd-muted); font-size: 0.85rem; }
+.skeleton__block--card { height: 4.5rem; }
+.skeleton__block--map { height: min(60vh, 560px); }
+.part__skeleton > .skeleton { padding: 0; }
+.part__skeleton .kpi-grid { margin-bottom: 0; }
+/* A part's wrapper sits between blocks that used to be siblings: the spacing rules of panels, stacks, Monitoring
+   insights tabs and overview rows also hold across it. */
+.part + .panel, .panel + .part, .part + .part, .stack > .part + * { margin-top: 1rem; }
+.grid > .part + .part, .grid > .panel + .part, .grid > .part + .panel { margin-top: 0; }
+.fmm-tab > .part { margin-bottom: 1rem; }
+.overview-row > .part > .section-heading:first-child { margin-top: 0; }
+@media print {
+  .part:not(.is-loaded) { min-height: 0; content-visibility: visible; }
+  .part[aria-busy="true"] > :not(.part__print-note) { display: none !important; }
+  .part[aria-busy="true"] .part__print-note { display: block; }
+}
+
+/* ============================================================================ stage A (reports core): part fixes
+   Page-specific rules for the parts of the brief, partnerships, data health, databases and field monitoring go
+   here, and only here; the integration stage folds them into the sections above. */
+/* ============================================================================ end of stage A */
+
+/* ============================================================================ stage B (eTools monitoring): part fixes
+   Partner monitoring, partner reporting, action points, funds. */
+/* ============================================================================ end of stage B */
+
+/* ============================================================================ stage C (Monitoring insights): part fixes */
+/* ============================================================================ end of stage C */
+
+/* ============================================================================ stage D1 (country programme, education, youth, donor page): part fixes */
+/* ============================================================================ end of stage D1 */
+
+/* ============================================================================ stage D2 (knowledge, What's new, For you): part fixes */
+/* ============================================================================ end of stage D2 */

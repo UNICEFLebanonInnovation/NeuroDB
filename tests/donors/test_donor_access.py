@@ -164,24 +164,34 @@ def test_sign_in_lands_on_the_donor_page_whatever_next_says(client, donor):
     assert follow.status_code == 302 and follow["Location"] == reverse("donors:page")
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        "reports:overview",
-        "reports:programmes",
-        "reports:donors",
-        "reports:brief",
-        "landing",
-        "fmm:dashboard",
-        "fmm:visits",
-        "fmm:lookup",
-        "fmm:drill",
-    ],
-)
+STAFF_PAGES = [
+    "reports:overview",
+    "reports:programmes",
+    "reports:donors",
+    "reports:brief",
+    "landing",
+    "fmm:dashboard",
+    "fmm:visits",
+    "fmm:lookup",
+    "fmm:drill",
+]
+
+
+@pytest.mark.parametrize("name", STAFF_PAGES)
 def test_every_other_page_redirects_to_the_donor_page(donor_client, name):
     response = donor_client.get(reverse(name))
     assert response.status_code == 302
     assert response["Location"] == reverse("donors:page")
+
+
+@pytest.mark.parametrize("name", STAFF_PAGES)
+def test_no_part_of_a_staff_page_reaches_a_donor(donor_client, name):
+    """A page in parts asks for each block at its own address plus ``_part`` with HTMX (SPEC7 §1.1): the
+    donor lock-out refuses those requests like any other HTMX request, whatever the part's name."""
+    for part in ("x", "kpis"):
+        response = donor_client.get(reverse(name), {"_part": part}, HTTP_HX_REQUEST="true")
+        assert response.status_code == 403, (name, part)
+        assert response.json() == {"detail": "Not available for donor accounts."}
 
 
 def test_admin_and_unknown_addresses_redirect_too(donor_client):

@@ -32,8 +32,15 @@ synced eTools tables and the ActivityInfo history.
   each section (each capped at 100%); targets of different indicators are never added.
 - **Cost per child**: what the programme documents with a children result disbursed to date, over the
   children they reached in the year (each one's main indicator). Compare sections, not absolute values.
-- Figures are kept 2 minutes; the end of any sync shows at once. The strip at the bottom says when each
-  source last changed.
+- **The page opens at once**: the filters and the strip at the bottom come first, with a grey box
+  where each block of figures will go. The tiles, the charts, the daily review, What's new and the
+  For you card then appear one after the other as they are ready, and you can use the page
+  meanwhile. A block that takes long says "Still working on this part"; a block that could not load
+  says so and has a **Try again** button, and the rest of the page keeps working. The daily review's
+  other findings load when you open its *Show … more findings* line. If you print before every block
+  has appeared, a block still loading prints a short note instead: wait until the page is complete.
+- Figures are kept 2 minutes, so opening the same filter again soon is faster; the end of any sync
+  shows at once. The strip at the bottom says when each source last changed.
 
 ## The management brief
 

@@ -1,10 +1,10 @@
-{% load i18n ui %}
+{% load i18n ui parts %}{# part="grid": the links reload that part only and show the page's own address (SPEC7 §1.3 rule 4). #}
 {% if page_obj.paginator.num_pages > 1 %}
 <nav class="pagination-bar" aria-label="{% trans 'Pagination' %}">
   <span class="text-muted small">{% blocktrans with start=page_obj.start_index end=page_obj.end_index total=page_obj.paginator.count %}Showing {{ start }}–{{ end }} of {{ total }}{% endblocktrans %}</span>
   <ul class="pagination pagination-sm mb-0">
     {% if page_obj.has_previous %}
-    <li class="page-item"><a class="page-link" href="?{% qs_replace page=page_obj.previous_page_number %}" {% if hx_target %}hx-get="?{% qs_replace page=page_obj.previous_page_number %}" hx-target="{{ hx_target }}" hx-push-url="true"{% endif %} aria-label="{% trans 'Previous page' %}">&lsaquo;</a></li>
+    <li class="page-item"><a class="page-link" href="?{% qs_replace page=page_obj.previous_page_number %}" {% if part %}hx-get="{% part_url part page=page_obj.previous_page_number %}" hx-target="#part-{{ part }}" hx-swap="outerHTML" hx-push-url="{% page_url page=page_obj.previous_page_number %}"{% elif hx_target %}hx-get="?{% qs_replace page=page_obj.previous_page_number %}" hx-target="{{ hx_target }}" hx-push-url="true"{% endif %} aria-label="{% trans 'Previous page' %}">&lsaquo;</a></li>
     {% else %}
     <li class="page-item disabled"><span class="page-link" aria-hidden="true">&lsaquo;</span></li>
     {% endif %}
@@ -12,11 +12,11 @@
       {% if n == page_obj.paginator.ELLIPSIS %}
       <li class="page-item disabled"><span class="page-link">…</span></li>
       {% else %}
-      <li class="page-item {% if n == page_obj.number %}active{% endif %}"><a class="page-link" href="?{% qs_replace page=n %}" {% if hx_target %}hx-get="?{% qs_replace page=n %}" hx-target="{{ hx_target }}" hx-push-url="true"{% endif %} {% if n == page_obj.number %}aria-current="page"{% endif %}>{{ n }}</a></li>
+      <li class="page-item {% if n == page_obj.number %}active{% endif %}"><a class="page-link" href="?{% qs_replace page=n %}" {% if part %}hx-get="{% part_url part page=n %}" hx-target="#part-{{ part }}" hx-swap="outerHTML" hx-push-url="{% page_url page=n %}"{% elif hx_target %}hx-get="?{% qs_replace page=n %}" hx-target="{{ hx_target }}" hx-push-url="true"{% endif %} {% if n == page_obj.number %}aria-current="page"{% endif %}>{{ n }}</a></li>
       {% endif %}
     {% endfor %}
     {% if page_obj.has_next %}
-    <li class="page-item"><a class="page-link" href="?{% qs_replace page=page_obj.next_page_number %}" {% if hx_target %}hx-get="?{% qs_replace page=page_obj.next_page_number %}" hx-target="{{ hx_target }}" hx-push-url="true"{% endif %} aria-label="{% trans 'Next page' %}">&rsaquo;</a></li>
+    <li class="page-item"><a class="page-link" href="?{% qs_replace page=page_obj.next_page_number %}" {% if part %}hx-get="{% part_url part page=page_obj.next_page_number %}" hx-target="#part-{{ part }}" hx-swap="outerHTML" hx-push-url="{% page_url page=page_obj.next_page_number %}"{% elif hx_target %}hx-get="?{% qs_replace page=page_obj.next_page_number %}" hx-target="{{ hx_target }}" hx-push-url="true"{% endif %} aria-label="{% trans 'Next page' %}">&rsaquo;</a></li>
     {% else %}
     <li class="page-item disabled"><span class="page-link" aria-hidden="true">&rsaquo;</span></li>
     {% endif %}

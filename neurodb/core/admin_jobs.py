@@ -449,6 +449,35 @@ def run_bootstrap_roles(self, request, form):
     return _done(request)
 
 
+@action(
+    description=_("Empty the stored page figures"),
+    url_path="run-empty-page-figures",
+    permissions=["run_sync"],
+    icon="delete_sweep",
+    dialog={
+        "title": _("Empty the stored page figures"),
+        "description": _(
+            "Removes the figures pages keep for a few minutes so that every worker shows the same ones "
+            "(the overview's tiles and charts, for example): each page computes them again at its next "
+            "visit, which makes that visit slower. Never needed in normal use, since a finished sync or a "
+            "changed indicator flag already makes every page compute them again; use it if a page keeps "
+            "showing figures that look out of date. It changes no data and takes a second."
+        ),
+        "form_class": ConfirmJobForm,
+        "form_submit_text": _("Empty"),
+    },
+)
+def run_empty_page_figures(self, request, form):
+    from neurodb.core import compute
+
+    removed = compute.clear()  # None: kept in memory (tests), so the number is unknown
+    message = _("The stored page figures were emptied.")
+    if removed is not None:
+        message = _("The stored page figures were emptied (%(n)s entries).") % {"n": removed}
+    messages.success(request, message)
+    return _done(request)
+
+
 class JobActionsMixin:
     """Adds the "Run a job" menu (and its actions) to a ModelAdmin that defines has_run_sync_permission."""
 
@@ -460,12 +489,14 @@ class JobActionsMixin:
             "run_reload_population",
             "run_check_freshness",
             "run_bootstrap_roles",
+            "run_empty_page_figures",
         ],
     }
 
     run_reload_population = run_reload_population
     run_check_freshness = run_check_freshness
     run_bootstrap_roles = run_bootstrap_roles
+    run_empty_page_figures = run_empty_page_figures
 
 
 for _spec in BACKGROUND_JOBS:

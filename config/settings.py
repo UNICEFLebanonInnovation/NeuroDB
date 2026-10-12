@@ -82,6 +82,7 @@ MIDDLEWARE = [
     "neurodb.web.middleware.HealthCheckMiddleware",  # first: probes skip host checks and HTTPS redirects
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    "neurodb.web.middleware.CompressMiddleware",  # gzip for pages and parts; static files never reach it
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -93,6 +94,7 @@ MIDDLEWARE = [
     "neurodb.donors.middleware.DonorScopeMiddleware",  # a donor account sees its page and nothing else
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
+    "neurodb.web.parts.PartsMiddleware",  # pages in parts: _part and _eager, Vary, HTMX sign-in, 202
     "neurodb.web.middleware.ContentSecurityPolicyMiddleware",
 ]
 
@@ -127,6 +129,22 @@ if ENV in ("staging", "production"):
     # Azure Database for PostgreSQL requires TLS; a sslmode in DATABASE_URL still wins.
     DATABASES["default"].setdefault("OPTIONS", {}).setdefault("sslmode", env("DB_SSLMODE", default="require"))
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# ---------------------------------------------------------------------------- caches
+# "default": each process's own memory (navigation, Monitoring insights blocks, maps, landing figures).
+# "shared": the page figures every worker reads (neurodb.core.compute.once), in the UNLOGGED table
+# neurodb_cache that migration core 0026 creates (nobody runs createcachetable). Tests keep it in memory,
+# so query counts do not move.
+CACHES = {
+    "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+    "shared": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "neurodb_cache",
+        "OPTIONS": {"MAX_ENTRIES": 300, "CULL_FREQUENCY": 3},
+    },
+}
+if ENV == "test":
+    CACHES["shared"] = {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "shared"}
 
 # The v2 tables are managed models: their initial migrations describe them as v2 left them and
 # schema changes are normal migrations (docs/DATA_MIGRATION.md, "Django owns the schema").

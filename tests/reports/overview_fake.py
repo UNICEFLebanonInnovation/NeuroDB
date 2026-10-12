@@ -311,36 +311,6 @@ def fake_data(today: datetime.date = FAKE_TODAY) -> dict[str, Any]:
             },
             "source": "eTools Datamart TPM visits and action points, 2026",
         },
-        "freshness": [
-            {
-                "job": "ai_data",
-                "label": "ActivityInfo data import",
-                "last_success": None,
-                "state": "unknown",
-                "state_label": "Never succeeded",
-            },
-            {
-                "job": "etools_datamart",
-                "label": "eTools Datamart sync",
-                "last_success": None,
-                "state": "stale",
-                "state_label": "Stale",
-            },
-            {
-                "job": "locations",
-                "label": "Locations sync",
-                "last_success": None,
-                "state": "fresh",
-                "state_label": "Fresh",
-            },
-            {
-                "job": "daily_review",
-                "label": "Daily AI review",
-                "last_success": None,
-                "state": "unknown",
-                "state_label": "Never succeeded",
-            },
-        ],  # fmt: skip
         "scope": {"year": today.year, "sections": [], "governorate": "", "today": today.isoformat()},
     }
 
@@ -420,6 +390,40 @@ def empty_data(today: datetime.date = FAKE_TODAY) -> dict[str, Any]:
             },
             "source": "eTools Datamart",
         },
-        "freshness": [],
         "scope": {"year": today.year, "sections": [], "governorate": "", "today": today.isoformat()},
     }
+
+
+def fake_freshness() -> list[dict[str, Any]]:
+    """What ``overview.freshness()`` returns: the freshness strip of the page's frame (no longer part of a
+    build)."""
+    return [
+        {
+            "job": "ai_data",
+            "label": "ActivityInfo data import",
+            "finished_at": None,
+            "state": "unknown",
+            "state_label": "Never succeeded",
+        },
+        {
+            "job": "etools_datamart",
+            "label": "eTools Datamart sync",
+            "finished_at": None,
+            "state": "stale",
+            "state_label": "Stale",
+        },
+        {
+            "job": "locations",
+            "label": "Locations sync",
+            "finished_at": None,
+            "state": "fresh",
+            "state_label": "Fresh",
+        },
+        {
+            "job": "daily_review",
+            "label": "Daily AI review",
+            "finished_at": None,
+            "state": "unknown",
+            "state_label": "Never succeeded",
+        },
+    ]  # fmt: skip

@@ -1,5 +1,6 @@
 // NeuroDB application shell: theme, command palette, HTMX glue, tables, filters and page modules.
 import { asset, debounce, download, isHelpShortcut, loadScript, loadStyle, tableRows, toast, toCSV, trapFocus, csrfToken } from "./lib.js";
+import { initParts, loadAll, partText, pendingParts, trackModules } from "./parts.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -139,15 +140,23 @@ function initHelp() {
 }
 
 // ------------------------------------------------------------------ HTMX glue
+// A part of a page loading in the background (a placeholder, [data-part]) shows its own error box with
+// Try again (parts.js): no toast for it. Requests made inside a part once it is in raise toasts as before.
+const isPartRequest = (e) => e.detail?.elt?.hasAttribute?.("data-part") === true;
+
 function initHtmx() {
   document.body.addEventListener("htmx:configRequest", (e) => {
     e.detail.headers["X-CSRFToken"] = csrfToken();
   });
   document.body.addEventListener("htmx:responseError", (e) => {
+    if (isPartRequest(e)) return;
     const status = e.detail.xhr?.status;
     toast(status === 403 ? "You do not have access to this." : `The page could not be updated (${status || "error"}).`, "error");
   });
-  document.body.addEventListener("htmx:sendError", () => toast("Network error — check your connection.", "error"));
+  document.body.addEventListener("htmx:sendError", (e) => {
+    if (isPartRequest(e)) return;
+    toast("Network error — check your connection.", "error");
+  });
   document.body.addEventListener("htmx:afterSwap", (e) => {
     if (e.detail.target?.id === "modal-content" && window.bootstrap) {
       const modal = $("#modal");
@@ -155,8 +164,9 @@ function initHtmx() {
       window.bootstrap.Modal.getOrCreateInstance(modal).show();
     }
   });
-  // New content (partials, modals) gets the same enhancements as the first page load.
-  document.body.addEventListener("htmx:load", (e) => enhance(e.detail.elt));
+  // New content (partials, modals, parts) gets the same enhancements as the first page load; parts.js
+  // keeps the promise of its charts and maps so printing can wait for them.
+  document.body.addEventListener("htmx:load", (e) => trackModules(enhance(e.detail.elt)));
 }
 
 // A window opened from a link to one of its parts (hx-get="/fmm/visits/1723/#record-112": htmx hands the
@@ -176,11 +186,20 @@ function revealAnchor(modal, anchor) {
 }
 
 // ------------------------------------------------------------------ filter bars driven by HTMX
+// The request is issued on the form (source), so a newer filter aborts the one still running: a slow earlier
+// answer never lands after a newer one. The address built here is the whole query, so htmx must not add
+// the form's own fields to it again (it does for a request issued on a form) nor hold it back on a field the
+// browser finds invalid: neither happened when the request was issued on body.
 function initFilterBar(form) {
   if (form.dataset.ndBound) return;
   form.dataset.ndBound = "1";
   const target = form.dataset.hxTarget;
   if (!target || !window.htmx) return;
+  form.addEventListener("htmx:configRequest", (e) => {
+    if (e.target !== form) return;
+    e.detail.parameters = {};
+    e.detail.errors = [];
+  });
   const submit = () => {
     const params = new URLSearchParams(new FormData(form));
     // A field marked data-keep-empty keeps its key when nothing is chosen ("section=": every section,
@@ -194,9 +213,11 @@ function initFilterBar(form) {
       else params.append(name, "");
     }
     const url = `${form.getAttribute("action") || window.location.pathname}${params.size ? `?${params}` : ""}`;
-    window.htmx.ajax("GET", url, { target, swap: "innerHTML" }).then(() => {
-      window.history.replaceState({}, "", url);
-    });
+    window.htmx.trigger(form, "htmx:abort"); // the previous filter request, if still running (never on body)
+    window.htmx.ajax("GET", url, { source: form, target, swap: "innerHTML" }).then(
+      () => window.history.replaceState({}, "", url),
+      () => {}, // aborted by a newer filter, or failed (the toast says so)
+    );
   };
   form.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -345,29 +366,33 @@ const MODULES = {
   ask: "askModule",
 };
 
-async function initModules(root) {
+// Each element starts on its own: a map waiting on the network no longer holds up the charts beside it.
+// The promise settles once every element has started (or shown its error box).
+function initModules(root) {
   const elements = [...(root.matches?.("[data-module]") ? [root] : []), ...$$("[data-module]", root)];
-  for (const el of elements) {
-    if (el.dataset.ndBound) continue;
-    el.dataset.ndBound = "1";
-    const key = MODULES[el.dataset.module];
-    if (!key) continue;
-    try {
-      const mod = await import(asset(key));
-      await mod.init(el);
-    } catch (err) {
-      console.error(err);
-      el.innerHTML = "";
-      const box = document.createElement("div");
-      box.className = "state state--error";
-      box.setAttribute("role", "alert");
-      box.innerHTML = '<p class="state__title">This view could not be loaded.</p>';
-      const msg = document.createElement("p");
-      msg.className = "state__message";
-      msg.textContent = err?.message || String(err);
-      box.appendChild(msg);
-      el.appendChild(box);
-    }
+  return Promise.allSettled(elements.map(startModule));
+}
+
+async function startModule(el) {
+  if (el.dataset.ndBound) return;
+  el.dataset.ndBound = "1";
+  const key = MODULES[el.dataset.module];
+  if (!key) return;
+  try {
+    const mod = await import(asset(key));
+    await mod.init(el);
+  } catch (err) {
+    console.error(err);
+    el.innerHTML = "";
+    const box = document.createElement("div");
+    box.className = "state state--error";
+    box.setAttribute("role", "alert");
+    box.innerHTML = '<p class="state__title">This view could not be loaded.</p>';
+    const msg = document.createElement("p");
+    msg.className = "state__message";
+    msg.textContent = err?.message || String(err);
+    box.appendChild(msg);
+    el.appendChild(box);
   }
 }
 
@@ -375,7 +400,7 @@ async function initModules(root) {
 // A link with data-current-query (an export menu in the page header) takes the filter of the address bar
 // when it is clicked: a filter bar driven by HTMX changes the address, not the links drawn with the page.
 // The attribute's value is added after the filter ("export=csv"); the page's own keys (tab, page...) are not.
-const PAGE_ONLY_KEYS = ["tab", "page", "sort", "places", "entity_kind", "entity_all", "rule_trends", "pd_scope", "visit"];
+const PAGE_ONLY_KEYS = ["tab", "page", "sort", "places", "entity_kind", "entity_all", "rule_trends", "pd_scope", "visit", "_part", "_eager"];
 function followQuery(event) {
   const link = event.target.closest?.("a[data-current-query]");
   if (!link) return;
@@ -390,14 +415,37 @@ function followQuery(event) {
 
 // ------------------------------------------------------------------ print pages
 // A button with data-autoprint prints the page; data-autoprint="load" also opens the print dialog once the
-// page and its charts are drawn (the printable reports: staff choose "Save as PDF").
+// page and its charts are drawn (the printable reports: staff choose "Save as PDF"). On a page that loads in
+// parts, every part still to come is loaded first (strict ones too) and its charts drawn; meanwhile the
+// button says "Preparing the page…". The page prints once everything has arrived or failed.
+async function printWhenReady(button) {
+  if (pendingParts() > 0) {
+    const label = button?.innerHTML;
+    if (button) {
+      button.setAttribute("aria-busy", "true");
+      button.disabled = true;
+      button.textContent = partText("preparing");
+    }
+    try {
+      await loadAll({ timeout: 60000 });
+    } finally {
+      if (button) {
+        button.innerHTML = label;
+        button.disabled = false;
+        button.removeAttribute("aria-busy");
+      }
+    }
+  }
+  window.print();
+}
+
 function initAutoprint(root) {
   $$("[data-autoprint]", root).forEach((btn) => {
     if (btn.dataset.ndBound) return;
     btn.dataset.ndBound = "1";
-    btn.addEventListener("click", () => window.print());
+    btn.addEventListener("click", () => printWhenReady(btn));
     if (btn.dataset.autoprint === "load" && root === document) {
-      const open = () => window.setTimeout(() => window.print(), 1500);
+      const open = () => window.setTimeout(() => printWhenReady(), 1500);
       if (document.readyState === "complete") open();
       else window.addEventListener("load", open, { once: true });
     }
@@ -452,21 +500,24 @@ function confirmSubmit(event) {
   }
 }
 
+// Returns the promise of the page modules started under root (charts, maps...), settled once all are drawn.
 function enhance(root = document) {
   $$("form[data-filter-bar]", root).forEach(initFilterBar);
   initFiltersCollapse(root);
   initTables(root);
   initSelects(root);
-  initModules(root);
+  const modules = initModules(root);
   initAutoprint(root);
+  return modules;
 }
 
 initTheme();
 initSearch();
 initHelp();
 initHtmx();
+initParts();
 document.addEventListener("click", followQuery);
 document.addEventListener("click", printCard);
 document.addEventListener("auxclick", followQuery);
 document.addEventListener("submit", confirmSubmit, true);
-enhance(document);
+trackModules(enhance(document));

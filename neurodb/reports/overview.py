@@ -9,8 +9,14 @@ reporting sources are kept apart: an eTools figure and an ActivityInfo figure ar
 one number where the page says so.
 
 Filters: the year, eTools section names (empty = every section) and one governorate (a gazetteer
-governorate name; empty = the country). The result is cached for two minutes per filter, and the key
-changes as soon as a sync run finishes.
+governorate name; empty = the country). The result is kept for two minutes per filter in the cache that
+every worker shares (:func:`neurodb.core.compute.once`: the overview's parts, requested separately, read
+one build), and the key changes as soon as a sync run finishes or an indicator flag changes. Nothing in a
+build depends on who asks: the user's own section only reaches it as the ``sections`` of the scope,
+which are in the key, so one person's figures are never shown to another.
+
+The filter bar's choices (:func:`options`) and the freshness strip (:func:`freshness`) are kept the same
+way, for the page's frame, which draws them before any figure is computed.
 """
 
 from __future__ import annotations
@@ -26,10 +32,10 @@ from typing import Any
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.core.cache import cache as django_cache
 from django.db.models import Count, Max, Q, Sum
 from django.urls import reverse
 
+from neurodb.core import compute
 from neurodb.datamart import fm, headline, monitoring
 from neurodb.datamart import models as dm
 from neurodb.datamart import reached as rc
@@ -45,8 +51,10 @@ from neurodb.web.templatetags.ui import half_up
 
 logger = logging.getLogger(__name__)
 
-CACHE_SECONDS = 120
-CACHE_VERSION = 9
+CACHE_SECONDS = 120  # a build, and the freshness strip
+OPTIONS_SECONDS = 600  # the filter bar's choices (they only change with a sync)
+CACHE_VERSION = 10  # 10: the freshness strip left the build (freshness())
+FRESHNESS_JOBS = ("ai_data", "etools_datamart", "locations", "daily_review")
 MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 STATUSES = ("on_track", "off_track", "over_target", "no_target", NOT_REPORTED)
 LEVEL_GOVERNORATE = monitoring.LEVEL_GOVERNORATE
@@ -169,7 +177,17 @@ def governorate_names() -> dict[str, str]:
 
 # --------------------------------------------------------------------------------- options
 def options(year: int) -> dict[str, list[str]]:
-    """The filter bar's choices: eTools section names of the PD indicators and gazetteer governorates."""
+    """The filter bar's choices: eTools section names of the PD indicators and gazetteer governorates.
+    Kept ten minutes in the shared cache; a finished sync (new indicators, a new gazetteer) changes the
+    key. A frame that finds another request computing them computes them itself (a few milliseconds)
+    rather than wait for that request's lock, which is looked at every 200 ms: the frame comes at once."""
+    if settings.DEBUG:
+        return _options()
+    key = f"overview-options:v{CACHE_VERSION}:{year}:{compute.data_stamp()}"
+    return compute.once(key, _options, OPTIONS_SECONDS, wait=0, lang_neutral=True)  # names, never translated
+
+
+def _options() -> dict[str, list[str]]:
     names = dm.PDIndicator.objects.order_by().values_list("section_name", flat=True).distinct()
     sections = sorted({(s or "").strip() for s in names} - {""})
     governorates = sorted(
@@ -236,27 +254,29 @@ def flags_fingerprint() -> str:
 
 def _cache_key(scope: Scope) -> str:
     """Everything the result depends on, the indicator flags and the last finished sync included (a new
-    flag or a sync shows at once)."""
+    flag or a sync shows at once). Nothing about the person asking: a build depends on its scope only."""
     sections = "|".join(sorted(scope.sections))
     ryear = getattr(scope.reporting_year, "pk", "")
     return (
         f"overview:v{CACHE_VERSION}:{scope.year}:{ryear}:{sections}:{scope.governorate}:{scope.today}:"
-        f"{flags_fingerprint()}:{latest_sync_run() or ''}"
+        f"{compute.data_stamp()}"  # the last finished sync run and the flags fingerprint
     ).replace(" ", "_")
 
 
 def build(scope: Scope, *, cache: bool = True) -> dict[str, Any]:
-    """Every block of the overview for ``scope`` (see the module docstring)."""
-    use_cache = cache and not settings.DEBUG
-    key = _cache_key(scope)
-    if use_cache:
-        found = django_cache.get(key)
-        if found is not None:
-            return found
-    data = _Builder(scope).build()
-    if use_cache:
-        django_cache.set(key, data, CACHE_SECONDS)
-    return data
+    """Every block of the overview for ``scope`` (see the module docstring): computed once across every
+    worker and kept two minutes. ``cache=False`` (and DEBUG) computes it afresh."""
+    if not cache or settings.DEBUG:
+        return _Builder(scope).build()
+    return compute.once(_cache_key(scope), lambda: _Builder(scope).build(), CACHE_SECONDS)
+
+
+def stored(scope: Scope) -> bool:
+    """Whether :func:`build` would answer ``scope`` at once, from what is already stored: the page's
+    frame then draws the figures inline instead of asking for them (it never computes them itself)."""
+    if settings.DEBUG:
+        return False
+    return compute.peek(_cache_key(scope))[0]
 
 
 def children_population(year: int) -> tuple[dict[str, tuple[str, int]], int | None]:
@@ -445,14 +465,11 @@ class _Builder:
         money = self._money(impact)
         delivery = self._delivery()
         progress = self._progress()
-        freshness = self._freshness()
         return {
             "impact": impact,
             "money": money,
             "delivery": delivery,
             "progress": progress,
-            "freshness": freshness,
-            "freshness_note": freshness_note(freshness),
             "scope": {
                 "year": self.year,
                 "sections": list(self.scope.sections),
@@ -1341,36 +1358,47 @@ class _Builder:
             ],
         }
 
-    # ------------------------------------------------------------------ freshness
-    def _freshness(self) -> list[dict[str, Any]]:
-        """When each source last changed: the same states as the data health page, without its
-        per-dataset counts."""
-        from django.utils import timezone
 
-        from neurodb.core.models import SyncRun
+# --------------------------------------------------------------------------------- freshness
+def freshness() -> list[dict[str, Any]]:
+    """When each source last changed: the same states as the data health page, without its per-dataset
+    counts. Plain values (``finished_at``, never the run itself), kept two minutes in the shared cache;
+    a finished sync changes the key, so a new run shows at once. Like :func:`options`, never waited for:
+    a frame computes it itself when another request is at it."""
+    if settings.DEBUG:
+        return _freshness()
+    key = f"overview-freshness:v{CACHE_VERSION}:{compute.data_stamp()}"  # the last finished sync run
+    return compute.once(key, _freshness, CACHE_SECONDS, wait=0)
 
-        staleness = datetime.timedelta(hours=settings.SYNC_STALENESS_HOURS)
-        now = timezone.now()
-        labels = dict(SyncRun.Job.choices)
-        out = []
-        for job in ("ai_data", "etools_datamart", "locations", "daily_review"):
-            last = SyncRun.last_success(job)
-            if last is None or last.finished_at is None:
-                state, state_label = "unknown", "Not yet synced"
-            elif now - last.finished_at > staleness:
-                state, state_label = "stale", "Stale"
-            else:
-                state, state_label = "fresh", "Fresh"
-            out.append(
-                {
-                    "job": job,
-                    "label": labels.get(job, job),
-                    "last_success": last,
-                    "state": state,
-                    "state_label": state_label,
-                }
-            )
-        return out
+
+def _freshness() -> list[dict[str, Any]]:
+    from django.utils import timezone
+
+    from neurodb.core.models import SyncRun
+
+    staleness = datetime.timedelta(hours=settings.SYNC_STALENESS_HOURS)
+    now = timezone.now()
+    labels = dict(SyncRun.Job.choices)
+    out = []
+    for job in FRESHNESS_JOBS:
+        last = SyncRun.last_success(job)
+        finished = last.finished_at if last is not None else None
+        if finished is None:
+            state, state_label = "unknown", "Not yet synced"
+        elif now - finished > staleness:
+            state, state_label = "stale", "Stale"
+        else:
+            state, state_label = "fresh", "Fresh"
+        out.append(
+            {
+                "job": job,
+                "label": str(labels.get(job, job)),
+                "finished_at": finished,
+                "state": state,
+                "state_label": state_label,
+            }
+        )
+    return out
 
 
 def freshness_note(jobs: list[dict[str, Any]]) -> str:

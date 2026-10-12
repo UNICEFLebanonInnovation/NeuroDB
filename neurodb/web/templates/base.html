@@ -4,7 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token }}">
-  <meta name="htmx-config" content='{"inlineScriptNonce":"{{ request.csp_nonce }}","allowEval":false,"scrollBehavior":"instant","defaultSwapStyle":"innerHTML"}'>
+  <meta name="htmx-config" content='{"inlineScriptNonce":"{{ request.csp_nonce }}","allowEval":false,"scrollBehavior":"instant","defaultSwapStyle":"innerHTML","historyCacheSize":0,"refreshOnHistoryMiss":true,"historyRestoreAsHxRequest":false}'>
+  <meta name="nd-parts-parallel" content="3">
   <meta name="color-scheme" content="light dark">
   <title>{% block title %}{{ page_title|default:SITE_NAME }}{% endblock %} · {{ SITE_NAME }}</title>
   {% include "components/favicons.html" %}
@@ -240,6 +241,12 @@
 </div>
 
 <div class="toast-region" id="toasts" aria-live="polite" aria-atomic="false"></div>
+{% comment %}Pages that load in parts (parts.js): one quiet summary for screen readers, never one message per
+part; the words parts.js shows in a part or on the Print button, translated.{% endcomment %}
+{% trans "Loading the figures…" as t_loading %}{% trans "All figures are shown." as t_done %}{% trans "1 part could not be loaded." as t_failed_one %}{% trans "{n} parts could not be loaded." as t_failed_many %}{% trans "You do not have access to this." as t_forbidden %}{% trans "This part is no longer on the page. Reload the page." as t_gone %}{% trans "This part took too long. Try again, or narrow the filter." as t_timeout %}{% trans "This part could not be loaded." as t_generic %}{% trans "Preparing the page…" as t_preparing %}
+<div id="parts-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"
+     data-text-loading="{{ t_loading }}" data-text-done="{{ t_done }}" data-text-failed-one="{{ t_failed_one }}" data-text-failed-many="{{ t_failed_many }}"
+     data-text-forbidden="{{ t_forbidden }}" data-text-gone="{{ t_gone }}" data-text-timeout="{{ t_timeout }}" data-text-generic="{{ t_generic }}" data-text-preparing="{{ t_preparing }}"></div>
 {% include "components/modal.html" %}
 {% include "components/search_modal.html" %}
 {% if user.is_authenticated and not is_donor %}{% include "help/_panel.html" %}{% endif %}

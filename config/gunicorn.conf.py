@@ -9,8 +9,11 @@ threads = int(os.environ.get("GUNICORN_THREADS", "4"))
 timeout = int(os.environ.get("GUNICORN_TIMEOUT", "120"))  # large Excel exports
 graceful_timeout = 30  # Container Apps sends SIGTERM and waits 30 s by default
 keepalive = 75  # longer than the Azure ingress idle timeout, avoids 502s on reused connections
-max_requests = 2000
-max_requests_jitter = 200
+# A worker restarts after this many requests (with a random spread, so they do not all restart together).
+# Pages that load in parts send several requests per visit, and each restart loses the per-process caches
+# and pays the slow first request again.
+max_requests = 8000
+max_requests_jitter = 800
 worker_tmp_dir = "/dev/shm"  # noqa: S108 - heartbeat files off the container filesystem (works with a read-only root)
 forwarded_allow_ips = "*"  # only the Azure ingress can reach the container
 proxy_allow_ips = "*"

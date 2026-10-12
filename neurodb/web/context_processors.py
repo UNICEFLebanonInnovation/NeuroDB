@@ -5,10 +5,12 @@ from neurodb.accounts.roles import role_of
 
 
 def site(request):
+    user = getattr(request, "user", None)
     return {
         "SITE_NAME": settings.SITE_NAME,
         "SSO_ENABLED": settings.SSO_ENABLED,
-        "user_role": role_of(request.user) if hasattr(request, "user") else None,
+        # read when a template uses it (one query for the groups): most parts of a page never do
+        "user_role": SimpleLazyObject(lambda: role_of(user)) if user is not None else None,
         "PUBLIC_PAGES": settings.PUBLIC_PAGES,
         "SUPPORT_EMAIL": settings.SUPPORT_EMAIL,
         "USER_GUIDE_URL": settings.USER_GUIDE_URL,

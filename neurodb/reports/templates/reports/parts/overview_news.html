@@ -1,0 +1,4 @@
+{% comment %}What's new and the indicators likely to fall short (part "news", reports.views.overview). Context: whats_new,
+forecast_risk, selected.{% endcomment %}
+{% include "graph/_overview_card.html" %}
+{% include "insights/_at_risk.html" with forecast_scope=selected.section|join:", " %}

@@ -15,7 +15,7 @@
       <div class="mini"><div class="mini__value">{{ tpm.sites_visited|intcomma }}</div><div class="mini__label">{% trans "Sites visited" %}</div></div>
       <div class="mini"><div class="mini__value">{{ tpm.completion_percent|percent:0 }}</div><div class="mini__label">{% trans "Completion" %}</div></div>
     </div>
-    <div class="chart chart--sm" data-module="charts" data-chart="grouped" data-source="overview-chart-data" data-key="progress.tpm" data-height="220" data-empty-title="{% trans 'No TPM visits planned this year' %}" aria-label="{% trans 'TPM visits planned, completed and overdue per month' %}"></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="grouped" data-source="overview-figures-data" data-key="progress.tpm" data-height="220" data-empty-title="{% trans 'No TPM visits planned this year' %}" aria-label="{% trans 'TPM visits planned, completed and overdue per month' %}"></div>
   </section>
   <section class="panel" aria-labelledby="ap-title">
     <div class="panel__header">
@@ -29,7 +29,7 @@
       <div class="mini"><div class="mini__value">{{ points.closure_percent|percent:0 }}</div><div class="mini__label">{% trans "Due this year, closed" %}</div></div>
       <div class="mini"><div class="mini__value">{{ points.median_days_to_close|number:0 }}</div><div class="mini__label">{% trans "Median days from due date to closing" %}</div></div>
     </div>
-    <div class="chart chart--sm" data-module="charts" data-chart="grouped" data-source="overview-chart-data" data-key="progress.action_points" data-height="220" data-empty-title="{% trans 'No action points due this year' %}" aria-label="{% trans 'Action points due, closed and past due per month' %}"></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="grouped" data-source="overview-figures-data" data-key="progress.action_points" data-height="220" data-empty-title="{% trans 'No action points due this year' %}" aria-label="{% trans 'Action points due, closed and past due per month' %}"></div>
     {% if points.age %}
     <div class="table-wrap mt-2"><table class="table table-sm" id="overview-action-point-age">
       <thead><tr>

@@ -1,0 +1,3 @@
+{% comment %}The daily review card (part "review", reports.views.overview), its folded findings left to the "review-more" part.
+Context: review = neurodb.review.services.for_page(...), or None when no review has run.{% endcomment %}
+{% if review %}{% include "reports/partials/_daily_review.html" %}{% endif %}

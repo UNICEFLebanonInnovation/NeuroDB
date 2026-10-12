@@ -4,6 +4,7 @@ import secrets
 
 from django.conf import settings
 from django.contrib.auth.middleware import LoginRequiredMiddleware
+from django.middleware.gzip import GZipMiddleware
 
 
 class ContentSecurityPolicyMiddleware:
@@ -80,3 +81,24 @@ class HealthCheckMiddleware:
 
                 return HttpResponse(b"", content_type="text/plain")
         return self.get_response(request)
+
+
+class CompressMiddleware(GZipMiddleware):
+    """Gzip for pages, parts and JSON: App Service does not compress what a Linux container sends, and a
+    page's parts are large (the daily review's folded findings alone are about 266 KB).
+
+    Django's GZipMiddleware, which pads each response with random bytes against BREACH, minus three
+    kinds of response: event streams (the assistant and help chats send each line as it is written, and
+    compression would hold them back), attachments (exports: Excel files are compressed already) and
+    streamed responses (large downloads). It sits right after WhiteNoise, so static files, which
+    WhiteNoise serves from their own .gz and .br copies, never reach it.
+    """
+
+    def process_response(self, request, response):
+        if response.streaming:
+            return response
+        if response.get("Content-Type", "").startswith("text/event-stream"):
+            return response
+        if response.get("Content-Disposition", "").split(";")[0].strip().lower() == "attachment":
+            return response
+        return super().process_response(request, response)

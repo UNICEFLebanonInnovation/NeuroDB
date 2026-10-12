@@ -9,7 +9,7 @@
       <span class="panel__hint">{% trans "Disbursed USD per child reached (eTools)" %}</span>
     </div>
     <p class="caveat">{{ money.cost_caveat }}</p>
-    <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-source="overview-chart-data" data-key="money.by_section" data-prefix="$" data-height="200" data-empty-title="{% trans 'No cost per child yet' %}" aria-label="{% trans 'Cost per child by section' %}"></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-source="overview-figures-data" data-key="money.by_section" data-prefix="$" data-height="200" data-empty-title="{% trans 'No cost per child yet' %}" aria-label="{% trans 'Cost per child by section' %}"></div>
     {% if money.by_section %}
     <details class="mt-2">
       <summary class="small text-muted">{% trans "Figures by section" %}</summary>
@@ -25,14 +25,14 @@
       <h3 class="panel__title" id="scatter-title">{% trans "Spending against delivery" %}</h3>
       <span class="panel__hint">{% trans "Share disbursed against the median share of the target reached by the section's children indicators" %}</span>
     </div>
-    <div class="chart chart--sm" data-module="charts" data-chart="scatter-xy" data-source="overview-chart-data" data-key="money.scatter" data-height="260" data-empty-title="{% trans 'No section has both a disbursement and a children target yet' %}" aria-label="{% trans 'Disbursed share against achieved share by section' %}"></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="scatter-xy" data-source="overview-figures-data" data-key="money.scatter" data-height="260" data-empty-title="{% trans 'No section has both a disbursement and a children target yet' %}" aria-label="{% trans 'Disbursed share against achieved share by section' %}"></div>
   </section>
   <section class="panel" aria-labelledby="donor-title">
     <div class="panel__header">
       <h3 class="panel__title" id="donor-title">{% trans "Funding by donor" %}</h3>
       <a class="panel__hint" href="{% url 'reports:funds' %}">{% trans "Funds" %} →</a>
     </div>
-    <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-source="overview-chart-data" data-key="money.by_donor" data-prefix="$" data-height="240" data-empty-title="{% trans 'No funds reservations for this scope' %}" aria-label="{% trans 'Funds by donor' %}"></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-source="overview-figures-data" data-key="money.by_donor" data-prefix="$" data-height="240" data-empty-title="{% trans 'No funds reservations for this scope' %}" aria-label="{% trans 'Funds by donor' %}"></div>
   </section>
   <section class="panel" aria-labelledby="decisions-title">
     <div class="panel__header">

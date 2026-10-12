@@ -4,6 +4,7 @@ import datetime
 
 import pytest
 from django.contrib.auth.models import Group
+from django.test import Client
 
 from neurodb.accounts.models import Section, User
 from neurodb.accounts.roles import ADMIN, VIEWER, ensure_groups
@@ -21,23 +22,50 @@ from neurodb.indicators.models import (
 )
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "shell: the test checks a page's shell itself: client.get answers the shell with its placeholders, "
+        "not the page assembled with its parts (tests/web/parts.py)",
+    )
+
+
 @pytest.fixture(autouse=True)
 def _clear_cache():
     """Navigation and landing figures are cached; every test starts from an empty cache."""
-    from django.core.cache import cache
+    from django.core.cache import cache, caches
 
+    from neurodb.core import compute
     from neurodb.fmm import metrics
     from neurodb.watch import people
 
     # the Monitoring insights blocks a request keeps for the rest of it, and whether the figures kept per
     # visit are up to date: a streamed response a test never reads leaves its request open, and what it
-    # kept would serve the tests after it (outside any request) on the same thread
+    # kept would serve the tests after it (outside any request) on the same thread. The page figures
+    # shared by every worker (compute.once) have a request memo of their own, for the same reason.
     metrics.request_finished()
+    compute.reset_memo()
     cache.clear()
+    caches["shared"].clear()
     people.forget()  # NeuroDB Watch keeps the person names it read for a run
     yield
     metrics.request_finished()
+    compute.reset_memo()
     cache.clear()
+    caches["shared"].clear()
+
+
+@pytest.fixture(autouse=True)
+def _assembled_pages(request, monkeypatch):
+    """A page that loads in parts answers its shell, and the browser fetches each part. Here the test
+    client does the same: ``client.get`` of such a page (without HTMX) answers the assembled page, every
+    part in place (strict ones too), with the parts' template contexts in ``response.context`` after the
+    shell's. So a test of a page's figures keeps testing them. A test of the shell itself is marked
+    ``@pytest.mark.shell``; ``tests.web.parts.raw_get`` always answers the shell."""
+    if request.node.get_closest_marker("shell") is None:
+        from tests.web.parts import assembling
+
+        monkeypatch.setattr(Client, "get", assembling(Client.get))
 
 
 @pytest.fixture

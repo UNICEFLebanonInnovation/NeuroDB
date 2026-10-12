@@ -1,0 +1,7 @@
+{% comment %}The daily review's folded findings (part "review-more", reports.views.overview), loaded when the card's "Show more"
+opens. Context: review = neurodb.review.services.for_page(...).{% endcomment %}
+{% if review.more_findings %}
+<ul class="review-findings">
+  {% for f in review.more_findings %}{% include "reports/partials/_daily_review_finding.html" %}{% endfor %}
+</ul>
+{% endif %}

@@ -270,6 +270,11 @@ QUICK_MIGRATIONS = {
     ("fmm", "0020_records_cleanup", "drop_legacy_checks_when_done"),
     ("fmm", "0021_figures", "RunSQL"),  # a trigger function and its triggers
     ("locations", "0002_location_tables_when_missing", "RunSQL"),
+    # the shared page figures' table: a new, empty table and its index
+    ("core", "0026_shared_cache_table", "RunSQL"),
+    # SET LOCAL lock_timeout before two plain indexes over the sync runs (a few thousand rows, built in
+    # milliseconds; the wait for the table's lock is bounded to 10 s, never a concurrent build)
+    ("core", "0027_syncrun_indexes", "RunSQL"),
 }
 
 

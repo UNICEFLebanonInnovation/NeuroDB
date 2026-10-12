@@ -91,11 +91,14 @@ def test_healthz_is_public(client):
     assert client.get("/healthz/").status_code == 200
 
 
-def test_overview_and_database_pages(client_viewer, hierarchy):
-    db = hierarchy["database"]
-    master = hierarchy["master"]
+def test_overview_page(client_viewer, hierarchy):
     html = _get(client_viewer, reverse("reports:overview")).content.decode()
     assert "Child Protection" in html
+
+
+def test_database_pages(client_viewer, hierarchy):
+    db = hierarchy["database"]
+    master = hierarchy["master"]
     html = _get(client_viewer, reverse("reports:database_dashboard", args=[db.id])).content.decode()
     assert "Children reached (total)" in html and 'id="chart-data"' in html
     for name in ("database_analytical", "database_snapshot", "database_map"):

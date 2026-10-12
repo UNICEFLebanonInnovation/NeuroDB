@@ -1,5 +1,5 @@
-{% load i18n ui humanize %}
-{# The daily review card of the overview. Context: review = neurodb.review.services.for_page(...), keep_query, selected. #}
+{% load i18n ui humanize parts %}
+{# The daily review card of the overview (its "review" part). Context: review = review.services.for_page(...), page_query, selected. #}
 <section class="panel review-card" aria-labelledby="review-title">
   <div class="panel__header">
     <div>
@@ -38,9 +38,8 @@
     {% if review.more_findings %}
     <details class="review-more">
       <summary>{% blocktrans count counter=review.more %}Show {{ counter }} more finding{% plural %}Show {{ counter }} more findings{% endblocktrans %}</summary>
-      <ul class="review-findings">
-        {% for f in review.more_findings %}{% include "reports/partials/_daily_review_finding.html" %}{% endfor %}
-      </ul>
+      {# the rest (often hundreds of KB) is its own part, asked for when this opens (or for print, or an anchor) #}
+      {% part "review-more" kind="list" lazy="strict" %}
     </details>
     {% endif %}
     {% elif not review.data_problems %}

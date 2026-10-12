@@ -56,7 +56,17 @@ class SyncRun(models.Model):
     class Meta:
         ordering = ("-started_at",)
         verbose_name = "import and sync run"  # the admin menu's name for this list
-        indexes = [models.Index(fields=["job", "status", "-started_at"])]
+        indexes = [
+            models.Index(fields=["job", "status", "-started_at"]),
+            # the last finished run (overview.latest_sync_run, in the page figures' cache keys)
+            models.Index(
+                fields=["-finished_at", "-id"],
+                name="core_syncrun_finished",
+                condition=models.Q(finished_at__isnull=False),
+            ),
+            # the latest run of each job and target (Data health)
+            models.Index(fields=["job", "target", "-started_at"], name="core_syncrun_job_target"),
+        ]
 
     def __str__(self):
         return f"{self.get_job_display()} {self.target} {self.status} {self.started_at:%Y-%m-%d %H:%M}"
