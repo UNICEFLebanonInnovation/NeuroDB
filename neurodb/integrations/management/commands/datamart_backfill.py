@@ -9,8 +9,6 @@ from django.core.management.base import BaseCommand
 from neurodb.datamart import backfill
 from neurodb.integrations.management.commands._base import add_triggered_by, exit_on_failure, write_summary
 
-SYNC_RUNNING = "The eTools Datamart sync is running; the clean-up waits for the schedule's next try."
-
 
 class Command(BaseCommand):
     help = "Finish an eTools update: fill the new partner report columns and remove stored contact details"
@@ -20,7 +18,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         result = backfill.run(options["triggered_by"])
-        if result is None:
-            self.stdout.write(SYNC_RUNNING)
+        if isinstance(result, str):  # not now: another clean-up or the Datamart sync is running
+            self.stdout.write(result)
             return
         exit_on_failure(write_summary(self, [result]))

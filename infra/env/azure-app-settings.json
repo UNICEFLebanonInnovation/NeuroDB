@@ -223,5 +223,10 @@
     "name": "WEBSITES_ENABLE_APP_SERVICE_STORAGE",
     "value": "false",
     "slotSetting": false
+  },
+  {
+    "name": "WEBSITES_CONTAINER_START_TIME_LIMIT",
+    "value": "600",
+    "slotSetting": false
   }
 ]

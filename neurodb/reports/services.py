@@ -200,6 +200,7 @@ def data_health() -> dict[str, Any]:
             SyncRun.Job.FMM_AI_CHECKS,
             SyncRun.Job.FMM_AP_REVIEW,
             SyncRun.Job.DOC_REVIEW,
+            SyncRun.Job.DATAMART_BACKFILL,  # once after a deployment: it never goes stale
         ):
             # weekly analyses, NeuroDB Watch and Monitoring insights, shown on their own pages: jobs
             # worked out from the synced data, not syncs that go stale

@@ -14,14 +14,20 @@ migrates at a time. On App Service this is what migrates the database on each de
 
 **Migrations must be quick.** A web container serves nothing until its migrations are done, and App
 Service stops a container that has not started within its start-up limit (about four minutes). A
-longer migration is cut off, rolled back and started again at every restart, and the site answers
+longer migration is cut off and started again from the beginning at every restart (an atomic one is
+rolled back; a batched one keeps the batches it committed and rewrites them), and the site answers
 *503 Service Unavailable* until an image without it is deployed (this happened with the eTools
-"Reached" release, whose column fill read every partner report row). So a migration only changes the
+"Reached" release, whose column fill read every partner report row). The log shows each migration
+on its own line as it starts ("Applying ..."), and " OK" on the next line when it is done. So a
+migration only changes the
 schema or writes small tables (settings, schedules, prompts); work over the large tables (partner
 reports, eTools records kept whole, Monitoring insights rule checks) runs once the site is up, as a
 background job a schedule starts at once: *Finish the eTools update* (below) is the example. The
 test `tests/datamart/test_backfill.py` lists every migration that runs code and fails on a new one
-until it is checked and listed as quick.
+until it is checked and listed as quick. On App Service the application setting
+`WEBSITES_CONTAINER_START_TIME_LIMIT` (seconds, at most 1800; `infra/env/azure-app-settings.json`
+sets 600) gives a deployment's migrations more room than the default 230 seconds; it is a safety
+margin, not a reason to write a long migration.
 
 Rollback: `infra/scripts/rollback.sh` with the previous image tag. Migrations are not reversed, so
 every migration must stay compatible with the previous release for one deployment.
@@ -701,7 +707,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `watch` | `run_watch --daily` | `45 7 * * *`, daily 07:45: NeuroDB Watch's morning pass, the *For you* pages (see NeuroDB Watch); a quick pass also follows new data |
 | `ml-readiness` | `ml_readiness` | `45 6 * * 1`, Mondays 06:45: is the data ready for machine learning (Data health) |
 | `forecast` | `forecast_indicators` | `15 7 * * 1`, Mondays 07:15: year-end forecasts of the indicators, back-tested |
-| `etools-update-cleanup` | `datamart_backfill` | `*/15 * * * *`, every 15 minutes, due at once after the deployment that adds it (the scheduler starts it within a minute of the site starting) and until one run has gone through everything; the job then switches it off ("finished: nothing left to do"). It fills the new columns of the partner reports already synced and removes the contact details older syncs stored (see eTools Datamart, *Finish the eTools update*) |
+| `etools-update-cleanup` | `datamart_backfill` | `*/15 * * * *`, every 15 minutes, due at once after the deployment that adds it (the scheduler starts it usually within a minute of the site starting, at most 15 minutes when the previous container's scheduler sees it first) and until one run has gone through everything; the job then switches it off ("finished: nothing left to do"). A run that finds the eTools Datamart sync going switches it back on to try again ("waiting: the eTools Datamart sync is running"). It fills the new columns of the partner reports already synced and removes the contact details older syncs stored (see eTools Datamart, *Finish the eTools update*) |
 | (inside `activityinfo-data` and `etools-datamart`) | `link_partners` | at the end of both jobs |
 | (inside `etools-datamart`) | `fmm_refresh` | at the end of the sync, when it synced a dataset Monitoring insights reads (`FMM_REFRESH_AFTER_SYNC`); its failure never fails the sync |
 
@@ -832,6 +838,7 @@ finishes. Only one Datamart sync runs at a time (a database lock), whoever start
 restarts the container and kills a sync in progress: its run stays *Running* until the next
 **Sync eTools Datamart now**, which sees that nobody holds the lock, closes the run as *Failed* ("Cut off")
 and starts. The scheduled job `etools-datamart` (admin → Scheduled jobs) runs it every night.
+From a shell with the same settings: `python manage.py sync_etools_datamart [--only a,b]`.
 
 **Finish the eTools update.** The work an update leaves for after the site has started runs as the
 job *Finish the eTools update* (`datamart_backfill`, recorded as *eTools update clean-up* in this
@@ -839,13 +846,17 @@ list): it copies PRP's indicator report id and the CP output from each partner r
 before those columns existed (and gives each PD indicator its CP output), and removes from the
 records kept the e-mail addresses, phones and mobiles older syncs stored, the UNICEF focal point
 entries that were e-mail addresses and every `submitted_by` holding one. The schedule
-`etools-update-cleanup` starts it as soon as the site is up and the job switches that schedule off
-once a run has gone through everything. It writes only what is left, in batches committed one by
-one, so a run cut short (a restart) carries on next time and *Run a job → Finish the eTools update*
-can be pressed at any time. It holds the Datamart sync's lock: while a sync runs it waits for the
-schedule's next try (and a sync started meanwhile says another sync is running). Until it has run,
-partner report rows synced before the update show no CP output; the next sync fills them too.
-From a shell with the same settings: `python manage.py sync_etools_datamart [--only a,b]`.
+`etools-update-cleanup` starts it once the site is up (usually within a minute, at most 15 minutes)
+and the job switches that schedule off once a run has gone through everything. It writes only what
+is left, in batches committed one by one, reading each table once, so a run cut short (a restart)
+carries on next time and *Run a job → Finish the eTools update* can be pressed at any time. It holds
+the Datamart sync's lock, so the two never run together. Started while a sync runs, it does nothing
+then: its schedule (switched back on if it was off) starts it at the first quarter-hour after the
+sync has finished; *Scheduled jobs* shows "waiting: the eTools Datamart sync is running". A sync
+started while it runs (the nightly one, or **Sync eTools Datamart now**, which then says so) waits
+for it and runs as soon as it has finished. Until it has run, partner report rows synced before the
+update show no CP output. The next sync fills those inside its reporting window (`partner_reports`
+below); only this job fills the older ones.
 
 The nightly eTools sync reads the **eTools Datamart** (`https://datamart.unicef.io`, the new eTools
 APIs) with HTTP basic authentication: `ETOOLS_USERNAME` / `ETOOLS_PASSWORD`, from the Key Vault

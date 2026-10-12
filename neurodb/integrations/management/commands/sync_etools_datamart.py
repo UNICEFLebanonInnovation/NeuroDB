@@ -2,11 +2,16 @@
 
 After the sync (and its lock) is done, the partners are linked to ActivityInfo, and Monitoring insights
 rebuilds its visits when a dataset it reads was synced (``FMM_REFRESH_AFTER_SYNC``). That refresh is
-its own run: its failure never fails this command."""
+its own run: its failure never fails this command.
+
+One sync runs at a time (the Datamart lock): a second one does nothing. The eTools update clean-up
+(``datamart_backfill``, after a deployment) holds the same lock; a sync started meanwhile waits for it
+to finish, so the nightly sync is not lost to it."""
 
 from __future__ import annotations
 
 import logging
+import time
 
 from django.apps import apps
 from django.conf import settings
@@ -24,6 +29,14 @@ logger = logging.getLogger(__name__)
 
 FAILED = "failed"
 CORE = ("locations", "partners", "interventions", "intervention_budgets", "agreements")
+ANOTHER_SYNC = "Another eTools Datamart sync is running; nothing to do."
+CLEANUP_RUNNING = "The eTools update clean-up is running; the sync starts as soon as it has finished."
+CLEANUP_TOO_LONG = (
+    "The eTools update clean-up has been running for more than two hours; the sync did not start. "
+    "It runs at its next scheduled time."
+)
+CLEANUP_WAIT_SECONDS = 2 * 60 * 60
+POLL_SECONDS = 10
 FMM_NOT_STARTED = (
     "The Monitoring insights refresh could not be started after this sync (see the log); "
     "it runs again at 05:25."
@@ -47,8 +60,7 @@ class Command(BaseCommand):
         only = (
             [name.strip() for name in options["only"].split(",") if name.strip()] if options["only"] else None
         )
-        if not self._lock():
-            self.stdout.write("Another eTools Datamart sync is running; nothing to do.")
+        if not self._lock() and not self._after_the_cleanup():
             return
         try:
             runs = sync_all(only=only, triggered_by=options["triggered_by"])
@@ -89,6 +101,27 @@ class Command(BaseCommand):
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_try_advisory_lock(%s)", [LOCK_ID])
             return bool(cursor.fetchone()[0])
+
+    def _after_the_cleanup(self) -> bool:
+        """The Datamart lock is taken: by another sync (nothing to do), or by the eTools update
+        clean-up, which a sync waits for (it runs after a deployment, for minutes). True once this
+        sync holds the lock; otherwise it says why in the log."""
+        deadline = time.monotonic() + CLEANUP_WAIT_SECONDS
+        told = False
+        while background.datamart_cleanup_is_running():
+            if time.monotonic() > deadline:
+                self.stdout.write(CLEANUP_TOO_LONG)
+                return False
+            if not told:
+                self.stdout.write(CLEANUP_RUNNING)
+                told = True
+            time.sleep(POLL_SECONDS)
+            if self._lock():
+                return True
+        if self._lock():  # the clean-up finished just now
+            return True
+        self.stdout.write(ANOTHER_SYNC)
+        return False
 
     def _unlock(self) -> None:
         if connection.vendor == "postgresql":

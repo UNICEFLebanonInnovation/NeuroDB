@@ -155,6 +155,86 @@ def test_the_command_does_nothing_while_another_run_holds_the_lock(monkeypatch, 
     assert not SyncRun.objects.exists()
 
 
+def _other_session(*lock_ids):
+    import psycopg
+    from django.db import connection
+
+    s = connection.settings_dict
+    other = psycopg.connect(
+        dbname=s["NAME"],
+        user=s["USER"] or None,
+        password=s["PASSWORD"] or None,
+        host=s["HOST"] or None,
+        port=s["PORT"] or None,
+        autocommit=True,
+    )
+    for lock_id in lock_ids:
+        other.execute("SELECT pg_advisory_lock(%s)", [lock_id])
+    return other
+
+
+def test_a_sync_started_during_the_etools_update_clean_up_waits_for_it(monkeypatch, capsys):
+    """The clean-up holds the Datamart lock for minutes after a deployment; the nightly sync (or one
+    started by hand) that finds it there runs after it instead of doing nothing."""
+    cleanup = _other_session(background.DATAMART_BACKFILL_LOCK_ID, background.DATAMART_LOCK_ID)
+    waits, synced = [], []
+
+    def the_cleanup_finishes(seconds):
+        waits.append(seconds)
+        cleanup.close()
+
+    monkeypatch.setattr(sync_etools_datamart.time, "sleep", the_cleanup_finishes)
+    monkeypatch.setattr(
+        sync_etools_datamart, "sync_all", lambda only, triggered_by: synced.append(only) or []
+    )
+    try:
+        call_command("sync_etools_datamart", "--only", "grants")
+    finally:
+        cleanup.close()
+    assert sync_etools_datamart.CLEANUP_RUNNING in capsys.readouterr().out
+    assert waits == [sync_etools_datamart.POLL_SECONDS] and synced == [["grants"]]
+    assert background.datamart_lock_is_held() is False  # released after the sync
+
+
+def test_a_sync_started_during_another_sync_does_not_wait(monkeypatch, capsys):
+    other = _other_session(background.DATAMART_LOCK_ID)
+
+    def never(seconds):
+        raise AssertionError("a sync does not wait for another sync")
+
+    monkeypatch.setattr(sync_etools_datamart.time, "sleep", never)
+    monkeypatch.setattr(sync_etools_datamart, "sync_all", lambda only, triggered_by: [][0])
+    try:
+        call_command("sync_etools_datamart", "--only", "grants")
+    finally:
+        other.close()
+    assert sync_etools_datamart.ANOTHER_SYNC in capsys.readouterr().out
+
+
+def test_a_sync_left_running_is_closed_while_the_clean_up_holds_the_lock():
+    """The clean-up holding the Datamart lock is no sync: a run a restart cut off is closed as usual."""
+    run = SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="partners")
+    cleanup = _other_session(background.DATAMART_BACKFILL_LOCK_ID, background.DATAMART_LOCK_ID)
+    try:
+        assert background.datamart_lock_is_held() and background.datamart_cleanup_is_running()
+        assert background.is_running(SyncRun.Job.ETOOLS_DATAMART) is False
+    finally:
+        cleanup.close()
+    run.refresh_from_db()
+    assert run.error == background.CUT_OFF
+    sync = _other_session(background.DATAMART_LOCK_ID)  # a sync's session holds only the Datamart lock
+    try:
+        assert background.datamart_lock_is_held() and not background.datamart_cleanup_is_running()
+    finally:
+        sync.close()
+
+
+def test_the_button_says_the_sync_waits_for_the_clean_up(admin_client, started, credentials, monkeypatch):
+    monkeypatch.setattr(background, "datamart_cleanup_is_running", lambda: True)
+    response = admin_client.post(reverse(URL), {"_form_submitted": "on", "scope": "core"}, follow=True)
+    assert len(started) == 1 and "clean-up is running" in response.text
+
+
 def test_start_command_runs_manage_py_in_its_own_session(monkeypatch, settings):
     seen = {}
 

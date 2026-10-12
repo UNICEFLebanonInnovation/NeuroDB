@@ -1,8 +1,10 @@
 """The ``datamart_backfill`` job (the eTools update clean-up) and its schedule ``etools-update-cleanup``.
 
 The schedule is due at once, so the scheduler starts the job on its first pass after the deployment
-(within a minute of the site starting), then every 15 minutes until a run has gone through
-everything: the job then switches the schedule off. This does the work datamart 0010 and 0013 did
+(usually within a minute of the site starting; at most 15 minutes when the previous container's
+scheduler, which does not know the command, sees it first and plans it for its next quarter-hour),
+then every 15 minutes until a run has gone through everything: the job then switches the schedule
+off. This does the work datamart 0010 and 0013 did
 before the site started, which on the real tables did not fit in App Service's start-up limit."""
 
 from django.db import migrations, models

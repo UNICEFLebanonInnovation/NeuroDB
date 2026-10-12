@@ -249,6 +249,9 @@ previous release for one deployment (add columns first, remove them in a later r
 
 ## Also possible: App Service for Containers
 
-The same image runs on Web App for Containers: set `WEBSITES_PORT=8000`, the same environment
-variables (Key Vault references), health check path `/healthz/`, and **Always On** (the in-app
-scheduler that runs the scheduled jobs lives in the web workers, and App Service stops idle sites).
+The same image runs on Web App for Containers: set `WEBSITES_PORT=8000`,
+`WEBSITES_CONTAINER_START_TIME_LIMIT=600` (the web container applies the deployment's migrations
+before it serves, and App Service stops a container that has not started within 230 seconds by
+default), the same environment variables (Key Vault references), health check path `/healthz/`, and
+**Always On** (the in-app scheduler that runs the scheduled jobs lives in the web workers, and App
+Service stops idle sites).

@@ -34,6 +34,9 @@ FMM_INSIGHTS_LOCK_ID = 7140433  # the AI briefs of Monitoring insights
 FMM_AI_CHECKS_LOCK_ID = 7140434  # the AI checks of Monitoring insights' quality rules
 FMM_AP_REVIEW_LOCK_ID = 7140435  # the AI review of completed action points
 DOC_REVIEW_LOCK_ID = 7140436  # the document review of the knowledge base
+# the eTools update clean-up (neurodb.datamart.backfill): taken first, then held with the Datamart
+# sync's lock for the whole run, so a sync that finds the Datamart lock taken knows who has it
+DATAMART_BACKFILL_LOCK_ID = 7140437
 LOCK_IDS = {
     SyncRun.Job.ETOOLS_DATAMART: DATAMART_LOCK_ID,
     SyncRun.Job.DAILY_REVIEW: DAILY_REVIEW_LOCK_ID,
@@ -43,7 +46,7 @@ LOCK_IDS = {
     SyncRun.Job.FMM_AI_CHECKS: FMM_AI_CHECKS_LOCK_ID,
     SyncRun.Job.FMM_AP_REVIEW: FMM_AP_REVIEW_LOCK_ID,
     SyncRun.Job.DOC_REVIEW: DOC_REVIEW_LOCK_ID,
-    SyncRun.Job.DATAMART_BACKFILL: DATAMART_LOCK_ID,  # the clean-up holds the Datamart sync's lock
+    SyncRun.Job.DATAMART_BACKFILL: DATAMART_BACKFILL_LOCK_ID,
 }
 
 
@@ -69,6 +72,23 @@ def datamart_lock_is_held() -> bool | None:
     return lock_is_held(DATAMART_LOCK_ID)
 
 
+def datamart_cleanup_is_running() -> bool:
+    """The eTools update clean-up holds the Datamart sync's lock: one session holds both its own lock
+    and that one (it takes its own first), so a sync can tell it from another sync."""
+    if connection.vendor != "postgresql":
+        return False
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT 1 FROM pg_locks d JOIN pg_locks c ON c.pid = d.pid AND c.database = d.database "
+            "WHERE d.locktype = 'advisory' AND d.classid = 0 AND d.objid = %s AND d.objsubid = 1 "
+            "AND d.granted AND c.locktype = 'advisory' AND c.classid = 0 AND c.objid = %s "
+            "AND c.objsubid = 1 AND c.granted "
+            "AND d.database = (SELECT oid FROM pg_database WHERE datname = current_database()) LIMIT 1",
+            [DATAMART_LOCK_ID, DATAMART_BACKFILL_LOCK_ID],
+        )
+        return cursor.fetchone() is not None
+
+
 def is_running(job: str) -> bool:
     """A run of ``job`` is in progress. A ``RUNNING`` row whose process no longer holds the lock (the
     container was restarted mid-run, typically by a deployment) is closed as failed so that the next
@@ -80,7 +100,8 @@ def is_running(job: str) -> bool:
     if not running.exists():
         return False
     if job == SyncRun.Job.ETOOLS_DATAMART:
-        held = datamart_lock_is_held()
+        # the eTools update clean-up holds the same lock: then no sync is running
+        held = datamart_lock_is_held() and not datamart_cleanup_is_running()
     else:
         held = lock_is_held(LOCK_IDS[job]) if job in LOCK_IDS else None
     if held is None or held:

@@ -7,6 +7,7 @@ them apply the migrations while the others wait, then find nothing left to do.
 
 from __future__ import annotations
 
+import io
 import time
 
 from django.core.management import call_command
@@ -14,6 +15,24 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
 LOCK_ID = 7140427  # any constant; identical in every NeuroDB container
+
+
+class WholeLines(io.TextIOBase):
+    """Ends every write with a line break. ``migrate`` writes "Applying <migration>..." and ends that
+    line only when the migration is done; a container log shows a line once it ends, so a long
+    migration would show only when it finished, or when the container was stopped (App Service's
+    start-up limit), stamped with that time instead of the time it began."""
+
+    def __init__(self, out):
+        self._out = out
+
+    def write(self, text: str) -> int:
+        self._out.write(text if text.endswith("\n") else f"{text}\n")
+        self._out.flush()
+        return len(text)
+
+    def flush(self) -> None:
+        self._out.flush()
 
 
 class Command(BaseCommand):
@@ -48,7 +67,7 @@ class Command(BaseCommand):
                 cursor.execute("SELECT pg_advisory_unlock(%s)", [LOCK_ID])
 
     def _migrate(self, verbosity: int) -> None:
-        call_command("migrate", interactive=False, verbosity=verbosity)
+        call_command("migrate", interactive=False, verbosity=verbosity, stdout=WholeLines(self.stdout))
         call_command("ensure_legacy_tables", verbosity=verbosity)  # a v2 table the database never had
         call_command("bootstrap_roles", verbosity=verbosity)
         # the ActivityInfo → eTools partner links exist from the first start, not from the first sync

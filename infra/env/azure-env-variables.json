@@ -415,6 +415,15 @@
       "keyVaultSecret": null,
       "value": "false",
       "description": "The container needs no shared /home storage. Not used on Container Apps."
+    },
+    {
+      "name": "WEBSITES_CONTAINER_START_TIME_LIMIT",
+      "group": "App Service only",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "600",
+      "description": "Seconds App Service waits for the container to start (default 230, at most 1800). The web container applies the deployment's migrations before it serves; this is a safety margin for them, not room for a long migration (migrations must be quick). Not used on Container Apps."
     }
   ]
 }

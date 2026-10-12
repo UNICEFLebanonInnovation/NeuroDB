@@ -325,7 +325,9 @@ BACKGROUND_JOBS = [
             "columns of the partner reports already synced (PRP's indicator report and the CP output) and "
             "removes the e-mail addresses, phones and mobiles older syncs stored. It starts by itself "
             "after a deployment and switches its schedule off when everything is done; run it again at "
-            "any time, it only writes what is left. It waits while the eTools Datamart sync runs."
+            "any time, it only writes what is left. If the eTools Datamart sync is running, it does not "
+            "start now: its schedule (Scheduled jobs, etools-update-cleanup) starts it within 15 minutes "
+            "of the sync finishing, and a sync started while it runs waits for it."
         ),
         "cleaning_services",
     ),

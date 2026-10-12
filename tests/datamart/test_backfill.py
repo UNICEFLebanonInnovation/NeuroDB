@@ -2,12 +2,15 @@
 before the site started, which on the real tables kept the site from starting at all."""
 
 import importlib
+import io
+import math
 
 import psycopg
 import pytest
 from django.core.management import call_command
 from django.db import connection, migrations
 from django.db.migrations.loader import MigrationLoader
+from django.test.utils import CaptureQueriesContext
 
 from neurodb.core import jobs, scheduler
 from neurodb.core.admin_jobs import BACKGROUND_JOBS
@@ -63,10 +66,10 @@ def test_the_job_does_everything_then_switches_its_schedule_off():
     assert again.status == SyncRun.Status.SUCCEEDED and again.rows_written == 0
 
 
-def test_the_job_waits_while_the_datamart_sync_runs():
-    _needs_work()
+def _other_session(*lock_ids):
+    """Another database session (another process) holding ``lock_ids``; close it to release them."""
     s = connection.settings_dict
-    sync = psycopg.connect(
+    other = psycopg.connect(
         dbname=s["NAME"],
         user=s["USER"] or None,
         password=s["PASSWORD"] or None,
@@ -74,13 +77,63 @@ def test_the_job_waits_while_the_datamart_sync_runs():
         port=s["PORT"] or None,
         autocommit=True,
     )
+    for lock_id in lock_ids:
+        other.execute("SELECT pg_advisory_lock(%s)", [lock_id])
+    return other
+
+
+def test_the_job_waits_while_the_datamart_sync_runs():
+    _needs_work()
+    sync = _other_session(background.DATAMART_LOCK_ID)
     try:
-        sync.execute("SELECT pg_advisory_lock(%s)", [background.DATAMART_LOCK_ID])
-        assert backfill.run("test") is None
+        assert backfill.run("test") == backfill.SYNC_RUNNING
+        assert not background.datamart_cleanup_is_running()  # the sync's, not the clean-up's
+        assert not background.lock_is_held(background.DATAMART_BACKFILL_LOCK_ID)  # released at once
     finally:
         sync.close()
     assert not SyncRun.objects.filter(job=SyncRun.Job.DATAMART_BACKFILL).exists()
-    assert ScheduledJob.objects.get(key=backfill.SCHEDULE_KEY).enabled  # the next try does it
+    job = ScheduledJob.objects.get(key=backfill.SCHEDULE_KEY)
+    assert job.enabled and job.last_outcome == backfill.WAITING  # the next try does it
+
+
+def test_started_by_hand_during_a_sync_its_schedule_is_switched_back_on():
+    """A finished run switched the schedule off; *Run a job* pressed during a sync must still happen."""
+    _needs_work()
+    backfill.finished_schedule()
+    sync = _other_session(background.DATAMART_LOCK_ID)
+    try:
+        call_command("datamart_backfill", "--triggered-by", "admin", stdout=(out := io.StringIO()))
+    finally:
+        sync.close()
+    assert backfill.SYNC_RUNNING in out.getvalue()
+    job = ScheduledJob.objects.get(key=backfill.SCHEDULE_KEY)
+    assert job.enabled and job.next_run_at is not None and job.next_run_at.minute % 15 == 0
+    assert job.last_outcome == backfill.WAITING
+
+
+def test_a_second_clean_up_does_nothing_and_says_so():
+    _needs_work()
+    first = _other_session(background.DATAMART_BACKFILL_LOCK_ID, background.DATAMART_LOCK_ID)
+    try:
+        call_command("datamart_backfill", "--triggered-by", "test", stdout=(out := io.StringIO()))
+    finally:
+        first.close()
+    assert backfill.ALREADY_RUNNING in out.getvalue() and "sync is running" not in out.getvalue()
+    assert not SyncRun.objects.filter(job=SyncRun.Job.DATAMART_BACKFILL).exists()
+    assert ScheduledJob.objects.get(key=backfill.SCHEDULE_KEY).last_outcome == ""
+
+
+def test_the_job_holds_its_own_lock_and_the_sync_lock_while_it_runs(monkeypatch):
+    held = []
+
+    def step():
+        held.append((background.datamart_cleanup_is_running(), background.datamart_lock_is_held()))
+        return {}
+
+    monkeypatch.setattr(backfill, "STEPS", (("probe", step),))
+    assert backfill.run("test").status == SyncRun.Status.SUCCEEDED
+    assert held == [(True, True)]
+    assert not background.datamart_cleanup_is_running() and not background.datamart_lock_is_held()
 
 
 def test_a_failed_step_is_a_failed_run_and_keeps_the_schedule(monkeypatch):
@@ -100,10 +153,82 @@ def test_it_is_a_job_with_a_button_and_a_command():
     assert [b.command for b in BACKGROUND_JOBS if b.name == "run_datamart_backfill"] == [
         ("datamart_backfill",)
     ]
-    assert background.LOCK_IDS[SyncRun.Job.DATAMART_BACKFILL] == background.DATAMART_LOCK_ID
+    # its own lock (the sync knows the clean-up holds the Datamart lock), unique like every job's
+    assert background.LOCK_IDS[SyncRun.Job.DATAMART_BACKFILL] == background.DATAMART_BACKFILL_LOCK_ID
+    assert len(set(background.LOCK_IDS.values())) == len(background.LOCK_IDS)
     _needs_work()
     call_command("datamart_backfill", "--triggered-by", "test")
     assert SyncRun.objects.get(job=SyncRun.Job.DATAMART_BACKFILL).triggered_by == "test"
+
+
+def test_the_fill_strips_spaces_as_the_sync_does():
+    """The sync strips every CharField: " 77 " is stored as "77", and a record naming only spaces
+    leaves the three columns empty, so the fill writes nothing there."""
+    padded = dm.ReportedIndicator.objects.create(
+        datamart_id=11, data={"indicator_report": " 77 ", "cp_output": {"name": "Output 2.1 \t"}}
+    )
+    blank = dm.ReportedIndicator.objects.create(datamart_id=12, data={"cp_output": "  "})
+    assert backfill.fill_reached_columns()["report_rows_filled"] == 1
+    padded.refresh_from_db()
+    blank.refresh_from_db()
+    assert (padded.indicator_report, padded.cp_output) == ("77", "Output 2.1")
+    assert (blank.indicator_report, blank.cp_output, blank.etools_cp_output_id) == ("", "", "")
+
+
+def _bounded(queries, table, marker):
+    """The statements on ``table`` containing ``marker``, each bounded by an id window."""
+    found = [q["sql"] for q in queries if f'"{table}"' in q["sql"] or f" {table} " in q["sql"]]
+    found = [sql for sql in found if marker in sql]
+    assert found and all("id <= " in sql for sql in found), found
+    return found
+
+
+def test_the_clean_up_reads_each_table_once_window_by_window(monkeypatch):
+    """A search ``ORDER BY id LIMIT n`` read the rest of the table again for every batch: hours on a
+    large table where many records hold contact details. Each statement now reads one window of ids."""
+    monkeypatch.setattr(backfill, "SCRUB_WINDOW", 2)
+    monkeypatch.setattr(backfill, "SCRUB_BATCH", 2)
+    monkeypatch.setattr(backfill, "FILL_BATCH", 2)
+    grants = [
+        dm.Grant.objects.create(datamart_id=100 + n, name=f"SC{n}", data={"name": f"SC{n}", "Phone": "+961"})
+        for n in range(5)
+    ]
+    reports = [
+        dm.ReportedIndicator.objects.create(
+            datamart_id=200 + n,
+            submitted_by="someone@example.org",
+            data={"submitted_by": "someone@example.org"},
+        )
+        for n in range(5)
+    ]
+    with CaptureQueriesContext(connection) as queries:
+        counts = backfill.scrub_contact_details()
+    assert counts["records_cleaned"] == 5 and counts["submitted_by_cleared"] == 5
+    for grant in grants:
+        grant.refresh_from_db()
+        assert grant.data == {"name": grant.name}
+    for report in reports:
+        report.refresh_from_db()
+        assert (report.submitted_by, report.data["submitted_by"]) == ("", "")
+    searches = _bounded(queries.captured_queries, "datamart_grant", "~*")
+    assert len(searches) == math.ceil(len(grants) / 2)  # one statement per window, not per batch found
+    _bounded(queries.captured_queries, "datamart_reportedindicator", "submitted_by = CASE")
+    assert backfill.scrub_contact_details() == dict.fromkeys(counts, 0)  # nothing left: nothing written
+
+
+def test_the_one_off_clean_up_is_not_a_sync_that_goes_stale_and_a_run_with_nothing_to_do_rebuilds_nothing(
+    monkeypatch,
+):
+    from neurodb.graph import refresh as graph_refresh
+    from neurodb.reports.services import data_health
+
+    asked = []
+    monkeypatch.setattr(graph_refresh, "request", lambda why: asked.append(why))
+    _needs_work()
+    first = backfill.run("test")
+    assert first.rows_written > 0 and asked == ["eTools update clean-up"]
+    assert backfill.run("test").rows_written == 0 and asked == ["eTools update clean-up"]
+    assert SyncRun.Job.DATAMART_BACKFILL not in [row["job"] for row in data_health()["jobs"]]
 
 
 # Every migration that runs code or SQL when a deployment applies it, and why that is quick. A
@@ -148,17 +273,34 @@ QUICK_MIGRATIONS = {
 }
 
 
+def _runs_code(operations):
+    """The names of the operations that run code or SQL, also inside SeparateDatabaseAndState."""
+    for op in operations:
+        if isinstance(op, migrations.RunPython) and op.code is not migrations.RunPython.noop:
+            yield op.code.__name__
+        elif isinstance(op, migrations.RunSQL):
+            yield "RunSQL"
+        elif isinstance(op, migrations.SeparateDatabaseAndState):
+            yield from _runs_code(op.database_operations)
+
+
+def test_the_guard_sees_code_inside_separate_database_and_state():
+    def fill(apps, schema_editor):
+        pass
+
+    hidden = migrations.SeparateDatabaseAndState(
+        database_operations=[migrations.RunPython(fill), migrations.RunSQL("SELECT 1")]
+    )
+    assert list(_runs_code([hidden, migrations.RunPython(migrations.RunPython.noop)])) == ["fill", "RunSQL"]
+
+
 def test_no_new_migration_does_long_work_before_the_site_starts():
     loader = MigrationLoader(None, ignore_no_migrations=True)
     found = set()
     for (app, name), migration in loader.disk_migrations.items():
         if not type(migration).__module__.startswith("neurodb."):
             continue
-        for op in migration.operations:
-            if isinstance(op, migrations.RunPython) and op.code is not migrations.RunPython.noop:
-                found.add((app, name, op.code.__name__))
-            elif isinstance(op, migrations.RunSQL):
-                found.add((app, name, "RunSQL"))
+        found |= {(app, name, code) for code in _runs_code(migration.operations)}
     new = sorted(found - QUICK_MIGRATIONS)
     assert not new, (
         f"{new}: a migration runs before the site starts, and App Service stops a container that has "

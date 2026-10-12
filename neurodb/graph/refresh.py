@@ -113,6 +113,8 @@ def on_run_finished(sender, instance, update_fields=None, **kwargs) -> None:
         SyncRun.Job.DOC_REVIEW,  # the document review: findings the hub does not read
     ):
         return  # they bring no new data
+    if instance.job == SyncRun.Job.DATAMART_BACKFILL and not instance.rows_written:
+        return  # the eTools update clean-up found nothing left to do
     if instance.status not in (SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL):
         return
     request(instance.get_job_display())

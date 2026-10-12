@@ -292,7 +292,16 @@ class SyncRunAdmin(JobActionsMixin, ReadOnlyModelAdmin):
             if only is not None:
                 args += ["--only", ",".join(only)]
             background.start_command(*args)
-            messages.success(request, _("eTools Datamart sync started. Refresh this page to follow it."))
+            if background.datamart_cleanup_is_running():  # the sync waits for it (same lock)
+                messages.info(
+                    request,
+                    _(
+                        "The eTools update clean-up is running: the sync starts as soon as it has "
+                        "finished. Refresh this page to follow it."
+                    ),
+                )
+            else:
+                messages.success(request, _("eTools Datamart sync started. Refresh this page to follow it."))
         url = reverse("admin:core_syncrun_changelist")
         if request.headers.get("HX-Request"):  # the dialog posts with HTMX: redirect the whole page
             response = HttpResponse(status=204)
