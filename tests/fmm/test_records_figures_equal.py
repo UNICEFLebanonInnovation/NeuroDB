@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.db import connection
 from django.http import QueryDict
 from django.test import RequestFactory, override_settings
@@ -530,6 +530,7 @@ def _page(query: str) -> dict[str, Any]:
     """The scope's figures as the page reads them: the tabs in a reader's order on one cache (each block
     kept for the next), the brief card and its facts last."""
     cache.clear()
+    caches["shared"].clear()
     # as in one request: the blocks read are kept for the rest of it (metrics.request_started)
     begin, end = getattr(metrics, "request_started", None), getattr(metrics, "request_finished", None)
     if begin is not None:
@@ -683,6 +684,7 @@ def _alone(query: str) -> dict[str, Any]:
     try:
         for name, block in _blocks().items():
             cache.clear()
+            caches["shared"].clear()
             scope, when, limits, rules, setting = _context(query)
             out[name] = _plain(block(scope, when, limits, rules, setting))
     finally:

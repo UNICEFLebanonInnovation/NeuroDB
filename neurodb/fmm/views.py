@@ -46,6 +46,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from neurodb.core.models import SyncRun
 from neurodb.datamart import fm
+from neurodb.web.parts import Part, render_page
 from neurodb.web.templatetags.ui import code_label
 
 from . import access, metrics, status
@@ -861,7 +862,9 @@ def _results_context(
     elif tab == "analysis":
         context.update(_analysis_tab(request, scope, when, limits, rules, setting))
     elif tab == "map":
-        context.update(_map_tab(request, scope, when))
+        # the map itself is the page's part "map" (_map_page, _map_tab); the planned places shown go with the
+        # filter bar's next submission from here
+        context["pd_scope"] = _pd_scope(request)
     return context
 
 
@@ -1078,11 +1081,7 @@ def _quality_tab(
         q1_key = "hact_q1"
     q1_template = _drill_template(scope, "month", q1_key) + f"&month={{drill}}&{q1_key}={{series_drill}}"
     issues = metrics.issues_summary(scope, when, limits)
-    places = metrics.locations(scope, when, limits)
-    place_rows = [  # the last visit's date, written once per place shown
-        {**p, "last_iso": p["last"].isoformat() if p["last"] else "", "last_text": _day_text(p["last"])}
-        for p in _with_urls(_shown_places(places, places_all), scope, "location")
-    ]
+    places = _quality_places(scope, when, limits, places_all)
     # Not monitored, a count apart: the records not monitored (planned, not conducted: nothing rated on a
     # reported visit) and, on the HACT Q1 chart, those whose Q1 reads "not monitored"
     data = metrics.summary(scope, when, limits)
@@ -1127,7 +1126,7 @@ def _quality_tab(
             }
             for row in metrics.top_issues(scope, 10, when, rules)
         ],
-        "places": _places(scope, "quality", places, place_rows, places_all),
+        "places": places,
         "issues_summary": {
             **issues,
             "r6_url": drill_url(scope, flag="R6") if issues["r6"]["n"] else "",
@@ -1138,6 +1137,17 @@ def _quality_tab(
         },
         "fields_found_url": reverse("admin:fmm_fieldmapping_changelist"),
     }
+
+
+def _quality_places(scope: Scope, when: str, limits: dict[str, int], places_all: bool) -> dict[str, Any]:
+    """The Quality tab's geographic coverage: the places visited, each with the date of its last visit
+    (written once per place shown); the rows past the first ``PLACES_TOP`` only when asked for."""
+    places = metrics.locations(scope, when, limits)
+    place_rows = [
+        {**p, "last_iso": p["last"].isoformat() if p["last"] else "", "last_text": _day_text(p["last"])}
+        for p in _with_urls(_shown_places(places, places_all), scope, "location")
+    ]
+    return _places(scope, "quality", places, place_rows, places_all)
 
 
 ENTITY_ROWS = 25
@@ -1164,29 +1174,31 @@ def _entity_link(link: tuple[str, int] | None) -> str:
     )
 
 
-def _analysis_tab(
-    request: HttpRequest, scope: Scope, when: str, limits: dict[str, int], rules: list, setting=None
-) -> dict[str, Any]:
-    """The Analysis tab, in FMS's order: the quality score distribution, the rule score trends, the
-    quality rule analysis (with every rule under it), the quality flag frequency, the flag count
-    distribution, entity performance, quality by field office and section performance; then NeuroDB's
-    own blocks: highlights, governorates not visited, field offices, visit frequency by place, quality
-    by rating, points by category, programmatic visits and HACT, and follow-up. The rule score trends
-    (their own query, per rule and month) are worked out only when their panel scrolls into view and
-    asks for them (``?rule_trends=1``)."""
-    visit_url = _visit_url()
-    buckets = metrics.score_buckets(scope, when, limits)
-    # the trends first, when asked for: the rule figures below are then summed from the same query
-    rule_trends = metrics.rule_trends(scope, rules, when) if "rule_trends" in request.GET else None
-    rule_rows = [
+def _rule_trends(request: HttpRequest, scope: Scope, when: str, rules: list) -> dict[str, Any]:
+    """The rule score trends panel: its own query, per rule and month, worked out only when the panel
+    scrolls into view and asks for it (``?rule_trends=1``); otherwise the address that asks."""
+    trends = metrics.rule_trends(scope, rules, when) if "rule_trends" in request.GET else None
+    return {
+        "rule_trends": None if trends is None else {"rule_trends": trends},
+        "rule_trends_query": _page_query(scope, tab="analysis", rule_trends="1"),
+        "rule_trend_template": _drill_template(scope, "month", "rule") + "&month={drill}&rule={series_drill}",
+    }
+
+
+def _rule_rows(scope: Scope, when: str, rules: list) -> list[dict[str, Any]]:
+    """Every quality rule with its figures, each opening the records it flagged."""
+    return [
         {**r, "url": drill_url(scope, flag=r["code"]) if r["flagged"] else ""}
         for r in metrics.rule_analysis(scope, rules, when)
     ]
-    highlights = metrics.highlights(scope, when, limits)
+
+
+def _entities(request: HttpRequest, scope: Scope, when: str, limits: dict[str, int]) -> dict[str, Any]:
+    """The entity table: worked out when its chips ask for it (``entity_kind``), else when it scrolls into
+    view (a whole pass over the entity rows, low on the tab); until then its chips and the address that
+    asks."""
     kind = _entity_kind(request)
     show_all = request.GET.get("entity_all") == "1"
-    # the entity table is worked out when its chips ask for it (``entity_kind``), else when it scrolls
-    # into view: it is a whole pass over the entity rows, low on the tab
     eager = "entity_kind" in request.GET or show_all
     performance = (
         metrics.entities_performance(scope, kind, when)
@@ -1204,24 +1216,42 @@ def _analysis_tab(
         }
         for row in (performance["rows"] if show_all else performance["rows"][:ENTITY_ROWS])
     ]
-    offices = metrics.offices(scope, when, limits)
-    flag_frequency = metrics.flag_frequency(scope, rules, when)
-    flag_counts = metrics.flag_distribution(scope, when, limits)
-    follow_up = metrics.action_points(scope, when, limits)
-    hact = metrics.hact_programmatic(scope, when, limits)
-    places = metrics.locations(scope, when, limits)
-    place_rows = _with_urls(_shown_places(places, _places_all(request)), scope, "location")
-    section_rows = []
+    return {
+        "entity_kind": kind,
+        "entity_kinds": [
+            {
+                "key": k,
+                "label": _("All") if k == "all" else KIND_LABELS[k],
+                "n": sum(performance["kinds"].values()) if k == "all" else performance["kinds"].get(k, 0),
+                "query": _page_query(scope, tab="analysis", entity_kind=k),
+            }
+            for k in ENTITY_CHIPS
+            if k != "other" or performance["kinds"].get(k) or kind == "other"
+        ],
+        "entity_rows": entity_rows,
+        "entity_total": len(performance["rows"]),
+        "entity_all_query": _page_query(scope, tab="analysis", entity_kind=kind, entity_all="1"),
+        "entity_lazy_query": "" if eager else _page_query(scope, tab="analysis", entity_kind=kind),
+        "entity_year": performance["year"],
+    }
+
+
+def _section_rows(
+    request: HttpRequest, scope: Scope, when: str, limits: dict[str, int]
+) -> list[dict[str, Any]]:
+    """Section performance: per section its records' figures and one line per record. The first
+    ``SECTION_TOP`` lines of each section are written out (and read: the rest are not); the rest only when
+    "Show all" asks for them (``?sections=all``), as the places tables do: up to 50 lines a section, most of
+    the block's weight."""
+    visit_url = _visit_url()
     day = functools.lru_cache(maxsize=None)(lambda d: date_format(d, "j M Y") if d else "")
-    # the first SECTION_TOP lines of each section are written out (and read: the rest are not); the rest
-    # only when "Show all" asks for them (``?sections=all``), as the places tables do: up to 50 lines a
-    # section, most of the block's weight
     sections_all = request.GET.get("sections") == "all"
     read = metrics.SECTION_LINES if sections_all else SECTION_TOP
     found_sections = metrics.sections(scope, when, limits, lines=read)
     shown = {id(row): row["lines"] if sections_all else row["lines"][:SECTION_TOP] for row in found_sections}
     # each record's entity, as FMS lists it ("#1067 1.4 NUTRITION OF YO… — On track"): read with the lines
     entities = metrics.section_line_names(scope, when, limits, read)
+    section_rows = []
     for row in found_sections:
         lines = []
         for line in shown[id(row)]:
@@ -1253,6 +1283,40 @@ def _analysis_tab(
                 "url": drill_url(scope, section=row["drill"]),
             }
         )
+    return section_rows
+
+
+def _analysis_places(request: HttpRequest, scope: Scope, when: str, limits: dict[str, int]) -> dict[str, Any]:
+    """The Analysis tab's visit frequency by place: its first ``PLACES_TOP`` rows, the rest when asked."""
+    places = metrics.locations(scope, when, limits)
+    place_rows = _with_urls(_shown_places(places, _places_all(request)), scope, "location")
+    return _places(scope, "analysis", places, place_rows, _places_all(request))
+
+
+def _analysis_tab(
+    request: HttpRequest, scope: Scope, when: str, limits: dict[str, int], rules: list, setting=None
+) -> dict[str, Any]:
+    """The Analysis tab, in FMS's order: the quality score distribution, the rule score trends, the
+    quality rule analysis (with every rule under it), the quality flag frequency, the flag count
+    distribution, entity performance, quality by field office and section performance; then NeuroDB's
+    own blocks: highlights, governorates not visited, field offices, visit frequency by place, quality
+    by rating, points by category, programmatic visits and HACT, and follow-up. The rule score trends
+    (their own query, per rule and month) are worked out only when their panel scrolls into view and
+    asks for them (``?rule_trends=1``). The panels it loads when reached or opened are answered alone
+    too (:func:`_panel`), from the same helpers."""
+    buckets = metrics.score_buckets(scope, when, limits)
+    # the trends first, when asked for: the rule figures below are then summed from the same query
+    trends = _rule_trends(request, scope, when, rules)
+    rule_rows = _rule_rows(scope, when, rules)
+    highlights = metrics.highlights(scope, when, limits)
+    entities = _entities(request, scope, when, limits)
+    offices = metrics.offices(scope, when, limits)
+    flag_frequency = metrics.flag_frequency(scope, rules, when)
+    flag_counts = metrics.flag_distribution(scope, when, limits)
+    follow_up = metrics.action_points(scope, when, limits)
+    hact = metrics.hact_programmatic(scope, when, limits)
+    places = _analysis_places(request, scope, when, limits)
+    section_rows = _section_rows(request, scope, when, limits)
     return {
         "chart_data": {
             "buckets": buckets["items"],
@@ -1261,9 +1325,7 @@ def _analysis_tab(
         "bucket_template": _drill_template(scope, "bucket") + "&bucket={drill}",
         "not_scored": buckets["not_scored"],
         "not_scored_url": drill_url(scope, bucket="none") if buckets["not_scored"] else "",
-        "rule_trends": None if rule_trends is None else {"rule_trends": rule_trends},
-        "rule_trends_query": _page_query(scope, tab="analysis", rule_trends="1"),
-        "rule_trend_template": _drill_template(scope, "month", "rule") + "&month={drill}&rule={series_drill}",
+        **trends,
         "rule_rows": rule_rows,
         "sections_all_query": _page_query(scope, tab="analysis", sections="all"),
         "rules_all": request.GET.get("rules") == "all",
@@ -1291,25 +1353,10 @@ def _analysis_tab(
             "rows": _with_urls(offices["rows"], scope, "office"),
             "unknown": _with_urls([offices["unknown"]], scope, "office")[0] if offices["unknown"] else None,
         },
-        "entity_kind": kind,
-        "entity_kinds": [
-            {
-                "key": k,
-                "label": _("All") if k == "all" else KIND_LABELS[k],
-                "n": sum(performance["kinds"].values()) if k == "all" else performance["kinds"].get(k, 0),
-                "query": _page_query(scope, tab="analysis", entity_kind=k),
-            }
-            for k in ENTITY_CHIPS
-            if k != "other" or performance["kinds"].get(k) or kind == "other"
-        ],
-        "entity_rows": entity_rows,
-        "entity_total": len(performance["rows"]),
-        "entity_all_query": _page_query(scope, tab="analysis", entity_kind=kind, entity_all="1"),
-        "entity_lazy_query": "" if eager else _page_query(scope, tab="analysis", entity_kind=kind),
-        "entity_year": performance["year"],
+        **entities,
         "office_badges": _with_urls(metrics.office_rule_badges(scope, rules, when, limits), scope, "office"),
         "section_rows": section_rows,
-        "places": _places(scope, "analysis", places, place_rows, _places_all(request)),
+        "places": places,
         "rating_rows": _rating_rows(scope, when, limits),
         "flag_frequency": flag_frequency,
         "flag_frequency_rows": _with_urls(
@@ -1337,22 +1384,89 @@ def _analysis_tab(
     }
 
 
+# a section's "Show all" list, by its place in the block
+SECTION_REST = re.compile(r"fmm-section-rest-(\d{1,3})")
+
+
+def _panel(request: HttpRequest, scope: Scope, tab: str, when: str) -> HttpResponse | None:
+    """A panel a tab loads when it is reached or opened, answered alone: its HTMX request names the panel
+    (``HX-Target``), and the panel is drawn from its own figures with the template the tab includes, never
+    the whole tab (whose answer the browser cut the panel from: ``hx-select``, kept on the links, so an
+    open page from before still finds it). The panels: the Analysis tab's rule score trends and entity
+    table (scrolled into view, or a chip), its "Show all" lists (every rule, a section's records, every
+    place) and the Quality tab's places. None for any other request."""
+    if not request.htmx or getattr(request, "part", None) is not None:
+        return None
+    target = request.htmx.target or ""
+
+    def limits() -> dict[str, int]:
+        return metrics.thresholds()
+
+    if tab == "analysis":
+        if target == "fmm-rule-trends-panel":
+            rules = list(RuleSetting.objects.all())
+            return render(request, "fmm/_rule_trends_panel.html", _rule_trends(request, scope, when, rules))
+        if target == "fmm-entities":
+            return render(request, "fmm/_entities_panel.html", _entities(request, scope, when, limits()))
+        if target == "fmm-rules-all":
+            context = {
+                "rule_rows": _rule_rows(scope, when, list(RuleSetting.objects.all())),
+                "rules_all": request.GET.get("rules") == "all",
+                "rules_all_query": _page_query(scope, tab="analysis", rules="all"),
+                "fields_found_url": reverse("admin:fmm_fieldmapping_changelist"),
+            }
+            return render(request, "fmm/_rules_all.html", context)
+        if target == "fmm-frequency-rest":
+            places = _analysis_places(request, scope, when, limits())
+            return render(request, "fmm/_frequency_rest.html", {"places": places})
+        found = SECTION_REST.fullmatch(target)
+        if found:
+            rows = _section_rows(request, scope, when, limits())
+            n = int(found[1])
+            if not 1 <= n <= len(rows):
+                raise Http404("No such section in this filter.")
+            context = {
+                "s": rows[n - 1],
+                "n": n,
+                "sections_all_query": _page_query(scope, tab="analysis", sections="all"),
+            }
+            return render(request, "fmm/_section_rest.html", context)
+    elif tab == "quality" and target == "fmm-places-rest":
+        places = _quality_places(scope, when, limits(), _places_all(request))
+        return render(request, "fmm/_places_rest.html", {"places": places})
+    return None
+
+
 def _rating_rows(scope: Scope, when: str, limits: dict[str, int]) -> list[dict[str, Any]]:
     """Quality by finding rating, each row opening its records (a row of no record opens nothing)."""
     rows = _with_urls(metrics.quality_by_rating(scope, when, limits), scope, "rating", "code")
     return [{**row, "url": row["url"] if row["records"] else ""} for row in rows]
 
 
-def _map_tab(request: HttpRequest, scope: Scope, when: str) -> dict[str, Any]:
-    """The Map tab: the visits against the planned locations of their programme documents (or of
-    every active one, ``?pd_scope=active``), with ``?visit=<key>`` centred and opened."""
+def _pd_scope(request: HttpRequest) -> str:
+    """The Map tab's planned places: those of the programme documents visited (the default), or of every
+    active one (``?pd_scope=active``)."""
     from . import geo
 
     pd_scope = request.GET.get("pd_scope", "")
-    pd_scope = pd_scope if pd_scope in geo.PD_SCOPES else "visited"
+    return pd_scope if pd_scope in geo.PD_SCOPES else "visited"
+
+
+def _map_focus(request: HttpRequest) -> str:
+    """The visit the Map tab centres and opens (``?visit=<key>``), or ""."""
+    return request.GET.get("visit", "").strip()[:40]
+
+
+def _map_tab(request: HttpRequest, scope: Scope, when: str) -> dict[str, Any]:
+    """The Map tab: the visits against the planned locations of their programme documents (or of
+    every active one, ``?pd_scope=active``), with ``?visit=<key>`` centred and opened. The figures of
+    the page's part "map" (:func:`_map_page`): they read the address only, never the person asking."""
+    from . import geo
+
+    pd_scope = _pd_scope(request)
     data = geo.map_points(scope, pd_scope, when=when)
     config = dict(data["config"])  # the cached one is never changed
-    focus_key = request.GET.get("visit", "").strip()[:40]
+    focus_key = _map_focus(request)
     focus = {"key": focus_key, "label": "", "reason": ""}
     if focus_key:
         row = next((r for r in data["visit_rows"] if r["key"] == focus_key), None)
@@ -1464,31 +1578,77 @@ def _filter_chips(scope: Scope) -> list[dict[str, str]]:
 @require_GET
 def dashboard(request: HttpRequest) -> HttpResponse:
     """The page: filters, reference line, data notes, key figures and the tab chosen. An HTMX request
-    (filter bar, tab bar) gets the results only."""
+    (filter bar, tab bar) gets the results only.
+
+    The Map tab loads in parts (:func:`_map_page`): the page answers at once with its frame and the map
+    comes in its own request. A panel a tab loads when it is reached or opened (the rule score trends,
+    the entity table, the "Show all" lists) is answered alone (:func:`_panel`)."""
     _enabled()
     snap = status.snapshot()
     when = metrics.stamp(snap.last_refresh)
     scope = Scope.from_params(request.GET, request.user, when=when)
     tab = _tab(request)
+    panel = _panel(request, scope, tab, when)
+    if panel is not None:
+        return panel
+    if tab == "map" or getattr(request, "part", None) is not None:
+        return _map_page(request, scope, tab, snap, when)
     context = _results_context(request, scope, tab, snap, when)
     if request.htmx:
         return render(request, "fmm/_results.html", context)
-    context.update(
-        {
-            "page_title": _("Monitoring insights"),
-            "page_subtitle": _("eTools field monitoring: visits, their records, quality and follow-up"),
-            "breadcrumbs": _crumbs(),
-            "actions": _export_menu(request, scope),
-            "options": options(when),
-            "presets": [(k, _(v)) for k, v in _period_choices()],
-            "kind_labels": KIND_LABELS,
-            "rating_labels": RATING_LABELS,
-            "status_labels": STATUS_LABELS,
-            "quality_labels": QUALITY_LABELS,
-            "urgency_labels": URGENCY_LABELS,
-        }
-    )
+    context.update(_page_context(request, scope, when))
     return render(request, "fmm/dashboard.html", context)
+
+
+def _page_context(request: HttpRequest, scope: Scope, when: str) -> dict[str, Any]:
+    """What the full page adds to its results: the header, its Export menu and the filter bar."""
+    return {
+        "page_title": _("Monitoring insights"),
+        "page_subtitle": _("eTools field monitoring: visits, their records, quality and follow-up"),
+        "breadcrumbs": _crumbs(),
+        "actions": _export_menu(request, scope),
+        "options": options(when),
+        "presets": [(k, _(v)) for k, v in _period_choices()],
+        "kind_labels": KIND_LABELS,
+        "rating_labels": RATING_LABELS,
+        "status_labels": STATUS_LABELS,
+        "quality_labels": QUALITY_LABELS,
+        "urgency_labels": URGENCY_LABELS,
+    }
+
+
+def _map_page(request: HttpRequest, scope: Scope, tab: str, snap: status.Snapshot, when: str) -> HttpResponse:
+    """The Map tab, which loads in parts (:mod:`neurodb.web.parts`; the other tabs, under 300 ms on large
+    data, stay one request). The page answers its frame at once: the header, the filter bar, the reference
+    line, the chips, the data notes, the key figures and the tab bar, with one placeholder, ``map``: the
+    map, its legend and its three tables (:func:`_map_tab`, the figures every worker shares:
+    ``geo.map_points``), asked for at this address plus ``_part``, with the resolved filter (the section
+    written out, ``section=`` for every section, the tab, the planned places shown and the visit
+    centred). The map reads the address only: the frame's own-section default is in that address.
+
+    An HTMX swap of the results (the tab bar, the filter bar, the map's own links) answers the results
+    with the map drawn in them: one request, as before (it takes well under a second). A part request of
+    another tab finds no part (404)."""
+    pd_scope = _pd_scope(request)
+    parts: dict[str, Part] = {}
+    if tab == "map":
+        parts["map"] = Part("fmm/parts/dashboard_map.html", lambda: _map_tab(request, scope, when))
+    query = _page_query(
+        scope, tab="map", pd_scope="" if pd_scope == "visited" else pd_scope, visit=_map_focus(request)
+    )
+
+    def shell() -> dict[str, Any]:
+        context = _results_context(request, scope, tab, snap, when)
+        if not request.htmx:
+            context.update(_page_context(request, scope, when))
+        return context
+
+    if request.htmx and getattr(request, "part", None) is None:
+        # the results swapped in by the tab bar, the filter bar or the map's links: the map comes with them,
+        # drawn at once (SPEC7_review 3c: a swap returns its figures unless they take over a second)
+        request.parts_eager = True
+    template = "fmm/_results.html" if request.htmx else "fmm/dashboard.html"
+    return render_page(request, template, scope={}, shell=shell, parts=parts, query=query)
 
 
 def _period_choices() -> list[tuple[str, str]]:

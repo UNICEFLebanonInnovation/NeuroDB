@@ -220,6 +220,14 @@ says how many visits are not shown because no location coordinates were recorded
 district's or governorate's centre is drawn fainter ("approximate"). At most 1,000 points are drawn,
 most urgent first. The table under the map lists every point: it is the keyboard route.
 
+When you open the Map tab from a link or a bookmark, the page appears at once with its filters, key
+figures and tabs, and a grey box where the map will be; the map and its tables fill it as soon as they
+are ready. If the map could not load, its box says so and has a **Try again** button; the rest of the
+page keeps working. Choosing the tab or changing a filter brings the map with the rest of the results,
+as before. On the Analysis and Quality tabs, the panels that load when you reach them (the rule score
+trends, the entity table) or when you open them (*Show all*) now come on their own, without the rest of
+the tab, so they appear sooner.
+
 ## Visits, statuses and ratings
 
 - **Visit**: one eTools monitoring activity, that is the records that share an activity id (else

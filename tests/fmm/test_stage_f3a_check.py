@@ -18,7 +18,7 @@ import re
 from decimal import Decimal
 
 import pytest
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.http import QueryDict
 from django.test import override_settings
 from django.urls import reverse
@@ -39,6 +39,7 @@ AI_ON = {"FMM_AI": True, "AI_ASSISTANT_ENABLED": True, "OPENAI_API_KEY": "x"}
 def _today(monkeypatch):
     monkeypatch.setattr(scope_module, "_today", lambda today=None: today or TODAY)
     cache.clear()
+    caches["shared"].clear()
 
 
 @pytest.fixture

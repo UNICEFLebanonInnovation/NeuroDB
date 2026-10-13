@@ -181,10 +181,11 @@ def test_planned_places_not_visited_are_counted_and_drawn_as_rings(planned):
     assert legend[geo.PLANNED]["shape"] == "ring" and all(e["toggle"] for e in legend.values())
     assert legend["coords"]["label"].startswith("Matched by coordinates (")
     # a governorate filter keeps that governorate's planned places only
-    from django.core.cache import cache
+    from django.core.cache import cache, caches
 
     planned.pds["amended"].locations.add(planned.cadasters["qalamoun"])  # in the North
     cache.clear()
+    caches["shared"].clear()
     assert {r["place"] for r in geo.map_points(_scope())["planned_rows"]} == {"Douris", "Qalamoun"}
     bekaa = geo.map_points(_scope(governorate="Bekaa"))
     assert [r["place"] for r in bekaa["planned_rows"]] == ["Douris"] and bekaa["counts"]["planned"] == 3
@@ -318,9 +319,10 @@ def test_a_visit_named_in_the_address_is_centred_and_opened(planned, client_view
     Visit.objects.filter(key="1723").update(
         end_date=datetime.date(2025, 6, 20), visit_date=datetime.date(2025, 6, 20)
     )
-    from django.core.cache import cache
+    from django.core.cache import cache, caches
 
     cache.clear()
+    caches["shared"].clear()
     html = _map_tab(client_viewer, visit="1723")
     assert "focus" not in _config(html) and "Visit 1723 is not in this filter." in html
     assert "That visit is not in NeuroDB." in _map_tab(client_viewer, visit="nope")
@@ -356,9 +358,10 @@ def test_no_coordinates_at_all_shows_the_empty_state(planned, client_viewer):
     assert "No visit in this filter has coordinates · the map shows the planned places only" in html
     assert "map-shell" in html and {p["group"] for p in _config(html)["points"]} == {geo.PLANNED}
     PCA.locations.through.objects.all().delete()
-    from django.core.cache import cache
+    from django.core.cache import cache, caches
 
     cache.clear()
+    caches["shared"].clear()
     html = _map_tab(client_viewer)
     assert "No visit in this filter has coordinates" in html and "map-shell" not in html
     assert "Nothing to map in this filter" in html
@@ -378,11 +381,22 @@ def test_the_visit_page_links_to_the_map_centred_on_it(planned, client_viewer):
 
 
 def test_the_map_tab_keeps_to_the_query_budget(planned, client_viewer, django_assert_max_num_queries):
-    from django.core.cache import cache
+    """The HTMX swap of the tab (the map drawn in it) as before; the page, which loads in parts, as its frame
+    and its map part, each measured plus 2 and each within the old page's 30 (step 3: frame 21, part 11-12,
+    with nothing stored)."""
+    from django.core.cache import cache, caches
 
-    cache.clear()
-    with django_assert_max_num_queries(20):
-        client_viewer.get(PAGE, {"tab": "map"}, HTTP_HX_REQUEST="true")
-    cache.clear()
-    with django_assert_max_num_queries(30):
-        client_viewer.get(PAGE, {"tab": "map"})
+    from tests.web.parts import HX, placeholders, raw_get
+
+    for params in ({"tab": "map"}, {"tab": "map", "section": "", "pd_scope": "active"}):
+        cache.clear()
+        caches["shared"].clear()
+        with django_assert_max_num_queries(20):
+            client_viewer.get(PAGE, params, HTTP_HX_REQUEST="true")
+        cache.clear()
+        caches["shared"].clear()
+        with django_assert_max_num_queries(23):
+            frame = raw_get(client_viewer, PAGE, params)
+        with django_assert_max_num_queries(14):
+            part = raw_get(client_viewer, placeholders(frame.content.decode())["map"], **HX)
+        assert part.status_code == 200 and "Visit locations map" in part.content.decode()

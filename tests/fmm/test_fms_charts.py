@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.http import QueryDict
 from django.test import override_settings
 from django.urls import reverse
@@ -148,6 +148,7 @@ def test_critical_records_come_worst_first_with_their_flags_and_no_address(built
         },
     )
     cache.clear()
+    caches["shared"].clear()
     data = metrics.critical_items(_scope())
     assert data["band"] == "red" and 0 < len(data["items"]) <= metrics.CRITICAL_ITEMS
     urgencies = [i["urgency"] for i in data["items"]]
@@ -191,6 +192,7 @@ def test_at_most_ten_critical_records_and_a_link_to_all(built, client_viewer, mo
     _settings(urgency_red=1, urgency_amber=0)
     monkeypatch.setattr(metrics, "CRITICAL_ITEMS", 2)
     cache.clear()
+    caches["shared"].clear()
     total = VisitEntity.objects.filter(visit__visit_date__year=2026, urgency__gte=1).count()
     assert total == 10
     html = _section(_tab(client_viewer, "insights"), "fmm-critical")

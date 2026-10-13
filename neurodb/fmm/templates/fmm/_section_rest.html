@@ -1,0 +1,5 @@
+{% load i18n ui %}{% comment %}A section's records past the first ten (the Analysis tab's section performance, "Show all"; s:
+the section, n: its place in the block): written out when opened (sections=all), and then answered alone
+(views._panel).{% endcomment %}
+<ul class="fmm-visit-lines" id="fmm-section-rest-{{ n }}">{% if s.rest %}{% include "fmm/_section_line.html" with lines=s.rest %}{% elif s.rest_count %}<li><a href="{% url 'fmm:dashboard' %}?{{ sections_all_query }}">{% trans "Loading the list…" %}</a></li>{% endif %}
+      {% if s.more %}<li><a href="{{ s.url }}" hx-get="{{ s.url }}" hx-target="#modal-content">{% blocktrans count n=s.more %}+{{ n }} more record{% plural %}+{{ n }} more records{% endblocktrans %}</a></li>{% endif %}</ul>

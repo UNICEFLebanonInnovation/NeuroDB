@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime
 
 import pytest
+from django.core.cache import caches
 from django.http import QueryDict
 
 from neurodb.fmm import metrics
@@ -59,9 +60,11 @@ def test_an_issues_mean_urgency_leaves_out_the_records_without_one(built):
     VisitEntity.objects.filter(pk__in=records).update(urgency=40)
     VisitEntity.objects.filter(pk=records[0]).update(urgency=None)
     metrics.cache.clear()
+    caches["shared"].clear()
     row = next(r for r in metrics.top_issues(_scope(), 50) if r["drill"] == f"{rule}:{key}")
     assert row["urgency"] == 40
     VisitEntity.objects.filter(pk__in=records).update(urgency=None)
     metrics.cache.clear()
+    caches["shared"].clear()
     row = next(r for r in metrics.top_issues(_scope(), 50) if r["drill"] == f"{rule}:{key}")
     assert row["urgency"] is None

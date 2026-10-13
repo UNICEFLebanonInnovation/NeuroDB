@@ -454,15 +454,17 @@ def test_not_available_texts_without_the_checklist_answers(fm_world, client_view
 def test_each_tab_and_the_page_stay_within_their_query_budget(
     built, client_viewer, django_assert_max_num_queries
 ):
-    from django.core.cache import cache
+    from django.core.cache import cache, caches
 
     # stage C: +2, +3 for the extras (the NeuroDB action points in the cache stamp, the visits they follow
     # up); per record (stage F3): +2, the key figures and the one pass read the visits, then their records
     for tab in ("insights", "quality", "analysis", "visits", "map"):
         cache.clear()
+        caches["shared"].clear()
         with django_assert_max_num_queries(24):
             client_viewer.get(PAGE, {"tab": tab}, HTTP_HX_REQUEST="true")
         cache.clear()
+        caches["shared"].clear()
         with django_assert_max_num_queries(34):
             client_viewer.get(PAGE, {"tab": tab})
     # the parts a tab loads when they are reached or opened (the entity table, a place list's "Show
@@ -474,6 +476,7 @@ def test_each_tab_and_the_page_stay_within_their_query_budget(
         {"tab": "quality", "places": "all"},
     ):
         cache.clear()
+        caches["shared"].clear()
         # the entity table's own queries on top of the tab's
         with django_assert_max_num_queries(26):
             response = client_viewer.get(PAGE, extra, HTTP_HX_REQUEST="true")
@@ -504,12 +507,13 @@ def test_a_partner_id_too_large_for_an_id_is_ignored_not_an_error(built, client_
 
 
 def test_a_review_drill_counts_a_new_review_at_once(built, client_viewer, admin_user, settings):
-    from django.core.cache import cache
+    from django.core.cache import cache, caches
 
     from neurodb.fmm import metrics
 
     settings.DEBUG = False
     cache.clear()
+    caches["shared"].clear()
     scope = Scope.from_params({"review": "follow_up", "section": ""})
     assert metrics.kpis(scope)["visits"] == 0
     VisitReview.objects.create(visit_key="1722", status="follow_up", reviewed_by=admin_user)
@@ -646,9 +650,10 @@ def test_the_hact_q1_chart_switches_to_overall_ratings_without_q1(built, client_
     # no record of the filter has a Q1 answer, but other records do
     Visit.objects.filter(end_date__month__in=(3, 5, 6, 7, 8)).update(hact_q1="")
     VisitEntity.objects.filter(visit__end_date__month__in=(3, 5, 6, 7, 8)).update(hact_q1="")
-    from django.core.cache import cache
+    from django.core.cache import cache, caches
 
     cache.clear()
+    caches["shared"].clear()
     html = client_viewer.get(PAGE, {"tab": "quality"}).content.decode()
     assert (
         "Overall finding rating distribution" in html and "HACT Q1 — Finding rating distribution" not in html
@@ -658,6 +663,7 @@ def test_the_hact_q1_chart_switches_to_overall_ratings_without_q1(built, client_
     # no Q1 in the data at all
     QuestionAnswer.objects.filter(role="q1").update(role="")
     cache.clear()
+    caches["shared"].clear()
     html = client_viewer.get(PAGE, {"tab": "quality"}).content.decode()
     assert "HACT Q1 answers are not in the eTools data NeuroDB reads yet" in html
 
@@ -699,9 +705,10 @@ def test_a_capped_place_list_does_not_claim_to_show_all(built, client_viewer, mo
         text = _text(client_viewer.get(PAGE, {"tab": tab}).content.decode())
         assert "Show all 6 places" in text, tab
     monkeypatch.setattr(metrics, "PLACES_MAX", 3)
-    from django.core.cache import cache
+    from django.core.cache import cache, caches
 
     cache.clear()
+    caches["shared"].clear()
     for tab in ("quality", "analysis"):
         text = _text(client_viewer.get(PAGE, {"tab": tab}).content.decode())
         assert "Show the 3 most visited of 6 places" in text and "Show all" not in text, tab

@@ -1536,6 +1536,28 @@ tr.is-uncounted > td { color: var(--nd-muted); }
 /* ============================================================================ end of stage B */
 
 /* ============================================================================ stage C (Monitoring insights): part fixes */
+/* The Map tab's map (#part-map, fmm/tabs/map.html): its placeholder keeps the room of the map, its legend and its
+   tables on large data (step 3's world: 5,075 visits, the 1,000 most urgent drawn and listed), measured at 18
+   window sizes from 360 x 780 to 1920 x 1080: the map panel's text (header, chips, legend and notes, which wrap
+   with the part's width: 1,000 px on a phone of 390, 610 px on a narrow window, 340-470 px wide), the map itself
+   (.map-shell--fmm: min(60vh, 520px)), the two tall tables (.table-wrap--tall: 75vh each, full on large data) with
+   their headers and the gaps (130 px). The text is set by window width (the sidebar takes 272 px from 992 px), in
+   bands that keep every size measured within 80 px of the map that arrives. The room follows the window's height
+   as the map and its tables do, which the tag's height= cannot say. */
+#part-map[data-part="map"] { --part-h: calc(490px + min(60vh, 520px) + 150vh); }
+@media (max-width: 1549.98px) { #part-map[data-part="map"] { --part-h: calc(610px + min(60vh, 520px) + 150vh); } }
+@media (max-width: 1199.98px) { #part-map[data-part="map"] { --part-h: calc(705px + min(60vh, 520px) + 150vh); } }
+@media (max-width: 991.98px) { #part-map[data-part="map"] { --part-h: calc(630px + min(60vh, 520px) + 150vh); } }
+@media (max-width: 859.98px) { #part-map[data-part="map"] { --part-h: calc(700px + min(60vh, 520px) + 150vh); } }
+@media (max-width: 767.98px) { #part-map[data-part="map"] { --part-h: calc(790px + min(60vh, 520px) + 150vh); } }
+@media (max-width: 575.98px) { #part-map[data-part="map"] { --part-h: calc(1150px + min(60vh, 520px) + 150vh); } }
+/* Its grey shapes: the map's block, then the rows of the two tables below it (the rest of the room), so the
+   placeholder looks like the tab, not one block and blank space. */
+#part-map[data-part="map"] .part__skeleton .skeleton::after { content: ""; display: block; height: calc(150vh + 98px); background: repeating-linear-gradient(to bottom, var(--nd-surface-2) 0 18px, transparent 18px 30px); border-radius: var(--nd-radius-sm); }
+/* When its request fails, the error box goes without that room, so the page's end is not pushed screens further
+   down; Try again gives the room back while the part loads. */
+#part-map[data-part="map"][data-part-state="error"] { min-height: 0; }
+#part-map[data-part="map"][data-part-state="error"]::before { content: none; } /* nor the middle height */
 /* ============================================================================ end of stage C */
 
 /* ============================================================================ stage D1 (country programme, education, youth, donor page): part fixes */

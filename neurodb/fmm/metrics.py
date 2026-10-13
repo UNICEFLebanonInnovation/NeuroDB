@@ -24,14 +24,19 @@ few thousand rows instead of every record and check. Every drill value a block g
 code the scope parses, and the records a drill-down lists are exactly those the block counted (for a
 block that counts visits, the records of those visits).
 
-Every block is cached for ten minutes under ``fmm:v5:<scope hash>:<last refresh run>:<rules
-version>:<day>:<block>`` (:func:`cached`), so a refresh, a rescore or a new day shows at once, and for the
-rest of the request that read it (:func:`request_started`).
+Every block is cached for ten minutes under ``fmm:v6:<scope hash>:<stamp>:<block>`` and the language
+(:func:`cached`; :func:`stamp`: the last refresh run, its rules version, the day, the NeuroDB action
+points, and the eTools and gazetteer inputs no refresh follows), so a refresh, a rescore, a new day or an
+edit shows at once, and for the rest of the request that read it (:func:`request_started`). The blocks the
+parts of a page and the other workers read (:func:`summary`, :func:`entity_rows`, :func:`rule_counts` and
+the Map tab's ``geo.map_points``) are kept in the cache every worker shares (``shared=True``, through
+:func:`neurodb.core.compute.once`); the others in each worker's own.
 """
 
 from __future__ import annotations
 
 import datetime
+import hashlib
 import heapq
 import re
 import threading
@@ -48,7 +53,9 @@ from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
+from django.utils.translation import get_language
 
+from neurodb.core import compute as core_compute
 from neurodb.datamart.fm import RATING_ORDER
 
 from . import tallies
@@ -69,13 +76,25 @@ STATUS_WORDS = {
 _READ = object()
 
 
+# The jobs that write what the figures read but start no refresh (the eTools sync's programme documents, their
+# planned places and the partners' names; the gazetteer; the eTools update clean-up): a run of one that
+# finished moves the stamp. The eTools Datamart sync starts a refresh when it wrote what the refresh reads.
+INPUT_JOBS = ("etools", "locations", "datamart_backfill")
+
+
 def stamp(last: Any = _READ) -> str:
     """What every cached figure depends on besides its scope: the last refresh that finished (given,
     or read), the rules version it computed the scores with, the day (rolling periods move at
-    midnight) and the last change to the NeuroDB action points (they count as follow-up at once). Read
-    with them, for the rest of the request: whether the figures kept per visit are those of the stored
-    records (``tallies.ready``; the figures are the same either way, only the reading differs)."""
+    midnight), the last change to the NeuroDB action points (they count as follow-up at once), and what
+    staff or a job change without a refresh: the last run of the :data:`INPUT_JOBS` that finished, and
+    the gazetteer's places and their types (an administrator may move or rename one in the admin: the
+    map's planned places and the places lists read them). One query. Read with them, for the rest of the
+    request: whether the figures kept per visit are those of the stored records (``tallies.ready``; the
+    figures are the same either way, only the reading differs)."""
     from django.db import connection
+
+    from neurodb.core.models import SyncRun
+    from neurodb.geo.models import Location, LocationType
 
     from . import status
     from .models import FigureState, LocalActionPoint
@@ -83,20 +102,38 @@ def stamp(last: Any = _READ) -> str:
     last = status.last_refresh() if last is _READ else last
     version = (last.details or {}).get("rules_version", 0) if last else 0
     quote = connection.ops.quote_name
+
+    def edited(model) -> str:  # "<rows>|<last change>" of a table staff edit in the admin
+        return "(SELECT count(*)::text || '|' || coalesce(max({at})::text, '') FROM {table})".format(  # noqa: S608
+            at=quote(model._meta.get_field("modified").column), table=quote(model._meta.db_table)
+        )
+
+    runs = SyncRun._meta
     with connection.cursor() as cursor:
         cursor.execute(
-            "SELECT count(*), max({at}), (SELECT {valid} FROM {state} WHERE {pk} = 1) FROM {local}".format(  # noqa: S608
+            "SELECT count(*), max({at}), (SELECT {valid} FROM {state} WHERE {pk} = 1), "  # noqa: S608
+            "(SELECT {run_pk} FROM {runs} WHERE {finished} IS NOT NULL AND {job} IN ({jobs}) "
+            "ORDER BY {finished} DESC, {run_pk} DESC LIMIT 1), {places}, {kinds} FROM {local}".format(
                 at=quote(LocalActionPoint._meta.get_field("updated_at").column),
                 valid=quote(FigureState._meta.get_field("valid").column),
                 state=quote(FigureState._meta.db_table),
                 pk=quote(FigureState._meta.pk.column),
+                run_pk=quote(runs.pk.column),
+                runs=quote(runs.db_table),
+                finished=quote(runs.get_field("finished_at").column),
+                job=quote(runs.get_field("job").column),
+                jobs=", ".join(["%s"] * len(INPUT_JOBS)),
+                places=edited(Location),
+                kinds=edited(LocationType),
                 local=quote(LocalActionPoint._meta.db_table),
-            )
+            ),
+            list(INPUT_JOBS),
         )
-        n, at, valid = cursor.fetchone()
+        n, at, valid, run, places, kinds = cursor.fetchone()
     tallies.remember(bool(valid))
     changed = f"{n}.{at.timestamp():.6f}" if at else "0"
-    return f"{last.pk if last else 0}:{version}:{timezone.localdate().isoformat()}:{changed}"
+    inputs = hashlib.blake2b(f"{run}|{places}|{kinds}".encode(), digest_size=6).hexdigest()
+    return f"{last.pk if last else 0}:{version}:{timezone.localdate().isoformat()}:{changed}:{inputs}"
 
 
 # The blocks the current request has read already, by their cache key: a request reads the figures of its
@@ -117,30 +154,50 @@ def request_finished(**kwargs: Any) -> None:
     tallies.request_finished()
 
 
-def cached(scope: Scope, block: str, compute: Callable[[], Any], when: str | None = None) -> Any:
+def _key(scope: Scope, block: str, when: str | None) -> str:
+    """A block's key in its worker's cache: the scope, the stamp, the block and the language (dates, labels
+    and words are translated as a block is computed: one language never answers another)."""
+    stamp_ = when if when is not None else stamp()
+    return f"fmm:v6:{scope.hash()}:{stamp_}:{block}|lang={get_language() or '-'}"
+
+
+def cached(
+    scope: Scope, block: str, compute: Callable[[], Any], when: str | None = None, *, shared: bool = False
+) -> Any:
     """``compute()`` for ``scope``, kept ten minutes (not in DEBUG), and for the rest of the request;
     ``when`` is :func:`stamp`, read once per request by the caller. A scope that drills into the reviews
-    is never kept: a review saved a minute ago must count at once, and no refresh marks it."""
+    is never kept: a review saved a minute ago must count at once, and no refresh marks it.
+
+    ``shared=True``: kept in the cache every worker shares (:func:`neurodb.core.compute.once`: one request
+    at a time computes it, the others read what it stored; the language goes in its key there too), for a
+    block the parts of a page or the other workers read. Only for a block of plain data (no QuerySet, no
+    model instance: ``once`` refuses them in the tests) that reads nothing of the person asking (the scope
+    holds the sections, a user's own default included), with every input staff edit in ``block`` or in
+    the stamp."""
     if settings.DEBUG or any(key == "review" for key, _value in scope.drill):
         return compute()
-    key = f"fmm:v5:{scope.hash()}:{when if when is not None else stamp()}:{block}"
+    key = _key(scope, block, when)
     blocks = getattr(_request, "blocks", None)
     if blocks is not None and key in blocks:
         return blocks[key]
-    found = cache.get(key)
-    if found is None:
-        found = compute()
-        cache.set(key, found, CACHE_SECONDS)
+    if shared:  # (the language goes in the key there, as once() adds it)
+        found = core_compute.once(key.split("|lang=", 1)[0], compute, CACHE_SECONDS)
+    else:
+        found = cache.get(key)
+        if found is None:
+            found = compute()
+            cache.set(key, found, CACHE_SECONDS)
     if blocks is not None:
         blocks[key] = found
     return found
 
 
 def kept(scope: Scope, block: str, when: str | None = None) -> Any:
-    """What :func:`cached` keeps for ``scope``'s ``block`` (None when nothing is kept), never computed."""
+    """What :func:`cached` keeps for ``scope``'s ``block`` in this worker (None when nothing is kept),
+    never computed."""
     if settings.DEBUG or any(key == "review" for key, _value in scope.drill):
         return None
-    key = f"fmm:v5:{scope.hash()}:{when if when is not None else stamp()}:{block}"
+    key = _key(scope, block, when)
     blocks = getattr(_request, "blocks", None)
     if blocks is not None and key in blocks:
         return blocks[key]
@@ -858,11 +915,15 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
     and place, the governorates visited, the partners, and the visits without follow-up. Quality, bands,
     ratings and flags count records; each group gives its distinct visits too. The reported visits,
     PSEA, the places without a location, the monitoring gaps and the follow-up count visits. The records
-    listed under each section are :func:`section_lines`'."""
+    listed under each section are :func:`section_lines`'.
 
-    def compute() -> dict[str, Any]:
-        nonlocal limits
-        limits = limits or thresholds()
+    Kept in the cache every worker shares (the Analysis and Quality tabs, the AI card's brief and the chat
+    read it), under the thresholds administrators set (Score settings: the bands, the urgency levels and
+    the number of flags that is many), which it reads: a saved setting shows at once, before the rescore it
+    starts has finished."""
+    limits = limits or core_compute.per_request("fmm.thresholds", thresholds)
+
+    def build() -> dict[str, Any]:
         high_flag = limits.get("high_flag", 3)
         months: dict[str, dict[str, Any]] = {}
         everyone: list[tuple] = []  # the part of each visit with records (see _parts_out)
@@ -1172,7 +1233,13 @@ def summary(scope: Scope, when: str | None = None, limits: dict[str, int] | None
             "local_overdue": local_overdue,
         }
 
-    return cached(scope, "summary", compute, when)
+    return cached(scope, f"summary:{limits_key(limits)}", build, when, shared=True)
+
+
+def limits_key(limits: dict[str, int]) -> str:
+    """The thresholds a block reads, in its key: ``red.amber.band_high.band_medium.high_flag``."""
+    names = ("red", "amber", "band_high", "band_medium", "high_flag")
+    return ".".join(str(limits.get(name, "")) for name in names)
 
 
 LINE_COLUMNS = (
@@ -1791,7 +1858,7 @@ def rule_counts(scope: Scope, when: str | None = None) -> dict[str, dict[str, in
                 r[status] += n
         return out
 
-    return cached(scope, "rule_counts", compute, when)
+    return cached(scope, "rule_counts", compute, when, shared=True)
 
 
 ANSWER_COLUMNS = ("fmq_answered_pct", "fmq_answered_categories", "method_count", "red_flag_count")
@@ -2440,7 +2507,7 @@ def entity_rows(scope: Scope, when: str | None = None, kind: str | None = None) 
             out[group_kind] = rows_out
         return {"kinds": entity_kinds(scope, when), "entities": out, "year": year}
 
-    return cached(scope, f"entities:{kind or 'all'}", compute, when)
+    return cached(scope, f"entities:{kind or 'all'}", compute, when, shared=True)
 
 
 def _worst_first(row: dict[str, Any]) -> tuple:

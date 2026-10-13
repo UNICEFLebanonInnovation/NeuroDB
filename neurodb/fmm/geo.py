@@ -370,12 +370,17 @@ def map_points(
     """The Map tab of ``scope``: the ``edumap.js`` configuration (``config``), the legend counts
     (``counts``) and the rows of the text table below the map (``visit_rows``, ``planned_rows``,
     ``unlocated_rows``). Kept ten minutes like every block (``metrics.cached``; ``when`` is
-    ``metrics.stamp``)."""
+    ``metrics.stamp``), in the cache every worker shares: the Map tab's part reads it. Plain data, the
+    same for every user (it reads the scope only), in the language it was drawn in (its popups' words
+    and dates are translated): the language is in its key. Its other inputs move the stamp: a refresh, a
+    run of the eTools or gazetteer sync, a place edited in the admin; ``FMM_MATCH_KM`` is in the key."""
     from . import metrics
 
     pd_scope = pd_scope if pd_scope in PD_SCOPES else "visited"
     km = float(settings.FMM_MATCH_KM if km is None else km)
-    return metrics.cached(scope, f"map:{pd_scope}:{km:g}", lambda: _compute(scope, pd_scope, km), when)
+    return metrics.cached(
+        scope, f"map:{pd_scope}:{km:g}", lambda: _compute(scope, pd_scope, km), when, shared=True
+    )
 
 
 def _compute(scope: Scope, pd_scope: str, km: float) -> dict[str, Any]:

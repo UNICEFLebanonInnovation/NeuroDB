@@ -53,7 +53,7 @@ issues summary.{% endcomment %}
     <tbody>{% include "fmm/_place_row.html" with rows=places.top %}</tbody>
   </table></div>
   {% if places.rest_count %}<details class="px-3 pb-2"{% if places.rest %} open{% else %} hx-get="{% url 'fmm:dashboard' %}?{{ places.all_query }}" hx-trigger="toggle once" hx-select="#fmm-places-rest" hx-target="find #fmm-places-rest" hx-swap="outerHTML"{% endif %}><summary class="small">{% if places.total > places.rows|length %}{% blocktrans with n=places.rows|length total=places.total %}Show the {{ n }} most visited of {{ total }} places{% endblocktrans %}{% else %}{% blocktrans count n=places.rows|length %}Show all {{ n }} place{% plural %}Show all {{ n }} places{% endblocktrans %}{% endif %}</summary>
-    <div class="table-wrap" id="fmm-places-rest">{% if places.rest %}<table class="table table-sm"><tbody>{% include "fmm/_place_row.html" with rows=places.rest %}</tbody></table>{% else %}<p class="small text-muted mb-0"><a href="{% url 'fmm:dashboard' %}?{{ places.all_query }}">{% trans "Loading the list…" %}</a></p>{% endif %}</div>
+    {% include "fmm/_places_rest.html" %}
   </details>{% endif %}
   {% endif %}
   <p class="small text-muted px-3 pb-3 mb-0">{% trans "A place's records are those of its visits; a number opens them." %} {% if places.unlinked %}{% blocktrans count n=places.unlinked %}{{ n }} visit has no linked location.{% plural %}{{ n }} visits have no linked location.{% endblocktrans %}{% else %}{% trans "Every visit in this filter has a place." %}{% endif %}</p>

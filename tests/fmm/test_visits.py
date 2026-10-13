@@ -506,13 +506,14 @@ def test_the_drill_window_lists_the_records_and_links_the_records_list(built, cl
 def test_each_drill_type_lists_what_its_block_counts(built, client_viewer):
     """Every link and chart cell of the Quality and Analysis tabs opens exactly the records its block
     counted (a block of visits: the records of exactly those visits)."""
-    from django.core.cache import cache
+    from django.core.cache import cache, caches
 
     from neurodb.fmm import metrics
     from neurodb.fmm.models import RuleSetting
     from neurodb.fmm.scope import Scope
 
     cache.clear()
+    caches["shared"].clear()
     scope = Scope.from_params({"section": ""})
     rules = list(RuleSetting.objects.order_by("code"))
     checks: list[tuple[str, int]] = []
@@ -609,7 +610,7 @@ def test_the_chip_rows_and_cards_open_the_records_they_count(built, client_viewe
 def test_the_overall_rating_chart_opens_the_records_it_counts(built, client_viewer):
     """Without Q1 answers the chart counts the records' overall rating: each cell and each chip of its
     row opens the records it counts (rating=<code>, never a label)."""
-    from django.core.cache import cache
+    from django.core.cache import cache, caches
 
     from neurodb.fmm import metrics
     from neurodb.fmm.scope import Scope
@@ -617,6 +618,7 @@ def test_the_overall_rating_chart_opens_the_records_it_counts(built, client_view
     Visit.objects.update(hact_q1="")
     VisitEntity.objects.update(hact_q1="")
     cache.clear()
+    caches["shared"].clear()
     scope = Scope.from_params({"section": ""})
     assert metrics.hact_q1_by_month(scope) is None
     chart = metrics.rating_by_month(scope)

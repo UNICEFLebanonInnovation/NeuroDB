@@ -630,13 +630,15 @@ def test_the_feed_is_throttled_per_key(built, client):
 def test_the_throttle_is_kept_in_the_database(built, client):
     """The count of the hour lives on the key's row, not in one worker's memory: emptying the cache (a
     second worker, another container) does not open the feed again; the next hour does."""
-    from django.core.cache import cache
+    from django.core.cache import cache, caches
 
     row, key = _key()
     assert _feed(client, key=key)[0].status_code == 200
     cache.clear()
+    caches["shared"].clear()
     assert _feed(client, key=key)[0].status_code == 200
     cache.clear()
+    caches["shared"].clear()
     assert _feed(client, key=key)[0].status_code == 429
     row.refresh_from_db()
     assert row.hour_uses == 2 and row.uses == 2

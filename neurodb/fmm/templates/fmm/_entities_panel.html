@@ -1,0 +1,31 @@
+{% load i18n ui %}{% comment %}The Analysis tab's entity table (fmm.views._entities): asked for when it scrolls into view or a
+chip is chosen, and then answered alone (views._panel).{% endcomment %}
+{% url 'fmm:dashboard' as page_url %}
+<section class="panel" id="fmm-entities" aria-labelledby="fmm-entities-title">
+  <div class="panel__header"><h2 class="panel__title" id="fmm-entities-title">{% trans "Entity performance" %}</h2></div>
+  <p class="small text-muted mb-2">{% trans "Ranks the entities assessed (partners, CP outputs and PD/SSFAs) by the average quality of their own records, worst first, so the ones that need closer monitoring follow-up come first; unscored entities come last. Use the chips to focus on one entity type." %}</p>
+  <nav class="fmm-chip-row mb-2" aria-label="{% trans 'Entity type' %}">
+    {% for k in entity_kinds %}<a class="fmm-chip fmm-chip--choice" href="{{ page_url }}?{{ k.query }}" hx-get="{{ page_url }}?{{ k.query }}" hx-target="#fmm-entities" hx-select="#fmm-entities" hx-swap="outerHTML" hx-push-url="true" {% if k.key == entity_kind %}aria-current="page"{% endif %}>{{ k.label }} <span class="fmm-chip__count">{{ k.n }}</span></a>{% endfor %}
+  </nav>
+  {% if entity_lazy_query %}
+  <p class="pb-1 mb-0 small" hx-get="{{ page_url }}?{{ entity_lazy_query }}" hx-trigger="revealed" hx-target="#fmm-entities" hx-select="#fmm-entities" hx-swap="outerHTML"><a href="{{ page_url }}?{{ entity_lazy_query }}">{% trans "Loading the entities…" %}</a></p>
+  {% elif entity_rows %}
+  <div class="table-wrap"><table class="table table-sm fmm-entity-table">
+    <thead><tr><th scope="col">{% trans "Entity" %}</th><th scope="col">{% trans "Type" %}</th><th scope="col" class="num">{% trans "Records" %}</th><th scope="col" class="num">{% trans "Avg quality" %}</th><th scope="col" class="num">{% trans "High / Med / Low" %}</th><th scope="col">{% trans "Top issue" %}</th><th scope="col">{% trans "Last rating" %}</th>{% if entity_kind == "pd" %}<th scope="col">{% blocktrans with year=entity_year %}Planned visits {{ year }}{% endblocktrans %}</th>{% endif %}</tr></thead>
+    <tbody>{% for e in entity_rows %}<tr>
+      <td>{% if e.url %}<a href="{{ e.url }}" data-synced title="{{ e.name }}">{{ e.name|truncatechars:70 }}</a>{% else %}<span data-synced title="{{ e.name }}">{{ e.name|truncatechars:70 }}</span>{% endif %}</td>
+      <td><span class="fmm-type fmm-type--{{ e.kind }}">{{ e.type }}</span></td>
+      <td class="num">{{ e.records }}{% if e.visits != e.records %}<span class="cell-sub">{% blocktrans count n=e.visits %}{{ n }} visit{% plural %}{{ n }} visits{% endblocktrans %}</span>{% endif %}</td>
+      <td class="num">{% if e.avg is not None %}<span class="fmm-avg fmm-avg--{{ e.band }}">{{ e.avg|percent }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+      <td class="num text-nowrap"><span class="fmm-tone--success">{{ e.bands.high }}</span> / <span class="fmm-tone--warning">{{ e.bands.medium }}</span> / <span class="fmm-tone--danger">{{ e.bands.low }}</span></td>
+      <td>{% if e.top_issue %}<span class="fmm-rule-badge" title="{% blocktrans count n=e.top_issue.n %}{{ n }} record{% plural %}{{ n }} records{% endblocktrans %}">{{ e.top_issue.rule }}</span>{% else %}—{% endif %}</td>
+      <td class="text-nowrap">{% status_pill e.last.rating e.last_label "sm" %}<span class="cell-sub">{% if e.last.not_rated_yet %}{% blocktrans with day=e.last.date|date:"j M Y"|default:"—" %}ends {{ day }}{% endblocktrans %}{% else %}{% blocktrans with day=e.last.date|date:"j M Y"|default:"—" %}rated {{ day }}{% endblocktrans %}{% endif %}</span></td>
+      {% if entity_kind == "pd" %}<td class="small">{% if e.planned is not None %}{% blocktrans with planned=e.planned visits=e.visits %}{{ planned }} planned · {{ visits }} FM visits{% endblocktrans %}{% else %}—{% endif %}</td>{% endif %}
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% if entity_total > entity_rows|length %}<p class="pt-2 mb-0 small"><a href="{{ page_url }}?{{ entity_all_query }}" hx-get="{{ page_url }}?{{ entity_all_query }}" hx-target="#fmm-entities" hx-select="#fmm-entities" hx-swap="outerHTML">{% blocktrans with n=entity_total %}Show all {{ n }}{% endblocktrans %}</a></p>{% endif %}
+  {% else %}
+  {% include "components/empty_state.html" with title=_("No entities of this type") %}
+  {% endif %}
+  {% include "fmm/_card_tools.html" %}
+</section>

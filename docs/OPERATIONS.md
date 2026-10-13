@@ -968,6 +968,7 @@ more.
 | Data health, `/data/health/` | Page heading, the *Sync jobs* heading with its *Stale after N hours* note, the heading and explanation of the eTools Datamart datasets panel | `jobs` (at once): one card per sync job. `databases` and `runs` (when near the screen): the ActivityInfo databases of the year and their last import, the latest 50 runs. `datasets` and `readiness` (after the visible ones): the eTools Datamart datasets table with its *Copy* and *CSV* buttons (they come with the table, so they are never offered before it is there), the machine learning readiness check | Only the rows each eTools Datamart dataset holds (the *Rows held* column): an hour at most, the same in every language and for everyone, under a key made of the latest run of each job that writes those tables (eTools Datamart sync, eTools sync, Locations sync, eTools update clean-up), so a run of one of them that starts or ends has them counted again. The gazetteer (*locations*), which staff also edit in Admin → Locations, is counted at each visit, and so is everything else on the page. Inside a database transaction (NeuroDB Watch's AI look-ups read these figures in a read-only one) the stored counts are read too; when there are none the rows are counted there and nothing is stored. See *Data quality per dataset* |
 | Partner monitoring, `/partner-monitoring/` | View tabs (Grid, Program Performance, Data quality, Map), the filter bar with its choices, the "your section" note | Grid: `summary` (at once; first of the group `pm`): the seven tiles, the status donut and the indicators by section; `grid` (at once, once `summary` is in): the indicators by section, PD and output with their months or years, its pages, the note when the list is cut. Program Performance (`view=table`): `sections` (at once; first of the group `pm`): the section tiles; `table` (at once, once `sections` is in): the page of rows in its sort, its pages, *Excel of the filter* and *CSV of the filter*. Data quality (`view=quality`): `quality-tiles` (at once; first of the group `pm`) and `quality-lists` (when near the screen, once the tiles are in). A change of filter, sort or section tile reloads the area under the filter bar (`#monitoring-grid`) with new placeholders; a page of the grid or of the table reloads its own part. The exports are answered whole | The filter's indicators (every row the three views read), 2 minutes per filter and day, the same in every language and for everyone; Program Performance's section tiles and table read the same for the filter without its sections (the table keeps the chosen ones, as before), one computation for both. The filter bar's choices, 10 minutes. Each key holds the latest run of each eTools job (eTools sync, eTools Datamart sync, Datamart backfill, Locations sync) and the indicator flags, so a sync shows at once and an ActivityInfo import does not count. The parts carry `as_of`. When the indicators are kept, the frame draws the view's two parts itself: one request. The Map tab is not in parts; its points (`/api/internal/partner-monitoring/map/`) are kept 2 minutes under the same jobs, the flags and the gazetteer. See *Partner monitoring and Progress reports load in parts* |
 | Progress reports, `/partner-reporting/` (*By location* and *By disaggregation*) | Filter bar with its choices, the tab bar, the *By disaggregation* tab's own filters | `table` (at once): the tab's table, its pages, the note when the filter holds too many rows, the Excel and CSV links. A change of filter (HTMX) answers the table at once. *Reporting progress* and *Partners* are drawn whole, as before | The tab's rows (on *By disaggregation*, with the lines of every location), 2 minutes per tab, filter, tab filters and day; the filter bar's choices, 10 minutes; the same in every language and for everyone, under the eTools jobs' latest runs and the indicator flags, as partner monitoring. When the rows are kept, the frame draws the table itself: one request. See *Partner monitoring and Progress reports load in parts* |
+| Monitoring insights, Map tab, `/fmm/?tab=map` | Header and Export menu, filter bar, reference line, chips, data notes, the key figure tiles, the tab bar; a filter without visits shows the tab's empty state and no part. The other tabs stay one request each | `map` (at once): the map, its legend, *Visits on the map*, *PD locations not yet visited* and *Visits without coordinates*, with the map's configuration. A swap of the results (tab bar, filter bar, the planned places switch) brings the map drawn in, in one request | The map (`geo.map_points`), 10 minutes, per filter, planned places shown and language (the popups' dates are translated), under the Monitoring insights stamp (last refresh and rules version, the day, the NeuroDB action points, the last eTools, Locations or clean-up run, the gazetteer's places), so a refresh, one of those runs or a place edited in admin → Locations shows at once. Also the one pass over the visits (under the *Score settings* thresholds too), the entity table and the rule counts that the other tabs read. Never drawn by the frame: the map takes about 90 ms to draw even when stored. See *Monitoring insights* |
 
 Every other page is still drawn whole. Of these, the ActivityInfo databases page and each database,
 the Neuro and HPM reports, the programme documents' indicators tab, each programme document (page and
@@ -2612,6 +2613,16 @@ is hidden.
   on hover or tap only. `?visit=<key>` centres the map on a visit and opens it (the visit page's *On
   the map* link). Only OpenStreetMap tiles are loaded, and no point carries a team member, a visit
   lead or a narrative.
+  **The Map tab loads in parts** (see *Pages that load in parts*): opened from an address (a link, a
+  bookmark, the visit page's *On the map*), the page answers at once with the header, the filter bar,
+  the reference line, the chips, the data notes, the key figures and the tab bar, and a grey placeholder
+  where the map goes; the map, its legend and its three tables (one part, `map`) arrive in a second
+  request, with the filter written out (`section=` for every section, the user's own section on a first
+  visit), the tab, the planned places shown and the visit centred. Choosing the tab from the tab bar,
+  changing a filter or switching between *Programme documents visited* and *Every active programme
+  document* still answers the results with the map drawn in, in one request (it takes well under a
+  second). The other four tabs stay one request each: on a copy of the data at production size (5,075
+  visits, 18,696 records) each answered whole in under 0.3 seconds cold, the Map tab in 0.33-0.45 seconds.
 - **Visit page** (`/fmm/visits/<key>/`, also a window from the table; the address AI answers will
   cite): status and rating with their dates, HACT Q1, quality and its basis, urgency and its parts,
   the follow-up signals (an off-track or constrained visit without an action point, overdue and
@@ -2841,12 +2852,25 @@ it was scored with.
   `bucket=80-90`, `hact_q1=constrained`, `flag=R1`, `visit_status=review`), and show as removable
   chips (the 20-point buckets of Release 1, `bucket=80-100`, still open). A label as a chart
   draws it is refused, so a cut or translated label never opens the wrong visits.
-- **Caching**: each block is kept 10 minutes in the web process's cache, under the filter, the last
-  refresh and its rules version, and the day; a refresh, a new rules version or midnight shows at once.
-  A drill into the reviews is never kept (a review saved a minute ago counts at once). Each tab and the
-  visit window load on their own; the map, the brief, the entity table, the rule score trends and the
-  long place lists load only when shown (the entity table and the rule trends when they scroll into
-  view, a place list when *Show all* opens).
+- **Caching**: each block is kept 10 minutes, under the filter, the language and a stamp: the last
+  refresh and its rules version, the day, the NeuroDB action points, the last finished run of the jobs
+  that write what the page reads but start no refresh (the eTools sync, which writes the programme
+  documents, their planned places and the partners' names; the Locations sync; the eTools update
+  clean-up), and the gazetteer's places and kinds of place (an administrator may rename or move one in
+  admin → Locations). A refresh, a new rules version, midnight, one of those runs or such an edit shows
+  at once. Four blocks are kept in the **shared page figures** (see *Pages that load in parts*), so
+  every web worker reads what one computed: the one pass over the visits (the Quality and Analysis tabs,
+  the AI card's fallback brief and the chat read it), the entity table, the rule counts and the Map
+  tab's map. They hold figures only, the same for everyone (the filter holds the sections, a user's own
+  section included); the pass over the visits is also kept under the *Score settings* thresholds it reads
+  (the bands, the urgency levels, the number of flags that makes a record "high-flag"), so a saved
+  setting shows at once, before the rescore it asks for has run. The other blocks are kept in each
+  web process's own cache. A drill into the reviews is never kept (a review saved a minute ago counts
+  at once). Each tab and the visit window load on their own; the map, the brief, the entity table, the
+  rule score trends and the long place lists load only when shown (the entity table and the rule trends
+  when they scroll into view, a place list when *Show all* opens), and each of these panels is drawn
+  alone, from its own figures, never with the rest of its tab (until step 3 of the page-speed work, the
+  server drew the whole tab for each and the browser kept the panel).
 
 ### How Monitoring insights differs from the overview
 

@@ -1,0 +1,3 @@
+{% load i18n ui %}{% comment %}The Quality tab's places past the first ten ("Show all"): written out when opened (places=all),
+and then answered alone (views._panel).{% endcomment %}
+<div class="table-wrap" id="fmm-places-rest">{% if places.rest %}<table class="table table-sm"><tbody>{% include "fmm/_place_row.html" with rows=places.rest %}</tbody></table>{% else %}<p class="small text-muted mb-0"><a href="{% url 'fmm:dashboard' %}?{{ places.all_query }}">{% trans "Loading the list…" %}</a></p>{% endif %}</div>

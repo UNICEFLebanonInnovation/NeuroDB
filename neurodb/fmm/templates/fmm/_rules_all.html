@@ -1,0 +1,22 @@
+{% load i18n ui %}{% comment %}Every quality rule with what it checks (the Analysis tab's rule analysis, "Show all"): written out
+when the list is opened (rules=all), and then answered alone (views._panel).{% endcomment %}
+<div id="fmm-rules-all">{% if rules_all %}
+  {% for r in rule_rows %}
+  <div class="fmm-meter-row">
+    <div class="fmm-meter-row__head">
+      <span>{% if r.url %}<a href="{{ r.url }}" hx-get="{{ r.url }}" hx-target="#modal-content">{{ r.code }} {{ r.label }}</a>{% else %}{{ r.code }} {{ r.label }}{% endif %}{% if r.flag_only %} <span class="pill pill--sm pill--neutral">{% trans "flag only" %}</span>{% endif %}</span>
+      <span class="small {% if r.state == 'ok' %}text-{{ r.level }}{% else %}text-muted{% endif %}">
+        {% if r.state == "off" %}{% trans "off" %}
+        {% elif r.state == "na" %}{% if r.needs_answers %}{% trans "Not available — needs question answers (fm_questions); see Fields found" %}{% else %}{% blocktrans count n=r.na %}Not available on {{ n }} record{% plural %}Not available on {{ n }} records{% endblocktrans %}{% endif %}
+        {% elif r.state == "ai_off" %}{% trans "AI check switched off" %}
+        {% elif r.state == "none" %}{% trans "does not apply to these records" %}
+        {% elif r.state == "pending" %}{% blocktrans count n=r.pending %}AI check pending on {{ n }} record{% plural %}AI check pending on {{ n }} records{% endblocktrans %}
+        {% else %}{% blocktrans with flagged=r.flagged evaluated=r.evaluated %}{{ flagged }} / {{ evaluated }} records flagged{% endblocktrans %}{% if r.na %} · {% blocktrans with n=r.na %}not available on {{ n }}{% endblocktrans %}{% endif %}{% if r.pending %} · {% blocktrans with n=r.pending %}pending on {{ n }}{% endblocktrans %}{% endif %}{% endif %}
+      </span>
+    </div>
+    {% if r.state == "ok" %}<div class="meter"><div class="meter__track"><span class="meter__fill meter__fill--{{ r.level }}" style="width: {{ r.fill|floatformat:0 }}%"></span></div></div>{% endif %}
+    {% if r.description %}<details class="small text-muted"><summary>{% trans "What it checks" %}</summary>{{ r.description }}</details>{% endif %}
+  </div>
+  {% endfor %}
+  {% if user_role == "Administrator" %}<p class="source-line"><a href="{{ fields_found_url }}">{% trans "Fields found" %}</a></p>{% endif %}
+  {% else %}<p class="small text-muted mb-0"><a href="{% url 'fmm:dashboard' %}?{{ rules_all_query }}">{% trans "Loading the list…" %}</a></p>{% endif %}</div>

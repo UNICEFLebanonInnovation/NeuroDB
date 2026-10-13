@@ -10,7 +10,7 @@ import datetime
 from decimal import Decimal
 
 import pytest
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.db.models import F
 
 from neurodb.datamart import fm
@@ -28,6 +28,7 @@ REFERENCE_KEY = fm.visit_key(None, "FM/2026/9", 0)
 def _today(monkeypatch):
     monkeypatch.setattr(scope_module, "_today", lambda today: today or TODAY)
     cache.clear()
+    caches["shared"].clear()
 
 
 def _scope(**params) -> Scope:
@@ -139,6 +140,7 @@ def test_score_buckets_are_fms_five_and_hold_100_in_the_top_one(built):
     VisitEntity.objects.filter(visit__key="1722").update(quality_score=Decimal("100.0"))
     VisitEntity.objects.filter(visit__key="1723").update(quality_score=Decimal("90.0"))
     cache.clear()
+    caches["shared"].clear()
     top = metrics.score_buckets(_scope())["items"][-1]
     assert top["value"] == 9 == _records(_scope(bucket="80-100"))  # 100 and 90 are in 80-100
     assert _records(_scope(bucket="90-100")) == 6  # a bucket of 10 of an older link still opens its records
@@ -183,6 +185,7 @@ def test_rule_analysis_flagged_out_of_evaluated(built):
     assert [r["code"] for r in rows.values()][:3] == ["R1", "R2", "R3"]  # in the order of the ids
     RuleSetting.objects.filter(code="R5").update(enabled=False)
     cache.clear()
+    caches["shared"].clear()
     assert {r["code"]: r for r in metrics.rule_analysis(_scope(), _rules())}["R5"]["state"] == "off"
 
 
@@ -306,6 +309,7 @@ def test_points_by_category_keep_between_0_and_the_weight(built):
     )
     VisitEntity.objects.update(category_deductions={"completeness": 45, "evidence": 0})  # more than its 30
     cache.clear()
+    caches["shared"].clear()
     rows = {r["code"]: r for r in metrics.dimension_breakdown(_scope(), _rules())["rows"]}
     assert rows["completeness"]["pct"] == Decimal("0.0") and rows["completeness"]["earned"] == 0
     assert (
@@ -368,12 +372,14 @@ def test_the_data_notes_appear_only_when_they_apply(built):
     assert metrics.notes(_scope()) == [{"key": "dated_by_end", "n": 7}]
     Visit.objects.exclude(start_date__isnull=False).update(start_date=F("end_date"))
     cache.clear()
+    caches["shared"].clear()
     assert metrics.notes(_scope()) == []
     assert [n["key"] for n in metrics.notes(_scope(section="Education"))] == ["section"]
     assert [n["key"] for n in metrics.notes(_scope(entity_type="pd"))] == ["record_filter"]
     assert [n["key"] for n in metrics.notes(_scope(flag="R1"))] == ["record_filter"]  # a record drill too
     Visit.objects.filter(key="1728").update(location=None)  # placed by its site only
     cache.clear()
+    caches["shared"].clear()
     assert {"key": "via_site", "n": 1} in metrics.notes(_scope(governorate="bekaa"))
 
 

@@ -16,7 +16,7 @@ import re
 from decimal import Decimal
 
 import pytest
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.http import QueryDict
 from django.urls import reverse
 
@@ -48,6 +48,7 @@ SCOPES = (
 def _today(monkeypatch):
     monkeypatch.setattr(scope_module, "_today", lambda today=None: today or TODAY)
     cache.clear()
+    caches["shared"].clear()
 
 
 def _scope(query: str = "year=2026&section=") -> Scope:
@@ -350,6 +351,7 @@ def test_the_release_banner_shows_while_records_are_scored_or_checked(built, cli
     from neurodb.fmm import status
 
     cache.clear()
+    caches["shared"].clear()
     assert "AI checks for 2 records are still running." in banner()
     assert status.snapshot().rules_version == current.number + 1
 

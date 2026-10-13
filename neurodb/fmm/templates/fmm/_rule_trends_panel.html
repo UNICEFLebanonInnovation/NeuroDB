@@ -1,0 +1,17 @@
+{% load i18n ui %}{% comment %}The Analysis tab's rule score trends (fmm.views._rule_trends): asked for when the panel scrolls
+into view (rule_trends=1), and then answered alone (views._panel).{% endcomment %}
+<section class="panel" id="fmm-rule-trends-panel" aria-labelledby="fmm-rule-trends-title">
+  <div class="panel__header">
+    <h2 class="panel__title" id="fmm-rule-trends-title">{% trans "Rule score trends over time" %}</h2>
+    <span class="panel__hint">{% trans "Per rule, the share of its maximum points the records of the visits that started each month earned; a point opens the records it flagged that month" %}</span>
+  </div>
+  {% comment %}Worked out when the panel scrolls into view: the tab itself, with rule_trends=1, gives
+  this panel with its own chart data (the other blocks are kept from the first view).{% endcomment %}
+  {% if rule_trends is not None %}
+  {{ rule_trends|json_script:"fmm-rule-trend-data" }}
+  <div id="fmm-chart-rule-trends" class="chart chart--lg" data-module="charts" data-chart="share-lines" data-y-title="{% trans '% of max score' %}" data-source="fmm-rule-trend-data" data-key="rule_trends" data-href-template="{{ rule_trend_template }}" data-href-hint="{% trans 'Click a point to list its records' %}" data-empty-title="{% trans 'No rule checked a record in this filter' %}" aria-label="{% trans 'Rule score trends over time' %}"></div>
+  {% include "fmm/_card_tools.html" with chart="fmm-chart-rule-trends" filename="monitoring-rule-trends" %}
+  {% else %}
+  <p class="px-3 pb-3 mb-0 small" hx-get="{% url 'fmm:dashboard' %}?{{ rule_trends_query }}" hx-trigger="revealed" hx-target="#fmm-rule-trends-panel" hx-select="#fmm-rule-trends-panel" hx-swap="outerHTML"><a href="{% url 'fmm:dashboard' %}?{{ rule_trends_query }}">{% trans "Loading the rule trends…" %}</a></p>
+  {% endif %}
+</section>

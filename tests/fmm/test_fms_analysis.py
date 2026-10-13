@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.http import QueryDict
 from django.urls import reverse
 
@@ -108,6 +108,7 @@ def test_the_score_distribution_has_fms_five_buckets_that_sum_to_the_scored_reco
     assert values["40-60"] == 2 and values["80-100"] == 7
     VisitEntity.objects.filter(visit__key="1722").update(quality_score=Decimal("100.0"))
     cache.clear()
+    caches["shared"].clear()
     assert metrics.score_buckets(_scope())["items"][-1]["value"] == values["80-100"]  # 100 is in 80-100
     html = _tab(client_viewer, "analysis")
     panel = _panel(html, "fmm-dist-title")
@@ -364,6 +365,7 @@ def test_the_map_reads_as_fms_legend(built, client_viewer):
     assert labels == [label for label in order if label in labels]
     Visit.objects.filter(key="1722").update(latitude=None, longitude=None)
     cache.clear()
+    caches["shared"].clear()
     text = _text(_tab(client_viewer, "map"))
     assert re.search(r"\d+ visits? not shown — no location coordinates recorded\.", text)
 
