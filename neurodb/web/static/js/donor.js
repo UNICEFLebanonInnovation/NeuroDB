@@ -1,9 +1,14 @@
-/* The donor page (donors/page.html): charts drawn as inline SVG and HTML bars from the JSON the
-   view embeds (#donor-data, built by neurodb/donors/services.py). Filters (grant, programme area,
-   governorate) re-draw the "Your contribution" tab in the browser; nothing is fetched. Every text
-   from the data goes through esc() before it reaches innerHTML. */
+/* The donor page (donors/page.html): charts drawn as inline SVG and HTML bars from the page's figures
+   (built by neurodb/donors/services.py). The page comes at once and this module fetches them: the "data"
+   part of the page (main[data-donor-src]: the page's address with the year, and in a preview the account,
+   plus _part=data), unless the page carries them already (#donor-data: stored, or the page asked for whole).
+   Meanwhile the cards are grey (main[data-donor-state="waiting"], donor.css) and the page is busy for screen
+   readers (aria-busy); figures that cannot be loaded leave an error box with Try again. Figures that came with
+   the page keep the cards' room until they are drawn (data-donor-state="drawing"), then the page is "ready". Filters (grant,
+   programme area, governorate) re-draw the "Your contribution" tab in the browser; nothing more is fetched.
+   Every text from the data goes through esc() before it reaches innerHTML. */
 
-const DATA = JSON.parse(document.getElementById("donor-data").textContent);
+let DATA = null; // the page's figures, once they are in (load())
 const $ = (s, el = document) => el.querySelector(s);
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const nf = new Intl.NumberFormat("en-US");
@@ -43,10 +48,10 @@ function spread(ys, gap, lo, hi) {
   return out;
 }
 
-const SECTIONS = DATA.sections || [];
+let SECTIONS = []; // set with the figures (useData)
 const slotOf = (section) => { const s = SECTIONS.find((x) => x.key === section); return `--s${s ? s.slot : 0}`; };
 const colorOf = (section) => css(slotOf(section));
-const GOVS = DATA.governorates || [];
+let GOVS = [];
 const govName = (key) => (GOVS.find((g) => g.key === key) || { name: key }).name;
 
 const ICONS = {
@@ -59,7 +64,7 @@ const ICONS = {
 const pill = (s, title = "") => `<span class="pill ${s.cls}"${title ? ` title="${esc(title)}"` : ""}>${ICONS[s.icon] || ""}${esc(s.label)}</span>`;
 const statusOf = (key) => (DATA.statuses || {})[key] || { cls: "none", label: "Not reported yet", icon: "warn" };
 const rowStatus = (r) => statusOf(r.closed ? "closed" : r.status); // an ended programme is "Closed", never "Behind"
-const GRANTS = Object.fromEntries((DATA.grants || []).map((g) => [g.key, g]));
+let GRANTS = {};
 const grantName = (key) => (GRANTS[key] || {}).name || "";
 const grantLabel = (key) => (GRANTS[key] || {}).label || key;
 function paceStatus(achieved, expected) {
@@ -583,6 +588,7 @@ themeButton.addEventListener("click", () => {
 function render() {
   hideTip();
   syncThemeButton();
+  if (!DATA) return; // the figures are still on their way (load())
   if ((DATA.pds || []).length) {
     const list = rows();
     renderFilterState();
@@ -602,6 +608,88 @@ function render() {
   document.querySelectorAll(".alttable").forEach((t) => t.parentElement.remove());
   document.querySelectorAll("button[data-table]").forEach((b) => { b.textContent = "Table"; });
 }
-if ((DATA.pds || []).length) buildFilters();
-render();
+// ------------------------------------------------------------------ the figures
+const main = $("#main");
+const loadState = { tries: 0, timer: null };
+const ERRORS = {
+  403: "You do not have access to this.",
+  timeout: "The figures took too long to come. Try again in a moment.",
+  other: "The figures could not be loaded.",
+};
+const RETRY_ONCE = new Set([0, 502, 503, 504]); // a network error or a server restarting: asked again once
+const BUDGET = 60000; // ms: as long as a part of a staff page may take
+const sleep = (ms) => new Promise((resolve) => { loadState.timer = setTimeout(resolve, ms); });
+
+function useData(data) {
+  DATA = data || {};
+  SECTIONS = DATA.sections || [];
+  GOVS = DATA.governorates || [];
+  GRANTS = Object.fromEntries((DATA.grants || []).map((g) => [g.key, g]));
+  const funded = (DATA.pds || []).length > 0;
+  $("#mineEmpty").hidden = funded;
+  $("#mineContent").hidden = !funded;
+  main.dataset.donorState = "ready";
+  main.removeAttribute("aria-busy");
+  $("#loadError").hidden = true;
+  if (funded) buildFilters();
+  render();
+}
+
+function showError(kind) {
+  main.dataset.donorState = "error";
+  main.removeAttribute("aria-busy");
+  $("#loadErrorText").textContent = ERRORS[kind] || ERRORS.other;
+  $("#loadError").hidden = false;
+}
+
+// One request for the figures: the JSON, or why not ({status}, "timeout", "redirect"). The page's own part, so the
+// same rules guard it as the page (a donor's own account only, whatever the address says).
+async function ask(signal) {
+  let response;
+  try {
+    response = await fetch(main.dataset.donorSrc, {
+      headers: { "HX-Request": "true", "HX-Current-URL": location.href, Accept: "application/json" },
+      credentials: "same-origin",
+      signal,
+    });
+  } catch (err) {
+    return { failed: signal.aborted ? "timeout" : 0 };
+  }
+  const redirect = response.headers.get("HX-Redirect"); // signed out meanwhile: to the sign-in page
+  if (redirect) { location.href = redirect; return { failed: "redirect" }; }
+  if (response.status === 202 && response.headers.get("X-NeuroDB-Part-Pending")) return { pending: true };
+  if (!response.ok) return { failed: response.status };
+  try { return { data: await response.json() }; } catch (err) { return { failed: "other" }; }
+}
+
+async function load() {
+  clearTimeout(loadState.timer);
+  main.dataset.donorState = "waiting";
+  main.setAttribute("aria-busy", "true");
+  $("#loadError").hidden = true;
+  const started = Date.now();
+  const control = new AbortController();
+  const stop = setTimeout(() => control.abort(), BUDGET);
+  let wait = 1500, retried = false;
+  try {
+    for (;;) {
+      const answer = await ask(control.signal);
+      if (answer.data) { useData(answer.data); return; }
+      if (answer.failed === "redirect") return;
+      const late = Date.now() - started > BUDGET - wait;
+      if (answer.pending && !late) { await sleep(wait); wait = Math.min(wait * 1.5, 5000); continue; } // still computing
+      if (RETRY_ONCE.has(answer.failed) && !retried && !late) { retried = true; await sleep(2000); continue; }
+      showError(answer.pending || answer.failed === "timeout" ? "timeout" : answer.failed === 403 ? 403 : "other");
+      return;
+    }
+  } finally {
+    clearTimeout(stop);
+  }
+}
+
+$("#loadRetry").addEventListener("click", () => { load(); });
 new MutationObserver(render).observe(document.documentElement, { attributes: true, attributeFilter: ["data-bs-theme"] });
+syncThemeButton();
+const inline = document.getElementById("donor-data"); // the figures came with the page
+if (inline) useData(JSON.parse(inline.textContent));
+else load();

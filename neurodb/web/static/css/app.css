@@ -1561,6 +1561,35 @@ tr.is-uncounted > td { color: var(--nd-muted); }
 /* ============================================================================ end of stage C */
 
 /* ============================================================================ stage D1 (country programme, education, youth, donor page): part fixes */
+/* Country programme (cpd/dashboard.html) and youth (youth/dashboard.html): the "summary" placeholder of each draws,
+   under its grey tiles, the panels that follow them, so the first screen looks like the page: the country
+   programme's two panels (where the indicators stand, the outcomes), side by side where the part's grid has two
+   columns (.grid--2: 840 px and a gap), stacked below that; youth's table of indicators. */
+:is(#part-summary[data-part-group="cpd"], #part-summary[data-part-group="youth"]):not(.is-loaded) > .part__skeleton { container-type: inline-size; }
+:is(#part-summary[data-part-group="cpd"], #part-summary[data-part-group="youth"]):not(.is-loaded) .skeleton::after,
+#part-summary[data-part-group="cpd"]:not(.is-loaded) .skeleton::before {
+  content: ""; order: 2; display: block; border-radius: var(--nd-radius-sm); margin-top: 0.4rem;
+  background: linear-gradient(90deg, var(--nd-surface-2) 0%, var(--nd-border) 50%, var(--nd-surface-2) 100%);
+  background-size: 200% 100%; animation: nd-shimmer 1.3s ease-in-out infinite;
+}
+#part-summary[data-part-group="cpd"]:not(.is-loaded) .skeleton::before { height: 320px; }
+#part-summary[data-part-group="cpd"]:not(.is-loaded) .skeleton::after { height: 320px; }
+#part-summary[data-part-group="youth"]:not(.is-loaded) .skeleton::after { height: 420px; }
+@container (min-width: 857px) {
+  #part-summary[data-part-group="cpd"]:not(.is-loaded) .skeleton { display: grid; grid-template-columns: 1fr 1fr; column-gap: 1rem; }
+  #part-summary[data-part-group="cpd"]:not(.is-loaded) .skeleton > .kpi-grid { grid-column: 1 / -1; }
+}
+/* the country programme's six key figures stand in one row from 1100 px (.cpd-kpis), as tall as their longest hint */
+@media (min-width: 1100px) {
+  #part-summary[data-part-group="cpd"]:not(.is-loaded) .part__skeleton .kpi-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  #part-summary[data-part-group="cpd"]:not(.is-loaded) .skeleton__block--tile { height: 150px; }
+}
+@media (prefers-reduced-motion: reduce) { #part-summary:not(.is-loaded) .skeleton::before, #part-summary:not(.is-loaded) .skeleton::after { animation: none; } }
+/* A part of these pages that fails keeps no room (its placeholder holds up to 9,600 px on a phone): the error box with
+   Try again goes without it, so the blocks below are not pushed screens further down. Try again gives the room back
+   while the part loads. */
+:is(#part-summary, #part-outcomes, #part-details):is([data-part-group="cpd"], [data-part-group="youth"])[data-part-state="error"] { min-height: 0; }
+:is(#part-summary, #part-outcomes, #part-details):is([data-part-group="cpd"], [data-part-group="youth"])[data-part-state="error"]::before { content: none; }
 /* ============================================================================ end of stage D1 */
 
 /* ============================================================================ stage D2 (knowledge, What's new, For you): part fixes */

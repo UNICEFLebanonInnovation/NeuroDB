@@ -134,7 +134,7 @@ def setup(checkout: Path | str | None = None, *, settings_module: str | None = N
 
 
 def load_group(name: str) -> types.ModuleType:
-    if not re.fullmatch(r"[a-z_]+", name):
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", name):  # other_d1, other_d2: digits too
         raise SystemExit(f"no group named {name!r}")
     return importlib.import_module(f"scripts.parity.{name}")
 
@@ -660,6 +660,9 @@ def get_page(client, url: str) -> Page:
 
 # ---------------------------------------------------------------------------------------------- observing
 def observe(group: types.ModuleType, page: Page, *, role: str, label: str, mode: str) -> dict[str, Any]:
+    prepare = getattr(group, "prepare", None)  # a page a script fills in the browser: as it shows then
+    if prepare is not None:
+        prepare(page, mode)
     reading = read_html(page.html)
     figures, problems = group.figures(page, mode)
     return {

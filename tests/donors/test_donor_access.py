@@ -7,6 +7,7 @@ On ``overview_fixture``: one programme document (Amel, Child Protection) with 50
 """
 
 import datetime
+import html
 import json
 import re
 from decimal import Decimal
@@ -65,8 +66,15 @@ def donor_client(client, donor):
 
 
 def page_data(response) -> dict:
+    """The page's figures: in the page itself when they were already stored (``donor-data``), else from its JSON
+    part (``main[data-donor-src]``), asked for as donor.js asks, by the same signed-in client."""
     match = re.search(r'<script id="donor-data" type="application/json">(.*?)</script>', response.text, re.S)
-    return json.loads(match.group(1))
+    if match:
+        return json.loads(match.group(1))
+    source = re.search(r'data-donor-src="([^"]+)"', response.text)
+    part = response.client.get(html.unescape(source.group(1)), HTTP_HX_REQUEST="true")
+    assert part.status_code == 200 and part["Content-Type"] == "application/json"
+    return part.json()
 
 
 # ------------------------------------------------------------------------------ attribution
@@ -223,6 +231,7 @@ def test_donor_page_shows_own_funds_only(data, reporting_year, donor_client):
     assert "Japan" not in response.text  # the other donor of the same programme
     assert 'id="sidebar"' not in response.text
     payload = page_data(response)
+    assert "Japan" not in json.dumps(payload)  # nor in the figures the page fetches
     assert [p["id"] for p in payload["pds"]] == ["LEB/PD1"]
     assert payload["pds"][0]["committed"] == 10000
     assert "Amel" not in json.dumps(payload["overall"])

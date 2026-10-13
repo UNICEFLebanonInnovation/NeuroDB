@@ -1,0 +1,27 @@
+{% load i18n ui %}{# The country programme's "summary" part (cpd.views.dashboard): the key figures, where the indicators stand (the status donut, its JSON cpd-summary-data) and the outcomes at a glance, whose links lead to the "outcomes" part. #}
+<div class="kpi-grid cpd-kpis">
+  {% trans "CPD indicators" as l1 %}{% blocktrans asvar h1 with n=data.outcomes|length %}under {{ n }} outcomes{% endblocktrans %}{% include "components/kpi_tile.html" with label=l1 value=data.indicator_total|number hint=h1 %}
+  {% trans "On track" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.counts.on_track|number status="on_track" %}
+  {% trans "Off track" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.counts.off_track|number status="off_track" %}
+  {% trans "Ahead of schedule" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.counts.over_target|number status="over_target" %}
+  {% trans "No data yet" as l5 %}{% blocktrans asvar h5 with n=data.counts.no_target %}{{ n }} without a target{% endblocktrans %}{% include "components/kpi_tile.html" with label=l5 value=data.counts.not_reported|number hint=h5 %}
+  {% trans "Interventions" as l6 %}{% blocktrans asvar h6 with n=data.partner_total total=data.pd_in_cycle %}{{ n }} partners; {{ total }} programme documents run in the cycle{% endblocktrans %}{% include "components/kpi_tile.html" with label=l6 value=data.pd_total|number hint=h6 %}
+</div>
+
+<div class="grid grid--2 mb-3">
+  <section class="panel">
+    <div class="panel__header"><h2 class="panel__title">{% trans "Where the CPD indicators stand" %}</h2><span class="panel__hint">{{ data.today|date:"j M Y" }}</span></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="status-donut" data-source="cpd-summary-data" data-key="status_counts" data-height="220" data-empty-title="{% trans 'No indicator yet' %}" aria-label="{% trans 'CPD indicator status distribution' %}"></div>
+    {% include "reports/partials/_status_legend.html" with counts=data.counts labels=data.status_labels %}
+  </section>
+  <section class="panel">
+    <div class="panel__header"><h2 class="panel__title">{% trans "Outcomes" %}</h2><span class="panel__hint">{% trans "indicators of the outcome and its outputs" %}</span></div>
+    <ul class="list-unstyled mb-0 cpd-outcomes">
+      {% for o in data.outcomes %}<li class="mb-2">
+        <a href="#outcome-{{ o.outcome.pk }}"><span class="mono small">{{ o.outcome.code }}</span> {{ o.outcome.title|truncatechars:110 }}</a>
+        {% if o.total %}<div class="status-bar mt-1" role="img" aria-label="{% for s, n in o.counts %}{{ n }} {{ data.status_labels|get_item:s }}{% if not forloop.last %}, {% endif %}{% endfor %}">{% for s, n in o.counts %}<span class="{{ s }}" style="width: {% widthratio n o.total 100 %}%"></span>{% endfor %}</div>{% else %}<span class="text-muted small">{% trans "No indicator." %}</span>{% endif %}
+      </li>{% endfor %}
+    </ul>
+  </section>
+</div>
+{{ chart_data|json_script:"cpd-summary-data" }}

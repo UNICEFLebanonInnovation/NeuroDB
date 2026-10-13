@@ -1,0 +1,23 @@
+{% load i18n ui %}{# The country programme's "outcomes" part (cpd.views.dashboard): each outcome (#outcome-<id>, the anchors the summary and the knowledge graph link to) with its outputs, their indicators, programme documents and partner reporting. #}
+{% for o in data.outcomes %}
+<section class="panel p-0 mb-3" id="outcome-{{ o.outcome.pk }}">
+  <div class="panel__header px-3 pt-3"><h2 class="panel__title">{% trans "Outcome" %} {{ o.outcome.code }}</h2>{% if o.outcome.sections %}<span class="panel__hint">{{ o.outcome.sections }}</span>{% endif %}</div>
+  <p class="px-3 mb-2">{{ o.outcome.title }}</p>
+  {% if o.indicators %}{% include "cpd/_indicators.html" with rows=o.indicators table_id="cpd-outcome-"|add:o.outcome.code %}{% endif %}
+  {% for row in o.outputs %}
+  <div class="cpd-output px-3 pt-3">
+    <h3 class="h6 mb-1">{% trans "Output" %} {{ row.output.code }} <span class="fw-normal">{{ row.output.title }}</span></h3>
+    <p class="text-muted small mb-2">
+      {% if row.pds %}
+      {% blocktrans count n=row.pds|length %}{{ n }} programme document contributes{% plural %}{{ n }} programme documents contribute{% endblocktrans %}
+      ({% for pd in row.pds|slice:":8" %}<a href="{% url 'reports:programme_detail' pd.pk %}">{{ pd.number|default:pd.pk }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}{% if row.pds|length > 8 %}, …{% endif %})
+      {% if row.partners %}· {% trans "partners" %}: {{ row.partners|join:", "|truncatechars:220 }}{% endif %}
+      {% if row.reported %}· {% blocktrans with y=data.reporting_year %}partner reporting {{ y }}{% endblocktrans %}: {% for s, n in row.reporting.items %}{% status_pill s None "sm" %} {{ n }} {% endfor %}{% endif %}
+      {% else %}{% trans "No programme document in eTools names this output." %}{% endif %}
+    </p>
+  </div>
+  {% if row.indicators %}{% include "cpd/_indicators.html" with rows=row.indicators table_id="cpd-output-"|add:row.output.code %}{% else %}<p class="text-muted small px-3">{% trans "No indicator under this output." %}</p>{% endif %}
+  {% endfor %}
+  <div class="pb-2"></div>
+</section>
+{% endfor %}

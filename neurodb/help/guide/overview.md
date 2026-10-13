@@ -69,6 +69,16 @@ fill in as their figures are ready:
   then takes you there.
 - On a partner's page, everything from the key figures to the last list fills in as one box; the
   Monitoring insights panel follows it, on partners a field monitoring visit has monitored.
+- On the country programme page, the cycle, its documents and how much of it has gone come at once;
+  the key figures and the outcomes at a glance fill in first, then each outcome with its indicators. A
+  link to an outcome waits for its box, then takes you there. Opened again within 10 minutes, the page
+  comes complete at once.
+- On the youth programmes page, the filters come with the page; the key figures and the youth
+  indicators fill in first, then the breakdowns and the two tables below them. The filters still apply
+  when you press **Apply**, as before.
+- On the donor page (the page donor accounts see, and administrators preview), the cards come at once
+  in grey and the charts are drawn in them as soon as the figures arrive; if they cannot be loaded, a
+  box says so with a **Try again** button.
 - The management brief's **Print** button waits for every box and its charts ("Preparing the
   page…"), then prints. Printing with Ctrl+P before a page is complete prints a short note in place of
   each box still loading: wait until the page is complete.

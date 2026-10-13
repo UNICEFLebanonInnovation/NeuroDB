@@ -194,3 +194,58 @@ footer { margin-top: 30px; color: var(--muted); font-size: 12.5px; display: flex
   .tabs .tab-long { display: none; }
   .tabs .tab-short { display: inline; }
 }
+
+/* the figures on their way (donor.js fetches them; main[data-donor-state="waiting"] until they are in) or still to be
+   drawn (data-donor-state="drawing": they came with the page, and donor.js draws them as soon as it runs, which can
+   be after the browser first paints the page); .js: only where scripts run, so a browser without JavaScript never
+   keeps grey shapes. Each card keeps the room of its chart, as measured on the x20 parity world at 390, 900 and
+   1366 px, in grey, so nothing on the first screen moves when the charts are drawn; a failure leaves the error box
+   with Try again instead of an empty page */
+.loadstate { position: relative; } /* takes no room while waiting: nothing below moves when the figures arrive */
+.loadstate__wait { display: none; position: absolute; top: 8px; right: 0; z-index: 6; margin: 0; font-size: 13px; color: var(--muted); } /* above the sticky .filters (z-index 5) */
+.js main[data-donor-state="waiting"] .loadstate__wait { display: block; }
+.loadstate noscript p { margin: 16px 0 0; font-size: 13px; color: var(--muted); }
+.loadstate__error { margin-top: 16px; border: 1px dashed var(--axis); border-radius: var(--r); background: var(--surface); color: var(--ink-2); padding: 16px; text-align: center; }
+.loadstate__error p { margin: 0 0 10px; color: var(--crit); font-weight: 600; }
+.loadstate__retry { background: var(--surface); border: 1px solid var(--axis); border-radius: 8px; padding: 5px 14px; font-size: 13px; cursor: pointer; }
+.js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) :is(#tiles, #oTiles, #flow, #map, #spend, #grants, #progress, #sex, #age, #govbars, #vfm, #dumbbell, #prog, #oMonths, #oSections, #oMap, #oStatus, #oWho):empty {
+  border-radius: 8px; background: linear-gradient(90deg, var(--surface-2) 0%, var(--grid) 50%, var(--surface-2) 100%);
+  background-size: 200% 100%; animation: donor-shimmer 1.3s ease-in-out infinite;
+}
+/* the room of each chart as donor.js draws it on the x20 world: the SVG ones keep their drawing's proportions
+   (the governorate maps 414 x 360, the funds' flow 680 x 246 at its smallest, the month bars 560 x 240, the two
+   value-for-money charts 560 x 230 for five areas), the lists of bars and the key figures their height at 1366 px,
+   below 1001 px (one column, two rows of tiles) and on a phone; the filter bar the height its chips take, so the
+   tiles below stay where they are */
+.js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #mineContent .filters { min-height: 85px; }
+.js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #tiles:empty { min-height: 132px; }
+.js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #oTiles:empty { min-height: 151px; }
+.js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) :is(#map, #oMap):empty { aspect-ratio: 414 / 360; }
+.js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #flow:empty { aspect-ratio: 680 / 246; }
+.js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #oMonths:empty { aspect-ratio: 560 / 240; }
+.js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) :is(#vfm, #dumbbell):empty { aspect-ratio: 560 / 230; }
+.js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) :is(#spend, #progress):empty { min-height: 310px; }
+.js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #grants:empty { min-height: 665px; }
+.js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #govbars:empty { min-height: 220px; }
+.js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #oSections:empty { min-height: 315px; }
+.js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) :is(#sex, #age):empty { min-height: 60px; }
+.js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #oStatus:empty { min-height: 74px; }
+.js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #oWho:empty { min-height: 162px; }
+.js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #prog:empty { display: block; min-height: 400px; }
+.js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #fGrant { visibility: hidden; }
+@media (max-width: 1000px) {
+  .js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #mineContent .filters { min-height: 95px; }
+  .js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #tiles:empty { min-height: 258px; }
+  .js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #oTiles:empty { min-height: 333px; }
+  .js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #grants:empty { min-height: 527px; }
+}
+@media (max-width: 640px) {
+  .js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #mineContent .filters { min-height: 198px; }
+  .js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #tiles:empty { min-height: 384px; }
+  .js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #oTiles:empty { min-height: 497px; }
+  .js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #grants:empty { min-height: 983px; }
+  .js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #oSections:empty { min-height: 390px; }
+  .js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) #flow:empty { aspect-ratio: auto; min-height: 195px; } /* drawn 540 px wide, scrolled */
+}
+@keyframes donor-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) [id]:empty { animation: none; } }

@@ -15,6 +15,15 @@ Status: the share of the way from baseline to target that the value has covered,
 share of the cycle elapsed (or with 100 % of the year's milestone when one is set): within 10 points
 is on track, below is off track, above is ahead of schedule — the same rule as the other NeuroDB
 pages. No target: "no target"; no value yet: "no data".
+
+The page (``cpd.views.dashboard``) loads in parts: its two parts read one :func:`build`, kept ten minutes in
+the cache every worker shares (:func:`neurodb.core.compute.once`) under a key that holds the cycle, the day,
+everything staff enter by hand that the figures read (:func:`hand_entered`: the cycle, its outcomes, outputs,
+indicators, milestones, values and linked sources, and the ActivityInfo set-up of the linked master
+indicators) and :func:`neurodb.core.compute.data_stamp` (the last finished sync of any job, which covers
+eTools, the eTools Datamart, ActivityInfo and the two Compiler reads, and the indicator flags). A build is
+plain data (:class:`IndicatorRef` and its kin stand for the rows the page draws), the same for every user;
+the linked sources' kinds are translated as it is computed, so a build is kept per language.
 """
 
 from __future__ import annotations
@@ -22,12 +31,17 @@ from __future__ import annotations
 import datetime
 import re
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
+from django.conf import settings
+from django.core.cache import cache as process_cache
+from django.db import connection
+
+from neurodb.core import compute
 from neurodb.indicators.services.tracking import TOLERANCE
 
-from .models import CountryProgramme, Indicator, Link, Output
+from .models import CountryProgramme, Indicator, Link, Milestone, Outcome, Output, Value
 
 ON_TRACK, OFF_TRACK, AHEAD, NO_TARGET, NO_DATA = (
     "on_track",
@@ -45,6 +59,9 @@ LABELS = {
 }
 STATUS_ORDER = (OFF_TRACK, ON_TRACK, AHEAD, NO_DATA, NO_TARGET)
 CLOSED_PD_STATUSES = ("draft", "cancelled")
+CACHE_SECONDS = 600  # a build in the shared cache; its key moves with every edit and every finished sync
+CACHE_VERSION = 1
+EDUCATION_TOTAL_SECONDS = 600  # children enrolled in a stored payload, per worker (keyed on its fetch)
 
 
 def elapsed_share(programme: CountryProgramme, today: datetime.date) -> float:
@@ -130,15 +147,43 @@ def _youth_values(links: list[Link]) -> dict[int, float | None]:
 
 
 def _education_values(links: list[Link]) -> dict[int, float | None]:
+    """Children enrolled in the Makani or Dirasa figures each link names. Each stored payload (1-5 MB) is read
+    once per call, however many links name it (it was read once per link: eight links, eight reads), and its
+    total is kept per worker for as long as the figures are not fetched again (:func:`_stored_total`)."""
     from neurodb.education.models import EducationFigures
 
-    out: dict[int, float | None] = {}
-    for link in links:
-        record = EducationFigures.objects.filter(
-            programme=link.education_programme, year=link.source_period
-        ).first()
-        out[link.pk] = float(education_total(record.payload)) if record else None
-    return out
+    wanted = {(link.education_programme, link.source_period) for link in links}
+    records: dict[tuple[str, str], Any] = {}
+    if wanted:
+        rows = EducationFigures.objects.defer("payload").filter(
+            programme__in={programme for programme, _period in wanted},
+            year__in={period for _programme, period in wanted},
+        )
+        for record in rows:
+            records.setdefault((record.programme, record.year), record)
+    totals = {ident: _stored_total(record) for ident, record in records.items()}
+    return {
+        link.pk: float(totals[ident])
+        if (ident := (link.education_programme, link.source_period)) in totals
+        else None
+        for link in links
+    }
+
+
+def _stored_total(record: Any) -> int:
+    """:func:`education_total` of a stored row (read without its payload), kept per worker under its id and
+    fetch time: a new fetch of the figures is a new key. The payload is read only when the total is not
+    kept."""
+    from neurodb.education.models import EducationFigures
+
+    stamp = record.fetched_at.isoformat() if record.fetched_at else ""
+    key = f"cpd:education-total:{record.pk}:{stamp}"
+    total = process_cache.get(key)
+    if total is None:
+        payload = EducationFigures.objects.filter(pk=record.pk).values_list("payload", flat=True).first()
+        total = education_total(payload or {})
+        process_cache.set(key, total, EDUCATION_TOTAL_SECONDS)
+    return total
 
 
 def education_total(payload: dict[str, Any]) -> int:
@@ -172,10 +217,64 @@ def link_values(links: list[Link]) -> dict[int, float | None]:
     return out
 
 
+# ------------------------------------------------------------------------------ plain rows
+# What a build holds of the rows the page draws: plain data, so a build can be kept for every worker (a model
+# instance would query again for each relation a template follows once read back). Each has the attributes the
+# templates and Ask NeuroDB read, under the model's names.
+@dataclass(frozen=True)
+class IndicatorRef:
+    pk: int
+    code: str
+    title: str
+    unit: str
+    accumulate: str
+    baseline: float | None
+    baseline_year: int | None
+    target: float | None
+    origin: str
+
+    @classmethod
+    def of(cls, indicator: Indicator) -> IndicatorRef:
+        return cls(
+            pk=indicator.pk,
+            code=indicator.code,
+            title=indicator.title,
+            unit=indicator.unit,
+            accumulate=indicator.accumulate,
+            baseline=indicator.baseline,
+            baseline_year=indicator.baseline_year,
+            target=indicator.target,
+            origin=indicator.origin,
+        )
+
+
+@dataclass(frozen=True)
+class OutcomeRef:
+    pk: int
+    code: str
+    title: str
+    sections: str
+
+
+@dataclass(frozen=True)
+class OutputRef:
+    pk: int
+    code: str
+    title: str
+
+
+@dataclass(frozen=True)
+class PDRef:
+    """A programme document contributing to an output: the page links to it by its number."""
+
+    pk: int
+    number: str | None
+
+
 # ---------------------------------------------------------------------------------- progress
 @dataclass
 class Progress:
-    indicator: Indicator
+    indicator: Indicator | IndicatorRef
     years: dict[int, dict[str, Any]] = field(default_factory=dict)  # year -> {value, source, parts}
     value: float | None = None
     value_year: int | None = None
@@ -294,25 +393,45 @@ def interventions(programme: CountryProgramme) -> list[Any]:
 
 
 # --------------------------------------------------------------------------------- dashboard
+def cycle_facts(programme: CountryProgramme, today: datetime.date) -> dict[str, Any]:
+    """Where the cycle stands in time (arithmetic only): the page's frame draws it, and every build carries
+    it."""
+    return {
+        "today": today,
+        "elapsed": elapsed_share(programme, today),
+        "year_of_cycle": (min(today.year, programme.end_year) - programme.start_year + 1)
+        if today.year >= programme.start_year
+        else 0,
+        "cycle_years": len(programme.years),
+    }
+
+
 def dashboard(programme: CountryProgramme, today: datetime.date | None = None) -> dict[str, Any]:
+    """Every figure of the cycle's page (and of Ask NeuroDB's country programme look-up), as plain data: the
+    rows it draws are :class:`IndicatorRef`, :class:`OutcomeRef`, :class:`OutputRef` and :class:`PDRef`."""
     from neurodb.datamart import monitoring
 
     today = today or datetime.date.today()
-    elapsed = elapsed_share(programme, today)
+    facts = cycle_facts(programme, today)
+    elapsed = facts["elapsed"]
     indicators = list(
         Indicator.objects.filter(programme=programme)
         .select_related("programme", "outcome", "output")
         .prefetch_related("values", "milestones", "links")
     )
     values = link_values([lk for ind in indicators for lk in ind.links.all() if lk.confirmed])
-    progress_of = {ind.pk: progress(ind, values, today, elapsed) for ind in indicators}
+    progress_of = {
+        ind.pk: replace(progress(ind, values, today, elapsed), indicator=IndicatorRef.of(ind))
+        for ind in indicators
+    }
 
     pds = interventions(programme)
     current_year = min(max(today.year, programme.start_year), programme.end_year)
     outcomes = []
     all_pd_ids: set[int] = set()
     output_pds: dict[int, list[Any]] = {}
-    for outcome in programme.outcomes.prefetch_related("outputs"):
+    framework = list(programme.outcomes.prefetch_related("outputs"))
+    for outcome in framework:
         for output in outcome.outputs.all():
             matched = [
                 pd for pd in pds if any(output_matches(output, name) for name in (pd.cp_outputs or []))
@@ -328,7 +447,7 @@ def dashboard(programme: CountryProgramme, today: datetime.date | None = None) -
     counts = defaultdict(int)
     for p in progress_of.values():
         counts[p.status] += 1
-    for outcome in programme.outcomes.prefetch_related("outputs"):
+    for outcome in framework:
         outputs = []
         for output in outcome.outputs.all():
             matched = output_pds.get(output.pk, [])
@@ -338,9 +457,9 @@ def dashboard(programme: CountryProgramme, today: datetime.date | None = None) -
                     statuses[status] += n
             outputs.append(
                 {
-                    "output": output,
+                    "output": OutputRef(pk=output.pk, code=output.code, title=output.title),
                     "indicators": [progress_of[i.pk] for i in indicators if i.output_id == output.pk],
-                    "pds": matched,
+                    "pds": [PDRef(pk=pd.pk, number=pd.number) for pd in matched],
                     "partners": sorted(
                         {(pd.partner.name if pd.partner else pd.partner_name or "") for pd in matched}
                     ),
@@ -355,7 +474,9 @@ def dashboard(programme: CountryProgramme, today: datetime.date | None = None) -
             outcome_counts[p.status] += 1
         outcomes.append(
             {
-                "outcome": outcome,
+                "outcome": OutcomeRef(
+                    pk=outcome.pk, code=outcome.code, title=outcome.title, sections=outcome.sections
+                ),
                 "indicators": own,
                 "outputs": outputs,
                 "counts": [(s, outcome_counts[s]) for s in STATUS_ORDER if outcome_counts.get(s)],
@@ -364,13 +485,7 @@ def dashboard(programme: CountryProgramme, today: datetime.date | None = None) -
         )
     partners = {pd.partner_id or pd.partner_name for pd in pds if pd.pk in all_pd_ids}
     return {
-        "programme": programme,
-        "today": today,
-        "elapsed": elapsed,
-        "year_of_cycle": (min(today.year, programme.end_year) - programme.start_year + 1)
-        if today.year >= programme.start_year
-        else 0,
-        "cycle_years": len(programme.years),
+        **facts,
         "outcomes": outcomes,
         "counts": {s: counts.get(s, 0) for s in STATUS_ORDER},
         "indicator_total": len(indicators),
@@ -382,6 +497,109 @@ def dashboard(programme: CountryProgramme, today: datetime.date | None = None) -
         "status_chart": {s: counts.get(s, 0) for s in STATUS_ORDER if counts.get(s)},
         "status_labels": LABELS,
     }
+
+
+# ------------------------------------------------------------------------- the stored build
+def hand_entered(programme: CountryProgramme) -> str:
+    """Everything staff enter by hand that the cycle's figures read, as one digest that changes with every
+    edit, addition or removal: the cycle itself (its eTools country programme and its years choose the
+    interventions and the years shown), its outcomes, outputs (their eTools names match the programme
+    documents), indicators (baseline, target, how the years add up), milestones, values and linked sources
+    (a suggestion confirmed), and, for the ActivityInfo master indicators linked, how the admin set them up
+    (the database, the master indicator, its sub-indicators and their indicators). One query over the rows
+    themselves, so an edit in place shows even where a table keeps no time of change. Read once per
+    request."""
+
+    def read() -> str:
+        from neurodb.indicators.models import Database, MasterIndicator, MasterSubIndicator, SubIndicator
+
+        q = connection.ops.quote_name
+        table = {
+            "cycle": q(CountryProgramme._meta.db_table),
+            "outcome": q(Outcome._meta.db_table),
+            "output": q(Output._meta.db_table),
+            "indicator": q(Indicator._meta.db_table),
+            "milestone": q(Milestone._meta.db_table),
+            "value": q(Value._meta.db_table),
+            "link": q(Link._meta.db_table),
+            "master": q(MasterIndicator._meta.db_table),
+            "database": q(Database._meta.db_table),
+            "master_sub": q(MasterSubIndicator._meta.db_table),
+            "sub": q(SubIndicator._meta.db_table),
+            "sub_leaf": q(SubIndicator.indicators.through._meta.db_table),
+        }
+        outcomes = "SELECT id FROM outcomes"
+        indicators = "SELECT id FROM indicators"
+        masters = "SELECT id FROM masters"
+        subs = f"SELECT sub_id FROM {table['master_sub']} WHERE master_id IN ({masters})"  # noqa: S608
+        # (table, the rows of the cycle in it): every row's whole text, in a stable order
+        parts = [
+            ("cycle", "id = %(cycle)s"),
+            ("outcome", "programme_id = %(cycle)s"),
+            ("output", f"outcome_id IN ({outcomes})"),
+            ("indicator", "programme_id = %(cycle)s"),
+            ("milestone", f"indicator_id IN ({indicators})"),
+            ("value", f"indicator_id IN ({indicators})"),
+            ("link", f"indicator_id IN ({indicators})"),
+            ("master", f"id IN ({masters})"),
+            ("database", f"id IN (SELECT database_id FROM {table['master']} WHERE id IN ({masters}))"),  # noqa: S608
+            ("master_sub", f"master_id IN ({masters})"),
+            ("sub", f"id IN ({subs})"),
+            ("sub_leaf", f"subindicator_id IN ({subs})"),
+        ]
+        rows = "coalesce((SELECT string_agg(t::text, ',' ORDER BY t::text) FROM {} t WHERE {}), '')"
+        digests = ", ".join(rows.format(table[name], where) for name, where in parts)
+        # the table names come from the models, every value is a parameter
+        sql = (
+            f"WITH outcomes AS (SELECT id FROM {table['outcome']} WHERE programme_id = %(cycle)s), "  # noqa: S608
+            f"indicators AS (SELECT id FROM {table['indicator']} WHERE programme_id = %(cycle)s), "
+            f"masters AS (SELECT master_id AS id FROM {table['link']} WHERE kind = %(activityinfo)s "
+            f"AND master_id IS NOT NULL AND indicator_id IN ({indicators})) "
+            f"SELECT md5(concat_ws('|', {digests}))"
+        )
+        with connection.cursor() as cursor:
+            cursor.execute(sql, {"cycle": programme.pk, "activityinfo": Link.Kind.ACTIVITYINFO})
+            return cursor.fetchone()[0]
+
+    return compute.per_request(f"cpd:hand-entered:{programme.pk}", read)
+
+
+def fingerprint(programme: CountryProgramme) -> str:
+    """What a build of the cycle depends on besides the cycle and the day, as 16 hex digits: what staff enter
+    by hand (:func:`hand_entered`) and :func:`neurodb.core.compute.data_stamp` (the last finished sync, the
+    indicator flags). In the build's key, and in the address of each part of the page (``as_of``)."""
+    return compute.fingerprint(f"{hand_entered(programme)}:{compute.data_stamp()}")
+
+
+def _cache_key(programme: CountryProgramme, today: datetime.date, stamp: str = "") -> str:
+    """The cycle, the day (the share of the cycle elapsed and the year of partner reporting follow it) and
+    :func:`fingerprint` (read now unless given). Nothing about the person asking: a build is the same for
+    everyone (the staff-only admin link is the frame's)."""
+    return f"cpd:v{CACHE_VERSION}:{programme.pk}:{today.isoformat()}:{stamp or fingerprint(programme)}"
+
+
+def build(programme: CountryProgramme, today: datetime.date, *, as_of: str = "") -> dict[str, Any]:
+    """:func:`dashboard` of the cycle, computed once across every worker and kept ten minutes (per language:
+    the linked sources' kinds are translated). ``as_of``, in a part request, is the :func:`fingerprint` the
+    page's frame read: both parts show one build even when an edit or a sync came before or between them
+    (:func:`neurodb.core.compute.once_as_of`). DEBUG computes it afresh."""
+    if settings.DEBUG:
+        return dashboard(programme, today)
+    return compute.once_as_of(
+        lambda stamp: _cache_key(programme, today, stamp),
+        as_of,
+        fingerprint(programme),
+        lambda: dashboard(programme, today),
+        CACHE_SECONDS,
+    )
+
+
+def stored(programme: CountryProgramme, today: datetime.date) -> bool:
+    """Whether :func:`build` would answer at once, from what is already stored: the page's frame then draws
+    both parts inline (it never computes the build itself)."""
+    if settings.DEBUG:
+        return False
+    return compute.peek(_cache_key(programme, today))[0]
 
 
 def indicator_detail(indicator: Indicator, today: datetime.date | None = None) -> Progress:

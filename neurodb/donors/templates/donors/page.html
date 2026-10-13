@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="{% static 'css/donor.css' %}">
   <script nonce="{{ request.csp_nonce }}">
     (function () {
+      document.documentElement.classList.add("js"); // donor.css: the grey cards only where donor.js will fill them
       try {
         var t = localStorage.getItem("neurodb-theme") || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
         document.documentElement.setAttribute("data-bs-theme", t);
@@ -51,7 +52,15 @@
   </div>
 </div>
 
-<main id="main" class="wrap" tabindex="-1">
+{% comment %}The page answers this frame at once; donor.js then fetches its figures as JSON from data_url (the "data" part of
+donors.views.page: this address with the year written out, and in a preview the account and the tab), shows the grey
+cards meanwhile and the error box with Try again if they cannot be loaded. When the figures
+are already stored, or the page is asked for whole, they come with the frame (donor-data) and nothing is fetched. The grey
+cards and the "Loading" line show only where scripts run (donor.css: html.js, set in the head) while the figures are
+still to come (data-donor-state="waiting"); donor.js marks the page busy for screen readers while it fetches them. Figures
+that came with the page are "drawing" until donor.js has drawn them: the cards keep their room meanwhile, so the first
+screen does not jump when the browser paints before the script runs.{% endcomment %}
+<main id="main" class="wrap" tabindex="-1" data-donor-src="{{ data_url }}" data-donor-state="{% if data %}drawing{% else %}waiting{% endif %}">
   {% if messages %}
   <div class="messages" role="status">{% for message in messages %}<p class="msg msg--{{ message.tags|default:'info' }}">{{ message }}</p>{% endfor %}</div>
   {% endif %}
@@ -69,14 +78,22 @@
     <a role="tab" id="tab-overall" href="?year={{ year }}&tab=overall{% if preview %}&account={{ account.pk }}{% endif %}" aria-controls="panel-overall" aria-selected="{% if tab == 'overall' %}true{% else %}false{% endif %}" data-tab="overall"><span class="tab-long">{% trans "UNICEF Lebanon overall" %}</span><span class="tab-short">{% trans "Lebanon overall" %}</span></a>
   </div>
 
+  <div class="loadstate" id="loadState" role="status">
+    <p class="loadstate__wait">{% trans "Loading the figures…" %}</p>
+    <div class="loadstate__error" id="loadError" hidden>
+      <p id="loadErrorText">{% trans "The figures could not be loaded." %}</p>
+      <button type="button" class="loadstate__retry" id="loadRetry">{% trans "Try again" %}</button>
+    </div>
+    <noscript><p>{% trans "The charts of this page are drawn in your browser: turn JavaScript on to see them." %}</p></noscript>
+  </div>
+
   <!-- ============================================================== your contribution -->
   <div id="panel-mine" role="tabpanel" aria-labelledby="tab-mine" {% if tab != 'mine' %}hidden{% endif %}>
-    {% if not data.pds %}
-    <div class="card empty">
+    <div class="card empty" id="mineEmpty"{% if not data or data.pds %} hidden{% endif %}>
       <h2>{% blocktrans %}No funding found for {{ year }}{% endblocktrans %}</h2>
       <p>{% trans "No funds reservation running this year names your grants yet. Choose another year above, or contact your UNICEF focal point." %}</p>
     </div>
-    {% else %}
+    <div id="mineContent"{% if data and not data.pds %} hidden{% endif %}>
     <div class="filters" role="group" aria-label="{% trans 'Filters' %}">
       <div class="fgroup"><label for="fGrant">{% trans "Grant" %}</label><select id="fGrant"></select></div>
       <div class="fgroup" id="fSections" role="group" aria-label="{% trans 'Programme area' %}"></div>
@@ -168,7 +185,7 @@
         <div class="card"><h3>{% trans "What is counted" %}</h3><p>{% trans "Progress reports accepted by UNICEF count, and those submitted and still awaiting acceptance. Partners report quarterly, so the latest quarter can be incomplete. Each programme counts its children once, with one indicator: the one UNICEF marked as counting each child once, else the programme's largest children indicator; its other indicators are never added to it. A child reached by two programmes is counted in each. Figures stop at the governorate: no names, no individual records." %}</p></div>
       </div>
     </section>
-    {% endif %}
+    </div>
   </div>
 
   <!-- ============================================================== overall -->
@@ -210,7 +227,7 @@
   </footer>
 </main>
 <div id="tip" hidden></div>
-{{ data|json_script:"donor-data" }}
+{% if data %}{{ data|json_script:"donor-data" }}{% endif %}
 <script type="module" src="{% static 'js/donor.js' %}" nonce="{{ request.csp_nonce }}"></script>
 </body>
 </html>

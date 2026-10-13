@@ -969,6 +969,9 @@ more.
 | Partner monitoring, `/partner-monitoring/` | View tabs (Grid, Program Performance, Data quality, Map), the filter bar with its choices, the "your section" note | Grid: `summary` (at once; first of the group `pm`): the seven tiles, the status donut and the indicators by section; `grid` (at once, once `summary` is in): the indicators by section, PD and output with their months or years, its pages, the note when the list is cut. Program Performance (`view=table`): `sections` (at once; first of the group `pm`): the section tiles; `table` (at once, once `sections` is in): the page of rows in its sort, its pages, *Excel of the filter* and *CSV of the filter*. Data quality (`view=quality`): `quality-tiles` (at once; first of the group `pm`) and `quality-lists` (when near the screen, once the tiles are in). A change of filter, sort or section tile reloads the area under the filter bar (`#monitoring-grid`) with new placeholders; a page of the grid or of the table reloads its own part. The exports are answered whole | The filter's indicators (every row the three views read), 2 minutes per filter and day, the same in every language and for everyone; Program Performance's section tiles and table read the same for the filter without its sections (the table keeps the chosen ones, as before), one computation for both. The filter bar's choices, 10 minutes. Each key holds the latest run of each eTools job (eTools sync, eTools Datamart sync, Datamart backfill, Locations sync) and the indicator flags, so a sync shows at once and an ActivityInfo import does not count. The parts carry `as_of`. When the indicators are kept, the frame draws the view's two parts itself: one request. The Map tab is not in parts; its points (`/api/internal/partner-monitoring/map/`) are kept 2 minutes under the same jobs, the flags and the gazetteer. See *Partner monitoring and Progress reports load in parts* |
 | Progress reports, `/partner-reporting/` (*By location* and *By disaggregation*) | Filter bar with its choices, the tab bar, the *By disaggregation* tab's own filters | `table` (at once): the tab's table, its pages, the note when the filter holds too many rows, the Excel and CSV links. A change of filter (HTMX) answers the table at once. *Reporting progress* and *Partners* are drawn whole, as before | The tab's rows (on *By disaggregation*, with the lines of every location), 2 minutes per tab, filter, tab filters and day; the filter bar's choices, 10 minutes; the same in every language and for everyone, under the eTools jobs' latest runs and the indicator flags, as partner monitoring. When the rows are kept, the frame draws the table itself: one request. See *Partner monitoring and Progress reports load in parts* |
 | Monitoring insights, Map tab, `/fmm/?tab=map` | Header and Export menu, filter bar, reference line, chips, data notes, the key figure tiles, the tab bar; a filter without visits shows the tab's empty state and no part. The other tabs stay one request each | `map` (at once): the map, its legend, *Visits on the map*, *PD locations not yet visited* and *Visits without coordinates*, with the map's configuration. A swap of the results (tab bar, filter bar, the planned places switch) brings the map drawn in, in one request | The map (`geo.map_points`), 10 minutes, per filter, planned places shown and language (the popups' dates are translated), under the Monitoring insights stamp (last refresh and rules version, the day, the NeuroDB action points, the last eTools, Locations or clean-up run, the gazetteer's places), so a refresh, one of those runs or a place edited in admin → Locations shows at once. Also the one pass over the visits (under the *Score settings* thresholds too), the entity table and the rule counts that the other tabs read. Never drawn by the frame: the map takes about 90 ms to draw even when stored. See *Monitoring insights* |
+| Country programme, `/country-programme/` | Cycle selector, the cycle's panel (years, share of the cycle elapsed, summary, documents, *Edit in the admin* for staff), the note on AI-suggested indicators; without a cycle or without indicators, the empty state and no part | `summary` (at once; first of the group `cpd`): the six key figures, *Where the CPD indicators stand* and the outcomes at a glance. `outcomes` (when near the screen, once `summary` is in): each outcome with its outputs, indicators, programme documents and partner reporting; a link to `#outcome-<id>` asks for it first | The cycle's build, 10 minutes per cycle, day and language (the kinds of the linked sources are translated), under a key that holds the cycle and what staff enter by hand that its figures read (the cycle, its outcomes, outputs, indicators, milestones, typed values and linked sources, and how the linked ActivityInfo master indicators are set up: one digest of the rows themselves, so an edit in place shows at once) and the last finished sync run and the indicator flags. When the build is stored, the frame draws both parts itself. See *Country programme* |
+| Youth programmes, `/youth/` | The filter bar whole (its choices are read in the database from a few lists of the year's figures, never by decoding them, and kept 10 minutes), the line saying when Compiler's figures were read; without figures, the empty state and no part | `summary` (at once; first of the group `youth`): the five key figures and the youth indicators with their eTools indicators. `details` (when near the screen, once `summary` is in): the breakdowns, *Compiler and eTools, side by side* and the programme documents in Compiler | The year's build, 10 minutes per year's figures (their row and when they were read), filters, day and language (the breakdowns' names are translated), under a key that holds the year's links to eTools (a digest of the rows: a link confirmed with the admin's action, edited or added shows at once), the last finished sync run and the indicator flags; the filter bar's choices, 10 minutes per year's figures, the same in every language. When the build is stored, the frame draws both parts itself. See *Youth programmes* |
+| Donor page, `/donor/` (not a staff page) | The bar with the year, the tabs, every heading and card of both tabs with grey shapes of the size of their charts, the date of the data; for an administrator's preview, the preview banner | One part, `data`, answered as JSON and drawn by the page's script (`donor.js`): every figure of both tabs. Its address carries the year and, in an administrator's preview, the account and the tab; for a donor it is always the donor's own account, whatever the address says | The page's figures, 5 minutes per account (its donors, grants and whether partners are named), year and day, the same in every language, under the last finished sync run and the indicator flags; they were kept per worker before. When they are stored, the frame carries them and nothing is fetched. See *Donor access* |
 
 Every other page is still drawn whole. Of these, the ActivityInfo databases page and each database,
 the Neuro and HPM reports, the programme documents' indicators tab, each programme document (page and
@@ -988,8 +991,11 @@ have not been converted yet.
    Analytics). A part request is the page's address with `_part=` in the access log, for example
    `"GET /?section=&year=2026&as_of=5f0c9e1d2a7b4c38&_part=figures HTTP/1.1" 500`,
    `"GET /brief/?section=&year=2026&as_of=a5d1e0b7c3f94286&_part=sections HTTP/1.1" 500`,
-   `"GET /partners/12/?_part=datamart HTTP/1.1" 500` or
+   `"GET /partners/12/?_part=datamart HTTP/1.1" 500`,
    `"GET /data/health/?_part=datasets HTTP/1.1" 500`,
+   `"GET /country-programme/?cycle=2&as_of=0c41d2a9e5b7f816&_part=outcomes HTTP/1.1" 500`,
+   `"GET /youth/?year=2026&as_of=7e2a90c4d1b3f658&_part=summary HTTP/1.1" 500` or
+   `"GET /donor/?year=2026&_part=data HTTP/1.1" 500`,
    and the error with its traceback is logged next to it ("Internal Server Error: /brief/", the path
    without the query). A **202** on a part request is normal: another request was computing the same
    figures and the browser asked again.
@@ -3875,6 +3881,20 @@ internal API, no assistant. The page has two tabs.
 "Data as of" is the last successful eTools Datamart sync (funds and indicators); without one, the
 latest successful eTools or ActivityInfo data sync.
 
+**The page answers at once and fetches its figures** (see *Pages that load in parts*). The bar, the tabs,
+the headings and the cards come first, each card grey and of about the size of its chart; the page's
+script (`neurodb/web/static/js/donor.js`) then asks for the figures (the page's address with the year,
+plus `_part=data`) and draws them. They are computed once for every worker and kept 5 minutes in the
+shared page figures (before, each worker kept its own copy), so a page opened again within that time
+carries them and asks for nothing. While they are computed, "Loading the figures…" shows at the top of
+the page. If they cannot be loaded (a server error, or no answer within 60 seconds), an error box says
+so with a **Try again** button; a network error or a server restarting is retried once by itself, and a
+"still computing" answer (202) is asked again until the figures come. A year without funds shows its
+"No funding found" card once the figures say so. The figures' address names the year only; an
+administrator's preview adds the account and the tab. A donor always receives the donor's own figures,
+whatever account the address names, and a donor whose temporary password is still to change gets 403.
+In the log, the figures' request is `"GET /donor/?year=2026&_part=data HTTP/1.1"`.
+
 **How the donor's figures are counted.** The donor's money is the funds reservation lines that name
 one of the account's donors (and grants, when the account lists some) on FRs running in the year.
 Disbursed is the FR's disbursed amount times the donor's share of that FR's lines. A programme's
@@ -3943,6 +3963,23 @@ its status; breakdowns by partner, donor, governorate, district, sex, age group 
 document, the eTools target, what the partner reached on the eTools indicator **in the same year**
 (Partner monitoring's Reached in that year, never the PD to date), the difference); and the Compiler
 programme documents.
+
+**Loads in parts** (see *Pages that load in parts*). The page answers its frame at once: the filter bar,
+whole (its choices are cut out of the year's figures in the database, about 70 ms the first time, then kept
+10 minutes; the year's 3 MB of figures are never decoded for it), and the line saying when Compiler's
+figures were read. Then come, each in its own request with the year and the filters written out and
+`as_of` (`details` reads the build `summary` read, even when a link was confirmed or a sync came between
+the two):
+
+| Part | What it holds | When it loads |
+|---|---|---|
+| `summary` | The five key figures and the youth indicators with their eTools indicators | At once; it computes the build that `details` then reads |
+| `details` | The breakdowns, *Compiler and eTools, side by side*, the programme documents in Compiler | Once `summary` has finished, when near the screen |
+
+When the build for the chosen filters is already stored (10 minutes), the frame draws both parts itself:
+one request. A link confirmed in the admin (with the *Confirm* action or by saving it), corrected or
+added shows at once, and so does a new read of Compiler's figures. The filter bar is a plain form, as
+before: changing a filter loads the page again.
 
 **Links to eTools.** After every read, NeuroDB suggests links: a Compiler programme document whose
 project code is an eTools reference number (`LEB/PCA2026005` matches `LEB/PCA2026005-1`; an
@@ -4082,6 +4119,13 @@ in-school children, teachers).
    (`COMPILER_EDUCATION_YEARS`, default 3). A year Compiler has not counted yet is listed as
    *pending* in the run and arrives at the next run.
 
+**Speed.** Makani and Dirasa are drawn whole, in one request, as before: on a copy of the data with
+40,000 Makani registrations each tab answered in about 0.25-0.3 seconds cold (Dirasa about 0.1), under the
+0.3 seconds from which a page is given parts. Each tab's figures and the slicers' choices are kept 10
+minutes per web worker, so a tab opened again answers in about 40 ms. A much larger Makani year (about two
+and a half times the registrations) took 0.55-0.8 seconds a tab: if production's Makani figures grow that
+large, the page should load in parts like the youth page.
+
 ## Country programme (`/country-programme/`, CPD results and progress)
 
 The page shows whether the country programme is on track with its outcomes and outputs. Everything is
@@ -4149,6 +4193,28 @@ when one is set, else the share of the cycle elapsed (1 January of the first yea
 the last). Within 10 points of expected: on track; below: off track; above: ahead of schedule
 ("Target reached" at 100 %). No target: *no target*; no value yet: *no data yet*. It is the same
 tolerance as the other NeuroDB pages.
+
+**Loads in parts** (see *Pages that load in parts*). The page answers its frame at once: the cycle
+selector, the cycle's panel (its years, the share of the cycle elapsed, its summary and documents, and
+*Edit in the admin* for staff) and the note on AI-suggested indicators. Then come, each in its own request
+with the cycle written out and `as_of` (`outcomes` reads the build `summary` read, even when an edit or a
+sync came between the two):
+
+| Part | What it holds | When it loads |
+|---|---|---|
+| `summary` | The six key figures, *Where the CPD indicators stand* (the status chart) and the outcomes at a glance | At once; it computes the cycle's build that `outcomes` then reads |
+| `outcomes` | Each outcome with its outputs, indicators, programme documents and partner reporting | Once `summary` has finished, when near the screen |
+
+The outcome links (in the summary, and the knowledge graph's `?cycle=N#outcome-<id>`) ask for `outcomes`
+first and scroll to the outcome once it is in. When the build is stored (10 minutes), the frame draws both
+parts itself: one request. Anything entered in the admin that the figures read (a value, a milestone, a
+link confirmed, a target, an output's eTools name, the cycle's eTools country programme, how a linked
+ActivityInfo master indicator is set up) shows at once, and so does a finished sync. Computing a build
+takes about 1.3 seconds on a copy of the data twenty times today's size (it was 2 seconds): each Makani or
+Dirasa year linked is now read once per build, however many links name it (it was read once per link,
+4 MB each time), and its children enrolled are kept per web worker until the figures are read from
+Compiler again, which also speeds up an indicator's own page. Most of what is left is the partner
+reporting of the cycle's programme documents.
 
 ## Makani wellbeing (`/makani/wellbeing/`, flags worked out in BMA)
 

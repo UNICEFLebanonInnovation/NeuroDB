@@ -17,6 +17,13 @@ counts; field visits. No programme, partner or donor is named and no amount of m
 
 Nothing here reads a request: the view passes the account and the year, so a donor can never widen
 the scope with a query string.
+
+The page (``donors.views.page``) answers its frame at once and fetches its figures as JSON (``donor.js``):
+:func:`build`, kept five minutes in the cache every worker shares (:func:`neurodb.core.compute.once`) under a
+key that holds the account (its donors, grants and whether partners are named), the year, the day and
+:func:`neurodb.core.compute.data_stamp` (the last finished sync, the indicator flags). Nothing in a build
+depends on who asks (a donor and an administrator previewing the account read the same) and nothing in it is
+translated, so one value serves every language.
 """
 
 from __future__ import annotations
@@ -27,15 +34,15 @@ from collections import Counter, defaultdict
 from typing import Any
 
 from django.conf import settings
-from django.core.cache import cache as django_cache
 from django.db.models import Q, Sum
 
+from neurodb.core import compute
 from neurodb.datamart import models as dm
 from neurodb.partnerships.models.legacy import PCA
 from neurodb.reports import overview
 
 CACHE_SECONDS = 300
-CACHE_VERSION = 4
+CACHE_VERSION = 5  # 5: in the shared cache (compute.once), keyed on compute.data_stamp()
 SECTION_SLOTS = 5  # the categorical colours of the page (--s1 .. --s5), then "other"
 GOVERNORATES = {  # overview.governorate_key -> the name and place on the page's schematic map
     "akkar": ("Akkar", 1, 0),
@@ -358,19 +365,38 @@ def country(data: dict[str, Any]) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------------------ page
-def build(account, year: int, today: datetime.date | None = None, *, cache: bool = True) -> dict[str, Any]:
-    today = today or datetime.date.today()
-    use_cache = cache and not settings.DEBUG
-    settings_seen = (
-        f"{account.show_partner_names}:{sorted(account.donors)}:{sorted(account.grants)}:"
-        f"{overview.flags_fingerprint()}"  # a PD's main indicator changes its children at once
-    )
+def _cache_key(account, year: int, today: datetime.date) -> str:
+    """The account (its id, and what changes its figures: whether partners are named, its donors and grants),
+    the year, the day and :func:`neurodb.core.compute.data_stamp` (the last finished sync, and the indicator
+    flags: a PD's main indicator changes its children at once). Nothing about the person asking."""
+    settings_seen = f"{account.show_partner_names}:{sorted(account.donors)}:{sorted(account.grants)}"
     digest = hashlib.sha256(settings_seen.encode()).hexdigest()[:16]  # memcached-safe
-    key = f"donor:v{CACHE_VERSION}:{account.pk}:{year}:{today}:{overview.latest_sync_run() or ''}:{digest}"
-    if use_cache:
-        found = django_cache.get(key)
-        if found is not None:
-            return found
+    return f"donor:v{CACHE_VERSION}:{account.pk}:{year}:{today}:{compute.data_stamp()}:{digest}"
+
+
+def build(account, year: int, today: datetime.date | None = None, *, cache: bool = True) -> dict[str, Any]:
+    """The page's figures for the account and the year (see the module docstring): computed once across every
+    worker and kept five minutes. ``cache=False`` (and DEBUG) computes them afresh."""
+    today = today or datetime.date.today()
+    if not cache or settings.DEBUG:
+        return _build(account, year, today)
+    return compute.once(
+        _cache_key(account, year, today),
+        lambda: _build(account, year, today),
+        CACHE_SECONDS,
+        lang_neutral=True,
+    )
+
+
+def stored(account, year: int, today: datetime.date) -> bool:
+    """Whether :func:`build` would answer at once, from what is already stored: the page's frame then carries
+    the figures itself, and nothing is fetched (it never computes them)."""
+    if settings.DEBUG:
+        return False
+    return compute.peek(_cache_key(account, year, today), lang_neutral=True)[0]
+
+
+def _build(account, year: int, today: datetime.date) -> dict[str, Any]:
     mine = contribution(account, year, today)
     everything = overview.build(overview.Scope(year=year, reporting_year=reporting_year(year), today=today))
     whole = country(everything)
@@ -384,7 +410,7 @@ def build(account, year: int, today: datetime.date | None = None, *, cache: bool
         {"key": name, "slot": i + 1 if i < SECTION_SLOTS else 0, "avg": average.get(name)}
         for i, name in enumerate(order)
     ]
-    data = {
+    return {
         "year": year,
         "today": today.isoformat(),
         "sections": sections,
@@ -396,9 +422,6 @@ def build(account, year: int, today: datetime.date | None = None, *, cache: bool
         **mine,
         "overall": whole,
     }
-    if use_cache:
-        django_cache.set(key, data, CACHE_SECONDS)
-    return data
 
 
 __all__ = ["build", "contribution", "country", "data_as_of", "donor_names", "years"]
