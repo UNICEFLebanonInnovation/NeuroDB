@@ -182,6 +182,12 @@ JSON_IDS: dict[str, str] = {
 # Element ids only the pages in parts have: the parts' own wrappers, and data health's "Sync jobs" heading,
 # which the jobs part names as its label (aria-labelledby)
 NEW_IDS = re.compile(r"part-[a-z][a-z0-9-]*|jobs-title")
+# Data health's datasets panel: its heading, row count and explanation are the frame's, and the table's Copy and
+# CSV buttons come with the table, in its part, right above it (they read the table when pressed, so in the
+# frame they did nothing before it was in, or beside the part's error); the old page drew them beside the count
+DATASETS_PANEL = "eTools Datamart datasets"
+DATASETS_BUTTONS = "Copy CSV"
+DATASETS_TABLE_STARTS = "Dataset Last run "  # the table's first column headings
 # timing.py times these rows: every row of the matrix
 TIMED = (
     "brief: first load",
@@ -402,12 +408,22 @@ def comparable(observation: dict[str, Any], side: str) -> dict[str, Any]:
     - the paths neither page draws (:data:`NOT_DRAWN`), on both sides;
     - the brief's chart data (the ``chart_data`` figure and its JSON) gained ``labels`` (each JSON of a part
       carries them, SPEC7_review item 16): on the check side they must be the status labels (otherwise a
-      "consistency" problem) and are then left out, since the old ones had none.
+      "consistency" problem) and are then left out, since the old ones had none;
+    - data health's datasets panel draws the table's Copy and CSV buttons right above the table, in its
+      part, no longer beside the row count (:data:`DATASETS_BUTTONS`): on the check side they must be there,
+      once (otherwise a "consistency" problem), and are then read where the old page drew them.
     """
     name = page_of(observation["url"])
     drop = NOT_DRAWN.get(name, {})
     out = {**observation, "problems": list(observation["problems"])}
     out["figures"] = {path: value for path, value in observation["figures"].items() if path not in drop}
+    panel = observation["blocks"].get(DATASETS_PANEL)
+    if side == "check" and name == "health" and observation["status"] == 200 and panel is not None:
+        moved = _datasets_buttons_beside_the_count(panel["text"])
+        if moved is None:
+            out["problems"].append(f"{DATASETS_PANEL}: the Copy and CSV buttons not right above the table")
+        else:
+            out["blocks"] = {**observation["blocks"], DATASETS_PANEL: {**panel, "text": moved}}
     if side == "check" and name == "brief" and observation["status"] == 200:
         expected = _labels()
         chart = out["figures"].get("chart_data")
@@ -422,6 +438,19 @@ def comparable(observation: dict[str, Any], side: str) -> dict[str, Any]:
                 out["problems"].append("brief-sections-data: labels missing or not the status labels")
             out["json"] = {**observation["json"], "brief-sections-data": payload}
     return out
+
+
+def _datasets_buttons_beside_the_count(text: str) -> str | None:
+    """The datasets panel's text with the Copy and CSV buttons read where the old page drew them, beside the
+    row count ("52 rows Copy CSV Per dataset: ..."), when the page in parts draws them once, right above the
+    table ("52 rows Per dataset: ... Copy CSV Dataset Last run ..."); None otherwise."""
+    count, rows, rest = text.partition(" rows ")
+    if not rows or text.count(DATASETS_BUTTONS) != 1:
+        return None
+    explanation, buttons, table = rest.partition(f" {DATASETS_BUTTONS} ")
+    if not buttons or not table.startswith(DATASETS_TABLE_STARTS):
+        return None
+    return f"{count} rows {DATASETS_BUTTONS} {explanation} {table}"
 
 
 # ------------------------------------------------------------------------------------- the world's gaps

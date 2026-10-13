@@ -1441,6 +1441,40 @@ tr.is-uncounted > td { color: var(--nd-muted); }
 /* The database imports and the recent runs side by side: each panel fills its part, so both are as tall as the
    taller one, as before the page loaded in parts. */
 .health-tables > .part > .panel { height: 100%; }
+/* Partner profile (reports/partner_profile.html). The figures' placeholder (#part-datamart) keeps the room of a
+   partner of middle size, 7,500 px (12,400 px on a phone): when its request fails, the error box goes without it, so
+   the knowledge base panel below is not pushed a page further down. Try again gives the room back while the part
+   loads. */
+#part-datamart[data-part="datamart"][data-part-state="error"] { min-height: 0; }
+#part-datamart[data-part="datamart"][data-part-state="error"]::before { content: none; } /* nor the middle height */
+/* The Monitoring insights panel inside the figures (#part-fmm, reports/parts/partner_datamart.html): four figures in
+   a grid of as many columns of at least 112 px as fit (two on a phone) and a line on the last visit, which wrap with
+   the width of the page's column, not of the window (the sidebar takes 272 px from 992 px). Its placeholder is as
+   tall as the panel measured on the x20 parity world for its width (the height most partners' panels have there,
+   the same for an administrator and a viewer): a container query on its grey shapes, which are laid out even off
+   screen (a low-priority placeholder skips them otherwise). From 296 px on a phone of 390 px, 228 px from 496 px
+   (the phone grid's labels wrap less), 197 px and 183 px from 544 px (a window of 576 px: four columns), 163 px from
+   809 px, 149 px from 962 px. It keeps no height of its own; its other states keep that room, as the overview's key
+   figures do. */
+#part-datamart #part-fmm[data-part="fmm"]:not(.is-loaded) { min-height: 0; display: grid; }
+#part-datamart #part-fmm[data-part="fmm"]:not(.is-loaded)::before { content: none; } /* no middle height either */
+#part-datamart #part-fmm[data-part="fmm"]:not(.is-loaded) > :not(noscript) { grid-area: 1 / 1; min-width: 0; }
+#part-datamart #part-fmm[data-part="fmm"] .part__slow { align-self: end; position: relative; margin: 0; padding-top: 0.5rem; background: var(--nd-bg); }
+#part-datamart #part-fmm[data-part="fmm"] .part__error { align-self: start; }
+#part-datamart #part-fmm[data-part="fmm"][data-part-state="error"] .part__skeleton { display: block; visibility: hidden; }
+#part-datamart #part-fmm[data-part="fmm"] > .part__skeleton { container-type: inline-size; content-visibility: visible; }
+#part-datamart #part-fmm[data-part="fmm"] .part__skeleton > .skeleton { height: 344.2px; }
+@container (min-width: 293px) { #part-datamart #part-fmm[data-part="fmm"] .part__skeleton > .skeleton { height: 329.8px; } }
+@container (min-width: 296px) { #part-datamart #part-fmm[data-part="fmm"] .part__skeleton > .skeleton { height: 315.4px; } }
+@container (min-width: 304px) { #part-datamart #part-fmm[data-part="fmm"] .part__skeleton > .skeleton { height: 295.7px; } }
+@container (min-width: 408px) { #part-datamart #part-fmm[data-part="fmm"] .part__skeleton > .skeleton { height: 276.5px; } }
+@container (min-width: 438px) { #part-datamart #part-fmm[data-part="fmm"] .part__skeleton > .skeleton { height: 256.9px; } }
+@container (min-width: 484px) { #part-datamart #part-fmm[data-part="fmm"] .part__skeleton > .skeleton { height: 242.5px; } }
+@container (min-width: 496px) { #part-datamart #part-fmm[data-part="fmm"] .part__skeleton > .skeleton { height: 228.1px; } }
+@container (min-width: 544px) { #part-datamart #part-fmm[data-part="fmm"] .part__skeleton > .skeleton { height: 197.4px; } }
+@container (min-width: 563px) { #part-datamart #part-fmm[data-part="fmm"] .part__skeleton > .skeleton { height: 183px; } }
+@container (min-width: 809px) { #part-datamart #part-fmm[data-part="fmm"] .part__skeleton > .skeleton { height: 163.3px; } }
+@container (min-width: 962px) { #part-datamart #part-fmm[data-part="fmm"] .part__skeleton > .skeleton { height: 148.9px; } }
 /* ============================================================================ end of stage A */
 
 /* ============================================================================ stage B (eTools monitoring): part fixes

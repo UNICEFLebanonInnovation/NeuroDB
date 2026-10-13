@@ -1,5 +1,6 @@
 """The shared cache behind pages that load in parts (neurodb.core.compute), its table and its button."""
 
+import hashlib
 import os
 import pickle
 import threading
@@ -12,7 +13,6 @@ from django.conf import settings
 from django.core.cache import caches
 from django.core.management import call_command
 from django.db import connection, transaction
-from django.db.transaction import TransactionManagementError
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import translation
@@ -262,14 +262,80 @@ def test_part_wait_ends_with_its_block():
     assert compute._local.part_wait is None
 
 
-def test_the_database_lock_is_refused_inside_atomic(database_cache):
+def test_inside_atomic_a_missing_value_is_computed_without_the_lock_and_not_stored(database_cache):
+    """The database lock is never taken inside transaction.atomic: it would be released before the value
+    commits, and a rollback would lose the value. A missing value is computed for the caller alone."""
     assert connection.in_atomic_block  # the test's transaction, as a job's transaction.atomic would be
-    with pytest.raises(TransactionManagementError, match="inside transaction.atomic"):
-        compute.once("overview:atomic", lambda: 1, 60)
+    locks_while_computing = []
+
+    def build():
+        locks_while_computing.extend(_my_advisory_locks())
+        return 1
+
+    assert compute.once("overview:atomic", build, 60) == 1
+    assert locks_while_computing == [] and _rows() == 0  # no lock, nothing written in the transaction
+    assert _as_worker(lambda: compute.peek("overview:atomic")) == (False, None)
     # a value another worker stored is read inside one
     assert _as_worker(lambda: compute.once("overview:atomic", lambda: 2, 60)) == 2
     with transaction.atomic():
         assert compute.once("overview:atomic", lambda: 3, 60) == 2
+        assert compute.peek("overview:atomic") == (True, 2)
+
+
+# ------------------------------------------------------------------------------- read-only transactions
+def _stored_here(key: str, value, *, expired: bool = False, raw: bytes | None = None) -> None:
+    """A value stored in the test's own transaction (where :func:`compute.once` stores nothing), as another
+    worker would have stored it; ``expired``: its time is up."""
+    full = compute._full_key(key, False)
+    caches["shared"].set(compute._storage_key(full), compute._encode(value) if raw is None else raw, 60)
+    if expired:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE neurodb_cache SET expires = now() - interval '1 minute' WHERE cache_key LIKE %s",
+                [f"%{compute._storage_key(full)}"],
+            )
+
+
+def test_a_read_only_tool_run_computes_what_is_missing_and_writes_nothing(database_cache):
+    """The AI look-ups of NeuroDB Watch, the help and the field monitoring chat run their tools in a read-only
+    transaction (``assistant.tools.read_only``): a value missing there is computed, the transaction stays
+    usable, and nothing is written."""
+    from neurodb.assistant import tools
+
+    with tools.read_only():
+        assert compute.once("overview:read-only", lambda: 41, 60) == 41
+        assert SyncRun.objects.count() == 0  # the transaction still answers
+    assert _rows() == 0
+
+
+def test_a_read_only_tool_run_reads_what_is_stored(database_cache):
+    from neurodb.assistant import tools
+
+    _stored_here("overview:read-only", {"tiles": [1]})
+    with tools.read_only():
+        assert compute.peek("overview:read-only") == (True, {"tiles": [1]})
+        assert compute.once("overview:read-only", lambda: "computed", 60) == {"tiles": [1]}
+
+
+@pytest.mark.parametrize("read", ["peek", "once"])
+@pytest.mark.parametrize("row", ["expired", "unreadable"])
+def test_a_read_only_tool_run_leaves_an_expired_or_unreadable_row_alone(database_cache, read, row):
+    """Django's database cache deletes an expired row it reads, and compute drops a row it cannot read back.
+    A DELETE in a READ ONLY transaction fails and aborts it: every later query of the tool run would fail. There,
+    such a row is a miss, and stays for the next read outside a transaction."""
+    from neurodb.assistant import tools
+
+    if row == "expired":
+        _stored_here("overview:old", 1, expired=True)
+    else:
+        _stored_here("overview:old", None, raw=b"?not a value compute wrote")
+    with tools.read_only():
+        if read == "peek":
+            assert compute.peek("overview:old") == (False, None)
+        else:
+            assert compute.once("overview:old", lambda: 3, 60) == 3
+        assert SyncRun.objects.count() == 0  # the transaction still answers
+    assert _rows() == 1  # left in place
 
 
 # ------------------------------------------------------------------------------------------ plain data
@@ -400,6 +466,99 @@ def test_peek_never_computes_and_tells_a_stored_none_from_a_missing_value():
     compute.once("nothing", lambda: None, 60)
     assert compute.peek("nothing") == (True, None)
     assert compute.peek("never stored") == (False, None)
+
+
+def test_peek_as_of_reads_only_a_stored_build_of_another_well_formed_fingerprint():
+    """A part reads the build its frame was drawn with (``as_of``) when it is still stored and the figures have
+    moved since; otherwise the caller reads the figures of the moment. Nothing is ever computed under ``as_of``,
+    and anything but a fingerprint is ignored."""
+    then, now = compute.fingerprint("41:2:2026-10-01"), compute.fingerprint("42:2:2026-10-01")
+    assert len(then) == 16 and then != now and compute.fingerprint("41:2:2026-10-01") == then
+    key_of = "brief:v1:2026:{}".format
+    assert compute.peek_as_of(key_of, then, now) == (False, None)  # not stored: the caller computes now's
+    compute.once(key_of(then), lambda: {"children": 700}, 60)
+    assert compute.peek_as_of(key_of, then, now) == (True, {"children": 700})
+    compute.once(key_of(now), lambda: {"children": 500}, 60)
+    assert compute.peek_as_of(key_of, now, now) == (False, None)  # nothing moved: the usual key, read once
+    assert compute.peek_as_of(key_of, "", now) == (False, None)  # an address without it
+    looked_up = []
+
+    def spy(stamp: str) -> str:
+        looked_up.append(stamp)
+        return key_of(stamp)
+
+    for crafted in ("41", then.upper(), then + "0", "brief:v1:2026:" + then, "*"):
+        assert compute.peek_as_of(spy, crafted, now) == (False, None)
+    assert looked_up == []  # not even looked up
+    # stored with the language in its key: a language-neutral build's key is another one
+    assert compute.peek_as_of(key_of, then, now, lang_neutral=True) == (False, None)
+
+
+def test_once_as_of_reads_one_build_for_a_page_whatever_moves_before_or_between_its_parts():
+    """The figures move between a page's frame (``then``) and its first part (``first``), and again before the
+    second part (``second``): both parts read one build, computed once at the first part's moment and kept
+    for the frame's fingerprint (up to round 3 the second part computed a build of its own, and the page showed
+    two moments side by side). What is kept for a fingerprint has a key space of its own: the frame's look at
+    what is stored (``peek``) and every request of that moment (``once``) never read it."""
+    then, first, second = (compute.fingerprint(f"{run}:2:2026-10-01") for run in (41, 42, 43))
+    key_of = "brief:v1:2026:{}".format
+    build, later = _Counter({"children": 500}), _Counter({"children": 700})
+    with _request():  # the first part
+        assert compute.once_as_of(key_of, then, first, build, 60) == {"children": 500}
+    with _request():  # the second part
+        assert compute.once_as_of(key_of, then, second, later, 60) == {"children": 500}
+    assert (build.calls, later.calls) == (1, 0)
+    assert compute.peek(key_of(first)) == (True, {"children": 500})  # stored for its own moment, as always
+    assert compute.peek(key_of(then)) == (False, None) and compute.peek(key_of(second)) == (False, None)
+    assert compute.once(key_of(then), lambda: {"children": 600}, 60) == {"children": 600}
+    # nothing moved since the frame: the moment's key, as any request
+    assert compute.once_as_of(key_of, second, second, later, 60) == {"children": 700} and later.calls == 1
+    # an address without a fingerprint, or with anything else, reads the moment too
+    for crafted in ("", "41", then.upper(), "brief:v1:2026:" + then):
+        assert compute.once_as_of(key_of, crafted, second, later, 60) == {"children": 700}
+    assert later.calls == 1
+
+
+def test_a_part_asked_while_the_first_one_computes_waits_for_the_build_it_keeps():
+    """The second part can come while the first still computes the build (it was asked again after a pending
+    answer, or the figures moved again meanwhile): it waits for the build kept for the frame's fingerprint
+    instead of computing another one for its own moment."""
+    then, first, second = (compute.fingerprint(f"{run}:2:2026-10-01") for run in (41, 42, 43))
+    key_of = "brief:v1:2026:{}".format
+    computing, finish = threading.Event(), threading.Event()
+    first_part: list = []
+
+    def slow():
+        computing.set()
+        finish.wait(10)  # the build takes a while; the second part comes meanwhile
+        return {"children": 500}
+
+    worker = threading.Thread(
+        target=lambda: first_part.append(compute.once_as_of(key_of, then, first, slow, 60))
+    )
+    worker.start()
+    later = _Counter({"children": 700})
+    try:
+        assert computing.wait(10)
+        threading.Timer(0.3, finish.set).start()
+        with compute.part_wait(5):
+            assert compute.once_as_of(key_of, then, second, later, 60) == {"children": 500}
+    finally:
+        finish.set()
+        worker.join(10)
+    assert first_part == [{"children": 500}] and later.calls == 0
+
+
+def test_a_fingerprint_cannot_be_worked_out_without_the_secret_key():
+    """The text of a fingerprint is easy to guess (the overview's on a world without flags is the next sync
+    run's number and ``:0:``); its fingerprint is keyed with the secret key, so an address can only carry
+    one the server gave out, never one of a moment to come."""
+    text = "4242:0:"
+    mine = compute.fingerprint(text)
+    assert compute._FINGERPRINT.fullmatch(mine) and compute.fingerprint(text) == mine
+    assert mine != hashlib.sha256(text.encode()).hexdigest()[:16]
+    with override_settings(SECRET_KEY="another-secret-key-for-this-test-only-0123456789abcdef"):
+        assert compute.fingerprint(text) != mine
 
 
 # ----------------------------------------------------------------------------------------- the memo

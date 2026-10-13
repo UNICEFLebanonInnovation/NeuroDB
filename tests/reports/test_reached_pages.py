@@ -16,7 +16,7 @@ from neurodb.datamart import checks, monitoring, services
 from neurodb.datamart import models as dm
 from neurodb.partnerships.models import PCA
 from tests.reports.test_pd_monitoring import TODAY, _FrozenDatetime, data, report_rows
-from tests.web.parts import assemble
+from tests.web.parts import placeholders
 
 pytestmark = pytest.mark.django_db
 HX = {"HX-Request": "true"}
@@ -368,9 +368,10 @@ def test_report_lists_show_the_six_statuses_on_every_page(client_viewer, submitt
     }
     summary = services.partner_datamart(data["partner"])["reporting"]
     assert (summary["accepted"], summary["submitted"], summary["not_yet_due"]) == (3, 1, 1)
-    monkeypatch.undo()  # the page assembler of tests/conftest.py too: the page is put together here
-    page = assemble(client_viewer, reverse("reports:partner_profile", args=[data["partner"].id]))
-    assert "3 accepted · 1 awaiting acceptance" in page.html
+    monkeypatch.undo()
+    page = client_viewer.get(reverse("reports:partner_profile", args=[data["partner"].id]))
+    assert placeholders(page.text) == {}  # the page put together (tests/conftest.py), not its frame
+    assert "3 accepted · 1 awaiting acceptance" in page.text
     # the pop-up never shows an e-mail address
     pop_up = client_viewer.get(reverse("reports:progress_report"), {"report": "PR-1"}, headers=HX)
     assert pop_up.status_code == 200 and "@example.org" not in pop_up.text

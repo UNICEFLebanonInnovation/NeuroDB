@@ -10,6 +10,7 @@ import datetime
 from typing import Any
 
 from django.conf import settings
+from django.db import connection
 from django.db.models import Q, QuerySet
 from django.urls import reverse
 from django.utils import timezone
@@ -307,13 +308,16 @@ DATASET_ROWS_LIVE = ("locations",)
 
 
 def latest_datamart_runs(names) -> dict[str, SyncRun]:
-    """The latest eTools Datamart run of each dataset in ``names`` (by start, then id), in one query
-    (``DISTINCT ON (target)``, on the index ``core_syncrun_job_target``)."""
-    runs = (
-        SyncRun.objects.filter(job=SyncRun.Job.ETOOLS_DATAMART, target__in=list(names))
-        .order_by("target", "-started_at", "-id")
-        .distinct("target")
+    """The latest eTools Datamart run of each dataset in ``names`` (by start, then id), in one query: for
+    each name, its first run on the index ``core_syncrun_job_target`` (job, target, newest start first). A
+    ``DISTINCT ON (target)`` would read and sort every Datamart run (on a year of runs: 30 ms, not 1)."""
+    table = connection.ops.quote_name(SyncRun._meta.db_table)
+    latest = (
+        "SELECT r.* FROM unnest(%s::text[]) AS t(target) CROSS JOIN LATERAL ("  # noqa: S608 - the model's table
+        f"SELECT s.* FROM {table} s WHERE s.job = %s AND s.target = t.target "
+        "ORDER BY s.started_at DESC, s.id DESC LIMIT 1) r"
     )
+    runs = SyncRun.objects.raw(latest, [list(names), SyncRun.Job.ETOOLS_DATAMART.value])
     return {run.target: run for run in runs}
 
 
@@ -333,13 +337,23 @@ def _dataset_rows(name: str) -> int | None:
 
 def _dataset_rows_key() -> str:
     """The stored row counts' key: the latest run of each job that writes the counted tables, with its
-    status and end, so a run that starts or ends gives a new key."""
-    latest = (
-        SyncRun.objects.filter(job__in=DATASET_ROWS_JOBS)
-        .order_by("job", "-started_at", "-id")
-        .distinct("job")
-        .values_list("job", "pk", "status", "finished_at")
+    status and end, so a run that starts or ends gives a new key.
+
+    It is read at every visit of the datasets part, so through the index (job, status, newest start
+    first): the latest run of each job and status, then the latest of those per job. Per job alone, the
+    index would be walked to its end for a job without recent runs (the clean-up job); sorting every run of
+    these jobs takes 30 ms on a year of runs."""
+    table = connection.ops.quote_name(SyncRun._meta.db_table)
+    query = (
+        "SELECT DISTINCT ON (r.job) r.job, r.id, r.status, r.finished_at "  # noqa: S608 - the model's table
+        "FROM unnest(%s::text[]) AS j(job) CROSS JOIN unnest(%s::text[]) AS st(status) CROSS JOIN LATERAL ("
+        f"SELECT s.job, s.id, s.status, s.finished_at, s.started_at FROM {table} s "
+        "WHERE s.job = j.job AND s.status = st.status ORDER BY s.started_at DESC, s.id DESC LIMIT 1) r "
+        "ORDER BY r.job, r.started_at DESC, r.id DESC"
     )
+    with connection.cursor() as cursor:
+        cursor.execute(query, [[job.value for job in DATASET_ROWS_JOBS], list(SyncRun.Status.values)])
+        latest = cursor.fetchall()
     stamp = ";".join(
         f"{job}={pk}.{status}.{finished.timestamp() if finished else '-'}"
         for job, pk, status, finished in latest
@@ -351,10 +365,6 @@ def dataset_row_counts() -> dict[str, int | None]:
     """``{dataset: rows NeuroDB holds}`` for every eTools Datamart dataset: stored for every worker
     (``compute.once``, an hour at most, keyed on the jobs that write the tables), the gazetteer counted at
     each visit. Plain numbers, the same in every language and for every user."""
-    from django.core.cache import caches
-    from django.core.cache.backends.db import DatabaseCache
-    from django.db import connection
-
     from neurodb.core import compute
     from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
 
@@ -363,13 +373,9 @@ def dataset_row_counts() -> dict[str, int | None]:
     def count() -> dict[str, int | None]:
         return {name: _dataset_rows(name) for name in names if name not in DATASET_ROWS_LIVE}
 
-    if connection.in_atomic_block and isinstance(caches[compute.CACHE], DatabaseCache):
-        # inside transaction.atomic (Ask NeuroDB's tools run in a read-only one): counted here, as
-        # before. The stored counts are left alone: once() refuses its lock there, and reading the cache
-        # table may delete an expired row, which a read-only transaction cannot do.
-        stored = count()
-    else:
-        stored = compute.once(_dataset_rows_key(), count, DATASET_ROWS_TTL, lang_neutral=True)
+    # inside a transaction (NeuroDB Watch's AI look-ups run in a read-only one) once() reads the stored counts
+    # and, when there are none, counts without storing
+    stored = compute.once(_dataset_rows_key(), count, DATASET_ROWS_TTL, lang_neutral=True)
     return {name: stored[name] if name in stored else _dataset_rows(name) for name in names}
 
 

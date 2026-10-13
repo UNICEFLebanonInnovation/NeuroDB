@@ -44,6 +44,7 @@ from django.conf import settings
 from django.contrib.auth import REDIRECT_FIELD_NAME
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse, QueryDict
 from django.shortcuts import render, resolve_url
+from django.template.loader import get_template, render_to_string
 from django.utils.cache import patch_vary_headers
 from django.utils.http import url_has_allowed_host_and_scheme
 from django_htmx.http import HttpResponseClientRedirect
@@ -59,7 +60,7 @@ PART_KEY = "_part"  # the query key that asks for one part of the page
 EAGER_KEY = "_eager"  # the query key that asks for the page with every part drawn inline
 PAGE_ONLY_KEYS = (PART_KEY, EAGER_KEY)
 NAME = re.compile(r"[a-z][a-z0-9-]{0,39}")  # a part's name: it is also the end of an element id
-LOADED_TEMPLATE = "components/part_loaded.html"
+LOADED_TEMPLATE = "components/part_loaded.html"  # the wrapper of a part's answer, around its own drawing
 
 
 # ------------------------------------------------------------------------------------------- middleware
@@ -311,6 +312,11 @@ def render_part(request: HttpRequest, name: str, query: str) -> HttpResponse:
     filter, so the links a part builds from the request are the same either way. The part's context is
     computed once per request (``request._parts_ctx``). Errors are not caught: a failing part is a 500,
     logged and traced with its name, and the browser shows that part's error state.
+
+    The part's own template is drawn first, with the request's context, and then put in its wrapper
+    (:data:`LOADED_TEMPLATE`, drawn with nothing but the part's name and that drawing): drawn inside the
+    wrapper (an ``{% include %}``), the same part took about twice the time (the brief's parts, 5 ms more
+    each, at every warm visit).
     """
     page: PartsPage | None = getattr(request, "_parts_page", None)
     if page is None or name not in page.parts:
@@ -325,14 +331,9 @@ def render_part(request: HttpRequest, name: str, query: str) -> HttpResponse:
     if part.json:
         return JsonResponse(data, safe=False)
     view = _with_query(request, query, name)
-    context = {
-        **page.scope,
-        **data,
-        "parts_query": query,
-        "part_name": name,
-        "part_body": part.template,
-    }
-    response = render(view, LOADED_TEMPLATE, context)
+    context = {**page.scope, **data, "parts_query": query, "part_name": name}
+    body = render_to_string(part.template, context, view)
+    response = HttpResponse(get_template(LOADED_TEMPLATE).render({"part_name": name, "part_body": body}))
     # a CSRF token first asked for while drawing the part: the response must still set its cookie
     for key, value in view.META.items():
         if key.startswith("CSRF_COOKIE"):

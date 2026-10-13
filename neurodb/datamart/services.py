@@ -377,7 +377,9 @@ def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
 def _finding_ratings(findings: QuerySet[dm.MonitoringFinding]) -> dict[str, int]:
     """Field monitoring findings per overall rating ("—" for none), counted by the database instead of
     reading every finding, in the order the findings come (latest end date first, the undated ones before
-    them, as the database sorts them): each rating where its first finding stands."""
+    them, as the database sorts them): each rating where its first finding stands. Ratings whose first
+    findings share an end date (or are all undated) come in no particular order, as when every finding was
+    read: the database's order of rows with the same date was never fixed either."""
     counts: dict[str, int] = {}
     first: dict[str, tuple[int, int]] = {}
     rows = (

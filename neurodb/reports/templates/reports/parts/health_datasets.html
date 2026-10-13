@@ -1,10 +1,12 @@
 {% load i18n ui humanize %}{% comment %}Data health's eTools Datamart datasets (part "datasets", reports.views.data_health): per dataset, its latest
-run, what it read, wrote and could not link, and the rows NeuroDB holds. The link to the reporting checks is for
-administrators only (user_role, read in this request, never stored). Context: datasets = services.datamart_quality().{% endcomment %}
-<section class="panel p-0">
-  {% include "components/table_toolbar.html" with title=_("eTools Datamart datasets") count=datasets|length table_id="datasets" %}
-  <p class="small text-muted px-3 mb-2">{% trans "Per dataset: the last run, the records read and written, what could not be linked (a partner, programme document or location not in NeuroDB yet), and the rows NeuroDB holds. Read this before trusting a number on an eTools page." %}{% if user_role == "Administrator" %} <a href="{% url 'admin:datamart_reporting_checks' %}">{% trans "eTools reporting checks" %}</a>: {% trans "how the partner reports behind Reached look, with a verdict for each question." %}{% endif %}</p>
-  <div class="table-wrap" style="max-height: 560px"><table class="table table-sm" id="datasets">
+run, what it read, wrote and could not link, and the rows NeuroDB holds, under the table's Copy and CSV buttons (they
+come with the table they copy). The panel around it, with its heading and explanation, is the frame's. Context:
+datasets = services.datamart_quality().{% endcomment %}
+<div class="table-toolbar__actions justify-content-end px-3 pb-2">
+  <button type="button" class="btn btn-outline-secondary btn-sm" data-table-copy data-table-target="#datasets">{% include "components/icon.html" with name="copy" %}<span>{% trans "Copy" %}</span></button>
+  <button type="button" class="btn btn-outline-secondary btn-sm" data-table-csv data-table-target="#datasets" data-filename="datasets">{% include "components/icon.html" with name="download" %}<span>{% trans "CSV" %}</span></button>
+</div>
+<div class="table-wrap" style="max-height: 560px"><table class="table table-sm" id="datasets">
     <thead><tr><th>{% trans "Dataset" %}</th><th>{% trans "Last run" %}</th><th class="num">{% trans "Read / written" %}</th><th class="num">{% trans "Failed" %}</th><th>{% trans "Not linked" %}</th><th class="num">{% trans "Rows held" %}</th></tr></thead>
     <tbody>{% for d in datasets %}<tr>
       <td><span class="mono">{{ d.name }}</span>{% if d.empty_response %}<span class="cell-sub text-warning">{% trans "the Datamart returned nothing: check the country name" %}</span>{% endif %}{% for e in d.errors %}<span class="cell-sub text-danger">{{ e.count }} × {{ e.error|truncatechars:100 }}</span>{% endfor %}</td>
@@ -15,4 +17,3 @@ administrators only (user_role, read in this request, never stored). Context: da
       <td class="num">{% if d.rows is not None %}{{ d.rows|number }}{% else %}—{% endif %}</td>
     </tr>{% endfor %}</tbody>
   </table></div>
-</section>

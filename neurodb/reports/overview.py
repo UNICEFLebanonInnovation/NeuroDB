@@ -25,6 +25,7 @@ governorates, which staff edit by hand in the admin, are read at each request.
 from __future__ import annotations
 
 import datetime
+import json
 import logging
 import math
 import re
@@ -56,7 +57,8 @@ logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 120  # a build, and the freshness strip
 OPTIONS_SECONDS = 600  # the filter bar's choices (they only change with a sync)
-CACHE_VERSION = 11  # 11: one build for every language; the stored filter choices keep the sections only
+CACHE_VERSION = 13  # 12: the sections and the governorate written as JSON in the build's key; 13: the data
+# stamp as its fingerprint, which the parts' addresses carry (as_of)
 FRESHNESS_JOBS = ("ai_data", "etools_datamart", "locations", "daily_review")
 MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 STATUSES = ("on_track", "off_track", "over_target", "no_target", NOT_REPORTED)
@@ -265,24 +267,44 @@ def flags_fingerprint() -> str:
     return f"{flags['n']}:{last}".replace(" ", "_")  # no spaces: memcached-safe
 
 
-def _cache_key(scope: Scope) -> str:
+def fingerprint() -> str:
+    """What a build depends on besides its scope, :func:`neurodb.core.compute.data_stamp` (the last finished
+    sync run and the indicator flags), as 16 hex digits: in the build's key, and in the address of each part
+    of the page (``as_of``, see :func:`build`). Read once per request."""
+    return compute.fingerprint(compute.data_stamp())
+
+
+def _cache_key(scope: Scope, stamp: str = "") -> str:
     """Everything the result depends on, the indicator flags and the last finished sync included (a new
-    flag or a sync shows at once). Nothing about the person asking: a build depends on its scope only."""
-    sections = "|".join(sorted(scope.sections))
+    flag or a sync shows at once; ``stamp``, their :func:`fingerprint`, is read now unless given). Nothing
+    about the person asking: a build depends on its scope only. The sections and the governorate come from
+    the address as typed, so they are written as JSON: two spellings never share a key (a space and an
+    underscore, a bar or a colon inside a name), or a crafted one would answer the real one for every user
+    (compute keeps a key with spaces under its hash)."""
+    sections = json.dumps(sorted(scope.sections))
     ryear = getattr(scope.reporting_year, "pk", "")
     return (
-        f"overview:v{CACHE_VERSION}:{scope.year}:{ryear}:{sections}:{scope.governorate}:{scope.today}:"
-        f"{compute.data_stamp()}"  # the last finished sync run and the flags fingerprint
-    ).replace(" ", "_")
+        f"overview:v{CACHE_VERSION}:{scope.year}:{ryear}:{sections}:{json.dumps(scope.governorate)}:"
+        f"{scope.today}:{stamp or fingerprint()}"
+    )
 
 
-def build(scope: Scope, *, cache: bool = True) -> dict[str, Any]:
+def build(scope: Scope, *, cache: bool = True, as_of: str = "") -> dict[str, Any]:
     """Every block of the overview for ``scope`` (see the module docstring): computed once across every
     worker and kept two minutes, the same for every language (nothing in it is translated).
-    ``cache=False`` (and DEBUG) computes it afresh."""
+    ``cache=False`` (and DEBUG) computes it afresh. ``as_of``, in a part request, is the :func:`fingerprint`
+    the page's frame read: the page's parts show one build even when a sync finished before or between them
+    (:func:`neurodb.core.compute.once_as_of`)."""
     if not cache or settings.DEBUG:
         return _Builder(scope).build()
-    return compute.once(_cache_key(scope), lambda: _Builder(scope).build(), CACHE_SECONDS, lang_neutral=True)
+    return compute.once_as_of(
+        lambda stamp: _cache_key(scope, stamp),
+        as_of,
+        fingerprint(),
+        lambda: _Builder(scope).build(),
+        CACHE_SECONDS,
+        lang_neutral=True,
+    )
 
 
 def stored(scope: Scope) -> bool:

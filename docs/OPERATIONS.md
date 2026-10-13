@@ -880,8 +880,10 @@ never a sign-in form inside a block.
 
 **How it works.** Each block (a *part*) is asked for at the page's own address plus `_part=<name>`, as
 an htmx request, with the filters the frame resolved written out in full (the user's own section as
-`section=<name>`, every section as `section=`, the year always; a page without filters, such as the
-partner page or Data health, adds `_part` alone), so the same view answers it under the same rules:
+`section=<name>`, every section as `section=`, the year always, and on the overview and the brief
+`as_of`, the state of the figures the frame was drawn with, see *The pages in parts* below; a page without
+filters, such as the partner page or Data health, adds `_part` alone), so the same view answers it under
+the same rules:
 sign-in, the donor lock-out and the view's own checks. `PartsMiddleware` (`neurodb/web/parts.py`) takes
 `_part` out before any view or link sees it, adds `Vary: HX-Request` (one address serves the page or a
 part) and sends parts with `Cache-Control: no-store`. `neurodb/web/static/js/parts.js` asks for at most
@@ -889,7 +891,10 @@ part) and sends parts with `Cache-Control: no-store`. `neurodb/web/static/js/par
 visible ones first and the ones further down one at a time afterwards, and swaps each answer in place of
 its placeholder. The figures several parts read are computed once across every worker and every user,
 and kept in the **shared page figures** (`neurodb/core/compute.py`, `once()`): one request computes them
-under a PostgreSQL advisory lock, the others wait and read the stored result. A part request that has
+under a PostgreSQL advisory lock, the others wait and read the stored result. Inside a database
+transaction (the read-only tool runs of NeuroDB Watch, the help and the field monitoring chat, or an
+admin action) stored figures are read as anywhere else, but missing ones are computed for that caller
+only: no lock is taken and nothing is stored or deleted there. A part request that has
 waited about 2 seconds answers **202** with `X-NeuroDB-Part-Pending: 1`, which frees its web thread, and
 the browser asks again after 1.5 seconds, then less often, within the 60 seconds. When the figures of a
 block are already stored, the frame draws that block itself, in the same answer, so a page opened again
@@ -904,7 +909,7 @@ enters as the filter. What differs by person is drawn in each request for the pe
 stored: the brief's *Assign* links for staff, the partner page's *Edit the link*, the administrators'
 link to the reporting checks on Data health. Of what staff edit by hand outside a sync, the indicator
 flags are in the key of every value they change, the brief's key also holds its section plans, finding
-assignments and latest daily review, the governorates of the overview's filter bar (Admin → Locations)
+assignments, ActivityInfo partner links and latest daily review, the governorates of the overview's filter bar (Admin → Locations)
 are read at each visit and Data health counts the gazetteer at each visit, so all of these show at once.
 Any other hand edit shows when the stored value it is part of expires, or at once after **Empty the
 stored page figures**: a governorate renamed in Admin → Locations is in the filter bar at once, but
@@ -937,14 +942,28 @@ date, or before timing a page from a cold start. It changes no data.
 the page), *when near the screen* (within 800 pixels of the part of the page in view), *after
 the visible ones*; a part not needed yet still loads once the visible ones are done, one at a time.
 In a group, the first part goes alone and computes the figures the group shares; the others wait
-until it is in, then read those figures stored.
+until it is in, then read those figures stored. The address of each part carries `as_of`, a short code
+(16 letters and digits) for the state of the figures the frame was drawn with: the last finished sync run
+and the indicator flags, and for the brief also its section plans, finding assignments, ActivityInfo
+partner links and latest daily review. A sync run that finishes (an eTools Datamart sync writes one per
+dataset, 52 in all, about one every 20 seconds), or an edit, changes that state, before the first part
+of a page or between two of them, once or several times. The parts still show one set of figures: when
+the state moved before it, the first part reads or computes the figures of its own moment and keeps them
+for the frame's `as_of` as well, and the later parts read what the first one read (the figures of the
+frame's moment, or those it kept), as long as they are stored (two minutes). So a page never shows
+figures of two moments side by side and they are not computed twice. After that, or on the next page, a
+part reads the figures of the moment. What is kept for an `as_of` is only ever read by the parts of a
+page carrying it, never by a frame looking for stored figures nor by any other page; the code is keyed
+with the application's secret key, so nobody can work out the code of a state to come, and `as_of` only
+picks among figures of the last two minutes for the same filter, for everyone; it is never a way to see
+more.
 
 | Page | The frame (at once) | Its parts | What it stores in the shared page figures, and when that changes |
 |---|---|---|---|
 | Country overview, `/` | Purpose line, filter bar, subtitle, freshness strip, link to the ActivityInfo databases; without a reporting year, the empty state and no part | `kpis` (at once; first of the group `overview`): the key figure tiles. `for-you` (at once, from Watch's own address): the NeuroDB Watch card. `figures` (when near the screen, once `kpis` is in): impact, value for money, delivery and assurance and the two progress blocks. `review` (when near the screen, only when a daily review ever succeeded): the *Daily review* card. `review-more` (only when *Show N more findings* is opened): its folded findings. `news` (after the visible ones): What's new and the forecast risk card | The overview build, 2 minutes per year, sections, governorate and day, the same in every language; the filter bar's section names, 10 minutes; the freshness strip, 2 minutes. Each key holds the last finished sync run and the indicator flags, so a sync or a flag changes it at once. When the build is stored, the frame draws `kpis` and `figures` itself. See *Country overview* |
-| Management brief, `/brief/` | Purpose line, filter bar with *Figures as of* and **Print**, the tab bar, the *Reference* block (lineage and data dictionary); without a reporting year, the empty state and no part | `brief` (at once; first of the group `brief`): the five tiles, *Things to decide* with the *Assign* links for staff, *Sections at a glance* and *Copy summary*. `sections` (when near the screen, once `brief` is in): ahead or behind, how sure, who and where, partners, money and action, with every chart of the page | The brief build, 2 minutes per year, sections, day and language (its labels are translated as it is computed), under the brief's own key: the section plans and the finding assignments (how many, and the last change), the latest daily review, the last finished sync run and the indicator flags, so an entry in the admin, a new review, a sync or a flag shows at once. It reads two overview builds, each stored as an overview build: the year's, the very one the overview stores for the same year and sections without a governorate, and the year before's, for the comparisons. The frame's lineage, 2 minutes, the same in every language, under the last finished sync run, the flags and the latest daily review; the filter bar's section names are the overview's. When the build is stored, the frame draws both parts itself: a brief opened again within two minutes is one request. See *Management brief* |
+| Management brief, `/brief/` | Purpose line, filter bar with *Figures as of* and **Print**, the tab bar, the *Reference* block (lineage and data dictionary); without a reporting year, the empty state and no part | `brief` (at once; first of the group `brief`): the five tiles, *Things to decide* with the *Assign* links for staff, *Sections at a glance* and *Copy summary*. `sections` (when near the screen, once `brief` is in): ahead or behind, how sure, who and where, partners, money and action, with every chart of the page | The brief build, 2 minutes per year, sections, day and language (its labels are translated as it is computed), under the brief's own key: the section plans, the finding assignments and the ActivityInfo partner links (how many, and the last change), the latest daily review, the last finished sync run and the indicator flags, so an entry in the admin, a new review, a sync or a flag shows at once. It reads two overview builds, each stored as an overview build: the year's, the very one the overview stores for the same year and sections without a governorate, and the year before's, for the comparisons. The frame's lineage, 2 minutes, the same in every language, under the last finished sync run, the flags and the latest daily review; the filter bar's section names are the overview's. When the build is stored, the frame draws both parts itself: a brief opened again within two minutes is one request. See *Management brief* |
 | Partner page, `/partners/<id>/` | Header (name, type, breadcrumbs), the *deleted in eTools* notice, the knowledge base documents | `datamart` (at once): everything from the key figures to the last list (profile, visits chart and assurance chips, *Partner reporting* with the eTools and ActivityInfo panels and, for those allowed, *Edit the link*, the eight lists). Inside it, `fmm` (once `datamart` is in, after the visible ones): the Monitoring insights panel, only when Monitoring insights is on and a field monitoring visit ever monitored the partner | Nothing: the partner's figures hold database records, which the shared page figures never store, so they are computed at each visit and an edit or a sync shows at the next one. See *Partner reporting: ActivityInfo and eTools, side by side* |
-| Data health, `/data/health/` | Page heading, the *Sync jobs* heading with its *Stale after N hours* note | `jobs` (at once): one card per sync job. `databases` and `runs` (when near the screen): the ActivityInfo databases of the year and their last import, the latest 50 runs. `datasets` and `readiness` (after the visible ones): the eTools Datamart datasets, the machine learning readiness check | Only the rows each eTools Datamart dataset holds (the *Rows held* column): an hour at most, the same in every language and for everyone, under a key made of the latest run of each job that writes those tables (eTools Datamart sync, eTools sync, Locations sync, eTools update clean-up), so a run of one of them that starts or ends has them counted again. The gazetteer (*locations*), which staff also edit in Admin → Locations, is counted at each visit, and so is everything else on the page. Inside a database transaction (NeuroDB Watch's AI look-ups read these figures in a read-only one) the rows are counted there and the stored counts are left alone. See *Data quality per dataset* |
+| Data health, `/data/health/` | Page heading, the *Sync jobs* heading with its *Stale after N hours* note, the heading and explanation of the eTools Datamart datasets panel | `jobs` (at once): one card per sync job. `databases` and `runs` (when near the screen): the ActivityInfo databases of the year and their last import, the latest 50 runs. `datasets` and `readiness` (after the visible ones): the eTools Datamart datasets table with its *Copy* and *CSV* buttons (they come with the table, so they are never offered before it is there), the machine learning readiness check | Only the rows each eTools Datamart dataset holds (the *Rows held* column): an hour at most, the same in every language and for everyone, under a key made of the latest run of each job that writes those tables (eTools Datamart sync, eTools sync, Locations sync, eTools update clean-up), so a run of one of them that starts or ends has them counted again. The gazetteer (*locations*), which staff also edit in Admin → Locations, is counted at each visit, and so is everything else on the page. Inside a database transaction (NeuroDB Watch's AI look-ups read these figures in a read-only one) the stored counts are read too; when there are none the rows are counted there and nothing is stored. See *Data quality per dataset* |
 
 Every other page is still drawn whole. Of these, the ActivityInfo databases page and each database,
 the Neuro and HPM reports, the programme documents' indicators tab, each programme document (page and
@@ -959,8 +978,8 @@ have not been converted yet.
    504) has usually been retried once by itself already.
 2. If it fails again, find the request in the web container's log (App Service *Log stream*, or Log
    Analytics). A part request is the page's address with `_part=` in the access log, for example
-   `"GET /?section=&year=2026&_part=figures HTTP/1.1" 500`,
-   `"GET /brief/?section=&year=2026&_part=sections HTTP/1.1" 500`,
+   `"GET /?section=&year=2026&as_of=5f0c9e1d2a7b4c38&_part=figures HTTP/1.1" 500`,
+   `"GET /brief/?section=&year=2026&as_of=a5d1e0b7c3f94286&_part=sections HTTP/1.1" 500`,
    `"GET /partners/12/?_part=datamart HTTP/1.1" 500` or
    `"GET /data/health/?_part=datasets HTTP/1.1" 500`,
    and the error with its traceback is logged next to it ("Internal Server Error: /brief/", the path
@@ -1084,8 +1103,9 @@ that failed, records whose partner, programme document or location is not in Neu
 (`not_linked`, per kind), rows removed because the Datamart no longer returns them, and the rows
 NeuroDB holds. Read it before trusting a number on an eTools page; a dataset with many "not
 linked" records or an "empty response" is the first thing to fix. The latest run of every dataset is
-read in one query (`DISTINCT ON (target)`, on the index `core_syncrun_job_target` of core migration
-0027), not by reading every Datamart run.
+read in one query that takes, for each dataset, its newest run from the index `core_syncrun_job_target`
+of core migration 0027 (a `LATERAL` join), not by reading and sorting every Datamart run (on a year of
+runs, about 1 ms instead of 30).
 
 **Data health loads in parts** (see *Pages that load in parts*). The page is open to every signed-in
 member of staff, as before, and answers its frame at once: the page heading and the *Sync jobs* heading
@@ -1097,17 +1117,18 @@ with its *Stale after N hours* note. Each block is its own computation and comes
 | `jobs` | One card per sync job: fresh, stale or never succeeded (its placeholder draws one grey card per job) | At once |
 | `databases` | The displayed ActivityInfo databases of the current year and their last import | When near the screen |
 | `runs` | The latest 50 runs of every job | When near the screen |
-| `datasets` | This table, the eTools Datamart datasets (with the link to the reporting checks for administrators) | After the visible ones |
+| `datasets` | This table, the eTools Datamart datasets, under its *Copy* and *CSV* buttons, which come with it (never offered before the table is there, nor beside an error); its heading and explanation (with the link to the reporting checks for administrators) are in the frame, so the placeholder keeps the room of the table and its buttons at any width | After the visible ones |
 | `readiness` | *Ready for machine learning?*, the last readiness check | After the visible ones |
 
 Only the *Rows held* column is kept in the shared page figures: an hour at most, the same for everyone
 and in every language, under a key made of the latest run of each job that writes the counted tables
 (eTools Datamart sync, eTools sync, Locations sync, eTools update clean-up), so the rows are counted
-again as soon as one of those runs starts or ends. The gazetteer (*locations*), which staff also edit
-in Admin → Locations, is counted at each visit, and everything else on the page is read at each
-visit. Ask NeuroDB's *data freshness* look-up reads the same figures, and the stored counts with them;
-inside a database transaction (NeuroDB Watch's AI look-ups run it in a read-only one) the rows are
-counted directly and the stored counts are neither read nor written.
+again as soon as one of those runs starts or ends (that key is read from the index of each job and
+status, so it costs well under a millisecond at every visit). The gazetteer (*locations*), which staff
+also edit in Admin → Locations, is counted at each visit, and everything else on the page is read at
+each visit. Ask NeuroDB's *data freshness* look-up reads the same figures, and the stored counts with
+them; inside a database transaction (NeuroDB Watch's AI look-ups run it in a read-only one) the stored
+counts are read too, and when there are none the rows are counted there without storing anything.
 
 ### Recording real records as test fixtures
 
@@ -1459,7 +1480,8 @@ Partners deleted in eTools are never linked to. Names that no longer appear in t
 their automatic row (a hand-made row stays, with zero records). The run's `details` count each
 method and list up to 20 names left unlinked; fix those by hand (the partner list shows, per
 partner, whether it reports in eTools and how many ActivityInfo records are linked). `UNICEF` as a
-partner name is ignored.
+partner name is ignored. A link changed by hand shows at once on the partner page and on the management
+brief (its *How sure* and *Partners* blocks read the links, which are in the key of its stored figures).
 
 ### Every other endpoint: kept whole for the AI assistant
 All the other country-level endpoints are stored record by record in `datamart.DatamartDocument`
@@ -1611,8 +1633,9 @@ ActivityInfo databases. Then come, each in its own request:
 
 A part further down loads anyway once the visible ones are done, one at a time; only `review-more`
 waits to be opened. Every part request carries the filter the frame resolved: the user's own section
-written out on a first load (`section=<name>`), `section=` for every section, the year always, and the
-governorate and the review day when chosen. Without a reporting year the page shows its empty state
+written out on a first load (`section=<name>`), `section=` for every section, the year always, the
+governorate and the review day when chosen, and `as_of`: `figures` reads the build `kpis` read for it,
+even when a sync finished before or between the two (see *The pages in parts*). Without a reporting year the page shows its empty state
 and loads no part (nor What's new nor the forecasts). When the build for the chosen filter is already
 stored, the frame draws the tiles and the figures itself, so an overview opened again within two
 minutes asks only for the *For you* card, the daily review and What's new, three small requests,
@@ -1694,8 +1717,9 @@ the digits glued together. Section names are trimmed ("PSEA " is "PSEA").
 *Apply* opens the page again with the new filter, frame first. The result is kept 2 minutes per
 (year, sections, day, language) in the shared page figures, read by every web worker and computed by
 one request at a time, and the key changes with every children or unique beneficiaries flag, section
-plan, assignment, new review or finished sync run, so an entry in the admin or a sync shows at once (a
-population figure changed by hand in the admin shows within the 2 minutes). The build's labels are
+plan, assignment, ActivityInfo partner link (*How sure* and *Partners* read them), new review or finished
+sync run, so an entry in the admin or a sync shows at once (a population figure changed by hand in the
+admin shows within the 2 minutes). The build's labels are
 translated as it is computed, so each language has its own; nothing in it depends on who asks: the
 *Assign* links are drawn for the person asking (staff only), never stored. *Print* prints the page
 without the navigation, once every part is in (below).
@@ -1705,7 +1729,8 @@ line, the filter bar with the *Figures as of* line (the last run of each source)
 and the *Reference* block (lineage and data dictionary). The lineage is kept 2 minutes in the shared
 page figures, the same for every language, under the last finished sync run, the flags and the latest
 daily review. Then come, each in its own request with the resolved filter (`section=` written out, an
-empty one for every section, and the year always):
+empty one for every section, and the year always) and `as_of` (`sections` reads the build `brief` read
+for it, even when a sync, a review or an edit came before or between the two; see *The pages in parts*):
 
 | Part | What it holds | When it loads |
 |---|---|---|

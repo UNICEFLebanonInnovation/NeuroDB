@@ -351,7 +351,13 @@ _NONCE = re.compile(r'(\snonce=")[^"]*"')
 _NONCE_CONFIG = re.compile(r'("inlineScriptNonce":\s*")[^"]*"')
 _SPACE = r"(?:\s|&nbsp;|\xa0)+"
 _UNIT = r"(?:second|minute|hour|day|week|month|year)s?"
-_AGO = re.compile(rf"\b\d+{_SPACE}{_UNIT}(?:,{_SPACE}\d+{_SPACE}{_UNIT})*{_SPACE}ago\b")
+# every past time naturaltime writes: "3 minutes ago", "1 day, 2 hours ago", and its word forms "now" (under a
+# second), "a second ago", "a minute ago", "an hour ago". Two drawings a moment apart may fall either side of a step
+# ("now" and "a second ago" when the newest run ended at the fixture's time).
+_AGO = re.compile(
+    rf"\b(?:\d+{_SPACE}{_UNIT}(?:,{_SPACE}\d+{_SPACE}{_UNIT})*{_SPACE}ago"
+    rf"|an?{_SPACE}(?:second|minute|hour|day|week|month|year){_SPACE}ago|now)\b"
+)
 
 
 def _drop_element(html: str, element_id: str) -> str:
@@ -363,9 +369,9 @@ def _drop_element(html: str, element_id: str) -> str:
 
 def normalise(html: str, *, exclude: tuple[str, ...] | list[str] = ()) -> str:
     """``html`` without what differs between two drawings of the same page: the ``hx-*``, ``aria-busy``
-    and ``data-part*`` attributes, CSRF tokens, CSP nonces, "N minutes ago", and whitespace between and
-    inside tags. ``exclude``: ids of elements to leave out altogether (the ``url=`` parts, which eager mode
-    leaves to the browser)."""
+    and ``data-part*`` attributes, CSRF tokens, CSP nonces, "N minutes ago" (and "now", "a minute ago"),
+    and whitespace between and inside tags. ``exclude``: ids of elements to leave out altogether (the
+    ``url=`` parts, which eager mode leaves to the browser)."""
     for element_id in exclude:
         html = _drop_element(html, element_id)
     html = _DROPPED_ATTRIBUTES.sub("", html)

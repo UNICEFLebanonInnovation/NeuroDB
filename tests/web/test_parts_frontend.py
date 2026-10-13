@@ -895,6 +895,91 @@ const scrolls = (doc) => doc.scrolls.map((s) => `${s.id} ${s.options?.block} ${s
 
 
 @needs_node
+def test_a_link_into_a_part_inside_a_part_waits_for_both_and_lands_on_its_target():
+    data = run_dom(
+        """
+// The partner page: its figures (datamart) bring the Monitoring insights placeholder (fmm, low, after a normal one),
+// whose answer holds the panel #fmm-partner and its title #fmm-partner-title. Up to round 1 of step 2 a link to
+// either waited for the figures only, found no panel there and dropped: the page stayed at the top.
+const build = async (hash) => {
+  const env = await page({ hash, parallel: 1 });
+  const { doc, main, placeholder } = env;
+  main.append(
+    placeholder({ name: "datamart", kind: "tiles", priority: "high", anchors: "activityinfo-reporting partner- fmm-partner" }),
+    doc.h("section", { id: "knowledge" }),
+  );
+  env.parts.initParts();
+  await env.start();
+  return env;
+};
+const figures = ({ doc, loaded, placeholder }) => () => [
+  loaded("datamart", doc.h("div", { class: "kpi-grid" }), placeholder({ name: "activityinfo" }),
+    placeholder({ name: "fmm", priority: "low", anchors: "fmm-partner" }), doc.h("section", { id: "partner-pds" })),
+];
+const panel = ({ doc, loaded }) => () => [
+  loaded("fmm", doc.h("section", { id: "fmm-partner" }, doc.h("h2", { id: "fmm-partner-title" }, "Monitoring insights"))),
+];
+const scrolls = (doc) => doc.scrolls.map((s) => `${s.id} ${s.options?.block} ${s.options?.behavior}`);
+for (const [key, hash] of [["panel", "#fmm-partner"], ["title", "#fmm-partner-title"]]) {
+  const env = await build(hash);
+  const { doc, htmx, clock } = env;
+  htmx.respond("datamart", { nodes: figures(env) });
+  await clock.tick(50);
+  const between = { sent: htmx.sent(), scrolls: scrolls(doc) };
+  htmx.respond("fmm", { nodes: panel(env) });
+  await clock.tick(50);
+  out[key] = { between, sent: htmx.sent(), scrolls: scrolls(doc), marked: doc.getElementById(hash.slice(1)).classList.contains("is-target") };
+}
+{
+  // a partner whose panel turns out empty: nothing to land on, nothing asked for twice
+  const env = await build("#fmm-partner");
+  env.htmx.respond("datamart", { nodes: figures(env) });
+  await env.clock.tick(50);
+  env.htmx.respond("fmm", { nodes: () => [env.loaded("fmm")] });
+  await env.clock.tick(50);
+  env.htmx.respond("activityinfo", { nodes: () => [env.loaded("activityinfo")] });
+  await env.clock.tick(5000);
+  out.empty = { sent: env.htmx.sent(), scrolls: scrolls(env.doc) };
+}
+{
+  // the person scrolls once the figures are in: the panel arriving later does not take the page there
+  const env = await build("#fmm-partner");
+  env.htmx.respond("datamart", { nodes: figures(env) });
+  await env.clock.tick(50);
+  env.win.dispatchEvent(new dom.Event("wheel"));
+  env.htmx.respond("fmm", { nodes: panel(env) });
+  await env.clock.tick(50);
+  out.wheel = scrolls(env.doc);
+}
+{
+  // parts that keep bringing parts and never the target: the link stops looking three parts deep
+  const env = await page({ hash: "#deep-end", parallel: 1 });
+  const { doc, main, placeholder, loaded, htmx, clock } = env;
+  const deep = (n) => placeholder({ name: `deep${n}`, lazy: "strict", anchors: "deep-" });
+  main.append(deep(0));
+  env.parts.initParts();
+  await env.start();
+  for (let n = 0; n < 5; n++) {
+    if (!htmx.open().includes(`deep${n}`)) break;
+    htmx.respond(`deep${n}`, { nodes: () => [loaded(`deep${n}`, deep(n + 1))] });
+    await clock.tick(50);
+  }
+  out.deep = { sent: htmx.sent(), scrolls: doc.scrolls.length };
+}
+"""
+    )
+    for key, target in (("panel", "fmm-partner"), ("title", "fmm-partner-title")):
+        result = data[key]
+        # once the figures are in, the panel is asked for before the normal part beside it
+        assert result["between"] == {"sent": ["datamart", "fmm"], "scrolls": []}, key
+        assert result["sent"] == ["datamart", "fmm", "activityinfo"], key
+        assert result["scrolls"] == [f"{target} start instant"] and result["marked"] is True, key
+    assert data["empty"] == {"sent": ["datamart", "fmm", "activityinfo"], "scrolls": []}
+    assert data["wheel"] == []
+    assert data["deep"] == {"sent": ["deep0", "deep1", "deep2", "deep3"], "scrolls": 0}
+
+
+@needs_node
 def test_back_to_a_page_whose_parts_load_again_goes_to_where_it_was_once_the_parts_above_are_in():
     data = run_dom(
         """
@@ -1011,6 +1096,66 @@ def test_page_only_keys_drop_the_part_keys_from_export_links():
     keys = re.search(r"const PAGE_ONLY_KEYS = \[([^\]]*)\];", _app()).group(1)
     names = re.findall(r'"([^"]+)"', keys)
     assert "_part" in names and "_eager" in names and "tab" in names
+
+
+# Copy, CSV (data-table-copy / data-table-csv) and Copy summary (data-copy-target) look for the element they name when
+# they are pressed (app.js initTables) and do nothing when it is not there. Up to round 2 of step 2 data health drew
+# the datasets panel's Copy and CSV in its frame and the table in a part: they did nothing while the table loaded,
+# nor ever when its part failed. So a button that copies an element comes in the same answer as that element.
+TOOLBAR = re.compile(r'\{%\s*include\s+"components/table_toolbar\.html"\s+with\s+([^%]*)%\}')
+INCLUDE = re.compile(r'\{%\s*include\s+"([^"]+)"')
+COPY_TARGET = re.compile(r'\sdata-(?:table|copy)-target="#([^"]+)"')
+
+
+def _with_includes(source: str, seen: frozenset[str] = frozenset()) -> str:
+    """``source`` and every template it includes by name, all the way down: what one answer draws (the parts it
+    places come by themselves; the table toolbar is read from its include by :func:`_copied_elsewhere`)."""
+    from django.template.loader import get_template
+
+    for name in INCLUDE.findall(source):
+        if name in seen or name == "components/table_toolbar.html":
+            continue
+        included = Path(get_template(name).origin.name).read_text()
+        source += "\n" + _with_includes(included, seen | {name})
+    return source
+
+
+def _copied_elsewhere(source: str) -> list[str]:
+    """The elements that a Copy or CSV button of this template names and that the same answer does not draw."""
+    drawn = _with_includes(source)
+    targets = set(COPY_TARGET.findall(drawn))
+    for options in TOOLBAR.findall(drawn):
+        if "no_copy=True" not in options:
+            targets.update(re.findall(r'\btable_id="([^"]+)"', options))
+    return sorted(target for target in targets if not re.search(rf'\sid="{re.escape(target)}"', drawn))
+
+
+def test_copy_and_csv_come_in_the_same_answer_as_what_they_copy():
+    frame = (
+        '{% include "components/table_toolbar.html" with title="T" table_id="t" %}{% part "t" kind="table" %}'
+    )
+    assert _copied_elsewhere(frame) == ["t"]  # a frame's toolbar over a table its part draws
+    assert _copied_elsewhere(frame.replace('table_id="t"', 'table_id="t" no_copy=True')) == []
+    assert _copied_elsewhere(frame + '<table id="t">') == []
+    assert _copied_elsewhere('<button data-copy-target="#u">{% part "u" %}') == ["u"]
+    root = Path(settings.BASE_DIR) / "neurodb"
+    # every template that places a part: the frames, and the parts that bring parts of their own
+    placing = {
+        path.as_posix().split("/templates/", 1)[1]: path.read_text()
+        for path in root.rglob("*.html")
+        if "/templates/" in path.as_posix()
+        and "/templates/components/" not in path.as_posix()
+        and re.search(r'\{%\s*part\s+"', path.read_text())
+    }
+    pages = {
+        "reports/overview.html",
+        "reports/brief.html",
+        "reports/partner_profile.html",
+        "reports/data_health.html",
+    }
+    assert pages | {"reports/parts/partner_datamart.html"} <= set(placing)
+    found = {name: _copied_elsewhere(source) for name, source in placing.items()}
+    assert {name: targets for name, targets in found.items() if targets} == {}
 
 
 def test_filter_bars_abort_on_their_form_never_on_body_and_modules_start_independently():
@@ -1303,6 +1448,103 @@ def test_a_parts_answer_holds_no_room_while_htmx_settles_it():
     assert reserving and all(at < block.index(zero) for at in reserving)
     # and the middle height's float is a placeholder's only ([data-part], which the answer does not carry)
     assert 'data-part="' not in loaded
+
+
+def _stage_a() -> str:
+    css = (STATIC / "css" / "app.css").read_text()
+    return css.split("stage A (reports core)", 1)[1].split("end of stage A */", 1)[0]
+
+
+# The partner page's Monitoring insights panel on the x20 parity world (scripts/parity), partners 1, 3, 4, 5 and 7:
+# (window width, width of its part, the panel's height most of them have there; an administrator's is a viewer's).
+# Its four figures and the line on the last visit wrap with the part's width (the figures two to a row below a
+# 576 px window). Up to round 1 of step 2 the placeholder kept 150 px, 165 px where the page's panels stack and
+# 300 px on a phone: the headings below moved 18 px at 768-1100 px, 13 px at 1200-1280 px, 117 px at 600 px.
+FMM_PANEL = [
+    (320, 288, 344.2),
+    (360, 328, 295.7),
+    (390, 358, 295.7),
+    (440, 408, 276.5),
+    (480, 448, 256.9),
+    (520, 488, 242.5),
+    (540, 508, 228.1),
+    (580, 548, 197.4),
+    (600, 568, 183),
+    (768, 730, 183),
+    (850, 807.5, 183),
+    (860, 817, 163.3),
+    (1000, 678, 183),
+    (1024, 701, 183),
+    (1100, 773, 183),
+    (1140, 811, 163.3),
+    (1200, 868, 163.3),
+    (1280, 944, 163.3),
+    (1310, 974, 148.9),
+    (1366, 1030, 148.9),
+    (1600, 1264, 148.9),
+    (1920, 1584, 148.9),
+]
+
+
+def test_the_partner_monitoring_insights_placeholder_follows_the_panel_at_every_width():
+    block = _stage_a()
+    fmm = '#part-datamart #part-fmm[data-part="fmm"]'
+    # no fixed height by window width, nor the middle height's float: its grey shapes hold the room
+    assert f"{fmm}:not(.is-loaded) {{ min-height: 0; display: grid; }}" in block
+    assert f"{fmm}:not(.is-loaded)::before {{ content: none; }}" in block
+    # their height follows their own width (a container query), and they are laid out even off screen: a
+    # low-priority placeholder skips its grey shapes there otherwise (content-visibility), which would leave no room
+    assert f"{fmm} > .part__skeleton {{ container-type: inline-size; content-visibility: visible; }}" in block
+    shapes = re.escape(f"{fmm} .part__skeleton > .skeleton")
+    default = float(re.search(shapes + r" \{ height: ([\d.]+)px; \}", block).group(1))
+    ladder = [
+        (float(least), float(height))
+        for least, height in re.findall(
+            r"@container \(min-width: ([\d.]+)px\) \{ " + shapes + r" \{ height: ([\d.]+)px; \} \}", block
+        )
+    ]
+    assert len(ladder) >= 8 and ladder == sorted(ladder, key=lambda rule: rule[0])
+
+    def room(width):
+        """The grey shapes' height in a part of this width: the last rule that holds wins."""
+        height = default
+        for least, value in ladder:
+            if width >= least:
+                height = value
+        return height
+
+    misses = {window: (room(width), real) for window, width, real in FMM_PANEL if abs(room(width) - real) > 1}
+    assert misses == {}
+    # its other states keep that room: the slow line and the error box share the grey shapes' grid cell
+    assert f"{fmm}:not(.is-loaded) > :not(noscript) {{ grid-area: 1 / 1; min-width: 0; }}" in block
+    hidden = f'{fmm}[data-part-state="error"] .part__skeleton {{ display: block; visibility: hidden; }}'
+    assert hidden in block
+    slow = re.search(re.escape(fmm) + r" \.part__slow \{([^}]*)\}", block).group(1)
+    assert "align-self: end;" in slow and "background: var(--nd-bg);" in slow
+    # the rules hold for that placeholder only: the low-priority "fmm" part the figures' answer (#part-datamart) brings
+    figures = (Path(settings.BASE_DIR) / "neurodb" / "reports" / "templates" / "reports" / "parts").joinpath(
+        "partner_datamart.html"
+    )
+    tag = re.search(r'\{% part "fmm"[^%]*%\}', figures.read_text()).group(0)
+    assert 'priority="low"' in tag and "element_id" not in tag
+    assert '<div id="part-{{ part_name }}"' in (TEMPLATES / "components" / "part_loaded.html").read_text()
+
+
+def test_a_failed_partner_figures_part_shows_its_error_box_without_the_figures_room():
+    block = _stage_a()
+    # up to round 1 of step 2 the 97 px error box stood on 7,500 px of empty room (12,400 px on a phone), with the
+    # knowledge base panel and the end of the page below it
+    failed = '#part-datamart[data-part="datamart"][data-part-state="error"]'
+    assert f"{failed} {{ min-height: 0; }}" in block
+    assert f"{failed}::before {{ content: none; }}" in block
+    # an id outranks the rules that give every placeholder its room (and the phone's), and the middle height's float
+    css = (STATIC / "css" / "app.css").read_text()
+    generic = css.split("pages that load in parts (parts.js)", 1)[1].split("stage A (reports core)", 1)[0]
+    assert ".part { min-height: var(--part-h, 8rem); }" in generic
+    assert ".part { min-height: var(--part-h-sm, var(--part-h-md, var(--part-h, 8rem))); }" in generic
+    assert '[data-part]:not(.is-loaded)::before { content: ""; float: left;' in generic
+    # only the error state drops it: Try again gives the room back while the part loads
+    assert re.findall(r"#part-datamart\[[^{]*\{", block) == [f"{failed} {{", f"{failed}::before {{"]
 
 
 def test_placeholders_keep_their_height_in_both_themes_and_each_later_stage_has_its_block():

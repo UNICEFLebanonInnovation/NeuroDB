@@ -15,6 +15,7 @@ review is run on it where a test needs the things to decide.
 
 from __future__ import annotations
 
+import datetime
 import gettext
 import html as html_module
 import json
@@ -26,7 +27,9 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from django.conf import settings
 from django.core.cache import caches
-from django.test import Client
+from django.db import connection
+from django.test import Client, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import translation
 
@@ -35,14 +38,16 @@ from neurodb.core import compute
 from neurodb.core.models import SyncRun
 from neurodb.donors.models import DonorAccount
 from neurodb.indicators.models import ReportingYear
+from neurodb.partnerships.models import PartnerLink
 from neurodb.reports import brief as brief_service
 from neurodb.reports import overview as overview_service
 from neurodb.reports import views
 from neurodb.reports.models import SectionPlan
 from neurodb.review import services as review_services
-from neurodb.review.models import DailyReview
+from neurodb.review.models import DailyReview, FindingAssignment, ReviewFinding
 from tests.reports.overview_fixture import TODAY
 from tests.reports.test_brief import data  # noqa: F401 - the brief's hand-counted world (a fixture)
+from tests.reports.test_headline import _second
 from tests.web.parts import (
     HX,
     assemble,
@@ -67,19 +72,20 @@ STATIC = Path(settings.BASE_DIR) / "neurodb" / "web" / "static"
 JSON_SCRIPT = re.compile(r'<script id="([^"]+)" type="application/json">(.*?)</script>', re.S)
 LINK = re.compile(r'\s(?:href|action|hx-push-url)="([^"]*)"')
 # Query ceilings: what was measured on this world, plus 2 (SPEC7 §3.3 6, §3.4). The frame warm (its filter sections,
-# lineage and navigation stored, as after the first visit of a page) is 14: the request's floor (session, user, donor
+# lineage and navigation stored, as after the first visit of a page) is 12: the request's floor (session, user, donor
 # check, user role, the sidebar's sections and years) plus the year, the cache stamp (last sync run, flags), the
-# governorates of the filter options, the latest review for the lineage's key, and the key of the brief build (section
-# plans, finding assignments, latest review) to see whether it is stored. Cold it also computes the filter sections,
-# the lineage (3 sync runs, the population year, the review and its findings) and the navigation: 26. Drawn inline
-# (the build stored), each part's own drawing adds the context of a page: 26. Each part is measured with nothing
-# stored: brief and sections each compute the whole build (two overview builds and the brief's own reads); the
-# group's second part reading the stored build is 10.
-SHELL_QUERIES_WARM = 16
-SHELL_QUERIES_COLD = 28
-SHELL_QUERIES_INLINE = 28
-PART_QUERIES = {"brief": 94, "sections": 94}
-PART_QUERIES_STORED = 12
+# governorates of the filter options, the latest review (the lineage's key and the build's), and the hand-entered
+# tables of the brief build's key (section plans, finding assignments, ActivityInfo partner links: one query) to see
+# whether it is stored. Cold it also computes the filter sections, the lineage (3 sync runs, the population year, the
+# review and its findings) and the navigation: 24. Drawn inline (the build stored) it is the same 12: both parts read
+# the build the frame found stored, under the key it read. Each part is measured with nothing stored: brief and
+# sections each compute the whole build (the year before's reporting year, two overview builds and the brief's own
+# reads): 91; the group's second part reading the stored build is 8.
+SHELL_QUERIES_WARM = 14
+SHELL_QUERIES_COLD = 26
+SHELL_QUERIES_INLINE = 14
+PART_QUERIES = {"brief": 93, "sections": 93}
+PART_QUERIES_STORED = 10
 
 
 @pytest.fixture
@@ -178,11 +184,12 @@ def test_the_placeholders_carry_the_resolved_filter(client_viewer, reviewed):
     html = text(client_viewer.get(PAGE))
     found = placeholder_attributes(html)
     assert list(found) == list(PARTS)
+    stamp = brief_service.fingerprint()  # the figures the frame was drawn with (test_the_sections_part_...)
     for name in PARTS:
         url = found[name]["hx-get"]
         assert urlsplit(url).path == PAGE
         # every section written out, the year always
-        assert _query(url) == {"section": [""], "year": ["2026"], "_part": [name]}, url
+        assert _query(url) == {"section": [""], "year": ["2026"], "as_of": [stamp], "_part": [name]}, url
         assert found[name]["data-part-group"] == "brief"
     assert (
         found["brief"]["data-part-priority"] == "high" and found["sections"]["data-part-priority"] == "normal"
@@ -205,6 +212,7 @@ def test_the_placeholders_carry_the_resolved_filter(client_viewer, reviewed):
     assert _query(placeholders(html)["sections"]) == {
         "section": ["Child Protection", "Education"],
         "year": ["2026"],
+        "as_of": [stamp],
         "_part": ["sections"],
     }
 
@@ -275,6 +283,47 @@ def test_each_part_answers_its_wrapper(client_viewer, reviewed, name):
     )
     # nothing that would run once swapped in, in the part or in any partial it includes (SPEC7 §1.3 rule 3)
     assert executable(html) == []
+
+
+def test_the_parts_draw_the_figures_of_the_build(client_viewer, world):
+    """The assembled page and the eager page draw the same part templates, so their equivalence cannot catch a
+    wrong figure in one: the figures themselves are checked here, the headline tile and the finding lifecycle."""
+    review = DailyReview.objects.create(
+        date=datetime.date.today() - datetime.timedelta(days=10),
+        status=DailyReview.Status.SUCCEEDED,
+        checks_run=3,
+    )
+    start = datetime.datetime.combine(review.date, datetime.time.min, tzinfo=datetime.UTC)
+    days = [
+        (2, 5, 9),
+        (4, 5, None),
+        (None, None, None),
+    ]  # acknowledged, assigned, closed: days after it was raised
+    for n, (acknowledged, assigned, closed) in enumerate(days):
+        ReviewFinding.objects.create(
+            review=review,
+            key=f"lifecycle:{n}",
+            check_id="lifecycle",
+            severity="warning",
+            title=f"Finding {n}",
+        )
+        if acknowledged is not None:
+            FindingAssignment.objects.create(
+                key=f"lifecycle:{n}",
+                status=FindingAssignment.Status.CLOSED if closed else FindingAssignment.Status.ASSIGNED,
+                acknowledged_at=start + datetime.timedelta(days=acknowledged),
+                assigned_at=start + datetime.timedelta(days=assigned),
+                closed_at=start + datetime.timedelta(days=closed) if closed else None,
+            )
+    brief_part = text(get_part(client_viewer, PAGE, "brief"))
+    tile = r'<div class="kpi__label">Children reached</div>\s*<div class="kpi__value">\s*<a [^>]*>500</a>\s*</div>'
+    assert re.search(tile, brief_part)
+    sections_part = text(get_part(client_viewer, PAGE, "sections"))
+    lifecycle = sections_part[sections_part.index('id="life-title"') :]
+    # medians: acknowledged after 2 and 4 days (3), assigned 3 and 1 day later (2), closed 4 days after (4)
+    for value, label in (("3", "Median days to acknowledge"), ("2", "to assign"), ("4", "to close")):
+        mini = f'<div class="mini__value">{value}</div><div class="mini__label">{label}</div>'
+        assert mini in lifecycle, (value, label)
 
 
 @pytest.mark.parametrize("name", PARTS)
@@ -377,6 +426,25 @@ def test_a_stored_brief_is_drawn_in_the_frame(
     assert list(placeholders(other)) == list(PARTS)
 
 
+def test_a_warm_frame_reads_what_the_build_key_is_made_of_once(client_viewer, reviewed):
+    """The frame's look at the stored build and the build it then draws (both parts inline) share one reading of
+    the key's hand-entered tables and latest review (the lineage's key reads that review too), and the year
+    before's reporting year is looked up only to compute a build: a stored one never needs it."""
+    get_part(client_viewer, PAGE, "brief")  # the frame's lineage and the build stored
+    with CaptureQueriesContext(connection) as queries:
+        html = text(raw_get(client_viewer, PAGE))
+    assert placeholders(html) == {}  # both parts drawn inline, from the stored build
+    sql = [query["sql"] for query in queries.captured_queries]
+
+    def count(fragment: str) -> int:
+        return sum(fragment in statement for statement in sql)
+
+    assert count('MAX("reports_sectionplan"."updated_at")') == 1
+    assert count('MAX("review_findingassignment"."updated_at")') == 1
+    assert count('MAX("review_dailyreview"."id")') == 1
+    assert count('"pivoting_reportingyear"."name"::text LIKE \'2025%\'') == 0  # the year before's
+
+
 def _children(client, query: str) -> int:
     response = raw_get(client, f"{PAGE}?{query}&_part=brief", **HX)
     assert response.status_code == 200
@@ -391,6 +459,36 @@ def test_a_stored_build_never_answers_another_section_or_year(client_viewer, wor
     assert (alone, country) == (0, 500)  # the two filters do differ
     assert _children(client_viewer, "section=Education&year=2026") == alone
     assert _children(client_viewer, "section=&year=2025") == 0  # another year, never the stored 2026
+
+
+def test_a_section_spelt_another_way_never_answers_the_real_one(client_viewer, world):
+    """The sections come from the address as typed: "Child_Protection" (no such section) asked first stores an
+    empty brief, and the empty overview build it reads, for every user; neither may answer the real section."""
+    crafted = _children(client_viewer, "section=Child_Protection&year=2026")
+    compute.reset_memo()  # another request
+    assert (crafted, _children(client_viewer, "section=Child+Protection&year=2026")) == (0, 500)
+
+
+def test_two_filters_never_share_a_key(world, reporting_year):
+    filters = [
+        ["Child Protection"],
+        ["Child_Protection"],
+        ["Child Protection", "Education"],
+        ["Child Protection|Education"],
+    ]
+    keys = {
+        brief_service._cache_key(
+            brief_service.Scope(year=2026, reporting_year=reporting_year, sections=sections, today=TODAY)
+        )
+        for sections in filters
+    }
+    assert len(keys) == len(filters)
+    # nor two days: a build stored just before midnight never answers the next day
+    tomorrow = brief_service.Scope(
+        year=2026, reporting_year=reporting_year, today=TODAY + datetime.timedelta(days=1)
+    )
+    today = brief_service.Scope(year=2026, reporting_year=reporting_year, today=TODAY)
+    assert brief_service._cache_key(tomorrow) != brief_service._cache_key(today)
 
 
 class _EveryStringTranslated(gettext.NullTranslations):
@@ -448,6 +546,31 @@ def test_each_language_has_its_own_build_and_one_lineage(client_viewer, reviewed
     assert calls["lineage"] == 1, "the lineage was computed again for another language"
 
 
+@override_settings(
+    CACHES={
+        "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+        "shared": {"BACKEND": "django.core.cache.backends.db.DatabaseCache", "LOCATION": "neurodb_cache"},
+    }
+)
+def test_the_management_brief_look_up_answers_inside_a_read_only_tool_run(world):
+    """The AI's management brief look-up reads the build every worker shares. In a read-only tool run (as NeuroDB
+    Watch's, the help's and the field monitoring chat's are), with the cache in the database as in production
+    and nothing stored, the build is computed there and nothing is written."""
+    from neurodb.assistant import tools
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT count(*) FROM neurodb_cache")
+        before = cursor.fetchone()[0]
+    with tools.read_only():
+        answer = tools.run("management_brief", {})
+        assert SyncRun.objects.count() >= 0  # the transaction still answers
+    assert answer["year"] == 2026
+    assert {t["key"]: t["value"] for t in answer["headline"]["tiles"]}["children"] == 500
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT count(*) FROM neurodb_cache")
+        assert cursor.fetchone()[0] == before
+
+
 # ------------------------------------------------------------------------------------------- fresh after an edit
 def test_an_assignment_made_from_the_assign_link_shows_at_once(client, admin_user, reviewed):
     """Fresh after edit (STAGEA): a staff member follows a decision's Assign link to the admin, gives it an owner,
@@ -478,6 +601,22 @@ def test_an_assignment_made_from_the_assign_link_shows_at_once(client, admin_use
     assert "Owner: Chief of Child Protection" in _decisions(after)
 
 
+def test_a_main_indicator_chosen_on_the_pd_page_shows_at_once(client, admin_user, world):
+    """The programme document page's "unique beneficiaries indicator" choice (an indicator flag) changes the
+    children reached: the brief shows it at once, though its build was stored a moment before."""
+    _second(world)  # a second children indicator of the PD: 700, the larger, counts until one is chosen
+    client.force_login(admin_user)
+
+    def children() -> int:
+        tiles = get_part(client, PAGE, "brief").context["data"]["headline"]["tiles"]
+        return {t["key"]: t["value"] for t in tiles}["children"]
+
+    assert children() == 700  # stored now
+    response = client.post(reverse("reports:pd_main_indicator", args=[world["pd"].pk]), {"key": "100"})
+    assert response.status_code == 302
+    assert children() == 500  # the chosen indicator
+
+
 def test_a_section_plan_changed_in_the_admin_shows_at_once(client, admin_user, reviewed):
     admin_user.is_superuser = True
     admin_user.save()
@@ -500,6 +639,134 @@ def test_a_section_plan_changed_in_the_admin_shows_at_once(client, admin_user, r
     )
     assert response.status_code == 302, text(response)[:2000]
     assert bullets()[0]["cp_target"] == 3000
+
+
+def _finish_a_watch_run() -> None:
+    """A run of a job that changes no figure (NeuroDB Watch, every morning): it moves every build's key all the
+    same, as each of the 52 runs of an eTools Datamart sync does."""
+    SyncRun.objects.create(job=SyncRun.Job.WATCH, target="all", status=SyncRun.Status.RUNNING).finish(
+        SyncRun.Status.SUCCEEDED
+    )
+
+
+def test_the_sections_part_reads_the_build_the_brief_part_stored_though_its_key_moved_between(
+    client, admin_user, reviewed, monkeypatch
+):
+    """The browser asks for ``sections`` once ``brief`` is in. A run that finishes between the two (any job's)
+    or an edit moves the build's key: ``sections`` still reads the build ``brief`` stored, found from the
+    fingerprint its address carries (``as_of``), so the build is computed once and the page never shows the
+    figures of two moments side by side (up to round 2 the second part computed a build of its own). The next
+    page shows the figures of the moment, and so does the old address once its build is no longer stored."""
+    admin_user.is_superuser = True
+    admin_user.save()
+    client.force_login(admin_user)
+    builds = Counter()
+    real_build = brief_service._Builder.build
+
+    def build(self):
+        builds["brief"] += 1
+        return real_build(self)
+
+    def target(response) -> int:
+        return _json_blocks(text(response))[SECTIONS_JSON]["bullets"][0]["cp_target"]
+
+    monkeypatch.setattr(brief_service._Builder, "build", build)
+    address = placeholders(text(raw_get(client, PAGE)))
+    first = client.get(address["brief"], **HX)
+    assert first.status_code == 200 and builds["brief"] == 1
+    _finish_a_watch_run()
+    plan = SectionPlan.objects.get(section="Child Protection")
+    response = client.post(
+        reverse("admin:reports_sectionplan_change", args=[plan.pk]),
+        {"year": 2026, "section": "Child Protection", "children_target": 3000, "required_usd": "20000.00"},
+    )
+    assert response.status_code == 302, text(response)[:2000]
+    second = client.get(address["sections"], **HX)
+    assert second.status_code == 200 and builds["brief"] == 1  # read, not computed again
+    assert second.context["data"] == first.context["data"]  # the first part's build
+    assert target(second) == 2000
+    assert target(get_part(client, PAGE, "sections")) == 3000 and builds["brief"] == 2  # the next page
+    caches["shared"].clear()  # two minutes later: the frame's build is gone
+    assert target(client.get(address["sections"], **HX)) == 3000 and builds["brief"] == 3
+
+
+def test_both_parts_read_one_build_though_the_figures_moved_before_the_first_and_again_between(
+    client, admin_user, reviewed, monkeypatch
+):
+    """An edit lands between the frame and ``brief`` (the section plan's target: 3000), and another one between
+    ``brief`` and ``sections`` (4000): ``brief`` computes the build of its moment and keeps it for the frame's
+    ``as_of``, and ``sections`` reads it there, so the build is computed once and the page shows one moment (up
+    to round 3 ``sections`` computed a second build, with 4000 beside the first part's 3000). The next page
+    shows the figures of the moment."""
+    admin_user.is_superuser = True
+    admin_user.save()
+    client.force_login(admin_user)
+    builds = Counter()
+    real_build = brief_service._Builder.build
+
+    def build(self):
+        builds["brief"] += 1
+        return real_build(self)
+
+    def target(response) -> int:
+        return _json_blocks(text(response))[SECTIONS_JSON]["bullets"][0]["cp_target"]
+
+    def plan_target(children: int) -> None:
+        plan = SectionPlan.objects.get(section="Child Protection")
+        response = client.post(
+            reverse("admin:reports_sectionplan_change", args=[plan.pk]),
+            {
+                "year": 2026,
+                "section": "Child Protection",
+                "children_target": children,
+                "required_usd": "20000.00",
+            },
+        )
+        assert response.status_code == 302, text(response)[:2000]
+
+    monkeypatch.setattr(brief_service._Builder, "build", build)
+    address = placeholders(text(raw_get(client, PAGE)))
+    plan_target(3000)  # before the first part
+    first = client.get(address["brief"], **HX)
+    assert first.status_code == 200 and builds["brief"] == 1
+    plan_target(4000)  # between the two parts
+    second = client.get(address["sections"], **HX)
+    assert second.status_code == 200 and builds["brief"] == 1  # read, not computed again
+    assert second.context["data"] == first.context["data"] and target(second) == 3000
+    _finish_a_watch_run()  # and a run that moves the key once more changes nothing either
+    again = client.get(address["sections"], **HX)
+    assert target(again) == 3000 and builds["brief"] == 1
+    assert target(get_part(client, PAGE, "sections")) == 4000 and builds["brief"] == 2  # the next page
+
+
+def test_a_partner_link_changed_in_the_admin_shows_at_once(client, admin_user, reviewed):
+    """Staff correct an ActivityInfo partner link in the admin (the partner page's *Edit the link* leads there),
+    an edit that starts no sync run. The brief reads the links (*How sure*: partners linked across sources; the
+    two sources per partner), so they are in its key: the edit shows at once, though the build was stored a
+    moment before (up to round 3 it showed only when the stored build expired, for every user)."""
+    admin_user.is_superuser = True
+    admin_user.save()
+    client.force_login(admin_user)
+
+    def linked() -> float:
+        (row,) = get_part(client, PAGE, "sections").context["data"]["confidence"]["rows"]
+        return row["linked_percent"]
+
+    def link_to(partner) -> None:
+        response = client.post(
+            reverse("admin:etools_partnerlink_change", args=[link.pk]), {"partner": partner, "_save": "Save"}
+        )
+        assert response.status_code == 302, text(response)[:2000]
+
+    assert linked() == 100.0  # stored now
+    link = PartnerLink.objects.get(label="Partner A")
+    partner = link.partner_id
+    link_to("")  # not linked
+    link.refresh_from_db()
+    assert link.partner_id is None and link.method == PartnerLink.Method.MANUAL
+    assert linked() == 0.0
+    link_to(partner)  # linked again: as many links as before, a later change
+    assert linked() == 100.0
 
 
 # --------------------------------------------------------------------------------------- one page, two drawings

@@ -17,7 +17,8 @@ import datetime
 import gettext
 import json
 import re
-from urllib.parse import parse_qs, urlsplit
+from collections import Counter
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 import pytest
 from django.core.cache import caches
@@ -162,11 +163,12 @@ def test_the_placeholders_carry_the_resolved_filter(client_viewer, reviewed):
     html = text(client_viewer.get(PAGE))
     found = placeholder_attributes(html)
     assert list(found) == list(PARTS)
+    stamp = overview_service.fingerprint()  # the figures the frame was drawn with (test_the_figures_part_...)
     for name in ("kpis", "figures", "review", "news"):
         url = found[name]["hx-get"]
         assert urlsplit(url).path == PAGE
         # every section written out (never a first load again), the year always
-        assert _query(url) == {"section": [""], "year": ["2026"], "_part": [name]}, url
+        assert _query(url) == {"section": [""], "year": ["2026"], "as_of": [stamp], "_part": [name]}, url
     assert found["for-you"]["hx-get"] == reverse("watch:card") and found["for-you"]["hx-swap"] == "outerHTML"
     assert (found["kpis"]["data-part-priority"], found["kpis"]["data-part-group"]) == ("high", "overview")
     assert (found["figures"]["data-part-priority"], found["figures"]["data-part-group"]) == (
@@ -194,6 +196,7 @@ def test_the_placeholders_carry_the_resolved_filter(client_viewer, reviewed):
         "year": ["2026"],
         "governorate": ["Akkar"],
         "review": ["week"],
+        "as_of": [stamp],
         "_part": ["review"],
     }
 
@@ -480,6 +483,104 @@ def test_an_edit_shows_at_once_in_the_part(client, admin_user, reviewed):
     assert ">500</a>" in after and ">700</a>" not in after  # the unique beneficiaries indicator now
 
 
+def test_the_figures_part_reads_the_build_kpis_stored_though_its_key_moved_between(
+    client, admin_user, reviewed, monkeypatch
+):
+    """The browser asks for ``figures`` once ``kpis`` is in. A run that finishes between the two (any job's: each
+    of the 52 runs of an eTools Datamart sync, the morning jobs) or an edit moves the build's key: ``figures``
+    still reads the build ``kpis`` stored, found from the fingerprint its address carries (``as_of``), so the
+    build is computed once and the page never shows the figures of two moments side by side (up to round 2
+    the second part computed a build of its own). The next page shows the figures of the moment, and so does
+    the old address once its build is no longer stored."""
+    _second(reviewed)  # a second children indicator of the PD: 700, the larger, stands for the PD
+    client.force_login(admin_user)
+    builds = Counter()
+    real_build = overview_service._Builder.build
+
+    def build(self):
+        builds["overview"] += 1
+        return real_build(self)
+
+    def children(response) -> int:
+        assert response.status_code == 200
+        return response.context["data"]["impact"]["children_reached"]
+
+    monkeypatch.setattr(overview_service._Builder, "build", build)
+    address = placeholders(text(raw_get(client, PAGE)))
+    first = client.get(address["kpis"], **HX)
+    assert children(first) == 700 and builds["overview"] == 1
+    SyncRun.objects.create(job=SyncRun.Job.WATCH, target="all", status=SyncRun.Status.RUNNING).finish(
+        SyncRun.Status.SUCCEEDED
+    )
+    response = client.post(reverse("reports:pd_main_indicator", args=[reviewed["pd"].pk]), {"key": "100"})
+    assert response.status_code == 302
+    second = client.get(address["figures"], **HX)
+    assert children(second) == 700 and builds["overview"] == 1  # the first part's build, read
+    assert second.context["data"] == first.context["data"]
+    assert children(get_part(client, PAGE, "figures")) == 500 and builds["overview"] == 2  # the next page
+    caches["shared"].clear()  # two minutes later: the frame's build is gone
+    assert children(client.get(address["figures"], **HX)) == 500 and builds["overview"] == 3
+
+
+def test_kpis_and_figures_read_one_build_though_the_figures_moved_before_kpis_and_again_between(
+    client, admin_user, reviewed, monkeypatch
+):
+    """The main indicator is chosen on the programme document page between the frame and ``kpis`` (the unique
+    beneficiaries one: 500) and chosen again between ``kpis`` and ``figures`` (the larger one: 700): ``kpis``
+    computes the build of its moment and keeps it for the frame's ``as_of``, ``figures`` reads it there, so the
+    build is computed once and the page shows one moment (up to round 3 ``figures`` computed a second build, and
+    showed 700 under tiles of 500). The next page shows the figures of the moment."""
+    _second(reviewed)  # a second children indicator of the PD: 700, the larger, stands for the PD
+    client.force_login(admin_user)
+    builds = Counter()
+    real_build = overview_service._Builder.build
+
+    def build(self):
+        builds["overview"] += 1
+        return real_build(self)
+
+    def children(response) -> int:
+        assert response.status_code == 200
+        return response.context["data"]["impact"]["children_reached"]
+
+    def choose(key: str) -> None:
+        response = client.post(reverse("reports:pd_main_indicator", args=[reviewed["pd"].pk]), {"key": key})
+        assert response.status_code == 302
+
+    monkeypatch.setattr(overview_service._Builder, "build", build)
+    address = placeholders(text(raw_get(client, PAGE)))
+    choose("100")  # before kpis: the unique beneficiaries indicator, 500
+    first = client.get(address["kpis"], **HX)
+    assert children(first) == 500 and builds["overview"] == 1
+    choose("300")  # between the two: the larger one, 700
+    second = client.get(address["figures"], **HX)
+    assert children(second) == 500 and builds["overview"] == 1  # the first part's build, read
+    assert second.context["data"] == first.context["data"]
+    assert children(get_part(client, PAGE, "figures")) == 700 and builds["overview"] == 2  # the next page
+
+
+def test_a_crafted_as_of_never_changes_what_a_page_of_another_moment_draws(client_viewer, reviewed):
+    """``as_of`` comes from the address: a part asked with a moved one keeps the build it reads for that
+    fingerprint, in a key space of its own. Asked for the fingerprint of a moment to come (here worked out with
+    the secret key, which a reader does not have; a fingerprint also comes back when an edit is undone), it
+    never makes the page of that moment draw the figures kept: its frame looks only at the moment's own key, so
+    it draws no figures inline, and its parts show the figures of the moment."""
+    address = placeholders(text(raw_get(client_viewer, PAGE)))
+    run = SyncRun.objects.create(job=SyncRun.Job.WATCH, target="all", status=SyncRun.Status.RUNNING)
+    coming = compute.fingerprint(f"{run.pk}:{overview_service.flags_fingerprint()}")  # once the run finishes
+    query = parse_qs(urlsplit(address["kpis"]).query, keep_blank_values=True)
+    query["as_of"] = [coming]
+    kept = raw_get(client_viewer, f"{PAGE}?{urlencode(query, doseq=True)}", **HX)
+    assert kept.status_code == 200 and kept.context["data"]["impact"]["children_reached"] == 500
+    _second(reviewed)  # the sync brings a second children indicator, 700, the larger
+    run.finish(SyncRun.Status.SUCCEEDED)
+    compute.reset_memo()
+    assert overview_service.fingerprint() == coming
+    page = text(raw_get(client_viewer, PAGE))
+    assert {"kpis", "figures"} <= set(placeholders(page))  # nothing stored for this moment: no figure inline
+    assert get_part(client_viewer, PAGE, "kpis").context["data"]["impact"]["children_reached"] == 700
+
+
 def _children_reached(client, query: str) -> int:
     response = raw_get(client, f"{PAGE}?{query}&_part=kpis", **HX)
     assert response.status_code == 200
@@ -503,6 +604,36 @@ def test_a_stored_build_never_answers_another_year(client_viewer, world):
     current = _children_reached(client_viewer, "section=&year=2026")
     assert (alone, current) == (0, 500)
     assert _children_reached(client_viewer, "section=&year=2025") == alone
+
+
+def test_a_section_spelt_another_way_never_answers_the_real_one(client_viewer, world):
+    """The sections come from the address as typed: "Child_Protection" (no such section) asked first stores an
+    empty build for every user, which must never answer the real section afterwards."""
+    crafted = _children_reached(client_viewer, "section=Child_Protection&year=2026")
+    compute.reset_memo()  # another request
+    assert (crafted, _children_reached(client_viewer, "section=Child+Protection&year=2026")) == (0, 500)
+
+
+def test_two_filters_never_share_a_key(world):
+    """However a section or a governorate is spelt (a space or an underscore, a bar or a colon inside a name),
+    two different filters never share the key of a stored build."""
+    filters = [
+        (["Child Protection"], ""),
+        (["Child_Protection"], ""),
+        (["Child Protection", "Education"], ""),
+        (["Child Protection|Education"], ""),
+        (["Child Protection"], "Beirut:Akkar"),
+        (["Child Protection:Beirut"], "Akkar"),
+        ([], "Mount Lebanon"),
+        ([], "Mount_Lebanon"),
+    ]
+    keys = {
+        overview_service._cache_key(
+            overview_service.Scope(year=2026, sections=sections, governorate=governorate, today=TODAY)
+        )
+        for sections, governorate in filters
+    }
+    assert len(keys) == len(filters)
 
 
 class _EveryStringTranslated(gettext.NullTranslations):

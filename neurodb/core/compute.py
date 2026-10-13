@@ -30,11 +30,14 @@ depend on, the user or the session included when they do: a shared cache that se
 to another would be a privacy defect. :func:`once` adds the active language (labels are translated when
 a build is computed) unless ``lang_neutral=True``, and the release, so a new deployment never reads what
 an older one stored. :func:`data_stamp` gives the part of a key that moves when a sync finishes or an
-indicator flag changes, so a sync shows at once on every worker.
+indicator flag changes, so a sync shows at once on every worker. A page's frame writes that part, as a
+:func:`fingerprint`, into its parts' addresses, so every part of the page reads the one build its first
+part used, even when a sync finished before or between them (:func:`once_as_of`).
 """
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import dataclasses
 import datetime
@@ -53,11 +56,12 @@ from typing import Any
 from django.conf import settings
 from django.core.cache import caches
 from django.core.cache.backends.db import DatabaseCache
-from django.db import DatabaseError, connection, transaction
+from django.db import DatabaseError, connection
 from django.db.models import Model
 from django.db.models.manager import BaseManager
 from django.db.models.query import QuerySet, RawQuerySet
 from django.utils import timezone
+from django.utils.crypto import salted_hmac
 from django.utils.translation import get_language
 
 logger = logging.getLogger(__name__)
@@ -70,8 +74,9 @@ PART_WAIT = 2.0  # seconds a part request waits for another request's build befo
 CLEAN_EVERY = 600  # seconds between two deletions of the expired rows, per process
 
 _PICKLED, _ZIPPED = b"p", b"z"  # the first byte of a stored value: how the rest is encoded
-_STAMP = ("data_stamp",)  # the memo's entry for data_stamp(): never a cache key (those are strings)
 _SAFE_KEY = re.compile(r"[!-~]{1,200}")  # printable ASCII without spaces, short enough for every backend
+_FINGERPRINT = re.compile(r"[0-9a-f]{16}")  # what fingerprint() gives
+_AS_OF = "as-of:"  # the key space of the builds kept for a frame's fingerprint (once_as_of), read only there
 _UNSAFE_CHARS = re.compile(r"[^\w.:|=-]", re.ASCII)
 
 _local = threading.local()  # .memo (dict, or None outside a request) and .part_wait (seconds, or None)
@@ -161,11 +166,20 @@ def _uses_database(cache) -> bool:
     return isinstance(cache, DatabaseCache) and connection.vendor == "postgresql"
 
 
+def _in_transaction(cache) -> bool:
+    """Inside ``transaction.atomic`` with the database cache (a read-only tool run of Watch, the help or
+    the field monitoring chat; an admin action; a test): what is stored is read, but nothing is written,
+    deleted or locked there (see :func:`once`)."""
+    return _uses_database(cache) and connection.in_atomic_block
+
+
 def _read(full: str) -> tuple[bool, Any]:
     """(found, value) from the shared cache. A row that cannot be read back (stored by code that has
     changed since) counts as missing."""
     cache = _cache()
     storage_key = _storage_key(full)
+    if _in_transaction(cache):
+        return _read_in_transaction(cache, storage_key, full)
     try:
         raw = cache.get(storage_key)
     except DatabaseError:
@@ -179,6 +193,29 @@ def _read(full: str) -> tuple[bool, Any]:
         logger.warning("compute: dropped an unreadable value (%s)", full, exc_info=True)
         with contextlib.suppress(DatabaseError):
             cache.delete(storage_key)
+        return False, None
+
+
+def _read_in_transaction(cache, storage_key: str, full: str) -> tuple[bool, Any]:
+    """:func:`_read` inside a transaction: one plain SELECT of a row that has not expired. Django's own
+    ``get`` deletes an expired row it reads, and a DELETE in a READ ONLY transaction fails and aborts it
+    (every later query of the tool run would fail). Nothing is deleted here, an unreadable row neither: it
+    is a miss, dropped by the next read outside a transaction."""
+    table = connection.ops.quote_name(cache._table)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"SELECT value FROM {table} WHERE cache_key = %s AND expires >= %s",  # noqa: S608 - the settings'
+            [cache.make_and_validate_key(storage_key), timezone.now()],
+        )
+        row = cursor.fetchone()
+    if row is None:
+        return False, None
+    try:
+        # the value as DatabaseCache keeps it: the pickle of what was set, in base64
+        raw = pickle.loads(base64.b64decode(row[0].encode()))  # noqa: S301 - only this module writes the table
+        return True, _decode(raw)
+    except Exception:  # any unreadable row is a miss, never an error
+        logger.warning("compute: an unreadable value, kept inside a transaction (%s)", full, exc_info=True)
         return False, None
 
 
@@ -359,9 +396,13 @@ def once[T](
 
     The value is kept for the rest of the request too, and the same object is returned each time: never
     change it in place. ``wait`` is how long a request waits for another one computing the same key
-    before computing it itself (in a part request: before raising :class:`Pending`). Inside
-    ``transaction.atomic`` the database lock is refused (``TransactionManagementError``): it would be
-    released before the stored value commits, and a rollback would lose it.
+    before computing it itself (in a part request: before raising :class:`Pending`).
+
+    Inside ``transaction.atomic`` with the database cache (the read-only tool runs, an admin action), a
+    stored value is read as anywhere else, but a missing one is computed for this caller (and the request's
+    memo) only: no lock, which would be released before the value commits, and nothing stored, which a
+    rollback would lose and a READ ONLY transaction cannot write. Nothing is deleted there either (see
+    :func:`_read_in_transaction`).
     """
     full = _full_key(key, lang_neutral)
     memo = _memo()
@@ -377,12 +418,12 @@ def once[T](
 
 def _compute_once[T](full: str, compute: Callable[[], T], ttl: int, wait: float) -> T:
     cache = _cache()
+    if _in_transaction(cache):  # computed for this caller only: no lock, nothing stored (see once)
+        value = compute()
+        if settings.DEBUG or settings.ENV == "test":
+            _check_plain(value)
+        return value
     if _uses_database(cache):
-        if connection.in_atomic_block:
-            raise transaction.TransactionManagementError(
-                "compute.once() cannot take its lock inside transaction.atomic: the lock would be "
-                "released before the value commits. Call it outside the atomic block."
-            )
         lock: _ThreadLock | _AdvisoryLock = _AdvisoryLock(full)
     else:
         lock = _ThreadLock(full)
@@ -422,16 +463,105 @@ def _compute_once[T](full: str, compute: Callable[[], T], ttl: int, wait: float)
 
 
 # -------------------------------------------------------------------------------------------- the stamp
+def per_request[T](name: str, read: Callable[[], T]) -> T:
+    """``read()``, read once per request: the small reads a page's keys are made of (:func:`data_stamp`, the
+    last change of a table staff edit), which the frame's :func:`peek` and the part's :func:`once` of the
+    same request would otherwise each make. Outside a request it is read each time. The value is never
+    stored in the shared cache."""
+    memo = _memo()
+    entry = ("per_request", name)  # never a cache key: those are strings
+    if memo is not None and entry in memo:
+        return memo[entry]
+    value = read()
+    if memo is not None:
+        memo[entry] = value
+    return value
+
+
 def data_stamp() -> str:
     """What the synced figures depend on, for the keys of :func:`once`: the last finished sync run (any
     job) and the indicator flags. It changes as soon as a sync finishes or a flag is edited. Read once
     per request."""
-    memo = _memo()
-    if memo is not None and _STAMP in memo:
-        return memo[_STAMP]
-    from neurodb.reports.overview import flags_fingerprint, latest_sync_run
 
-    stamp = f"{latest_sync_run() or ''}:{flags_fingerprint()}"
-    if memo is not None:
-        memo[_STAMP] = stamp
-    return stamp
+    def read() -> str:
+        from neurodb.reports.overview import flags_fingerprint, latest_sync_run
+
+        return f"{latest_sync_run() or ''}:{flags_fingerprint()}"
+
+    return per_request("data_stamp", read)
+
+
+def fingerprint(text: str) -> str:
+    """``text`` (what a build depends on besides its scope: :func:`data_stamp`, the last change of a table
+    staff edit) as 16 hex digits: short, the same in every process, safe in a key and in an address. A
+    page in parts writes its build's fingerprint into the addresses of its parts (``as_of``,
+    :func:`once_as_of`). It is keyed with the secret key (an HMAC, as the assistant's safety identifier):
+    the text is easy to guess (the next sync run's number, for one), its fingerprint is not, so an address
+    can only carry the fingerprint of a moment the server has drawn a page for."""
+    return salted_hmac("neurodb.core.compute.fingerprint", text, algorithm="sha256").hexdigest()[:16]
+
+
+def peek_as_of(
+    key_of: Callable[[str], str], as_of: str, now: str, *, lang_neutral: bool = False
+) -> tuple[bool, Any]:
+    """The build of the moment a page's frame was drawn at, for one of its parts: ``(True, value)`` when
+    ``as_of`` (the fingerprint the frame read, which the part's address carries) is not ``now``, the
+    fingerprint of the moment, and a value is still stored under ``key_of(as_of)``; ``(False, None)``
+    otherwise.
+
+    The parts of a group come one after another: the first reads or computes the build, the others read
+    what it read. A sync that finishes in between moves ``now``: the later parts then find the first one's
+    build here, under the frame's moment, while it is stored (its time to live). Nothing is computed or
+    stored under ``as_of`` here, and the key holds the scope as before, so a crafted ``as_of`` can only pick
+    figures stored a moment ago for the same scope (they hold nothing about the person asking). A part
+    reads its build through :func:`once_as_of`, which also covers a sync that finished before the first
+    part."""
+    if not as_of or as_of == now or not _FINGERPRINT.fullmatch(as_of):
+        return False, None
+    return peek(key_of(as_of), lang_neutral=lang_neutral)
+
+
+def once_as_of[T](
+    key_of: Callable[[str], str],
+    as_of: str,
+    now: str,
+    compute: Callable[[], T],
+    ttl: int,
+    *,
+    lang_neutral: bool = False,
+) -> T:
+    """The build of a page in parts, for any of its requests: :func:`once` of ``key_of(now)``, ``now`` being
+    the :func:`fingerprint` of the moment, unless ``as_of`` (the fingerprint the page's frame read, which
+    the address of each of its parts carries) is a well-formed fingerprint other than ``now``. The figures
+    have then moved since the frame (a sync run finished, an edit), and every part of that page reads one
+    build, whatever moves before or between them:
+
+    1. the build kept for ``as_of`` by the page's first part, when the figures had already moved before
+       it (step 3);
+    2. else the build of the frame's moment, while it is stored (:func:`peek_as_of`): the first part read
+       or computed it before the figures moved;
+    3. else the build of the moment (:func:`once` of ``key_of(now)``, read or computed as usual), kept for
+       ``ttl`` under ``as_of`` too, so the later parts read it in step 1. One request at a time does this
+       for an ``as_of`` (the lock of :func:`once`): a part asked meanwhile waits for it and reads it.
+
+    What is kept under ``as_of`` has a key space of its own, read only here: the frame's look at what is
+    stored (:func:`peek`) and every request without a moved ``as_of`` read the figures of their own moment
+    as before, whatever an address asked to keep (a fingerprint can also come back, when an edit is
+    undone). An address can only carry the fingerprint of a moment the server drew a page for
+    (:func:`fingerprint`), and the key holds the scope, so a crafted ``as_of`` only reads or keeps the
+    figures of the same scope from a moment ago, which hold nothing about the person asking.
+    """
+    if not as_of or as_of == now or not _FINGERPRINT.fullmatch(as_of):
+        return once(key_of(now), compute, ttl, lang_neutral=lang_neutral)
+    kept = _AS_OF + key_of(as_of)
+    found, value = peek(kept, lang_neutral=lang_neutral)
+    if not found:
+        found, value = peek_as_of(key_of, as_of, now, lang_neutral=lang_neutral)
+    if found:
+        return value
+    return once(
+        kept,
+        lambda: once(key_of(now), compute, ttl, lang_neutral=lang_neutral),
+        ttl,
+        lang_neutral=lang_neutral,
+    )

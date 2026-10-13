@@ -48,6 +48,7 @@ const PENDING_MAX = 6000;
 const BUDGET = 60000; // as the part's own request timeout (hx-request)
 const ANNOUNCE_AFTER = 1000; // "Loading the figures…" only when it takes longer than this
 const LOAD_WAIT = 1000; // longest wait for htmx:load after a swap (it comes 20 ms after)
+const ANCHOR_DEPTH = 3; // how many parts deep a link looks for its target (a part that brings a part...)
 
 // The words staff see. base.html gives the translated ones on #parts-status (data-text-*); these are the
 // English defaults.
@@ -527,6 +528,7 @@ export function initParts() {
   let leaving = false;
   let scrolled = false;
   let anchor = null;
+  let landing = null; // a link whose parts are all in, until it goes to its target: { id, depth }
   let hold = null;
   let started = false;
   let booted = false;
@@ -850,7 +852,9 @@ export function initParts() {
   // data-part-anchors prefix: anchorParts) bumps those parts; once they are in, the page scrolls to it, unless
   // the person has scrolled since. The parts above it that are still to come then push it down as they arrive:
   // until they are all in, each arrival puts it back at the top (a hold), still only if the person has not
-  // scrolled.
+  // scrolled. A target in a part that one of those parts brings (a part inside a part: the partner page's
+  // Monitoring insights panel inside its figures) is not there yet when they are in: the link then waits for
+  // that part too (lookInside), up to ANCHOR_DEPTH parts deep.
   function partsFor(id) {
     const list = [...recs.values()].map((rec) => ({ rec, el: rec.el, strict: rec.strict, anchors: rec.anchors }));
     return anchorParts(id, document.getElementById(id), list)
@@ -871,9 +875,24 @@ export function initParts() {
     if (!list.length) return;
     scrolled = false;
     hold = null;
+    waitFor(id, list, 0);
+  }
+
+  // The link to #id waits for these parts (asked for first); `depth`: how many parts deep it has looked.
+  function waitFor(id, list, depth) {
+    landing = null;
     queue.bump(list.map((rec) => rec.id));
-    anchor = { id, waiting: new Set(list.map((rec) => rec.id)), arrivals: [] };
+    anchor = { id, waiting: new Set(list.map((rec) => rec.id)), arrivals: [], depth };
     pump();
+  }
+
+  // The parts a link waited for are in, and these placeholders (`fresh`) came with them (discover, on their
+  // htmx:load, before the queue is asked for more): when the target is not on the page and is in one of them,
+  // the link waits for that one too.
+  function lookInside(fresh) {
+    if (!landing || scrolled || landing.depth >= ANCHOR_DEPTH || document.getElementById(landing.id)) return;
+    const inner = partsFor(landing.id).filter((rec) => fresh.includes(rec.el));
+    if (inner.length) waitFor(landing.id, inner, landing.depth + 1);
   }
 
   // Instant: a smooth scroll (Bootstrap sets scroll-behavior: smooth) keeps the end point it started with while
@@ -915,9 +934,12 @@ export function initParts() {
     anchor.waiting.delete(rec.id);
     if (arrived) anchor.arrivals.push(arrived);
     if (anchor.waiting.size) return;
-    const { id, arrivals: waits } = anchor;
+    const { id, arrivals: waits, depth } = anchor;
     anchor = null;
+    const current = (landing = { id, depth });
     Promise.all(waits).then(() => {
+      if (landing !== current) return; // it waits for a part they brought (lookInside), or another link was followed
+      landing = null;
       const target = document.getElementById(id);
       if (!target || scrolled) return;
       target.classList.add("is-target");
@@ -1056,7 +1078,7 @@ export function initParts() {
     if (!started) {
       started = true;
       if (!boot() && window.location.hash) goTo(window.location.hash); // back to its offset, else to its #anchor
-    }
+    } else lookInside(fresh);
     pump();
   }
 

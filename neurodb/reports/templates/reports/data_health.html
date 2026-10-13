@@ -7,14 +7,21 @@ is kept here, around the placeholders, so it is the same before and after a part
 Each placeholder keeps the room of what it will hold, as measured on the x20 parity world (scripts/parity): height
 where the page is wide, height_md on a tablet or a narrow window (app.css says at which widths) where the readiness
 verdicts stack, height_sm on a phone; the readiness check as it reads once it has run (every Monday). The jobs' placeholder draws one grey card per job in the cards' own grid
-(app.css, stage A), so its rows wrap as the cards will at any width. The datasets panel is taller for an
-administrator, whose explanation also links to the reporting checks.{% endcomment %}
+(app.css, stage A), so its rows wrap as the cards will at any width. The datasets panel's heading and explanation
+(longer for an administrator, whose copy links to the reporting checks) are drawn here: their text wraps at its own
+widths, which no placeholder height could follow. The part holds the table, which scrolls inside 560 px, under its
+Copy and CSV buttons (39 px): they come with the table they copy, so none is offered before it is in or when it
+failed.{% endcomment %}
 <h2 class="section-heading mt-0" id="jobs-title">{% trans "Sync jobs" %} <span class="small text-muted fw-normal">{% blocktrans with h=staleness_hours %}Stale after {{ h }} hours{% endblocktrans %}</span></h2>
 <div class="mb-3">{% part "jobs" kind="tiles" priority="high" labelledby="jobs-title" rows=job_count tiles=1 %}</div>
 <div class="grid grid--2 health-tables">
   {% part "databases" kind="table" height="326.6px" height_sm="451.2px" %}
   {% part "runs" kind="table" height="618px" %}
 </div>
-<div class="mt-3">{% if user_role == "Administrator" %}{% part "datasets" kind="table" priority="low" height="685.1px" height_sm="812.2px" %}{% else %}{% part "datasets" kind="table" priority="low" height="665.4px" height_sm="772.8px" %}{% endif %}</div>
+<div class="mt-3"><section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("eTools Datamart datasets") count=dataset_count table_id="datasets" no_copy=True %}
+  <p class="small text-muted px-3 mb-2">{% trans "Per dataset: the last run, the records read and written, what could not be linked (a partner, programme document or location not in NeuroDB yet), and the rows NeuroDB holds. Read this before trusting a number on an eTools page." %}{% if user_role == "Administrator" %} <a href="{% url 'admin:datamart_reporting_checks' %}">{% trans "eTools reporting checks" %}</a>: {% trans "how the partner reports behind Reached look, with a verdict for each question." %}{% endif %}</p>
+  {% part "datasets" kind="table" priority="low" height="599px" %}
+</section></div>
 <div class="mt-3">{% part "readiness" kind="card" priority="low" height="546.5px" height_md="859.4px" height_sm="1431.6px" %}</div>
 {% endblock %}

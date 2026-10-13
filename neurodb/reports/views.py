@@ -41,7 +41,7 @@ from neurodb.datamart import services as datamart
 from neurodb.datamart.models import AuditEngagement, AuditFinding, PDIndicator
 from neurodb.facts.services import dashboard as facts
 from neurodb.facts.services import partners as partner_facts
-from neurodb.indicators.models import Database, MasterIndicator, NeuroReport, ReportingYear
+from neurodb.indicators.models import Database, MasterIndicator, NeuroReport
 from neurodb.indicators.services.tracking import LABELS
 from neurodb.knowledge.search import linked as linked_documents
 from neurodb.library.models import Resource
@@ -308,12 +308,14 @@ def overview(request: HttpRequest) -> HttpResponse:
 
     The page loads in parts (:mod:`neurodb.web.parts`): this view answers the frame at once (purpose,
     filter bar, subtitle, freshness strip) with a placeholder per data block, and each block is asked
-    for at this address plus ``_part``, with the resolved filter (the own section written out):
+    for at this address plus ``_part``, with the resolved filter (the own section written out) and
+    ``as_of``, the fingerprint of the figures the frame was drawn with:
 
     - ``kpis`` and ``figures`` (impact, money, delivery, TPM and action point progress) read one
       overview build (:func:`neurodb.reports.overview.build`, shared by every worker); when that build
       is already stored, the frame draws both inline, so a warm overview asks only for the three parts
-      below that are never stored (``for-you``, ``review`` and ``news``);
+      below that are never stored (``for-you``, ``review`` and ``news``); otherwise ``figures`` reads
+      the build ``kpis`` read for ``as_of``, even when a sync finished before or between them;
     - ``review`` (the daily review card) and ``review-more`` (its folded findings, loaded when opened,
       maybe hours later: its address carries ``review_latest``, the latest review the card read, and
       ``review_id``, the review it shows, so the findings are always the card's, even after a newer
@@ -390,8 +392,13 @@ def overview(request: HttpRequest) -> HttpResponse:
     if not year:  # nothing to compute: the empty state, no parts
         return render_page(request, "reports/overview.html", scope=scope, shell=shell, parts={}, query="")
 
+    # The figures the frame is drawn with (their fingerprint: overview_service.fingerprint): a part request
+    # reads them from its address, so ``figures`` reads the build ``kpis`` read even when a sync finished
+    # before or between them, while it is stored (compute.once_as_of). Any other request reads them now.
+    as_of = request.GET.get("as_of", "") if getattr(request, "part", None) else overview_service.fingerprint()
     # The resolved filter of every part request: the sections written out (``section=`` for every
-    # section, so a part never takes the user's own section again), the year always.
+    # section, so a part never takes the user's own section again), the year always, and the figures'
+    # fingerprint.
     resolved = QueryDict(mutable=True)
     resolved.setlist("section", sections or [""])
     resolved["year"] = year.name
@@ -403,10 +410,12 @@ def overview(request: HttpRequest) -> HttpResponse:
         resolved["review_latest"] = review_latest.isoformat()
     if review_id:
         resolved["review_id"] = str(review_id)
+    if as_of:
+        resolved["as_of"] = as_of
     build_scope = overview_service.Scope(
         year=year_number, reporting_year=year, sections=sections, governorate=governorate, today=today
     )
-    data = functools.cache(lambda: overview_service.build(build_scope))
+    data = functools.cache(lambda: overview_service.build(build_scope, as_of=as_of))
     stored = functools.cache(lambda: overview_service.stored(build_scope))
     review_services = _review_services()
     review = functools.cache(
@@ -493,15 +502,17 @@ def brief(request: HttpRequest) -> HttpResponse:
     The page loads in parts (:mod:`neurodb.web.parts`): this view answers the frame at once (purpose,
     filter bar with the "Figures as of" line, the tab bar, the Reference block, from
     :func:`neurodb.reports.brief.lineage`) with a placeholder for each of its two parts, asked for at this
-    address plus ``_part``, with the resolved filter (``section=`` for every section, the year always):
+    address plus ``_part``, with the resolved filter (``section=`` for every section, the year always) and
+    ``as_of``, the fingerprint of the figures the frame was drawn with:
 
     - ``brief`` (the headline figures, the things to decide with their staff-only Assign links, the
       sections at a glance and the brief as text behind *Copy summary*), the group's leader;
     - ``sections`` (ahead or behind, how sure, who and where, partners, money, action, with their charts).
 
     Both read one brief build (:func:`neurodb.reports.brief.build`, shared by every worker): when it is
-    already stored, the frame draws both inline, so a warm brief is one request. Without a reporting
-    year: the empty state, and no part at all.
+    already stored, the frame draws both inline, so a warm brief is one request; otherwise ``sections``
+    reads the build ``brief`` read for ``as_of``, even when a sync finished before or between them.
+    Without a reporting year: the empty state, and no part at all.
     """
     year = services.resolve_year(request.GET.get("year"))
     today = datetime.date.today()
@@ -562,26 +573,24 @@ def brief(request: HttpRequest) -> HttpResponse:
     if not year:  # nothing to compute: the empty state, no parts
         return render_page(request, "reports/brief.html", scope=scope, shell=shell, parts={}, query="")
 
+    # The figures the frame is drawn with (their fingerprint: brief_service.fingerprint): a part request
+    # reads them from its address, so the second part reads the build the first one read even when a
+    # sync, a review or an edit came before or between them, while it is stored (compute.once_as_of). Any
+    # other request reads them now.
+    as_of = request.GET.get("as_of", "") if getattr(request, "part", None) else brief_service.fingerprint()
     # The resolved filter of every part request: the sections written out (``section=`` for every
-    # section), the year always.
+    # section), the year always, and the figures' fingerprint.
     resolved = QueryDict(mutable=True)
     resolved.setlist("section", sections or [""])
     resolved["year"] = year.name
-    build_scope = functools.partial(
-        brief_service.Scope, year=year_number, reporting_year=year, sections=sections, today=today
-    )
-    data = functools.cache(
-        lambda: brief_service.build(
-            build_scope(
-                previous_reporting_year=ReportingYear.objects.filter(name__startswith=str(year_number - 1))
-                .order_by("id")
-                .first()
-            )
-        )
-    )
-    # whether the build is stored: its key reads the scope's year, reporting year, sections and day, never
-    # the previous reporting year, so the frame does not look that one up
-    stored = functools.cache(lambda: brief_service.stored(build_scope()))
+    if as_of:
+        resolved["as_of"] = as_of
+    # the previous reporting year is looked up only when the build is computed (its key never reads it), and
+    # the key's own reads (the hand-entered tables, the latest review) are made once, for the frame's look and
+    # for the build it then draws
+    build_scope = brief_service.Scope(year=year_number, reporting_year=year, sections=sections, today=today)
+    data = functools.cache(lambda: brief_service.build(build_scope, as_of=as_of))
+    stored = functools.cache(lambda: brief_service.stored(build_scope))
     parts = {
         "brief": Part("reports/parts/brief_brief.html", lambda: {"data": data()}, ready=stored),
         "sections": Part(
@@ -2373,20 +2382,23 @@ def data_health(request: HttpRequest) -> HttpResponse:
     before (donors are kept out by their own middleware).
 
     The page loads in parts (:mod:`neurodb.web.parts`): this view answers the frame at once (the page
-    heading, the *Sync jobs* heading with its staleness note) with a placeholder per block, each asked for
-    at this address plus ``_part``, each its own computation:
+    heading, the *Sync jobs* heading with its staleness note, the datasets panel's heading and explanation)
+    with a placeholder per block, each asked for at this address plus ``_part``, each its own computation:
 
     - ``jobs``: one card per sync job, fresh, stale or never succeeded (:func:`services.health_jobs`);
     - ``databases``: the displayed ActivityInfo databases of the current year and their last import;
     - ``runs``: the latest 50 runs of every job;
-    - ``datasets``: the eTools Datamart datasets (:func:`services.datamart_quality`), whose row counts
-      are stored for every worker (an hour at most, keyed on the jobs that write those tables);
+    - ``datasets``: the table of the eTools Datamart datasets (:func:`services.datamart_quality`), whose row
+      counts are stored for every worker (an hour at most, keyed on the jobs that write those tables); its
+      panel's heading and explanation are the frame's;
     - ``readiness``: the last machine learning readiness check.
 
     The page has no filter: the parts' query is empty.
     """
 
     def shell() -> dict[str, Any]:
+        from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
+
         return {
             "page_title": _("Data health"),
             "page_subtitle": _("Sync runs and freshness of every source"),
@@ -2394,6 +2406,8 @@ def data_health(request: HttpRequest) -> HttpResponse:
             "staleness_hours": settings.SYNC_STALENESS_HOURS,
             # the jobs' placeholder draws one grey card per job card to come (no query)
             "job_count": sum(1 for job in SyncRun.Job if job not in services.HEALTH_SKIPPED_JOBS),
+            # the datasets panel's heading counts the datasets its table lists, one per Datamart dataset
+            "dataset_count": len(ENTITY_SYNCS),
         }
 
     parts = {

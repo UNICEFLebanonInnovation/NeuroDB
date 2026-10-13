@@ -14,7 +14,8 @@ reporting sources stay apart, as on the overview: a total is the larger of the t
 
 The page loads in parts (``reports.views.brief``): both of its parts read one build, kept two minutes in the
 cache every worker shares (:func:`neurodb.core.compute.once`) under the brief's own key (:func:`_cache_key`:
-the hand-entered tables, the latest review, the indicator flags and the last finished sync). Nothing in a
+the hand-entered tables, the ActivityInfo partner links staff correct in the admin, the latest review, the
+indicator flags and the last finished sync). Nothing in a
 build depends on who asks (the staff-only Assign links are the page's, from the person asking); its labels
 are translated as it is computed, so a build is kept per language. The page's frame draws the "Figures as
 of" line and the Reference block from :func:`lineage`, kept the same way, never from a build.
@@ -23,15 +24,16 @@ of" line and the Reference block from :func:`lineage`, kept the same way, never 
 from __future__ import annotations
 
 import datetime
+import json
 import logging
 import statistics
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.db.models import Count, Max, Q
+from django.db.models import Count, Max, Q, Value
 from django.urls import reverse
 from django.utils import timezone
 
@@ -53,7 +55,7 @@ from neurodb.web.templatetags.ui import money as money_text
 logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 120
-CACHE_VERSION = 6  # 6: in the shared cache (compute.once), the sync part from compute.data_stamp()
+CACHE_VERSION = 7  # 7: the sections written as JSON in the key (6: in the shared cache, compute.once)
 RULES_VERSION = "v2"
 MONTH_LABELS = overview.MONTH_LABELS
 PROJECTION_MONTHS = 3  # the pace is the average of the last three reported months
@@ -84,7 +86,7 @@ NATIONALITY_OF_TAG = {"Lebanese": "Lebanese", "Syrian": "Syrian", "Palestinian":
 class Scope:
     year: int
     reporting_year: Any = None  # this year's ReportingYear (ActivityInfo), None when none exists
-    previous_reporting_year: Any = None
+    previous_reporting_year: Any = None  # None: looked up when a build is computed (_build)
     sections: list[str] = field(default_factory=list)
     today: datetime.date = field(default_factory=datetime.date.today)
 
@@ -191,32 +193,78 @@ def grant_balances(lines: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 
 
 # --------------------------------------------------------------------------------- build
-def _cache_key(scope: Scope) -> str:
+def previous_reporting_year(year: int) -> Any:
+    """The ReportingYear (ActivityInfo) of the year before ``year``, None when there is none."""
+    from neurodb.indicators.models import ReportingYear
+
+    return ReportingYear.objects.filter(name__startswith=str(year - 1)).order_by("id").first()
+
+
+def _latest_review() -> int | None:
+    """The id of the latest daily review, in the build's key and the lineage's: read once per request."""
+    return compute.per_request("brief:review", lambda: DailyReview.objects.aggregate(last=Max("id"))["last"])
+
+
+# what staff fill in by hand that the build reads (section plans, finding assignments, and the ActivityInfo
+# partner links of the confidence and partners blocks), in the order of the key's text
+HAND_ENTERED = {"plans": SectionPlan, "owners": FindingAssignment, "links": PartnerLink}
+
+
+def _hand_entered() -> str:
+    """The tables staff fill in by hand (:data:`HAND_ENTERED`: section plans, finding assignments,
+    ActivityInfo partner links) as a short text that changes with every edit: how many rows and the last
+    change of each, in one query. Read once per request, so the frame's look at the stored build and the
+    build it then draws share one reading."""
+
+    def read() -> str:
+        tables = [
+            model.objects.annotate(table=Value(name))
+            .values("table")  # a constant: one row per table, an empty one included
+            .annotate(n=Count("pk"), last=Max("updated_at"))
+            .values_list("table", "n", "last")
+            .order_by()
+            for name, model in HAND_ENTERED.items()
+        ]
+        found = {name: (n, last) for name, n, last in tables[0].union(*tables[1:], all=True)}
+        return ":".join(f"{found[name][0]}:{found[name][1]}" for name in HAND_ENTERED)
+
+    return compute.per_request("brief:hand-entered", read)
+
+
+def fingerprint() -> str:
+    """What a build depends on besides its scope as 16 hex digits (no spaces: memcached-safe): the
+    hand-entered tables (section plans, finding assignments, ActivityInfo partner links), the latest review
+    and :func:`neurodb.core.compute.data_stamp` (the indicator flags and the last finished sync). In the
+    build's key, and in the address of each part of the page (``as_of``, see :func:`build`). Read once per
+    request."""
+    return compute.fingerprint(f"{_hand_entered()}:{_latest_review()}:{compute.data_stamp()}")
+
+
+def _cache_key(scope: Scope, stamp: str = "") -> str:
     """Everything the result depends on: the overview's inputs plus the hand-entered tables (section plans,
-    finding assignments), the latest review, and :func:`neurodb.core.compute.data_stamp` (the indicator
-    flags and the last finished sync), so a new assignment, plan, flag or sync shows at once. Nothing about
-    the person asking: a build depends on its scope only."""
-    import hashlib
-
-    plans = SectionPlan.objects.aggregate(n=Count("pk"), last=Max("updated_at"))
-    owners = FindingAssignment.objects.aggregate(n=Count("pk"), last=Max("updated_at"))
-    review = DailyReview.objects.aggregate(last=Max("id"))
-    sections = "|".join(sorted(scope.sections))
+    finding assignments, ActivityInfo partner links), the latest review, and
+    :func:`neurodb.core.compute.data_stamp` (the indicator flags and the last finished sync), so a new
+    assignment, plan, partner link, flag or sync shows at once (``stamp``,
+    their :func:`fingerprint`, is read now unless given). Nothing about the person asking: a build depends
+    on its scope only. The previous reporting year follows from the year, so it is not in the key (and not
+    looked up for it). The sections come from the address as typed: written as JSON, two spellings never
+    share a key (as the overview's)."""
+    sections = json.dumps(sorted(scope.sections))
     ryear = getattr(scope.reporting_year, "pk", "")
-    fingerprint = (
-        f"{plans['n']}:{plans['last']}:{owners['n']}:{owners['last']}:{review['last']}:{compute.data_stamp()}"
-    )
-    digest = hashlib.sha256(fingerprint.encode()).hexdigest()[:16]  # no spaces: memcached-safe
-    return f"brief:v{CACHE_VERSION}:{scope.year}:{ryear}:{sections}:{scope.today}:{digest}"
+    return f"brief:v{CACHE_VERSION}:{scope.year}:{ryear}:{sections}:{scope.today}:{stamp or fingerprint()}"
 
 
-def build(scope: Scope, *, cache: bool = True) -> dict[str, Any]:
+def build(scope: Scope, *, cache: bool = True, as_of: str = "") -> dict[str, Any]:
     """Every block of the management brief for ``scope`` (see the module docstring): computed once across
     every worker and kept two minutes (per language: its labels are translated). ``cache=False`` (and
-    DEBUG) computes it afresh."""
+    DEBUG) computes it afresh. ``as_of``, in a part request, is the :func:`fingerprint` the page's frame
+    read: the page's two parts show one build even when a sync, a review or an edit came before or between
+    them (:func:`neurodb.core.compute.once_as_of`)."""
     if not cache or settings.DEBUG:
         return _build(scope, cache=cache)
-    return compute.once(_cache_key(scope), lambda: _build(scope), CACHE_SECONDS)
+    return compute.once_as_of(
+        lambda stamp: _cache_key(scope, stamp), as_of, fingerprint(), lambda: _build(scope), CACHE_SECONDS
+    )
 
 
 def stored(scope: Scope) -> bool:
@@ -228,6 +276,8 @@ def stored(scope: Scope) -> bool:
 
 
 def _build(scope: Scope, *, cache: bool = True) -> dict[str, Any]:
+    if scope.previous_reporting_year is None:  # only a build computed needs it, never a stored one
+        scope = replace(scope, previous_reporting_year=previous_reporting_year(scope.year))
     now = overview.build(
         overview.Scope(
             year=scope.year, reporting_year=scope.reporting_year, sections=scope.sections, today=scope.today
@@ -258,8 +308,7 @@ def lineage(year: int) -> dict[str, Any]:
     waited for: a frame computes it itself (a few small queries) when another request is at it."""
     if settings.DEBUG:
         return _lineage(year)
-    review = DailyReview.objects.aggregate(last=Max("id"))["last"]
-    key = f"brief-lineage:v{CACHE_VERSION}:{year}:{review}:{compute.data_stamp()}"
+    key = f"brief-lineage:v{CACHE_VERSION}:{year}:{_latest_review()}:{compute.data_stamp()}"
     return compute.once(key, lambda: _lineage(year), CACHE_SECONDS, wait=0, lang_neutral=True)
 
 

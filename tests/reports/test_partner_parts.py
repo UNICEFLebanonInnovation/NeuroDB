@@ -240,6 +240,40 @@ def test_each_part_answers_its_wrapper(client_viewer, world, name):
     assert executable(html) == []  # nothing that would run once swapped in, its partials' neither
 
 
+def _key_figures(client, partner) -> dict[str, str]:
+    html = text(get_part(client, _url(partner), "datamart"))
+    return dict(
+        re.findall(
+            r'<div class="kpi__label">([^<]+)</div>\s*<div class="kpi__value">(?:<a [^>]*>)?([^<]*)', html
+        )
+    )
+
+
+def test_the_key_figures_are_the_partner_s(client_viewer, world):
+    """The assembled page and the eager page draw the same part template, so their equivalence cannot catch a
+    wrong figure in it: the key figures themselves are checked here. Then Amel gets an ended and a closed
+    programme document (in All documents only), a draft (in neither), two more open action points and a
+    completed one (not open), so no two of these tiles show the same figure: a tile that showed another's
+    figure would fail."""
+    amel = world["amel"]
+    tiles = _key_figures(client_viewer, amel)
+    assert tiles["Active documents"] == "1" and tiles["All documents"] == "1"
+    assert tiles["ActivityInfo records"] == "2" and tiles["Open action points"] == "2"
+    for n, status in ((1, "ended"), (2, "closed"), (3, "draft")):
+        PCA.objects.create(
+            etl_id=f"41{n}", partner=amel, partner_name=amel.name, number=f"LEB/PCA-AMEL-{n}", title="Education",
+            status=status, start=D(2025, 1, 1), end=D(2025, 12, 31), document_type="PD",
+        )  # fmt: skip
+    for n, status in ((3, "open"), (4, "in_progress"), (5, "completed")):
+        dm.ActionPoint.objects.create(
+            datamart_id=4100 + n, partner=amel, reference_number=f"LEB/2026/{n}/APD", status=status,
+            description=f"Follow up {n}", due_date=TODAY + datetime.timedelta(days=20), related_module="fm",
+        )  # fmt: skip
+    tiles = _key_figures(client_viewer, amel)
+    assert (tiles["Active documents"], tiles["All documents"]) == ("1", "3")
+    assert (tiles["ActivityInfo records"], tiles["Open action points"]) == ("2", "4")
+
+
 def test_the_monitoring_insights_panel_is_a_part_inside_the_figures(client_viewer, world, settings):
     url = _url(world["amel"])
     inner = placeholder_attributes(text(get_part(client_viewer, url, "datamart")))
@@ -436,9 +470,24 @@ def test_partner_datamart_reads_the_progress_reports_once_with_the_same_figures(
     assert data["reports_by_year"] == [("2026", 2)]
 
 
+def test_partner_datamart_reads_more_than_ten_progress_reports_once(world):
+    """With more reports than the list shows (ten), the summary and the chart still count every report, from the
+    one reading."""
+    amel, pd = world["amel"], world["pd"]
+    for month in range(1, 13):  # twelve monthly reports of 2025, before the world's two of 2026
+        report(pd, 741, "# of girls enrolled", f"AM-{month + 2}", f"HR{month}", D(2025, month, 1),
+               D(2025, month, 28), "Accepted", {AK: 1})  # fmt: skip
+    reported = amel.reported_indicators.exclude(intervention__status__in=pd_statuses.NOT_A_PARTNERSHIP)
+    data = datamart.partner_datamart(amel)
+    assert data["reporting"] == datamart.reporting_summary(reported) and data["reporting"]["reports"] == 14
+    assert data["reports"] == list(datamart.progress_reports(reported)[:10]) and len(data["reports"]) == 10
+    assert data["reports_by_year"] == datamart.reports_by_year(reported) == [("2025", 12), ("2026", 2)]
+
+
 def test_partner_datamart_counts_the_finding_ratings_in_the_database(world):
     """The field monitoring ratings are counted by one grouped query instead of reading every finding, with
-    the same counts in the same order (the findings' order: latest end date first)."""
+    the same counts, in the same order where the ratings' latest findings differ in date (latest end date
+    first); ratings tied on that date come in no particular order, as they did."""
     amel = world["amel"]
     findings = dm.MonitoringFinding.objects.filter(partner=amel)
     expected = dict(Counter(f.overall_finding_rating or "—" for f in findings))  # the old way
@@ -454,3 +503,12 @@ def test_partner_datamart_counts_the_finding_ratings_in_the_database(world):
     old = dict(Counter(f.overall_finding_rating or "—" for f in findings))
     assert list(datamart._finding_ratings(findings).items()) == list(old.items())
     assert datamart._finding_ratings(dm.MonitoringFinding.objects.none()) == {}
+    # two ratings whose latest findings end the same day: the same counts, in either order
+    latest = findings.exclude(end_date=None).order_by("-end_date").first()
+    dm.MonitoringFinding.objects.create(
+        datamart_id=4198, partner=amel, overall_finding_rating="Not Monitored", end_date=latest.end_date
+    )
+    findings = dm.MonitoringFinding.objects.filter(partner=amel)
+    tied = datamart._finding_ratings(findings)
+    assert tied == dict(Counter(f.overall_finding_rating or "—" for f in findings))
+    assert tied["Not Monitored"] == 1 and sum(tied.values()) == findings.count() == 6

@@ -1,8 +1,8 @@
 """Data health in parts (SPEC7 §3.3-3.4 for data health; STAGEA "Data health").
 
-The page answers its frame at once (the page heading, the *Sync jobs* heading with its staleness note) with a
-placeholder per block, each its own computation: ``jobs`` (high), ``databases`` and ``runs`` (normal), ``datasets``
-and ``readiness`` (low). These tests check the frame without any figure work, each part, who may open the page and
+The page answers its frame at once (the page heading, the *Sync jobs* heading with its staleness note, the heading
+and explanation of the datasets panel) with a placeholder per block, each its own computation: ``jobs`` (high),
+``databases`` and ``runs`` (normal), ``datasets`` and ``readiness`` (low). These tests check the frame without any figure work, each part, who may open the page and
 its parts, that the page put together from its parts is the page drawn at once (``_eager=1``), the two quick wins
 of ``datamart_quality`` (the latest run of each dataset in one query; the row counts stored for every worker,
 keyed on the jobs that write those tables) with the same figures as before, and that an edit shows at once.
@@ -22,7 +22,8 @@ import pytest
 from django.apps import apps
 from django.core.cache import caches
 from django.db import connection, transaction
-from django.test import override_settings
+from django.test import Client, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -212,16 +213,59 @@ def test_the_placeholders_carry_the_resolved_query(client_viewer, world):
     assert html[start : html.index('id="part-databases"')].count("skeleton__block--tile") == count
     assert found["databases"]["style"] == "--part-h: 326.6px; --part-h-sm: 451.2px"
     assert found["runs"]["style"] == "--part-h: 618px"
-    assert found["datasets"]["style"] == "--part-h: 665.4px; --part-h-sm: 772.8px"  # a viewer's
+    # the datasets table, which scrolls inside 560 px at every width, under its Copy and CSV buttons (39 px; its
+    # panel's text is the frame's)
+    assert found["datasets"]["style"] == "--part-h: 599px"
     assert found["readiness"]["style"] == "--part-h: 546.5px; --part-h-sm: 1431.6px; --part-h-md: 859.4px"
 
 
 @pytest.mark.shell
-def test_an_administrators_datasets_placeholder_keeps_the_room_of_the_reporting_checks_link(
-    administrator, world
+def test_the_datasets_panel_s_text_is_in_the_frame_so_its_room_is_the_table_s_alone(
+    viewer, admin_user, world
 ):
-    found = placeholder_attributes(text(administrator.get(PAGE)))
-    assert found["datasets"]["style"] == "--part-h: 685.1px; --part-h-sm: 812.2px"
+    """The datasets panel's explanation wraps at its own widths (and is longer for an administrator, whose copy
+    links to the reporting checks): drawn in the frame, it reads the same before and after the table arrives, and
+    the placeholder keeps the room of the table and its buttons, the same for everyone (up to round 1 the readiness
+    block below moved 20 px when the table came, at windows of 768 to 1,100 px)."""
+    reporting_checks = reverse("admin:datamart_reporting_checks")
+    admin_user.is_superuser = True
+    admin_user.save()
+    for user, administrator_s in ((admin_user, True), (viewer, False)):
+        client = Client()
+        client.force_login(user)
+        frame = text(client.get(PAGE))
+        panel = frame[frame.index("eTools Datamart datasets") : frame.index('id="part-datasets"')]
+        assert "Read this before trusting a number on an eTools page." in panel
+        assert (reporting_checks in panel) == administrator_s
+        assert f"{len(ENTITY_SYNCS)} rows" in panel  # the table's count, known without reading it
+        assert placeholder_attributes(frame)["datasets"]["style"] == "--part-h: 599px"
+    part = text(get_part(client, PAGE, "datasets"))
+    assert (
+        "Read this before trusting" not in part
+        and 'max-height: 560px"><table class="table table-sm" id="datasets">' in part
+    )
+
+
+TABLE_BUTTON = re.compile(r'<button\b[^>]*\sdata-table-(copy|csv)\b[^>]*\sdata-table-target="#([^"]+)"')
+
+
+@pytest.mark.shell
+def test_the_datasets_copy_and_csv_buttons_come_with_their_table(client_viewer, world):
+    """Copy and CSV look for the table they name when they are pressed (app.js), and do nothing when it is not
+    there: drawn in the frame, they would do nothing while the datasets table loads, nor ever when its part fails
+    (up to round 2 they did, beside the part's error box). So no Copy or CSV button of the frame names a table the
+    frame does not hold; the datasets part brings both buttons, above the table they copy, and the page drawn at
+    once has each of them once."""
+    frame = text(client_viewer.get(PAGE))
+    for kind, target in TABLE_BUTTON.findall(frame):
+        assert f'id="{target}"' in frame, f"the frame's {kind} button names #{target}, held by a part"
+    part = text(get_part(client_viewer, PAGE, "datasets"))
+    assert sorted(TABLE_BUTTON.findall(part)) == [("copy", "datasets"), ("csv", "datasets")]
+    assert part.index("data-table-copy") < part.index('<table class="table table-sm" id="datasets">')
+    assert 'data-filename="datasets"' in part  # the file is datasets.csv, as before
+    page = text(eager(client_viewer, PAGE))
+    together = [found for found in TABLE_BUTTON.findall(page) if found[1] == "datasets"]
+    assert sorted(together) == [("copy", "datasets"), ("csv", "datasets")]
 
 
 @pytest.mark.shell
@@ -259,6 +303,19 @@ def test_each_part_answers_its_wrapper(client_viewer, world, name):
         assert expected in html, (name, expected)
     assert _json_blocks(html) == {}  # no chart data in any part
     assert executable(html) == []  # nothing that would run once swapped in (SPEC7 §1.3 rule 3)
+
+
+def test_the_tables_draw_their_figures(client_viewer, world):
+    """The assembled page and the eager page draw the same part templates, so their equivalence cannot catch a
+    wrong figure in one: the datasets' failed rows and the databases' last import are checked here."""
+    datasets = text(get_part(client_viewer, PAGE, "datasets"))
+    row = _dataset(datasets, "pd_indicators")
+    assert "1,200 / 1,180" in row and "4 removed" in row  # read / written
+    assert '<td class="num small text-danger">20</td>' in row  # failed
+    assert '<td class="num small">0</td>' in _dataset(datasets, "grants")  # none failed
+    databases = text(get_part(client_viewer, PAGE, "databases"))
+    row = re.search(r"<tr data-href=.*?AI 202618.*?</tr>", databases, re.S).group(0)
+    assert re.search(r'<td class="small" data-value="[^"]+">3(?:\s|&nbsp;|\xa0)days ago</td>', row), row
 
 
 @pytest.mark.parametrize("name", PARTS)
@@ -505,22 +562,99 @@ def test_a_visit_in_another_language_reads_the_stored_counts(client_viewer, worl
     assert counted == list(services.DATASET_ROWS_LIVE)
 
 
-@override_settings(
-    CACHES={
-        "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
-        "shared": {"BACKEND": "django.core.cache.backends.db.DatabaseCache", "LOCATION": "neurodb_cache"},
-    }
-)
+IN_THE_DATABASE = {
+    "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+    "shared": {"BACKEND": "django.core.cache.backends.db.DatabaseCache", "LOCATION": "neurodb_cache"},
+}
+
+
+@override_settings(CACHES=IN_THE_DATABASE)
 def test_inside_a_transaction_the_counts_are_made_without_the_shared_cache(world):
-    """Ask NeuroDB's tools read data health inside a read-only transaction: there the stored counts are left
-    alone (``once`` would refuse its lock, and reading the cache table may delete an expired row), and the
-    figures are the same."""
+    """NeuroDB Watch's AI look-ups read data health inside a read-only transaction: with nothing stored, the
+    rows are counted there and nothing is written (``once`` takes no lock and stores nothing inside a
+    transaction, and its read of the cache table deletes nothing); the figures are the same."""
     assert connection.in_atomic_block  # the test's own transaction
     stored = _cache_rows()
     with transaction.atomic():
         rows = services.datamart_quality()
     assert _figures(rows) == _figures(_quality_before())
     assert _cache_rows() == stored  # nothing written (nor deleted)
+
+
+@override_settings(CACHES=IN_THE_DATABASE)
+def test_a_read_only_tool_run_reads_the_stored_counts(world, monkeypatch):
+    """The data freshness look-up of NeuroDB Watch runs in a read-only transaction (``assistant.tools.read_only``):
+    there it reads the counts a visit stored, instead of counting every table again."""
+    from neurodb.assistant import tools
+
+    counts = {name: 99 for name in ENTITY_SYNCS if name not in services.DATASET_ROWS_LIVE}
+    full = compute._full_key(services._dataset_rows_key(), True)
+    # stored by a visit (another worker), here in the test's own transaction, where once() itself stores nothing
+    caches["shared"].set(compute._storage_key(full), compute._encode(counts), 60)
+    compute.reset_memo()
+    counted = []
+    real = services._dataset_rows
+    monkeypatch.setattr(services, "_dataset_rows", lambda name: counted.append(name) or real(name))
+    with tools.read_only():
+        rows = services.dataset_row_counts()
+        assert SyncRun.objects.count() > 0  # the transaction still answers
+    assert rows["grants"] == 99 and rows["locations"] == 2  # the stored count; the gazetteer counted
+    assert counted == list(services.DATASET_ROWS_LIVE)
+
+
+def _syncrun_rows_read(sql: str) -> int:
+    """About how many rows of core_syncrun the query ``sql`` reads (EXPLAIN ANALYZE gives a whole number per loop),
+    with the table's statistics up to date and the sequential scan off, as on a table of thousands of runs."""
+    with connection.cursor() as cursor:
+        cursor.execute("ANALYZE core_syncrun")  # inside the test's transaction: rolled back with it
+        cursor.execute("SET LOCAL enable_seqscan = off")
+        cursor.execute(f"EXPLAIN (ANALYZE, FORMAT JSON) {sql}")
+        plan = cursor.fetchone()[0]
+        cursor.execute("SET LOCAL enable_seqscan = on")
+    plan = json.loads(plan) if isinstance(plan, str) else plan
+    read, nodes = 0, [plan[0]["Plan"]]
+    while nodes:
+        node = nodes.pop()
+        nodes.extend(node.get("Plans", []))
+        if node.get("Relation Name") == "core_syncrun":
+            per_loop = node["Actual Rows"] + node.get("Rows Removed by Filter", 0)
+            read += per_loop * node["Actual Loops"]
+    return read
+
+
+@pytest.mark.parametrize("reader", ["latest_datamart_runs", "_dataset_rows_key"])
+def test_the_latest_runs_are_read_from_the_index_however_many_runs_there_are(world, reader):
+    """Both reads run at every visit of the datasets part: each takes the newest run from an index, never reading
+    and sorting every run (a year of Datamart runs is about 19,000)."""
+    started = timezone.now() - datetime.timedelta(days=2)
+    SyncRun.objects.bulk_create(
+        SyncRun(
+            job=SyncRun.Job.ETOOLS_DATAMART,
+            target="grants",
+            status=SyncRun.Status.SUCCEEDED,
+            started_at=started - datetime.timedelta(hours=n),
+            finished_at=started - datetime.timedelta(hours=n) + datetime.timedelta(minutes=1),
+        )
+        for n in range(300)
+    )
+    with CaptureQueriesContext(connection) as queries:
+        if reader == "latest_datamart_runs":
+            services.latest_datamart_runs(ENTITY_SYNCS)
+        else:
+            services._dataset_rows_key()
+    [query] = queries.captured_queries
+    assert _syncrun_rows_read(query["sql"]) < 60  # a few per dataset or per job and status, of 300+ runs
+
+
+def test_runs_started_at_the_same_moment_are_told_apart_by_their_id(world):
+    moment = timezone.now() + datetime.timedelta(minutes=1)  # after every run of the world
+    finished = SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART, target="grants", started_at=moment, status=SyncRun.Status.SUCCEEDED
+    )
+    running = SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="grants", started_at=moment)
+    assert running.pk > finished.pk
+    assert services.latest_datamart_runs(["grants"])["grants"] == running
+    assert f"etools_datamart={running.pk}.running.-" in services._dataset_rows_key()
 
 
 # ------------------------------------------------------------------------------------------- fresh after edit

@@ -341,7 +341,6 @@ def daily_review() -> dict[str, Any]:
 
 
 def management_brief(year: int | None = None, section: str | None = None) -> dict[str, Any]:
-    from neurodb.indicators.models import ReportingYear
     from neurodb.reports import brief, services
 
     today = datetime.date.today()
@@ -349,12 +348,11 @@ def management_brief(year: int | None = None, section: str | None = None) -> dic
     if reporting_year is None:
         return {"note": "No reporting year."}
     number = int(str(reporting_year.name)[:4]) if str(reporting_year.name)[:4].isdigit() else today.year
-    previous = ReportingYear.objects.filter(name__startswith=str(number - 1)).order_by("id").first()
+    # the year before's reporting year is looked up by the build, when it is computed
     data = brief.build(
         brief.Scope(
             year=number,
             reporting_year=reporting_year,
-            previous_reporting_year=previous,
             sections=[section] if section else [],
             today=today,
         )

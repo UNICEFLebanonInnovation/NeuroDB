@@ -5,6 +5,7 @@ below, goes through ``render_page``, so these tests depend on no converted page.
 ``year`` (2026 by default) and ``section`` (``Own`` on a first load, as a user's own section).
 """
 
+import datetime
 import re
 from collections import Counter
 from pathlib import Path
@@ -19,6 +20,7 @@ from django.shortcuts import render
 from django.template import Context, Template, TemplateSyntaxError
 from django.test import Client, RequestFactory
 from django.urls import path, reverse
+from django.utils import timezone
 from django.utils.http import urlencode
 from django.views.decorators.http import require_POST
 
@@ -613,6 +615,20 @@ def test_a_part_answers_its_wrapper_with_the_scope_and_its_own_figures(client_vi
     assert CALLS["kpis"] == 1 and CALLS["shell"] == 1  # the shell's context: only for the shell get_part read
 
 
+def test_a_part_is_drawn_alone_then_put_in_its_wrapper(client_viewer):
+    """Drawn inside its wrapper (an ``{% include %}`` in components/part_loaded.html), a part took about twice the
+    time. It is drawn alone, with the request's context, and the wrapper gets only its name and that drawing."""
+    response = get_part(client_viewer, PAGE, "kpis")
+    names = [template.name for template in response.templates]
+    assert names == ["parts_test/kpis.html", parts.LOADED_TEMPLATE]
+    part, wrapper = response.context
+    assert part["tiles"] == [3, 5, 8] and part["request"].part == "kpis"  # the request's context, as before
+    assert set(wrapper.flatten()) - {"True", "False", "None"} == {"part_name", "part_body"}
+    drawn = Template(TEMPLATES["parts_test/kpis.html"]).render(Context(part.flatten()))
+    expected = f'<div id="part-kpis" class="part is-loaded" data-part-loaded="kpis" tabindex="-1">\n{drawn}\n</div>\n'
+    assert text(response) == expected
+
+
 def test_no_link_inside_a_part_carries_part(client_viewer):
     page = assemble(client_viewer, PAGE)
     assert set(page.parts) == {"kpis", "table", "more", "stored", "ready", "form", "for-you"}
@@ -685,6 +701,31 @@ def test_the_assembled_page_is_the_eager_page(client_viewer):
         drawn = eager(client_viewer, PAGE + query)
         assert normalise(assembled.html, exclude=["for-you"]) == normalise(text(drawn), exclude=["for-you"])
         assert "Tile 5" in assembled.html and "Folded findings" in assembled.html
+
+
+def test_two_drawings_a_moment_apart_compare_equal_whatever_naturaltime_wrote():
+    """Equivalence compares two drawings of a page made one after the other. A time drawn with naturaltime can
+    fall either side of a step between them ("now" and "a second ago" when a run ended at the fixture's time,
+    "59 seconds ago" and "a minute ago"): every form it writes for a past time is folded alike."""
+    from django.contrib.humanize.templatetags.humanize import naturaltime
+
+    now = timezone.now()
+    seconds = (0, 1, 2, 59, 60, 61, 3599, 3600, 3601, 7200, 86399, 86400, 90000, 40 * 86400, 400 * 86400)
+    written = {naturaltime(now - datetime.timedelta(seconds=n)) for n in seconds}
+    assert {"now", "a second ago", "a minute ago", "an hour ago"} <= written
+    assert len({normalise(f"<p>Last success {when}</p>") for when in written}) == 1
+    assert normalise("<p>Last success now</p>") != normalise("<p>Last success 2026</p>")
+
+
+def test_a_test_that_undoes_its_monkeypatch_still_gets_the_assembled_page(client_viewer, monkeypatch):
+    """The page assembler of tests/conftest.py patches the client with a MonkeyPatch of its own: a test that
+    calls ``monkeypatch.undo()`` still reads the page put together, so its later assertions on the page (above
+    all "not on the page" ones) still test the figures, not the bare frame."""
+    monkeypatch.setattr(compute, "PART_WAIT", 0.5)
+    monkeypatch.undo()
+    html = text(client_viewer.get(PAGE))
+    assert "Tile 5" in html and "Folded findings" in html and "Stored figure 42" in html
+    assert set(placeholders(html)) <= {"for-you"}
 
 
 # --------------------------------------------------------------------------------- inline when ready

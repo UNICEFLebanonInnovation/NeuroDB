@@ -61,19 +61,27 @@ def _clear_cache():
 
 
 @pytest.fixture(autouse=True)
-def _assembled_pages(request, monkeypatch):
+def _assembled_pages(request):
     """A page that loads in parts answers its shell, and the browser fetches each part. Here the test
     client does the same: ``client.get`` of such a page (without HTMX) answers the assembled page, every
     part in place (strict ones too), with the parts' template contexts in ``response.context`` after the
     shell's. So a test of a page's figures keeps testing them. A test of the shell itself is marked
     ``@pytest.mark.shell``; ``tests.web.parts.raw_get`` always answers the shell. A part that does not
     answer its figures fails the test, unless it is marked ``@pytest.mark.parts_may_fail``: its
-    placeholder would stay, and the test's "not on the page" assertions would pass without testing it."""
-    if request.node.get_closest_marker("shell") is None:
-        from tests.web.parts import assembling
+    placeholder would stay, and the test's "not on the page" assertions would pass without testing it.
 
-        refuse_failed = request.node.get_closest_marker("parts_may_fail") is None
-        monkeypatch.setattr(Client, "get", assembling(Client.get, refuse_failed=refuse_failed))
+    The client is patched with a ``MonkeyPatch`` of its own, not the test's ``monkeypatch``: a test that calls
+    ``monkeypatch.undo()`` keeps the assembled pages (its later ``client.get`` would otherwise answer the bare
+    frame, and every "not on the page" assertion after it would test nothing)."""
+    if request.node.get_closest_marker("shell") is not None:
+        yield
+        return
+    from tests.web.parts import assembling
+
+    refuse_failed = request.node.get_closest_marker("parts_may_fail") is None
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(Client, "get", assembling(Client.get, refuse_failed=refuse_failed))
+        yield
 
 
 @pytest.fixture
