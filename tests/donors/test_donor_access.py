@@ -174,6 +174,7 @@ STAFF_PAGES = [
     "fmm:visits",
     "fmm:lookup",
     "fmm:drill",
+    "reports:monitoring",
 ]
 
 

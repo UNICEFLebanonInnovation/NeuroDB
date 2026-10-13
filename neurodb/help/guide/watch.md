@@ -22,7 +22,9 @@ says why it is shown ("New", "Due in 3 days", "Got worse"...), how sure NeuroDB 
 - Grants expiring in the next 90 days with money unspent; funds reservations ending in the next 30 days
   with money outstanding.
 - From October: partners whose HACT programmatic visits, spot checks or audits are below what is
-  required.
+  required. When some of the partner's programme documents still need planned visits, the point says
+  how many and links to them on the Field monitoring page's HACT visit plan
+  ([Field monitoring and the HACT visit plan](/help/field-monitoring/)).
 - Agreed dates on daily review findings.
 - **Field monitoring follow-up**: reported visits rated off track or constrained, ended 14 to 120 days
   ago, with no action point following them up (critical when off track and ended over 30 days ago).

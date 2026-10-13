@@ -122,8 +122,8 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
     (
         _("Partnerships (eTools)"),
         _(
-            "Replicated from eTools every night; edit them in eTools. The ActivityInfo partner links are "
-            "the exception: they are set here."
+            "Replicated from eTools every night; edit them in eTools. The ActivityInfo partner links and "
+            "the sections' comments on the HACT visit plan are the exceptions: they are set here."
         ),
         [
             "etools.PartnerOrganization",
@@ -134,6 +134,7 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
             "etools.Travel",
             "etools.TravelActivity",
             "etools.ActionPoint",
+            "datamart.VisitPlanComment",
         ],
     ),
     (
@@ -245,7 +246,8 @@ DEVELOPER_ONLY = {
     "sites.Site",
 }
 DEVELOPER_ONLY_APPS = {"datamart"}
-DEVELOPER_ONLY_KEEP = {"datamart.IndicatorFlag"}  # edited by administrators (Reporting setup)
+# edited by administrators (Reporting setup) and by sections (the HACT visit plan's comments)
+DEVELOPER_ONLY_KEEP = {"datamart.IndicatorFlag", "datamart.VisitPlanComment"}
 # Clearer menu names for models whose verbose name is technical.
 RENAMES = {"admin.LogEntry": _("Audit trail"), "core.SyncRun": _("Import and sync runs")}
 # Material Symbols names for the sidebar (https://fonts.google.com/icons); unlisted models get a dot.
@@ -293,6 +295,7 @@ ICONS = {
     "watch.SectionMatch": "join_inner",
     "reports.SectionPlan": "target",
     "datamart.IndicatorFlag": "child_care",
+    "datamart.VisitPlanComment": "comment",
     "assistant.AssistantQuestion": "smart_toy",
     "help.HelpQuestion": "help",
     "knowledge.DocumentReviewSettings": "manage_search",

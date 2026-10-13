@@ -167,6 +167,7 @@ function initHtmx() {
   // New content (partials, modals, parts) gets the same enhancements as the first page load; parts.js
   // keeps the promise of its charts and maps so printing can wait for them.
   document.body.addEventListener("htmx:load", (e) => trackModules(enhance(e.detail.elt)));
+  document.body.addEventListener("htmx:oobBeforeSwap", keepFiltersOpen);
 }
 
 // A window opened from a link to one of its parts (hx-get="/fmm/visits/1723/#record-112": htmx hands the
@@ -234,7 +235,8 @@ function initFilterBar(form) {
 
 // ------------------------------------------------------------------ filter bars folded on phones
 // A wrapper with data-filters-collapse gets a "Filters" button; under 768px (CSS) its filter bar stays
-// folded until the button opens it, so the page's figures come first. Without JS nothing is folded.
+// folded until the button opens it, so the page's figures come first. Without JS nothing is folded. A
+// wrapper that arrives open (keepFiltersOpen) gets its button pressed.
 function initFiltersCollapse(root) {
   $$("[data-filters-collapse]", root).forEach((wrap, index) => {
     const form = $("form.filter-bar", wrap);
@@ -245,7 +247,7 @@ function initFiltersCollapse(root) {
     button.type = "button";
     button.className = "btn btn-outline-secondary btn-sm filters-toggle";
     button.setAttribute("aria-controls", form.id);
-    button.setAttribute("aria-expanded", "false");
+    button.setAttribute("aria-expanded", String(wrap.classList.contains("is-open")));
     button.innerHTML = '<svg class="icon" aria-hidden="true" focusable="false"><use href="#i-filter"></use></svg><span>Filters</span>';
     button.addEventListener("click", () => {
       const open = wrap.classList.toggle("is-open");
@@ -254,6 +256,15 @@ function initFiltersCollapse(root) {
     form.before(button);
     wrap.classList.add("is-collapsible");
   });
+}
+
+// A filter bar drawn again out of band (the HACT visit plan's, when its year changes) comes in a new
+// wrapper, folded: it stays open when the one it replaces was open, so a phone keeps the bar it opened.
+function keepFiltersOpen(e) {
+  const { target, fragment } = e.detail || {};
+  const open = "[data-filters-collapse].is-open";
+  if (!fragment || !(target?.matches?.(open) || target?.querySelector?.(open))) return;
+  fragment.querySelectorAll("[data-filters-collapse]").forEach((wrap) => wrap.classList.add("is-open"));
 }
 
 // ------------------------------------------------------------------ tables

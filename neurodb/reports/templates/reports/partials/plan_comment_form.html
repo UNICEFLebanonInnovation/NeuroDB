@@ -1,0 +1,20 @@
+{% load i18n %}
+{% if modal %}
+<div class="modal-header">
+  <h2 class="modal-title h5" id="modal-title">{% blocktrans with year=year %}Section comment, HACT visit plan {{ year }}{% endblocktrans %}</h2>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+</div>
+<div class="modal-body">
+{% endif %}
+<p class="small text-muted mb-2">{{ pd.number|default:pd.title }}{% if pd.partner %} · {{ pd.partner.name }}{% endif %}</p>
+{# HTMX: the PD's row comes back and swaps in place; each button also closes the modal #}
+<form method="post" action="{{ action }}"{% if modal %} hx-post="{{ action }}" hx-target="#pd-{{ pd.pk }}" hx-swap="outerHTML"{% endif %}>
+  {% csrf_token %}<input type="hidden" name="year" value="{{ year }}">
+  <div class="mb-2"><label class="form-label small" for="pc-text">{% trans "Comment" %}</label>
+    <textarea class="form-control form-control-sm" id="pc-text" name="text" rows="4" maxlength="{{ max_length }}" aria-describedby="pc-note">{{ comment.text|default:"" }}</textarea>
+    <p class="form-text" id="pc-note">{% blocktrans with n=max_length %}Up to {{ n }} characters. Shown to every signed-in staff member and written into the Excel export. Do not write people's names or contact details.{% endblocktrans %}</p></div>
+  <button type="submit" class="btn btn-primary btn-sm"{% if modal %} data-bs-dismiss="modal"{% endif %}>{% trans "Save" %}</button>
+  {% if comment %}<button type="submit" class="btn btn-outline-danger btn-sm" name="remove" value="1"{% if modal %} data-bs-dismiss="modal"{% endif %}>{% trans "Remove" %}</button>{% endif %}
+  {% if not modal %}<a class="btn btn-link btn-sm" href="{{ back }}">{% trans "Back to the plan" %}</a>{% endif %}
+</form>
+{% if modal %}</div>{% endif %}

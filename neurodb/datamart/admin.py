@@ -376,3 +376,25 @@ class IndicatorFlagAdmin(ModelAdmin):
     def save_model(self, request, obj, form, change):
         obj.updated_by = request.user.get_username()
         super().save_model(request, obj, form, change)
+
+
+@admin.register(dm.VisitPlanComment)
+class VisitPlanCommentAdmin(ModelAdmin):
+    """The sections' comments on the HACT visit plan (Field monitoring page), one per programme document
+    and year. Written on the page by Administrators and Section editors of the PD's sections; corrected
+    or removed here. Every change is in the audit trail, page edits included: who and when (and, for a
+    change made here, which field), never the text, which only the comment itself holds."""
+
+    list_display = ("pd_reference", "year", "updated_at")
+    list_filter = ("year",)
+    search_fields = ("pd_reference",)
+    fields = ("intervention", "pd_reference", "year", "text", "updated_by", "updated_at")
+    readonly_fields = ("updated_by", "updated_at")
+    raw_id_fields = ("intervention",)
+    list_per_page = 50
+
+    def save_model(self, request, obj, form, change):
+        obj.updated_by = request.user.get_username()
+        if obj.intervention_id and not obj.pd_reference:
+            obj.pd_reference = (obj.intervention.number or "")[:64]
+        super().save_model(request, obj, form, change)

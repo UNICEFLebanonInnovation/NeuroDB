@@ -89,6 +89,7 @@ of its panel as measured on the x20 parity world.{% endcomment %}
   {% include "components/table_toolbar.html" with title=_("HACT by year") count=datamart.hact_years|length table_id="partner-hact" %}
   <div class="table-wrap"><table class="table table-sm" id="partner-hact"><thead><tr><th>{% trans "Year" %}</th><th>{% trans "Risk rating" %}</th><th class="num">{% trans "Cash transfers (USD)" %}</th><th class="num">{% trans "Programmatic visits done / required" %}</th><th class="num">{% trans "Spot checks done / required" %}</th><th class="num">{% trans "Audits done / required" %}</th></tr></thead>
   <tbody>{% for h in datamart.hact_years %}<tr><td>{{ h.year }}</td><td>{{ h.risk_rating|default:"—" }}</td><td class="num">{{ h.cash_transfers|number:0 }}</td><td class="num">{{ h.pv_completed|default:0 }} / {{ h.pv_required|default:0 }}</td><td class="num">{{ h.sc_completed|default:0 }} / {{ h.sc_required|default:0 }}</td><td class="num">{{ h.audits_completed|default:0 }} / {{ h.audits_required|default:0 }}</td></tr>{% endfor %}</tbody></table></div>
+  <p class="small px-3 py-2 mb-0"><a href="{% url 'reports:monitoring' %}?tab=plan&amp;partner={{ partner.id }}&amp;year={% now 'Y' %}">{% trans "Visit plan per programme document" %} →</a></p>
 </section>
 {% endif %}
 {% if datamart.reports %}

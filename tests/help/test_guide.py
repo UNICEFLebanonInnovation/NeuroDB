@@ -104,11 +104,32 @@ def test_the_guide_states_the_score_settings_and_urgency_as_seeded():
         ("Which job refreshes Monitoring insights, and when?", ("overview", "when-the-data-is-refreshed")),
         ("What does Not monitored mean?", ("monitoring-insights", "visits-statuses-and-ratings")),
         ("How do I connect Power BI?", ("exports", "power-bi-live-connection")),
+        (
+            "How does NeuroDB count a completed programmatic visit?",
+            ("field-monitoring", "which-visits-count"),
+        ),
+        ("Who can write a section comment on the HACT visit plan?", ("field-monitoring", "section-comments")),
+        (
+            "Why is the HACT visit plan different from the workbook?",
+            ("field-monitoring", "why-a-figure-can-differ"),
+        ),
     ],
 )
 def test_the_search_finds_the_sections_a_question_is_about(question, expected):
     found = [(s.page, s.slug) for s in guide.search(question)]
     assert expected in found, found
+
+
+def test_the_field_monitoring_page_is_listed_after_monitoring_insights_and_named_for_its_page():
+    from neurodb.help import assistant
+
+    assert guide.ORDER.index("field-monitoring") == guide.ORDER.index("monitoring-insights") + 1
+    assert guide.page("field-monitoring").title == "Field monitoring and the HACT visit plan"
+    line = assistant.page_line(reverse("reports:monitoring"), "Field monitoring · NeuroDB")
+    assert '"Field monitoring and the HACT visit plan" (/help/field-monitoring/)' in line
+    text = GUIDE_TEXT["field-monitoring"]
+    # the export rule the page states: the focal points are a count in the files, never names
+    assert "unicef_focal_points_count" in text and "never their names" in text
 
 
 def test_the_search_page_lists_sections_with_their_links(client_viewer):

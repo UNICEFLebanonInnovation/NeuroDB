@@ -1,0 +1,6 @@
+{% load i18n %}
+{# the Field monitoring page's two tabs, plain links that keep the year; after a filter change the results send them again (out of band) so they keep the year chosen #}
+<nav class="segmented segmented--scroll mb-3" id="monitoring-tabs" aria-label="{% trans 'Field monitoring views' %}"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <a href="{{ tab_urls.findings }}"{% if tab != "plan" %} aria-current="page"{% endif %}>{% trans "Findings and visits" %}</a>
+  <a href="{{ tab_urls.plan }}"{% if tab == "plan" %} aria-current="page"{% endif %}>{% trans "HACT visit plan" %}</a>
+</nav>

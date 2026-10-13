@@ -1,0 +1,36 @@
+{% load i18n l10n ui %}
+{% comment %}One programme document of the HACT visit plan (a hact_plan.for_page row): the team's workbook's columns, then
+NeuroDB's. With Monitoring insights on, Completed opens the PD's reported field monitoring visits there, which never
+hold TPM visits: "TPM m" under it opens the PD's TPM activities on the first tab, and so does the figure when the PD
+has TPM visits and no field monitoring one to list. The first tab is searched by the PD's PCA/PD numbers, which every
+spelling of its reference holds. Also drawn alone after a section comment is saved (it swaps in place: its id). The
+UNICEF focal points are names on screen only: hidden on a phone, never copied or exported (data-export="no"). The
+counts are small whole numbers, written as they are (localize off): the list holds hundreds of rows, and localising
+each number costs more than the rest of the row.{% endcomment %}
+{% localize off %}<tr id="pd-{{ row.pd_id }}">
+  <td class="cell-wrap">{% if row.partner_id %}<a href="{% url 'reports:partner_profile' row.partner_id %}">{{ row.partner|default:"—" }}</a>{% else %}{{ row.partner|default:"—" }}{% endif %}{% if row.vendor_number %}<span class="cell-sub mono">{{ row.vendor_number }}</span>{% endif %}</td>
+  <td class="small text-nowrap">{% url 'reports:programme_detail' row.pd_id as pd_url %}<a class="mono" href="{{ pd_url }}" hx-get="{{ pd_url }}" hx-target="#modal-content" hx-push-url="false">{{ row.reference|default:"—" }}</a></td>
+  <td><span class="pill pill--{% if row.status == "active" %}success{% else %}neutral{% endif %} pill--sm" data-status="{{ row.status|default:"unknown" }}"><span class="pill__dot" aria-hidden="true"></span>{{ row.status|code_label }}</span></td>
+  <td data-value="{{ row.sections|join:', ' }}">{% if row.sections %}<span class="chips">{% for s in row.sections %}<span class="chip">{{ s }}</span>{% endfor %}</span>{% else %}—{% endif %}</td>
+  <td class="small">{{ row.document_type|default:"—" }}</td>
+  <td class="small text-nowrap" data-value="{{ row.start|date:'Y-m-d' }}">{{ row.start|date:"j M Y"|default:"—" }}</td>
+  <td class="small text-nowrap" data-value="{{ row.end|date:'Y-m-d' }}">{{ row.end|date:"j M Y"|default:"—" }}</td>
+  <td class="num" data-value="{{ row.total_budget|default_if_none:'' }}">{% if row.total_budget is None %}—{% else %}{{ row.total_budget|number }} <span class="text-muted small">{{ row.currency|default:"USD" }}</span>{% endif %}</td>
+  <td class="small">{{ row.risk_rating|default:"—" }}{% if row.risk_source == "hact" %}<span class="cell-sub">{% trans "eTools HACT" %} {{ year }}</span>{% elif row.risk_source == "partner" %}<span class="cell-sub">{% trans "partner rating" %}</span>{% endif %}</td>
+  <td class="num">{{ row.required }}</td>
+  {% trans 'Its TPM activities, on the Findings and visits tab: Monitoring insights holds field monitoring visits only' as tpm_tip %}{% with ref=row.search_reference %}<td class="num" data-value="{{ row.completed }}">{% if fmm_on and ref and row.completed_tpm and not row.completed_fm and not row.awaiting_fm %}<a href="{{ findings_url }}?q={{ ref|urlencode }}&amp;year={{ year }}#tpm-activities" title="{{ tpm_tip }}">{{ row.completed }}</a>{% elif fmm_on %}<a href="{{ fmm_completed_url }}&amp;pd={{ row.pd_id }}">{{ row.completed }}</a>{% elif ref %}<a href="{{ findings_url }}?q={{ ref|urlencode }}&amp;year={{ year }}">{{ row.completed }}</a>{% else %}{{ row.completed }}{% endif %}
+    <span class="cell-sub">FM {{ row.completed_fm }} · {% if fmm_on and row.completed_tpm and ref %}<a href="{{ findings_url }}?q={{ ref|urlencode }}&amp;year={{ year }}#tpm-activities" title="{{ tpm_tip }}">TPM {{ row.completed_tpm }}</a>{% else %}TPM {{ row.completed_tpm }}{% endif %}</span>
+    {% if row.awaiting %}<span class="cell-sub">{% blocktrans with n=row.awaiting %}{{ n }} awaiting approval{% endblocktrans %}</span>{% endif %}
+    {% if row.fm_not_programmatic %}<span class="cell-sub">{% blocktrans with n=row.fm_not_programmatic %}{{ n }} FM not marked programmatic{% endblocktrans %}</span>{% endif %}
+    {% if row.staff_trips %}<span class="cell-sub">{% blocktrans count n=row.staff_trips %}{{ n }} staff trip (not counted){% plural %}{{ n }} staff trips (not counted){% endblocktrans %}</span>{% endif %}
+    {% if row.fm_partner_level %}<span class="cell-sub" title="{% trans 'Completed programmatic field monitoring visits to the partner whose findings name only the partner or a CP output: the Assurance page counts them for the partner, the plan for no programme document' %}">{% blocktrans count n=row.fm_partner_level %}{{ n }} FM visit to the partner naming no PD (not counted){% plural %}{{ n }} FM visits to the partner naming no PD (not counted){% endblocktrans %}</span>{% endif %}</td>{% endwith %}
+  <td class="num">{{ row.counted }}</td>
+  <td class="num" data-value="{{ row.still_needed }}">{% if row.still_needed %}<span class="pill pill--sm pill--warning">{{ row.still_needed }}</span>{% else %}0{% endif %}</td>
+  <td class="num">{{ row.q1 }}</td><td class="num">{{ row.q2 }}</td><td class="num">{{ row.q3 }}</td><td class="num">{{ row.q4 }}</td>
+  <td class="num">{{ row.due_now }}</td>
+  {% with label=remarks|get_item:row.remark %}<td data-value="{{ label }}"><span class="pill pill--sm pill--{% if row.remark == "completed" %}success{% elif row.remark == "ended" %}danger{% elif row.remark == "needed" %}warning{% else %}neutral{% endif %}">{{ label }}</span>{% if row.zero %}<span class="cell-sub">{% trans "not visited yet" %}</span>{% elif row.remark == "no_plan" and row.completed %}<span class="cell-sub">{% blocktrans count n=row.completed %}{{ n }} completed visit{% plural %}{{ n }} completed visits{% endblocktrans %}</span>{% endif %}</td>{% endwith %}
+  <td class="small">{% if row.tpm %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
+  <td class="small d-none d-md-table-cell" data-export="no">{{ row.focal_points|join:", "|default:"—" }}</td>
+  <td class="small plan-comment" data-value="{{ row.comment.text|default:'' }}">{% if row.comment %}<span class="plan-comment__text">{{ row.comment.text }}</span><span class="cell-sub">{% blocktrans with day=row.comment.updated_at|date:"j M Y" %}updated {{ day }}{% endblocktrans %}</span>{% elif not row.can_comment %}—{% endif %}
+    {% if row.can_comment %}{% url 'reports:visit_plan_comment' row.pd_id as comment_url %}<a class="btn btn-outline-secondary btn-sm plan-comment__edit" href="{{ comment_url }}?year={{ year }}" hx-get="{{ comment_url }}?year={{ year }}" hx-target="#modal-content" hx-push-url="false">{% if row.comment %}{% trans "Edit" %}{% else %}{% trans "Comment" %}{% endif %}</a>{% endif %}</td>
+</tr>{% endlocalize %}

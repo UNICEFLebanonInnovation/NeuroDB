@@ -84,7 +84,8 @@ before eTools; that history is linked to the same partner: partner_details lists
 database, partner_activityinfo gives the indicators, values and months.
 - eTools data (partners, programme documents, funds, audits, monitoring, partner reporting) is all \
 linked by partner and programme document. The page tools (programme_details, partner_details, \
-funds_overview, partner_reporting, assurance_overview) summarise it; for anything else use \
+funds_overview, partner_reporting, assurance_overview) summarise it, and hact_visit_plan gives the \
+programmatic visits per programme document against their plan (counts); for anything else use \
 etools_datasets to find the dataset and its fields, then etools_query to filter, count or add up; \
 etools_search finds where a name or reference appears.
 - Field monitoring visits (eTools: visits and their records, one per entity assessed, each with its own \

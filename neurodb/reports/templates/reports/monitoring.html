@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 {% load i18n ui %}
 {% block content %}
+{% include "reports/partials/_monitoring_tabs.html" %}
+{% if tab == "plan" %}
+{% include "reports/partials/_plan_filters.html" %}
+<div id="monitoring-results" aria-live="polite">{% include "reports/partials/monitoring_plan.html" %}</div>
+{% else %}
 <form method="get" class="filter-bar" data-filter-bar data-hx-target="#monitoring-results" role="search" aria-label="{% trans 'Field monitoring filters' %}">
   <div class="filter-bar__field">
     <label class="form-label" for="f-q">{% trans "Search" %}</label>
@@ -20,4 +25,5 @@
   </div>
 </form>
 <div id="monitoring-results" aria-live="polite">{% include "reports/partials/monitoring_table.html" %}</div>
+{% endif %}
 {% endblock %}

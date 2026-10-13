@@ -109,3 +109,10 @@ Most tables have *Copy* (paste into Excel or a document) and *CSV*; columns mark
 as a visit's team) are left out. The charts of Monitoring insights and of the action points page have
 *Download PNG*. Pages with a *Print* button print without
 the navigation.
+
+The **HACT visit plan** (Field monitoring page) has *Excel of the filter* (the plan, *By partner*, *By
+section* and *About* sheets) and *CSV of the filter*, with every programme document of the filter. The
+UNICEF focal points are shown by name on the page only: their column is never copied or exported, and
+the files hold how many focal points each programme document has (`unicef_focal_points_count`), never
+their names. The section comments are written with their date, never who wrote them (see
+[Export and privacy](/help/field-monitoring/#export-and-privacy)).

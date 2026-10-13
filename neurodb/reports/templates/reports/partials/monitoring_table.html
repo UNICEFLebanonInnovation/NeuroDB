@@ -1,4 +1,18 @@
 {% load i18n ui %}
+{% if request.htmx %}{% include "reports/partials/_monitoring_tabs.html" with oob=True %}{% endif %}
+{% if hact_strip %}{% with s=hact_strip %}
+{# the HACT visit plan of the year in one line (counts only); it follows the year filter #}
+<p class="panel plan-strip" role="note">
+  {% blocktrans asvar pds count n=s.not_visited.pds %}{{ n }} programme document{% plural %}{{ n }} programme documents{% endblocktrans %}
+  {% blocktrans asvar pds_partners count n=s.not_visited.partners %}{{ n }} partner{% plural %}{{ n }} partners{% endblocktrans %}
+  {% blocktrans asvar visits count n=s.still_needed.visits %}{{ n }} visit{% plural %}{{ n }} visits{% endblocktrans %}
+  {% blocktrans asvar visit_partners count n=s.still_needed.partners %}{{ n }} partner{% plural %}{{ n }} partners{% endblocktrans %}
+  <strong>{% blocktrans with year=s.year %}HACT visit plan {{ year }}:{% endblocktrans %}</strong>
+  <span>{% blocktrans %}{{ pds }} ({{ pds_partners }}) not visited yet{% endblocktrans %} ·</span>
+  <span>{% blocktrans %}{{ visits }} still needed ({{ visit_partners }}).{% endblocktrans %}</span>
+  <a href="{{ s.url }}">{% trans "Open the plan" %} →</a>
+</p>
+{% endwith %}{% endif %}
 <div class="kpi-grid">
   {% trans "Findings" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=page_obj.paginator.count|number %}
   {% trans "Monitoring activities" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.activities|number %}

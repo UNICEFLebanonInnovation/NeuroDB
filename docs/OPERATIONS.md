@@ -111,6 +111,8 @@ come from.
   programme document titles, library summaries and the free-text comments staff write on Neuro
   and HPM reports. When a filter matches nothing, the list of known partner, donor or office names
   is sent too. It is organisational data. The summary lookups send field visits as counts. The
+  HACT visit plan lookup (`hact_visit_plan`) sends counts, section names and the remarks' labels
+  only: never a partner, a programme document reference, a section comment or a focal point. The
   lookups that return eTools records as eTools holds them (`etools_query`, `etools_record`,
   `etools_datasets` and the examples of `etools_search`) treat the field monitoring datasets
   (findings, questions and answers, answer options, programme activities) apart: the keys that hold
@@ -969,6 +971,9 @@ Every other page is still drawn whole. Of these, the ActivityInfo databases page
 the Neuro and HPM reports, the programme documents' indicators tab, each programme document (page and
 pop-up) and field monitoring were measured for this step and stay so on purpose: on a copy of the data
 twenty times today's size each answered whole in under 0.3 seconds, so parts would only add requests.
+Field monitoring's *HACT visit plan* tab, added later, was measured the same way and stays whole too:
+its figures take about 30 ms (40 ms with what the tab adds) and the whole tab 0.2 seconds (median of 7
+cold runs; the slowest 0.3 seconds), most of it drawing the list (see *HACT visit plan*).
 The other slow pages (partner monitoring, Monitoring insights and the country programme among them)
 have not been converted yet.
 
@@ -1077,8 +1082,8 @@ Datamart host (a pagination link to any other host is refused). Every request is
 | `partner_reports` | `prp/datareport/` | partner progress reports per indicator and location (partner monitoring, partner reporting, programme and partner pages), periods starting in the last `ETOOLS_DATAMART_REPORTING_YEARS` years and, while `ETOOLS_DATAMART_REPORTING_FROM_PD_START` is on (the default), since the start of every running programme document (`details.read_from` shows the date read from); the indicator report id, CP output and eTools CP output id get columns, and each PD indicator its CP output from its latest report naming one (`details.cp_outputs`); then the labels of the disaggregation values the reports name (`details.disaggregation_labels`, below) |
 | `tpm_activities` | `tpm-activities/` | the PD, place and date of each TPM visit activity (field monitoring and programme pages) |
 | `staff_visits` | `travel-activities/` | UNICEF staff trip activities: programmatic visits, spot checks, meetings (programme and partner pages) |
-| `planned_visits` | `interventions-planned-visits/` | programmatic visits planned per PD and quarter |
-| `hact_history` | `hact/history/` | each partner's HACT year: cash transfers, risk rating, visits, spot checks and audits done against required (assurance and partner pages) |
+| `planned_visits` | `interventions-planned-visits/` | programmatic visits planned per PD and quarter (programme page, HACT visit plan) |
+| `hact_history` | `hact/history/` | each partner's HACT year: cash transfers, risk rating, visits, spot checks and audits done against required (assurance and partner pages, HACT visit plan) |
 | `pd_activities` | `interventions-activities/` | PD workplan activities with UNICEF and partner cash (programme page) |
 | `audit_results`, `audits`, `spot_checks`, `micro_assessments`, `special_audits` | `audit/results/`, `audit/audit/`, `audit/spot-check-findings/`, `audit/micro-assessment/`, `audit/special-audit/` | add risk rating, high-priority findings, key control weaknesses and amounts to the engagements, matched by reference number |
 | `audit_findings` | `audit/financial-findings/` | financial findings of each engagement (engagement, assurance and partner pages) |
@@ -1086,7 +1091,7 @@ Datamart host (a pagination link to any other host is refused). Every request is
 
 Pages: *Funds* (funds reservations, Partner contributions, By PD and grant), *Partner reporting* (each report opens with its indicators by location),
 *Assurance* (with HACT compliance per partner and an engagement page with its findings and action
-points), *Field monitoring* and *Action points*, plus sections on the programme, partner and donor
+points), *Field monitoring* (with the *HACT visit plan*, below) and *Action points*, plus sections on the programme, partner and donor
 pages. The PRP endpoints other than `prp/datareport/` carry no country field, so they are not read.
 
 Rows link to programme documents by eTools id or reference number and to partners by eTools id or
@@ -1095,6 +1100,225 @@ NeuroDB. The partner and programme tables are updated, never emptied. Each `data
 replaced by a complete read (rows the Datamart no longer returns are deleted), except when the
 Datamart returns nothing at all (`details.empty_response`), which usually means a wrong country name.
 The admin shows these tables read-only under *eTools Datamart*.
+
+### HACT visit plan (Field monitoring page)
+
+`/field-monitoring/?tab=plan` (sidebar *Field monitoring*, tab *HACT visit plan*) answers the
+programme monitoring team's quarterly "HACT FMM plan" e-mail and its workbook from NeuroDB itself: one
+row per programme document (PD) of a HACT year with its programmatic visits planned, completed and
+still needed, the PDs not visited, the end-of-year missing visits and the sections' comments on them.
+The default tab, *Findings and visits*, is unchanged apart from a one-line strip of the plan's figures
+on top: it shows the findings filter's year (this year when none is chosen) and is left out when
+eTools sent no planned visits for that year. Staff read *Field monitoring and the HACT visit plan* in
+the help guide (`/help/field-monitoring/`).
+
+The code: `neurodb/datamart/hact_plan.py` (the rows and every figure), `neurodb/datamart/fm.py`
+(`completed_programmatic_rows`, `visits_by_pd_for_hact`, `partner_visits_naming_no_pd`,
+`search_reference`), `neurodb/reports/views.py` (`monitoring`,
+`_monitoring_plan`, `_plan_export`, `visit_plan_comment`) and the templates
+`reports/partials/monitoring_plan.html`, `_plan_row.html`, `_plan_filters.html`,
+`_monitoring_tabs.html`, `plan_comment_form.html` and `reports/plan_comment.html`.
+
+**The rules** (year Y, as of today):
+
+| Figure | Rule | Read from |
+|---|---|---|
+| The PDs listed | Not `draft` or `cancelled`, and running at some point in Y (start on or before 31 December or blank, end on or after 1 January or blank, not both blank), or with a plan for Y, or with a counted visit in Y. Sorted by partner, then reference | `etools.PCA` |
+| Required | q1 + q2 + q3 + q4 of the PD's planned visits for Y; 0 without a row. A row the sync could not link to a PD (it links by the exact PD reference: `details.not_linked` of the `planned_visits` run) is in no figure; the tab and the About sheet say how many such rows Y has and how many visits they plan (`hact_plan.unlinked_plans`) | `datamart.PlannedVisits` (`planned_visits`) |
+| Completed, field monitoring | Distinct visits (`fm.visit_key_expr()`) with a finding row naming the PD (`intervention`), `is_programmatic_visit`, status `completed` (any case), end date in Y. Two rows of one visit about the PD count once; a visit about two PDs counts for each. These are the rows the Assurance page counts per partner as "FM programmatic visits (NeuroDB)" (`fm.completed_programmatic_rows`, one rule for both) | `datamart.MonitoringFinding` (`field_monitoring`) |
+| Completed, TPM | Distinct visits (visit reference, else task reference, else the row) of the activities naming the PD, `is_programmatic_visit`, visit status `unicef_approved` (the activity's `visit_status`, else its TPM visit's status), activity date in Y | `datamart.TPMActivity` (`tpm_activities`), `datamart.TPMVisit` |
+| Counted | min(Required, Completed) | |
+| Still needed by 31 Dec | Required − Counted, never negative. No netting: a surplus on one PD never offsets a gap on another, even of the same partner | |
+| Due by end of Q*n* | max(0, planned q1..q*n* − Completed); *n* is today's quarter for the current year, 4 for a past year, 0 for a future one | |
+| Not visited (`zero`) | Required > 0 and Completed = 0 | |
+| Ended | Status `ended`, `closed`, `terminated` or `expired` (`partnerships.statuses.ENDED`), or an end date before today | |
+| Remark | The first that applies: `no_plan` "No visit planned" (Required 0), `completed` "Completed" (nothing still needed), `ended` "PD ended, visits missing", `needed` "HACT FMM needed". The codes are stable (filters, files, the AI) | |
+| Not counted, shown under Completed | Awaiting approval (field monitoring `submitted` and TPM `tpm_reported`, programmatic, same year rules); field monitoring visits completed but not marked programmatic; UNICEF staff trip activities typed programmatic (distinct trip reference, date in Y), which eTools sends without a status; the partner's completed programmatic field monitoring visits of Y none of whose finding rows names a PD (only the partner or a CP output: Assurance counts them for the partner), the same figure on each of the partner's PDs and in *By partner* (`fm_partner_level`, file column `fm_partner_visits_naming_no_pd`) | the same, and `datamart.ProgrammaticVisit` (`staff_visits`) |
+| TPM yes / no | A TPM activity of the PD dated in Y whose visit status is not `draft` or `cancelled` | `datamart.TPMActivity` |
+| Risk | The partner's HACT year of Y (the latest synced row, `-last_modify_date, -datamart_id`, as the Watch reads them), else the partner's rating | `datamart.PartnerHACTYear` (`hact_history`), `etools.PartnerOrganization` |
+| UNICEF focal points | A count, after `reporting.focal_point_names` drops any entry holding an e-mail address. Names are read for the page render only (`hact_plan.focal_names`) | `PCA.unicef_focal_points` |
+
+**The figures above the list** count the rows of the filter bar, the quick views left out (the *By
+section* table too):
+
+- *Not visited in Y*: the PDs with `zero` and their distinct partners; under it, how many of those
+  partners have no completed visit on any of their PDs of Y (every PD of the year, the ones the
+  filter leaves out included: `headline(rows, year, every)`) and how many of those PDs ended. A PD
+  whose partner the sync could not link counts for no partner in any of the figures.
+- *Visits still needed by 31 Dec*: Still needed added up over the PDs that have a gap, with their PDs
+  and partners and the visits and PDs among them that ended (ended PDs count: their planned visits
+  were not made).
+- *Programmatic visits completed*: Σ Counted of Σ Required; Σ Completed and Σ awaiting approval under it.
+- *Partners behind their HACT minimum (eTools)*: partners of the filter whose `PartnerHACTYear` of Y
+  has `pv_completed` < `pv_required`, of those with a row; it links to `/assurance/?hact_year=Y`. It is
+  the partner-level figure, shown beside the PD-level ones so that the two can be compared. It is not
+  Assurance's "N partners behind their minimum requirements" (`services.hact_compliance`), which counts
+  every `PartnerHACTYear` row of Y, PD in the list or not, and a partner behind on spot checks
+  (`sc_gap`) too: on the same data Assurance's count can be higher. The tile's hint and the help page
+  say so.
+
+Applied to the workbook's own *Required PV* and *Completed PV* columns, these rules give the e-mail's
+two figures ("N PDs for M partners not visited since 1 January", "N visits across M partners still
+needed"); NeuroDB's own figures differ only where its sources do (below). The quick views are *Not
+visited* (`zero=1`), *End-of-year missing visits* (`remark=needed&remark=ended`, the workbook's EoY
+sheet) and *All*. *By partner* (`view=partners`) adds up each partner's PDs of the filter beside its
+eTools HACT minimum (required, completed, gap), with two flags: "Partner minimum met in eTools, PD
+visits still needed" and "PD plans below the partner minimum". The second compares the minimum with
+the plans of **all** the partner's PDs of Y, whatever the filter (a section's own PDs or a quick view
+never plan the whole minimum), on the page and in the files. Under a section filter the *By section*
+table (and the *By section* sheet, and the AI lookup's `by_section`) keeps only the chosen sections:
+the other sections of a PD shared with a chosen one would hold only that PD.
+
+**Year and quarter.** The HACT year is the calendar year and the plan is `PlannedVisits.year`. A field
+monitoring visit belongs to the year of its **end date**, as on the Assurance page, so that the partner
+and the PD counts never disagree; a TPM activity and a staff trip to the year of their date. A quarter
+is a calendar quarter, `(month − 1) // 3 + 1`. Monitoring insights and the findings tab date a visit by
+its start date: the *Completed* link opens the PD's reported programmatic visits in Monitoring insights
+(`pd=`, `programmatic=1`, `status=reported`, `year=`), which include reports still awaiting approval,
+and a note under the list says so; with Monitoring insights off it opens `/field-monitoring/?q=<PCA/PD>&year=Y`.
+`<PCA/PD>` is `fm.search_reference`: the PCA/PD number pair the visits are linked by (`PCA2026001/PD2026001`
+of `LEB/PCA2026001/PD2026001-2`), so a finding naming the PD with another country prefix or amendment is
+found too; the findings tab dates a visit by its start date, so a visit started in December and counted in
+January's year is listed under December's (the note under the list says so). Monitoring insights builds its
+visits from the field monitoring findings only (`fmm/build.py`), never from `TPMActivity`: with it on, "TPM
+m" under the figure (when m > 0) links to `/field-monitoring/?q=<PCA/PD>&year=Y#tpm-activities`, the PD's
+TPM activities on the first tab, and so does the figure itself when the PD has TPM visits and no field
+monitoring visit or report awaiting approval (`completed_fm` and `awaiting_fm` 0), whose Monitoring
+insights list would be empty; the note says TPM visits are not in Monitoring insights.
+The year menu offers every year with planned visits or a partner HACT year, and this year. The filter
+bar's lists are the year's (`hact_plan.options`): when the year changes, the answer carries the filter
+bar again out of band (`#plan-filters`, only then, as htmx's `HX-Current-URL` shows the year the page
+came from, so typing in the search box keeps its focus); the breadcrumb names no year. The lists also
+keep every value the list is filtered on, chosen (`hact_plan.options(rows, f)["chosen"]`), even one the
+year lacks: a partner chosen from its partner page stays chosen in a year it has no PD in, where the
+list then says "No programme document matches", so the bar and the list agree and the value can be
+taken off. A bar opened on a phone stays open when it is drawn again (`keepFiltersOpen` in `app.js`).
+
+**Section comments.** The model `datamart.VisitPlanComment` (table `datamart_visitplancomment`),
+created by `datamart/0014_visit_plan_comment`: a new, empty table and nothing else, quick at start-up
+and listed in `QUICK_MIGRATIONS` (`tests/datamart/test_backfill.py`); the release before never reads
+it. One comment per PD and year (a unique constraint): the text, at most 500 characters (control
+characters removed, spaces and line breaks made one space), `pd_reference` (the PD's reference when
+written, for the admin list), `updated_by` (the username) and `updated_at`.
+
+- **Who writes**: Administrators, and Section editors whose section is the confirmed NeuroDB section of
+  one of the PD's own eTools section names (*eTools section names*, see *NeuroDB Watch*;
+  `hact_plan.can_comment`). The page reads the confirmed names once per request and
+  shows *Comment* / *Edit* only to them; `POST /field-monitoring/plan/<pk>/comment/` (CSRF) answers 403
+  to anyone else, and 404 for a PD the plan does not list for that year (a draft or cancelled PD, or
+  one of another year: its comment would show nowhere). An empty text or *Remove* deletes the comment.
+- **Who reads**: every signed-in staff member, on the page, with the date of the last change; never who
+  changed it. The Excel and CSV files hold the text and the date.
+- **Never sent to the AI**: the table is not a Datamart dataset and is not in `datamart/catalogue.py`,
+  so `etools_query` and its kind cannot read it, and the `hact_visit_plan` lookup never reads it.
+- **Kept across syncs**: the syncs never write it, and PD rows are updated, never deleted.
+- **Admin**: *Partnerships (eTools)* → **Visit plan comments**, for administrators (not only
+  developers): reference, year and date of each, a filter by year and a search by reference. Correct or
+  remove a comment there; `updated_by` is read-only and set to whoever saves. Every change, on the page
+  or in the admin, is written to the audit trail (admin → *Audit trail*) with who made it and when,
+  **never the text**: "Written on the HACT visit plan (N characters).", "Removed on the HACT visit
+  plan.", or Django's "Changed Text." for an edit in the admin. The audit trail is read-only, so a
+  name typed into a comment by mistake would otherwise stay there for good; editing or removing the
+  comment removes it for good.
+- Not here, on purpose: the workbook's "Action by PMI" tick, and focal point corrections (sections
+  correct a PD's UNICEF focal points in eTools; the next sync shows them).
+
+**Privacy.** The rows `hact_plan.build` returns are plain data with the focal points as a count, and
+they alone feed the files, the Watch and the AI. The names are read for the page only (`focal_names`,
+`for_page`) and shown in a column hidden on phones and marked `data-export="no"`, which the table's
+*Copy* and *CSV* skip. *Excel of the filter* (sheets *HACT visit plan*, *By partner*, *By section*,
+*About*) and *CSV of the filter* hold every PD of the filter with `unicef_focal_points_count`, never a
+focal point's name, `updated_by`, a visit lead, a team member, an assignee, an e-mail address or a phone
+number (a test reads every cell of every sheet and every CSV field). The Ask NeuroDB lookup and the
+Watch get counts only. The Progress reports export, which writes focal point names, is not changed by
+this.
+
+**Links.** Assurance, *HACT assurance by partner*: "Visit plan per programme document →"
+(`?tab=plan&year=<HACT year>`). The partner page, *HACT by year*: the same, on the partner
+(`?tab=plan&partner=<id>&year=<this year>`). The PD page panel *Field monitoring visits*: "HACT visit
+plan →" (`?tab=plan&q=<reference>&year=`). Monitoring insights, Analysis, HACT block (which lists only
+the partners visited in the filter): "see the HACT visit plan →" (`?tab=plan&zero=1&year=`). NeuroDB
+Watch's `hact_assurance_gap` (from 1 October) adds the evidence "Programme documents still needing
+visits" ("2 programme documents need 3 visits", linking to `?tab=plan&partner=<id>&year=<year>`) when
+the partner has a PD with a gap; its key, severity, timing and routing are unchanged (see *What it
+follows: the checks*). Ask NeuroDB's `hact_visit_plan(year, section)` returns the same figures as
+counts (by remark and by section), the sync date and the link.
+
+**Speed.** The tab is computed live at each request, with no stored figures and no parts, so a sync or
+a comment shows at once. `hact_plan.build` makes 7 grouped queries whatever the number of PDs (planned
+visits, field monitoring visits, TPM, staff trips, partner HACT years, the PDs, and the partners' field
+monitoring visits naming no PD, about 5 ms of it) and took 27–30 ms for the 252 PDs of the x20 test world
+(twenty times today's data, with synthetic plans), about 40 ms with what the tab adds (the sync date, the
+years, the planned-visit rows matching no PD, the focal point names, the comments, the section map; 9
+queries). The whole `?tab=plan` page on that world, cold, 7 runs: an Administrator 197 ms median
+(slowest 296 ms, 19 queries), a Viewer with a section 182 ms (slowest 219 ms, 22 queries); the
+default tab with its strip 128 ms; Excel and CSV 36–56 ms. Drawing the 252 rows is most of it. The
+partners' visits naming no PD and the planned-visit rows matching no PD, added later, cost two queries
+(about 6.5 ms; 21 and 24 queries now) and nothing measurable in drawing the rows (the row template timed
+before and after on the same rows). Timed again then, with another test run busy on the same machine:
+an Administrator 237–294 ms median (slowest 358 ms), a Viewer 206–236 ms (slowest 270 ms). That is
+under the 300 ms from which a page is given parts (*Pages that load in parts*), so it stays one
+request; if a larger list goes over, the list becomes one part under those rules rather than being
+cached. Above 1,000 PDs in the filter, the list asks to choose a section or a partner (the files still
+hold them all).
+
+**Where NeuroDB's figures can differ from an eTools HACT dashboard extract** (the help page says the
+same to staff):
+
+1. *Required*: the extract takes the dashboard's requirement per PD; NeuroDB the sum of the PD's
+   quarterly plan. When the dashboard drops a PD's requirement to 0 because a planned visit can no
+   longer be made, NeuroDB keeps the plan and shows the PD as "PD ended, visits missing", counted in
+   *still needed*.
+2. *Completed*: the extract takes the dashboard's own figure, whose sources NeuroDB cannot see; NeuroDB
+   counts the field monitoring and TPM visits above. Left out, and shown under Completed: staff trips,
+   reports still submitted, visits not ticked programmatic, and a visit whose findings only name the
+   partner or a CP output, never the PD (it still counts for the partner on Assurance; each of the
+   partner's PDs shows it).
+3. *Dates*: field monitoring by end date, TPM by activity date; the extract is fixed on its day,
+   NeuroDB follows the nightly sync (20:30).
+4. *Which PDs*: the extract lists the PDs on the dashboard, NeuroDB every PD of the year; PDs without a
+   plan never count as not visited or needing visits.
+5. *PD or partner*: eTools' partner HACT minimum (`pv_required`, from the risk rating and the cash
+   transfers) is another requirement; Assurance, Monitoring insights' HACT block and the Watch keep
+   reading it.
+6. *Statuses*: NeuroDB shows eTools' status codes (a typed "Closed" is `closed`), and never a negative
+   gap where a workbook formula gives −1.
+
+**Checking against an eTools HACT dashboard extract, after the first sync.** Counts only, in the
+browser and the Excel file; nothing to run:
+
+1. After the first nightly eTools Datamart sync with this release, check in admin → *Data and sync* →
+   *Import and sync runs* that `planned_visits`, `field_monitoring`, `tpm_activities` and
+   `hact_history` succeeded. Open `/field-monitoring/?tab=plan&year=<year>`: the line under the quick
+   views gives the date of the sync. Use an extract taken as close to that date as possible.
+2. Compare three counts with the extract:
+   - the PDs with a plan: the *By section* total *PDs with a plan* against the extract's PD rows with a
+     requirement above 0 (expect NeuroDB to have more rows in all: point 4 above);
+   - *Not visited in Y* (PDs, partners) against the extract's PD rows with a requirement above 0 and
+     nothing completed, and their distinct vendor numbers;
+   - *Visits still needed by 31 Dec* (visits, partners) against the sum, over the extract's PD rows, of
+     requirement − min(requirement, completed) where it is above 0, and their distinct vendor numbers.
+3. For the PDs that differ, download *Excel of the filter* and match its rows to the extract by
+   reference (the PCA and PD numbers: a `LEBA/` or `LEB/` prefix and a `-2` amendment suffix can
+   differ). The row's own columns give the cause:
+
+   | The row shows | Cause | What to do |
+   |---|---|---|
+   | `required_pv` 0 ("No visit planned") while the extract has a requirement | No planned visits for the PD and year in eTools, or a row not linked to the PD (`details.not_linked` of the `planned_visits` run) | The section checks the PD's planned visits in eTools; the next sync shows them |
+   | The tab (and the About sheet) says "eTools sent N planned-visit rows for Y … that match no programme document" | Planned-visit rows whose PD reference matches no PD number in NeuroDB (another amendment suffix or prefix, or a PD synced later): their visits are in no figure, so the headline is that much low | *Data health*, `planned_visits`, shows the rows not linked; the next sync links a row once its reference matches a PD |
+   | `required_pv` above 0 but not the extract's | The dashboard's requirement differs from the sum of the quarters (`q1_planned` to `q4_planned`), or the dashboard dropped it to 0 | Nothing: NeuroDB follows the plan (point 1) |
+   | `fm_completed_not_programmatic` above 0 | A field monitoring visit not ticked programmatic in eTools | The section ticks it in eTools if it was a programmatic visit |
+   | `awaiting_approval` above 0 | A report still submitted (field monitoring) or reported by the TPM company (TPM) | It counts once UNICEF approves it |
+   | `staff_trip_activities_not_counted` above 0 | Staff trips, which the dashboard may count | Nothing: not counted, by design |
+   | `fm_partner_visits_naming_no_pd` above 0 | A field monitoring visit to the partner whose findings name only the partner or a CP output, never the PD, which the dashboard may count for the PD | The section names the PD in the visit's findings in eTools if it was a visit to that PD |
+   | `completed_pv` lower, none of the above | A TPM visit in another status, or a visit dated in another year (end date for field monitoring) | Look the visit up in Monitoring insights or on the findings tab |
+
+4. Write what was found in the next paragraph: counts only, never a partner, a reference, a person or
+   a row number of the extract.
+
+**Results of the first check.** Not done yet: at release, NeuroDB had not synced the real eTools
+Datamart with this feature. Write here the date of the sync and of the extract, the three counts on each
+side, and how many PDs differ for each cause of the table above.
 
 ### Data quality per dataset
 
@@ -1848,7 +2072,7 @@ readers. Donor accounts never see the page, the count or the card.
 | `pd_awaiting_closure` | PDs ended in eTools and not closed (final report, funds liquidation); warning when ended over 60 days ago with money outstanding | the PD's sections, and the country view when late | trial |
 | `grant_expiring` | Grants expiring in the next 90 days with at least `WATCH_GRANT_MIN_UNSPENT` USD unspent (the management brief's own figure); warning from 30 days, critical from 14 | the sections of the PDs it funds, and the country view | trial |
 | `fr_expiring` | Funds reservations ending in the next 30 days with money outstanding; warning from 7 days | the PD's sections | trial |
-| `hact_assurance_gap` | From 1 October to 31 December: partners whose programmatic visits, spot checks or audits are below what HACT requires; warning from 15 November, critical from 15 December | the sections of the partner's active PDs, and the country view | trial |
+| `hact_assurance_gap` | From 1 October to 31 December: partners whose programmatic visits, spot checks or audits are below what HACT requires (eTools' partner minimum); warning from 15 November, critical from 15 December. When the partner's programme documents are short of their planned visits, the evidence also says how many PDs need how many visits (counts only) and links to them on the HACT visit plan (`/field-monitoring/?tab=plan&partner=<id>&year=<year>`) | the sections of the partner's active PDs, and the country view | trial |
 | `assignment_due` | Agreed dates on daily review findings (*Finding assignments*): 3 days before, and once passed | the finding's section, and the country view | trial |
 | `fm_follow_up` | Field monitoring visits (Monitoring insights) reported, rated off track or constrained (the worse of the overall rating and HACT Q1), ended 14 (Score settings *follow-up days*) to 120 days ago, with no eTools action point linked and no NeuroDB action point following them up (one added by hand, or one NeuroDB made and someone marked done); critical when off track and ended over 30 days ago. Closes when an action point is linked (or a NeuroDB one follows the visit up) or the rating changes. Reads the Datamart sync and the Monitoring insights refresh; finds nothing while `FMM_ENABLED` is off (switch the check off then, or its source shows as not refreshed) | the visit's sections | trial |
 | `forecast_short` | Indicators the year-end forecast says are likely to fall short, only while the forecasts are shown | the forecast's section | trial |

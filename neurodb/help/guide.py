@@ -29,6 +29,7 @@ GUIDE_DIR = Path(__file__).resolve().parent / "guide"
 ORDER = (
     "overview",
     "monitoring-insights",
+    "field-monitoring",
     "action-points",
     "partner-progress",
     "exports",

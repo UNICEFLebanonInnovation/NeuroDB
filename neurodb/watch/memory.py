@@ -225,12 +225,13 @@ def _section_ids(ctx: Context, names: list[str]) -> list[int]:
 
 
 def fingerprint(evidence: dict) -> str:
-    """What makes evidence different: its records and numbers, not when it was synced nor the day
-    counts that move by themselves (``COUNTING_NUMBERS``). An item marked wrong comes back when this
-    changes."""
+    """What makes evidence different: its records and numbers, not when it was synced, nor the day
+    counts that move by themselves (``COUNTING_NUMBERS``), nor the records written as context
+    (``record(..., context=True)``). An item marked wrong comes back when this changes."""
     evidence = evidence or {}
     numbers = {k: v for k, v in (evidence.get("numbers") or {}).items() if k not in COUNTING_NUMBERS}
-    return hash_evidence({"records": evidence.get("records") or [], "numbers": numbers})
+    records = [r for r in evidence.get("records") or [] if not (isinstance(r, dict) and r.get("context"))]
+    return hash_evidence({"records": records, "numbers": numbers})
 
 
 def _create(ctx: Context, key: str, values: dict[str, Any], mark: str) -> WatchItem:

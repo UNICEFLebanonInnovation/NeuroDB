@@ -31,6 +31,7 @@
     <div class="table-toolbar__title"><h2 class="h6 mb-0">{% if hact.year %}{% blocktrans with year=hact.year %}HACT assurance by partner, {{ year }}{% endblocktrans %}{% else %}{% trans "HACT assurance by partner" %}{% endif %}</h2>
       {% if hact.rows %}<span class="text-muted small">{% blocktrans count counter=hact.partners_behind %}{{ counter }} partner behind its minimum requirements{% plural %}{{ counter }} partners behind their minimum requirements{% endblocktrans %}</span>{% endif %}</div>
     <div class="table-toolbar__actions">
+      <a class="btn btn-link btn-sm" href="{% url 'reports:monitoring' %}?tab=plan{% if hact.year %}&amp;year={{ hact.year }}{% endif %}">{% trans "Visit plan per programme document" %} →</a>
       {% for y in hact.years %}<a class="btn btn-sm {% if y == hact.year %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?hact_year={{ y }}">{{ y }}</a>{% endfor %}
       <button type="button" class="btn btn-outline-secondary btn-sm" data-table-csv data-table-target="#hact-partners" data-filename="hact-by-partner">{% include "components/icon.html" with name="download" %}<span>{% trans "CSV" %}</span></button>
     </div>

@@ -275,6 +275,9 @@ QUICK_MIGRATIONS = {
     # SET LOCAL lock_timeout before two plain indexes over the sync runs (a few thousand rows, built in
     # milliseconds; the wait for the table's lock is bounded to 10 s, never a concurrent build)
     ("core", "0027_syncrun_indexes", "RunSQL"),
+    # the sections' comments on the HACT visit plan: a new, empty table (CreateModel only, no code runs;
+    # listed so that every migration of the HACT visit plan is accounted for here)
+    ("datamart", "0014_visit_plan_comment", "CreateModel"),
 }
 
 

@@ -440,6 +440,164 @@ def test_the_hact_gap_closes_when_the_year_ends_saying_what_was_not_done(partner
     )
 
 
+def planned(pd, quarters, year=2026) -> dm.PlannedVisits:
+    """The programmatic visits eTools plans for ``pd`` in each quarter of ``year``."""
+    q1, q2, q3, q4 = quarters
+    return dm.PlannedVisits.objects.create(
+        datamart_id=next(_ids),
+        intervention=pd,
+        partner_id=pd.partner_id,
+        pd_reference_number=pd.number,
+        year=year,
+        q1=q1,
+        q2=q2,
+        q3=q3,
+        q4=q4,
+    )
+
+
+def approved_visit(pd) -> dm.TPMActivity:
+    """A third-party monitoring visit to ``pd``, marked programmatic, its report approved by UNICEF."""
+    return dm.TPMActivity.objects.create(
+        datamart_id=next(_ids),
+        partner=pd.partner,
+        intervention=pd,
+        visit_reference_number=f"TPM/2026/{next(_ids)}",
+        visit_status="unicef_approved",
+        is_programmatic_visit=True,
+        pd_reference_number=pd.number,
+        date=datetime.date(2026, 6, 1),
+    )
+
+
+PLAN_LABEL = "Programme documents still needing visits"
+PLAN_SENTENCE = " See which programme documents still need visits on the HACT visit plan."
+
+
+def test_the_hact_item_links_to_the_partners_pds_still_needing_visits(pd, partner, education, fresh):
+    planned(pd, (1, 1, 1, 0))  # 3 planned, 1 done: 2 still needed
+    approved_visit(pd)
+    second = make_pd(partner, number="TEST/PCA2026002/PD2026002")
+    planned(second, (1, 0, 0, 0))  # never visited: 1 still needed
+    hact(partner)
+    run(checks=MONEY)
+    found = item(f"hact:2026:{partner.pk}")
+    plan_url = f"/field-monitoring/?tab=plan&partner={partner.pk}&year=2026"
+    # what the item always said is unchanged; the plan's line comes last, counts only, with its link
+    assert (
+        found.title == "HACT assurance due by 31 Dec 2026 for Amel Association: 2 programmatic visits to go"
+    )
+    assert (found.severity, found.url) == ("info", reverse("reports:partner_profile", args=[partner.pk]))
+    assert (found.entity_kind, found.entity_key, found.due_date) == (
+        "partner",
+        str(partner.pk),
+        datetime.date(2026, 12, 31),
+    )
+    assert [r["value"] for r in found.evidence["records"][:-1]] == ["1 of 3 completed", "1 of 1 completed"]
+    assert found.evidence["records"][-1] == {
+        "label": PLAN_LABEL,
+        "date": "",
+        "value": "2 programme documents need 3 visits",
+        "url": plan_url,
+        "context": True,
+    }
+    assert set(found.evidence["numbers"]) == {
+        "pv_required",
+        "pv_completed",
+        "sc_required",
+        "sc_completed",
+        "audits_required",
+        "audits_completed",
+        "days_left",
+    }
+    assert found.detail.endswith(PLAN_SENTENCE)
+    text = text_of(found)
+    for private in (PD_NUMBER, second.number, FOCAL_POINT):
+        assert private not in text
+
+    # the PD visits done (the eTools minimum still not met): the line and the sentence go, the item stays
+    approved_visit(pd)
+    approved_visit(pd)
+    approved_visit(second)
+    run(checks=MONEY, mode=QUICK)
+    found = item(f"hact:2026:{partner.pk}")
+    assert found.state == WatchItem.State.OPEN and found.severity == "info"
+    assert PLAN_LABEL not in [r["label"] for r in found.evidence["records"]]
+    assert not found.detail.endswith(PLAN_SENTENCE) and "HACT visit plan" not in found.detail
+
+
+def test_the_plan_line_never_brings_back_a_hact_item_marked_wrong(pd, partner, fresh):
+    # an item marked wrong before this line existed (the release adding it, in the HACT season)
+    hact(partner)
+    run(checks=MONEY)
+    key = f"hact:2026:{partner.pk}"
+    WatchItem.objects.filter(key=key).update(state=WatchItem.State.WRONG)  # Something's wrong, by an editor
+
+    planned(pd, (1, 1, 1, 0))  # the line appears: 1 programme document needs 3 visits
+    run(checks=MONEY, mode=QUICK)
+    assert item(key).state == WatchItem.State.WRONG
+    approved_visit(pd)  # the PD's counts change: 2 visits still needed
+    run(checks=MONEY, mode=QUICK)
+    found = item(key)
+    assert found.state == WatchItem.State.WRONG
+    assert found.evidence["records"][-1]["value"] == "1 programme document needs 2 visits"
+
+    # what the item is about (the partner's HACT figures) still brings it back
+    dm.PartnerHACTYear.objects.update(pv_completed=2)  # 2 of 3 done: still due, its evidence changed
+    run(checks=MONEY, mode=QUICK)
+    assert item(key).state == WatchItem.State.OPEN
+
+
+def test_the_plan_line_is_written_only_for_a_partner_with_a_pd_gap(partner, fresh):
+    one = PartnerOrganization.objects.create(
+        etl_id="2", name="Partner B", partner_type="Civil Society Organization", vendor_number="V2"
+    )
+    planned(make_pd(one, number="TEST/PCA2026003/PD2026003"), (0, 0, 1, 0))
+    met = PartnerOrganization.objects.create(
+        etl_id="3", name="Partner C", partner_type="Civil Society Organization", vendor_number="V3"
+    )
+    met_pd = make_pd(met, number="TEST/PCA2026004/PD2026004")
+    planned(met_pd, (1, 0, 0, 0))
+    approved_visit(met_pd)
+    for owner in (partner, one, met):
+        hact(owner)
+    hact(None, partner_name="Partner D", vendor_number="V4")  # not linked to a partner: no PD to count
+    run(checks=MONEY)
+
+    def plan_lines(key):
+        return [r for r in item(key).evidence["records"] if r["label"] == PLAN_LABEL]
+
+    (line,) = plan_lines(f"hact:2026:{one.pk}")
+    assert line["value"] == "1 programme document needs 1 visit"
+    assert item(f"hact:2026:{one.pk}").detail.endswith(PLAN_SENTENCE)
+    for key in (f"hact:2026:{partner.pk}", f"hact:2026:{met.pk}", "hact:2026:vendor:V4"):
+        assert plan_lines(key) == [] and not item(key).detail.endswith(PLAN_SENTENCE), key
+        assert len(item(key).evidence["records"]) == 2  # programmatic visits and spot checks, as before
+
+
+def test_the_visit_plan_is_read_once_per_pass_and_only_in_the_hact_season(partner, monkeypatch):
+    other = PartnerOrganization.objects.create(
+        etl_id="2", name="Partner B", partner_type="Civil Society Organization", vendor_number="V2"
+    )
+    for owner in (partner, other):
+        hact(owner)
+    calls = []
+    real = money.hact_plan.partner_counts
+
+    def counted(year, today):
+        calls.append((year, today))
+        return real(year, today)
+
+    monkeypatch.setattr(money.hact_plan, "partner_counts", counted)
+    september = datetime.date(2026, 9, 30)
+    synced(september)
+    run(september, MONEY)
+    assert calls == [] and not keys("hact_assurance_gap")  # no item before 1 October: nothing read
+    synced(TODAY)
+    run(TODAY, MONEY)
+    assert len(keys("hact_assurance_gap")) == 2 and calls == [(2026, TODAY)]
+
+
 def test_a_stale_datamart_gives_no_money_item_and_closes_nothing(pd, partner):
     header = fr(pd, end=days(20))
     line(header)

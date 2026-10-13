@@ -1,0 +1,46 @@
+{% load i18n ui %}
+{# The HACT visit plan's filter bar. Its lists hold every value of the year's programme documents (hact_plan.options), and every value the list is filtered on, marked (options.chosen), even one the year lacks: the bar never hides a filter the list applies. Every section by default. The quick views (remark, not visited) are links in the results; "not visited" is kept here while it is chosen. Drawn again out of band with the results when the year changes (oob), so its lists follow the year: the swap replaces #plan-filters, a plain box around the folding wrapper, because the page's script enhances what is inside new content (the "Filters" button of the wrapper, the filter bar, its lists), not the new element itself; a bar opened on a phone stays open (app.js keepFiltersOpen). #}
+<div id="plan-filters"{% if oob %} hx-swap-oob="true"{% endif %}>
+<div class="filters-collapse" data-filters-collapse>
+<form method="get" class="filter-bar" data-filter-bar data-hx-target="#monitoring-results" role="search" aria-label="{% trans 'HACT visit plan filters' %}">
+  <input type="hidden" name="tab" value="plan">
+  {% if view == "partners" %}<input type="hidden" name="view" value="partners">{% endif %}
+  {% if f.zero %}<input type="hidden" name="zero" value="1">{% endif %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-q">{% trans "Search" %}</label>
+    <input class="form-control form-control-sm" type="search" id="f-q" name="q" value="{{ f.q }}" maxlength="200" placeholder="{% trans 'Partner, vendor number or reference' %}">
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-year">{% trans "Year" %}</label>
+    <select class="form-select form-select-sm" id="f-year" name="year">
+      {% for y in years %}<option value="{{ y }}" {% if y == f.year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+    </select>
+  </div>
+  {% trans "Section" as l %}{% include "reports/_multiselect.html" with name="section" label=l options=options.sections values=options.chosen.sections %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-partner">{% trans "Partner" %}</label>
+    <select class="form-select form-select-sm" id="f-partner" name="partner" multiple data-tom placeholder="{% trans 'All' %}">
+      {% for pk, name in options.partners %}<option value="{{ pk }}" {% if pk in options.chosen.partners %}selected{% endif %}>{{ name|default:"—" }}</option>{% endfor %}
+    </select>
+  </div>
+  {% trans "Risk rating" as l %}{% include "reports/_multiselect.html" with name="risk" label=l options=options.risks values=options.chosen.risks %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-remark">{% trans "Remark" %}</label>
+    <select class="form-select form-select-sm" id="f-remark" name="remark" multiple data-tom placeholder="{% trans 'All' %}">
+      {% for code, label in options.remarks %}<option value="{{ code }}" {% if code in f.remarks %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-status"><span class="has-tip" title="{% trans 'The programme document status in eTools. Draft and cancelled documents are never listed.' %}">{% trans "PD status" %}</span></label>
+    <select class="form-select form-select-sm" id="f-status" name="status" multiple data-tom placeholder="{% trans 'All' %}">
+      {% for s in options.statuses %}<option value="{{ s }}" {% if s in options.chosen.statuses %}selected{% endif %}>{{ s|code_label }}</option>{% endfor %}
+    </select>
+  </div>
+  {% trans "Document type" as l %}{% include "reports/_multiselect.html" with name="type" label=l options=options.types values=options.chosen.types %}
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
+    <a class="btn btn-link btn-sm" href="{{ reset_url }}">{% trans "Reset" %}</a>
+  </div>
+</form>
+</div>
+</div>

@@ -275,6 +275,7 @@ rows on a canvas (charts.js, data-rows-png).{% endcomment %}
   {% include "components/empty_state.html" with title=_("No HACT requirement in this period") %}
   {% endif %}
   <p class="small text-muted px-3 pb-3 mb-0">{% trans "FM programmatic visits (NeuroDB): the completed eTools field monitoring visits marked programmatic that ended in the year, counted for each partner of its records (a visit with two partners counts for both). Gap = required − completed in eTools." %}</p>
+  <p class="small px-3 pb-3 mb-0">{% trans "Partners and programme documents with no visit in the filter are not listed here:" %} <a href="{% url 'reports:monitoring' %}?tab=plan&amp;zero=1{% if hact.year %}&amp;year={{ hact.year }}{% endif %}">{% trans "see the HACT visit plan" %} →</a></p>
 </section>
 
 <section class="panel" aria-labelledby="fmm-follow-title">

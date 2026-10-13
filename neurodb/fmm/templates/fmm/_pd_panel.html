@@ -5,7 +5,7 @@ insights page its link opens (/fmm/?pd=<id>&year=Y&section=), for every user.{% 
 {% with s=fmm_pd %}
 <div class="fmm-pd-panel" id="fmm-pd">
 <h3 class="h6 mt-3">{% trans "Field monitoring visits" %} <span class="text-muted small">{% blocktrans with year=s.year count n=s.visits %}{{ n }} visit in {{ year }}{% plural %}{{ n }} visits in {{ year }}{% endblocktrans %} · {% blocktrans count n=s.records %}{{ n }} record{% plural %}{{ n }} records{% endblocktrans %}{% if s.avg_quality is not None %} · {% blocktrans with q=s.avg_quality|percent %}average quality {{ q }} per record{% endblocktrans %}{% endif %}</span>
-  <a class="small ms-2" href="{{ s.url }}">{% trans "Open in Monitoring insights" %}</a></h3>
+  <a class="small ms-2" href="{{ s.url }}">{% trans "Open in Monitoring insights" %}</a>{% if pd.number %} · <a class="small" href="{% url 'reports:monitoring' %}?tab=plan&amp;q={{ pd.number|urlencode }}&amp;year={{ s.year }}">{% trans "HACT visit plan" %} →</a>{% endif %}</h3>
 <div class="table-wrap"><table class="table table-sm"><thead><tr><th>{{ s.year }}</th>{% for q in s.quarters %}<th class="num">Q{{ q.quarter }}</th>{% endfor %}<th class="num">{% trans "Year" %}</th></tr></thead>
 <tbody>
   <tr><th scope="row" class="small fw-normal">{% trans "Planned in eTools" %}</th>{% for q in s.quarters %}<td class="num">{% if q.planned is not None %}{{ q.planned }}{% else %}—{% endif %}</td>{% endfor %}<td class="num">{% if s.planned is not None %}{{ s.planned }}{% else %}—{% endif %}</td></tr>

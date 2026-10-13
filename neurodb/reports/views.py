@@ -29,12 +29,12 @@ from django.utils import timezone
 from django.utils.http import urlencode
 from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_sameorigin
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from neurodb.accounts.roles import SECTION_EDITOR, can_edit_section, role_of
 from neurodb.core.models import PopulationFigure, SavedView, SyncRun
 from neurodb.core.services import population as population_service
-from neurodb.datamart import headline
+from neurodb.datamart import hact_plan, headline
 from neurodb.datamart import monitoring as pd_monitoring_service
 from neurodb.datamart import reporting as reporting_service
 from neurodb.datamart import services as datamart
@@ -1883,13 +1883,18 @@ def progress_report(request: HttpRequest) -> HttpResponse:
 
 @require_GET
 def monitoring(request: HttpRequest) -> HttpResponse:
+    """Field monitoring: findings, TPM visits and activities and staff trips (the default tab), and the
+    HACT programmatic visit plan per programme document (``tab=plan``, :func:`_monitoring_plan`). The
+    default tab carries a one-line strip of the plan's figures for its year."""
+    if request.GET.get("tab") == "plan":
+        return _monitoring_plan(request)
     data = datamart.monitoring(request.GET)
     page_obj = _paginate(request, data["findings"])
+    today = timezone.localdate()
+    chosen = pd_monitoring_service.year_param(request.GET.get("year"))
     context = {
         "page_title": _("Field monitoring"),
-        "page_subtitle": _(
-            "Field monitoring findings and third-party monitoring visits from the eTools Datamart"
-        ),
+        "page_subtitle": _monitoring_subtitle(),
         "breadcrumbs": [_crumb(_("Field monitoring"))],
         "data": data,
         "page_obj": page_obj,
@@ -1897,9 +1902,462 @@ def monitoring(request: HttpRequest) -> HttpResponse:
         "year": request.GET.get("year", ""),
         "q": request.GET.get("q", ""),
         "chart_data": {"by_rating": data["by_rating"], "by_month": data["by_month"]},
+        "tab": "findings",
+        "tab_urls": _monitoring_tabs(chosen),
+        # the findings filter's year, else this year: the strip follows the year filter
+        "hact_strip": _plan_strip(chosen or today.year, today),
     }
     template = "reports/partials/monitoring_table.html" if request.htmx else "reports/monitoring.html"
     return render(request, template, context)
+
+
+def _monitoring_subtitle() -> str:
+    return _(
+        "Field monitoring findings, third-party monitoring visits and the HACT programmatic visit plan, "
+        "from the eTools Datamart"
+    )
+
+
+def _monitoring_tabs(year: int | None) -> dict[str, str]:
+    """The Field monitoring page's two tabs, plain links that keep the year: "Findings and visits" and
+    "HACT visit plan"."""
+    path = reverse("reports:monitoring")
+    plan = {"tab": "plan", **({"year": year} if year else {})}
+    return {
+        "findings": f"{path}?{urlencode({'year': year})}" if year else path,
+        "plan": f"{path}?{urlencode(plan)}",
+    }
+
+
+def _plan_strip(year: int, today: datetime.date) -> dict[str, Any] | None:
+    """The HACT visit plan's figures for the default tab's strip (counts only) and the plan's link; None
+    when eTools sent no plan for ``year`` (no strip)."""
+    rows = hact_plan.build(year, today)
+    if not any(r["plan_row"] for r in rows):
+        return None
+    url = f"{reverse('reports:monitoring')}?{urlencode({'tab': 'plan', 'year': year})}"
+    return {**hact_plan.headline(rows, year), "url": url}
+
+
+# The columns of the HACT visit plan's files: the team's workbook's, then the figures NeuroDB adds. The
+# UNICEF focal points are a count; who wrote a comment is never written.
+PLAN_COLUMNS = (
+    "partner", "vendor_number", "reference_number", "status", "sections", "document_type", "start_date",
+    "end_date", "total_budget", "budget_currency", "risk_rating", "required_pv", "completed_pv",
+    "completed_pv_out_of_minimum", "still_needed_by_31_dec", "q1_planned", "q2_planned", "q3_planned",
+    "q4_planned", "due_by_end_of_quarter", "remark", "not_visited", "completed_fm", "completed_tpm",
+    "awaiting_approval", "fm_completed_not_programmatic", "fm_partner_visits_naming_no_pd",
+    "staff_trip_activities_not_counted", "tpm", "unicef_focal_points_count", "section_comment",
+    "section_comment_updated",
+)  # fmt: skip
+PLAN_PARTNER_COLUMNS = (
+    "partner", "vendor_number", "risk_rating", "programme_documents", "pds_not_visited", "required_pv",
+    "completed_pv", "completed_pv_out_of_minimum", "still_needed_by_31_dec", "fm_partner_visits_naming_no_pd",
+    "etools_hact_required", "etools_hact_completed", "etools_hact_gap",
+    "etools_minimum_met_pd_visits_still_needed", "pd_plans_below_etools_minimum",
+)  # fmt: skip
+PLAN_SECTION_COLUMNS = ("section", "pds", "pds_with_plan", "not_visited", "visits_still_needed")
+PLAN_ABOUT_COLUMNS = ("name", "value")
+
+
+def _monitoring_plan(request: HttpRequest) -> HttpResponse:
+    """The "HACT visit plan" tab (``tab=plan``): every programme document of the HACT year with its
+    planned and completed programmatic visits (``hact_plan``), narrowed by the filter bar. The four
+    figures and the by-section panel leave the quick views out (remark, not visited); the list is by
+    programme document, or by partner (``view=partners``); ``export`` gives its Excel or CSV file
+    (every row of the filter). Computed live, so a sync or a comment shows at once: a few grouped
+    queries, then Python over plain rows."""
+    today = timezone.localdate()
+    f = hact_plan.PlanFilters.from_params(request.GET, today)
+    view = "partners" if request.GET.get("view") == "partners" else "pds"
+    rows = hact_plan.build(f.year, today)
+    base = hact_plan.select(rows, f, presets=False)
+    shown = hact_plan.select(base, f)
+    synced = hact_plan.synced_on()
+    if request.GET.get("export") in exports.FORMATS:
+        return _plan_export(f, view, rows, base, shown, synced, request.GET["export"])
+    too_many = view == "pds" and len(shown) > hact_plan.MAX_ROWS
+    # eTools' plan rows for the year that match no PD: in no figure, so the tab says how many
+    unlinked = hact_plan.unlinked_plans(f.year)
+    params = request.GET.copy()
+    params["tab"] = "plan"
+    # "no visit on any of their PDs" reads every PD of the year, whatever the filter
+    figures = hact_plan.headline(base, f.year, rows)
+    path = reverse("reports:monitoring")
+    context = {
+        "page_title": _("Field monitoring"),
+        "page_subtitle": _monitoring_subtitle(),
+        # no year here: the breadcrumb stays as it is when the filter bar changes the year
+        "breadcrumbs": [_crumb(_("Field monitoring"), path), _crumb(_("HACT visit plan"))],
+        "tab": "plan",
+        "tab_urls": _monitoring_tabs(f.year),
+        "f": f,
+        "view": view,
+        # the filter bar's lists are the year's: drawn again with the results when the year changed
+        "filters_oob": bool(request.htmx) and _plan_year_changed(request, f.year, today),
+        **_plan_row_context(f.year, today),
+        "years": sorted({*hact_plan.years(today), f.year}, reverse=True),  # the year shown is always offered
+        # the year's lists, and every value the list is filtered on, chosen: the bar and the list agree
+        "options": hact_plan.options(rows, f),
+        "figures": figures,
+        "by_section": [
+            # a section's name filters the list on it
+            {**s, "url": "?" + _query_with(params, ("export",), section=s["section"])} if s["section"] else s
+            for s in hact_plan.by_section(base, f.sections)
+        ],
+        "count": len(shown),
+        "too_many": too_many,
+        "rows": hact_plan.for_page(shown, f.year, request.user) if view == "pds" and not too_many else [],
+        "partners": [
+            # its PDs: the list by programme document of the same filter, on that partner
+            {**p, "pds_url": "?" + _query_with(params, ("export", "view"), partner=str(p["partner_id"]))}
+            for p in (hact_plan.by_partner(shown, f.year, rows) if view == "partners" else [])
+        ],
+        "has_pds": bool(rows),
+        "has_plan": any(r["plan_row"] for r in rows),
+        "unlinked": unlinked,
+        "synced_on": synced,
+        "quick": _plan_quick_views(params, f, figures, len(base)),
+        "view_urls": {
+            "pds": "?" + _query_with(params, ("export", "view")),
+            "partners": "?" + _query_with(params, ("export",), view="partners"),
+        },
+        "downloads": [
+            {"label": _("Excel of the filter"), "url": "?" + _query_with(params, (), export="xlsx")},
+            {"label": _("CSV of the filter"), "url": "?" + _query_with(params, (), export="csv")},
+        ],
+        "assurance_url": f"{reverse('reports:assurance')}?{urlencode({'hact_year': f.year})}",
+        "reset_url": f"{path}?{urlencode({'tab': 'plan', **({'view': view} if view == 'partners' else {})})}",
+    }
+    template = "reports/partials/monitoring_plan.html" if request.htmx else "reports/monitoring.html"
+    return render(request, template, context)
+
+
+def _plan_year_changed(request: HttpRequest, year: int, today: datetime.date) -> bool:
+    """Whether an HTMX request of the plan shows another year than the page it came from (htmx sends the
+    page's address, which the filter bar updates once each answer is in): the filter bar's lists, which
+    are the year's, must then be drawn again. True when the address is not known. Only a change of year
+    redraws the bar, so typing in its search box never loses the focus."""
+    current = request.htmx.current_url if request.htmx else None
+    if not current:
+        return True
+    return hact_plan.parse_year(QueryDict(urlsplit(current).query).get("year"), today) != year
+
+
+def _plan_quick_views(params: QueryDict, f: hact_plan.PlanFilters, figures: dict, pds: int) -> list[dict]:
+    """The plan's quick views, links that keep the rest of the filter, each with its count: the
+    programme documents planned and not visited (``zero=1``), the end-of-year missing visits (the
+    remarks "HACT FMM needed" and "PD ended, visits missing": the team's EoY sheet) and all of them."""
+    eoy = ["needed", "ended"]
+    return [
+        {
+            "label": _("Not visited"),
+            "count": figures["not_visited"]["pds"],
+            "url": "?" + _query_with(params, ("export", "remark"), zero="1"),
+            "active": f.zero,
+        },
+        {
+            "label": _("End-of-year missing visits"),
+            "count": figures["still_needed"]["pds"],
+            "url": "?" + _query_with(params, ("export", "zero"), remark=eoy),
+            "active": not f.zero and set(f.remarks) == set(eoy),
+        },
+        {
+            "label": _("All"),
+            "count": pds,
+            "url": "?" + _query_with(params, ("export", "zero", "remark")),
+            "active": not f.zero and not f.remarks,
+        },
+    ]
+
+
+def _plan_line(row: dict[str, Any], notes: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    """One programme document as a line of the plan's files: its plain fields, the number of UNICEF
+    focal points (never their names) and the section comment's text and day (never who wrote it)."""
+    note = notes.get(row["pd_id"]) or {}
+    updated = note.get("updated_at")
+    return {
+        "partner": row["partner"],
+        "vendor_number": row["vendor_number"],
+        "reference_number": row["reference"],
+        "status": row["status"],
+        "sections": ", ".join(row["sections"]),
+        "document_type": row["document_type"],
+        "start_date": row["start"],
+        "end_date": row["end"],
+        "total_budget": row["total_budget"],
+        # USD when eTools gives no currency, as the programme document page reads it
+        "budget_currency": row["currency"] or ("USD" if row["total_budget"] is not None else ""),
+        "risk_rating": row["risk_rating"],
+        "required_pv": row["required"],
+        "completed_pv": row["completed"],
+        "completed_pv_out_of_minimum": row["counted"],
+        "still_needed_by_31_dec": row["still_needed"],
+        **{f"q{n}_planned": row[f"q{n}"] for n in (1, 2, 3, 4)},
+        "due_by_end_of_quarter": row["due_now"],
+        "remark": str(hact_plan.REMARKS[row["remark"]]),
+        "not_visited": "yes" if row["zero"] else "no",
+        "completed_fm": row["completed_fm"],
+        "completed_tpm": row["completed_tpm"],
+        "awaiting_approval": row["awaiting"],
+        "fm_completed_not_programmatic": row["fm_not_programmatic"],
+        "fm_partner_visits_naming_no_pd": row["fm_partner_level"],
+        "staff_trip_activities_not_counted": row["staff_trips"],
+        "tpm": "yes" if row["tpm"] else "no",
+        "unicef_focal_points_count": row["focal_points_count"],
+        "section_comment": note.get("text", ""),
+        "section_comment_updated": timezone.localtime(updated).date() if updated else None,
+    }
+
+
+def _plan_partner_line(p: dict[str, Any]) -> dict[str, Any]:
+    """A partner of the plan's "By partner" view as a line of its files."""
+    return {
+        "partner": p["partner"],
+        "vendor_number": p["vendor_number"],
+        "risk_rating": p["risk_rating"],
+        "programme_documents": p["pds"],
+        "pds_not_visited": p["pds_not_visited"],
+        "required_pv": p["required"],
+        "completed_pv": p["completed"],
+        "completed_pv_out_of_minimum": p["counted"],
+        "still_needed_by_31_dec": p["still_needed"],
+        "fm_partner_visits_naming_no_pd": p["fm_partner_level"],
+        "etools_hact_required": p["etools_required"],
+        "etools_hact_completed": p["etools_completed"],
+        "etools_hact_gap": p["etools_gap"],
+        "etools_minimum_met_pd_visits_still_needed": "yes" if p["minimum_met_pd_needed"] else "no",
+        "pd_plans_below_etools_minimum": "yes" if p["plans_below_minimum"] else "no",
+    }
+
+
+def _plan_filter_text(f: hact_plan.PlanFilters, names: dict[int, str]) -> str:
+    """The plan's filter in words, for the About sheet. ``names`` names the partners as the filter bar
+    does (``hact_plan.options``: a partner the year's rows lack from its record)."""
+    parts = [
+        ("Search", [f.q] if f.q else []),
+        ("Sections", list(f.sections)),
+        ("Partners", [names.get(pk) or f"#{pk}" for pk in f.partners]),
+        ("Risk ratings", list(f.risks)),
+        ("PD statuses", list(f.statuses)),
+        ("Document types", list(f.types)),
+        ("Remarks", [str(hact_plan.REMARKS[code]) for code in f.remarks]),
+    ]
+    words = [f"{label}: {', '.join(values)}" for label, values in parts if values]
+    if f.zero:
+        words.append("Not visited only (visits planned, none completed)")
+    return "; ".join(words) or "None: every programme document of the year"
+
+
+PLAN_DEFINITIONS = (
+    (
+        "Programme documents",
+        "Every programme document that is not a draft or cancelled and runs during the year, has visits "
+        "planned for the year or a counted visit in it.",
+    ),
+    (
+        "required_pv",
+        "The programmatic visits eTools plans for the programme document in the year: Q1 + Q2 + Q3 + Q4.",
+    ),
+    (
+        "completed_pv",
+        "Programmatic visits to the programme document whose report UNICEF approved, each visit once per "
+        "source: field monitoring visits marked programmatic, with the status completed and an end date in "
+        "the year (completed_fm), and third-party monitoring visits marked programmatic, with the status "
+        "unicef_approved and an activity date in the year (completed_tpm).",
+    ),
+    ("completed_pv_out_of_minimum", "The smaller of required_pv and completed_pv."),
+    (
+        "still_needed_by_31_dec",
+        "required_pv less completed_pv_out_of_minimum, never negative. A surplus on one programme document "
+        "never makes up for a gap on another.",
+    ),
+    (
+        "due_by_end_of_quarter",
+        "The visits planned up to the end of the current quarter (Q4 for a past year, none for a future "
+        "year) less completed_pv, never negative.",
+    ),
+    (
+        "remark",
+        "No visit planned: required_pv is 0. Completed: nothing is still needed. PD ended, visits missing: "
+        "visits are still needed and the programme document ended or is past its end date. HACT FMM needed: "
+        "visits are still needed.",
+    ),
+    ("not_visited", "yes when visits are planned and none is completed."),
+    (
+        "Not counted",
+        "awaiting_approval: reports not yet approved (field monitoring submitted, TPM tpm_reported). "
+        "fm_completed_not_programmatic: field monitoring visits completed but not marked programmatic. "
+        "fm_partner_visits_naming_no_pd: the partner's completed programmatic field monitoring visits whose "
+        "findings name only the partner or a CP output, never one of its programme documents (the same on "
+        "each of its programme documents); the Assurance page counts them for the partner. "
+        "staff_trip_activities_not_counted: UNICEF staff trip activities typed programmatic, which eTools "
+        "sends without a status.",
+    ),
+    ("tpm", "yes when a third-party monitoring visit of the year (not draft or cancelled) covers it."),
+    ("risk_rating", "The partner's eTools HACT risk rating of the year, else the partner's rating."),
+    (
+        "unicef_focal_points_count",
+        "The number of UNICEF focal points. Their names are shown on the page, never written into a file.",
+    ),
+    (
+        "section_comment",
+        "The section's comment for the year, written on the page. Who wrote it is not written into a file.",
+    ),
+    (
+        "By partner",
+        "The sums of the partner's programme documents of the filter, beside its eTools HACT minimum "
+        "(pv_required and pv_completed of its HACT year), a partner-level requirement eTools sets from the "
+        "risk rating and the cash transfers. pd_plans_below_etools_minimum adds the plans of all the "
+        "partner's programme documents of the year, whatever the filter. fm_partner_visits_naming_no_pd "
+        "is the partner's own figure (see Not counted).",
+    ),
+    (
+        "By section",
+        "The figures without the quick views. A programme document with two sections counts under each; "
+        "the total line counts it once. Under a section filter, only the chosen sections have a line.",
+    ),
+)  # fmt: skip
+
+
+def _plan_export(
+    f: hact_plan.PlanFilters,
+    view: str,
+    rows: list[dict],
+    base: list[dict],
+    shown: list[dict],
+    synced: datetime.date | None,
+    fmt: str,
+) -> HttpResponse:
+    """The plan's file, every programme document of the filter: Excel (the plan, by partner, by section
+    and About) or CSV (the table of the view). ``rows`` is every programme document of the year (the
+    partner flags read them all), ``base`` the filter without its quick views and ``shown`` with them.
+    Plain rows only: no staff name, e-mail or comment author."""
+    year = f.year
+    partners = [_plan_partner_line(p) for p in hact_plan.by_partner(shown, year, rows)]
+    if fmt == "csv" and view == "partners":
+        name = exports.export_filename(f"hact-visit-plan-by-partner-{year}", "csv")
+        return exports.stream_csv(name, PLAN_PARTNER_COLUMNS, partners)
+    notes = hact_plan.comments(year, [r["pd_id"] for r in shown])
+    lines = [_plan_line(r, notes) for r in shown]
+    name = exports.export_filename(f"hact-visit-plan-{year}", fmt)
+    if fmt == "csv":
+        return exports.stream_csv(name, PLAN_COLUMNS, lines)
+    sections = [
+        {
+            "section": "Total (each programme document once)" if s["total"] else s["section"] or "No section",
+            "pds": s["pds"],
+            "pds_with_plan": s["pds_with_plan"],
+            "not_visited": s["not_visited"],
+            "visits_still_needed": s["still_needed"],
+        }
+        for s in hact_plan.by_section(base, f.sections)
+    ]
+    unlinked = hact_plan.unlinked_plans(year)
+    unlinked_rows = f"{unlinked['rows']} planned-visit row" + ("" if unlinked["rows"] == 1 else "s")
+    unlinked_visits = f"{unlinked['visits']} visit" + ("" if unlinked["visits"] == 1 else "s")
+    about = [
+        ("HACT visit plan", "Programmatic visits per programme document against their plan, from NeuroDB"),
+        ("Year", year),
+        ("Exported on", timezone.localtime().replace(tzinfo=None)),
+        ("eTools figures as of the sync of", synced or "no eTools Datamart sync yet"),
+        # the partners named as the filter bar names them
+        ("Filter", _plan_filter_text(f, dict(hact_plan.options(rows, f)["partners"]))),
+        # eTools' plan rows for the year that match no PD, as the tab says
+        *(
+            [
+                (
+                    "Planned visits matching no programme document",
+                    f"eTools sent {unlinked_rows} for {year} ({unlinked_visits}) matching no programme "
+                    "document: left out of every figure (Data health shows the rows not linked).",
+                )
+            ]
+            if unlinked["rows"]
+            else []
+        ),
+        *PLAN_DEFINITIONS,
+    ]
+    sheets = [
+        ("HACT visit plan", PLAN_COLUMNS, lines),
+        ("By partner", PLAN_PARTNER_COLUMNS, partners),
+        ("By section", PLAN_SECTION_COLUMNS, sections),
+        ("About", PLAN_ABOUT_COLUMNS, [{"name": k, "value": v} for k, v in about]),
+    ]
+    return exports.xlsx_response(name, sheets, typed=True)
+
+
+def _plan_row_context(year: int, today: datetime.date) -> dict[str, Any]:
+    """What a row of the HACT visit plan (``reports/partials/_plan_row.html``) reads besides ``row`` (a
+    ``hact_plan.for_page`` row): the year, today, the quarter of "Due by the end of Q<n>", whether
+    Monitoring insights is on and the Completed link without its PD (``fmm_completed_url``), the
+    Findings and visits tab the PD's TPM activities are searched on (``findings_url``: Monitoring
+    insights holds no TPM visit), and the remarks' labels."""
+    fmm_on = _fmm_on()
+    completed_url = ""
+    if fmm_on:
+        from neurodb.fmm.scope import link
+
+        # the reported programmatic visits of the year in Monitoring insights; the row adds its pd=
+        completed_url = link(programmatic=1, status="reported", year=year)
+    return {
+        "year": year,
+        "today": today,
+        "due_quarter": hact_plan.due_quarter(year, today),
+        "fmm_on": fmm_on,
+        "fmm_completed_url": completed_url,
+        "findings_url": reverse("reports:monitoring"),
+        "remarks": hact_plan.REMARKS,
+    }
+
+
+@require_http_methods(["GET", "POST"])
+def visit_plan_comment(request: HttpRequest, pk: int) -> HttpResponse:
+    """A section's comment on one programme document's HACT visit plan for a year (``year``, this year by
+    default): the form (GET; in the shared modal for HTMX) and its saving (POST). Administrators and
+    Section editors of one of the PD's sections (``hact_plan.can_comment``), on a PD the plan lists for
+    that year (404 otherwise). An empty text, or ``remove``, removes it. HTMX gets the PD's row back (it
+    swaps in place); a request without JavaScript goes back to the PD's row on the plan."""
+    pd = get_object_or_404(PCA.objects.select_related("partner"), pk=pk)
+    if not hact_plan.can_comment(request.user, pd.section_names):
+        raise PermissionDenied
+    today = timezone.localdate()
+    year = hact_plan.parse_year(request.POST.get("year") or request.GET.get("year"), today)
+    # only a programme document the plan lists for that year: a comment anywhere else would show nowhere
+    # (a draft or cancelled PD, or one of another year)
+    rows = hact_plan.build(year, today, pd_ids=[pd.pk])
+    if not rows:
+        raise Http404
+    back = f"{reverse('reports:monitoring')}?{urlencode({'tab': 'plan', 'year': year})}#pd-{pd.pk}"
+    if request.method == "POST":
+        text = "" if request.POST.get("remove") else request.POST.get("text", "")
+        comment = hact_plan.set_comment(pd, year, text, request.user)
+        if request.htmx:
+            # the row as built above, with the comment just written
+            context = {
+                "row": hact_plan.for_page(rows, year, request.user)[0],
+                **_plan_row_context(year, today),
+            }
+            return render(request, "reports/partials/_plan_row.html", context)
+        messages.success(request, _("Section comment saved.") if comment else _("Section comment removed."))
+        return redirect(back)
+    context = {
+        "pd": pd,
+        "year": year,
+        "comment": hact_plan.comments(year, [pd.pk]).get(pd.pk),
+        "action": reverse("reports:visit_plan_comment", args=[pd.pk]),
+        "back": back,
+        "max_length": hact_plan.COMMENT_MAX,
+        "modal": bool(request.htmx),
+    }
+    if request.htmx:
+        return render(request, "reports/partials/plan_comment_form.html", context)
+    context["page_title"] = _("Section comment")
+    context["breadcrumbs"] = [
+        _crumb(_("Field monitoring"), reverse("reports:monitoring")),
+        _crumb(_("HACT visit plan %(year)s") % {"year": year}, back),
+        _crumb(pd.number or pd.title),
+    ]
+    return render(request, "reports/plan_comment.html", context)
 
 
 # ------------------------------------------------------------------------- partner monitoring (eTools)

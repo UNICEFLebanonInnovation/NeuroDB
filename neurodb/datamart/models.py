@@ -801,3 +801,34 @@ class IndicatorFlag(models.Model):
         if self.unique_beneficiaries:
             verdict += ", unique beneficiaries of its programme document"
         return f"{self.get_source_display()} {self.key}: {verdict}"
+
+
+class VisitPlanComment(models.Model):
+    """A section's comment on a programme document's HACT programmatic visit plan for one year (the workbook's
+    "Section Comments"), written on the Field monitoring page's HACT visit plan and kept across syncs.
+
+    Shown to every signed-in staff member and written into the plan's Excel and CSV files; never sent to
+    the AI. Written by an Administrator or a Section editor of one of the PD's sections
+    (``datamart.hact_plan.can_comment``)."""
+
+    # PCA rows are updated, never deleted, by the syncs
+    intervention = _intervention("visit_plan_comments")
+    pd_reference = models.CharField(
+        "PD reference", max_length=64, blank=True, help_text="the PD's reference number when written"
+    )
+    year = models.PositiveSmallIntegerField(help_text="the HACT year (calendar year) of the plan")
+    text = models.CharField(max_length=500)
+    # the username: for the admin only, never shown on a page, exported or sent to the AI
+    updated_by = models.CharField(max_length=150, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["intervention", "year"], name="datamart_visitplancomment_pd_year")
+        ]
+        ordering = ("-year", "pd_reference")
+        verbose_name = "visit plan comment"
+        verbose_name_plural = "visit plan comments"
+
+    def __str__(self):
+        return f"{self.pd_reference or f'PD {self.intervention_id}'} {self.year}"

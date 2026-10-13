@@ -41,7 +41,8 @@ The sidebar groups the pages:
 - **Monthly results (ActivityInfo)**: the ActivityInfo databases of the year, the year-end forecasts,
   and each database, Neuro report and HPM report of the year.
 - **Partnerships**: programme documents, donors, partners, Makani (MSCC), Makani wellbeing, Dirasa
-  (Bridging), youth programmes, funds, assurance, field monitoring, **Monitoring insights** (marked
+  (Bridging), youth programmes, funds, assurance, field monitoring with the HACT visit plan
+  ([Field monitoring and the HACT visit plan](/help/field-monitoring/)), **Monitoring insights** (marked
   AI; [Monitoring insights](/help/monitoring-insights/)) and **Action points**
   ([Action points](/help/action-points/)).
 - **Partner progress (eTools)**: partner monitoring (what each programme document indicator reached,
@@ -81,7 +82,7 @@ Every signed-in person has one role:
 | Role | What it adds |
 |---|---|
 | Viewer | Reads every page, asks Ask NeuroDB, the Help assistant and Chat with Data, and exports. Nothing is changed. |
-| Section editor | Adds documents to the knowledge base; marks the visits of their section reviewed; verifies the action points of their section; adds NeuroDB action points. |
+| Section editor | Adds documents to the knowledge base; marks the visits of their section reviewed; verifies the action points of their section; adds NeuroDB action points; writes the section comments of the HACT visit plan on the programme documents of their section. |
 | Administrator | Everything a section editor does, for every section, plus the administration pages: settings, quality rules, prompt versions, scheduled jobs and the buttons that run them. |
 
 Your **section** (set on your user by an administrator) is what several pages show first: the

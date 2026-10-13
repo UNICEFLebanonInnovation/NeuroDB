@@ -1,6 +1,7 @@
 """Demo eTools records for ``seed_demo``: a gazetteer, PD indicators with partner reports, funds
-reservations, TPM visits, action points and field monitoring findings, so the overview, the partner
-monitoring pages and the assurance pages show something on a local database. The field monitoring
+reservations, TPM visits, action points, field monitoring findings and the HACT visit plan (planned
+visits per PD, the partners' HACT years), so the overview, the partner monitoring pages, the assurance
+pages and the Field monitoring page show something on a local database. The field monitoring
 visits of Monitoring insights (more entities, sites, question answers) are added last by
 ``_demo_fmm``.
 
@@ -70,6 +71,10 @@ DISAGGREGATION_VALUES = {
 }
 PARTNER_SHARES = (Decimal("0.05"), Decimal("0.08"), Decimal("0.095"), Decimal("0.12"), Decimal("0"))
 TPM_STATUSES_PAST = ["unicef_approved", "unicef_approved", "tpm_reported", "tpm_accepted", "cancelled"]
+# the HACT visit plan's demo: planned programmatic visits per quarter (in turn, by PD) and the partners'
+# eTools HACT figures (in turn, by partner); placeholders, never a real plan
+PLAN_PATTERNS = ((1, 1, 1, 1), (1, 1, 1, 0), (0, 1, 1, 1), (1, 0, 0, 0), (0, 0, 1, 1), (0, 0, 0, 0))
+HACT_RISKS = ("Low", "Medium", "Low", "High")
 MODULES = ["tpm", "fm", "audit"]
 
 
@@ -106,6 +111,7 @@ def seed_etools(rng: random.Random, today: dt.date) -> None:
     _findings(rng, pcas, gazetteer, today, year)
     _children_population(rng, gazetteer)
     _section_plans(rng, year)
+    _hact_plan(pcas, year)  # no random draw either
     # last, on its own random draws, so that nothing above moves (Monitoring insights' demo visits)
     from . import _demo_fmm
 
@@ -626,3 +632,56 @@ def _section_plans(rng, year: int) -> None:
                 "updated_by": "seed_demo",
             },
         )
+
+
+def _hact_plan(pcas, year: int) -> None:
+    """The HACT visit plan of the Field monitoring page (no random draw): the quarterly plan of each
+    programme document running this year (``PlannedVisits``), one eTools HACT year per partner with
+    such a PD (``PartnerHACTYear``), and one in three approved TPM activities marked programmatic, so
+    that some PDs have completed visits, some still need visits and some were never visited."""
+    first, last = dt.date(year, 1, 1), dt.date(year, 12, 31)
+    running = [
+        pca
+        for pca in pcas
+        if pca.status in ("active", "ended", "signed")
+        and pca.partner_id
+        and (pca.start is None or pca.start <= last)
+        and (pca.end is None or pca.end >= first)
+    ]
+    for n, pca in enumerate(running, start=1):
+        q1, q2, q3, q4 = PLAN_PATTERNS[n % len(PLAN_PATTERNS)]
+        dm.PlannedVisits.objects.create(
+            datamart_id=n,
+            intervention=pca,
+            partner_id=pca.partner_id,
+            pd_reference_number=pca.number or "",
+            year=year,
+            q1=q1,
+            q2=q2,
+            q3=q3,
+            q4=q4,
+        )
+    partners = {pca.partner_id: pca.partner for pca in running}
+    for n, partner_id in enumerate(sorted(partners), start=1):
+        partner = partners[partner_id]
+        required = 1 + n % 3
+        dm.PartnerHACTYear.objects.create(
+            datamart_id=n,
+            partner=partner,
+            partner_name=partner.name,
+            vendor_number=partner.vendor_number or "",
+            year=year,
+            risk_rating=HACT_RISKS[n % len(HACT_RISKS)],
+            cash_transfers=Decimal(50_000 * (1 + n % 7)),
+            pv_required=required,
+            pv_planned=required,
+            pv_completed=(0, 1, required, required + 1)[n % 4],
+            sc_required=n % 2,
+            sc_planned=n % 2,
+            sc_completed=0,
+            audits_required=0,
+            audits_completed=0,
+        )
+    approved = dm.TPMActivity.objects.filter(visit_status="unicef_approved").order_by("datamart_id")
+    flagged = list(approved.values_list("pk", flat=True))[::3]
+    dm.TPMActivity.objects.filter(pk__in=flagged).update(is_programmatic_visit=True)

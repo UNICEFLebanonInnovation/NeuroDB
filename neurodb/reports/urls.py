@@ -38,6 +38,7 @@ urlpatterns = [
     path("partner-reporting/", views.partner_reporting, name="partner_reporting"),
     path("partner-reporting/report/", views.progress_report, name="progress_report"),
     path("field-monitoring/", views.monitoring, name="monitoring"),
+    path("field-monitoring/plan/<int:pk>/comment/", views.visit_plan_comment, name="visit_plan_comment"),
     path("action-points/", ap_views.action_points, name="action_points"),
     path("action-points/report/", ap_views.action_points_report, name="action_points_report"),
     path("action-points/<int:pk>/", ap_views.action_point, name="action_point"),

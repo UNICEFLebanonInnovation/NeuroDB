@@ -1403,6 +1403,22 @@ tr.is-uncounted > td { color: var(--nd-muted); }
   .part[aria-busy="true"] .part__print-note { display: block; }
 }
 
+/* ============================================================================ HACT visit plan (Field monitoring)
+   The plan's tab (reports/partials/monitoring_plan.html, _plan_row.html) and its strip on the default tab. Tokens
+   only, so the dark theme follows. The list is wide: it scrolls inside its card (.table-wrap), never the page. */
+/* The strip: the year's figures in one line that wraps on a phone. */
+.plan-strip { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.5rem; margin: 0 0 1rem; padding: 0.6rem 1rem; font-size: 0.85rem; color: var(--nd-muted); }
+.plan-strip strong, .plan-strip span { color: var(--nd-text); }
+/* The current quarter's header in the list. */
+.table thead th.plan-q--now { background: var(--nd-primary-soft); color: var(--nd-primary-strong); }
+/* The section comment wraps at a readable width; its button sits under the text. The list is wider than its card,
+   so a cell gets its minimum width there: the width is set, or a 500-character comment would make its row very tall. */
+.plan-table .plan-comment { width: 20rem; min-width: 16rem; white-space: normal; }
+.plan-comment__text { display: block; overflow-wrap: anywhere; }
+.plan-comment__edit { margin-top: 0.25rem; }
+@media (max-width: 575.98px) { .plan-table .plan-comment { width: 14rem; min-width: 12rem; } }
+/* ============================================================================ end of HACT visit plan */
+
 /* ============================================================================ stage A (reports core): part fixes
    Page-specific rules for the parts of the brief, partnerships, data health, databases and field monitoring go
    here, and only here; the integration stage folds them into the sections above. */

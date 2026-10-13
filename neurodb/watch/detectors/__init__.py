@@ -203,16 +203,29 @@ class Close:
             raise ValueError(f"a close is {', '.join(WatchItem.CloseKind.values)}, not {self.kind!r}")
 
 
-def record(label: str, date: datetime.date | str | None = None, value: Any = "", url: str = "") -> dict:
-    """One evidence record: what was read, its date, its value and where to see it."""
+def record(
+    label: str,
+    date: datetime.date | str | None = None,
+    value: Any = "",
+    url: str = "",
+    *,
+    context: bool = False,
+) -> dict:
+    """One evidence record: what was read, its date, its value and where to see it. ``context=True`` marks
+    a record that helps to act on the item without being what it is about (a pointer to another page's
+    figures): it is shown like any other, but it is not part of the evidence's fingerprint
+    (:func:`neurodb.watch.memory.fingerprint`), so it never brings back an item marked wrong."""
     if isinstance(date, datetime.date):
         date = date.isoformat()
-    return {
+    found = {
         "label": str(label),
         "date": date or "",
         "value": value if value is not None else "",
         "url": url or "",
     }
+    if context:
+        found["context"] = True
+    return found
 
 
 def evidence(ctx: Context, source: str, job: str, records: Iterable[dict], **numbers: Any) -> dict:

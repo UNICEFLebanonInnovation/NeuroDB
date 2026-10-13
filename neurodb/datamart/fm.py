@@ -10,10 +10,11 @@ test are grouped the same way.
 Also here: the rating, status and answer vocabularies (eTools spells them several ways), the entity
 kind of a row, the programme document a row is about (:class:`PDResolver`, by the PCA/PD reference
 pair so that the ``LEBA/`` or ``LEB/`` prefix and the ``-2`` amendment suffix do not matter), and the
-completed programmatic visits per partner that the assurance page sets against HACT.
+completed programmatic visits per partner that the assurance page sets against HACT, and per programme
+document for the Field monitoring page's HACT visit plan (the same rows: :func:`completed_programmatic_rows`).
 
 This module imports nothing from ``neurodb.fmm``: the Datamart sync, Monitoring insights, the
-knowledge hub, NeuroDB Watch and the assurance page all read it.
+knowledge hub, NeuroDB Watch, the assurance page and the HACT visit plan all read it.
 """
 
 from __future__ import annotations
@@ -408,12 +409,8 @@ def relink_findings(rows: QuerySet | None = None) -> dict[str, int]:
 def programmatic_visits_by_partner(year: int) -> dict[int, int]:
     """{partner_id: distinct visit keys} over rows with is_programmatic_visit, status__iexact='completed',
     end_date__year=year, partner_id not null (§0.3). A visit with several partners counts for each."""
-    from neurodb.datamart.models import MonitoringFinding
-
     rows = (
-        MonitoringFinding.objects.filter(
-            is_programmatic_visit=True, status__iexact="completed", end_date__year=year
-        )
+        completed_programmatic_rows(year)
         .exclude(partner_id=None)
         .order_by()
         .annotate(vk=visit_key_expr())
@@ -428,3 +425,92 @@ def in_location_subtree(location_ids: Collection[int]) -> Q:
     the overview keeps its own location-only rule."""
     ids = list(location_ids)
     return Q(location_id__in=ids) | Q(location_id=None, monitoring_site__parent_id__in=ids)
+
+
+# ---------------------------------------------------------------------------------- HACT visit plan
+# A finding row of a completed programmatic visit: the one rule the assurance page (per partner) and the
+# HACT visit plan (per programme document) count by.
+COMPLETED_PROGRAMMATIC = Q(is_programmatic_visit=True, status__iexact="completed")
+# shown next to the count so that a zero is explained, never counted: a report awaiting approval, and a
+# completed visit eTools does not mark programmatic
+SUBMITTED_PROGRAMMATIC = Q(is_programmatic_visit=True, status__iexact="submitted")
+COMPLETED_NOT_PROGRAMMATIC = Q(is_programmatic_visit=False, status__iexact="completed")
+
+
+def completed_programmatic_rows(year: int) -> QuerySet:
+    """Finding rows HACT counts as completed programmatic FM visits of `year`: is_programmatic_visit,
+    status iexact "completed", end date in the year. The Assurance page (per partner) and the HACT visit
+    plan (per PD) both count over these rows."""
+    from neurodb.datamart.models import MonitoringFinding
+
+    return MonitoringFinding.objects.filter(COMPLETED_PROGRAMMATIC, end_date__year=year)
+
+
+def visits_by_pd_for_hact(year: int, pd_ids: Collection[int] | None = None) -> dict[int, dict[str, int]]:
+    """{pd_id: {"completed": n, "submitted": n, "not_programmatic": n}}, distinct visits per programme
+    document over the rows that name it (``intervention``) and end in `year`, in one query:
+
+    * ``completed``: the rows of :func:`completed_programmatic_rows`, the visits HACT counts;
+    * ``submitted``: programmatic, report submitted and awaiting approval (not counted);
+    * ``not_programmatic``: completed but not marked programmatic in eTools (not counted).
+
+    A visit with two rows about the same PD counts once; a visit about two PDs counts for each.
+    ``pd_ids`` keeps those PDs only. PDs with none of the three are left out."""
+    from neurodb.datamart.models import MonitoringFinding
+
+    rows = MonitoringFinding.objects.filter(end_date__year=year).exclude(intervention_id=None)
+    if pd_ids is not None:
+        rows = rows.filter(intervention_id__in=list(pd_ids))
+    counted = (
+        rows.order_by()
+        .annotate(vk=visit_key_expr())
+        .values("intervention_id")
+        .annotate(
+            completed=Count("vk", distinct=True, filter=COMPLETED_PROGRAMMATIC),
+            submitted=Count("vk", distinct=True, filter=SUBMITTED_PROGRAMMATIC),
+            not_programmatic=Count("vk", distinct=True, filter=COMPLETED_NOT_PROGRAMMATIC),
+        )
+    )
+    return {
+        r["intervention_id"]: {k: r[k] for k in ("completed", "submitted", "not_programmatic")}
+        for r in counted
+        if r["completed"] or r["submitted"] or r["not_programmatic"]
+    }
+
+
+def partner_visits_naming_no_pd(year: int, partner_ids: Collection[int] | None = None) -> dict[int, int]:
+    """{partner_id: n}: completed programmatic FM visits of `year` (the rows of
+    :func:`completed_programmatic_rows`) none of whose finding rows names a programme document, only the
+    partner or a CP output. The Assurance page counts them for the partner; the HACT visit plan counts
+    them for no PD and shows them beside the partner's PDs, "not counted". One query (the visits that
+    name a PD are a subquery); a visit with several partners counts for each. ``partner_ids`` keeps
+    those partners only."""
+    naming = (
+        completed_programmatic_rows(year)
+        .exclude(intervention_id=None)
+        .order_by()
+        .annotate(vk=visit_key_expr())
+        .values("vk")
+    )
+    rows = completed_programmatic_rows(year).exclude(partner_id=None)
+    if partner_ids is not None:
+        rows = rows.filter(partner_id__in=list(partner_ids))
+    counted = (
+        rows.order_by()
+        .annotate(vk=visit_key_expr())
+        .exclude(vk__in=naming)
+        .values("partner_id")
+        .annotate(n=Count("vk", distinct=True))
+    )
+    return {r["partner_id"]: r["n"] for r in counted}
+
+
+def search_reference(number: Any) -> str:
+    """The part of a programme document's reference that every spelling of it holds, for a text search
+    of its findings and TPM activities: the PCA/PD pair ('PCA2026001/PD2026001' of
+    'TEST/PCA2026001/PD2026001-2', the pair :class:`PDResolver` links findings by), else the number
+    without its country prefix and amendment suffix ('SSFA2024001'); '' for a blank reference."""
+    token = pd_token(number)
+    if token:
+        return "/".join(token)
+    return _base(number)

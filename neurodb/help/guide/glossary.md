@@ -44,7 +44,9 @@ A quality rule that fired on a record. 3 flags or more make a high-flag record.
 ## HACT
 The Harmonized Approach to Cash Transfers: the assurance of partners (assessments, audits, spot checks,
 programmatic visits). **HACT Q1** is the checklist question "Have the activities been implemented as
-planned…"; Q2 lists the activities monitored, Q3 the key observations.
+planned…"; Q2 lists the activities monitored, Q3 the key observations. The **HACT visit plan** sets
+each programme document's programmatic visits against its plan (see
+[Field monitoring and the HACT visit plan](/help/field-monitoring/)).
 
 ## Indicator report
 One indicator in one progress report: the unit the Progress reports tiles count, as the eTools Power BI
@@ -61,6 +63,14 @@ locations, funds and sections.
 ## Pending
 A visit whose eTools status is not one of the scored statuses (report finalization, completed): no
 score, no urgency.
+
+## Programmatic visit (HACT)
+A visit to see that a programme document's activities are carried out as planned: one of HACT's
+assurance activities, planned per programme document and quarter in eTools. On the HACT visit plan a
+visit counts when eTools marks it programmatic and UNICEF approved its report: a field monitoring visit
+completed (in the year of its end date) or a TPM visit approved by UNICEF (in the year of its activity
+date), each visit once per programme document. UNICEF staff trips are shown, never counted. See
+[Which visits count](/help/field-monitoring/#which-visits-count).
 
 ## Provisional
 A record whose AI checks are not all done: its score so far is shown on its visit's page, but it counts
@@ -100,6 +110,13 @@ The eTools statuses whose visits get a quality score: report finalization and co
 ## Section
 A programme section (Education, Child Protection...). Your own section is what several pages show
 first.
+
+## Still needed (HACT visit plan)
+A programme document's programmatic visits planned for the year (Required) less those counted
+(completed, at most Required): never negative, and a surplus on one programme document never makes up
+for a gap on another. *Visits still needed by 31 Dec* adds them up over the programme documents that
+still need some, ended ones included. See
+[Required, still needed and due](/help/field-monitoring/#required-still-needed-and-due).
 
 ## TPM
 Third-party monitoring: visits made by a monitoring company on UNICEF's behalf.

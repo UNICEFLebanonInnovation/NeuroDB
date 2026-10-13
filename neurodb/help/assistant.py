@@ -227,6 +227,8 @@ def screen(question: str) -> str | None:
 # NeuroDB's pages by their URL namespace (or name), and the guide page about them
 GUIDE_FOR = {
     "fmm": "monitoring-insights",
+    "reports:monitoring": "field-monitoring",
+    "reports:visit_plan_comment": "field-monitoring",
     "reports:action_points": "action-points",
     "reports:pd_monitoring": "partner-progress",
     "reports:pd_monitoring_map": "partner-progress",

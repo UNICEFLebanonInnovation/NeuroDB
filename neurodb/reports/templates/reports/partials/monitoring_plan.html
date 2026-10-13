@@ -1,0 +1,114 @@
+{% load i18n ui %}
+{% comment %}The HACT visit plan (the "HACT visit plan" tab of Field monitoring; hact_plan): the four figures and the by-section panel
+over the filter without its quick views, then the list by programme document (rows in _plan_row.html) or by partner. Drawn
+with the page and again after each filter change (#monitoring-results).{% endcomment %}
+{% if request.htmx %}{% include "reports/partials/_monitoring_tabs.html" with oob=True %}{% if filters_oob %}{% include "reports/partials/_plan_filters.html" with oob=True %}{% endif %}{% endif %}
+{% with h=figures %}
+<div class="kpi-grid">
+  {% blocktrans asvar l1 %}Not visited in {{ year }}{% endblocktrans %}
+  {% blocktrans asvar h1_partners count n=h.not_visited.partners %}{{ n }} partner{% plural %}{{ n }} partners{% endblocktrans %}
+  {% blocktrans asvar h1 with none=h.not_visited.partners_no_visit ended=h.not_visited.ended %}{{ h1_partners }} · {{ none }} of them with no visit on any programme document · {{ ended }} of these programme documents ended{% endblocktrans %}
+  {% include "components/kpi_tile.html" with label=l1 value=h.not_visited.pds|number hint=h1 href=quick.0.url status=h.not_visited.pds|yesno:"off_track," %}
+  {% trans "Visits still needed by 31 Dec" as l2 %}
+  {% blocktrans asvar h2_pds count n=h.still_needed.pds %}{{ n }} programme document{% plural %}{{ n }} programme documents{% endblocktrans %}
+  {% blocktrans asvar h2_partners count n=h.still_needed.partners %}{{ n }} partner{% plural %}{{ n }} partners{% endblocktrans %}
+  {% blocktrans asvar h2 with ended=h.still_needed.visits_ended %}on {{ h2_pds }} of {{ h2_partners }} · {{ ended }} of them on documents that ended{% endblocktrans %}
+  {% include "components/kpi_tile.html" with label=l2 value=h.still_needed.visits|number hint=h2 href=quick.1.url status=h.still_needed.visits|yesno:"over_target," %}
+  {% trans "Programmatic visits completed" as l3 %}
+  {% blocktrans asvar v3 with counted=h.completed.counted|number required=h.completed.required|number %}{{ counted }} / {{ required }}{% endblocktrans %}
+  {% blocktrans asvar h3 with done=h.completed.completed|number waiting=h.completed.awaiting|number %}counted out of the visits required · {{ done }} completed in all · {{ waiting }} awaiting approval{% endblocktrans %}
+  {% include "components/kpi_tile.html" with label=l3 value=v3 hint=h3 %}
+  {% trans "Partners behind their HACT minimum (eTools)" as l4 %}
+  {% blocktrans asvar h4 count n=h.etools_behind.with_row %}programmatic visits only, of {{ n }} partner of these programme documents with an eTools HACT year{% plural %}programmatic visits only, of {{ n }} partners of these programme documents with an eTools HACT year{% endblocktrans %}
+  {% trans "Assurance →" as m4 %}
+  {% include "components/kpi_tile.html" with label=l4 value=h.etools_behind.partners|number hint=h4 more_href=assurance_url more_label=m4 %}
+</div>
+{% endwith %}
+<div class="toolbar">
+  <div class="segmented segmented--scroll" role="group" aria-label="{% trans 'Quick views' %}">
+    {% for v in quick %}<a href="{{ v.url }}"{% if v.active %} aria-current="page"{% endif %}>{{ v.label }} ({{ v.count|number }})</a>{% endfor %}
+  </div>
+  <div class="segmented segmented--scroll" role="group" aria-label="{% trans 'List' %}">
+    <a href="{{ view_urls.pds }}"{% if view == "pds" %} aria-current="page"{% endif %}>{% trans "By programme document" %}</a>
+    <a href="{{ view_urls.partners }}"{% if view == "partners" %} aria-current="page"{% endif %}>{% trans "By partner" %}</a>
+  </div>
+</div>
+<p class="small text-muted mb-3">{% if synced_on %}{% blocktrans with day=synced_on|date:"j M Y" %}eTools figures as of the sync of {{ day }}.{% endblocktrans %}{% else %}{% trans "No eTools Datamart sync of the planned visits, field monitoring or TPM activities yet." %}{% endif %}
+  {% trans "A visit counts once eTools marks it programmatic and UNICEF approves its report (field monitoring and TPM). Required = the PD's planned visits per quarter in eTools." %}</p>
+{% if has_pds and not has_plan and not unlinked.rows %}<div class="alert alert-warning small" role="status">{% blocktrans %}eTools has no planned visits for {{ year }} yet: Required is 0 for every PD.{% endblocktrans %} <a href="{% url 'reports:data_health' %}">{% trans "Data health" %}</a></div>{% endif %}
+{% if unlinked.rows %}{% blocktrans asvar unlinked_visits count n=unlinked.visits %}{{ n }} visit{% plural %}{{ n }} visits{% endblocktrans %}<div class="alert alert-warning small" role="status" id="plan-unlinked">{% blocktrans count n=unlinked.rows with visits=unlinked_visits %}eTools sent {{ n }} planned-visit row for {{ year }} ({{ visits }}) that matches no programme document: it is left out of every figure.{% plural %}eTools sent {{ n }} planned-visit rows for {{ year }} ({{ visits }}) that match no programme document: they are left out of every figure.{% endblocktrans %} <a href="{% url 'reports:data_health' %}">{% trans "Data health" %}</a></div>{% endif %}
+
+<section class="panel p-0 mb-3" aria-labelledby="plan-sections-title">
+  <div class="table-toolbar"><div class="table-toolbar__title"><h2 class="h6 mb-0" id="plan-sections-title">{% trans "By section" %}</h2></div></div>
+  <div class="table-wrap"><table class="table table-sm" id="plan-sections">
+    <thead><tr><th scope="col">{% trans "Section" %}</th><th scope="col" class="num">{% trans "PDs with a plan" %}</th><th scope="col" class="num">{% trans "Not visited" %}</th><th scope="col" class="num">{% trans "Visits still needed" %}</th></tr></thead>
+    <tbody>{% for s in by_section %}{% if not s.total %}<tr>
+      <th scope="row" class="fw-normal small">{% if s.url %}<a href="{{ s.url }}">{{ s.section }}</a>{% else %}<span class="text-muted">{% trans "No section" %}</span>{% endif %}</th>
+      <td class="num">{{ s.pds_with_plan|number }}</td><td class="num">{{ s.not_visited|number }}</td><td class="num">{{ s.still_needed|number }}</td>
+    </tr>{% endif %}{% endfor %}</tbody>
+    <tfoot>{% for s in by_section %}{% if s.total %}<tr><th scope="row">{% trans "Total" %}</th><td class="num">{{ s.pds_with_plan|number }}</td><td class="num">{{ s.not_visited|number }}</td><td class="num">{{ s.still_needed|number }}</td></tr>{% endif %}{% endfor %}</tfoot>
+  </table></div>
+  <p class="small text-muted px-3 py-2 mb-0">{% trans "A programme document with two sections counts under each; the total counts it once. The quick views do not change these figures. Under a section filter, only the chosen sections have a line." %}</p>
+</section>
+
+<section class="panel p-0">
+  {% if view == "partners" %}
+  {% blocktrans asvar title %}HACT visit plan {{ year }} by partner{% endblocktrans %}
+  {% include "components/table_toolbar.html" with title=title count=partners|length table_id="plan-partners" filename="hact-visit-plan-by-partner" downloads=downloads %}
+  {% if partners %}
+  <div class="table-wrap table-wrap--tall"><table class="table table-sm table-hover" id="plan-partners" data-sortable>
+    <thead><tr><th scope="col">{% trans "Partner" %}</th><th scope="col">{% trans "Vendor number" %}</th><th scope="col">{% trans "Risk" %}</th><th scope="col" class="num">{% trans "PDs" %}</th><th scope="col" class="num">{% trans "PDs not visited" %}</th><th scope="col" class="num">{% trans "Required" %}</th><th scope="col" class="num">{% trans "Completed" %}</th><th scope="col" class="num">{% trans "Still needed" %}</th><th scope="col" class="num"><span class="has-tip" title="{% trans 'Completed programmatic field monitoring visits whose findings name only the partner or a CP output: not counted for a programme document; the Assurance page counts them for the partner' %}">{% trans "FM visits naming no PD" %}</span></th><th scope="col" class="num"><span class="has-tip" title="{% trans 'The partner minimum eTools sets from the risk rating and the cash transfers (its HACT year)' %}">{% trans "eTools HACT required" %}</span></th><th scope="col" class="num">{% trans "eTools HACT completed" %}</th><th scope="col" class="num">{% trans "eTools gap" %}</th><th scope="col" data-nosort>{% trans "Assurance" %}</th></tr></thead>
+    <tbody>{% for p in partners %}<tr>
+      <td class="cell-wrap">{% if p.partner_id %}<a href="{% url 'reports:partner_profile' p.partner_id %}">{{ p.partner|default:"—" }}</a>{% else %}{{ p.partner|default:"—" }}{% endif %}
+        {% if p.minimum_met_pd_needed %}<span class="cell-sub text-warning-emphasis">{% trans "Partner minimum met in eTools, PD visits still needed" %}</span>{% endif %}
+        {% if p.plans_below_minimum %}<span class="cell-sub text-warning-emphasis" title="{% trans 'The plans of all its programme documents of the year, whatever the filter' %}">{% trans "PD plans below the partner minimum" %}</span>{% endif %}</td>
+      <td class="small mono">{{ p.vendor_number|default:"—" }}</td>
+      <td class="small">{{ p.risk_rating|default:"—" }}</td>
+      <td class="num">{% if p.partner_id %}<a href="{{ p.pds_url }}" title="{% trans 'Its programme documents' %}">{{ p.pds }}</a>{% else %}{{ p.pds }}{% endif %}</td>
+      <td class="num">{{ p.pds_not_visited }}</td>
+      <td class="num">{{ p.required }}</td>
+      <td class="num">{{ p.completed }}</td>
+      <td class="num" data-value="{{ p.still_needed }}">{% if p.still_needed %}<span class="pill pill--sm pill--warning">{{ p.still_needed }}</span>{% else %}0{% endif %}</td>
+      <td class="num">{{ p.fm_partner_level }}</td>
+      <td class="num">{{ p.etools_required|default_if_none:"—" }}</td>
+      <td class="num">{{ p.etools_completed|default_if_none:"—" }}</td>
+      <td class="num">{{ p.etools_gap|default_if_none:"—" }}</td>
+      <td class="small"><a href="{{ assurance_url }}">{% trans "Assurance" %}</a></td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  <p class="small text-muted px-3 py-2 mb-0">{% trans "Required, Completed and Still needed add up the partner's programme documents: a surplus on one never makes up for a gap on another. The eTools columns are the partner's HACT minimum, a different requirement set from the risk rating and the cash transfers: a partner can meet it while its programme documents still need visits, and the other way round." %}</p>
+  {% elif not has_pds %}
+  {% blocktrans asvar t %}No programme document runs in {{ year }}{% endblocktrans %}{% include "components/empty_state.html" with title=t %}
+  {% else %}
+  {% trans "No programme document matches" as t %}{% include "components/empty_state.html" with title=t action_url=reset_url %}
+  {% endif %}
+  {% else %}
+  {% blocktrans asvar title %}HACT visit plan {{ year }}{% endblocktrans %}
+  {% include "components/table_toolbar.html" with title=title count=count table_id="plan-pds" filename="hact-visit-plan" downloads=downloads %}
+  {% if too_many %}
+  <p class="px-3 py-3 mb-0">{% blocktrans with n=count|number %}{{ n }} programme documents match: choose a section or a partner first.{% endblocktrans %} <span class="text-muted">{% trans "The Excel and CSV files hold them all." %}</span></p>
+  {% elif rows %}
+  <div class="table-wrap table-wrap--tall plan-table"><table class="table table-sm table-hover" id="plan-pds" data-sortable>
+    <thead><tr>
+      <th scope="col">{% trans "Partner" %}</th><th scope="col">{% trans "Reference" %}</th><th scope="col">{% trans "Status" %}</th><th scope="col">{% trans "Sections" %}</th><th scope="col">{% trans "Type" %}</th><th scope="col">{% trans "Start" %}</th><th scope="col">{% trans "End" %}</th><th scope="col" class="num">{% trans "Total budget" %}</th><th scope="col">{% trans "Risk" %}</th>
+      <th scope="col" class="num"><span class="has-tip" title="{% trans 'The visits eTools plans for the programme document this year: Q1 + Q2 + Q3 + Q4' %}">{% trans "Required" %}</span></th>
+      <th scope="col" class="num"><span class="has-tip" title="{% trans 'Programmatic visits whose report UNICEF approved: field monitoring (completed, by end date) and TPM (approved, by activity date), each visit once' %}">{% trans "Completed" %}</span></th>
+      <th scope="col" class="num"><span class="has-tip" title="{% trans 'Completed, at most Required' %}">{% trans "Counted" %}</span></th>
+      <th scope="col" class="num">{% trans "Still needed" %}</th>
+      {% for q in "1234" %}<th scope="col" class="num{% if year == today.year and q|add:0 == due_quarter %} plan-q--now{% endif %}"{% if year == today.year and q|add:0 == due_quarter %} title="{% trans 'This quarter' %}"{% endif %}>Q{{ q }}</th>{% endfor %}
+      <th scope="col" class="num">{% if due_quarter %}{% blocktrans with n=due_quarter %}Due by end of Q{{ n }}{% endblocktrans %}{% else %}{% trans "Due now" %}{% endif %}</th>
+      <th scope="col">{% trans "Remark" %}</th><th scope="col">{% trans "TPM" %}</th>
+      <th scope="col" class="d-none d-md-table-cell" data-export="no">{% trans "UNICEF focal points" %}</th>
+      <th scope="col">{% trans "Section comment" %}</th>
+    </tr></thead>
+    <tbody>{% for row in rows %}{% include "reports/partials/_plan_row.html" %}{% endfor %}</tbody>
+  </table></div>
+  <p class="small text-muted px-3 py-2 mb-0">{% if fmm_on %}{% trans "Completed opens the programme document's reported programmatic field monitoring visits in Monitoring insights: those include reports still awaiting approval and are dated by their start date, while Completed counts approved reports by their end date. TPM visits are not in Monitoring insights: TPM under the figure opens the programme document's TPM activities on the Findings and visits tab (by activity date), and so does the figure when TPM visits are all there is to list." %}{% else %}{% trans "Completed opens the programme document's field monitoring findings and TPM activities on the Findings and visits tab, searched by its PCA and PD numbers so that any prefix or amendment of its reference is found. That tab dates a field monitoring visit by its start date, while Completed counts it by its end date: a visit that started the year before is listed under that year." %}{% endif %}
+    {% trans "Not counted, shown under Completed: reports awaiting approval, field monitoring visits not marked programmatic, UNICEF staff trips (eTools sends them without a status), and field monitoring visits to the partner whose findings name none of its programme documents (the Assurance page counts them for the partner). UNICEF focal points are shown by name only, never copied or exported; the files hold their number." %}</p>
+  {% elif not has_pds %}
+  {% blocktrans asvar t %}No programme document runs in {{ year }}{% endblocktrans %}{% include "components/empty_state.html" with title=t %}
+  {% else %}
+  {% trans "No programme document matches" as t %}{% include "components/empty_state.html" with title=t action_url=reset_url %}
+  {% endif %}
+  {% endif %}
+</section>

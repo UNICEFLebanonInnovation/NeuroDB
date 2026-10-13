@@ -15,10 +15,15 @@ assurance still to do before the year ends.
   checks or audits completed this year are below what HACT requires, before the year-end deadline.
   To note in October, warning from 15 November, critical from 15 December. Told to the sections of the
   partner's active PDs and to the whole-country view. It closes once the assurance is complete, or
-  when the year ends (saying what was still missing).
+  when the year ends (saying what was still missing). When the partner's programme documents are
+  short of their planned visits, its evidence also says how many PDs need how many visits (counts
+  only, :func:`neurodb.datamart.hact_plan.partner_counts`) and links to those PDs on the Field
+  monitoring page's HACT visit plan.
 
 All three read only tables the eTools Datamart sync refreshes, and run only while that sync is fresh.
-None of them reads a field that holds a person. Titles carry dates and amounts, never day counts.
+None of them keeps or shows a field that holds a person; the HACT visit plan reads the PDs' UNICEF
+focal points only to count them (``hact_plan.build``), and no name leaves it. Titles carry dates and
+amounts, never day counts.
 Every check starts in trial: only the whole-country view sees it until an administrator switches it
 on. Keys come from lasting identifiers: :func:`grant_key`, :func:`fr_key` and :func:`hact_key`.
 """
@@ -35,6 +40,7 @@ from django.conf import settings
 from django.db.models import Q
 
 from neurodb.core.models import SyncRun
+from neurodb.datamart import hact_plan
 from neurodb.datamart import models as dm
 from neurodb.datamart.monitoring import ACTIVE_PD_STATUSES
 from neurodb.partnerships.models import PCA
@@ -510,6 +516,23 @@ def _hact(
             records.append(
                 record(f"{many.capitalize()} in {year}", None, f"{completed} of {required} completed", url)
             )
+    # The partner's programme documents still short of their planned visits (the HACT visit plan, read
+    # once per pass; counts only), with the link to those PDs: only when there is such a gap. Written as
+    # context: the item is about the partner's HACT minimum, so a change in the PDs' counts (or this
+    # line's first appearance) never brings back an item marked wrong
+    plan = ctx.memo(f"money:visit_plan:{year}", lambda: hact_plan.partner_counts(year, ctx.today))
+    gap = plan.get(row.partner_id) if row.partner_id else None
+    if gap:
+        records.append(
+            record(
+                "Programme documents still needing visits",
+                None,
+                f"{gap['pds']} {plural(gap['pds'], 'programme document')} "
+                f"{'needs' if gap['pds'] == 1 else 'need'} {gap['visits']} {plural(gap['visits'], 'visit')}",
+                link("reports:monitoring", tab="plan", partner=row.partner_id, year=year),
+                context=True,
+            )
+        )
     numbers = {
         field: getattr(row, field)
         for _single, _many, required_field, completed_field in ASSURANCE
@@ -523,6 +546,7 @@ def _hact(
         detail=(
             f"eTools shows {todo} still to be completed for {partner} this year. The HACT assurance plan "
             f"must be completed by {_day(deadline)}: plan the visits, spot checks or audits now."
+            + (" See which programme documents still need visits on the HACT visit plan." if gap else "")
         ),
         due_date=deadline,
         etools_sections=sections,

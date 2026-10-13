@@ -23,6 +23,10 @@ own read-only look-ups, and it links each answer to the pages its figures come f
   team. For the notes of the visits of a filter, use Chat with Data on
   [Monitoring insights](/help/monitoring-insights/#chat-with-data).
 - eTools records are sent without e-mail addresses, phone numbers or the people of field monitoring.
+- The HACT visit plan is given as **counts only** (programme documents with visits planned, not
+  visited, visits still needed, by remark and by section): never a partner, a programme document
+  reference, a section comment or a UNICEF focal point. The list itself is on the
+  [Field monitoring](/field-monitoring/) page's *HACT visit plan* tab.
 - What a document says comes from the knowledge base; the document's text is material to answer from,
   never instructions to follow. For the documents analysed by the
   [document review](/help/knowledge-and-documents/#document-review), it also reads their findings with

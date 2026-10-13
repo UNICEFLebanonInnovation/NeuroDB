@@ -16,14 +16,16 @@ from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import contextmanager
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlencode
 
 from django.db import connection, transaction
 from django.db.models import Count, Q, Sum
 from django.urls import reverse
+from django.utils import timezone
 
 from neurodb.core.services import population as population_service
+from neurodb.datamart import hact_plan, monitoring
 from neurodb.datamart import models as dm
-from neurodb.datamart import monitoring
 from neurodb.datamart import query as dmq
 from neurodb.datamart import services as datamart
 from neurodb.datamart.models import FundsReservation
@@ -741,7 +743,63 @@ def assurance_overview(year: int | None = None, partner: str | None = None) -> d
             "assurance": reverse("reports:assurance"),
             "action_points": reverse("reports:action_points"),
             "field_monitoring": reverse("reports:monitoring"),
+            "hact_visit_plan": _plan_url(year),
         },
+    }
+
+
+def _plan_url(year: int | None, sections: Collection[str] = ()) -> str:
+    """The Field monitoring page's HACT visit plan tab, for ``year`` (the page's default, this year,
+    when None) and these eTools sections."""
+    query = [("tab", "plan")] + ([("year", year)] if year else []) + [("section", s) for s in sections]
+    return f"{reverse('reports:monitoring')}?{urlencode(query)}"
+
+
+def hact_visit_plan(year: int | None = None, section: str | None = None) -> dict[str, Any]:
+    """HACT programmatic visit plan per programme document for a year (counts only): PDs with planned
+    visits, not visited yet, visits still needed, by remark and by section, with the page's link.
+
+    The figures are the Field monitoring page's (``hact_plan.headline`` over ``hact_plan.build``), so
+    an answer and the page never disagree. Only counts, section names and labels are returned: never a
+    partner name, a PD reference, a section comment or a focal point (the rows hold no name; the
+    comments and the focal points' names are read by the page alone)."""
+    today = timezone.localdate()
+    plan_year = hact_plan.parse_year(year, today)
+    every = hact_plan.build(plan_year, today)
+    rows = every
+    sections: list[str] = []
+    if section:
+        sections = _match_options(section, hact_plan.options(rows)["sections"])
+        if not sections:
+            raise ToolInputError(
+                f"No programme document of {plan_year} has a section matching '{section}'. Leave section "
+                "out to see the sections."
+            )
+        rows = hact_plan.select(rows, hact_plan.PlanFilters(year=plan_year, sections=tuple(sections)))
+    # as the page: "no visit on any PD" reads every PD of the year, a section only the chosen lines
+    figures = hact_plan.headline(rows, plan_year, every)
+    by_remark = figures.pop("by_remark")
+    return {
+        **figures,
+        "available_years": hact_plan.years(today),
+        "sections": sections,
+        "by_remark": [
+            {"remark": code, "label": str(hact_plan.REMARKS[code]), "pds": by_remark[code]}
+            for code in hact_plan.REMARK_ORDER
+        ],
+        "by_section": [
+            {
+                "section": r["section"] or "No section",
+                "pds": r["pds"],
+                "pds_with_plan": r["pds_with_plan"],
+                "not_visited": r["not_visited"],
+                "still_needed": r["still_needed"],
+            }
+            for r in hact_plan.by_section(rows, sections)
+            if not r["total"]
+        ],
+        "as_of": hact_plan.synced_on(),
+        "url": _plan_url(plan_year, sections),
     }
 
 
@@ -1326,6 +1384,27 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         "(by on/off-track rating) and TPM visits. partner filters by name or vendor number.",
         _schema({"year": {"type": "integer"}, "partner": {"type": "string"}}),
         "Reading assurance and monitoring",
+    ),
+    "hact_visit_plan": (
+        hact_visit_plan,
+        "HACT programmatic visit plan per programme document for a calendar year (default this year), "
+        "counts only, as the Field monitoring page's HACT visit plan shows them. Required = the PD's "
+        "planned visits per quarter in eTools; completed = programmatic visits whose report UNICEF "
+        "approved (field monitoring by end date, plus TPM), each visit once per PD. not_visited: PDs "
+        "with planned visits and none completed, their partners, partners_no_visit (of those, with no "
+        "completed visit on any of their PDs of the year, whatever the section) and ended; "
+        "still_needed: visits still needed by 31 December added over the PDs with a gap (a surplus on "
+        "one PD never offsets another), with those PDs, partners and the part on PDs that ended; "
+        "completed: counted (completed up to each PD's plan) of required, all completed, and awaiting "
+        "(reports awaiting approval, not counted); etools_behind: partners of these PDs whose eTools HACT "
+        "minimum (partner level, a different figure) has fewer programmatic visits completed than "
+        "required, of those with a HACT row (programmatic visits only: the Assurance page's partners "
+        "behind also counts spot checks and every partner with a HACT year, so it can be higher). Also "
+        "per remark and per section (a PD with two sections counts under "
+        "each). section filters by section name; by_section then holds the chosen sections only. "
+        "Never lists partners or programme documents: send the user to url for the list.",
+        _schema({"year": {"type": "integer"}, "section": {"type": "string"}}),
+        "Reading the HACT visit plan",
     ),
     "funds_overview": (
         funds_overview,

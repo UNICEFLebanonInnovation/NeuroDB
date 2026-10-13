@@ -43,6 +43,35 @@ def test_demo_seed_is_self_consistent():
     assert dm.ActionPoint.objects.filter(date_of_completion__isnull=False).exists()
     assert not dm.ActionPoint.objects.filter(date_of_completion__date__gt=dt.date.today()).exists()
     _children_indicators_of_one_pd_are_never_added()
+    _the_hact_visit_plan_is_not_empty()
+
+
+def _the_hact_visit_plan_is_not_empty():
+    """The Field monitoring page's HACT visit plan has something to show on a demo: a quarterly plan for
+    each PD running this year, an eTools HACT year for each of their partners, and one in three approved
+    TPM activities marked programmatic (synthetic figures, no name)."""
+    from neurodb.datamart import hact_plan
+
+    today = dt.date.today()
+    planned = dm.PlannedVisits.objects.filter(year=today.year)
+    assert planned.exists() and planned.count() == planned.values("intervention").distinct().count()
+    partners = set(planned.values_list("intervention__partner", flat=True))
+    assert (
+        set(dm.PartnerHACTYear.objects.filter(year=today.year).values_list("partner", flat=True)) == partners
+    )
+    approved = list(
+        dm.TPMActivity.objects.filter(visit_status="unicef_approved")
+        .order_by("datamart_id")
+        .values_list("pk", flat=True)
+    )
+    flagged = set(dm.TPMActivity.objects.filter(is_programmatic_visit=True).values_list("pk", flat=True))
+    assert flagged == set(approved[::3])
+    rows = hact_plan.build(today.year, today)
+    figures = hact_plan.headline(rows, today.year)
+    assert figures["pds_with_plan"] == planned.exclude(q1=0, q2=0, q3=0, q4=0).count() > 0
+    assert figures["still_needed"]["visits"] > 0 and figures["etools_behind"]["with_row"] == len(partners)
+    if dm.TPMActivity.objects.filter(is_programmatic_visit=True, date__year=today.year).exists():
+        assert any(r["completed_tpm"] for r in rows)  # none before the first approved visit of January
 
 
 def _children_indicators_of_one_pd_are_never_added():
