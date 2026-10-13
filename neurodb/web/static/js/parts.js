@@ -19,7 +19,9 @@
 //     its own answer replaces: a part is marked "swapping" in htmx:beforeSwap, is never aborted then, and its
 //     slot is freed once, by htmx:afterRequest (listened to on the placeholder itself).
 //  3. The default responseHandling swaps every 2xx/3xx, a bodiless 202 too: htmx:beforeSwap turns the swap
-//     off for the server's "still computing" answer (202 with X-NeuroDB-Part-Pending: 1).
+//     off for the server's "still computing" answer (202 with X-NeuroDB-Part-Pending: 1), and for an answer
+//     that is not the part asked for (no X-NeuroDB-Part with its name: answersPart()). A response that starts
+//     with <html> would otherwise be swapped in as its <body>: the whole page, inside the page.
 //  4. Failures come in two steps: xhr.onerror -> htmx:afterRequest then htmx:sendError; ontimeout ->
 //     htmx:afterRequest then htmx:timeout; onabort -> htmx:afterRequest then htmx:sendAbort. The first event
 //     carries detail.error (responseError's carries detail.failed), so htmx:afterRequest leaves those to the
@@ -33,7 +35,9 @@
 //     htmx:abort, so an abort is triggered on the element that issued it (the placeholder, the filter form),
 //     never on body (the help panel loads through body). Cleanup runs before removal, so a placeholder being
 //     cleaned up is still attached and its htmx:abort reaches that listener; xhr.abort() then fires
-//     htmx:afterRequest and htmx:sendAbort on it.
+//     htmx:afterRequest and htmx:sendAbort on it. A swap cleans up and removes its old nodes one at a time
+//     (each with everything inside it): while one placeholder is cleaned up, the next ones of the same swap are
+//     still attached, so the queue is asked for the next parts only once the swap is over (pumpSoon).
 import { loadScript, loadStyle } from "./lib.js";
 
 const PRIORITY = { high: 0, normal: 1, low: 2 };
@@ -63,6 +67,7 @@ export const TEXTS = {
  * never a 4xx) and which message it shows. A status of 0 is a network error. */
 export function classify(reason) {
   if (reason === "timeout") return { retry: true, message: "timeout" };
+  if (reason === "foreign") return { retry: false, message: "gone" }; // not the part asked for: answersPart()
   if (reason === "network" || reason === 0) return { retry: true, message: "generic" };
   const status = Number(reason);
   if (status === 502 || status === 503 || status === 504) return { retry: true, message: "generic" };
@@ -86,11 +91,85 @@ export function groupKey(name, href, base = "http://localhost/") {
   return `${name} ${url.pathname}?${url.searchParams}`;
 }
 
-/** The live region's last word on a batch of parts: the failures, or "all shown" when "loading" was said. */
-export function closingMessage({ errors = 0, spoke = false } = {}) {
-  if (errors === 1) return "failedOne";
-  if (errors > 1) return "failedMany";
-  return spoke ? "done" : null;
+/** Whether a 2xx answer to a placeholder is the part it asked for. A part asked at the page's address
+ * (`_part=<name>` in `href`) comes with `X-NeuroDB-Part: <name>` (`header`, web/parts.py); an answer without it
+ * comes from something else, such as a release without parts (after a rollback) answering the whole page, and
+ * is never swapped in. A url= part asks an existing endpoint, which sends no such header: any answer is its own. */
+export function answersPart(href, header, base = "http://localhost/") {
+  let asked;
+  try {
+    asked = new URL(href || "", base).searchParams.get("_part");
+  } catch {
+    return true;
+  }
+  return !asked || header === asked;
+}
+
+/** The live region's last word on a batch of parts, or null when what it says still holds. The failures of this
+ * batch (`errors`; an earlier failure is not said again). Otherwise, with parts still in error from an earlier
+ * batch (`left`): how many, when "loading" was said, or when fewer are in error than the region says (`said`,
+ * `saidCount`: one put right since). "All shown" only when none is in error, after "loading" or a failure.
+ * The count to speak with it: `errors` when this batch failed, else `left`. */
+export function closingMessage({ errors = 0, spoke = false, said = null, saidCount = 0, left = 0 } = {}) {
+  if (errors > 0) return errors === 1 ? "failedOne" : "failedMany";
+  const failure = said === "failedOne" || said === "failedMany";
+  if (left === 0) return spoke || failure ? "done" : null;
+  if (spoke || (failure && left < saidCount)) return left === 1 ? "failedOne" : "failedMany";
+  return null;
+}
+
+/**
+ * The live region's summary of each batch of parts (SPEC7 §1.4), plain logic over a createQueue(): a batch
+ * starts when parts are to come and ends when none are. "Loading the figures…" only when it lasts longer than
+ * `delay`; at its end, closingMessage(): this batch's own failures, or the parts still in error when the region's
+ * word no longer holds. Returns update(), called after every change; `say(key, n)` speaks.
+ */
+export function createAnnouncer(queue, { say = () => {}, delay = ANNOUNCE_AFTER, schedule = setTimeout, cancel = clearTimeout } = {}) {
+  let batch = null;
+  let said = null; // what the region says now
+  let saidCount = 0; // and the count it says
+  const speak = (key, n = 0) => {
+    said = key;
+    saidCount = n;
+    say(key, n);
+  };
+  return function update() {
+    const remaining = queue.remaining();
+    if (remaining > 0 && !batch) {
+      const current = { spoke: false, mark: queue.mark() };
+      current.timer = schedule(() => {
+        if (batch === current && queue.remaining() > 0) {
+          current.spoke = true;
+          speak("loading");
+        }
+      }, delay);
+      batch = current;
+    } else if (remaining === 0 && batch) {
+      cancel(batch.timer);
+      const errors = queue.errorsSince(batch.mark);
+      const left = queue.counts().error;
+      const key = closingMessage({ errors, spoke: batch.spoke, said, saidCount, left });
+      batch = null;
+      if (key) speak(key, errors || left);
+    }
+  };
+}
+
+/**
+ * The parts a link to `#id` waits for (SPEC7 §1.4), from `parts` ([{ el, strict, anchors }]): the part the target
+ * is in (or is), a part whose data-part-anchors prefix the id starts with, and the parts inside the target when
+ * it is a block of the page holding them (#daily-review). Not there: a strict part (a link to the review is no
+ * request for its folded findings, which load when their <details> opens), nor anything when the target is the
+ * page's main area ("Skip to main content").
+ */
+export function anchorParts(id, target, parts) {
+  const block = target && !target.matches?.("html, body, main, [role='main']");
+  return parts.filter(({ el, strict, anchors = "" }) => {
+    if (anchors.split(/\s+/).some((prefix) => prefix && id.startsWith(prefix))) return true;
+    if (!target) return false;
+    if (el.contains(target)) return true;
+    return block && !strict && target.contains(el);
+  });
 }
 
 // ---------------------------------------------------------------------------------------------- the queue
@@ -112,6 +191,7 @@ export function closingMessage({ errors = 0, spoke = false } = {}) {
  *   again, or null once the `budget` is spent.
  * - swapping(): the item's answer is being swapped in. drop() then does nothing, so the slot is freed once,
  *   by done(). drop() of a loading item frees its slot and returns true: the caller aborts the request.
+ * - mark() and errorsSince(mark): the parts that went into error after a point (the live region's batches).
  */
 export function createQueue(options = {}) {
   const max = Math.max(1, Math.floor(Number(options.max)) || 3);
@@ -129,6 +209,7 @@ export function createQueue(options = {}) {
   const loading = new Set(); // ids holding a slot (loading or swapping)
   const doneIds = new Set();
   let bumps = 0;
+  let failures = 0; // parts that went into error so far: an item's failedAt is its place in that count
   let all = false;
   let waiters = [];
 
@@ -269,6 +350,8 @@ export function createQueue(options = {}) {
       }
       item.state = "error";
       item.message = verdict.message;
+      failures += 1;
+      item.failedAt = failures;
       open(item);
       settle();
       return { retry: false, message: verdict.message };
@@ -332,6 +415,16 @@ export function createQueue(options = {}) {
       return n;
     },
     unfinished,
+    /** A mark in the failures so far: errorsSince(mark) counts the parts in error that failed after it (a part
+     * that failed before, and failed again after Try again, counts). */
+    mark() {
+      return failures;
+    },
+    errorsSince(mark = 0) {
+      let n = 0;
+      for (const item of items.values()) if (item.state === "error" && item.failedAt > mark) n += 1;
+      return n;
+    },
     counts() {
       const counts = { queued: 0, loading: loading.size, waiting: 0, error: 0, done: doneIds.size };
       for (const item of items.values())
@@ -382,6 +475,38 @@ export function partText(key, n) {
 
 const later = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 
+// A page with parts keeps its scroll offset in its own history entry, under this key (initParts(): "Back,
+// Forward and reload").
+const OFFSET = "ndPartsOffset";
+const SAVE_AFTER = 200; // the offset is kept once the scrolling has stopped this long
+
+/** The state for app.js to give the history entry it replaces (the filter bar's new address): nothing of
+ * htmx's, and the page's offset when the page keeps its own. */
+export function offsetState() {
+  try {
+    return window.history.scrollRestoration === "manual" ? { [OFFSET]: Math.round(window.scrollY || 0) } : {};
+  } catch {
+    return {};
+  }
+}
+
+function navigationType() {
+  try {
+    return window.performance?.getEntriesByType?.("navigation")?.[0]?.type || "";
+  } catch {
+    return "";
+  }
+}
+
+function entryState() {
+  try {
+    const state = window.history?.state;
+    return state && typeof state === "object" ? state : null;
+  } catch {
+    return null;
+  }
+}
+
 export function initParts() {
   if (page || typeof document === "undefined") return page;
   const htmx = () => window.htmx;
@@ -395,14 +520,18 @@ export function initParts() {
   let leaving = false;
   let scrolled = false;
   let anchor = null;
-  let batch = null;
+  let hold = null;
   let started = false;
+  let booted = false;
+  let restore = null; // { y } while the page goes back to the offset it had (Back, Forward, reload)
+  let saveTimer = null;
 
   const queue = createQueue({
     max: Number.isFinite(parallel) && parallel > 0 ? Math.min(parallel, 6) : 3,
     alive: (item) => recs.get(item.id)?.el.isConnected === true,
     onDrop: (item) => recs.has(item.id) && finish(recs.get(item.id)),
   });
+  const announce = createAnnouncer(queue, { say }); // the live region (say: below)
 
   const watchNear = "IntersectionObserver" in window ? new IntersectionObserver(seen, { rootMargin: "800px 0px" }) : null;
   const watchStrict = "IntersectionObserver" in window ? new IntersectionObserver(seen, { rootMargin: "0px" }) : null;
@@ -424,6 +553,7 @@ export function initParts() {
       name: el.dataset.part,
       elId: el.id,
       strict,
+      anchors: el.dataset.partAnchors || "",
       inner: /^\s*innerHTML/i.test(el.getAttribute("hx-swap") || ""),
       marker: el.querySelector("[data-part-error]") || el.firstElementChild,
       generic: el.querySelector("[data-part-error-text]")?.textContent.trim() || "",
@@ -526,10 +656,24 @@ export function initParts() {
     announce();
   }
 
+  // pump() once the running task is over. htmx cleans up and removes the old nodes of a swap one at a time:
+  // asked from a cleanup, pump() would still find the next placeholders of that swap attached and send their
+  // requests (which the server computes in full) a moment before they go.
+  let pumpQueued = false;
+  function pumpSoon() {
+    if (pumpQueued) return;
+    pumpQueued = true;
+    queueMicrotask(() => {
+      pumpQueued = false;
+      pump();
+    });
+  }
+
   function fire(rec) {
     preload(rec.el);
     rec.swapping = false;
     rec.pendingHit = false;
+    rec.foreign = false;
     setState(rec, "loading");
     clearTimers(rec);
     rec.timers.slow = setTimeout(() => {
@@ -559,6 +703,10 @@ export function initParts() {
     if (rec.pendingHit) {
       rec.pendingHit = false;
       return askAgain(rec);
+    }
+    if (rec.foreign) {
+      rec.foreign = false;
+      return failed(rec, "foreign"); // "Reload the page", never asked again by itself
     }
     if (d.error || d.failed) return; // decided by htmx:responseError (before) or sendError / timeout / sendAbort (after)
     const xhr = d.xhr;
@@ -606,6 +754,7 @@ export function initParts() {
     }
     rec.swapping = false;
     rec.pendingHit = false;
+    rec.foreign = false;
     clearTimers(rec);
     const verdict = queue.fail(rec.id, reason);
     if (!verdict) return;
@@ -658,7 +807,7 @@ export function initParts() {
     rec.dropped = true;
     if (held && rec.el.isConnected) htmx()?.trigger(rec.el, "htmx:abort");
     reached(rec, null);
-    pump();
+    pumpSoon(); // the other placeholders of the same swap are cleaned up next
   }
 
   // ------------------------------------------------------------------ after a swap
@@ -691,24 +840,19 @@ export function initParts() {
 
   // ------------------------------------------------------------------ anchors
   // A link to something inside a part (or to a shell wrapper holding parts, or matching a part's
-  // data-part-anchors prefix) bumps those parts; once they are in, the page scrolls to it, unless the person
-  // has scrolled since.
+  // data-part-anchors prefix: anchorParts) bumps those parts; once they are in, the page scrolls to it, unless
+  // the person has scrolled since. The parts above it that are still to come then push it down as they arrive:
+  // until they are all in, each arrival puts it back at the top (a hold), still only if the person has not
+  // scrolled.
   function partsFor(id) {
-    const found = new Set();
-    const target = document.getElementById(id);
-    if (target) {
-      const holder = target.closest("[data-part]");
-      if (holder && byEl.has(holder)) found.add(byEl.get(holder));
-      target.querySelectorAll("[data-part]").forEach((el) => byEl.has(el) && found.add(byEl.get(el)));
-    }
-    for (const rec of recs.values()) {
-      const prefixes = (rec.el.dataset.partAnchors || "").split(/\s+/).filter(Boolean);
-      if (prefixes.some((p) => id.startsWith(p))) found.add(rec);
-    }
-    return [...found].filter((rec) => queue.state(rec.id) !== "error");
+    const list = [...recs.values()].map((rec) => ({ rec, el: rec.el, strict: rec.strict, anchors: rec.anchors }));
+    return anchorParts(id, document.getElementById(id), list)
+      .map(({ rec }) => rec)
+      .filter((rec) => queue.state(rec.id) !== "error");
   }
 
   function goTo(hash) {
+    restore = null; // a link followed: the offset the page came back to no longer counts
     let id = "";
     try {
       id = decodeURIComponent(String(hash || "").replace(/^#/, ""));
@@ -719,12 +863,47 @@ export function initParts() {
     const list = partsFor(id);
     if (!list.length) return;
     scrolled = false;
+    hold = null;
     queue.bump(list.map((rec) => rec.id));
     anchor = { id, waiting: new Set(list.map((rec) => rec.id)), arrivals: [] };
     pump();
   }
 
+  // Instant: a smooth scroll (Bootstrap sets scroll-behavior: smooth) keeps the end point it started with while
+  // the parts above arrive and grow, and leaves the target half a screen down.
+  function place(target) {
+    target.scrollIntoView({ block: "start", behavior: "instant" });
+    const top = target.getBoundingClientRect().top;
+    if (hold) hold.top = top;
+    return top;
+  }
+
+  // The browser's own smooth scroll to the address's #anchor, still running when the page has just loaded, moves
+  // the page one more step after an instant scroll: two frames later the target is put back where it went.
+  function scrollTo(target) {
+    const top = place(target);
+    if (hold) hold.settling = true;
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (hold) hold.settling = false;
+        if (!scrolled && target.isConnected && Math.abs(target.getBoundingClientRect().top - top) > 2) place(target);
+      }),
+    );
+  }
+
   function reached(rec, arrived) {
+    if (restore) {
+      keepOffset(); // at once, before the swap is painted
+      settleOffset(arrived);
+    }
+    if (hold?.above.delete(rec.id)) {
+      const { id } = hold;
+      if (!hold.above.size) hold = null;
+      Promise.resolve(arrived).then(() => {
+        const target = !scrolled && document.getElementById(id);
+        if (target) scrollTo(target);
+      });
+    }
     if (!anchor || !anchor.waiting.has(rec.id)) return;
     anchor.waiting.delete(rec.id);
     if (arrived) anchor.arrivals.push(arrived);
@@ -735,8 +914,100 @@ export function initParts() {
       const target = document.getElementById(id);
       if (!target || scrolled) return;
       target.classList.add("is-target");
-      target.scrollIntoView({ block: "start" });
+      // the parts above the target still to come (a strict one only once asked for: it may never come)
+      const above = [...recs.values()].filter(
+        (other) =>
+          !target.contains(other.el) &&
+          other.el.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING &&
+          queue.state(other.id) !== "error" &&
+          (!other.strict || queue.state(other.id) !== "queued"),
+      );
+      hold = above.length ? { id, above: new Set(above.map((other) => other.id)), top: null } : null;
+      scrollTo(target);
     });
+  }
+
+  // ------------------------------------------------------------------ Back, Forward and reload
+  // A page drawn again by the server (Back or Forward when the back-forward cache did not keep it, a reload)
+  // comes with its placeholders. Left to the browser, it would be put back at its old offset at once, over
+  // heights that are only guesses (with an animation: Bootstrap sets scroll-behavior: smooth), then moved by
+  // scroll anchoring as the parts arrive above: the person lands elsewhere. So a page with parts keeps its offset
+  // in its own history entry (history.scrollRestoration "manual"; saved when the scrolling stops, a link is
+  // followed or a form sent) and, back on it, goes there at once and again as each part arrives, until every
+  // part starting above the bottom of the screen is in: the layout is then the one the person left, the same
+  // figures in view. It stops as soon as the person scrolls, clicks or presses a key. An entry the page has not
+  // taken over (visited before, or left by an htmx push: htmx reloads it) stays the browser's.
+  function partsAbove(y) {
+    const bottom = y + window.innerHeight;
+    return [...recs.values()].filter((rec) => {
+      const state = queue.state(rec.id);
+      if (state === "error" || (rec.strict && state === "queued")) return false;
+      const box = rec.el.getBoundingClientRect();
+      return (box.width > 0 || box.height > 0) && box.top + (window.scrollY || 0) < bottom;
+    });
+  }
+
+  // Puts the page at the offset it had; `settled` (the charts of what arrived drawn): ends once no part is to come
+  // above the bottom of the screen.
+  function keepOffset(settled = false) {
+    if (!restore) return;
+    if (scrolled) {
+      restore = null;
+      return;
+    }
+    const { y } = restore;
+    if (Math.abs((window.scrollY || 0) - y) > 1) window.scrollTo({ top: y, behavior: "instant" });
+    if (settled && !partsAbove(y).length) restore = null;
+  }
+
+  // Once htmx:load has run for what arrived and its charts are drawn (they give their blocks their height; the
+  // browser's scroll anchoring has moved the page meanwhile), the page goes back to its offset again.
+  function settleOffset(arrived) {
+    Promise.resolve(arrived)
+      .then(() => Promise.race([Promise.allSettled([...moduleWork]), later(LOAD_WAIT * 2)]))
+      .then(() => keepOffset(true));
+  }
+
+  // Once per page, when htmx has processed it (and its first placeholders are known): true when it goes back to
+  // the offset this history entry kept.
+  function resume() {
+    const history = window.history;
+    if (!history || !("scrollRestoration" in history)) return false;
+    const type = navigationType();
+    if (history.scrollRestoration !== "manual") {
+      // a new visit of a page with parts: its entry is the page's from now on
+      if (type === "navigate" && recs.size) {
+        try {
+          history.scrollRestoration = "manual";
+        } catch {
+          /* kept by the browser */
+        }
+      }
+      return false;
+    }
+    const y = Number(entryState()?.[OFFSET]);
+    if ((type !== "back_forward" && type !== "reload") || !Number.isFinite(y)) return false;
+    restore = { y };
+    scrolled = false;
+    const above = partsAbove(y).filter((rec) => !rec.strict);
+    if (above.length) queue.bump(above.map((rec) => rec.id)); // what is above the screen first
+    keepOffset();
+    settleOffset(); // the charts of the parts drawn with the page
+    return true;
+  }
+
+  function saveOffset() {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    if (window.history?.scrollRestoration !== "manual") return;
+    const y = Math.round(restore ? restore.y : window.scrollY || 0);
+    const state = entryState();
+    if (state?.[OFFSET] === y) return;
+    try {
+      window.history.replaceState({ ...state, [OFFSET]: y }, "");
+    } catch {
+      /* refused (too many changes in a row): the next save tries again */
+    }
   }
 
   function bumpWithin(root) {
@@ -747,32 +1018,13 @@ export function initParts() {
   }
 
   // ------------------------------------------------------------------ live region
-  function say(message) {
-    if (!status || !message) return;
+  function say(key, n) {
+    if (!status || !key) return;
+    const message = partText(key, n);
     status.textContent = "";
     setTimeout(() => {
       status.textContent = message;
     }, 50);
-  }
-
-  function announce() {
-    const remaining = queue.remaining();
-    if (remaining > 0 && !batch) {
-      const current = { spoke: false };
-      current.timer = setTimeout(() => {
-        if (batch === current && queue.remaining() > 0) {
-          current.spoke = true;
-          say(partText("loading"));
-        }
-      }, ANNOUNCE_AFTER);
-      batch = current;
-    } else if (remaining === 0 && batch) {
-      clearTimeout(batch.timer);
-      const errors = queue.counts().error;
-      const key = closingMessage({ errors, spoke: batch.spoke });
-      batch = null;
-      if (key) say(partText(key, errors));
-    }
   }
 
   // ------------------------------------------------------------------ discovery and page events
@@ -796,15 +1048,22 @@ export function initParts() {
     [...document.querySelectorAll("[data-part]")].forEach((el, order) => byEl.has(el) && queue.update(byEl.get(el).id, { order }));
     if (!started) {
       started = true;
-      if (window.location.hash) goTo(window.location.hash);
+      if (!boot() && window.location.hash) goTo(window.location.hash); // back to its offset, else to its #anchor
     }
     pump();
+  }
+
+  function boot() {
+    if (booted) return false;
+    booted = true;
+    return resume();
   }
 
   document.addEventListener("htmx:load", (e) => {
     const elt = e.detail?.elt || e.target;
     loaded(elt);
     discover(elt);
+    boot(); // the first one is on body: a page without parts goes back to its offset too, if it kept one
   });
 
   document.addEventListener("htmx:beforeSwap", (e) => {
@@ -814,6 +1073,12 @@ export function initParts() {
     if (d.xhr?.status === 202 && d.xhr.getResponseHeader("X-NeuroDB-Part-Pending")) {
       d.shouldSwap = false;
       rec.pendingHit = true;
+      return;
+    }
+    if (d.shouldSwap && !answersPart(rec.el.getAttribute("hx-get"), d.xhr?.getResponseHeader?.("X-NeuroDB-Part"), window.location.href)) {
+      // not the part: a whole page (a release without parts, after a rollback) would nest the page in itself
+      d.shouldSwap = false;
+      rec.foreign = true;
       return;
     }
     if (d.shouldSwap) {
@@ -830,6 +1095,7 @@ export function initParts() {
   });
 
   document.addEventListener("click", (e) => {
+    if (e.target.closest?.("a[href]")) saveOffset(); // leaving, or off to an #anchor: the entry keeps its offset
     const retry = e.target.closest?.("[data-part-retry]");
     if (retry) {
       const rec = byEl.get(retry.closest("[data-part]"));
@@ -867,6 +1133,61 @@ export function initParts() {
   );
 
   for (const type of ["wheel", "touchmove", "keydown"]) window.addEventListener(type, () => (scrolled = true), { passive: true });
+  // During a hold, the target moving on screen while the page scrolls means the person scrolled (with the scroll
+  // bar too, which sends none of those events). A part arriving above the target moves it without a scroll (or
+  // the browser's scroll anchoring scrolls and keeps it in place), and putting it back scrolls it to where it was.
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (!hold || hold.top == null || hold.settling) return;
+      const target = document.getElementById(hold.id);
+      if (!target || Math.abs(target.getBoundingClientRect().top - hold.top) > 2) {
+        hold = null;
+        scrolled = true;
+      }
+    },
+    { passive: true },
+  );
+
+  // The offset this history entry keeps (Back, Forward and reload, above).
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (window.history?.scrollRestoration !== "manual") return;
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(saveOffset, SAVE_AFTER);
+    },
+    { passive: true },
+  );
+  document.addEventListener("submit", saveOffset, true);
+  window.addEventListener("pointerdown", () => (restore = null), { passive: true }); // a click, or the scroll bar
+  // Back or Forward within the page (to or from an #anchor): the browser puts back nothing for an entry the page
+  // keeps, so the page does.
+  window.addEventListener("popstate", (e) => {
+    if (window.history?.scrollRestoration !== "manual") return;
+    restore = null;
+    const y = Number(e.state?.[OFFSET]);
+    if (Number.isFinite(y)) window.scrollTo({ top: y, behavior: "instant" });
+    else if (window.location.hash) {
+      let target = null;
+      try {
+        target = document.getElementById(decodeURIComponent(window.location.hash.slice(1)));
+      } catch {
+        /* not an id */
+      }
+      target?.scrollIntoView({ block: "start", behavior: "instant" });
+    }
+  });
+  // htmx is about to push or replace the address: it gives this entry a state of its own and, back on it, reloads
+  // the page. The entry goes back to the browser, which then keeps its offset as it always has.
+  document.addEventListener("htmx:beforeHistorySave", () => {
+    restore = null;
+    try {
+      window.history.scrollRestoration = "auto";
+    } catch {
+      /* kept as it was */
+    }
+  });
 
   window.addEventListener("pagehide", () => {
     leaving = true;
@@ -887,6 +1208,7 @@ export function initParts() {
       }
       rec.swapping = false;
       rec.pendingHit = false;
+      rec.foreign = false;
       setState(rec, "queued");
     }
     pump();

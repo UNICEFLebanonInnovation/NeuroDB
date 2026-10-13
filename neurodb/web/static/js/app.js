@@ -1,6 +1,6 @@
 // NeuroDB application shell: theme, command palette, HTMX glue, tables, filters and page modules.
 import { asset, debounce, download, isHelpShortcut, loadScript, loadStyle, tableRows, toast, toCSV, trapFocus, csrfToken } from "./lib.js";
-import { initParts, loadAll, partText, pendingParts, trackModules } from "./parts.js";
+import { initParts, loadAll, offsetState, partText, pendingParts, trackModules } from "./parts.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -213,9 +213,13 @@ function initFilterBar(form) {
       else params.append(name, "");
     }
     const url = `${form.getAttribute("action") || window.location.pathname}${params.size ? `?${params}` : ""}`;
-    window.htmx.trigger(form, "htmx:abort"); // the previous filter request, if still running (never on body)
+    // The previous filter request, if still running (never on body). htmx 2.0.10 logs each abort as two errors
+    // in the browser console ("htmx:afterRequest" and "htmx:sendAbort"): they are this abort, intended, and
+    // staff see nothing of them. Dropping the stale answer in htmx:beforeSwap instead would keep the console
+    // quiet but leave the stale request running in the browser.
+    window.htmx.trigger(form, "htmx:abort");
     window.htmx.ajax("GET", url, { source: form, target, swap: "innerHTML" }).then(
-      () => window.history.replaceState({}, "", url),
+      () => window.history.replaceState(offsetState(), "", url), // nothing of htmx's; the offset Back returns to
       () => {}, // aborted by a newer filter, or failed (the toast says so)
     );
   };

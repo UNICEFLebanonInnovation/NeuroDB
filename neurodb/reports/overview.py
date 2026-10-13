@@ -13,10 +13,13 @@ governorate name; empty = the country). The result is kept for two minutes per f
 every worker shares (:func:`neurodb.core.compute.once`: the overview's parts, requested separately, read
 one build), and the key changes as soon as a sync run finishes or an indicator flag changes. Nothing in a
 build depends on who asks: the user's own section only reaches it as the ``sections`` of the scope,
-which are in the key, so one person's figures are never shown to another.
+which are in the key, so one person's figures are never shown to another. Nothing in it is translated
+either (labels are translated by the templates), so one stored build serves every language
+(``lang_neutral``; ``tests/reports/test_overview_parts.py`` checks it).
 
-The filter bar's choices (:func:`options`) and the freshness strip (:func:`freshness`) are kept the same
-way, for the page's frame, which draws them before any figure is computed.
+The filter bar's section names (:func:`options`) and the freshness strip (:func:`freshness`) are kept the
+same way, for the page's frame, which draws them before any figure is computed; the filter bar's
+governorates, which staff edit by hand in the admin, are read at each request.
 """
 
 from __future__ import annotations
@@ -53,7 +56,7 @@ logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 120  # a build, and the freshness strip
 OPTIONS_SECONDS = 600  # the filter bar's choices (they only change with a sync)
-CACHE_VERSION = 10  # 10: the freshness strip left the build (freshness())
+CACHE_VERSION = 11  # 11: one build for every language; the stored filter choices keep the sections only
 FRESHNESS_JOBS = ("ai_data", "etools_datamart", "locations", "daily_review")
 MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 STATUSES = ("on_track", "off_track", "over_target", "no_target", NOT_REPORTED)
@@ -178,26 +181,36 @@ def governorate_names() -> dict[str, str]:
 # --------------------------------------------------------------------------------- options
 def options(year: int) -> dict[str, list[str]]:
     """The filter bar's choices: eTools section names of the PD indicators and gazetteer governorates.
-    Kept ten minutes in the shared cache; a finished sync (new indicators, a new gazetteer) changes the
-    key. A frame that finds another request computing them computes them itself (a few milliseconds)
-    rather than wait for that request's lock, which is looked at every 200 ms: the frame comes at once."""
+
+    The section names only change with a sync: they are kept ten minutes in the shared cache, under a key
+    a finished sync changes. A frame that finds another request computing them computes them itself (a
+    few milliseconds) rather than wait for that request's lock, which is looked at every 200 ms: the
+    frame comes at once. The governorates are read at each request (one small query): staff edit them by
+    hand in Admin → Locations (a name, a governorate made inactive), which no key would see."""
     if settings.DEBUG:
         return _options()
     key = f"overview-options:v{CACHE_VERSION}:{year}:{compute.data_stamp()}"
-    return compute.once(key, _options, OPTIONS_SECONDS, wait=0, lang_neutral=True)  # names, never translated
+    sections = compute.once(key, _sections, OPTIONS_SECONDS, wait=0, lang_neutral=True)  # never translated
+    return {"sections": sections, "governorates": _governorates()}
 
 
 def _options() -> dict[str, list[str]]:
+    return {"sections": _sections(), "governorates": _governorates()}
+
+
+def _sections() -> list[str]:
     names = dm.PDIndicator.objects.order_by().values_list("section_name", flat=True).distinct()
-    sections = sorted({(s or "").strip() for s in names} - {""})
-    governorates = sorted(
+    return sorted({(s or "").strip() for s in names} - {""})
+
+
+def _governorates() -> list[str]:
+    return sorted(
         set(
             Location.objects.filter(type__admin_level=LEVEL_GOVERNORATE, is_active=True).values_list(
                 "name", flat=True
             )
         )
     )
-    return {"sections": sections, "governorates": governorates}
 
 
 # --------------------------------------------------------------------------------- ActivityInfo
@@ -265,10 +278,11 @@ def _cache_key(scope: Scope) -> str:
 
 def build(scope: Scope, *, cache: bool = True) -> dict[str, Any]:
     """Every block of the overview for ``scope`` (see the module docstring): computed once across every
-    worker and kept two minutes. ``cache=False`` (and DEBUG) computes it afresh."""
+    worker and kept two minutes, the same for every language (nothing in it is translated).
+    ``cache=False`` (and DEBUG) computes it afresh."""
     if not cache or settings.DEBUG:
         return _Builder(scope).build()
-    return compute.once(_cache_key(scope), lambda: _Builder(scope).build(), CACHE_SECONDS)
+    return compute.once(_cache_key(scope), lambda: _Builder(scope).build(), CACHE_SECONDS, lang_neutral=True)
 
 
 def stored(scope: Scope) -> bool:
@@ -276,7 +290,7 @@ def stored(scope: Scope) -> bool:
     frame then draws the figures inline instead of asking for them (it never computes them itself)."""
     if settings.DEBUG:
         return False
-    return compute.peek(_cache_key(scope))[0]
+    return compute.peek(_cache_key(scope), lang_neutral=True)[0]
 
 
 def children_population(year: int) -> tuple[dict[str, tuple[str, int]], int | None]:
@@ -1362,13 +1376,14 @@ class _Builder:
 # --------------------------------------------------------------------------------- freshness
 def freshness() -> list[dict[str, Any]]:
     """When each source last changed: the same states as the data health page, without its per-dataset
-    counts. Plain values (``finished_at``, never the run itself), kept two minutes in the shared cache;
-    a finished sync changes the key, so a new run shows at once. Like :func:`options`, never waited for:
-    a frame computes it itself when another request is at it."""
+    counts. Plain values (``finished_at``, never the run itself), kept two minutes in the shared cache,
+    the same for every language (the job names are not translated); a finished sync changes the key, so
+    a new run shows at once. Like :func:`options`, never waited for: a frame computes it itself when
+    another request is at it."""
     if settings.DEBUG:
         return _freshness()
     key = f"overview-freshness:v{CACHE_VERSION}:{compute.data_stamp()}"  # the last finished sync run
-    return compute.once(key, _freshness, CACHE_SECONDS, wait=0)
+    return compute.once(key, _freshness, CACHE_SECONDS, wait=0, lang_neutral=True)
 
 
 def _freshness() -> list[dict[str, Any]]:

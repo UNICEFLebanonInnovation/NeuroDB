@@ -28,6 +28,11 @@ def pytest_configure(config):
         "shell: the test checks a page's shell itself: client.get answers the shell with its placeholders, "
         "not the page assembled with its parts (tests/web/parts.py)",
     )
+    config.addinivalue_line(
+        "markers",
+        "parts_may_fail: a part of a page the test client assembles may answer something other than its "
+        "figures (a 403, a 404, a 202); without this mark such a part fails the test (tests/web/parts.py)",
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -61,11 +66,14 @@ def _assembled_pages(request, monkeypatch):
     client does the same: ``client.get`` of such a page (without HTMX) answers the assembled page, every
     part in place (strict ones too), with the parts' template contexts in ``response.context`` after the
     shell's. So a test of a page's figures keeps testing them. A test of the shell itself is marked
-    ``@pytest.mark.shell``; ``tests.web.parts.raw_get`` always answers the shell."""
+    ``@pytest.mark.shell``; ``tests.web.parts.raw_get`` always answers the shell. A part that does not
+    answer its figures fails the test, unless it is marked ``@pytest.mark.parts_may_fail``: its
+    placeholder would stay, and the test's "not on the page" assertions would pass without testing it."""
     if request.node.get_closest_marker("shell") is None:
         from tests.web.parts import assembling
 
-        monkeypatch.setattr(Client, "get", assembling(Client.get))
+        refuse_failed = request.node.get_closest_marker("parts_may_fail") is None
+        monkeypatch.setattr(Client, "get", assembling(Client.get, refuse_failed=refuse_failed))
 
 
 @pytest.fixture

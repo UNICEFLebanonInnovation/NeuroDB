@@ -1,6 +1,9 @@
-{% comment %}The daily review's folded findings (part "review-more", reports.views.overview), loaded when the card's "Show more"
-opens. Context: review = neurodb.review.services.for_page(...).{% endcomment %}
-{% if review.more_findings %}
+{% load i18n %}{% comment %}The daily review's folded findings (part "review-more", reports.views.overview), loaded when the card's "Show more"
+opens. Context: review = neurodb.review.services.for_page(...); replaced when the card's review has been run again (or
+removed) since the card was drawn: its findings are gone, and another run's are never shown under it.{% endcomment %}
+{% if replaced %}
+<p class="text-muted small mb-0">{% trans "This review has been run again since the page opened. Reload the page to see its findings." %}</p>
+{% elif review.more_findings %}
 <ul class="review-findings">
   {% for f in review.more_findings %}{% include "reports/partials/_daily_review_finding.html" %}{% endfor %}
 </ul>

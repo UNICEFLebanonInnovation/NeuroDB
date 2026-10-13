@@ -37,8 +37,11 @@ synced eTools tables and the ActivityInfo history.
   For you card then appear one after the other as they are ready, and you can use the page
   meanwhile. A block that takes long says "Still working on this part"; a block that could not load
   says so and has a **Try again** button, and the rest of the page keeps working. The daily review's
-  other findings load when you open its *Show … more findings* line. If you print before every block
-  has appeared, a block still loading prints a short note instead: wait until the page is complete.
+  other findings load when you open its *Show … more findings* line; they are always those of the
+  card you see, even when a newer review has run since the page opened. If the review on the card has
+  itself been run again since (an administrator's *Run the daily review now* replaces that day's
+  review), the line asks you to reload the page instead. If you print before every block has
+  appeared, a block still loading prints a short note instead: wait until the page is complete.
 - Figures are kept 2 minutes, so opening the same filter again soon is faster; the end of any sync
   shows at once. The strip at the bottom says when each source last changed.
 

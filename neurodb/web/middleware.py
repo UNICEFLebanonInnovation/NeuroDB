@@ -83,21 +83,44 @@ class HealthCheckMiddleware:
         return self.get_response(request)
 
 
+# Content types whose bytes are compressed already: gzip would only spend the CPU (the whole body, every
+# time) and find the result no smaller. An SVG image is text, and is compressed.
+ALREADY_COMPRESSED = (
+    "image/",
+    "audio/",
+    "video/",
+    "font/woff",
+    "application/pdf",
+    "application/zip",
+    "application/gzip",
+    "application/x-gzip",
+    "application/x-7z-compressed",
+    "application/vnd.openxmlformats-officedocument.",  # .xlsx, .docx, .pptx: zip files
+)
+
+
+def _already_compressed(content_type: str) -> bool:
+    kind = content_type.split(";")[0].strip().lower()
+    return kind != "image/svg+xml" and kind.startswith(ALREADY_COMPRESSED)
+
+
 class CompressMiddleware(GZipMiddleware):
     """Gzip for pages, parts and JSON: App Service does not compress what a Linux container sends, and a
     page's parts are large (the daily review's folded findings alone are about 266 KB).
 
-    Django's GZipMiddleware, which pads each response with random bytes against BREACH, minus three
-    kinds of response: event streams (the assistant and help chats send each line as it is written, and
-    compression would hold them back), attachments (exports: Excel files are compressed already) and
-    streamed responses (large downloads). It sits right after WhiteNoise, so static files, which
-    WhiteNoise serves from their own .gz and .br copies, never reach it.
+    Django's GZipMiddleware, which pads each response with random bytes against BREACH, minus four kinds
+    of response: event streams (the assistant and help chats send each line as it is written, and
+    compression would hold them back), attachments (exports: Excel files are compressed already),
+    streamed responses (large downloads) and content that is compressed already (``ALREADY_COMPRESSED``:
+    the library covers, an inline PDF), which gzip would only spend the CPU on. It sits right after
+    WhiteNoise, so static files, which WhiteNoise serves from their own .gz and .br copies, never reach it.
     """
 
     def process_response(self, request, response):
         if response.streaming:
             return response
-        if response.get("Content-Type", "").startswith("text/event-stream"):
+        content_type = response.get("Content-Type", "")
+        if content_type.startswith("text/event-stream") or _already_compressed(content_type):
             return response
         if response.get("Content-Disposition", "").split(";")[0].strip().lower() == "attachment":
             return response

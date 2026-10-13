@@ -1,7 +1,7 @@
-{# The grey shapes in a part's placeholder ({% part %}): rows of tiles, or lines; hidden from screen readers. #}
+{# The grey shapes in a part's placeholder ({% part %}): rows of tiles ("tile_blocks" in each), or lines; hidden from screen readers. #}
 <div class="skeleton skeleton--{{ kind }}" aria-hidden="true">
   {% if kind == "tiles" %}
-  {% for _ in lines %}<div class="kpi-grid">{% for _ in "1234" %}<div class="skeleton__block skeleton__block--tile"></div>{% endfor %}</div>{% endfor %}
+  {% for _ in lines %}<div class="kpi-grid">{% for _ in tile_blocks %}<div class="skeleton__block skeleton__block--tile"></div>{% endfor %}</div>{% endfor %}
   {% elif kind == "chart" %}
   <div class="skeleton__block skeleton__block--chart"></div>
   {% elif kind == "charts" %}

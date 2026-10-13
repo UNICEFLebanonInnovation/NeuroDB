@@ -153,6 +153,22 @@ def _year_number(year: Any, default: int) -> int:
     return default
 
 
+def _iso_date(text: str) -> datetime.date | None:
+    """A date written ``2026-10-11`` in the query, or None when there is none or it is not a date."""
+    try:
+        return datetime.date.fromisoformat(text.strip())
+    except ValueError:
+        return None
+
+
+def _row_id(text: str) -> int | None:
+    """A row's id written in the query (a whole number above zero), or None when there is none."""
+    text = text.strip()
+    if not (text.isascii() and text.isdigit()) or int(text) == 0:
+        return None
+    return int(text)
+
+
 def _overview_chart_data(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """The JSON the overview charts read (static/js/charts.js), shaped for each builder, per part: the
     ``figures`` part holds every chart of the page (impact, money, delivery, progress), in its own
@@ -296,8 +312,12 @@ def overview(request: HttpRequest) -> HttpResponse:
 
     - ``kpis`` and ``figures`` (impact, money, delivery, TPM and action point progress) read one
       overview build (:func:`neurodb.reports.overview.build`, shared by every worker); when that build
-      is already stored, the frame draws both inline, so a warm overview is still one request;
-    - ``review`` (the daily review card) and ``review-more`` (its folded findings, loaded when opened);
+      is already stored, the frame draws both inline, so a warm overview asks only for the three parts
+      below that are never stored (``for-you``, ``review`` and ``news``);
+    - ``review`` (the daily review card) and ``review-more`` (its folded findings, loaded when opened,
+      maybe hours later: its address carries ``review_latest``, the latest review the card read, and
+      ``review_id``, the review it shows, so the findings are always the card's, even after a newer
+      review has run, and never another run's when the card's review has been run again since);
     - ``news`` (What's new and the forecast risk card);
     - ``for-you``, the NeuroDB Watch card, from its own address (``watch:card``).
 
@@ -310,6 +330,8 @@ def overview(request: HttpRequest) -> HttpResponse:
     sections = [s for s in request.GET.getlist("section") if s]
     governorate = request.GET.get("governorate", "").strip()
     review_day = request.GET.get("review", "")
+    review_latest = _iso_date(request.GET.get("review_latest", ""))  # the folded findings: their card's
+    review_id = _row_id(request.GET.get("review_id", ""))  # ... and the review it shows
     own_section: list[str] = []
     if year and first_load(request):  # first load, no choice made yet: the user's own section
         own_section = pd_monitoring_service.default_sections(request.user, options()["sections"])
@@ -377,6 +399,10 @@ def overview(request: HttpRequest) -> HttpResponse:
         resolved["governorate"] = governorate
     if review_day:
         resolved["review"] = review_day
+    if review_latest:
+        resolved["review_latest"] = review_latest.isoformat()
+    if review_id:
+        resolved["review_id"] = str(review_id)
     build_scope = overview_service.Scope(
         year=year_number, reporting_year=year, sections=sections, governorate=governorate, today=today
     )
@@ -384,8 +410,26 @@ def overview(request: HttpRequest) -> HttpResponse:
     stored = functools.cache(lambda: overview_service.stored(build_scope))
     review_services = _review_services()
     review = functools.cache(
-        lambda: review_services.for_page(review_day or None, sections) if review_services else None
+        lambda: (
+            review_services.for_page(review_day or None, sections, latest=review_latest)
+            if review_services
+            else None
+        )
     )
+
+    def folded() -> dict[str, Any]:
+        """The card's folded findings, asked for when its *Show more* opens, maybe hours after the card was
+        drawn. ``review_latest`` brings back the reviews as the card read them; ``review_id`` is the review
+        it shows. A run replaces the day's review with a new one (the admin's *Run the daily review now*, a
+        second run of the morning's job), so when the card's review is no longer the one its tab reads,
+        nothing of that card is left to show: the part says so (``replaced``), never another run's
+        findings."""
+        page = review()
+        shown = page["review"] if page else None
+        if review_id is not None and getattr(shown, "pk", None) != review_id:
+            return {"review": None, "replaced": True}
+        return {"review": page}
+
     parts = {
         "kpis": Part("reports/parts/overview_kpis.html", lambda: {"data": data()}, ready=stored),
         "figures": Part(
@@ -394,7 +438,7 @@ def overview(request: HttpRequest) -> HttpResponse:
             ready=stored,
         ),
         "review": Part("reports/parts/overview_review.html", lambda: {"review": review()}),
-        "review-more": Part("reports/parts/overview_review_more.html", lambda: {"review": review()}),
+        "review-more": Part("reports/parts/overview_review_more.html", folded),
         "news": Part(
             "reports/parts/overview_news.html",
             lambda: {"whats_new": _whats_new(sections), "forecast_risk": _forecast_risk(sections)},

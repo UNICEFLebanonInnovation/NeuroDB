@@ -19,8 +19,12 @@ sign-in, the public pages, the donor lock-out, ``@require_GET`` and the view's o
    ``request.parts_eager`` for ``_eager=1`` (the page with every part drawn inline: print, no JavaScript);
 3. lets a part request wait at most about 2 s for figures another request is computing
    (``compute.part_wait``), then answers 202 with ``X-NeuroDB-Part-Pending: 1``: the browser asks again;
-4. adds ``Vary: HX-Request`` to every answer (one address serves a page or a fragment), and
-   ``Cache-Control: no-store`` plus ``X-NeuroDB-Part: <name>`` to parts;
+4. adds ``Vary: HX-Request`` to every answer (one address serves a page or a fragment),
+   ``Cache-Control: no-store`` to every part request, and ``X-NeuroDB-Part: <name>`` only to an answer
+   :func:`render_page` gave as that part (the part, or its 404, 202 or error). The browser swaps a 2xx
+   answer in only with that header (parts.js ``answersPart()``): a view that draws no parts answers a
+   ``_part`` request with its whole page, without the header, and that page is never nested in itself
+   (a tab left open on a page in parts, while a release where the page has no parts answers it);
 5. turns the sign-in redirect of an HTMX request (an expired session) into an ``HX-Redirect`` to the
    sign-in page, coming back to the page the person was on: the sign-in form is never swapped into a
    part. A person who is not signed in asking for a part of a public page (the site root shows the
@@ -82,7 +86,8 @@ class PartsMiddleware:
         patch_vary_headers(response, ("HX-Request",))
         if request.part is not None:
             response["Cache-Control"] = "no-store"
-            response["X-NeuroDB-Part"] = request.part
+            if getattr(request, "_parts_answered", None) == request.part:  # set by render_page
+                response["X-NeuroDB-Part"] = request.part
         return response
 
     def process_view(self, request, view_func, view_args, view_kwargs):
@@ -201,9 +206,10 @@ class Part:
     request answers it as JSON (``template`` is not used; pass ``""``).
 
     Inline when ready: ``ready()`` (or ``peek``, a :func:`neurodb.core.compute.once` key, looked up with
-    ``compute.peek``) says the part's figures are already stored. The shell then draws the part inline,
-    already loaded, so a warm page stays one request. Leave both out for a part that is always cheap to
-    ask for, or never stored.
+    ``compute.peek``; ``peek_lang_neutral=True`` for a value stored with ``once(..., lang_neutral=True)``)
+    says the part's figures are already stored. The shell then draws the part inline, already loaded, so
+    the page does not ask for it. Leave both out for a part that is always cheap to ask for, or never
+    stored.
     """
 
     template: str
@@ -211,6 +217,7 @@ class Part:
     json: bool = False
     ready: Callable[[], bool] | None = None
     peek: str | None = None
+    peek_lang_neutral: bool = False
 
     def is_ready(self) -> bool:
         if self.json:
@@ -218,7 +225,7 @@ class Part:
         if self.ready is not None:
             return bool(self.ready())
         if self.peek is not None:
-            return compute.peek(self.peek)[0]
+            return compute.peek(self.peek, lang_neutral=self.peek_lang_neutral)[0]
         return False
 
 
@@ -252,7 +259,8 @@ def render_page(
     """The answer of a page in parts, in this order:
 
     1. a part request (``request.part``): that part alone (:func:`render_part`); an unknown name is a 404.
-       ``shell()`` is not called: the part has ``scope`` and its own context;
+       ``shell()`` is not called: the part has ``scope`` and its own context. Only this answer (or its
+       404, 202 or error) carries ``X-NeuroDB-Part``, the browser's proof that it is the part;
     2. an HTMX request whose target is the page's results area (``HX-Target`` equal to ``results_target``,
        with or without the ``#``): ``results_template``, the results area with its placeholders, no figures.
        Any other HTMX request of the page is the view's own business, before it calls this function;
@@ -272,6 +280,7 @@ def render_page(
     request._parts_page = PartsPage(parts=parts, scope=dict(scope), query=query)
     name = getattr(request, "part", None)
     if name is not None:
+        request._parts_answered = name  # the middleware's X-NeuroDB-Part: this answer is that part
         return render_part(request, name, query)
     eager = bool(getattr(request, "parts_eager", False))
     if results_template is not None and not eager and _targets(request, results_target):

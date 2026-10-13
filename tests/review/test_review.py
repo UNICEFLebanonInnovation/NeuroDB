@@ -134,6 +134,23 @@ def test_for_page_modes_and_section_filter(data):
     assert len(protection["findings"]) > len(education["findings"])
 
 
+def test_for_page_reads_the_reviews_as_they_stood_on_a_day(data):
+    """``latest``: the reviews of later days are left out, as if they had not run yet (the overview's folded
+    findings read the reviews their card read, though a newer review has run since)."""
+    run()
+    first = services.for_page("today", [])
+    assert first["history"][-1]["date"] == TODAY  # the last of the history: the latest review read
+    run(NEXT_DAY)
+    for day in ("today", "yesterday", "week", TODAY.isoformat()):
+        assert services.for_page(day, [])["history"][-1]["date"] == NEXT_DAY
+    for day in ("today", "week"):
+        pinned = services.for_page(day, [], latest=TODAY)
+        assert pinned["review"].date == TODAY and [h["date"] for h in pinned["history"]] == [TODAY]
+    assert services.for_page("today", [], latest=TODAY)["findings"] == first["findings"]
+    assert services.for_page("yesterday", [], latest=TODAY)["review"] is None  # nothing before it then
+    assert services.for_page("today", [], latest=TODAY - datetime.timedelta(days=1)) is None
+
+
 def test_command(data, capsys):
     call_command("daily_review", "--date", TODAY.isoformat(), "--no-narration")
     out = capsys.readouterr().out

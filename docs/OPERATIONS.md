@@ -858,16 +858,19 @@ again** button; the rest of the page keeps working, and no error pop-up appears:
 | Message | Cause |
 |---|---|
 | This part could not be loaded. | A server error (500); or a network error, 502, 503 or 504 that failed again after the one automatic retry, 2 seconds later |
-| This part took too long. Try again, or narrow the filter. | No answer within 60 seconds (each block's own limit, below gunicorn's 120 s), also when the server kept answering "still computing" (below) for 60 seconds |
+| This part took too long. Try again, or narrow the filter. | No answer within 60 seconds (each block's own limit, below gunicorn's 120 s), twice: the first time out is retried once by itself, 2 seconds later, with 60 seconds again, so the message shows after about two minutes. Also when the server kept answering "still computing" (below) for those 60 seconds, twice |
 | You do not have access to this. | 403, for example a donor account |
 | This part is no longer on the page. Reload the page. | 404: the page changed under a tab left open (a new release renamed or removed the block) |
 
 Screen readers hear one short summary ("Loading the figures…", "All figures are shown.", "1 part
 could not be loaded."), never one message per block, and an arriving block never moves the focus.
 Printing with Ctrl+P while blocks are still loading prints a note in place of each of them ("This part
-was still loading when the page was printed."). Without JavaScript each placeholder offers *Show the
-figures*, the same page with its blocks drawn in. A session that has expired sends the browser to the
-sign-in page and back to the page afterwards, never a sign-in form inside a block.
+was still loading when the page was printed. Wait until every part is shown, then print again.").
+Without JavaScript each placeholder offers *Show the figures*, the same page with its blocks drawn in.
+A block that comes from another address (the overview's *For you* card) is not drawn on that page: it
+is an empty slot there, with a link to its own page (*Open this block on its own page*) when it has
+one. A session that has expired sends the browser to the sign-in page and back to the page afterwards,
+never a sign-in form inside a block.
 
 **How it works.** Each block (a *part*) is asked for at the page's own address plus `_part=<name>`,
 as an htmx request, with the filters the frame resolved written out in full (the user's own section
@@ -882,12 +885,19 @@ read are computed once across every worker and every user, and kept in the **sha
 (`neurodb/core/compute.py`, `once()`): one request computes them under a PostgreSQL advisory lock,
 the others wait and read the stored result. A part request that has waited about 2 seconds answers
 **202** with `X-NeuroDB-Part-Pending: 1`, which frees its web thread, and the browser asks again after
-1.5 seconds, then less often, within the 60 seconds. When the figures a page needs are already
-stored, the frame draws those blocks itself, in the same answer, so a page opened again within their
-lifetime is a single request. Each stored value's key holds everything the figures depend on (the
-filter, the day, the language, the release, the last finished sync run and the indicator flags) and
-nothing about the person asking: two people with the same filter read the same figures, and a user's
-own section only enters as the filter.
+1.5 seconds, then less often, within the 60 seconds. When the figures of a block are already
+stored, the frame draws that block itself, in the same answer, so a page opened again within their
+lifetime asks only for its other blocks (the overview: the tiles and the charts come with the frame,
+and the *For you* card, the daily review and What's new follow it, three small requests). Each stored
+value's key holds what the synced figures depend on (the filter, the day, the release, the last
+finished sync run and the indicator flags; the language too, unless the value reads the same in every
+language, as the overview's do) and nothing about the person asking: two people with the same filter
+read the same figures, and a user's own section only enters as the filter. Of what staff edit by hand
+outside a sync, the indicator flags are in the key and the governorates of the filter bar (Admin →
+Locations) are read at each visit, so both show at once. Any other hand edit shows when the stored
+value it is part of expires, or at once after **Empty the stored page figures**: a governorate
+renamed in Admin → Locations is in the filter bar at once, but keeps its old name in the overview's
+figures for up to the build's 2 minutes.
 
 **The shared page figures (table `neurodb_cache`).** The table is created by core migration 0026 at
 start-up (nobody runs `createcachetable`) and read through Django's database cache
@@ -923,8 +933,9 @@ before timing a page from a cold start. It changes no data.
    `requests | where tostring(customDimensions["neurodb.part"]) == "figures" and success == false`.
 4. To tell a failing block from a browser or network problem, add `_eager=1` to the page's address:
    the page then draws its blocks itself, in one request (what *Show the figures* does without
-   JavaScript; a block that comes from another address, such as the overview's *For you* card, still
-   loads on its own), and a block that fails fails the whole page with the same error.
+   JavaScript; a block that comes from another address, such as the overview's *For you* card, is
+   not drawn there: with JavaScript the browser still loads it on its own, without JavaScript it stays
+   empty), and a block that fails fails the whole page with the same error.
 5. Figures that look out of date rather than failing: **Empty the stored page figures** (above).
 
 Nothing here needs a shell: the table comes from a migration that runs at start-up, it is emptied
@@ -933,17 +944,18 @@ portal.
 
 **Server settings.** NeuroDB compresses its own answers (`CompressMiddleware` in
 `neurodb/web/middleware.py`, Django's gzip with its protection against BREACH, right after WhiteNoise):
-App Service does not compress what a Linux container sends, and a part can be large (the daily
-review's folded findings are about 266 KB). It leaves out event streams (the chat answers, written
-line by line), downloads (attachments) and streamed answers; static files come from WhiteNoise, which
-serves its own compressed copies. A worker of gunicorn (`config/gunicorn.conf.py`) restarts after
-`max_requests` = **8000** requests, with a random spread of up to 800 (`max_requests_jitter`) so the
-workers do not restart together; it was 2000 and 200. A page in parts sends several requests per
-visit (the overview: its frame and up to five parts, plus the folded findings when they are opened),
-and each restart loses the worker's own caches and pays its slow first request again. The web
-container still runs 3 workers × 4 threads; the work is mostly CPU, so more workers
-(`WEB_CONCURRENCY`) help only with more vCPU. Each part is its own request in Application Insights:
-watch the volume of requests there after a release that converts a page.
+App Service does not compress what a Linux container sends, and a part can be large (the daily review's
+folded findings are about 266 KB). It leaves out event streams (the chat answers, written line by line),
+downloads (attachments), streamed answers and what is compressed already (images other than SVG, such as
+the library covers, PDF, ZIP, fonts, audio and video), which gzip would only make the server work on for
+nothing; static files come from WhiteNoise, which serves its own compressed copies. A worker of gunicorn
+(`config/gunicorn.conf.py`) restarts after `max_requests` = **8000** requests, with a random spread of
+up to 800 (`max_requests_jitter`) so the workers do not restart together; it was 2000 and 200. A page in
+parts sends several requests per visit (the overview: its frame and up to five parts, plus the folded
+findings when they are opened), and each restart loses the worker's own caches and pays its slow first
+request again. The web container still runs 3 workers × 4 threads; the work is mostly CPU, so more
+workers (`WEB_CONCURRENCY`) help only with more vCPU. Each part is its own request in Application
+Insights: watch the volume of requests there after a release that converts a page.
 
 ## eTools Datamart
 
@@ -1515,7 +1527,7 @@ ActivityInfo databases. Then come, each in its own request:
 | `for-you` | The NeuroDB Watch card, from Watch's own address | At once |
 | `figures` | Impact on children, value for money, delivery and assurance, and the two progress blocks, with their headings (their anchors still work) | Once `kpis` has finished, when near the screen |
 | `review` | The *Daily review* card (only when a daily review has ever succeeded); `#daily-review` still leads to it | When near the screen |
-| `review-more` | The card's folded findings (often hundreds of KB) | Only when *Show N more findings* is opened |
+| `review-more` | The card's folded findings (often hundreds of KB), always those of the card above them: its address carries the latest review the card read (`review_latest=<date>`) and the review it shows (`review_id=<id>`), so a newer day's review (the next morning's job) never slips its findings under it. A run of the card's own day replaces that day's review (*Run the daily review now* in Admin → Daily reviews, a second run of the morning's job): the part then asks the reader to reload the page, never showing the new run's findings under the old card | Only when *Show N more findings* is opened |
 | `news` | What's new and the forecast risk card | After the visible parts |
 
 A part further down loads anyway once the visible ones are done, one at a time; only `review-more`
@@ -1524,16 +1536,20 @@ written out on a first load (`section=<name>`), `section=` for every section, th
 governorate and the review day when chosen. Without a reporting year the page shows its empty state
 and loads no part (nor What's new nor the forecasts). When the build for the chosen filter is already
 stored, the frame draws the tiles and the figures itself, so an overview opened again within two
-minutes is one request.
+minutes asks only for the *For you* card, the daily review and What's new, three small requests,
+after its frame.
 
 **Caching.** The overview build is kept 2 minutes per (year, sections, governorate, day) in the shared
 page figures, read by every web worker (it was each worker's own memory before), and computed by one
 request at a time; a new or changed indicator flag (children or unique beneficiaries) and the end of
-any sync run change the key, so every worker shows the new figures at once. The filter bar's choices
-are kept 10 minutes and the freshness strip 2 minutes the same way, both under keys that change with
-the last finished sync run and the flags. Nothing in the build depends on who asks: the user's own
-section only enters as the filter. The freshness strip at the bottom shows when each source last
-changed.
+any sync run change the key, so every worker shows the new figures at once. The build reads the same
+in every language, so one stored build serves every language. The filter bar's sections are kept 10
+minutes and the freshness strip 2 minutes the same way, both under keys that change with the last
+finished sync run and the flags; the filter bar's governorates, which staff can edit by hand in
+Admin → Locations, are read at each visit, so an edit shows there at once (the figures, which name the
+governorates too, show it when the build expires). Nothing in the build depends on who asks: the
+user's own section only enters as the filter. The freshness strip at the bottom shows when each source
+last changed.
 
 ## Management brief (`/brief/`)
 

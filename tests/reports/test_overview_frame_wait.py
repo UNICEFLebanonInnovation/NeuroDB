@@ -11,6 +11,7 @@ import concurrent.futures
 
 import pytest
 from django.db import connection
+from django.utils import translation
 
 from neurodb.core import compute
 from neurodb.reports import overview
@@ -56,8 +57,28 @@ def test_both_are_still_kept_in_the_shared_cache(monkeypatch):
     overview.freshness()
     assert asked == [("overview-options", 0), ("overview-freshness", 0)]
     computed = []
-    monkeypatch.setattr(overview, "_options", lambda: computed.append("options") or {"sections": []})
+    # the filter bar's sections are what options() stores (its governorates are read at each request)
+    monkeypatch.setattr(overview, "_sections", lambda: computed.append("options") or [])
     monkeypatch.setattr(overview, "_freshness", lambda: computed.append("freshness") or [])
     overview.options(2026)
     overview.freshness()
     assert computed == []  # read back from the shared cache, not computed again
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("value", ["options", "freshness"])
+def test_one_stored_value_serves_every_language(monkeypatch, value):
+    """The filter bar's sections and the freshness strip hold no translated text (test_overview_parts checks
+    the strip), so each is stored once for every language (``lang_neutral``): a visit in Arabic reads what
+    a visit in English stored, and never computes it again."""
+    name = "_sections" if value == "options" else "_freshness"
+    real = getattr(overview, name)
+    computed = []
+    monkeypatch.setattr(overview, name, lambda: computed.append(value) or real())
+    compute_it = (lambda: overview.options(2026)) if value == "options" else overview.freshness
+    with translation.override("en"):
+        english = compute_it()
+    with translation.override("ar"):
+        arabic = compute_it()
+    assert arabic == english
+    assert computed == [value], f"{value}: computed again for another language"

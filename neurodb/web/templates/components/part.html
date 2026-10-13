@@ -1,13 +1,14 @@
-{% load i18n %}{# The placeholder of a part ({% part %}, web/templatetags/parts.py); static/js/parts.js fills it. #}
+{% load i18n %}{# The placeholder of a part ({% part %}, web/templatetags/parts.py); static/js/parts.js fills it. Its answer always replaces this element (hx-target, hx-select, hx-push-url and hx-replace-url set here, so none comes from a block around it), and the part's address never reaches the address bar. On the page drawn at once (_eager=1), a part that page cannot draw (a url= part) is a quiet slot ("quiet"): no grey shapes, not busy, and no link back to the same page. #}
 <div id="{{ element_id }}" class="part part--{{ kind }}" data-part="{{ name }}" data-part-priority="{{ priority }}"{% if group %} data-part-group="{{ group }}"{% endif %}{% if lazy %} data-part-lazy="{{ lazy }}"{% endif %}{% if anchors %} data-part-anchors="{{ anchors }}"{% endif %}{% if needs %} data-part-needs="{{ needs }}"{% endif %}
      hx-get="{{ url }}" hx-trigger="nd-part" hx-swap="{{ swap }}" hx-request='{"timeout": 60000}'
-     aria-busy="true"{% if labelledby %} aria-labelledby="{{ labelledby }}"{% endif %}{% if style %} style="{{ style }}"{% endif %}>
-  <div class="part__skeleton" aria-hidden="true">{% include "components/part_skeleton.html" with kind=kind rows=rows lines=lines only %}</div>
+     hx-target="this" hx-select="unset" hx-push-url="false" hx-replace-url="false" hx-disinherit="hx-target hx-select hx-push-url hx-replace-url"
+     {% if not quiet %}aria-busy="true"{% endif %}{% if labelledby %} aria-labelledby="{{ labelledby }}"{% endif %}{% if style %} style="{{ style }}"{% endif %}>
+  {% if not quiet %}<div class="part__skeleton" aria-hidden="true">{% include "components/part_skeleton.html" with kind=kind rows=rows lines=lines tile_blocks=tile_blocks only %}</div>{% endif %}
   <p class="part__slow small text-muted">{% trans "Still working on this part. Large filters take longer." %}</p>
   <div class="part__error" data-part-error hidden>
     <p class="state__title" data-part-error-text>{% trans "This part could not be loaded." %}</p>
     <button type="button" class="btn btn-sm btn-outline-secondary" data-part-retry>{% trans "Try again" %}</button>
   </div>
-  <p class="part__print-note">{% trans "This part was still loading when the page was printed. Use the page's Print button to print every part." %}</p>
-  <noscript><a href="{{ eager_url }}">{% trans "Show the figures" %}</a></noscript>
+  <p class="part__print-note">{% trans "This part was still loading when the page was printed. Wait until every part is shown, then print again." %}</p>
+  {% if not quiet %}<noscript><a href="{{ eager_url }}">{% trans "Show the figures" %}</a></noscript>{% elif page %}<noscript><a href="{{ page }}">{% trans "Open this block on its own page" %}</a></noscript>{% endif %}
 </div>

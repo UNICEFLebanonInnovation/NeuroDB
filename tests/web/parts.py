@@ -9,11 +9,16 @@ same with the Django test client:
   resolved query the shell wrote into it), with the HTMX headers the browser sends;
 - :func:`assemble`: the shell with every part (strict ones too) put in place of its placeholder;
 - :func:`eager`: the page with ``_eager=1``, every part drawn inline by the server;
-- :func:`normalise`: HTML reduced to what both ways of drawing a page must agree on.
+- :func:`normalise`: HTML reduced to what both ways of drawing a page must agree on;
+- :func:`executable`: what in a part would run once swapped in (a script that is not JSON data, an
+  ``hx-on`` or ``on…=`` handler): every part an assembly asks for must have none (SPEC7 §1.3 rule 3).
 
 ``tests/conftest.py`` uses :func:`assembling` so that ``client.get`` of a page answers the assembled page,
-as a browser shows it, unless the test is marked ``@pytest.mark.shell``. :func:`raw_get` is the plain
-``client.get``, without that.
+as a browser shows it, unless the test is marked ``@pytest.mark.shell``. Every part must then be shown:
+a part that answers anything else (a 403, a 404, a 202, a 500 page, a sign-in redirect) fails the test,
+since the page's negative assertions would otherwise pass without testing anything; a test about a
+refused part is marked ``@pytest.mark.parts_may_fail``. :func:`raw_get` is the plain ``client.get``,
+without any of that.
 """
 
 from __future__ import annotations
@@ -54,6 +59,37 @@ class _StartTags(HTMLParser):
 
 def _start_tags(html: str, attribute: str) -> list[dict[str, str]]:
     parser = _StartTags(attribute)
+    parser.feed(html)
+    parser.close()
+    return parser.found
+
+
+class _Runnable(HTMLParser):
+    """What would run in a fragment swapped into the page: htmx re-creates every inline ``<script>`` it
+    swaps in, with the page's nonce, so the CSP does not stop it."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.found: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        values = {key: value or "" for key, value in attrs}
+        if tag == "script" and values.get("type", "").strip().lower() != "application/json":
+            self.found.append(f"<script {values}>")
+        for key, value in values.items():
+            if key.startswith(("hx-on", "data-hx-on")) or re.fullmatch(r"on[a-z]+", key):
+                self.found.append(f"<{tag} {key}={value!r}>")
+            elif key in ("href", "src", "action", "formaction") and value.strip().lower().startswith(
+                "javascript:"
+            ):
+                self.found.append(f"<{tag} {key}={value!r}>")
+
+
+def executable(html: str) -> list[str]:
+    """What in ``html`` would run once swapped in: a ``<script>`` that is not ``type="application/json"``,
+    an ``hx-on`` handler, an ``on…=`` attribute or a ``javascript:`` address. A part sends none (SPEC7
+    §1.3 rule 3, §1.7): its behaviour lives in the static scripts, its data in JSON blocks."""
+    parser = _Runnable()
     parser.feed(html)
     parser.close()
     return parser.found
@@ -119,7 +155,9 @@ def _ask_part(
         "HTTP_HX_TRIGGER": element_id,
     }
     chosen = {k: v for k, v in kwargs.items() if k.startswith("HTTP_HX_") and k != "HTTP_HX_REQUEST"}
-    return raw_get(client, address, **{**_passed_on(kwargs), **headers, **chosen})
+    response = raw_get(client, address, **{**_passed_on(kwargs), **headers, **chosen})
+    response.part_address = address
+    return response
 
 
 def _registered_address(shell: HttpResponse, name: str) -> str | None:
@@ -183,13 +221,34 @@ def _shown(response: HttpResponse) -> bool:
     return response.status_code == 200 and not response.has_header("HX-Redirect")
 
 
+def _answered(response: HttpResponse) -> bool:
+    """A part that answered as it should: shown, or, from another view's address (a ``url=`` part, such as
+    the overview's For you card), a 204 with nothing to show."""
+    from_elsewhere = "_part=" not in getattr(response, "part_address", "")
+    return _shown(response) or (from_elsewhere and response.status_code == 204)
+
+
+def refuse_failed_parts(parts: dict[str, HttpResponse]) -> None:
+    """Fail when a part of an assembled page did not answer as it should: its placeholder would stay, and
+    every assertion that something is *not* on the page would pass without testing its figures."""
+    for name, response in parts.items():
+        if not _answered(response):
+            how = " (HX-Redirect to sign in)" if response.has_header("HX-Redirect") else ""
+            raise AssertionError(
+                f"the part {name!r} answered {response.status_code}{how} at "
+                f"{getattr(response, 'part_address', '?')}: an assembled page shows every part. Mark the "
+                "test @pytest.mark.parts_may_fail when a refused part is what it checks."
+            )
+
+
 def _fill(
     client: Client, html: str, *, page: str, strict: bool, kwargs: dict[str, Any]
 ) -> tuple[str, dict[str, HttpResponse]]:
     """Ask for each placeholder's part and put the answer in its place, again for placeholders that
     arrive inside a part, until none is left. A part that does not answer 200 with content (a 403, a
     404, a 202 still computing, a sign-in redirect) keeps its placeholder. ``strict=False`` leaves the
-    ``lazy="strict"`` parts out, as a browser that never scrolls to them."""
+    ``lazy="strict"`` parts out, as a browser that never scrolls to them. A part that would run anything
+    once swapped in (:func:`executable`) is an error."""
     answered: dict[str, HttpResponse] = {}
     left: set[str] = set()
     while True:
@@ -209,6 +268,8 @@ def _fill(
             left.add(name)
             continue
         body = text(response)
+        runnable = executable(body)
+        assert not runnable, f"the part {name!r} ({response.part_address}) sends what would run: {runnable}"
         end = _element_end(html, match.start())
         if attrs.get("hx-swap", "outerHTML").startswith("innerHTML"):
             # an existing endpoint answering its element's content: the placeholder stays as the element
@@ -248,11 +309,13 @@ def _asks_htmx(headers: dict[str, Any] | None, extra: dict[str, Any]) -> bool:
     return any(key.lower() == "hx-request" and value == "true" for key, value in (headers or {}).items())
 
 
-def assembling(get):
+def assembling(get, *, refuse_failed: bool = True):
     """Wrap ``Client.get`` (tests/conftest.py): a page in parts, asked for without HTMX, answers as the
     browser shows it in the end. The shell response is returned with the assembled HTML as its content,
     the parts' template contexts after the shell's in ``response.context`` (and their templates in
-    ``response.templates``), and the part responses by name in ``response.parts``."""
+    ``response.templates``), and the part responses by name in ``response.parts``. A part that does not
+    answer as it should fails the test (:func:`refuse_failed_parts`), unless ``refuse_failed=False``
+    (a test marked ``@pytest.mark.parts_may_fail``)."""
 
     @functools.wraps(get)
     def assembled_get(
@@ -264,6 +327,8 @@ def assembling(get):
         kwargs = {**extra, "secure": secure, "headers": headers}
         page = response.wsgi_request.get_full_path()
         html, parts = _fill(self, text(response), page=page, strict=True, kwargs=kwargs)
+        if refuse_failed:
+            refuse_failed_parts(parts)
         response.content = html.encode(response.charset or "utf-8")
         if response.has_header("Content-Length"):
             response["Content-Length"] = str(len(response.content))

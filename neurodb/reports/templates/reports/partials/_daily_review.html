@@ -38,8 +38,12 @@
     {% if review.more_findings %}
     <details class="review-more">
       <summary>{% blocktrans count counter=review.more %}Show {{ counter }} more finding{% plural %}Show {{ counter }} more findings{% endblocktrans %}</summary>
-      {# the rest (often hundreds of KB) is its own part, asked for when this opens (or for print, or an anchor) #}
-      {% part "review-more" kind="list" lazy="strict" %}
+      {% comment %}The rest (often hundreds of KB) is its own part, asked for when this opens (or for print, or an
+      anchor), maybe hours later: its address carries the latest review this card read (the last of its history;
+      for_page's latest=) and the review it shows (review_id), so it lists this card's findings even after a newer
+      review has run, and never another run's when this review has been run again since.{% endcomment %}
+      {% with latest=review.history|last %}{% part_url "review-more" review_latest=latest.date|date:"Y-m-d" review_id=review.review.pk as more_url %}
+      {% part "review-more" kind="list" lazy="strict" url=more_url %}{% endwith %}
     </details>
     {% endif %}
     {% elif not review.data_problems %}

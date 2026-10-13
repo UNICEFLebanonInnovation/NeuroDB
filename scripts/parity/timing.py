@@ -574,9 +574,12 @@ def count_builds(log_path: str) -> None:
         return f"{scope.year}|{','.join(scope.sections) or '*'}|{scope.governorate or '*'}"
 
     wrap(overview._Builder, "build", "build", build_scope)
-    for name in ("_options", "_freshness"):  # the frame's cached pieces (the working tree only)
+    # the frame's cached pieces (the working tree only): the filter bar's stored sections (_sections; _options
+    # before the governorates left the stored value) and the freshness strip
+    options = "_sections" if hasattr(overview, "_sections") else "_options"
+    for name, what in ((options, "options"), ("_freshness", "freshness")):
         if hasattr(overview, name):
-            wrap(overview, name, name.strip("_"), lambda args: "")
+            wrap(overview, name, what, lambda args: "")
     # "missed": a shared value not found stored, the wait for its lock plus its computation (the working tree)
     with contextlib.suppress(ImportError):
         from neurodb.core import compute

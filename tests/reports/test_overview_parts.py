@@ -12,24 +12,35 @@ the ActivityInfo hierarchy; a daily review is run on it where a test needs the c
 
 from __future__ import annotations
 
+import dataclasses
+import datetime
+import gettext
 import json
 import re
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from django.core.cache import caches
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone, translation
 from django.utils.html import escape
 
 from neurodb.accounts.models import User
+from neurodb.core import compute
+from neurodb.core.models import SyncRun
+from neurodb.datamart import models as dm
 from neurodb.donors.models import DonorAccount
+from neurodb.geo.models import Location
 from neurodb.graph import news
 from neurodb.indicators.models import ReportingYear
 from neurodb.insights import services as insight_services
 from neurodb.reports import overview as overview_service
 from neurodb.reports import views
+from neurodb.review import checks
 from neurodb.review import services as review_services
+from neurodb.review.models import DailyReview, ReviewFinding
 from neurodb.watch import page as watch_page
 from tests.reports.overview_fixture import TODAY, make_overview_data
 from tests.reports.test_headline import _second
@@ -37,6 +48,7 @@ from tests.web.parts import (
     HX,
     assemble,
     eager,
+    executable,
     get_part,
     normalise,
     placeholder_attributes,
@@ -54,10 +66,11 @@ FIGURES_JSON = "overview-figures-data"
 JSON_SCRIPT = re.compile(r'<script id="([^"]+)" type="application/json">(.*?)</script>', re.S)
 LINK = re.compile(r'\s(?:href|action|hx-push-url)="([^"]*)"')
 # Query ceilings: what was measured on this world, plus 2 (SPEC7 §3.3 6, §3.4). The frame warm (its filter
-# choices, freshness strip and navigation stored, as after the first visit of a page) is 10: the request's floor
-# (session, user, donor check, user role) plus the year, the cache stamp (last sync run, flags), the own section
-# and whether a daily review exists. Cold it also reads the filter choices (2), the freshness strip (4) and the
-# navigation (4). Each part is measured with nothing stored: kpis and figures compute the whole build.
+# sections, freshness strip and navigation stored, as after the first visit of a page) is 11: the request's floor
+# (session, user, donor check, user role) plus the year, the cache stamp (last sync run, flags), the own section,
+# the governorates (read at each visit: staff edit them in the admin) and whether a daily review exists. Cold it
+# also reads the filter sections (1), the freshness strip (4) and the navigation (4). Each part is measured with
+# nothing stored: kpis and figures compute the whole build.
 SHELL_QUERIES_WARM = 12
 SHELL_QUERIES_COLD = 22
 PART_QUERIES = {"kpis": 39, "figures": 39, "review": 9, "review-more": 9, "news": 8}
@@ -163,9 +176,15 @@ def test_the_placeholders_carry_the_resolved_filter(client_viewer, reviewed):
     assert found["for-you"]["data-part-priority"] == "high" and found["news"]["data-part-priority"] == "low"
     assert "data-part-group" not in found["review"] and "data-part-lazy" not in found["review"]
     assert "gov-title" in found["figures"]["data-part-anchors"].split()  # its blocks' ids stay anchors
-    # the room of the four blocks, on a desktop and on a phone (where they stack)
+    # the room of the four blocks, on a desktop, a tablet or narrow window (stacked beside the sidebar) and a
+    # phone, as measured on the x20 parity world
     assert found["figures"]["class"] == "part part--charts"
-    assert found["figures"]["style"] == "--part-h: 4300px; --part-h-sm: 7600px"
+    assert found["figures"]["style"] == "--part-h: 4650px; --part-h-sm: 8100px; --part-h-md: 6200px"
+    assert found["kpis"]["style"] == "--part-h: 18.5rem; --part-h-sm: 54rem; --part-h-md: 34rem"
+    assert found["review"]["style"] == "--part-h: 1850px; --part-h-sm: 4900px; --part-h-md: 2500px"
+    assert found["news"]["style"] == "--part-h: 16rem; --part-h-sm: 32rem; --part-h-md: 23rem"
+    kpis = html[html.index('id="part-kpis"') : html.index('id="part-for-you"')]
+    assert kpis.count("skeleton__block--tile") == 5  # the five key figure tiles
     # the governorate and the review tab travel too
     html = text(
         client_viewer.get(PAGE, {"section": "Child Protection", "governorate": "Akkar", "review": "week"})
@@ -216,6 +235,75 @@ def test_without_a_reporting_year_there_is_no_part(client_viewer, world, reporti
 
 
 @pytest.mark.shell
+def test_without_a_daily_review_the_frame_keeps_no_room_for_it(client_viewer, world):
+    """No daily review has ever succeeded: no ``#daily-review`` and no review placeholder, so no empty block
+    of the card's height waits for a part that brings nothing."""
+    html = text(client_viewer.get(PAGE))
+    assert list(placeholders(html)) == ["kpis", "for-you", "figures", "news"]
+    assert 'id="daily-review"' not in html
+
+
+def _governorate_choices(client) -> list[str]:
+    html = text(raw_get(client, PAGE + "?section="))
+    select = re.search(r'<select[^>]*name="governorate".*?</select>', html, re.S)
+    assert select, "the filter bar has its governorate choice"
+    return re.findall(r"<option[^>]*>([^<]*)</option>", select.group(0))
+
+
+def test_a_governorate_edited_in_the_admin_shows_in_the_filter_bar_at_once(client, admin_user, world):
+    """The gazetteer is edited by hand (Admin → Locations), outside any sync: the filter bar's governorates
+    must not wait for a stored value to expire."""
+    admin_user.is_superuser = True
+    admin_user.save()
+    client.force_login(admin_user)
+    assert "Akkar" in _governorate_choices(client)  # the filter choices are stored now
+    akkar = Location.objects.get(name="Akkar")
+    change = reverse("admin:locations_location_change", args=[akkar.pk])
+    response = client.post(
+        change,
+        {
+            "name": "Akkar North",
+            "type": akkar.type_id,
+            "p_code": akkar.p_code,
+            "cas_code": "",
+            "is_active": "on",
+        },
+    )
+    assert response.status_code == 302, text(response)[:2000]
+    assert "Akkar North" in _governorate_choices(client) and "Akkar" not in _governorate_choices(client)
+
+    akkar.refresh_from_db()
+    response = client.post(
+        change, {"name": akkar.name, "type": akkar.type_id, "p_code": akkar.p_code, "cas_code": ""}
+    )  # made inactive
+    assert response.status_code == 302, text(response)[:2000]
+    assert _governorate_choices(client) == ["All", "Beirut"]
+
+
+def _freshness_of(html: str, label: str) -> str:
+    """The state the freshness strip shows for one source (``unknown``, ``stale``, ``fresh``)."""
+    item = re.search(rf'<strong>{re.escape(label)}</strong><span[^>]*\sdata-status="([a-z]+)"', html)
+    assert item, f"{label} is not in the freshness strip"
+    return item.group(1)
+
+
+def test_a_finished_sync_shows_in_the_frame_at_once(client_viewer, world):
+    """The freshness strip and the filter bar's sections are stored for the frame (two and ten minutes),
+    under keys that a finished sync changes: a sync shows at once, in both."""
+    before = text(raw_get(client_viewer, PAGE + "?section="))  # both stored now
+    assert _freshness_of(before, "eTools Datamart sync") == "unknown"  # not yet synced
+    assert 'value="Health"' not in before
+    indicator = dm.PDIndicator.objects.first()
+    indicator.pk, indicator.datamart_id, indicator.section_name = None, 987654, "Health"
+    indicator.save()  # a section the sync brings
+    run = SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="all", status=SyncRun.Status.RUNNING)
+    run.finish(SyncRun.Status.SUCCEEDED)
+    after = text(raw_get(client_viewer, PAGE + "?section="))
+    assert _freshness_of(after, "eTools Datamart sync") == "fresh"
+    assert 'value="Health"' in after
+
+
+@pytest.mark.shell
 def test_the_frame_stays_within_its_query_ceiling(
     client_viewer, own_section, reviewed, django_assert_max_num_queries
 ):
@@ -250,6 +338,8 @@ def test_each_part_answers_its_wrapper(client_viewer, reviewed, name):
     }[name]
     assert expected in html
     assert (f'id="{FIGURES_JSON}"' in html) == (name == "figures")  # the one chart JSON, in its own part
+    # nothing that would run once swapped in, in the part or in any partial it includes (SPEC7 §1.3 rule 3)
+    assert executable(html) == []
 
 
 @pytest.mark.parametrize("name", OWN_PARTS)
@@ -308,6 +398,58 @@ def test_the_review_more_part_holds_only_the_folded_findings(client_viewer, revi
     assert shown not in more and 'id="review-title"' not in more and "review-summary" not in more
 
 
+@pytest.mark.parametrize("tab", ["", "yesterday", "week"])
+def test_the_folded_findings_stay_those_of_their_card(client_viewer, reviewed, tab, monkeypatch):
+    """The card and its folded findings are two requests, maybe hours apart (``review-more`` loads when
+    *Show more* is opened, or for print): a review that succeeds in between never puts its findings under the
+    card drawn before it, whatever the card's tab. A newer day's review (the next morning's job) leaves the
+    card's findings as they were; a run of the card's own day (the admin's *Run the daily review now*, a
+    second run of the morning's job) replaces its review, and the part then asks the reader to reload."""
+    if tab == "yesterday":  # a review the day before, so that the tab has a card with folded findings
+        review_services.run(date=TODAY - datetime.timedelta(days=1), today=TODAY - datetime.timedelta(days=1))
+    page = review_services.for_page(tab or "today", [])
+    folded = [escape(f.title) for f in page["more_findings"]]
+    assert folded
+    card = text(get_part(client_viewer, PAGE + (f"?section=&review={tab}" if tab else ""), "review"))
+    assert f"Show {len(folded)} more finding" in card
+    address = placeholder_attributes(card)["review-more"]["hx-get"]
+    before = text(raw_get(client_viewer, address, **HX))
+    assert before.count('<li class="review-finding">') == len(folded) and all(t in before for t in folded)
+    # the next review succeeds while the card is open, with findings of its own
+    newer = DailyReview.objects.create(
+        date=TODAY + datetime.timedelta(days=1),
+        status=DailyReview.Status.SUCCEEDED,
+        finished_at=timezone.now(),
+        checks_run=1,
+    )
+    for n in range(3):
+        ReviewFinding.objects.create(
+            review=newer,
+            key=f"new_off_track:NEXT-{n}",
+            check_id="new_off_track",
+            severity=ReviewFinding.Severity.WARNING,
+            title=f"Found by the next review, number {n}",
+            rank=n,
+        )
+    assert review_services.for_page(tab or "today", [])["review"] != page["review"]  # the tab moved on
+    assert text(raw_get(client_viewer, address, **HX)) == before  # still the card's own findings
+
+    # the card's own day is run again (DailyReview.date is unique: the run replaces that day's review)
+    run_all = checks.run_all
+
+    def run_again(ctx):
+        drafts, errors = run_all(ctx)
+        return [dataclasses.replace(d, title=f"Run again: {d.title}") for d in drafts], errors
+
+    monkeypatch.setattr(checks, "run_all", run_again)
+    shown = page["review"]
+    again = review_services.run(date=shown.date, today=shown.date, narrate=False)
+    assert again.status == DailyReview.Status.SUCCEEDED and again.date == shown.date and again.pk != shown.pk
+    after = text(raw_get(client_viewer, address, **HX))
+    assert "Run again:" not in after and '<li class="review-finding">' not in after  # never the new run's
+    assert "This review has been run again since the page opened. Reload the page" in after
+
+
 def test_a_warm_overview_draws_kpis_and_figures_in_the_frame(client_viewer, reviewed, monkeypatch):
     get_part(client_viewer, PAGE, "kpis")  # the group leader computes and stores the build
 
@@ -338,6 +480,79 @@ def test_an_edit_shows_at_once_in_the_part(client, admin_user, reviewed):
     assert ">500</a>" in after and ">700</a>" not in after  # the unique beneficiaries indicator now
 
 
+def _children_reached(client, query: str) -> int:
+    response = raw_get(client, f"{PAGE}?{query}&_part=kpis", **HX)
+    assert response.status_code == 200
+    return response.context["data"]["impact"]["children_reached"]
+
+
+def test_a_stored_build_never_answers_another_governorate(client_viewer, world):
+    """The build is stored for every worker: its key must hold the governorate. Beirut alone, then the
+    country stored, then Beirut again: the same figure as alone, never the country's."""
+    alone = _children_reached(client_viewer, "section=&year=2026&governorate=Beirut")
+    caches["shared"].clear()
+    country = _children_reached(client_viewer, "section=&year=2026")
+    assert (alone, country) == (200, 500)  # the two filters do differ
+    assert _children_reached(client_viewer, "section=&year=2026&governorate=Beirut") == alone
+
+
+def test_a_stored_build_never_answers_another_year(client_viewer, world):
+    ReportingYear.objects.get_or_create(name="2025", defaults={"year": "2025", "current": False})
+    alone = _children_reached(client_viewer, "section=&year=2025")
+    caches["shared"].clear()
+    current = _children_reached(client_viewer, "section=&year=2026")
+    assert (alone, current) == (0, 500)
+    assert _children_reached(client_viewer, "section=&year=2025") == alone
+
+
+class _EveryStringTranslated(gettext.NullTranslations):
+    """A language in which every translatable string reads differently: a build that held one would differ
+    from the English build."""
+
+    def gettext(self, message):
+        return f"[{message.rsplit(translation.trans_real.CONTEXT_SEPARATOR, 1)[-1]}]"
+
+    def ngettext(self, singular, plural, n):
+        return f"[{singular if n == 1 else plural}]"
+
+    def to_language(self):
+        return "xx"
+
+
+def test_the_overview_build_reads_the_same_in_every_language(world, reporting_year):
+    """One stored build serves every language (``lang_neutral``): nothing in it may be translated, the
+    freshness strip neither. Labels are translated by the templates."""
+    scope = overview_service.Scope(year=2026, reporting_year=reporting_year, today=TODAY)
+    with translation.override("en"):
+        english = (overview_service._Builder(scope).build(), overview_service._freshness())
+    translation.trans_real._active.value = _EveryStringTranslated()
+    try:
+        assert translation.gettext("Children reached") == "[Children reached]"  # the language is on
+        other = (overview_service._Builder(scope).build(), overview_service._freshness())
+    finally:
+        translation.deactivate()
+    assert other[0] == english[0], "the overview build holds a translated string"
+    assert other[1] == english[1], "the freshness strip holds a translated string"
+
+
+def test_a_visit_in_another_language_reads_the_stored_build(client_viewer, world, monkeypatch):
+    calls = []
+    real = overview_service._Builder.build
+
+    def counted(self):
+        calls.append(1)
+        return real(self)
+
+    monkeypatch.setattr(overview_service._Builder, "build", counted)
+    english = text(get_part(client_viewer, PAGE, "kpis", HTTP_ACCEPT_LANGUAGE="en"))
+    compute.reset_memo()
+    for language in ("ar", "fr"):
+        assert text(get_part(client_viewer, PAGE, "kpis", HTTP_ACCEPT_LANGUAGE=language)) == english
+    assert len(calls) == 1, "the stored build was computed again for another language"
+    frame = text(raw_get(client_viewer, PAGE, HTTP_ACCEPT_LANGUAGE="fr"))
+    assert 'data-part-loaded="kpis"' in frame  # ... and the frame draws it inline in any language
+
+
 # --------------------------------------------------------------------------------------- one page, two drawings
 MATRIX = [
     "",  # first load: the own section
@@ -359,6 +574,13 @@ def test_the_assembled_page_is_the_eager_page(client_viewer, own_section, review
     assert all(response.status_code == 200 for response in assembled.parts.values())
     drawn = eager(client_viewer, PAGE + query)
     assert drawn.status_code == 200
+    # under every filter: no link of a part (nor of the eager page) carries _part, and no part sends anything
+    # that would run once swapped in, its included partials too
+    for name, response in assembled.parts.items():
+        links = LINK.findall(text(response))
+        assert all("_part" not in link for link in links), (name, links)
+        assert executable(text(response)) == [], name
+    assert all("_part" not in link for link in LINK.findall(text(drawn)))
     assert placeholders(text(drawn)) == {"for-you": reverse("watch:card")}  # only the Watch card is left
     assert normalise(_without_for_you(assembled)) == normalise(text(drawn), exclude=("part-for-you",))
     # one chart JSON per part, unique in the page, the same as the eager page's
@@ -369,6 +591,27 @@ def test_the_assembled_page_is_the_eager_page(client_viewer, own_section, review
     assert (
         figures[FIGURES_JSON]["labels"]["not_reported"] == "Not reported"
     )  # the labels travel with the charts
+
+
+@pytest.mark.shell
+def test_without_javascript_the_page_drawn_at_once_offers_for_you_its_own_page(client_viewer, reviewed):
+    """*Show the figures* (no JavaScript) leads to the page drawn at once. The For you card comes from another
+    view, so that page cannot draw it: a quiet slot (no grey shapes forever, not busy), whose link is the
+    card's own page, never the page already shown."""
+    frame = text(client_viewer.get(PAGE))
+    shown = re.search(r'<noscript><a href="([^"]+)">Show the figures</a></noscript>', frame)
+    assert shown, "the frame offers the figures without JavaScript"
+    address = PAGE + shown.group(1).replace("&amp;", "&")
+    assert "_eager=1" in address
+    page = text(client_viewer.get(address))
+    slot = placeholder_attributes(page)
+    assert list(slot) == ["for-you"]  # every other part is drawn
+    assert "aria-busy" not in slot["for-you"] and slot["for-you"]["hx-get"] == reverse("watch:card")
+    start = page.index('id="part-for-you"')
+    card = page[start : page.index('id="part-figures"', start)]
+    assert "part__skeleton" not in card and "Show the figures" not in card
+    assert f'<noscript><a href="{reverse("watch:for_you")}">' in card
+    assert "_eager=1" not in "".join(LINK.findall(card))
 
 
 # ------------------------------------------------------------------------------------- templates left to load

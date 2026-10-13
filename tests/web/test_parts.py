@@ -30,6 +30,7 @@ from tests.web.parts import (
     HX,
     assemble,
     eager,
+    executable,
     get_part,
     normalise,
     placeholder_attributes,
@@ -86,6 +87,9 @@ TEMPLATES = {
         '{% part "denied" url="/parts-test/denied/" %}'
     ),
     "parts_test/denied.html": "<p>{{ secret }}</p>",
+    "parts_test/scripted.html": '{% load parts %}<h1>Scripted</h1>{% part "card" url="/parts-test/card/scripted/" %}',
+    "parts_test/scripted_card.html": '<section>{% include "parts_test/_scripted.html" %}</section>',
+    "parts_test/_scripted.html": "<p>Card</p><script>window.ran = 1;</script>",
 }
 
 SEEN: list[dict] = []  # what each request of the page saw
@@ -189,6 +193,16 @@ def _card(request):
     return HttpResponse("<p>Your card</p>")
 
 
+def _scripted_page(request):
+    return render_page(
+        request, "parts_test/scripted.html", scope={}, shell=dict, parts={}, query=request.GET.urlencode()
+    )
+
+
+def _scripted_card(request):
+    return render(request, "parts_test/scripted_card.html")
+
+
 @require_POST
 def _post(request):
     return HttpResponse("saved")
@@ -201,6 +215,8 @@ urlpatterns = [
     path("parts-test/feed/", _feed, name="parts_test_feed"),
     path("parts-test/card/", _card, name="parts_test_card"),
     path("parts-test/refused/", _refused_page, name="parts_test_refused"),
+    path("parts-test/scripted/", _scripted_page, name="parts_test_scripted"),
+    path("parts-test/card/scripted/", _scripted_card, name="parts_test_scripted_card"),
     path("parts-test/denied/", _denied, name="parts_test_denied"),
     path("parts-test/post/", _post, name="parts_test_post"),
     *site_urls.urlpatterns,
@@ -301,6 +317,21 @@ def test_every_answer_varies_on_htmx_and_parts_are_never_stored(client_viewer):
     assert data["Cache-Control"] == "no-store" and data["Content-Type"] == "application/json"
     assert data.json() == {"rows": [1, 2]}
     assert redirect.status_code == 302  # a page, without HTMX: the usual sign-in redirect
+
+
+def test_a_page_without_parts_answers_a_part_request_without_the_part_header(client_viewer):
+    """``X-NeuroDB-Part`` is the browser's proof that an answer is the part it asked for (parts.js
+    ``answersPart()``). A view that draws no parts answers ``_part`` with its whole page: without the
+    header, or a tab left open on a page in parts would nest that page in itself, when a release where the
+    page has no parts answers it (a rollback)."""
+    for address in ("/parts-test/card/", reverse("help:index"), reverse("reports:databases")):
+        response = raw_get(client_viewer, f"{address}?year=2026&_part=kpis", **HX)
+        assert response.status_code == 200, address
+        assert not response.has_header("X-NeuroDB-Part"), address
+        assert response["Cache-Control"] == "no-store" and "HX-Request" in response["Vary"], address
+    # the same request to a page in parts is answered as the part, with the header
+    part = _part(client_viewer, "kpis")
+    assert part["X-NeuroDB-Part"] == "kpis" and 'id="part-kpis"' in text(part)
 
 
 def test_parts_middleware_sits_right_after_htmx():
@@ -505,11 +536,46 @@ def test_the_tag_arguments_as_given():
         '{% part "x" url="/x/" element_id="1 bad" %}',
         '{% part "Bad" url="/x/" %}',
         '{% part "x" %}',  # no part of that name on the page, and no url=
+        '{% part "x" url="/x/" page="https://elsewhere.example/x/" %}',  # page=: a path on this site
+        '{% part "x" url="/x/" page="//elsewhere.example/x/" %}',
+        '{% part "x" url="/x/" page="javascript:alert(1)" %}',
     ],
 )
 def test_a_wrong_argument_is_an_error_not_a_broken_placeholder(source):
     with pytest.raises(TemplateSyntaxError):
         _tag(source)
+
+
+def test_three_heights_and_the_tiles_of_a_row():
+    html = _tag(
+        '{% part "x" url="/x/" kind="tiles" tiles=5 height="18.5rem" height_md="34rem" height_sm="54rem" %}'
+    )
+    attrs = placeholder_attributes(html)["x"]
+    assert attrs["style"] == "--part-h: 18.5rem; --part-h-sm: 54rem; --part-h-md: 34rem"
+    assert html.count("skeleton__block--tile") == 5
+    for tiles in (0, 13, "many", None):  # anything else: a row of four
+        assert (
+            _tag('{% part "x" url="/x/" kind="tiles" tiles=t %}', t=tiles).count("skeleton__block--tile") == 4
+        )
+    assert "--part-h-md" not in _tag('{% part "x" url="/x/" height_md="34rem; color: red" %}')
+
+
+@pytest.mark.parametrize("swap", ["outerHTML", "innerHTML"])
+def test_a_placeholder_answers_into_itself_whatever_surrounds_it(swap):
+    """htmx takes hx-target, hx-select, hx-push-url and hx-replace-url from the closest element that has them.
+    A placeholder inside a block that targets elsewhere, selects a piece of the answer or pushes the address
+    would swap its part there, lose it, or show the part's address in the address bar: it sets all four
+    itself, and keeps them from what an innerHTML part holds once loaded."""
+    html = _tag(
+        '<section hx-get="/elsewhere/" hx-target="#elsewhere" hx-select="#review-documents" hx-push-url="true" '
+        'hx-replace-url="true">{% part "x" url="/x/" swap=swap %}</section>',
+        swap=swap,
+    )
+    attrs = placeholder_attributes(html)["x"]
+    assert attrs["hx-target"] == "this"
+    assert attrs["hx-select"] == "unset"  # htmx 2: no value, whatever an ancestor says
+    assert attrs["hx-push-url"] == "false" and attrs["hx-replace-url"] == "false"
+    assert set(attrs["hx-disinherit"].split()) == {"hx-target", "hx-select", "hx-push-url", "hx-replace-url"}
 
 
 def test_part_url_and_page_url_start_from_the_resolved_query():
@@ -591,6 +657,28 @@ def test_eager_draws_every_part_inline_once(client_viewer):
     assert CALLS == Counter(shell=1, kpis=1, table=1, more=1, stored=1, ready=1, form=1)
 
 
+@pytest.mark.shell
+def test_eager_leaves_a_part_from_another_address_a_quiet_slot(client_viewer):
+    """The page drawn at once (``_eager=1``: no JavaScript, print) draws every part of its own; a ``url=``
+    part comes from another view, so it stays the browser's to load. Without JavaScript nothing ever fills
+    it: no grey shapes forever, not busy for screen readers, and never a *Show the figures* link to the page
+    it is on."""
+    html = text(eager(client_viewer, PAGE))
+    slot = placeholder_attributes(html)["for-you"]
+    assert (
+        slot["hx-get"] == "/parts-test/card/" and slot["hx-trigger"] == "nd-part"
+    )  # parts.js still loads it
+    assert "aria-busy" not in slot
+    inside = html[html.index('id="for-you"') :]
+    assert "part__skeleton" not in inside and "<noscript>" not in inside and "_eager=1" not in inside
+    assert "data-part-error hidden" in inside  # its error state, should it fail to load
+
+    frame = text(raw_get(client_viewer, PAGE))  # the frame: a placeholder like any other
+    card = placeholder_attributes(frame)["for-you"]
+    assert card["aria-busy"] == "true"
+    assert "part__skeleton" in frame[frame.index('id="for-you"') :]
+
+
 def test_the_assembled_page_is_the_eager_page(client_viewer):
     for query in ("", "?section=", "?year=2025&section=CP"):
         assembled = assemble(client_viewer, PAGE + query)
@@ -617,6 +705,15 @@ def test_a_part_whose_figures_are_stored_is_drawn_inline(client_viewer):
     assert 'data-part="kpis"' in ready  # the others still load in the background
 
 
+def test_a_part_peeks_at_a_value_stored_for_every_language():
+    compute.once("parts-test-neutral", lambda: {"n": 1}, 60, lang_neutral=True)
+    assert Part("x.html", dict, peek="parts-test-neutral", peek_lang_neutral=True).is_ready()
+    assert not Part("x.html", dict, peek="parts-test-neutral").is_ready()  # a value per language: not stored
+    compute.once("parts-test-english", lambda: {"n": 2}, 60)
+    assert Part("x.html", dict, peek="parts-test-english").is_ready()
+    assert not Part("x.html", dict, peek="parts-test-english", peek_lang_neutral=True).is_ready()
+
+
 # ---------------------------------------------------------------------------------------- results shell
 @pytest.mark.shell
 def test_only_the_declared_results_area_gets_the_results_shell(client_viewer):
@@ -632,6 +729,25 @@ def test_only_the_declared_results_area_gets_the_results_shell(client_viewer):
 
 
 # ------------------------------------------------------------------------------------------ templates
+INCLUDE = re.compile(r"""{%\s*include\s+(["'])([^"']+)\1""")
+
+
+def _with_includes(template: Path) -> dict[Path, str]:
+    """The source of ``template`` and of every template it includes by name, and so on: what a part sends is
+    mostly in the partials its one-line template includes."""
+    from django.template.loader import get_template
+
+    found: dict[Path, str] = {}
+    todo = [template]
+    while todo:
+        current = todo.pop()
+        if current in found:
+            continue
+        found[current] = current.read_text(encoding="utf-8")
+        todo.extend(Path(get_template(name).origin.name) for _, name in INCLUDE.findall(found[current]))
+    return found
+
+
 def test_part_templates_hold_no_script_but_json_data():
     root = Path(settings.BASE_DIR) / "neurodb"
     templates = sorted(root.glob("*/templates/*/parts/*.html")) + sorted(
@@ -643,6 +759,31 @@ def test_part_templates_hold_no_script_but_json_data():
         for attributes in re.findall(r"<script\b([^>]*)>", source, re.I):
             assert 'type="application/json"' in attributes, f"{template}: <script{attributes}>"
         assert "hx-on" not in source, template
+    # ... and every partial they include (SPEC7 §1.3 rule 3 is about what a part sends)
+    sources = {file: source for template in templates for file, source in _with_includes(template).items()}
+    assert len(sources) > len(templates)  # the overview's parts are one-line includes
+    for file, source in sources.items():
+        for attributes in re.findall(r"<script\b([^>]*)>", source, re.I):
+            assert 'type="application/json"' in attributes, f"{file}: <script{attributes}>"
+        assert "hx-on" not in source, file
+
+
+def test_what_would_run_in_a_part():
+    assert executable('<script id="d" type="application/json">{}</script><p onclick-free="1">x</p>') == []
+    assert executable('<a href="/x/">x</a><button type="button" data-part-retry>Try again</button>') == []
+    found = executable(
+        '<script>window.x = 1</script><script type="module" src="/a.js"></script>'
+        '<button onclick="go()">x</button><img src="x" onerror="go()"><div hx-on:click="go()"></div>'
+        '<div hx-on::after-request="go()"></div><a href=" JavaScript:go()">x</a>'
+    )
+    assert len(found) == 7, found
+
+
+def test_the_assembly_refuses_a_part_that_would_run_a_script(client_viewer):
+    """A script in a partial a part includes would run once swapped in (htmx re-creates it with the page's
+    nonce): every assembled page checks every part it asks for."""
+    with pytest.raises(AssertionError, match="would run"):
+        client_viewer.get("/parts-test/scripted/")
 
 
 # ------------------------------------------------------------------------- the test client's assembly
@@ -670,6 +811,14 @@ def test_a_shell_test_gets_the_shell(client_viewer):
         response.context["tiles"]
 
 
+def test_a_part_refused_in_an_assembled_page_fails_the_test(client_viewer):
+    """Its placeholder would stay, and every "not on the page" assertion of the test would pass without
+    testing the part's figures."""
+    with pytest.raises(AssertionError, match=r"the part 'denied' answered 403 at /parts-test/denied/"):
+        client_viewer.get("/parts-test/refused/")
+
+
+@pytest.mark.parts_may_fail
 def test_the_assembly_keeps_the_placeholder_of_a_part_that_is_refused(client_viewer):
     response = client_viewer.get("/parts-test/refused/")
     html = text(response)

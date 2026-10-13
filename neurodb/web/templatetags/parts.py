@@ -3,7 +3,9 @@
 ``{% part "impact" kind="charts" group="overview" height="760px" labelledby="impact-title" %}`` draws the
 placeholder the browser fills (``components/part.html``), or, in eager mode (``_eager=1``) and when the part's
 figures are already stored (``Part.ready`` / ``Part.peek``), the part itself, already loaded
-(``components/part_loaded.html``, through :func:`neurodb.web.parts.render_part`).
+(``components/part_loaded.html``, through :func:`neurodb.web.parts.render_part`). A part eager mode cannot
+draw (a ``url=`` part, from another view) is a quiet slot there: no grey shapes, not busy, and no
+*Show the figures* link back to the page it is on; parts.js still fills it when JavaScript runs.
 
 ``{% part_url "grid" page=3 %}`` is the address of a part request with one key changed (``hx-get``),
 ``{% page_url page=3 %}`` the page's own clean address with that change (``hx-push-url``). Both start from
@@ -32,6 +34,7 @@ NEEDS_BY_KIND = {"chart": "plotly", "charts": "plotly", "map": "maplibre"}
 HEIGHT = re.compile(r"\d+(\.\d+)?(px|rem|vh)")  # anything else could carry CSS into the style attribute
 ELEMENT_ID = re.compile(r"[A-Za-z][\w-]*")
 MAX_ROWS = 20
+TILES, MAX_TILES = 4, 12  # the tiles in a row of a kind="tiles" skeleton: by default, and at most
 SKELETON_LINES = {"tiles": 1, "table": 6, "list": 4, "card": 3, "text": 2}  # rows of tiles, or of lines
 PLACEHOLDER_TEMPLATE = "components/part.html"
 
@@ -74,6 +77,15 @@ def _rows(value: Any) -> int | None:
     return rows if 1 <= rows <= MAX_ROWS else None
 
 
+def _tiles(value: Any) -> int:
+    """The tiles a row of a ``kind="tiles"`` skeleton draws: ``tiles=`` when it is 1-12, else 4."""
+    try:
+        tiles = int(value)
+    except (TypeError, ValueError):
+        return TILES
+    return tiles if 1 <= tiles <= MAX_TILES else TILES
+
+
 @register.simple_tag(takes_context=True)
 def part(
     context: template.Context,
@@ -92,11 +104,21 @@ def part(
     labelledby: str = "",
     needs: str | None = None,
     swap: str = "outerHTML",
+    height_md: str = "",
+    tiles: Any = None,
+    page: str = "",
 ) -> SafeString:
     """A part of the page: its placeholder, or the part itself when the page is eager or its figures are
     ready. See SPEC7 §1.3 for the arguments; ``swap="innerHTML"`` is for a ``url=`` endpoint that answers
     the inner content of its element (the placeholder then keeps its id); ``height_sm`` is the height kept
-    on phones, where blocks side by side stack (``--part-h-sm``, read by app.css), when it differs."""
+    on phones, where blocks side by side stack (``--part-h-sm``, read by app.css), and ``height_md`` the
+    height kept on a tablet or a narrow window, where the page's grids have stacked already but the phone
+    layout has not started (``--part-h-md``; app.css says at which widths), when they differ. ``tiles``:
+    how many tiles a row of a ``kind="tiles"`` skeleton draws (4 by default). ``page``: the full page of a
+    ``url=`` part's endpoint, which the quiet slot of eager mode offers to a browser without JavaScript.
+    ``url=`` may also be one of this page's own parts at its address with some keys changed
+    (``{% part_url %}``), to pin what a part asked for later reads (the overview's ``review-more``, pinned
+    to its card's review); eager mode, in the same request, draws it as any other part."""
     request = _request(context)
     name = str(name)
     if not page_parts.NAME.fullmatch(name):
@@ -113,6 +135,11 @@ def part(
         _choice("needs", library, LIBRARIES)
     if element_id and not ELEMENT_ID.fullmatch(str(element_id)):
         raise template.TemplateSyntaxError(f"{{% part %}} element_id={element_id!r} is not an element id")
+    own_page = str(page or "")  # (the name ``page`` is the page's registered parts from here on)
+    if own_page and (not url or not own_page.startswith("/") or own_page.startswith("//")):
+        raise template.TemplateSyntaxError(
+            f"{{% part %}} page={own_page!r}: a path on this site, and only for a url= part"
+        )
 
     page = _page(request)
     query = _query(context, request)
@@ -121,20 +148,18 @@ def part(
         raise template.TemplateSyntaxError(
             f"{{% part %}} {name!r}: the view passes no part of that name to render_page (and no url=)"
         )
-    if known is not None and not known.json:
-        eager = bool(context.get("parts_eager") or getattr(request, "parts_eager", False))
-        if eager or known.is_ready():
-            response = page_parts.render_part(request, name, query)
-            return mark_safe(response.content.decode(response.charset))
+    eager = bool(context.get("parts_eager") or getattr(request, "parts_eager", False))
+    drawable = known is not None and not known.json
+    if drawable and (eager or known.is_ready()):
+        response = page_parts.render_part(request, name, query)
+        return mark_safe(response.content.decode(response.charset))
 
     rows = _rows(rows)
     style = []
-    height = str(height or "").strip()
-    if HEIGHT.fullmatch(height):
-        style.append(f"--part-h: {height}")
-    height_sm = str(height_sm or "").strip()
-    if HEIGHT.fullmatch(height_sm):
-        style.append(f"--part-h-sm: {height_sm}")
+    for variable, value in (("--part-h", height), ("--part-h-sm", height_sm), ("--part-h-md", height_md)):
+        value = str(value or "").strip()
+        if HEIGHT.fullmatch(value):
+            style.append(f"{variable}: {value}")
     if rows is not None:
         style.append(f"--part-rows: {rows}")
     html = render_to_string(
@@ -151,9 +176,14 @@ def part(
             "swap": swap,
             "rows": rows,
             "lines": range(rows or SKELETON_LINES.get(kind, 1)),
+            "tile_blocks": range(_tiles(tiles)),
             "style": "; ".join(style),
             "element_id": element_id or f"part-{name}",
             "url": url or page_parts.part_address(request.path, query, name),
+            # eager mode draws every part it can: one it cannot (a url= part) is a quiet slot there, and
+            # never offers that same page again
+            "quiet": eager and not drawable,
+            "page": own_page,
             "eager_url": "?" + (f"{query}&" if query else "") + f"{page_parts.EAGER_KEY}=1",
         },
     )

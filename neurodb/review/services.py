@@ -719,13 +719,25 @@ def _trend(reviews: list[DailyReview]) -> list[str]:
     return trend
 
 
-def for_page(day: str | None, sections: list[str]) -> dict[str, Any] | None:
+def for_page(
+    day: str | None, sections: list[str], latest: datetime.date | None = None
+) -> dict[str, Any] | None:
     """The review card of the overview: ``day`` is "today" (the latest review), "yesterday" (the one
     before it), "week" (the last seven, with the findings still open at the latest) or an ISO date.
-    Findings are narrowed to ``sections`` (country-wide ones always show). None when no review exists."""
-    reviews = list(
-        DailyReview.objects.filter(status=DailyReview.Status.SUCCEEDED).order_by("-date")[:HISTORY_DAYS]
-    )
+    Findings are narrowed to ``sections`` (country-wide ones always show). None when no review exists.
+
+    ``latest`` leaves out the reviews of later days, as if they had not run yet; the last entry of
+    ``page["history"]`` (oldest first) is always the latest review the page read. The card's folded
+    findings (the overview's ``review-more`` part) come in a request of their own, when the card's "Show
+    more" is opened, maybe hours after the card was drawn: they pass the card's latest review as
+    ``latest``, so a review that has succeeded since (the next morning's job) never puts its findings
+    under an older card. A run of the same day replaces that day's review with a new row under the same
+    date, which ``latest`` cannot tell apart: the overview also compares ``page["review"]`` with the id
+    of the review its card showed."""
+    succeeded = DailyReview.objects.filter(status=DailyReview.Status.SUCCEEDED)
+    if latest is not None:
+        succeeded = succeeded.filter(date__lte=latest)
+    reviews = list(succeeded.order_by("-date")[:HISTORY_DAYS])
     if not reviews:
         return None
     day = (day or "today").strip().lower()

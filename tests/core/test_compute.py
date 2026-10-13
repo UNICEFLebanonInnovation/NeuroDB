@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 import pytest
+from django.conf import settings
 from django.core.cache import caches
 from django.core.management import call_command
 from django.db import connection, transaction
@@ -362,6 +363,36 @@ def test_the_language_is_in_the_key_unless_the_value_is_language_neutral():
         assert compute.peek("counts") == (False, None)
     with translation.override("ar"):
         assert compute.peek("labels") == (False, None)
+
+
+def _release_in_the_key(run):
+    """The table outlives deployments: a new release never reads what an older one stored, nor a rollback
+    what the newer one stored (a value pickled by another release's code may not read the same, or at all).
+    The release (``APP_VERSION``, the image's git SHA) starts every key. ``run(work)`` runs as a worker."""
+    calls = []
+
+    def build():
+        calls.append(settings.APP_VERSION)
+        return {"release": settings.APP_VERSION}
+
+    with override_settings(APP_VERSION="aaa"):
+        assert run(lambda: compute.once("overview:x", build, 60)) == {"release": "aaa"}
+        assert run(lambda: compute.peek("overview:x")) == (True, {"release": "aaa"})
+    with override_settings(APP_VERSION="bbb"):  # the next deployment
+        assert run(lambda: compute.peek("overview:x")) == (False, None)
+        assert run(lambda: compute.once("overview:x", build, 60)) == {"release": "bbb"}
+    with override_settings(APP_VERSION="aaa"):  # rolled back: its own value, never the newer release's
+        assert run(lambda: compute.peek("overview:x")) == (True, {"release": "aaa"})
+        assert run(lambda: compute.once("overview:x", build, 60)) == {"release": "aaa"}
+    assert calls == ["aaa", "bbb"]
+
+
+def test_the_release_is_in_the_key_in_memory():
+    _release_in_the_key(lambda work: work())
+
+
+def test_the_release_is_in_the_key_with_the_database_cache(database_cache):
+    _release_in_the_key(_as_worker)
 
 
 def test_peek_never_computes_and_tells_a_stored_none_from_a_missing_value():

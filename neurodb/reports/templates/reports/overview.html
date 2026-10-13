@@ -9,19 +9,23 @@
 <div class="filters-collapse" data-filters-collapse>{% include "reports/partials/_overview_filters.html" %}</div>
 {% comment %}The page loads in parts (neurodb.web.parts, reports.views.overview): this frame comes at once and each
 placeholder below is filled by a request of its own. kpis and figures read one overview build (kpis leads the
-group); when that build is already stored, both are drawn here inline.{% endcomment %}
-{% part "kpis" kind="tiles" priority="high" group="overview" height="16rem" height_sm="47rem" %}
+group); when that build is already stored, both are drawn here inline.
+Each placeholder keeps the room of what it will hold, as measured on the x20 parity world (scripts/parity), the
+largest of an administrator's and a viewer's page: height where the page's blocks stand side by side, height_md on a
+tablet or a narrow window where they have stacked (app.css says at which widths: it depends on the sidebar) and
+height_sm on a phone.{% endcomment %}
+{% part "kpis" kind="tiles" tiles=5 priority="high" group="overview" height="18.5rem" height_md="34rem" height_sm="54rem" %}
 {% comment %}For you (NeuroDB Watch): from its own address, so the overview itself reads no Watch table; below the
-key figures, with room kept for its heading, so they do not move when it arrives.{% endcomment %}
-{% url 'watch:card' as watch_card_url %}{% part "for-you" kind="card" priority="high" url=watch_card_url height="3.5rem" %}
+key figures, with room kept for its heading, so they do not move when it arrives. Without JavaScript, the page
+drawn at once offers its own page instead.{% endcomment %}
+{% url 'watch:card' as watch_card_url %}{% url 'watch:for_you' as for_you_url %}{% part "for-you" kind="card" priority="high" url=watch_card_url page=for_you_url height="3.5rem" %}
 {% comment %}Impact, value for money, delivery and assurance, TPM visits and action points: one part (one build) with
-its four section headings; the placeholder keeps the room of the four blocks (as measured on the demo world, desktop
-and phone), and their ids stay anchors.{% endcomment %}
-{% part "figures" kind="charts" group="overview" height="4300px" height_sm="7600px" anchors="gov-title target-title monthly-title coverage-title overview-coverage cost-title overview-money-sections scatter-title donor-title decisions-title status-title assurance-title attention-title tpm-title ap-title overview-action-point-age" %}
+its four section headings; the placeholder keeps the room of the four blocks, and their ids stay anchors.{% endcomment %}
+{% part "figures" kind="charts" group="overview" height="4650px" height_md="6200px" height_sm="8100px" anchors="gov-title target-title monthly-title coverage-title overview-coverage cost-title overview-money-sections scatter-title donor-title decisions-title status-title assurance-title attention-title tpm-title ap-title overview-action-point-age" %}
 {% if has_review %}
-<div class="overview-row" id="daily-review">{% part "review" kind="card" height="1440px" height_sm="3200px" %}</div>
+<div class="overview-row" id="daily-review">{% part "review" kind="card" height="1850px" height_md="2500px" height_sm="4900px" %}</div>
 {% endif %}
-{% part "news" kind="list" priority="low" height="16rem" height_sm="23rem" %}
+{% part "news" kind="list" priority="low" height="16rem" height_md="23rem" height_sm="32rem" %}
 {% include "reports/partials/_overview_freshness.html" %}
 
 <p class="small text-muted mt-3 mb-0"><a href="{% url 'reports:databases' %}?year={{ year.name|urlencode }}">{% trans "ActivityInfo databases of the year" %} →</a></p>

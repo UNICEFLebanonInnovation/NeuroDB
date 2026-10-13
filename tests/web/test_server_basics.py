@@ -72,6 +72,17 @@ def test_what_is_not_compressed():
     download = FileResponse(iter([b"x" * 500]), as_attachment=False)
     assert not _compressed(download).has_header("Content-Encoding")
 
+    # what is compressed already (a library cover, an inline PDF) is never gzipped again: gzip would spend
+    # the CPU on the whole body for nothing, and the answer would vary on Accept-Encoding for nothing
+    for content_type in ("image/jpeg", "image/png", "image/webp", "application/pdf", "font/woff2"):
+        already = HttpResponse(PAGE.encode(), content_type=content_type)  # (compressible, as a test only)
+        answer = _compressed(already)
+        assert not answer.has_header("Content-Encoding"), content_type
+        assert "Accept-Encoding" not in answer.get("Vary", ""), content_type
+        assert answer.content == PAGE.encode(), content_type
+    svg = _compressed(HttpResponse(PAGE, content_type="image/svg+xml"))  # an SVG image is text
+    assert svg["Content-Encoding"] == "gzip"
+
 
 def test_an_inline_file_name_is_not_an_attachment():
     response = HttpResponse(PAGE)

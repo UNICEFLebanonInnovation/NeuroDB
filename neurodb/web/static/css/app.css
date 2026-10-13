@@ -897,7 +897,6 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .watch-how > summary { cursor: pointer; font-weight: 650; font-size: 0.9rem; }
 .watch-how p { font-size: 0.84rem; color: var(--nd-muted); }
 .watch-overview { margin-bottom: 1rem; }
-.watch-overview-slot { min-height: 3.5rem; } /* room for the card's heading while it loads */
 .watch-overview .panel__title { display: flex; align-items: center; gap: 0.4rem; }
 .watch-overview__list { list-style: none; margin: 0; padding: 0; font-size: 0.86rem; }
 .watch-overview__list li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.45rem; padding: 0.25rem 0; }
@@ -1309,9 +1308,11 @@ tr.is-uncounted > td { color: var(--nd-muted); }
 
 /* ---------------------------------------------------------------------------- pages that load in parts (parts.js)
    A placeholder ([data-part], components/part.html) keeps the height of what it will hold: --part-h by kind, or
-   the tag's height= (inline --part-h) and rows= (inline --part-rows); an optional inline --part-h-sm sets the
-   phone height. So nothing below it jumps when the part arrives. Colours come from the tokens (dark mode too).
-   Containers that receive parts are never aria-live: #parts-status speaks once for the whole page. */
+   the tag's height= (inline --part-h) and rows= (inline --part-rows); an optional inline --part-h-md (height_md=)
+   sets the height where the part's two-column grids (.grid--2) have stacked but the phone layout has not started
+   (below); --part-h-sm (height_sm=) is the phone height, falling back to --part-h-md. So nothing below it jumps
+   when the part arrives. Colours come from the tokens (dark mode too). Containers that receive parts are never
+   aria-live: #parts-status speaks once for the whole page. */
 .part { min-height: var(--part-h, 8rem); }
 .part--tiles { --part-h: calc(88px * var(--part-rows, 1) + 0.6rem * (var(--part-rows, 1) - 1)); }
 .part--chart { --part-h: 320px; }  /* panel header + .chart 260px */
@@ -1321,12 +1322,30 @@ tr.is-uncounted > td { color: var(--nd-muted); }
 .part--card { --part-h: 6rem; }
 .part--text { --part-h: 3rem; }
 .part--map { --part-h: min(70vh, 640px); }
+/* The middle height follows the width the part gets, not the window's: .grid--2 is two columns of at least 420 px
+   with a 1rem gap, so the part's grids stack where it is narrower than 840px + 1rem, whether the sidebar shows (it
+   does from 992 px) and whether the scroll bar takes room (it does on Windows, not on a phone or a Mac). A media
+   query cannot see that width, and a size container around the parts stops Chrome's scroll anchoring (the page
+   would jump as the parts above the reader arrive), so a float beside the placeholder's content keeps that room:
+   its padding is a percentage of the placeholder's width, and the clamp makes it all of --part-h-md below the
+   width the grids need and nothing from there. A stacked part is never shorter than the same part side by side. */
+@media (min-width: 768px) {
+  [data-part]:not(.is-loaded) { display: flow-root; }
+  [data-part]:not(.is-loaded)::before { content: ""; float: left; padding-top: clamp(0px, (840px + 1rem - 100%) * 100000, var(--part-h-md, 0px)); }
+}
 @media (max-width: 767.98px) {
   .part--charts { --part-h: 660px; } /* stacked on phones */
-  .part { min-height: var(--part-h-sm, var(--part-h, 8rem)); }
+  .part { min-height: var(--part-h-sm, var(--part-h-md, var(--part-h, 8rem))); }
 }
 .part.is-loaded { min-height: 0; }
-.part[data-part-priority="low"]:not(.is-loaded) { content-visibility: auto; contain-intrinsic-size: auto var(--part-h, 8rem); }
+/* A part's answer (components/part_loaded.html) holds no room from its first frame: until it settles (about 20 ms),
+   htmx gives the new element the class and style of the placeholder it replaces (htmx.config.attributesToSettle),
+   so .is-loaded alone would leave it the placeholder's height for a frame or two, and the blocks below would jump
+   down and back. data-part-loaded is the answer's own attribute. */
+.part[data-part-loaded] { min-height: 0; }
+/* A low-priority placeholder off screen skips drawing its grey shapes; the placeholder itself keeps its room (its
+   height and the middle height's float, which a skipped box would leave out). */
+.part[data-part-priority="low"]:not(.is-loaded) > .part__skeleton { content-visibility: auto; contain-intrinsic-size: auto 0px; }
 .part__slow, .part__print-note { display: none; }
 .part__slow { margin: 0.5rem 0 0; }
 .part[data-part-state="slow"] .part__slow { display: block; }
@@ -1339,6 +1358,38 @@ tr.is-uncounted > td { color: var(--nd-muted); }
 .skeleton__block--map { height: min(60vh, 560px); }
 .part__skeleton > .skeleton { padding: 0; }
 .part__skeleton .kpi-grid { margin-bottom: 0; }
+/* The overview's key figures (#part-kpis): five tiles whose hints wrap, so a tile is taller the narrower it is, and
+   which wrap into one to five rows with the width of the page's column, not of the window. Its skeleton draws five
+   tiles in the same grid (tiles=5), so they wrap into the same rows, and each grey tile is as tall as the real tile
+   of its width: its ::before reads the tile's own width (container query) and takes the height measured for that
+   width on the x20 parity world (the larger of an administrator's and a viewer's; --w<width> is the height from
+   that tile width on; the 1st, 4th and 5th tiles are the tallest of their rows, the 2nd and 3rd never are). The
+   placeholder then needs no height of its own (the tag's heights are not used), at any width.
+   Its other states keep that room, as a placeholder's height does: the grey tiles, the slow line and the error box
+   share one grid cell, so the tallest of them, the tiles, sets the height. "Still working" (after 8 s) covers the
+   foot of the last row of tiles, on the page's own background; behind an error box the tiles stay laid out,
+   unseen. */
+#part-kpis[data-part-group="overview"]:not(.is-loaded) { min-height: 0; }
+#part-kpis[data-part-group="overview"]:not(.is-loaded) { display: grid; }
+#part-kpis[data-part-group="overview"]:not(.is-loaded)::before { content: none; } /* no middle height either */
+#part-kpis[data-part-group="overview"]:not(.is-loaded) > :not(noscript) { grid-area: 1 / 1; min-width: 0; } /* the link without JavaScript goes below */
+#part-kpis[data-part-group="overview"] .part__slow { align-self: end; position: relative; margin: 0; padding-top: 0.5rem; background: var(--nd-bg); }
+#part-kpis[data-part-group="overview"] .part__error { align-self: start; }
+#part-kpis[data-part-group="overview"][data-part-state="error"] .part__skeleton { display: block; visibility: hidden; }
+#part-kpis[data-part-group="overview"] .skeleton__block--tile { height: auto; container-type: inline-size; }
+#part-kpis[data-part-group="overview"] .skeleton__block--tile:nth-child(1) { --w0: 345px; --w175: 328px; --w181: 311px; --w190: 295px; --w200: 295px; --w214: 278px; --w228: 261px; --w244: 244px; --w290: 208px; --w360: 192px; }
+#part-kpis[data-part-group="overview"] .skeleton__block--tile:nth-child(4) { --w0: 290px; --w175: 271px; --w181: 271px; --w190: 271px; --w200: 252px; --w214: 234px; --w228: 215px; --w244: 196px; --w290: 177px; --w360: 159px; }
+#part-kpis[data-part-group="overview"] .skeleton__block--tile:nth-child(5) { --w0: 209px; --w175: 177px; --w181: 177px; --w190: 177px; --w200: 177px; --w214: 177px; --w228: 177px; --w244: 177px; --w290: 153px; --w360: 129px; }
+#part-kpis[data-part-group="overview"] .skeleton__block--tile::before { content: ""; display: block; height: var(--w190, 121px); }
+@container (max-width: 174.98px) { #part-kpis[data-part-group="overview"] .skeleton__block--tile::before { height: var(--w0, 121px); } }
+@container (min-width: 175px) and (max-width: 180.98px) { #part-kpis[data-part-group="overview"] .skeleton__block--tile::before { height: var(--w175, 121px); } }
+@container (min-width: 181px) and (max-width: 189.98px) { #part-kpis[data-part-group="overview"] .skeleton__block--tile::before { height: var(--w181, 121px); } }
+@container (min-width: 200px) { #part-kpis[data-part-group="overview"] .skeleton__block--tile::before { height: var(--w200, 121px); } }
+@container (min-width: 214px) { #part-kpis[data-part-group="overview"] .skeleton__block--tile::before { height: var(--w214, 121px); } }
+@container (min-width: 228px) { #part-kpis[data-part-group="overview"] .skeleton__block--tile::before { height: var(--w228, 121px); } }
+@container (min-width: 244px) { #part-kpis[data-part-group="overview"] .skeleton__block--tile::before { height: var(--w244, 121px); } }
+@container (min-width: 290px) { #part-kpis[data-part-group="overview"] .skeleton__block--tile::before { height: var(--w290, 121px); } }
+@container (min-width: 360px) { #part-kpis[data-part-group="overview"] .skeleton__block--tile::before { height: var(--w360, 121px); } }
 /* A part's wrapper sits between blocks that used to be siblings: the spacing rules of panels, stacks, Monitoring
    insights tabs and overview rows also hold across it. */
 .part + .panel, .panel + .part, .part + .part, .stack > .part + * { margin-top: 1rem; }
@@ -1347,6 +1398,7 @@ tr.is-uncounted > td { color: var(--nd-muted); }
 .overview-row > .part > .section-heading:first-child { margin-top: 0; }
 @media print {
   .part:not(.is-loaded) { min-height: 0; content-visibility: visible; }
+  [data-part]:not(.is-loaded)::before { content: none; }
   .part[aria-busy="true"] > :not(.part__print-note) { display: none !important; }
   .part[aria-busy="true"] .part__print-note { display: block; }
 }
