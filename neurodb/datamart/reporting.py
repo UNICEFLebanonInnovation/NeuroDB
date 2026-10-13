@@ -18,6 +18,7 @@ Report/Location and Report/Disaggregation, as the eTools Power BI report shows t
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import json
 import re
@@ -25,13 +26,16 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
+from django.conf import settings
 from django.db.models import CharField, Count, Max, Q, QuerySet, Value
 from django.db.models.fields.json import KeyTransform
 from django.db.models.functions import Coalesce, Concat, ExtractYear, NullIf
 
+from neurodb.core import compute
 from neurodb.partnerships import statuses as pd_statuses
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
+from . import keys
 from . import models as dm
 from . import reached as rc
 
@@ -66,6 +70,11 @@ STATUS_COLORS = {
 # 8 KB of memory each), and the Report/Disaggregation tab and its export (each row can give many lines)
 LOCATION_LIMIT = 20_000
 DISAGGREGATION_LIMIT = 10_000
+# what the Progress reports page keeps in the shared cache (compute.once): its Report/Location and
+# Report/Disaggregation tables two minutes, its filter options ten (they only change with a sync)
+STORED_SECONDS = 120
+OPTIONS_SECONDS = 600
+CACHE_VERSION = 1
 NO_SECTION = "—"
 EMAIL = re.compile(r"[^\s@]+@[^\s@]+")
 
@@ -150,6 +159,12 @@ class ReportFilters:
     def status_choice(self) -> list[str]:
         """The PD statuses the filter shows as chosen (none: every status)."""
         return list(pd_statuses.RUNNING) if self.pd_statuses is None else list(self.pd_statuses)
+
+    def cache_key(self) -> str:
+        """Every field of the filter, as JSON, for the keys of what is stored for it (see
+        ``monitoring.Filters.cache_key``): each list in one order, ``pd_statuses`` None (the running PDs)
+        apart from an empty list (every status), the dates as written."""
+        return _json_key(self)
 
     def queryset(self, today: datetime.date) -> QuerySet[dm.ReportedIndicator]:
         """The report rows (one per indicator, report and location) every filter but the status keeps
@@ -659,6 +674,23 @@ class DisaggregationFilters:
     def any(self) -> bool:
         return bool(self.indicator or self.location or self.p_code or self.disaggregation)
 
+    def cache_key(self) -> str:
+        return _json_key(self)
+
+
+def _json_key(filters: Any) -> str:
+    """A filter dataclass as JSON for a key: lists sorted (no figure depends on the order of the choices),
+    None kept apart from an empty list, dates as ISO text."""
+    out: dict[str, Any] = {}
+    for item in dataclasses.fields(filters):
+        value = getattr(filters, item.name)
+        if isinstance(value, list | tuple):
+            value = sorted(str(v) for v in value)
+        elif isinstance(value, datetime.date):
+            value = value.isoformat()
+        out[item.name] = value
+    return json.dumps(out, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
 
 def _words(needle: str, *haystack: str) -> bool:
     """Every word of ``needle`` is in one of the texts (case and spacing ignored)."""
@@ -797,6 +829,18 @@ def disaggregation_lines(block: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 # ------------------------------------------------------------------------------------------ options
+def stored_options() -> dict[str, Any]:
+    """:func:`filter_options` for the Progress reports page: stored ten minutes for every worker under a key
+    the eTools jobs' runs change (:func:`neurodb.datamart.keys.fingerprint`), the same for every user and
+    language (the status labels are English constants, translated by the templates). A request that finds
+    another one computing them computes them itself rather than wait (17 ms on a large database). In DEBUG
+    they are read at each call."""
+    if settings.DEBUG:
+        return filter_options()
+    key = f"pr-options:v{CACHE_VERSION}:{keys.fingerprint()}"
+    return compute.once(key, filter_options, OPTIONS_SECONDS, wait=0, lang_neutral=True)
+
+
 def filter_options() -> dict[str, Any]:
     rows = dm.ReportedIndicator.objects.order_by()
     sections = {(x or "").strip() for x in rows.values_list("section", flat=True).distinct()}

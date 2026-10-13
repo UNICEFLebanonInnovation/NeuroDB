@@ -1495,6 +1495,44 @@ tr.is-uncounted > td { color: var(--nd-muted); }
 
 /* ============================================================================ stage B (eTools monitoring): part fixes
    Partner monitoring, partner reporting, action points, funds. */
+/* Partner monitoring (reports/pd_monitoring.html): the parts of its results area (#monitoring-grid,
+   reports/partials/_monitoring_results.html) keep the room their tags give, measured on the x20 parity world; these
+   rules only shape the grey blocks inside like what each part will hold.
+   The grid's figures (#part-summary): seven tiles in one grid of as many columns of at least 170 px as fit, which
+   wrap as the real tiles do, then the two charts side by side, stacked where the part is narrower than 840 px + 1rem
+   (where the charts' own grid, .grid--2, stacks; a container query on the grey blocks). */
+#monitoring-grid > #part-summary > .part__skeleton { container-type: inline-size; }
+#monitoring-grid > #part-summary .part__skeleton > .skeleton { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+#monitoring-grid > #part-summary .part__skeleton .kpi-grid { grid-column: 1 / -1; order: -1; }
+#monitoring-grid > #part-summary .skeleton__block--tile { height: 100px; }
+#monitoring-grid > #part-summary .part__skeleton > .skeleton::before,
+#monitoring-grid > #part-summary .part__skeleton > .skeleton::after { content: ""; height: 320px; border-radius: var(--nd-radius-sm); background: linear-gradient(90deg, var(--nd-surface-2) 0%, var(--nd-border) 50%, var(--nd-surface-2) 100%); background-size: 200% 100%; animation: nd-shimmer 1.3s ease-in-out infinite; }
+@container (max-width: 855.98px) {
+  #monitoring-grid > #part-summary .part__skeleton > .skeleton { grid-template-columns: minmax(0, 1fr); }
+  #monitoring-grid > #part-summary .part__skeleton > .skeleton::before,
+  #monitoring-grid > #part-summary .part__skeleton > .skeleton::after { height: 280px; }
+}
+/* Program Performance's section tiles (#part-sections): grey tiles in the section tiles' own grid (.section-tiles:
+   columns of at least 150 px, two on a phone), as tall as a real tile. */
+#monitoring-grid > #part-sections .part__skeleton .kpi-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); gap: 0.5rem; }
+#monitoring-grid > #part-sections .skeleton__block--tile { height: 71px; }
+@media (max-width: 575.98px) {
+  #monitoring-grid > #part-sections .part__skeleton .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #monitoring-grid > #part-sections .skeleton__block--tile { height: 62px; }
+}
+/* Data quality's tiles (#part-quality-tiles): eight tiles in one grid, wrapping as the real ones do. */
+#monitoring-grid > #part-quality-tiles .skeleton__block--tile { height: 120px; }
+@media (prefers-reduced-motion: reduce) {
+  #monitoring-grid > #part-summary .part__skeleton > .skeleton::before,
+  #monitoring-grid > #part-summary .part__skeleton > .skeleton::after { animation: none; }
+}
+/* The last part of partner monitoring's results area and of partner reporting's (#reporting-results: Report/Location
+   and Report/Disaggregation) is a long table or the data quality lists: when its request fails, the error box goes
+   without that room, as nothing follows it on the page. Try again gives the room back while the part loads. */
+#monitoring-grid > .part:last-child[data-part-state="error"],
+#reporting-results > .part:last-child[data-part-state="error"] { min-height: 0; }
+#monitoring-grid > .part:last-child[data-part-state="error"]::before,
+#reporting-results > .part:last-child[data-part-state="error"]::before { content: none; } /* nor the middle height */
 /* ============================================================================ end of stage B */
 
 /* ============================================================================ stage C (Monitoring insights): part fixes */

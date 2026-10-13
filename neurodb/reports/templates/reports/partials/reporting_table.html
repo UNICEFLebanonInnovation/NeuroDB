@@ -1,4 +1,4 @@
-{% load i18n ui humanize %}
+{% load i18n ui humanize parts %}
 <div class="toolbar">
   <div class="segmented segmented--scroll" role="group" aria-label="{% trans 'Progress report views' %}">
     <a href="{{ tab_urls.reports }}" {% if tab == "reports" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="chart" %} {% trans "Reporting progress" %}</a>
@@ -8,8 +8,13 @@
   </div>
 </div>
 {% if tab == "partners" %}{% include "reports/partials/_reporting_partners.html" %}
-{% elif tab == "locations" %}{% include "reports/partials/_reporting_locations.html" %}
-{% elif tab == "disaggregations" %}{% include "reports/partials/_reporting_disaggregations.html" %}
+{% elif tab == "locations" or tab == "disaggregations" %}{% comment %}Report/Location and Report/Disaggregation load their table as
+a part (reports.views._reporting_table_tab): drawn inline when it is stored, in a change of filter (HTMX) and on the
+page drawn at once; asked for otherwise. Its placeholder keeps the room of the tab's table, as measured on the x20
+parity world (an administrator's and a viewer's are the same): height at 1366 px, height_md at 900 px, height_sm at
+390 px on a phone, in a window 800 px high (844 px on the phone; the table scrolls inside 75% of it).{% endcomment %}
+{% if tab == "locations" %}{% part "table" kind="table" priority="high" rows=20 height="789px" height_md="809px" height_sm="1053px" %}
+{% else %}{% part "table" kind="table" priority="high" rows=20 height="828px" height_md="848px" height_sm="1134px" %}{% endif %}
 {% else %}
 {% with c=data.counts %}
 <div class="kpi-grid kpi-grid--7">
@@ -63,4 +68,4 @@
   {% endif %}
 </section>
 {% endif %}
-{{ chart_data|json_script:"reporting-chart-data" }}
+{% if tab != "locations" and tab != "disaggregations" %}{{ chart_data|json_script:"reporting-chart-data" }}{% endif %}

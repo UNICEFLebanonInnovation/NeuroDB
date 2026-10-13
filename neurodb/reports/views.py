@@ -12,6 +12,7 @@ import functools
 import io
 import mimetypes
 from collections import Counter
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -35,6 +36,7 @@ from neurodb.accounts.roles import SECTION_EDITOR, can_edit_section, role_of
 from neurodb.core.models import PopulationFigure, SavedView, SyncRun
 from neurodb.core.services import population as population_service
 from neurodb.datamart import hact_plan, headline
+from neurodb.datamart import keys as etools_keys
 from neurodb.datamart import monitoring as pd_monitoring_service
 from neurodb.datamart import reporting as reporting_service
 from neurodb.datamart import services as datamart
@@ -1490,11 +1492,19 @@ def _programme_row(r: dict[str, Any]) -> dict[str, Any]:
 def funds(request: HttpRequest) -> HttpResponse:
     """Funds: funds reservations and grants (``tab=reservations``), Partner Fund Monitoring
     (``tab=contributions``) and Funded Programs (``tab=programmes``), on one filter, with exports of the
-    whole filtered set of the two Power BI views."""
+    whole filtered set of the two Power BI views. The reservations tab reads the whole of
+    :func:`neurodb.datamart.services.funds` (its totals, charts and table); the other two read only its filter
+    choices (:func:`neurodb.datamart.services.funds_options`) and their own rows, and draw no chart."""
     from neurodb.datamart import funds as fund_views
 
     tab = request.GET.get("tab") if request.GET.get("tab") in FUNDS_TABS else "reservations"
-    data = datamart.funds(request.GET)
+    if tab == "reservations":
+        data = datamart.funds(request.GET)
+    else:
+        data = {
+            "options": datamart.funds_options(),
+            "filters": fund_views.FundFilters.from_params(request.GET),
+        }
     today = timezone.localdate()
     contributions = programmes = None
     if tab == "contributions":
@@ -1541,11 +1551,14 @@ def funds(request: HttpRequest) -> HttpResponse:
             {"label": _("Excel of the filter"), "url": "?" + _query_with(params, (), tab=tab, export="xlsx")},
             {"label": _("CSV of the filter"), "url": "?" + _query_with(params, (), tab=tab, export="csv")},
         ],
+        # the reservations tab's charts (funds-chart-data)
         "chart_data": {
             "by_donor": data["by_donor"],
             "by_year": data["by_year"],
             "disbursed_by_year": data["disbursed_by_year"],
-        },
+        }
+        if tab == "reservations"
+        else None,
     }
     template = "reports/partials/funds_table.html" if request.htmx else "reports/funds.html"
     return render(request, template, context)
@@ -1738,39 +1751,48 @@ def partner_reporting(request: HttpRequest) -> HttpResponse:
     """Progress reports: Reporting Progress (indicator reports by status, section and month of the
     reporting period's end, and the report table), Partner Performance (``tab=partners``), Report/Location
     (``tab=locations``) and Report/Disaggregation (``tab=disaggregations``), with one filter for all of
-    them and exports of the whole filtered set."""
+    them and exports of the whole filtered set.
+
+    Report/Location and Report/Disaggregation load in parts (:func:`_reporting_table_tab`); the other two tabs
+    are one request, as before (they take about a tenth of a second on a large database)."""
     tab = request.GET.get("tab") if request.GET.get("tab") in REPORTING_TABS else "reports"
+    if tab in datamart.REPORTING_TABLES:
+        return _reporting_table_tab(request, tab)
     data = datamart.partner_reporting(request.GET)
     export = request.GET.get("export")
     if export in exports.FORMATS:
         return _reporting_export(data, tab, export, request.GET)
-    locations = _reporting_locations(data) if tab == "locations" else None
-    disaggregations = _reporting_disaggregations(data, request.GET) if tab == "disaggregations" else None
-    if tab == "locations":
-        page_obj = _paginate(request, locations["rows"])
-    elif tab == "disaggregations":
-        page_obj = _paginate(request, disaggregations["blocks"], DISAGGREGATION_BLOCKS)
-        # the lines of the blocks shown only, never of every block of the filter
-        list(reporting_service.filled_blocks(disaggregations, list(page_obj.object_list)))
-    elif tab == "partners":
+    if tab == "partners":
         page_obj = _paginate(request, data["partners"]["follow_up"])
     else:
         page_obj = _paginate(request, data["reports"])
     params = request.GET.copy()
     context = {
+        **_reporting_frame(request, tab, data["filters"]),
+        "data": data,
+        "page_obj": page_obj,
+        "locations": None,
+        "disaggregations": None,
+        "downloads": _reporting_downloads(params, tab),
+        "chart_data": {"by_month": data["by_month"]},
+    }
+    template = "reports/partials/reporting_table.html" if request.htmx else "reports/partner_reporting.html"
+    return render(request, template, context)
+
+
+def _reporting_frame(request: HttpRequest, tab: str, filters) -> dict[str, Any]:
+    """What the Progress reports page draws around its tables: the title, the filter bar's choices and values,
+    the tabs."""
+    params = request.GET.copy()
+    return {
         "page_title": _("Progress reports"),
         "page_subtitle": _(
             "Progress reports submitted by partners in the Partner Reporting Portal, from the eTools Datamart"
         ),
         "breadcrumbs": [_crumb(_("Progress reports"))],
-        "data": data,
-        "f": data["filters"],
+        "f": filters,
         "tab": tab,
-        "page_obj": page_obj,
-        "locations": locations,
-        "disaggregations": disaggregations,
-        "selected": {key: request.GET.getlist(key) for key in REPORTING_LISTS}
-        | {"status": data["filters"].statuses},
+        "selected": {key: request.GET.getlist(key) for key in REPORTING_LISTS} | {"status": filters.statuses},
         "year": request.GET.get("year", ""),
         "q": request.GET.get("q", ""),
         "overdue": request.GET.get("overdue") == "1",
@@ -1778,15 +1800,84 @@ def partner_reporting(request: HttpRequest) -> HttpResponse:
             name: request.path + "?" + _query_with(params, ("tab", "export"), tab=name)
             for name in REPORTING_TABS
         },
-        "downloads": [
-            {"label": _("Excel of the filter"), "url": "?" + _query_with(params, (), tab=tab, export="xlsx")},
-            {"label": _("CSV of the filter"), "url": "?" + _query_with(params, (), tab=tab, export="csv")},
-        ],
-        "chart_data": {"by_month": data["by_month"]},
-        **_all_years(request, params, not data["filters"].year, None),
+        **_all_years(request, params, not filters.year, None),
     }
-    template = "reports/partials/reporting_table.html" if request.htmx else "reports/partner_reporting.html"
-    return render(request, template, context)
+
+
+def _reporting_downloads(params: QueryDict, tab: str) -> list[dict[str, str]]:
+    return [
+        {"label": _("Excel of the filter"), "url": "?" + _query_with(params, (), tab=tab, export="xlsx")},
+        {"label": _("CSV of the filter"), "url": "?" + _query_with(params, (), tab=tab, export="csv")},
+    ]
+
+
+def _reporting_table_tab(request: HttpRequest, tab: str) -> HttpResponse:
+    """Report/Location (``tab=locations``) and Report/Disaggregation (``tab=disaggregations``) of the
+    Progress reports page, in parts (:mod:`neurodb.web.parts`): this answers the frame at once (the filter
+    bar, with its options stored for every worker and the tab's own filters, and the tabs) with one
+    placeholder, ``table``: the tab's table, with the note when the filter holds too many rows, its
+    downloads and its pages (each reloads the part and shows the page's own address). The table is computed
+    once for every worker and kept two minutes (:func:`neurodb.datamart.services.reporting_table`): its
+    pages read it, and when it is already stored the frame draws it inline (one request). The page has no
+    first-load default: the part's query is the page's own, without ``export``. A change of filter (HTMX)
+    answers the results area with the table itself, as before: the table takes well under a second. The
+    exports are answered first, whole, as before."""
+    export = request.GET.get("export")
+    if export in exports.FORMATS:
+        return _reporting_export(datamart.partner_reporting(request.GET), tab, export, request.GET)
+    filters = reporting_service.ReportFilters.from_params(request.GET)
+    params = request.GET.copy()
+    query = params.copy()
+    query.pop("export", None)
+
+    def table() -> dict[str, Any]:
+        found = datamart.reporting_table(tab, request.GET)
+        rows = found[tab]
+        if tab == "locations":
+            page_obj = _paginate(request, rows["rows"])
+        else:
+            # the lines of the blocks shown only, never of every block of the filter, made on copies: the
+            # stored blocks stay as stored (once() hands the same value to every reader of the request)
+            blocks = list(rows["blocks"])
+            page_obj = _paginate(request, blocks, DISAGGREGATION_BLOCKS)
+            shown = [dict(block) for block in page_obj.object_list]
+            list(reporting_service.filled_blocks(rows, shown))
+            first = page_obj.start_index() - 1 if shown else 0
+            blocks[first : first + len(shown)] = shown
+            page_obj.object_list = shown
+            rows = {**rows, "blocks": blocks}
+        return {
+            tab: rows,
+            "page_obj": page_obj,
+            "downloads": _reporting_downloads(params, tab),
+            # the chart data every tab of the page carries (reporting-chart-data); no chart of this tab
+            # reads it
+            "chart_data": {"by_month": found["by_month"]},
+        }
+
+    def shell() -> dict[str, Any]:
+        context = _reporting_frame(request, tab, filters)
+        context["data"] = {"options": reporting_service.stored_options()}  # the filter bar's choices
+        if tab == "disaggregations":  # the tab's own filters, in the filter bar
+            context["tab_filters"] = reporting_service.DisaggregationFilters.from_params(request.GET)
+        return context
+
+    parts = {
+        "table": Part(
+            "reports/parts/reporting_table.html",
+            table,
+            ready=lambda: datamart.reporting_table_stored(tab, request.GET),
+        )
+    }
+    template = "reports/partner_reporting.html"
+    if getattr(request, "htmx", None) and getattr(request, "part", None) is None:
+        # a change of filter (or any other HTMX request of this address): the results area with its table, as
+        # before the tab loaded in parts
+        request.parts_eager = True
+        template = "reports/partials/reporting_table.html"
+    return render_page(
+        request, template, scope={"tab": tab}, shell=shell, parts=parts, query=query.urlencode()
+    )
 
 
 def _too_many(found: dict[str, Any]) -> HttpResponse:
@@ -2364,6 +2455,7 @@ def visit_plan_comment(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 MONITORING_VIEWS = ("grid", "table", "quality")
+MONITORING_RESULTS = "monitoring-grid"  # the area a filter, sort or section change of the page reloads
 MONITORING_KEYS = ("section", "partner", "pd", "location", *pd_monitoring_service.TAG_FIELDS)
 MONITORING_LISTS = (*MONITORING_KEYS, "pd_status", "document_type", "office", "partner_type")
 # the columns sorted lowest first on the first click (the figures start with the highest)
@@ -2398,148 +2490,260 @@ def _query_with(params: QueryDict, drop: tuple[str, ...] = (), **changes: Any) -
 def pd_monitoring(request: HttpRequest) -> HttpResponse:
     """Partner monitoring: the grid (indicators by section, PD and output, with their months), Program
     Performance (``view=table``: one sortable row per indicator, exported whole) and Data quality
-    (``view=quality``). One filter for the three, so the same filter gives the same figures."""
+    (``view=quality``). One filter for the three, so the same filter gives the same figures.
+
+    The page loads in parts (:mod:`neurodb.web.parts`): this view answers the frame at once (the view tabs,
+    the filter bar with its options, stored for every worker, the "your section" note) with a placeholder
+    for each data block of the view, in ``#monitoring-grid``, each asked for at this address plus ``_part``,
+    with the resolved filter (the sections written out, ``section=`` for every section, and the year always)
+    and ``as_of``, the moment of the eTools figures the frame was drawn with:
+
+    - the grid: ``summary`` (the tiles, the status donut and the sections chart) and ``grid`` (the page of
+      indicators, its pages, the note when the list is cut);
+    - Program Performance: ``sections`` (the section tiles: every section the other filters keep, read from
+      the filter without its sections) and ``table`` (the page of rows in its sort, with its pages and
+      downloads: the same computation, the chosen sections kept, as before the page loaded in parts);
+    - Data quality: ``quality-tiles`` (the counts) and ``quality-lists`` (the lists to follow up).
+
+    Every part reads the indicators of its filter computed once for every worker
+    (:func:`neurodb.datamart.monitoring.stored_indicators`); the parts of a view read the computation of the
+    frame's moment (``as_of``) even when a sync finishes between them, and when it is already stored the
+    frame draws them inline, so a warm page is one request. A change of filter, sort or section tile (an
+    HTMX request aimed at ``#monitoring-grid``) answers that area with its placeholders (the results shell);
+    the pages of the grid and of Program Performance reload their own part. Any other HTMX request of this
+    address answers the area with its figures, as before the page loaded in parts. The exports are answered
+    first, whole.
+    """
     view = request.GET.get("view") if request.GET.get("view") in MONITORING_VIEWS else "grid"
     # the grid opens on this year (its months); Program Performance on every year, as Power BI opens it,
     # and Data quality with it (Reached to date). A tab keeps the year shown (``tab_urls``)
     filters = pd_monitoring_service.Filters.from_params(request.GET, default_year=view == "grid")
-    options = pd_monitoring_service.filter_options(filters)
+    options = functools.cache(lambda: pd_monitoring_service.stored_options(filters))  # the frame's
     own_section: list[str] = []
     params = request.GET.copy()
-    if not request.GET:  # first load, no choice made yet: the user's own section
-        own_section = pd_monitoring_service.default_sections(request.user, options["sections"])
+    params.pop("as_of", None)  # the moment a part reads (below), never a filter of the links
+    if first_load(request):  # first load, no choice made yet: the user's own section
+        own_section = pd_monitoring_service.default_sections(request.user, options()["sections"])
         if own_section:
             filters = dataclasses.replace(filters, sections=own_section)
             params.setlist("section", own_section)
     export = request.GET.get("export")
     if export in exports.FORMATS:
         return _monitoring_export(request, filters, export)
-    section_counts: Counter | None = Counter() if view == "table" else None
-    # Every indicator of the filter is computed and counted (the tiles, the section tiles, Data quality,
-    # the exports), so the same filter gives the same counts on every view; the grid and Program
-    # Performance list at most MAX_INDICATORS of them (Program Performance the first in its sort).
-    every = pd_monitoring_service.indicators(filters, section_counts=section_counts)
+    today = pd_monitoring_service.today()
+    is_part = getattr(request, "part", None) is not None
+    # The eTools figures the frame is drawn with (their fingerprint: etools_keys.fingerprint): a part request
+    # reads them from its address, so the parts of one view read one computation even when a sync finished
+    # before or between them, while it is stored (compute.once_as_of). Any other request reads them now.
+    as_of = request.GET.get("as_of", "") if is_part else etools_keys.fingerprint()
+    # The resolved filter of every part request: the page's own query (the user's own section written out on
+    # a first load), every section written as ``section=``, and the year always (the grid's default, this
+    # year, or every year). ``as_of`` is added to the placeholders' addresses only (_monitoring_results.html),
+    # so no link of a part carries it.
+    resolved = params.copy()
+    resolved.pop("export", None)
+    if "section" not in resolved:
+        resolved.setlist("section", [""])
+    if "year" not in resolved:
+        resolved["year"] = filters.year_param
+    # the links the parts draw (section tiles, sorts, downloads) start from the resolved filter, as the links
+    # a part builds from its request do: a part drawn inline, on the page drawn at once or on its own draws
+    # the same links
     limit = pd_monitoring_service.MAX_INDICATORS
-    rows = every[:limit]
-    data = pd_monitoring_service.summary(every, filters)
-    context: dict[str, Any] = {
-        "page_title": _("Partner monitoring"),
-        "page_subtitle": _(
-            "What partners reported on each programme document indicator, by reporting period and location, "
-            "against the target in the PD"
-        ),
-        "breadcrumbs": [_crumb(_("Partner monitoring"))],
-        "filters": filters,
-        "rows": rows,
-        "data": data,
-        "labels": pd_monitoring_service.LABELS,
-        "options": options,
-        "selected": {key: request.GET.getlist(key) for key in MONITORING_LISTS}
-        | ({"section": own_section} if own_section else {}),
-        "own_section": own_section,
-        "view": view,
-        # the tabs keep the year shown (the grid opens on this year, the others on every year: a tab
-        # never changes the year silently)
-        "tab_urls": {
-            name: request.path
-            + "?"
-            + _query_with(params, ("view", "sort", "export"), view=name, year=filters.year_param)
-            for name in MONITORING_VIEWS
+    every_section = dataclasses.replace(filters, sections=[])
+
+    # every indicator of the page's filter, and of the filter without its sections (the section tiles), as
+    # stored for every worker
+    rows = functools.cache(lambda: pd_monitoring_service.stored_indicators(filters, today, as_of=as_of))
+    every_section_rows = functools.cache(
+        lambda: pd_monitoring_service.stored_indicators(every_section, today, as_of=as_of)
+    )
+    chosen = {s.strip() for s in filters.sections if s.strip()}  # as monitoring.indicators reads them
+
+    def table_rows() -> list[pd_monitoring_service.Row]:
+        """Program Performance's rows: the section tiles' computation (the filter without its sections) with
+        the chosen sections kept, as the page read them before it loaded in parts (``section_counts``): the
+        view's two parts read one computation, never two side by side (an indicator's figures do not depend
+        on the other sections)."""
+        every = every_section_rows()
+        if not chosen:
+            return every
+        return [r for r in every if (r.section or pd_monitoring_service.NO_SECTION) in chosen]
+
+    def stored(of: pd_monitoring_service.Filters = filters) -> Callable[[], bool]:
+        return lambda: pd_monitoring_service.indicators_stored(of, today)
+
+    def summary() -> dict[str, Any]:
+        data = pd_monitoring_service.summary(rows(), filters, today)
+        return {
+            "data": data,
+            "chart_data": {"status_counts": data["status_counts"], "by_section": data["by_section"]},
         }
-        | {
-            "map": reverse("reports:pd_monitoring_map")
-            + "?"
-            + _query_with(params, ("view", "sort", "export"), year=filters.year_param)
-        },
-        "truncated": view != "quality" and len(every) > limit,
-        **_all_years(request, params, filters.year is None, pd_monitoring_service.ALL_YEARS),
-    }
-    if view == "table":
+
+    def grid() -> dict[str, Any]:
+        every = rows()
+        shown = every[:limit]
+        page_obj = _paginate(request, shown, pd_monitoring_service.PAGE_SIZE)
+        return {
+            "rows": shown,
+            "page_obj": page_obj,
+            "groups": pd_monitoring_service.grouped(list(page_obj.object_list)),
+            "months": pd_monitoring_service.MONTHS,
+            # "All years": one column per year with a counted value, instead of the months
+            "year_columns": pd_monitoring_service.year_columns(shown) if filters.all_years else [],
+            "truncated": len(every) > limit,
+        }
+
+    def sections() -> dict[str, Any]:
+        # every section the other filters keep, the chosen ones or not (the filter without its sections)
+        counts = Counter(r.section or pd_monitoring_service.NO_SECTION for r in every_section_rows())
+        return {
+            "section_tiles": [
+                {
+                    "name": name,
+                    "count": count,
+                    "url": "?" + _query_with(resolved, ("section",), section=name),
+                    "current": name in filters.sections,
+                }
+                for name, count in sorted(counts.items())
+            ],
+            "all_sections_url": "?" + _query_with(resolved, ("section",), section=""),
+        }
+
+    def table() -> dict[str, Any]:
+        every = table_rows()
         ordered, sort = pd_monitoring_service.sorted_rows(every, request.GET.get("sort", ""), filters.year)
-        rows = ordered[:limit]
-        page_obj = _paginate(request, rows, pd_monitoring_service.PAGE_SIZE)
+        shown = ordered[:limit]
         current = sort.lstrip("-")
-        context.update(
-            {
-                "rows": rows,
-                "page_obj": page_obj,
-                "sort": sort,
-                "sort_key": current,
-                "sort_desc": sort.startswith("-"),
-                "table_headings": [
-                    ("section", _("Section"), False),
-                    ("cp_output", _("CP output"), False),
-                    ("emergency", _("Emergency"), False),
-                    ("indicator", _("Indicator"), False),
-                    ("target", _("Target"), True),
-                    # a Reporting year scopes Reached and % Reached, as in Power BI; Reached to date
-                    # stays beside them
-                    *(
-                        [
-                            ("reached_in_year", _("Reached in %(year)s") % {"year": filters.year}, True),
-                            ("achieved_in_year", _("%% Reached in %(year)s") % {"year": filters.year}, True),
-                            ("reached", _("Reached to date"), True),
-                        ]
-                        if filters.year
-                        else [("reached", _("Reached"), True), ("achieved", _("% Reached"), True)]
+        return {
+            "rows": shown,
+            "page_obj": _paginate(request, shown, pd_monitoring_service.PAGE_SIZE),
+            "truncated": len(every) > limit,
+            "sort": sort,
+            "sort_key": current,
+            "sort_desc": sort.startswith("-"),
+            "table_headings": _table_headings(filters),
+            "sort_urls": {
+                key: "?"
+                + _query_with(
+                    resolved,
+                    ("export",),
+                    sort=(
+                        ("" if sort.startswith("-") else "-") + key
+                        if key == current
+                        else (key if key in ASCENDING_FIRST else f"-{key}")
                     ),
-                    ("partner", _("Partner"), False),
-                    ("pd", _("Programme document"), False),
-                ],
-                "sort_urls": {
-                    key: "?"
-                    + _query_with(
-                        params,
-                        ("export",),
-                        sort=(
-                            ("" if sort.startswith("-") else "-") + key
-                            if key == current
-                            else (key if key in ASCENDING_FIRST else f"-{key}")
-                        ),
-                    )
-                    for key in pd_monitoring_service.TABLE_SORTS
+                )
+                for key in pd_monitoring_service.TABLE_SORTS
+            },
+            "downloads": [
+                {
+                    "label": _("Excel of the filter"),
+                    "url": "?" + _query_with(resolved, ("page",), view="table", export="xlsx"),
                 },
-                "section_tiles": [
-                    {
-                        "name": name,
-                        "count": count,
-                        "url": "?" + _query_with(params, ("section",), section=name),
-                        "current": name in filters.sections,
-                    }
-                    for name, count in sorted(section_counts.items())
-                ],
-                "all_sections_url": "?" + _query_with(params, ("section",), section=""),
-                "downloads": [
-                    {
-                        "label": _("Excel of the filter"),
-                        "url": "?" + _query_with(params, ("page",), view="table", export="xlsx"),
-                    },
-                    {
-                        "label": _("CSV of the filter"),
-                        "url": "?" + _query_with(params, ("page",), view="table", export="csv"),
-                    },
-                ],
-            }
-        )
-        partial = "reports/partials/pd_monitoring_table.html"
+                {
+                    "label": _("CSV of the filter"),
+                    "url": "?" + _query_with(resolved, ("page",), view="table", export="csv"),
+                },
+            ],
+        }
+
+    @functools.cache
+    def quality() -> dict[str, Any]:
+        # Data quality lists every indicator of the filter: never cut (the other views say when they are)
+        return {"quality": pd_monitoring_service.data_quality(rows(), filters, today), "truncated": False}
+
+    if view == "table":
+        parts = {
+            "sections": Part("reports/parts/pm_sections.html", sections, ready=stored(every_section)),
+            "table": Part("reports/parts/pm_table.html", table, ready=stored(every_section)),
+        }
     elif view == "quality":
-        context["quality"] = pd_monitoring_service.data_quality(every, filters)
-        partial = "reports/partials/pd_monitoring_quality.html"
+        parts = {
+            "quality-tiles": Part("reports/parts/pm_quality_tiles.html", quality, ready=stored()),
+            "quality-lists": Part("reports/parts/pm_quality_lists.html", quality, ready=stored()),
+        }
     else:
-        page_obj = _paginate(request, rows, pd_monitoring_service.PAGE_SIZE)
-        context.update(
-            {
-                "page_obj": page_obj,
-                "groups": pd_monitoring_service.grouped(list(page_obj.object_list)),
-                "months": pd_monitoring_service.MONTHS,
-                # "All years": one column per year with a counted value, instead of the months
-                "year_columns": pd_monitoring_service.year_columns(rows) if filters.all_years else [],
-                "chart_data": {"status_counts": data["status_counts"], "by_section": data["by_section"]},
+        parts = {
+            "summary": Part("reports/parts/pm_summary.html", summary, ready=stored()),
+            "grid": Part("reports/parts/pm_grid.html", grid, ready=stored()),
+        }
+    scope = {  # what the parts read besides their own figures
+        "filters": filters,
+        "labels": pd_monitoring_service.LABELS,
+        "report_types": pd_monitoring_service.REPORT_TYPES,
+    }
+
+    def shell() -> dict[str, Any]:
+        return {
+            "page_title": _("Partner monitoring"),
+            "page_subtitle": _(
+                "What partners reported on each programme document indicator, by reporting period and "
+                "location, against the target in the PD"
+            ),
+            "breadcrumbs": [_crumb(_("Partner monitoring"))],
+            "options": options(),
+            "selected": {key: request.GET.getlist(key) for key in MONITORING_LISTS}
+            | ({"section": own_section} if own_section else {}),
+            "own_section": own_section,
+            "view": view,
+            "as_of": as_of,
+            # the tabs keep the year shown (the grid opens on this year, the others on every year: a tab
+            # never changes the year silently)
+            "tab_urls": {
+                name: request.path
+                + "?"
+                + _query_with(params, ("view", "sort", "export"), view=name, year=filters.year_param)
+                for name in MONITORING_VIEWS
             }
-        )
-        partial = "reports/partials/monitoring_grid.html"
-    context["partial"] = partial
-    return render(request, partial if request.htmx else "reports/pd_monitoring.html", context)
+            | {
+                "map": reverse("reports:pd_monitoring_map")
+                + "?"
+                + _query_with(params, ("view", "sort", "export"), year=filters.year_param)
+            },
+            **_all_years(request, params, filters.year is None, pd_monitoring_service.ALL_YEARS),
+        }
+
+    template = "reports/pd_monitoring.html"
+    htmx = getattr(request, "htmx", None)
+    if htmx and not is_part and (htmx.target or "") != MONITORING_RESULTS:
+        # any other HTMX request of this address (none of the page's own): the results area with its figures,
+        # as before the page loaded in parts
+        request.parts_eager = True
+        template = "reports/partials/_monitoring_results.html"
+    return render_page(
+        request,
+        template,
+        scope=scope,
+        shell=shell,
+        parts=parts,
+        query=resolved.urlencode(),
+        results_template="reports/partials/_monitoring_results.html",
+        results_target=MONITORING_RESULTS,
+    )
+
+
+def _table_headings(filters) -> list[tuple[str, str, bool]]:
+    """Program Performance's columns: (sort key, heading, numeric)."""
+    return [
+        ("section", _("Section"), False),
+        ("cp_output", _("CP output"), False),
+        ("emergency", _("Emergency"), False),
+        ("indicator", _("Indicator"), False),
+        ("target", _("Target"), True),
+        # a Reporting year scopes Reached and % Reached, as in Power BI; Reached to date stays beside them
+        *(
+            [
+                ("reached_in_year", _("Reached in %(year)s") % {"year": filters.year}, True),
+                ("achieved_in_year", _("%% Reached in %(year)s") % {"year": filters.year}, True),
+                ("reached", _("Reached to date"), True),
+            ]
+            if filters.year
+            else [("reached", _("Reached"), True), ("achieved", _("% Reached"), True)]
+        ),
+        ("partner", _("Partner"), False),
+        ("pd", _("Programme document"), False),
+    ]
 
 
 def _monitoring_export(request: HttpRequest, filters, fmt: str) -> HttpResponse:
@@ -2561,9 +2765,11 @@ def _monitoring_export(request: HttpRequest, filters, fmt: str) -> HttpResponse:
 
 @require_GET
 def pd_monitoring_map(request: HttpRequest) -> HttpResponse:
-    """The partner monitoring map: where the filtered PD indicators are implemented and reported."""
+    """The partner monitoring map: where the filtered PD indicators are implemented and reported. A frame
+    already: its figures come from the map's API (:class:`neurodb.reports.api.PDMapAPI`), which the page asks
+    for once drawn (static/js/pdmap.js); its filter options are stored for every worker."""
     filters = pd_monitoring_service.Filters.from_params(request.GET)
-    options = pd_monitoring_service.filter_options(filters)
+    options = pd_monitoring_service.stored_options(filters)
     own_section: list[str] = []
     if not request.GET:
         own_section = pd_monitoring_service.default_sections(request.user, options["sections"])

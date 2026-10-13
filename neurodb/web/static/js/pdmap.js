@@ -131,10 +131,12 @@ export async function init(el) {
   try {
     data = await fetchJSON(config.api);
   } catch (err) {
+    if (!el.isConnected) return; // the page moved on while the figures loaded
     kpis(null);
     if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">—</td></tr>`;
     throw err;
   }
+  if (!el.isConnected) return; // swapped out while the figures loaded: nothing to fill
   const byKey = new Map(data.points.map((p) => [p.key, p]));
   kpis(data);
   if (totals) totals.textContent = `${fmt(data.totals.located)} on the map${data.totals.approximate ? ` (${fmt(data.totals.approximate)} approximate)` : ""}${data.unlocated.length ? ` · ${fmt(data.unlocated.length)} without coordinates` : ""}`;
@@ -156,11 +158,21 @@ export async function init(el) {
   if (search) search.addEventListener("input", () => fillTable(tbody, data.points, pick, search.value));
 
   await library;
+  if (!el.isConnected) return; // swapped out while MapLibre loaded
   const maplibregl = window.maplibregl;
   maplibregl.setWorkerUrl(asset("maplibreWorker"));
   map = new maplibregl.Map({ container: canvas, style: styleSpec(), ...LEBANON, attributionControl: { compact: true }, cooperativeGestures: false });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
   map.addControl(new maplibregl.FullscreenControl(), "top-right");
+  // A map swapped out by HTMX frees its WebGL context at once (as edumap.js does): browsers keep only a few
+  // contexts alive, and a map merely dropped from the page holds on to its own.
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    map.remove();
+  };
+  el.addEventListener("htmx:beforeCleanupElement", (e) => e.target === el && release());
   map.on("load", () => {
     const max = Math.max(2, ...data.points.map((p) => p.indicators)); // interpolate stops must ascend strictly
     const features = data.points.map((p) => ({

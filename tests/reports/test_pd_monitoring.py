@@ -281,6 +281,15 @@ def test_summary_counts_a_report_whose_status_says_submitted_as_not_overdue(data
     assert monitoring.summary(rows, filters, today=datetime.date(2026, 11, 1))["overdue_reports"] == overdue
 
 
+def datamart_synced() -> None:
+    """An eTools Datamart sync run that ends, as the sync does after it writes the rows a test changed by hand:
+    the figures the eTools pages store for every worker are keyed on it (neurodb.datamart.keys)."""
+    from neurodb.core.models import SyncRun
+
+    run = SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="all", status=SyncRun.Status.RUNNING)
+    run.finish(SyncRun.Status.SUCCEEDED)
+
+
 @pytest.fixture
 def frozen_today(monkeypatch):
     monkeypatch.setattr(monitoring, "datetime", _FrozenDatetime)
@@ -297,6 +306,7 @@ def test_page_partial_filters_and_empty(client_viewer, data, frozen_today):
     assert data["boys"] in partial.text and data["girls"] not in partial.text and "<html" not in partial.text
     assert client_viewer.get(reverse("reports:pd_monitoring"), {"year": "2019"}).status_code == 200
     dm.PDIndicator.objects.all().delete()
+    datamart_synced()  # the sync that removes them ends a run: the stored indicators' key follows it
     assert "No indicators match" in client_viewer.get(reverse("reports:pd_monitoring")).text
 
 

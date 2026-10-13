@@ -966,6 +966,8 @@ more.
 | Management brief, `/brief/` | Purpose line, filter bar with *Figures as of* and **Print**, the tab bar, the *Reference* block (lineage and data dictionary); without a reporting year, the empty state and no part | `brief` (at once; first of the group `brief`): the five tiles, *Things to decide* with the *Assign* links for staff, *Sections at a glance* and *Copy summary*. `sections` (when near the screen, once `brief` is in): ahead or behind, how sure, who and where, partners, money and action, with every chart of the page | The brief build, 2 minutes per year, sections, day and language (its labels are translated as it is computed), under the brief's own key: the section plans, the finding assignments and the ActivityInfo partner links (how many, and the last change), the latest daily review, the last finished sync run and the indicator flags, so an entry in the admin, a new review, a sync or a flag shows at once. It reads two overview builds, each stored as an overview build: the year's, the very one the overview stores for the same year and sections without a governorate, and the year before's, for the comparisons. The frame's lineage, 2 minutes, the same in every language, under the last finished sync run, the flags and the latest daily review; the filter bar's section names are the overview's. When the build is stored, the frame draws both parts itself: a brief opened again within two minutes is one request. See *Management brief* |
 | Partner page, `/partners/<id>/` | Header (name, type, breadcrumbs), the *deleted in eTools* notice, the knowledge base documents | `datamart` (at once): everything from the key figures to the last list (profile, visits chart and assurance chips, *Partner reporting* with the eTools and ActivityInfo panels and, for those allowed, *Edit the link*, the eight lists). Inside it, `fmm` (once `datamart` is in, after the visible ones): the Monitoring insights panel, only when Monitoring insights is on and a field monitoring visit ever monitored the partner | Nothing: the partner's figures hold database records, which the shared page figures never store, so they are computed at each visit and an edit or a sync shows at the next one. See *Partner reporting: ActivityInfo and eTools, side by side* |
 | Data health, `/data/health/` | Page heading, the *Sync jobs* heading with its *Stale after N hours* note, the heading and explanation of the eTools Datamart datasets panel | `jobs` (at once): one card per sync job. `databases` and `runs` (when near the screen): the ActivityInfo databases of the year and their last import, the latest 50 runs. `datasets` and `readiness` (after the visible ones): the eTools Datamart datasets table with its *Copy* and *CSV* buttons (they come with the table, so they are never offered before it is there), the machine learning readiness check | Only the rows each eTools Datamart dataset holds (the *Rows held* column): an hour at most, the same in every language and for everyone, under a key made of the latest run of each job that writes those tables (eTools Datamart sync, eTools sync, Locations sync, eTools update clean-up), so a run of one of them that starts or ends has them counted again. The gazetteer (*locations*), which staff also edit in Admin → Locations, is counted at each visit, and so is everything else on the page. Inside a database transaction (NeuroDB Watch's AI look-ups read these figures in a read-only one) the stored counts are read too; when there are none the rows are counted there and nothing is stored. See *Data quality per dataset* |
+| Partner monitoring, `/partner-monitoring/` | View tabs (Grid, Program Performance, Data quality, Map), the filter bar with its choices, the "your section" note | Grid: `summary` (at once; first of the group `pm`): the seven tiles, the status donut and the indicators by section; `grid` (at once, once `summary` is in): the indicators by section, PD and output with their months or years, its pages, the note when the list is cut. Program Performance (`view=table`): `sections` (at once; first of the group `pm`): the section tiles; `table` (at once, once `sections` is in): the page of rows in its sort, its pages, *Excel of the filter* and *CSV of the filter*. Data quality (`view=quality`): `quality-tiles` (at once; first of the group `pm`) and `quality-lists` (when near the screen, once the tiles are in). A change of filter, sort or section tile reloads the area under the filter bar (`#monitoring-grid`) with new placeholders; a page of the grid or of the table reloads its own part. The exports are answered whole | The filter's indicators (every row the three views read), 2 minutes per filter and day, the same in every language and for everyone; Program Performance's section tiles and table read the same for the filter without its sections (the table keeps the chosen ones, as before), one computation for both. The filter bar's choices, 10 minutes. Each key holds the latest run of each eTools job (eTools sync, eTools Datamart sync, Datamart backfill, Locations sync) and the indicator flags, so a sync shows at once and an ActivityInfo import does not count. The parts carry `as_of`. When the indicators are kept, the frame draws the view's two parts itself: one request. The Map tab is not in parts; its points (`/api/internal/partner-monitoring/map/`) are kept 2 minutes under the same jobs, the flags and the gazetteer. See *Partner monitoring and Progress reports load in parts* |
+| Progress reports, `/partner-reporting/` (*By location* and *By disaggregation*) | Filter bar with its choices, the tab bar, the *By disaggregation* tab's own filters | `table` (at once): the tab's table, its pages, the note when the filter holds too many rows, the Excel and CSV links. A change of filter (HTMX) answers the table at once. *Reporting progress* and *Partners* are drawn whole, as before | The tab's rows (on *By disaggregation*, with the lines of every location), 2 minutes per tab, filter, tab filters and day; the filter bar's choices, 10 minutes; the same in every language and for everyone, under the eTools jobs' latest runs and the indicator flags, as partner monitoring. When the rows are kept, the frame draws the table itself: one request. See *Partner monitoring and Progress reports load in parts* |
 
 Every other page is still drawn whole. Of these, the ActivityInfo databases page and each database,
 the Neuro and HPM reports, the programme documents' indicators tab, each programme document (page and
@@ -1619,6 +1621,45 @@ figures as everywhere else (they read the rule above; nothing is added across in
   Datamart). The progress report
   pop-up no longer names the partner's staff member who submitted: only UNICEF focal points are named,
   on the report table.
+
+**Partner monitoring and Progress reports load in parts** (see *Pages that load in parts*). Partner
+monitoring answers its frame at once: the view tabs, the filter bar with its choices and the "your section"
+note. Each view then fetches its two blocks: the grid its key figures with their two charts (`summary`) and
+the list of indicators (`grid`); Program Performance its section tiles (`sections`) and its table
+(`table`, with its pages and the *Excel of the filter* / *CSV of the filter* links); Data quality its tiles
+(`quality-tiles`) and its lists (`quality-lists`). Every block reads one computation of the filter's
+indicators (with each one's Reached, % Reached and status), made once for every user and every web worker
+and kept two minutes; Program Performance's section tiles and table read the one of the filter without its
+sections (the table keeps the chosen ones, as it always did). Applying a filter, clicking a heading to sort
+or a section tile reloads the results area under the filter bar with new grey blocks, which then fill in
+(at once when the figures are kept already); a page of the grid or of the table reloads only its own block. On
+*Progress reports*, the *By location* and *By disaggregation* tabs fetch their table as one block
+(`table`), with its pages, its note when the filter holds too many rows and its download links; a change
+of filter there answers the table at once, as before. *Reporting progress* and *Partners* are drawn whole,
+as before.
+
+What is kept, and when it changes: each kept value's key holds the latest run of each job that writes the
+eTools tables (eTools sync, eTools Datamart sync, Datamart backfill, Locations sync: the run's state and its
+end, so a run that starts or ends changes it, whatever it wrote) and the indicator flags, never the person
+asking or the language (the values hold no translated text). A sync therefore shows at once; an
+ActivityInfo import or a NeuroDB Watch run does not make these pages compute again. Nobody edits these
+tables by hand (every eTools and Datamart table is read-only in the admin), except the gazetteer, which
+the map's key also holds (below). The filter bar's choices are kept ten minutes under the same key, the
+indicators two minutes per filter and day, the Progress reports tables two minutes per tab, filter, tab
+filters and day. The blocks of one partner monitoring view carry `as_of` like the overview's, so they show
+one set of figures when a Datamart sync run ends between them (one ends about every 20 seconds while the
+sync runs). When the figures are kept already, the frame draws the blocks itself: a view opened again
+within two minutes is one request. The exports are answered whole, as before.
+
+The **Map** tab is not split in parts: its page already draws at once and asks for its points in the
+background (`/api/internal/partner-monitoring/map/`). Those points are now computed once for every user and
+worker and kept two minutes, under the eTools jobs' runs, the flags and the gazetteer (how many locations
+and location types, and the last change of each), so a location renamed or moved in Admin → Locations
+shows on the map at once. Its filter bar reads the choices partner monitoring keeps, and a map left
+behind while its points were still loading (a click on another view) no longer draws itself into a page
+that has gone. **Funds**: the *Partner contributions* and *By PD and grant* tabs no longer compute the
+whole reservations summary just to fill the filter bar (6 queries instead of 13); the page is otherwise
+drawn whole, as before.
 
 ### One programme implementation ecosystem: how the eTools records are linked
 

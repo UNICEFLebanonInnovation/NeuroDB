@@ -70,6 +70,14 @@ Reached and whose columns end with each report's value, the reports that do not 
 **Reached by disaggregation** (female, male, Lebanese…) for each location, with a subtotal per
 disaggregation when the indicator adds up.
 
+The page opens at once: the view tabs and the filters come first, with a grey box where the figures and
+the list will go, and each box fills in as soon as its figures are ready (see [Pages that open at
+once](/help/overview/#pages-that-open-at-once)). Applying a filter, sorting a column or clicking a
+section tile refills the boxes under the filters; the filters stay as they are. The figures are worked
+out once for everyone who asks for the same filter and kept for two minutes, so opening a view again, or
+another person opening the same filter, is quicker; a new eTools sync shows at once. The map fills in
+the same way: the page first, then its locations.
+
 ## Progress reports
 
 [Progress reports](/partner-reporting/) has four tabs on one filter (search, report status, report
@@ -93,6 +101,11 @@ programme documents are never listed.
   of 20, not 40. A subtotal that differs from the location total is marked. The labels come from PRP;
   a value whose label the nightly sync has not read yet is not listed (the location total is). Extra
   filters: indicator, location, P-code and disaggregation.
+
+On **By location** and **By disaggregation**, the filters and the tabs come first and the table fills in
+as soon as it is ready, in a grey box of its size; a change of filter brings the new table at once, as
+before. The table is worked out once for everyone who asks for the same filter and kept for two minutes;
+a new eTools sync shows at once.
 
 ## Programme documents
 

@@ -1,0 +1,8 @@
+{% load i18n ui humanize %}{% comment %}Program Performance's section tiles (part "sections", reports.views.pd_monitoring): every
+section the other filters keep, the chosen ones or not, with its indicators (the filter without its sections,
+stored for every worker). A tile reloads the page's results area (#monitoring-grid) for that section. Context:
+section_tiles, all_sections_url, and filters (the page's scope).{% endcomment %}
+<nav class="section-tiles mb-3" aria-label="{% trans 'Sections' %}">
+  <a class="section-tile" href="{{ all_sections_url }}" hx-get="{{ all_sections_url }}" hx-target="#monitoring-grid" hx-push-url="true" {% if not filters.sections %}aria-current="true"{% endif %}><span class="section-tile__name">{% trans "Every section" %}</span><span class="section-tile__value">{{ section_tiles|length|intcomma }} {% trans "sections" %}</span></a>
+  {% for t in section_tiles %}<a class="section-tile" href="{{ t.url }}" hx-get="{{ t.url }}" hx-target="#monitoring-grid" hx-push-url="true" {% if t.current %}aria-current="true"{% endif %}><span class="section-tile__name">{{ t.name }}</span><span class="section-tile__value">{% blocktrans count counter=t.count %}{{ counter }} indicator{% plural %}{{ counter }} indicators{% endblocktrans %}</span></a>{% endfor %}
+</nav>

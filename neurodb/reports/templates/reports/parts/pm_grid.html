@@ -1,27 +1,8 @@
-{% load i18n ui humanize %}
-<div class="kpi-grid">
-  {% blocktrans asvar h1 with n=data.with_target %}{{ n }} with a target{% endblocktrans %}
-  {% trans "Indicators" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=data.indicators|intcomma hint=h1 %}
-  {% blocktrans asvar h2 with n=data.status_counts.over_target %}and {{ n }} ahead of schedule{% endblocktrans %}
-  {% trans "On track" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.status_counts.on_track status="on_track" hint=h2 %}
-  {% trans "Off track" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.status_counts.off_track status="off_track" %}
-  {% trans "Not reported" as l7 %}{% include "components/kpi_tile.html" with label=l7 value=data.status_counts.not_reported hint=_("no counted report yet (Accepted or Submitted)") %}
-  {% blocktrans asvar h4 with n=data.with_reached %}{{ n }} indicators with Reached{% endblocktrans %}
-  {% trans "Programme documents" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.programme_documents hint=h4 %}
-  {% trans "Partners" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=data.partners %}
-  {% trans "Overdue reports" as l6 %}{% include "components/kpi_tile.html" with label=l6 value=data.overdue_reports status=data.overdue_reports|yesno:"off_track," %}
-</div>
-<div class="grid grid--2 mb-3">
-  <section class="panel">
-    <div class="panel__header"><h2 class="panel__title">{% trans "Tracking status" %}</h2><span class="panel__hint">{% trans "Reached vs share of the PD period elapsed" %}</span></div>
-    <div class="chart chart--sm" data-module="charts" data-chart="status-donut" data-source="monitoring-chart-data" data-key="status_counts" data-height="220" aria-label="{% trans 'Indicator status distribution' %}"></div>
-    <div class="legend">{% for key, label in labels.items %}<span class="legend__item">{% status_pill key label "sm" %} {{ data.status_counts|get_item:key }}</span>{% endfor %}</div>
-  </section>
-  <section class="panel">
-    <div class="panel__header"><h2 class="panel__title">{% trans "Indicators by section" %}</h2></div>
-    <div class="chart chart--sm" data-module="charts" data-chart="bars" data-source="monitoring-chart-data" data-key="by_section" data-height="220" data-empty-title="{% trans 'No indicators' %}"></div>
-  </section>
-</div>
+{% load i18n ui humanize %}{% comment %}Partner monitoring's grid, its list (part "grid", reports.views.pd_monitoring): the page
+of indicators by section, programme document and output, with their months (or years), the note when the list is
+cut, and its pages (each reloads this part and shows the page's own address). Context: rows (the first
+MAX_INDICATORS of the filter, stored for every worker), page_obj, groups, months, year_columns, truncated, and
+filters, labels and report_types (the page's scope).{% endcomment %}
 <section class="panel p-0">
   {% include "components/table_toolbar.html" with title=_("Indicators") count=rows|length table_id="pd-indicators" filename="partner-monitoring" %}
   {% if rows %}
@@ -65,10 +46,9 @@
     {% endfor %}
     </tbody>
   </table></div>
-  {% include "components/pagination.html" with hx_target="#monitoring-grid" %}
-  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}Reached adds up the Accepted and Submitted reports of each indicator since its programme document started, combining locations and reporting periods the way the Partner Reporting Portal says (sum, maximum, average or latest; percentages as numerators over denominators), and never adding a value the reports repeat. Awaiting acceptance is the part of Reached that comes from Submitted reports. Sent back, Due and Overdue reports never count.{% endblocktrans %} {% if filters.all_years %}{% blocktrans with kind=options.report_types|get_item:filters.report_type %}Each year column is Reached in that year ({{ kind }}); for an indicator summed over periods the years add up to Reached.{% endblocktrans %}{% else %}{% blocktrans with kind=options.report_types|get_item:filters.report_type year=filters.year %}Each month shows the value of the counted reports whose period ends in it ({{ kind }}, {{ year }}); for an indicator summed over periods the months add up to Reached in {{ year }}.{% endblocktrans %}{% endif %} {% trans "The status compares Reached's share of the target with the share of the PD period elapsed (±10 points)." %}</p>
+  {% include "components/pagination.html" with part="grid" %}
+  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}Reached adds up the Accepted and Submitted reports of each indicator since its programme document started, combining locations and reporting periods the way the Partner Reporting Portal says (sum, maximum, average or latest; percentages as numerators over denominators), and never adding a value the reports repeat. Awaiting acceptance is the part of Reached that comes from Submitted reports. Sent back, Due and Overdue reports never count.{% endblocktrans %} {% if filters.all_years %}{% blocktrans with kind=report_types|get_item:filters.report_type %}Each year column is Reached in that year ({{ kind }}); for an indicator summed over periods the years add up to Reached.{% endblocktrans %}{% else %}{% blocktrans with kind=report_types|get_item:filters.report_type year=filters.year %}Each month shows the value of the counted reports whose period ends in it ({{ kind }}, {{ year }}); for an indicator summed over periods the months add up to Reached in {{ year }}.{% endblocktrans %}{% endif %} {% trans "The status compares Reached's share of the target with the share of the PD period elapsed (±10 points)." %}</p>
   {% else %}
   {% if user.is_staff %}{% include "components/empty_state.html" with icon="target" title=_("No indicators match") message=_("Change the filters, or run the eTools Datamart sync if the list is empty.") action_url=request.path %}{% else %}{% include "components/empty_state.html" with icon="target" title=_("No indicators match") message=_("Change the filters.") action_url=request.path %}{% endif %}
   {% endif %}
 </section>
-{{ chart_data|json_script:"monitoring-chart-data" }}

@@ -32,7 +32,7 @@
       {% endfor %}
     </tbody>{% endfor %}
   </table></div>
-  {% include "components/pagination.html" with hx_target="#reporting-results" %}
+  {% include "components/pagination.html" with part="table" %}
   <p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}Per indicator, report and location: what the partner reported for each value of each disaggregation, a subtotal per disaggregation and the location total. Values add up only within one disaggregation (female + male, or Lebanese + Syrian…), never across disaggregations: female 5, male 15 and Lebanese 20 are a location total of 20, not 40. A subtotal that differs from the location total is marked. Values whose labels the eTools sync has not read yet are not listed; the location total is. Reports that do not count in Reached are greyed. The Excel and CSV files hold every line of the filter, with values, subtotals and totals in columns of their own.{% endblocktrans %}</p>
   {% else %}
   {% include "reports/partials/_datamart_empty.html" with icon="layers" title=_("No report rows match") empty_title=_("No progress reports synced yet") %}

@@ -96,13 +96,15 @@ class MapAPI(APIView):
 
 class PDMapAPI(APIView):
     """Partner reporting map: every implementation location of the filtered PD indicators, with
-    what is planned and reported there (see ``datamart.monitoring.map_points``)."""
+    what is planned and reported there (see ``datamart.monitoring.map_points``). The partner monitoring
+    map's background load: computed once for every worker and kept two minutes
+    (``datamart.monitoring.stored_map_points``)."""
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request: Request) -> Response:
         filters = pd_monitoring.Filters.from_params(request.query_params)
-        return Response(pd_monitoring.map_points(filters))
+        return Response(pd_monitoring.stored_map_points(filters))
 
 
 class IndicatorDetailAPI(APIView):

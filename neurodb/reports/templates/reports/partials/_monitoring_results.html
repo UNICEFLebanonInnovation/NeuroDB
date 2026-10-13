@@ -1,0 +1,21 @@
+{% load parts %}{% comment %}Partner monitoring's results area (#monitoring-grid, reports.views.pd_monitoring): the placeholders of the
+view's parts, in the page and as the answer to a change of filter, sort or section tile (the results shell). Each
+part's address carries the moment of the eTools figures the frame was drawn with (as_of), so the parts of one view
+read one computation; no link inside a part carries it. Each placeholder keeps the room of what it will hold, as
+measured on the x20 parity world (scripts/parity), the part loaded for an administrator (a viewer's is never
+taller): height at 1366 px, height_md at 900 px (the grids stacked), height_sm at 390 px on a phone, in a window 800
+px high (844 px on the phone), as a table scrolls inside a box of at most 75% of the window's height. The grey
+blocks take the shape of each part (app.css, stage B).{% endcomment %}
+{% if view == "table" %}
+{% part_url "sections" as_of=as_of as sections_url %}{% part_url "table" as_of=as_of as table_url %}
+{% part "sections" kind="tiles" tiles=5 priority="high" group="pm" url=sections_url height="71px" height_md="71px" height_sm="202px" %}
+{% part "table" kind="table" priority="high" group="pm" url=table_url rows=20 height="789px" height_md="809px" height_sm="1033px" %}
+{% elif view == "quality" %}
+{% part_url "quality-tiles" as_of=as_of as tiles_url %}{% part_url "quality-lists" as_of=as_of as lists_url %}
+{% part "quality-tiles" kind="tiles" tiles=8 priority="high" group="pm" url=tiles_url height="292px" height_sm="517px" %}
+{% part "quality-lists" kind="table" group="pm" url=lists_url rows=20 height="1286px" height_md="1506px" height_sm="2058px" %}
+{% else %}
+{% part_url "summary" as_of=as_of as summary_url %}{% part_url "grid" as_of=as_of as grid_url %}
+{% part "summary" kind="tiles" tiles=7 priority="high" group="pm" url=summary_url height="584px" height_md="882px" height_sm="1212px" %}
+{% part "grid" kind="table" priority="high" group="pm" url=grid_url rows=20 height="876px" height_md="896px" height_sm="1153px" %}
+{% endif %}

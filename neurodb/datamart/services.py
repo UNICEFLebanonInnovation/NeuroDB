@@ -9,13 +9,15 @@ from collections.abc import Iterator
 from decimal import Decimal
 from typing import Any
 
+from django.conf import settings
 from django.db.models import Count, Max, Q, QuerySet, Sum
 from django.db.models.functions import ExtractYear
 
+from neurodb.core import compute
 from neurodb.partnerships import statuses as pd_statuses
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
-from . import fm, headline, reached, reporting
+from . import fm, headline, keys, reached, reporting
 from . import models as dm
 from . import monitoring as pd_monitoring
 
@@ -1194,27 +1196,93 @@ def funds(params) -> dict[str, Any]:
         "by_grant": by_grant,
         "by_year": [(y, float(v["reserved"])) for y, v in sorted(by_year.items())],
         "disbursed_by_year": [(y, float(v["disbursed"])) for y, v in sorted(by_year.items())],
-        "options": {
-            "donors": sorted(
-                x
-                for x in dm.FundsReservation.objects.order_by().values_list("donor", flat=True).distinct()
-                if x
-            ),
-            "grants": sorted(
-                x
-                for x in dm.FundsReservation.objects.order_by()
-                .values_list("grant_number", flat=True)
-                .distinct()
-                if x
-            ),
-            "years": _years(dm.FundsReservationHeader.objects.exclude(start_date=None), "start_date"),
-            **fund_views.filter_options(),
-        },
+        "options": funds_options(),
         "filters": f,
     }
 
 
+def funds_options() -> dict[str, Any]:
+    """The Funds page's filter choices (donors, grants, FR start years, and the PD statuses, partners and
+    partner types of :func:`neurodb.datamart.funds.filter_options`), on their own: the Partner Fund Monitoring
+    and Funded Programs tabs read only these of :func:`funds` (6 queries instead of 13)."""
+    from . import funds as fund_views
+
+    return {
+        "donors": sorted(
+            x for x in dm.FundsReservation.objects.order_by().values_list("donor", flat=True).distinct() if x
+        ),
+        "grants": sorted(
+            x
+            for x in dm.FundsReservation.objects.order_by().values_list("grant_number", flat=True).distinct()
+            if x
+        ),
+        "years": _years(dm.FundsReservationHeader.objects.exclude(start_date=None), "start_date"),
+        **fund_views.filter_options(),
+    }
+
+
 # -------------------------------------------------------------------------------- partner reporting
+REPORTING_TABLES = ("locations", "disaggregations")  # the tabs whose table loads as a part of its own
+
+
+def reporting_today() -> datetime.date:
+    """The day the Progress reports page reads each report's status for (Due, Overdue, Not yet due): its
+    stored tables are keyed on it. The tests freeze it here."""
+    return datetime.date.today()
+
+
+def _reporting_table_key(tab: str, params, day: datetime.date, stamp: str) -> str:
+    filters = reporting.ReportFilters.from_params(params)
+    tab_filters = (
+        reporting.DisaggregationFilters.from_params(params).cache_key() if tab == "disaggregations" else ""
+    )
+    # the rows a tab reads at once: past them the table is only "too many" (a constant, here for its tests)
+    limit = reporting.LOCATION_LIMIT if tab == "locations" else reporting.DISAGGREGATION_LIMIT
+    return (
+        f"pr-table:v{reporting.CACHE_VERSION}:{tab}:{limit}:{filters.cache_key()}:{tab_filters}:{day}:{stamp}"
+    )
+
+
+def reporting_table(tab: str, params, day: datetime.date | None = None) -> dict[str, Any]:
+    """The table of the Progress reports page's Report/Location (``tab="locations"``:
+    :func:`neurodb.datamart.reporting.location_rows`) or Report/Disaggregation tab (``"disaggregations"``:
+    :func:`neurodb.datamart.reporting.disaggregation_rows`, each block without its lines: the page fills
+    those of the blocks it shows, on a copy), with the chart data the tab carries (``by_month``), for the
+    page's filter (``params``). Computed once across every worker and kept two minutes: the tab's table
+    part, its pages and the tab drawn inline read it. The key holds the filter, the tab's own filters, the
+    day (the statuses Due, Overdue and Not yet due follow it) and the moment of the eTools figures (a
+    finished eTools sync shows at once); nothing about the person asking, and nothing translated. In DEBUG
+    it is computed at each call."""
+    day = day or reporting_today()
+
+    def build() -> dict[str, Any]:
+        data = partner_reporting(params, day)
+        wanted = set(data["filters"].statuses) or None
+        if tab == "locations":
+            found = reporting.location_rows(data["rows"], data["statuses"], data["today"], wanted)
+        else:
+            found = reporting.disaggregation_rows(
+                data["rows"], data["statuses"], data["today"], wanted, params
+            )
+        return {tab: found, "by_month": data["by_month"]}
+
+    if tab not in REPORTING_TABLES:
+        raise ValueError(f"no stored table for the tab {tab!r}")
+    if settings.DEBUG:
+        return build()
+    key = _reporting_table_key(tab, params, day, keys.fingerprint())
+    return compute.once(key, build, reporting.STORED_SECONDS, lang_neutral=True)
+
+
+def reporting_table_stored(tab: str, params, day: datetime.date | None = None) -> bool:
+    """Whether :func:`reporting_table` would answer at once from what is stored: the page's frame then draws
+    the table inline instead of asking for it."""
+    if settings.DEBUG:
+        return False
+    key = _reporting_table_key(tab, params, day or reporting_today(), keys.fingerprint())
+    return compute.peek(key, lang_neutral=True)[0]
+
+
 def partner_reporting(params, today: datetime.date | None = None) -> dict[str, Any]:
     """The Progress reports page: the progress reports of the filter (one of six statuses each, with
     their PD's status, document type and UNICEF focal points), the progress reports per status
@@ -1245,7 +1313,7 @@ def partner_reporting(params, today: datetime.date | None = None) -> dict[str, A
         "by_month": reporting.by_month(reports),
         "partners": reporting.partner_performance(reports),
         "today": today,
-        "options": reporting.filter_options(),
+        "options": reporting.stored_options(),
     }
 
 

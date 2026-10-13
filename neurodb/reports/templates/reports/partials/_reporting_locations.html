@@ -23,7 +23,7 @@
       <td class="num">{{ r.prp_to_date|number:0 }}</td>
     </tr>{% endfor %}</tbody>
   </table></div>
-  {% include "components/pagination.html" with hx_target="#reporting-results" %}
+  {% include "components/pagination.html" with part="table" %}
   <p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}One row per indicator, report and location. The value in the period is the total of the location's disaggregation, read the way Reached reads it: a value repeated on every location is the report total and is not shown as the location's, and two rows of one location are never added. Rows of reports that do not count in Reached (Sent back, Due, Overdue, Not yet due) are greyed. Values are not added up here: Reached is on Partner monitoring.{% endblocktrans %}</p>
   {% else %}
   {% include "reports/partials/_datamart_empty.html" with icon="pin" title=_("No report rows match") empty_title=_("No progress reports synced yet") %}

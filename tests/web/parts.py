@@ -290,16 +290,26 @@ def assemble(client: Client, url: str, *, strict: bool = True, **extra: Any) -> 
     return Assembled(html=html, shell=shell, parts=parts)
 
 
+# a part's placeholder and its grey shapes: an assembled page holds the part in their place, so their contexts
+# (name, kind, rows, url...) are not the page's, and would hide a part's value of the same name
+PLACEHOLDER_TEMPLATES = frozenset({"components/part.html", "components/part_skeleton.html"})
+
+
+def _drawn(response: HttpResponse) -> tuple[list[Any], list[Any]]:
+    """(contexts, templates) of what ``response`` drew, without its parts' placeholders."""
+    context = getattr(response, "context", None)
+    contexts = [] if context is None else list(context) if isinstance(context, ContextList) else [context]
+    templates = list(getattr(response, "templates", []))
+    if len(templates) != len(contexts):  # not one context per template: keep them all
+        return contexts, templates
+    kept = [n for n, template in enumerate(templates) if template.name not in PLACEHOLDER_TEMPLATES]
+    return [contexts[n] for n in kept], [templates[n] for n in kept]
+
+
 def _contexts(*responses: HttpResponse) -> ContextList:
     merged = ContextList()
     for response in responses:
-        context = getattr(response, "context", None)
-        if context is None:
-            continue
-        if isinstance(context, ContextList):
-            merged.extend(context)
-        else:
-            merged.append(context)
+        merged.extend(_drawn(response)[0])
     return merged
 
 
@@ -334,7 +344,7 @@ def assembling(get, *, refuse_failed: bool = True):
             response["Content-Length"] = str(len(response.content))
         shown = [part for part in parts.values() if _shown(part)]  # a 403 or 404 page adds nothing
         response.context = _contexts(response, *shown)
-        response.templates = [*response.templates, *(t for part in shown for t in part.templates)]
+        response.templates = [t for page in (response, *shown) for t in _drawn(page)[1]]
         response.parts = parts
         return response
 

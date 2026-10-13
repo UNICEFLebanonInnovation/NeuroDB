@@ -9,4 +9,4 @@
 {% if tab == "contributions" %}{% include "reports/partials/_funds_contributions.html" %}
 {% elif tab == "programmes" %}{% include "reports/partials/_funds_programmes.html" %}
 {% else %}{% include "reports/partials/_funds_reservations.html" %}{% endif %}
-{{ chart_data|json_script:"funds-chart-data" }}
+{% if tab == "reservations" %}{{ chart_data|json_script:"funds-chart-data" }}{% endif %}

@@ -12,26 +12,37 @@ an indicator with no quarterly report at all is read from its humanitarian repor
 Every figure comes from :mod:`neurodb.datamart.reached` (the one rule for "Reached": counted
 reports, location and period methods, nothing added twice); this module only selects the indicators
 and arranges the figures for the grid, the map, the indicator detail and their summaries.
+
+The partner monitoring page loads in parts (``reports.views.pd_monitoring``): its parts read the
+indicators of the filter stored once for every worker (:func:`stored_indicators`, plain copies of
+:class:`Indicator`: :class:`Row`), and its frame the filter options stored the same way
+(:func:`stored_options`); the map's API stores its places (:func:`stored_map_points`). Their keys are
+the filter, the day and the moment of the eTools figures (:mod:`neurodb.datamart.keys`). Every other
+reader (the overview, the brief, Ask NeuroDB, the checks) calls :func:`indicators` itself, as before.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
+import json
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from django.conf import settings
 from django.db.models import Q, QuerySet
 from django.urls import reverse
 
+from neurodb.core import compute
 from neurodb.geo.models import Location
 from neurodb.indicators.services import tracking
 from neurodb.indicators.services.tracking import NO_TARGET, tracking_between
 from neurodb.partnerships import statuses as pd_statuses
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
-from . import disaggregation
+from . import disaggregation, keys
 from . import models as dm
 from . import reached as rc
 from .reached import location_key, norm, number  # noqa: F401 (the names other modules import from here)
@@ -54,6 +65,17 @@ ALL_YEARS = "all"
 MAX_INDICATORS = 2000
 PAGE_SIZE = 100
 NO_SECTION = "—"  # the section of an indicator that names none (a section tile and filter value)
+# what the partner monitoring page and its map keep in the shared cache (compute.once): the indicators of a
+# filter and the map's places two minutes, the filter options ten (they only change with a sync)
+STORED_SECONDS = 120
+OPTIONS_SECONDS = 600
+CACHE_VERSION = 1
+
+
+def today() -> datetime.date:
+    """The day the partner monitoring figures are read for (their tracking, the overdue reports, the first
+    period NeuroDB holds): the pages read it here, where the tests freeze it."""
+    return datetime.date.today()
 
 
 # ------------------------------------------------------------------------------ report submitted
@@ -132,6 +154,21 @@ class Filters:
         if self.pd_statuses is not None:
             return list(self.pd_statuses)
         return list(ACTIVE_PD_STATUSES) if self.scope == "active" else []
+
+    def cache_key(self) -> str:
+        """Every field of the filter, as JSON, for the keys of what is stored for it: each list in one order
+        (the indicators of a filter never depend on the order of its choices), ``pd_statuses`` None (the
+        running PDs) apart from an empty list (every status). The values come from the address as typed, so
+        two spellings never share a key (a space and an underscore, a comma inside a name)."""
+        out: dict[str, Any] = {}
+        for item in dataclasses.fields(self):
+            value = getattr(self, item.name)
+            if isinstance(value, dict):
+                value = {key: sorted(str(v) for v in values) for key, values in sorted(value.items())}
+            elif isinstance(value, list | tuple):
+                value = sorted(str(v) for v in value)
+            out[item.name] = value
+        return json.dumps(out, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
     @classmethod
     def from_params(cls, params, today: datetime.date | None = None, default_year: bool = True) -> Filters:
@@ -607,6 +644,197 @@ def _apply(entry: Indicator, result: rc.Reached, report_type: str) -> None:
     entry.partner_status = latest.partner_status if latest else ""
 
 
+# --------------------------------------------------------------------------- stored for the page
+@dataclass
+class StoredPartner:
+    """A programme document's partner, as the pages draw it (its page's link and its name)."""
+
+    id: int
+    name: str
+
+
+@dataclass
+class StoredPD:
+    """A programme document as the grid, Program Performance and Data quality draw it: plain values, so it can
+    be stored for every worker (a PCA instance is not)."""
+
+    id: int
+    number: str | None
+    partner_id: int | None
+    partner: StoredPartner | None
+    partner_name: str | None
+    status: str | None
+    start: datetime.date | None
+    end: datetime.date | None
+    document_type: str | None
+
+
+@dataclass
+class Row:
+    """One indicator of :func:`indicators` as the partner monitoring page draws it and stores it for every
+    worker (:func:`stored_indicators`): the same names and values as :class:`Indicator`, its programme
+    document a :class:`StoredPD`, its properties (``tracking_label``, ``achieved_in_year``, ``additive``,
+    ``method_label``, ``notes``, ``url``) read once into fields, and without what only the map and the
+    indicator detail read (the reports and cells of ``result``, ``planned``, ``by_location``).
+    :func:`summary`, :func:`grouped`, :func:`sorted_rows`, :func:`data_quality` and :func:`year_columns`
+    read a Row as they read an Indicator."""
+
+    key: str
+    pd: StoredPD
+    ident: tuple[int, str]
+    title: str
+    output: str
+    section: str
+    cp_output: str
+    unit: str
+    display_type: str
+    baseline: float | None
+    target: float | None
+    high_frequency: bool
+    cluster: str
+    tags: dict[str, str]
+    locations: list[str]
+    months: dict[int, float]
+    years: dict[int, float]
+    reports: int
+    reached: float | None
+    reached_in_year: float | None
+    year: int | None
+    awaiting: float | None
+    awaiting_reports: int
+    as_of: datetime.date | None
+    prp_cumulative: float | None
+    mismatch: bool
+    value_status: str
+    partial: bool
+    report_type: str
+    partner_status: str
+    report_status: str
+    tracking: str
+    achieved: float | None
+    method: str
+    period_method: str
+    tracking_label: str
+    achieved_in_year: float | None
+    additive: bool
+    method_label: str
+    notes: list[str]
+    url: str
+
+    @property
+    def partner(self) -> StoredPartner | None:
+        return self.pd.partner
+
+
+def _stored_pd(pd: PCA) -> StoredPD:
+    partner = pd.partner
+    return StoredPD(
+        id=pd.id,
+        number=pd.number,
+        partner_id=pd.partner_id,
+        partner=StoredPartner(id=partner.id, name=partner.name) if partner is not None else None,
+        partner_name=pd.partner_name,
+        status=pd.status,
+        start=pd.start,
+        end=pd.end,
+        document_type=pd.document_type,
+    )
+
+
+def as_rows(found: list[Indicator]) -> list[Row]:
+    """:func:`indicators` as plain :class:`Row` values (one :class:`StoredPD` per programme document)."""
+    pds: dict[int, StoredPD] = {}
+    out = []
+    for i in found:
+        pd = pds.get(i.pd.id)
+        if pd is None:
+            pd = pds[i.pd.id] = _stored_pd(i.pd)
+        out.append(
+            Row(
+                key=i.key,
+                pd=pd,
+                ident=i.ident,
+                title=i.title,
+                output=i.output,
+                section=i.section,
+                cp_output=i.cp_output,
+                unit=i.unit,
+                display_type=i.display_type,
+                baseline=i.baseline,
+                target=i.target,
+                high_frequency=i.high_frequency,
+                cluster=i.cluster,
+                tags=dict(i.tags),
+                locations=list(i.locations),
+                months=dict(i.months),
+                years=dict(i.years),
+                reports=i.reports,
+                reached=i.reached,
+                reached_in_year=i.reached_in_year,
+                year=i.year,
+                awaiting=i.awaiting,
+                awaiting_reports=i.awaiting_reports,
+                as_of=i.as_of,
+                prp_cumulative=i.prp_cumulative,
+                mismatch=i.mismatch,
+                value_status=i.value_status,
+                partial=i.partial,
+                report_type=i.report_type,
+                partner_status=i.partner_status,
+                report_status=i.report_status,
+                tracking=i.tracking,
+                achieved=i.achieved,
+                method=i.method,
+                period_method=i.period_method,
+                tracking_label=i.tracking_label,
+                achieved_in_year=i.achieved_in_year,
+                additive=i.additive,
+                method_label=i.method_label,
+                notes=list(i.notes),
+                url=i.url,
+            )
+        )
+    return out
+
+
+def _rows_key(filters: Filters, day: datetime.date, stamp: str) -> str:
+    return f"pm-rows:v{CACHE_VERSION}:{filters.cache_key()}:{day}:{stamp}"
+
+
+def stored_indicators(filters: Filters, day: datetime.date | None = None, *, as_of: str = "") -> list[Row]:
+    """:func:`indicators` of ``filters`` on ``day`` as :class:`Row` values, computed once across every
+    worker and kept two minutes (the partner monitoring page's parts read them). The key holds the filter,
+    the day and the moment of the eTools figures (:func:`neurodb.datamart.keys.fingerprint`: a finished
+    eTools sync shows at once), and nothing about the person asking: no figure of an indicator depends on
+    who asks (the user's own section reaches it only as the filter's sections). Nothing in it is translated,
+    so one value serves every language. ``as_of``, in a part request, is the fingerprint the page's frame
+    read: the parts of one page read one computation even when a sync finishes before or between them
+    (:func:`neurodb.core.compute.once_as_of`). In DEBUG it is computed at each call."""
+    day = day or today()
+
+    def compute_rows() -> list[Row]:
+        return as_rows(indicators(filters, day))
+
+    if settings.DEBUG:
+        return compute_rows()
+    return compute.once_as_of(
+        lambda stamp: _rows_key(filters, day, stamp),
+        as_of,
+        keys.fingerprint(),
+        compute_rows,
+        STORED_SECONDS,
+        lang_neutral=True,
+    )
+
+
+def indicators_stored(filters: Filters, day: datetime.date | None = None) -> bool:
+    """Whether :func:`stored_indicators` would answer ``filters`` at once from what is stored: the page's
+    frame then draws its parts inline instead of asking for them (it never computes them itself)."""
+    if settings.DEBUG:
+        return False
+    return compute.peek(_rows_key(filters, day or today(), keys.fingerprint()), lang_neutral=True)[0]
+
+
 # ------------------------------------------------------------------------------------------ map
 LEVEL_GOVERNORATE, LEVEL_DISTRICT = 1, 2  # eTools admin levels in Lebanon (0 = country)
 
@@ -810,8 +1038,10 @@ def map_points(filters: Filters, today: datetime.date | None = None) -> dict[str
         )
         place["rows"].sort(key=lambda r: (r["partner"] or "", r["pd"] or "", r["indicator"]))
         (points if place["latitude"] is not None else unlocated).append(place)
-    points.sort(key=lambda p: -p["indicators"])
-    unlocated.sort(key=lambda p: -p["indicators"])
+    # the most indicators first; places with as many by their key, so every computation gives one order (the
+    # places come from sets of location keys, whose order changes from one process to the next)
+    points.sort(key=lambda p: (-p["indicators"], p["key"]))
+    unlocated.sort(key=lambda p: (-p["indicators"], p["key"]))
     return {
         "points": points,
         "unlocated": unlocated,
@@ -829,6 +1059,21 @@ def map_points(filters: Filters, today: datetime.date | None = None) -> dict[str
             "status_counts": dict(Counter(r.tracking for r in rows)),
         },
     }
+
+
+def stored_map_points(filters: Filters, day: datetime.date | None = None) -> dict[str, Any]:
+    """:func:`map_points` (the partner monitoring map's API), computed once across every worker and kept two
+    minutes. Its key holds the filter, the day, the moment of the eTools figures and the gazetteer as staff
+    left it in the admin (:func:`neurodb.datamart.keys.gazetteer`: the map places each location by it), and
+    nothing about the person asking; nothing in it is translated. In DEBUG it is computed at each call."""
+    day = day or today()
+    if settings.DEBUG:
+        return map_points(filters, day)
+    key = (
+        f"pm-map:v{CACHE_VERSION}:{filters.cache_key()}:{day}:{keys.fingerprint()}:"
+        f"{compute.fingerprint(keys.gazetteer())}"
+    )
+    return compute.once(key, lambda: map_points(filters, day), STORED_SECONDS, lang_neutral=True)
 
 
 # ------------------------------------------------------------------------------------- summaries
@@ -1055,6 +1300,24 @@ def grouped(rows: list[Indicator]) -> list[dict[str, Any]]:
         {**s, "pds": [{**p, "outputs": list(p["outputs"].values())} for p in s["pds"].values()]}
         for s in sorted(sections.values(), key=lambda s: s["section"])
     ]
+
+
+def stored_options(filters: Filters) -> dict[str, Any]:
+    """:func:`filter_options` for the frames of the partner monitoring page and its map: stored ten minutes
+    for every worker under a key the eTools jobs' runs change (:func:`neurodb.datamart.keys.fingerprint`),
+    the same for every user and language. A frame that finds another request computing them computes them
+    itself rather than wait for it (35 ms on a large database): the frame comes at once. The reporting years
+    fall back on the filter's year only when no partner report has a period end, after the stored value is
+    read. In DEBUG they are read at each call."""
+    if settings.DEBUG:
+        return filter_options(filters)
+    key = f"pm-options:v{CACHE_VERSION}:{keys.fingerprint()}"
+    found = compute.once(
+        key, lambda: filter_options(Filters(year=None)), OPTIONS_SECONDS, wait=0, lang_neutral=True
+    )
+    if found["years"] or not filters.year:
+        return found
+    return {**found, "years": [filters.year]}
 
 
 def filter_options(filters: Filters) -> dict[str, Any]:
