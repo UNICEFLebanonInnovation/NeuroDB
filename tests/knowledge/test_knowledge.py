@@ -10,6 +10,8 @@ from types import SimpleNamespace
 import pytest
 from django.contrib.auth.models import Group
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from openpyxl import Workbook
 
@@ -303,6 +305,20 @@ def test_snippets_are_escaped(records, no_ai):
     indexing.process(_note("x", "Payload <script>alert(1)</script> about dropout"))
     snippet = search.search("dropout")[0].snippet()
     assert "<script>" not in snippet and "&lt;script&gt;" in snippet and "<mark>dropout</mark>" in snippet
+
+
+def test_search_ranks_on_the_stored_index_the_title_first(records, no_ai):
+    """The rank reads each passage's stored index and its weights (the title first), not an index parsed again from
+    its text, which lost them and took 1.6 s for one common word over 3,200 passages (step 3's quick win). A
+    passage whose document is titled with the word comes before one that only says it twice."""
+    titled = indexing.process(_note("Latrines survey", "The survey covered the camps of the valley."))
+    said = indexing.process(_note("Camp notes", "The latrines were checked; more latrines are needed."))
+    with CaptureQueriesContext(connection) as queries:
+        hits = search.search("latrines")
+    assert [h.document.pk for h in hits] == [titled.pk, said.pk]
+    ranked = [q["sql"] for q in queries.captured_queries if "ts_rank" in q["sql"]]
+    assert ranked and all('ts_rank("knowledge_chunk"."search_vector", ' in sql for sql in ranked)
+    assert not any("to_tsvector" in sql for sql in ranked)
 
 
 # ------------------------------------------------------------------------------- assistant

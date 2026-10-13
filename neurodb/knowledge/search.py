@@ -94,6 +94,13 @@ def _any_word(terms: list[str]) -> SearchQuery:
 
 
 def search(query: str, filters: Filters | None = None, limit: int = 8) -> list[Hit]:
+    """The passages that best match ``query`` (see the module docstring), the best ranked first.
+
+    The rank reads each passage's stored index (``search_vector``: the title weighted first, then the
+    English words, then the words as written; see ``indexing``). Ranked on the column's name instead
+    (``SearchRank("search_vector", ...)``), PostgreSQL turned the stored index into text and parsed that
+    text again for every matching passage: the weights were lost, and one common word over a large
+    knowledge base took more than a second and a half."""
     filters = filters or Filters()
     terms = words(query)
     if not terms:
@@ -105,7 +112,7 @@ def search(query: str, filters: Filters | None = None, limit: int = 8) -> list[H
         rows = (
             base.filter(search_vector=tsquery)
             .exclude(pk__in=seen)
-            .annotate(rank=SearchRank("search_vector", tsquery))
+            .annotate(rank=SearchRank(F("search_vector"), tsquery))
             # editions of a periodic report repeat the same words: the newest first
             .order_by(
                 "-rank", F("document__document_date").desc(nulls_last=True), "-document_id", "position"

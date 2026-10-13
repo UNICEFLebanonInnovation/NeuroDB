@@ -18,9 +18,13 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
-from django.db.models import Avg, Count, Exists, OuterRef, Prefetch, Q, QuerySet
+from django.db import connection
+from django.db.models import Avg, Count, Exists, IntegerField, OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.db.models.functions import Coalesce
 from django.http import QueryDict
 from django.utils import timezone
+
+from neurodb.core import compute
 
 from . import review
 from .models import (
@@ -41,6 +45,7 @@ MIN_DOCUMENTS = (2, 3, 4, 5)  # the Synthesis tab's choice (5 = five or more)
 SIMILAR = 0.6  # two findings' word sets at least this alike are "repeated"
 REPEATED_CANDIDATES = 3000  # findings compared for repeats, best evidence first
 REPEATED_GROUPS = 50
+REPEATED_SECONDS = 3600  # how long the repeated findings stay stored (an edit changes their key at once)
 COMMON_WORD_SHARE = 0.2  # a word in more findings than this share does not pair findings on its own
 TOP = 15  # bars of the "top" charts
 CURRENT_DAYS = 365  # Actions "Current": documents dated within a year of the newest one
@@ -410,10 +415,21 @@ def stopped_note(document: Document) -> str:
 ANALYSED = (Document.ReviewStatus.DONE, Document.ReviewStatus.PARTLY)
 
 
+def _count_per_document(rows: QuerySet) -> Coalesce:
+    """How many of ``rows`` (findings, statements or action points, already filtered) each document has:
+    a subquery per document, 0 when it has none."""
+    counted = rows.filter(document_id=OuterRef("pk")).order_by().values("document_id")
+    return Coalesce(Subquery(counted.annotate(n=Count("pk")).values("n"), output_field=IntegerField()), 0)
+
+
 def document_rows(batch: int | None = None, analysed: bool = False) -> list[Document]:
     """The documents of the batch (or of every batch) with their counts, for the Documents tab and the
     Index view; ``analysed``: those the Dashboard's "Documents analysed" counts (done or partly, not a
-    reference)."""
+    reference).
+
+    Each count is a subquery per document. Counted over one join of the findings, statements and action
+    points instead (``Count(..., distinct=True)``), a document with 30 findings, 6 statements and 6 action
+    points made 1,080 rows to count, and the Documents tab of a review of 120 documents took half a second."""
     qs = Document.objects.filter(review_batch__isnull=False)
     if batch:
         qs = qs.filter(review_batch_id=batch)
@@ -422,10 +438,10 @@ def document_rows(batch: int | None = None, analysed: bool = False) -> list[Docu
     rows = list(
         light(qs.select_related("review_batch"), "")
         .annotate(
-            n_findings=Count("findings", distinct=True),
-            n_statements=Count("statements", distinct=True),
-            n_actions=Count("review_action_points", distinct=True),
-            n_reviewed=Count("findings", filter=~Q(findings__verdict=Verdict.UNREVIEWED), distinct=True),
+            n_findings=_count_per_document(DocumentFinding.objects.all()),
+            n_statements=_count_per_document(DocumentStatement.objects.all()),
+            n_actions=_count_per_document(DocumentActionPoint.objects.all()),
+            n_reviewed=_count_per_document(DocumentFinding.objects.exclude(verdict=Verdict.UNREVIEWED)),
         )
         .order_by("review_batch__archived", "review_batch__name", "title", "pk")
     )
@@ -729,16 +745,29 @@ def theme_findings(
 ) -> list[DocumentFinding]:
     """A theme's findings, best evidence first, one per document before the second of any (so a long
     list shows every document)."""
-    qs = light(findings(batch, verified).filter(topic_id=topic).select_related("document", "topic"))
+    return themes_findings([topic], batch, verified, challenges, limit)[topic]
+
+
+def themes_findings(
+    topics: list[int], batch: int | None, verified: bool, challenges: bool = False, limit: int | None = None
+) -> dict[int, list[DocumentFinding]]:
+    """:func:`theme_findings` of several themes at once (the Synthesis tab's 60), in one query: ``{topic:
+    its findings}``, in the same order as one theme at a time."""
+    qs = light(findings(batch, verified).filter(topic_id__in=topics).select_related("document", "topic"))
     if challenges:
         qs = qs.filter(category=FindingCategory.CHALLENGE)
-    rows = list(qs.order_by("-evidence", "pk"))
-    seen: Counter = Counter()
-    for finding in rows:
-        finding.rank = seen[finding.document_id]
-        seen[finding.document_id] += 1
-    rows.sort(key=lambda f: (f.rank, -f.evidence, f.pk))
-    return rows[:limit] if limit else rows
+    by_topic: dict[int, list[DocumentFinding]] = {topic: [] for topic in topics}
+    for finding in qs.order_by("-evidence", "pk"):  # each theme's findings in this order, as one query each
+        by_topic[finding.topic_id].append(finding)
+    for rows in by_topic.values():
+        seen: Counter = Counter()
+        for finding in rows:
+            finding.rank = seen[finding.document_id]
+            seen[finding.document_id] += 1
+        rows.sort(key=lambda f: (f.rank, -f.evidence, f.pk))
+        if limit:
+            del rows[limit:]
+    return by_topic
 
 
 # ------------------------------------------------------------------------------------------ repeated findings
@@ -809,6 +838,97 @@ def repeated(batch: int | None, verified: bool, limit: int = REPEATED_GROUPS) ->
     found = [Repeated(g) for g in groups.values() if len({f.document_id for f in g}) >= 2]
     found.sort(key=lambda r: (-r.documents, -len(r.findings), -r.lead.evidence))
     return found[:limit]
+
+
+# ------------------------------------------------------------------------------------------ stored builds
+# The repeated findings take seconds on a large review (thousands of findings compared word by word), so they
+# are kept in the cache every worker shares (``compute.once``), under a key that holds everything they are
+# made of besides the filter: :func:`review_stamp`.
+STAMP_SQL = """
+SELECT
+  (SELECT count(*) || ':' || md5(coalesce(string_agg(
+            id || ':' || review_status || ':' || review_batch_id || ':' || coalesce(reviewed_at::text, ''),
+            ',' ORDER BY id), ''))
+          || ':' || coalesce(max(updated_at)::text, '')
+     FROM {document} WHERE review_batch_id IS NOT NULL),
+  (SELECT count(*) || ':' || coalesce(max(id), 0) || ':' || coalesce(max(edited_at)::text, '')
+     FROM {finding}),
+  (SELECT md5(coalesce(string_agg(id || ':' || verdict, ',' ORDER BY id), ''))
+     FROM {finding} WHERE verdict <> %s),
+  (SELECT md5(coalesce(string_agg(id || ':' || name || ':' || archived::text, ',' ORDER BY id), ''))
+     FROM {batch})
+"""
+
+
+def review_stamp() -> str:
+    """What the review's figures are made of, as a :func:`neurodb.core.compute.fingerprint` that changes with
+    every change, whoever or whatever makes it (read once per request, in one query):
+
+    - the documents in a batch: each one's batch, review status and analysis time (the review job and the
+      page's buttons set them with ``QuerySet.update()``, which leaves ``updated_at`` alone; a finished
+      analysis writes its findings and the document's analysis time in one transaction) and the last change
+      of any (a title or a file changed in the admin);
+    - the findings: how many, the newest, the last edit, and each verdict given (accept, reject or undo);
+    - the batches: names and archiving (no time stamp of their own).
+
+    Nothing about the person asking, and no sync run: the review reads none."""
+
+    def read() -> str:
+        quote = connection.ops.quote_name
+        sql = STAMP_SQL.format(
+            document=quote(Document._meta.db_table),
+            finding=quote(DocumentFinding._meta.db_table),
+            batch=quote(ReviewBatch._meta.db_table),
+        )
+        with connection.cursor() as cursor:
+            cursor.execute(sql, [Verdict.UNREVIEWED])  # the table names come from the models
+            return "|".join(str(value) for value in cursor.fetchone())
+
+    return compute.per_request("knowledge-review:stamp", lambda: compute.fingerprint(read()))
+
+
+def _repeated_key(batch: int | None, verified: bool) -> str:
+    """The stored repeated findings' key: the batch, the person's Verified only switch (it changes what is
+    counted) and :func:`review_stamp`."""
+    return f"review-repeated:v1:{batch or ''}:{int(bool(verified))}:{review_stamp()}"
+
+
+def _plain_group(group: Repeated) -> dict[str, Any]:
+    """One group of :func:`repeated` as the page shows it, in plain data (what the shared cache stores)."""
+
+    def plain(finding: DocumentFinding) -> dict[str, Any]:
+        document = finding.document
+        return {
+            "pk": finding.pk,
+            "text": finding.text,
+            "page_label": finding.page_label,
+            "url": finding.url,
+            "evidence": finding.evidence,
+            "document": {"pk": document.pk, "title": document.title, "url": document.get_absolute_url()},
+        }
+
+    return {
+        "documents": group.documents,
+        "lead": plain(group.lead),
+        "findings": [plain(finding) for finding in group.findings],
+    }
+
+
+def repeated_groups(batch: int | None, verified: bool) -> list[dict[str, Any]]:
+    """:func:`repeated` as the review page shows it, in plain data, computed once for every worker and person
+    and kept an hour under :func:`_repeated_key` (any change to the review gives a new key). Nothing in it is
+    translated, so one value serves every language."""
+    return compute.once(
+        _repeated_key(batch, verified),
+        lambda: [_plain_group(group) for group in repeated(batch, verified)],
+        REPEATED_SECONDS,
+        lang_neutral=True,
+    )
+
+
+def repeated_stored(batch: int | None, verified: bool) -> bool:
+    """Whether :func:`repeated_groups` would answer at once from what is stored (it never computes)."""
+    return compute.peek(_repeated_key(batch, verified), lang_neutral=True)[0]
 
 
 # ------------------------------------------------------------------------------------------ actions

@@ -1,5 +1,5 @@
-{% load i18n ui %}
-<nav class="segmented mb-2" aria-label="{% trans 'Findings views' %}">
+{% load i18n ui parts %}
+<nav class="segmented segmented--scroll mb-2" aria-label="{% trans 'Findings views' %}">
   {% for v in views %}<a href="{% url 'knowledge:review' %}?{{ v.query }}" hx-get="{% url 'knowledge:review' %}?{{ v.query }}" hx-target="#review-results" hx-push-url="true" {% if v.key == view %}aria-current="page"{% endif %}>{{ v.label }}</a>{% endfor %}
 </nav>
 <p class="small text-muted">{% if view == "document" %}{% trans "One document at a time: its key statements, then its findings. Accept all and Reject all apply to what is still not reviewed; what was already decided stays." %}{% elif view == "statements" %}{% trans "The key statements of every document, most urgent first, each with the findings it rests on." %}{% elif view == "index" %}{% trans "Every document of the review, analysed or not, with its stages: the place to see whether a file was ever analysed and why a stage failed." %}{% else %}{% trans "One row per finding across every document. Evidence (0–100) is NeuroDB's check, never the AI's confidence: quote found 45, reported 25, dated 10, placed 10, tagged 10. Under 70 is worth reading against its page before quoting it." %}{% endif %}</p>
@@ -91,44 +91,8 @@
 </section>
 
 {% elif view == "document" %}
-{% if documents %}
-{% for d in documents %}
-<section class="panel" aria-labelledby="review-doc-{{ d.pk }}">
-  <div class="panel__header">
-    <h2 class="panel__title" id="review-doc-{{ d.pk }}"><a href="{{ d.get_absolute_url }}">{{ d.title }}</a></h2>
-    <span class="panel__hint">{{ d.review_batch.name }} · {{ d.get_review_status_display }}{% if d.reviewed_at %} {% blocktrans with day=d.reviewed_at|date:"j M Y" %}on {{ day }}{% endblocktrans %}{% endif %}</span>
-  </div>
-  {% if can_edit %}
-  <div class="d-flex flex-wrap gap-2 mb-2">
-    {% if d.unreviewed %}
-    <form method="post" action="{% url 'knowledge:review_bulk_verdict' d.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="verdict" value="accepted">{% for f in d.shown_findings %}{% if f.verdict == "unreviewed" %}<input type="hidden" name="finding" value="{{ f.pk }}">{% endif %}{% endfor %}<button type="submit" class="btn btn-outline-success btn-sm">{% blocktrans count n=d.unreviewed %}Accept all ({{ n }} not reviewed){% plural %}Accept all ({{ n }} not reviewed){% endblocktrans %}</button></form>
-    <form method="post" action="{% url 'knowledge:review_bulk_verdict' d.pk %}" class="d-inline" data-confirm="{% trans 'Reject every finding listed here that is not reviewed yet?' %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="verdict" value="rejected">{% for f in d.shown_findings %}{% if f.verdict == "unreviewed" %}<input type="hidden" name="finding" value="{{ f.pk }}">{% endif %}{% endfor %}<button type="submit" class="btn btn-outline-danger btn-sm">{% trans "Reject all not reviewed" %}</button></form>
-    {% endif %}
-    {% url 'knowledge:review_finding_new' d.pk as new_url %}
-    <a class="btn btn-outline-primary btn-sm" href="{{ new_url }}?next={{ request.get_full_path|urlencode }}" hx-get="{{ new_url }}?next={{ request.get_full_path|urlencode }}" hx-target="#modal-content" hx-push-url="false">{% trans "Add a finding" %}</a>
-  </div>
-  {% endif %}
-  {% if d.key_statements %}
-  <h3 class="h6 mt-2">{% trans "Key statements" %}</h3>
-  <div class="table-wrap"><table class="table table-sm">
-    <thead><tr><th class="text-end">{% trans "Urgency" %}</th><th>{% trans "Statement" %}</th><th>{% trans "Based on" %}</th><th>{% trans "Review" %}</th></tr></thead>
-    <tbody>{% for s in d.key_statements %}{% include "knowledge/review/_statement_row.html" with compact=True %}{% endfor %}</tbody>
-  </table></div>
-  {% endif %}
-  <h3 class="h6 mt-2">{% blocktrans count n=d.shown_findings|length %}{{ n }} finding{% plural %}{{ n }} findings{% endblocktrans %}</h3>
-  {% if d.shown_findings %}
-  <div class="table-wrap"><table class="table table-sm mb-0">
-    <thead><tr><th>{% trans "Page" %}</th><th>{% trans "Finding" %}</th><th>{% trans "Tag" %}</th><th>{% trans "Category" %}</th><th>{% trans "Place" %}</th><th class="text-end">{% trans "Evidence" %}</th><th>{% trans "Review" %}</th></tr></thead>
-    <tbody>{% for finding in d.shown_findings %}{% include "knowledge/review/_finding_row.html" with compact=True %}{% endfor %}</tbody>
-  </table></div>
-  {% else %}<p class="small text-muted">{% trans "No finding matches the filter." %}</p>{% endif %}
-</section>
-{% endfor %}
-{% include "components/pagination.html" with page_obj=documents_page hx_target="#review-results" %}
-{% else %}
-<section class="panel">{% include "components/empty_state.html" with icon="search" title=_("No document matches") message=_("Documents appear here once they are analysed.") %}</section>
-{% endif %}
-
+{# The documents of the view (10 a page) come in a part. Its placeholder keeps the room of one document, measured on the x20 parity world (the median of the busiest page's ten, on a wide screen, at 900 px and on a phone): editors' rows hold the review buttons and are taller. The part is the last block of the page, so nothing moves when the other nine arrive below the fold. #}
+{% if can_edit %}{% part "findings" kind="list" priority="high" rows=20 height="7500px" height_md="16550px" height_sm="20250px" %}{% else %}{% part "findings" kind="list" priority="high" rows=20 height="6450px" height_md="11100px" height_sm="20200px" %}{% endif %}
 {% else %}
 <section class="panel p-0">
   {% include "components/table_toolbar.html" with title=_("All findings") count=page_obj.paginator.count table_id="review-findings" filename="document-findings" %}

@@ -1593,4 +1593,12 @@ tr.is-uncounted > td { color: var(--nd-muted); }
 /* ============================================================================ end of stage D1 */
 
 /* ============================================================================ stage D2 (knowledge, What's new, For you): part fixes */
+/* Document review (knowledge/review/_tab_findings.html, _tab_synthesis.html): the By document documents
+   (#part-findings) and the Themes or Repeated findings (#part-synthesis) keep the room of their first screens (one
+   document, ten themes, the folded groups: thousands of px). When their request fails, the error box goes without
+   that room, so no screen of blank page is left below it; Try again gives the room back while the part loads. */
+#part-findings[data-part="findings"][data-part-state="error"],
+#part-synthesis[data-part="synthesis"][data-part-state="error"] { min-height: 0; }
+#part-findings[data-part="findings"][data-part-state="error"]::before,
+#part-synthesis[data-part="synthesis"][data-part-state="error"]::before { content: none; } /* nor the middle height */
 /* ============================================================================ end of stage D2 */

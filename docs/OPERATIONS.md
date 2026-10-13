@@ -202,7 +202,10 @@ minutes; the page refreshes until it is ready; several files added at once are r
    in the media storage (Azure Blob in production, under `knowledge/`).
 2. **Index**: the text is cut into passages of about 1,500 characters (with their page) and indexed
    with PostgreSQL full-text search (English stemming, plus the words as written for Arabic, place
-   names and reference numbers; the title counts most).
+   names and reference numbers; the title counts most). The search ranks passages on that stored index
+   and its weights (`knowledge/search.py`): about 40-140 ms for one common word over 3,200 passages
+   (the x20 parity world), where ranking on an index parsed again from its text took 1.6-1.8 s and lost
+   the title's weight. So `/knowledge/?q=` stays one request (it is not a page in parts).
 3. **Links**: the partners (full, short or alternate name, vendor number), programme documents
    (reference number, with or without the amendment suffix), sections, governorates and districts
    named in the text are linked. Matching is literal and whole-word; "North" and "South" count
@@ -441,6 +444,18 @@ The prompts and settings stay in the admin, for Administrators. Its tabs:
   time*), the status set on the row, CSV and Excel of the filter.
 - **Report**: *Download desk review (.docx)* (`desk-review-YYYY-MM-DD.docx`), built when clicked from the
   same figures, without AI, for the chosen batch and minimum of documents.
+
+**On a large review** (measured on the x20 parity world: 126 documents in 5 batches, 3,270 findings,
+654 statements, 654 action points) three views **load in parts** (see *Pages that load in parts*): *By
+document* (0.45-0.85 s, most of it drawing ten documents of thirty findings each), *Themes* (0.35-0.47 s)
+and *Repeated findings* (5-5.7 s: up to 3,000 findings compared word by word). Their frame comes at once
+and their figures in one part, `findings` or `synthesis`. The repeated findings are kept in the shared page
+figures for an hour, per batch and *Verified only*, under a key that every change to the review moves, so
+they are worked out once for everyone (`review_data.repeated_groups`). The Documents tab counts each
+document's findings, statements and action points by subqueries (about 20 ms; one count over all three
+joined took 0.4-0.5 s) and the themes read their best findings in one query (one per theme before), so the
+Documents tab (0.13-0.2 s), the Index (0.1 s) and the other tabs and views stay one request. The
+Documents tab's 20-second refresh is unchanged.
 
 **Rejected and verified.** A rejected finding or statement leaves every count, chart, synthesis and the
 desk review (the Findings tab keeps listing it, struck through). **Verified only** (the switch at the top
@@ -972,6 +987,7 @@ more.
 | Country programme, `/country-programme/` | Cycle selector, the cycle's panel (years, share of the cycle elapsed, summary, documents, *Edit in the admin* for staff), the note on AI-suggested indicators; without a cycle or without indicators, the empty state and no part | `summary` (at once; first of the group `cpd`): the six key figures, *Where the CPD indicators stand* and the outcomes at a glance. `outcomes` (when near the screen, once `summary` is in): each outcome with its outputs, indicators, programme documents and partner reporting; a link to `#outcome-<id>` asks for it first | The cycle's build, 10 minutes per cycle, day and language (the kinds of the linked sources are translated), under a key that holds the cycle and what staff enter by hand that its figures read (the cycle, its outcomes, outputs, indicators, milestones, typed values and linked sources, and how the linked ActivityInfo master indicators are set up: one digest of the rows themselves, so an edit in place shows at once) and the last finished sync run and the indicator flags. When the build is stored, the frame draws both parts itself. See *Country programme* |
 | Youth programmes, `/youth/` | The filter bar whole (its choices are read in the database from a few lists of the year's figures, never by decoding them, and kept 10 minutes), the line saying when Compiler's figures were read; without figures, the empty state and no part | `summary` (at once; first of the group `youth`): the five key figures and the youth indicators with their eTools indicators. `details` (when near the screen, once `summary` is in): the breakdowns, *Compiler and eTools, side by side* and the programme documents in Compiler | The year's build, 10 minutes per year's figures (their row and when they were read), filters, day and language (the breakdowns' names are translated), under a key that holds the year's links to eTools (a digest of the rows: a link confirmed with the admin's action, edited or added shows at once), the last finished sync run and the indicator flags; the filter bar's choices, 10 minutes per year's figures, the same in every language. When the build is stored, the frame draws both parts itself. See *Youth programmes* |
 | Donor page, `/donor/` (not a staff page) | The bar with the year, the tabs, every heading and card of both tabs with grey shapes of the size of their charts, the date of the data; for an administrator's preview, the preview banner | One part, `data`, answered as JSON and drawn by the page's script (`donor.js`): every figure of both tabs. Its address carries the year and, in an administrator's preview, the account and the tab; for a donor it is always the donor's own account, whatever the address says | The page's figures, 5 minutes per account (its donors, grants and whether partners are named), year and day, the same in every language, under the last finished sync run and the indicator flags; they were kept per worker before. When they are stored, the frame carries them and nothing is fetched. See *Donor access* |
+| Document review, `/knowledge/review/`: the views *By document* (Findings), *Themes* and *Repeated findings* (Synthesis); the other tabs and views are drawn whole | Breadcrumbs, *Verified only*, purpose line, the tab bar, the view's links, filter bar and filter chips; for *Repeated findings* the panel's heading and explanation | `findings` (at once): the page's ten documents, each with its key statements and findings and, for editors, *Accept all*, *Add a finding* and the review buttons; its page links reload this part only. `synthesis` (at once): the *Themes* panel (each theme with its five best findings, its link and, when AI is on, *Write a paragraph* with the person's quota) or the repeated findings' groups. A tab or filter change (htmx) answers with the figures in it, as before, except the repeated findings: their placeholder unless they are stored | Only the repeated findings: an hour at most, per batch and *Verified only* (each person's switch is in the key), the same in every language and for everyone, under a key made of what they are read from: the documents in a batch (their batch, review status and analysis time, and the last change of any, a title or a file changed in the admin), the findings (how many, the newest, the last edit, every verdict given) and the batches (names, archiving). A verdict, an edit, *Accept all*, a document taken out or marked reference, or a finished analysis shows at once. When they are stored, the frame draws them itself. *By document* and *Themes* are computed at each request. See *Document review* |
 
 Every other page is still drawn whole. Of these, the ActivityInfo databases page and each database,
 the Neuro and HPM reports, the programme documents' indicators tab, each programme document (page and

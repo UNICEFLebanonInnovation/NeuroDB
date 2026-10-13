@@ -1,0 +1,42 @@
+{% load i18n ui %}{# The part "synthesis" of the document review: the Repeated findings view's groups (knowledge.review_data.repeated_groups, stored for every worker; its heading stays in the frame), or the Themes view's panel (knowledge.review_views._themes_part). #}
+{% if view == "repeated" %}
+  {% if groups %}
+  <ol class="review-repeated">
+    {% for g in groups %}<li class="mb-2"><details><summary>{{ g.lead.text }} <span class="chip">{% blocktrans count n=g.documents %}Raised in {{ n }} document{% plural %}Raised in {{ n }} documents{% endblocktrans %}</span></summary>
+      <ul class="small mt-1">{% for f in g.findings %}<li>{{ f.text }} — <a href="{{ f.document.url }}">{{ f.document.title }}</a>{% if f.page_label %}, <a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.page_label }}</a>{% endif %}</li>{% endfor %}</ul>
+    </details></li>{% endfor %}
+  </ol>
+  {% else %}
+  {% include "components/empty_state.html" with icon="search" title=_("No finding is repeated across documents") %}
+  {% endif %}
+{% else %}
+<section class="panel">
+  <div class="panel__header"><h2 class="panel__title">{% trans "Themes" %}</h2>
+    <span class="panel__hint">{% blocktrans count n=synthesis.themes|length with min=min_documents %}{{ n }} theme raised by {{ min }} documents or more{% plural %}{{ n }} themes raised by {{ min }} documents or more{% endblocktrans %}</span>
+    {% if paragraph_on %}<span class="chip{% if quota.used >= quota.allowed %} watch-chip--likely{% endif %}" id="paragraph-quota" title="{% trans 'Your paragraphs today; the count starts again at midnight' %}">{% blocktrans with used=quota.used allowed=quota.allowed %}{{ used }} of {{ allowed }} today{% endblocktrans %}</span>{% endif %}</div>
+  {% if shown_themes %}
+  {% for t in shown_themes %}
+  <article class="review-theme border-top pt-2 mt-2" aria-labelledby="theme-{{ t.topic.pk }}-title">
+    <div class="d-flex flex-wrap justify-content-between gap-2">
+      <h3 class="h6 mb-1" id="theme-{{ t.topic.pk }}-title">{{ t.topic.path }}</h3>
+      <span class="small text-muted">{% blocktrans count n=t.n_documents with f=t.n_findings %}{{ n }} document · {{ f }} findings{% plural %}{{ n }} documents · {{ f }} findings{% endblocktrans %}{% if t.year_span %} · {{ t.year_span }}{% endif %} · {% blocktrans with e=t.average_evidence %}evidence {{ e }}{% endblocktrans %}</span>
+    </div>
+    <p class="small mb-1">{% for pk, title in t.documents.items %}{% if not forloop.first %} · {% endif %}<a href="{% url 'knowledge:detail' pk %}">{{ title|truncatechars:50 }}</a>{% endfor %}</p>
+    <ul class="small mb-1">{% for f in t.top %}<li>{{ f.text }} <span class="text-muted">({{ f.document.title|truncatechars:50 }}{% if f.page_label %}, <a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.page_label }}</a>{% endif %})</span></li>{% endfor %}</ul>
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      <a class="small" href="{{ t.findings_url }}" hx-get="{{ t.findings_url }}" hx-target="#review-results" hx-push-url="true">{% blocktrans count n=t.n_findings %}Its {{ n }} finding{% plural %}All {{ n }} findings{% endblocktrans %}</a>
+      {% if paragraph_on %}{% url 'knowledge:review_paragraph' t.topic.pk as paragraph_url %}
+      <form method="post" action="{{ paragraph_url }}" hx-post="{{ paragraph_url }}" hx-target="#theme-{{ t.topic.pk }}-paragraph" hx-disabled-elt="find button" class="d-inline">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">{% if batch %}<input type="hidden" name="batch" value="{{ batch }}">{% endif %}{% if challenges %}<input type="hidden" name="challenges" value="1">{% endif %}
+        <button type="submit" class="btn btn-outline-secondary btn-sm" title="{% trans 'One AI call on this theme’s findings only; each claim cited to its document and page' %}">{% trans "Write a paragraph" %} <span class="nav-badge">{% trans "AI" %}</span></button>
+      </form>{% endif %}
+    </div>
+    <div id="theme-{{ t.topic.pk }}-paragraph" aria-live="polite"></div>
+  </article>
+  {% endfor %}
+  {% if synthesis.themes|length > shown_themes|length %}<p class="small text-muted mt-2">{% blocktrans with n=shown_themes|length %}The first {{ n }} themes are shown; raise the minimum of documents or search to narrow them.{% endblocktrans %}</p>{% endif %}
+  {% else %}
+  {% include "components/empty_state.html" with icon="chart" title=_("No theme reaches the minimum of documents") message=_("Lower the minimum, or analyse more documents.") %}
+  {% endif %}
+</section>
+{% endif %}

@@ -30,6 +30,7 @@ from django.utils.translation import gettext_lazy
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from neurodb.reports import exports
+from neurodb.web.parts import Part, render_page
 
 from . import review, review_data, review_docx, review_paragraph
 from . import review_locate as where
@@ -177,10 +178,61 @@ def _review_on() -> tuple[bool, str]:
 
 
 # ------------------------------------------------------------------------------------------ the page
+# The views that load in parts: over 300 ms on a large review (the x20 parity world, cold) after their own
+# quick wins. Their figures come in one part, asked for once the frame is shown; every other tab and view
+# (under 300 ms) stays one request. {(tab, view): the part}
+PARTS = {
+    ("findings", "document"): "findings",
+    ("synthesis", "themes"): "synthesis",
+    ("synthesis", "repeated"): "synthesis",
+}
+PART_TEMPLATES = {
+    "findings": "knowledge/parts/review_findings.html",
+    "synthesis": "knowledge/parts/review_synthesis.html",
+}
+# the keys of the address that decide what a view shows (the parts' query keeps these, in their order)
+QUERY_KEYS = frozenset(
+    (
+        "tab", "view", "batch", "q", "verdict", "programme", "subtopic", "topic", "category", "evidence",
+        "document", "year", "place", "gap", "band", "counted", "urgent", "min", "challenges", "page",
+    )
+)  # fmt: skip
+
+
+def _view(tab: str, params: QueryDict) -> str:
+    """The view of the Findings or Synthesis tab the address opens ("" for the other tabs)."""
+    views = {"findings": FINDING_VIEWS, "synthesis": SYNTHESIS_VIEWS}.get(tab)
+    if views is None:
+        return ""
+    default = views[0][0]
+    view = params.get("view", default)
+    return view if view in dict(views) else default
+
+
+def _parts_query(params: QueryDict) -> str:
+    """The query of the page's parts: the address's own keys that decide what is shown, in their order. The
+    review applies no default of its own on a first visit (the tab and the view resolve the same way in the
+    part's request), and the Verified only switch is the session's, read again by each request."""
+    query = QueryDict(mutable=True)
+    for key, values in params.lists():
+        if key in QUERY_KEYS:
+            query.setlist(key, values)
+    return query.urlencode()
+
+
 @require_GET
 def page(request: HttpRequest) -> HttpResponse:
     """The page and its tabs; an HTMX request (tab bar, filters, a chart's bar) gets the results only.
-    ``export``: the CSV of the Findings tab's view, the CSV or Excel file of the Actions tab."""
+    ``export``: the CSV of the Findings tab's view, the CSV or Excel file of the Actions tab.
+
+    The views that take long on a large review load in parts (:mod:`neurodb.web.parts`): findings by document
+    and the synthesis themes and repeated findings. The frame (the tab bar, the view's filters and links, the
+    repeated findings' heading) comes at once and the view's figures come in one part, ``findings`` or
+    ``synthesis``, asked for at this address plus ``_part``, with the address's filter. A tab or filter change
+    (HTMX) answers the results area with the figures in it, as before (under a second), except the repeated
+    findings (seconds): their placeholder, unless they are already stored
+    (:func:`review_data.repeated_groups`, kept for every worker under a key that every change to the review
+    moves). Every other tab and view is one request, as before."""
     tab = _tab(request)
     verified = _verified(request)
     export = request.GET.get("export")
@@ -188,33 +240,59 @@ def page(request: HttpRequest) -> HttpResponse:
         return _findings_export(request, verified)
     if export and tab == "actions":
         return _actions_export(request, verified, export)
-    context = {
-        "tab": tab,
-        "tabs": [{"key": k, "label": label, "query": _tab_query(request, k)} for k, label in TABS],
-        "verified": verified,
-        "can_edit": can_add(request.user),
-        "batch_choices": list(ReviewBatch.objects.order_by("archived", "name")),
-        "review_on": review.switched_on()[0],
-    }
-    context.update(TAB_CONTEXT[tab](request, verified))
-    if request.htmx:
-        return render(request, "knowledge/review/_results.html", context)
-    context.update(
-        {
-            "page_title": _("Document review"),
-            "page_subtitle": _(
-                "Findings with evidence read from the documents put in a review batch: review them, count "
-                "them, compare them across documents and download the desk review"
-            ),
-            "breadcrumbs": [
-                {"label": _("Knowledge base"), "url": reverse("knowledge:index")},
-                {"label": _("Document review"), "url": None},
-            ],
-            "header_include": "knowledge/review/_verified_switch.html",
-            "show_verified": verified or review_data.any_verdict(),
+    view = _view(tab, request.GET)
+    results = bool(request.htmx)  # the tab bar, a filter, a chip, a page link or the poll: the results only
+    scope = {"tab": tab, "view": view, "verified": verified, "can_edit": can_add(request.user)}
+    parts = _parts(request, tab, view, verified, results)
+
+    def shell() -> dict[str, Any]:
+        context = {
+            "tabs": [{"key": k, "label": label, "query": _tab_query(request, k)} for k, label in TABS],
+            "batch_choices": list(ReviewBatch.objects.order_by("archived", "name")),
+            "review_on": review.switched_on()[0],
+            **TAB_CONTEXT[tab](request, verified),
         }
+        if not results:
+            context.update(
+                {
+                    "page_title": _("Document review"),
+                    "page_subtitle": _(
+                        "Findings with evidence read from the documents put in a review batch: review them, "
+                        "count them, compare them across documents and download the desk review"
+                    ),
+                    "breadcrumbs": [
+                        {"label": _("Knowledge base"), "url": reverse("knowledge:index")},
+                        {"label": _("Document review"), "url": None},
+                    ],
+                    "header_include": "knowledge/review/_verified_switch.html",
+                    "show_verified": verified or review_data.any_verdict(),
+                }
+            )
+        return context
+
+    template = "knowledge/review/_results.html" if results else "knowledge/review/page.html"
+    return render_page(
+        request, template, scope=scope, shell=shell, parts=parts, query=_parts_query(request.GET)
     )
-    return render(request, "knowledge/review/page.html", context)
+
+
+def _parts(request: HttpRequest, tab: str, view: str, verified: bool, results: bool) -> dict[str, Part]:
+    """The part of the view the address opens, if it has one. Its context is computed only when the part is
+    drawn. In the results of a tab or filter change (HTMX) it is drawn there at once (the figures take under
+    a second), except the repeated findings: drawn at once only when they are stored."""
+    name = PARTS.get((tab, view))
+    if name is None:
+        return {}
+    if name == "findings":
+        context = lambda: _by_document_part(request, verified)  # noqa: E731
+        return {name: Part(PART_TEMPLATES[name], context, ready=lambda: results)}
+    batch = review_data.batch_id(request.GET.get("batch"))
+    if view == "repeated":
+        context = lambda: {"groups": review_data.repeated_groups(batch, verified)}  # noqa: E731
+        ready = lambda: review_data.repeated_stored(batch, verified)  # noqa: E731
+        return {name: Part(PART_TEMPLATES[name], context, ready=ready)}
+    context = lambda: _themes_part(request, verified)  # noqa: E731
+    return {name: Part(PART_TEMPLATES[name], context, ready=lambda: results)}
 
 
 def _tab_query(request: HttpRequest, tab: str) -> str:
@@ -330,11 +408,6 @@ def _findings(request: HttpRequest, verified: bool) -> dict[str, Any]:
         )
         return context
     ff = review_data.FindingFilter.from_params(params)
-    qs = review_data.light(
-        ff.apply(verified).select_related(
-            "document__review_batch", "topic__subtopic__programme", "reviewed_by", "edited_by"
-        )
-    )
     context.update(
         {
             "f": ff,
@@ -347,12 +420,28 @@ def _findings(request: HttpRequest, verified: bool) -> dict[str, Any]:
         }
     )
     if view == "document":
-        return {**context, **_by_document(request, ff, qs, verified)}
-    page_obj = Paginator(qs.order_by("document__title", "position", "pk"), PAGE_SIZE).get_page(
-        params.get("page")
-    )
+        return context  # its documents are the page's part "findings" (_by_document_part)
+    page_obj = Paginator(
+        _filtered_findings(ff, verified).order_by("document__title", "position", "pk"), PAGE_SIZE
+    ).get_page(params.get("page"))
     context.update({"page_obj": page_obj, "findings": list(page_obj.object_list)})
     return context
+
+
+def _filtered_findings(ff: review_data.FindingFilter, verified: bool):
+    """The findings of the Findings tab's filter, with what their rows show."""
+    return review_data.light(
+        ff.apply(verified).select_related(
+            "document__review_batch", "topic__subtopic__programme", "reviewed_by", "edited_by"
+        )
+    )
+
+
+def _by_document_part(request: HttpRequest, verified: bool) -> dict[str, Any]:
+    """The part ``findings`` of the By document view: the filter's documents, each with its key statements and
+    findings (:func:`_by_document`)."""
+    ff = review_data.FindingFilter.from_params(request.GET)
+    return _by_document(request, ff, _filtered_findings(ff, verified), verified)
 
 
 def _statement_chips(sf: review_data.StatementFilter) -> list[tuple[str, str]]:
@@ -454,6 +543,9 @@ def _min_documents(params: QueryDict) -> int:
 
 
 def _synthesis(request: HttpRequest, verified: bool) -> dict[str, Any]:
+    """The Synthesis tab's frame (its views, filter and quota); the Over time and Coverage views with their
+    themes. The Themes and Repeated findings views come in the page's part "synthesis"
+    (:func:`_themes_part`, :func:`review_data.repeated_groups`)."""
     params = request.GET
     batch = review_data.batch_id(params.get("batch"))
     view = params.get("view", "themes")
@@ -476,8 +568,9 @@ def _synthesis(request: HttpRequest, verified: bool) -> dict[str, Any]:
     used, allowed = review_paragraph.quota(request.user)
     context["quota"] = {"used": used, "allowed": allowed}
     if view == "repeated":
-        context["groups"] = review_data.repeated(batch, verified)
         context["similar"] = round(review_data.SIMILAR * 100)
+        return context
+    if view == "themes":
         return context
     found = review_data.synthesis(batch, verified, min_documents, q, challenges)
     context.update({"synthesis": found, "trends": review_data.TRENDS})
@@ -487,21 +580,43 @@ def _synthesis(request: HttpRequest, verified: bool) -> dict[str, Any]:
             for key, label in review_data.TRENDS.items()
             if (themes := found.over_time()[key])
         ]
-    elif view == "coverage":
+    else:
         single = found.coverage()
         by_batch: dict[str, list] = {}
         for theme in single:
             by_batch.setdefault(next(iter(theme.batches.values())), []).append(theme)
         context.update({"single": single, "by_batch": sorted(by_batch.items())})
-    else:
-        for theme in found.themes[:60]:
-            theme.top = review_data.theme_findings(theme.topic.pk, batch, verified, challenges, limit=5)
-            theme.findings_url = _page_url(
-                "findings", batch=batch, topic=theme.topic.pk, counted="1",
-                category="challenge" if challenges else None,
-            )  # fmt: skip
-        context["shown_themes"] = found.themes[:60]
     return context
+
+
+def _themes_part(request: HttpRequest, verified: bool) -> dict[str, Any]:
+    """The part ``synthesis`` of the Themes view: the themes of the filter, the first 60 each with its five
+    best findings (one query for all of them) and its link to them, and the person's paragraph quota."""
+    params = request.GET
+    batch = review_data.batch_id(params.get("batch"))
+    min_documents = _min_documents(params)
+    challenges = params.get("challenges") == "1"
+    q = " ".join(params.get("q", "").split())[:100]
+    found = review_data.synthesis(batch, verified, min_documents, q, challenges)
+    shown = found.themes[:60]
+    tops = review_data.themes_findings([t.topic.pk for t in shown], batch, verified, challenges, limit=5)
+    for theme in shown:
+        theme.top = tops[theme.topic.pk]
+        theme.findings_url = _page_url(
+            "findings", batch=batch, topic=theme.topic.pk, counted="1",
+            category="challenge" if challenges else None,
+        )  # fmt: skip
+    used, allowed = review_paragraph.quota(request.user)
+    return {
+        "synthesis": found,
+        "trends": review_data.TRENDS,
+        "shown_themes": shown,
+        "batch": batch,
+        "min_documents": min_documents,
+        "challenges": challenges,
+        "paragraph_on": review_paragraph.available(),
+        "quota": {"used": used, "allowed": allowed},
+    }
 
 
 def _actions(request: HttpRequest, verified: bool) -> dict[str, Any]:

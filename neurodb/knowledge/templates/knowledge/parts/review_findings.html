@@ -1,0 +1,39 @@
+{% load i18n ui %}{# The part "findings" of the document review (knowledge.review_views._by_document_part): the By document view's documents, each with its key statements and findings. Its page links ask for this part only. #}
+{% if documents %}
+{% for d in documents %}
+<section class="panel" aria-labelledby="review-doc-{{ d.pk }}">
+  <div class="panel__header">
+    <h2 class="panel__title" id="review-doc-{{ d.pk }}"><a href="{{ d.get_absolute_url }}">{{ d.title }}</a></h2>
+    <span class="panel__hint">{{ d.review_batch.name }} · {{ d.get_review_status_display }}{% if d.reviewed_at %} {% blocktrans with day=d.reviewed_at|date:"j M Y" %}on {{ day }}{% endblocktrans %}{% endif %}</span>
+  </div>
+  {% if can_edit %}
+  <div class="d-flex flex-wrap gap-2 mb-2">
+    {% if d.unreviewed %}
+    <form method="post" action="{% url 'knowledge:review_bulk_verdict' d.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="verdict" value="accepted">{% for f in d.shown_findings %}{% if f.verdict == "unreviewed" %}<input type="hidden" name="finding" value="{{ f.pk }}">{% endif %}{% endfor %}<button type="submit" class="btn btn-outline-success btn-sm">{% blocktrans count n=d.unreviewed %}Accept all ({{ n }} not reviewed){% plural %}Accept all ({{ n }} not reviewed){% endblocktrans %}</button></form>
+    <form method="post" action="{% url 'knowledge:review_bulk_verdict' d.pk %}" class="d-inline" data-confirm="{% trans 'Reject every finding listed here that is not reviewed yet?' %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="verdict" value="rejected">{% for f in d.shown_findings %}{% if f.verdict == "unreviewed" %}<input type="hidden" name="finding" value="{{ f.pk }}">{% endif %}{% endfor %}<button type="submit" class="btn btn-outline-danger btn-sm">{% trans "Reject all not reviewed" %}</button></form>
+    {% endif %}
+    {% url 'knowledge:review_finding_new' d.pk as new_url %}
+    <a class="btn btn-outline-primary btn-sm" href="{{ new_url }}?next={{ request.get_full_path|urlencode }}" hx-get="{{ new_url }}?next={{ request.get_full_path|urlencode }}" hx-target="#modal-content" hx-push-url="false">{% trans "Add a finding" %}</a>
+  </div>
+  {% endif %}
+  {% if d.key_statements %}
+  <h3 class="h6 mt-2">{% trans "Key statements" %}</h3>
+  <div class="table-wrap"><table class="table table-sm">
+    <thead><tr><th class="text-end">{% trans "Urgency" %}</th><th>{% trans "Statement" %}</th><th>{% trans "Based on" %}</th><th>{% trans "Review" %}</th></tr></thead>
+    <tbody>{% for s in d.key_statements %}{% include "knowledge/review/_statement_row.html" with compact=True %}{% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+  <h3 class="h6 mt-2">{% blocktrans count n=d.shown_findings|length %}{{ n }} finding{% plural %}{{ n }} findings{% endblocktrans %}</h3>
+  {% if d.shown_findings %}
+  <div class="table-wrap"><table class="table table-sm mb-0">
+    <thead><tr><th>{% trans "Page" %}</th><th>{% trans "Finding" %}</th><th>{% trans "Tag" %}</th><th>{% trans "Category" %}</th><th>{% trans "Place" %}</th><th class="text-end">{% trans "Evidence" %}</th><th>{% trans "Review" %}</th></tr></thead>
+    <tbody>{% for finding in d.shown_findings %}{% include "knowledge/review/_finding_row.html" with compact=True %}{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="small text-muted">{% trans "No finding matches the filter." %}</p>{% endif %}
+</section>
+{% endfor %}
+{% include "components/pagination.html" with page_obj=documents_page part="findings" %}
+{% else %}
+<section class="panel">{% include "components/empty_state.html" with icon="search" title=_("No document matches") message=_("Documents appear here once they are analysed.") %}</section>
+{% endif %}
+
