@@ -63,6 +63,7 @@ FROZEN_AT = "2026-10-12T12:30:00+00:00"  # the parity world's day (15:30 in Beir
 SERVER = "http://testserver"
 PENDING_RETRIES = 40  # a part answering 202 ("still computing") is asked again, as parts.js does
 PENDING_DELAY = 1.5
+RUN_ENV = ("DJANGO_ENV", "DJANGO_SETTINGS_MODULE", "DJANGO_DEBUG", "FMM_ENABLED")  # kept with each run
 
 
 # ------------------------------------------------------------------------------------------------ the world
@@ -123,7 +124,13 @@ def setup(checkout: Path | str | None = None, *, settings_module: str | None = N
     from neurodb.integrations import background
 
     background.start_command = lambda *args, **kwargs: 0
-    return {"checkout": str(checkout), **git_state(checkout), "database": connection.settings_dict["NAME"]}
+    return {
+        "checkout": str(checkout),
+        **git_state(checkout),
+        "database": connection.settings_dict["NAME"],
+        # the settings the run used, so a check can run under the same ones as its recording
+        "env": {name: os.environ.get(name) for name in RUN_ENV},
+    }
 
 
 def load_group(name: str) -> types.ModuleType:
@@ -370,7 +377,7 @@ def _model(obj: Any, depth: int) -> dict[str, Any]:
         for name, value in vars(obj).items()
         if not name.startswith("_")
         and name not in fields
-        and isinstance(value, _SCALARS | float | decimal.Decimal)
+        and isinstance(value, (*_SCALARS, float, decimal.Decimal))
     }
     out = {"model": obj._meta.label, "pk": plain(obj.pk, depth), "fields": fields, "str": str(obj)}
     if extra:
@@ -691,7 +698,12 @@ def _text_difference(recorded: str, checked: str) -> tuple[str, str]:
 def compare(
     group: types.ModuleType, recorded: dict[str, Any], checked: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    """The differences between one recorded observation and its check, after the group's mapping."""
+    """The differences between one recorded observation and its check, after the group's mapping. A group
+    with several pages may bring both observations to one form first (``comparable(observation, side)``,
+    ``side`` "record" or "check"), for a change made on purpose that a rename of ids cannot express."""
+    comparable = getattr(group, "comparable", None)
+    if comparable is not None:
+        recorded, checked = comparable(recorded, "record"), comparable(checked, "check")
     where = {"role": recorded["role"], "label": recorded["label"], "url": recorded["url"]}
     out: list[dict[str, Any]] = []
 

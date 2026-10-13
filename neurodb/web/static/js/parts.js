@@ -458,6 +458,13 @@ export function pendingParts() {
   return page ? page.queue.unfinished() : 0;
 }
 
+/** How many enhance() runs (charts, maps... starting) have not settled yet: the charts of a part that has just
+ * arrived, or of parts drawn with the page (the management brief once its figures are stored), may still be
+ * drawing when every part is in. Printing waits for them too. */
+export function pendingModules() {
+  return moduleWork.size;
+}
+
 /** Load every part, strict ones too, whether in view or not, with the cap raised, then wait for the charts
  * inside them: for printing. Resolves when all have arrived or failed, or after `timeout` ms. */
 export function loadAll(options) {

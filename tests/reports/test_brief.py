@@ -5,7 +5,7 @@ import datetime
 import json
 
 import pytest
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.urls import reverse
 
 from neurodb.core.models import PopulationFigure, SyncRun
@@ -321,8 +321,8 @@ def test_page_renders_every_block(client_viewer, data, reporting_year):
         "Data dictionary",
     ):
         assert text in html, text
-    assert "Akkar District" in html and "Amel Association" in html and 'id="brief-chart-data"' in html
-    start = html.index('id="brief-chart-data"')
+    assert "Akkar District" in html and "Amel Association" in html and 'id="brief-sections-data"' in html
+    start = html.index('id="brief-sections-data"')  # every chart of the brief, in the sections part
     charts = json.loads(html[html.index(">", start) + 1 : html.index("</script>", start)])
     assert charts["bullets"][0]["cp_target"] == 2000
     assert charts["projection"]["actual_months"] == datetime.date.today().month  # the page reads today
@@ -609,6 +609,7 @@ def test_who_and_where_says_why_a_block_is_empty(client_viewer, data, reporting_
     assert 'id="brief-districts"' in html  # Akkar District matches the population figures
     PopulationFigure.objects.filter(level="district").update(area_name="Qobayat")
     cache.clear()  # a population load is a sync run, which the cache key follows; here it is a bare update
+    caches["shared"].clear()  # ... and the brief build is kept in the cache every worker shares
     who = build(reporting_year)["who"]
     assert not who["districts_matched"] and who["districts_reported"] == ["Akkar District"]
     html = client_viewer.get(reverse("reports:brief")).text

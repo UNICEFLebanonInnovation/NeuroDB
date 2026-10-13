@@ -1,52 +1,20 @@
 {% extends "base.html" %}
-{% load i18n ui humanize %}
+{% load i18n parts %}
 {% block content %}
-<h2 class="section-heading mt-0">{% trans "Sync jobs" %} <span class="small text-muted fw-normal">{% blocktrans with h=health.staleness_hours %}Stale after {{ h }} hours{% endblocktrans %}</span></h2>
-<div class="grid grid--cards mb-3">
-  {% for j in health.jobs %}
-  <div class="panel">
-    <div class="d-flex justify-content-between align-items-start gap-2"><h3 class="panel__title">{{ j.label }}</h3>{% status_pill j.state j.state_label "sm" %}</div>
-    <p class="small text-muted mb-1 mt-2">{% if j.last_success %}{% blocktrans with when=j.last_success.finished_at|naturaltime %}Last success {{ when }}{% endblocktrans %}{% else %}{% trans "No successful run recorded." %}{% endif %}</p>
-    {% if j.last_run and j.last_run != j.last_success %}<p class="small mb-0">{% trans "Latest run" %}: {% status_pill j.last_run.status j.last_run.get_status_display "sm" %} {{ j.last_run.started_at|naturaltime }}</p>{% endif %}
-  </div>
-  {% endfor %}
+{% comment %}The page loads in parts (neurodb.web.parts, reports.views.data_health): this frame comes at once and each
+placeholder below is filled by a request of its own, each block its own computation. The spacing between the blocks
+is kept here, around the placeholders, so it is the same before and after a part arrives.
+Each placeholder keeps the room of what it will hold, as measured on the x20 parity world (scripts/parity): height
+where the page is wide, height_md on a tablet or a narrow window (app.css says at which widths) where the readiness
+verdicts stack, height_sm on a phone; the readiness check as it reads once it has run (every Monday). The jobs' placeholder draws one grey card per job in the cards' own grid
+(app.css, stage A), so its rows wrap as the cards will at any width. The datasets panel is taller for an
+administrator, whose explanation also links to the reporting checks.{% endcomment %}
+<h2 class="section-heading mt-0" id="jobs-title">{% trans "Sync jobs" %} <span class="small text-muted fw-normal">{% blocktrans with h=staleness_hours %}Stale after {{ h }} hours{% endblocktrans %}</span></h2>
+<div class="mb-3">{% part "jobs" kind="tiles" priority="high" labelledby="jobs-title" rows=job_count tiles=1 %}</div>
+<div class="grid grid--2 health-tables">
+  {% part "databases" kind="table" height="326.6px" height_sm="451.2px" %}
+  {% part "runs" kind="table" height="618px" %}
 </div>
-<div class="grid grid--2">
-  <section class="panel p-0">
-    {% include "components/table_toolbar.html" with title=_("Database imports") count=health.databases|length table_id="db-health" %}
-    <div class="table-wrap" style="max-height: 560px"><table class="table table-hover" id="db-health" data-sortable>
-      <thead><tr><th>{% trans "Database" %}</th><th>{% trans "Last import" %}</th><th>{% trans "State" %}</th></tr></thead>
-      <tbody>{% for d in health.databases %}<tr data-href="{% url 'reports:database_dashboard' d.database.id %}"><td><a href="{% url 'reports:database_dashboard' d.database.id %}">{{ d.database.label|default:d.database.name }}</a><span class="cell-sub">{{ d.database.section.name|default:"" }} · AI {{ d.database.ai_id }}</span></td>
-      <td class="small" data-value="{{ d.last_import|date:'c' }}">{{ d.last_import|naturaltime|default:"—" }}</td><td>{% status_pill d.state d.state_label "sm" %}</td></tr>
-      {% empty %}<tr><td colspan="3" class="text-muted">{% trans "No databases in the current year." %}</td></tr>{% endfor %}</tbody>
-    </table></div>
-  </section>
-  <section class="panel p-0">
-    {% include "components/table_toolbar.html" with title=_("Recent runs") count=health.runs|length table_id="runs" %}
-    <div class="table-wrap" style="max-height: 560px"><table class="table" id="runs">
-      <thead><tr><th>{% trans "Job" %}</th><th>{% trans "Status" %}</th><th class="num">{% trans "Read / written" %}</th></tr></thead>
-      <tbody>{% for r in health.runs %}<tr>
-        <td>{{ r.get_job_display }}{% if r.target %}<span class="cell-sub mono">{{ r.target }}</span>{% endif %}{% if r.error %}<span class="cell-sub text-danger">{{ r.error|truncatechars:140 }}</span>{% endif %}</td>
-        <td class="small text-nowrap">{% status_pill r.status r.get_status_display "sm" %}<span class="cell-sub" title="{{ r.started_at }}">{{ r.started_at|naturaltime }}{% if r.finished_at %} · {{ r.finished_at|timeuntil:r.started_at|default:"" }}{% endif %}</span></td>
-        <td class="num small">{{ r.rows_in|number }} / {{ r.rows_written|number }}{% if r.rows_failed %} <span class="cell-sub text-danger">{% blocktrans with n=r.rows_failed %}{{ n }} failed{% endblocktrans %}</span>{% endif %}</td>
-      </tr>{% empty %}<tr><td colspan="3">{% include "components/empty_state.html" with icon="pulse" title=_("No sync runs yet") message=_("Runs appear here after the first scheduled or manual import.") %}</td></tr>{% endfor %}</tbody>
-    </table></div>
-  </section>
-</div>
-<section class="panel p-0 mt-3">
-  {% include "components/table_toolbar.html" with title=_("eTools Datamart datasets") count=health.datasets|length table_id="datasets" %}
-  <p class="small text-muted px-3 mb-2">{% trans "Per dataset: the last run, the records read and written, what could not be linked (a partner, programme document or location not in NeuroDB yet), and the rows NeuroDB holds. Read this before trusting a number on an eTools page." %}{% if user_role == "Administrator" %} <a href="{% url 'admin:datamart_reporting_checks' %}">{% trans "eTools reporting checks" %}</a>: {% trans "how the partner reports behind Reached look, with a verdict for each question." %}{% endif %}</p>
-  <div class="table-wrap" style="max-height: 560px"><table class="table table-sm" id="datasets">
-    <thead><tr><th>{% trans "Dataset" %}</th><th>{% trans "Last run" %}</th><th class="num">{% trans "Read / written" %}</th><th class="num">{% trans "Failed" %}</th><th>{% trans "Not linked" %}</th><th class="num">{% trans "Rows held" %}</th></tr></thead>
-    <tbody>{% for d in health.datasets %}<tr>
-      <td><span class="mono">{{ d.name }}</span>{% if d.empty_response %}<span class="cell-sub text-warning">{% trans "the Datamart returned nothing: check the country name" %}</span>{% endif %}{% for e in d.errors %}<span class="cell-sub text-danger">{{ e.count }} × {{ e.error|truncatechars:100 }}</span>{% endfor %}</td>
-      <td>{% if d.run %}{% status_pill d.run.status d.run.get_status_display "sm" %}<span class="cell-sub" title="{{ d.run.started_at }}">{{ d.run.started_at|naturaltime }}</span>{% else %}{% trans "Never" as never %}{% status_pill "unknown" never "sm" %}{% endif %}</td>
-      <td class="num small">{% if d.run %}{{ d.run.rows_in|number }} / {{ d.run.rows_written|number }}{% if d.removed %} <span class="cell-sub">{% blocktrans with n=d.removed %}{{ n }} removed{% endblocktrans %}</span>{% endif %}{% else %}—{% endif %}</td>
-      <td class="num small{% if d.run and d.run.rows_failed %} text-danger{% endif %}">{% if d.run %}{{ d.run.rows_failed|number }}{% else %}—{% endif %}</td>
-      <td class="small">{% if d.not_linked_total %}<span class="text-warning">{{ d.not_linked_total|number }}</span><span class="cell-sub">{% for k, v in d.not_linked.items %}{{ k|code_label }} {{ v }}{% if not forloop.last %} · {% endif %}{% endfor %}</span>{% else %}—{% endif %}</td>
-      <td class="num">{% if d.rows is not None %}{{ d.rows|number }}{% else %}—{% endif %}</td>
-    </tr>{% endfor %}</tbody>
-  </table></div>
-</section>
-{% include "insights/_readiness.html" %}
+<div class="mt-3">{% if user_role == "Administrator" %}{% part "datasets" kind="table" priority="low" height="685.1px" height_sm="812.2px" %}{% else %}{% part "datasets" kind="table" priority="low" height="665.4px" height_sm="772.8px" %}{% endif %}</div>
+<div class="mt-3">{% part "readiness" kind="card" priority="low" height="546.5px" height_md="859.4px" height_sm="1431.6px" %}</div>
 {% endblock %}

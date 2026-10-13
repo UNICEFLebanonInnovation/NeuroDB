@@ -1406,6 +1406,41 @@ tr.is-uncounted > td { color: var(--nd-muted); }
 /* ============================================================================ stage A (reports core): part fixes
    Page-specific rules for the parts of the brief, partnerships, data health, databases and field monitoring go
    here, and only here; the integration stage folds them into the sections above. */
+/* Management brief (reports/brief.html): each section the parts hold is an .overview-row, whose 1.5rem top margin
+   runs through the part's wrapper once it is in; its placeholder keeps that margin, so nothing below moves when the
+   part arrives (.part + .part would leave 1rem, the tab bar's own margin 0.25rem). */
+.part[data-part-group="brief"]:not(.is-loaded) { margin-top: 1.5rem; }
+/* Data health (reports/data_health.html). The sync jobs (#part-jobs) are one card per job in the cards' grid
+   (.grid--cards: as many columns of at least 290 px as fit), so they wrap into one row or many with the width of the
+   page's column. Their placeholder draws one grey card per job in the same grid (rows= the number of jobs, one tile
+   each, every tile a grid item here), so it wraps into the same rows at any width, and each grey card is as tall as
+   an average row of job cards measured on the x20 parity world for the grid's width, which sets how many columns it
+   has (a container query on the skeleton): a row is taller the narrower its cards (the job's name and state wrap)
+   and the more cards it holds (the tallest sets it). One column (a phone): 92.5 px, 88.5 px from 380 px; two
+   columns: 98 px, 89.5 px from 816 px (cards of 400 px); three: 113 px, 99 px from 1000 px, 95.5 px from 1080 px;
+   four: 116.5 px; five and more: 126 px. The placeholder needs no height of its own; its other states keep that
+   room, as the overview's key figures do. */
+#part-jobs[data-part="jobs"]:not(.is-loaded) { min-height: 0; display: grid; }
+#part-jobs[data-part="jobs"]:not(.is-loaded)::before { content: none; } /* no middle height either */
+#part-jobs[data-part="jobs"]:not(.is-loaded) > :not(noscript) { grid-area: 1 / 1; min-width: 0; }
+#part-jobs[data-part="jobs"] .part__slow { align-self: end; position: relative; margin: 0; padding-top: 0.5rem; background: var(--nd-bg); }
+#part-jobs[data-part="jobs"] .part__error { align-self: start; }
+#part-jobs[data-part="jobs"][data-part-state="error"] .part__skeleton { display: block; visibility: hidden; }
+#part-jobs[data-part="jobs"] .part__skeleton > .skeleton { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)); gap: 1rem; }
+#part-jobs[data-part="jobs"] .part__skeleton .kpi-grid { display: contents; }
+#part-jobs[data-part="jobs"] .part__skeleton { container-type: inline-size; }
+#part-jobs[data-part="jobs"] .skeleton__block--tile { height: 92.5px; }
+@container (min-width: 380px) { #part-jobs[data-part="jobs"] .skeleton__block--tile { height: 88.5px; } }
+@container (min-width: 596px) { #part-jobs[data-part="jobs"] .skeleton__block--tile { height: 98px; } }
+@container (min-width: 816px) { #part-jobs[data-part="jobs"] .skeleton__block--tile { height: 89.5px; } }
+@container (min-width: 902px) { #part-jobs[data-part="jobs"] .skeleton__block--tile { height: 113px; } }
+@container (min-width: 1000px) { #part-jobs[data-part="jobs"] .skeleton__block--tile { height: 99px; } }
+@container (min-width: 1080px) { #part-jobs[data-part="jobs"] .skeleton__block--tile { height: 95.5px; } }
+@container (min-width: 1208px) { #part-jobs[data-part="jobs"] .skeleton__block--tile { height: 116.5px; } }
+@container (min-width: 1514px) { #part-jobs[data-part="jobs"] .skeleton__block--tile { height: 126px; } }
+/* The database imports and the recent runs side by side: each panel fills its part, so both are as tall as the
+   taller one, as before the page loaded in parts. */
+.health-tables > .part > .panel { height: 100%; }
 /* ============================================================================ end of stage A */
 
 /* ============================================================================ stage B (eTools monitoring): part fixes

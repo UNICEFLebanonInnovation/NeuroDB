@@ -16,9 +16,12 @@ page view per user: the targets leave a process's first request out). For each u
   address again: its filter choices and freshness strip are stored, its figures are not), its queries, size;
 - a page view: the shell, then its parts as ``parts.js`` asks for them (at most 3 at a time, 2 while a
   group's leader loads; the leader alone in its group; high first, then the visible normal and low ones,
-  then the rest one at a time; strict parts only when opened), with a pool of 3 threads: the time to the
-  first figure (the group's ``FIRST_FIGURE`` part arriving) and to the last part (strict ones left out);
-- the warm page: the shell once its figures are stored (drawn inline: one request);
+  then the rest one at a time; a part found inside a part that arrived joins the queue then; strict parts
+  only when opened), with a pool of 3 threads: the time to the first figure (the page's first-figure part
+  arriving: the group's ``first_figure(url)``, or its ``FIRST_FIGURE``) and to the last part (strict ones
+  left out);
+- the warm page: the shell once its figures are stored (drawn inline: one request), and the warm page view
+  (the same page view again, nothing emptied: what is stored is read, what is not is computed again);
 - the strict parts opened on demand, and the size of each value in the shared cache table.
 
 "Visible" assumes a 1366 x 768 desktop: a placeholder whose top (``HEADER`` px of frame, then the reserved
@@ -30,7 +33,8 @@ base commit) the page is its own first figure, and what it loads by itself (``hx
 threads), unchanged, plus a hook (``count_builds``) that logs each figure build a worker computes and keeps
 GET requests from starting jobs; a free port; the in-app scheduler off. N signed-in users (half the
 administrator, half the viewer) open the group's first page at the same moment, each as a browser does.
-Rounds: cold with fresh workers, cold with workers that served ``/help/`` first, then warm. The shared cache
+Rounds: cold with fresh workers, cold with workers that served ``/help/`` first, then warm (``--warm-rounds``
+times). The shared cache
 is emptied before each cold round. Reported: the shell's p50/p95, the first figure, the last part, the
 builds, the 202 answers ("still being computed") and any error. Every server is stopped on the way out.
 """
@@ -108,6 +112,17 @@ class Queue:
         self.max, self.leader_max = max_parallel, leader_max
         self.opened = {item.group: False for item in items if item.group}
         self.loading: set[str] = set()
+
+    def add(self, items: list[Item]) -> None:
+        """Placeholders found inside a part that arrived (parts.js discovers them on ``htmx:load``)."""
+        known = {item.name for item in self.items}
+        for item in items:
+            if item.name in known:
+                continue
+            item.order += len(self.items)
+            self.items.append(item)
+            if item.group:
+                self.opened.setdefault(item.group, False)
 
     def _members(self, group: str | None) -> list[Item]:
         return [item for item in self.items if item.group == group]
@@ -253,6 +268,8 @@ def page_view(
             arrivals[item.name] = now()
             answers[item.name] = answer
             queue.done(item)
+            if answer.status == 200:  # a part inside this one (the partner's Monitoring insights panel)
+                queue.add([i for i in items_of(answer.body) if not i.strict])
         for item in queue.next():
             submit(item)
     if first_figure is None or not any(i.name == first_figure for i in items):
@@ -319,6 +336,8 @@ class InProcess:
                 HTTP_HX_TRIGGER=target,
             )
         client = self.client()
+        # the connection's query log keeps 9000 entries at most: once full, every count would read 0
+        connection.queries_log.clear()
         with CaptureQueriesContext(connection) as queries:
             started = time.perf_counter()
             response = client.get(path, **extra)
@@ -326,6 +345,13 @@ class InProcess:
         raw = response.content
         body = gzip.decompress(raw) if response.get("Content-Encoding") == "gzip" else raw
         return Answer(response.status_code, ms, len(raw), body.decode("utf-8", "replace"), len(queries))
+
+
+def first_figure(group: Any, url: str) -> str | None:
+    """The part whose arrival is ``url``'s first figure: the group's ``first_figure(url)`` (a group of
+    several pages), else its ``FIRST_FIGURE``."""
+    per_page = getattr(group, "first_figure", None)
+    return per_page(url) if callable(per_page) else getattr(group, "FIRST_FIGURE", None)
 
 
 def _median(values: list[float]) -> float:
@@ -363,14 +389,13 @@ def time_pages(args: argparse.Namespace) -> int:
     browser = InProcess()
     pool = futures.ThreadPoolExecutor(MAX_PARALLEL, thread_name_prefix="part")
     cookies = {role: core.signed_in_client(user).cookies for role, user in people.items()}
-    first = getattr(group, "FIRST_FIGURE", None)
 
     def view(url: str) -> dict[str, Any]:
         return page_view(
             lambda: browser.get(url),
             lambda item: browser.get(item.url, target=item.element_id, page=url),
             pool,
-            first,
+            first_figure(group, url),
         )
 
     for role in people:  # the process's first requests, left out of the targets
@@ -394,6 +419,7 @@ def time_pages(args: argparse.Namespace) -> int:
                 views.append(view(url))
             stored = stored_values()
             inline = [browser.get(url) for _ in range(args.runs)]
+            warm_views = [view(url) for _ in range(args.runs)]
             inline_parts = sorted(set(re.findall(r'data-part-loaded="([a-z][a-z0-9-]*)"', inline[-1].body)))
             on_demand: dict[str, Any] = {}
             last = views[-1]
@@ -430,6 +456,9 @@ def time_pages(args: argparse.Namespace) -> int:
                 warm_page_queries=inline[-1].queries,
                 warm_page_size=inline[-1].size,
                 warm_page_inline=inline_parts,
+                warm_view_first_figure_ms=_median([v["first_figure"] for v in warm_views]),
+                warm_view_last_part_ms=_median([v["last_part"] for v in warm_views]),
+                warm_view_requests=1 + len(warm_views[-1]["parts"]),
                 on_demand=on_demand,
                 pending=sum(v["pending"] for v in views),
                 stored=stored,
@@ -440,7 +469,8 @@ def time_pages(args: argparse.Namespace) -> int:
                 f"{row['shell_size'] / 1024:.0f} KB) warm {row['shell_warm_ms']:5.0f} ms ({row['shell_warm_queries']} q)"
                 f" | first figure {row['first_figure_ms']:6.0f} ms, last part {row['last_part_ms']:6.0f} ms"
                 f" | warm page {row['warm_page_ms']:5.0f} ms ({row['warm_page_queries']} q, "
-                f"inline {','.join(inline_parts) or '-'})",
+                f"inline {','.join(inline_parts) or '-'}) | warm view first figure "
+                f"{row['warm_view_first_figure_ms']:5.0f} ms, last part {row['warm_view_last_part_ms']:5.0f} ms",
                 flush=True,
             )
             for name, part in row["parts"].items():
@@ -524,6 +554,7 @@ def first_request(args: argparse.Namespace) -> int:
 WRAPPER = '''"""Written by scripts/parity/timing.py for one load check: the checkout's own gunicorn settings, unchanged,
 plus a log of the figure builds each worker computes."""
 import os as _os
+import sys as _sys
 
 _conf = _os.path.join(_os.getcwd(), "config", "gunicorn.conf.py")
 with open(_conf) as _fh:
@@ -534,17 +565,24 @@ _checkout_post_worker_init = globals().get("post_worker_init")
 def post_worker_init(worker):
     if _checkout_post_worker_init is not None:
         _checkout_post_worker_init(worker)
-    from scripts.parity.timing import count_builds
+    # the hook of the timing file that started this server, also when the checkout is a base worktree with
+    # its own (older) scripts/parity
+    import importlib.util
 
-    count_builds(_os.environ["PARITY_BUILD_LOG"])
+    _spec = importlib.util.spec_from_file_location("parity_timing_hook", _os.environ["PARITY_TIMING_FILE"])
+    _hook = importlib.util.module_from_spec(_spec)
+    _sys.modules[_spec.name] = _hook  # its dataclasses look their module up while it loads
+    _spec.loader.exec_module(_hook)
+    _hook.count_builds(_os.environ["PARITY_BUILD_LOG"])
 '''
 
 
 def count_builds(log_path: str) -> None:
-    """In a gunicorn worker: log every overview build (and filter-choices and freshness computation, where the
-    checkout has them) to ``log_path``, one JSON line each; and never start a background job from a GET."""
+    """In a gunicorn worker: log every overview build and every management brief build (and filter-choices
+    and freshness computation, where the checkout has them) to ``log_path``, one JSON line each; and never
+    start a background job from a GET."""
     from neurodb.integrations import background
-    from neurodb.reports import overview
+    from neurodb.reports import brief, overview
 
     background.start_command = lambda *args, **kwargs: 0
     guard = threading.Lock()
@@ -574,6 +612,12 @@ def count_builds(log_path: str) -> None:
         return f"{scope.year}|{','.join(scope.sections) or '*'}|{scope.governorate or '*'}"
 
     wrap(overview._Builder, "build", "build", build_scope)
+
+    def brief_scope(args: tuple) -> str:
+        scope = args[0].scope
+        return f"{scope.year}|{','.join(scope.sections) or '*'}"
+
+    wrap(brief._Builder, "build", "brief", brief_scope)  # each brief build (its two overview builds apart)
     # the frame's cached pieces (the working tree only): the filter bar's stored sections (_sections; _options
     # before the governorates left the stored value) and the freshness strip
     options = "_sections" if hasattr(overview, "_sections") else "_options"
@@ -657,6 +701,7 @@ def _start_server(checkout: Path, port: int, wrapper: Path, log: Path, errors: P
         "DJANGO_SETTINGS_MODULE": SETTINGS,
         "PYTHONPATH": str(core.REPO),
         "PARITY_BUILD_LOG": str(log),
+        "PARITY_TIMING_FILE": str(Path(__file__).resolve()),
     }
     with open(errors, "ab") as err:
         server = subprocess.Popen(  # noqa: S603 - fixed command
@@ -750,6 +795,8 @@ def _summary(label: str, rows: list[dict], builds: list[dict]) -> dict[str, Any]
         "builds": sum(scopes.values()),
         "builds_by_scope": scopes,
         "build_ms": [line["ms"] for line in builds if line["what"] == "build"],
+        "brief_builds": sum(1 for line in builds if line["what"] == "brief"),
+        "brief_build_ms": [line["ms"] for line in builds if line["what"] == "brief"],
         "options_computed": sum(1 for line in builds if line["what"] == "options"),
         "freshness_computed": sum(1 for line in builds if line["what"] == "freshness"),
         "computed": [[line["what"], line["scope"], line["ms"]] for line in builds],
@@ -763,7 +810,7 @@ def load(args: argparse.Namespace) -> int:
     people = group.users()
     cookies = {role: core.signed_in_client(user).cookies["sessionid"].value for role, user in people.items()}
     url = group.matrix(people)[0][1]
-    first = getattr(group, "FIRST_FIGURE", None)
+    first = first_figure(group, url)
     checkout = Path(info["checkout"])
     print(
         f"load check of {args.group} on {checkout} ({info['commit'][:9]}), database {info['database']}, "
@@ -797,7 +844,11 @@ def load(args: argparse.Namespace) -> int:
                     time.sleep(0.5)
                 rounds = [f"cold {n + 1}, " + ("workers warmed on /help/" if warmed else "fresh workers")]
                 if warmed and n == args.rounds - 1:
-                    rounds.append("warm (the same again, nothing emptied)")
+                    rounds += [
+                        "warm (the same again, nothing emptied)"
+                        + (f" {k + 1}" if args.warm_rounds > 1 else "")
+                        for k in range(args.warm_rounds)
+                    ]
                 for label in rounds:
                     seen = log.read_text().splitlines() if log.exists() else []
                     rows = _round(base, cookies, url, args.users, first)
@@ -808,7 +859,8 @@ def load(args: argparse.Namespace) -> int:
                         f"{label:40} shell p50 {summary['shell_p50']:6.0f} p95 {summary['shell_p95']:6.0f} | first "
                         f"figure p50 {summary['first_figure_p50']:6.0f} p95 {summary['first_figure_p95']:6.0f} | last "
                         f"part p50 {summary['last_part_p50']:6.0f} p95 {summary['last_part_p95']:6.0f} | builds "
-                        f"{summary['builds']} {summary['builds_by_scope']} options {summary['options_computed']} "
+                        f"{summary['builds']} {summary['builds_by_scope']} brief {summary['brief_builds']} "
+                        f"options {summary['options_computed']} "
                         f"freshness {summary['freshness_computed']} | 202s {summary['pending_202']} | statuses "
                         f"{summary['statuses']} {summary['errors'] or ''}",
                         flush=True,
@@ -851,6 +903,7 @@ def main(argv: list[str] | None = None) -> int:
     loads.add_argument("out")
     loads.add_argument("--users", type=int, default=8)
     loads.add_argument("--rounds", type=int, default=2)
+    loads.add_argument("--warm-rounds", type=int, default=1, help="warm rounds after the last cold one")
     once = sub.add_parser("first", help="one request in a fresh process")
     once.add_argument("username")
     once.add_argument("url")

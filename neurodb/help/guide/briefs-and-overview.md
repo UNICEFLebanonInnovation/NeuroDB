@@ -59,6 +59,18 @@ the selected year with the year before, in eight tabs:
   figures come from).
 - Values that cannot be right (above the child population of Lebanon, or more than 20 times their
   target) are left out, and the section's confidence is Low.
+- **The page opens at once**: the filters, the *Figures as of* line, the tabs and the *Reference*
+  block come first, with a grey box where the figures will go. The *Brief* tab's tiles, decisions and
+  sections at a glance fill in first, then the six other tabs together, with their charts; you can
+  use the page meanwhile. A tab whose box has not filled in yet takes you there as soon as it has. A
+  box that takes long says "Still working on this part"; a box that could not load says so and has a
+  **Try again** button, and the rest of the page keeps working. Opened again within 2 minutes with
+  the same filter, the page comes complete at once.
+- **Print** waits for every box: the button reads "Preparing the page…" until every tab and its
+  charts are drawn, then opens the print window (after a minute it prints what it has). Ctrl+P
+  before the page is complete prints a short note in place of each box still loading.
+- Figures are kept 2 minutes; the end of a sync, a new daily review, a section plan or a finding
+  assignment entered in the administration, and a changed indicator flag show at once.
 
 ## The daily review
 

@@ -1,0 +1,3 @@
+{% comment %}The partner page's Monitoring insights panel (part "fmm", reports.views.partner_profile, inside the part
+"datamart"): fmm/_partner_panel.html, or nothing when no visit monitored the partner. Context: fmm_partner.{% endcomment %}
+{% if fmm_partner %}{% include "fmm/_partner_panel.html" %}{% endif %}

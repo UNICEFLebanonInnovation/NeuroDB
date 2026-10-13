@@ -1,0 +1,11 @@
+{% load i18n ui humanize %}{% comment %}Data health's database imports (part "databases", reports.views.data_health): the displayed ActivityInfo
+databases of the current year, their last import and state. Context: databases = services.health_databases(year).{% endcomment %}
+<section class="panel p-0">
+  {% include "components/table_toolbar.html" with title=_("Database imports") count=databases|length table_id="db-health" %}
+  <div class="table-wrap" style="max-height: 560px"><table class="table table-hover" id="db-health" data-sortable>
+    <thead><tr><th>{% trans "Database" %}</th><th>{% trans "Last import" %}</th><th>{% trans "State" %}</th></tr></thead>
+    <tbody>{% for d in databases %}<tr data-href="{% url 'reports:database_dashboard' d.database.id %}"><td><a href="{% url 'reports:database_dashboard' d.database.id %}">{{ d.database.label|default:d.database.name }}</a><span class="cell-sub">{{ d.database.section.name|default:"" }} · AI {{ d.database.ai_id }}</span></td>
+    <td class="small" data-value="{{ d.last_import|date:'c' }}">{{ d.last_import|naturaltime|default:"—" }}</td><td>{% status_pill d.state d.state_label "sm" %}</td></tr>
+    {% empty %}<tr><td colspan="3" class="text-muted">{% trans "No databases in the current year." %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>

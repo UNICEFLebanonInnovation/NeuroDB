@@ -450,7 +450,9 @@ def overview(request: HttpRequest) -> HttpResponse:
 
 
 def _brief_chart_data(data: dict[str, Any]) -> dict[str, Any]:
-    """The JSON the management brief's charts read (static/js/charts.js)."""
+    """The JSON the management brief's charts read (static/js/charts.js): every chart of the brief is in the
+    ``sections`` part, in its own ``json_script`` (``brief-sections-data``), with the status labels the
+    builders read."""
     who, partners, money, action = (data.get(k) or {} for k in ("who", "partners", "money", "action"))
     lifecycle = action.get("lifecycle") or {}
     return {
@@ -478,6 +480,7 @@ def _brief_chart_data(data: dict[str, Any]) -> dict[str, Any]:
         if lifecycle.get("raised")
         else [],
         "owners": [[o["owner"], o["open"]] for o in action.get("owners") or []],
+        "labels": pd_monitoring_service.LABELS,
     }
 
 
@@ -485,23 +488,25 @@ def _brief_chart_data(data: dict[str, Any]) -> dict[str, Any]:
 def brief(request: HttpRequest) -> HttpResponse:
     """The management brief: the overview read for decisions (comparisons, confidence, equity,
     partners, money, action). Filters: ``year`` (ReportingYear name) and ``section`` (repeated);
-    every section by default, as senior management reads the whole country."""
+    every section by default, as senior management reads the whole country.
+
+    The page loads in parts (:mod:`neurodb.web.parts`): this view answers the frame at once (purpose,
+    filter bar with the "Figures as of" line, the tab bar, the Reference block, from
+    :func:`neurodb.reports.brief.lineage`) with a placeholder for each of its two parts, asked for at this
+    address plus ``_part``, with the resolved filter (``section=`` for every section, the year always):
+
+    - ``brief`` (the headline figures, the things to decide with their staff-only Assign links, the
+      sections at a glance and the brief as text behind *Copy summary*), the group's leader;
+    - ``sections`` (ahead or behind, how sure, who and where, partners, money, action, with their charts).
+
+    Both read one brief build (:func:`neurodb.reports.brief.build`, shared by every worker): when it is
+    already stored, the frame draws both inline, so a warm brief is one request. Without a reporting
+    year: the empty state, and no part at all.
+    """
     year = services.resolve_year(request.GET.get("year"))
     today = datetime.date.today()
     year_number = _year_number(year, today.year)
-    options = overview_service.options(year_number)
     sections = [s for s in request.GET.getlist("section") if s]
-    data: dict[str, Any] | None = None
-    if year:
-        previous = ReportingYear.objects.filter(name__startswith=str(year_number - 1)).order_by("id").first()
-        scope = brief_service.Scope(
-            year=year_number,
-            reporting_year=year,
-            previous_reporting_year=previous,
-            sections=sections,
-            today=today,
-        )
-        data = brief_service.build(scope)
     keep = QueryDict(mutable=True)
     keep.setlist("section", sections)
     if year:
@@ -511,6 +516,12 @@ def brief(request: HttpRequest) -> HttpResponse:
     base.setlist("section", sections)
     if year:
         base["year"] = year.name
+    scope = {  # what the parts read besides the build
+        "selected": {"section": sections, "year": year.name if year else ""},
+        "keep_query": keep.urlencode(),
+        "base_query": base.urlencode(),
+        "overview_query": ("?" + base.urlencode()) if base else "",
+    }
     tabs = [
         ("brief", _("Brief")),
         ("pace", _("Ahead or behind")),
@@ -521,31 +532,67 @@ def brief(request: HttpRequest) -> HttpResponse:
         ("action", _("Action")),
         ("reference", _("Reference")),
     ]
-    context = {
-        "page_title": _("Management brief"),
-        "page_subtitle": (
-            " · ".join(
-                [
-                    _("Reporting year %(year)s") % {"year": year.name},
-                    ", ".join(sections) if sections else _("every section"),
-                ]
+
+    def shell() -> dict[str, Any]:
+        context: dict[str, Any] = {
+            "page_title": _("Management brief"),
+            "page_subtitle": (
+                " · ".join(
+                    [
+                        _("Reporting year %(year)s") % {"year": year.name},
+                        ", ".join(sections) if sections else _("every section"),
+                    ]
+                )
+                if year
+                else ""
+            ),
+            "breadcrumbs": [
+                _crumb(_("Overview"), reverse("reports:overview")),
+                _crumb(_("Management brief")),
+            ],
+            "year": year,
+            "today": today,
+            "options": overview_service.options(year_number),
+            "tabs": tabs,
+        }
+        if year:
+            context.update(lineage=brief_service.lineage(year_number), dictionary=brief_service.DICTIONARY)
+        return context
+
+    if not year:  # nothing to compute: the empty state, no parts
+        return render_page(request, "reports/brief.html", scope=scope, shell=shell, parts={}, query="")
+
+    # The resolved filter of every part request: the sections written out (``section=`` for every
+    # section), the year always.
+    resolved = QueryDict(mutable=True)
+    resolved.setlist("section", sections or [""])
+    resolved["year"] = year.name
+    build_scope = functools.partial(
+        brief_service.Scope, year=year_number, reporting_year=year, sections=sections, today=today
+    )
+    data = functools.cache(
+        lambda: brief_service.build(
+            build_scope(
+                previous_reporting_year=ReportingYear.objects.filter(name__startswith=str(year_number - 1))
+                .order_by("id")
+                .first()
             )
-            if year
-            else ""
+        )
+    )
+    # whether the build is stored: its key reads the scope's year, reporting year, sections and day, never
+    # the previous reporting year, so the frame does not look that one up
+    stored = functools.cache(lambda: brief_service.stored(build_scope()))
+    parts = {
+        "brief": Part("reports/parts/brief_brief.html", lambda: {"data": data()}, ready=stored),
+        "sections": Part(
+            "reports/parts/brief_sections.html",
+            lambda: {"data": data(), "chart": _brief_chart_data(data())},
+            ready=stored,
         ),
-        "breadcrumbs": [_crumb(_("Overview"), reverse("reports:overview")), _crumb(_("Management brief"))],
-        "year": year,
-        "today": today,
-        "data": data,
-        "options": options,
-        "selected": {"section": sections, "year": year.name if year else ""},
-        "chart_data": _brief_chart_data(data) if data else {},
-        "tabs": tabs,
-        "keep_query": keep.urlencode(),
-        "base_query": base.urlencode(),
-        "overview_query": ("?" + base.urlencode()) if base else "",
     }
-    return render(request, "reports/brief.html", context)
+    return render_page(
+        request, "reports/brief.html", scope=scope, shell=shell, parts=parts, query=resolved.urlencode()
+    )
 
 
 # ------------------------------------------------------------------------- databases
@@ -1122,15 +1169,31 @@ def pd_main_indicator(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("reports:programme_detail", pk=pd.pk)
 
 
+def _fmm_on() -> bool:
+    """Whether Monitoring insights is installed and switched on (no query)."""
+    return apps.is_installed("neurodb.fmm") and bool(getattr(settings, "FMM_ENABLED", False))
+
+
 def _fmm_panel(name: str, pk: int) -> dict[str, Any] | None:
     """The Monitoring insights panel of a partner or programme document page for this calendar year
     (``fmm.services.partner_summary`` or ``pd_summary``), read through a lazy import; None when that
     app is not installed or switched off, or has nothing on it."""
-    if not apps.is_installed("neurodb.fmm") or not getattr(settings, "FMM_ENABLED", False):
+    if not _fmm_on():
         return None
     from neurodb.fmm import services as fmm_services
 
     return getattr(fmm_services, name)(pk, _this_year())
+
+
+def _fmm_partner_seen(pk: int) -> bool:
+    """Whether a field monitoring visit ever monitored the partner, the one case where its Monitoring
+    insights panel (``fmm.services.partner_summary``, None otherwise) has anything to show: the partner
+    page keeps the panel's place only then (one cheap query; the panel itself is a part)."""
+    if not _fmm_on():
+        return False
+    from neurodb.fmm.models import Visit
+
+    return Visit.objects.filter(partner_ids__contains=[int(pk)]).exists()
 
 
 def _this_year() -> int:
@@ -1188,41 +1251,73 @@ def partners(request: HttpRequest) -> HttpResponse:
 
 @require_GET
 def partner_profile(request: HttpRequest, pk: int) -> HttpResponse:
+    """A partner's page: key figures, profile, visits and assurance, Monitoring insights, its eTools and
+    ActivityInfo reporting side by side, and its lists (programme documents, engagements, HACT, progress
+    reports, financial findings, assessments, action points, monitoring visits).
+
+    The page loads in parts (:mod:`neurodb.web.parts`): this view answers the frame at once (the header,
+    the deleted notice, the knowledge base documents) with one placeholder, ``datamart``: everything from
+    the key figures to the last list. Those blocks are interleaved on the page and read one computation,
+    the partner's eTools Datamart figures (:func:`neurodb.datamart.services.partner_datamart`, model
+    instances, never stored for other workers), with its programme documents and its ActivityInfo records
+    (the key figures count those, the ActivityInfo panel lists them), so they come in one request. Inside
+    it, ``fmm``, the Monitoring insights panel (its own computation, loaded last), when Monitoring
+    insights is on and a visit ever monitored the partner. The page has no filter: the parts' query is
+    empty. Nothing is stored, so an edit shows at the next visit.
+    """
     # a partner deleted in eTools still opens (PDs and Datamart rows link to it), with a notice
     partner = get_object_or_404(PartnerOrganization, pk=pk)
-    profile = partnerships.partner_profile(partner)
-    extra = datamart.partner_datamart(partner)
-    activityinfo = partner_facts.partner_activityinfo(partner)
-    context = {
-        "page_title": partner.name,
-        "page_subtitle": " · ".join(x for x in (partner.partner_type, partner.cso_type) if x),
-        "breadcrumbs": [
-            _crumb(_("Partners"), reverse("reports:partners")),
-            _crumb(partner.short_name or partner.name),
-        ],
+    scope = {  # what the parts read besides their own figures
         "partner": partner,
-        "knowledge_documents": linked_documents("partner", partner.pk),
-        "profile": profile,
-        "datamart": extra,
-        "activityinfo": activityinfo,
+        "labels": LABELS,
         # the partner's action points, the same search as the /action-points/ page
         "action_points_url": reverse("reports:action_points")
         + "?"
         + urlencode({"q": partner.vendor_number or partner.name}),
-        "fmm_partner": _fmm_panel("partner_summary", partner.pk),
-        "labels": LABELS,
-        "chart_data": {
-            # staff trips from eTools Trips in the Datamart when synced, else the v2 travel tables,
-            # next to the field monitoring and third-party visits the page lists
-            "visits_by_year": datamart.visits_chart(
-                extra["staff_visits_by_year"] or profile["visits_by_year"], extra["monitoring_visits_by_year"]
-            ),
-            "engagement_counts": profile["engagement_counts"],
-            "activityinfo_by_year": activityinfo["by_year"],
-            "etools_reports_by_year": extra["reports_by_year"],
-        },
     }
-    return render(request, "reports/partner_profile.html", context)
+
+    def shell() -> dict[str, Any]:
+        return {
+            "page_title": partner.name,
+            "page_subtitle": " · ".join(x for x in (partner.partner_type, partner.cso_type) if x),
+            "breadcrumbs": [
+                _crumb(_("Partners"), reverse("reports:partners")),
+                _crumb(partner.short_name or partner.name),
+            ],
+            "knowledge_documents": linked_documents("partner", partner.pk),
+        }
+
+    def figures() -> dict[str, Any]:
+        profile = partnerships.partner_profile(partner)
+        extra = datamart.partner_datamart(partner)
+        activityinfo = partner_facts.partner_activityinfo(partner)
+        return {
+            "profile": profile,
+            "datamart": extra,
+            "activityinfo": activityinfo,
+            "fmm_seen": _fmm_partner_seen(partner.pk),
+            "chart_data": {
+                # staff trips from eTools Trips in the Datamart when synced, else the v2 travel tables,
+                # next to the field monitoring and third-party visits the page lists
+                "visits_by_year": datamart.visits_chart(
+                    extra["staff_visits_by_year"] or profile["visits_by_year"],
+                    extra["monitoring_visits_by_year"],
+                ),
+                "engagement_counts": profile["engagement_counts"],
+                "activityinfo_by_year": activityinfo["by_year"],
+                "etools_reports_by_year": extra["reports_by_year"],
+            },
+        }
+
+    parts = {"datamart": Part("reports/parts/partner_datamart.html", figures)}
+    if _fmm_on():
+        parts["fmm"] = Part(
+            "reports/parts/partner_fmm.html",
+            lambda: {"fmm_partner": _fmm_panel("partner_summary", partner.pk)},
+        )
+    return render_page(
+        request, "reports/partner_profile.html", scope=scope, shell=shell, parts=parts, query=""
+    )
 
 
 @require_GET
@@ -2274,15 +2369,49 @@ def map_item(request: HttpRequest, pk: int) -> HttpResponse:
 
 @require_GET
 def data_health(request: HttpRequest) -> HttpResponse:
-    health = services.data_health()
-    context = {
-        "page_title": _("Data health"),
-        "page_subtitle": _("Sync runs and freshness of every source"),
-        "breadcrumbs": [_crumb(_("Data health"))],
-        "health": health,
-        "readiness": SyncRun.last_success(SyncRun.Job.ML_READINESS),
+    """When each source was last synchronised, and what failed. Open to every signed-in member of staff, as
+    before (donors are kept out by their own middleware).
+
+    The page loads in parts (:mod:`neurodb.web.parts`): this view answers the frame at once (the page
+    heading, the *Sync jobs* heading with its staleness note) with a placeholder per block, each asked for
+    at this address plus ``_part``, each its own computation:
+
+    - ``jobs``: one card per sync job, fresh, stale or never succeeded (:func:`services.health_jobs`);
+    - ``databases``: the displayed ActivityInfo databases of the current year and their last import;
+    - ``runs``: the latest 50 runs of every job;
+    - ``datasets``: the eTools Datamart datasets (:func:`services.datamart_quality`), whose row counts
+      are stored for every worker (an hour at most, keyed on the jobs that write those tables);
+    - ``readiness``: the last machine learning readiness check.
+
+    The page has no filter: the parts' query is empty.
+    """
+
+    def shell() -> dict[str, Any]:
+        return {
+            "page_title": _("Data health"),
+            "page_subtitle": _("Sync runs and freshness of every source"),
+            "breadcrumbs": [_crumb(_("Data health"))],
+            "staleness_hours": settings.SYNC_STALENESS_HOURS,
+            # the jobs' placeholder draws one grey card per job card to come (no query)
+            "job_count": sum(1 for job in SyncRun.Job if job not in services.HEALTH_SKIPPED_JOBS),
+        }
+
+    parts = {
+        "jobs": Part("reports/parts/health_jobs.html", lambda: {"jobs": services.health_jobs()}),
+        "databases": Part(
+            "reports/parts/health_databases.html",
+            lambda: {"databases": services.health_databases(services.current_year())},
+        ),
+        "runs": Part("reports/parts/health_runs.html", lambda: {"runs": services.recent_runs()}),
+        "datasets": Part(
+            "reports/parts/health_datasets.html", lambda: {"datasets": services.datamart_quality()}
+        ),
+        "readiness": Part(
+            "reports/parts/health_readiness.html",
+            lambda: {"readiness": SyncRun.last_success(SyncRun.Job.ML_READINESS)},
+        ),
     }
-    return render(request, "reports/data_health.html", context)
+    return render_page(request, "reports/data_health.html", scope={}, shell=shell, parts=parts, query="")
 
 
 QUESTION_WORDS = {

@@ -51,6 +51,29 @@ The sidebar groups the pages:
   ([Knowledge base and documents](/help/knowledge-and-documents/)), maps and Data health.
 - **Help**: this guide.
 
+## Pages that open at once
+
+The country overview, the management brief, each partner's page and Data health open at once and
+fill in as their figures are ready:
+
+- The frame comes first: the page's heading, filters and tabs, with a grey box where each block of
+  figures will go, about the size of what will be there, so the page does not jump.
+- Each box then fills in on its own, the ones you can see first and the ones further down soon
+  after. You can read, scroll and change the filters meanwhile.
+- A box still working after 8 seconds says "Still working on this part. Large filters take longer."
+- A box that could not load says so in its place and has a **Try again** button; the rest of the page
+  keeps working. If it fails again, reload the page; if it still fails, tell an administrator which
+  page and which box.
+- A link to a block further down (a tab of the brief, a panel of a partner's page) waits for its box,
+  then takes you there.
+- On a partner's page, everything from the key figures to the last list fills in as one box; the
+  Monitoring insights panel follows it, on partners a field monitoring visit has monitored.
+- The management brief's **Print** button waits for every box and its charts ("Preparing the
+  page…"), then prints. Printing with Ctrl+P before a page is complete prints a short note in place of
+  each box still loading: wait until the page is complete.
+- The figures are the same as before: only the order in which they appear has changed. See
+  [Overview and briefs](/help/briefs-and-overview/) for the overview and the brief.
+
 ## Roles
 
 Every signed-in person has one role:
@@ -100,5 +123,7 @@ schedules as they are now.
 | Compiler figures (youth, education, Makani wellbeing) | Every night, once Compiler is set up |
 
 The **Data health** page (user menu, or the sidebar) shows when each source last synced and which
-runs failed. Pages show the date of their data next to every status ("On track · reported for Jun
+runs failed. It opens at once (see [Pages that open at once](/help/overview/#pages-that-open-at-once)):
+the sync jobs fill in first, then the ActivityInfo databases and the latest runs, then the eTools
+datasets and the machine learning readiness check. Pages show the date of their data next to every status ("On track · reported for Jun
 2026", "status as of 3 Oct 2026").

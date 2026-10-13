@@ -186,24 +186,49 @@ def search(
 
 
 def data_health() -> dict[str, Any]:
-    """Freshness of every job and of every displayed database of the current year."""
+    """Freshness of every job and of every displayed database of the current year, the latest runs and
+    the eTools Datamart datasets. The Data health page asks for each block in a part of its own
+    (:func:`health_jobs`, :func:`health_databases`, :func:`recent_runs`, :func:`datamart_quality`); the
+    assistant, the daily review and the internal API read them all at once here."""
     now = timezone.now()
+    jobs = health_jobs(now)
+    year = current_year()
+    databases = health_databases(year, now)
+    datasets = datamart_quality()
+    return {
+        "datasets": datasets,
+        "jobs": jobs,
+        "runs": recent_runs(),
+        "databases": databases,
+        "staleness_hours": settings.SYNC_STALENESS_HOURS,
+        "stale_database_days": STALE_DATABASE_DAYS,
+        "year": year,
+    }
+
+
+# Jobs worked out from the synced data, not syncs that go stale: weekly analyses, NeuroDB Watch and
+# Monitoring insights, shown on their own pages, and the clean-up run once after a deployment.
+HEALTH_SKIPPED_JOBS = (
+    SyncRun.Job.ML_READINESS,
+    SyncRun.Job.FORECAST,
+    SyncRun.Job.WATCH,
+    SyncRun.Job.FMM_REFRESH,
+    SyncRun.Job.FMM_INSIGHTS,
+    SyncRun.Job.FMM_AI_CHECKS,
+    SyncRun.Job.FMM_AP_REVIEW,
+    SyncRun.Job.DOC_REVIEW,
+    SyncRun.Job.DATAMART_BACKFILL,  # once after a deployment: it never goes stale
+)
+
+
+def health_jobs(now: datetime.datetime | None = None) -> list[dict[str, Any]]:
+    """Per sync job: its last success, its latest run, and whether it is fresh, stale or never
+    succeeded (stale after ``SYNC_STALENESS_HOURS``)."""
+    now = now or timezone.now()
     staleness = datetime.timedelta(hours=settings.SYNC_STALENESS_HOURS)
     jobs = []
     for job, label in SyncRun.Job.choices:
-        if job in (
-            SyncRun.Job.ML_READINESS,
-            SyncRun.Job.FORECAST,
-            SyncRun.Job.WATCH,
-            SyncRun.Job.FMM_REFRESH,
-            SyncRun.Job.FMM_INSIGHTS,
-            SyncRun.Job.FMM_AI_CHECKS,
-            SyncRun.Job.FMM_AP_REVIEW,
-            SyncRun.Job.DOC_REVIEW,
-            SyncRun.Job.DATAMART_BACKFILL,  # once after a deployment: it never goes stale
-        ):
-            # weekly analyses, NeuroDB Watch and Monitoring insights, shown on their own pages: jobs
-            # worked out from the synced data, not syncs that go stale
+        if job in HEALTH_SKIPPED_JOBS:
             continue
         last_ok = SyncRun.last_success(job)
         last_run = SyncRun.objects.filter(job=job).order_by("-started_at").first()
@@ -225,7 +250,15 @@ def data_health() -> dict[str, Any]:
                 "state_label": state_label,
             }
         )
-    year = current_year()
+    return jobs
+
+
+def health_databases(
+    year: ReportingYear | None, now: datetime.datetime | None = None
+) -> list[dict[str, Any]]:
+    """Per displayed ActivityInfo database of ``year``: its last import, and whether it is fresh, stale
+    (older than ``STALE_DATABASE_DAYS``) or never imported."""
+    now = now or timezone.now()
     databases = []
     for db in (
         Database.objects.filter(reporting_year=year, display=True)
@@ -242,16 +275,12 @@ def data_health() -> dict[str, Any]:
                 "state_label": _("Never imported") if last is None else (_("Stale") if stale else _("Fresh")),
             }
         )
-    datasets = datamart_quality()
-    return {
-        "datasets": datasets,
-        "jobs": jobs,
-        "runs": list(SyncRun.objects.order_by("-started_at")[:50]),
-        "databases": databases,
-        "staleness_hours": settings.SYNC_STALENESS_HOURS,
-        "stale_database_days": STALE_DATABASE_DAYS,
-        "year": year,
-    }
+    return databases
+
+
+def recent_runs(limit: int = 50) -> list[SyncRun]:
+    """The latest runs of every job, newest first."""
+    return list(SyncRun.objects.order_by("-started_at")[:limit])
 
 
 LEGACY_TABLES = {
@@ -264,30 +293,98 @@ LEGACY_TABLES = {
 }
 # What a sync could not link, as the data health table names it (other codes are shown as written)
 NOT_LINKED_LABELS = {"programme_document_fm": "programme document (field monitoring)"}
+# The rows each dataset holds are counted once an hour at most, and again as soon as one of the jobs that
+# write those tables starts or ends a run (the eTools Datamart sync above all). The gazetteer is the one
+# table staff also change by hand (Admin → Locations), outside any job: it is counted at each visit.
+DATASET_ROWS_TTL = 60 * 60
+DATASET_ROWS_JOBS = (
+    SyncRun.Job.ETOOLS_DATAMART,
+    SyncRun.Job.ETOOLS,
+    SyncRun.Job.LOCATIONS,
+    SyncRun.Job.DATAMART_BACKFILL,
+)
+DATASET_ROWS_LIVE = ("locations",)
+
+
+def latest_datamart_runs(names) -> dict[str, SyncRun]:
+    """The latest eTools Datamart run of each dataset in ``names`` (by start, then id), in one query
+    (``DISTINCT ON (target)``, on the index ``core_syncrun_job_target``)."""
+    runs = (
+        SyncRun.objects.filter(job=SyncRun.Job.ETOOLS_DATAMART, target__in=list(names))
+        .order_by("target", "-started_at", "-id")
+        .distinct("target")
+    )
+    return {run.target: run for run in runs}
+
+
+def _dataset_rows(name: str) -> int | None:
+    """How many rows NeuroDB holds for one dataset; None for a dataset without a table of its own."""
+    from django.apps import apps
+
+    from neurodb.datamart import query as dmq
+
+    if name in LEGACY_TABLES:
+        return apps.get_model(LEGACY_TABLES[name]).objects.count()
+    try:
+        return dmq.dataset(name).base.count()
+    except Exception:  # a dataset without a table of its own
+        return None
+
+
+def _dataset_rows_key() -> str:
+    """The stored row counts' key: the latest run of each job that writes the counted tables, with its
+    status and end, so a run that starts or ends gives a new key."""
+    latest = (
+        SyncRun.objects.filter(job__in=DATASET_ROWS_JOBS)
+        .order_by("job", "-started_at", "-id")
+        .distinct("job")
+        .values_list("job", "pk", "status", "finished_at")
+    )
+    stamp = ";".join(
+        f"{job}={pk}.{status}.{finished.timestamp() if finished else '-'}"
+        for job, pk, status, finished in latest
+    )
+    return f"health:dataset-rows:{stamp or '-'}"
+
+
+def dataset_row_counts() -> dict[str, int | None]:
+    """``{dataset: rows NeuroDB holds}`` for every eTools Datamart dataset: stored for every worker
+    (``compute.once``, an hour at most, keyed on the jobs that write the tables), the gazetteer counted at
+    each visit. Plain numbers, the same in every language and for every user."""
+    from django.core.cache import caches
+    from django.core.cache.backends.db import DatabaseCache
+    from django.db import connection
+
+    from neurodb.core import compute
+    from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
+
+    names = list(ENTITY_SYNCS)
+
+    def count() -> dict[str, int | None]:
+        return {name: _dataset_rows(name) for name in names if name not in DATASET_ROWS_LIVE}
+
+    if connection.in_atomic_block and isinstance(caches[compute.CACHE], DatabaseCache):
+        # inside transaction.atomic (Ask NeuroDB's tools run in a read-only one): counted here, as
+        # before. The stored counts are left alone: once() refuses its lock there, and reading the cache
+        # table may delete an expired row, which a read-only transaction cannot do.
+        stored = count()
+    else:
+        stored = compute.once(_dataset_rows_key(), count, DATASET_ROWS_TTL, lang_neutral=True)
+    return {name: stored[name] if name in stored else _dataset_rows(name) for name in names}
 
 
 def datamart_quality() -> list[dict[str, Any]]:
     """Per eTools Datamart dataset: the last run, what it read, wrote, failed to link, and how many
     rows NeuroDB holds — the table to read before believing a number on an eTools page."""
-    from django.apps import apps
-
-    from neurodb.datamart import query as dmq
     from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
 
-    last_by_target: dict[str, SyncRun] = {}
-    for run in SyncRun.objects.filter(job=SyncRun.Job.ETOOLS_DATAMART).order_by("-started_at"):
-        last_by_target.setdefault(run.target, run)
+    last_by_target = latest_datamart_runs(ENTITY_SYNCS)
+    counts = dataset_row_counts()
     rows = []
     for name in ENTITY_SYNCS:
         run = last_by_target.get(name)
         details = (run.details or {}) if run else {}
-        if name in LEGACY_TABLES:
-            count = apps.get_model(LEGACY_TABLES[name]).objects.count()
-        else:
-            try:
-                count = dmq.dataset(name).base.count()
-            except Exception:  # a dataset without a table of its own
-                count = None
+        count = counts[name]
         not_linked = {NOT_LINKED_LABELS.get(k, k): v for k, v in (details.get("not_linked") or {}).items()}
         rows.append(
             {

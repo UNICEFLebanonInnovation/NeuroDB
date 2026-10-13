@@ -7,7 +7,7 @@
     <div class="panel__header">
       <h3 class="panel__title" id="life-title">{% blocktrans with d=a.lifecycle.days %}Finding lifecycle, last {{ d }} days{% endblocktrans %}</h3>
     </div>
-    <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-source="brief-chart-data" data-key="lifecycle" data-height="180" data-color="--nd-primary" data-empty-title="{% trans 'No new finding in the period' %}" aria-label="{% trans 'Findings raised, acknowledged, assigned and closed' %}"></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="hbars" data-source="brief-sections-data" data-key="lifecycle" data-height="180" data-color="--nd-primary" data-empty-title="{% trans 'No new finding in the period' %}" aria-label="{% trans 'Findings raised, acknowledged, assigned and closed' %}"></div>
     <div class="mini-grid">
       <div class="mini"><div class="mini__value">{{ a.lifecycle.median_days.acknowledged|number:0 }}</div><div class="mini__label">{% trans "Median days to acknowledge" %}</div></div>
       <div class="mini"><div class="mini__value">{{ a.lifecycle.median_days.assigned|number:0 }}</div><div class="mini__label">{% trans "to assign" %}</div></div>

@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from decimal import Decimal
 from typing import Any
 
-from django.db.models import Count, Q, QuerySet, Sum
+from django.db.models import Count, Max, Q, QuerySet, Sum
 from django.db.models.functions import ExtractYear
 
 from neurodb.partnerships import statuses as pd_statuses
@@ -286,8 +286,13 @@ def _monitoring_summary(filters: pd_monitoring.Filters) -> dict[str, Any]:
 # ---------------------------------------------------------------------------------------- partners
 def reports_by_year(queryset: QuerySet[dm.ReportedIndicator]) -> list[tuple[str, int]]:
     """Progress reports per year of their period end (partner page: reporting activity over time)."""
+    return _by_period_year(progress_reports(queryset))
+
+
+def _by_period_year(reports: list[dict[str, Any]]) -> list[tuple[str, int]]:
+    """:func:`reports_by_year` of ``progress_reports`` rows already read."""
     years: Counter[str] = Counter()
-    for r in progress_reports(queryset):
+    for r in reports:
         if r["period_end"]:
             years[str(r["period_end"].year)] += 1
     return sorted(years.items())
@@ -335,8 +340,9 @@ def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
         visits[day.year] += 1
     # the partner's progress reports as the Progress reports page reads them for the partner (its
     # "All reports" link: ``?partner=<id>&pd_status=``): by the partner link, every PD status but
-    # draft and cancelled
+    # draft and cancelled; read once for the summary, the list and the chart
     reported = partner.reported_indicators.exclude(intervention__status__in=pd_statuses.NOT_A_PARTNERSHIP)
+    reports = progress_reports(reported)
     return {
         "assessments": list(
             dm.PartnerAssessment.objects.filter(partner=partner).order_by("-completed_date")[:20]
@@ -357,15 +363,35 @@ def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
         "tpm_visits": tpm_visits,
         "findings": recent_findings,
         "monitoring_count": len(tpm_visits) + len(recent_findings),
-        "finding_ratings": dict(Counter(f.overall_finding_rating or "—" for f in findings)),
+        "finding_ratings": _finding_ratings(findings),
         "hact_years": list(partner.hact_years.order_by("-year")[:4]),
         "monitoring": _monitoring_summary(pd_monitoring.Filters(partners=[str(partner.pk)])),
-        "reporting": reporting_summary(reported),
-        "reports": list(progress_reports(reported)[:10]),
-        "reports_by_year": reports_by_year(reported),
+        "reporting": _status_summary(reports),  # reporting_summary(reported)
+        "reports": reports[:10],
+        "reports_by_year": _by_period_year(reports),  # reports_by_year(reported)
         "staff_visits_by_year": sorted(visits.items()),
         "monitoring_visits_by_year": _monitoring_visits_by_year(partner),
     }
+
+
+def _finding_ratings(findings: QuerySet[dm.MonitoringFinding]) -> dict[str, int]:
+    """Field monitoring findings per overall rating ("—" for none), counted by the database instead of
+    reading every finding, in the order the findings come (latest end date first, the undated ones before
+    them, as the database sorts them): each rating where its first finding stands."""
+    counts: dict[str, int] = {}
+    first: dict[str, tuple[int, int]] = {}
+    rows = (
+        findings.order_by()
+        .values("overall_finding_rating")
+        .annotate(n=Count("pk"), latest=Max("end_date"), undated=Count("pk", filter=Q(end_date=None)))
+    )
+    for row in rows:
+        rating = row["overall_finding_rating"] or "—"
+        counts[rating] = counts.get(rating, 0) + row["n"]
+        latest = row["latest"]
+        place = (0, 0) if row["undated"] else (1, -latest.toordinal() if latest else 0)
+        first[rating] = min(first.get(rating, place), place)
+    return {rating: counts[rating] for rating in sorted(counts, key=first.__getitem__)}
 
 
 def _monitoring_visits_by_year(partner: PartnerOrganization) -> dict[str, dict[int, int]]:

@@ -1,5 +1,5 @@
 {% load i18n ui humanize %}
-{% with l=data.lineage %}
+{% with l=lineage %}
 <div class="overview-row brief-section" id="brief-reference">
 <h2 class="section-heading">{% trans "Reference" %} <span class="small text-muted fw-normal">{% trans "What each number means and where it came from" %}</span></h2>
 <div class="grid grid--2">
@@ -27,7 +27,7 @@
       <h3 class="panel__title" id="dict-title">{% trans "Data dictionary" %}</h3>
     </div>
     <dl class="lineage">
-      {% for term, definition in data.dictionary %}<dt>{{ term }}</dt><dd>{{ definition }}</dd>{% endfor %}
+      {% for term, definition in dictionary %}<dt>{{ term }}</dt><dd>{{ definition }}</dd>{% endfor %}
     </dl>
   </section>
 </div>

@@ -16,6 +16,6 @@
 </form>
 <p class="brief-stamp">
   <span>{% blocktrans with d=today|date:"d M Y" %}Figures as of {{ d }}{% endblocktrans %}</span>
-  {% for s in data.lineage.sources %}<span class="brief-stamp__src" title="{% if s.run %}{% blocktrans with n=s.run %}Run {{ n }}{% endblocktrans %}{% endif %}">{{ s.label }}: {% if s.finished %}{{ s.finished|date:"d M" }}{% else %}{% trans "not yet synced" %}{% endif %}</span>{% endfor %}
+  {% for s in lineage.sources %}<span class="brief-stamp__src" title="{% if s.run %}{% blocktrans with n=s.run %}Run {{ n }}{% endblocktrans %}{% endif %}">{{ s.label }}: {% if s.finished %}{{ s.finished|date:"d M" }}{% else %}{% trans "not yet synced" %}{% endif %}</span>{% endfor %}
   <a class="brief-stamp__src" href="#brief-reference">{% trans "How the figures are made" %}</a>
 </p>

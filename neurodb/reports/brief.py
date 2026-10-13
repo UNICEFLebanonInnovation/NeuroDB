@@ -11,6 +11,13 @@ Three figures are entered by hand in the admin because eTools does not hold them
 Programme target and the funds required per section (``reports.SectionPlan``) and who owns a
 finding (``review.FindingAssignment``). Everything else is read from the synced tables. The two
 reporting sources stay apart, as on the overview: a total is the larger of the two, never the sum.
+
+The page loads in parts (``reports.views.brief``): both of its parts read one build, kept two minutes in the
+cache every worker shares (:func:`neurodb.core.compute.once`) under the brief's own key (:func:`_cache_key`:
+the hand-entered tables, the latest review, the indicator flags and the last finished sync). Nothing in a
+build depends on who asks (the staff-only Assign links are the page's, from the person asking); its labels
+are translated as it is computed, so a build is kept per language. The page's frame draws the "Figures as
+of" line and the Reference block from :func:`lineage`, kept the same way, never from a build.
 """
 
 from __future__ import annotations
@@ -24,11 +31,11 @@ from typing import Any
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.core.cache import cache as django_cache
 from django.db.models import Count, Max, Q
 from django.urls import reverse
 from django.utils import timezone
 
+from neurodb.core import compute
 from neurodb.core.models import PopulationFigure, SyncRun
 from neurodb.datamart import headline as main_indicators
 from neurodb.datamart import models as dm
@@ -46,7 +53,7 @@ from neurodb.web.templatetags.ui import money as money_text
 logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 120
-CACHE_VERSION = 5
+CACHE_VERSION = 6  # 6: in the shared cache (compute.once), the sync part from compute.data_stamp()
 RULES_VERSION = "v2"
 MONTH_LABELS = overview.MONTH_LABELS
 PROJECTION_MONTHS = 3  # the pace is the average of the last three reported months
@@ -185,34 +192,42 @@ def grant_balances(lines: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 
 # --------------------------------------------------------------------------------- build
 def _cache_key(scope: Scope) -> str:
-    """Everything the result depends on: the overview's inputs plus the hand-entered tables, the
-    latest review and the last finished sync (a new assignment, plan or sync shows at once)."""
-    from neurodb.datamart.models import IndicatorFlag
+    """Everything the result depends on: the overview's inputs plus the hand-entered tables (section plans,
+    finding assignments), the latest review, and :func:`neurodb.core.compute.data_stamp` (the indicator
+    flags and the last finished sync), so a new assignment, plan, flag or sync shows at once. Nothing about
+    the person asking: a build depends on its scope only."""
+    import hashlib
 
-    flags = IndicatorFlag.objects.aggregate(n=Count("pk"), last=Max("updated_at"))
     plans = SectionPlan.objects.aggregate(n=Count("pk"), last=Max("updated_at"))
     owners = FindingAssignment.objects.aggregate(n=Count("pk"), last=Max("updated_at"))
     review = DailyReview.objects.aggregate(last=Max("id"))
-    import hashlib
-
     sections = "|".join(sorted(scope.sections))
     ryear = getattr(scope.reporting_year, "pk", "")
     fingerprint = (
-        f"{flags['n']}:{flags['last']}:{plans['n']}:{plans['last']}:{owners['n']}:{owners['last']}:"
-        f"{review['last']}:{overview.latest_sync_run()}"
+        f"{plans['n']}:{plans['last']}:{owners['n']}:{owners['last']}:{review['last']}:{compute.data_stamp()}"
     )
     digest = hashlib.sha256(fingerprint.encode()).hexdigest()[:16]  # no spaces: memcached-safe
     return f"brief:v{CACHE_VERSION}:{scope.year}:{ryear}:{sections}:{scope.today}:{digest}"
 
 
 def build(scope: Scope, *, cache: bool = True) -> dict[str, Any]:
-    """Every block of the management brief for ``scope`` (see the module docstring)."""
-    use_cache = cache and not settings.DEBUG
-    key = _cache_key(scope)
-    if use_cache:
-        found = django_cache.get(key)
-        if found is not None:
-            return found
+    """Every block of the management brief for ``scope`` (see the module docstring): computed once across
+    every worker and kept two minutes (per language: its labels are translated). ``cache=False`` (and
+    DEBUG) computes it afresh."""
+    if not cache or settings.DEBUG:
+        return _build(scope, cache=cache)
+    return compute.once(_cache_key(scope), lambda: _build(scope), CACHE_SECONDS)
+
+
+def stored(scope: Scope) -> bool:
+    """Whether :func:`build` would answer ``scope`` at once, from what is already stored: the page's frame
+    then draws the brief inline instead of asking for it (it never computes it itself)."""
+    if settings.DEBUG:
+        return False
+    return compute.peek(_cache_key(scope))[0]
+
+
+def _build(scope: Scope, *, cache: bool = True) -> dict[str, Any]:
     now = overview.build(
         overview.Scope(
             year=scope.year, reporting_year=scope.reporting_year, sections=scope.sections, today=scope.today
@@ -228,10 +243,69 @@ def build(scope: Scope, *, cache: bool = True) -> dict[str, Any]:
         ),
         cache=cache,
     )
-    data = _Builder(scope, now, previous).build()
-    if use_cache:
-        django_cache.set(key, data, CACHE_SECONDS)
-    return data
+    return _Builder(scope, now, previous).build()
+
+
+# --------------------------------------------------------------------------------- lineage
+LINEAGE_JOBS = (SyncRun.Job.ETOOLS_DATAMART, SyncRun.Job.ACTIVITYINFO_DATA, SyncRun.Job.POPULATION)
+
+
+def lineage(year: int) -> dict[str, Any]:
+    """Where the brief's figures come from (the "Figures as of" line and the Reference block of the page's
+    frame): the last successful run of each source, the year of the population figures, the rules and
+    the latest daily review. Plain values, kept two minutes in the shared cache, the same for every
+    language (nothing in it is translated), under a key that a finished sync or a new review changes. Never
+    waited for: a frame computes it itself (a few small queries) when another request is at it."""
+    if settings.DEBUG:
+        return _lineage(year)
+    review = DailyReview.objects.aggregate(last=Max("id"))["last"]
+    key = f"brief-lineage:v{CACHE_VERSION}:{year}:{review}:{compute.data_stamp()}"
+    return compute.once(key, lambda: _lineage(year), CACHE_SECONDS, wait=0, lang_neutral=True)
+
+
+def _lineage(year: int) -> dict[str, Any]:
+    review = DailyReview.objects.filter(status=DailyReview.Status.SUCCEEDED).order_by("-date").first()
+    return lineage_of(overview.children_population(year)[1], review)
+
+
+def lineage_of(population_year: int | None, review: DailyReview | None) -> dict[str, Any]:
+    """:func:`lineage` from the population figures' year (the overview's) and the latest succeeded review."""
+    labels = dict(SyncRun.Job.choices)
+    sources = []
+    for job in LINEAGE_JOBS:
+        last = SyncRun.last_success(job)
+        sources.append(
+            {
+                "job": str(job),
+                "label": labels.get(job, job),
+                "run": last.id if last else None,
+                "when": last.finished_at.isoformat() if last and last.finished_at else "",
+                "finished": last.finished_at if last else None,
+                "rows": last.rows_written if last else None,
+                "status": last.status if last else "never",
+            }
+        )
+    return {
+        "sources": sources,
+        "population_year": population_year,
+        "rules": RULES_VERSION,
+        "rules_text": (
+            "children rule (title tag plus flags), one main indicator per programme document (its "
+            "unique beneficiaries indicator, else its largest children indicator), Reached from "
+            "Accepted and Submitted reports, tracking rule ±10 points against the elapsed PD "
+            "period, two sources never added, cost per child on the same PDs, confidence thresholds "
+            f"{CONFIDENCE['reported']}/{CONFIDENCE['verified']}/{CONFIDENCE['linked']} % and "
+            f"{CONFIDENCE['sync_days']} days"
+        ),
+        "review": {
+            "date": review.date.isoformat(),
+            "checks": review.checks_run,
+            "findings": review.findings.count(),
+            "narrated_by": review.narrated_by,
+        }
+        if review
+        else None,
+    }
 
 
 class _Builder:
@@ -1275,43 +1349,7 @@ class _Builder:
 
     # ------------------------------------------------------------------ 8 lineage
     def _lineage(self) -> dict[str, Any]:
-        labels = dict(SyncRun.Job.choices)
-        sources = []
-        for job in (SyncRun.Job.ETOOLS_DATAMART, SyncRun.Job.ACTIVITYINFO_DATA, SyncRun.Job.POPULATION):
-            last = SyncRun.last_success(job)
-            sources.append(
-                {
-                    "job": str(job),
-                    "label": labels.get(job, job),
-                    "run": last.id if last else None,
-                    "when": last.finished_at.isoformat() if last and last.finished_at else "",
-                    "finished": last.finished_at if last else None,
-                    "rows": last.rows_written if last else None,
-                    "status": last.status if last else "never",
-                }
-            )
-        review = self._latest_review()
-        return {
-            "sources": sources,
-            "population_year": self.now["impact"]["population_year"],
-            "rules": RULES_VERSION,
-            "rules_text": (
-                "children rule (title tag plus flags), one main indicator per programme document (its "
-                "unique beneficiaries indicator, else its largest children indicator), Reached from "
-                "Accepted and Submitted reports, tracking rule ±10 points against the elapsed PD "
-                "period, two sources never added, cost per child on the same PDs, confidence thresholds "
-                f"{CONFIDENCE['reported']}/{CONFIDENCE['verified']}/{CONFIDENCE['linked']} % and "
-                f"{CONFIDENCE['sync_days']} days"
-            ),
-            "review": {
-                "date": review.date.isoformat(),
-                "checks": review.checks_run,
-                "findings": review.findings.count(),
-                "narrated_by": review.narrated_by,
-            }
-            if review
-            else None,
-        }
+        return lineage_of(self.now["impact"]["population_year"], self._latest_review())
 
 
 # --------------------------------------------------------------------------------- helpers

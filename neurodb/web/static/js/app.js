@@ -1,6 +1,6 @@
 // NeuroDB application shell: theme, command palette, HTMX glue, tables, filters and page modules.
 import { asset, debounce, download, isHelpShortcut, loadScript, loadStyle, tableRows, toast, toCSV, trapFocus, csrfToken } from "./lib.js";
-import { initParts, loadAll, offsetState, partText, pendingParts, trackModules } from "./parts.js";
+import { initParts, loadAll, offsetState, partText, pendingModules, pendingParts, trackModules } from "./parts.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -421,9 +421,10 @@ function followQuery(event) {
 // A button with data-autoprint prints the page; data-autoprint="load" also opens the print dialog once the
 // page and its charts are drawn (the printable reports: staff choose "Save as PDF"). On a page that loads in
 // parts, every part still to come is loaded first (strict ones too) and its charts drawn; meanwhile the
-// button says "Preparing the page…". The page prints once everything has arrived or failed.
+// button says "Preparing the page…". The page prints once everything has arrived or failed. With every part
+// in (or drawn with the page), it still waits for the charts that are being drawn.
 async function printWhenReady(button) {
-  if (pendingParts() > 0) {
+  if (pendingParts() > 0 || pendingModules() > 0) {
     const label = button?.innerHTML;
     if (button) {
       button.setAttribute("aria-busy", "true");

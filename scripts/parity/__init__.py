@@ -27,6 +27,7 @@ Run every command from the repository root of the working tree (``python -m scri
 level, so the same files record on a base commit that does not have it.
 
 Modules: ``core`` (the command line, the frozen clock, assembling a page, reading it, comparing),
-``overview`` (stage 0: the country overview's matrix and context paths), ``scale`` (the world),
+``overview`` (stage 0: the country overview's matrix and context paths), ``reports_core`` (stage A: the
+management brief, the partner profile and data health), ``scale`` (the world),
 ``timing`` (speed), ``settings`` (the timing runs' settings: production's caches, no collected static files).
 """
