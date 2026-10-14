@@ -446,7 +446,9 @@ function createHtmx(doc, clock) {
 /**
  * Installs window, document, Node, HTMLDetailsElement and the clock's timers as globals, with a page holding
  * #main and #parts-status. `navigation` is how the page was reached (performance's navigation type), `state` and
- * `scrollRestoration` its history entry's. Returns { win, doc, htmx, clock, main, placeholder, loaded, start }.
+ * `scrollRestoration` its history entry's. `scrollMax` is the page's deepest offset (its height less the screen's):
+ * window.scrollTo stops there, as a browser clamps it. `scrollEvents: "frame"` sends window.scrollTo's scroll event a
+ * frame later, as browsers do, instead of at once. Returns { win, doc, htmx, clock, main, placeholder, loaded, start }.
  */
 export function installPage({
   parallel = 3,
@@ -456,13 +458,20 @@ export function installPage({
   state = null,
   scrollRestoration = "auto",
   innerHeight = 800,
+  scrollMax = null,
+  scrollEvents = "now",
 } = {}) {
   const clock = createClock();
-  const win = { location: { hash, href }, _listeners: [], scrollY: 0, innerHeight };
+  const url = new URL(href);
+  const win = { location: { hash, href, pathname: url.pathname, search: url.search }, _listeners: [], scrollY: 0, innerHeight };
   win.history = {
     state,
     scrollRestoration,
     replaceState(next) {
+      this.state = next;
+    },
+    // a new entry keeps the mode of the one it comes from (HTML: "scroll restoration mode" of pushState's entry)
+    pushState(next) {
       this.state = next;
     },
   };
@@ -478,8 +487,9 @@ export function installPage({
   win.document = doc;
   win.scrollTo = (options) => {
     doc.windowScrolls.push({ ...options });
-    win.scrollY = options.top;
-    win.dispatchEvent(new Event("scroll"));
+    win.scrollY = scrollMax === null ? options.top : Math.min(options.top, scrollMax);
+    if (scrollEvents === "frame") clock.setTimeout(() => win.dispatchEvent(new Event("scroll")), 16);
+    else win.dispatchEvent(new Event("scroll"));
   };
   const htmx = createHtmx(doc, clock);
   win.htmx = htmx;

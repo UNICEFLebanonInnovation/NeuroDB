@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from urllib.parse import urljoin
 
 import pytest
 from django.conf import settings
@@ -938,6 +939,37 @@ out.refused = await said(() => ask(htmx, doc.getElementById("finding-1"), doc.ge
 
 
 @needs_node
+def test_the_ai_card_speaks_for_itself_in_the_results_area():
+    """Monitoring insights' AI card (#fmm-insights) is in the results area, but says what a person asked for in its
+    own words, in the Insights tab's live line (the brief being written, then ready or refused: fmm.views.insights,
+    tests/fmm/test_insights.py). Its empty data-results-updated keeps parts.js from saying the area's "The results
+    were updated." when Regenerate swaps it for the card that polls, before any brief exists; the polls, still
+    writing or with the brief, are never said by parts.js either (review R1-C-1). A control: the same click on a
+    card without the empty words says the area's words."""
+    data = run_dom(
+        ASK
+        + """
+const { doc, htmx, clock, main, start, parts } = await page();
+const card = (busy, text) => doc.h("section", { id: "fmm-insights", "data-results-updated": "", ...(busy ? { "aria-busy": "true" } : {}) },
+  doc.h("button", { id: "regenerate" }, text));
+const area = doc.h("div", { id: "fmm-results", "data-results-updated": "The results were updated." }, card(false, "Brief"));
+main.append(area);
+parts.initParts();
+await start();
+const said = async (act) => { const seen = doc.said.length; act(); await clock.tick(100); return doc.said.slice(seen); };
+const here = () => doc.getElementById("fmm-insights");
+out.regenerate = await said(() => ask(htmx, doc.getElementById("regenerate"), here(), [card(true, "Writing…")], { trigger: "click" }));
+out.writing = await said(() => ask(htmx, here(), here(), [card(true, "Writing…")]));
+out.ready = await said(() => ask(htmx, here(), here(), [card(false, "The brief")]));
+here().removeAttribute("data-results-updated");
+out.control = await said(() => ask(htmx, doc.getElementById("regenerate"), here(), [card(true, "Writing…")], { trigger: "click" }));
+"""
+    )
+    assert data["regenerate"] == [] and data["writing"] == [] and data["ready"] == []
+    assert data["control"] == ["The results were updated."]
+
+
+@needs_node
 def test_a_swap_removing_queued_placeholders_never_asks_for_them():
     data = run_dom(
         """
@@ -1189,9 +1221,9 @@ const tops = (doc) => doc.windowScrolls.map((s) => `${s.top} ${s.behavior}`);
   // Back or Forward within the page: put back from the entry's state
   win.dispatchEvent(Object.assign(new dom.Event("popstate"), { state: { ndPartsOffset: 640 } }));
   out.popstate = tops(doc);
-  // htmx is about to push an address: the entry goes back to the browser
+  // htmx is about to push an address: the entry stays the page's (review R1-browser-1)
   htmx.fire(doc.body, "htmx:beforeHistorySave");
-  out.handedBack = win.history.scrollRestoration;
+  out.kept = win.history.scrollRestoration;
 }
 {
   // an entry the page never took over (a visit before this one): the browser puts it back, as before
@@ -1218,9 +1250,192 @@ const tops = (doc) => doc.windowScrolls.map((s) => `${s.top} ${s.behavior}`);
     assert data["whileScrolling"] is None and data["stopped"] == {"ndPartsOffset": 1234}
     assert data["followed"] == {"ndPartsOffset": 1500}
     assert data["popstate"] == ["640 instant"]
-    assert data["handedBack"] == "auto"
+    assert data["kept"] == "manual"
     assert data["notOurs"] == {"mode": "auto", "scrolls": []}
     assert data["noParts"] == ["777 instant"]
+
+
+@needs_node
+def test_back_to_an_entry_htmx_pushed_goes_to_where_it_was():
+    """The entries htmx pushes (a tab, a view, a filter, a page of a part) went back to the browser: htmx writes
+    {htmx: true} over the entry's state before it pushes, so the page's offset was lost, and back on such an entry
+    the browser put the page at its old offset at once, over the frame and its placeholders (By document reserves
+    one document of ten): clamped to the frame's height and never put back, the editor landed 37,000 px higher, on
+    another document (review R1-browser-1). They are the page's now: a pushed entry keeps the mode of the entry it
+    comes from, its offset is kept beside htmx's state (htmx's own write keeps it), and back on it the page goes
+    there once its parts above are in; Back within the page, which htmx answers by reloading the entry reached,
+    keeps that entry's offset, never the one of the entry left. Parts brought by a swap into a page that had none
+    make its entry the page's too."""
+    data = run_dom(
+        """
+const tops = (doc) => doc.windowScrolls.map((s) => `${s.top} ${s.behavior}`);
+const scrollTo = async (win, clock, y) => { win.scrollY = y; win.dispatchEvent(new dom.Event("scroll")); await clock.tick(300); };
+{
+  const { doc, win, htmx, clock, main, placeholder, start, parts } = await page();
+  main.append(placeholder({ name: "findings", priority: "high" }));
+  parts.initParts();
+  await start();
+  await scrollTo(win, clock, 1234);
+  // htmx pushes page 2 of the part: its event, its state over the entry, then the new entry
+  htmx.fire(doc.body, "htmx:beforeHistorySave", { path: "/page?year=2025" });
+  win.history.replaceState({ htmx: true }, "", win.location.href);
+  out.left = { ...win.history.state };
+  win.history.pushState({ htmx: true }, "", "/page?year=2025&page=2");
+  win.location.search = "?year=2025&page=2";
+  out.pushedMode = win.history.scrollRestoration;
+  await scrollTo(win, clock, 44019);
+  out.pushed = { ...win.history.state };
+  // Back within the page: the entry reached, then htmx (its event names the page left, its state over the entry
+  // reached) reloads it
+  win.history.state = { htmx: true, ndPartsOffset: 1234 };
+  win.location.search = "?year=2025";
+  win.dispatchEvent(Object.assign(new dom.Event("popstate"), { state: { htmx: true, ndPartsOffset: 1234 } }));
+  htmx.fire(doc.body, "htmx:beforeHistorySave", { path: "/page?year=2025&page=2" });
+  win.history.replaceState({ htmx: true }, "", win.location.href);
+  await clock.tick(300);
+  out.reached = { ...win.history.state };
+}
+{
+  // back on the pushed entry, drawn again (Back from another page): the page goes to where it was
+  const { doc, win, htmx, clock, main, placeholder, loaded, start, parts } = await page({
+    navigation: "back_forward", scrollRestoration: "manual", state: { htmx: true, ndPartsOffset: 44019 },
+  });
+  const p = placeholder({ name: "findings", priority: "high" });
+  p.rect.top = 100;
+  main.append(p);
+  parts.initParts();
+  await start();
+  win.scrollY = 7327; // the frame was shorter than the offset
+  htmx.respond("findings", { nodes: () => [loaded("findings")] });
+  await clock.tick(100);
+  out.back = tops(doc);
+}
+{
+  // a page without parts (the review's dashboard tab) gets some from a swap (the By document tab)
+  const { doc, win, htmx, clock, main, placeholder, start, parts } = await page();
+  parts.initParts();
+  await start();
+  out.before = win.history.scrollRestoration;
+  const p = placeholder({ name: "findings", priority: "high" });
+  main.append(p);
+  htmx.fire(p, "htmx:load");
+  await clock.flush();
+  out.after = win.history.scrollRestoration;
+}
+{
+  // a tab change whose part comes drawn in at once (the themes): drawn again on Back, it is a placeholder
+  const { doc, win, htmx, clock, main, loaded, start, parts } = await page();
+  parts.initParts();
+  await start();
+  const area = doc.h("div", { id: "review-results" }, loaded("synthesis", doc.h("p", {}, "Themes")));
+  main.append(area);
+  htmx.fire(area, "htmx:load");
+  await clock.flush();
+  out.inline = win.history.scrollRestoration;
+}
+{
+  // a new visit of a page whose parts were all drawn with it (stored): its entry is the page's too
+  const { doc, win, main, loaded, start, parts } = await page();
+  main.append(loaded("kpis", doc.h("p", {}, "Tiles")));
+  parts.initParts();
+  await start();
+  out.drawnWith = win.history.scrollRestoration;
+}
+"""
+    )
+    assert data["inline"] == "manual" and data["drawnWith"] == "manual"
+    assert data["left"] == {"htmx": True, "ndPartsOffset": 1234}
+    assert data["pushedMode"] == "manual" and data["pushed"] == {"htmx": True, "ndPartsOffset": 44019}
+    assert data["reached"] == {"htmx": True, "ndPartsOffset": 1234}
+    assert data["back"] == ["44019 instant", "44019 instant"]
+    assert data["before"] == "auto" and data["after"] == "manual"
+
+
+@needs_node
+def test_back_within_the_page_keeps_the_entry_reached_while_its_reload_is_slow():
+    """Back within the page to an entry htmx pushed: htmx reloads it, and the page left lives on until the new one
+    comes (a request and its frame: often more than the 200 ms after which an offset is saved). parts.js sent the
+    page left to the entry's offset, deeper than that page could go (By document: page 10 kept at 75,676 px, page 11
+    69,217 px tall); the browser clamped it, its scroll event came a frame later, and 200 ms after that the clamped
+    offset was saved over the entry's own: the page reloaded landed 7,227 px higher, on another document (review
+    R2-fixes-1). The page left is no longer moved, and nothing it does until it goes (a scroll, a link, htmx's history
+    event, whichever of htmx's popstate handler and the page's runs first) is written over the offset the entry
+    reached keeps; reloaded, the page goes there."""
+    data = run_dom(
+        """
+const tops = (doc) => doc.windowScrolls.map((s) => `${s.top} ${s.behavior}`);
+// By document page 11, reached from page 10 by an htmx push: its deepest offset 68449, scrolled to 10000; the
+// browser clamps window.scrollTo and sends its scroll event a frame later
+const page11 = () => page({
+  href: "http://localhost/page?year=2025&page=11",
+  scrollRestoration: "manual",
+  state: { htmx: true, ndPartsOffset: 10000 },
+  scrollMax: 68449,
+  scrollEvents: "frame",
+});
+const popstate = (win) => win.dispatchEvent(Object.assign(new dom.Event("popstate"), { state: { htmx: true, ndPartsOffset: 75676 } }));
+// htmx's popstate handler: its event names the page left (the address is already the entry reached), its state over
+// the entry reached, then location.reload()
+const htmxReloads = (doc, win, htmx) => {
+  htmx.fire(doc.body, "htmx:beforeHistorySave", { path: "/page?year=2025&page=11" });
+  win.history.replaceState({ htmx: true }, "", win.location.href);
+};
+for (const order of ["page first", "htmx first"]) {
+  const { doc, win, htmx, clock, main, placeholder, loaded, start, parts } = await page11();
+  main.append(
+    placeholder({ name: "findings", priority: "high", anchors: "doc-" }),
+    doc.h("a", { id: "to-doc", href: "#doc-5" }, "Document 5"),
+    doc.h("a", { id: "next", href: "/page?year=2025&page=12" }, "12"),
+  );
+  parts.initParts();
+  await start();
+  win.scrollY = 10000;
+  doc.getElementById("to-doc").click(); // a link into the part still loading: it waits for it
+  win.dispatchEvent(new dom.Event("scroll"));
+  await clock.tick(100); // the save of this offset is still to come when Back is pressed
+  const before = doc.windowScrolls.length;
+  const intoView = doc.scrolls.length;
+  // Back: the entry reached, as the browser has it, then both popstate handlers
+  win.history.state = { htmx: true, ndPartsOffset: 75676 };
+  win.location.search = "?year=2025&page=10";
+  win.location.href = "http://localhost/page?year=2025&page=10";
+  if (order === "page first") {
+    popstate(win); // app.js registers it before htmx sets window.onpopstate (on DOMContentLoaded)
+    htmxReloads(doc, win, htmx);
+  } else {
+    htmxReloads(doc, win, htmx);
+    popstate(win);
+  }
+  // the server answers late; meanwhile the part the link waited for arrives, the page left scrolls (the wheel, scroll
+  // anchoring) and a link is followed
+  await clock.tick(50);
+  htmx.respond("findings", { nodes: () => [loaded("findings", doc.h("div", { id: "doc-5" }, "Document 5"))] });
+  await clock.tick(100);
+  win.scrollY = 60000;
+  win.dispatchEvent(new dom.Event("scroll"));
+  await clock.tick(300);
+  doc.getElementById("next").click();
+  await clock.tick(300);
+  out[order] = { state: { ...win.history.state }, moved: [...tops(doc).slice(before), ...doc.scrolls.slice(intoView).map((s) => s.id)] };
+}
+{
+  // the page reloaded on that entry goes to its offset
+  const { doc, main, placeholder, start, parts } = await page({
+    href: "http://localhost/page?year=2025&page=10",
+    navigation: "reload",
+    scrollRestoration: "manual",
+    state: out["page first"].state,
+  });
+  main.append(placeholder({ name: "findings", priority: "high" }));
+  parts.initParts();
+  await start();
+  out.reloaded = tops(doc);
+}
+"""
+    )
+    for order in ("page first", "htmx first"):
+        assert data[order] == {"state": {"htmx": True, "ndPartsOffset": 75676}, "moved": []}, order
+    assert data["reloaded"] == ["75676 instant"]
 
 
 # ------------------------------------------------------------------------------------------ static rules
@@ -1361,6 +1576,78 @@ def test_a_rendered_page_carries_the_live_region_with_its_words_and_the_history_
     assert "{{" not in status and "{%" not in status
     assert '<meta name="nd-parts-parallel" content="3">' in html
     assert '"historyCacheSize":0,"refreshOnHistoryMiss":true,"historyRestoreAsHxRequest":false' in html
+
+
+RELATIVE_IMPORT = re.compile(r"""(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)["'](\.{1,2}/[^"']+)["']""")
+
+
+def test_a_page_loads_every_module_of_its_release_under_its_hashed_name(client_viewer, tmp_path):
+    """The project's modules import one another by relative path (app.js: from "./parts.js"), which collectstatic
+    leaves as it is: the browser fetched parts.js and lib.js under their plain names, which WhiteNoise lets it keep
+    for a minute, so for that minute around a release a new page ran with the old parts.js, which never marks the
+    page "parts-ready": base.html's fallback took its placeholders for dead and hid their Try again (review
+    R2-critic-1). The page's import map sends every plain name a module of this release imports to the hashed file
+    collectstatic made: walking the modules from the page's own and those app.js loads on demand, the browser never
+    asks for a module under its plain name. The map comes before any module, under the page's script nonce."""
+    from django.core.management import call_command
+    from django.test import override_settings
+
+    # without hashed names (development, tests) the names are the same: no map
+    assert 'type="importmap"' not in client_viewer.get(reverse("reports:library")).content.decode()
+
+    root = tmp_path / "static"
+    manifest_storage = {
+        **settings.STORAGES,
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"},
+    }
+    with override_settings(STATIC_ROOT=root, STORAGES=manifest_storage):
+        call_command("collectstatic", interactive=False, verbosity=0)
+    hashed = json.loads((root / "staticfiles.json").read_text())["paths"]
+    with override_settings(STATIC_ROOT=root, STORAGES=manifest_storage):
+        response = client_viewer.get(reverse("reports:library"))
+    html = response.content.decode()
+
+    found = re.search(r'<script type="importmap" nonce="([^"]+)">(.*?)</script>', html, re.S)
+    assert found, "no import map on the page"
+    assert f"'nonce-{found.group(1)}'" in response["Content-Security-Policy"]
+    assert found.start() < html.index('<script type="module"')
+    imports = json.loads(found.group(2))["imports"]
+    static_url = settings.STATIC_URL
+
+    def file_of(url: str) -> Path:
+        assert url.startswith(static_url), url
+        return root / url[len(static_url) :]
+
+    pages = re.findall(r'<script type="module" src="([^"]+)"', html)
+    assets = json.loads(
+        re.search(r'<script id="asset-urls" type="application/json">(.*?)</script>', html, re.S)[1]
+    )
+    on_demand = [url for url in assets.values() if url.startswith(f"{static_url}js/")]
+    assert pages and on_demand
+    loaded, todo = set(), [*pages, *on_demand]
+    while todo:
+        url = todo.pop()
+        if url in loaded:
+            continue
+        loaded.add(url)
+        name = url[len(static_url) :]
+        assert name in hashed.values(), f"{url} is not under a hashed name"
+        for spec in RELATIVE_IMPORT.findall(file_of(url).read_text()):
+            plain = urljoin(url, spec)
+            assert plain in imports, f"{name} imports {spec}: the browser would ask for {plain}"
+            target = imports[plain]
+            assert target == static_url + hashed[plain[len(static_url) :]] and file_of(target).is_file()
+            todo.append(target)
+    for module in ("parts", "lib", "charts"):
+        assert static_url + hashed[f"js/{module}.js"] in loaded
+
+    # the pages that load a module without base.html (so without its map) load one that imports nothing by its name
+    for template in Path(settings.BASE_DIR, "neurodb").glob("**/templates/**/*.html"):
+        source = template.read_text()
+        if template == TEMPLATES / "base.html" or '{% extends "base.html" %}' in source:
+            continue
+        for module in re.findall(r"""<script type="module" src="\{% static '([^']+)' %\}""", source):
+            assert not RELATIVE_IMPORT.findall((STATIC / module).read_text()), (template.name, module)
 
 
 def test_parts_js_names_the_htmx_event_order_it_relies_on():
@@ -1554,7 +1841,7 @@ def test_the_overview_tiles_placeholder_follows_the_tiles_grid_at_every_width():
     assert misses == {}
 
 
-def test_the_overview_tiles_placeholder_keeps_its_room_when_slow_or_failed():
+def test_the_overview_tiles_placeholder_keeps_its_room_when_slow_and_only_its_error_box_when_failed():
     css = (STATIC / "css" / "app.css").read_text()
     block = css.split("pages that load in parts (parts.js)", 1)[1].split("stage A (reports core)", 1)[0]
     kpis = '#part-kpis[data-part-group="overview"]'
@@ -1566,13 +1853,20 @@ def test_the_overview_tiles_placeholder_keeps_its_room_when_slow_or_failed():
     for declaration in ("align-self: end;", "position: relative;", "background: var(--nd-bg);"):
         assert declaration in slow, declaration
     assert re.search(re.escape(kpis) + r" \.part__error \{ align-self: start; \}", block)
-    # on a failure the tiles stay laid out, unseen: every other placeholder drops its grey shapes (its min-height
-    # keeps the room), and the one rule that would drop them here is outranked by the id
+    # on a failure the tiles go, as every placeholder's grey shapes do: the error box keeps no more room than it
+    # takes. They stayed laid out, unseen, behind it: on a phone the five tiles stack to 868 px, which left 771 px of
+    # blank page under the 97 px error box, the other parts' error boxes below the first screen (review
+    # R1-browser-3; "a row of tiles, never a screen" held only on wide screens)
     error = '.part[data-part-state="error"]'
     assert f"{error} .part__skeleton, {error} .part__slow {{ display: none; }}" in block
-    hidden = f'{kpis}[data-part-state="error"] .part__skeleton {{ display: block; visibility: hidden; }}'
-    assert hidden in block
-    # the tiles are always taller than the error box (a title and a button in 1rem of padding, about 100 px)
+    assert not [
+        (selector, body)
+        for selector, body in _rules(css)
+        if selector.startswith(kpis)
+        and '[data-part-state="error"]' in selector
+        and "part__skeleton" in selector
+    ]
+    # the tiles are far taller than the error box (a title and a button in 1rem of padding, about 100 px)
     assert min(real for _, _, real in KPI_TILES) > 160
 
 
@@ -1681,17 +1975,22 @@ def test_a_failed_partner_figures_part_shows_its_error_box_without_the_figures_r
     block = _stage_a()
     # up to round 1 of step 2 the 97 px error box stood on 7,500 px of empty room (12,400 px on a phone), with the
     # knowledge base panel and the end of the page below it
-    failed = '#part-datamart[data-part="datamart"][data-part-state="error"]'
-    assert f"{failed} {{ min-height: 0; }}" in block
-    assert f"{failed}::before {{ content: none; }}" in block
-    # an id outranks the rules that give every placeholder its room (and the phone's), and the middle height's float
+    # the generic rule does it (a rule of the partner page's own did, the same two declarations: review
+    # R1-cross-2): the error state drops the room every placeholder gets (and the phone's) and the middle height's
+    # float, coming after them with as much weight
     css = (STATIC / "css" / "app.css").read_text()
     generic = css.split("pages that load in parts (parts.js)", 1)[1].split("stage A (reports core)", 1)[0]
-    assert ".part { min-height: var(--part-h, 8rem); }" in generic
-    assert ".part { min-height: var(--part-h-sm, var(--part-h-md, var(--part-h, 8rem))); }" in generic
-    assert '[data-part]:not(.is-loaded)::before { content: ""; float: left;' in generic
-    # only the error state drops it: Try again gives the room back while the part loads
-    assert re.findall(r"#part-datamart\[[^{]*\{", block) == [f"{failed} {{", f"{failed}::before {{"]
+    collapse = '.part[data-part-state="error"] { min-height: 0; }'
+    no_float = '.part[data-part-state="error"]::before { content: none; }'
+    for reserving in (
+        ".part { min-height: var(--part-h, 8rem); }",
+        ".part { min-height: var(--part-h-sm, var(--part-h-md, var(--part-h, 8rem))); }",
+        '[data-part]:not(.is-loaded)::before { content: ""; float: left;',
+    ):
+        assert generic.index(reserving) < generic.index(collapse) < generic.index(no_float), reserving
+    # and no rule of the partner page gives its figures a room of their own, in any state: Try again gives the
+    # placeholder's room back while the part loads
+    assert re.findall(r"#part-datamart\[[^{]*\{", block) == []
 
 
 def _rules(css: str) -> list[tuple[str, str]]:
@@ -1718,8 +2017,10 @@ def test_a_failed_part_keeps_no_room_on_any_page():
         '[data-part]:not(.is-loaded)::before { content: ""; float: left;',
     ):
         assert block.index(reserving) < block.index(no_float), reserving
-    # no rule gives a failed part room back: only the two placeholders whose room is a row of their own grey shapes
-    # keep them, laid out unseen (the overview's key figures, the partner page's Monitoring insights panel)
+    # no rule gives a failed part room back: only the placeholder whose room is a row of its own grey shapes (344 px
+    # at most) keeps them, laid out unseen (the partner page's Monitoring insights panel). The overview's key figures
+    # no longer do: on a phone their five tiles stack to 868 px, which left 771 px of blank page under the error box
+    # (review R1-browser-3)
     kept = [
         selector
         for selector, body in _rules(css)
@@ -1727,10 +2028,16 @@ def test_a_failed_part_keeps_no_room_on_any_page():
         and ("visibility: hidden" in body or "min-height:" in body)
         and "min-height: 0" not in body
     ]
-    assert kept == [
-        '#part-kpis[data-part-group="overview"][data-part-state="error"] .part__skeleton',
-        '#part-datamart #part-fmm[data-part="fmm"][data-part-state="error"] .part__skeleton',
+    assert kept == ['#part-datamart #part-fmm[data-part="fmm"][data-part-state="error"] .part__skeleton']
+    # and the two rules above do it for every page: no page keeps a copy of its own (review R1-cross-2)
+    copies = [
+        selector
+        for selector, body in _rules(css)
+        if '[data-part-state="error"]' in selector
+        and ("min-height: 0" in body or "content: none" in body)
+        and selector not in ('.part[data-part-state="error"]', '.part[data-part-state="error"]::before')
     ]
+    assert copies == []
     # nor does an id give the parts of the step 1 and 2 pages, or partner monitoring's summary, a room of their own
     for name in ("figures", "review", "news", "brief", "sections", "jobs", "readiness", "summary"):
         for selector, body in _rules(css):
@@ -1987,19 +2294,34 @@ def test_placeholders_offer_the_page_drawn_at_once_where_parts_js_never_runs():
 @needs_node
 def test_initparts_marks_the_page_and_without_htmx_offers_the_page_drawn_at_once():
     """parts.js marks the page html.parts-ready once initParts() has run (base.html's head then leaves the
-    placeholders to it). Where htmx itself did not load, parts.js shows each placeholder's error box at once, not
-    busy, without Try again (nothing could ask) but with the link to the page drawn at once (review R3-critic-2)."""
+    placeholders to it). Where htmx itself did not load, nothing can ask for a part and htmx never fires htmx:load
+    (on which parts.js finds its placeholders): parts.js used to mark the page all the same, so base.html's fallback
+    stood down and every placeholder stayed grey and busy for ever, while this test passed by firing htmx:load
+    through its own stand-in htmx (review R1-browser-2). Now parts.js leaves the page unmarked and asks for nothing,
+    and at the load event base.html's fallback (its own script, run here) shows each placeholder's error box, not
+    busy, without Try again (nothing could ask) but with the link to the page drawn at once."""
+    base = (TEMPLATES / "base.html").read_text()
+    block = base.split("{% if parts_eager is not None %}", 1)[1].split("{% endif %}", 1)[0]
+    fallback = block[block.index("<script nonce=") :].split(">", 1)[1].split("</script>", 1)[0]
     data = run_dom(
-        """
-const { doc, win, main, placeholder, start, parts } = await page();
+        f"const FALLBACK = {json.dumps(fallback)};\n"
+        + """
+{
+  const { doc, parts } = await page(); // htmx loaded: the page is parts.js's
+  parts.initParts();
+  out.withHtmx = doc.documentElement.classList.contains("parts-ready");
+}
+const { doc, win, htmx, clock, main, placeholder, parts } = await page();
 const p = placeholder({ name: "summary", kind: "tiles" });
 p.querySelector("[data-part-error]").append(doc.h("a", { href: "?year=2025&_eager=1", "data-part-fallback": true, hidden: true }, "Show the figures"));
 main.append(p);
-out.before = doc.documentElement.classList.contains("parts-ready");
-delete win.htmx;
-parts.initParts();
-out.after = doc.documentElement.classList.contains("parts-ready");
-await start();
+new Function(FALLBACK)(); // base.html's own script, as the page runs it before app.js
+delete win.htmx; // htmx.min.js did not load
+out.page = parts.initParts() ?? null;
+out.marked = doc.documentElement.classList.contains("parts-ready");
+win.dispatchEvent(new dom.Event("load")); // the load event: nothing has fired htmx:load
+await clock.flush();
+out.sent = htmx.sent();
 out.state = p.dataset.partState;
 out.busy = p.getAttribute("aria-busy");
 out.box = !p.querySelector("[data-part-error]").hidden;
@@ -2007,7 +2329,8 @@ out.retry = !p.querySelector("[data-part-retry]").hidden;
 out.link = !p.querySelector("[data-part-fallback]").hidden;
 """
     )
-    assert data["before"] is False and data["after"] is True
+    assert data["withHtmx"] is True
+    assert data["page"] is None and data["marked"] is False and data["sent"] == []
     assert data == {**data, "state": "error", "busy": "false", "box": True, "retry": False, "link": True}
 
 

@@ -90,8 +90,9 @@ FRAME_QUERIES = {BY_DOCUMENT: 14, THEMES: 13, REPEATED: 14}
 # best findings. The repeated findings again, stored: 5.
 PART_QUERIES = {BY_DOCUMENT: 11, THEMES: 13, REPEATED: 8}
 REPEATED_STORED_QUERIES = 7
-# an HTMX tab or filter change (13, 14, 8): the frame's results area and the figures (Repeated: its placeholder)
-RESULTS_QUERIES = {BY_DOCUMENT: 15, THEMES: 16, REPEATED: 10}
+# an HTMX tab or filter change (10, 14, 8): the frame's results area and the figures (By document and Repeated: their
+# placeholder)
+RESULTS_QUERIES = {BY_DOCUMENT: 12, THEMES: 16, REPEATED: 10}
 
 
 # ------------------------------------------------------------------------------------------------- the world
@@ -445,7 +446,7 @@ def test_a_visitor_asking_for_a_part_is_sent_to_sign_in(client, world):
 
 
 # ------------------------------------------------------------------------------------- HTMX: tab and filter changes
-@pytest.mark.parametrize("url", [BY_DOCUMENT, THEMES])
+@pytest.mark.parametrize("url", [THEMES])
 def test_a_tab_or_filter_change_answers_the_figures_at_once(
     client_viewer, world, url, django_assert_max_num_queries
 ):
@@ -459,6 +460,33 @@ def test_a_tab_or_filter_change_answers_the_figures_at_once(
     name = VIEWS[url]
     assert f'<div id="part-{name}" class="part is-loaded" data-part-loaded="{name}"' in html
     assert ("Report 11" if url == BY_DOCUMENT else "themes raised by") in html
+
+
+def test_a_change_into_by_document_answers_its_placeholder_then_its_part(
+    client_viewer, world, django_assert_max_num_queries
+):
+    """By document's ten documents, drawn inside the results of a tab, view, filter or chip change (HTMX), took twice
+    as long as in their own request or the old page's results on the large world (0.8-1.1 s for an editor against
+    0.35-0.6 s: Python mapped and freed its frame stack thousands of times in that deeper rendering), past the second
+    under which a change brings its figures (review R1-D2-1). The results area comes with the placeholder at once,
+    with the change's filter, and the part draws the documents, as on the page's first visit."""
+    caches["shared"].clear()
+    url = f"{BY_DOCUMENT}&page=2"
+    with django_assert_max_num_queries(RESULTS_QUERIES[BY_DOCUMENT]):
+        response = client_viewer.get(url, **RESULTS)
+    html = text(response)
+    assert response.status_code == 200 and "<html" not in html
+    found = placeholders(html)
+    assert list(found) == ["findings"] and 'data-part-loaded="findings"' not in html
+    assert _query(found["findings"]) == {
+        "tab": ["findings"],
+        "view": ["document"],
+        "page": ["2"],
+        "_part": ["findings"],
+    }
+    part = client_viewer.get(found["findings"], **HX)
+    assert part.status_code == 200 and part.context["page_obj"].number == 2
+    assert '<div id="part-findings" class="part is-loaded" data-part-loaded="findings"' in text(part)
 
 
 def test_the_repeated_findings_change_answers_their_placeholder_until_they_are_stored(client_viewer, world):

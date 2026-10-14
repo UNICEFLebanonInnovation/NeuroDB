@@ -204,10 +204,14 @@ minutes; the page refreshes until it is ready; several files added at once are r
    with PostgreSQL full-text search (English stemming, plus the words as written for Arabic, place
    names and reference numbers). The search ranks passages as it always has, on that index turned into
    text and parsed again in English (the forms of a word, such as report, reports and reported, count
-   together), ties the newest first; the database keeps that parse with each passage when it is indexed
+   together), ties the newest first; that parse is kept with each passage when it is indexed
    (`Chunk.rank_vector`, knowledge migration 0007), where it used to be built at every search. The
    search itself takes 30-50 ms for a common word over 3,300 passages (the x20 parity world), where it
-   took 0.7-1.8 s. So `/knowledge/?q=` stays one request (it is not a page in parts). The old search
+   took 0.7-1.8 s. The migration adds the column empty, so a deployment starts as fast as before
+   whatever the size of the knowledge base; the passages indexed before it are given their parse by the
+   *Knowledge hub* job, which does that first (after every sync, every morning, or from *Run a job* →
+   *Knowledge hub*; its output says how many passages it filled). Until then the search builds the same
+   parse for them: the same results and ranks, at the old speed. So `/knowledge/?q=` stays one request (it is not a page in parts). The old search
    parsed with the database server's default text search configuration (`default_text_search_config`:
    English on every database checked here; the production server's value is among its server
    parameters in the Azure portal); the column names English.
@@ -904,7 +908,9 @@ is not read out as a whole when a tab, view, filter, sort or page change replace
 changes something inside it (a page, a sort or the rows per page of a table in it, an entity chip, an
 Accept, Reject or Undo, an action point's status, a finding deleted): they hear "The results were updated."
 instead, once per change. A block arriving, a list opened, a panel loaded when reached and a refresh on a
-timer (the AI brief, the documents being analysed) are not announced that way. Printing
+timer (the documents being analysed) are not announced that way. Monitoring insights' AI brief has its own
+line instead: after *Regenerate* they hear "Writing the AI brief… about 30 seconds.", then, once, "The AI
+brief is ready." or why it was not written. Printing
 with Ctrl+P while blocks are still loading prints a note in place of each of them ("This part was still
 loading when the page was printed. Wait until every part is shown, then print again."). A page's own
 **Print** button (the management brief's) waits instead: it asks for every part still to come, the ones
@@ -1021,7 +1027,7 @@ more.
 | Country programme, `/country-programme/` | Cycle selector, the cycle's panel (years, share of the cycle elapsed, summary, documents, *Edit in the admin* for staff), the note on AI-suggested indicators; without a cycle or without indicators, the empty state and no part | `summary` (at once; first of the group `cpd`): the six key figures, *Where the CPD indicators stand* and the outcomes at a glance. `outcomes` (when near the screen, once `summary` is in): each outcome with its outputs, indicators, programme documents and partner reporting; a link to `#outcome-<id>` asks for it first | The cycle's build, 10 minutes per cycle, day and language (the kinds of the linked sources are translated), under a key that holds the cycle and what staff enter by hand that its figures read (the cycle, its outcomes, outputs, indicators, milestones, typed values and linked sources, and how the linked ActivityInfo master indicators are set up, down to the indicators they add up and those indicators' ActivityInfo field and database: one digest of the rows themselves, so an edit in place shows at once) and the last finished sync run and the indicator flags. When the build is stored, the frame draws both parts itself. See *Country programme* |
 | Youth programmes, `/youth/` | The filter bar whole (its choices are read in the database from a few lists of the year's figures, never by decoding them, and kept 10 minutes), the line saying when Compiler's figures were read; without figures, the empty state and no part | `summary` (at once; first of the group `youth`): the five key figures and the youth indicators with their eTools indicators. `details` (when near the screen, once `summary` is in): the breakdowns, *Compiler and eTools, side by side* and the programme documents in Compiler | The year's build, 10 minutes per year's figures (their row and when they were read), filters, day and language (the breakdowns' names are translated), under a key that holds the year's links to eTools (a digest of the rows: a link confirmed with the admin's action, edited or added shows at once), the last finished sync run and the indicator flags; the filter bar's choices, 10 minutes per year's figures, the same in every language. When the build is stored, the frame draws both parts itself. See *Youth programmes* |
 | Donor page, `/donor/` (not a staff page) | The bar with the year, the tabs, every heading and card of both tabs with grey shapes of the size of their charts, the date of the data; for an administrator's preview, the preview banner | One part, `data`, answered as JSON and drawn by the page's script (`donor.js`): every figure of both tabs. Its address carries the year and, in an administrator's preview, the account and the tab; for a donor it is always the donor's own account, whatever the address says | The page's figures, 5 minutes per account (its donors, grants and whether partners are named), year and day, the same in every language, under the last finished sync run and the indicator flags; they were kept per worker before. When they are stored, the frame carries them and nothing is fetched. See *Donor access* |
-| Document review, `/knowledge/review/`: the views *By document* (Findings), *Themes* and *Repeated findings* (Synthesis); the other tabs and views are drawn whole | Breadcrumbs, *Verified only*, purpose line, the tab bar, the view's links, filter bar and filter chips; for *Repeated findings* the panel's heading and explanation | `findings` (at once): the page's ten documents, each with its key statements and findings and, for editors, *Accept all*, *Add a finding* and the review buttons; its page links reload this part only. `synthesis` (at once): the *Themes* panel (each theme with its five best findings, its link and, when AI is on, *Write a paragraph* with the person's quota) or the repeated findings' groups. A tab or filter change (htmx) answers with the figures in it, as before, except the repeated findings: their placeholder unless they are stored | Only the repeated findings: an hour at most, per batch and *Verified only* (each person's switch is in the key), the same in every language and for everyone, under a key made of what they are read from: the documents in a batch (their batch, review status and analysis time, and the last change of any, a title or a file changed in the admin), the findings (how many, the newest, the last edit, every verdict given), the batches (names, archiving) and the last finished run of a *Document review* job (*Locate document findings again* rewrites the findings' pages, places and evidence without an edit time). A verdict, an edit, *Accept all*, a document taken out or marked reference, a finished analysis or a finished *Locate document findings again* shows at once. When they are stored, the frame draws them itself. *By document* and *Themes* are computed at each request. See *Document review* |
+| Document review, `/knowledge/review/`: the views *By document* (Findings), *Themes* and *Repeated findings* (Synthesis); the other tabs and views are drawn whole | Breadcrumbs, *Verified only*, purpose line, the tab bar, the view's links, filter bar and filter chips; for *Repeated findings* the panel's heading and explanation | `findings` (at once): the page's ten documents, each with its key statements and findings and, for editors, *Accept all*, *Add a finding* and the review buttons; its page links reload this part only. `synthesis` (at once): the *Themes* panel (each theme with its five best findings, its link and, when AI is on, *Write a paragraph* with the person's quota) or the repeated findings' groups. A tab or filter change (htmx) answers with the themes in it, as before; *By document* answers its placeholder and the part follows (drawn in that answer it took twice as long as before), and the repeated findings their placeholder unless they are stored | Only the repeated findings: an hour at most, per batch and *Verified only* (each person's switch is in the key), the same in every language and for everyone, under a key made of what they are read from: the documents in a batch (their batch, review status and analysis time, and the last change of any, a title or a file changed in the admin), the findings (how many, the newest, the last edit, every verdict given), the batches (names, archiving) and the last finished run of a *Document review* job (*Locate document findings again* rewrites the findings' pages, places and evidence without an edit time). A verdict, an edit, *Accept all*, a document taken out or marked reference, a finished analysis or a finished *Locate document findings again* shows at once. When they are stored, the frame draws them itself. *By document* and *Themes* are computed at each request. See *Document review* |
 
 Every other page is still drawn whole. A page gets parts only when it takes over 0.3 seconds to answer
 whole, cold, on a copy of the data twenty times today's size (Monitoring insights at production size),
@@ -1085,7 +1091,11 @@ App Service does not compress what a Linux container sends, and a part can be la
 folded findings are about 266 KB). It leaves out event streams (the chat answers, written line by line),
 downloads (attachments), streamed answers and what is compressed already (images other than SVG, such as
 the library covers, PDF, ZIP, fonts, audio and video), which gzip would only make the server work on for
-nothing; static files come from WhiteNoise, which serves its own compressed copies. A worker of gunicorn
+nothing; static files come from WhiteNoise, which serves its own compressed copies. The pages' own scripts
+load under the names collectstatic gives them (with the hash of their content, kept by browsers for good), the
+scripts they import from one another too, through an import map in `base.html` (`module_map` in
+`neurodb/web/templatetags/ui.py`): a page of a new release never runs with a script of the one before, which
+a browser could otherwise keep for a minute under its plain name. A worker of gunicorn
 (`config/gunicorn.conf.py`) restarts after `max_requests` = **8000** requests, with a random spread of
 up to 800 (`max_requests_jitter`) so the workers do not restart together; it was 2000 and 200. A page in
 parts sends several requests per visit (the overview: its frame and up to five parts, plus the folded
@@ -1097,6 +1107,18 @@ and each restart loses the worker's own caches and pays its slow first request a
 still runs 3 workers × 4 threads; the work is mostly CPU, so more workers (`WEB_CONCURRENCY`) help only
 with more vCPU. Each part is its own request in Application Insights: watch the volume of requests there
 after a release that converts a page.
+
+**Under load** (measured on a copy of the data twenty times today's size, 4 vCPU, 3 workers × 4 threads,
+the shared page figures emptied): with 8 people opening the pages converted in step 3 at the same moment
+(seven staff each opening the eleven converted views one after the other, a donor the donor page), no
+request failed and the round took 12 seconds, against 39-45 seconds for the old pages. A frame took
+90-170 ms at the median but 500-650 ms at the 95th percentile, above the 300 ms aimed for (frames with no
+block drawn in: 500-640 ms; the same frames take 20-150 ms for one person). Frames wait behind the blocks
+being computed in the same workers: that work is CPU and Python runs one thread of a worker at a time
+(the longest: the repeated findings 4-6 s, the donor page 3-5 s, the country programme 2-3 s). With
+nothing emptied the 95th percentile is about 500 ms (370 ms for frames with no block drawn in): a frame
+that draws stored blocks itself is the whole page. More vCPU, with a worker per vCPU, is what brings it
+down.
 
 ## eTools Datamart
 
@@ -1729,9 +1751,9 @@ The **Map** tab is not split in parts: its page already draws at once and asks f
 background (`/api/internal/partner-monitoring/map/`). Those points are now computed once for every user and
 worker and kept two minutes, under the eTools jobs' runs, the flags and the gazetteer (how many locations
 and location types, and the last change of each), so a location renamed or moved in Admin → Locations
-shows on the map at once. Its filter bar reads the choices partner monitoring keeps, and a map left
-behind while its points were still loading (a click on another view) no longer draws itself into a page
-that has gone. **Funds**: the *Partner contributions* and *By PD and grant* tabs no longer compute the
+shows on the map at once. Its filter bar reads the choices partner monitoring keeps. `pdmap.js` also
+frees its map if the page ever swaps it out, as `edumap.js` does; nothing on the page does so today (the
+view tabs and the map's filter bar load whole pages). **Funds**: the *Partner contributions* and *By PD and grant* tabs no longer compute the
 whole reservations summary just to fill the filter bar (6 queries instead of 13); the page is otherwise
 drawn whole, as before.
 

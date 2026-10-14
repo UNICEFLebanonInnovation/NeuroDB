@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import datetime
 import functools
+import json
 import math
 from decimal import ROUND_HALF_UP, Decimal
+from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin
 
 from django import template
 from django.template.defaultfilters import date as date_filter
@@ -276,6 +278,43 @@ def asset_urls() -> str:
     from django.utils.html import json_script
 
     return json_script({key: static(path) for key, path in ASSETS.items()}, "asset-urls")
+
+
+# The project's own modules (static/js) import one another by relative path (app.js: from
+# "./parts.js"), which collectstatic leaves as it is: the browser fetched them under their plain names,
+# which WhiteNoise lets it keep for a minute only, so for that minute around a release a new page could
+# run with a module of the old one (review R2-critic-1: the old parts.js never marked the page
+# "parts-ready", and base.html's fallback hid Try again on its placeholders; a module whose exports
+# changed would stop app.js). The import map sends each plain name to this release's hashed one (kept for
+# good), so the modules of one release always load together, and a module loaded by its hashed name
+# (asset()) is the one the others import. Without hashed names (no manifest: development, tests) no map
+# is written.
+OWN_MODULES = Path(__file__).resolve().parent.parent / "static" / "js"
+
+
+@functools.cache
+def _own_modules() -> tuple[str, ...]:
+    return tuple(sorted(f"js/{path.name}" for path in OWN_MODULES.glob("*.js")))
+
+
+@register.simple_tag(takes_context=True)
+def module_map(context) -> str:
+    from django.conf import settings
+    from django.templatetags.static import static
+    from django.utils.encoding import filepath_to_uri
+    from django.utils.html import format_html
+
+    imports = {}
+    for path in _own_modules():
+        plain, hashed = urljoin(settings.STATIC_URL, filepath_to_uri(path)), static(path)
+        if hashed != plain:
+            imports[plain] = hashed
+    if not imports:
+        return ""
+    data = json.dumps({"imports": imports}, sort_keys=True)
+    data = data.replace("<", "\\u003C").replace(">", "\\u003E").replace("&", "\\u0026")  # as json_script does
+    nonce = getattr(context.get("request"), "csp_nonce", "")
+    return format_html('<script type="importmap" nonce="{}">{}</script>', nonce, mark_safe(data))
 
 
 # The pages that show a chosen year (``?year=``): the year menu keeps the user on them. The pages of

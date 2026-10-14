@@ -32,7 +32,8 @@ of documents 3, challenges only, a search, one batch, no result), repeated findi
 each tab that stays as it is.
 
 **The ranking of the search.** STAGE3's quick win: the search ranks each passage on ``Chunk.rank_vector``, the
-stored index as text parsed again in English, which the database keeps with the passage (a generated column),
+stored index as text parsed again in English, kept with the passage when it is indexed (filled by the knowledge
+hub job for passages indexed before; the search builds the same parse for any not filled yet),
 where the base built that same parse for every matching passage (``SearchRank("search_vector", ...)``: 1.6-1.8 s
 for one common word). The ranks are the same numbers, so the recording is the base's page as it is and the check
 demands the same results, ranks included, from the head's code. The world must hold words in several forms

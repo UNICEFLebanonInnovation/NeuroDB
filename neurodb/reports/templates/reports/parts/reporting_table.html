@@ -1,8 +1,7 @@
 {% comment %}The Progress reports page's Report/Location or Report/Disaggregation table (part "table",
 reports.views._reporting_table_tab): the table, the note when the filter holds too many rows, its downloads and its
-pages (each reloads this part and shows the page's own address), and the chart data every tab of the page carries
-(reporting-chart-data). Context: locations or disaggregations (datamart.services.reporting_table, stored for every
-worker; the blocks of the page with their lines), page_obj, downloads, chart_data, and tab (the page's
-scope).{% endcomment %}
+pages (each reloads this part and shows the page's own address). No chart data: no chart of these two tabs reads
+the page's reporting-chart-data (the Reporting progress tab draws it). Context: locations or disaggregations
+(datamart.services.reporting_table, stored for every worker; the blocks of the page with their lines), page_obj,
+downloads, and tab (the page's scope).{% endcomment %}
 {% if tab == "locations" %}{% include "reports/partials/_reporting_locations.html" %}{% else %}{% include "reports/partials/_reporting_disaggregations.html" %}{% endif %}
-{{ chart_data|json_script:"reporting-chart-data" }}

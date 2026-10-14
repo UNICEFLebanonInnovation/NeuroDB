@@ -15,11 +15,12 @@ from typing import Any
 from django.conf import settings
 from django.contrib.postgres.search import SearchVector
 from django.db import transaction
-from django.db.models import Value
+from django.db.models import Max, Min, Value
 from django.utils import timezone
 
 from . import linking
 from .models import Chunk, Document, Link
+from .search import rank_parse
 from .text import PAGE_BREAK, TextError, clean, read
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,25 @@ def passages(text: str) -> list[tuple[int | None, str]]:
     return out
 
 
+RANK_FILL_BATCH = 2_000  # passages per UPDATE (by id range), each batch committed on its own
+
+
+def fill_rank_vectors(batch: int = RANK_FILL_BATCH) -> int:
+    """Write what the search ranks on (``Chunk.rank_vector``) for the passages indexed before that column
+    existed (knowledge migration 0007 adds it empty, so a deployment never parses every passage while the
+    site waits to start). Batches by id range, each committed on its own, so a run cut short carries on where
+    it stopped and a second run writes nothing. Returns the passages written. The knowledge hub job calls it
+    first, after every sync, every morning and from *Run a job*."""
+    pending = Chunk.objects.filter(rank_vector__isnull=True, search_vector__isnull=False)
+    bounds = pending.aggregate(low=Min("pk"), high=Max("pk"))
+    if bounds["low"] is None:
+        return 0
+    written = 0
+    for start in range(bounds["low"], bounds["high"] + 1, batch):
+        written += pending.filter(pk__gte=start, pk__lt=start + batch).update(rank_vector=rank_parse())
+    return written
+
+
 def _vector(title: str) -> Any:
     # the title counts most; English stemming finds "school" for "schools", the simple configuration
     # keeps words English does not know (Arabic, place names, reference numbers) as they are
@@ -130,6 +150,7 @@ def index(document: Document) -> None:
             for n, (page, piece) in enumerate(passages(document.text))
         )
         Chunk.objects.filter(document=document).update(search_vector=_vector(document.title))
+        Chunk.objects.filter(document=document).update(rank_vector=rank_parse())  # what the search ranks on
         replace_links(document, found, Link.Origin.DETECTED)
         document.save(
             update_fields=[

@@ -1,7 +1,8 @@
 """``build_knowledge_hub``: read new library and CPD documents, then link every named thing of
 NeuroDB across sources (partners, programme documents, donors, places, indicators, CPD results,
 Compiler programmes and centres, documents, findings). It also starts reading, in the background,
-the knowledge base documents left unread (an upload cut off by a restart)."""
+the knowledge base documents left unread (an upload cut off by a restart), and first gives the passages
+indexed before knowledge migration 0007 what the search ranks on (``indexing.fill_rank_vectors``)."""
 
 from __future__ import annotations
 
@@ -26,6 +27,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        fill_rank_vectors(self)
         if options["when_requested"]:
             from neurodb.graph.refresh import drain
 
@@ -50,3 +52,13 @@ def resume_left_behind(command: BaseCommand) -> None:
     if waiting:
         background.start_command("index_knowledge", "--pending", "--stale")
         command.stdout.write(f"{waiting} knowledge document(s) left unread: reading them in the background")
+
+
+def fill_rank_vectors(command: BaseCommand) -> None:
+    """Give the knowledge search what it ranks on to the passages indexed before it was kept with them
+    (knowledge migration 0007): quick, and nothing once every passage has it."""
+    from neurodb.knowledge.indexing import fill_rank_vectors as fill
+
+    written = fill()
+    if written:
+        command.stdout.write(f"{written} knowledge passage(s) given what the search ranks on")

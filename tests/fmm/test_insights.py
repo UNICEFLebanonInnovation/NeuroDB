@@ -6,6 +6,7 @@ admin's test run, Preview and brief pages, and the strict format through the rea
 
 import datetime
 import json
+import re
 import uuid
 from types import SimpleNamespace
 
@@ -662,6 +663,72 @@ def test_regenerate_starts_a_background_brief_and_the_card_polls_it(
     assert "Up to date" in card and "1 of 5 today" in card and 'class="visit-chip"' in card
     assert "temp 0.30 · applied" in card and "top-p · not set (API default 1.00)" in card
     assert "narr 3/20" in card and f"comp {row.sent['flags']}/15" in card and "prompt v4" in card
+
+
+SAID = re.compile(r'<span id="fmm-insights-said" hx-swap-oob="innerHTML">([^<]*)</span>')
+
+
+def test_what_regenerate_asked_for_is_said_once_in_the_tab_s_live_line(
+    built, ai_on, client_viewer, viewer, started, fake_insights_client, django_capture_on_commit_callbacks
+):
+    """The results area of Monitoring insights is not live (it receives parts), and a card inserted fresh is often
+    not read out: a brief written after Regenerate was silent for screen readers (review R1-C-1). The Insights tab
+    keeps its own live line, outside the card so the card's swaps keep it; each answer to what the person asked for
+    fills it once, out of band: Regenerate the brief being written, the poll that finds it over the brief ready (or
+    why it was not written), Regenerate refused at once the reason. A poll of a brief still being written says
+    nothing, and the card's own lines carry no role "status" (they would be said twice); its empty
+    data-results-updated keeps parts.js from saying "The results were updated." for its swaps."""
+    tab = client_viewer.get(reverse("fmm:dashboard"), {"year": "2026", "section": "", "tab": "insights"})
+    html = tab.content.decode()
+    line = '<p class="visually-hidden" id="fmm-insights-said" role="status" aria-live="polite"></p>'
+    assert html.count(line) == 1 and html.count('id="fmm-insights-said"') == 1
+    card = re.search(r'<section class="panel fmm-insights" id="fmm-insights".*?</section>', html, re.S)[0]
+    assert 'id="fmm-insights-said"' not in card  # outside the card: its swaps keep the line
+
+    url = f"{reverse('fmm:insights')}?{YEAR}"
+    with django_capture_on_commit_callbacks(execute=True):
+        asked = client_viewer.post(url, HTTP_HX_REQUEST="true").content.decode()
+    row = Insight.objects.get()
+    assert SAID.findall(asked) == ["Writing the AI brief… about 30 seconds."]
+    assert 'data-results-updated=""' in asked
+    # its own line carries no role "status"
+    assert '<p class="small text-muted mb-2">Writing… about 30 seconds</p>' in asked
+    still = client_viewer.get(f"{url}&running={row.pk}").content.decode()
+    assert "every 3s" in still and 'id="fmm-insights-said"' not in still  # a poll still writing: nothing said
+    found = facts.build(_scope(), ai_on, TODAY)
+    fake_insights_client(_answer(_good(found)))
+    call_command("fmm_insights", "--insight", str(row.pk))
+    ready = client_viewer.get(f"{url}&running={row.pk}").content.decode()
+    assert SAID.findall(ready) == ["The AI brief is ready."]
+    assert "every 3s" not in ready and 'data-results-updated=""' in ready and 'role="status"' not in ready
+    # the card shown again: silent
+    assert 'id="fmm-insights-said"' not in client_viewer.get(url).content.decode()
+
+    stopped = insights.start(_scope(), ai_on, viewer)
+    Insight.objects.filter(pk=stopped.pk).update(created_at=timezone.now() - datetime.timedelta(seconds=200))
+    over = client_viewer.get(f"{url}&running={stopped.pk}").content.decode()
+    assert SAID.findall(over) == ["The last attempt stopped; you can try again."]
+
+
+def test_regenerate_refused_at_once_says_why_in_the_tab_s_live_line(built, client_viewer):
+    html = client_viewer.post(f"{reverse('fmm:insights')}?{YEAR}", HTTP_HX_REQUEST="true").content.decode()
+    assert SAID.findall(html) == ["AI is switched off"]
+    # the card's line, not said
+    assert '<p class="alert alert-warning small py-2 mb-2">AI is switched off</p>' in html
+
+
+def test_the_parity_check_takes_the_tab_s_live_line_as_new_and_still_compares_the_card(built, client_viewer):
+    """scripts/parity/fmm.py compares the Insights tab with the page before step 3, which had no live line: its id
+    is one only the page in parts has (NEW_IDS), or every Insights row differs by it (the step-3 gate found 60);
+    the card's own ids are still compared."""
+    from scripts.parity import fmm as parity
+
+    tab = client_viewer.get(reverse("fmm:dashboard"), {"year": "2026", "section": "", "tab": "insights"})
+    ids = set(re.findall(r'\bid="([^"]+)"', tab.content.decode()))
+    assert "fmm-insights-said" in ids and parity.NEW_IDS.fullmatch("fmm-insights-said")
+    new = {i for i in ids if parity.NEW_IDS.fullmatch(i) and not i.startswith("part-")}
+    assert new == {"fmm-insights-said"}
+    assert not any(parity.NEW_IDS.fullmatch(i) for i in ("fmm-insights", "fmm-insights-title"))
 
 
 def test_a_stopped_brief_is_shown_as_stopped(built, ai_on, client_viewer, viewer):

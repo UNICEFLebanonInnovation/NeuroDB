@@ -661,6 +661,62 @@ def test_a_stored_build_never_shows_one_person_s_view_to_another(admin_user, sec
     )  # computed by the viewer's request this time
 
 
+FILTER_BAR = re.compile(r'<form method="get" class="filter-bar".*?</form>', re.S)
+SELECT = re.compile(r'<select[^>]*\sname="([^"]+)"[^>]*>(.*?)</select>', re.S)
+OPTION = re.compile(r'<option value="([^"]*)"[^>]*>([^<]*)</option>')
+
+
+def _filter_choices(html: str) -> dict[str, list[tuple[str, str]]]:
+    """The choices the page's filter bar offers: per field, its options (value and label), selected or not."""
+    bar = FILTER_BAR.search(html)
+    assert bar, "the page has its filter bar"
+    return {name: OPTION.findall(body) for name, body in SELECT.findall(bar.group(0))}
+
+
+@pytest.mark.shell
+def test_the_stored_filter_options_are_the_same_for_every_person(admin_user, sectioned, world, monkeypatch):
+    """The filter options (``pm-options``) depend on nothing about the person asking. Stored by the frame of an
+    administrator of one section (Education), they answer the frames of a viewer of another (Child Protection),
+    the page and its map, with the same choices in the filter bar, and the other way round: computed by either
+    person, they are the same. Each person's own section, the page's first-load default, still comes from their
+    own section."""
+    admin_user.section = Section.objects.create(name="Education", code="EDU")
+    admin_user.save()
+    calls: Counter = Counter()
+    real = monitoring.filter_options
+
+    def counted(filters):
+        calls["options"] += 1
+        return real(filters)
+
+    monkeypatch.setattr(monitoring, "filter_options", counted)
+    admin, viewer = _signed_in(admin_user), _signed_in(sectioned)
+    own = {admin: ["Education"], viewer: ["Child Protection"]}
+    urls = (PAGE, reverse("reports:pd_monitoring_map"))  # each first load: the person's own section
+    stored = []
+    for first, second in ((admin, viewer), (viewer, admin)):
+        caches["shared"].clear()
+        compute.reset_memo()
+        calls.clear()
+        frames = {}
+        for person in (first, second):
+            for url in urls:
+                frames[person, url] = response = person.get(url)
+                compute.reset_memo()
+                assert response.status_code == 200
+                assert response.context["own_section"] == own[person]
+                assert f"Your section, {own[person][0]}, by default" in text(response)
+        assert calls["options"] == 1  # the first frame stored them; every other frame read them
+        options = [response.context["options"] for response in frames.values()]
+        assert all(o == options[0] for o in options) and {"Child Protection", "Education"} <= set(
+            options[0]["sections"]
+        )
+        for url in urls:
+            assert _filter_choices(text(frames[first, url])) == _filter_choices(text(frames[second, url]))
+        stored.append(options[0])
+    assert stored[0] == stored[1]
+
+
 class _EveryStringTranslated(gettext.NullTranslations):
     """A language in which every translatable string reads differently."""
 
@@ -898,6 +954,35 @@ def test_the_map_api_is_stored_for_every_worker(client_viewer, located, monkeypa
     assert {p["key"] for p in first["points"]} == {"LB1"}
     client_viewer.get(api, {"year": "2026", "section": "Education"})
     assert calls["map"] == 2  # another filter: its own places
+
+
+def test_the_stored_map_places_are_the_same_for_every_person(admin_user, sectioned, located, monkeypatch):
+    """The map's places depend on nothing about the person asking: stored by an administrator's request (of the
+    Education section), they answer a viewer of another section (Child Protection) with the same places, and
+    the other way round; computed by either person, they are the same."""
+    admin_user.section = Section.objects.create(name="Education", code="EDU")
+    admin_user.save()
+    calls: Counter = Counter()
+    real = monitoring.map_points
+
+    def counted(filters, day=None):
+        calls["map"] += 1
+        return real(filters, day)
+
+    monkeypatch.setattr(monitoring, "map_points", counted)
+    api = reverse("api:pd_map") + "?year=2026"
+    admin, viewer = _signed_in(admin_user), _signed_in(sectioned)
+    stored = []
+    for first, second in ((admin, viewer), (viewer, admin)):
+        caches["shared"].clear()
+        compute.reset_memo()
+        calls.clear()
+        computed = first.get(api).json()
+        compute.reset_memo()
+        assert second.get(api).json() == computed and calls["map"] == 1
+        stored.append(computed)
+    assert stored[0] == stored[1] and {p["key"] for p in stored[0]["points"]} == {"LB1"}
+    assert stored[0]["totals"]["indicators"] == 3  # every section's indicators, whoever asked first
 
 
 def test_a_location_edited_in_the_admin_shows_at_once_on_the_map(client, admin_user, located):

@@ -439,6 +439,66 @@ out.late = await page({ answers: Array(100).fill(PENDING) }).then(seen);
     assert 5 < len(late["asked"]) < 30 and late["asked"][-1] < 60000
 
 
+@needs_node
+def test_try_again_keeps_the_focus_on_the_page(donor_client, world):
+    """Try again hides the error box that holds it. The focus went to the page's body and stayed there once the figures
+    were drawn, or failed again: screen readers lost their place (review R1-D1-1). It now goes to the page's main area
+    (tabindex -1, without scrolling) while the figures come, stays there when they are drawn, and comes back to Try
+    again when they fail again, as parts.js does for a part of a staff page. A first load that fails never moves the
+    focus."""
+    figures = _figures(donor_client)
+    out = _run_donor_js(
+        """
+const env = await page({ answers: ["network", "network"] });
+env.el("loadRetry").focus(); // a keyboard user on Try again
+env.answer("network", "network");
+env.el("loadRetry").click();
+out.waiting = env.focused();
+out.quietly = env.main.focusOptions;
+await env.run();
+out.failedAgain = [seen(env).state, env.focused()];
+env.answer(DATA);
+env.el("loadRetry").click();
+await env.run();
+out.drawn = [seen(env).state, env.focused()];
+const first = await page({ answers: ["network", "network"] });
+out.firstLoad = [seen(first).state, first.focused()];
+""",
+        figures,
+    )
+    assert out["waiting"] == "main" and out["quietly"] == {"preventScroll": True}
+    assert out["failedAgain"] == ["error", "loadRetry"]
+    assert out["drawn"] == ["ready", "main"]
+    assert out["firstLoad"] == ["error", "body"]
+
+
+@needs_node
+def test_a_table_button_opens_nothing_before_the_figures_are_drawn(donor_client, world):
+    """While the figures are on their way, a card's Table button opened an empty table and read "Hide table" (review
+    R1-D1-3). donor.js now ignores it until the figures are in, and donor.css hides the buttons until the page is
+    "ready" (they keep their room); once drawn, the button opens the card's table."""
+    figures = _figures(donor_client)
+    out = _run_donor_js(
+        """
+const env = dom.installPage({ answers: [PENDING, DATA] });
+pages += 1;
+await import("data:text/javascript;charset=utf-8," + encodeURIComponent(`${donorSource}\n// page ${pages}`));
+const button = env.el("flowTable");
+env.click(button); // the figures still on their way
+out.waiting = [env.main.dataset.donorState, env.opened.length, button.textContent];
+await env.run();
+env.click(button);
+out.drawn = [env.main.dataset.donorState, env.opened.length, button.textContent];
+out.rows = (env.opened[0]?.innerHTML.match(/<tr>/g) || []).length;
+""",
+        figures,
+    )
+    assert out["waiting"] == ["waiting", 0, "Table"]
+    assert out["drawn"] == ["ready", 1, "Hide table"] and out["rows"] > 1  # the heading row and the flows
+    css = DONOR_CSS.read_text(encoding="utf-8")
+    assert 'main:not([data-donor-state="ready"]) button[data-table] { visibility: hidden; }' in css
+
+
 def test_a_failed_page_shows_the_error_box_without_the_empty_cards():
     """Figures that could not be loaded: the error box with Try again, and none of the empty cards below it, whose
     controls would act on nothing (review R1-D1-2). Both tabs: the cards of "Your contribution" and the overall tab's

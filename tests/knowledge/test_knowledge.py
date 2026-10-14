@@ -5,6 +5,7 @@ import datetime
 import io
 import json
 import zipfile
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -386,8 +387,76 @@ def test_search_ranks_as_it_always_did_on_words_in_several_forms(corpus, monkeyp
         hits = search.search("latrines")
     assert len(hits) == 4  # notes 1, 2 and 5 and the WASH assessment
     ranked = [q["sql"] for q in queries_run.captured_queries if "ts_rank" in q["sql"]]
-    assert ranked and all('ts_rank("knowledge_chunk"."rank_vector", ' in sql for sql in ranked)
-    assert not any("to_tsvector" in sql or "strip(" in sql for sql in ranked)
+    assert ranked and all('ts_rank(COALESCE("knowledge_chunk"."rank_vector", ' in sql for sql in ranked)
+    assert not any("strip(" in sql for sql in ranked)
+    # indexing wrote what the search ranks on: the parse in the COALESCE is never built for these passages
+    assert not Chunk.objects.filter(rank_vector__isnull=True, search_vector__isnull=False).exists()
+
+
+def test_passages_indexed_before_the_rank_column_rank_the_same_until_the_hub_job_fills_them(corpus, capsys):
+    """Knowledge migration 0007 adds ``rank_vector`` empty, so a deployment never parses every passage while
+    the site waits to start. Until the knowledge hub job fills them, those passages rank exactly as before
+    (the search builds the same parse for them); the job fills them in batches, once."""
+    from django.core.management import call_command
+
+    for title, body, day in SEVERAL_FORMS:
+        indexing.process(_note(title, body, document_date=day))
+
+    def results():
+        return {
+            q: (
+                [(h.chunk.pk, h.rank) for h in search.search(q, limit=20)],
+                [d.pk for d, _hit in search.documents_matching(q)],
+            )
+            for q in FORMS_QUERIES
+        }
+
+    filled = results()
+    indexed = Chunk.objects.exclude(search_vector=None).count()
+    Chunk.objects.update(rank_vector=None)  # as the migration leaves the passages indexed before it
+    assert results() == filled
+
+    assert indexing.fill_rank_vectors(batch=2) == indexed  # several batches, each its own UPDATE
+    assert indexing.fill_rank_vectors() == 0  # nothing left: a second run writes nothing
+    assert results() == filled
+    assert not Chunk.objects.filter(rank_vector__isnull=True, search_vector__isnull=False).exists()
+
+    Chunk.objects.update(rank_vector=None)
+    from neurodb.graph import refresh
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(refresh, "drain", lambda: [])  # nothing for the hub itself to rebuild
+        call_command("build_knowledge_hub", "--when-requested")
+    assert f"{indexed} knowledge passage(s) given what the search ranks on" in capsys.readouterr().out
+    assert not Chunk.objects.filter(rank_vector__isnull=True, search_vector__isnull=False).exists()
+
+
+GUIDE = Path(search.__file__).resolve().parents[1] / "help" / "guide" / "knowledge-and-documents.md"
+
+
+def test_the_help_guide_tells_the_search_order_as_it_is(corpus):
+    """The help guide's Search bullet says what the order follows: the passages that use the words most, wherever
+    they are (the title is searched with each passage; its words weigh no more than the text's). So a document
+    whose title holds the word comes after one whose text uses it more, and the guide must not say otherwise (it
+    said "the title counts most, so a document whose title holds your words comes before one that only mentions
+    them" after the ranking went back to the old one: review R1-D2-2)."""
+    titled = indexing.process(
+        _note("Geomembrane lining survey", "The visit checked the ponds in two villages; the pumps worked.")
+    )
+    mentioned = indexing.process(
+        _note(
+            "Field visit note 77",
+            "The geomembrane of the pond was torn; a new geomembrane was ordered and the geomembranes arrive in May.",
+        )
+    )
+    assert [h.document.pk for h in search.search("geomembrane")] == [mentioned.pk, titled.pk]  # Ask NeuroDB
+    assert [d.pk for d, _hit in search.documents_matching("geomembrane")] == [mentioned.pk, titled.pk]
+    lines = GUIDE.read_text().splitlines()
+    start = next(n for n, line in enumerate(lines) if line.startswith("- **Search**"))
+    end = next(n for n in range(start + 1, len(lines)) if not lines[n].startswith("  "))
+    bullet = " ".join(line.strip() for line in lines[start:end])
+    assert "title counts most" not in bullet and "comes before one that only mentions" not in bullet, bullet
+    assert "the passages that use your words most (in any of their forms) come first" in bullet, bullet
 
 
 # ------------------------------------------------------------------------------- assistant

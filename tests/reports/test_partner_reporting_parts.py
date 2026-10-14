@@ -4,7 +4,7 @@ STAGE3 group B).
 The two tabs answer their frame at once (the filter bar with its options stored for every worker and the tab's own
 filters, the tabs) with one placeholder, ``table``: the tab's table, computed once for every worker
 (``datamart.services.reporting_table``, keyed on the filter, the tab's filters, the day and the eTools jobs' latest
-runs), with its pages, downloads and the chart data every tab of the page carries. A change of filter answers the
+runs), with its pages and downloads, and no chart data (no chart of these tabs reads it). A change of filter answers the
 table itself (it takes well under a second). The other two tabs stay one request and read the same stored filter
 options. The Funds page's Partner Fund Monitoring and Funded Programs tabs read only the filter choices of the funds
 reservations.
@@ -30,7 +30,7 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import translation
 
-from neurodb.accounts.models import User
+from neurodb.accounts.models import Section, User
 from neurodb.core import compute
 from neurodb.core.models import SyncRun
 from neurodb.datamart import keys, reporting
@@ -56,7 +56,7 @@ pytestmark = pytest.mark.django_db
 
 PAGE = "/partner-reporting/"  # reports:partner_reporting
 TABS = ("locations", "disaggregations")  # the tabs whose table is a part
-CHART_JSON = "reporting-chart-data"  # the chart data every tab of the page carries
+CHART_JSON = "reporting-chart-data"  # the Reporting progress tab's chart data; the tabs in parts carry none
 RESULTS = "reporting-results"
 JSON_SCRIPT = re.compile(r'<script id="([^"]+)" type="application/json">(.*?)</script>', re.S)
 LINK = re.compile(r'\s(?:href|action|hx-push-url)="([^"]*)"')
@@ -245,7 +245,7 @@ def test_the_part_answers_its_wrapper(client_viewer, world, tab):
     }[tab]
     for figure in expected:
         assert figure in html, figure
-    assert list(_json_blocks(html)) == [CHART_JSON]  # the chart data every tab carries, in the part
+    assert _json_blocks(html) == {}  # no chart data: no chart of the tab reads it
     assert executable(html) == []
 
 
@@ -287,9 +287,8 @@ def test_a_filter_change_answers_the_table_itself(client_viewer, world, tab):
     )
     html = text(response)
     assert response.status_code == 200 and "<html" not in html and placeholders(html) == {}
-    assert (
-        'id="part-table" class="part is-loaded"' in html and "LB71" in html and f'id="{CHART_JSON}"' in html
-    )
+    assert 'id="part-table" class="part is-loaded"' in html and "LB71" in html
+    assert f'id="{CHART_JSON}"' not in html
     assert "QPR2" not in html  # the sent back report is left out by the filter
 
 
@@ -415,6 +414,7 @@ def test_the_disaggregation_lines_are_made_for_the_page_shown_on_copies(client_v
     compute.reset_memo()
     stored = datamart.reporting_table("disaggregations", {"tab": "disaggregations"})
     assert not any("table_lines" in b for b in stored["disaggregations"]["blocks"])
+    assert list(stored) == ["disaggregations"]  # the table only: no chart data, which no chart reads
 
 
 def test_a_stored_table_never_shows_one_person_s_view_to_another(admin_user, viewer, world):
@@ -506,6 +506,57 @@ def test_the_filter_options_are_stored_and_follow_a_sync(client_viewer, world, m
     assert calls["options"] == 2
 
 
+FILTER_BAR = re.compile(r'<form method="get" class="filter-bar".*?</form>', re.S)
+SELECT = re.compile(r'<select[^>]*\sname="([^"]+)"[^>]*>(.*?)</select>', re.S)
+OPTION = re.compile(r'<option value="([^"]*)"[^>]*>([^<]*)</option>')
+
+
+def _filter_choices(html: str) -> dict[str, list[tuple[str, str]]]:
+    """The choices the page's filter bar offers: per field, its options (value and label), selected or not."""
+    bar = FILTER_BAR.search(html)
+    assert bar, "the page has its filter bar"
+    return {name: OPTION.findall(body) for name, body in SELECT.findall(bar.group(0))}
+
+
+def test_the_stored_filter_options_are_the_same_for_every_person(admin_user, viewer, world, monkeypatch):
+    """The filter options (``pr-options``) depend on nothing about the person asking. Stored by the frame of an
+    administrator of one section (Education), they answer the frames of a viewer of another (Child Protection),
+    on a tab in parts and on a tab drawn in one request, with the same choices in the filter bar, and the other way
+    round: computed by either person, they are the same."""
+    admin_user.section = Section.objects.create(name="Education", code="EDU")
+    admin_user.save()
+    viewer.section = Section.objects.create(name="Child protection", code="CP")
+    viewer.save()
+    calls: Counter = Counter()
+    real = reporting.filter_options
+
+    def counted():
+        calls["options"] += 1
+        return real()
+
+    monkeypatch.setattr(reporting, "filter_options", counted)
+    admin, reader = _signed_in(admin_user), _signed_in(viewer)
+    tabs = ("locations", "reports")
+    stored = []
+    for first, second in ((admin, reader), (reader, admin)):
+        caches["shared"].clear()
+        compute.reset_memo()
+        calls.clear()
+        frames = {}
+        for person in (first, second):
+            for tab in tabs:
+                frames[person, tab] = response = raw_get(person, PAGE, {"tab": tab})
+                compute.reset_memo()
+                assert response.status_code == 200
+        assert calls["options"] == 1  # the first frame stored them; every other frame read them
+        options = [response.context["data"]["options"] for response in frames.values()]
+        assert all(o == options[0] for o in options) and options[0]["sections"]
+        for tab in tabs:
+            assert _filter_choices(text(frames[first, tab])) == _filter_choices(text(frames[second, tab]))
+        stored.append(options[0])
+    assert stored[0] == stored[1]
+
+
 # ------------------------------------------------------------------------------------------------ the links
 def test_the_pages_of_the_table_reload_their_part(client_viewer, world, monkeypatch):
     monkeypatch.setattr("neurodb.reports.views.DISAGGREGATION_BLOCKS", 1)
@@ -559,7 +610,7 @@ def test_the_assembled_page_is_the_eager_page(admin_user, viewer, world, role, q
     assert placeholders(text(drawn)) == {}
     assert normalise(assembled.html) == normalise(text(drawn))
     together, alone = _json_blocks(assembled.html), _json_blocks(text(drawn))
-    assert together == alone and list(together) == [CHART_JSON]
+    assert together == alone == {}  # no chart data: no chart of these tabs reads it
     assert _json_blocks(text(assembled.parts["table"])) == alone
 
 
@@ -573,7 +624,7 @@ def test_without_javascript_the_page_drawn_at_once_is_complete(client_viewer, wo
     assert address == f"{PAGE}?tab={tab}&_eager=1"
     page = text(client_viewer.get(address))
     assert placeholders(page) == {} and "part__skeleton" not in page and "Show the figures" not in page
-    assert "LB71" in page and f'id="{CHART_JSON}"' in page
+    assert "LB71" in page and f'id="{CHART_JSON}"' not in page
     assert "_eager=1" not in "".join(LINK.findall(page))
 
 

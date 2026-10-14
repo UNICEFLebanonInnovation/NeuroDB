@@ -9,6 +9,9 @@
   <meta name="color-scheme" content="light dark">
   <title>{% block title %}{{ page_title|default:SITE_NAME }}{% endblock %} · {{ SITE_NAME }}</title>
   {% include "components/favicons.html" %}
+  {% comment %}The project's modules import one another by their plain names: this sends each to this release's
+  hashed file, so a page never runs with a module of another release (ui.module_map; before any module).{% endcomment %}
+  {% module_map %}
   <link rel="stylesheet" href="{% static 'vendor/bootstrap/bootstrap.min.css' %}">
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
   {% block head_extra %}{% endblock %}
@@ -259,8 +262,9 @@ part; the words parts.js shows in a part or on the Print button, translated.{% e
 {% include "components/search_modal.html" %}
 {% if user.is_authenticated and not is_donor %}{% include "help/_panel.html" %}{% endif %}
 {% if parts_eager is not None %}{% comment %}A page in parts (web.parts.render_page sets parts_eager). Its placeholders
-(components/part.html) are filled by parts.js alone, which marks the page "parts-ready" once it has started. Where it
-never did by the load event (app.js or one of its imports failed to load, was blocked, or the browser runs no modules),
+(components/part.html) are filled by parts.js alone, which marks the page "parts-ready" once it has started (never
+without htmx, which asks for them: review R1-browser-2). Where it never did by the load event (app.js, one of its
+imports or htmx failed to load, was blocked, or the browser runs no modules),
 nothing will fill them: each placeholder, and each one a swap brings later, shows its error box with the link a browser
 without JavaScript gets (the page drawn at once) in place of Try again, and is no longer busy, instead of grey shapes
 for ever (review R3-critic-2). Only on such a page, so no other page carries the words of the mechanism.{% endcomment %}

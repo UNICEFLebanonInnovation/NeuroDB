@@ -2286,6 +2286,11 @@ SAMPLING_NAMES = {"temperature": "temp", "top_p": "top-p"}
 GENERATION_NAMES = {"temperature": gettext_lazy("Temperature"), "top_p": gettext_lazy("Top-p")}
 
 
+# what the Insights tab's live line says of a brief a person asked for (fmm/_insights.html)
+WRITING = gettext_lazy("Writing the AI brief… about 30 seconds.")
+READY = gettext_lazy("The AI brief is ready.")
+
+
 def _insight_message(row) -> str:
     """What a brief that was not written says on the card."""
     from neurodb.assistant.views import NO_CREDIT
@@ -2477,8 +2482,8 @@ def _insight_context(request: HttpRequest, scope: Scope, message: str = "") -> d
     }
 
 
-def _insight_running(request: HttpRequest, scope: Scope, row) -> HttpResponse:
-    return render(request, "fmm/_insights.html", {"scope": scope, "running": row})
+def _insight_running(request: HttpRequest, scope: Scope, row, said: str = "") -> HttpResponse:
+    return render(request, "fmm/_insights.html", {"scope": scope, "running": row, "said": said})
 
 
 def _running_brief(scope: Scope, version):
@@ -2494,7 +2499,13 @@ def _running_brief(scope: Scope, version):
 def insights(request: HttpRequest) -> HttpResponse:
     """The AI brief card. GET shows it (never calls the AI); ``?running=<pk>`` polls a brief being
     written. POST (Regenerate) runs the cheap gates, then starts the brief in a background process and
-    answers at once with the card that polls it; a second click gets the brief already being written."""
+    answers at once with the card that polls it; a second click gets the brief already being written.
+
+    What the person asked for is said once, out of band, in the Insights tab's live line
+    (``#fmm-insights-said``, outside the card: the results area is not live and a card inserted fresh is
+    often not read out): the brief being written (Regenerate), then ready, or the reason it was not written
+    (the poll that finds it over, or Regenerate refused at once). The polls of a brief still being written
+    say nothing."""
     _enabled()
     scope = Scope.from_params(request.GET, request.user)
     version = profiles.published()
@@ -2502,7 +2513,7 @@ def insights(request: HttpRequest) -> HttpResponse:
     if request.method == "POST":
         busy = _running_brief(scope, version)
         if busy is not None:
-            return _insight_running(request, scope, busy)
+            return _insight_running(request, scope, busy, said=str(WRITING))
         refused = ai_insights.gate(scope, version, request.user) if version is not None else None
         if version is None:
             message = _("AI switched off")
@@ -2511,10 +2522,12 @@ def insights(request: HttpRequest) -> HttpResponse:
             message = _insight_message(row)
         else:
             row = ai_insights.start(scope, version, request.user, Insight.Trigger.USER)
-            return _insight_running(request, scope, row)
-        return render(request, "fmm/_insights.html", _insight_context(request, scope, message))
+            return _insight_running(request, scope, row, said=str(WRITING))
+        context = _insight_context(request, scope, message)
+        return render(request, "fmm/_insights.html", {**context, "said": message})
     ai_insights.expire_stale()
     running = request.GET.get("running", "")
+    said = ""
     if running.isdigit():  # only a brief of this filter, and never an administrator's test run
         row = (
             Insight.objects.filter(pk=int(running), scope_hash=scope.hash())
@@ -2525,11 +2538,13 @@ def insights(request: HttpRequest) -> HttpResponse:
             return _insight_running(request, scope, row)
         if row is not None and row.status not in ai_insights.SHOWN:
             message = _insight_message(row)
+        if row is not None:  # the brief the card was waiting for is over: said once, here
+            said = message or str(READY)
     else:
         row = _running_brief(scope, version)
         if row is not None:
             return _insight_running(request, scope, row)
-    return render(request, "fmm/_insights.html", _insight_context(request, scope, message))
+    return render(request, "fmm/_insights.html", {**_insight_context(request, scope, message), "said": said})
 
 
 @require_GET

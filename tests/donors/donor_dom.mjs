@@ -6,6 +6,9 @@
 //   stand-in that accepts every call and every property, so the drawing runs without a page.
 // - A clock the test moves runs the timers (setTimeout, Date.now): a 202's wait or the 60 s budget take no real time.
 // - fetch answers from the list the test gives: {status, headers, body}, or "network" for a network error.
+// - The focus, as a browser keeps it: document.activeElement, focus() on the records, and an element hidden while the
+//   focus is in it leaves the focus on the page's body. Clicks on the page reach donor.js's delegated listeners
+//   (env.click), and one card's Table button (#flowTable, in its .card, for the #flow chart) records what it opens.
 //
 // installPage() sets all of it on globalThis; the test then runs a fresh copy of donor.js as a module.
 
@@ -34,9 +37,10 @@ export function anything() {
 }
 
 // One element the test reads back. Unknown properties fall back on a stand-in.
-function record(id, dataset = {}) {
+function record(id, dataset = {}, parent = null) {
   const base = {
     id,
+    parent, // the record this one is in (the focus and contains() follow it)
     dataset: { ...dataset },
     hidden: false,
     textContent: "",
@@ -49,23 +53,63 @@ function record(id, dataset = {}) {
     hasAttribute(name) { return name in this.attributes; },
     addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); },
     click() { for (const fn of this.listeners.click || []) fn({ target: this, preventDefault() {} }); },
+    focus(options) {
+      this.focusOptions = options;
+      globalThis.document.activeElement = proxy;
+    },
+    contains(other) {
+      for (let node = other; node; node = node.parent) if (node === proxy) return true;
+      return false;
+    },
   };
   const extra = anything();
-  return new Proxy(base, {
+  const proxy = new Proxy(base, {
     get: (target, prop) => (prop in target ? target[prop] : extra[prop]),
-    set: (target, prop, value) => { target[prop] = value; return true; },
+    set: (target, prop, value) => {
+      target[prop] = value;
+      // hidden with the focus in it: the browser leaves the focus on the page's body
+      if (prop === "hidden" && value && proxy.contains(globalThis.document?.activeElement)) {
+        globalThis.document.activeElement = globalThis.document.body;
+      }
+      return true;
+    },
   });
+  return proxy;
 }
 
-// The ids donor.js loads its figures with, and the first block of each tab (drawn once the figures are in)
-const KNOWN = ["loadError", "loadErrorText", "loadRetry", "mineEmpty", "mineContent", "fGrant", "tiles", "oTiles"];
+// The ids donor.js loads its figures with, the first block of each tab (drawn once the figures are in) and the funds'
+// flow chart (a card with a Table button), each with the id of the element it is in (all are in #main)
+const KNOWN = {
+  loadState: "main",
+  loadError: "loadState",
+  loadErrorText: "loadError",
+  loadRetry: "loadError",
+  mineEmpty: "main",
+  mineContent: "main",
+  fGrant: "mineContent",
+  tiles: "mineContent",
+  oTiles: "main",
+  flowCard: "mineContent",
+  flow: "flowCard",
+  flowTable: "flowCard",
+};
 
 export function installPage({ src = "/donor/?year=2026&_part=data", inline = null, answers = [] } = {}) {
   const elements = new Map();
-  const main = record("main", { donorSrc: src, donorState: inline ? "drawing" : "waiting" });
+  const body = record("body");
+  const main = record("main", { donorSrc: src, donorState: inline ? "drawing" : "waiting" }, body);
   elements.set("#main", main);
-  for (const id of KNOWN) elements.set(`#${id}`, record(id));
+  for (const [id, parent] of Object.entries(KNOWN)) elements.set(`#${id}`, record(id, {}, elements.get(`#${parent}`)));
   elements.get("#loadError").hidden = true;
+  // the funds' flow card: its Table button opens a table of #flow's data-table; what it opens is kept (opened)
+  const card = elements.get("#flowCard");
+  const button = elements.get("#flowTable");
+  button.dataset.table = "flow";
+  button.textContent = "Table";
+  const opened = [];
+  button.closest = (selector) => (selector === "button[data-table]" ? button : selector === ".card" ? card : null);
+  card.querySelector = (selector) => (selector === ".alttable" && opened.length ? { parentElement: { remove: () => opened.pop() } } : null);
+  card.appendChild = (node) => opened.push(node);
   const others = new Map();
   const find = (selector) => {
     if (elements.has(selector)) return elements.get(selector);
@@ -80,14 +124,17 @@ export function installPage({ src = "/donor/?year=2026&_part=data", inline = nul
     remove: (...names) => names.forEach((name) => classes.delete(name)),
     contains: (name) => classes.has(name),
   };
+  const listeners = {};
   globalThis.document = {
     documentElement: html,
+    body,
+    activeElement: body,
     querySelector: find,
     querySelectorAll: () => [],
     getElementById: (id) => (id === "donor-data" ? (inline ? { textContent: JSON.stringify(inline) } : null) : find(`#${id}`)),
     createElement: () => anything(),
     createElementNS: () => anything(),
-    addEventListener() {},
+    addEventListener(type, fn) { (listeners[type] ||= []).push(fn); },
   };
   globalThis.location = { href: "http://testserver/donor/?year=2026", pathname: "/donor/", search: "?year=2026" };
   globalThis.getComputedStyle = () => ({ getPropertyValue: () => "" });
@@ -146,5 +193,9 @@ export function installPage({ src = "/donor/?year=2026&_part=data", inline = nul
     run,
     clock,
     classes: () => [...classes].sort(), // the page's html classes
+    body,
+    focused: () => globalThis.document.activeElement?.id, // the id of the element with the focus
+    click: (target) => (listeners.click || []).forEach((fn) => fn({ target, preventDefault() {} })), // on the page
+    opened, // what the flow card's Table button opened: the table's wrapper, with its innerHTML
   };
 }

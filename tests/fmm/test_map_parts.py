@@ -546,16 +546,24 @@ def test_the_map_placeholder_keeps_the_room_of_the_map_that_arrives():
 
 def test_a_failed_map_shows_its_error_box_without_the_map_room():
     """The map's placeholder keeps the room of a large map and its tables: when its request fails, the error
-    box goes without it, so the page below is not pushed screens further down. Try again gives it back."""
+    box goes without it, so the page below is not pushed screens further down. Try again gives it back. The
+    generic rule of every part does it (the map had a copy of its own, the same two declarations: review
+    R1-cross-2): it comes after the rules that give a placeholder its room and its middle height."""
+    css = (STATIC / "css" / "app.css").read_text()
+    generic = css.split("pages that load in parts (parts.js)", 1)[1].split("stage A (reports core)", 1)[0]
+    collapse = '.part[data-part-state="error"] { min-height: 0; }'
+    no_float = '.part[data-part-state="error"]::before { content: none; }'
+    for reserving in (
+        ".part { min-height: var(--part-h, 8rem); }",
+        ".part { min-height: var(--part-h-sm, var(--part-h-md, var(--part-h, 8rem))); }",
+        '[data-part]:not(.is-loaded)::before { content: ""; float: left;',
+    ):
+        assert generic.index(reserving) < generic.index(collapse) < generic.index(no_float), reserving
+    # the map's own rules set its room (--part-h) and its grey shapes, in no state of their own: no rule gives a
+    # failed map its room back, and Try again gives it back while the part loads
     block = _stage_c()
-    failed = '#part-map[data-part="map"][data-part-state="error"]'
-    assert f"{failed} {{ min-height: 0; }}" in block
-    assert f"{failed}::before {{ content: none; }}" in block
-    # only the error state drops the room: Try again gives it back while the part loads
-    assert re.findall(r"#part-map\[[^{]*data-part-state[^{]*\{", block) == [
-        f"{failed} {{",
-        f"{failed}::before {{",
-    ]
+    assert re.findall(r"#part-map\[[^{]*data-part-state[^{]*\{", block) == []
+    assert "min-height" not in "".join(re.findall(r"#part-map\[[^{]*\{([^}]*)\}", block))
 
 
 def test_the_printable_report_has_no_part(client_viewer, planned):  # noqa: F811

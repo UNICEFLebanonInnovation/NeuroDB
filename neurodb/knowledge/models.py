@@ -13,7 +13,7 @@ import uuid
 
 from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
-from django.contrib.postgres.search import SearchVector, SearchVectorField
+from django.contrib.postgres.search import SearchVectorField
 from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator, MaxValueValidator, MinValueValidator
 from django.db import models
@@ -193,12 +193,10 @@ class Chunk(models.Model):
     text = models.TextField()
     search_vector = SearchVectorField(null=True)
     # What the search ranks on (search.search): the index above as text, parsed again in English, as the
-    # search always ranked; kept by the database when the index is written, instead of at every search.
-    rank_vector = models.GeneratedField(
-        expression=SearchVector("search_vector", config="english"),
-        output_field=SearchVectorField(),
-        db_persist=True,
-    )
+    # search always ranked; written when the passage is indexed (indexing.process), instead of at every
+    # search. Empty for passages indexed before it existed until the knowledge hub job fills them
+    # (indexing.fill_rank_vectors); the search reads the same parse for those.
+    rank_vector = SearchVectorField(null=True, editable=False)
 
     class Meta:
         ordering = ("document", "position")

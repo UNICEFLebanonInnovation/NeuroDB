@@ -14,8 +14,10 @@ reads and searches them.
   refreshes until it is ready). A scanned PDF without a text layer is refused, as there is no text
   recognition.
 - **Search**: the text is cut into passages of about 1,500 characters, with their page, and searched
-  in English (and the words as written, for Arabic, place names and reference numbers); the title
-  counts most, so a document whose title holds your words comes before one that only mentions them.
+  in English (and the words as written, for Arabic, place names and reference numbers), the title with
+  each passage. Passages holding all your words come first, then those holding some of them; among
+  them, the passages that use your words most (in any of their forms) come first, and the newest
+  edition first when two are equal.
 - **Links**: the partners (name, short name, vendor number), programme documents (reference number),
   sections, governorates and districts named in the text are linked, word for word. The documents then
   show on the partner's and the programme document's pages.
@@ -135,10 +137,10 @@ findings. The prompts and the switch are in the admin (administrators only).
 *Repeated findings*. They open at once with their tabs, links and filters, and a grey box where the
 documents, the themes or the groups will go; the box fills in when they are ready (see [Pages that open at
 once](/help/overview/#pages-that-open-at-once)). A box that could not load says so and has a **Try again**
-button. Changing a filter or a view brings the figures with it, as before, except *Repeated findings*, which
-can take several seconds the first time: once worked out they are kept, so the next look (yours or anyone's,
-with the same batch and the same *Verified only*) is immediate, and a verdict, an edit or a new analysis
-shows at once. The other tabs and views open in one go, as before.
+button. Changing a filter or a view brings the themes with it, as before; *By document* shows its grey box
+for a moment and fills it in, and *Repeated findings* can take several seconds the first time: once worked
+out they are kept, so the next look (yours or anyone's, with the same batch and the same *Verified only*)
+is immediate, and a verdict, an edit or a new analysis shows at once. The other tabs and views open in one go, as before.
 
 **Rejected** findings and statements are left out of every count, chart, synthesis and report (the
 Findings tab still lists them, struck through, so a verdict can be changed). The **Verified only** switch

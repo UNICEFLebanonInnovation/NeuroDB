@@ -74,7 +74,7 @@ DISAGGREGATION_LIMIT = 10_000
 # Report/Disaggregation tables two minutes, its filter options ten (they only change with a sync)
 STORED_SECONDS = 120
 OPTIONS_SECONDS = 600
-CACHE_VERSION = 1
+CACHE_VERSION = 2  # 2: the stored tables carry no chart data (by_month) any more
 NO_SECTION = "—"
 EMAIL = re.compile(r"[^\s@]+@[^\s@]+")
 

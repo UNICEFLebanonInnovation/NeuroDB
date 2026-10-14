@@ -8,6 +8,8 @@ Chat with Data.{% endcomment %}
     <h2 class="h6" id="fmm-insights-title">{% trans "AI monitoring insights" %}</h2>
     {% include "components/skeleton.html" %}
   </section>
+  {# the AI card's live line: what Regenerate asked for (being written, ready, refused), said once (fmm/_insights.html) #}
+  <p class="visually-hidden" id="fmm-insights-said" role="status" aria-live="polite"></p>
   {% if critical %}{% include "fmm/_critical.html" %}{% endif %}
   {% include "fmm/_chat.html" %}
 </div>

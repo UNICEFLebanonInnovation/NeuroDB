@@ -353,8 +353,8 @@ FIGURES: dict[str, list[Figure]] = {
                 "downloads",
                 "year_all_url",
                 "year_all_active",
-                # the JSON at the bottom of every tab (reporting-chart-data); only the reports tab draws its
-                # chart
+                # the JSON at the bottom of every tab of the old page (reporting-chart-data); only the reports
+                # tab draws its chart, and the tabs in parts carry it no more (comparable)
                 "chart_data",
             )
         ],
@@ -435,6 +435,8 @@ SUMMARY_JSON = (
 )
 # The Funds tabs that read only the filter choices (the quick win): no chart of theirs read funds-chart-data
 FUNDS_WITHOUT_CHARTS = ("contributions", "programmes")
+# The Progress reports tabs whose table is a part: no chart of theirs read reporting-chart-data (review R1-B-2)
+REPORTING_WITHOUT_CHARTS = ("locations", "disaggregations")
 # The keys partner monitoring's parts write into their query when the page's own address has none (every section as
 # ``section=``, the user's own section on a first load, the year shown): the links a part draws carry them
 RESOLVED_KEYS = ("section", "year")
@@ -793,6 +795,8 @@ def figures(page: core.Page, mode: str) -> tuple[dict[str, Any], list[str]]:
     skipped = {**NOT_DRAWN.get(name, {}), **NOT_DRAWN_IN.get((name, kind), {})}
     if name == "funds" and kind in FUNDS_WITHOUT_CHARTS:
         skipped["chart_data"] = "the quick win (comparable)"
+    if name == "reporting" and kind in REPORTING_WITHOUT_CHARTS:
+        skipped["chart_data"] = "no chart of the tab reads it (comparable)"
     for label, path, project, _when in drawn:
         if label in skipped:
             continue
@@ -831,6 +835,9 @@ def comparable(observation: dict[str, Any], side: str) -> dict[str, Any]:
     - the Funds page's Partner Fund Monitoring and Funded Programs tabs carry no chart data any more (the quick
       win: no chart of theirs read it): on the check side it must be absent (otherwise a "consistency" problem),
       and it is dropped from the recording;
+    - nor do the Progress reports page's Report/Location and Report/Disaggregation tabs (review R1-B-2: the old
+      page carried ``reporting-chart-data`` on every tab, which only the Reporting progress tab's chart reads):
+      the same check and the same drop;
     - partner monitoring's summary chart JSON (``pm-summary-data``, the grid's ``chart_data``) carries the status
       labels now, so the donut names its slices by them (SPEC7_review item 16, review R1-B-3): on the check side
       they must be ``monitoring.LABELS`` (otherwise a problem), and they are taken out before the comparison.
@@ -856,6 +863,15 @@ def comparable(observation: dict[str, Any], side: str) -> dict[str, Any]:
         out["figures"].pop("chart_data", None)
         out["json"] = {key: value for key, value in observation["json"].items() if key != "funds-chart-data"}
         out["ids"] = [element_id for element_id in observation["ids"] if element_id != "funds-chart-data"]
+    if name == "reporting" and kind in REPORTING_WITHOUT_CHARTS:
+        if side == "check" and (
+            "reporting-chart-data" in observation["json"] or "chart_data" in observation["figures"]
+        ):
+            out["problems"].append("reporting-chart-data: still on a tab whose table no chart reads")
+        out["figures"].pop("chart_data", None)
+        dropped = "reporting-chart-data"
+        out["json"] = {key: value for key, value in observation["json"].items() if key != dropped}
+        out["ids"] = [element_id for element_id in observation["ids"] if element_id != dropped]
     return out
 
 

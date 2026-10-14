@@ -214,6 +214,9 @@ html:not(.js) .loadstate__nojs { display: block; }
    empty with controls that act on nothing (a grant list without grants, a Table button opening an empty table). Try
    again shows them again: waiting (grey), then drawn */
 main[data-donor-state="error"] :is(#mineContent, #panel-overall > .tiles, #panel-overall > .q) { display: none; }
+/* the cards' Table buttons only once the figures are drawn: before, a click would open an empty table (review
+   R1-D1-3; donor.js ignores it too). Hidden, not removed: the card's header keeps its height */
+main:not([data-donor-state="ready"]) button[data-table] { visibility: hidden; }
 .js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) :is(#tiles, #oTiles, #flow, #map, #spend, #grants, #progress, #sex, #age, #govbars, #vfm, #dumbbell, #prog, #oMonths, #oSections, #oMap, #oStatus, #oWho):empty {
   border-radius: 8px; background: linear-gradient(90deg, var(--surface-2) 0%, var(--grid) 50%, var(--surface-2) 100%);
   background-size: 200% 100%; animation: donor-shimmer 1.3s ease-in-out infinite;

@@ -228,11 +228,13 @@ def page(request: HttpRequest) -> HttpResponse:
     The views that take long on a large review load in parts (:mod:`neurodb.web.parts`): findings by document
     and the synthesis themes and repeated findings. The frame (the tab bar, the view's filters and links, the
     repeated findings' heading) comes at once and the view's figures come in one part, ``findings`` or
-    ``synthesis``, asked for at this address plus ``_part``, with the address's filter. A tab or filter change
-    (HTMX) answers the results area with the figures in it, as before (under a second), except the repeated
-    findings (seconds): their placeholder, unless they are already stored
-    (:func:`review_data.repeated_groups`, kept for every worker under a key that every change to the review
-    moves). Every other tab and view is one request, as before."""
+    ``synthesis``, asked for at this address plus ``_part``, with the address's filter. A tab or filter
+    change (HTMX) answers the results area with the themes in it, as before (under a second), but with the
+    placeholder of findings by document (its part follows: drawn inside that answer it took twice as long as
+    the old page, up to a second and more for an editor, review R1-D2-1) and of the repeated findings
+    (seconds), unless these are already stored (:func:`review_data.repeated_groups`, kept for every worker
+    under a key that every change to the review moves). Every other tab and view is one request, as
+    before."""
     tab = _tab(request)
     verified = _verified(request)
     export = request.GET.get("export")
@@ -278,14 +280,18 @@ def page(request: HttpRequest) -> HttpResponse:
 
 def _parts(request: HttpRequest, tab: str, view: str, verified: bool, results: bool) -> dict[str, Part]:
     """The part of the view the address opens, if it has one. Its context is computed only when the part is
-    drawn. In the results of a tab or filter change (HTMX) it is drawn there at once (the figures take under
-    a second), except the repeated findings: drawn at once only when they are stored."""
+    drawn. In the results of a tab or filter change (HTMX) the themes are drawn there at once (under half a
+    second). Findings by document are always asked for: drawn inside the results of a change, their ten
+    documents (up to 1 MB of page) took twice as long as in their own request or the old page's results
+    (0.8-1.1 s for an editor against 0.35-0.6 s), as Python's deeper template rendering there mapped and
+    freed its frame stack thousands of times (review R1-D2-1); the placeholder comes at once and the part in
+    0.3-0.5 s. The repeated findings are drawn at once only when they are stored."""
     name = PARTS.get((tab, view))
     if name is None:
         return {}
     if name == "findings":
         context = lambda: _by_document_part(request, verified)  # noqa: E731
-        return {name: Part(PART_TEMPLATES[name], context, ready=lambda: results)}
+        return {name: Part(PART_TEMPLATES[name], context)}
     batch = review_data.batch_id(request.GET.get("batch"))
     if view == "repeated":
         context = lambda: {"groups": review_data.repeated_groups(batch, verified)}  # noqa: E731

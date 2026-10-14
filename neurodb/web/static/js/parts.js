@@ -517,6 +517,11 @@ function entryState() {
 
 export function initParts() {
   if (page || typeof document === "undefined") return page;
+  // htmx did not load (blocked, a partial deployment, a dropped request): nothing could ask for a part, and htmx:load,
+  // on which the placeholders are found, never fires. The page is left unmarked (no "parts-ready"), so base.html's
+  // fallback shows each placeholder's error box with the link to the page drawn at once at the load event, instead
+  // of grey shapes, busy, for ever (review R1-browser-2).
+  if (!window.htmx) return null;
   const htmx = () => window.htmx;
   const status = document.getElementById("parts-status");
   const parallel = Number.parseInt(document.querySelector('meta[name="nd-parts-parallel"]')?.content, 10);
@@ -534,6 +539,7 @@ export function initParts() {
   let booted = false;
   let restore = null; // { y } while the page goes back to the offset it had (Back, Forward, reload)
   let saveTimer = null;
+  let reloading = false; // Back or Forward reached an entry htmx reloads: this page keeps no offset any more
 
   const queue = createQueue({
     max: Number.isFinite(parallel) && parallel > 0 ? Math.min(parallel, 6) : 3,
@@ -964,8 +970,12 @@ export function initParts() {
   // in its own history entry (history.scrollRestoration "manual"; saved when the scrolling stops, a link is
   // followed or a form sent) and, back on it, goes there at once and again as each part arrives, until every
   // part starting above the bottom of the screen is in: the layout is then the one the person left, the same
-  // figures in view. It stops as soon as the person scrolls, clicks or presses a key. An entry the page has not
-  // taken over (visited before, or left by an htmx push: htmx reloads it) stays the browser's.
+  // figures in view. It stops as soon as the person scrolls, clicks or presses a key. The entries htmx pushes (a
+  // tab, a view, a filter, a page of a part) are the page's too: they keep the mode of the entry they come from,
+  // their offset is kept beside htmx's own state, and htmx's replaceState({htmx: true}) keeps it (keepAcrossHtmx);
+  // back on one (htmx reloads it, or the browser loads it again), the page goes there as above (review
+  // R1-browser-1: left to the browser, it went to its old offset over the frame and stayed far above). An entry
+  // the page has not taken over (visited before this) stays the browser's.
   function partsAbove(y) {
     const bottom = y + window.innerHeight;
     return [...recs.values()].filter((rec) => {
@@ -1004,8 +1014,9 @@ export function initParts() {
     if (!history || !("scrollRestoration" in history)) return false;
     const type = navigationType();
     if (history.scrollRestoration !== "manual") {
-      // a new visit of a page with parts: its entry is the page's from now on
-      if (type === "navigate" && recs.size) {
+      // a new visit of a page with parts (to come, or drawn in at once: they may be placeholders on Back): its
+      // entry is the page's from now on
+      if (type === "navigate" && (recs.size || document.querySelector("[data-part-loaded]"))) {
         try {
           history.scrollRestoration = "manual";
         } catch {
@@ -1028,7 +1039,7 @@ export function initParts() {
   function saveOffset() {
     clearTimeout(saveTimer);
     saveTimer = null;
-    if (window.history?.scrollRestoration !== "manual") return;
+    if (reloading || window.history?.scrollRestoration !== "manual") return;
     const y = Math.round(restore ? restore.y : window.scrollY || 0);
     const state = entryState();
     if (state?.[OFFSET] === y) return;
@@ -1038,6 +1049,40 @@ export function initParts() {
       /* refused (too many changes in a row): the next save tries again */
     }
   }
+
+  function holdsParts(elt) {
+    const parts = "[data-part], [data-part-loaded]";
+    return Boolean(elt?.matches?.(parts) || elt?.querySelector?.(parts));
+  }
+
+  // Parts brought by a swap (a tab, a view or a filter of a page that had none): the entry is the page's from now on,
+  // and so are the ones htmx pushes from it.
+  function takeOver() {
+    try {
+      if (window.history && "scrollRestoration" in window.history && window.history.scrollRestoration !== "manual") {
+        window.history.scrollRestoration = "manual";
+      }
+    } catch {
+      /* kept by the browser */
+    }
+  }
+
+  // htmx writes {htmx: true} over the entry's state before it pushes an address, and over the entry Back or Forward
+  // reaches before it reloads it: the offset the entry keeps stays in it.
+  function keepAcrossHtmx() {
+    const history = window.history;
+    const replace = history?.replaceState;
+    if (typeof replace !== "function") return;
+    history.replaceState = function (next, ...rest) {
+      const htmxOwn = next && typeof next === "object" && next.htmx && !(OFFSET in next);
+      if (htmxOwn && history.scrollRestoration === "manual") {
+        const kept = Number(entryState()?.[OFFSET]);
+        if (Number.isFinite(kept)) next = { ...next, [OFFSET]: kept };
+      }
+      return replace.call(history, next, ...rest);
+    };
+  }
+  keepAcrossHtmx();
 
   function bumpWithin(root) {
     const ids = [...root.querySelectorAll("[data-part]")].map((el) => byEl.get(el)?.id).filter(Boolean);
@@ -1066,19 +1111,6 @@ export function initParts() {
     const found = [...(root.matches?.("[data-part]") ? [root] : []), ...root.querySelectorAll("[data-part]")];
     const fresh = found.filter((el) => !byEl.has(el) && el.isConnected);
     if (!fresh.length) return;
-    if (!htmx()) {
-      // htmx did not load: say so in each placeholder rather than show skeletons for ever, with the link a browser
-      // without JavaScript gets (the page drawn at once) in place of Try again
-      fresh.forEach((el) => {
-        el.dataset.partState = "error";
-        el.setAttribute("aria-busy", "false");
-        const box = el.querySelector("[data-part-error]");
-        if (box) box.hidden = false;
-        el.querySelector("[data-part-retry]")?.setAttribute("hidden", "");
-        el.querySelector("[data-part-fallback]")?.removeAttribute("hidden");
-      });
-      return;
-    }
     fresh.forEach(register);
     [...document.querySelectorAll("[data-part]")].forEach((el, order) => byEl.has(el) && queue.update(byEl.get(el).id, { order }));
     if (!started) {
@@ -1096,9 +1128,14 @@ export function initParts() {
 
   document.addEventListener("htmx:load", (e) => {
     const elt = e.detail?.elt || e.target;
+    const swapped = booted; // after the page's own first htmx:load: what a swap or a part brought
     loaded(elt);
     discover(elt);
     boot(); // the first one is on body: a page without parts goes back to its offset too, if it kept one
+    // parts brought by a swap (placeholders, or drawn in at once: the themes of a tab change), into a page that had
+    // none: drawn again on Back, it would be put back over its placeholders. Its entry, and those htmx pushes from
+    // it, are the page's from now on.
+    if (swapped && holdsParts(elt)) takeOver();
   });
 
   document.addEventListener("htmx:beforeSwap", (e) => {
@@ -1133,7 +1170,8 @@ export function initParts() {
   // to settle), and the words are said once the request is over: htmx:afterRequest reaches the page even when the
   // swap removed the element that asked (htmx fires it again on its closest ancestor still in the page). A part, a
   // poll and what loads when reached or opened (revealed, load, toggle) are not said: nobody asked for that change
-  // there and then.
+  // there and then. An element of the area with empty words (data-results-updated="") speaks for itself: nothing is
+  // said for a swap in it (Monitoring insights' AI card, which says what Regenerate asked for in its own live line).
   const SAID_AFTER = new Set(["click", "submit", "change"]);
   const toSay = new WeakMap(); // a request (its xhr) -> the words said once it is over
 
@@ -1236,8 +1274,20 @@ export function initParts() {
   // Back or Forward within the page (to or from an #anchor): the browser puts back nothing for an entry the page
   // keeps, so the page does.
   window.addEventListener("popstate", (e) => {
-    if (window.history?.scrollRestoration !== "manual") return;
     restore = null;
+    if (e.state?.htmx) {
+      // An entry htmx pushed: htmx reloads it (historyCacheSize 0, refreshOnHistoryMiss; its own popstate handler
+      // runs after this one or before), and this page lives on until the new one comes, the time of a request and
+      // its frame, often more than SAVE_AFTER. The entry reached is no longer this page's: the page is not moved
+      // (sent to an offset deeper than it can go, it was clamped, and the scroll event that follows, a frame later,
+      // saved the clamped offset over the entry's own), nor put back as its parts arrive, and nothing it does from
+      // now on (a scroll, a link, a form, htmx's history event) is written over the offset the entry keeps: the page
+      // reloaded goes there (review R2-fixes-1).
+      reloading = true;
+      scrolled = true;
+      return;
+    }
+    if (window.history?.scrollRestoration !== "manual") return;
     const y = Number(e.state?.[OFFSET]);
     if (Number.isFinite(y)) window.scrollTo({ top: y, behavior: "instant" });
     else if (window.location.hash) {
@@ -1250,15 +1300,14 @@ export function initParts() {
       target?.scrollIntoView({ block: "start", behavior: "instant" });
     }
   });
-  // htmx is about to push or replace the address: it gives this entry a state of its own and, back on it, reloads
-  // the page. The entry goes back to the browser, which then keeps its offset as it always has.
-  document.addEventListener("htmx:beforeHistorySave", () => {
+  // htmx is about to push an address (it writes {htmx: true} over this entry's state first: keepAcrossHtmx keeps the
+  // offset in it): the entry being left keeps its offset of now. Or Back or Forward reached an entry htmx reloads
+  // (the event names the page left; the address is already the entry reached): nothing is saved over the offset of
+  // the entry reached, even where htmx's popstate handler runs before this page's.
+  document.addEventListener("htmx:beforeHistorySave", (e) => {
     restore = null;
-    try {
-      window.history.scrollRestoration = "auto";
-    } catch {
-      /* kept as it was */
-    }
+    const left = e.detail?.path;
+    if (!left || left === window.location.pathname + window.location.search) saveOffset(); // still on it: a push
   });
 
   window.addEventListener("pagehide", () => {

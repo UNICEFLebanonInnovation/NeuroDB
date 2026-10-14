@@ -1,13 +1,19 @@
 {% load i18n ui %}
+{% comment %}The card speaks for itself: what a person asked for (Regenerate) is said once in the Insights tab's own
+live line, #fmm-insights-said (fmm/tabs/insights.html, outside the card, so the card's swaps keep it), out of band
+below (fmm.views.insights): the brief being written, then ready or refused. So the card's lines carry no role
+"status" of their own (inserted fresh, screen readers often skip them, or would say them twice), and its empty
+data-results-updated keeps parts.js from saying the results area's "The results were updated." for a swap in it
+(the Regenerate click, before any brief exists; the polls are never said).{% endcomment %}
 {% if running %}
-<section class="panel fmm-insights" id="fmm-insights" aria-labelledby="fmm-insights-title" aria-busy="true"
+<section class="panel fmm-insights" id="fmm-insights" aria-labelledby="fmm-insights-title" aria-busy="true" data-results-updated=""
   hx-get="{% url 'fmm:insights' %}?{{ scope.query }}&amp;running={{ running.pk }}" hx-trigger="every 3s" hx-swap="outerHTML">
   <h2 class="h6" id="fmm-insights-title">{% trans "AI monitoring insights" %}</h2>
-  <p class="small text-muted mb-2" role="status">{% trans "Writing… about 30 seconds" %}</p>
+  <p class="small text-muted mb-2">{% trans "Writing… about 30 seconds" %}</p>
   {% include "components/skeleton.html" %}
 </section>
 {% else %}
-<section class="panel fmm-insights" id="fmm-insights" aria-labelledby="fmm-insights-title">
+<section class="panel fmm-insights" id="fmm-insights" aria-labelledby="fmm-insights-title" data-results-updated="">
   {% comment %}Header: the title, the prompt version and rules version the brief was written with, when it was
   written and from which data, how current it is, and the person's quota with the office AI budget.{% endcomment %}
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
@@ -40,7 +46,7 @@
     <span class="chip">{% blocktrans with n=row.rules_version %}rules v{{ n }}{% endblocktrans %}</span>
   </div>
   {% endif %}
-  {% if message %}<p class="alert alert-warning small py-2 mb-2" role="status">{{ message }}</p>{% endif %}
+  {% if message %}<p class="alert alert-warning small py-2 mb-2">{{ message }}</p>{% endif %}
   {% if fallback_note %}<p class="small text-muted mb-2">{% trans "The AI's sentences did not pass the checks: this brief is written by NeuroDB from the figures." %}{% if is_admin and row.dropped %} {% trans "Dropped:" %} {% for reason, n in row.dropped.items %}{{ reason }} {{ n }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}</p>
   {% elif is_admin and row.dropped %}<p class="small text-muted mb-2">{% trans "Sentences dropped by the checks:" %} {% for reason, n in row.dropped.items %}{{ reason }} {{ n }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
 
@@ -81,3 +87,4 @@
   </div>
 </section>
 {% endif %}
+{% if said %}<span id="fmm-insights-said" hx-swap-oob="innerHTML">{{ said }}</span>{% endif %}

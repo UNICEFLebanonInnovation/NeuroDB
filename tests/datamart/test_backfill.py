@@ -278,9 +278,8 @@ QUICK_MIGRATIONS = {
     # the sections' comments on the HACT visit plan: a new, empty table (CreateModel only, no code runs;
     # listed so that every migration of the HACT visit plan is accounted for here)
     ("datamart", "0014_visit_plan_comment", "CreateModel"),
-    # SET LOCAL lock_timeout before the knowledge search's rank column, computed by the database for every
-    # passage of the knowledge base (about half a millisecond each: 1.6 s for the 3,296 passages of the x20
-    # parity world); the wait for the table's lock is bounded to 10 s
+    # SET LOCAL lock_timeout before the knowledge search's rank column, added empty (no default: the table's
+    # description only, whatever the number of passages); the knowledge hub job fills it after start-up
     ("knowledge", "0007_chunk_rank_vector", "RunSQL"),
 }
 

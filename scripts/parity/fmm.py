@@ -232,8 +232,9 @@ MOVED: dict[str, tuple[str, tuple[str, ...]]] = {}
 # The old page's json_script ids renamed by the conversion (``<page>-<part>-data``): none, the map's
 # configuration keeps ``fmm-map-config`` (edumap.js reads it by that name; it is in the map part only).
 JSON_IDS: dict[str, str] = {}
-# Element ids only the page in parts has: the parts' own wrappers
-NEW_IDS = re.compile(r"part-[a-z][a-z0-9-]*")
+# Element ids only the page in parts has: the parts' own wrappers, and the Insights tab's live line for the AI card
+# (review R1-C-1: what Regenerate asked for, said once; empty on a page load, no figure)
+NEW_IDS = re.compile(r"part-[a-z][a-z0-9-]*|fmm-insights-said")
 # timing.py: the rows it times (the converted tab's pages) and the part whose arrival is a page's first
 # figure: none, the key figures are in the Map tab's frame (its first figure is the frame); the map part is its
 # last part

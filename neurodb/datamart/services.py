@@ -1247,8 +1247,8 @@ def reporting_table(tab: str, params, day: datetime.date | None = None) -> dict[
     """The table of the Progress reports page's Report/Location (``tab="locations"``:
     :func:`neurodb.datamart.reporting.location_rows`) or Report/Disaggregation tab (``"disaggregations"``:
     :func:`neurodb.datamart.reporting.disaggregation_rows`, each block without its lines: the page fills
-    those of the blocks it shows, on a copy), with the chart data the tab carries (``by_month``), for the
-    page's filter (``params``). Computed once across every worker and kept two minutes: the tab's table
+    those of the blocks it shows, on a copy), for the page's filter (``params``); no chart data, which no
+    chart of these tabs reads. Computed once across every worker and kept two minutes: the tab's table
     part, its pages and the tab drawn inline read it. The key holds the filter, the tab's own filters, the
     day (the statuses Due, Overdue and Not yet due follow it) and the moment of the eTools figures (a
     finished eTools sync shows at once); nothing about the person asking, and nothing translated. In DEBUG
@@ -1266,7 +1266,7 @@ def reporting_table(tab: str, params, day: datetime.date | None = None) -> dict[
             found = reporting.disaggregation_rows(
                 data["rows"], data["statuses"], data["today"], wanted, params
             )
-        return {tab: found, "by_month": data["by_month"]}
+        return {tab: found}
 
     if tab not in REPORTING_TABLES:
         raise ValueError(f"no stored table for the tab {tab!r}")

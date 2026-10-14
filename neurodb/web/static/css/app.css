@@ -1360,9 +1360,10 @@ tr.is-uncounted > td { color: var(--nd-muted); }
 .part[data-part-state="error"] .part__skeleton, .part[data-part-state="error"] .part__slow { display: none; }
 /* A part that could not be loaded keeps no room: its error box with Try again takes the placeholder's place, so no
    screen of empty space is left under it (the overview's figures kept 8,100 px on a phone, the brief's sections
-   11,215 px). The parts below move up only when a part fails; Try again gives the room back while it loads again.
-   A placeholder whose room is its own grey shapes, kept laid out unseen behind the error box (the overview's key
-   figures, the partner page's Monitoring insights panel), keeps that room: a row of tiles, never a screen. */
+   11,215 px, its key figures 868 px: their five tiles stack on a phone). These two rules do it for every page. The
+   parts below move up only when a part fails; Try again gives the room back while it loads again. The partner
+   page's Monitoring insights panel, whose room is a row of its own grey shapes (344 px at most), keeps them laid out
+   unseen behind the error box. */
 .part[data-part-state="error"] { min-height: 0; }
 .part[data-part-state="error"]::before { content: none; } /* nor the middle height */
 .part__error { border: 1px dashed var(--nd-border); border-radius: var(--nd-radius); background: var(--nd-surface);
@@ -1382,15 +1383,15 @@ tr.is-uncounted > td { color: var(--nd-muted); }
    placeholder then needs no height of its own (the tag's heights are not used), at any width.
    Its other states keep that room, as a placeholder's height does: the grey tiles, the slow line and the error box
    share one grid cell, so the tallest of them, the tiles, sets the height. "Still working" (after 8 s) covers the
-   foot of the last row of tiles, on the page's own background; behind an error box the tiles stay laid out,
-   unseen. */
+   foot of the last row of tiles, on the page's own background. When the part fails, the tiles go (the generic rule
+   above): the error box alone keeps no more room than it takes, as every failed part (review R1-browser-3: on a
+   phone the five tiles stack to 868 px, which left 771 px of blank page under the error box). */
 #part-kpis[data-part-group="overview"]:not(.is-loaded) { min-height: 0; }
 #part-kpis[data-part-group="overview"]:not(.is-loaded) { display: grid; }
 #part-kpis[data-part-group="overview"]:not(.is-loaded)::before { content: none; } /* no middle height either */
 #part-kpis[data-part-group="overview"]:not(.is-loaded) > :not(noscript) { grid-area: 1 / 1; min-width: 0; } /* the link without JavaScript goes below */
 #part-kpis[data-part-group="overview"] .part__slow { align-self: end; position: relative; margin: 0; padding-top: 0.5rem; background: var(--nd-bg); }
 #part-kpis[data-part-group="overview"] .part__error { align-self: start; }
-#part-kpis[data-part-group="overview"][data-part-state="error"] .part__skeleton { display: block; visibility: hidden; }
 #part-kpis[data-part-group="overview"] .skeleton__block--tile { height: auto; container-type: inline-size; }
 #part-kpis[data-part-group="overview"] .skeleton__block--tile:nth-child(1) { --w0: 345px; --w175: 328px; --w181: 311px; --w190: 295px; --w200: 295px; --w214: 278px; --w228: 261px; --w244: 244px; --w290: 208px; --w360: 192px; }
 #part-kpis[data-part-group="overview"] .skeleton__block--tile:nth-child(4) { --w0: 290px; --w175: 271px; --w181: 271px; --w190: 271px; --w200: 252px; --w214: 234px; --w228: 215px; --w244: 196px; --w290: 177px; --w360: 159px; }
@@ -1473,11 +1474,8 @@ tr.is-uncounted > td { color: var(--nd-muted); }
    taller one, as before the page loaded in parts. */
 .health-tables > .part > .panel { height: 100%; }
 /* Partner profile (reports/partner_profile.html). The figures' placeholder (#part-datamart) keeps the room of a
-   partner of middle size, 7,500 px (12,400 px on a phone): when its request fails, the error box goes without it, so
-   the knowledge base panel below is not pushed a page further down. Try again gives the room back while the part
-   loads. */
-#part-datamart[data-part="datamart"][data-part-state="error"] { min-height: 0; }
-#part-datamart[data-part="datamart"][data-part-state="error"]::before { content: none; } /* nor the middle height */
+   partner of middle size, 7,500 px (12,400 px on a phone); when its request fails, the error box goes without it
+   (the generic rule: a failed part keeps no room). */
 /* The Monitoring insights panel inside the figures (#part-fmm, reports/parts/partner_datamart.html): four figures in
    a grid of as many columns of at least 112 px as fit (two on a phone) and a line on the last visit, which wrap with
    the width of the page's column, not of the window (the sidebar takes 272 px from 992 px). Its placeholder is as
@@ -1485,8 +1483,8 @@ tr.is-uncounted > td { color: var(--nd-muted); }
    the same for an administrator and a viewer): a container query on its grey shapes, which are laid out even off
    screen (a low-priority placeholder skips them otherwise). From 296 px on a phone of 390 px, 228 px from 496 px
    (the phone grid's labels wrap less), 197 px and 183 px from 544 px (a window of 576 px: four columns), 163 px from
-   809 px, 149 px from 962 px. It keeps no height of its own; its other states keep that room, as the overview's key
-   figures do. */
+   809 px, 149 px from 962 px. It keeps no height of its own; its other states keep that room, its error box too (a
+   row of at most 344 px, never a screen). */
 #part-datamart #part-fmm[data-part="fmm"]:not(.is-loaded) { min-height: 0; display: grid; }
 #part-datamart #part-fmm[data-part="fmm"]:not(.is-loaded)::before { content: none; } /* no middle height either */
 #part-datamart #part-fmm[data-part="fmm"]:not(.is-loaded) > :not(noscript) { grid-area: 1 / 1; min-width: 0; }
@@ -1541,13 +1539,8 @@ tr.is-uncounted > td { color: var(--nd-muted); }
   #monitoring-grid > #part-summary .part__skeleton > .skeleton::before,
   #monitoring-grid > #part-summary .part__skeleton > .skeleton::after { animation: none; }
 }
-/* The last part of partner monitoring's results area and of partner reporting's (#reporting-results: Report/Location
-   and Report/Disaggregation) is a long table or the data quality lists: when its request fails, the error box goes
-   without that room, as nothing follows it on the page. Try again gives the room back while the part loads. */
-#monitoring-grid > .part:last-child[data-part-state="error"],
-#reporting-results > .part:last-child[data-part-state="error"] { min-height: 0; }
-#monitoring-grid > .part:last-child[data-part-state="error"]::before,
-#reporting-results > .part:last-child[data-part-state="error"]::before { content: none; } /* nor the middle height */
+/* A part of partner monitoring's or partner reporting's results area that fails, the summary as the long table
+   after it, keeps no room: the generic rule (a failed part keeps no room) does it. */
 /* ============================================================================ end of stage B */
 
 /* ============================================================================ stage C (Monitoring insights): part fixes */
@@ -1569,10 +1562,7 @@ tr.is-uncounted > td { color: var(--nd-muted); }
 /* Its grey shapes: the map's block, then the rows of the two tables below it (the rest of the room), so the
    placeholder looks like the tab, not one block and blank space. */
 #part-map[data-part="map"] .part__skeleton .skeleton::after { content: ""; display: block; height: calc(150vh + 98px); background: repeating-linear-gradient(to bottom, var(--nd-surface-2) 0 18px, transparent 18px 30px); border-radius: var(--nd-radius-sm); }
-/* When its request fails, the error box goes without that room, so the page's end is not pushed screens further
-   down; Try again gives the room back while the part loads. */
-#part-map[data-part="map"][data-part-state="error"] { min-height: 0; }
-#part-map[data-part="map"][data-part-state="error"]::before { content: none; } /* nor the middle height */
+/* When its request fails, the error box goes without that room (the generic rule: a failed part keeps no room). */
 /* ============================================================================ end of stage C */
 
 /* ============================================================================ stage D1 (country programme, education, youth, donor page): part fixes */
@@ -1603,20 +1593,13 @@ tr.is-uncounted > td { color: var(--nd-muted); }
   :is(#part-summary[data-part-group="cpd"], #part-summary[data-part-group="youth"]):not(.is-loaded) .skeleton::before,
   :is(#part-summary[data-part-group="cpd"], #part-summary[data-part-group="youth"]):not(.is-loaded) .skeleton::after { animation: none; }
 }
-/* A part of these pages that fails keeps no room (its placeholder holds up to 9,600 px on a phone): the error box with
-   Try again goes without it, so the blocks below are not pushed screens further down. Try again gives the room back
-   while the part loads. */
-:is(#part-summary, #part-outcomes, #part-details):is([data-part-group="cpd"], [data-part-group="youth"])[data-part-state="error"] { min-height: 0; }
-:is(#part-summary, #part-outcomes, #part-details):is([data-part-group="cpd"], [data-part-group="youth"])[data-part-state="error"]::before { content: none; }
+/* A part of these pages that fails (its placeholder holds up to 9,600 px on a phone) keeps no room: the generic rule
+   (a failed part keeps no room) does it. */
 /* ============================================================================ end of stage D1 */
 
 /* ============================================================================ stage D2 (knowledge, What's new, For you): part fixes */
 /* Document review (knowledge/review/_tab_findings.html, _tab_synthesis.html): the By document documents
    (#part-findings) and the Themes or Repeated findings (#part-synthesis) keep the room of their first screens (one
-   document, ten themes, the folded groups: thousands of px). When their request fails, the error box goes without
-   that room, so no screen of blank page is left below it; Try again gives the room back while the part loads. */
-#part-findings[data-part="findings"][data-part-state="error"],
-#part-synthesis[data-part="synthesis"][data-part-state="error"] { min-height: 0; }
-#part-findings[data-part="findings"][data-part-state="error"]::before,
-#part-synthesis[data-part="synthesis"][data-part-state="error"]::before { content: none; } /* nor the middle height */
+   document, ten themes, the folded groups: thousands of px); when their request fails, the error box goes without
+   it (the generic rule: a failed part keeps no room). */
 /* ============================================================================ end of stage D2 */

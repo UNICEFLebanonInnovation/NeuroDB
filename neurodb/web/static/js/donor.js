@@ -555,6 +555,7 @@ function renderOverall() {
 // ------------------------------------------------------------------ table views for charts
 document.addEventListener("click", (e) => {
   const b = e.target.closest("button[data-table]"); if (!b) return;
+  if (!DATA) return; // the figures are not in yet (or could not be loaded): no table to show (review R1-D1-3)
   const box = document.getElementById(b.dataset.table), card = b.closest(".card");
   const open = card.querySelector(".alttable");
   if (open) { open.parentElement.remove(); b.textContent = "Table"; return; }
@@ -620,6 +621,14 @@ const RETRY_ONCE = new Set([0, 502, 503, 504]); // a network error or a server r
 const BUDGET = 60000; // ms: as long as a part of a staff page may take
 const sleep = (ms) => new Promise((resolve) => { loadState.timer = setTimeout(resolve, ms); });
 
+// Try again hides the box that holds it: the focus then goes to the page's main area (as parts.js gives a staff page's
+// part its own), never to the page's body, where screen readers lose their place; it comes back to Try again if the
+// figures fail again (review R1-D1-1). Only after Try again: a first load never moves the focus.
+let focusFollows = false;
+function focusQuietly(el) {
+  try { el.focus({ preventScroll: true }); } catch (err) { el.focus(); }
+}
+
 function useData(data) {
   DATA = data || {};
   SECTIONS = DATA.sections || [];
@@ -630,9 +639,12 @@ function useData(data) {
   $("#mineContent").hidden = !funded;
   main.dataset.donorState = "ready";
   main.removeAttribute("aria-busy");
+  if ($("#loadError").contains(document.activeElement)) focusQuietly(main);
   $("#loadError").hidden = true;
   if (funded) buildFilters();
   render();
+  if (focusFollows && document.activeElement === document.body) focusQuietly(main);
+  focusFollows = false;
 }
 
 function showError(kind) {
@@ -640,6 +652,11 @@ function showError(kind) {
   main.removeAttribute("aria-busy");
   $("#loadErrorText").textContent = ERRORS[kind] || ERRORS.other;
   $("#loadError").hidden = false;
+  // after Try again, while the focus is still where it was put (or was lost): back on Try again
+  if (focusFollows && (document.activeElement === main || document.activeElement === document.body)) {
+    focusQuietly($("#loadRetry"));
+  }
+  focusFollows = false;
 }
 
 // One request for the figures: the JSON, or why not ({status}, "timeout", "redirect"). The page's own part, so the
@@ -666,6 +683,10 @@ async function load() {
   clearTimeout(loadState.timer);
   main.dataset.donorState = "waiting";
   main.setAttribute("aria-busy", "true");
+  if ($("#loadError").contains(document.activeElement)) { // Try again, from the keyboard or a click
+    focusFollows = true;
+    focusQuietly(main); // before the box, and the button in it, hides
+  }
   $("#loadError").hidden = true;
   const started = Date.now();
   const control = new AbortController();

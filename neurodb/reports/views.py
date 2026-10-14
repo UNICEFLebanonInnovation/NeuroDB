@@ -1846,14 +1846,8 @@ def _reporting_table_tab(request: HttpRequest, tab: str) -> HttpResponse:
             blocks[first : first + len(shown)] = shown
             page_obj.object_list = shown
             rows = {**rows, "blocks": blocks}
-        return {
-            tab: rows,
-            "page_obj": page_obj,
-            "downloads": _reporting_downloads(params, tab),
-            # the chart data every tab of the page carries (reporting-chart-data); no chart of this tab
-            # reads it
-            "chart_data": {"by_month": found["by_month"]},
-        }
+        # no chart data: no chart of this tab reads the page's reporting-chart-data
+        return {tab: rows, "page_obj": page_obj, "downloads": _reporting_downloads(params, tab)}
 
     def shell() -> dict[str, Any]:
         context = _reporting_frame(request, tab, filters)
