@@ -11,6 +11,14 @@
   <script nonce="{{ request.csp_nonce }}">
     (function () {
       document.documentElement.classList.add("js"); // donor.css: the grey cards only where donor.js will fill them
+      // donor.js marks the page "donor-ready" once it has started. Where it never did by the load event (it failed to
+      // load, was blocked, or the browser runs no modules), nothing will fill the cards: the page drops "js", so it
+      // shows no grey cards and no "Loading the figures…", but the sentence a browser without JavaScript gets
+      // (review R3-critic-2).
+      window.addEventListener("load", function () {
+        var root = document.documentElement;
+        if (!root.classList.contains("donor-ready")) root.classList.remove("js");
+      });
       try {
         var t = localStorage.getItem("neurodb-theme") || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
         document.documentElement.setAttribute("data-bs-theme", t);
@@ -84,7 +92,7 @@ screen does not jump when the browser paints before the script runs.{% endcommen
       <p id="loadErrorText">{% trans "The figures could not be loaded." %}</p>
       <button type="button" class="loadstate__retry" id="loadRetry">{% trans "Try again" %}</button>
     </div>
-    <noscript><p>{% trans "The charts of this page are drawn in your browser: turn JavaScript on to see them." %}</p></noscript>
+    <p class="loadstate__nojs">{% trans "The charts of this page are drawn in your browser by a script that did not run: turn JavaScript on, or reload the page." %}</p>
   </div>
 
   <!-- ============================================================== your contribution -->

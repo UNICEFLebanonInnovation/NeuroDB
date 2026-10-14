@@ -202,10 +202,15 @@ minutes; the page refreshes until it is ready; several files added at once are r
    in the media storage (Azure Blob in production, under `knowledge/`).
 2. **Index**: the text is cut into passages of about 1,500 characters (with their page) and indexed
    with PostgreSQL full-text search (English stemming, plus the words as written for Arabic, place
-   names and reference numbers; the title counts most). The search ranks passages on that stored index
-   and its weights (`knowledge/search.py`): about 40-140 ms for one common word over 3,200 passages
-   (the x20 parity world), where ranking on an index parsed again from its text took 1.6-1.8 s and lost
-   the title's weight. So `/knowledge/?q=` stays one request (it is not a page in parts).
+   names and reference numbers). The search ranks passages as it always has, on that index turned into
+   text and parsed again in English (the forms of a word, such as report, reports and reported, count
+   together), ties the newest first; the database keeps that parse with each passage when it is indexed
+   (`Chunk.rank_vector`, knowledge migration 0007), where it used to be built at every search. The
+   search itself takes 30-50 ms for a common word over 3,300 passages (the x20 parity world), where it
+   took 0.7-1.8 s. So `/knowledge/?q=` stays one request (it is not a page in parts). The old search
+   parsed with the database server's default text search configuration (`default_text_search_config`:
+   English on every database checked here; the production server's value is among its server
+   parameters in the Azure portal); the column names English.
 3. **Links**: the partners (full, short or alternate name, vendor number), programme documents
    (reference number, with or without the amendment suffix), sections, governorates and districts
    named in the text are linked. Matching is literal and whole-word; "North" and "South" count
@@ -881,7 +886,7 @@ again** button; the rest of the page keeps working, and no error pop-up appears:
 
 | Message | Cause |
 |---|---|
-| This part could not be loaded. | A server error (500); or a network error, 502, 503 or 504 that failed again after the one automatic retry, 2 seconds later |
+| This part could not be loaded. | A server error (500); or a network error, 502, 503 or 504 that failed again after the one automatic retry, 2 seconds later. Shown on every block at once, with *Show the figures* in place of **Try again**, when the page's own script could not run (it failed to download or was blocked): open *Show the figures*, the same page with its blocks drawn in, and reload the page later |
 | This part took too long. Try again, or narrow the filter. | No answer within 60 seconds (each block's own limit, below gunicorn's 120 s), twice: the first time out is retried once by itself, 2 seconds later, with 60 seconds again, so the message shows after about two minutes. Also when the server kept answering "still computing" (below) for those 60 seconds, twice |
 | You do not have access to this. | 403, for example a donor account |
 | This part is no longer on the page. Reload the page. | 404: the page changed under a tab left open (a new release renamed or removed the block) |
@@ -893,17 +898,27 @@ again in a moment." (no figures within 60 seconds in all, "still computing" answ
 do not have access to this." (403).
 
 Screen readers hear one short summary ("Loading the figures…", "All figures are shown.", "1 part could
-not be loaded."), never one message per block, and an arriving block never moves the focus. Printing
+not be loaded."), never one message per block, and an arriving block never moves the focus. A results
+area that can hold blocks (Monitoring insights, the document review, partner monitoring, Progress reports)
+is not read out as a whole when a tab, view, filter, sort or page change replaces it, nor when a person
+changes something inside it (a page, a sort or the rows per page of a table in it, an entity chip, an
+Accept, Reject or Undo, an action point's status, a finding deleted): they hear "The results were updated."
+instead, once per change. A block arriving, a list opened, a panel loaded when reached and a refresh on a
+timer (the AI brief, the documents being analysed) are not announced that way. Printing
 with Ctrl+P while blocks are still loading prints a note in place of each of them ("This part was still
 loading when the page was printed. Wait until every part is shown, then print again."). A page's own
 **Print** button (the management brief's) waits instead: it asks for every part still to come, the ones
 further down too, then waits for the charts in them to be drawn, reading *Preparing the page…*
 meanwhile, and prints once everything has arrived or failed (after a minute at most it prints what it
 has). Without JavaScript each placeholder offers *Show the figures*, the same page with its blocks drawn
-in. A block that comes from another address (the overview's *For you* card) is not drawn on that page:
-it is an empty slot there, with a link to its own page (*Open this block on its own page*) when it has
-one. A session that has expired sends the browser to the sign-in page and back to the page afterwards,
-never a sign-in form inside a block.
+in. Where JavaScript runs but the page's script could not (it failed to download or was blocked), each
+block, once the page has loaded, says "This part could not be loaded." with the same *Show the figures*
+link instead of grey shapes that never fill. On a phone the filter bars fold behind a **Filters**
+button; where the page's script could not run (it failed to download, was blocked, or the browser is
+too old), they stay open, as without JavaScript. A block that comes from another address (the
+overview's *For you* card) is not drawn on that page: it is an empty slot there, with a link to its own
+page (*Open this block on its own page*) when it has one. A session that has expired sends the browser
+to the sign-in page and back to the page afterwards, never a sign-in form inside a block.
 
 **How it works.** Each block (a *part*) is asked for at the page's own address plus `_part=<name>`, as
 an htmx request, with the filters the frame resolved written out in full (the user's own section as
@@ -1003,10 +1018,10 @@ more.
 | Partner monitoring, `/partner-monitoring/` | View tabs (Grid, Program Performance, Data quality, Map), the filter bar with its choices, the "your section" note | Grid: `summary` (at once; first of the group `pm`): the seven tiles, the status donut and the indicators by section; `grid` (at once, once `summary` is in): the indicators by section, PD and output with their months or years, its pages, the note when the list is cut. Program Performance (`view=table`): `sections` (at once; first of the group `pm`): the section tiles; `table` (at once, once `sections` is in): the page of rows in its sort, its pages, *Excel of the filter* and *CSV of the filter*. Data quality (`view=quality`): `quality-tiles` (at once; first of the group `pm`) and `quality-lists` (when near the screen, once the tiles are in). A change of filter, sort or section tile reloads the area under the filter bar (`#monitoring-grid`) with new placeholders; a page of the grid or of the table reloads its own part. The exports are answered whole | The filter's indicators (every row the three views read), 2 minutes per filter and day, the same in every language and for everyone; Program Performance's section tiles and table read the same for the filter without its sections (the table keeps the chosen ones, as before), one computation for both. The filter bar's choices, 10 minutes. Each key holds the latest run of each eTools job (eTools sync, eTools Datamart sync, Datamart backfill, Locations sync) and the indicator flags, so a sync shows at once and an ActivityInfo import does not count. The parts carry `as_of`. When the indicators are kept, the frame draws the view's two parts itself: one request. The Map tab is not in parts; its points (`/api/internal/partner-monitoring/map/`) are kept 2 minutes under the same jobs, the flags and the gazetteer. See *Partner monitoring and Progress reports load in parts* |
 | Progress reports, `/partner-reporting/` (*By location* and *By disaggregation*) | Filter bar with its choices, the tab bar, the *By disaggregation* tab's own filters | `table` (at once): the tab's table, its pages, the note when the filter holds too many rows, the Excel and CSV links. A change of filter (HTMX) answers the table at once. *Reporting progress* and *Partners* are drawn whole, as before | The tab's rows (on *By disaggregation*, with the lines of every location), 2 minutes per tab, filter, tab filters and day; the filter bar's choices, 10 minutes; the same in every language and for everyone, under the eTools jobs' latest runs and the indicator flags, as partner monitoring. When the rows are kept, the frame draws the table itself: one request. See *Partner monitoring and Progress reports load in parts* |
 | Monitoring insights, Map tab, `/fmm/?tab=map` | Header and Export menu, filter bar, reference line, chips, data notes, the key figure tiles, the tab bar; a filter without visits shows the tab's empty state and no part. The other tabs stay one request each | `map` (at once): the map, its legend, *Visits on the map*, *PD locations not yet visited* and *Visits without coordinates*, with the map's configuration. A swap of the results (tab bar, filter bar, the planned places switch) brings the map drawn in, in one request | The map (`geo.map_points`), 10 minutes, per filter, planned places shown and language (the popups' dates are translated), under the Monitoring insights stamp (last refresh and rules version, the day, the NeuroDB action points, the last eTools, Locations or clean-up run, the gazetteer's places), so a refresh, one of those runs or a place edited in admin → Locations shows at once. Also the one pass over the visits (under the *Score settings* thresholds too), the entity table and the rule counts that the other tabs read. Never drawn by the frame: the map takes about 90 ms to draw even when stored. See *Monitoring insights* |
-| Country programme, `/country-programme/` | Cycle selector, the cycle's panel (years, share of the cycle elapsed, summary, documents, *Edit in the admin* for staff), the note on AI-suggested indicators; without a cycle or without indicators, the empty state and no part | `summary` (at once; first of the group `cpd`): the six key figures, *Where the CPD indicators stand* and the outcomes at a glance. `outcomes` (when near the screen, once `summary` is in): each outcome with its outputs, indicators, programme documents and partner reporting; a link to `#outcome-<id>` asks for it first | The cycle's build, 10 minutes per cycle, day and language (the kinds of the linked sources are translated), under a key that holds the cycle and what staff enter by hand that its figures read (the cycle, its outcomes, outputs, indicators, milestones, typed values and linked sources, and how the linked ActivityInfo master indicators are set up: one digest of the rows themselves, so an edit in place shows at once) and the last finished sync run and the indicator flags. When the build is stored, the frame draws both parts itself. See *Country programme* |
+| Country programme, `/country-programme/` | Cycle selector, the cycle's panel (years, share of the cycle elapsed, summary, documents, *Edit in the admin* for staff), the note on AI-suggested indicators; without a cycle or without indicators, the empty state and no part | `summary` (at once; first of the group `cpd`): the six key figures, *Where the CPD indicators stand* and the outcomes at a glance. `outcomes` (when near the screen, once `summary` is in): each outcome with its outputs, indicators, programme documents and partner reporting; a link to `#outcome-<id>` asks for it first | The cycle's build, 10 minutes per cycle, day and language (the kinds of the linked sources are translated), under a key that holds the cycle and what staff enter by hand that its figures read (the cycle, its outcomes, outputs, indicators, milestones, typed values and linked sources, and how the linked ActivityInfo master indicators are set up, down to the indicators they add up and those indicators' ActivityInfo field and database: one digest of the rows themselves, so an edit in place shows at once) and the last finished sync run and the indicator flags. When the build is stored, the frame draws both parts itself. See *Country programme* |
 | Youth programmes, `/youth/` | The filter bar whole (its choices are read in the database from a few lists of the year's figures, never by decoding them, and kept 10 minutes), the line saying when Compiler's figures were read; without figures, the empty state and no part | `summary` (at once; first of the group `youth`): the five key figures and the youth indicators with their eTools indicators. `details` (when near the screen, once `summary` is in): the breakdowns, *Compiler and eTools, side by side* and the programme documents in Compiler | The year's build, 10 minutes per year's figures (their row and when they were read), filters, day and language (the breakdowns' names are translated), under a key that holds the year's links to eTools (a digest of the rows: a link confirmed with the admin's action, edited or added shows at once), the last finished sync run and the indicator flags; the filter bar's choices, 10 minutes per year's figures, the same in every language. When the build is stored, the frame draws both parts itself. See *Youth programmes* |
 | Donor page, `/donor/` (not a staff page) | The bar with the year, the tabs, every heading and card of both tabs with grey shapes of the size of their charts, the date of the data; for an administrator's preview, the preview banner | One part, `data`, answered as JSON and drawn by the page's script (`donor.js`): every figure of both tabs. Its address carries the year and, in an administrator's preview, the account and the tab; for a donor it is always the donor's own account, whatever the address says | The page's figures, 5 minutes per account (its donors, grants and whether partners are named), year and day, the same in every language, under the last finished sync run and the indicator flags; they were kept per worker before. When they are stored, the frame carries them and nothing is fetched. See *Donor access* |
-| Document review, `/knowledge/review/`: the views *By document* (Findings), *Themes* and *Repeated findings* (Synthesis); the other tabs and views are drawn whole | Breadcrumbs, *Verified only*, purpose line, the tab bar, the view's links, filter bar and filter chips; for *Repeated findings* the panel's heading and explanation | `findings` (at once): the page's ten documents, each with its key statements and findings and, for editors, *Accept all*, *Add a finding* and the review buttons; its page links reload this part only. `synthesis` (at once): the *Themes* panel (each theme with its five best findings, its link and, when AI is on, *Write a paragraph* with the person's quota) or the repeated findings' groups. A tab or filter change (htmx) answers with the figures in it, as before, except the repeated findings: their placeholder unless they are stored | Only the repeated findings: an hour at most, per batch and *Verified only* (each person's switch is in the key), the same in every language and for everyone, under a key made of what they are read from: the documents in a batch (their batch, review status and analysis time, and the last change of any, a title or a file changed in the admin), the findings (how many, the newest, the last edit, every verdict given) and the batches (names, archiving). A verdict, an edit, *Accept all*, a document taken out or marked reference, or a finished analysis shows at once. When they are stored, the frame draws them itself. *By document* and *Themes* are computed at each request. See *Document review* |
+| Document review, `/knowledge/review/`: the views *By document* (Findings), *Themes* and *Repeated findings* (Synthesis); the other tabs and views are drawn whole | Breadcrumbs, *Verified only*, purpose line, the tab bar, the view's links, filter bar and filter chips; for *Repeated findings* the panel's heading and explanation | `findings` (at once): the page's ten documents, each with its key statements and findings and, for editors, *Accept all*, *Add a finding* and the review buttons; its page links reload this part only. `synthesis` (at once): the *Themes* panel (each theme with its five best findings, its link and, when AI is on, *Write a paragraph* with the person's quota) or the repeated findings' groups. A tab or filter change (htmx) answers with the figures in it, as before, except the repeated findings: their placeholder unless they are stored | Only the repeated findings: an hour at most, per batch and *Verified only* (each person's switch is in the key), the same in every language and for everyone, under a key made of what they are read from: the documents in a batch (their batch, review status and analysis time, and the last change of any, a title or a file changed in the admin), the findings (how many, the newest, the last edit, every verdict given), the batches (names, archiving) and the last finished run of a *Document review* job (*Locate document findings again* rewrites the findings' pages, places and evidence without an edit time). A verdict, an edit, *Accept all*, a document taken out or marked reference, a finished analysis or a finished *Locate document findings again* shows at once. When they are stored, the frame draws them itself. *By document* and *Themes* are computed at each request. See *Document review* |
 
 Every other page is still drawn whole. A page gets parts only when it takes over 0.3 seconds to answer
 whole, cold, on a copy of the data twenty times today's size (Monitoring insights at production size),
@@ -1024,10 +1039,10 @@ fund line), the *Map* view of partner monitoring (a frame already: 0.07 seconds,
 their own address, see the table), the *Insights*, *Quality*, *Analysis* and *Records* tabs of Monitoring
 insights (0.14-0.27; the panels they load when reached or opened, such as the rule score trends, the
 entity table or *Show all*, now come alone instead of with the whole tab), Makani (0.18-0.29) and Dirasa
-(under 0.1), the knowledge base search (it now ranks on the stored search index: 40-90 ms for a common
-word, where it took 1.6-1.8 seconds), the document review's *Documents* tab and *Index* view (0.1-0.2,
-since their counts are taken by subqueries) and its other tabs and views, What's new and For you (under
-0.21).
+(under 0.1), the knowledge base search (the index it ranks on is now stored with each passage: the search
+takes 30-50 ms for a common word, where it took 0.7-1.8 seconds), the document review's *Documents* tab and
+*Index* view (0.1-0.2, since their counts are taken by subqueries) and its other tabs and views, What's new
+and For you (under 0.21).
 
 **When a part fails.**
 
@@ -3941,10 +3956,13 @@ shared page figures (before, each worker kept its own copy), so a page opened ag
 carries them and asks for nothing. While they are computed, "Loading the figures…" shows at the top of
 the page. If they cannot be loaded (a server error, or no answer within 60 seconds), an error box says
 so with a **Try again** button; a network error or a server restarting is retried once by itself, and a
-"still computing" answer (202) is asked again until the figures come. A year without funds shows its
-"No funding found" card once the figures say so. The figures' address names the year only; an
-administrator's preview adds the account and the tab. A donor always receives the donor's own figures,
-whatever account the address names, and a donor whose temporary password is still to change gets 403.
+"still computing" answer (202) is asked again until the figures come. If the page's script itself could
+not run (it failed to download or was blocked), the grey cards and "Loading the figures…" go once the
+page has loaded, and the page says its charts are drawn in the browser by a script that did not run, as
+it does without JavaScript. A year without funds shows its "No funding found" card once the figures say
+so. The figures' address names the year only; an administrator's preview adds the account and the tab.
+A donor always receives the donor's own figures, whatever account the address names, and a donor whose
+temporary password is still to change gets 403.
 In the log, the figures' request is `"GET /donor/?year=2026&_part=data HTTP/1.1"`.
 
 **How the donor's figures are counted.** The donor's money is the funds reservation lines that name

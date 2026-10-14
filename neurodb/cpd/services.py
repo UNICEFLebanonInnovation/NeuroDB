@@ -506,12 +506,19 @@ def hand_entered(programme: CountryProgramme) -> str:
     interventions and the years shown), its outcomes, outputs (their eTools names match the programme
     documents), indicators (baseline, target, how the years add up), milestones, values and linked sources
     (a suggestion confirmed), and, for the ActivityInfo master indicators linked, how the admin set them up
-    (the database, the master indicator, its sub-indicators and their indicators). One query over the rows
-    themselves, so an edit in place shows even where a table keeps no time of change. Read once per
-    request."""
+    (the database, the master indicator, its sub-indicators, which indicators each lists, and those
+    indicators themselves: their ActivityInfo field and database choose the reports a figure adds up). One
+    query over the rows themselves, so an edit in place shows even where a table keeps no time of change. Read
+    once per request."""
 
     def read() -> str:
-        from neurodb.indicators.models import Database, MasterIndicator, MasterSubIndicator, SubIndicator
+        from neurodb.indicators.models import (
+            Database,
+            IndicatorNew,
+            MasterIndicator,
+            MasterSubIndicator,
+            SubIndicator,
+        )
 
         q = connection.ops.quote_name
         table = {
@@ -527,11 +534,13 @@ def hand_entered(programme: CountryProgramme) -> str:
             "master_sub": q(MasterSubIndicator._meta.db_table),
             "sub": q(SubIndicator._meta.db_table),
             "sub_leaf": q(SubIndicator.indicators.through._meta.db_table),
+            "leaf": q(IndicatorNew._meta.db_table),
         }
         outcomes = "SELECT id FROM outcomes"
         indicators = "SELECT id FROM indicators"
         masters = "SELECT id FROM masters"
         subs = f"SELECT sub_id FROM {table['master_sub']} WHERE master_id IN ({masters})"  # noqa: S608
+        leaves = f"SELECT indicatornew_id FROM {table['sub_leaf']} WHERE subindicator_id IN ({subs})"  # noqa: S608
         # (table, the rows of the cycle in it): every row's whole text, in a stable order
         parts = [
             ("cycle", "id = %(cycle)s"),
@@ -546,6 +555,8 @@ def hand_entered(programme: CountryProgramme) -> str:
             ("master_sub", f"master_id IN ({masters})"),
             ("sub", f"id IN ({subs})"),
             ("sub_leaf", f"subindicator_id IN ({subs})"),
+            # the indicators themselves (facts.queries._LEAF_CTE reads their ai_indicator and database)
+            ("leaf", f"id IN ({leaves})"),
         ]
         rows = "coalesce((SELECT string_agg(t::text, ',' ORDER BY t::text) FROM {} t WHERE {}), '')"
         digests = ", ".join(rows.format(table[name], where) for name, where in parts)

@@ -25,6 +25,7 @@ from django.http import QueryDict
 from django.utils import timezone
 
 from neurodb.core import compute
+from neurodb.core.models import SyncRun
 
 from . import review
 from .models import (
@@ -856,7 +857,8 @@ SELECT
   (SELECT md5(coalesce(string_agg(id || ':' || verdict, ',' ORDER BY id), ''))
      FROM {finding} WHERE verdict <> %s),
   (SELECT md5(coalesce(string_agg(id || ':' || name || ':' || archived::text, ',' ORDER BY id), ''))
-     FROM {batch})
+     FROM {batch}),
+  (SELECT coalesce(max(id), 0) FROM {run} WHERE job = %s AND finished_at IS NOT NULL)
 """
 
 
@@ -869,9 +871,12 @@ def review_stamp() -> str:
       analysis writes its findings and the document's analysis time in one transaction) and the last change
       of any (a title or a file changed in the admin);
     - the findings: how many, the newest, the last edit, and each verdict given (accept, reject or undo);
-    - the batches: names and archiving (no time stamp of their own).
+    - the batches: names and archiving (no time stamp of their own);
+    - the review job's last finished run: a run that rewrites the findings without saving a document or a
+      finding's edit time (*Locate document findings again*: each finding's pages, place and evidence;
+      *enrich*: the action points again) shows once it ends.
 
-    Nothing about the person asking, and no sync run: the review reads none."""
+    Nothing about the person asking, and no other job's run: the review reads none."""
 
     def read() -> str:
         quote = connection.ops.quote_name
@@ -879,9 +884,11 @@ def review_stamp() -> str:
             document=quote(Document._meta.db_table),
             finding=quote(DocumentFinding._meta.db_table),
             batch=quote(ReviewBatch._meta.db_table),
+            run=quote(SyncRun._meta.db_table),
         )
         with connection.cursor() as cursor:
-            cursor.execute(sql, [Verdict.UNREVIEWED])  # the table names come from the models
+            # the table names come from the models
+            cursor.execute(sql, [Verdict.UNREVIEWED, SyncRun.Job.DOC_REVIEW])
             return "|".join(str(value) for value in cursor.fetchone())
 
     return compute.per_request("knowledge-review:stamp", lambda: compute.fingerprint(read()))

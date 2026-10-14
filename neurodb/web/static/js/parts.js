@@ -1049,7 +1049,11 @@ export function initParts() {
   // ------------------------------------------------------------------ live region
   function say(key, n) {
     if (!status || !key) return;
-    const message = partText(key, n);
+    speak(partText(key, n));
+  }
+
+  function speak(message) {
+    if (!status || !message) return;
     status.textContent = "";
     setTimeout(() => {
       status.textContent = message;
@@ -1063,13 +1067,15 @@ export function initParts() {
     const fresh = found.filter((el) => !byEl.has(el) && el.isConnected);
     if (!fresh.length) return;
     if (!htmx()) {
-      // htmx did not load: say so in each placeholder rather than show skeletons for ever
+      // htmx did not load: say so in each placeholder rather than show skeletons for ever, with the link a browser
+      // without JavaScript gets (the page drawn at once) in place of Try again
       fresh.forEach((el) => {
         el.dataset.partState = "error";
         el.setAttribute("aria-busy", "false");
         const box = el.querySelector("[data-part-error]");
         if (box) box.hidden = false;
         el.querySelector("[data-part-retry]")?.setAttribute("hidden", "");
+        el.querySelector("[data-part-fallback]")?.removeAttribute("hidden");
       });
       return;
     }
@@ -1115,6 +1121,43 @@ export function initParts() {
       rec.hadFocus = rec.hadFocus || rec.el.contains(document.activeElement);
       queue.swapping(rec.id);
     }
+  });
+
+  // A results area that can hold parts is not aria-live (each arriving part would be read out). What a person
+  // changes in it is said here instead, once per request, in the words the area gives (data-results-updated):
+  // - a swap of the area itself (a tab, view, filter, sort or page change), however it was asked for (review
+  //   R2-critic-2); the parts it brings are then said as any;
+  // - a swap inside it that a click, a submit or a change asked for: a page, a sort or a chip of a table in it, a
+  //   verdict, a status, a row deleted (review R3-fixes-2).
+  // The decision is taken in htmx:beforeSwap, while the target is still in the page (a row deleted leaves nothing
+  // to settle), and the words are said once the request is over: htmx:afterRequest reaches the page even when the
+  // swap removed the element that asked (htmx fires it again on its closest ancestor still in the page). A part, a
+  // poll and what loads when reached or opened (revealed, load, toggle) are not said: nobody asked for that change
+  // there and then.
+  const SAID_AFTER = new Set(["click", "submit", "change"]);
+  const toSay = new WeakMap(); // a request (its xhr) -> the words said once it is over
+
+  function areaWords(target, config) {
+    if (!target?.closest || !target.isConnected) return "";
+    if (target.dataset?.resultsUpdated) return target.dataset.resultsUpdated;
+    if (!SAID_AFTER.has(config?.triggeringEvent?.type)) return "";
+    return target.closest("[data-results-updated]")?.dataset.resultsUpdated || "";
+  }
+
+  document.addEventListener("htmx:beforeSwap", (e) => {
+    const d = e.detail || {};
+    if (!d.xhr) return;
+    const words = d.shouldSwap ? areaWords(d.target, d.requestConfig) : "";
+    if (words) toSay.set(d.xhr, words);
+    else toSay.delete(d.xhr);
+  });
+
+  document.addEventListener("htmx:afterRequest", (e) => {
+    const d = e.detail || {};
+    const words = d.xhr && toSay.get(d.xhr);
+    if (!words) return;
+    toSay.delete(d.xhr);
+    if (d.successful) speak(words);
   });
 
   // A filter or tab swap replaces the area holding placeholders: a part still loading there is aborted.
@@ -1254,5 +1297,8 @@ export function initParts() {
   }
 
   page = { queue, loadAll: loadEverything };
+  // started: base.html's head leaves the placeholders to this module (without the mark at the load event, it shows
+  // each one's error box with its link to the page drawn at once)
+  document.documentElement.classList.add("parts-ready");
   return page;
 }

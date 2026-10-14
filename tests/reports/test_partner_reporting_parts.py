@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from django.core.cache import caches
+from django.http import QueryDict
 from django.test import Client
 from django.urls import reverse
 from django.utils import translation
@@ -107,9 +108,9 @@ def _tables(monkeypatch) -> Counter:
     calls: Counter = Counter()
     real = datamart.partner_reporting
 
-    def counted(params, today=None):
+    def counted(params, today=None, **kwargs):
         calls["table"] += 1
-        return real(params, today)
+        return real(params, today, **kwargs)
 
     monkeypatch.setattr(datamart, "partner_reporting", counted)
     return calls
@@ -139,6 +140,32 @@ def test_the_frame_answers_with_every_figure_service_refusing(client_viewer, wor
     )  # the filter bar's choices, stored for every worker
     # the Report/Disaggregation tab's own filters stay in the frame
     assert ('name="disaggregation"' in html) == (tab == "disaggregations")
+    # the results area receives the part: not a live region; parts.js says its words after a swap (review R3)
+    assert f'<div id="{RESULTS}" data-results-updated="The results were updated.">' in html
+    assert "aria-live" not in html.split(f'<div id="{RESULTS}"', 1)[1].split(">", 1)[0]
+
+
+@pytest.mark.shell
+def test_every_tab_gives_the_words_said_after_a_swap_of_its_results(client_viewer, world):
+    """The filter bar and the page links swap #reporting-results. On Report/Location and Report/Disaggregation it
+    receives the table as a part, so it is not a live region, and a filter change there was no longer announced;
+    the reports and partners tabs kept aria-live, so the same area behaved differently from tab to tab (review R3).
+    Every tab's frame gives the words parts.js says after such a swap, never aria-live, and a swap answers the
+    area's content, never a second area."""
+    for tab in ("reports", "partners", *TABS):
+        html = text(raw_get(client_viewer, PAGE, {"tab": tab}))
+        areas = re.findall(rf'<div id="{RESULTS}"[^>]*>', html)
+        assert areas == [f'<div id="{RESULTS}" data-results-updated="The results were updated.">'], tab
+        assert html.count("data-results-updated=") == 1, tab
+        swapped = raw_get(
+            client_viewer,
+            PAGE,
+            {"tab": tab, "status": "accepted"},
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET=RESULTS,
+        )
+        assert swapped.status_code == 200, tab
+        assert f'id="{RESULTS}"' not in text(swapped) and "data-results-updated" not in text(swapped), tab
 
 
 # The table's room on each tab, as measured on the x20 parity world (reports/partials/reporting_table.html):
@@ -295,6 +322,25 @@ def test_the_pages_read_the_stored_table(client_viewer, world, monkeypatch):
     assert calls["table"] == 1
 
 
+@pytest.mark.parametrize("tab", TABS)
+def test_the_table_never_waits_for_the_filter_options(client_viewer, world, tab):
+    """The stored table reads none of the filter bar's choices. While another request computes them (their lock
+    held), the table part still answers its table, never "pending" (a part does not wait for a lock): the work done
+    for the table is not thrown away (review R1-B-1)."""
+    caches["shared"].clear()  # nothing stored: neither the options nor the table
+    compute.reset_memo()
+    options_key = compute._full_key(f"pr-options:v{reporting.CACHE_VERSION}:{keys.fingerprint()}", True)
+    lock = compute._ThreadLock(options_key)  # another request computing the filter options
+    assert lock.acquire()
+    try:
+        response = client_viewer.get(f"{PAGE}?tab={tab}&_part=table", **HX)
+    finally:
+        lock.release()
+    assert response.status_code == 200, response.status_code
+    assert "X-NeuroDB-Part-Pending" not in response and 'id="part-table"' in text(response)
+    assert ("LB71" if tab == "locations" else "Location total") in text(response)
+
+
 def test_a_stored_table_never_answers_another_filter_or_tab(client_viewer, world):
     def rows(**params) -> int:
         query = "&".join(f"{k}={v}" for k, v in params.items())
@@ -335,6 +381,27 @@ def test_two_filters_never_share_a_key():
         reporting.DisaggregationFilters(disaggregation="female"),
     ]
     assert len({f.cache_key() for f in tab}) == len(tab)
+
+
+def test_the_page_s_links_and_the_filter_bar_share_the_key_of_one_filter(client_viewer, world, monkeypatch):
+    """The page's own links carry no ``pd_status`` (the running PDs); the filter bar sends the running statuses it
+    shows chosen. One filter, the same figures: one stored table (review R1-B-2). ``pd_status=`` alone (every
+    status) and another choice keep keys of their own."""
+    link = reporting.ReportFilters.from_params(QueryDict("section=Education&year=2026"))
+    bar = reporting.ReportFilters.from_params(
+        QueryDict("section=Education&pd_status=suspended&pd_status=signed&pd_status=active&year=2026")
+    )
+    every = reporting.ReportFilters.from_params(QueryDict("section=Education&pd_status=&year=2026"))
+    closed = reporting.ReportFilters.from_params(QueryDict("section=Education&pd_status=closed&year=2026"))
+    assert link.pd_statuses is None and bar.pd_statuses and every.pd_statuses == []
+    assert link.cache_key() == bar.cache_key()
+    assert len({link.cache_key(), every.cache_key(), closed.cache_key()}) == 3
+    calls = _tables(monkeypatch)
+    first = get_part(client_viewer, f"{PAGE}?tab=locations", "table").context["locations"]
+    compute.reset_memo()
+    bar_url = f"{PAGE}?tab=locations&pd_status=active&pd_status=signed&pd_status=suspended"
+    assert get_part(client_viewer, bar_url, "table").context["locations"] == first
+    assert calls["table"] == 1
 
 
 def test_the_disaggregation_lines_are_made_for_the_page_shown_on_copies(client_viewer, world, monkeypatch):

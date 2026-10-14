@@ -13,8 +13,16 @@
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
   {% block head_extra %}{% endblock %}
   <script nonce="{{ request.csp_nonce }}">
-    /* Apply the saved theme before first paint to avoid a flash. */
+    /* Apply the saved theme before first paint to avoid a flash. "js": scripts run, so app.css folds the phone
+       filter bars from the first paint (app.js then adds their button) instead of after it. app.js marks the page
+       "app-ready" once it has bound them; a page it never reached by the load event (app.js or one of its imports
+       failed to load, was blocked, or the browser runs no modules) drops "js", and its filter bars stay open. */
     (function () {
+      document.documentElement.classList.add("js");
+      window.addEventListener("load", function () {
+        var root = document.documentElement;
+        if (!root.classList.contains("app-ready")) root.classList.remove("js");
+      });
       try {
         var t = localStorage.getItem("neurodb-theme");
         if (!t) { t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"; }
@@ -250,6 +258,36 @@ part; the words parts.js shows in a part or on the Print button, translated.{% e
 {% include "components/modal.html" %}
 {% include "components/search_modal.html" %}
 {% if user.is_authenticated and not is_donor %}{% include "help/_panel.html" %}{% endif %}
+{% if parts_eager is not None %}{% comment %}A page in parts (web.parts.render_page sets parts_eager). Its placeholders
+(components/part.html) are filled by parts.js alone, which marks the page "parts-ready" once it has started. Where it
+never did by the load event (app.js or one of its imports failed to load, was blocked, or the browser runs no modules),
+nothing will fill them: each placeholder, and each one a swap brings later, shows its error box with the link a browser
+without JavaScript gets (the page drawn at once) in place of Try again, and is no longer busy, instead of grey shapes
+for ever (review R3-critic-2). Only on such a page, so no other page carries the words of the mechanism.{% endcomment %}
+<script nonce="{{ request.csp_nonce }}">
+  (function () {
+    function stop(scope) {
+      var found = scope && scope.querySelectorAll ? [].slice.call(scope.querySelectorAll("[data-part]")) : [];
+      if (scope && scope.matches && scope.matches("[data-part]")) found.push(scope);
+      found.forEach(function (el) {
+        if (el.getAttribute("data-part-state")) return;
+        el.setAttribute("data-part-state", "error");
+        el.setAttribute("aria-busy", "false");
+        ["[data-part-error]", "[data-part-fallback]"].forEach(function (selector) {
+          var shown = el.querySelector(selector);
+          if (shown) shown.hidden = false;
+        });
+        var retry = el.querySelector("[data-part-retry]");
+        if (retry) retry.hidden = true;
+      });
+    }
+    window.addEventListener("load", function () {
+      if (document.documentElement.classList.contains("parts-ready")) return;
+      stop(document);
+      document.addEventListener("htmx:load", function (e) { stop(e.target); });
+    });
+  })();
+</script>{% endif %}
 
 {% asset_urls %}
 <script src="{% static 'vendor/bootstrap/bootstrap.bundle.min.js' %}" nonce="{{ request.csp_nonce }}"></script>

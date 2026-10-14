@@ -162,9 +162,11 @@ class ReportFilters:
 
     def cache_key(self) -> str:
         """Every field of the filter, as JSON, for the keys of what is stored for it (see
-        ``monitoring.Filters.cache_key``): each list in one order, ``pd_statuses`` None (the running PDs)
-        apart from an empty list (every status), the dates as written."""
-        return _json_key(self)
+        ``monitoring.Filters.cache_key``): each list in one order, the dates as written, and the PD statuses
+        as :meth:`queryset` reads them (:attr:`status_choice`): no ``pd_status`` in the address (the page's
+        own links) and the running statuses the filter bar sends for the same choice share a key, while
+        ``pd_status=`` alone (every status) keeps its own."""
+        return _json_key(dataclasses.replace(self, pd_statuses=sorted(set(self.status_choice))))
 
     def queryset(self, today: datetime.date) -> QuerySet[dm.ReportedIndicator]:
         """The report rows (one per indicator, report and location) every filter but the status keeps
@@ -832,8 +834,9 @@ def disaggregation_lines(block: dict[str, Any]) -> list[dict[str, Any]]:
 def stored_options() -> dict[str, Any]:
     """:func:`filter_options` for the Progress reports page: stored ten minutes for every worker under a key
     the eTools jobs' runs change (:func:`neurodb.datamart.keys.fingerprint`), the same for every user and
-    language (the status labels are English constants, translated by the templates). A request that finds
-    another one computing them computes them itself rather than wait (17 ms on a large database). In DEBUG
+    language (the status labels are English constants, translated by the templates). A frame that finds
+    another request computing them computes them itself rather than wait (17 ms on a large database); no part
+    reads them (a part request would answer "pending" instead: :func:`neurodb.core.compute.once`). In DEBUG
     they are read at each call."""
     if settings.DEBUG:
         return filter_options()

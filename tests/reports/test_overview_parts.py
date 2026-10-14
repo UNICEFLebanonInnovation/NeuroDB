@@ -743,6 +743,19 @@ def test_without_javascript_the_page_drawn_at_once_offers_for_you_its_own_page(c
     assert "part__skeleton" not in card and "Show the figures" not in card
     assert f'<noscript><a href="{reverse("watch:for_you")}">' in card
     assert "_eager=1" not in "".join(LINK.findall(card))
+    # where scripts run but parts.js never did, its error box offers the same page (review R3-critic-2)
+    assert (
+        f'href="{reverse("watch:for_you")}" data-part-fallback hidden>Open this block on its own page</a>'
+        in card
+    )
+    # base.html's script that shows those boxes comes with a page in parts (the frame, and the page drawn at once for
+    # its quiet slot), and with no other page
+    assert (
+        frame.count('classList.contains("parts-ready")')
+        == page.count('classList.contains("parts-ready")')
+        == 1
+    )
+    assert "parts-ready" not in text(client_viewer.get(reverse("help:index")))
 
 
 # ------------------------------------------------------------------------------------- templates left to load

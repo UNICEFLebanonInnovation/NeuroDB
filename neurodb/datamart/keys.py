@@ -73,15 +73,11 @@ def jobs() -> str:
 
 
 def flags() -> str:
-    """The indicator flags (count and last change). Read once per request."""
+    """The indicator flags (count and last change: :func:`neurodb.reports.overview.flags_fingerprint`). Read
+    once per request."""
+    from neurodb.reports.overview import flags_fingerprint
 
-    def read() -> str:
-        from .models import IndicatorFlag
-
-        found = IndicatorFlag.objects.aggregate(n=Count("pk"), last=Max("updated_at"))
-        return f"{found['n']}:{found['last'].isoformat() if found['last'] else ''}"
-
-    return compute.per_request("etools-flags", read)
+    return compute.per_request("etools-flags", flags_fingerprint)
 
 
 def fingerprint() -> str:

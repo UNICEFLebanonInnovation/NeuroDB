@@ -68,6 +68,10 @@ are ready (the other pages are quick enough to come whole, as before):
 - A box that could not load says so in its place and has a **Try again** button; the rest of the page
   keeps working. If it fails again, reload the page; if it still fails, tell an administrator which
   page and which box.
+- If the page itself could not start (its script was blocked or did not download), every box says it
+  could not load and offers **Show the figures** instead: the same page with all its figures in it,
+  which takes a little longer to come. The donor page says instead that its charts could not be
+  drawn: reload it.
 - A link to a block further down (a tab of the brief, a panel of a partner's page) waits for its box,
   then takes you there.
 - On a partner's page, everything from the key figures to the last list fills in as one box; the

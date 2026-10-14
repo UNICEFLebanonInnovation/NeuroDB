@@ -179,6 +179,12 @@ def _statement_cite(statement: DocumentStatement, verified: bool) -> str:
     return f"({statement.document.title})"
 
 
+def _cite_stored(finding: dict) -> str:
+    """:func:`review_data.cite` of a finding as the stored repeated findings hold it (a plain dict)."""
+    title, page = finding["document"]["title"], finding["page_label"]
+    return f"({title}, {page})" if page else f"({title})"
+
+
 def build(batch: int | None, verified: bool, min_documents: int = 2) -> bytes:
     """The desk review of ``batch`` (every batch when None) as a .docx file's bytes."""
     doc = Docx()
@@ -256,7 +262,14 @@ def build(batch: int | None, verified: bool, min_documents: int = 2) -> bytes:
     doc.heading("Recurring themes", 1)
     if not found.themes:
         doc.paragraph(f"No theme is raised by {found.min_documents} documents or more.")
-    for theme in found.themes[:THEMES]:
+    shown = found.themes[:THEMES]
+    # the evidence of every theme shown, in one query (one per theme before)
+    evidence = (
+        review_data.themes_findings([t.topic.pk for t in shown], batch, verified, limit=EVIDENCE_PER_THEME)
+        if shown
+        else {}
+    )
+    for theme in shown:
         doc.heading(theme.topic.path, 2)
         years_text = f", {theme.year_span}" if theme.year_span else ""
         doc.paragraph(
@@ -264,7 +277,7 @@ def build(batch: int | None, verified: bool, min_documents: int = 2) -> bytes:
             f"average evidence {theme.average_evidence}. "
             f"{review_data.TRENDS[theme.trend]}."
         )
-        for finding in review_data.theme_findings(theme.topic.pk, batch, verified, limit=EVIDENCE_PER_THEME):
+        for finding in evidence[theme.topic.pk]:
             doc.bullet(f"{finding.text} {review_data.cite(finding)}")
             if finding.quote:
                 doc.paragraph(f"“{finding.quote}”", "Quote")
@@ -275,20 +288,27 @@ def build(batch: int | None, verified: bool, min_documents: int = 2) -> bytes:
     doc.heading("Recurring challenges", 1)
     if not challenges.themes:
         doc.paragraph(f"No challenge is raised by {found.min_documents} documents or more.")
-    for theme in challenges.themes[:CHALLENGES]:
-        top = review_data.theme_findings(theme.topic.pk, batch, verified, challenges=True, limit=1)
+    shown = challenges.themes[:CHALLENGES]
+    examples = (
+        review_data.themes_findings([t.topic.pk for t in shown], batch, verified, challenges=True, limit=1)
+        if shown
+        else {}
+    )
+    for theme in shown:
+        top = examples[theme.topic.pk]
         example = f" For example: {top[0].text} {review_data.cite(top[0])}" if top else ""
         doc.bullet(f"{theme.topic.path}: raised as a challenge by {theme.n_documents} documents.{example}")
 
     # ---- repeated findings
     doc.heading("Findings repeated across documents", 1)
-    groups = review_data.repeated(batch, verified, limit=REPEATED)
+    # the groups the Repeated findings view shows, stored for every worker (seconds to compare on a large
+    # review)
+    groups = review_data.repeated_groups(batch, verified)[:REPEATED]
     if not groups:
         doc.paragraph("No finding is repeated in near-identical words across documents.")
     for group in groups:
-        lead = group.lead
-        places = " ".join(dict.fromkeys(review_data.cite(f) for f in group.findings))
-        doc.bullet(f"{lead.text} Raised in {group.documents} documents: {places}")
+        places = " ".join(dict.fromkeys(_cite_stored(f) for f in group["findings"]))
+        doc.bullet(f"{group['lead']['text']} Raised in {group['documents']} documents: {places}")
 
     # ---- most urgent statements
     doc.heading("Most urgent statements", 1)

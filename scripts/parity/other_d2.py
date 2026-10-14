@@ -23,24 +23,23 @@ them. This module wraps ``core.signed_in_client`` so that a client signed in as 
 on (the matrix itself is addresses only).
 
 **Matrix** (computed when recording, stored with it): the knowledge base's plain list (first load, page 2,
-a section) and its search (common words, one word, rare words, with a section, with a year, with both, a
-query of small words only, no match, page 2 of the list behind a search); the document review: every tab
-and view on every batch, the documents tab per batch (the one with a document being analysed, an
-archived one, a batch that does not exist), findings by document (page 2, one batch, one document, a
-filter, the Dashboard's "counted" drill, no result), the index (one batch, counted), the synthesis themes
-(the minimum of documents 3, challenges only, a search, one batch, no result), repeated findings (one
-batch), and one row of each tab that stays as it is.
+a section) and its search (common words, one word, words in several forms, rare words, with a section, with a
+year, with both, a query of small words only, no match, page 2 of the list behind a search); the document
+review: every tab and view on every batch, the documents tab per batch (the one with a document being analysed,
+an archived one, a batch that does not exist), findings by document (page 2, one batch, one document, a filter,
+the Dashboard's "counted" drill, no result), the index (one batch, counted), the synthesis themes (the minimum
+of documents 3, challenges only, a search, one batch, no result), repeated findings (one batch), and one row of
+each tab that stays as it is.
 
-**The ranking of the search.** STAGE3's quick win ranks the passages on their stored index
-(``SearchRank(F("search_vector"), ...)``) instead of an index rebuilt from its text
-(``SearchRank("search_vector", ...)`` casts the stored index to text and parses it again: every word once,
-weights lost). That change is deliberate and changes which passages come first, hence which 30 documents
-and which snippet each search row shows. So the recording is the base's page **with that one change
-applied**: :func:`matrix` (which only ``record`` calls) makes the base's ``knowledge.search`` rank on the
-stored column (:func:`rank_on_stored_index`), and the check demands the same results, ranks included,
-from the head's own code. A self-check of the recording on the base itself (two processes must agree)
-sets ``PARITY_D2_STORED_RANK=1``, which applies the same change on the check side; never set it on the head
-(the check would then pass without the quick win).
+**The ranking of the search.** STAGE3's quick win: the search ranks each passage on ``Chunk.rank_vector``, the
+stored index as text parsed again in English, which the database keeps with the passage (a generated column),
+where the base built that same parse for every matching passage (``SearchRank("search_vector", ...)``: 1.6-1.8 s
+for one common word). The ranks are the same numbers, so the recording is the base's page as it is and the check
+demands the same results, ranks included, from the head's code. The world must hold words in several forms
+(school, schools; report, reports, reported, reporting: the fixer's ``s3/fx2/seed_world.py``, review R2-fixes-1),
+and the matrix searches for some of them: in text with one form per word, ranking each stored form once
+(``strip``, review R2-fixes-1) or with the index's weights (review R1-D2-1) gave the base's order too often to be
+told apart.
 
 **Context paths.** One function per page lists the old view's ``render`` context names
 (:func:`knowledge_paths`, :func:`review_paths`: the review's depend on the tab and view of the address).
@@ -60,7 +59,6 @@ document) where it read the findings themselves; both sides are compared on what
 from __future__ import annotations
 
 import dataclasses
-import os
 import re
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -71,7 +69,6 @@ from scripts.parity import overview as _overview
 
 VERIFIED_USER = "parity-verified"  # seed_world.py of group D2
 VERIFIED_KEY = "doc_review_verified_only"  # knowledge.review_views.VERIFIED_KEY
-STORED_RANK_ENV = "PARITY_D2_STORED_RANK"
 NO_MATCH = "zzzyx"
 BATCHES = ("Annual reports", "Donor reports", "Evaluations", "Field visit notes")  # seed_world.py
 ARCHIVED = "Assessments 2023"
@@ -112,40 +109,11 @@ def users() -> dict[str, Any]:
     return {**people, "verified": verified}
 
 
-# ------------------------------------------------------------------------------------------ the ranking
-def rank_on_stored_index() -> bool:
-    """Make the base's search rank on the stored index (STAGE3's quick win), when it ranks on an index
-    rebuilt from text; True when it changed something. On code that already ranks on the stored column
-    it does nothing."""
-    from django.contrib.postgres.search import SearchRank
-    from django.db.models import F
-
-    from neurodb.knowledge import search
-
-    if getattr(search.SearchRank, "_d2_stored", False):
-        return True
-
-    def stored_rank(vector, query, *args, **kwargs):
-        if vector == "search_vector":  # the base's text form: the stored column itself instead
-            vector = F("search_vector")
-        return SearchRank(vector, query, *args, **kwargs)
-
-    stored_rank._d2_stored = True  # type: ignore[attr-defined]
-    search.SearchRank = stored_rank
-    return True
-
-
-if os.environ.get(STORED_RANK_ENV) == "1":  # a self-check of the recording on the base itself
-    rank_on_stored_index()
-
-
 # ------------------------------------------------------------------------------------------ the matrix
 def matrix(people: dict[str, Any]) -> list[tuple[str, str]]:
-    """The pages and their filters, as (label, URL). Computed when recording and stored with it; the base's
-    search then ranks on the stored index (see the module's notes)."""
+    """The pages and their filters, as (label, URL). Computed when recording and stored with it."""
     from neurodb.knowledge.models import Document, ReviewBatch
 
-    rank_on_stored_index()
     section = people["viewer"].section_id
     batches = {b.name: b.pk for b in ReviewBatch.objects.filter(name__in=(*BATCHES, ARCHIVED))}
     if len(batches) != len(BATCHES) + 1:
@@ -174,6 +142,9 @@ def matrix(people: dict[str, Any]) -> list[tuple[str, str]]:
         ("knowledge: list, a section", kb(("section", section))),
         ("knowledge: search", kb(("q", common))),
         ("knowledge: search, one word", kb(("q", "children"))),
+        ("knowledge: search, a word in several forms", kb(("q", "report"))),
+        ("knowledge: search, another form of a word", kb(("q", "latrine"))),
+        ("knowledge: search, words in several forms", kb(("q", "schools partners reported"))),
         ("knowledge: search, rare words", kb(("q", "chlorination borehole"))),
         ("knowledge: search, a section", kb(("q", common), ("section", section))),
         ("knowledge: search, a year", kb(("q", common), ("year", 2025))),
@@ -629,7 +600,8 @@ def _shown_groups(groups: Any) -> Any:
 def comparable(observation: dict[str, Any], side: str) -> dict[str, Any]:
     """One observation as it is compared (``side`` is "record" or "check"): the repeated findings (``groups``)
     reduced, on both sides, to what the page shows of each finding (see the module's notes). The page's text
-    and links (the document's title and address included) are compared as they are."""
+    and links (the document's title and address included) and the search's results with their ranks are compared
+    as they are."""
     figures = observation["figures"]
     if "groups" not in figures:
         return observation

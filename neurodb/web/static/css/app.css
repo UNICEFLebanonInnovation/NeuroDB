@@ -719,11 +719,19 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 }
 .brief-tabs::-webkit-scrollbar { height: 6px; }
 .brief-tabs::-webkit-scrollbar-thumb { background: var(--nd-border); border-radius: 999px; }
-/* Filter bars fold behind a "Filters" button on phones (the button is added by app.js). */
+/* Filter bars fold behind a "Filters" button on phones (the button is added by app.js, just before the bar). They
+   are folded from the first paint wherever scripts run (html.js, set in base.html's head before the page is drawn),
+   not only once app.js has run: the figures under the bar no longer jump up 230-340 px just after the page appears.
+   Until app.js adds the button, the bar keeps only the button's room (a small button and its margin), unseen, where
+   the button will be. Without JavaScript nothing is folded. */
 .filters-toggle { display: none; }
 @media (max-width: 767.98px) {
   .filters-collapse.is-collapsible .filters-toggle { display: inline-flex; align-items: center; gap: 0.35rem; margin-bottom: 0.75rem; }
   .filters-collapse.is-collapsible:not(.is-open) .filter-bar { display: none; }
+  .js .filters-collapse:not(.is-collapsible):not(.is-open) .filter-bar {
+    visibility: hidden; overflow: hidden; height: calc(0.875rem * 1.5 + 0.5rem + 2px + 0.75rem); min-height: 0;
+    margin: 0; padding: 0; border: 0;
+  }
 }
 @media (max-width: 575.98px) {
   /* The top bar's search is an icon button on a phone, not a label cut to "S…". */
@@ -1350,6 +1358,13 @@ tr.is-uncounted > td { color: var(--nd-muted); }
 .part__slow { margin: 0.5rem 0 0; }
 .part[data-part-state="slow"] .part__slow { display: block; }
 .part[data-part-state="error"] .part__skeleton, .part[data-part-state="error"] .part__slow { display: none; }
+/* A part that could not be loaded keeps no room: its error box with Try again takes the placeholder's place, so no
+   screen of empty space is left under it (the overview's figures kept 8,100 px on a phone, the brief's sections
+   11,215 px). The parts below move up only when a part fails; Try again gives the room back while it loads again.
+   A placeholder whose room is its own grey shapes, kept laid out unseen behind the error box (the overview's key
+   figures, the partner page's Monitoring insights panel), keeps that room: a row of tiles, never a screen. */
+.part[data-part-state="error"] { min-height: 0; }
+.part[data-part-state="error"]::before { content: none; } /* nor the middle height */
 .part__error { border: 1px dashed var(--nd-border); border-radius: var(--nd-radius); background: var(--nd-surface);
                color: var(--nd-muted); padding: 1rem; text-align: center; overflow-wrap: anywhere; }
 .part__error .state__title { color: var(--nd-danger); margin-bottom: 0.6rem; }
@@ -1434,14 +1449,14 @@ tr.is-uncounted > td { color: var(--nd-muted); }
    has (a container query on the skeleton): a row is taller the narrower its cards (the job's name and state wrap)
    and the more cards it holds (the tallest sets it). One column (a phone): 92.5 px, 88.5 px from 380 px; two
    columns: 98 px, 89.5 px from 816 px (cards of 400 px); three: 113 px, 99 px from 1000 px, 95.5 px from 1080 px;
-   four: 116.5 px; five and more: 126 px. The placeholder needs no height of its own; its other states keep that
-   room, as the overview's key figures do. */
+   four: 116.5 px; five and more: 126 px. The placeholder needs no height of its own; "Still working" keeps that
+   room, as the overview's key figures do. A failure does not: the error box goes without the grey cards (up to 1,395
+   px on a phone), as every failed part's does. */
 #part-jobs[data-part="jobs"]:not(.is-loaded) { min-height: 0; display: grid; }
 #part-jobs[data-part="jobs"]:not(.is-loaded)::before { content: none; } /* no middle height either */
 #part-jobs[data-part="jobs"]:not(.is-loaded) > :not(noscript) { grid-area: 1 / 1; min-width: 0; }
 #part-jobs[data-part="jobs"] .part__slow { align-self: end; position: relative; margin: 0; padding-top: 0.5rem; background: var(--nd-bg); }
 #part-jobs[data-part="jobs"] .part__error { align-self: start; }
-#part-jobs[data-part="jobs"][data-part-state="error"] .part__skeleton { display: block; visibility: hidden; }
 #part-jobs[data-part="jobs"] .part__skeleton > .skeleton { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)); gap: 1rem; }
 #part-jobs[data-part="jobs"] .part__skeleton .kpi-grid { display: contents; }
 #part-jobs[data-part="jobs"] .part__skeleton { container-type: inline-size; }
@@ -1584,7 +1599,10 @@ tr.is-uncounted > td { color: var(--nd-muted); }
   #part-summary[data-part-group="cpd"]:not(.is-loaded) .part__skeleton .kpi-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   #part-summary[data-part-group="cpd"]:not(.is-loaded) .skeleton__block--tile { height: 150px; }
 }
-@media (prefers-reduced-motion: reduce) { #part-summary:not(.is-loaded) .skeleton::before, #part-summary:not(.is-loaded) .skeleton::after { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  :is(#part-summary[data-part-group="cpd"], #part-summary[data-part-group="youth"]):not(.is-loaded) .skeleton::before,
+  :is(#part-summary[data-part-group="cpd"], #part-summary[data-part-group="youth"]):not(.is-loaded) .skeleton::after { animation: none; }
+}
 /* A part of these pages that fails keeps no room (its placeholder holds up to 9,600 px on a phone): the error box with
    Try again goes without it, so the blocks below are not pushed screens further down. Try again gives the room back
    while the part loads. */

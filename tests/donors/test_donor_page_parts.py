@@ -20,6 +20,8 @@ import datetime
 import html as html_module
 import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -307,6 +309,158 @@ def test_donor_js_fetches_its_figures_and_offers_try_again():
     assert "if (!DATA) return;" in source.split("function render()", 1)[1]  # a tab clicked before the figures
 
 
+# donor.js run in node on the stand-in page of donor_dom.mjs (its elements, a clock the test moves, fetch answering
+# from a list): page(options) gives a fresh page and a fresh copy of donor.js, run until no timer is left. FIGURES is
+# the part's real JSON (process.argv[3]).
+DONOR_DOM = Path(__file__).parent / "donor_dom.mjs"
+NODE = shutil.which("node")
+needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
+DOM_PRELUDE = """
+const dom = await import(process.argv[2]);
+const { readFileSync } = await import("node:fs");
+const donorSource = readFileSync(new URL(process.argv[1]), "utf8");
+const FIGURES = JSON.parse(process.argv[3]);
+const PENDING = { status: 202, headers: { "X-NeuroDB-Part-Pending": "1" } };
+const DATA = { status: 200, body: FIGURES };
+const out = {};
+let pages = 0;
+async function page(options = {}) {
+  const env = dom.installPage(options);
+  pages += 1;
+  // a fresh copy, run as the module the page loads (donor.js imports and exports nothing, so node would run a file of
+  // it as a script, once)
+  await import("data:text/javascript;charset=utf-8," + encodeURIComponent(`${donorSource}\n// page ${pages}`));
+  await env.run();
+  return env;
+}
+const seen = (env) => ({
+  state: env.main.dataset.donorState,
+  busy: env.main.getAttribute("aria-busy"),
+  error: env.el("loadError").hidden ? null : env.el("loadErrorText").textContent,
+  asked: env.requests.map((r) => r.at - env.start),
+  tiles: env.el("tiles").innerHTML.includes("children") || env.el("tiles").innerHTML.includes("Children"),
+  overall: env.el("oTiles").innerHTML.includes("Children reached"),
+  grants: (env.el("fGrant").innerHTML.match(/<option /g) || []).length,
+});
+"""
+
+
+def _run_donor_js(body: str, figures: dict) -> dict:
+    """Run ``body`` in node after DOM_PRELUDE (``page()``, ``seen()``, ``out``) and return ``out``."""
+    script = DOM_PRELUDE + body + "\nconsole.log(JSON.stringify(out));\n"
+    result = subprocess.run(
+        [
+            NODE,
+            "--input-type=module",
+            "-e",
+            script,
+            DONOR_JS.as_uri(),
+            DONOR_DOM.as_uri(),
+            json.dumps(figures),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+@needs_node
+def test_donor_js_waits_for_a_build_in_progress_then_draws_the_figures(donor_client, world):
+    """donor.js run (review R1-D1-3): a 202 "still computing" is asked again 1.5 s later, never an error; the figures
+    that come are drawn (the tiles of both tabs, the grant filter) and the page is "ready", no longer busy. The
+    request is the page's own part, as HTMX would ask for it. Figures that came with the page are drawn without a
+    request."""
+    figures = _figures(donor_client)
+    assert figures["pds"]  # a funded account: every card is drawn
+    out = _run_donor_js(
+        """
+const env = await page({ answers: [PENDING, PENDING, DATA] });
+out.pending = seen(env);
+out.request = env.requests[0];
+const inline = await page({ inline: FIGURES });
+out.inline = seen(inline);
+""",
+        figures,
+    )
+    assert out["pending"] == {
+        "state": "ready",
+        "busy": None,
+        "error": None,
+        "asked": [0, 1500, 3750],  # 1.5 s, then 1.5 times longer
+        "tiles": True,
+        "overall": True,
+        "grants": 1 + len(figures["grants"]),  # "All your grants" and each grant
+    }
+    assert out["request"]["url"] == "/donor/?year=2026&_part=data"
+    assert out["request"]["headers"]["HX-Request"] == "true"
+    assert out["inline"]["state"] == "ready" and out["inline"]["asked"] == [] and out["inline"]["tiles"]
+
+
+@needs_node
+def test_donor_js_retries_a_network_error_once_then_shows_the_error_box_and_try_again_works(
+    donor_client, world
+):
+    """A network error (or 502, 503, 504) is asked again once, 2 s later; a second failure shows the error box, the
+    page no longer busy. Try again asks again and draws the figures. A refusal (403) is never asked again and says
+    why; a build still not ready after the 60 s budget says it took too long."""
+    figures = _figures(donor_client)
+    out = _run_donor_js(
+        """
+const env = await page({ answers: ["network", "network"] });
+out.failed = seen(env);
+env.answer(DATA);
+env.el("loadRetry").click();
+await env.run();
+out.again = seen(env);
+out.restarted = await page({ answers: [{ status: 503 }, DATA] }).then(seen);
+out.refused = await page({ answers: [{ status: 403 }, DATA] }).then(seen);
+out.late = await page({ answers: Array(100).fill(PENDING) }).then(seen);
+""",
+        figures,
+    )
+    failed = out["failed"]
+    assert failed["state"] == "error" and failed["busy"] is None and failed["asked"] == [0, 2000]
+    assert failed["error"] == "The figures could not be loaded."
+    assert not failed["tiles"] and not failed["overall"]
+    again = out["again"]
+    assert again["state"] == "ready" and again["error"] is None and len(again["asked"]) == 3
+    assert again["tiles"] and again["overall"]
+    assert out["restarted"]["state"] == "ready" and out["restarted"]["asked"] == [0, 2000]
+    refused = out["refused"]
+    assert refused["state"] == "error" and refused["asked"] == [0]
+    assert refused["error"] == "You do not have access to this."
+    late = out["late"]
+    assert (
+        late["state"] == "error"
+        and late["error"] == "The figures took too long to come. Try again in a moment."
+    )
+    assert 5 < len(late["asked"]) < 30 and late["asked"][-1] < 60000
+
+
+def test_a_failed_page_shows_the_error_box_without_the_empty_cards():
+    """Figures that could not be loaded: the error box with Try again, and none of the empty cards below it, whose
+    controls would act on nothing (review R1-D1-2). Both tabs: the cards of "Your contribution" and the overall tab's
+    tiles and sections (its opening line stays). Try again shows them again (state "waiting")."""
+    css = DONOR_CSS.read_text(encoding="utf-8")
+    rule = re.search(r'main\[data-donor-state="error"\] :is\(([^)]*)\) \{([^}]*)\}', css)
+    assert rule, "no rule for the error state"
+    assert {s.strip() for s in rule.group(1).split(",")} == {
+        "#mineContent",
+        "#panel-overall > .tiles",
+        "#panel-overall > .q",
+    }
+    assert rule.group(2).strip() == "display: none;"
+    template = (
+        Path(settings.BASE_DIR) / "neurodb" / "donors" / "templates" / "donors" / "page.html"
+    ).read_text()
+    overall = template.split('id="panel-overall"', 1)[1].split("<footer>", 1)[0]
+    # every card of the overall tab is in one of its tiles or sections
+    assert overall.count('class="card"') == overall.split('<section class="q"', 1)[1].count('class="card"')
+    assert '<div class="tiles" id="oTiles">' in overall
+
+
 def _z_index(rule: str) -> int:
     return int(re.search(r"z-index: (\d+)", rule).group(1))
 
@@ -329,6 +483,79 @@ def test_the_cards_keep_their_room_until_the_figures_are_drawn():
     source = DONOR_JS.read_text(encoding="utf-8")
     assert source.count('main.dataset.donorState = "ready";') == 1
     assert 'main.dataset.donorState = "ready";' in source.split("function useData(", 1)[1].split("\n}", 1)[0]
+
+
+# The donor page's head script, run in node on a stand-in window: ``ran`` says whether donor.js ran (it marks the page
+# html.donor-ready) before the load event, which the script then fires.
+DONOR_HEAD_RUN = """
+const [script, ran] = [process.argv[1], process.argv[2] === "1"];
+const classes = new Set();
+const listeners = {};
+globalThis.document = {
+  documentElement: {
+    classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c), contains: (c) => classes.has(c) },
+    setAttribute() {},
+  },
+};
+globalThis.window = { addEventListener: (type, fn) => (listeners[type] ||= []).push(fn), matchMedia: () => ({ matches: false }) };
+globalThis.localStorage = { getItem: () => null };
+new Function(script)();
+const out = { beforeLoad: [...classes] };
+if (ran) classes.add("donor-ready");
+(listeners.load || []).forEach((fn) => fn({ type: "load" }));
+out.afterLoad = [...classes].sort();
+console.log(JSON.stringify(out));
+"""
+
+
+@needs_node
+def test_without_donor_js_the_page_says_its_charts_cannot_be_drawn(donor_client, world):
+    """The page's head marks that scripts run (html.js), and donor.css then shows "Loading the figures…" and grey
+    cards while donor.js fetches the figures. Where donor.js never ran (it failed to load or was blocked), they stayed
+    for ever, with no error box; the old page showed its empty cards and claimed nothing (review R3-critic-2).
+    donor.js marks the page html.donor-ready once it has started; at the load event the head drops html.js from a page
+    without that mark, so no grey card and no "Loading" line are left, and the sentence a browser without JavaScript
+    gets is shown instead, as a normal element (a <noscript> never shows where scripts run)."""
+    template = (
+        Path(settings.BASE_DIR) / "neurodb" / "donors" / "templates" / "donors" / "page.html"
+    ).read_text()
+    head = template.split("</head>", 1)[0]
+    script = head[head.index("<script nonce=") :].split(">", 1)[1].split("</script>", 1)[0]
+
+    def run_head(ran: bool) -> dict:
+        result = subprocess.run(
+            [NODE, "--input-type=module", "-e", DONOR_HEAD_RUN, script, "1" if ran else "0"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)
+
+    assert run_head(ran=False) == {"beforeLoad": ["js"], "afterLoad": []}
+    assert run_head(ran=True) == {"beforeLoad": ["js"], "afterLoad": ["donor-ready", "js"]}
+    # donor.js marks the page once it has started (the figures asked for or drawn), whatever the answer
+    out = _run_donor_js(
+        """
+out.fetched = (await page({ answers: ["network", "network"] })).classes();
+out.inline = (await page({ inline: FIGURES })).classes();
+""",
+        _figures(donor_client),
+    )
+    assert out == {"fetched": ["donor-ready", "js"], "inline": ["donor-ready", "js"]}
+    source = DONOR_JS.read_text(encoding="utf-8")
+    assert source.rstrip().endswith('document.documentElement.classList.add("donor-ready");')
+    # the sentence: a normal element, shown only where html.js is missing (no JavaScript, or donor.js never ran)
+    html = text(donor_client.get(PAGE))
+    sentence = "The charts of this page are drawn in your browser by a script that did not run"
+    assert f'<p class="loadstate__nojs">{sentence}' in html and "<noscript><p>" not in html
+    css = DONOR_CSS.read_text(encoding="utf-8")
+    assert re.search(r"\n\.loadstate__nojs \{ display: none;", css)
+    assert "html:not(.js) .loadstate__nojs { display: block; }" in css
+    # the "Loading" line and the grey cards are drawn only under html.js
+    for selector, _body in re.findall(r"([^{}]+)\{([^{}]*)\}", re.sub(r"/\*.*?\*/", "", css, flags=re.S)):
+        if "loadstate__wait" in selector and "display: block" in _body or "donor-shimmer" in _body:
+            assert selector.strip().startswith(".js "), selector
 
 
 def test_the_part_answers_a_donor_htmx_request_that_staff_pages_refuse(donor_client, world):

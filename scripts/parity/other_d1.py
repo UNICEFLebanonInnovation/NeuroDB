@@ -647,8 +647,10 @@ def prepare(page: core.Page, mode: str) -> None:
     as donor.js asks, by the page's signed-in client). They are put where the old page wrote them
     (``donor-data``, read for the JSON comparison), the year without funds shows its empty card instead of the
     contribution's content, and the "Loading the figures" line is gone, as donor.js and donor.css leave them.
-    When the frame carries the figures already (stored), they are read there. Nothing for the old page, which
-    always wrote them."""
+    So is the sentence for a browser where donor.js never ran (``loadstate__nojs``, review R3-critic-2): donor.css
+    shows it only without ``html.js``, which the page keeps once donor.js has started; the old page had it in a
+    <noscript>, which is no text either. When the frame carries the figures already (stored), they are read
+    there. Nothing for the old page, which always wrote them."""
     if page_of(page.url) != "donor" or page.shell.status_code != 200:
         return
     found = re.search(r'<script id="donor-data" type="application/json">(.*?)</script>', page.html, re.S)
@@ -674,6 +676,7 @@ def prepare(page: core.Page, mode: str) -> None:
         return
     funded = bool((getattr(page, "donor_data", None) or {}).get("pds"))
     page.html = page.html.replace('<p class="loadstate__wait">', '<p class="loadstate__wait" hidden>')
+    page.html = page.html.replace('<p class="loadstate__nojs">', '<p class="loadstate__nojs" hidden>')
     page.html = re.sub(
         r'(<div class="card empty" id="mineEmpty")(?: hidden)?',
         r"\1" + ("" if not funded else " hidden"),

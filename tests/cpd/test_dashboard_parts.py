@@ -44,7 +44,7 @@ from neurodb.cpd.models import CountryProgramme, Indicator, Link, Milestone, Ori
 from neurodb.datamart import monitoring
 from neurodb.donors.models import DonorAccount
 from neurodb.education.models import EducationFigures
-from neurodb.indicators.models import MasterSubIndicator
+from neurodb.indicators.models import IndicatorNew, MasterSubIndicator
 from neurodb.youth.models import YouthFigures
 from tests.cpd.test_cpd import cycle, framework, intervention, media, pdf  # noqa: F401 - fixtures
 from tests.web.parts import (
@@ -161,6 +161,7 @@ def world(framework, intervention, pdf, hierarchy):
     Indicator.objects.create(outcome=old, code="9.a", title="Older indicator", target=10)
     framework.previous = previous
     framework.pd = intervention
+    framework.document = pdf
     return framework
 
 
@@ -215,8 +216,8 @@ def test_the_frame_answers_with_every_figure_service_refusing(client, admin_user
     html = text(response)
     assert "<title>Country programme" in html and 'id="f-cycle"' in html  # the title, the cycle selector
     assert "Lebanon CP 2026-2028" in html and "2026–2028 · 3 years" in html  # the cycle's panel
-    assert "of the cycle elapsed" in html and reverse("cpd:document", args=[world.cycle.pk]) not in html
-    assert reverse("cpd:document", args=[1]).rsplit("/", 2)[0] in html  # its document
+    assert "of the cycle elapsed" in html
+    assert reverse("cpd:document", args=[world.document.pk]) in html  # its document (review R1-cross-1)
     assert reverse("admin:cpd_countryprogramme_change", args=[world.cycle.pk]) in html  # staff only
     assert "1 indicator was AI-suggested from the CPD" in html  # the note
     assert list(placeholders(html)) == list(PARTS)
@@ -584,6 +585,9 @@ def test_every_hand_entered_table_moves_the_key(world, hierarchy):
         lambda: (
             hierarchy["master"].__class__.objects.filter(pk=hierarchy["master"].pk).update(name="Renamed")
         ),
+        # an indicator a linked sub-indicator lists, edited in the admin: the ActivityInfo field its figure reads
+        # (review R1-D1-1)
+        lambda: IndicatorNew.objects.filter(pk=hierarchy["leaves"][0].pk).update(ai_indicator="i_other"),
     ]
     seen = {services.hand_entered(world.cycle)}
     for edit in edits:

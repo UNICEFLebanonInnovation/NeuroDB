@@ -3,5 +3,6 @@
 {% block content %}
 <p class="page-purpose">{% trans "Visits, quality checks and an AI brief, built from eTools field monitoring data." %}</p>
 <div class="filters-collapse" data-filters-collapse>{% include "fmm/_filters.html" %}</div>
-<div id="fmm-results">{% include "fmm/_results.html" %}</div>
+{# the results area: the tab bar, a filter or a view link swaps it (HTMX); the Map tab's map comes in it as a part, so it is not a live region (the part would be read out): parts.js says the words of data-results-updated after each swap #}
+<div id="fmm-results" data-results-updated="{% trans 'The results were updated.' %}">{% include "fmm/_results.html" %}</div>
 {% endblock %}

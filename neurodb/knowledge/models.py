@@ -13,7 +13,7 @@ import uuid
 
 from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
-from django.contrib.postgres.search import SearchVectorField
+from django.contrib.postgres.search import SearchVector, SearchVectorField
 from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator, MaxValueValidator, MinValueValidator
 from django.db import models
@@ -192,6 +192,13 @@ class Chunk(models.Model):
     page = models.PositiveIntegerField(null=True, blank=True)
     text = models.TextField()
     search_vector = SearchVectorField(null=True)
+    # What the search ranks on (search.search): the index above as text, parsed again in English, as the
+    # search always ranked; kept by the database when the index is written, instead of at every search.
+    rank_vector = models.GeneratedField(
+        expression=SearchVector("search_vector", config="english"),
+        output_field=SearchVectorField(),
+        db_persist=True,
+    )
 
     class Meta:
         ordering = ("document", "position")

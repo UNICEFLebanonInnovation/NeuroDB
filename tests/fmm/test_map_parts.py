@@ -184,8 +184,24 @@ def test_the_frame_answers_with_every_figure_service_refusing(client_viewer, pla
         "PD locations not yet visited",
     ):
         assert figure not in html, figure
-    # the results container receives a part: it is not a live region (parts.js speaks once, in #parts-status)
-    assert '<div id="fmm-results">' in html and 'id="fmm-results" aria-live' not in html
+    # the results container receives a part: it is not a live region (parts.js speaks once, in #parts-status, and says
+    # the area's words after a tab or filter swap of it: review R2-critic-2)
+    assert '<div id="fmm-results" data-results-updated="The results were updated.">' in html
+    assert 'id="fmm-results" aria-live' not in html
+
+
+@pytest.mark.shell
+def test_every_tab_gives_the_words_said_after_a_swap_of_its_results(client_viewer, planned):  # noqa: F811
+    """The tab bar, the filter bar and the view links swap #fmm-results, which is not a live region (the Map tab's map
+    comes in it as a part), so the swaps of the tabs drawn whole were no longer announced (review R2-critic-2). Every
+    tab's frame gives the words parts.js says after such a swap, whichever tab the page was opened on (a frame of the
+    Map tab included), and a swap answers the area's content, never a second area."""
+    for tab in ("insights", "quality", "analysis", "visits", "map"):
+        html = text(client_viewer.get(PAGE, {"tab": tab}))
+        areas = re.findall(r'<div id="fmm-results"[^>]*>', html)
+        assert areas == ['<div id="fmm-results" data-results-updated="The results were updated.">'], tab
+        swapped = client_viewer.get(PAGE, {"tab": tab}, HTTP_HX_REQUEST="true", HTTP_HX_TARGET="fmm-results")
+        assert swapped.status_code == 200 and 'id="fmm-results"' not in text(swapped), tab
 
 
 @pytest.mark.shell

@@ -1256,7 +1256,9 @@ def reporting_table(tab: str, params, day: datetime.date | None = None) -> dict[
     day = day or reporting_today()
 
     def build() -> dict[str, Any]:
-        data = partner_reporting(params, day)
+        # without the filter bar's choices, which no table reads: their own stored value has a lock of its
+        # own, and a part never waits for one (it would answer "pending" and lose the table built so far)
+        data = partner_reporting(params, day, options=False)
         wanted = set(data["filters"].statuses) or None
         if tab == "locations":
             found = reporting.location_rows(data["rows"], data["statuses"], data["today"], wanted)
@@ -1283,14 +1285,16 @@ def reporting_table_stored(tab: str, params, day: datetime.date | None = None) -
     return compute.peek(key, lang_neutral=True)[0]
 
 
-def partner_reporting(params, today: datetime.date | None = None) -> dict[str, Any]:
+def partner_reporting(params, today: datetime.date | None = None, *, options: bool = True) -> dict[str, Any]:
     """The Progress reports page: the progress reports of the filter (one of six statuses each, with
     their PD's status, document type and UNICEF focal points), the progress reports per status
     (``summary``), the indicator reports per status (``counts``: what the tiles show), by section and
     by month of the reporting period's end, and Partner Performance. ``statuses``: the status of every
     progress report of the filter, read before the status filter (Report/Location reads each report's
     status there, so a report left out by the status filter is never let back in by one of its rows);
-    ``by_status``: the progress reports per status, by name (as ``summary`` counts them)."""
+    ``by_status``: the progress reports per status, by name (as ``summary`` counts them). ``options``:
+    the filter bar's choices (:func:`neurodb.datamart.reporting.stored_options`); ``options=False`` leaves
+    them out, for a caller that draws no filter bar (the stored tables of :func:`reporting_table`)."""
     today = today or datetime.date.today()
     filters = reporting.ReportFilters.from_params(params)
     rows = filters.queryset(today)
@@ -1313,7 +1317,7 @@ def partner_reporting(params, today: datetime.date | None = None) -> dict[str, A
         "by_month": reporting.by_month(reports),
         "partners": reporting.partner_performance(reports),
         "today": today,
-        "options": reporting.stored_options(),
+        **({"options": reporting.stored_options()} if options else {}),
     }
 
 

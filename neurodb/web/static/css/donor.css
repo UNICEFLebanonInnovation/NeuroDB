@@ -204,10 +204,16 @@ footer { margin-top: 30px; color: var(--muted); font-size: 12.5px; display: flex
 .loadstate { position: relative; } /* takes no room while waiting: nothing below moves when the figures arrive */
 .loadstate__wait { display: none; position: absolute; top: 8px; right: 0; z-index: 6; margin: 0; font-size: 13px; color: var(--muted); } /* above the sticky .filters (z-index 5) */
 .js main[data-donor-state="waiting"] .loadstate__wait { display: block; }
-.loadstate noscript p { margin: 16px 0 0; font-size: 13px; color: var(--muted); }
+/* where the figures will never come (no JavaScript, or donor.js never ran: the head drops html.js at the load event) */
+.loadstate__nojs { display: none; margin: 16px 0 0; font-size: 13px; color: var(--muted); }
+html:not(.js) .loadstate__nojs { display: block; }
 .loadstate__error { margin-top: 16px; border: 1px dashed var(--axis); border-radius: var(--r); background: var(--surface); color: var(--ink-2); padding: 16px; text-align: center; }
 .loadstate__error p { margin: 0 0 10px; color: var(--crit); font-weight: 600; }
 .loadstate__retry { background: var(--surface); border: 1px solid var(--axis); border-radius: 8px; padding: 5px 14px; font-size: 13px; cursor: pointer; }
+/* figures that could not be loaded: the error box with Try again, and none of the cards below it, which would be
+   empty with controls that act on nothing (a grant list without grants, a Table button opening an empty table). Try
+   again shows them again: waiting (grey), then drawn */
+main[data-donor-state="error"] :is(#mineContent, #panel-overall > .tiles, #panel-overall > .q) { display: none; }
 .js main:is([data-donor-state="waiting"], [data-donor-state="drawing"]) :is(#tiles, #oTiles, #flow, #map, #spend, #grants, #progress, #sex, #age, #govbars, #vfm, #dumbbell, #prog, #oMonths, #oSections, #oMap, #oStatus, #oWho):empty {
   border-radius: 8px; background: linear-gradient(90deg, var(--surface-2) 0%, var(--grid) 50%, var(--surface-2) 100%);
   background-size: 200% 100%; animation: donor-shimmer 1.3s ease-in-out infinite;

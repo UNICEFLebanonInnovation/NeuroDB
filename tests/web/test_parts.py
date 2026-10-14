@@ -470,6 +470,17 @@ def test_the_placeholders_of_the_shell(client_viewer):
     )
     assert "data-part-error hidden" in kpis_html and "data-part-retry" in kpis_html
     assert 'class="part__slow' in kpis_html and 'class="part__print-note"' in kpis_html
+    # where scripts run but parts.js never did, a script of base.html shows the error box with this link in place of
+    # Try again (review R3-critic-2): the same page drawn at once, as without JavaScript; hidden until then
+    box = kpis_html[kpis_html.index("data-part-error hidden") : kpis_html.index('class="part__print-note"')]
+    assert (
+        '<a class="btn btn-sm btn-outline-secondary" href="?year=2026&amp;section=Own&amp;_eager=1" '
+        "data-part-fallback hidden>Show the figures</a>"
+    ) in box
+    for name, attrs in found.items():  # every placeholder of the frame has it, a url= part too
+        start = html.index(f'id="{attrs["id"]}"')
+        own = html[start : html.index("</noscript>", start)]
+        assert re.search(r'href="\?[^"]*_eager=1" data-part-fallback hidden>Show the figures</a>', own), name
 
     # the figures are not in the shell, and the shell computed none of them
     assert "Tile 3" not in html and "Row 1" not in html
@@ -688,6 +699,7 @@ def test_eager_leaves_a_part_from_another_address_a_quiet_slot(client_viewer):
     inside = html[html.index('id="for-you"') :]
     assert "part__skeleton" not in inside and "<noscript>" not in inside and "_eager=1" not in inside
     assert "data-part-error hidden" in inside  # its error state, should it fail to load
+    assert "data-part-fallback" not in inside  # no page of its own given: no link (review R3-critic-2)
 
     frame = text(raw_get(client_viewer, PAGE))  # the frame: a placeholder like any other
     card = placeholder_attributes(frame)["for-you"]

@@ -430,6 +430,9 @@ NOT_DRAWN_IN: dict[tuple[str, str], dict[str, str]] = {
 }
 # The old pages' json_script ids renamed by the rule <page>-<part>-data (the same payload)
 JSON_IDS: dict[str, str] = {"monitoring-chart-data": "pm-summary-data"}
+SUMMARY_JSON = (
+    "pm-summary-data"  # the grid's summary chart JSON (it carries the status labels: see comparable)
+)
 # The Funds tabs that read only the filter choices (the quick win): no chart of theirs read funds-chart-data
 FUNDS_WITHOUT_CHARTS = ("contributions", "programmes")
 # The keys partner monitoring's parts write into their query when the page's own address has none (every section as
@@ -827,7 +830,10 @@ def comparable(observation: dict[str, Any], side: str) -> dict[str, Any]:
       is compared;
     - the Funds page's Partner Fund Monitoring and Funded Programs tabs carry no chart data any more (the quick
       win: no chart of theirs read it): on the check side it must be absent (otherwise a "consistency" problem),
-      and it is dropped from the recording.
+      and it is dropped from the recording;
+    - partner monitoring's summary chart JSON (``pm-summary-data``, the grid's ``chart_data``) carries the status
+      labels now, so the donut names its slices by them (SPEC7_review item 16, review R1-B-3): on the check side
+      they must be ``monitoring.LABELS`` (otherwise a problem), and they are taken out before the comparison.
     """
     name, kind = page_of(observation["url"]), kind_of(observation["url"])
     out = {**observation, "problems": list(observation["problems"])}
@@ -840,6 +846,8 @@ def comparable(observation: dict[str, Any], side: str) -> dict[str, Any]:
             heading: {**block, "links": [_without_resolved(link, own) for link in block["links"]]}
             for heading, block in observation["blocks"].items()
         }
+    if name == "monitoring" and side == "check":
+        _without_summary_labels(out)
     if name == "funds" and kind in FUNDS_WITHOUT_CHARTS:
         if side == "check" and (
             "funds-chart-data" in observation["json"] or "chart_data" in observation["figures"]
@@ -849,6 +857,24 @@ def comparable(observation: dict[str, Any], side: str) -> dict[str, Any]:
         out["json"] = {key: value for key, value in observation["json"].items() if key != "funds-chart-data"}
         out["ids"] = [element_id for element_id in observation["ids"] if element_id != "funds-chart-data"]
     return out
+
+
+def _without_summary_labels(out: dict[str, Any]) -> None:
+    """Take the status labels out of partner monitoring's summary chart JSON and its ``chart_data`` (one
+    observation of the page in parts, changed in place), after checking they are ``monitoring.LABELS``: the one
+    deliberate addition to that JSON (see :func:`comparable`)."""
+    from neurodb.datamart.monitoring import LABELS
+
+    labels = json.loads(json.dumps(LABELS))  # as the page's JSON reads them
+    holders = (("json", SUMMARY_JSON), ("figures", "chart_data"))
+    for where, key in holders:
+        payload = out[where].get(key)
+        if not isinstance(payload, dict):
+            continue
+        payload = dict(payload)
+        if payload.pop("labels", None) != labels:
+            out["problems"].append(f"{key}: its status labels are missing or not monitoring.LABELS")
+        out[where] = {**out[where], key: payload}
 
 
 def _without_resolved(link: str, own: dict[str, list[str]]) -> str:

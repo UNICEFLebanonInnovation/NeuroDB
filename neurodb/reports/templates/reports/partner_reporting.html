@@ -79,7 +79,8 @@
   </div>
 </form>
 </div>
-{% comment %}Report/Location and Report/Disaggregation receive their table as a part: their results area is not aria-live
-(#parts-status speaks once for the whole page).{% endcomment %}
-<div id="reporting-results"{% if tab != "locations" and tab != "disaggregations" %} aria-live="polite"{% endif %}>{% include "reports/partials/reporting_table.html" %}</div>
+{% comment %}The filter bar and the page links swap #reporting-results. Report/Location and Report/Disaggregation receive their
+table in it as a part, so it is not aria-live on any tab (each arriving part would be read out, and a frame drawn on one
+tab behaves as on the others): parts.js says the words of data-results-updated after each such swap (review R3).{% endcomment %}
+<div id="reporting-results" data-results-updated="{% trans 'The results were updated.' %}">{% include "reports/partials/reporting_table.html" %}</div>
 {% endblock %}

@@ -21,6 +21,7 @@ The test takes a few minutes; it is part of the suite on purpose (§I stage 8b).
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import gc
 import random
@@ -33,6 +34,7 @@ from django.core.cache import cache, caches
 from django.db import DatabaseError, connection
 from django.urls import reverse
 
+from neurodb.core import compute
 from neurodb.core.models import SyncRun
 from neurodb.datamart import models as dm
 from neurodb.fmm import refresh, versions
@@ -365,51 +367,61 @@ def test_monitoring_insights_at_production_size(admin_user, client, monkeypatch)
     client.force_login(admin_user)
     base = {"year": "2026", "section": ""}
     tabs = {}
-    # as in a web worker, not in a test process that has grown with every test before this one: the
-    # objects already there are set aside from the garbage collector's full passes while timing
-    gc.collect()
-    gc.freeze()
-    try:
-        for tab in TABS:
-            params = {**base, "tab": tab}
-            assert client.get(reverse("fmm:dashboard"), params, HTTP_HX_REQUEST="true").status_code == 200
-            tabs[tab] = min(_cold_ms(client, reverse("fmm:dashboard"), params, hx=True) for _ in range(3))
-        # the Map tab's page in parts: its frame (no map) and its map part, each cold
-        params = {**base, "tab": "map"}
-        parts = {
-            "map frame": _from_depths(lambda: _cold_ms(client, reverse("fmm:dashboard"), params, frame=True)),
-            "map part": _from_depths(
-                lambda: _cold_ms(client, reverse("fmm:dashboard"), {**params, "_part": "map"}, hx=True)
-            ),
-        }
-    finally:
-        gc.unfreeze()
+    # as production runs them: without the walk of compute.once() that checks, in tests only, that each stored
+    # value is plain data (about 25 ms on the stored map; tests/fmm/test_shared_figures.py checks what is stored)
+    with _as_in_production(monkeypatch):
+        # as in a web worker, not in a test process that has grown with every test before this one: the
+        # objects already there are set aside from the garbage collector's full passes while timing
+        gc.collect()
+        gc.freeze()
+        try:
+            for tab in TABS:
+                params = {**base, "tab": tab}
+                assert client.get(reverse("fmm:dashboard"), params, HTTP_HX_REQUEST="true").status_code == 200
+                tabs[tab] = min(_cold_ms(client, reverse("fmm:dashboard"), params, hx=True) for _ in range(3))
+            # the Map tab's page in parts: its frame (no map) and its map part, each cold
+            params = {**base, "tab": "map"}
+            parts = {
+                "map frame": _from_depths(
+                    lambda: _cold_ms(client, reverse("fmm:dashboard"), params, frame=True)
+                ),
+                "map part": _from_depths(
+                    lambda: _cold_ms(client, reverse("fmm:dashboard"), {**params, "_part": "map"}, hx=True)
+                ),
+            }
+        finally:
+            gc.unfreeze()
 
-    # the other pages, also cold
-    visit = Visit.objects.order_by("-urgency").first()
-    pd = PCA.objects.first()
-    pages = {}
-    for name, url, params in (
-        ("insights card", reverse("fmm:insights"), base),
-        ("visit page", reverse("fmm:visit", args=[visit.key]), {}),
-        ("PD page", reverse("reports:programme_detail", args=[pd.pk]), {}),
-        ("CSV", reverse("fmm:visits"), {**base, "export": "csv"}),
-    ):
-        pages[name] = _cold_ms(client, url, params)
-    page = reverse("fmm:dashboard")
-    for name, tab, extra, target in (
-        ("entity table", "analysis", {"entity_kind": "all"}, "fmm-entities"),  # All: the default, every kind
-        ("all places", "quality", {"places": "all"}, "fmm-places-rest"),
-    ):
-        cache.clear()
-        caches["shared"].clear()
-        assert client.get(page, {**base, "tab": tab}, HTTP_HX_REQUEST="true").status_code == 200
-        pages[name] = _ms(
-            lambda tab=tab, extra=extra, target=target: client.get(
-                page, {**base, "tab": tab, **extra}, HTTP_HX_REQUEST="true", HTTP_HX_TARGET=target
+        # the other pages, also cold
+        visit = Visit.objects.order_by("-urgency").first()
+        pd = PCA.objects.first()
+        pages = {}
+        for name, url, params in (
+            ("insights card", reverse("fmm:insights"), base),
+            ("visit page", reverse("fmm:visit", args=[visit.key]), {}),
+            ("PD page", reverse("reports:programme_detail", args=[pd.pk]), {}),
+            ("CSV", reverse("fmm:visits"), {**base, "export": "csv"}),
+        ):
+            pages[name] = _cold_ms(client, url, params)
+        page = reverse("fmm:dashboard")
+        for name, tab, extra, target in (
+            (
+                "entity table",
+                "analysis",
+                {"entity_kind": "all"},
+                "fmm-entities",
+            ),  # All: the default, every kind
+            ("all places", "quality", {"places": "all"}, "fmm-places-rest"),
+        ):
+            cache.clear()
+            caches["shared"].clear()
+            assert client.get(page, {**base, "tab": tab}, HTTP_HX_REQUEST="true").status_code == 200
+            pages[name] = _ms(
+                lambda tab=tab, extra=extra, target=target: client.get(
+                    page, {**base, "tab": tab, **extra}, HTTP_HX_REQUEST="true", HTTP_HX_TARGET=target
+                )
             )
-        )
-    pages["rules preview"] = _ms(lambda: versions.preview({"R2": {"threshold": 90}}, {}))
+        pages["rules preview"] = _ms(lambda: versions.preview({"R2": {"threshold": 90}}, {}))
 
     report = (
         f"full refresh {full_s:.1f} s · peak traced memory {peak_mb:.0f} MB · scores-only {scores_s:.1f} s · "
@@ -429,6 +441,31 @@ def test_monitoring_insights_at_production_size(admin_user, client, monkeypatch)
     assert parts["map part"] < LIMITS["part_ms"], report
     for name, limit in PAGE_LIMITS_MS.items():
         assert pages[name] < limit, f"{name}: {report}"
+
+
+@contextlib.contextmanager
+def _as_in_production(monkeypatch):
+    """The timed views as production serves them: :func:`neurodb.core.compute.once` walks every value it stores to
+    check it is plain data only in tests and in DEBUG (``compute._check_plain``), which production never does. On
+    the Map tab's stored map that walk takes about 25 ms, inside a 300 ms budget (review R1-C-1). What the tabs
+    store is still checked to be plain data, by ``tests/fmm/test_shared_figures.py``. The budgets stay as they
+    are."""
+    with monkeypatch.context() as patched:
+        patched.setattr(compute, "_check_plain", lambda value: None)
+        yield
+
+
+def test_the_timed_views_leave_out_the_test_only_plain_data_walk(monkeypatch):
+    """Inside :func:`_as_in_production` the test-only walk is off; outside it, it runs again (the stored values of
+    every other test are still checked)."""
+    walk = compute._check_plain
+    caches["shared"].clear()
+    with _as_in_production(monkeypatch):
+        assert compute.once("perf-walk:inside", lambda: [Visit(key="v1")], 60)[0].key == "v1"
+    assert compute._check_plain is walk
+    with pytest.raises(TypeError):
+        compute.once("perf-walk:outside", lambda: [Visit(key="v2")], 60)
+    caches["shared"].clear()
 
 
 def _settle() -> None:

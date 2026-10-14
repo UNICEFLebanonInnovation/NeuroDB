@@ -307,18 +307,87 @@ def test_snippets_are_escaped(records, no_ai):
     assert "<script>" not in snippet and "&lt;script&gt;" in snippet and "<mark>dropout</mark>" in snippet
 
 
-def test_search_ranks_on_the_stored_index_the_title_first(records, no_ai):
-    """The rank reads each passage's stored index and its weights (the title first), not an index parsed again from
-    its text, which lost them and took 1.6 s for one common word over 3,200 passages (step 3's quick win). A
-    passage whose document is titled with the word comes before one that only says it twice."""
-    titled = indexing.process(_note("Latrines survey", "The survey covered the camps of the valley."))
-    said = indexing.process(_note("Camp notes", "The latrines were checked; more latrines are needed."))
-    with CaptureQueriesContext(connection) as queries:
+# Notes that hold a searched word in several forms, as real text does (latrine, latrines; report, reports,
+# reported, reporting): (title, text, document date), the newer a note, the earlier it comes on a tie
+SEVERAL_FORMS = [
+    ("Field note 1", "The latrines in the school were repaired.", datetime.date(2025, 1, 1)),
+    ("Field note 2", "One latrine was repaired at the school.", datetime.date(2025, 2, 1)),
+    (
+        "Field note 3",
+        "The partner reported late: two reports were overdue and its reporting is weak.",
+        datetime.date(2025, 3, 1),
+    ),
+    ("Field note 4", "The report was sent on time.", datetime.date(2025, 4, 1)),
+    (
+        "Field note 5",
+        "Schools in Akkar reported repaired latrines; the school report is due.",
+        datetime.date(2025, 5, 1),
+    ),
+]
+FORMS_QUERIES = (
+    "latrines",
+    "latrine",
+    "report",
+    "reports",
+    "repaired latrines",
+    "partner report",
+    "school",
+    "schools akkar",
+    "water schools akkar",
+    "dropout akkar",
+)
+
+
+def test_search_ranks_as_it_always_did_on_words_in_several_forms(corpus, monkeypatch):
+    """The rank reads the index the search always ranked on (the stored index as text, parsed again in English),
+    kept with each passage instead of parsed again for every matching passage (1.6 s for one common word over
+    3,200 passages: step 3's quick win). So the passages Ask NeuroDB reads, the knowledge page's documents, their
+    order and their ranks are the old ranking's, also where a passage holds a searched word in another form, and
+    after a document is indexed again. Ranking each stored form once (``strip``) changed them (review
+    R2-fixes-1), as ranking with the index's weights did (review R1-D2-1)."""
+    from django.contrib.postgres.search import SearchVectorField
+    from django.db.models import F, Func
+
+    notes = [indexing.process(_note(title, body, document_date=day)) for title, body, day in SEVERAL_FORMS]
+    real = search.SearchRank
+
+    def results(rank) -> dict[str, tuple[list, list, list]]:
+        monkeypatch.setattr(search, "SearchRank", rank)
+        try:
+            return {
+                q: (
+                    [(h.chunk.pk, h.rank) for h in search.search(q)],  # what Ask NeuroDB reads
+                    [(h.chunk.pk, h.rank) for h in search.search(q, limit=20)],
+                    [d.pk for d, _hit in search.documents_matching(q)],  # the knowledge page
+                )
+                for q in FORMS_QUERIES
+            }
+        finally:
+            monkeypatch.setattr(search, "SearchRank", real)
+
+    def rebuilt(vector, query, *args, **kwargs):  # the old ranking: the index parsed again at every search
+        return real("search_vector", query, *args, **kwargs)
+
+    def stripped(vector, query, *args, **kwargs):  # each stored form once
+        strip = Func(F("search_vector"), function="strip", output_field=SearchVectorField())
+        return real(strip, query, *args, **kwargs)
+
+    old = results(rebuilt)
+    assert results(real) == old
+    assert results(stripped) != old  # the notes tell the rankings apart
+    assert [h.document.pk for h in search.search("report")][:2] == [notes[2].pk, notes[4].pk]
+
+    notes[3].text = "Reports were reported late; the report on reporting is overdue."  # indexed again
+    indexing.process(notes[3])
+    assert results(real) == results(rebuilt)
+    assert search.search("report")[0].document.pk == notes[3].pk
+
+    with CaptureQueriesContext(connection) as queries_run:
         hits = search.search("latrines")
-    assert [h.document.pk for h in hits] == [titled.pk, said.pk]
-    ranked = [q["sql"] for q in queries.captured_queries if "ts_rank" in q["sql"]]
-    assert ranked and all('ts_rank("knowledge_chunk"."search_vector", ' in sql for sql in ranked)
-    assert not any("to_tsvector" in sql for sql in ranked)
+    assert len(hits) == 4  # notes 1, 2 and 5 and the WASH assessment
+    ranked = [q["sql"] for q in queries_run.captured_queries if "ts_rank" in q["sql"]]
+    assert ranked and all('ts_rank("knowledge_chunk"."rank_vector", ' in sql for sql in ranked)
+    assert not any("to_tsvector" in sql or "strip(" in sql for sql in ranked)
 
 
 # ------------------------------------------------------------------------------- assistant

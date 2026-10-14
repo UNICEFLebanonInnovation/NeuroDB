@@ -2577,7 +2577,12 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
         data = pd_monitoring_service.summary(rows(), filters, today)
         return {
             "data": data,
-            "chart_data": {"status_counts": data["status_counts"], "by_section": data["by_section"]},
+            # the labels: the status donut names its slices by them (charts.js), as on the overview and brief
+            "chart_data": {
+                "status_counts": data["status_counts"],
+                "by_section": data["by_section"],
+                "labels": pd_monitoring_service.LABELS,
+            },
         }
 
     def grid() -> dict[str, Any]:

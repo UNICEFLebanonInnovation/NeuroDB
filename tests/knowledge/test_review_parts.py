@@ -40,7 +40,8 @@ from django.utils import timezone, translation
 from neurodb.accounts.models import User
 from neurodb.accounts.roles import SECTION_EDITOR
 from neurodb.core import compute
-from neurodb.knowledge import review_data, review_views
+from neurodb.core.models import SyncRun
+from neurodb.knowledge import review, review_data, review_views
 from neurodb.knowledge.models import (
     Document,
     DocumentActionPoint,
@@ -226,7 +227,8 @@ def test_the_frame_answers_with_every_figure_service_refusing(client_viewer, wor
     assert re.search(r'<nav class="segmented segmented--scroll review-tabs[^"]*"', html)  # the tab bar
     assert 'aria-current="page">Findings<' in html or 'aria-current="page">Synthesis<' in html
     assert list(placeholders(html)) == [VIEWS[url]]
-    assert 'id="review-results" aria-live' not in html and '<div id="review-results">' in html
+    assert 'id="review-results" aria-live' not in html
+    assert '<div id="review-results" data-results-updated="The results were updated.">' in html  # R2-critic-2
     if url == BY_DOCUMENT:
         assert 'aria-label="Finding filters"' in html and 'name="programme"' in html  # the filter bar
         assert 'aria-current="page">By document<' in html
@@ -337,6 +339,34 @@ def test_the_other_tabs_and_views_stay_one_request(client_viewer, world):
         )
     for url in ("/knowledge/", "/knowledge/?q=water"):
         assert placeholders(text(client_viewer.get(url))) == {}
+
+
+@pytest.mark.shell
+def test_every_tab_gives_the_words_said_after_a_swap_of_its_results(client_viewer, world):
+    """The tab bar, the view switch, the filters and the page links swap #review-results, which is not a live region
+    (it holds the parts of the slow views, and the Documents tab's poll), so the swaps of the tabs and views drawn
+    whole were no longer announced (review R2-critic-2). Every tab's frame gives the words parts.js says after such a
+    swap, and a swap answers the area's content, never a second area."""
+    for params in (
+        "",
+        "?tab=documents",
+        "?tab=findings",
+        "?tab=findings&view=document",
+        "?tab=findings&view=statements",
+        "?tab=findings&view=index",
+        "?tab=dashboard",
+        "?tab=synthesis",
+        "?tab=synthesis&view=repeated",
+        "?tab=synthesis&view=time",
+        "?tab=synthesis&view=coverage",
+        "?tab=actions",
+        "?tab=report",
+    ):
+        html = text(client_viewer.get(PAGE + params))
+        areas = re.findall(r'<div id="review-results"[^>]*>', html)
+        assert areas == ['<div id="review-results" data-results-updated="The results were updated.">'], params
+        swapped = client_viewer.get(PAGE + params, **RESULTS)
+        assert swapped.status_code == 200 and 'id="review-results"' not in text(swapped), params
 
 
 # ------------------------------------------------------------------------------------------------- the parts
@@ -661,6 +691,29 @@ def test_a_finished_analysis_shows_at_once(client_viewer, world):
     assert _water_documents(client_viewer) == 7
 
 
+def test_locating_the_findings_again_shows_at_once(client_viewer, world):
+    """*Locate document findings again* (the Run-a-job button: ``review.run(LOCATE)``) rewrites each finding's pages,
+    place and evidence with ``bulk_update``: no document saved, no edit time. The stored groups are read again once
+    the job's run ends (review R1-D2-2)."""
+
+    def shown() -> set[tuple[int, str, int]]:
+        groups = _groups(get_part(client_viewer, REPEATED, "synthesis"))
+        return {(f["pk"], f["page_label"], f["evidence"]) for g in groups for f in g["findings"]}
+
+    before = shown()  # stored now
+    assert {label for _pk, label, _evidence in before} == {"p. 2"}
+    run = review.run(review.LOCATE, triggered_by="test")
+    assert run.status == SyncRun.Status.SUCCEEDED and run.rows_written == 12
+    located = {
+        (pk, label, evidence)
+        for pk, label, evidence in DocumentFinding.objects.filter(
+            pk__in=[pk for pk, _l, _e in before]
+        ).values_list("pk", "page_label", "evidence")
+    }
+    assert located != before  # the job moved them: the documents' text ("x") holds none of their pages
+    assert shown() == located
+
+
 def test_a_verdict_shows_at_once_by_document_and_in_the_themes(client, editor, world):
     """The two other parts are never stored: what a person decides shows at the next look."""
     client.force_login(editor)
@@ -770,6 +823,53 @@ def _rows_by_join(batch=None, analysed=False) -> list[tuple]:
         .order_by("review_batch__archived", "review_batch__name", "title", "pk")
         .values_list("pk", "n_findings", "n_statements", "n_actions", "n_reviewed")
     )
+
+
+def test_the_desk_review_reads_the_stored_repeated_findings_and_every_theme_s_evidence_at_once(
+    client_viewer, world, monkeypatch
+):
+    """The Word desk review (a download of seconds on a large review) takes its repeated findings from the groups the
+    Repeated findings view stores, and the evidence of its themes and challenges in one query each, not one per
+    theme (review R1-D2-3). The file says what it said: the same groups, citations and examples."""
+    from neurodb.knowledge import review_docx
+    from neurodb.knowledge import text as doc_text
+
+    found = review_data.synthesis(None, False, 2)
+    challenges = review_data.synthesis(None, False, 2, challenges=True)
+    expected = [  # as the file wrote them, one theme and one comparison at a time
+        f"{f.text} {review_data.cite(f)}"
+        for theme in found.themes[: review_docx.THEMES]
+        for f in review_data.theme_findings(theme.topic.pk, None, False, limit=review_docx.EVIDENCE_PER_THEME)
+    ]
+    for theme in challenges.themes[: review_docx.CHALLENGES]:
+        top = review_data.theme_findings(theme.topic.pk, None, False, challenges=True, limit=1)
+        expected.append(f"For example: {top[0].text} {review_data.cite(top[0])}")
+    for group in review_data.repeated(None, False, limit=review_docx.REPEATED):
+        places = " ".join(dict.fromkeys(review_data.cite(f) for f in group.findings))
+        expected.append(f"{group.lead.text} Raised in {group.documents} documents: {places}")
+    assert len(expected) > 6 and any("Raised in 6 documents" in line for line in expected)
+    get_part(client_viewer, REPEATED, "synthesis")  # the groups stored now
+    calls: Counter = Counter()
+    real = review_data.repeated
+
+    def compared(*args, **kwargs):
+        calls["repeated"] += 1
+        return real(*args, **kwargs)
+
+    def one_theme(*args, **kwargs):
+        raise AssertionError("a theme's findings read alone")
+
+    monkeypatch.setattr(review_data, "repeated", compared)
+    monkeypatch.setattr(review_data, "theme_findings", one_theme)
+    with CaptureQueriesContext(connection) as queries:
+        response = client_viewer.get(reverse("knowledge:review_docx"), {"min": "2"})
+    assert response.status_code == 200 and calls["repeated"] == 0
+    words = doc_text.docx_text(response.content)
+    at = [words.find(line) for line in expected]
+    assert -1 not in at, [line for line, i in zip(expected, at, strict=True) if i == -1]
+    assert at == sorted(at)  # in the file's order
+    themed = [q["sql"] for q in queries.captured_queries if '"topic_id" IN' in q["sql"]]
+    assert len(themed) == 2  # the themes' evidence, the challenges' examples
 
 
 def test_document_rows_count_by_subqueries_as_the_join_did(world):

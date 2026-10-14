@@ -155,11 +155,24 @@ class Filters:
             return list(self.pd_statuses)
         return list(ACTIVE_PD_STATUSES) if self.scope == "active" else []
 
+    @property
+    def statuses_read(self) -> list[str]:
+        """The PD statuses the figures keep, as :func:`_pd_queryset` reads the filter, in one order: the
+        chosen ones; with no choice made, the running PDs on the default scope; an empty list for every
+        status."""
+        if self.pd_statuses:
+            return sorted({str(x) for x in self.pd_statuses})
+        if self.pd_statuses is None and self.scope == "active":
+            return sorted(ACTIVE_PD_STATUSES)
+        return []
+
     def cache_key(self) -> str:
         """Every field of the filter, as JSON, for the keys of what is stored for it: each list in one order
-        (the indicators of a filter never depend on the order of its choices), ``pd_statuses`` None (the
-        running PDs) apart from an empty list (every status). The values come from the address as typed, so
-        two spellings never share a key (a space and an underscore, a comma inside a name)."""
+        (the indicators of a filter never depend on the order of its choices), and the PD statuses as the
+        figures read them (:attr:`statuses_read`): no ``pd_status`` in the address (the page's own links) and
+        the running statuses the filter bar sends for the same choice share a key, while ``pd_status=`` alone
+        (every status) keeps its own. The other values come from the address as typed, so two spellings never
+        share a key (a space and an underscore, a comma inside a name)."""
         out: dict[str, Any] = {}
         for item in dataclasses.fields(self):
             value = getattr(self, item.name)
@@ -168,6 +181,7 @@ class Filters:
             elif isinstance(value, list | tuple):
                 value = sorted(str(v) for v in value)
             out[item.name] = value
+        out["pd_statuses"] = self.statuses_read
         return json.dumps(out, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
     @classmethod

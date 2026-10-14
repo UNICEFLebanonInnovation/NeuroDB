@@ -790,6 +790,153 @@ def test_live_region_reports_each_batch_and_clears_a_failure_put_right():
     assert data["status"] == "All figures are shown."
 
 
+# A request htmx answers with a swap, in htmx 2.0.10's order (parts.js's header, point 2): htmx:beforeSwap on the
+# target, the swap (innerHTML: the target's content; outerHTML: the target itself, by `fresh`, which may be empty),
+# then htmx:afterRequest on the element that asked and, when the swap removed it, again on its closest ancestor still
+# in the page; 20 ms later htmx:afterSettle on each element settled (the target for innerHTML, the new top-level
+# elements for outerHTML: none for an empty answer). `trigger` is the type of the event that issued it (none for
+# htmx.ajax, a poll or a load).
+ASK = """
+let asked = 0;
+function ask(htmx, elt, target, fresh, { trigger, swap = "outerHTML", status = 200 } = {}) {
+  asked += 1;
+  const xhr = { status, asked, getResponseHeader: () => null };
+  const requestConfig = { elt, triggeringEvent: trigger ? { type: trigger } : undefined };
+  const hierarchy = [];
+  for (let node = elt.parentNode; node && !node.isDocument; node = node.parentNode) hierarchy.push(node);
+  const before = { xhr, requestConfig, target, shouldSwap: status < 400, isError: status >= 400 };
+  htmx.fire(target, "htmx:beforeSwap", before);
+  if (before.shouldSwap) {
+    if (swap === "innerHTML") htmx.swapInner(target, fresh);
+    else {
+      fresh.forEach((node) => target.parentNode.insertBefore(node, target));
+      target.remove();
+    }
+    const settled = swap === "innerHTML" ? [target] : fresh;
+    setTimeout(() => settled.forEach((node) => htmx.fire(node, "htmx:afterSettle", { xhr, requestConfig, target })), 20);
+  }
+  const info = { xhr, requestConfig, target, successful: status < 400, failed: status >= 400 };
+  htmx.fire(elt, "htmx:afterRequest", { ...info });
+  const still = !elt.isConnected && hierarchy.find((node) => node.isConnected);
+  if (still) htmx.fire(still, "htmx:afterRequest", { ...info });
+}
+"""
+
+
+@needs_node
+def test_a_swap_of_a_results_area_that_is_not_live_is_said_once():
+    """A results area that can hold parts is not aria-live (each arriving part would be read out). Monitoring insights'
+    tabs and the document review's tabs, views and filters swap such an area (#fmm-results, #review-results) with no
+    part in most answers, and screen readers heard nothing of the change (review R2-critic-2). parts.js now says the
+    area's own words (data-results-updated) once in #parts-status after a swap of the area itself, however it was
+    asked for (a tab link, the filter bar's htmx.ajax); a part, a poll or what loads when reached swapped inside it
+    (the Documents tab's poll, the AI card's) is not said, nor is an area without the words."""
+    data = run_dom(
+        ASK
+        + """
+const { doc, htmx, clock, main, placeholder, loaded, start, parts } = await page();
+const tabs = doc.h("nav", {}, doc.h("a", { id: "tab-quality" }, "Quality"));
+const form = doc.h("form", { id: "filters" });
+const area = doc.h("div", { id: "fmm-results", "data-results-updated": "The results were updated." },
+  doc.h("section", { id: "fmm-insights" }, "AI brief"), placeholder({ name: "map", kind: "map" }));
+const plain = doc.h("div", { id: "edu-results" }, doc.h("p", { id: "edu-p" }, "Figures"));
+main.append(tabs, form, area, plain);
+parts.initParts();
+await start();
+htmx.respond("map", { nodes: () => [loaded("map")] });
+await clock.tick(1500);
+out.part = [...doc.said];
+// the tab bar: the area's content swapped (innerHTML)
+ask(htmx, doc.getElementById("tab-quality"), area, [doc.h("section", { id: "fmm-quality" }, "Quality")], { trigger: "click", swap: "innerHTML" });
+await clock.tick(100);
+out.tab = doc.said.slice(out.part.length);
+out.status = doc.getElementById("parts-status").textContent;
+// the filter bar (htmx.ajax with the form as source: no triggering event)
+let seen = doc.said.length;
+ask(htmx, form, area, [doc.h("section", { id: "fmm-insights" }, "AI brief")], { swap: "innerHTML" });
+await clock.tick(100);
+out.filter = doc.said.slice(seen);
+// inside it: the AI card's poll (outerHTML of itself), a panel loaded when reached, a list opened; an area that gives
+// no words; an answer refused
+seen = doc.said.length;
+const card = doc.getElementById("fmm-insights");
+ask(htmx, card, card, [doc.h("section", { id: "fmm-insights" }, "AI brief, newer")]);
+const panel = doc.h("div", { id: "fmm-rule-trends-panel" }, "…");
+area.append(panel);
+ask(htmx, panel, panel, [doc.h("div", { id: "fmm-rule-trends-panel" }, "Trends")], { trigger: "revealed" });
+const rest = doc.h("div", { id: "fmm-places-rest" });
+area.append(doc.h("details", {}, rest));
+ask(htmx, rest, rest, [doc.h("div", { id: "fmm-places-rest" }, "More places")], { trigger: "toggle" });
+ask(htmx, doc.getElementById("edu-p"), plain, [doc.h("p", {}, "Other figures")], { trigger: "click", swap: "innerHTML" });
+ask(htmx, doc.getElementById("tab-quality"), area, [], { trigger: "click", swap: "innerHTML", status: 500 });
+await clock.tick(100);
+out.inside = doc.said.slice(seen);
+// a second change of tab is said again
+seen = doc.said.length;
+ask(htmx, doc.getElementById("tab-quality"), area, [doc.h("section", {}, "Analysis")], { trigger: "click", swap: "innerHTML" });
+await clock.tick(100);
+out.again = doc.said.slice(seen);
+"""
+    )
+    # a part arriving is said in parts.js's own words only
+    assert "The results were updated." not in data["part"]
+    assert data["tab"] == ["The results were updated."] and data["status"] == "The results were updated."
+    assert data["filter"] == ["The results were updated."]
+    assert data["inside"] == []
+    assert data["again"] == ["The results were updated."]
+
+
+@needs_node
+def test_a_change_asked_for_inside_a_results_area_is_said_once():
+    """In the base, #fmm-results and #review-results were aria-live, so every swap inside them was read out as well.
+    Once they were not, the changes people make inside them were silent: Monitoring insights' records pages, sort
+    headers and rows per page (#fmm-visits), its entity chips (#fmm-entities), the document review's Accept, Reject
+    and Undo, an action point's status, a finding deleted (hx-target "closest tr"), and a page of partner
+    monitoring's grid (review R3-fixes-2). A swap inside an area that a click, a submit or a change asked for is said
+    in the area's words, once per request, even when it removes the element that asked or leaves nothing in place."""
+    data = run_dom(
+        ASK
+        + """
+const { doc, htmx, clock, main, start, parts } = await page();
+const said = async (fn) => {
+  const seen = doc.said.length;
+  fn();
+  await clock.tick(100);
+  return doc.said.slice(seen);
+};
+const row = (id) => {
+  const form = doc.h("form", { id: `${id}-verdict` }, doc.h("button", { type: "submit" }, "Accept"));
+  return doc.h("tr", { id }, doc.h("td", {}, form));
+};
+const visits = doc.h("div", { id: "fmm-visits" }, doc.h("a", { id: "page-2" }, "2"), doc.h("select", { id: "per-page" }));
+const entities = doc.h("div", { id: "fmm-entities" }, doc.h("a", { id: "chip-partner" }, "Partner"));
+const tbody = doc.h("tbody", {}, row("finding-1"), row("finding-2"), row("action-3"));
+const area = doc.h("div", { id: "review-results", "data-results-updated": "The results were updated." },
+  visits, entities, doc.h("table", {}, tbody));
+main.append(area);
+parts.initParts();
+await start();
+// a page link and the rows per page of the records table (innerHTML of #fmm-visits)
+out.page = await said(() => ask(htmx, doc.getElementById("page-2"), visits, [doc.h("a", { id: "page-3" }, "3"), doc.h("select", { id: "per-page" })], { trigger: "click", swap: "innerHTML" }));
+out.perPage = await said(() => ask(htmx, doc.getElementById("per-page"), visits, [doc.h("p", {}, "50 rows")], { trigger: "change", swap: "innerHTML" }));
+// an entity chip (outerHTML of #fmm-entities, which holds the chip)
+out.chip = await said(() => ask(htmx, doc.getElementById("chip-partner"), entities, [doc.h("div", { id: "fmm-entities" }, "Partners")], { trigger: "click" }));
+// Accept on a finding: its form is in the row the answer replaces
+out.verdict = await said(() => ask(htmx, doc.getElementById("finding-1-verdict"), doc.getElementById("finding-1"), [doc.h("tr", { id: "finding-1" }, "Accepted")], { trigger: "submit" }));
+// a status changed, a finding deleted (the answer is empty: nothing is left to settle)
+out.status = await said(() => ask(htmx, doc.getElementById("action-3-verdict"), doc.getElementById("action-3"), [doc.h("tr", { id: "action-3" }, "Done")], { trigger: "change" }));
+out.deleted = await said(() => ask(htmx, doc.getElementById("finding-2-verdict"), doc.getElementById("finding-2"), [], { trigger: "submit" }));
+out.gone = doc.getElementById("finding-2") === null;
+// a refused verdict (403) changes nothing and says nothing
+out.refused = await said(() => ask(htmx, doc.getElementById("finding-1"), doc.getElementById("finding-1"), [], { trigger: "submit", status: 403 }));
+"""
+    )
+    for action in ("page", "perPage", "chip", "verdict", "status", "deleted"):
+        assert data[action] == ["The results were updated."], action
+    assert data["gone"] is True
+    assert data["refused"] == []
+
+
 @needs_node
 def test_a_swap_removing_queued_placeholders_never_asks_for_them():
     data = run_dom(
@@ -1545,6 +1692,323 @@ def test_a_failed_partner_figures_part_shows_its_error_box_without_the_figures_r
     assert '[data-part]:not(.is-loaded)::before { content: ""; float: left;' in generic
     # only the error state drops it: Try again gives the room back while the part loads
     assert re.findall(r"#part-datamart\[[^{]*\{", block) == [f"{failed} {{", f"{failed}::before {{"]
+
+
+def _rules(css: str) -> list[tuple[str, str]]:
+    """Every (selector, body) of a stylesheet, media queries opened (comments dropped)."""
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    return [(m.group(1).strip(), m.group(2).strip()) for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", css)]
+
+
+def test_a_failed_part_keeps_no_room_on_any_page():
+    """A part that could not be loaded leaves its error box, not a screen of empty space (STAGE3). Up to step 3's
+    review the overview's figures kept 8,100 px under a 97 px error box on a phone, the brief's sections 11,215 px,
+    Data health's jobs 1,395 px (their grey cards laid out unseen), and partner monitoring's summary 1,212 px (only
+    the last part of its area collapsed): reviews R1-browser-1 and R1-browser-2."""
+    css = (STATIC / "css" / "app.css").read_text()
+    block = css.split("pages that load in parts (parts.js)", 1)[1].split("stage A (reports core)", 1)[0]
+    collapse = '.part[data-part-state="error"] { min-height: 0; }'
+    no_float = '.part[data-part-state="error"]::before { content: none; }'
+    assert collapse in block and no_float in block
+    # it outranks the room every placeholder gets (.part: one class) and comes after the middle height's float, whose
+    # selector weighs the same ([data-part]:not(.is-loaded)::before)
+    for reserving in (
+        ".part { min-height: var(--part-h, 8rem); }",
+        ".part { min-height: var(--part-h-sm, var(--part-h-md, var(--part-h, 8rem))); }",
+        '[data-part]:not(.is-loaded)::before { content: ""; float: left;',
+    ):
+        assert block.index(reserving) < block.index(no_float), reserving
+    # no rule gives a failed part room back: only the two placeholders whose room is a row of their own grey shapes
+    # keep them, laid out unseen (the overview's key figures, the partner page's Monitoring insights panel)
+    kept = [
+        selector
+        for selector, body in _rules(css)
+        if '[data-part-state="error"]' in selector
+        and ("visibility: hidden" in body or "min-height:" in body)
+        and "min-height: 0" not in body
+    ]
+    assert kept == [
+        '#part-kpis[data-part-group="overview"][data-part-state="error"] .part__skeleton',
+        '#part-datamart #part-fmm[data-part="fmm"][data-part-state="error"] .part__skeleton',
+    ]
+    # nor does an id give the parts of the step 1 and 2 pages, or partner monitoring's summary, a room of their own
+    for name in ("figures", "review", "news", "brief", "sections", "jobs", "readiness", "summary"):
+        for selector, body in _rules(css):
+            if f"#part-{name}" in selector and "min-height" in body:
+                assert ":not(.is-loaded)" in selector or "min-height: 0" in body, (selector, body)
+
+
+def test_phone_filter_bars_are_folded_from_the_first_paint():
+    """On a phone the filter bars fold behind their Filters button. They used to fold only once app.js had run,
+    just after the first paint, and the figures under them jumped up 230-340 px (a layout shift of 0.55-0.64 on
+    partner monitoring, Progress reports and Monitoring insights): review R1-browser-3. The head's script, which runs
+    before the page is drawn, marks that scripts run (html.js); app.css folds the bars from then on and keeps the
+    room of the button app.js adds. Without JavaScript nothing is folded."""
+    base = (TEMPLATES / "base.html").read_text()
+    head = base.split("</head>", 1)[0]
+    script = head[head.index("<script nonce=") :]
+    assert 'document.documentElement.classList.add("js");' in script
+    assert script.index('classList.add("js")') < script.index("try {")  # whatever the storage does
+    css = (STATIC / "css" / "app.css").read_text()
+    phone = css.split("/* Filter bars fold behind", 1)[1].split("@media (max-width: 767.98px) {", 1)[1]
+    phone = phone.split("\n}", 1)[0]
+    assert ".filters-collapse.is-collapsible:not(.is-open) .filter-bar { display: none; }" in phone
+    assert ".filters-collapse.is-collapsible .filters-toggle { display: inline-flex;" in phone
+    # before app.js has run, the bar keeps only the room of the button that takes its place, unseen, where the button
+    # will be (just before the bar): nothing above or below it moves when app.js runs
+    waiting = dict(_rules(phone))[".js .filters-collapse:not(.is-collapsible):not(.is-open) .filter-bar"]
+    for declaration in (
+        "visibility: hidden;",
+        "overflow: hidden;",
+        "min-height: 0;",
+        "margin: 0;",
+        "padding: 0;",
+    ):
+        assert declaration in waiting, declaration
+    assert (
+        "height: calc(0.875rem * 1.5 + 0.5rem + 2px + 0.75rem);" in waiting
+    )  # a small button and its margin
+    # folded only on phones, and before app.js only where scripts run
+    rules = [sel for sel, _body in _rules(css) if ".filters-collapse" in sel and ".filter-bar" in sel]
+    assert rules == [
+        ".filters-collapse.is-collapsible:not(.is-open) .filter-bar",
+        ".js .filters-collapse:not(.is-collapsible):not(.is-open) .filter-bar",
+    ]
+
+
+# base.html's head script, run in node on a stand-in window: ``ran`` says whether app.js ran (it marks the page
+# html.app-ready) before the load event, which the script then fires.
+HEAD_RUN = """
+const [script, ran] = [process.argv[1], process.argv[2] === "1"];
+const classes = new Set();
+const listeners = {};
+globalThis.document = {
+  documentElement: {
+    classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c), contains: (c) => classes.has(c) },
+    setAttribute() {},
+  },
+};
+globalThis.window = { addEventListener: (type, fn) => (listeners[type] ||= []).push(fn), matchMedia: () => ({ matches: false }) };
+globalThis.localStorage = { getItem: () => null };
+new Function(script)();
+const out = { beforeLoad: [...classes] };
+if (ran) classes.add("app-ready");
+(listeners.load || []).forEach((fn) => fn({ type: "load" }));
+out.afterLoad = [...classes].sort();
+console.log(JSON.stringify(out));
+"""
+
+
+@needs_node
+def test_phone_filter_bars_stay_open_where_app_js_never_runs():
+    """The phone filter bars are folded from the first paint where scripts run (html.js), and only app.js adds the
+    Filters button that opens them. Where the head's script ran but app.js did not (app.js or one of its imports
+    failed to load or was blocked, or the browser runs no modules), every filter bar stayed hidden with no way to
+    open it (review R2-critic-1). app.js marks the page html.app-ready once it has bound the bars; at the load event
+    the head drops html.js from a page without that mark, and the bars stay open as they were before step 3."""
+    base = (TEMPLATES / "base.html").read_text()
+    head = base.split("</head>", 1)[0]
+    script = head[head.index("<script nonce=") :].split(">", 1)[1].split("</script>", 1)[0]
+
+    def run_head(ran: bool) -> dict:
+        result = subprocess.run(
+            [NODE, "--input-type=module", "-e", HEAD_RUN, script, "1" if ran else "0"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)
+
+    never = run_head(ran=False)
+    assert never == {"beforeLoad": ["js"], "afterLoad": []}  # folded until load, then open: no html.js
+    ran = run_head(ran=True)
+    assert ran == {"beforeLoad": ["js"], "afterLoad": ["app-ready", "js"]}  # folded behind its button
+    # app.js marks the page right after its first enhance() has bound the bars, at the top level of the module (it
+    # runs before the load event: a module script runs before DOMContentLoaded)
+    app = (STATIC / "js" / "app.js").read_text()
+    tail = app[app.rindex("\ntrackModules(enhance(document));\n") :]
+    assert tail.split("\n")[-2:] == ['document.documentElement.classList.add("app-ready");', ""]
+    assert 'classList.add("app-ready")' not in app.replace(tail, "")  # nowhere else
+    assert '<script type="module" src="{% static \'js/app.js\' %}"' in base  # deferred, never async
+    # the bars a page has bound keep their fold behind the button whatever html.js says; before app.js has bound
+    # them they are folded only under html.js
+    css = (STATIC / "css" / "app.css").read_text()
+    folded = [
+        sel
+        for sel, body in _rules(css)
+        if ".filters-collapse" in sel
+        and ".filter-bar" in sel
+        and ("display: none" in body or "hidden" in body)
+    ]
+    assert folded == [
+        ".filters-collapse.is-collapsible:not(.is-open) .filter-bar",
+        ".js .filters-collapse:not(.is-collapsible):not(.is-open) .filter-bar",
+    ]
+
+
+# base.html's scripts, run in node on a stand-in page with placeholders (components/part.html: the error box with
+# its text, Try again and the fallback link, hidden): the head's, then the one a page in parts carries; ``app`` and
+# ``parts`` say whether app.js and parts.js ran (they mark the page html.app-ready and html.parts-ready) before the
+# load event, which the test then fires; a swap then brings one more placeholder (htmx:load).
+HEAD_PARTS_RUN = """
+const [head, script, app, parts] = [process.argv[1], process.argv[2], process.argv[3] === "1", process.argv[4] === "1"];
+const classes = new Set();
+const listeners = {};
+const docListeners = {};
+function el(attrs = {}, children = []) {
+  const node = {
+    attrs: { ...attrs },
+    children,
+    getAttribute(name) { return name in this.attrs ? this.attrs[name] : null; },
+    setAttribute(name, value) { this.attrs[name] = String(value); },
+    get hidden() { return "hidden" in this.attrs; },
+    set hidden(value) { if (value) this.attrs.hidden = ""; else delete this.attrs.hidden; },
+    matches(selector) { return selector.slice(1, -1) in this.attrs; }, // "[name]" only
+    querySelectorAll(selector) {
+      const all = [];
+      const walk = (n) => n.children.forEach((c) => { if (c.matches(selector)) all.push(c); walk(c); });
+      walk(this);
+      return all;
+    },
+    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
+  };
+  return node;
+}
+const placeholder = (name, extra = {}) => el({ "data-part": name, "aria-busy": "true", ...extra }, [
+  el({ class: "part__skeleton", "aria-hidden": "true" }),
+  el({ "data-part-error": "", hidden: "" }, [
+    el({ "data-part-error-text": "" }),
+    el({ "data-part-retry": "" }),
+    el({ "data-part-fallback": "", href: `?year=2026&_eager=1`, hidden: "" }),
+  ]),
+]);
+const main = el({ id: "main" }, [placeholder("summary"), placeholder("outcomes")]);
+globalThis.document = {
+  documentElement: {
+    classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c), contains: (c) => classes.has(c) },
+    setAttribute() {},
+  },
+  querySelectorAll: (selector) => main.querySelectorAll(selector),
+  addEventListener: (type, fn) => (docListeners[type] ||= []).push(fn),
+};
+globalThis.window = { addEventListener: (type, fn) => (listeners[type] ||= []).push(fn), matchMedia: () => ({ matches: false }) };
+globalThis.localStorage = { getItem: () => null };
+new Function(head)();
+new Function(script)();
+if (app) classes.add("app-ready");
+if (parts) classes.add("parts-ready");
+(listeners.load || []).forEach((fn) => fn({ type: "load" }));
+const later = placeholder("later");
+main.children.push(later);
+(docListeners["htmx:load"] || []).forEach((fn) => fn({ type: "htmx:load", target: later }));
+const view = (p) => {
+  const box = p.querySelector("[data-part-error]");
+  return {
+    state: p.getAttribute("data-part-state"),
+    busy: p.getAttribute("aria-busy"),
+    box: !box.hidden,
+    retry: !p.querySelector("[data-part-retry]").hidden,
+    link: p.querySelector("[data-part-fallback]").hidden ? null : p.querySelector("[data-part-fallback]").getAttribute("href"),
+  };
+};
+console.log(JSON.stringify({ classes: [...classes].sort(), parts: main.children.map(view) }));
+"""
+
+
+@needs_node
+def test_placeholders_offer_the_page_drawn_at_once_where_parts_js_never_runs():
+    """Before step 3 the pages it converted were drawn whole on the server, so their figures showed even when app.js
+    did not run. Now each block is a placeholder only parts.js fills; where scripts run but parts.js never did
+    (app.js or one of its imports failed to load or was blocked), every placeholder stayed a grey shape, busy for
+    screen readers, for ever, and its way out (*Show the figures*) was only in a <noscript>, which such a browser
+    never shows (review R3-critic-2). parts.js marks the page html.parts-ready once it has started; at the load event
+    the head turns each placeholder of a page without that mark, and each one a swap brings later, into its error
+    box with the link to the page drawn at once in place of Try again, no longer busy (app.css hides the grey
+    shapes of a part in error). Where parts.js runs, the head leaves them to it."""
+    base = (TEMPLATES / "base.html").read_text()
+    head = base.split("</head>", 1)[0]
+    head = head[head.index("<script nonce=") :].split(">", 1)[1].split("</script>", 1)[0]
+    # only a page in parts (render_page gives parts_eager) carries it: no other page names the mechanism (the block's
+    # {% comment %}, never sent, names the mark too; the script reads it once)
+    block = base.split("{% if parts_eager is not None %}", 1)[1].split("{% endif %}", 1)[0]
+    script = block[block.index("<script nonce=") :].split(">", 1)[1].split("</script>", 1)[0]
+    assert base.count("parts-ready") == block.count("parts-ready")
+    assert script.count("parts-ready") == 1 and "parts-ready" not in head
+
+    def run_head(app: bool, parts: bool) -> dict:
+        result = subprocess.run(
+            [
+                NODE,
+                "--input-type=module",
+                "-e",
+                HEAD_PARTS_RUN,
+                head,
+                script,
+                "1" if app else "0",
+                "1" if parts else "0",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)
+
+    stopped = {"state": "error", "busy": "false", "box": True, "retry": False, "link": "?year=2026&_eager=1"}
+    waiting = {"state": None, "busy": "true", "box": False, "retry": True, "link": None}
+    never = run_head(app=False, parts=False)
+    assert never == {"classes": [], "parts": [stopped, stopped, stopped]}  # the one a swap brought too
+    # app.js stopped after parts.js had started: the parts still load (only the filter bars stay open)
+    assert run_head(app=False, parts=True) == {
+        "classes": ["parts-ready"],
+        "parts": [waiting, waiting, waiting],
+    }
+    assert run_head(app=True, parts=True) == {
+        "classes": ["app-ready", "js", "parts-ready"],
+        "parts": [waiting, waiting, waiting],
+    }
+    # parts.js marks the page once it has started, at the end of initParts(), and nowhere else
+    js = (STATIC / "js" / "parts.js").read_text()
+    init = js[js.index("export function initParts()") :]
+    assert init.count('document.documentElement.classList.add("parts-ready");') == 1
+    tail = init[init.index('document.documentElement.classList.add("parts-ready");') :]
+    assert tail.split("\n")[1:3] == ["  return page;", "}"]
+    assert js.count("parts-ready") == init.count("parts-ready")
+    # a part in error shows its error box, not its grey shapes, and keeps no room
+    css = (STATIC / "css" / "app.css").read_text()
+    assert (
+        '.part[data-part-state="error"] .part__skeleton, .part[data-part-state="error"] .part__slow { display: none; }'
+        in css
+    )
+    assert '.part[data-part-state="error"] { min-height: 0; }' in css
+
+
+@needs_node
+def test_initparts_marks_the_page_and_without_htmx_offers_the_page_drawn_at_once():
+    """parts.js marks the page html.parts-ready once initParts() has run (base.html's head then leaves the
+    placeholders to it). Where htmx itself did not load, parts.js shows each placeholder's error box at once, not
+    busy, without Try again (nothing could ask) but with the link to the page drawn at once (review R3-critic-2)."""
+    data = run_dom(
+        """
+const { doc, win, main, placeholder, start, parts } = await page();
+const p = placeholder({ name: "summary", kind: "tiles" });
+p.querySelector("[data-part-error]").append(doc.h("a", { href: "?year=2025&_eager=1", "data-part-fallback": true, hidden: true }, "Show the figures"));
+main.append(p);
+out.before = doc.documentElement.classList.contains("parts-ready");
+delete win.htmx;
+parts.initParts();
+out.after = doc.documentElement.classList.contains("parts-ready");
+await start();
+out.state = p.dataset.partState;
+out.busy = p.getAttribute("aria-busy");
+out.box = !p.querySelector("[data-part-error]").hidden;
+out.retry = !p.querySelector("[data-part-retry]").hidden;
+out.link = !p.querySelector("[data-part-fallback]").hidden;
+"""
+    )
+    assert data["before"] is False and data["after"] is True
+    assert data == {**data, "state": "error", "busy": "false", "box": True, "retry": False, "link": True}
 
 
 def test_placeholders_keep_their_height_in_both_themes_and_each_later_stage_has_its_block():

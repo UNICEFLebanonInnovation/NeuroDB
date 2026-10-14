@@ -169,7 +169,9 @@ def test_the_frame_answers_with_every_figure_service_refusing(client_viewer, wor
     html = text(response)
     assert "<title>Partner monitoring" in html and 'aria-label="Partner monitoring filters"' in html
     assert 'aria-label="Partner monitoring views"' in html  # the view tabs
-    assert f'<div id="{RESULTS}">' in html  # the results area, not aria-live (it receives parts)
+    # the results area, not aria-live (it receives parts): parts.js says its words after a swap (review R3)
+    assert f'<div id="{RESULTS}" data-results-updated="The results were updated.">' in html
+    assert f'id="{RESULTS}" aria-live' not in html
     assert list(placeholders(html)) == list(VIEWS[view])
     assert f'id="{SUMMARY_JSON}"' not in html and 'id="monitoring-chart-data"' not in html
     for figure in (
@@ -181,6 +183,27 @@ def test_the_frame_answers_with_every_figure_service_refusing(client_viewer, wor
         assert figure not in html, figure
     # the filter bar's choices are there (the frame's own, stored for every worker)
     assert '<option value="Child Protection"' in html and '<option value="Education"' in html
+
+
+@pytest.mark.shell
+def test_every_view_gives_the_words_said_after_a_swap_of_its_results(client_viewer, world):
+    """The filter bar, the sort links and the section tiles swap #monitoring-grid, which is not a live region (it
+    receives the parts), so a filter, sort or section change was no longer announced (review R3: R2-critic-2's fix
+    covered only Monitoring insights and the document review). Every view's frame gives the words parts.js says
+    after such a swap, once, and a swap answers the area's content (its placeholders, or its figures for any other
+    HTMX request of this address), never a second area."""
+    for view in VIEWS:
+        html = text(raw_get(client_viewer, _url(view)))
+        areas = re.findall(rf'<div id="{RESULTS}"[^>]*>', html)
+        assert areas == [f'<div id="{RESULTS}" data-results-updated="The results were updated.">'], view
+        assert html.count("data-results-updated=") == 1, view
+        for target in (RESULTS, "elsewhere"):
+            swapped = raw_get(
+                client_viewer, _url(view, status="on_track"), HTTP_HX_REQUEST="true", HTTP_HX_TARGET=target
+            )
+            assert swapped.status_code == 200, (view, target)
+            answer = text(swapped)
+            assert f'id="{RESULTS}"' not in answer and "data-results-updated" not in answer, (view, target)
 
 
 @pytest.mark.shell
@@ -586,6 +609,44 @@ def test_two_filters_never_share_a_key():
     )
 
 
+def test_the_page_s_links_and_the_filter_bar_share_the_key_of_one_filter(client_viewer, world, monkeypatch):
+    """The page's own links (first load, section tiles, sorts) carry no ``pd_status``: the running PDs. The filter
+    bar sends the running statuses it shows chosen. Both are one filter with the same figures, so they read one
+    stored build (review R1-B-2); ``pd_status=`` alone (every status) and another choice keep keys of their own."""
+    link = monitoring.Filters.from_params(QueryDict("section=Education&year=2026"))
+    bar = monitoring.Filters.from_params(
+        QueryDict(
+            "section=Education&pd_status=suspended&pd_status=active&pd_status=signed&report_type=QPR&year=2026"
+        )
+    )
+    every = monitoring.Filters.from_params(QueryDict("section=Education&pd_status=&year=2026"))
+    closed = monitoring.Filters.from_params(QueryDict("section=Education&pd_status=closed&year=2026"))
+    assert link.pd_statuses is None and bar.pd_statuses and every.pd_statuses == []
+    assert link.cache_key() == bar.cache_key()
+    assert len({link.cache_key(), every.cache_key(), closed.cache_key()}) == 3
+    # without the default scope, no choice is every status, as pd_status= alone
+    assert (
+        monitoring.Filters(scope="all").cache_key()
+        == monitoring.Filters(scope="all", pd_statuses=[]).cache_key()
+        != monitoring.Filters(scope="all", pd_statuses=list(monitoring.ACTIVE_PD_STATUSES)).cache_key()
+    )
+    calls = _builds(monkeypatch)
+    first = get_part(client_viewer, _url("grid", section="Education", year="2026"), "summary")
+    compute.reset_memo()
+    again = get_part(
+        client_viewer,
+        _url(
+            "grid",
+            section="Education",
+            pd_status="active&pd_status=signed&pd_status=suspended",
+            report_type="QPR",
+            year="2026",
+        ),
+        "summary",
+    )
+    assert first.context["data"] == again.context["data"] and calls["rows"] == 1
+
+
 def test_a_stored_build_never_shows_one_person_s_view_to_another(admin_user, sectioned, world):
     """Nothing in a stored build depends on the person asking: the viewer's own section reaches it only as the
     filter's sections, which are in the key. A build stored by an administrator's request answers the viewer for
@@ -771,7 +832,11 @@ def test_the_assembled_page_is_the_eager_page(admin_user, sectioned, world, role
         assert sent == {SUMMARY_JSON: alone[SUMMARY_JSON]} and set(sent[SUMMARY_JSON]) == {
             "status_counts",
             "by_section",
+            "labels",
         }
+        # the status donut names its slices by the labels (charts.js), never by the raw keys (review R1-B-3)
+        assert sent[SUMMARY_JSON]["labels"] == monitoring.LABELS
+        assert set(sent[SUMMARY_JSON]["status_counts"]) <= set(monitoring.LABELS)
 
 
 @pytest.mark.shell

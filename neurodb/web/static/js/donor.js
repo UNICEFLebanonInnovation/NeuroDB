@@ -693,3 +693,6 @@ syncThemeButton();
 const inline = document.getElementById("donor-data"); // the figures came with the page
 if (inline) useData(JSON.parse(inline.textContent));
 else load();
+// started: the page's head keeps html.js (the grey cards, "Loading the figures…"); without this mark at the load
+// event it drops it, and the page says its charts could not be drawn
+document.documentElement.classList.add("donor-ready");

@@ -235,8 +235,11 @@ function initFilterBar(form) {
 
 // ------------------------------------------------------------------ filter bars folded on phones
 // A wrapper with data-filters-collapse gets a "Filters" button; under 768px (CSS) its filter bar stays
-// folded until the button opens it, so the page's figures come first. Without JS nothing is folded. A
-// wrapper that arrives open (keepFiltersOpen) gets its button pressed.
+// folded until the button opens it, so the page's figures come first. It is folded from the first paint
+// (html.js, set in base.html's head; app.css keeps the button's room until it is added here), so nothing
+// under it moves when this runs. Without JS nothing is folded, nor where this module never ran (html.app-ready,
+// set below once the page's bars are bound, is missing at the load event: the head drops html.js). A wrapper
+// that arrives open (keepFiltersOpen) gets its button pressed.
 function initFiltersCollapse(root) {
   $$("[data-filters-collapse]", root).forEach((wrap, index) => {
     const form = $("form.filter-bar", wrap);
@@ -537,3 +540,6 @@ document.addEventListener("click", printCard);
 document.addEventListener("auxclick", followQuery);
 document.addEventListener("submit", confirmSubmit, true);
 trackModules(enhance(document));
+// The filter bars are bound (initFiltersCollapse): base.html's head keeps html.js, which folds them on phones from
+// the first paint. A page this module never reached by the load event drops it, and its bars stay open.
+document.documentElement.classList.add("app-ready");
