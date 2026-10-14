@@ -1,11 +1,19 @@
 """The Makani (MSCC) dashboard (/education/makani/), after the programme's Power BI pages: Overview,
 Education, Health and nutrition, Maps.
 
-The enrolment cube counts registrations, as the Power BI does ("Children enrolled"): a child
-registered at two centers counts twice there. The unique count of children comes from the
-registrations block, which only answers filters on partner, governorate and center. The education
-programme and status, and the health and nutrition answers, are those of each registration's latest
-record. Program staff is today's list (the record has no year), filtered by place only.
+The rows counted are those of Power BI's view ``vw_mscc_data`` for the year (from payload format 3, when
+Compiler could use the view; otherwise Compiler's own rule, without TLS and without registrations that have
+no round yet): the line under the key figures says which (:func:`neurodb.education.power_bi.note`). The
+enrolment cube counts registrations, as the Power BI does ("Children enrolled"): a child registered at two
+centers counts twice there. The unique count of children comes from the registrations block, which only
+answers filters on partner, governorate and center. The education programme and status, and the health and
+nutrition answers, are those of each registration's latest record. Program staff is today's list (the record
+has no year), filtered by place only.
+
+The cards whose Power BI measure is unknown (children, CWD, working, immunized, screened, staff) are counted
+with the version an administrator chose (:data:`neurodb.education.power_bi.VARIANTS`; today's definition by
+default). The percentage charts leave the answers "Not specified" out, as Power BI's do (their bars add up
+to 100 with no blank bar).
 """
 
 from __future__ import annotations
@@ -15,6 +23,8 @@ from typing import Any
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy
 
+from . import power_bi
+from .cube import Cube
 from .figures import Figures
 from .services import (
     NOT_SPECIFIED,
@@ -22,8 +32,8 @@ from .services import (
     Slicer,
     choropleth,
     colour,
-    cwd_ids,
     id_options,
+    known,
     pairs,
     programme_family,
     text_options,
@@ -108,6 +118,33 @@ def _where(figures: Figures, filters: dict[str, Any]) -> dict[str, Any]:
     return {**where, **_place_where(figures, filters)}
 
 
+def chosen_rows(figures: Figures, filters: dict[str, Any]) -> Cube:
+    """The enrolment cube's rows under the page's filters (worked out once per payload reader and filters:
+    the cards and the charts read them)."""
+    return power_bi.memo(
+        figures,
+        "makani:enrolment",
+        filters,
+        lambda: figures.cube("enrolment").filter(**_where(figures, filters)),
+    )
+
+
+def staff_rows(figures: Figures, filters: dict[str, Any]) -> Cube:
+    """Today's facilitators under the page's place filters (the staff cube has no child dimension)."""
+    return power_bi.memo(
+        figures,
+        "makani:staff",
+        filters,
+        lambda: figures.cube("staff").filter(**_place_where(figures, filters)),
+    )
+
+
+CARDS = {  # the key figures counted with the version chosen (power_bi.VARIANTS["mscc"]), per tab
+    "overview": ("working", "staff"),
+    "health": ("immunized", "screened"),
+}
+
+
 def unique_count(figures: Figures, filters: dict[str, Any]) -> int | None:
     """Unique children from the registrations block; None when the filters are not only partner,
     governorate or center (the block has no grouping for them)."""
@@ -135,47 +172,69 @@ def _delay(value: str) -> str | None:
 
 
 def build(figures: Figures, tab: str, filters: dict[str, Any]) -> dict[str, Any]:
-    enrolment = figures.cube("enrolment")
-    chosen = enrolment.filter(**_where(figures, filters))
+    chosen = chosen_rows(figures, filters)
+    cards = {
+        name: power_bi.card_value("mscc", name, figures, filters)
+        for name in ("children", "cwd", *CARDS.get(tab, ()))
+    }
     kpis: dict[str, Any] = {
         "centers": len(chosen.distinct("center", "registrations")),
-        "children": chosen.sum("registrations"),
-        "cwd": chosen.filter(disability=cwd_ids(figures, chosen.values("disability"))).sum("registrations"),
+        "children": cards["children"]["value"],
+        "cwd": cards["cwd"]["value"],
     }
     errors = [name for name in ("enrolment", "staff") if figures.cube(name).error]
     if figures.block("registrations").error:
         errors.append(_("unique count"))
-    data: dict[str, Any] = {"kpis": kpis, "errors": errors}
+    pending = figures.payload.get("pending_round")
+    data: dict[str, Any] = {
+        "kpis": kpis,
+        "errors": errors,
+        "cards": cards,
+        # the year's partners' registrations without a round yet (format 3, current year): in no dashboard
+        "pending_round": pending if isinstance(pending, int) and pending > 0 else 0,
+    }
     if tab == "overview":
         kpis.update(
             unique=unique_count(figures, filters),
-            working=chosen.filter(working="Yes").sum("registrations"),
+            working=cards["working"]["value"],
             married=chosen.sum("married"),
             counselling=chosen.sum("counselling"),
             idp=chosen.sum("idp"),
-            staff=figures.cube("staff").filter(**_place_where(figures, filters)).sum("staff"),
+            staff=cards["staff"]["value"],
         )
+        # percentages without "Not specified", as Power BI's charts (E18)
         data["charts"] = {
-            "gender": pairs(chosen.by("sex", "registrations"), category, order=[category(s) for s in SEXES]),
+            "gender": pairs(
+                chosen.by("sex", "registrations"),
+                known(category),
+                order=[category(s) for s in SEXES if s != NOT_SPECIFIED],
+                unknown=False,
+            ),
             "governorate": pairs(
-                chosen.by("governorate", "registrations"), lambda v: figures.label_of("governorate", v)
+                chosen.by("governorate", "registrations"),
+                lambda v: figures.label_of("governorate", v),
+                unknown=False,
             ),
             "nationality": pairs(
-                chosen.by("nationality", "registrations"), lambda v: figures.label_of("nationality", v)
+                chosen.by("nationality", "registrations"),
+                lambda v: figures.label_of("nationality", v),
+                unknown=False,
             ),
             "programme": pairs(_families(chosen.by("programme", "registrations")), unknown=False),
-            "package": pairs(chosen.by("package", "registrations"), tidy),
+            "package": pairs(chosen.by("package", "registrations"), known(tidy), unknown=False),
         }
     elif tab == "education":
         data["charts"] = {
             "programme_level": pairs(chosen.by("programme", "registrations"), tidy, unknown=False),
-            "id_type": pairs(chosen.by("id_type", "registrations"), lambda v: figures.label_of("id_type", v)),
+            "id_type": pairs(
+                chosen.by("id_type", "registrations"), lambda v: figures.label_of("id_type", v), unknown=False
+            ),
             "education_status": pairs(chosen.by("education_status", "registrations"), tidy, unknown=False),
         }
     elif tab == "health":
         kpis.update(
-            immunized=chosen.sum("immunized"),
-            screened=chosen.sum("screened"),
+            immunized=cards["immunized"]["value"],
+            screened=cards["screened"]["value"],
             minimum_meals=chosen.sum("minimum_meals"),
             vaccinated=chosen.sum("vaccinated"),
         )

@@ -187,10 +187,14 @@ def search(
 
 
 def data_health() -> dict[str, Any]:
-    """Freshness of every job and of every displayed database of the current year, the latest runs and
-    the eTools Datamart datasets. The Data health page asks for each block in a part of its own
-    (:func:`health_jobs`, :func:`health_databases`, :func:`recent_runs`, :func:`datamart_quality`); the
-    assistant, the daily review and the internal API read them all at once here."""
+    """Freshness of every job and of every displayed database of the current year, the latest runs, the
+    eTools Datamart datasets and, per Compiler programme, how its latest period compares with the view Power
+    BI reads (``power_bi``: counts only). The Data health page asks for each block in a part of its own
+    (:func:`health_jobs`, :func:`health_databases`, :func:`recent_runs`, :func:`datamart_quality`,
+    ``education.power_bi.health``); the assistant, the daily review and the internal API read them all at
+    once here."""
+    from neurodb.education import power_bi
+
     now = timezone.now()
     jobs = health_jobs(now)
     year = current_year()
@@ -204,6 +208,7 @@ def data_health() -> dict[str, Any]:
         "staleness_hours": settings.SYNC_STALENESS_HOURS,
         "stale_database_days": STALE_DATABASE_DAYS,
         "year": year,
+        "power_bi": power_bi.summary(),
     }
 
 
@@ -431,6 +436,11 @@ def health_as_dict(health: dict[str, Any]) -> dict[str, Any]:
             for d in health["databases"]
         ],
         "staleness_hours": health["staleness_hours"],
+        # per Compiler programme, its latest period compared with the view Power BI reads (counts only)
+        "power_bi": [
+            {**row, "checked_at": row["checked_at"].isoformat() if row.get("checked_at") else None}
+            for row in health.get("power_bi", [])
+        ],
     }
 
 

@@ -9,6 +9,16 @@
     {% else %}<p class="text-muted small mb-0">{% trans "None." %}</p>{% endif %}
   </section>
   {% endfor %}
+  {% if data.home_governorates %}
+  <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "By home governorate" %}</h2><span class="panel__hint">{% trans "young people registered, enrolled or not, by their address" %}</span></div>
+    {% if data.home_governorates.rows is None %}<p class="text-muted small mb-0">{% trans "Shown with the partner filter only." %}</p>
+    {% elif data.home_governorates.rows %}
+    <div class="table-wrap" style="max-height: 300px"><table class="table table-sm mb-0" id="youth-by-home-governorate">
+      <tbody>{% for label, count in data.home_governorates.rows %}<tr><td>{{ label }}</td><td class="num">{{ count|number }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}<p class="text-muted small mb-0">{% trans "None." %}</p>{% endif %}
+  </section>
+  {% endif %}
 </div>
 
 <section class="panel p-0 mb-3">

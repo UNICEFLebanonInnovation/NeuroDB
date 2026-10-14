@@ -23,5 +23,10 @@ failed.{% endcomment %}
   <p class="small text-muted px-3 mb-2">{% trans "Per dataset: the last run, the records read and written, what could not be linked (a partner, programme document or location not in NeuroDB yet), and the rows NeuroDB holds. Read this before trusting a number on an eTools page." %}{% if user_role == "Administrator" %} <a href="{% url 'admin:datamart_reporting_checks' %}">{% trans "eTools reporting checks" %}</a>: {% trans "how the partner reports behind Reached look, with a verdict for each question." %}{% endif %}</p>
   {% part "datasets" kind="table" priority="low" height="599px" %}
 </section></div>
+<div class="mt-3"><section class="panel p-0" aria-labelledby="power-bi">
+  <div class="panel__header px-3 pt-3"><h2 class="panel__title" id="power-bi">{% trans "Compared with Power BI" %}</h2></div>
+  <p class="small text-muted px-3 mb-2">{% trans "Power BI's Makani, Dirasa and Youth dashboards read three views of Compiler's database (vw_mscc_data, vw_bridging_data, vw_youth_data_all). Compiler counts the rows of these views when it can, else its own rule; per programme and period: how it counted, the view's registrations, what NeuroDB counted, the difference and why, and what NeuroDB counted before this change. Counts only." %}{% if user_role == "Administrator" %} <a href="{% url 'admin:education_powerbicard_changelist' %}">{% trans "Choose card definitions" %}</a> · <a href="{% url 'admin:education_powerbiview_changelist' %}">{% trans "View definitions" %}</a>: {% trans "type the numbers Power BI shows, pick the version that gives them, and read the views' masked definitions." %}{% endif %}</p>
+  <div class="px-3 pb-1">{% part "power-bi" kind="table" priority="low" height="420px" %}</div>
+</section></div>
 <div class="mt-3">{% part "readiness" kind="card" priority="low" height="546.5px" height_md="859.4px" height_sm="1431.6px" %}</div>
 {% endblock %}

@@ -110,7 +110,7 @@ Every signed-in person has one role:
 |---|---|
 | Viewer | Reads every page, asks Ask NeuroDB, the Help assistant and Chat with Data, and exports. Nothing is changed. |
 | Section editor | Adds documents to the knowledge base; marks the visits of their section reviewed; verifies the action points of their section; adds NeuroDB action points; writes the section comments of the HACT visit plan on the programme documents of their section. |
-| Administrator | Everything a section editor does, for every section, plus the administration pages: settings, quality rules, prompt versions, scheduled jobs and the buttons that run them. |
+| Administrator | Everything a section editor does, for every section, plus the administration pages: settings, quality rules, prompt versions, scheduled jobs and the buttons that run them, and the card versions compared with Power BI. |
 
 Your **section** (set on your user by an administrator) is what several pages show first: the
 overview, Monitoring insights and the action points page open on your section, with a chip or a
@@ -128,6 +128,45 @@ pages in this guide, and not the Help assistant.
 | Compiler | Makani and Dirasa figures, youth programme figures and the Makani wellbeing flags (counts only, never a child). |
 | Country programme | The results framework and its progress, uploaded on the country programme page. |
 | Knowledge base and library | Documents people add, library publications and country programme documents. |
+
+## Why NeuroDB's figures may differ from Power BI
+
+Power BI's Makani, Dirasa and Youth dashboards read three saved queries ("views") of Compiler's database:
+`vw_mscc_data`, `vw_bridging_data` and `vw_youth_data_all`. Compiler now counts the same registrations as
+those views for NeuroDB, and a line under the key figures of the Makani, Dirasa and youth pages says how
+the figures were counted:
+
+- **"Counted from Power BI's view …"**: the same registrations Power BI reads (deleted ones left out), with
+  the time Compiler counted them.
+- **"Power BI's view could not be used (reason) …"**: Compiler counted with its own rule, so the figures
+  may differ from Power BI. The reason says what is missing (often Compiler's right to read the view, which
+  an administrator of Compiler's database gives).
+- **"Not yet compared with Power BI's view"**: the figures came from Compiler before this comparison
+  existed; the next night's count brings it.
+
+Past years are counted again too (once a week), so a past year no longer keeps the figures counted while
+it was the current year. Even on the same registrations, a card can still differ, for three reasons:
+
+- **The time of the count**: Compiler counts at night, Power BI at its own refresh. Compare them right
+  after Power BI's refresh.
+- **What a card counts**: Power BI's exact formula is not always known (each child once or each
+  registration, blank answers counted or not, which health question, which list of staff or teachers).
+  NeuroDB counts every possible version; **Data health → Compared with Power BI** shows each version's
+  number, and an administrator chooses the one that matches (below).
+- **"Not specified"**: the percentage charts leave blank answers out, as Power BI's do; the key figures
+  still count those registrations.
+
+Dirasa's *Children enrolled* card counts each child once, which is what Power BI's card appears to count,
+with the number of registrations under it. The youth page has **All years**, which also counts the
+registrations saved before September 2025 without a year.
+
+**Choosing a card's version** (administrators): open Administration → **Power BI cards**, open the card,
+type the number Power BI shows for it and its period (for example 2026), and save. Data health → *Compared
+with Power BI* then marks the version that gives that number ("equals Power BI"); choose that version in
+the same card and save. The pages, and the country programme's children enrolled, show it at once. A card
+whose versions all differ from Power BI's number says "No version equals Power BI's number": tell the
+NeuroDB team. Choosing the version marked "default" shows the card as before. **Power BI views** shows the
+views' definitions, with names and lists of numbers hidden, to administrators only.
 
 ## When the data is refreshed
 
@@ -153,5 +192,5 @@ schedules as they are now.
 The **Data health** page (user menu, or the sidebar) shows when each source last synced and which
 runs failed. It opens at once (see [Pages that open at once](/help/overview/#pages-that-open-at-once)):
 the sync jobs fill in first, then the ActivityInfo databases and the latest runs, then the eTools
-datasets and the machine learning readiness check. Pages show the date of their data next to every status ("On track · reported for Jun
+datasets, *Compared with Power BI* and the machine learning readiness check. Pages show the date of their data next to every status ("On track · reported for Jun
 2026", "status as of 3 Oct 2026").

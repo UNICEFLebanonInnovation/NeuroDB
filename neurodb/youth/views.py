@@ -13,6 +13,9 @@ from django.views.decorators.http import require_GET
 from neurodb.web.parts import Part, render_page
 
 from . import compiler, services
+from .models import YouthFigures
+
+ALL = YouthFigures.ALL
 
 
 @require_GET
@@ -34,8 +37,8 @@ def dashboard(request: HttpRequest) -> HttpResponse:
     ``summary`` read for ``as_of``, even when a link was confirmed or a sync came before or between them.
     Without figures: the empty state, and no part at all.
     """
-    years = services.years()
-    filters = services.YouthFilters.from_params(request.GET, years)
+    years, every_year = services.stored_years()  # one query: the years, and whether "All years" is stored
+    filters = services.YouthFilters.from_params(request.GET, years + ([ALL] if every_year else []))
     record = services.stored_row(filters.year) if filters.year else None
     today = datetime.date.today()
 
@@ -48,6 +51,7 @@ def dashboard(request: HttpRequest) -> HttpResponse:
             ),
             "breadcrumbs": [{"label": _("Youth programmes"), "url": None}],
             "years": years,
+            "every_year": every_year,  # the figures of all years together: "All years" in the year select
             "filters": filters,
             "configured": compiler.configured(),
             "record": record,

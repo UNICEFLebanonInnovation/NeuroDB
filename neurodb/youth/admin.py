@@ -17,9 +17,22 @@ from .models import YouthFigures, YouthIndicatorLink
 
 @admin.register(YouthFigures)
 class YouthFiguresAdmin(ReadOnlyModelAdmin):
-    list_display = ("year", "fetched_at", "young_people", "indicators", "programme_documents", "dashboard")
-    fields = ("year", "fetched_at", "young_people", "indicators", "programme_documents", "dashboard")
+    list_display = ("year", "fetched_at", "young_people", "counted_from", "difference", "indicators",
+                    "programme_documents", "dashboard")  # fmt: skip
+    fields = list_display
     readonly_fields = fields
+
+    @admin.display(description=_("Counted from"))
+    def counted_from(self, obj):
+        from neurodb.education.admin import counted_from
+
+        return counted_from(obj.payload)
+
+    @admin.display(description=_("Difference with the view"))
+    def difference(self, obj):
+        from neurodb.education.admin import difference
+
+        return difference(obj.payload)
 
     @admin.display(description=_("Young people reached"))
     def young_people(self, obj):

@@ -1,15 +1,16 @@
 {% load i18n ui %}{# The youth page's "summary" part (youth.views.dashboard): the key figures and the youth indicators, each with its eTools indicators. #}
 <div class="kpi-grid">
-  {% trans "Young people reached" as l1 %}{% trans "Registered in Compiler and enrolled in at least one activity under a youth indicator (deleted registrations left out)." as h1 %}{% include "components/kpi_tile.html" with label=l1 value=data.total|number hint=h1 %}
+  {% trans "Young people reached" as l1 %}{% with card=data.cards.reached second=data.second %}{% if card.variant == "enrolled_people" %}{% trans "Registered in Compiler and enrolled in at least one activity under a youth indicator (deleted registrations left out)." as h1 %}{% else %}{% firstof card.hint card.name as h1 %}{% endif %}{% if second.value is not None %}{% if second.variant == "registered_people" %}{% blocktrans asvar h1 with more=h1 n=second.value|number %}{{ n }} registered, enrolled or not. {{ more }}{% endblocktrans %}{% else %}{% blocktrans asvar h1 with more=h1 n=second.value|number %}{{ n }} enrolled in a programme. {{ more }}{% endblocktrans %}{% endif %}{% endif %}{% if card.fallback %}{% blocktrans asvar h1 with more=h1 hint=card.hint %}{{ more }} {{ hint }}{% endblocktrans %}{% endif %}{% include "components/kpi_tile.html" with label=l1 value=data.total|number hint=h1 %}{% endwith %}
   {% trans "Female" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.female|number %}
   {% trans "Male" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.male|number %}
-  {% trans "Partners" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.partners|number %}
+  {% trans "Partners" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.partners|number hint=data.cards.partners.hint %}
   {% trans "Links to eTools" as l5 %}{% blocktrans asvar h5 with c=data.linked s=data.suggested %}{{ c }} confirmed, {{ s }} suggested{% endblocktrans %}{% include "components/kpi_tile.html" with label=l5 value=data.links|length|number hint=h5 %}
 </div>
+{% include "education/_power_bi_note.html" with note=data.power_bi %}
 
 <section class="panel p-0 mb-3">
   {% include "components/table_toolbar.html" with title=_("Youth indicators") count=data.indicators|length table_id="youth-indicators" filename="youth-indicators" %}
-  {% if data.targets_hidden %}<p class="text-muted small px-3 mb-0">{% trans "Targets are set per programme document, not per place: they are hidden while a governorate is selected." %}</p>{% endif %}
+  {% if data.every_year %}<p class="text-muted small px-3 mb-0">{% trans "Targets are set per year: they are not shown for all years together." %}</p>{% elif data.targets_hidden %}<p class="text-muted small px-3 mb-0">{% trans "Targets are set per programme document, not per place: they are hidden while a governorate is selected." %}</p>{% endif %}
   {% if data.indicators %}
   <div class="table-wrap"><table class="table table-sm" id="youth-indicators">
     <thead><tr><th>{% trans "Indicator" %}</th><th class="num">{% trans "Young people reached" %}</th><th class="num">{% trans "Target" %}</th><th class="num">{% trans "% of target" %}</th><th>{% trans "eTools indicator (partner reporting)" %}</th></tr></thead>

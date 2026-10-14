@@ -281,6 +281,9 @@ QUICK_MIGRATIONS = {
     # SET LOCAL lock_timeout before the knowledge search's rank column, added empty (no default: the table's
     # description only, whatever the number of passages); the knowledge hub job fills it after start-up
     ("knowledge", "0007_chunk_rank_vector", "RunSQL"),
+    # the comparison with Power BI's views (PowerBiView, PowerBiCheck, PowerBiCard): three new, empty tables
+    # of a few dozen rows each (CreateModel only, no code runs; listed so the migration is accounted for here)
+    ("education", "0002_power_bi", "CreateModel"),
 }
 
 

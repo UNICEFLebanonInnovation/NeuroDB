@@ -57,6 +57,19 @@ asks for that part itself (with the HTMX headers, as the signed-in user of the p
 old page wrote them and shows or hides what donor.js shows or hides, so the page is compared as the browser
 shows it.
 
+**Figures changed on purpose (the Power BI alignment, SPEC_PBI).** A recording made on a commit before that
+change differs from a check after it by design, and must be made again on a commit that has it, never forced to
+the old numbers: Makani's percentage charts (``data.charts``: gender, governorate, nationality, package, ID type)
+leave "Not specified" out; Makani's and youth's builds gain ``cards`` (the card version shown, by default today's
+definition, so the key figures keep their values), ``pending_round``, ``power_bi`` (the line under the key
+figures) and youth's ``second``, ``home_governorates`` and ``every_year``; the frames gain ``power_bi`` (Makani)
+and ``every_year`` (youth: "All years" when Compiler sent it). The parts, their frames and what each stores are
+unchanged, save the keys of the youth and country programme builds and of Makani's cache, which also hold the card
+versions chosen in Admin → *Power BI cards* (``neurodb.education.power_bi.cards_stamp``). On a world of payload
+format 2 and youth format 1 (the x20 world), the figures of the converted pages (country programme, youth, donor)
+are unchanged, the country programme's Dirasa sources aside: they read Dirasa's children card, unique children by
+default (``neurodb.education.power_bi.children_total``), where they read the registrations.
+
 **The world.** ``scratchpad/async/s3/d1/build_world.sh <db> [checkout]``: ``s0/world.dump`` restored,
 migrated with the checkout under test, then ``seed_world.py`` (the eTools Datamart, Compiler education and
 youth sync history; Makani and Dirasa figures; youth figures and links; two country programme cycles; a second

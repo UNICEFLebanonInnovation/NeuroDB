@@ -2,7 +2,7 @@
 
 The page answers its frame at once (the page heading, the *Sync jobs* heading with its staleness note, the heading
 and explanation of the datasets panel) with a placeholder per block, each its own computation: ``jobs`` (high),
-``databases`` and ``runs`` (normal), ``datasets`` and ``readiness`` (low). These tests check the frame without any figure work, each part, who may open the page and
+``databases`` and ``runs`` (normal), ``datasets``, ``power-bi`` and ``readiness`` (low). These tests check the frame without any figure work, each part, who may open the page and
 its parts, that the page put together from its parts is the page drawn at once (``_eager=1``), the two quick wins
 of ``datamart_quality`` (the latest run of each dataset in one query; the row counts stored for every worker,
 keyed on the jobs that write those tables) with the same figures as before, and that an edit shows at once.
@@ -53,7 +53,14 @@ from tests.web.parts import (
 pytestmark = pytest.mark.django_db
 
 PAGE = "/data/health/"  # reports:data_health
-PARTS = ("jobs", "databases", "runs", "datasets", "readiness")  # the frame's placeholders, in page order
+PARTS = (
+    "jobs",
+    "databases",
+    "runs",
+    "datasets",
+    "power-bi",
+    "readiness",
+)  # the frame's placeholders, in page order
 JSON_SCRIPT = re.compile(r'<script id="([^"]+)" type="application/json">(.*?)</script>', re.S)
 LINK = re.compile(r'\s(?:href|action|hx-push-url)="([^"]*)"')
 # Query ceilings: what was measured on this world, plus 2 (SPEC7 §3.3 6, §3.4). The frame warm (the navigation
@@ -61,10 +68,11 @@ LINK = re.compile(r'\s(?:href|action|hx-push-url)="([^"]*)"')
 # year and the user's role (the sidebar, and the datasets placeholder's height); cold it also reads the navigation
 # (4). Each part is measured with nothing stored: jobs reads the last success and the latest run of each of its 13
 # jobs; datasets the latest run of every dataset (one query), the key of the stored row counts, the counts of the
-# datasets that have a table, and the gazetteer's.
+# datasets that have a table, and the gazetteer's; power-bi the comparisons with Power BI's views, the views they
+# name and the card versions (three queries, whatever the number of periods; two in this world, which has none).
 SHELL_QUERIES_COLD = 11
 SHELL_QUERIES_WARM = 7
-PART_QUERIES = {"jobs": 31, "databases": 7, "runs": 6, "datasets": 60, "readiness": 6}
+PART_QUERIES = {"jobs": 31, "databases": 7, "runs": 6, "datasets": 60, "power-bi": 7, "readiness": 6}
 
 
 def _place(pk: int, name: str, kind: LocationType) -> Location:
@@ -199,6 +207,7 @@ def test_the_placeholders_carry_the_resolved_query(client_viewer, world):
         "databases": "normal",
         "runs": "normal",
         "datasets": "low",
+        "power-bi": "low",
         "readiness": "low",
     }
     assert not any("data-part-group" in attrs or "data-part-lazy" in attrs for attrs in found.values())
@@ -290,6 +299,9 @@ EXPECTED = {
         "check the country name",
     ),
     "readiness": ('id="ml-readiness"', "Ready for machine learning?", "Which indicators or activities"),
+    # no comparison stored in this world: each programme says it is not compared yet (tests/education/
+    # test_power_bi_pages.py draws one)
+    "power-bi": ('id="power-bi-mscc"', 'id="power-bi-youth"', "Not yet compared"),
 }
 
 
@@ -489,6 +501,7 @@ def test_the_datasets_table_reads_the_same_figures_as_before(world):
         "staleness_hours",
         "stale_database_days",
         "year",
+        "power_bi",  # per Compiler programme, its latest period compared with Power BI's view (counts only)
     }
     assert _figures(health["datasets"]) == before
     assert [j["job"] for j in health["jobs"]] == [j["job"] for j in services.health_jobs()]

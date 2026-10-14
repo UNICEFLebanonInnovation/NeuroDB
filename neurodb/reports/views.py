@@ -3054,7 +3054,11 @@ def data_health(request: HttpRequest) -> HttpResponse:
     - ``datasets``: the table of the eTools Datamart datasets (:func:`services.datamart_quality`), whose row
       counts are stored for every worker (an hour at most, keyed on the jobs that write those tables); its
       panel's heading and explanation are the frame's;
-    - ``readiness``: the last machine learning readiness check.
+    - ``readiness``: the last machine learning readiness check;
+    - ``power-bi``: *Compared with Power BI*, how Compiler counted the Makani, Dirasa and youth figures
+      against the views Power BI reads (:func:`neurodb.education.power_bi.health`, counts only; the frame
+      holds the panel's heading, its explanation and, for administrators, the links to the card versions
+      and the view definitions).
 
     The page has no filter: the parts' query is empty.
     """
@@ -3087,8 +3091,15 @@ def data_health(request: HttpRequest) -> HttpResponse:
             "reports/parts/health_readiness.html",
             lambda: {"readiness": SyncRun.last_success(SyncRun.Job.ML_READINESS)},
         ),
+        "power-bi": Part("reports/parts/health_power_bi.html", lambda: {"programmes": _power_bi_health()}),
     }
     return render_page(request, "reports/data_health.html", scope={}, shell=shell, parts=parts, query="")
+
+
+def _power_bi_health() -> list[dict[str, Any]]:
+    from neurodb.education import power_bi
+
+    return power_bi.health()
 
 
 QUESTION_WORDS = {

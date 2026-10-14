@@ -171,31 +171,30 @@ def _education_values(links: list[Link]) -> dict[int, float | None]:
 
 
 def _stored_total(record: Any) -> int:
-    """:func:`education_total` of a stored row (read without its payload), kept per worker under its id and
-    fetch time: a new fetch of the figures is a new key. The payload is read only when the total is not
-    kept."""
+    """:func:`education_total` of a stored row (read without its payload), kept per worker under its id, its
+    fetch time and the card versions chosen: a new fetch of the figures, or a new choice, is a new key. The
+    payload is read only when the total is not kept."""
+    from neurodb.education import power_bi
     from neurodb.education.models import EducationFigures
 
     stamp = record.fetched_at.isoformat() if record.fetched_at else ""
-    key = f"cpd:education-total:{record.pk}:{stamp}"
+    key = f"cpd:education-total:{record.pk}:{stamp}:{power_bi.cards_stamp()}"
     total = process_cache.get(key)
     if total is None:
         payload = EducationFigures.objects.filter(pk=record.pk).values_list("payload", flat=True).first()
-        total = education_total(payload or {})
+        total = education_total(payload or {}, record.programme)
         process_cache.set(key, total, EDUCATION_TOTAL_SECONDS)
     return total
 
 
-def education_total(payload: dict[str, Any]) -> int:
-    """Children enrolled (registrations) in a Makani or Dirasa payload."""
-    cube = (payload.get("cubes") or {}).get("enrolment")
-    if cube and cube.get("rows"):
-        at = len(cube["dims"]) + cube["measures"].index("registrations")
-        return sum(row[at] or 0 for row in cube["rows"])
-    for grouping in (payload.get("blocks") or {}).get("registrations", {}).get("figures", []):
-        if grouping["by"] == []:
-            return grouping["rows"][0][-1] if grouping["rows"] else 0
-    return 0
+def education_total(payload: dict[str, Any], programme: str | None = None) -> int:
+    """Children enrolled in a Makani or Dirasa payload (``programme``, else the payload's own), as the
+    programme's page counts its children card (one definition per headline figure): the version an
+    administrator chose, by default the registrations (Makani) or the unique children (Dirasa)
+    (:func:`neurodb.education.power_bi.children_total`)."""
+    from neurodb.education import power_bi
+
+    return power_bi.children_total(payload or {}, programme)
 
 
 READERS = {
@@ -577,9 +576,13 @@ def hand_entered(programme: CountryProgramme) -> str:
 
 def fingerprint(programme: CountryProgramme) -> str:
     """What a build of the cycle depends on besides the cycle and the day, as 16 hex digits: what staff enter
-    by hand (:func:`hand_entered`) and :func:`neurodb.core.compute.data_stamp` (the last finished sync, the
-    indicator flags). In the build's key, and in the address of each part of the page (``as_of``)."""
-    return compute.fingerprint(f"{hand_entered(programme)}:{compute.data_stamp()}")
+    by hand (:func:`hand_entered`), the Makani and Dirasa card versions an administrator chose (the children
+    enrolled a Compiler source gives, :func:`neurodb.education.power_bi.cards_stamp`) and
+    :func:`neurodb.core.compute.data_stamp` (the last finished sync, the indicator flags). In the build's key,
+    and in the address of each part of the page (``as_of``)."""
+    from neurodb.education import power_bi
+
+    return compute.fingerprint(f"{hand_entered(programme)}:{power_bi.cards_stamp()}:{compute.data_stamp()}")
 
 
 def _cache_key(programme: CountryProgramme, today: datetime.date, stamp: str = "") -> str:

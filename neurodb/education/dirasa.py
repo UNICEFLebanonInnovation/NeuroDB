@@ -1,22 +1,34 @@
 """The Dirasa (Bridging) dashboard (/education/dirasa/), after the programme's Power BI pages: Overview,
 Outreach, Attendance barriers, Schools map.
 
-School filters (partner, governorate, school, school type, active during emergency) choose the
-schools; the registrations counted are those of the chosen schools (and of the partner chosen), and
-the child filters (CWD type, nationality, gender) apply to them only. The in-school figures are the
-numbers each school reports about its own children, and teachers are those of the chosen schools:
-child filters do not apply to them. Governorate is the school's for schools and the child's in the
-"Enrolment by governorate" chart. Outreach is Compiler's Kobo outreach, shared by every programme,
-with its own filters (year of the interview, partner and governorate as typed in the form).
+The rows counted are those of Power BI's view ``vw_bridging_data`` for the round (from payload format 3, when
+Compiler could use the view; otherwise Compiler's own rule): the line under the key figures says which
+(:func:`neurodb.education.power_bi.note`). School filters (partner, governorate, school, school type, active
+during emergency) choose the schools; the registrations counted are those of the chosen schools (and of the
+partner chosen), and the child filters (CWD type, nationality, gender) apply to them only. The school-level
+figures (in-school children and CWD, type of schools, in-school nationality, teacher trainings, the map) are
+those of the schools that have registrations under the filters, as "Dirasa schools" counts them: a school
+listed only for its teachers is not one of them. The in-school figures are the numbers each school reports
+about its own children. Governorate is the school's for schools and the child's in the "Enrolment by
+governorate" chart. Outreach is Compiler's Kobo outreach, shared by every programme, with its own filters
+(year of the interview, partner and governorate as typed in the form), not from the view.
+
+The children card counts unique children by default (Power BI's card is below its nationality donut's total,
+which counts registrations: SPEC_PBI E19) and shows the registrations as a second line; the unique count
+answers the partner, school and gender filters, and the card shows registrations under the others. The cards
+whose Power BI measure is unknown are counted with the version an administrator chose
+(:data:`neurodb.education.power_bi.VARIANTS`). The charts leave "Not specified" out, as Power BI's do.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy
 
+from . import power_bi
 from .cube import Cube
 from .figures import Figures
 from .services import (
@@ -26,8 +38,8 @@ from .services import (
     Slicer,
     barrier_label,
     colour,
-    cwd_ids,
     id_options,
+    known,
     nationality_group,
     outreach_label,
     pairs,
@@ -145,7 +157,7 @@ def registrations(figures: Figures, filters: dict[str, Any], schools: list[dict[
     return figures.cube("enrolment").filter(**where)
 
 
-def _of_schools(cube: Cube, filters: dict[str, Any], schools: list[dict[str, Any]]) -> Cube:
+def of_schools(cube: Cube, filters: dict[str, Any], schools: list[dict[str, Any]]) -> Cube:
     """Teachers of the chosen schools (every teacher when no school or partner filter is set)."""
     if _by_school(filters) or "partner" in filters:
         return cube.filter(school={s["id"] for s in schools})
@@ -159,59 +171,117 @@ def school_count(schools: list[dict[str, Any]], key: str) -> int | None:
     return sum(values) if values else None
 
 
+@dataclass(frozen=True)
+class Selection:
+    """What the filters choose: the schools (school filters), their registrations (and the partner's, under
+    the child filters), and the schools among them that have registrations under the filters."""
+
+    schools: list[dict[str, Any]]
+    chosen: Cube
+    with_children: list[dict[str, Any]]
+
+
+def selection(figures: Figures, filters: dict[str, Any]) -> Selection:
+    """:class:`Selection`, worked out once per payload reader and filters (the cards and charts read it)."""
+
+    def choose() -> Selection:
+        schools = chosen_schools(figures, filters)
+        chosen = registrations(figures, filters, schools)
+        ids = chosen.distinct("school", "registrations")
+        return Selection(schools, chosen, [s for s in schools if s["id"] in ids])
+
+    return power_bi.memo(figures, "dirasa:selection", filters, choose)
+
+
+BLOCK_FILTERS = {"partner": "partner", "school": "school", "gender": "sex"}  # slicer -> the block's grouping
+
+
+def unique_children(figures: Figures, filters: dict[str, Any]) -> int | None:
+    """Unique children from the registrations block; None when it has no grouping for the filters (it answers
+    the partner, the school and the gender, alone or the partner with one of the two) or a filter is "Not
+    specified"."""
+    if set(filters) - set(BLOCK_FILTERS) or any(v is None for v in filters.values()):
+        return None
+    block = figures.block("registrations")
+    if block.error:
+        return None
+    table = block.table({BLOCK_FILTERS[name]: value for name, value in filters.items()})
+    return None if table is None else (table.get(()) or {}).get("people", 0)
+
+
+CARDS = ("children", "cwd", "in_school", "in_school_cwd", "teachers")  # power_bi.VARIANTS["bridging"]
+
+
+def _children_card(figures: Figures, filters: dict[str, Any], chosen: Cube) -> dict[str, Any]:
+    """The children card (the version chosen) with both counts, for its second line."""
+    card = power_bi.card_value("bridging", "children", figures, filters)
+    return {**card, "unique": unique_children(figures, filters), "registrations": chosen.sum("registrations")}
+
+
 def build(figures: Figures, tab: str, filters: dict[str, Any]) -> dict[str, Any]:
     errors = [name for name in ("enrolment", "teachers", "trainings") if figures.cube(name).error]
     errors += [f"outreach {name}" for name in OUTREACH if figures.outreach(name).error]
     if tab == "outreach":
         return {"errors": errors, **_outreach(figures, filters)}
-    schools = chosen_schools(figures, filters)
-    chosen = registrations(figures, filters, schools)
+    chosen = selection(figures, filters)
     data: dict[str, Any] = {"errors": errors}
     if tab == "overview":
+        cards = {name: power_bi.card_value("bridging", name, figures, filters) for name in CARDS[1:]}
+        cards["children"] = _children_card(figures, filters, chosen.chosen)
         by_nationality: dict[str, int] = {}
-        for nid, count in chosen.by("nationality", "registrations").items():
-            group = nationality_group(None if nid is None else figures.label_of("nationality", nid))
+        for nid, count in chosen.chosen.by("nationality", "registrations").items():
+            if nid is None:  # "Not specified" left out, as Power BI's donut
+                continue
+            group = nationality_group(figures.label_of("nationality", nid))
             by_nationality[group] = by_nationality.get(group, 0) + count
         types: dict[Any, int] = {}
-        for school in schools:
+        for school in chosen.with_children:
             types[school.get("type")] = types.get(school.get("type"), 0) + 1
-        lebanese = school_count(schools, "children_lebanese")
-        others = school_count(schools, "children_non_lebanese")
-        trainings = _of_schools(figures.cube("trainings"), filters, schools)
-        with_disability = chosen.filter(disability=cwd_ids(figures, chosen.values("disability")))
+        lebanese = school_count(chosen.with_children, "children_lebanese")
+        others = school_count(chosen.with_children, "children_non_lebanese")
+        trainings = figures.cube("trainings").filter(school={s["id"] for s in chosen.with_children})
+        data["cards"] = cards
         data["kpis"] = {
-            "schools": len(chosen.distinct("school", "registrations")),
-            "children": chosen.sum("registrations"),
-            "in_school": school_count(schools, "children"),
-            "cwd": with_disability.sum("registrations"),
-            "in_school_cwd": school_count(schools, "cwd"),
-            "teachers": _of_schools(figures.cube("teachers"), filters, schools).sum("teachers"),
+            "schools": len(chosen.chosen.distinct("school", "registrations")),
+            **{name: cards[name]["value"] for name in CARDS},
         }
         data["charts"] = {
             "nationality": pairs(by_nationality, order=GROUPS),
-            "gender": pairs(chosen.by("sex", "registrations"), category, order=[category(s) for s in SEXES]),
-            "school_types": pairs(types),
+            "gender": pairs(
+                chosen.chosen.by("sex", "registrations"),
+                known(category),
+                order=[category(s) for s in SEXES if s != NOT_SPECIFIED],
+                unknown=False,
+            ),
+            "school_types": pairs(types, unknown=False),
             "in_school_nationality": [
                 [label, value]
                 for label, value in ((_("Lebanese children"), lebanese), (_("Non-Lebanese children"), others))
                 if value
             ],
             "governorate": pairs(
-                chosen.by("governorate", "registrations"), lambda v: figures.label_of("governorate", v)
+                chosen.chosen.by("governorate", "registrations"),
+                lambda v: figures.label_of("governorate", v),
+                unknown=False,
             ),
             "trainings": pairs(
                 trainings.by("training", "teachers"), lambda v: figures.label_of("training", v)
             ),
         }
     elif tab == "barriers":
-        barriers = chosen.by("barrier", "registrations")
+        barriers = chosen.chosen.by("barrier", "registrations")
+        card = _children_card(figures, filters, chosen.chosen)
+        data["cards"] = {"children": card}
         data["kpis"] = {
-            "children": chosen.sum("registrations"),
+            "children": card["value"],
             "with_barrier": sum(count for value, count in barriers.items() if value is not None),
         }
         data["charts"] = {"barriers": pairs(barriers, barrier_label, unknown=False)}
     elif tab == "map":
-        data.update(_map(figures, chosen, schools))
+        data.update(_map(figures, chosen.chosen, chosen.with_children))
+        card = _children_card(figures, filters, chosen.chosen)
+        data["cards"] = {"children": card}
+        data["kpis"]["children"] = card["value"]
     return data
 
 
@@ -284,7 +354,7 @@ def _map(figures: Figures, chosen: Cube, schools: list[dict[str, Any]]) -> dict[
     rows.sort(key=lambda r: (-r["children"], str(r["name"]).casefold()))
     located_types = {p["group"] for p in points}
     return {
-        "kpis": {"schools": len(schools), "children": chosen.sum("registrations")},
+        "kpis": {"schools": len(schools)},
         "points": {
             "mode": "points",
             "points": points,
@@ -314,4 +384,5 @@ PAGE = Page(
     slicers=SLICERS,
     options=options,
     build=build,
+    own_tabs=("outreach",),
 )

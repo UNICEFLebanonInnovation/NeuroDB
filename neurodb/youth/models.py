@@ -13,10 +13,21 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 
+class YouthFiguresQuerySet(models.QuerySet):
+    def yearly(self) -> YouthFiguresQuerySet:
+        """The reporting years, without the figures of all years together (``YouthFigures.ALL``): every reader
+        that takes "the latest year" reads these ("all" sorts after "2026" as text)."""
+        return self.exclude(year=YouthFigures.ALL)
+
+
 class YouthFigures(models.Model):
+    ALL = "all"  # Compiler's count over every year (registrations without a year included)
+
     year = models.CharField(max_length=16, unique=True, help_text=_("Compiler's reporting year"))
     fetched_at = models.DateTimeField()
     payload = models.JSONField(help_text=_("counts of young people per grouping, as Compiler sent them"))
+
+    objects = YouthFiguresQuerySet.as_manager()
 
     class Meta:
         ordering = ("-year",)

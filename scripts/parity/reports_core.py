@@ -44,6 +44,11 @@ data health's ``health.<block>``        ``<block>`` of the part of that name (jo
 everything else                         the frame, under its own name
 =====================================  ==========================================================
 
+Data health's sixth part, ``power-bi`` (*Compared with Power BI*, the Power BI alignment of SPEC_PBI), came after
+this group's recording: it has no path in the old page's context and is not compared (its figures are tested in
+``tests/education/test_power_bi_pages.py``); ``health.power_bi``, the summary ``services.data_health`` gained for the
+assistant and the API, is not drawn by either page.
+
 JSON: ``brief-chart-data`` became ``brief-sections-data`` (the same dict plus ``labels``, which must be the
 status labels), ``chart-data`` became ``partner-datamart-data`` (:data:`JSON_IDS`). Element ids only the
 pages in parts have (``part-<name>``, and data health's ``jobs-title``, the jobs part's label) are not

@@ -63,13 +63,14 @@ JSON_SCRIPT = re.compile(r'<script id="([^"]+)" type="application/json">', re.S)
 # Query ceilings: what was measured on this world, plus 2 (SPEC7 §3.3 6, §3.4). The frame: the request's floor
 # (session, user, donor check, user role, the sidebar's sections and years), the stored years, the year's row
 # without its payload, the filter's choices cut out of the payload in the database (cold), the year's links (one
-# digest) and the cache stamp (last sync run, indicator flags); drawn inline the same without the choices (stored).
-# Each part with nothing stored computes the build (the payload, the links, the eTools indicators of the linked
-# programme documents and their reports); the group's second part reading the stored build only reads the keys.
-SHELL_QUERIES = 14
-SHELL_QUERIES_INLINE = 13
-PART_QUERIES = 19
-PART_QUERIES_STORED = 10
+# digest), the card versions chosen (SPEC_PBI §4.3, one query) and the cache stamp (last sync run, indicator flags);
+# drawn inline the same without the choices (stored). Each part with nothing stored computes the build (the payload,
+# the links, the eTools indicators of the linked programme documents and their reports, the comparison with Power
+# BI's view); the group's second part reading the stored build only reads the keys.
+SHELL_QUERIES = 15
+SHELL_QUERIES_INLINE = 14
+PART_QUERIES = 21
+PART_QUERIES_STORED = 11
 
 
 @pytest.fixture

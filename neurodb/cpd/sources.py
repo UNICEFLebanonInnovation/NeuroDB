@@ -68,7 +68,7 @@ def choices(indicator: Indicator) -> list[tuple[str, list[tuple[str, str]]]]:
         groups.append(("ActivityInfo master indicators", options))
 
     options = []
-    for record in YouthFigures.objects.order_by("-year"):
+    for record in YouthFigures.objects.yearly().order_by("-year"):
         if _year_of(record.year) not in years:
             continue
         for item in Figures(record.payload).payload.get("indicators", []):

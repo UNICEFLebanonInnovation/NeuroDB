@@ -7,11 +7,19 @@ documents; they are not set per place, so a governorate filter hides them.
 The page (``youth.views.dashboard``) loads in parts: its two parts read one :func:`build`, kept ten minutes in
 the cache every worker shares (:func:`neurodb.core.compute.once`) under a key that holds the year's stored
 figures (their row and the time they were read from Compiler), the filters, the day, the year's links to
-eTools (which staff confirm, correct or add in the admin, :func:`links_stamp`) and
+eTools (which staff confirm, correct or add in the admin, :func:`links_stamp`), the card versions an
+administrator chose (:func:`neurodb.education.power_bi.cards_stamp`) and
 :func:`neurodb.core.compute.data_stamp` (the last finished sync, which covers eTools and Compiler, and the
 indicator flags). A build is plain data, the same for every user; its breakdowns' names are translated as it
 is computed, so it is kept per language. The filter bar's choices (:func:`filter_options`) are read in the
 database from the few lists they need, never from the whole payload, and kept for every worker the same way.
+
+From payload format 2 Compiler counts the registrations of Power BI's view ``vw_youth_data_all`` (the line
+under the key figures says so, :func:`neurodb.education.power_bi.note`), and sends the registered young people
+(enrolled or not) and the enrolments beside the figures: the headline and the partners are counted with the
+version an administrator chose (today's meaning by default), the headline's second line gives the registered
+young people, and a breakdown gives them by the governorate of their address. "All years" (the year
+``YouthFigures.ALL``) is the count over every year, registrations without a year included; it has no targets.
 """
 
 from __future__ import annotations
@@ -28,6 +36,7 @@ from django.utils.dateparse import parse_date
 from django.utils.translation import gettext_lazy as _
 
 from neurodb.core import compute
+from neurodb.education import power_bi
 
 from . import linking
 from .figures import AGE_ORDER, Figures, indicator_label
@@ -63,6 +72,8 @@ class YouthFilters:
 
     @classmethod
     def from_params(cls, params: QueryDict, years: list[str]) -> YouthFilters:
+        """``years``: the periods the page offers, the latest year first (``YouthFigures.ALL`` among them when
+        the figures of all years together are stored)."""
         year = params.get("year", "")
         return cls(
             year=year if year in years else (years[0] if years else ""),
@@ -81,8 +92,16 @@ class YouthFilters:
         return bool(self.main() or self.master)
 
 
+def stored_years() -> tuple[list[str], bool]:
+    """The stored reporting years, latest first, and whether the figures of all years together
+    (``YouthFigures.ALL``) are stored too: one query."""
+    stored = list(YouthFigures.objects.order_by("-year").values_list("year", flat=True))
+    return [y for y in stored if y != YouthFigures.ALL], YouthFigures.ALL in stored
+
+
 def years() -> list[str]:
-    return list(YouthFigures.objects.order_by("-year").values_list("year", flat=True))
+    """The stored reporting years, latest first (the figures of all years together are not a year)."""
+    return list(YouthFigures.objects.yearly().order_by("-year").values_list("year", flat=True))
 
 
 def load(year: str) -> YouthFigures | None:
@@ -254,6 +273,23 @@ def _indicator_rows(figures: Figures, filters: YouthFilters, by_indicator: dict)
     return rows
 
 
+def _home_governorates(figures: Figures, filters: dict[str, int]) -> dict[str, Any] | None:
+    """Registered young people (enrolled or not) by the governorate of their address (format 2's
+    ``registered`` block): None for a payload without it; ``rows`` None when the block has no grouping for
+    the filters (it answers the partner only: not the master indicator, the donor or the place of the
+    enrolment)."""
+    from neurodb.education.figures import Block
+
+    data = (figures.payload.get("blocks") or {}).get("registered")
+    if not isinstance(data, dict):
+        return None
+    table = Block(data).table(filters, "home_governorate")
+    if table is None:
+        return {"rows": None}
+    rows = [(figures.label("governorate", key[0]), m.get("people") or 0) for key, m in table.items()]
+    return {"rows": sorted(rows, key=lambda r: (-r[1], r[0]))}
+
+
 def _breakdown(figures: Figures, filters: dict[str, int], dimension: str) -> list[tuple[str, int]]:
     table = figures.table(filters, dimension) or {}
     rows = [(figures.label(dimension, key[0]), count) for key, count in table.items()]
@@ -312,11 +348,26 @@ def dashboard(record: YouthFigures, filters: YouthFilters) -> dict[str, Any]:
         for key, label in BREAKDOWNS
     ]
     sexes = dict(_breakdown(figures, scoped, "sex"))
+    # the headline and the partners, counted with the version an administrator chose (power_bi.VARIANTS)
+    reached = power_bi.card_value("youth", "reached", figures, scoped)
+    partners = power_bi.card_value("youth", "partners", figures, scoped)
+    other = "registered_people" if reached["variant"] == "enrolled_people" else "enrolled_people"
+    every_year = filters.year == YouthFigures.ALL
     return {
-        "total": figures.count(scoped),
+        "total": reached["value"],
         "female": sexes.get("Female", 0),
         "male": sexes.get("Male", 0),
-        "partners": len(figures.table(scoped, "partner") or {}),
+        "partners": partners["value"],
+        "cards": {"reached": reached, "partners": partners},
+        # the headline's second line: registered young people (format 2), or the enrolled ones when another
+        # version is shown
+        "second": {
+            "variant": other,
+            "value": power_bi.variant_value("youth", "reached", other, figures, scoped),
+        },
+        "home_governorates": _home_governorates(figures, scoped),
+        "power_bi": power_bi.page_note("youth", record.year, power_bi.counted_at(figures.payload)),
+        "every_year": every_year,
         "indicators": indicators,
         "breakdowns": breakdowns,
         "programme_documents": _programme_documents(figures, scoped),
@@ -325,7 +376,7 @@ def dashboard(record: YouthFigures, filters: YouthFilters) -> dict[str, Any]:
         "suggested": sum(1 for link in links if link["link"].source == YouthIndicatorLink.Source.SUGGESTED),
         "fetched_at": record.fetched_at,
         "generated_at": figures.payload.get("generated_at"),
-        "targets_hidden": filters.governorate is not None,
+        "targets_hidden": filters.governorate is not None or every_year,
     }
 
 
@@ -394,9 +445,10 @@ def links_stamp(year: str) -> str:
 
 def fingerprint(year: str) -> str:
     """What a build of the year depends on besides its figures, filters and day, as 16 hex digits: the
-    year's links (:func:`links_stamp`) and :func:`neurodb.core.compute.data_stamp`. In the build's key, and in
-    the address of each part of the page (``as_of``)."""
-    return compute.fingerprint(f"{links_stamp(year)}:{compute.data_stamp()}")
+    year's links (:func:`links_stamp`), the card versions an administrator chose
+    (:func:`neurodb.education.power_bi.cards_stamp`) and :func:`neurodb.core.compute.data_stamp`. In the
+    build's key, and in the address of each part of the page (``as_of``)."""
+    return compute.fingerprint(f"{links_stamp(year)}:{power_bi.cards_stamp()}:{compute.data_stamp()}")
 
 
 def _cache_key(record: YouthFigures, filters: YouthFilters, today: datetime.date, stamp: str = "") -> str:

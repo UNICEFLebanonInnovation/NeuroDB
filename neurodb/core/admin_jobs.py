@@ -114,9 +114,10 @@ BACKGROUND_JOBS = [
         _("Compiler youth figures"),
         _("Read the youth figures from Compiler"),
         _(
-            "Reads from Compiler how many young people each youth indicator reached, per partner, "
-            "donor and place (counts only, no personal data), in the background, then suggests links "
-            "to the eTools indicators of the same programme documents."
+            "Asks Compiler to count, then reads how many young people each youth indicator reached, per "
+            "partner, donor and place, this year, the years before it and all years together (counts "
+            "only, no personal data), in the background, then suggests links to the eTools indicators of "
+            "the same programme documents."
         ),
         "groups",
     ),
@@ -127,9 +128,9 @@ BACKGROUND_JOBS = [
         _("Compiler education figures"),
         _("Read the education figures from Compiler"),
         _(
-            "Reads the Makani and Bridging counts Compiler prepared at night (children by partner, place, "
-            "sex, age, services, attendance; no personal data), in the background. A year Compiler has "
-            "not counted yet is counted there and arrives at the next run."
+            "Asks Compiler to count the Makani and Bridging figures (the current year, and past years "
+            "counted long ago or in an older way), then reads them (children by partner, place, sex, age, "
+            "services, attendance; no personal data), in the background."
         ),
         "school",
     ),

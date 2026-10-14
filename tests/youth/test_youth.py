@@ -188,9 +188,17 @@ def etools(db):
 
 
 class FakeClient:
+    """An older Compiler: it does not count youth in its figures runs (unknown programme) and its youth API
+    counts on the spot, for the years it has (never "all")."""
+
     def __init__(self, years):
         self.years = years
         self.asked = []
+        self.runs = []
+
+    def start_run(self, kind, payload=None):
+        self.runs.append((kind, payload))
+        return None  # what CompilerClient.start_run answers to a 400 "Unknown programme"
 
     def figures(self, year=None):
         self.asked.append(year)
@@ -218,7 +226,9 @@ def test_sync_keeps_counts_and_suggests_the_matching_etools_indicator(etools):
     client = FakeClient(["2026"])
     run = sync(triggered_by="test", client=client)
     assert run.status == SyncRun.Status.SUCCEEDED
-    assert client.asked == [None, "2025"]  # this year, then the year before (not in Compiler: skipped)
+    # this year, then the year before (not in Compiler: skipped), then all years (an older Compiler has none)
+    assert client.asked == [None, "2025", "all"]
+    assert run.details["calculation"]["status"] == "unavailable"
     assert list(YouthFigures.objects.values_list("year", flat=True)) == ["2026"]
     link = YouthIndicatorLink.objects.get()
     assert (link.level, link.youth_indicator_id, link.compiler_pd_id) == ("sub", 101, 3)

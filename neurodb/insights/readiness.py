@@ -387,7 +387,7 @@ def context(s: Section, today: datetime.date) -> None:
                 for r in PopulationFigure.objects.values("level").annotate(n=Count("id")).order_by("level")
             ),
         )
-    s.add("youth_years", "Compiler youth years", YouthFigures.objects.count())
+    s.add("youth_years", "Compiler youth years", YouthFigures.objects.yearly().count())
     s.add("education_periods", "Compiler education periods", EducationFigures.objects.count())
     s.add(
         "wellbeing_months",

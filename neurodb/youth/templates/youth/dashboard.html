@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load i18n ui parts %}
 {% block content %}
-{% if not years %}
+{% if not years and not every_year %}
 <section class="panel">
   {% if configured %}
   {% include "components/empty_state.html" with icon="users" title=_("No youth figures yet") message=_("The youth figures are read from Compiler by the job “Read the youth figures from Compiler” (admin → Import and sync runs → Run a job).") %}
@@ -15,6 +15,7 @@
     <label class="form-label" for="f-year">{% trans "Year" %}</label>
     <select class="form-select form-select-sm" id="f-year" name="year">
       {% for y in years %}<option value="{{ y }}" {% if y == filters.year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+      {% if every_year %}<option value="all" {% if filters.year == "all" %}selected{% endif %}>{% trans "All years" %}</option>{% endif %}
     </select>
   </div>
   {% if record %}

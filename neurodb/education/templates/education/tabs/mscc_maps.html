@@ -1,4 +1,5 @@
 {% load i18n ui %}
+{% include "education/_power_bi_note.html" with note=power_bi pending=data.pending_round %}
 <div class="grid grid--2 mb-3">
   <section class="panel">
     <div class="panel__header"><h2 class="panel__title">{% trans "Enrolled children map" %}</h2><span class="panel__hint">{% trans "children enrolled per governorate (the center's)" %}</span></div>

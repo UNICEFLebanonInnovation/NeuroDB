@@ -5,6 +5,10 @@ Power BI dashboards the pages follow. A page keeps the cube rows matching the fi
 up (cube.py), in Python, from the stored payload; the result of each tab and set of filters is kept
 in the cache for 10 minutes. The unique count of children comes from the older blocks (figures.py),
 which only answer a few filters. A payload of format 1 (no cubes) shows an empty state.
+
+From format 3 the rows counted are those of the view Power BI reads (``power_bi.py``): each page says so in a
+line under its key figures, and the cards whose Power BI measure is unknown are counted with the version an
+administrator chose (in the cache key, so a new choice shows at once).
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ from django.utils.translation import gettext as _
 from neurodb.geo.models import GovernorateLocation
 from neurodb.geo.services import geojson_for_level
 
+from . import power_bi
 from .figures import Figures
 from .models import EducationFigures
 
@@ -59,6 +64,9 @@ class Page:
     slicers: tuple[Slicer, ...]
     options: Callable[[Figures], dict[str, list[tuple[str, str]]]]
     build: Callable[[Figures, str, dict[str, Any]], dict[str, Any]]
+    own_tabs: tuple[
+        str, ...
+    ] = ()  # tabs with data of their own, not from Power BI's view (Dirasa's outreach)
 
     def tab(self, raw: str | None) -> str:
         keys = [key for key, _label in self.tabs]
@@ -83,9 +91,19 @@ def record(programme: str, period: str) -> EducationFigures | None:
 
 
 def cached(stored: EducationFigures, part: str, filters: dict[str, Any], build: Callable[[], Any]) -> Any:
-    """``build()`` kept for 10 minutes per figures row and fetch, page part, filters and language."""
+    """``build()`` kept for 10 minutes per figures row and fetch, page part, filters, language and the card
+    versions an administrator chose (:func:`neurodb.education.power_bi.cards_stamp`: a new choice shows at
+    once)."""
     stamp = stored.fetched_at.isoformat() if stored.fetched_at else ""
-    key_data = [stored.pk, stamp, stored.programme, part, sorted(filters.items()), translation.get_language()]
+    key_data = [
+        stored.pk,
+        stamp,
+        stored.programme,
+        part,
+        sorted(filters.items()),
+        translation.get_language(),
+        power_bi.cards_stamp(),
+    ]
     key = "education:" + hashlib.sha256(json.dumps(key_data, default=str).encode()).hexdigest()
     data = cache.get(key, _MISSING)
     if data is _MISSING:
@@ -96,8 +114,8 @@ def cached(stored: EducationFigures, part: str, filters: dict[str, Any], build: 
 
 def page_data(stored: EducationFigures, page: Page, tab: str, params: QueryDict) -> dict[str, Any]:
     """The slicers of the tab (with their options and choices), the other slicers' values to keep
-    in the links (and the names of those chosen, which do not apply here), and the tab's figures
-    under the filters."""
+    in the links (and the names of those chosen, which do not apply here), the tab's figures
+    under the filters, and the comparison with Power BI's view (:func:`neurodb.education.power_bi.note`)."""
     figures: Figures | None = None
 
     def load() -> Figures:
@@ -116,6 +134,11 @@ def page_data(stored: EducationFigures, page: Page, tab: str, params: QueryDict)
     # a filter chosen on another tab stays in the links, and the page says it does not count here
     elsewhere, _selected = parse_filters(params, hidden, options)
     data = cached(stored, tab, filters, lambda: page.build(load(), tab, filters))
+    note = (
+        power_bi.page_note(page.programme, stored.year, stored.counted_at)
+        if tab not in page.own_tabs
+        else None
+    )
     if data.get("choropleth"):  # the polygons are cached apart (geo.services), once for every filter
         config = {k: v for k, v in data["choropleth"].items() if k != "values"}
         data = {**data, "choropleth": {**config, "geojson": areas_geojson(data["choropleth"])}}
@@ -129,6 +152,9 @@ def page_data(stored: EducationFigures, page: Page, tab: str, params: QueryDict)
         "not_applied": [s.label for s in hidden if s.name in elsewhere and not s.own_data],
         "filters": filters,
         "data": data,
+        # whether Compiler counted the rows of Power BI's view, for the line under the key figures (not on a
+        # tab with data of its own, such as Dirasa's outreach)
+        "power_bi": note,
     }
 
 
@@ -201,6 +227,16 @@ def pairs(
         last = _(NOT_SPECIFIED)
         items = sorted(merged.items(), key=lambda item: (item[0] == last, -item[1], item[0].casefold()))
     return [[name, count] for name, count in items]
+
+
+def known(label: Callable[[Any], str | None] = str) -> Callable[[Any], str | None]:
+    """``label`` for :func:`pairs`, leaving the answer "Not specified" out (a text category Compiler gives
+    for a blank): Power BI's percentage charts have no blank bar. Pass ``unknown=False`` too for ids."""
+
+    def name(value: Any) -> str | None:
+        return None if value == NOT_SPECIFIED else label(value)
+
+    return name
 
 
 def colour(index: int) -> str:

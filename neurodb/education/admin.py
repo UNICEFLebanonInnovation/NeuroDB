@@ -1,23 +1,56 @@
-"""The education figures read from Compiler (read-only)."""
+"""The education figures read from Compiler (read-only), and the comparison with Power BI's views: the views'
+masked definitions and the card versions, for Administrators only."""
 
 from __future__ import annotations
 
+from django import forms
 from django.contrib import admin
 from django.urls import reverse
-from django.utils.html import format_html
+from django.utils import timezone
+from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
+from unfold.admin import ModelAdmin
 
-from neurodb.web.admin_helpers import ReadOnlyModelAdmin
+from neurodb.accounts.roles import ADMIN, role_of
+from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
+from . import power_bi
 from .figures import Figures
-from .models import EducationFigures
+from .models import EducationFigures, PowerBiCard, PowerBiCheck, PowerBiView
+
+
+def is_admin(request) -> bool:
+    """An Administrator (the role, or a superuser): the only ones who see the views' definitions and choose
+    the card versions."""
+    return request.user.is_authenticated and role_of(request.user) == ADMIN
+
+
+def counted_from(payload: dict) -> str:
+    """'The view' or "Compiler's rule" from a payload's ``power_bi`` block, as a badge; "—" for a payload of
+    an older Compiler (not compared)."""
+    mode = (((power_bi.block(payload or {}) or {}).get("base")) or {}).get("mode")
+    if mode == "view":
+        return badge(_("the view"), "ok")
+    if mode:
+        return badge(_("Compiler's rule"), "warn")
+    return "—"
+
+
+def difference(payload: dict) -> str:
+    """What was counted minus the view's registrations (the reconciliation's totals); "—" when unknown."""
+    totals = (((power_bi.block(payload or {}) or {}).get("reconciliation")) or {}).get("totals") or {}
+    counted, view = totals.get("counted"), totals.get("view_ids")
+    if not isinstance(counted, int) or not isinstance(view, int):
+        return "—"
+    return f"{counted - view:+,}" if counted != view else "0"
 
 
 @admin.register(EducationFigures)
 class EducationFiguresAdmin(ReadOnlyModelAdmin):
-    list_display = ("programme_label", "year", "children", "counted_at", "fetched_at", "problems", "page")
+    list_display = ("programme_label", "year", "children", "counted_from", "difference", "counted_at",
+                    "fetched_at", "problems", "page")  # fmt: skip
     list_filter = ("programme",)
-    fields = ("programme_label", "year", "children", "counted_at", "fetched_at", "problems", "page")
+    fields = list_display
     readonly_fields = fields
 
     @admin.display(description=_("Programme"), ordering="programme")
@@ -27,6 +60,14 @@ class EducationFiguresAdmin(ReadOnlyModelAdmin):
     @admin.display(description=_("Children registered"))
     def children(self, obj):
         return Figures(obj.payload).block("registrations").total({}).get("people", 0)
+
+    @admin.display(description=_("Counted from"))
+    def counted_from(self, obj):
+        return counted_from(obj.payload)
+
+    @admin.display(description=_("Difference with the view"))
+    def difference(self, obj):
+        return difference(obj.payload)
 
     @admin.display(description=_("Parts not counted"))
     def problems(self, obj):
@@ -40,3 +81,234 @@ class EducationFiguresAdmin(ReadOnlyModelAdmin):
         else:
             url, param = reverse("education:makani"), "year"
         return format_html('<a href="{}?{}={}">{}</a>', url, param, obj.year, _("Open"))
+
+
+class AdministratorsOnly:
+    """Listed and opened by Administrators only."""
+
+    def has_module_permission(self, request):
+        return is_admin(request)
+
+    def has_view_permission(self, request, obj=None):
+        return is_admin(request)
+
+
+@admin.register(PowerBiView)
+class PowerBiViewAdmin(AdministratorsOnly, ReadOnlyModelAdmin):
+    """The views Power BI reads, and their related views, as Compiler last described them: the definition
+    with its string literals and long lists of numbers masked by Compiler (no name, no list of ids), its
+    columns, the relations it reads and the hash of the raw text, with the date it last changed. Read-only."""
+
+    list_display = ("name", "state", "kind", "can_select", "changed_at", "checked_at")
+    list_filter = ("exists", "kind")
+    search_fields = ("name",)
+    readonly_fields = ("name", "state", "kind", "can_select", "column_list", "read_list", "masked_definition",
+                       "sha256", "previous_sha256", "first_seen", "changed_at", "checked_at")  # fmt: skip
+    fieldsets = (
+        (None, {"fields": ("name", "state", "kind", "can_select", "first_seen", "changed_at", "checked_at")}),
+        (_("Columns and relations read"), {"fields": ("column_list", "read_list")}),
+        (_("Definition, masked by Compiler"), {"classes": ("collapse",), "fields": ("masked_definition",)}),
+        (_("Hashes of the raw definition"), {"fields": ("sha256", "previous_sha256")}),
+    )
+
+    @admin.display(description=_("State"), ordering="exists")
+    def state(self, obj):
+        return badge(_("exists"), "ok") if obj.exists else badge(_("missing"), "bad")
+
+    @admin.display(description=_("Columns"))
+    def column_list(self, obj):
+        rows = [c for c in obj.columns or [] if isinstance(c, list | tuple) and c]
+        if not rows:
+            return "—"
+        return format_html_join(
+            ", ", "<code>{}</code> {}", ((c[0], c[1] if len(c) > 1 else "") for c in rows)
+        )
+
+    @admin.display(description=_("Reads"))
+    def read_list(self, obj):
+        rows = [r for r in obj.reads or [] if isinstance(r, list | tuple) and len(r) >= 2]
+        if not rows:
+            return "—"
+        return format_html_join(
+            ", ", "<code>{}.{}</code> {}", ((r[0], r[1], f"({r[2]})" if len(r) > 2 else "") for r in rows)
+        )
+
+    @admin.display(description=_("Definition"))
+    def masked_definition(self, obj):
+        if not obj.definition:
+            return "—"
+        return format_html('<pre class="nd-json" style="white-space: pre-wrap">{}</pre>', obj.definition)
+
+
+def _card_names() -> list[tuple[str, str]]:
+    names: dict[str, str] = {}
+    for cards in power_bi.VARIANTS.values():
+        for name, definition in cards.items():
+            names.setdefault(name, str(definition.label or name))
+    return sorted(names.items())
+
+
+class PowerBiCardForm(forms.ModelForm):
+    """The card's version (one of :data:`neurodb.education.power_bi.VARIANTS`) and Power BI's number."""
+
+    class Meta:
+        model = PowerBiCard
+        fields = ("programme", "card", "variant", "powerbi_value", "powerbi_period")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if "programme" in self.fields:
+            self.fields["programme"] = forms.ChoiceField(
+                label=_("Programme"), choices=[(p, label) for p, label, _url in power_bi.PROGRAMMES]
+            )
+        if "card" in self.fields:
+            self.fields["card"] = forms.ChoiceField(label=_("Card"), choices=_card_names())
+        definition = power_bi.VARIANTS.get(self.instance.programme, {}).get(self.instance.card)
+        if self.instance.pk and definition is not None:
+            choices = [(v, definition.names.get(v, v)) for v in definition.variants]
+        else:
+            choices = sorted(
+                {(v, v) for cards in power_bi.VARIANTS.values() for d in cards.values() for v in d.variants}
+            )
+        self.fields["variant"] = forms.ChoiceField(
+            label=_("Version"),
+            choices=choices,
+            help_text=_(
+                "The definition the pages use for this card; Data health shows what each one counts."
+            ),
+        )
+
+    def clean(self):
+        data = super().clean()
+        programme = data.get("programme") or self.instance.programme
+        card = data.get("card") or self.instance.card
+        definition = power_bi.VARIANTS.get(programme, {}).get(card)
+        if definition is None:
+            raise forms.ValidationError(_("This programme has no such card."))
+        if data.get("variant") not in definition.variants:
+            raise forms.ValidationError(
+                _("Choose one of this card's versions: %(versions)s.")
+                % {"versions": ", ".join(definition.variants)}
+            )
+        return data
+
+
+@admin.register(PowerBiCard)
+class PowerBiCardAdmin(AdministratorsOnly, ModelAdmin):
+    """The version of each card the pages show (Makani, Dirasa, youth, and the country programme's children
+    enrolled), and the number Power BI shows for it. Type the number Power BI shows for a card and period:
+    Data health (*Compared with Power BI*) marks the version that gives it; choose that version here, and
+    the pages show it at once. Every card is listed, with its default, the first time this list is opened."""
+
+    form = PowerBiCardForm
+    list_display = ("programme_label", "card_label", "version", "powerbi_value", "powerbi_period", "equals",
+                    "noted_at", "noted_by")  # fmt: skip
+    list_filter = ("programme",)
+    list_select_related = ("noted_by",)
+
+    def has_add_permission(self, request):
+        return is_admin(request)
+
+    def has_change_permission(self, request, obj=None):
+        return is_admin(request)
+
+    def has_delete_permission(self, request, obj=None):
+        return is_admin(request)
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj is not None and obj.pk:
+            return ("programme", "card", "noted_at", "noted_by", "versions")
+        return ("noted_at", "noted_by")
+
+    def get_fields(self, request, obj=None):
+        fields = ["programme", "card", "variant", "powerbi_value", "powerbi_period", "noted_at", "noted_by"]
+        return [*fields, "versions"] if obj is not None and obj.pk else fields
+
+    def changelist_view(self, request, extra_context=None):
+        if is_admin(request):
+            ensure_cards()
+        return super().changelist_view(request, extra_context)
+
+    def save_model(self, request, obj, form, change):
+        if not change or form.has_changed():
+            obj.noted_at, obj.noted_by = timezone.now(), request.user
+        super().save_model(request, obj, form, change)
+
+    @admin.display(description=_("Programme"), ordering="programme")
+    def programme_label(self, obj):
+        return {p: label for p, label, _url in power_bi.PROGRAMMES}.get(obj.programme, obj.programme)
+
+    @admin.display(description=_("Card"), ordering="card")
+    def card_label(self, obj):
+        definition = power_bi.VARIANTS.get(obj.programme, {}).get(obj.card)
+        return definition.label if definition else obj.card
+
+    @admin.display(description=_("Version in use"))
+    def version(self, obj):
+        definition = power_bi.VARIANTS.get(obj.programme, {}).get(obj.card)
+        if definition is None:
+            return obj.variant
+        if obj.variant not in definition.variants:
+            return format_html("{} ({})", obj.variant, _("unknown: the default is used"))
+        name = definition.names.get(obj.variant, obj.variant)
+        if obj.variant == definition.default:
+            return format_html("{} <span class='text-muted'>({})</span>", name, _("default"))
+        return name
+
+    def _values(self, obj) -> tuple[str, dict]:
+        """The latest comparison of the card's programme (of the period typed, when there is one) and the
+        versions' values in it."""
+        checks = PowerBiCheck.objects.filter(programme=obj.programme)
+        if obj.powerbi_period:
+            checks = checks.filter(period=obj.powerbi_period)
+        found = checks.exclude(period=power_bi.ALL).order_by("-period").first() or checks.first()
+        if found is None:
+            return "", {}
+        return found.period, (found.variants or {}).get(obj.card) or {}
+
+    @admin.display(description=_("Versions equal to Power BI's number"))
+    def equals(self, obj):
+        if obj.powerbi_value is None:
+            return "—"
+        period, values = self._values(obj)
+        if not values:
+            return _("Not compared yet")
+        definition = power_bi.VARIANTS.get(obj.programme, {}).get(obj.card)
+        hits = [v for v, value in values.items() if value == obj.powerbi_value]
+        if not hits:
+            return badge(_("none"), "bad")
+        names = [str(definition.names.get(v, v)) if definition else v for v in hits]
+        return format_html("{} <span class='text-muted'>({})</span>", "; ".join(names), period)
+
+    @admin.display(description=_("Every version, at the period total"))
+    def versions(self, obj):
+        definition = power_bi.VARIANTS.get(obj.programme, {}).get(obj.card)
+        period, values = self._values(obj)
+        if definition is None or not values:
+            return _("Not compared yet: the next run of the Compiler job counts them.")
+        return format_html(
+            "<p>{}</p><ul>{}</ul>",
+            _("In %(period)s:") % {"period": period},
+            format_html_join(
+                "",
+                "<li>{}: <strong>{}</strong></li>",
+                (
+                    (definition.names.get(v, v), "—" if values.get(v) is None else f"{values[v]:,}")
+                    for v in definition.variants
+                ),
+            ),
+        )
+
+
+def ensure_cards() -> None:
+    """A row for every card of :data:`neurodb.education.power_bi.VARIANTS`, with its default version, so the
+    administrators find each card in the list (a dozen rows; nothing changes on the pages)."""
+    have = set(PowerBiCard.objects.values_list("programme", "card"))
+    missing = [
+        PowerBiCard(programme=programme, card=card, variant=definition.default)
+        for programme, cards in power_bi.VARIANTS.items()
+        for card, definition in cards.items()
+        if (programme, card) not in have
+    ]
+    if missing:
+        PowerBiCard.objects.bulk_create(missing, ignore_conflicts=True)

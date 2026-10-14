@@ -4,7 +4,11 @@ the education programmes' stored counts (GET /api/figures/ and /api/figures/<pro
 NeuroDB decides when BMA calculates: BMA keeps no schedule of its own. A sync asks BMA for a
 calculation (POST /api/figures/runs/ or /api/wellbeing/runs/), follows it until it is done
 (GET .../runs/<id>/) and then reads the results. One calculation runs at a time in BMA: asking while
-one is going returns that one.
+one is going returns that one. The education sync names what to count (``targets``: programme and year
+pairs); the youth sync asks for the programme ``youth`` there too, which an older BMA refuses as an
+unknown programme (read as "cannot be asked"). Both syncs share BMA's one count at a time: a sync answered
+with the other one's count waits for it, then asks once more (:func:`calculate_own`). The youth API also
+answers ``?year=all``: all years together.
 
 The token belongs to a Compiler service account in the "NeuroDB API" group; it is sent as
 ``Authorization: Token <key>`` and never logged (see ``integrations/http.py``).
@@ -38,8 +42,8 @@ class CompilerClient:
         self.session = session or make_session(f"Token {token}" if token else "")
 
     def figures(self, year: str | None = None) -> dict[str, Any] | None:
-        """The figures of ``year`` (Compiler's current year when None); None when Compiler has no such
-        year (a 404 for the current year is an error: the address is wrong)."""
+        """The figures of ``year`` (Compiler's current year when None; "all": every year together); None
+        when Compiler has no such year (a 404 for the current year is an error: the address is wrong)."""
         try:
             data = get_json(self.session, self.base_url + PATH, **({"year": year} if year else {}))
         except IntegrationError as exc:
@@ -114,12 +118,14 @@ class CompilerClient:
     # ------------------------------------------------------------- calculations NeuroDB asks for
     def start_run(self, kind: str, payload: dict[str, Any] | None = None) -> dict[str, Any] | None:
         """Ask BMA to calculate (``kind`` "education" or "wellbeing"); the run queued, or the one already
-        going. None when this BMA cannot be asked yet (no runs address: an older BMA)."""
+        going. None when this BMA cannot be asked yet: no runs address, or a programme it does not count
+        (an older BMA: the youth count joined the figures runs in payload format 2; such a BMA checks the
+        programme first, so it starts no other count)."""
         url = self.base_url + RUNS[kind]
         try:
             response = send(self.session, "POST", url, json=payload or {})
         except IntegrationError as exc:
-            if exc.status in (404, 405):
+            if exc.status in (404, 405) or (exc.status == 400 and _unknown_programme(exc.response)):
                 return None
             raise
         return _run(response.json(), url)
@@ -127,6 +133,15 @@ class CompilerClient:
     def run_status(self, kind: str, run_id: int) -> dict[str, Any]:
         url = f"{self.base_url}{RUNS[kind]}{int(run_id)}/"
         return _run(get_json(self.session, url), url)
+
+
+def _unknown_programme(response: Any) -> bool:
+    """A 400 whose body says the programme is unknown (``{"detail": "Unknown programme", ...}``)."""
+    try:
+        detail = response.json().get("detail") if response is not None else None
+    except (ValueError, AttributeError):
+        return False
+    return isinstance(detail, str) and "unknown programme" in detail.casefold()
 
 
 def _run(data: Any, url: str) -> dict[str, Any]:
@@ -166,9 +181,43 @@ def calculate(
     except IntegrationError as exc:
         return {"status": "failed", "error": str(exc)[:500]}
     out = {"status": run["status"], "run": run["id"], "finished_at": run.get("finished_at")}
+    if run.get("targets") is not None:  # what the run counted: another count's, when one was going
+        out["targets"] = run["targets"]
     if run.get("error"):  # a count may succeed in part: the parts that failed are said here
         out["error"] = run["error"][:500]
     return out
+
+
+BUSY = "Compiler was busy with another count"  # the run's note when the count that ran was not the one asked
+
+
+def counted_for(calculation: dict[str, Any], programmes: tuple[str, ...]) -> bool:
+    """Whether the count that ran was one of ``programmes``': BMA runs one count at a time and answers a
+    request made during another count (the education one for the youth sync, or the other way round) with
+    that count, whose ``targets`` name other programmes. A calculation without ``targets`` (unavailable, or
+    the request failed) is taken as the one asked for."""
+    asked = calculation.get("targets")
+    if not isinstance(asked, list):
+        return True
+    return any(isinstance(t, list | tuple) and t and t[0] in programmes for t in asked)
+
+
+def calculate_own(
+    client: CompilerClient,
+    payload: dict[str, Any] | None,
+    programmes: tuple[str, ...],
+    *,
+    stop: Callable[[], bool] = lambda: False,
+    **waiting: Any,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """:func:`calculate` of a figures count (``kind`` "education") for ``programmes``. When BMA answers with
+    another count that was going, the sync has waited for it to end; it then asks once more, so its own
+    count runs now rather than the next night. Returns the calculation to record and the other count's
+    (None when there was none)."""
+    calculation = calculate(client, "education", payload, stop=stop, **waiting)
+    if calculation["status"] == "stopped" or counted_for(calculation, programmes):
+        return calculation, None
+    return calculate(client, "education", payload, stop=stop, **waiting), calculation
 
 
 def calculation_problem(calculation: dict[str, Any] | None) -> str:

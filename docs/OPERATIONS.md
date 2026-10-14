@@ -739,7 +739,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `etools-datamart` | `sync_etools_datamart` | `30 20 * * *`, daily 20:30 |
 | `freshness` | `check_sync_freshness` | `15 * * * *`, hourly; a stale source is logged as an error |
 | `activityinfo-structure` | `import_activityinfo_structure --all` | switched off; switch on or use *Run now* after the yearly rollover |
-| `compiler-youth` | `sync_compiler_youth` | `0 21 * * *`, daily 21:00; switched off until Compiler is configured |
+| `compiler-youth` | `sync_compiler_youth` | `0 21 * * *`, daily 21:00: asks Compiler (BMA) to count the youth figures, waits, then reads them; switched off until Compiler is configured |
 | `compiler-education` | `sync_compiler_education` | `30 2 * * *`, daily 02:30: asks Compiler (BMA) to count Makani and Bridging, waits, then reads the counts; switched off until Compiler is configured |
 | `compiler-wellbeing` | `sync_compiler_wellbeing` | `0 3 * * *`, daily 03:00: asks BMA to work out the Makani wellbeing flags, waits, then reads them; switched off until Compiler is configured |
 | `knowledge-hub` | `build_knowledge_hub` | `0 7 * * *`, daily 07:00: reads new library and CPD documents, then rebuilds the knowledge hub (it is also rebuilt after every sync) |
@@ -961,7 +961,8 @@ for staff, the partner page's *Edit the link*, the administrators' link to the r
 health, the document review's buttons for editors. Of what staff edit by hand outside a sync, the
 indicator flags are in the key of every value they change, the brief's key also holds its section plans,
 finding assignments, ActivityInfo partner links and latest daily review, the country programme's key a
-digest of the rows staff enter for its cycle, youth programmes' a digest of the year's links to eTools, the
+digest of the rows staff enter for its cycle, youth programmes' a digest of the year's links to eTools (both, and
+the Makani and Dirasa tabs' cache, also the card versions chosen in Admin → *Power BI cards*), the
 document review's repeated findings every verdict and edit, Monitoring insights' figures the NeuroDB
 action points, the *Score settings* thresholds and the places of Admin → Locations, and partner
 monitoring's map points the gazetteer; the governorates of the overview's filter bar (Admin → Locations)
@@ -1020,12 +1021,12 @@ more.
 | Country overview, `/` | Purpose line, filter bar, subtitle, freshness strip, link to the ActivityInfo databases; without a reporting year, the empty state and no part | `kpis` (at once; first of the group `overview`): the key figure tiles. `for-you` (at once, from Watch's own address): the NeuroDB Watch card. `figures` (when near the screen, once `kpis` is in): impact, value for money, delivery and assurance and the two progress blocks. `review` (when near the screen, only when a daily review ever succeeded): the *Daily review* card. `review-more` (only when *Show N more findings* is opened): its folded findings. `news` (after the visible ones): What's new and the forecast risk card | The overview build, 2 minutes per year, sections, governorate and day, the same in every language; the filter bar's section names, 10 minutes; the freshness strip, 2 minutes. Each key holds the last finished sync run and the indicator flags, so a sync or a flag changes it at once. When the build is stored, the frame draws `kpis` and `figures` itself. See *Country overview* |
 | Management brief, `/brief/` | Purpose line, filter bar with *Figures as of* and **Print**, the tab bar, the *Reference* block (lineage and data dictionary); without a reporting year, the empty state and no part | `brief` (at once; first of the group `brief`): the five tiles, *Things to decide* with the *Assign* links for staff, *Sections at a glance* and *Copy summary*. `sections` (when near the screen, once `brief` is in): ahead or behind, how sure, who and where, partners, money and action, with every chart of the page | The brief build, 2 minutes per year, sections, day and language (its labels are translated as it is computed), under the brief's own key: the section plans, the finding assignments and the ActivityInfo partner links (how many, and the last change), the latest daily review, the last finished sync run and the indicator flags, so an entry in the admin, a new review, a sync or a flag shows at once. It reads two overview builds, each stored as an overview build: the year's, the very one the overview stores for the same year and sections without a governorate, and the year before's, for the comparisons. The frame's lineage, 2 minutes, the same in every language, under the last finished sync run, the flags and the latest daily review; the filter bar's section names are the overview's. When the build is stored, the frame draws both parts itself: a brief opened again within two minutes is one request. See *Management brief* |
 | Partner page, `/partners/<id>/` | Header (name, type, breadcrumbs), the *deleted in eTools* notice, the knowledge base documents | `datamart` (at once): everything from the key figures to the last list (profile, visits chart and assurance chips, *Partner reporting* with the eTools and ActivityInfo panels and, for those allowed, *Edit the link*, the eight lists). Inside it, `fmm` (once `datamart` is in, after the visible ones): the Monitoring insights panel, only when Monitoring insights is on and a field monitoring visit ever monitored the partner | Nothing: the partner's figures hold database records, which the shared page figures never store, so they are computed at each visit and an edit or a sync shows at the next one. See *Partner reporting: ActivityInfo and eTools, side by side* |
-| Data health, `/data/health/` | Page heading, the *Sync jobs* heading with its *Stale after N hours* note, the heading and explanation of the eTools Datamart datasets panel | `jobs` (at once): one card per sync job. `databases` and `runs` (when near the screen): the ActivityInfo databases of the year and their last import, the latest 50 runs. `datasets` and `readiness` (after the visible ones): the eTools Datamart datasets table with its *Copy* and *CSV* buttons (they come with the table, so they are never offered before it is there), the machine learning readiness check | Only the rows each eTools Datamart dataset holds (the *Rows held* column): an hour at most, the same in every language and for everyone, under a key made of the latest run of each job that writes those tables (eTools Datamart sync, eTools sync, Locations sync, eTools update clean-up), so a run of one of them that starts or ends has them counted again. The gazetteer (*locations*), which staff also edit in Admin → Locations, is counted at each visit, and so is everything else on the page. Inside a database transaction (NeuroDB Watch's AI look-ups read these figures in a read-only one) the stored counts are read too; when there are none the rows are counted there and nothing is stored. See *Data quality per dataset* |
+| Data health, `/data/health/` | Page heading, the *Sync jobs* heading with its *Stale after N hours* note, the heading and explanation of the eTools Datamart datasets panel | `jobs` (at once): one card per sync job. `databases` and `runs` (when near the screen): the ActivityInfo databases of the year and their last import, the latest 50 runs. `datasets`, `power-bi` and `readiness` (after the visible ones): the eTools Datamart datasets table with its *Copy* and *CSV* buttons (they come with the table, so they are never offered before it is there), *Compared with Power BI* (its heading, explanation and, for administrators, the links to the admin are in the frame), the machine learning readiness check | Only the rows each eTools Datamart dataset holds (the *Rows held* column): an hour at most, the same in every language and for everyone, under a key made of the latest run of each job that writes those tables (eTools Datamart sync, eTools sync, Locations sync, eTools update clean-up), so a run of one of them that starts or ends has them counted again. The gazetteer (*locations*), which staff also edit in Admin → Locations, is counted at each visit, and so is everything else on the page. Inside a database transaction (NeuroDB Watch's AI look-ups read these figures in a read-only one) the stored counts are read too; when there are none the rows are counted there and nothing is stored. See *Data quality per dataset* |
 | Partner monitoring, `/partner-monitoring/` | View tabs (Grid, Program Performance, Data quality, Map), the filter bar with its choices, the "your section" note | Grid: `summary` (at once; first of the group `pm`): the seven tiles, the status donut and the indicators by section; `grid` (at once, once `summary` is in): the indicators by section, PD and output with their months or years, its pages, the note when the list is cut. Program Performance (`view=table`): `sections` (at once; first of the group `pm`): the section tiles; `table` (at once, once `sections` is in): the page of rows in its sort, its pages, *Excel of the filter* and *CSV of the filter*. Data quality (`view=quality`): `quality-tiles` (at once; first of the group `pm`) and `quality-lists` (when near the screen, once the tiles are in). A change of filter, sort or section tile reloads the area under the filter bar (`#monitoring-grid`) with new placeholders; a page of the grid or of the table reloads its own part. The exports are answered whole | The filter's indicators (every row the three views read), 2 minutes per filter and day, the same in every language and for everyone; Program Performance's section tiles and table read the same for the filter without its sections (the table keeps the chosen ones, as before), one computation for both. The filter bar's choices, 10 minutes. Each key holds the latest run of each eTools job (eTools sync, eTools Datamart sync, Datamart backfill, Locations sync) and the indicator flags, so a sync shows at once and an ActivityInfo import does not count. The parts carry `as_of`. When the indicators are kept, the frame draws the view's two parts itself: one request. The Map tab is not in parts; its points (`/api/internal/partner-monitoring/map/`) are kept 2 minutes under the same jobs, the flags and the gazetteer. See *Partner monitoring and Progress reports load in parts* |
 | Progress reports, `/partner-reporting/` (*By location* and *By disaggregation*) | Filter bar with its choices, the tab bar, the *By disaggregation* tab's own filters | `table` (at once): the tab's table, its pages, the note when the filter holds too many rows, the Excel and CSV links. A change of filter (HTMX) answers the table at once. *Reporting progress* and *Partners* are drawn whole, as before | The tab's rows (on *By disaggregation*, with the lines of every location), 2 minutes per tab, filter, tab filters and day; the filter bar's choices, 10 minutes; the same in every language and for everyone, under the eTools jobs' latest runs and the indicator flags, as partner monitoring. When the rows are kept, the frame draws the table itself: one request. See *Partner monitoring and Progress reports load in parts* |
 | Monitoring insights, Map tab, `/fmm/?tab=map` | Header and Export menu, filter bar, reference line, chips, data notes, the key figure tiles, the tab bar; a filter without visits shows the tab's empty state and no part. The other tabs stay one request each | `map` (at once): the map, its legend, *Visits on the map*, *PD locations not yet visited* and *Visits without coordinates*, with the map's configuration. A swap of the results (tab bar, filter bar, the planned places switch) brings the map drawn in, in one request | The map (`geo.map_points`), 10 minutes, per filter, planned places shown and language (the popups' dates are translated), under the Monitoring insights stamp (last refresh and rules version, the day, the NeuroDB action points, the last eTools, Locations or clean-up run, the gazetteer's places), so a refresh, one of those runs or a place edited in admin → Locations shows at once. Also the one pass over the visits (under the *Score settings* thresholds too), the entity table and the rule counts that the other tabs read. Never drawn by the frame: the map takes about 90 ms to draw even when stored. See *Monitoring insights* |
-| Country programme, `/country-programme/` | Cycle selector, the cycle's panel (years, share of the cycle elapsed, summary, documents, *Edit in the admin* for staff), the note on AI-suggested indicators; without a cycle or without indicators, the empty state and no part | `summary` (at once; first of the group `cpd`): the six key figures, *Where the CPD indicators stand* and the outcomes at a glance. `outcomes` (when near the screen, once `summary` is in): each outcome with its outputs, indicators, programme documents and partner reporting; a link to `#outcome-<id>` asks for it first | The cycle's build, 10 minutes per cycle, day and language (the kinds of the linked sources are translated), under a key that holds the cycle and what staff enter by hand that its figures read (the cycle, its outcomes, outputs, indicators, milestones, typed values and linked sources, and how the linked ActivityInfo master indicators are set up, down to the indicators they add up and those indicators' ActivityInfo field and database: one digest of the rows themselves, so an edit in place shows at once) and the last finished sync run and the indicator flags. When the build is stored, the frame draws both parts itself. See *Country programme* |
-| Youth programmes, `/youth/` | The filter bar whole (its choices are read in the database from a few lists of the year's figures, never by decoding them, and kept 10 minutes), the line saying when Compiler's figures were read; without figures, the empty state and no part | `summary` (at once; first of the group `youth`): the five key figures and the youth indicators with their eTools indicators. `details` (when near the screen, once `summary` is in): the breakdowns, *Compiler and eTools, side by side* and the programme documents in Compiler | The year's build, 10 minutes per year's figures (their row and when they were read), filters, day and language (the breakdowns' names are translated), under a key that holds the year's links to eTools (a digest of the rows: a link confirmed with the admin's action, edited or added shows at once), the last finished sync run and the indicator flags; the filter bar's choices, 10 minutes per year's figures, the same in every language. When the build is stored, the frame draws both parts itself. See *Youth programmes* |
+| Country programme, `/country-programme/` | Cycle selector, the cycle's panel (years, share of the cycle elapsed, summary, documents, *Edit in the admin* for staff), the note on AI-suggested indicators; without a cycle or without indicators, the empty state and no part | `summary` (at once; first of the group `cpd`): the six key figures, *Where the CPD indicators stand* and the outcomes at a glance. `outcomes` (when near the screen, once `summary` is in): each outcome with its outputs, indicators, programme documents and partner reporting; a link to `#outcome-<id>` asks for it first | The cycle's build, 10 minutes per cycle, day and language (the kinds of the linked sources are translated), under a key that holds the cycle and what staff enter by hand that its figures read (the cycle, its outcomes, outputs, indicators, milestones, typed values and linked sources, and how the linked ActivityInfo master indicators are set up, down to the indicators they add up and those indicators' ActivityInfo field and database: one digest of the rows themselves, so an edit in place shows at once), the Makani and Dirasa card versions chosen in Admin → *Power BI cards* (the children enrolled a Compiler source gives) and the last finished sync run and the indicator flags. When the build is stored, the frame draws both parts itself. See *Country programme* |
+| Youth programmes, `/youth/` | The filter bar whole (its choices are read in the database from a few lists of the year's figures, never by decoding them, and kept 10 minutes), the line saying when Compiler's figures were read; without figures, the empty state and no part | `summary` (at once; first of the group `youth`): the five key figures, the line saying whether Compiler counted the rows of Power BI's view, and the youth indicators with their eTools indicators. `details` (when near the screen, once `summary` is in): the breakdowns (the registered young people by home governorate among them, from payload format 2), *Compiler and eTools, side by side* and the programme documents in Compiler | The year's build, 10 minutes per year's figures (their row and when they were read), filters, day and language (the breakdowns' names are translated), under a key that holds the year's links to eTools (a digest of the rows: a link confirmed with the admin's action, edited or added shows at once), the card versions chosen in Admin → *Power BI cards*, the last finished sync run and the indicator flags; the filter bar's choices, 10 minutes per year's figures, the same in every language. When the build is stored, the frame draws both parts itself. See *Youth programmes* |
 | Donor page, `/donor/` (not a staff page) | The bar with the year, the tabs, every heading and card of both tabs with grey shapes of the size of their charts, the date of the data; for an administrator's preview, the preview banner | One part, `data`, answered as JSON and drawn by the page's script (`donor.js`): every figure of both tabs. Its address carries the year and, in an administrator's preview, the account and the tab; for a donor it is always the donor's own account, whatever the address says | The page's figures, 5 minutes per account (its donors, grants and whether partners are named), year and day, the same in every language, under the last finished sync run and the indicator flags; they were kept per worker before. When they are stored, the frame carries them and nothing is fetched. See *Donor access* |
 | Document review, `/knowledge/review/`: the views *By document* (Findings), *Themes* and *Repeated findings* (Synthesis); the other tabs and views are drawn whole | Breadcrumbs, *Verified only*, purpose line, the tab bar, the view's links, filter bar and filter chips; for *Repeated findings* the panel's heading and explanation | `findings` (at once): the page's ten documents, each with its key statements and findings and, for editors, *Accept all*, *Add a finding* and the review buttons; its page links reload this part only. `synthesis` (at once): the *Themes* panel (each theme with its five best findings, its link and, when AI is on, *Write a paragraph* with the person's quota) or the repeated findings' groups. A tab or filter change (htmx) answers with the themes in it, as before; *By document* answers its placeholder and the part follows (drawn in that answer it took twice as long as before), and the repeated findings their placeholder unless they are stored | Only the repeated findings: an hour at most, per batch and *Verified only* (each person's switch is in the key), the same in every language and for everyone, under a key made of what they are read from: the documents in a batch (their batch, review status and analysis time, and the last change of any, a title or a file changed in the admin), the findings (how many, the newest, the last edit, every verdict given), the batches (names, archiving) and the last finished run of a *Document review* job (*Locate document findings again* rewrites the findings' pages, places and evidence without an edit time). A verdict, an edit, *Accept all*, a document taken out or marked reference, a finished analysis or a finished *Locate document findings again* shows at once. When they are stored, the frame draws them itself. *By document* and *Themes* are computed at each request. See *Document review* |
 
@@ -1100,7 +1101,7 @@ a browser could otherwise keep for a minute under its plain name. A worker of gu
 up to 800 (`max_requests_jitter`) so the workers do not restart together; it was 2000 and 200. A page in
 parts sends several requests per visit (the overview: its frame and up to five parts, plus the folded
 findings when they are opened; the brief: its frame and two parts, or the frame alone when its figures
-are stored; the partner page: its frame and one or two parts; Data health: its frame and five parts;
+are stored; the partner page: its frame and one or two parts; Data health: its frame and six parts;
 partner monitoring: its frame and two parts per view; the other pages of the table: their frame and one
 or two parts; fewer when the frame draws stored figures itself, as the table says),
 and each restart loses the worker's own caches and pays its slow first request again. The web container
@@ -1440,6 +1441,7 @@ with its *Stale after N hours* note. Each block is its own computation and comes
 | `databases` | The displayed ActivityInfo databases of the current year and their last import | When near the screen |
 | `runs` | The latest 50 runs of every job | When near the screen |
 | `datasets` | This table, the eTools Datamart datasets, under its *Copy* and *CSV* buttons, which come with it (never offered before the table is there, nor beside an error); its heading and explanation (with the link to the reporting checks for administrators) are in the frame, so the placeholder keeps the room of the table and its buttons at any width | After the visible ones |
+| `power-bi` | *Compared with Power BI*: per Compiler programme (Makani, Dirasa, youth) its latest periods compared with the view Power BI reads, counts only (see *Education programmes*, *Compared with Power BI*); its heading and explanation, with the links to the card versions and the view definitions for administrators, are in the frame | After the visible ones |
 | `readiness` | *Ready for machine learning?*, the last readiness check | After the visible ones |
 
 Only the *Rows held* column is kept in the shared page figures: an hour at most, the same for everyone
@@ -4046,11 +4048,29 @@ indicator, partner, donor and governorate, alone or with one detail: sub indicat
 document, district, sex, age group or nationality; plus the sub indicators of each programme
 document), and the page reads the table that matches its filters.
 
-**The page** (Partnerships → Youth programmes; filters: year, master indicator, partner, donor,
-governorate): young people reached, female and male; each master and sub indicator with young people
+**Which registrations: Power BI's view** (Compiler's payload format 2). Power BI's Youth dashboard reads
+the view `vw_youth_data_all` of Compiler's database. From format 2 Compiler counts the registrations of that
+view (the year from the view's own year column when it has one, else the registration's), or, when the view
+cannot be used (missing, no permission, its key not matching the registrations, empty), its own rule, and
+says which: the line under the key figures (*Counted from Power BI's view `vw_youth_data_all`...*, or
+*Power BI's view could not be used (reason)...*, or *Not yet compared with Power BI's view* for a payload
+of an older Compiler) and Data health's *Compared with Power BI* (see *Education programmes*). Format 2 also
+sends every counted registration with or without an enrolment (*registered* young people, by partner and
+the youth's home address, sex, age group and nationality) and the enrolment rows (a young person enrolled
+twice counts twice), and the figures of **all years together**: registrations saved before September 2025
+have no year and are in no single year, but they are in *All years*. NeuroDB's *Young people reached* keeps
+its meaning (young people enrolled under a youth indicator); Power BI's own measure is not known (no
+screenshot of the Youth dashboard exists), so the headline and the *Partners* tile are counted with the
+version an administrator chooses in Admin → *Power BI cards* (enrolled, registered, registrations or
+enrolments; a blank partner counted or not), today's meaning by default.
+
+**The page** (Partnerships → Youth programmes; filters: year, with *All years* when Compiler sent it,
+master indicator, partner, donor, governorate): young people reached (with the registered young people
+as a second line, payload format 2; the version chosen in Admin → *Power BI cards*), female and male; each master and sub indicator with young people
 reached, the target (sum of the Compiler programme documents' targets; hidden under a governorate
-filter, targets are not set per place) and the linked eTools indicator with its Reached to date and
-its status; breakdowns by partner, donor, governorate, district, sex, age group and nationality;
+filter, targets are not set per place, and for all years together) and the linked eTools indicator with its Reached to date and
+its status; breakdowns by partner, donor, governorate, district, sex, age group and nationality, and
+the registered young people by home governorate (format 2; with the partner filter only);
 **Compiler and eTools side by side** (per link: young people Compiler counted in the programme
 document, the eTools target, what the partner reached on the eTools indicator **in the same year**
 (Partner monitoring's Reached in that year, never the PD to date), the difference); and the Compiler
@@ -4065,12 +4085,13 @@ the two):
 
 | Part | What it holds | When it loads |
 |---|---|---|
-| `summary` | The five key figures and the youth indicators with their eTools indicators | At once; it computes the build that `details` then reads |
-| `details` | The breakdowns, *Compiler and eTools, side by side*, the programme documents in Compiler | Once `summary` has finished, when near the screen |
+| `summary` | The five key figures, the line saying whether Compiler counted the rows of Power BI's view, and the youth indicators with their eTools indicators | At once; it computes the build that `details` then reads |
+| `details` | The breakdowns (with the registered young people by home governorate, payload format 2), *Compiler and eTools, side by side*, the programme documents in Compiler | Once `summary` has finished, when near the screen |
 
 When the build for the chosen filters is already stored (10 minutes), the frame draws both parts itself:
 one request. A link confirmed in the admin (with the *Confirm* action or by saving it), corrected or
-added shows at once, and so does a new read of Compiler's figures. The filter bar is a plain form, as
+added shows at once, and so do a card version chosen in Admin → *Power BI cards* and a new read of
+Compiler's figures. The filter bar is a plain form, as
 before: changing a filter loads the page again.
 
 **Links to eTools.** After every read, NeuroDB suggests links: a Compiler programme document whose
@@ -4090,9 +4111,21 @@ the Compiler programme document's project code for links to be suggested.
    `enableCompilerYouth=true` and `compilerApiUrl=https://<compiler address>` (locally:
    `COMPILER_API_URL` and `COMPILER_API_TOKEN` in `.env`).
 3. Admin → Import and sync runs → Run a job → **Compiler youth figures**; then switch on the
-   `compiler-youth` scheduled job (every night at 21:00, off by default). It reads this year and
-   `COMPILER_YOUTH_YEARS - 1` years before it (default 2 in all); a year Compiler does not have is
-   skipped.
+   `compiler-youth` scheduled job (every night at 21:00, off by default). It first asks Compiler to
+   count the youth figures (`POST /api/figures/runs/`, programme `youth`: this year, the years before it
+   that NeuroDB already keeps, and all years together) and waits for it, as for the education counts; a
+   Compiler without the youth count answers that it does not know the programme, and its youth API counts
+   when read, as before. Compiler counts one thing at a time: if it is busy with the education count, the
+   sync waits for that one, then asks once more (the run notes `calculation_other`); if it is still busy,
+   the run notes "Compiler was busy with another count", the youth API counts each year when read and all
+   years together keep their last count. It then reads this year and `COMPILER_YOUTH_YEARS - 1` years
+   before it (default 2 in all; a year Compiler does not have is skipped), and all years together
+   (`?year=all`, kept as the year "all"; it never counts as the latest year, and has no targets and no
+   eTools links). A run whose all-years figures could not be read ends *partial*; an older Compiler,
+   which has none, is not an error.
+4. **Power BI's view** `vw_youth_data_all`: the database grant, the deployment order (Compiler first), the
+   two jobs to switch on and the way back are those of *Education programmes* → *Setting it up* (steps
+   4-6), and so is Data health's *Compared with Power BI*.
 
 ## Education programmes (`/education/makani/`, `/education/dirasa/`, Makani and Bridging from Compiler)
 
@@ -4113,9 +4146,17 @@ runs at a time: asking while one is going returns that one. A year never counted
 is listed as *pending*. The API is limited to the "NeuroDB API" group and rate-limited.
 
 **What is counted.**
-- *Makani*: registrations not deleted in the rounds of a year (the current year also counts the
-  registrations without a round yet, as the partners' lists do); partner = the registration's
-  partner, else the center's; place = the center's governorate, district and cadaster.
+- *Which registrations* (Compiler's payload format 3): those of the view Power BI reads,
+  `vw_mscc_data` (Makani) and `vw_bridging_data` (Dirasa), for the year or round, deleted ones left out,
+  with the partner and the centre or school the view gives (see *Compared with Power BI* below). When the
+  view cannot be used, Compiler's own rule, corrected for what is certain: Makani counts no TLS
+  registration and no registration without a round any more (before format 3 it counted both, and the
+  current year's round-less registrations: one reason NeuroDB showed more than Power BI). Every past year
+  NeuroDB reads (`COMPILER_EDUCATION_YEARS`) is counted again by the first run after the change (its
+  payload is of an older format) and then weekly, so a past year no longer keeps the count made while it
+  was the current year.
+- *Makani*: registrations not deleted in the rounds of a year; partner = the view's, else the
+  registration's partner, else the center's; place = the center's governorate, district and cadaster.
 - *Bridging*: registrations not deleted in the round; place = the registration's governorate,
   district and cadaster. A child who dropped out still counts; the learning result shows dropouts.
 - A child counts once per figure however many registrations, services or partners, so rows do not
@@ -4140,6 +4181,60 @@ is listed as *pending*. The API is limited to the "NeuroDB API" group and rate-l
   answer to education status, referral, dropout reason, ID type). The payload also lists the centers
   and schools (type, emergency status, GPS point; schools with the children numbers they report).
 
+**Compared with Power BI.** Power BI's Makani, Dirasa and Youth dashboards read three views of Compiler's
+database: `vw_mscc_data`, `vw_bridging_data` and `vw_youth_data_all`. Their definitions are kept in
+production only (no branch of Compiler holds them), so Compiler reads them at each count: from payload
+format 3 (education) and 2 (youth) it counts the registrations of the view itself ("view mode") when the
+view exists, Compiler's counting role may read it, its key matches the registrations (at least 99% of
+its ids, with their round or partner) and it has rows for a period that has registrations; otherwise its
+own rule ("rule mode"), and the payload says why: "view missing", "no SELECT permission on vw_mscc_data",
+"key check: 62% of the view's ids are registrations", "the view has no rows for 2026 while 41,210
+registrations do", "setting FIGURES_POWER_BI base = rule", or a query that took too long ("QueryCanceled:
+..."). Compiler's setting `FIGURES_POWER_BI` (per programme:
+`base` `auto`/`view`/`rule`, `deleted` `exclude`/`include`, Makani's `period` `round_year`/`current_rounds`)
+changes this without a code change. Ids never leave Compiler: the payload holds counts, the views' column
+names and their definitions with every string literal and long list of numbers masked (and the hash of the
+raw text).
+- *The line under the key figures* (Makani and Dirasa, every tab but Dirasa's outreach, and youth): "Counted
+  from Power BI's view `vw_mscc_data`: the same registrations Power BI reads for 2026 (deleted ones left
+  out). Compiler counted at 02:31 on 16 Oct; Power BI shows the time of its own refresh.", with the deleted
+  registrations of the view left out and a link to Data health; in rule mode "Power BI's view could not be
+  used (reason), so Compiler counted with its own rule; the figures may differ from Power BI."; for a payload
+  of an older Compiler "Not yet compared with Power BI's view."; Makani adds the registrations waiting for a
+  cycle (in neither dashboard). The two dashboards are counted at different times: compare them right after
+  Power BI's refresh.
+- *Card versions.* For the cards whose Power BI measure is unknown NeuroDB has every candidate ("version"):
+  Makani children (registrations, or the view's rows), children with disabilities (a disability other than
+  "No", or anything but "No" blanks included), working children ("Yes", or anything but "No"), immunized and
+  screened (which health record field), program staff (every facilitator, active ones, those at centres
+  with children, or the rows of `vw_center_program_staff`); Dirasa children (unique children, registrations,
+  or the view's rows), CWD in Dirasa (registrations, or the numbers the schools report: those with
+  registrations, or every school a Dirasa partner lists), in-school children and CWD (the same two school
+  sets), teachers (of the schools chosen, of the schools with registrations, or the rows of
+  `vw_teacher_data`); youth reached and partners. Today's definition is the default, except where the
+  evidence is certain: Dirasa's children card counts **unique children** (Power BI's card is below its
+  nationality chart's total, which counts registrations) and shows the registrations as a second line, and
+  Dirasa's in-school children and in-school CWD sum the schools that have registrations under the filters
+  (the schools "Dirasa schools" counts; a school listed only for its teachers no longer adds its numbers);
+  the country programme's
+  Makani and Dirasa sources read the same version. A version a payload cannot count (a measure of a newer
+  format, a filter the unique count does not hold) shows the default instead, and the card says so.
+- *Choosing a version* (Administrators only): Admin → Compiler (youth and education) → **Power BI cards**
+  lists every card. Type the number Power BI shows for a card (and the period, e.g. 2026), save: Data
+  health marks the version that gives it; choose that version in the same form. The pages show it at once
+  (the choice is in their caches' keys); nothing else changes. **Power BI views** (Administrators only,
+  read-only) shows each view's masked definition, columns, the relations it reads, its hash and the date
+  its definition last changed (a change is also named on the sync run, `power_bi_changed`).
+- *Data health → Compared with Power BI* (every member of staff; counts only, no definition): per programme
+  its latest periods (at most three; youth: all years first): whether the figures were counted from the
+  view or from the rule and why, the view's registrations and rows, what NeuroDB counted, the difference
+  and its reasons (deleted, not in the view), what NeuroDB counted before this change and why it differed
+  (TLS, without a round, of another year, without a year...), Compiler's count time; and per period the
+  reasons table, the view's rows per round (or year), the key check as percentages, the related views'
+  rows and the cards: every version's value at the period total, the number typed from Power BI, the
+  version(s) equal to it ("No version equals Power BI's number" otherwise) and the version in use. Ask
+  NeuroDB's data freshness look-up, the daily review and the internal API get a summary of it.
+
 **The pages** (Partnerships → **Makani (MSCC)** and **Dirasa (Bridging)**; `/education/` opens
 Makani). They follow the programmes' Power BI dashboards: title "Makani Programme Dashboard <year>"
 or "Dirasa Programme Dashboard <round>", the last data update (Compiler's count) and a year or round
@@ -4149,6 +4244,8 @@ change replaces the results only (HTMX); the tabs keep the filters. A filter cho
 not have it (e.g. gender on the Dirasa map) stays in the links for the other tabs and the page lists it
 as "not applied on this tab"; a figure a filter cannot reach says so in its hint (program staff,
 in-school children, teachers).
+- The percentage charts leave the answers "Not specified" out, as Power BI's do (their bars add up to 100
+  with no blank bar); the registrations are still counted in the key figures.
 - *Makani* slicers: CWD type, Education services (the programme without its level: "BLN Level 2" →
   BLN, "Summer RS Grade 3" → Summer RS, "YFS Level 1 - RS Grade 9" and "RS-YFS" → YFS - RS, catch-up
   with its programme), child nationality, child gender, caregiver (mother, father, other), working
@@ -4174,21 +4271,25 @@ in-school children, teachers).
   emergency) choose the schools and the registrations counted are those of these schools (and of the
   partner chosen; partner "Not specified": registrations without a partner, schools without any);
   child filters (CWD type, nationality, gender) apply to registrations only.
-  - *Overview*: Dirasa schools (with children under the filters), children enrolled in Dirasa,
-    in-school children and in-school CWD (the numbers the chosen schools report; child filters do
-    not apply), CWD in Dirasa, Dirasa teachers (of the chosen schools); charts: nationality (Syrian,
-    Lebanese, Non-Lebanese), gender, type of schools, in-school Lebanese / non-Lebanese, governorate
-    (the child's), teacher trainings by topic.
+  - *Overview*: Dirasa schools (with children under the filters), children enrolled in Dirasa (unique
+    children, with the registrations as a second line; the unique count answers the partner, school and
+    gender filters, the card shows registrations under the others), in-school children and in-school
+    CWD (the numbers reported by the schools that have registrations under the filters, as "Dirasa
+    schools" counts them: a school listed only for its teachers is left out), CWD in Dirasa, Dirasa
+    teachers (of the chosen schools); charts: nationality (Syrian, Lebanese, Non-Lebanese), gender, type
+    of schools (the schools with registrations; schools without a type left out), in-school Lebanese /
+    non-Lebanese, governorate (the child's), teacher trainings by topic (the schools with registrations).
   - *Outreach*: its own slicers (interview year, latest by default or all years; partner and
     governorate as typed in Kobo); education status, referrals, initial dropout reasons, child ID
     type. Kobo names and labels of one choice are one key (older forms cut names at 40 characters);
     known keys have a label ("Referred to Dirasa", "UNHCR registered"...), others are shown with
     spaces for "_". Blank answers are left out.
   - *Attendance barriers*: the main barrier of each registration (blank left out).
-  - *Schools map*: slicers partner, governorate, school type, emergency; schools coloured by type
-    (popup: partners, governorate, type, children registered, in-school children) and their table.
+  - *Schools map*: slicers partner, governorate, school type, emergency; the schools with registrations
+    coloured by type (popup: partners, governorate, type, children registered, in-school children) and
+    their table.
 - Everything is filtered in Python from the stored payload (`neurodb/education/cube.py`); each tab's
-  result is cached 10 minutes per stored row, fetch, filters and language.
+  result is cached 10 minutes per stored row, fetch, filters, language and the card versions chosen.
 - A year stored from a Compiler without cubes (format 1) shows "Compiler sends the older format":
   run the education sync after Compiler is updated.
 - If Compiler could not count a part (e.g. its query hit the timeout), the page says which and the
@@ -4196,20 +4297,66 @@ in-school children, teachers).
 
 **Setting it up.**
 1. Compiler: deploy branch `neurodb-education-figures` (migrations `figures.0001` and `0002`) with its
-   Celery worker running (no Celery beat or periodic task is needed: NeuroDB asks).
-   `python manage.py refresh_neurodb_figures` counts at once on the Compiler server.
-   Optional settings: `FIGURES_DATABASE` (a read-replica alias), `FIGURES_STATEMENT_TIMEOUT_MS`
-   (600000), `FIGURES_WORK_MEM` (32MB), `FIGURES_API_RATE` (120/hour).
+   Celery worker running (no Celery beat or periodic task is needed: NeuroDB asks); the comparison with
+   Power BI's views (payload formats 3 and 2) is branch `neurodb-power-bi-views`, made from `local`, which
+   adds no migration. On the Compiler server, for its developers only, `python manage.py
+   refresh_neurodb_figures` counts at once. Optional settings: `FIGURES_DATABASE` (a read-replica alias),
+   `FIGURES_STATEMENT_TIMEOUT_MS` (600000), `FIGURES_WORK_MEM` (32MB), `FIGURES_API_RATE` (120/hour), and
+   from `neurodb-power-bi-views` `FIGURES_POWER_BI` (see *Compared with Power BI*),
+   `FIGURES_POWER_BI_MIN_MATCH` (0.99), `FIGURES_POWER_BI_RELATED` (on), `FIGURES_PAST_MAX_AGE_HOURS` (168)
+   and `YOUTH_FIGURES_API_RATE` (120/hour).
 2. NeuroDB uses the same Compiler URL and token as the youth figures.
 3. Admin → Import and sync runs → Run a job → **Compiler education figures**, then switch on the
    `compiler-education` schedule (02:30; off by default; change the time in the admin). It first
-   asks Compiler to count every programme's current year and waits for it (checking every
-   `COMPILER_RUN_POLL_SECONDS`, default 60, for at most `COMPILER_RUN_TIMEOUT_MINUTES`, default 120);
-   a count that fails or takes longer is written on the run, which ends *partial*, and what Compiler
-   has is read all the same. `--no-calculate` only reads. It reads the
-   current year or round of each programme and the counted ones before it
-   (`COMPILER_EDUCATION_YEARS`, default 3). A year Compiler has not counted yet is listed as
-   *pending* in the run and arrives at the next run.
+   reads Compiler's list of years, then asks Compiler to count each programme's current year and the
+   past years that need it (`targets`: from Compiler's payload format 3, a past year counted in an older
+   format, counted more than a week ago, or never counted; an older Compiler counts the current years
+   only, as before) and waits for it (checking every `COMPILER_RUN_POLL_SECONDS`, default 60, for at
+   most `COMPILER_RUN_TIMEOUT_MINUTES`, default 120); a count that fails or takes longer is written on
+   the run, which ends *partial*, and what Compiler has is read all the same. Compiler counts one thing at
+   a time: if it is busy with the youth count, the sync waits for that one, then asks once more (the run
+   notes `calculation_other`, and "Compiler was busy with another count" if it still is).
+   (`sync_compiler_education --no-calculate`, for developers, only reads.) It reads the current year or
+   round of each programme and the ones before it
+   (`COMPILER_EDUCATION_YEARS`, default 3 in all; from an older Compiler, only the counted ones), Makani
+   and Bridging only. Payloads of format 2 and 3 are read alike; format 3's comparison with Power BI's
+   view is kept apart for Data health, and a change of a view's definition is named on the run
+   (`power_bi_changed`). A year Compiler has not counted yet is listed as *pending* in the run and
+   arrives at the next run.
+4. **Deploying the comparison with Power BI's views, in this order.**
+   1. *Database*: an administrator of Compiler's database gives Compiler's counting role (the user of
+      `FIGURES_DATABASE`, a replica's role if one is used) the right to read the views:
+      `GRANT SELECT ON vw_mscc_data, vw_bridging_data, vw_youth_data_all, vw_center_program_staff,
+      vw_center_data, vw_teacher_data TO <role>;`. Without it Compiler counts with its own rule and Data
+      health says "no SELECT permission on ..." (the views' definitions are read all the same: that needs
+      no grant).
+   2. *Compiler first*: deploy `neurodb-power-bi-views` (production also runs the Makani wellbeing work,
+      `makani-wellbeing-flags`; both are on `local`). Nothing else is needed: the next count is in the new
+      formats. The NeuroDB already running keeps working: it reads only the keys it knows, youth is not in
+      the education index, and the youth API still answers a year on the spot.
+   3. *NeuroDB second*: deploy (migration `education.0002_power_bi`: three new, empty tables, applied in
+      a moment). NeuroDB reads both payload formats, so the order matters only in that a NeuroDB deployed
+      first shows "Not yet compared with Power BI's view" until Compiler follows.
+   4. *Jobs*: in Admin → *Scheduled jobs*, make sure `compiler-education` (02:30) and `compiler-youth`
+      (21:00) are switched on (both are off when NeuroDB is first deployed), then press *Run now* on both,
+      or wait for the night. Pressing both at once is fine: the second waits for the first count, then
+      asks for its own. The first runs also count again every past year NeuroDB reads (their payloads are
+      of the older format); after that a past year is counted again once a week.
+5. **The next morning**, Data health → *Compared with Power BI*: every programme should say "the view"; a
+   "Compiler's rule" says why (the reasons are listed under *Compared with Power BI* above, e.g. the
+   grant of step 4.1 is missing). *Before this change* shows how much each old cause weighed (TLS, without
+   a round...). Right after Power BI's refresh, an administrator opens Admin → **Power BI cards**, types
+   for each card the number Power BI shows and its period (e.g. 2026), and picks the version Data health
+   marks as equal to it; the pages show it at once. A card no version equals stays on its default, and
+   Data health says "No version equals Power BI's number": send the screenshot to the developers.
+6. **The way back.** Compiler's setting `FIGURES_POWER_BI = {"mscc": {"base": "rule"}, "bridging": {"base":
+   "rule"}, "youth": {"base": "rule"}}` (Compiler's developers set it; no code change) makes Compiler count
+   with its own corrected rule again, and the pages say so; going back to the earlier Compiler branch sends
+   the older formats again, which NeuroDB still reads (its pages then say "Not yet compared"). In NeuroDB
+   nothing needs undoing: the three tables hold only the comparison, and a card version chosen only changes
+   which candidate a card shows. To show today's definitions again, choose each card's default in
+   Admin → **Power BI cards** (marked "default"). Switching off a job in *Scheduled jobs* stops its nightly
+   count; the figures already read stay.
 
 **Speed.** Makani and Dirasa are drawn whole, in one request, as before: on a copy of the data with
 40,000 Makani registrations each tab answered in about 0.25-0.3 seconds cold (Dirasa about 0.1), under the
@@ -4269,7 +4416,9 @@ people reached), baseline and its year, the end-of-cycle target, and optional ye
   latest year's, what it reached **to the end of that year**; so a programme document running over
   several years is never counted twice), the ActivityInfo master indicators of the cycle's years (the
   master indicator's result), the Compiler youth indicators (young people reached) or Makani /
-  Dirasa (children enrolled). The year fills itself from the source when it can. Untick *Confirmed*
+  Dirasa (children enrolled, as the programme's page counts its children card: the version chosen in
+  Admin → *Power BI cards*, by default the registrations for Makani and the unique children for Dirasa).
+  The year fills itself from the source when it can. Untick *Confirmed*
   to keep a link without counting it. The knowledge hub reads the same values.
 - *Values typed here*: a survey, ministry data, an annual report. A typed value replaces the linked
   sources for its year.
@@ -4305,7 +4454,7 @@ ActivityInfo master indicator is set up) shows at once, and so does a finished s
 takes about 1.3 seconds on a copy of the data twenty times today's size (it was 2 seconds): each Makani or
 Dirasa year linked is now read once per build, however many links name it (it was read once per link,
 4 MB each time), and its children enrolled are kept per web worker until the figures are read from
-Compiler again, which also speeds up an indicator's own page. Most of what is left is the partner
+Compiler again or a card version is chosen, which also speeds up an indicator's own page. Most of what is left is the partner
 reporting of the cycle's programme documents.
 
 ## Makani wellbeing (`/makani/wellbeing/`, flags worked out in BMA)

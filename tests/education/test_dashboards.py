@@ -296,11 +296,10 @@ def test_makani_education_and_health(client_viewer, makani):
     charts = page(client_viewer, "makani", tab="education").context["data"]["charts"]
     assert charts["programme_level"] == [["BLN Level 1", 1], ["BLN Level 2", 1], ["Summer RS Grade 3", 1],
                                          ["YFS Level 1 - RS Grade 9", 1]]  # fmt: skip
-    assert charts["id_type"] == [
+    assert charts["id_type"] == [  # "Not specified" left out, as Power BI's percentage charts (SPEC_PBI E18)
         ["UNHCR Registered", 2],
         ["Caregiver has no ID", 1],
         ["Lebanese national ID", 1],
-        ["Not specified", 1],
     ]
     assert [label for label, _n in charts["education_status"]] == [
         "Currently registered in Formal Education school",
@@ -355,7 +354,8 @@ def test_dirasa_overview(client_viewer, dirasa):
     charts = data["charts"]
     assert charts["nationality"] == [["Syrian", 2], ["Lebanese", 1], ["Non-Lebanese", 2]]
     assert charts["gender"] == [["Female", 3], ["Male", 2]]
-    assert charts["school_types"] == [["Private Free School", 1], ["Private School", 1], ["Not specified", 1]]
+    # the schools with registrations; a school without a type left out, as Power BI's chart (74 + 70 of 211)
+    assert charts["school_types"] == [["Private Free School", 1], ["Private School", 1]]
     assert charts["in_school_nationality"] == [["Lebanese children", 450], ["Non-Lebanese children", 200]]
     assert charts["governorate"] == [["Akkar", 3], ["Beirut", 1], ["El Nabatieh", 1]]
     assert charts["trainings"] == [["SEL", 2], ["Inclusion", 1], ["PSEA", 1]]

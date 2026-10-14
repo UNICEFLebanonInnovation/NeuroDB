@@ -698,6 +698,11 @@ def data_freshness() -> dict[str, Any]:
             }
             for d in health["databases"]
         ],
+        # Makani, Dirasa and youth: whether Compiler counted the rows of Power BI's views (counts only)
+        "compared_with_power_bi": [
+            {k: _num(v) for k, v in row.items() if k not in ("programme",)}
+            for row in health.get("power_bi", [])
+        ],
         "url": reverse("reports:data_health"),
     }
 

@@ -71,14 +71,15 @@ LINK = re.compile(r'\s(?:href|action|hx-push-url)="([^"]*)"')
 # Query ceilings: what was measured on this world, plus 2 (SPEC7 §3.3 6, §3.4). The frame: the request's floor
 # (session, user, donor check, user role, the sidebar's sections and years), the cycles, the cycle's indicators and
 # those AI-suggested (one query), its documents, what staff entered by hand (one query over the rows themselves),
-# the cache stamp (last sync run, indicator flags); drawn inline the same, both parts reading the build the frame
+# the Makani and Dirasa card versions chosen (SPEC_PBI §4.3, one query), the cache stamp (last sync run, indicator
+# flags); drawn inline the same, both parts reading the build the frame
 # found stored. Each part with nothing stored computes the whole build (the linked sources of each kind, the
 # programme documents of the cycle, their partner reporting); the group's second part reading the stored build is
 # the request's floor and the key's reads.
-SHELL_QUERIES = 13
-SHELL_QUERIES_INLINE = 13
-PART_QUERIES = 36
-PART_QUERIES_STORED = 10
+SHELL_QUERIES = 14
+SHELL_QUERIES_INLINE = 14
+PART_QUERIES = 37
+PART_QUERIES_STORED = 11
 
 
 # ------------------------------------------------------------------------------------------------- the world

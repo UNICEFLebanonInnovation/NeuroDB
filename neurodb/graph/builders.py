@@ -373,7 +373,7 @@ def add_compiler(c: Collector, names: Names) -> None:
     from neurodb.youth.figures import Figures, indicator_label
     from neurodb.youth.models import YouthFigures, YouthIndicatorLink
 
-    record = YouthFigures.objects.order_by("-year").first()
+    record = YouthFigures.objects.yearly().order_by("-year").first()
     if record:
         for item in Figures(record.payload).payload.get("indicators", []):
             c.entity(

@@ -200,16 +200,39 @@ def _match(options: dict[int, dict[str, Any]], text: str | None, what: str) -> i
     return hits[0]
 
 
+def _power_bi(note: dict[str, Any] | None) -> str | None:
+    """Whether Compiler counted the rows of Power BI's view, in words (counts only)."""
+    if not note:
+        return None
+    if note.get("stale"):
+        return "Not compared with Power BI's view in this count; see Data health for the last comparison."
+    if note.get("state") == "view":
+        left = note.get("deleted_left_out") or 0
+        deleted = "included" if note.get("deleted") == "include" else "left out"
+        return (
+            f"Counted from Power BI's view {note.get('view')}: the same registrations Power BI reads for "
+            f"{note.get('period')} (deleted ones {deleted}{f', {left} in the view' if left else ''})."
+        )
+    if note.get("state") == "rule":
+        reason = note.get("reason") or "no reason given"
+        return (
+            f"Power BI's view could not be used ({reason}), so Compiler counted with its own rule; the "
+            "figures may differ from Power BI."
+        )
+    return "Not yet compared with Power BI's view."
+
+
 def youth_figures(
     year: str | None = None, partner: str | None = None, governorate: str | None = None
 ) -> dict:
     from neurodb.youth import services
     from neurodb.youth.figures import Figures
 
-    years = services.years()
-    if not years:
+    years, every_year = services.stored_years()
+    offered = years + (["all"] if every_year else [])
+    if not offered:
         return {"note": "No youth figures have been read from Compiler yet."}
-    record = services.load(year if year in years else years[0])
+    record = services.load(year if year in offered else offered[0])
     figures = Figures(record.payload)
     filters = services.YouthFilters(
         year=record.year,
@@ -221,8 +244,10 @@ def youth_figures(
         _trim(
             {
                 "year": record.year,
-                "years": years,
+                "years": offered,
                 "young_people_reached": data["total"],
+                "young_people_reached_counts": data["cards"]["reached"]["name"],
+                data["second"]["variant"]: data["second"]["value"],
                 "female": data["female"],
                 "male": data["male"],
                 "partners": data["partners"],
@@ -237,6 +262,7 @@ def youth_figures(
                 ],
                 "breakdowns": {b["label"]: b["rows"][:15] for b in data["breakdowns"]},
                 "counted_in_compiler_on": record.fetched_at,
+                "compared_with_power_bi": _power_bi(data["power_bi"]),
                 "url": reverse("youth:dashboard"),
             }
         )
@@ -264,6 +290,7 @@ def education_figures(programme: str, period: str | None = None, tab: str | None
                 "tab": tab,
                 "tabs": [key for key, _label in page.tabs],
                 "figures": result.get("data", {}),
+                "compared_with_power_bi": _power_bi(result.get("power_bi")),
                 "url": reverse(page.url_name),
             }
         )
@@ -553,9 +580,14 @@ HUB_TOOLS: dict[str, tuple] = {
     "youth_figures": (
         youth_figures,
         "Young people reached per youth indicator (counted in Compiler), with targets, by sex, age, partner, "
-        "donor and place; optionally for one partner or governorate (names as in Compiler).",
+        "donor and place; optionally for one partner or governorate (names as in Compiler). Says whether "
+        "Compiler counted the rows of Power BI's view (compared_with_power_bi).",
         _schema(
-            {"year": {"type": "string"}, "partner": {"type": "string"}, "governorate": {"type": "string"}}
+            {
+                "year": {"type": "string", "description": "A year, or 'all' for every year together."},
+                "partner": {"type": "string"},
+                "governorate": {"type": "string"},
+            }
         ),
         "Reading the youth figures",
     ),
@@ -563,7 +595,8 @@ HUB_TOOLS: dict[str, tuple] = {
         education_figures,
         "Makani (MSCC) or Dirasa (Bridging) figures counted in Compiler: children, centres or schools, "
         "breakdowns by partner, place, sex, age, nationality, disability, services and attendance. Tabs: "
-        "Makani overview/education/health/maps, Dirasa overview/outreach/barriers/map.",
+        "Makani overview/education/health/maps, Dirasa overview/outreach/barriers/map. Says whether Compiler "
+        "counted the rows of Power BI's view (compared_with_power_bi).",
         _schema(
             {
                 "programme": {"type": "string", "enum": ["makani", "dirasa"]},

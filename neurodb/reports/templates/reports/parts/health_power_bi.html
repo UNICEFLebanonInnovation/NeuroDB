@@ -1,0 +1,70 @@
+{% load i18n ui %}{% comment %}Data health's "Compared with Power BI" (part "power-bi", reports.views.data_health): per programme, its latest periods,
+each with how Compiler counted (the rows of Power BI's view, or its own rule and why), the view's rows and registrations,
+what NeuroDB counted, the difference and its reasons, what NeuroDB counted before this change, and a disclosure with
+the reasons, the rounds or years of the view, the key check, the related views and the cards (every version's value,
+the number Power BI shows when an administrator typed it, which versions equal it, the one in use). Counts only: no
+view definition and no masked text is ever on this page (they are in the admin, for administrators).
+Context: programmes = neurodb.education.power_bi.health().{% endcomment %}
+{% for p in programmes %}
+<section class="mb-3" aria-labelledby="power-bi-{{ p.programme }}">
+  <h3 class="h6 fw-semibold mb-1" id="power-bi-{{ p.programme }}"><a href="{{ p.url }}">{{ p.label }}</a>{% if p.checks %} <span class="small text-muted fw-normal mono">{{ p.checks.0.view }}</span>{% endif %}</h3>
+  {% if p.checks %}
+  <div class="table-wrap"><table class="table table-sm mb-0" id="power-bi-{{ p.programme }}-table">
+    <thead><tr><th>{% trans "Period" %}</th><th>{% trans "Counted from" %}</th><th class="num">{% trans "Power BI's view" %}</th><th class="num">{% trans "NeuroDB" %}</th><th class="num">{% trans "Difference" %}</th><th class="num">{% trans "Before this change" %}</th><th>{% trans "Counted at" %}</th></tr></thead>
+    <tbody>{% for c in p.checks %}<tr>
+      <td>{% if c.every_year %}{% trans "All years" %}{% else %}{{ c.period }}{% endif %}{% if c.view_state %}<span class="cell-sub">{% if not c.view_state.exists %}{% trans "view missing" %}{% else %}{{ c.view_state.kind|default:_("view") }}{% if not c.view_state.can_select %} · {% trans "no SELECT permission" %}{% endif %}{% endif %}{% if c.view_state.changed_at %} · {% blocktrans with day=c.view_state.changed_at|date:"j M Y" %}definition changed on {{ day }}{% endblocktrans %}{% endif %}</span>{% endif %}</td>
+      <td>{% if c.mode == "view" %}{% status_pill "succeeded" _("the view") "sm" %}{% else %}{% status_pill "failed" _("Compiler's rule") "sm" %}<span class="cell-sub">{{ c.reason }}</span>{% endif %}</td>
+      <td class="num">{% if c.view_ids is None %}—{% else %}{{ c.view_ids|number }}<span class="cell-sub">{% blocktrans with n=c.view_rows|number %}{{ n }} rows{% endblocktrans %}</span>{% endif %}</td>
+      <td class="num">{{ c.counted|number }}<span class="cell-sub">{% trans "registrations" %}</span></td>
+      <td class="num">{% if c.difference is None %}—{% else %}{% if c.difference > 0 %}+{% endif %}{{ c.difference|number }}{% endif %}{% for label, n in c.left_out %}<span class="cell-sub">{% blocktrans with n=n|number %}−{{ n }} {{ label }}{% endblocktrans %}</span>{% endfor %}{% for label, n in c.not_in_view %}<span class="cell-sub">{% blocktrans with n=n|number %}+{{ n }} not in the view ({{ label }}){% endblocktrans %}</span>{% endfor %}</td>
+      <td class="num">{{ c.before|number }}{% for label, n in c.before_more %}<span class="cell-sub">{% blocktrans with n=n|number %}+{{ n }} {{ label }}{% endblocktrans %}</span>{% endfor %}{% for label, n in c.before_fewer %}<span class="cell-sub">{% blocktrans with n=n|number %}−{{ n }} {{ label }}{% endblocktrans %}</span>{% endfor %}</td>
+      <td class="small text-nowrap">{{ c.counted_at|date:"j M Y H:i"|default:"—" }}{% if c.errors %}<span class="cell-sub text-danger">{% blocktrans count n=c.errors|length %}{{ n }} part not compared{% plural %}{{ n }} parts not compared{% endblocktrans %}</span>{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% for c in p.checks %}
+  <details class="py-2 power-bi-details" id="power-bi-{{ p.programme }}-{{ forloop.counter }}">
+    <summary class="small">{% if c.every_year %}{% blocktrans %}Details: all years{% endblocktrans %}{% else %}{% blocktrans with period=c.period %}Details: {{ period }}{% endblocktrans %}{% endif %}{% for card in c.cards %}{% if card.none_equal %} · <span class="text-danger">{% blocktrans with card=card.label %}no version of “{{ card }}” gives Power BI's number{% endblocktrans %}</span>{% endif %}{% endfor %}</summary>
+    <h4 class="small fw-semibold mt-2">{% trans "Cards: each version at the period total" %}</h4>
+    <div class="table-wrap"><table class="table table-sm">
+      <thead><tr><th>{% trans "Card" %}</th><th>{% trans "Version" %}</th><th class="num">{% trans "Value" %}</th><th class="num">{% trans "Power BI shows" %}</th></tr></thead>
+      <tbody>{% for card in c.cards %}{% for v in card.versions %}<tr>
+        {% if forloop.first %}<td rowspan="{{ card.versions|length }}">{{ card.label }}{% if card.none_equal %}<span class="cell-sub text-danger">{% trans "No version equals Power BI's number." %}</span>{% endif %}</td>{% endif %}
+        <td>{{ v.name }}{% if v.in_use %} {% status_pill "info" _("in use") "sm" %}{% endif %}{% if v.default %}<span class="cell-sub">{% trans "default" %}</span>{% endif %}</td>
+        <td class="num">{% if v.value is None %}<span class="text-muted" title="{% trans 'This payload cannot count it' %}">—</span>{% else %}{{ v.value|number }}{% endif %}{% if v.equal %} {% status_pill "succeeded" _("equals Power BI") "sm" %}{% endif %}</td>
+        {% if forloop.first %}<td class="num" rowspan="{{ card.versions|length }}">{% if card.powerbi is None %}—{% else %}{{ card.powerbi|number }}{% if card.noted_at %}<span class="cell-sub">{% blocktrans with day=card.noted_at|date:"j M Y" %}typed on {{ day }}{% endblocktrans %}</span>{% endif %}{% endif %}</td>{% endif %}
+      </tr>{% endfor %}{% empty %}<tr><td colspan="4" class="text-muted">{% trans "None." %}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% if c.reasons %}
+    <h4 class="small fw-semibold">{% trans "Why the counts differ" %}</h4>
+    <div class="table-wrap"><table class="table table-sm">
+      <thead><tr><th>{% trans "In Power BI's view" %}</th><th>{% trans "Counted before" %}</th><th>{% trans "Counted now" %}</th><th>{% trans "Reason" %}</th><th class="num">{% trans "Registrations" %}</th><th class="num">{% trans "View rows" %}</th><th class="num">{% if c.people_measure == "people" %}{% trans "Young people" %}{% else %}{% trans "Children" %}{% endif %}</th></tr></thead>
+      <tbody>{% for r in c.reasons %}<tr><td>{{ r.in_view|yesno:_("yes,no") }}</td><td>{{ r.in_before|yesno:_("yes,no") }}</td><td>{{ r.counted|yesno:_("yes,no") }}</td><td>{{ r.reasons|join:", "|default:"—" }}</td><td class="num">{{ r.registrations|number }}</td><td class="num">{{ r.view_rows|number }}</td><td class="num">{{ r.people|number }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% endif %}
+    {% if c.periods %}
+    <h4 class="small fw-semibold">{% if p.programme == "youth" %}{% trans "The view's rows per year" %}{% else %}{% trans "The view's rows per round" %}{% endif %}</h4>
+    <div class="table-wrap"><table class="table table-sm">
+      <thead><tr><th>{% if p.programme == "youth" %}{% trans "Year" %}{% else %}{% trans "Round" %}{% endif %}</th><th>{% trans "Current" %}</th><th class="num">{% trans "Rows" %}</th><th class="num">{% trans "Registrations" %}</th><th class="num">{% trans "Deleted rows" %}</th></tr></thead>
+      <tbody>{% for r in c.periods %}<tr><td>{{ r.name|default:_("No round or year") }}{% if r.year %}<span class="cell-sub">{{ r.year }}</span>{% endif %}{% if r.start_date %}<span class="cell-sub">{{ r.start_date }}{% if r.end_date %} – {{ r.end_date }}{% endif %}</span>{% endif %}</td><td>{{ r.current|yesno:_("yes,no,—") }}{% if r.current_year is not None %}<span class="cell-sub">{% blocktrans with flag=r.current_year|yesno:_("yes,no,—") %}current year: {{ flag }}{% endblocktrans %}</span>{% endif %}</td><td class="num">{{ r.view_rows|number }}</td><td class="num">{{ r.view_ids|number }}</td><td class="num">{{ r.deleted_rows|number }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% endif %}
+    {% if c.key_check %}
+    <h4 class="small fw-semibold">{% trans "Key check" %}</h4>
+    <ul class="small mb-2">{% for k in c.key_check %}<li>{% blocktrans with percent=k.percent label=k.label %}{{ percent }}% of the view's rows {{ label }}{% endblocktrans %}</li>{% endfor %}
+      {% if c.key_facts.max_rows_per_id and c.key_facts.max_rows_per_id > 1 %}<li>{% blocktrans with n=c.key_facts.max_rows_per_id %}A registration is repeated up to {{ n }} times in the view.{% endblocktrans %}</li>{% endif %}
+      {% if c.key_facts.conflicting %}<li>{% blocktrans with n=c.key_facts.conflicting|number %}{{ n }} registrations have rows with different partners or sites.{% endblocktrans %}</li>{% endif %}
+      {% if c.key_facts.verified is False %}<li>{% trans "Key not verified: the view has no column to check it against." %}</li>{% endif %}
+    </ul>
+    {% endif %}
+    {% if c.related %}
+    <h4 class="small fw-semibold">{% trans "Related views (rows)" %}</h4>
+    {% for v in c.related %}<div class="small mb-2"><span class="mono">{{ v.name }}</span>: {% if not v.exists %}{% trans "missing" %}{% elif v.error %}{% trans "could not be read" %}{% else %}{% for row in v.rows %}{% if not forloop.first %} · {% endif %}{% for value in row %}{% if not forloop.first %} / {% endif %}{{ value|default_if_none:"—" }}{% endfor %}{% endfor %} <span class="text-muted">({{ v.by|join:", " }}{% if v.by %} / {% endif %}{{ v.measures|join:", " }})</span>{% endif %}</div>{% endfor %}
+    {% endif %}
+    {% if c.errors %}<p class="small text-danger mb-1">{% trans "Not compared:" %} {{ c.errors|join:"; " }}</p>{% endif %}
+  </details>
+  {% endfor %}
+  {% else %}
+  <p class="small text-muted mb-0">{% trans "Not yet compared: Compiler sends the comparison from its payload format 3 (education) or 2 (youth). The next run of the Compiler jobs brings it." %}</p>
+  {% endif %}
+</section>
+{% endfor %}

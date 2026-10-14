@@ -341,3 +341,197 @@ def format_one(payload: dict[str, Any]) -> dict[str, Any]:
         k: v for k, v in payload.items() if k not in ("cubes", "centers", "schools", "id_types", "outreach")
     }
     return {**old, "format": 1}
+
+
+# ------------------------------------------------------------------------------- format 3: Power BI's view
+# Compiler counts the rows of the view Power BI reads (vw_mscc_data, vw_bridging_data, vw_youth_data_all) and
+# says how in a ``power_bi`` block; format 3 also adds a few cube measures (scratchpad CONTRACT_PBI.md, from
+# SPEC_PBI §3.8). Definitions here are made-up SQL with the literals masked as Compiler masks them; no name of a
+# person is in any of them.
+VIEWS = {"mscc": "vw_mscc_data", "bridging": "vw_bridging_data", "youth": "vw_youth_data_all"}
+TABLES = {"mscc": "mscc_registration", "bridging": "clm_bridging", "youth": "youth_registration"}
+CHECKED_AT = "2026-10-16T02:31:10+00:00"
+# format 3's new enrolment cube measures, appended in this order, and the format-2 measure each copies here;
+# view_rows (the view's rows of the registration) comes last and only in view mode
+EXTRA_MEASURES = {
+    "mscc": {"immunized_record": "immunized", "immunized_child": None, "screened_muac": "screened"},
+    "bridging": {},
+}
+SCHOOL_COUNTS = ("children", "children_male", "children_female", "children_lebanese", "children_non_lebanese",
+                 "cwd", "dirasa_children", "dirasa_cwd")  # fmt: skip
+
+
+def view_definition(programme: str, version: int = 1) -> str:
+    """A masked definition, as Compiler stores it (``version`` changes the text, hence the hash)."""
+    table = TABLES[programme]
+    return (
+        f"SELECT r.id, r.round_id, r.partner_id, r.deleted FROM {table} r "
+        f"WHERE r.type::text <> 'TLS'::text AND r.note <> '<masked text, 11 chars>' AND r.id NOT IN "
+        f"(<12 numbers>) AND {version} = {version}"
+    )
+
+
+def catalogue_entry(programme: str, *, version: int = 1, exists: bool = True, kind: str = "view") -> dict:
+    if not exists:
+        return {"exists": False}
+    table = TABLES[programme]
+    return {
+        "exists": True,
+        "kind": kind,
+        "schema": "public",
+        "can_select": True,
+        "columns": [["id", "integer"], ["round_id", "integer"], ["partner_id", "integer"], ["deleted", "boolean"]],
+        "reads": [["public", table, "table"]],
+        "definition": view_definition(programme, version),
+        "definition_sha256": f"{version:064x}",
+        "masked_literals": 1,
+        "masked_lists": 1,
+        "truncated": False,
+    }  # fmt: skip
+
+
+RECONCILED = {  # per programme: the reasons a registration is in one set and not another, its people measure,
+    # the view's period column, the period rule and the dimensions the view gives (CONTRACT_PBI §3.1, §3.4)
+    "mscc": (("deleted", "tls", "no_round", "no_child", "other_year"), "children", "round_id", "round_year",
+             ["partner", "center"]),
+    "bridging": (("deleted", "no_student", "other_round"), "children", "round_id", "round", ["partner", "school"]),
+    "youth": (("deleted", "no_year", "other_year", "no_enrolment", "no_master"), "people", "year_id", "year",
+              ["partner"]),
+}  # fmt: skip
+KEY_CHECKS = {  # CONTRACT_PBI §3.3 (youth: as Bridging without the school)
+    "mscc": ("same_round", "same_partner", "same_partner_or_centre", "same_center"),
+    "bridging": ("same_round", "same_partner", "same_school"),
+    "youth": ("same_partner",),
+}
+
+
+def _period(programme: str, period: str, rows: int, deleted: int) -> dict[str, Any]:
+    """One entry of ``periods``: the view's rows of a round (Makani, Bridging) or a year (youth)."""
+    counts = {"view_rows": rows, "view_ids": rows, "deleted_rows": deleted}
+    if programme == "youth":
+        return {"id": 1, "name": period, "current": True, **counts}
+    entry = {"id": 1, "name": f"Round 1 {period}" if programme == "mscc" else period, "current": True}
+    if programme == "mscc":
+        entry["year"] = int(str(period)[:4])
+    else:
+        entry["current_year"] = True
+    return {**entry, "start_date": f"{str(period)[:4]}-01-15", "end_date": None, **counts}
+
+
+def power_bi_block(
+    programme: str,
+    period: str,
+    *,
+    mode: str = "view",
+    reason: str = "",
+    version: int = 1,
+    checked_at: str = CHECKED_AT,
+    counted: int = 4,
+    before: int = 6,
+    deleted: int = 1,
+    current: bool = True,
+    related: dict[str, dict] | None = None,
+    errors: list[str] = (),
+) -> dict[str, Any]:
+    """The ``power_bi`` block of one programme and period: view mode (``counted`` of the view's registrations
+    kept, ``deleted`` left out) or rule mode (``reason``), against what NeuroDB counted ``before``; the rest of
+    ``before`` is left out for the programme's second reason (TLS, no student, no year). ``periods`` and
+    ``related`` are only in the payload of the programme's current period (``current``)."""
+    view = VIEWS[programme]
+    flags, people, period_column, period_rule, overrides = RECONCILED[programme]
+    viewed = mode == "view"
+    in_view = counted + deleted
+    catalogue = {view: catalogue_entry(programme, version=version, exists=viewed or reason != "view missing")}
+    for name, entry in (related or {}).items():
+        catalogue[name] = entry
+
+    def row(in_before, is_counted, reason_at, registrations):
+        marks = [i == reason_at for i in range(len(flags))]
+        in_the_view = viewed and reason_at in (None, 0)
+        return [
+            in_the_view,
+            in_before,
+            is_counted,
+            *marks,
+            registrations,
+            registrations if in_the_view else 0,
+            1,
+        ]
+
+    key_check = {"rows": in_view, "ids": in_view, "found": in_view, **dict.fromkeys(KEY_CHECKS[programme], in_view),
+                 "deleted_rows": deleted, "max_rows_per_id": 1, "conflicting": 0, "verified": True}  # fmt: skip
+    seen = in_view if viewed else None  # the view totals are null when the view was not read
+    profiled = {
+        "vw_center_program_staff": {
+            "exists": True,
+            "by": ["is_active_current_round"],
+            "measures": ["rows", "ids"],
+            "rows": [["Yes", 3, 3]],
+            "truncated": False,
+        }
+    }
+    return {
+        "version": 1,
+        "checked_at": checked_at,
+        "view": view,
+        "base": {
+            "mode": mode,
+            "reason": reason,
+            "setting": "auto",
+            "key": "id" if viewed else None,
+            "period_column": period_column if viewed else None,
+            "period_rule": "all" if period == "all" else period_rule,
+            "deleted": "exclude",
+            "overrides": overrides if viewed else [],
+        },
+        "catalogue": catalogue,
+        "key_check": key_check if viewed else {},
+        "reconciliation": {
+            "period": period,
+            "by": ["in_view", "in_before", "counted", *flags],
+            "measures": ["registrations", "view_rows", people],
+            "rows": [
+                row(True, True, None, counted),
+                row(True, False, 0, deleted),
+                row(True, False, 1, before - counted - deleted),
+            ],
+            "totals": {"view_rows": seen, "view_ids": seen, f"view_{people}": seen, "counted": counted,
+                       f"counted_{people}": counted, "before": before, f"before_{people}": before,
+                       "in_view_not_counted": deleted if viewed else None, "counted_not_in_view": 0 if viewed else None,
+                       "deleted_in_view": deleted if viewed else None},
+        },
+        "periods": [_period(programme, period, in_view, deleted)] if current and viewed else [],
+        "related": profiled if current and programme == "mscc" else {},
+        "errors": list(errors),
+    }  # fmt: skip
+
+
+def format_three(
+    payload: dict[str, Any], block: dict[str, Any] | None = None, *, schools: list[dict[str, Any]] = SCHOOLS
+) -> dict[str, Any]:
+    """The same figures as Compiler sends them from format 3: the ``power_bi`` block (view mode by default),
+    the extra enrolment cube measures (``view_rows`` last, in view mode only), and Makani's ``pending_round``
+    (current year only) or Bridging's ``school_totals`` over ``schools`` (the ones given to
+    :func:`dirasa_payload`: every school, those the Dirasa partner 7 lists being ``listed``)."""
+    programme = payload["programme"]
+    out = {**payload, "format": 3}
+    out["power_bi"] = block if block is not None else power_bi_block(programme, str(payload["year"]))
+    viewed = out["power_bi"]["base"]["mode"] == "view"
+    enrolment = payload["cubes"]["enrolment"]
+    width = len(enrolment["dims"])
+    extra = dict(EXTRA_MEASURES[programme], **({"view_rows": "registrations"} if viewed else {}))
+    rows = []
+    for row in enrolment["rows"]:
+        values = dict(zip(enrolment["measures"], row[width:], strict=True))
+        rows.append(row + [values.get(source, 0) if source else 0 for source in extra.values()])
+    out["cubes"] = {**payload["cubes"], "enrolment": {**enrolment, "measures": enrolment["measures"] + list(extra),
+                                                      "rows": rows}}  # fmt: skip
+    if programme == "mscc":
+        out["pending_round"] = 2 if out["power_bi"]["periods"] else 0
+    else:
+        listed = [s for s in schools if 7 in s["listed"]]
+        out["school_totals"] = {
+            scope: {"schools": len(chosen), **{k: sum(s["counts"].get(k) or 0 for s in chosen) for k in SCHOOL_COUNTS}}
+            for scope, chosen in (("listed", listed), ("all", schools))
+        }  # fmt: skip
+    return out
