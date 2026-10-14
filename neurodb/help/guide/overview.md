@@ -54,8 +54,11 @@ The sidebar groups the pages:
 
 ## Pages that open at once
 
-The country overview, the management brief, each partner's page and Data health open at once and
-fill in as their figures are ready:
+The country overview, the management brief, each partner's page, Data health, partner monitoring,
+the *By location* and *By disaggregation* tabs of Progress reports, the Map tab of Monitoring
+insights, the country programme, youth programmes, the donor page and three views of the document
+review (*By document*, *Themes* and *Repeated findings*) open at once and fill in as their figures
+are ready (the other pages are quick enough to come whole, as before):
 
 - The frame comes first: the page's heading, filters and tabs, with a grey box where each block of
   figures will go, about the size of what will be there, so the page does not jump.
@@ -69,6 +72,13 @@ fill in as their figures are ready:
   then takes you there.
 - On a partner's page, everything from the key figures to the last list fills in as one box; the
   Monitoring insights panel follows it, on partners a field monitoring visit has monitored.
+- On partner monitoring, the view tabs and the filters come at once; the key figures (or the section
+  tiles, or the data quality tiles) fill in first, then the list. Changing a filter, a sort or a
+  section tile refills the boxes under the filters. See [Partner progress](/help/partner-progress/).
+- On Progress reports, the *By location* and *By disaggregation* tables fill in once the filters are
+  there; the other two tabs come whole.
+- On Monitoring insights, the Map tab opened from a link or a bookmark shows the filters, key figures
+  and tabs first, then the map and its tables. See [Monitoring insights](/help/monitoring-insights/).
 - On the country programme page, the cycle, its documents and how much of it has gone come at once;
   the key figures and the outcomes at a glance fill in first, then each outcome with its indicators. A
   link to an outcome waits for its box, then takes you there. Opened again within 10 minutes, the page
@@ -79,6 +89,9 @@ fill in as their figures are ready:
 - On the donor page (the page donor accounts see, and administrators preview), the cards come at once
   in grey and the charts are drawn in them as soon as the figures arrive; if they cannot be loaded, a
   box says so with a **Try again** button.
+- In the document review, *By document*, *Themes* and *Repeated findings* show their tabs, links and
+  filters first, then the documents, the themes or the groups. See [Knowledge base and
+  documents](/help/knowledge-and-documents/).
 - The management brief's **Print** button waits for every box and its charts ("Preparing the
   page…"), then prints. Printing with Ctrl+P before a page is complete prints a short note in place of
   each box still loading: wait until the page is complete.

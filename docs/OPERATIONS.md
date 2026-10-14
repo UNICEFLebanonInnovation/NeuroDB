@@ -863,9 +863,13 @@ names*).
 ## Pages that load in parts
 
 A page that loads in parts answers its frame at once and fetches each of its data blocks in the
-background. Four pages work this way: the **country overview**, the **management brief**, the
-**partner page** and **Data health** (*The pages in parts*, below, lists their parts and what each
-stores); every other page is still drawn whole, as before.
+background. These pages work this way: the **country overview**, the **management brief**, the
+**partner page**, **Data health**, **partner monitoring** (its Grid, Program Performance and Data
+quality views), **Progress reports** (its *By location* and *By disaggregation* tabs), the Map tab of
+**Monitoring insights**, the **country programme**, **youth programmes**, the **donor page** and three
+views of the **document review** (*By document*, *Themes* and *Repeated findings*). *The pages in
+parts*, below, lists their parts and what each stores; every other page, and the other tabs and views
+of these, is still drawn whole, as before.
 
 **What staff see.** The frame comes first: the page's heading and filters, its tabs and the notes
 that need no figures (on the overview, the purpose line, the subtitle and the freshness strip) and, in
@@ -881,6 +885,12 @@ again** button; the rest of the page keeps working, and no error pop-up appears:
 | This part took too long. Try again, or narrow the filter. | No answer within 60 seconds (each block's own limit, below gunicorn's 120 s), twice: the first time out is retried once by itself, 2 seconds later, with 60 seconds again, so the message shows after about two minutes. Also when the server kept answering "still computing" (below) for those 60 seconds, twice |
 | You do not have access to this. | 403, for example a donor account |
 | This part is no longer on the page. Reload the page. | 404: the page changed under a tab left open (a new release renamed or removed the block) |
+
+The donor page draws its figures with its own script (`donor.js`), so its one box says it in its own
+words, with the same **Try again**: "The figures could not be loaded." (a server error, or a network
+error, 502, 503 or 504 that failed again after one retry), "The figures took too long to come. Try
+again in a moment." (no figures within 60 seconds in all, "still computing" answers included) and "You
+do not have access to this." (403).
 
 Screen readers hear one short summary ("Loading the figures…", "All figures are shown.", "1 part could
 not be loaded."), never one message per block, and an arriving block never moves the focus. Printing
@@ -918,15 +928,22 @@ block are already stored, the frame draws that block itself, in the same answer,
 within their lifetime asks only for its other blocks (the overview: the tiles and the charts come with
 the frame, and the *For you* card, the daily review and What's new follow it, three small requests; the
 brief: both of its parts come with the frame, one request in all). Each stored value's key holds what
-the synced figures depend on (the filter, the day, the release, the last finished sync run and the
-indicator flags, or for Data health's row counts the runs of the jobs that write the tables counted; the
+the synced figures depend on (the filter, the day, the release and the runs that feed them: the last
+finished sync run and the indicator flags on most pages, the latest run of each eTools job and the flags
+on partner monitoring and Progress reports, the Monitoring insights stamp on that page, the runs of the
+jobs that write the tables counted for Data health's row counts; the table below gives each page's; the
 language too, unless the value reads the same in every language, as the overview's do) and nothing about
-the person asking: two people with the same filter read the same figures, and a user's own section only
-enters as the filter. What differs by person is drawn in each request for the person asking and never
-stored: the brief's *Assign* links for staff, the partner page's *Edit the link*, the administrators'
-link to the reporting checks on Data health. Of what staff edit by hand outside a sync, the indicator
-flags are in the key of every value they change, the brief's key also holds its section plans, finding
-assignments, ActivityInfo partner links and latest daily review, the governorates of the overview's filter bar (Admin → Locations)
+the person asking: two people with the same filter read the same figures, and a user's own section, the
+document review's *Verified only* switch or a donor's account only enters as the filter. What differs
+by person is drawn in each request for the person asking and never stored: the brief's *Assign* links
+for staff, the partner page's *Edit the link*, the administrators' link to the reporting checks on Data
+health, the document review's buttons for editors. Of what staff edit by hand outside a sync, the
+indicator flags are in the key of every value they change, the brief's key also holds its section plans,
+finding assignments, ActivityInfo partner links and latest daily review, the country programme's key a
+digest of the rows staff enter for its cycle, youth programmes' a digest of the year's links to eTools, the
+document review's repeated findings every verdict and edit, Monitoring insights' figures the NeuroDB
+action points, the *Score settings* thresholds and the places of Admin → Locations, and partner
+monitoring's map points the gazetteer; the governorates of the overview's filter bar (Admin → Locations)
 are read at each visit and Data health counts the gazetteer at each visit, so all of these show at once.
 Any other hand edit shows when the stored value it is part of expires, or at once after **Empty the
 stored page figures**: a governorate renamed in Admin → Locations is in the filter bar at once, but
@@ -939,12 +956,14 @@ start-up (nobody runs `createcachetable`) and read through Django's database cac
 (`CACHES["shared"]`: at most 300 entries; when it is full, a third of them are removed). It is
 UNLOGGED: it is not written to the database's log nor copied to replicas, and it comes back empty after
 a database crash or a restore, which loses nothing, since every page computes its figures again. Each
-value lives for its own time (an overview build, a brief build, the brief's lineage and the
-freshness strip two minutes, the filter bar's choices ten, Data health's row counts an hour), is
-compressed above 64 KB and is not stored at all above 4 MB once compressed (it is then kept for that
-request only). The expired rows are deleted automatically: each web process
-does it at most once every 10 minutes, after storing a value, so there is nothing to schedule. A new
-release never reads what an older one stored (the release is part of every key). Tests keep the
+value lives for its own time (an overview build, a brief build, the brief's lineage, the freshness
+strip, partner monitoring's indicators and map points and Progress reports' tables two minutes, the
+donor page's figures five, the filter bars' choices, Monitoring insights' figures and the country
+programme's and youth programmes' builds ten, Data health's row counts and the document review's
+repeated findings an hour), is compressed above 64 KB and is not stored at all above 4 MB once
+compressed (it is then kept for that request only). The expired rows are deleted automatically: each
+web process does it at most once every 10 minutes, after storing a value, so there is nothing to
+schedule. A new release never reads what an older one stored (the release is part of every key). Tests keep the
 shared cache in memory.
 
 **Emptying it.** Admin → *Data and sync* → *Import and sync runs* → *Run a job* → **Empty the stored
@@ -989,15 +1008,26 @@ more.
 | Donor page, `/donor/` (not a staff page) | The bar with the year, the tabs, every heading and card of both tabs with grey shapes of the size of their charts, the date of the data; for an administrator's preview, the preview banner | One part, `data`, answered as JSON and drawn by the page's script (`donor.js`): every figure of both tabs. Its address carries the year and, in an administrator's preview, the account and the tab; for a donor it is always the donor's own account, whatever the address says | The page's figures, 5 minutes per account (its donors, grants and whether partners are named), year and day, the same in every language, under the last finished sync run and the indicator flags; they were kept per worker before. When they are stored, the frame carries them and nothing is fetched. See *Donor access* |
 | Document review, `/knowledge/review/`: the views *By document* (Findings), *Themes* and *Repeated findings* (Synthesis); the other tabs and views are drawn whole | Breadcrumbs, *Verified only*, purpose line, the tab bar, the view's links, filter bar and filter chips; for *Repeated findings* the panel's heading and explanation | `findings` (at once): the page's ten documents, each with its key statements and findings and, for editors, *Accept all*, *Add a finding* and the review buttons; its page links reload this part only. `synthesis` (at once): the *Themes* panel (each theme with its five best findings, its link and, when AI is on, *Write a paragraph* with the person's quota) or the repeated findings' groups. A tab or filter change (htmx) answers with the figures in it, as before, except the repeated findings: their placeholder unless they are stored | Only the repeated findings: an hour at most, per batch and *Verified only* (each person's switch is in the key), the same in every language and for everyone, under a key made of what they are read from: the documents in a batch (their batch, review status and analysis time, and the last change of any, a title or a file changed in the admin), the findings (how many, the newest, the last edit, every verdict given) and the batches (names, archiving). A verdict, an edit, *Accept all*, a document taken out or marked reference, or a finished analysis shows at once. When they are stored, the frame draws them itself. *By document* and *Themes* are computed at each request. See *Document review* |
 
-Every other page is still drawn whole. Of these, the ActivityInfo databases page and each database,
-the Neuro and HPM reports, the programme documents' indicators tab, each programme document (page and
-pop-up) and field monitoring were measured for this step and stay so on purpose: on a copy of the data
-twenty times today's size each answered whole in under 0.3 seconds, so parts would only add requests.
-Field monitoring's *HACT visit plan* tab, added later, was measured the same way and stays whole too:
-its figures take about 30 ms (40 ms with what the tab adds) and the whole tab 0.2 seconds (median of 7
-cold runs; the slowest 0.3 seconds), most of it drawing the list (see *HACT visit plan*).
-The other slow pages (partner monitoring, Monitoring insights and the country programme among them)
-have not been converted yet.
+Every other page is still drawn whole. A page gets parts only when it takes over 0.3 seconds to answer
+whole, cold, on a copy of the data twenty times today's size (Monitoring insights at production size),
+for an administrator and for a viewer with a section; below that, parts would only add requests. Of the
+pages that stay whole, the ActivityInfo databases page and each database, the Neuro and HPM reports, the
+programme documents' indicators tab, each programme document (page and pop-up) and field monitoring
+were measured that way and each answered whole in under 0.3 seconds. Field monitoring's *HACT visit
+plan* tab, added later, was measured the same way and stays whole too: its figures take about 30 ms
+(40 ms with what the tab adds) and the whole tab 0.2 seconds (median of 7 cold runs; the slowest 0.3
+seconds), most of it drawing the list (see *HACT visit plan*).
+So were, and stay whole for the same reason (medians, cold): the action points page (0.11-0.13
+seconds), the *Reporting progress* and *Partners* tabs of Progress reports (0.11-0.16), the three tabs
+of Funds (0.06-0.11; the contributions and programmes tabs now read only the filter's choices, not every
+fund line), the *Map* view of partner monitoring (a frame already: 0.07 seconds, its points come from
+their own address, see the table), the *Insights*, *Quality*, *Analysis* and *Records* tabs of Monitoring
+insights (0.14-0.27; the panels they load when reached or opened, such as the rule score trends, the
+entity table or *Show all*, now come alone instead of with the whole tab), Makani (0.18-0.29) and Dirasa
+(under 0.1), the knowledge base search (it now ranks on the stored search index: 40-90 ms for a common
+word, where it took 1.6-1.8 seconds), the document review's *Documents* tab and *Index* view (0.1-0.2,
+since their counts are taken by subqueries) and its other tabs and views, What's new and For you (under
+0.21).
 
 **When a part fails.**
 
@@ -1009,9 +1039,13 @@ have not been converted yet.
    `"GET /brief/?section=&year=2026&as_of=a5d1e0b7c3f94286&_part=sections HTTP/1.1" 500`,
    `"GET /partners/12/?_part=datamart HTTP/1.1" 500`,
    `"GET /data/health/?_part=datasets HTTP/1.1" 500`,
+   `"GET /partner-monitoring/?section=&year=2026&as_of=3b8e1f0d6a2c9475&_part=grid HTTP/1.1" 500`,
+   `"GET /partner-reporting/?tab=locations&_part=table HTTP/1.1" 500`,
+   `"GET /fmm/?section=&tab=map&_part=map HTTP/1.1" 500`,
    `"GET /country-programme/?cycle=2&as_of=0c41d2a9e5b7f816&_part=outcomes HTTP/1.1" 500`,
-   `"GET /youth/?year=2026&as_of=7e2a90c4d1b3f658&_part=summary HTTP/1.1" 500` or
-   `"GET /donor/?year=2026&_part=data HTTP/1.1" 500`,
+   `"GET /youth/?year=2026&as_of=7e2a90c4d1b3f658&_part=summary HTTP/1.1" 500`,
+   `"GET /donor/?year=2026&_part=data HTTP/1.1" 500` or
+   `"GET /knowledge/review/?tab=synthesis&view=repeated&batch=3&_part=synthesis HTTP/1.1" 500`,
    and the error with its traceback is logged next to it ("Internal Server Error: /brief/", the path
    without the query). A **202** on a part request is normal: another request was computing the same
    figures and the browser asked again.
@@ -1041,7 +1075,9 @@ nothing; static files come from WhiteNoise, which serves its own compressed copi
 up to 800 (`max_requests_jitter`) so the workers do not restart together; it was 2000 and 200. A page in
 parts sends several requests per visit (the overview: its frame and up to five parts, plus the folded
 findings when they are opened; the brief: its frame and two parts, or the frame alone when its figures
-are stored; the partner page: its frame and one or two parts; Data health: its frame and five parts),
+are stored; the partner page: its frame and one or two parts; Data health: its frame and five parts;
+partner monitoring: its frame and two parts per view; the other pages of the table: their frame and one
+or two parts; fewer when the frame draws stored figures itself, as the table says),
 and each restart loses the worker's own caches and pays its slow first request again. The web container
 still runs 3 workers × 4 threads; the work is mostly CPU, so more workers (`WEB_CONCURRENCY`) help only
 with more vCPU. Each part is its own request in Application Insights: watch the volume of requests there

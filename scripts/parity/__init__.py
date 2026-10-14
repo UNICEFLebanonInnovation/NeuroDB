@@ -28,6 +28,10 @@ level, so the same files record on a base commit that does not have it.
 
 Modules: ``core`` (the command line, the frozen clock, assembling a page, reading it, comparing),
 ``overview`` (stage 0: the country overview's matrix and context paths), ``reports_core`` (stage A: the
-management brief, the partner profile and data health), ``scale`` (the world),
-``timing`` (speed), ``settings`` (the timing runs' settings: production's caches, no collected static files).
+management brief, the partner profile and data health), the four groups of step 3: ``etools`` (partner
+monitoring and its map, Progress reports and funds), ``fmm`` (Monitoring insights, every tab),
+``other_d1`` (the country programme, Makani and Dirasa, youth and the donor page) and ``other_d2`` (the
+knowledge search and the document review), each with the world it needs described in its docstring,
+``scale`` (the world), ``timing`` (speed), ``settings`` (the timing runs' settings: production's caches,
+no collected static files).
 """
