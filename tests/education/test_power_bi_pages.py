@@ -329,6 +329,24 @@ def test_data_health_compares_each_programme_in_counts_only(client, admin_user):
     assert [v["variant"] for v in card["versions"] if v["in_use"]] == ["known_not_no"]
 
 
+def test_data_health_shows_every_comparison_of_the_youth_key_check(client, admin_user, youth):
+    """The youth key check compares the year, the partner and the deleted flag (CONTRACT_PBI §3.3: the partner
+    and the deleted flag prove the key, since enrolment and registration ids overlap as numbers): Data health
+    shows all three, as for Makani and Dirasa their round, partner, centre or school."""
+    client.force_login(admin_user)
+    html = _health(client)
+    rows = {(p["programme"], c["period"]): c for p in power_bi.health() for c in p["checks"]}
+    labels = [k["label"] for k in rows[("youth", "2026")]["key_check"]]
+    assert labels == [
+        "are registrations",
+        "have the registration's own year",
+        "have the registration's own partner",
+        "agree with the registration on whether it is deleted",
+    ]
+    assert "of the view's rows agree with the registration on whether it is deleted" in html
+    assert "own year" in html
+
+
 def test_data_health_links_to_the_admin_for_administrators_only(client, client_viewer, admin_user):
     store(makani3())
     viewer_page = client_viewer.get(reverse("reports:data_health")).content.decode()

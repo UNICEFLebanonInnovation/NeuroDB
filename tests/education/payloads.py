@@ -398,10 +398,10 @@ RECONCILED = {  # per programme: the reasons a registration is in one set and no
     "youth": (("deleted", "no_year", "other_year", "no_enrolment", "no_master"), "people", "year_id", "year",
               ["partner"]),
 }  # fmt: skip
-KEY_CHECKS = {  # CONTRACT_PBI §3.3 (youth: as Bridging without the school)
+KEY_CHECKS = {  # CONTRACT_PBI §3.3 (youth: the year, the partner and the deleted flag)
     "mscc": ("same_round", "same_partner", "same_partner_or_centre", "same_center"),
     "bridging": ("same_round", "same_partner", "same_school"),
-    "youth": ("same_partner",),
+    "youth": ("same_year", "same_partner", "same_deleted"),
 }
 
 

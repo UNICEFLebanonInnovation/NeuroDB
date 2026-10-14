@@ -706,13 +706,16 @@ FLAG_LABELS = {  # the reconciliation's reasons, in Data health's words
     "no_master": _("not enrolled under a youth indicator"),
 }
 SETS = ("in_view", "in_before", "counted")
-KEY_LABELS = (  # the key check's comparisons, each over the view's rows of the period
+KEY_LABELS = (  # the key check's comparisons, each over the view's rows of the period (CONTRACT_PBI §3.3)
     ("found", _("are registrations")),
     ("same_round", _("have the registration's own round")),
+    ("same_year", _("have the registration's own year")),  # youth: shown, not required
     ("same_partner", _("have the registration's own partner")),
     ("same_partner_or_centre", _("have the registration's partner, or its centre's")),
     ("same_center", _("have the registration's own centre")),
     ("same_school", _("have the registration's own school")),
+    # youth: with the partner, what proves the key (enrolment and registration ids overlap as numbers)
+    ("same_deleted", _("agree with the registration on whether it is deleted")),
 )
 
 
