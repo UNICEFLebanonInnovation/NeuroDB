@@ -28,15 +28,11 @@ BACKGROUND_KEYS = {
 
 
 def _before(extra: str = "") -> str:
-    """The instructions as ``agent._instructions`` wrote them before stage 6a (pinned)."""
-    from neurodb.indicators.services.navigation import current_year
-
+    """The instructions as ``agent._instructions`` wrote them before stage 6a (pinned), with the year line
+    that replaced "The current reporting year is …" (SPEC_HOME §7; its sentences are pinned in
+    tests/assistant/test_year_prompt.py)."""
     today = timezone.localdate()
-    year = current_year()
-    text = (
-        f"{agent.SYSTEM_PROMPT}\nToday is {today:%A %d %B %Y}. "
-        f"The current reporting year is {year.name if year else 'unknown'}."
-    )
+    text = f"{agent.SYSTEM_PROMPT}\nToday is {today:%A %d %B %Y}. {agent.year_line()}"
     return f"{text}\n\n{extra.strip()}" if extra.strip() else text
 
 

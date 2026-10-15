@@ -69,9 +69,12 @@ per-user identifier sent to OpenAI (`safety_identifier`, below), so OpenAI's mis
 each user starts afresh.
 
 ## AI assistant (Ask NeuroDB)
-Signed-in users ask questions in plain language on `/ask/` or from the search box (Ctrl K). The
-search box's "Ask NeuroDB AI" link opens `/ask/?q=...` with the question filled in; nothing is sent
-until the user presses Ask, so a crawler or a page reload never asks it.
+Signed-in users ask questions in plain language on `/ask/` or from the search box (Ctrl K; staff only:
+visitors and donor accounts have no search box). The search box's "Ask NeuroDB AI" link opens
+`/ask/?q=...` with the question filled in; nothing is sent until the user presses Ask, so a crawler or a
+page reload never asks it. The answers start from eTools for this year; the ActivityInfo tools serve the
+ActivityInfo years, and the line after the date tells the model whether ActivityInfo is in use or an
+archive (see *ActivityInfo: in use or archive*).
 ChatGPT answers them: an OpenAI GPT model called through the OpenAI API (platform.openai.com,
 Responses API), not the consumer ChatGPT app. The model calls read-only lookups over NeuroDB's own
 services (indicator results, activity reports, Neuro reports, programme documents, donors,
@@ -90,7 +93,7 @@ come from.
   `OPENAI_API_KEY` (App Service:
   `@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=openai-api-key)`; Container Apps:
   `enableAiAssistant = true` in `main.bicepparam`). Restart the app. Without a key the assistant is
-  off and the search box works as before; `/ask/` then points users to Search and the Management
+  off and the search box ("Search partners, programme documents, indicators") works as before; `/ask/` then points users to Search and the Management
   brief, and only staff see which setting is missing. Never put the key in a committed file or a Bicep
   parameter.
 - **Settings**: `AI_ASSISTANT_MODEL` (default `gpt-5.5`; it can be switched to a newer model such
@@ -614,9 +617,10 @@ to improve first (for example, PD locations in eTools, or linking ActivityInfo p
 
 ### Year-end forecasts (`/insights/forecasts/`, the first model)
 
-For each ActivityInfo master indicator of the current reporting year that adds up month by month
-(aggregation SUM; averages, maximums and ratios are not forecast), where it will likely stand in
-December, with a range, against its target. The method is in `neurodb/insights/forecast.py`; it runs
+For each ActivityInfo master indicator of this year's ActivityInfo reporting year (the one whose records
+count for this calendar year) that adds up month by month (aggregation SUM; averages, maximums and ratios
+are not forecast), where it will likely stand in December, with a range, against its target. Forecasts are
+made only while ActivityInfo is in use (see *ActivityInfo: in use or archive*). The method is in `neurodb/insights/forecast.py`; it runs
 on NeuroDB's servers, with no outside service and no new library.
 
 1. **History**: every year's monthly sums of every additive master indicator (the same monthly sums
@@ -644,14 +648,21 @@ beats the straight line and its range held the real result at least 70% of the t
 (`GATE_MONTH`, `GATE_COVERAGE`); until then the page shows the test, and the forecasts to
 administrators only, for review.
 
-**Where it shows**: the *Year-end forecasts* page (sidebar, under the ActivityInfo databases; the
-user's section first; filter by section and status), a *Likely to fall short by December* card on
-the overview (the chosen sections) and on each database dashboard, and Ask NeuroDB
+**Where it shows**: the *Year-end forecasts* page (in the ActivityInfo group at the bottom of the
+sidebar, under *ActivityInfo databases*, once forecasts were made; the user's section first; filter by
+section and status), a *Likely to fall short by December* card on the Country overview (this year only,
+the chosen sections, while ActivityInfo is in use) and on each database dashboard, and Ask NeuroDB
 (`indicator_forecasts`), which is told to say they are estimates and to give the range.
 
 **Running it**: the job `forecast` (`forecast_indicators`, Mondays 07:15; *Run a job → Year-end
 forecast*). Each run replaces the forecasts; the back-test is in the run's details (admin → Import
 and sync runs). Reading every year's monthly sums takes a few minutes on the production data.
+**Once ActivityInfo is not in use** (an archive, or this year has no ActivityInfo reporting year with
+records) the job still runs and succeeds, but skips: its run says `skipped: ActivityInfo is not in use in
+<year>` and the last forecasts are kept as they were. The page and the run that pages read (the latest run
+that forecast, never a skipped one) then say "These forecasts were made for <year> while ActivityInfo was
+in use. They are no longer updated."; Ask's `indicator_forecasts` adds the same note, and Watch closes its
+forecast points ("ActivityInfo is archived: its forecasts are no longer followed").
 
 ## Help assistant (`/help/`, Ctrl+Shift+H)
 
@@ -662,11 +673,11 @@ with a link. Every signed-in person but a donor has it. The code is in `neurodb/
 
 - **The help pages** (`/help/`, sidebar: *Help*, at the bottom): the help guide, written for staff (not
   this runbook), one page per area: *Getting around NeuroDB* (the sidebar, roles, data sources and refresh
-  times), *Monitoring insights* (filters, every tab and card and what it counts from which eTools data,
+  times), *Home* (what it shows, the first load, ActivityInfo in use or archive), *Monitoring insights* (filters, every tab and card and what it counts from which eTools data,
   Not monitored, the quality score's categories, weights and bands, the rules switched on and what each
   checks, the AI checks, urgency, the AI brief, Chat with Data and the map), *Action points*, *Exports*,
-  *Knowledge base and documents*, *Ask NeuroDB*, *For you and What's new*, *Overview, management brief and
-  daily review*, *AI limits* and a *Glossary*. Each heading has its own address
+  *Knowledge base and documents*, *Ask NeuroDB*, *For you and What's new*, *Country overview, management
+  brief and daily review*, *AI limits* and a *Glossary*. Each heading has its own address
   (`/help/monitoring-insights/#urgency`); the search box searches every section. The guide is Markdown in
   `neurodb/help/guide/*.md`, packaged with the code (the `docs` folder is not in the image), rendered and
   sanitised as Ask's answers are (`markdown` + `nh3`, links only to NeuroDB's own pages). It holds no
@@ -788,6 +799,127 @@ becomes *Failed* with "Stopped by <user> at <time>", and the job can be started 
 job waiting for the Compiler (BMA) to calculate quits within a minute (BMA's calculation itself
 goes on); any other job finishes the work it is doing in the background without changing the
 stopped run.
+
+## ActivityInfo: in use or archive
+
+Partners reported their monthly results in ActivityInfo until 2026 and report in eTools/PRP from then
+on. NeuroDB keeps every ActivityInfo year (databases, dashboards, analytical views, maps, Neuro and HPM
+reports, the import runs): nothing is deleted. One state says whether ActivityInfo is still **in use** or
+an **archive**; the sidebar, Home, the alarms, the forecasts, search, the landing page and Ask NeuroDB all
+read it (`neurodb/indicators/services/activityinfo.py`, with notes at its top). Three rules:
+
+1. **Which years have ActivityInfo figures** (whatever the state). A calendar year is an ActivityInfo year
+   when a reporting year of that year (the first four digits of its *year*, else of its name) has a
+   database shown on the dashboard with at least one activity record; when several reporting years
+   qualify, the one ticked current counts, else the highest name. In such a year the Country overview,
+   Home, the brief and the donor page keep the ActivityInfo figures (children reached is the larger of the
+   two sources, with the months each covers): they are history, and no setting drops them. A year without
+   records shows eTools alone, never an "ActivityInfo 0", and a page shows ActivityInfo figures only where
+   the chosen sections have ActivityInfo children. **Show on dashboard** keeps its meaning: it hides a
+   database from every page, the archive included, so it is not the way to drop a year's ActivityInfo
+   figures.
+2. **In use or archive**, set on the admin page *Reporting setup → ActivityInfo: in use or archive*:
+   - *Automatic (recommended)*, the default, also while nobody has ever saved the page: in use while the
+     ActivityInfo import is switched on in *Scheduled jobs* (any switched-on job that runs
+     `import_activityinfo_data`, whatever its key) **and** the year the import serves has records **no
+     older than three months** (`RECENT_MONTHS`: the newest `month_name` of its displayed databases, at
+     most three months before today's month). The year served is this year, or last year during January,
+     when the import still brings in the December results (January reports December). Otherwise
+     ActivityInfo is an archive by itself: an import left on over a year partners stopped reporting in
+     (records up to April) does not keep it "in use" in August.
+   - *In use*: in use whatever the records and the schedule.
+   - *Archived*: an archive whatever the records and the schedule.
+3. **Whether the import's own alarms are on** (`watched`): when set *In use*, or on *Automatic* while the
+   import is switched on and either ActivityInfo is in use or the databases of a returning year wait for
+   their first records (the reporting year ticked current is this year, has a database shown on the
+   dashboard, and none of them has a record yet). Never when *Archived*. So a comeback is followed from
+   the day its databases are added, before any record makes the year "in use", and an import left on over
+   a stale year stays silent.
+
+What follows rule 2:
+
+| | In use | Archive |
+|---|---|---|
+| Sidebar | *Monthly results (ActivityInfo)*, at the bottom, open by default | *ActivityInfo archive* with its years ("2019–2026"), at the bottom, closed; a reader who opens it keeps it open |
+| Home | *Programmes and sources*: "ActivityInfo 2026: n results tracked against targets · last import …"; the Section editors' "HPM reports of 2026 to comment on" | "ActivityInfo archive 2019–2026: every database and report, kept as it was" |
+| Year-end forecasts | made every Monday; the Country overview's forecast card (this year only); Watch's forecast points | the weekly job skips ("ActivityInfo is not in use in 2026") and keeps the last table; the page says "These forecasts were made for 2026 while ActivityInfo was in use. They are no longer updated."; no card; Watch's forecast points close |
+| Search | the ActivityInfo groups of every year | the same, prefixed "ActivityInfo archive:" (except *ActivityInfo indicators*) |
+| Landing page | its copy as before, with the ActivityInfo figures | "the ActivityInfo results of 2019–2026 kept as an archive", no ActivityInfo figure |
+| Ask NeuroDB | "ActivityInfo is in use (reporting year 2026)" | "no longer updated: its 2026 records stop at Aug 2026" when this year has records, else "an archive of 2019–2026 … use the eTools tools" |
+| Daily review | ActivityInfo partner names not linked to eTools are a finding | not checked |
+
+What follows rule 3 (the import's own alarms):
+
+| | Followed | Not followed |
+|---|---|---|
+| The *freshness* job (`check_sync_freshness`, button *Check freshness*) | checks `ai_data` | leaves `ai_data` out: an import 45 days old is not an error |
+| Daily review | stale-source and sync-failure findings about the ActivityInfo jobs | none |
+| Admin home *Needs attention* (and Watch's *system* points) | no current reporting year, databases never imported or stale, master indicators without a target, failed ActivityInfo runs | none; Watch closes those points |
+| Data health | the ActivityInfo jobs as before; the databases of the year served (or of the returning year) | the ActivityInfo jobs read "Not in use (archive)" with a neutral pill; the databases of the last ActivityInfo year, state "Archive", with the note "ActivityInfo is an archive: these 2026 databases are kept as they were and are no longer imported." |
+| Country overview freshness strip | lists ActivityInfo data | leaves it out |
+
+**The admin page** (*Reporting setup → ActivityInfo: in use or archive*, the first row of Reporting setup;
+one row, no *Add* and no *Delete*; administrators with *Staff status*) has the three choices and, read
+only, *Now*, *Years with ActivityInfo records* and *ActivityInfo import*: why the state is what it is, in
+plain words. The lines it can show:
+
+- "In use (automatic): 2026 has ActivityInfo records up to Aug 2026 and the ActivityInfo import is
+  switched on."
+- "In use (automatic): in January the import still brings in the December 2026 results."
+- "Archived (automatic): 2027 has no ActivityInfo records. It turns in use by itself when the first 2027
+  records are imported."
+- "Archived (automatic): the newest ActivityInfo records are for Apr 2026, more than three months ago. It
+  turns in use by itself when newer records are imported."
+- "Archived (automatic): the ActivityInfo import is switched off in Scheduled jobs."
+- "In use (set by an administrator)." or "Archived (set by an administrator)."
+- then "Years with ActivityInfo records: 2019–2026." and "The ActivityInfo import is on. It imports the
+  reporting year ticked current: 2026.";
+- while a returning year's databases wait for their records and the alarms are on: "The 2027
+  ActivityInfo databases wait for their first records: the import's alarms stay on."
+
+The admin home's *This year* tile shows the calendar year, the first line under it and a link to the page.
+Saving records who changed it (*Updated by*, *History*).
+
+**Within 30 seconds.** The state is computed in four queries and kept 30 seconds by each web worker
+(`activityinfo:state:v1:<year>:<month>` in the default cache), read once per request. Saving the page,
+switching a scheduled job on or off (its toggle, its form, the *Switch off the selected jobs* action),
+deleting a job, saving or deleting a reporting year or a database, and the end of an ActivityInfo import
+drop it on the worker that did it; the other workers follow within 30 seconds. The scheduler's own saves
+of a job (its next and last run) do not. The landing page's figures (kept an hour per worker) hold this
+year's ActivityInfo reporting year and the state in their key, so they change with it.
+
+**Over the year** (Automatic, the import left on):
+
+| When | State |
+|---|---|
+| 15 October 2026, 2026 records up to August | in use (August is two months back) |
+| the same, records stopped in April | archive (not recent): the 2026 figures stay; the import's alarms are silent |
+| the same, the import switched off | archive; Data health shows its jobs "Not in use (archive)" |
+| 5 January 2027, 2026 records up to November or December | in use until 31 January (the December import); a failed December import is reported |
+| 5 January 2027, 2026 records up to August | archive |
+| from 1 February 2027 | archive (2027 has no ActivityInfo records) |
+| 2027 databases added for a returning ActivityInfo | still an archive until the first recent records, but followed from the day the databases are created ("never imported", failed runs reported); in use within 30 seconds of the end of the import that brings its first recent records |
+
+In 2027 an import left switched on keeps importing the reporting year ticked current (2026) on days 1–22:
+in January that is the December import; from February its failures are no longer reported (its runs stay
+on Data health), and the admin page's third line says which year it imports. Switch it off after 22
+January (step 8 of *Yearly rollover*).
+
+**The yearly reminder** (NeuroDB Watch, `reporting_year_rollover`, 15 December to 15 January,
+Administrators): while ActivityInfo is not set to *Archived*, is set *In use* or has its import switched
+on over last year's records, and no reporting year of the new year has a displayed database: "ActivityInfo
+in 2027: set it up, or set it to Archived", linking to the admin page. It closes when the new year's
+databases are added ("ActivityInfo databases for 2027 were added"), ActivityInfo is set to *Archived*, or
+its import is switched off; after 15 January as missed ("the rollover period ended; ActivityInfo stays
+archived for 2027 until its databases have records"). Otherwise the reminder is "Population figures for
+2027" (step 5 of the yearly rollover), until figures for that year or a later one are loaded: archiving
+ActivityInfo never removes the yearly population reminder. Administrators who act on these reminders need
+*Staff status* to open the admin pages they link to.
+
+**Bringing it back.** Create the year's reporting year (tick it current) and its databases (steps 1–4 and
+7 of *Yearly rollover*): the import's alarms come back at once, and ActivityInfo turns in use at the first
+recent records. Or set *In use* on the admin page. To undo the whole change: set *In use*, or revert the
+release (`migrate core 0027` drops the empty setting table).
 
 ## Running jobs without a command line
 
@@ -1018,10 +1150,12 @@ more.
 
 | Page | The frame (at once) | Its parts | What it stores in the shared page figures, and when that changes |
 |---|---|---|---|
-| Country overview, `/` | Purpose line, filter bar, subtitle, freshness strip, link to the ActivityInfo databases; without a reporting year, the empty state and no part | `kpis` (at once; first of the group `overview`): the key figure tiles. `for-you` (at once, from Watch's own address): the NeuroDB Watch card. `figures` (when near the screen, once `kpis` is in): impact, value for money, delivery and assurance and the two progress blocks. `review` (when near the screen, only when a daily review ever succeeded): the *Daily review* card. `review-more` (only when *Show N more findings* is opened): its folded findings. `news` (after the visible ones): What's new and the forecast risk card | The overview build, 2 minutes per year, sections, governorate and day, the same in every language; the filter bar's section names, 10 minutes; the freshness strip, 2 minutes. Each key holds the last finished sync run and the indicator flags, so a sync or a flag changes it at once. When the build is stored, the frame draws `kpis` and `figures` itself. See *Country overview* |
+| Home, `/` (signed in) | Title, date and scope line, purpose line, freshness strip; no figure work and no Watch table | `for-you` (at once, from Watch's own address; not drawn while Watch is off): the NeuroDB Watch card. `tasks` (at once): *Needs a decision* (Administrators and Management) and the daily review's digest. `since` (when near the screen): *Since <weekday>* and *Your tasks*. `standing` (at once): the Country overview's five key figures for this year and Home's sections, and the *Also* line. `programmes` (after the visible ones): *Programmes and sources* | Nothing of its own: `standing` is the Country overview's build (same key), drawn by the frame when stored; *Programmes and sources* reads the country programme's build (10 minutes) and Compiler's summary. *Needs a decision*, the digest, *Since* and *Your tasks* are computed at each request. See *Home and the country overview* |
+| Country overview, `/country-overview/` | Purpose line, filter bar, subtitle, freshness strip, in an ActivityInfo year the link to its databases | `kpis` (at once; first of the group `overview`): the key figure tiles. `figures` (when near the screen, once `kpis` is in): impact, value for money, delivery and assurance and the two progress blocks. `news` (after the visible ones): What's new and the forecast risk card | The overview build, 2 minutes per year, its ActivityInfo reporting year, sections, governorate and day, the same in every language; the filter bar's section names, 10 minutes; the freshness strip, 2 minutes. Each key holds the last finished sync run and the indicator flags, so a sync or a flag changes it at once. When the build is stored, the frame draws `kpis` and `figures` itself. See *Home and the country overview* |
+| Daily review, `/daily-review/` | Title, scope line, purpose line with the review's time (from its schedule), section chips | `review` (at once, only when a daily review ever succeeded): the *Daily review* card. `review-more` (only when *Show N more findings* is opened): its folded findings, always those of the card above them | Nothing: the review's findings are read at each request. See *Daily review page* |
 | Management brief, `/brief/` | Purpose line, filter bar with *Figures as of* and **Print**, the tab bar, the *Reference* block (lineage and data dictionary); without a reporting year, the empty state and no part | `brief` (at once; first of the group `brief`): the five tiles, *Things to decide* with the *Assign* links for staff, *Sections at a glance* and *Copy summary*. `sections` (when near the screen, once `brief` is in): ahead or behind, how sure, who and where, partners, money and action, with every chart of the page | The brief build, 2 minutes per year, sections, day and language (its labels are translated as it is computed), under the brief's own key: the section plans, the finding assignments and the ActivityInfo partner links (how many, and the last change), the latest daily review, the last finished sync run and the indicator flags, so an entry in the admin, a new review, a sync or a flag shows at once. It reads two overview builds, each stored as an overview build: the year's, the very one the overview stores for the same year and sections without a governorate, and the year before's, for the comparisons. The frame's lineage, 2 minutes, the same in every language, under the last finished sync run, the flags and the latest daily review; the filter bar's section names are the overview's. When the build is stored, the frame draws both parts itself: a brief opened again within two minutes is one request. See *Management brief* |
 | Partner page, `/partners/<id>/` | Header (name, type, breadcrumbs), the *deleted in eTools* notice, the knowledge base documents | `datamart` (at once): everything from the key figures to the last list (profile, visits chart and assurance chips, *Partner reporting* with the eTools and ActivityInfo panels and, for those allowed, *Edit the link*, the eight lists). Inside it, `fmm` (once `datamart` is in, after the visible ones): the Monitoring insights panel, only when Monitoring insights is on and a field monitoring visit ever monitored the partner | Nothing: the partner's figures hold database records, which the shared page figures never store, so they are computed at each visit and an edit or a sync shows at the next one. See *Partner reporting: ActivityInfo and eTools, side by side* |
-| Data health, `/data/health/` | Page heading, the *Sync jobs* heading with its *Stale after N hours* note, the heading and explanation of the eTools Datamart datasets panel | `jobs` (at once): one card per sync job. `databases` and `runs` (when near the screen): the ActivityInfo databases of the year and their last import, the latest 50 runs. `datasets`, `power-bi` and `readiness` (after the visible ones): the eTools Datamart datasets table with its *Copy* and *CSV* buttons (they come with the table, so they are never offered before it is there), *Compared with Power BI* (its heading, explanation and, for administrators, the links to the admin are in the frame), the machine learning readiness check | Only the rows each eTools Datamart dataset holds (the *Rows held* column): an hour at most, the same in every language and for everyone, under a key made of the latest run of each job that writes those tables (eTools Datamart sync, eTools sync, Locations sync, eTools update clean-up), so a run of one of them that starts or ends has them counted again. The gazetteer (*locations*), which staff also edit in Admin → Locations, is counted at each visit, and so is everything else on the page. Inside a database transaction (NeuroDB Watch's AI look-ups read these figures in a read-only one) the stored counts are read too; when there are none the rows are counted there and nothing is stored. See *Data quality per dataset* |
+| Data health, `/data/health/` | Page heading, the *Sync jobs* heading with its *Stale after N hours* note, the heading and explanation of the eTools Datamart datasets panel | `jobs` (at once): one card per sync job. `databases` and `runs` (when near the screen): the ActivityInfo databases of the year the import serves and their last import (once ActivityInfo is an archive, those of its last year, state "Archive", with a note saying they are no longer imported), the latest 50 runs. `datasets`, `power-bi` and `readiness` (after the visible ones): the eTools Datamart datasets table with its *Copy* and *CSV* buttons (they come with the table, so they are never offered before it is there), *Compared with Power BI* (its heading, explanation and, for administrators, the links to the admin are in the frame), the machine learning readiness check | Only the rows each eTools Datamart dataset holds (the *Rows held* column): an hour at most, the same in every language and for everyone, under a key made of the latest run of each job that writes those tables (eTools Datamart sync, eTools sync, Locations sync, eTools update clean-up), so a run of one of them that starts or ends has them counted again. The gazetteer (*locations*), which staff also edit in Admin → Locations, is counted at each visit, and so is everything else on the page. Inside a database transaction (NeuroDB Watch's AI look-ups read these figures in a read-only one) the stored counts are read too; when there are none the rows are counted there and nothing is stored. See *Data quality per dataset* |
 | Partner monitoring, `/partner-monitoring/` | View tabs (Grid, Program Performance, Data quality, Map), the filter bar with its choices, the "your section" note | Grid: `summary` (at once; first of the group `pm`): the seven tiles, the status donut and the indicators by section; `grid` (at once, once `summary` is in): the indicators by section, PD and output with their months or years, its pages, the note when the list is cut. Program Performance (`view=table`): `sections` (at once; first of the group `pm`): the section tiles; `table` (at once, once `sections` is in): the page of rows in its sort, its pages, *Excel of the filter* and *CSV of the filter*. Data quality (`view=quality`): `quality-tiles` (at once; first of the group `pm`) and `quality-lists` (when near the screen, once the tiles are in). A change of filter, sort or section tile reloads the area under the filter bar (`#monitoring-grid`) with new placeholders; a page of the grid or of the table reloads its own part. The exports are answered whole | The filter's indicators (every row the three views read), 2 minutes per filter and day, the same in every language and for everyone; Program Performance's section tiles and table read the same for the filter without its sections (the table keeps the chosen ones, as before), one computation for both. The filter bar's choices, 10 minutes. Each key holds the latest run of each eTools job (eTools sync, eTools Datamart sync, Datamart backfill, Locations sync) and the indicator flags, so a sync shows at once and an ActivityInfo import does not count. The parts carry `as_of`. When the indicators are kept, the frame draws the view's two parts itself: one request. The Map tab is not in parts; its points (`/api/internal/partner-monitoring/map/`) are kept 2 minutes under the same jobs, the flags and the gazetteer. See *Partner monitoring and Progress reports load in parts* |
 | Progress reports, `/partner-reporting/` (*By location* and *By disaggregation*) | Filter bar with its choices, the tab bar, the *By disaggregation* tab's own filters | `table` (at once): the tab's table, its pages, the note when the filter holds too many rows, the Excel and CSV links. A change of filter (HTMX) answers the table at once. *Reporting progress* and *Partners* are drawn whole, as before | The tab's rows (on *By disaggregation*, with the lines of every location), 2 minutes per tab, filter, tab filters and day; the filter bar's choices, 10 minutes; the same in every language and for everyone, under the eTools jobs' latest runs and the indicator flags, as partner monitoring. When the rows are kept, the frame draws the table itself: one request. See *Partner monitoring and Progress reports load in parts* |
 | Monitoring insights, Map tab, `/fmm/?tab=map` | Header and Export menu, filter bar, reference line, chips, data notes, the key figure tiles, the tab bar; a filter without visits shows the tab's empty state and no part. The other tabs stay one request each | `map` (at once): the map, its legend, *Visits on the map*, *PD locations not yet visited* and *Visits without coordinates*, with the map's configuration. A swap of the results (tab bar, filter bar, the planned places switch) brings the map drawn in, in one request | The map (`geo.map_points`), 10 minutes, per filter, planned places shown and language (the popups' dates are translated), under the Monitoring insights stamp (last refresh and rules version, the day, the NeuroDB action points, the last eTools, Locations or clean-up run, the gazetteer's places), so a refresh, one of those runs or a place edited in admin → Locations shows at once. Also the one pass over the visits (under the *Score settings* thresholds too), the entity table and the rule counts that the other tabs read. Never drawn by the frame: the map takes about 90 ms to draw even when stored. See *Monitoring insights* |
@@ -1796,8 +1930,9 @@ TPM activities, field-monitoring findings and open action points recorded at the
 
 Partners reported in ActivityInfo until 2026 and report in eTools/PRP from then on. Both stay:
 the ActivityInfo databases keep their dashboards, analytical views, maps and Neuro/HPM reports
-(sidebar *Monthly results (ActivityInfo)*), the eTools reporting has its own pages (sidebar *Partner
-progress (eTools)*: *Partner monitoring*, *Progress reports*), and the **partner page** brings the two together
+(the ActivityInfo group at the bottom of the sidebar: *Monthly results (ActivityInfo)* while ActivityInfo
+is in use, *ActivityInfo archive* once it is not), the eTools reporting has its own pages (sidebar
+*Partner progress (eTools)*: *Partner monitoring*, *Progress reports*), and the **partner page** brings the two together
 under *Partner reporting*: the eTools implementation monitoring on one side, the ActivityInfo
 history per year and database on the other (each database opens the partner's master indicators by
 month; *map* shows its sites).
@@ -1816,12 +1951,14 @@ disappears. Nothing of this page is stored in the shared page figures: it is com
 so a sync or an edit shows at the next one. Links to its panels (`#activityinfo-reporting`, the lists'
 `#partner-…` ids) wait for the part and then scroll to the panel.
 
-The sidebar's *Databases*, *Neuro reports* and *HPM* blocks list the year the page shows: the year
-chosen in the year menu (`?year=`), the year of the database or report that is open, or else the
+The ActivityInfo group's *Databases*, *Neuro reports* and *HPM* blocks list the year the page shows:
+the year chosen in the year menu (`?year=`), the year of the database or report that is open, or else the
 current reporting year. When that year has none of them (a new year before its databases are
-set up), each block shows the latest year that has some, and says which year in its title.
-Search covers the same year; each kind of result shows its first 8 matches and a *See all* link
-(`?group=`) when there are more. A Neuro Report or HPM page has an *Other years* menu listing the
+set up), each block shows the latest year that has some, and says which year in its title. Above them,
+one row per ActivityInfo year (a year with records) opens that year's databases (`/databases/?year=<name>`).
+Search covers every year unless a year is chosen (`?year=`), each ActivityInfo result with its year
+(prefixed "ActivityInfo archive:" once ActivityInfo is an archive); each kind of result shows its first 8
+matches and a *See all* link (`?group=`) when there are more. A Neuro Report or HPM page has an *Other years* menu listing the
 reports with the same report code in other years (set the code in admin → Neuro reports).
 
 The bridge is the table *ActivityInfo partner links* (admin → Partnerships): one row per partner
@@ -1890,25 +2027,77 @@ Datamart (`sync_locations`). An "Invalid token" (HTTP 403) from it means `ETOOLS
 expired: ask eTools for a new token and store it in Key Vault (never in a file). Its intervention details step writes the donor amounts in the same shape as the
 Datamart sync (one entry per donor and grant), so running it does not blank the donor pages.
 
-## Country overview (the signed-in home page)
+## Home and the country overview
 
-`/` for a signed-in user is the country overview: one page for the whole intervention, read live
-from the synced eTools tables and the ActivityInfo history. Three rows answer three questions, then
-two progress blocks and the daily AI review. The ActivityInfo database cards of the year (one per
-database: indicators, status, records, partners, last import) have their own page, `/databases/`,
-in the sidebar as *ActivityInfo databases* (under *Monthly results (ActivityInfo)*, shown even in a year
-without databases), with the year's totals and the import runs:
+`/` for a signed-in user is **Home** (`reports/home_views.py`): what needs the person today, what changed
+since the previous working day, and where their section (or the country) stands this year. Every figure
+of the year is on the **Country overview** (`/country-overview/`), the findings of the morning check on
+the **Daily review** page (`/daily-review/`). Visitors get the landing page at `/`; donor accounts never
+reach these pages. Old links keep working: `/?year=…` and `/?governorate=…` are sent on to
+`/country-overview/` with the same query, `/?review=…` (and `review_latest`, `review_id`) to
+`/daily-review/`, and a part request of the old overview at `/` (`_part=kpis`, `figures`, `news`, `review`,
+`review-more`) is still answered, so an open tab keeps loading.
+
+**First load, one rule for the three pages** (`reports/home.default_sections`): members of the Management
+group and people without a section see every section; everyone else sees their own section (the user's
+section matched to the eTools section names, as on partner monitoring), with *every section* one click
+away. Every link Home draws to the Country overview, the daily review and the brief carries Home's
+sections (`?section=…`, or `?year=<this year>` for every section), so the next page never applies a first
+load default of its own and shows the same figures.
+
+### Home (`/`)
+
+| Block | What it shows | Who |
+|---|---|---|
+| *Needs you today*: For you | The NeuroDB Watch card (not drawn while Watch is switched off: the block says "NeuroDB is not checking at the moment: an administrator switched these checks off."). An account without a role is told "For you is for people with a role…", one without a section that For you shows only whole-country points | everyone |
+| *Needs a decision* | The first decisions of the latest daily review in the sections (`brief.decisions`, as the brief's *Things to decide*): severity, title, section, status and due date; never the owner or who should act. "All decisions: Management brief →" | Administrators and Management members |
+| *Daily review · <day, time>* | Counts by severity (Critical, Warning, To note), the open findings that matter most grouped by check ("and 4 more like it"; those already under *Needs a decision* left out), up to two of the review's "changed" sentences, "Open the daily review →". A review more than two days old starts with its date; before the first review, when it runs (read from the *daily-review* schedule) or that it is switched off | everyone |
+| *Since <weekday>* | Up to six notable What's new changes since 00:00 of the previous working day (Monday to Friday, no holiday calendar: on a Monday, since Friday 00:00), in Home's sections; the sections are matched to NeuroDB's sections by the first-load rule, and when none matches the heading says "every section" instead of listing the country under a section's name | everyone |
+| *Your tasks* | Counts only: document review findings not reviewed yet (while the document review is on; a Section editor's own section, the country for Administrators), open Makani wellbeing flags (Administrators and Education editors: `WELLBEING_SECTIONS`), and while ActivityInfo is in use the HPM reports of the year whose masters sit in the editor's section. Left out when every count is 0 | Section editors and Administrators |
+| *Where <who> stands in <year>* | The Country overview's own five key figure tiles (the same build, key and template, so Home and the overview never differ), then "Also in <year>: field monitoring visits · third-party visits done · open action points (high priority overdue)", and for editors the programme documents still counted by their largest indicator. "All the figures: Country overview →" | everyone |
+| *Programmes and sources* (whole country) | The country programme cycle (year k of n, indicators on track; or ended, or not started), Compiler's Makani, Dirasa and youth registrations, and ActivityInfo (in use: its year, results and last import; archive: "ActivityInfo archive 2019–2026: every database and report, kept as it was"). A source not set up is left out, except for people who can set it up (superusers, and Administrators with *Staff status*), who read a muted line saying where | everyone |
+| Data freshness strip | When each source last changed, "Data health →" (ActivityInfo only while its import is followed) | everyone |
+
+**Loads in parts.** The frame (title, date and scope line, purpose, the freshness strip) does no figure
+work and reads no Watch table; then each block is a part:
+
+| Part | What it holds | When it loads | Query ceiling (tests) |
+|---|---|---|---|
+| `for-you` | The Watch card, from Watch's own address (`watch:card`) | At once | 11 |
+| `tasks` | *Needs a decision* and the daily review's digest | At once | 12 |
+| `since` | *Since <weekday>* and *Your tasks* | When near the screen | 10 |
+| `standing` | The five key figures and the *Also* line: the overview build of this year and Home's sections. When that build is stored (2 minutes, shared with the Country overview), the frame draws it itself | At once | 44 cold |
+| `programmes` | *Programmes and sources* (the country programme build is shared 10 minutes with its page) | After the visible ones | 18 (no cycle) |
+
+The frame stays within 25 queries cold and 13 warm (`tests/reports/test_home_parts.py`; the cold count
+includes the ActivityInfo state and the menu's sources). *Since*, *Your tasks* and the decisions are
+computed at each request (small); nothing Home stores holds a person, a name or anything about a child.
+**Privacy**: Home never shows who owns a decision or a finding (no owner, no "who", no assignment link), no
+e-mail address, and the wellbeing and document review counts only to the roles above.
+
+### Country overview (`/country-overview/`)
+
+Every figure of the year on one page for the whole intervention, read live from the synced eTools
+tables and, in a year with ActivityInfo records (rule 1 of *ActivityInfo: in use or archive*), the
+ActivityInfo history. Three rows answer three questions, then two progress blocks; the daily review has
+its own page now, and the For you card is on Home. The ActivityInfo database cards (one per database:
+indicators, status, records, partners, last import) have their own page, `/databases/?year=<name>`, in
+the ActivityInfo group at the bottom of the sidebar (*ActivityInfo databases*, under *Monthly results
+(ActivityInfo)* or *ActivityInfo archive*), with the year's totals and the import runs; the overview links
+them ("ActivityInfo databases of the year →") only in an ActivityInfo year:
 
 | Row | Blocks | Source |
 |---|---|---|
-| Impact on children | Children reached (eTools PRP reports and ActivityInfo, shown apart), children reached by governorate (tiles), achievement against target by section, monthly reach of both sources, coverage of the estimated children per governorate | PD indicators + PRP reports (`datamart_pdindicator`, `datamart_reportedindicator`), ActivityInfo facts of the HPM masters, population figures (`category=children`, governorate level) |
+| Impact on children | Children reached (eTools PRP reports, and ActivityInfo in a year with its records, shown apart), children reached by governorate (tiles), achievement against target by section, monthly reach of both sources (the ActivityInfo line ending at its last month), coverage of the estimated children per governorate | PD indicators + PRP reports (`datamart_pdindicator`, `datamart_reportedindicator`), ActivityInfo facts of the HPM masters, population figures (`category=children`, governorate level) |
 | Value for money | Funds disbursed of reserved, cost per child reached by section, spending vs delivery by section, funding by donor, partnerships that need a decision | Funds reservations (`datamart_fundsreservationheader`, lines for donors), the same indicators |
 | Delivery and assurance | Indicator status by section, assurance counts (field monitoring, TPM visits of every status, with the planned ones (the figure the field monitoring page shows) beside them, action points, HACT risk), findings by rating, what needs attention (at most eight items; overdue high-priority action points and one never-reported item always among them, "+N more" for the rest) | Partner monitoring rule, `datamart_monitoringfinding`, `datamart_tpmvisit`, `datamart_actionpoint`, partner risk ratings |
 | Progress | TPM visits planned, completed and with the report overdue per month; action points due, closed and past due per month, open ones by age | `datamart_tpmvisit` (+ activities for the section), `datamart_actionpoint` |
 
-**Filters.** Year (the reporting year menu), section (multi) and governorate (a click on a tile).
-A PD manager lands on their own section (the user's section in the admin, matched to the eTools
-section names as on the partner monitoring page); "every section" is one click away.
+**Filters.** Year (calendar years: the Year select and the header's year menu list this year down to the
+first year NeuroDB has data for, at most ten; `?year=` is four digits), section (multi) and governorate (a
+click on a tile). A PD manager lands on their own section (the user's section in the admin, matched to the
+eTools section names as on the partner monitoring page); "every section" is one click away; members of the
+Management group and people without a section land on the whole country (the first-load rule above).
 
 **Which programme documents.** Every PD running in the selected year (its period overlaps the year),
 whatever its status now, except drafts and cancelled ones: a PD that ended in June still counts for
@@ -1960,8 +2149,13 @@ awaiting acceptance: what a send-back would take off (for the whole country; not
 governorate).
 
 **Two sources, never added.** The same children are often reported in both eTools PRP and
-ActivityInfo, so the headline *Children reached* is the larger of the two, with both shown beside
-it; the governorate tiles and the coverage table take the larger of the two per governorate.
+ActivityInfo, so in a year with ActivityInfo records the headline *Children reached* is the larger of the
+two, with both shown beside it and the months each covers ("eTools 1,266,027 (Jan–Sep) · ActivityInfo
+4,469,997 (Jan–Aug): the larger of the two"); the governorate tiles and the coverage table take the larger
+of the two per governorate, and the monthly ActivityInfo line stops at its last month. A year without
+ActivityInfo records, or a section without ActivityInfo children, shows eTools alone: no "ActivityInfo 0",
+no ActivityInfo column or line. From January to April of a year with no eTools children reported yet,
+the tile says *Not yet* and links to last year.
 
 **Achievement against target** (per section, and the brief's *Achievement of PD targets (median)*):
 the children indicators with a target, how many have a Reached, their statuses, and the **median**
@@ -1982,30 +2176,28 @@ children in the section of its main indicator; a PD without one splits its money
 sections. Compare sections, not absolute values. It is empty when no children indicator reported.
 
 **Loads in parts** (see *Pages that load in parts*, above). The page answers its frame at once: the
-purpose line, the filter bar, the subtitle, the freshness strip at the bottom and the link to the
-ActivityInfo databases. Then come, each in its own request:
+purpose line, the filter bar, the subtitle, the freshness strip at the bottom and, in an ActivityInfo
+year, the link to the ActivityInfo databases. Then come, each in its own request:
 
 | Part | What it holds | When it loads |
 |---|---|---|
 | `kpis` | The key figure tiles | At once; it computes the overview build that `figures` then reads |
-| `for-you` | The NeuroDB Watch card, from Watch's own address | At once |
 | `figures` | Impact on children, value for money, delivery and assurance, and the two progress blocks, with their headings (their anchors still work) | Once `kpis` has finished, when near the screen |
-| `review` | The *Daily review* card (only when a daily review has ever succeeded); `#daily-review` still leads to it | When near the screen |
-| `review-more` | The card's folded findings (often hundreds of KB), always those of the card above them: its address carries the latest review the card read (`review_latest=<date>`) and the review it shows (`review_id=<id>`), so a newer day's review (the next morning's job) never slips its findings under it. A run of the card's own day replaces that day's review (*Run the daily review now* in Admin → Daily reviews, a second run of the morning's job): the part then asks the reader to reload the page, never showing the new run's findings under the old card | Only when *Show N more findings* is opened |
-| `news` | What's new and the forecast risk card | After the visible parts |
+| `news` | What's new and the forecast risk card (this year only, and only while ActivityInfo is in use) | After the visible parts |
 
-A part further down loads anyway once the visible ones are done, one at a time; only `review-more`
-waits to be opened. Every part request carries the filter the frame resolved: the user's own section
-written out on a first load (`section=<name>`), `section=` for every section, the year always, the
-governorate and the review day when chosen, and `as_of`: `figures` reads the build `kpis` read for it,
-even when a sync finished before or between the two (see *The pages in parts*). Without a reporting year the page shows its empty state
-and loads no part (nor What's new nor the forecasts). When the build for the chosen filter is already
-stored, the frame draws the tiles and the figures itself, so an overview opened again within two
-minutes asks only for the *For you* card, the daily review and What's new, three small requests,
-after its frame.
+A part further down loads anyway once the visible ones are done, one at a time. Every part request
+carries the filter the frame resolved: the user's own section written out on a first load
+(`section=<name>`), `section=` for every section, the year always (four digits) and the governorate when
+chosen, and `as_of`: `figures` reads the build `kpis` read for it, even when a sync finished before or
+between the two (see *The pages in parts*). There is no empty state for a missing reporting year any more:
+a year without ActivityInfo shows its eTools figures. When the build for the chosen filter is already
+stored, the frame draws the tiles and the figures itself, so an overview opened again within two minutes
+asks only for What's new after its frame. The *For you* card and the daily review card moved to Home and
+to the daily review page (below).
 
-**Caching.** The overview build is kept 2 minutes per (year, sections, governorate, day) in the shared
-page figures, read by every web worker (it was each worker's own memory before), and computed by one
+**Caching.** The overview build is kept 2 minutes per (year, ActivityInfo reporting year of that year,
+sections, governorate, day) in the shared page figures (`overview:v14:…`; Home's key figures are this very
+build), read by every web worker (it was each worker's own memory before), and computed by one
 request at a time; a new or changed indicator flag (children or unique beneficiaries) and the end of
 any sync run change the key, so every worker shows the new figures at once. The build reads the same
 in every language, so one stored build serves every language. The filter bar's sections are kept 10
@@ -2016,12 +2208,27 @@ governorates too, show it when the build expires). Nothing in the build depends 
 user's own section only enters as the filter. The management brief reads the same stored builds: an
 overview and a brief of the same year and sections (the overview without a governorate) compute the
 year's figures once between them, and the brief's filter bar shows the same stored sections. The
-freshness strip at the bottom shows when each source last changed.
+freshness strip at the bottom shows when each source last changed (ActivityInfo data only while its
+import is followed).
+
+### Daily review page (`/daily-review/`)
+
+The daily review's own page: the review card that was on the overview, with its tabs (the day before,
+the last seven days), its *Show N more findings* line and its *Data problems* line. Purpose line:
+"Fourteen checks run every morning at <time> on the night's data. Findings are prompts to look, never
+verdicts on partners or staff." (the time is read from the *daily-review* schedule; switched off, it says
+so). It opens on the first-load rule above, with Home's scope line (its sections, *every section* one click
+away). Parts: `review` (the card,
+`id="daily-review"`, so `/daily-review/#daily-review` leads to it) and
+`review-more` (its folded findings, only when opened; always those of the card above them, as described
+under *Daily AI review*). Before the first review it says "The daily review has not run yet. It runs every
+morning at <time>." Ceilings: frame 18 queries cold and 13 warm, each part 8. Admin → Daily reviews →
+*Run the daily review now* links to the page in its message.
 
 ## Management brief (`/brief/`)
 
 The overview read for decisions: one page for senior management and the Country Management Team,
-in the sidebar under *Management brief*. It reuses the overview service (same programme documents,
+in the sidebar under *Management brief* (Programme results › Management brief). It reuses the overview service (same programme documents,
 same children rule, same cache) for the selected year **and for the year before**, and adds what a
 management meeting asks for. Eight blocks, one tab each:
 
@@ -2058,6 +2265,20 @@ sources), the elapsed PD period for achievement, the daily
 review of 30 days ago for the on-track share (the same formula and the PDs running in the year, only
 when that review is of the selected year). The projection is the average of the last three reported
 months, extended to December; it is a pace, not a forecast.
+
+**Years and ActivityInfo.** The year is a calendar year (`?year=`, this year by default; the Year select
+lists this year down to the first year with data, at most ten), and each year's ActivityInfo figures
+come from the reporting year whose records count for it (rule 1 of *ActivityInfo: in use or archive*):
+none in a year without ActivityInfo records, so there is no "no reporting year" page any more. Children
+reached is compared like with like: the larger of the two sources against the larger of the two only when
+both years have ActivityInfo figures covering the same months (ActivityInfo resumed in July is not
+compared with a full ActivityInfo year); otherwise eTools against eTools, labelled "vs same period last
+year, eTools only", with a hint saying why ("ActivityInfo was not used in 2025", or "did not cover the same
+months"). An eTools-only comparison is shown only when last year's programme documents counting children
+are at least half of this year's; otherwise there is no comparison and the hint says "Not compared: 2025 has
+eTools partner reports for only <n> programme documents." (no "+900 %" against a pilot year). The
+*partners linked across sources* criterion of *How sure* counts only in a year with ActivityInfo figures,
+and the lineage lists the ActivityInfo import only in such a year.
 Confidence thresholds: reported ≥ 80 %, verified ≥ 30 %, linked ≥ 90 %, sync at most 2 days old;
 one short = medium, two or more = low. A grant's unspent balance is each funds reservation's
 outstanding amount in the grant's share of the reservation's lines (eTools carries the
@@ -2106,14 +2327,16 @@ frame). When the build for the chosen filter is already stored, the frame draws 
 brief opened again within two minutes is a single request. **Print** waits for every part still to come
 and for the charts in them ("Preparing the page…" on the button), then prints; Ctrl+P on a page still
 loading prints a note in place of each part not in yet. *Copy summary* works as soon as the `brief` part
-is in. Without a reporting year the page shows its empty state and loads no part.
+is in.
 
 ## Daily AI review
 
 Every morning the `daily-review` job (`manage daily_review`) runs fourteen fixed checks over the
-synced data and stores the result as a dated review with its findings (admin → Daily review). The
-overview shows the latest one in its *Daily review* card, with tabs for the day before and the last
-seven days; the card follows the page's section filter (country-wide findings always show). The
+synced data and stores the result as a dated review with its findings (admin → Daily review). Its own
+page, **Daily review** (`/daily-review/`, third in the sidebar; see *Daily review page*), shows the latest
+one in its card, with tabs for the day before and the last seven days; the card follows the page's section
+filter (country-wide findings always show). Home shows a digest of it (counts by severity, the findings
+that matter most grouped by check, what changed) with a link to the page. The
 programme findings are listed (the first twelve; the rest under *Show N more findings*, loaded only
 when it is opened); the findings about the data pipeline (`sync_failures`, `data_quality`,
 `stale_sources`, `locations_unplaced`) are summed up in one *Data problems* line that links to the
@@ -2130,10 +2353,10 @@ Data health page.
 | `tpm_reports_late` | TPM visits ended more than 14 days ago whose report has not come in | warning |
 | `action_points_overdue` | Open high-priority action points past their due date, per partner and section | critical |
 | `findings_off_track` | Field monitoring findings rated off track in the last 30 days, per partner | warning |
-| `sync_failures` | Failed or partial sync runs in the last 24 hours | warning |
-| `data_quality` | Datasets whose last run failed rows; ActivityInfo partner names not linked to eTools | info |
+| `sync_failures` | Failed or partial sync runs in the last 24 hours (the ActivityInfo jobs only while the import is followed, see *ActivityInfo: in use or archive*) | warning |
+| `data_quality` | Datasets whose last run failed rows; ActivityInfo partner names not linked to eTools (only while ActivityInfo is in use) | info |
 | `locations_unplaced` | PD indicators whose location is not in the gazetteer | info |
-| `stale_sources` | Sources older than `SYNC_STALENESS_HOURS` (the ActivityInfo import is not reported after the 22nd, when it does not run) | info |
+| `stale_sources` | Sources older than `SYNC_STALENESS_HOURS` (the ActivityInfo import only while it is followed, and not after the 22nd, when it does not run) | info |
 | `improvements` | Indicators back on track since the previous review | good |
 
 **New, still open, resolved.** Each finding has a stable key (for example the PD and the check);
@@ -2183,8 +2406,10 @@ you** page. The AI only writes a short morning note and looks into a few critica
 never decides what is followed, how serious it is, when it is due or who is told. The code is in
 `neurodb/watch` (one module per step, each with notes at its top).
 
-**What staff see.** *For you* in the sidebar (under Ask NeuroDB), with the number of "Needs you"
-points told today and not yet seen, and a *For you* card on the overview. The page shows, in order:
+**What staff see.** *For you* (second in the sidebar, under Home), with the number of "Needs you"
+points told today and not yet seen, and a *For you* card on Home (not drawn while Watch is switched off;
+an account without a role is told "For you is for people with a role. Your account has none yet, so it
+opens with the Viewer's pages only. Ask an administrator to give you a role."). The page shows, in order:
 today's note (the section's, and the whole country's for the country view), *Needs you today* (at
 most 5 points), *Coming up (next 30 days)*, *How things connect* (open points that meet on one
 partner or grant), *Good to know*, *Everything else open* (collapsed: the open points not listed
@@ -2214,9 +2439,9 @@ readers. Donor accounts never see the page, the count or the card.
 | `hact_assurance_gap` | From 1 October to 31 December: partners whose programmatic visits, spot checks or audits are below what HACT requires (eTools' partner minimum); warning from 15 November, critical from 15 December. When the partner's programme documents are short of their planned visits, the evidence also says how many PDs need how many visits (counts only) and links to them on the HACT visit plan (`/field-monitoring/?tab=plan&partner=<id>&year=<year>`) | the sections of the partner's active PDs, and the country view | trial |
 | `assignment_due` | Agreed dates on daily review findings (*Finding assignments*): 3 days before, and once passed | the finding's section, and the country view | trial |
 | `fm_follow_up` | Field monitoring visits (Monitoring insights) reported, rated off track or constrained (the worse of the overall rating and HACT Q1), ended 14 (Score settings *follow-up days*) to 120 days ago, with no eTools action point linked and no NeuroDB action point following them up (one added by hand, or one NeuroDB made and someone marked done); critical when off track and ended over 30 days ago. Closes when an action point is linked (or a NeuroDB one follows the visit up) or the rating changes. Reads the Datamart sync and the Monitoring insights refresh; finds nothing while `FMM_ENABLED` is off (switch the check off then, or its source shows as not refreshed) | the visit's sections | trial |
-| `forecast_short` | Indicators the year-end forecast says are likely to fall short, only while the forecasts are shown | the forecast's section | trial |
+| `forecast_short` | Indicators the year-end forecast of this year says are likely to fall short, only while ActivityInfo is in use and the forecasts are shown; once ActivityInfo is an archive its points close ("ActivityInfo is archived: its forecasts are no longer followed") | the forecast's section | trial |
 | `donor_account_expiring` | Donor sign-ins that stop working within 14 days | Administrators | trial |
-| `reporting_year_rollover` | 15 December to 15 January: the new year is not the current reporting year yet | Administrators | trial |
+| `reporting_year_rollover` | 15 December to 15 January, one of two points. While ActivityInfo is not set to Archived, is set In use or has its import switched on over last year's records, and the new year has no displayed database: "ActivityInfo in <year>: set it up, or set it to Archived" (links the admin page *ActivityInfo: in use or archive*; closes when the year's databases are added, ActivityInfo is set to Archived or its import is switched off; missed after 15 January). Otherwise, while no population figures of the new year are loaded: "Population figures for <year>" (links the Population page; closes when they are loaded; missed after 15 January). See *ActivityInfo: in use or archive* | Administrators | trial |
 | `daily_review` | The critical and warning findings still open in the latest daily review, under their own keys | the finding's section | on |
 | `system` | The admin home's *Needs attention* lines (failed jobs, a silent scheduler, a missing daily review, the watch's own lines below) | Administrators | on |
 | `stale_source` | A data source a check needs that has not synced within `SYNC_STALENESS_HOURS` | Administrators | on |
@@ -2932,7 +3157,8 @@ it was scored with.
 - **Period**: this calendar year by default; last year, a calendar year, this or last quarter, the last
   30 or 90 days, two dates, or *All time* (every visit with a date; no earlier period to compare
   with, and the reference line says "Data available from X to Y"). `?year=Y` means 1 January to 31 December Y and wins over any preset, so
-  the site's year menu keeps the page on the year chosen. Periods read the visit date: the start
+  a link with a year (Home's *Also in* line, the Country overview) keeps the page on that year. The header
+  has no year menu on this page: the period presets are its own year control. Periods read the visit date: the start
   date, else the end date (a data note counts the visits dated by their end).
 - **Section default**: a user with a section sees that section on a bare visit to `/fmm/`, as on the
   overview, with a chip to show every section. Every link the page writes, and every link into it
@@ -3007,8 +3233,8 @@ whose own section would otherwise apply sees the same figures as the panel the l
   and other visits* for the year (as on the visit page, with the country programme outputs the PD
   contributes to; the page already lists its knowledge base documents). A TPM activity's status is
   dated by the eTools sync that brought it.
-- **Overview**: under the assurance card's figures, *Field monitoring visits in Monitoring insights*
-  opens the page for the overview's year, sections and governorate (`section=` empty when every
+- **Country overview**: under the assurance card's figures, *Field monitoring visits in Monitoring
+  insights* opens the page for the overview's year, sections and governorate (`section=` empty when every
   section is shown; the governorate as the overview names it, which the page reads). The overview's
   own figures and links do not change. Its section filter counts every visit of a partner with
   indicators in the section, Monitoring insights each visit's programme document section: the page's
@@ -4064,7 +4290,7 @@ screenshot of the Youth dashboard exists), so the headline and the *Partners* ti
 version an administrator chooses in Admin → *Power BI cards* (enrolled, registered, registrations or
 enrolments; a blank partner counted or not), today's meaning by default.
 
-**The page** (Partnerships → Youth programmes; filters: year, with *All years* when Compiler sent it,
+**The page** (Education and youth → Youth programmes; filters: year, with *All years* when Compiler sent it,
 master indicator, partner, donor, governorate): young people reached (with the registered young people
 as a second line, payload format 2; the version chosen in Admin → *Power BI cards*), female and male; each master and sub indicator with young people
 reached, the target (sum of the Compiler programme documents' targets; hidden under a governorate
@@ -4253,7 +4479,7 @@ raw text).
   does not yet raise a problem for a programme counted with Compiler's rule or a view whose definition
   changed (not built yet).
 
-**The pages** (Partnerships → **Makani (MSCC)** and **Dirasa (Bridging)**; `/education/` opens
+**The pages** (Education and youth → **Makani (MSCC)** and **Dirasa (Bridging)**; `/education/` opens
 Makani). They follow the programmes' Power BI dashboards: title "Makani Programme Dashboard <year>"
 or "Dirasa Programme Dashboard <round>", the last data update (Compiler's count) and a year or round
 select; one tab per Power BI page (`?tab=`); a slicer bar of single-select dropdowns ("All" by
@@ -4530,7 +4756,13 @@ them. The rules, thresholds and the BMA side are described in BMA's
   shows that no referral is recorded.
 
 ## Yearly rollover (January)
-1. Admin → Reporting years: create the new year and tick *current* (only one can be current).
+NeuroDB's pages move to the new year by themselves on 1 January. Steps 1–4, 6 and 7 are needed only while
+ActivityInfo is in use; step 5 (population figures) every year. NeuroDB Watch reminds the administrators
+from 15 December (see *ActivityInfo: in use or archive*, *The yearly reminder*).
+
+1. Admin → Reporting years: create the new year and tick *current* (only one can be current). While
+   the December results of the year before are still being imported (until 22 January), keep last year
+   ticked current and tick the new year afterwards.
 2. Admin → Databases: create one row per ActivityInfo folder with `ai_id`, `db_id`, `parent_id`,
    section and the new reporting year; tick *Show on dashboard*.
 3. Select the databases → action *Import structure from ActivityInfo*.
@@ -4549,6 +4781,10 @@ them. The rules, thresholds and the BMA side are described in BMA's
    (such a year has PRL age bands and no PAL row), so that fix needs no manual step.
 6. Upload the year's HPM PDF tables to the library.
 7. Select the databases → action *Import data from ActivityInfo*; check `/data/health/`.
+8. Once the last ActivityInfo year is complete (its December results are imported by 22 January),
+   switch off *activityinfo-data* in Scheduled jobs. On *Automatic*, ActivityInfo then becomes an archive
+   by itself within 30 seconds (or set *Archived* on Admin → Reporting setup → *ActivityInfo: in use or
+   archive*); its alarms stop, and every ActivityInfo page of past years stays open.
 
 ## Backups
 Azure Database for PostgreSQL point-in-time restore (set retention to at least 14 days) covers the

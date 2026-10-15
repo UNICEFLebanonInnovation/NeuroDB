@@ -28,6 +28,7 @@ GUIDE_DIR = Path(__file__).resolve().parent / "guide"
 # The pages, in the order of the guide's list (the file name, without .md, is the page's address)
 ORDER = (
     "overview",
+    "home",
     "monitoring-insights",
     "field-monitoring",
     "action-points",

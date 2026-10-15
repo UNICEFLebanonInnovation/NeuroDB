@@ -184,3 +184,110 @@ def test_signed_out_people_are_sent_to_sign_in(client):
     assert response.status_code == 302 and reverse("account_login") in response["Location"]
     html = client.get(reverse("landing")).content.decode()
     assert 'id="help-panel"' not in html
+
+
+# ------------------------------------------------------------------- Home and ActivityInfo (SPEC_HOME §10)
+def test_home_has_its_page_after_the_overview_and_the_pages_map_to_their_guide():
+    from neurodb.help import assistant
+
+    assert guide.ORDER.index("home") == guide.ORDER.index("overview") + 1
+    home = guide.page("home")
+    assert home.title == "Home"
+    assert [s.heading for s in home.sections if s.level == 2] == [
+        "What Home shows",
+        "Your section or every section",
+        "ActivityInfo: in use or archive",
+    ]
+    assert guide.page("briefs-and-overview").title == "Country overview, management brief and daily review"
+    for path, key in (
+        ("/", "home"),
+        ("/country-overview/", "briefs-and-overview"),
+        ("/daily-review/", "briefs-and-overview"),
+        ("/brief/", "briefs-and-overview"),
+    ):
+        assert f"(/help/{key}/)" in assistant.page_line(path, "A page · NeuroDB"), path
+
+
+def test_the_help_assistant_knows_activityinfo_is_an_archive_of_past_years():
+    from neurodb.help import assistant
+
+    assert (
+        "(eTools partners, programme documents, funds, assurance, field monitoring and action points, the "
+        "country programme, Compiler figures, a knowledge base, and the ActivityInfo archive of past years)"
+    ) in assistant.BASE_PROMPT
+    assert "(ActivityInfo results, eTools partners" not in assistant.BASE_PROMPT
+
+
+@pytest.mark.parametrize(
+    ("question", "expected"),
+    [
+        ("Why is ActivityInfo an archive?", ("home", "activityinfo-in-use-or-archive")),
+        ("What does Home show?", ("home", "what-home-shows")),
+        ("Where is the daily review?", ("briefs-and-overview", "the-daily-review")),
+    ],
+)
+def test_the_search_finds_home_and_the_archive(question, expected):
+    found = [(s.page, s.slug) for s in guide.search(question)]
+    assert expected in found, found
+
+
+def test_the_guide_states_the_archive_rules_and_who_sets_them():
+    text = " ".join(GUIDE_TEXT["home"].split())
+    for words in (
+        "switched on in Scheduled jobs and this year has ActivityInfo records from the last three months",
+        "In January, last year counts instead",
+        "**ActivityInfo: in use or archive** (under Reporting setup)",
+        "A change shows on every page within a minute. Nothing is deleted either way.",
+        "a year with ActivityInfo records keeps its ActivityInfo figures",
+    ):
+        assert words in text, words
+    assert "Show on dashboard" not in text  # never offered as a way to drop a year's figures
+
+
+def test_the_guide_lists_the_sidebar_as_it_is_drawn():
+    """The sidebar of "Getting around NeuroDB" names the groups and rows of the menu (SPEC_HOME §4), in its
+    order."""
+    sidebar = guide.section("overview", "the-sidebar").text
+    order = [
+        "**Home**",
+        "**For you**",
+        "**Daily review**",
+        "**What's new**",
+        "**Ask NeuroDB**",
+        "**Programme results**",
+        "**Country overview**",
+        "**Management brief**",
+        "**Country programme**",
+        "**Partner progress (eTools)**",
+        "**Partner monitoring**",
+        "**Progress reports**",
+        "**Programme documents**",
+        "**Partners**",
+        "**Funds and assurance**",
+        "**Funds**",
+        "**Donors**",
+        "**Assurance**",
+        "**Field monitoring**",
+        "**Monitoring\n  insights**",
+        "**Action points**",
+        "**Education and youth**",
+        "**Makani (MSCC)**",
+        "**Makani wellbeing**",
+        "**Dirasa (Bridging)**",
+        "**Youth\n  programmes**",
+        "**Resources**",
+        "**Knowledge base**",
+        "**Periodic reports**",
+        "**Document review**",
+        "**Library**",
+        "**Maps**",
+        "**Population**",
+        "**Data health**",
+        "**Monthly results (ActivityInfo)**",
+        "**ActivityInfo archive**",
+        "**Help**",
+    ]
+    places = [sidebar.index(label) for label in order]
+    assert places == sorted(places)
+    for old in ("**Overview**", "**Partnerships**"):
+        assert old not in sidebar, old

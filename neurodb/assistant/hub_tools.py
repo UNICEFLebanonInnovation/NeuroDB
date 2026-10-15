@@ -361,27 +361,28 @@ def daily_review() -> dict[str, Any]:
                     }
                     for f in findings
                 ],
-                "url": reverse("reports:overview"),
+                "url": reverse("reports:daily_review"),
             }
         )
     )
 
 
 def management_brief(year: int | None = None, section: str | None = None) -> dict[str, Any]:
-    from neurodb.reports import brief, services
+    """The brief of a calendar year (this year when none is given, or when the year is not one NeuroDB
+    can show), as the page builds it: its ActivityInfo figures only when that year has ActivityInfo
+    records (the reporting year counting for it), eTools alone otherwise."""
+    from neurodb.core import years
+    from neurodb.indicators.services import activityinfo
+    from neurodb.reports import brief
 
-    today = datetime.date.today()
-    reporting_year = services.resolve_year(str(year) if year else None)
-    if reporting_year is None:
-        return {"note": "No reporting year."}
-    number = int(str(reporting_year.name)[:4]) if str(reporting_year.name)[:4].isdigit() else today.year
+    number = years.resolve(year)
     # the year before's reporting year is looked up by the build, when it is computed
     data = brief.build(
         brief.Scope(
             year=number,
-            reporting_year=reporting_year,
+            reporting_year=activityinfo.reporting_year_for(number),
             sections=[section] if section else [],
-            today=today,
+            today=years.today(),
         )
     )
     return _clean(
@@ -396,7 +397,7 @@ def management_brief(year: int | None = None, section: str | None = None) -> dic
                     k: (data.get("money") or {}).get(k) for k in ("funded", "reserved", "disbursed", "grants")
                 },
                 "text": data.get("text"),
-                "url": reverse("reports:brief"),
+                "url": f"{reverse('reports:brief')}?year={number}",
             }
         )
     )
@@ -470,6 +471,7 @@ def indicator_forecasts(
     text: str | None = None,
 ) -> dict[str, Any]:
     from neurodb.accounts.models import Section
+    from neurodb.indicators.services import activityinfo
     from neurodb.insights import services
     from neurodb.insights.models import IndicatorForecast
 
@@ -477,9 +479,17 @@ def indicator_forecasts(
     if run is None:
         return {"note": "No year-end forecast has been made yet."}
     backtest = run.details.get("backtest") or {}
+    # once ActivityInfo is an archive the weekly job skips: the last forecasts stay, no longer updated
+    archived = (
+        ""
+        if activityinfo.in_use()
+        else f"These forecasts were made for {run.details.get('year')} while ActivityInfo was in use; they "
+        "are no longer updated. "
+    )
     if not services.shown(run):
         return {
-            "note": "Forecasts are not shown yet: the test on past years did not show them reliable enough.",
+            "note": archived
+            + "Forecasts are not shown yet: the test on past years did not show them reliable enough.",
             "backtest": backtest,
         }
     filters: dict[str, Any] = {}
@@ -523,7 +533,8 @@ def indicator_forecasts(
                 for f in rows[:MAX_LIST]
             ],
             "more": len(rows) > MAX_LIST,
-            "note": "Estimates from each indicator's monthly pattern in past years, with the range that held "
+            "note": archived
+            + "Estimates from each indicator's monthly pattern in past years, with the range that held "
             "the real result in past years; months count once 30 days have passed since they ended. Say they "
             "are estimates and give the range.",
             "url": reverse("insights:forecasts"),

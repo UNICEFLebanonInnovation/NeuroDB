@@ -31,11 +31,11 @@ MAX_QUESTION_CHARS = 1000
 MAX_RUNNING = 2  # questions one user may have being answered at the same time
 IN_PROGRESS = "in progress"  # the error of a question's row until its answer is finished
 EXAMPLES = [
-    "Which Child Protection indicators are off track this year?",
-    "How many activity reports did each partner submit in Education, by governorate?",
+    "Which Child Protection programme documents are off track this year?",
+    "Which partners have progress reports overdue?",
     "What is the total budget of active programme documents funded by the European Union?",
     "How many Syrian children live in Akkar?",
-    "Is the ActivityInfo data up to date?",
+    "Is the eTools data up to date?",
 ]
 
 

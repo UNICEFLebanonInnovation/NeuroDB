@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>{{ SITE_NAME }} · {% trans "Results for children in Lebanon, in one place" %}</title>
-  <meta name="description" content="{% trans 'NeuroDB is UNICEF Lebanon’s programme monitoring platform: children reached, progress against targets, partner reporting, funds, assurance and maps, built from eTools and ActivityInfo data.' %}">
+  <meta name="description" content="{% if ai.in_use %}{% trans 'NeuroDB is UNICEF Lebanon’s programme monitoring platform: children reached, progress against targets, partner reporting, funds, assurance and maps, built from eTools and ActivityInfo data.' %}{% elif ai.span %}{% blocktrans with span=ai.span %}NeuroDB is UNICEF Lebanon’s programme monitoring platform: children reached, progress against targets, partner reporting, funds, assurance and maps, built from eTools data, with the ActivityInfo results of {{ span }} kept as an archive.{% endblocktrans %}{% else %}{% trans 'NeuroDB is UNICEF Lebanon’s programme monitoring platform: children reached, progress against targets, partner reporting, funds, assurance and maps, built from eTools data.' %}{% endif %}">
   <meta property="og:title" content="{{ SITE_NAME }} · UNICEF Lebanon">
   <meta property="og:description" content="{% trans 'Progress against targets, where support reaches, and what needs attention — in one place.' %}">
   <meta property="og:type" content="website">
@@ -57,12 +57,12 @@
   <section class="lp-hero" aria-labelledby="hero-title">
     <div class="lp-container lp-hero__grid">
       <div>
-        <span class="lp-pill"><b>{% trans "New" %}</b>{% trans "Management brief, daily review and eTools partner reporting" %}</span>
+        <span class="lp-pill"><b>{% trans "New" %}</b>{% trans "Home for your day, eTools partner reporting and the daily review" %}</span>
         <h1 id="hero-title">{% blocktrans %}Every result for children in Lebanon, <span class="lp-grad">in one place.</span>{% endblocktrans %}</h1>
-        <p class="lp-lead">{% blocktrans %}NeuroDB brings together programme documents and partner progress reports from eTools, results from ActivityInfo, funds, assurance and population figures, so teams see how many children are reached, what is on track, where support goes and what needs a decision — synchronised every night, reviewed every morning.{% endblocktrans %}</p>
+        <p class="lp-lead">{% if ai.in_use %}{% blocktrans %}NeuroDB brings together programme documents and partner progress reports from eTools, results from ActivityInfo, funds, assurance and population figures, so teams see how many children are reached, what is on track, where support goes and what needs a decision — synchronised every night, reviewed every morning.{% endblocktrans %}{% else %}{% blocktrans %}NeuroDB brings together programme documents and partner progress reports from eTools, funds, assurance, field monitoring, the country programme and population figures, so teams see how many children are reached, what is on track, where support goes and what needs a decision — synchronised every night, reviewed every morning.{% endblocktrans %}{% if ai.span %} {% blocktrans with span=ai.span %}The ActivityInfo results of {{ span }} stay available as an archive.{% endblocktrans %}{% endif %}{% endif %}</p>
         <div class="lp-cta">
           {% if user.is_authenticated %}
-          <a class="btn btn-primary btn-lg" href="{% url 'reports:overview' %}">{% trans "Open your overview" %}{% include "components/icon.html" with name="arrow" %}</a>
+          <a class="btn btn-primary btn-lg" href="{% url 'reports:overview' %}">{% trans "Open Home" %}{% include "components/icon.html" with name="arrow" %}</a>
           {% else %}
           <a class="btn btn-primary btn-lg" href="{% url 'account_login' %}">{% if SSO_ENABLED %}{% trans "Sign in with your UNICEF account" %}{% else %}{% trans "Sign in" %}{% endif %}{% include "components/icon.html" with name="arrow" %}</a>
           {% endif %}
@@ -99,7 +99,7 @@
         </div>
         <div class="lp-float lp-float--a" aria-hidden="true">{% include "components/icon.html" with name="sparkle" %}{% trans "Daily review: findings to look at" %}</div>
         {% if etools_synced %}<div class="lp-float lp-float--b">{% include "components/icon.html" with name="refresh" %}{% blocktrans with when=etools_synced|naturaltime %}eTools synced {{ when }}{% endblocktrans %}</div>{% endif %}
-        <figcaption class="lp-mock-caption">{% trans "Illustration of the overview, not real figures." %}{% if stats and stat_items %} {% trans "The real counts are below." %}{% endif %}</figcaption>
+        <figcaption class="lp-mock-caption">{% trans "Illustration of NeuroDB, not real figures." %}{% if stats and stat_items %} {% trans "The real counts are below." %}{% endif %}</figcaption>
       </figure>
     </div>
 
@@ -110,7 +110,7 @@
         <div class="lp-stat" role="listitem"><strong data-count="{{ value }}">{{ value|intcomma }}</strong><span>{{ label }}</span></div>
         {% endfor %}
       </div>
-      <p class="lp-stats-note">{% include "components/icon.html" with name="clock" %}{% if stats.year %}{% blocktrans with year=stats.year %}Reporting year {{ year }}{% endblocktrans %} · {% endif %}{% if stats.etools_update %}{% blocktrans with when=stats.etools_update|naturaltime %}eTools synced {{ when }}{% endblocktrans %} · {% endif %}{% if stats.last_update %}{% blocktrans with when=stats.last_update|naturaltime %}ActivityInfo imported {{ when }}{% endblocktrans %} · {% endif %}{% trans "aggregate counts only" %}</p>
+      <p class="lp-stats-note">{% include "components/icon.html" with name="clock" %}{% if stats.year %}{% blocktrans with year=stats.year %}Figures for {{ year }}{% endblocktrans %} · {% endif %}{% if stats.etools_update %}{% blocktrans with when=stats.etools_update|naturaltime %}eTools synced {{ when }}{% endblocktrans %} · {% endif %}{% if ai.in_use and stats.last_update %}{% blocktrans with when=stats.last_update|naturaltime %}ActivityInfo imported {{ when }}{% endblocktrans %} · {% endif %}{% trans "aggregate counts only" %}</p>
     </div>
     {% endif %}
   </section>
@@ -127,7 +127,7 @@
         <article class="lp-card lp-reveal">
           <span class="lp-icon">{% include "components/icon.html" with name="layers" %}</span>
           <h3>{% trans "One source of truth" %}</h3>
-          <p>{% trans "eTools programme documents, partner progress reports, funds and assurance, ActivityInfo results, population estimates and research in one place — the same numbers for every team and every meeting." %}</p>
+          <p>{% if ai.in_use %}{% trans "eTools programme documents, partner progress reports, funds and assurance, ActivityInfo results, population estimates and research in one place — the same numbers for every team and every meeting." %}{% elif ai.span %}{% trans "eTools programme documents, partner progress reports, funds and assurance, population estimates, research and the ActivityInfo archive in one place — the same numbers for every team and every meeting." %}{% else %}{% trans "eTools programme documents, partner progress reports, funds and assurance, population estimates and research in one place — the same numbers for every team and every meeting." %}{% endif %}</p>
         </article>
         <article class="lp-card lp-reveal">
           <span class="lp-icon lp-tint-green">{% include "components/icon.html" with name="users" %}</span>
@@ -157,12 +157,12 @@
         <article class="lp-card lp-reveal">
           <span class="lp-icon lp-tint-blue">{% include "components/icon.html" with name="map" %}</span>
           <h3>{% trans "See where support reaches" %}</h3>
-          <p>{% trans "Interactive maps down to cadaster and site level show coverage and gaps, filtered by partner, programme document or month." %}</p>
+          <p>{% if ai.in_use %}{% trans "Interactive maps down to cadaster and site level show coverage and gaps, filtered by partner, programme document or month." %}{% elif ai.span %}{% trans "Interactive maps by governorate and district show coverage and gaps, filtered by partner, programme document or month; the ActivityInfo archive keeps its site-level maps." %}{% else %}{% trans "Interactive maps by governorate and district show coverage and gaps, filtered by partner, programme document or month." %}{% endif %}</p>
         </article>
         <article class="lp-card lp-reveal">
           <span class="lp-icon lp-tint-blue">{% include "components/icon.html" with name="file" %}</span>
           <h3>{% trans "Reports in seconds" %}</h3>
-          <p>{% trans "Humanitarian performance and programme reports for any month or quarter; slice any result by area, partner, sex, age or nationality, save the view and export it." %}</p>
+          <p>{% if ai.in_use %}{% trans "Humanitarian performance and programme reports for any month or quarter; slice any result by area, partner, sex, age or nationality, save the view and export it." %}{% elif ai.span %}{% trans "Exports of every table, and the humanitarian performance and programme reports of the ActivityInfo years, kept in the archive." %}{% else %}{% trans "Exports of every table, and a printable snapshot of every dashboard." %}{% endif %}</p>
         </article>
         <article class="lp-card lp-reveal">
           <span class="lp-icon">{% include "components/icon.html" with name="shield" %}</span>
@@ -184,12 +184,12 @@
       <div class="lp-steps lp-steps--4">
         <div class="lp-step lp-reveal">
           <h3>{% trans "Collect" %}</h3>
-          <p>{% trans "Partners report progress on their programme documents in the eTools Partner Reporting Portal. Budgets, funds and assurance are managed in eTools; monthly activity results come from ActivityInfo." %}</p>
-          <div class="chips"><span class="chip">eTools</span><span class="chip">{% trans "Partner reporting" %}</span><span class="chip">ActivityInfo</span></div>
+          <p>{% if ai.in_use %}{% trans "Partners report progress on their programme documents in the eTools Partner Reporting Portal. Budgets, funds and assurance are managed in eTools; monthly activity results come from ActivityInfo." %}{% else %}{% trans "Partners report progress on their programme documents in the eTools Partner Reporting Portal. Budgets, funds and assurance are managed in eTools." %}{% if ai.last %} {% blocktrans with last=ai.last %}The monthly activity results partners reported in ActivityInfo until {{ last }} stay in the archive.{% endblocktrans %}{% endif %}{% endif %}</p>
+          <div class="chips"><span class="chip">eTools</span><span class="chip">{% trans "Partner reporting" %}</span>{% if ai.in_use %}<span class="chip">ActivityInfo</span>{% elif ai.span %}<span class="chip">{% trans "ActivityInfo archive" %}</span>{% endif %}</div>
         </div>
         <div class="lp-step lp-reveal">
           <h3>{% trans "Consolidate" %}</h3>
-          <p>{% trans "Every night NeuroDB synchronises the eTools Datamart; ActivityInfo imports run from the 1st to the 22nd of each month. Results roll up into indicators, and every sync is recorded." %}</p>
+          <p>{% if ai.in_use %}{% trans "Every night NeuroDB synchronises the eTools Datamart; ActivityInfo imports run from the 1st to the 22nd of each month. Results roll up into indicators, and every sync is recorded." %}{% else %}{% trans "Every night NeuroDB synchronises the eTools Datamart. Results roll up into indicators, and every sync is recorded." %}{% endif %}</p>
           <div class="chips"><span class="chip">{% trans "Indicator rules" %}</span><span class="chip">{% trans "Freshness checks" %}</span></div>
         </div>
         <div class="lp-step lp-reveal">
@@ -211,7 +211,7 @@
           <ul>
             <li>{% include "components/icon.html" with name="check" %}{% trans "Your section’s programme documents, indicators and results on one page" %}</li>
             <li>{% include "components/icon.html" with name="check" %}{% trans "Drill from a figure to the partner reports and locations behind it" %}</li>
-            <li>{% include "components/icon.html" with name="check" %}{% trans "Comment on your indicators in the monthly HPM" %}</li>
+            <li>{% include "components/icon.html" with name="check" %}{% if ai.in_use %}{% trans "Comment on your indicators in the monthly HPM" %}{% else %}{% trans "Follow your section’s programme documents and progress reports" %}{% endif %}</li>
           </ul>
         </article>
         <article class="lp-card lp-reveal">
@@ -219,7 +219,7 @@
           <h3>{% trans "For planning, monitoring and reporting" %}</h3>
           <ul>
             <li>{% include "components/icon.html" with name="check" %}{% trans "Consistent aggregation rules for every report" %}</li>
-            <li>{% include "components/icon.html" with name="check" %}{% trans "Saved pivot views instead of rebuilt spreadsheets" %}</li>
+            <li>{% include "components/icon.html" with name="check" %}{% if ai.in_use %}{% trans "Saved pivot views instead of rebuilt spreadsheets" %}{% else %}{% trans "Exports of every table instead of rebuilt spreadsheets" %}{% endif %}</li>
             <li>{% include "components/icon.html" with name="check" %}{% trans "A data health page with failed or late syncs and data-quality checks" %}</li>
           </ul>
         </article>
@@ -286,9 +286,9 @@
       <div class="lp-faq">
         <details><summary>{% trans "Who can use NeuroDB?" %}</summary><p>{% trans "UNICEF Lebanon staff with a registered account. Viewers see all dashboards and reports, section editors can also comment on their section’s indicators, and administrators manage configuration. Selected resources can be opened to the public by the NeuroDB team." %}</p></details>
         <details><summary>{% trans "How do I get access?" %}</summary><p>{% if SUPPORT_EMAIL %}{% blocktrans %}Write to <a href="mailto:{{ SUPPORT_EMAIL }}">{{ SUPPORT_EMAIL }}</a> with your section and the role you need. Once registered, sign in with your UNICEF Microsoft account — no extra password.{% endblocktrans %}{% else %}{% trans "Ask the NeuroDB administrators in the Planning, Monitoring and Evaluation section. Once registered, sign in with your UNICEF Microsoft account — no extra password." %}{% endif %}</p></details>
-        <details><summary>{% trans "Where does the data come from?" %}</summary><p>{% trans "Programme documents, partner progress reports, funds, donors and assurance (monitoring visits, audits, action points, HACT) come from eTools through the eTools Datamart; monthly activity results from ActivityInfo; population estimates from the official planning figures loaded each year. NeuroDB never asks partners to report twice." %}</p></details>
-        <details><summary>{% trans "How current is it?" %}</summary><p>{% trans "eTools data synchronises every night, ActivityInfo imports run from the 1st to the 22nd of each month, and the daily review runs each morning after the syncs. The data health page shows when each source was last updated, and pages warn you when data is out of date." %}</p></details>
-        <details><summary>{% trans "What does “on track” mean?" %}</summary><p>{% trans "An indicator is on track when its achievement is within ten percentage points of the time that has passed: the share of the programme document’s period for eTools indicators, the share of the year for ActivityInfo ones. Well above is “ahead of schedule” (“over target” once it has passed its target), well below is “off track”, and indicators without a target are shown separately." %}</p></details>
+        <details><summary>{% trans "Where does the data come from?" %}</summary><p>{% if ai.in_use %}{% trans "Programme documents, partner progress reports, funds, donors and assurance (monitoring visits, audits, action points, HACT) come from eTools through the eTools Datamart; monthly activity results from ActivityInfo; population estimates from the official planning figures loaded each year. NeuroDB never asks partners to report twice." %}{% elif ai.span %}{% blocktrans with span=ai.span %}Programme documents, partner progress reports, funds, donors and assurance (monitoring visits, audits, action points, HACT) come from eTools through the eTools Datamart; the monthly activity results of {{ span }} from ActivityInfo, kept as an archive; population estimates from the official planning figures loaded each year. NeuroDB never asks partners to report twice.{% endblocktrans %}{% else %}{% trans "Programme documents, partner progress reports, funds, donors and assurance (monitoring visits, audits, action points, HACT) come from eTools through the eTools Datamart; population estimates from the official planning figures loaded each year. NeuroDB never asks partners to report twice." %}{% endif %}</p></details>
+        <details><summary>{% trans "How current is it?" %}</summary><p>{% if ai.in_use %}{% trans "eTools data synchronises every night, ActivityInfo imports run from the 1st to the 22nd of each month, and the daily review runs each morning after the syncs. The data health page shows when each source was last updated, and pages warn you when data is out of date." %}{% elif ai.span %}{% trans "eTools data synchronises every night and the daily review runs each morning after the syncs. The ActivityInfo archive is no longer updated. The data health page shows when each source was last updated, and pages warn you when data is out of date." %}{% else %}{% trans "eTools data synchronises every night and the daily review runs each morning after the syncs. The data health page shows when each source was last updated, and pages warn you when data is out of date." %}{% endif %}</p></details>
+        <details><summary>{% trans "What does “on track” mean?" %}</summary><p>{% if ai.in_use %}{% trans "An indicator is on track when its achievement is within ten percentage points of the time that has passed: the share of the programme document’s period for eTools indicators, the share of the year for ActivityInfo ones. Well above is “ahead of schedule” (“over target” once it has passed its target), well below is “off track”, and indicators without a target are shown separately." %}{% elif ai.span %}{% trans "An indicator is on track when its achievement is within ten percentage points of the time that has passed: the share of the programme document’s period for eTools indicators (and the share of the year for the ActivityInfo indicators of the archive). Well above is “ahead of schedule” (“over target” once it has passed its target), well below is “off track”, and indicators without a target are shown separately." %}{% else %}{% trans "An indicator is on track when its achievement is within ten percentage points of the time that has passed: the share of the programme document’s period for eTools indicators. Well above is “ahead of schedule” (“over target” once it has passed its target), well below is “off track”, and indicators without a target are shown separately." %}{% endif %}</p></details>
         {% if AI_ASSISTANT_ENABLED %}<details><summary>{% trans "What does the AI do, and what does it see?" %}</summary><p>{% trans "Ask NeuroDB answers questions about the data and links to the pages its figures come from; the daily review’s checks are fixed rules, with a short written summary on top. Both only read data. They use the OpenAI API: a question, the recent turns of its conversation and the figures looked up to answer it leave UNICEF’s Azure environment for that purpose. Treat findings as prompts to look, never as verdicts." %}</p></details>{% endif %}
         <details><summary>{% trans "Can I export the data?" %}</summary><p>{% trans "Yes. Every table can be copied or downloaded as CSV, raw data is available in Excel, and dashboards have a printable snapshot you can save as PDF." %}</p></details>
         <details><summary>{% trans "Is the data secure?" %}</summary><p>{% trans "Access requires UNICEF single sign-on and a registered account. Partner-level data, dashboards and reports are never public; the only public figures are the aggregate counts on this page." %}</p></details>

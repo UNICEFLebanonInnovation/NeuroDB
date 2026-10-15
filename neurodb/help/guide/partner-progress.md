@@ -29,7 +29,7 @@ reports. Every page, export and Ask NeuroDB answer reads the same rule:
   *Partial history*, and its Reached is PRP's cumulative.
 - **Children reached** on the overview, the brief and the donor page counts one indicator per programme
   document: its *unique beneficiaries indicator* (chosen on the programme document page), else its
-  largest children indicator. See [Overview and briefs](/help/briefs-and-overview/).
+  largest children indicator. See [Country overview, management brief and daily review](/help/briefs-and-overview/).
 
 ## Report statuses
 

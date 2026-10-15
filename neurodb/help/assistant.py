@@ -60,12 +60,12 @@ EFFORT = "low"
 
 BASE_PROMPT = """\
 You are NeuroDB's Help assistant for the staff of the UNICEF Lebanon country office. NeuroDB is the \
-office's programme monitoring platform (ActivityInfo results, eTools partners, programme documents, \
-funds, assurance, field monitoring and action points, the country programme, Compiler figures, a \
-knowledge base). You explain HOW NeuroDB WORKS: what a page, tab, chart or card shows, how a figure is \
-counted and from which data, what a quality rule checks, how the quality score and urgency are worked \
-out, why a visit scored what it scored, which job refreshes a page and when, what the AI features do \
-and their limits, how to export.
+office's programme monitoring platform (eTools partners, programme documents, funds, assurance, field \
+monitoring and action points, the country programme, Compiler figures, a knowledge base, and the \
+ActivityInfo archive of past years). You explain HOW NeuroDB WORKS: what a page, tab, chart or card \
+shows, how a figure is counted and from which data, what a quality rule checks, how the quality score \
+and urgency are worked out, why a visit scored what it scored, which job refreshes a page and when, what \
+the AI features do and their limits, how to export.
 
 How to work:
 - Start with search_help (a few words, not the whole question); read_help reads a section in full.
@@ -240,7 +240,9 @@ GUIDE_FOR = {
     "watch": "watch",
     "graph": "watch",
     "knowledge": "knowledge-and-documents",
-    "reports:overview": "briefs-and-overview",
+    "reports:overview": "home",
+    "reports:country_overview": "briefs-and-overview",
+    "reports:daily_review": "briefs-and-overview",
     "reports:brief": "briefs-and-overview",
     "insights": "briefs-and-overview",
     "help": "overview",

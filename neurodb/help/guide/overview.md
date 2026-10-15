@@ -1,10 +1,10 @@
 # Getting around NeuroDB
 
-NeuroDB brings together the programme monitoring data of the UNICEF Lebanon country office: the
-monthly results partners report in ActivityInfo, eTools (partners, programme documents, funds,
-assurance, field monitoring and action points), the country programme, the Compiler figures of
-Makani, Dirasa and the youth programmes, population figures, a library of studies and maps, and a
-knowledge base of documents. Every page reads NeuroDB's own copy of these sources, refreshed on a
+NeuroDB brings together the programme monitoring data of the UNICEF Lebanon country office: eTools
+(partners, programme documents, funds, assurance, field monitoring and action points), the country
+programme, the Compiler figures of Makani, Dirasa and the youth programmes, population figures, a
+library of studies and maps, a knowledge base of documents, and the ActivityInfo archive: the monthly
+results partners reported there in past years. Every page reads NeuroDB's own copy of these sources, refreshed on a
 schedule (see [When the data is refreshed](/help/overview/#when-the-data-is-refreshed)).
 
 This guide explains how NeuroDB works: what a page shows, where a number comes from, what a rule
@@ -14,11 +14,12 @@ are answered by [Ask NeuroDB](/ask/) and, for the visits of a filter, by Chat wi
 
 ## The top bar
 
-- **Search** (Ctrl K, or the slash key): finds the ActivityInfo databases, the Neuro and HPM reports
-  and the indicators (master indicators, sub-indicators and ActivityInfo indicators) of the year. When Ask NeuroDB is switched on, the search box also offers to ask your words
-  as a question; nothing is sent until you press Ask.
-- **Year menu**: the reporting year the pages show. Pages that show one year keep you on the same
-  page when you change it; other pages take you to the overview.
+- **Search** (Ctrl K, or the slash key): finds pages, partners, programme documents, country programme
+  indicators, knowledge base documents and the ActivityInfo archive of every year (its databases, Neuro
+  and HPM reports and indicators, each with its year). When Ask NeuroDB is switched on, the search box
+  also offers to ask your words as a question; nothing is sent until you press Ask.
+- **Year menu**: the calendar year the page shows, on pages that show one year; ActivityInfo pages list
+  ActivityInfo years; pages with a period of their own keep their own choice.
 - **Dark mode** switch, and your **user menu** (your role and section, Data health, sign out;
   Administration for administrators).
 - **?**: opens the **Help assistant** (also Ctrl+Shift+H, or Cmd+Shift+H on a Mac). It answers how a
@@ -27,38 +28,49 @@ are answered by [Ask NeuroDB](/ask/) and, for the visits of a filter, by Chat wi
 
 ## The sidebar
 
-The sidebar groups the pages:
+The sidebar puts the pages of every day first and the ActivityInfo history last. It is the same for
+every section:
 
-- **Overview**: the country overview, the signed-in home page
-  ([Overview and briefs](/help/briefs-and-overview/#the-country-overview)).
-- **Management brief**: the overview read for decisions
-  ([Management brief](/help/briefs-and-overview/#the-management-brief)).
-- **Country programme**: outcomes, outputs, indicators and their progress.
-- **Ask NeuroDB** (marked AI): questions in plain language answered from the data
-  ([Ask NeuroDB](/help/ask-neurodb/)).
-- **For you**: NeuroDB Watch, what falls due and what needs you ([For you](/help/watch/)).
-- **What's new**: changes NeuroDB noticed in any source ([What's new](/help/watch/#whats-new)).
-- **Monthly results (ActivityInfo)**: the ActivityInfo databases of the year, the year-end forecasts,
-  and each database, Neuro report and HPM report of the year.
-- **Partnerships**: programme documents, donors, partners, Makani (MSCC), Makani wellbeing, Dirasa
-  (Bridging), youth programmes, funds, assurance, field monitoring with the HACT visit plan
-  ([Field monitoring and the HACT visit plan](/help/field-monitoring/)), **Monitoring insights** (marked
-  AI; [Monitoring insights](/help/monitoring-insights/)) and **Action points**
-  ([Action points](/help/action-points/)).
-- **Partner progress (eTools)**: partner monitoring (what each programme document indicator reached,
-  by month and location) and the partners' progress reports
-  ([Partner progress](/help/partner-progress/)); the Funds page is under Partnerships.
-- **Resources**: population, library, knowledge base
-  ([Knowledge base and documents](/help/knowledge-and-documents/)), maps and Data health.
+- At the top, without a title: **Home**, the first page after you sign in ([Home](/help/home/));
+  **For you**, NeuroDB Watch, with the number of points that need you ([For you](/help/watch/));
+  **Daily review**, the morning check's findings
+  ([Daily review](/help/briefs-and-overview/#the-daily-review)); **What's new**, the changes NeuroDB
+  noticed in any source ([What's new](/help/watch/#whats-new)); and **Ask NeuroDB** (marked AI),
+  questions in plain language answered from the data ([Ask NeuroDB](/help/ask-neurodb/)).
+- **Programme results**: **Country overview**, every figure of the year
+  ([Country overview](/help/briefs-and-overview/#the-country-overview)); **Management brief**, the
+  overview read for decisions ([Management brief](/help/briefs-and-overview/#the-management-brief));
+  **Country programme**, outcomes, outputs, indicators and their progress, once a cycle is uploaded.
+- **Partner progress (eTools)**: **Partner monitoring** (what each programme document indicator
+  reached, by month and location), **Progress reports**, **Programme documents** and **Partners**
+  ([Partner progress](/help/partner-progress/)).
+- **Funds and assurance**: **Funds**, **Donors**, **Assurance**, **Field monitoring** with the HACT
+  visit plan ([Field monitoring and the HACT visit plan](/help/field-monitoring/)), **Monitoring
+  insights** (marked AI while its AI is on; [Monitoring insights](/help/monitoring-insights/)) and
+  **Action points** ([Action points](/help/action-points/)).
+- **Education and youth**: **Makani (MSCC)**, **Makani wellbeing**, **Dirasa (Bridging)** and **Youth
+  programmes**, once Compiler's figures are there.
+- **Resources**: **Knowledge base**, **Periodic reports**, **Document review** (marked AI, once it is
+  on), **Library**, **Maps**, **Population** and **Data health**
+  ([Knowledge base and documents](/help/knowledge-and-documents/)).
+- At the bottom, ActivityInfo: **Monthly results (ActivityInfo)** while ActivityInfo is in use, open by
+  default; **ActivityInfo archive**, with the years it holds, once it is no longer used, closed until you
+  open it ([ActivityInfo: in use or archive](/help/home/#activityinfo-in-use-or-archive)). Inside:
+  *ActivityInfo databases*, *Year-end forecasts* (once some were made), one row per ActivityInfo year,
+  and the year's databases, Neuro reports and HPM reports. NeuroDB remembers whether you left it open or
+  closed.
 - **Help**: this guide.
+
+A page that is not set up yet (the country programme, the Compiler pages, the document review) is left
+out of the sidebar; administrators see it greyed, marked *Set up*, and its page says how to set it up.
 
 ## Pages that open at once
 
-The country overview, the management brief, each partner's page, Data health, partner monitoring,
-the *By location* and *By disaggregation* tabs of Progress reports, the Map tab of Monitoring
-insights, the country programme, youth programmes, the donor page and three views of the document
-review (*By document*, *Themes* and *Repeated findings*) open at once and fill in as their figures
-are ready (the other pages are quick enough to come whole, as before):
+Home, the country overview, the daily review, the management brief, each partner's page, Data
+health, partner monitoring, the *By location* and *By disaggregation* tabs of Progress reports, the
+Map tab of Monitoring insights, the country programme, youth programmes, the donor page and three
+views of the document review (*By document*, *Themes* and *Repeated findings*) open at once and fill
+in as their figures are ready (the other pages are quick enough to come whole, as before):
 
 - The frame comes first: the page's heading, filters and tabs, with a grey box where each block of
   figures will go, about the size of what will be there, so the page does not jump.
@@ -100,7 +112,8 @@ are ready (the other pages are quick enough to come whole, as before):
   page…"), then prints. Printing with Ctrl+P before a page is complete prints a short note in place of
   each box still loading: wait until the page is complete.
 - The figures are the same as before: only the order in which they appear has changed. See
-  [Overview and briefs](/help/briefs-and-overview/) for the overview and the brief.
+  [Home](/help/home/) and [Country overview, management brief and daily
+  review](/help/briefs-and-overview/).
 
 ## Roles
 
@@ -112,9 +125,9 @@ Every signed-in person has one role:
 | Section editor | Adds documents to the knowledge base; marks the visits of their section reviewed; verifies the action points of their section; adds NeuroDB action points; writes the section comments of the HACT visit plan on the programme documents of their section. |
 | Administrator | Everything a section editor does, for every section, plus the administration pages: settings, quality rules, prompt versions, scheduled jobs and the buttons that run them, and the card versions compared with Power BI. |
 
-Your **section** (set on your user by an administrator) is what several pages show first: the
-overview, Monitoring insights and the action points page open on your section, with a chip or a
-filter to see every section. Members of the **Management** group (filled by administrators) also get
+Your **section** (set on your user by an administrator) is what several pages show first: Home, the
+country overview, the daily review, Monitoring insights and the action points page open on your
+section, with a chip or a filter to see every section. Members of the **Management** group (filled by administrators) also get
 the whole-country view of For you. A **donor account** sees only its own donor page: none of the
 pages in this guide, and not the Help assistant.
 
@@ -122,7 +135,7 @@ pages in this guide, and not the Help assistant.
 
 | Source | What NeuroDB reads |
 |---|---|
-| ActivityInfo | The databases of each reporting year: forms, master indicators, targets and the partners' monthly activity reports. |
+| ActivityInfo | The databases of each reporting year: forms, master indicators, targets and the partners' monthly activity reports; an archive once no longer used: every page of past years stays open ([ActivityInfo: in use or archive](/help/home/#activityinfo-in-use-or-archive)). |
 | eTools Datamart | Partners, programme documents, funds reservations and grants, PD indicators and the partners' progress reports, HACT assurance (assessments, audits, spot checks), TPM visits, field monitoring (the findings of each visit, the checklist answers, the programme activities) and action points. |
 | eTools locations | The gazetteer: governorates, districts and cadasters with their P-codes. |
 | Compiler | Makani and Dirasa figures, youth programme figures and the Makani wellbeing flags (counts only, never a child). |
@@ -189,12 +202,13 @@ schedules as they are now.
 | Knowledge hub (and new library and country programme documents) | Every day at 07:00, and after every sync |
 | What's new note | Every day at 07:30 |
 | NeuroDB Watch (For you) | Every day at 07:45, and shortly after new data arrives |
-| ActivityInfo data | 18:00 on days 1 to 22 of each month |
-| Year-end forecasts | Mondays at 07:15 |
+| ActivityInfo data | 18:00 on days 1 to 22 of each month, while ActivityInfo is in use |
+| Year-end forecasts | Mondays at 07:15, while ActivityInfo is in use |
 | Compiler figures (youth, education, Makani wellbeing) | Every night, once Compiler is set up |
 
 The **Data health** page (user menu, or the sidebar) shows when each source last synced and which
 runs failed. It opens at once (see [Pages that open at once](/help/overview/#pages-that-open-at-once)):
-the sync jobs fill in first, then the ActivityInfo databases and the latest runs, then the eTools
+the sync jobs fill in first, then the ActivityInfo databases (the archive's, once ActivityInfo is
+no longer in use) and the latest runs, then the eTools
 datasets, *Compared with Power BI* and the machine learning readiness check. Pages show the date of their data next to every status ("On track · reported for Jun
 2026", "status as of 3 Oct 2026").

@@ -6,7 +6,7 @@
 arrives, it asks fixed questions of NeuroDB's own tables (rules, no AI): what falls due soon, what is
 still open, how these things connect. It remembers each thing it follows from one day to the next and
 tells each person once, at the right moment. The sidebar shows the number of points that need you today
-and that you have not seen yet; the overview has a *For you* card.
+and that you have not seen yet; [Home](/help/home/) has a *For you* card.
 
 The page shows, in order: today's note (your section's, and the whole country's for the country view),
 *Needs you today* (at most 5 points), *Coming up (next 30 days)*, *How things connect* (open points that
@@ -28,7 +28,8 @@ says why it is shown ("New", "Due in 3 days", "Got worse"...), how sure NeuroDB 
 - Agreed dates on daily review findings.
 - **Field monitoring follow-up**: reported visits rated off track or constrained, ended 14 to 120 days
   ago, with no action point following them up (critical when off track and ended over 30 days ago).
-- Indicators the year-end forecast says are likely to fall short (while the forecasts are shown).
+- Indicators the year-end forecast says are likely to fall short (while ActivityInfo is in use and the
+  forecasts are shown).
 - The critical and warning findings of the latest daily review.
 
 New checks start in **trial**: their points go to the whole-country view only until an administrator

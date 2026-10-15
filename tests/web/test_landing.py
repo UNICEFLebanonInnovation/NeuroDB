@@ -14,7 +14,9 @@ def _fresh_cache():
     cache.clear()
 
 
-def test_root_shows_landing_to_visitors(client, hierarchy):
+def test_root_shows_landing_to_visitors(client, hierarchy, activityinfo_in_use):
+    """While ActivityInfo is in use its counts are public figures too (hierarchy's records stop in February:
+    on the suite's day, Automatic makes it an archive, without them; see test_landing_archive.py)."""
     response = client.get("/")
     assert response.status_code == 200
     html = response.content.decode()
@@ -22,12 +24,15 @@ def test_root_shows_landing_to_visitors(client, hierarchy):
     assert 'id="why"' in html and 'id="faq"' in html
     # Aggregate counts only: 2 master indicators, 4 records, 2 partners, 2 governorates.
     assert 'data-count="4"' in html and 'data-count="2"' in html
+    assert "partners reporting in ActivityInfo this year" in html
     assert "Partner A" not in html  # no partner names leak to the public page
 
 
 def test_etools_counts_show_without_activityinfo(client, db):
     """From 2026 partners report in eTools: the figures come from there, still aggregate only."""
     import datetime
+
+    from django.utils import timezone
 
     from neurodb.datamart import models as dm
     from neurodb.partnerships.models import PCA, PartnerOrganization
@@ -39,7 +44,7 @@ def test_etools_counts_show_without_activityinfo(client, db):
         dm.PDIndicator.objects.create(
             datamart_id=n, source_id=source, intervention=pd, title=f"# {source}", location_name=location
         )
-    year = datetime.date.today().year
+    year = timezone.localdate().year
     for n, report in enumerate(["QPR1", "QPR1", "QPR2"], start=1):
         dm.ReportedIndicator.objects.create(
             datamart_id=n, intervention=pd, progress_report=report, period_end=datetime.date(year, 3 * n, 28)
@@ -53,10 +58,13 @@ def test_etools_counts_show_without_activityinfo(client, db):
     assert "Amel Association" not in html and "LEB/PD1" not in html
 
 
-def test_root_shows_overview_once_signed_in(client_viewer, hierarchy):
+def test_root_shows_a_staff_page_once_signed_in(client_viewer, hierarchy):
+    """Signed in, the root is the staff Home (its own tests are tests/reports/test_home_page.py), never the
+    landing page; the landing's button to it says "Open Home"."""
     html = client_viewer.get("/").content.decode()
-    assert "Country overview" in html
-    assert "in one place." not in html
+    assert "in one place." not in html and 'id="help-panel"' in html  # the staff shell, not the landing
+    landing = client_viewer.get(reverse("landing")).content.decode()
+    assert "Open Home" in landing and "Open your overview" not in landing
 
 
 def test_welcome_is_always_the_landing_page(client_viewer, hierarchy):
@@ -74,6 +82,8 @@ def test_quick_links_lock_internal_pages(client, hierarchy):
     html = client.get(reverse("landing")).content.decode()
     assert f"{reverse('account_login')}?next={reverse('reports:library')}" in html
     assert "Sign in to open" in html
+    # ActivityInfo is an archive on the suite's day (hierarchy's records stop in February 2026)
+    assert "Where partners reported their monthly results until 2026." in html
 
 
 def test_support_email_adds_request_access(client, hierarchy, settings):
@@ -140,7 +150,7 @@ def test_readiness_is_503_when_the_database_is_down(client, db, monkeypatch):
 def test_the_mock_up_is_marked_and_ask_is_promoted_only_when_on(client, hierarchy, settings):
     settings.AI_ASSISTANT_ENABLED = False
     html = client.get(reverse("landing")).text
-    assert "Illustration of the overview, not real figures." in html
+    assert "Illustration of NeuroDB, not real figures." in html  # was "…of the overview…": Home is the root
     assert "eTools synced last night" not in html  # no fixed claim: the real date, or nothing
     assert "Ask NeuroDB" not in html and "What does the AI do" not in html
     settings.AI_ASSISTANT_ENABLED = True

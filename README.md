@@ -1,7 +1,8 @@
 # NeuroDB v3
 
 UNICEF Lebanon's programme analytics portal, rebuilt from scratch on Django 5.2 LTS and PostgreSQL 16.
-It mirrors ActivityInfo and eTools data and provides dashboards, pivots, maps, reports and exports.
+It mirrors eTools data, keeps the ActivityInfo results partners reported until 2026 (an archive once
+ActivityInfo is no longer used), and provides dashboards, pivots, maps, reports and exports.
 
 The **existing NeuroDB database is used as-is**: every v2 table keeps its name and columns
 (`neurodb/*/models/legacy.py`, generated from the v2 schema), so all historical data stays in place.
@@ -9,14 +10,22 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
 
 ## What v3 offers
 
-- **Country overview**: the signed-in home page reads the whole intervention live: children reached
-  by governorate and against targets (eTools and ActivityInfo shown apart), funds disbursed and cost
-  per child by section, delivery status, TPM visit and action point progress, and the daily review,
-  filtered by year, section and governorate; the ActivityInfo database cards have their own page
-  under the sidebar's Databases block.
+- **Home** (`/`, the signed-in home page): what needs you today (For you, the decisions for management,
+  the daily review's digest), what changed since the previous working day, where your section or the
+  country stands this year (the Country overview's own key figures) and the state of each source.
+- **Country overview** (`/country-overview/`): the whole intervention live by calendar year: children
+  reached by governorate and against targets (eTools, and ActivityInfo in the years it has records,
+  shown apart), funds disbursed and cost per child by section, delivery status, TPM visit and action
+  point progress, filtered by year, section and governorate.
+- **Daily review** (`/daily-review/`): the morning check's findings on a page of their own.
+- **ActivityInfo, in use or as an archive**: one admin setting (Automatic by default: in use while its
+  import runs and this year has recent records) decides whether ActivityInfo is presented as in use or
+  as the archive of its years; every ActivityInfo database, dashboard and report of past years stays
+  open, and the import's alarms stop once nobody runs it. See `docs/OPERATIONS.md`, *ActivityInfo: in
+  use or archive*.
 - **Database dashboards**: KPI tiles, tracking donut, monthly trend, filterable indicator table with
   progress bars and a sub-indicator drill-down in a modal; printable snapshot; raw data as CSV or Excel.
-- **Analytical view**: pivot table over every ActivityInfo record with layout presets
+- **Analytical view** (ActivityInfo years): pivot table over every ActivityInfo record with layout presets
   (month, governorate, partner, sub-indicators, demographics), emergency filter, chart renderers,
   export, and **saved views** that can be shared with everyone.
 - **Intervention map**: choropleth by governorate, district or cadaster and site circles
@@ -28,11 +37,12 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
 - **Resources**: population figures by nationality, area and age; library with search and filters;
   completed map products.
 - **Data health**: freshness of every sync job and database import, with recent run history.
-- **Ask NeuroDB (AI assistant)**: questions in plain language ("which Child Protection indicators
-  are off track?", "total budget of EU-funded PDs?") answered by ChatGPT (an OpenAI model via the
+- **Ask NeuroDB (AI assistant)**: questions in plain language ("which Child Protection programme
+  documents are off track this year?", "total budget of EU-funded PDs?") answered by ChatGPT (an OpenAI model via the
   OpenAI API) from NeuroDB's own data through read-only lookups, streamed live with links to the
   source pages; also from the search box. Needs `OPENAI_API_KEY`; see `docs/OPERATIONS.md`.
-- **Everywhere**: command palette (Ctrl K or /) across databases, reports and indicators; dark mode;
+- **Everywhere**: search (Ctrl K or /) across pages, partners, programme documents, country programme
+  indicators, knowledge base documents and the ActivityInfo archive of every year; dark mode;
   copy or CSV on every table; keyboard-sortable tables; mobile layout; strict Content Security Policy.
 - **Daily AI review**: every morning fourteen checks read the synced data (off-track and unreported
   indicators, overdue reports and action points, late TPM reports, spending ahead of delivery,
@@ -58,12 +68,14 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
 ## Public landing page and public access
 
 Visitors who are not signed in see a public landing page at `/` (also at `/welcome/` for everyone):
-the value of the platform, how it works, what is new in v3, quick links and an FAQ. Signed-in users
-land on the programme overview as before.
+the value of the platform, how it works, what is new in v3, quick links and an FAQ. Its copy follows
+ActivityInfo's state: while ActivityInfo is in use it is presented as a current source; once it is an
+archive the page names the years it holds ("the ActivityInfo results of 2019–2026, kept as an archive")
+and shows no ActivityInfo figure. Signed-in users land on Home.
 
 | Setting | Default | Effect |
 |---|---|---|
-| `PUBLIC_LANDING_STATS` | `on` | Shows aggregate counts for the current year (indicators, records, partners, governorates, sections). No names or values. |
+| `PUBLIC_LANDING_STATS` | `on` | Shows aggregate counts for this calendar year: eTools programme documents, partners, indicators and progress reports, and, only while ActivityInfo is in use, its results, governorates, records, partners and sections. No names or values. |
 | `PUBLIC_PAGES` | empty | Comma-separated pages opened without sign-in, read-only. Allowed: `library`, `maps`, `population`. Any other value stops the app at startup. |
 | `SUPPORT_EMAIL` | empty | Adds a "Request access" link and a contact address. |
 | `USER_GUIDE_URL` | empty | Adds a "User guide" quick link. |

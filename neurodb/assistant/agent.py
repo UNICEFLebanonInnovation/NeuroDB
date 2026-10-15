@@ -23,6 +23,7 @@ Ask NeuroDB sends.
 
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 import re
@@ -55,17 +56,18 @@ POLICY_BLOCKS = frozenset({"invalid_prompt", "bio_policy", "cyber_policy", "misa
 
 SYSTEM_PROMPT = """\
 You are the NeuroDB assistant for UNICEF Lebanon. NeuroDB holds the country office's programme \
-monitoring data: ActivityInfo databases per section and reporting year with master indicators, \
-targets and activity reports from partners; Neuro and HPM reports; eTools programme documents, \
-partners and donor funding, with funds reservations, grants, PD indicators, HACT assurance (audits, \
-spot checks, assessments), action points and field monitoring from the eTools Datamart; population \
-figures; a library of studies and maps; and a knowledge base of documents and notes people added \
-(reports, evaluations, meeting minutes, guidance), linked to the partners, programme documents, \
-sections and places they mention. It also holds the country programme (outcomes, outputs, \
-indicators and progress), youth and education figures from the Compiler (Makani, Dirasa), Makani \
-wellbeing centre summaries, the daily review findings and the management brief. A knowledge hub \
-links all of these: every partner, programme document, donor, grant, section, place, database, \
-indicator, programme output, centre, document and finding, and how they relate across sources.
+monitoring data: eTools programme documents, partners and donor funding, with funds reservations, \
+grants, PD indicators, HACT assurance (audits, spot checks, assessments), action points and field \
+monitoring from the eTools Datamart; population figures; a library of studies and maps; a knowledge \
+base of documents and notes people added (reports, evaluations, meeting minutes, guidance), linked to \
+the partners, programme documents, sections and places they mention; and the ActivityInfo archive \
+(databases per section and reporting year with master indicators, targets and activity reports, Neuro \
+and HPM reports) for the years partners reported there. It also holds the country programme \
+(outcomes, outputs, indicators and progress), youth and education figures from the Compiler (Makani, \
+Dirasa), Makani wellbeing centre summaries, the daily review findings and the management brief. A \
+knowledge hub links all of these: every partner, programme document, donor, grant, section, place, \
+database, indicator, programme output, centre, document and finding, and how they relate across \
+sources.
 
 Answer the user's question from this data using the tools. Look numbers up; never estimate or \
 invent them. When the data cannot answer the question, say so plainly and say what the data does \
@@ -73,11 +75,13 @@ cover. If a question is ambiguous (which year, which section), choose the most l
 which one you used, and answer.
 
 How to work:
-- Start from list_databases or find_indicators to get ids, then fetch the detail you need. Several \
-lookups can run in parallel.
+- For this year's programme documents, partners and indicators start from the eTools tools \
+(programme_details, partner_details, pd_indicator_progress); for ActivityInfo years start from \
+list_databases or find_indicators. Several lookups can run in parallel.
 - Indicator progress and achievement come from database_results (the official aggregation). \
 activity_breakdown counts raw activity reports; its summed_value is only a total for one indicator.
-- Reporting years are named like "2026". The current reporting year is used when none is given.
+- Reporting years are named like "2026". When no ActivityInfo year is given, use this year if \
+ActivityInfo is in use (see the line after these instructions), else say which year you used.
 - Partner implementation monitoring (is a partner or PD on track, what was reported per month and \
 location on a PD indicator) comes from pd_indicator_progress. Partners reported in ActivityInfo \
 before eTools; that history is linked to the same partner: partner_details lists it per year and \
@@ -258,23 +262,54 @@ def _within(api: openai.OpenAI, remaining: float) -> openai.OpenAI:
     return api.with_options(timeout=openai.Timeout(wait, connect=CONNECT_TIMEOUT), max_retries=retries)
 
 
+def _month(latest_month: str) -> str:
+    """A month written "YYYY-MM" as "Aug 2026" (always English, as the instructions are); "" otherwise."""
+    try:
+        return datetime.date(int(latest_month[:4]), int(latest_month[5:7]), 1).strftime("%b %Y")
+    except ValueError:
+        return ""
+
+
+def year_line() -> str:
+    """The sentence after the date: this year, and whether ActivityInfo is in use or an archive (Rule 2 of
+    ``neurodb.indicators.services.activityinfo`` sets the tense). Whether this year has ActivityInfo
+    figures follows its records (Rule 1), as the Home and Country overview tiles do, so Ask and the
+    pages agree: an archive whose year has records still counts them in this year's children reached."""
+    from neurodb.indicators.services import activityinfo
+
+    ai = activityinfo.state()
+    year = ai.this_year
+    if ai.in_use:
+        name = ai.names.get(ai.serving) if ai.serving else ai.current_name
+        return f"This year is {year}. ActivityInfo is in use" + (
+            f" (reporting year {name})." if name else "."
+        )
+    if year in ai.years:
+        month = _month(ai.latest_month)
+        stop = f"its {year} records stop at {month}" if month else f"it holds {year} records"
+        return (
+            f"This year is {year}. ActivityInfo is no longer updated: {stop}, and NeuroDB's children reached "
+            f"for {year} still counts them (the larger of the two sources). For progress since then use the "
+            f"eTools tools; the ActivityInfo tools cover {ai.span}."
+        )
+    if ai.span:
+        return (
+            f"This year is {year}. ActivityInfo is an archive of {ai.span}: partners no longer report there. "
+            f"For this year use the eTools tools; use the ActivityInfo tools only for {ai.span}."
+        )
+    return f"This year is {year}. NeuroDB holds no ActivityInfo data."
+
+
 def _instructions(extra: str = "", base: str | None = None) -> str:
     # Stable text first and the date last, so the cached prompt prefix (the tools and these
     # instructions) only changes when the day does. A background run's own instructions come after
-    # the date. A run with its own prompt (``base``) sends it in place of Ask's, without the reporting
-    # year (an ActivityInfo notion).
+    # the date. A run with its own prompt (``base``) sends it in place of Ask's, without the year line
+    # (about ActivityInfo).
     today = timezone.localdate()
     if base is not None:
         text = f"{base}\nToday is {today:%A %d %B %Y}."
         return f"{text}\n\n{extra.strip()}" if extra.strip() else text
-
-    from neurodb.indicators.services.navigation import current_year
-
-    year = current_year()
-    text = (
-        f"{SYSTEM_PROMPT}\nToday is {today:%A %d %B %Y}. "
-        f"The current reporting year is {year.name if year else 'unknown'}."
-    )
+    text = f"{SYSTEM_PROMPT}\nToday is {today:%A %d %B %Y}. {year_line()}"
     return f"{text}\n\n{extra.strip()}" if extra.strip() else text
 
 

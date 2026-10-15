@@ -235,7 +235,10 @@ def test_answer_streams_lookups_and_a_sanitized_answer(client_viewer, viewer, hi
     assert all(t["type"] == "function" and t["strict"] is False for t in first["tools"])
     assert first["instructions"].startswith(agent.SYSTEM_PROMPT)  # stable text first: cached prefix
     assert f"Today is {timezone.localdate():%A %d %B %Y}." in first["instructions"]
-    assert "The current reporting year is 2026." in first["instructions"]
+    # this year and ActivityInfo's state (hierarchy's 2026 records stop in February: an archive on 15 October)
+    assert first["instructions"].endswith(f"Today is {timezone.localdate():%A %d %B %Y}. {agent.year_line()}")
+    archived = "This year is 2026. ActivityInfo is no longer updated: its 2026 records stop at Feb 2026"
+    assert archived in first["instructions"]
     assert first["input"] == [{"role": "user", "content": "How is Child Protection doing?"}]
     for absent in ("temperature", "top_p", "previous_response_id", "user", "system", "messages", "betas"):
         assert absent not in first

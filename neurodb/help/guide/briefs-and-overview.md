@@ -1,23 +1,28 @@
-# Overview, management brief and daily review
+# Country overview, management brief and daily review
 
 ## The country overview
 
-The [overview](/) is the signed-in home page: one page for the whole intervention, read from the
-synced eTools tables and the ActivityInfo history.
+The [country overview](/country-overview/) shows every figure of the year: one page for the whole
+intervention, read from the synced eTools tables and, in years with ActivityInfo records, the
+ActivityInfo history. [Home](/help/home/) shows its five key figures and links to it.
 
 | Row | What it shows |
 |---|---|
-| Impact on children | Children reached (eTools partner reports and ActivityInfo, shown apart), by governorate, achievement against target by section, monthly reach, coverage of the estimated children per governorate. |
+| Impact on children | Children reached (eTools partner reports, and ActivityInfo in years with ActivityInfo records, shown apart), by governorate, achievement against target by section, monthly reach, coverage of the estimated children per governorate. |
 | Value for money | Funds disbursed of reserved, cost per child reached by section, spending against delivery, funding by donor, partnerships that need a decision. |
 | Delivery and assurance | Indicator status by section, assurance counts (field monitoring, TPM visits, action points, HACT risk), findings by rating, what needs attention. |
 | Progress | TPM visits planned, completed and with the report overdue per month; action points due, closed and past due per month. |
 
-- **Filters**: year (the year menu), section and governorate (click a tile). You land on your own
-  section, with every section one click away.
+- **Filters**: year (calendar years), section and governorate (click a tile). You land on your own
+  section, with every section one click away; members of the Management group, and Administrators
+  without a section, land on the whole country. A link from Home keeps Home's sections.
 - **Which programme documents**: every one running in the selected year, whatever its status now,
   except drafts and cancelled ones.
-- **Children reached**: the same children are often reported in both eTools and ActivityInfo, so the
-  headline is the **larger** of the two, never their sum; both are shown beside it.
+- **Children reached**: the same children are often reported in both eTools and ActivityInfo. In a year
+  with ActivityInfo records the headline is the **larger** of the two, never their sum, with both shown
+  beside it and the months each covers; in other years it is eTools alone. Early in the year (January to
+  April), until the first partner reports of the year come in, the tile says *Not yet* and links to last
+  year.
 - **One indicator per programme document**: the indicators of one programme document count the same
   children, so they are never added. Each programme document counts once, with its *unique
   beneficiaries indicator* (chosen on the programme document page by an Administrator or a Section
@@ -33,22 +38,19 @@ synced eTools tables and the ActivityInfo history.
 - **Cost per child**: what the programme documents with a children result disbursed to date, over the
   children they reached in the year (each one's main indicator). Compare sections, not absolute values.
 - **The page opens at once**: the filters and the strip at the bottom come first, with a grey box
-  where each block of figures will go. The tiles, the charts, the daily review, What's new and the
-  For you card then appear one after the other as they are ready, and you can use the page
-  meanwhile. A block that takes long says "Still working on this part"; a block that could not load
-  says so and has a **Try again** button, and the rest of the page keeps working. The daily review's
-  other findings load when you open its *Show … more findings* line; they are always those of the
-  card you see, even when a newer review has run since the page opened. If the review on the card has
-  itself been run again since (an administrator's *Run the daily review now* replaces that day's
-  review), the line asks you to reload the page instead. If you print before every block has
-  appeared, a block still loading prints a short note instead: wait until the page is complete.
+  where each block of figures will go. The tiles, the charts and What's new then appear one after the
+  other as they are ready, and you can use the page meanwhile. A block that takes long says "Still
+  working on this part"; a block that could not load says so and has a **Try again** button, and the
+  rest of the page keeps working. If you print before every block has appeared, a block still loading
+  prints a short note instead: wait until the page is complete. The daily review and the For you card
+  are on their own pages and on [Home](/help/home/).
 - Figures are kept 2 minutes, so opening the same filter again soon is faster; the end of any sync
   shows at once. The strip at the bottom says when each source last changed.
 
 ## The management brief
 
 The [management brief](/brief/) is the overview read for decisions, for senior management. It compares
-the selected year with the year before, in eight tabs:
+the selected year (calendar years) with the year before, in eight tabs:
 
 - **Brief**: five tiles with a comparison (children reached against the same months of last year,
   achievement against the elapsed period, disbursed of reserved, cost per child, indicators on track
@@ -59,6 +61,9 @@ the selected year with the year before, in eight tabs:
   figures come from).
 - Values that cannot be right (above the child population of Lebanon, or more than 20 times their
   target) are left out, and the section's confidence is Low.
+- **Children reached** is compared like with like: the larger of the two sources in both years only
+  when ActivityInfo covered the same months in both; otherwise eTools alone ("eTools only"), and no
+  comparison at all against a year with eTools partner reports for too few programme documents.
 - **The page opens at once**: the filters, the *Figures as of* line, the tabs and the *Reference*
   block come first, with a grey box where the figures will go. The *Brief* tab's tiles, decisions and
   sections at a glance fill in first, then the six other tabs together, with their charts; you can
@@ -74,8 +79,9 @@ the selected year with the year before, in eight tabs:
 
 ## The daily review
 
-Every morning at 06:00 the daily review runs fourteen fixed checks over the synced data and keeps the
-result as a dated review with its findings. The overview's *Daily review* card shows the latest one.
+Every morning (at 06:00 unless an administrator changed its time) the daily review runs fourteen fixed
+checks over the synced data and keeps the result as a dated review with its findings. It has a page of
+its own, [Daily review](/daily-review/), which says the time it runs; Home shows its summary.
 
 - Checks include indicators newly off track, indicators not reported, progress reports overdue,
   spending ahead of achievement, under-disbursed programme documents, programme documents ending soon
@@ -91,8 +97,12 @@ result as a dated review with its findings. The overview's *Daily review* card s
 
 ## Year-end forecasts
 
-[Year-end forecasts](/insights/forecasts/) estimates, for each ActivityInfo master indicator that adds
-up month by month, where it will likely stand in December, with a range: *On course*, *Likely to fall
-short* or *Uncertain*. Only months that ended more than 30 days ago count. Forecasts appear on the
-dashboards and in Ask NeuroDB only once the method has proved itself on past years; they are always
-estimates with a range. They are worked out every Monday at 07:15.
+[Year-end forecasts](/insights/forecasts/) estimates, for each ActivityInfo master indicator of this year
+that adds up month by month, where it will likely stand in December, with a range: *On course*, *Likely
+to fall short* or *Uncertain*. Only months that ended more than 30 days ago count. Forecasts appear on
+the dashboards, the country overview and in Ask NeuroDB only once the method has proved itself on past
+years; they are always estimates with a range. They are worked out every Monday at 07:15.
+
+Forecasts are made only while ActivityInfo is in use; once it is an archive the page keeps the last
+forecasts, marked as no longer updated ([ActivityInfo: in use or
+archive](/help/home/#activityinfo-in-use-or-archive)).
