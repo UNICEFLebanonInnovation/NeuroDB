@@ -57,7 +57,7 @@ def page(request: HttpRequest) -> HttpResponse:
             "preview": preview,
             "year": year,
             "years": choices,
-            "as_of": services.data_as_of(),
+            "as_of": services.data_as_of(year),
             "tab": tab,
             # the figures, when they are ready (stored) or the page is asked for whole; otherwise donor.js
             # fetches them from the part's address

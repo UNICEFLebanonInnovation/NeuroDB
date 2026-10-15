@@ -288,9 +288,12 @@ def _compiler_rows(sources: dict[str, Any], setup: bool) -> list[dict[str, Any]]
 
 def _activityinfo_rows() -> list[dict[str, Any]]:
     from neurodb.indicators.models import Database, MasterIndicator
-    from neurodb.indicators.services import activityinfo
+    from neurodb.indicators.services import activityinfo, navigation
 
     state = activityinfo.state()
+    # the menu's own link to the archive's databases page: the year the import serves, else the last
+    # ActivityInfo year (never the bare address, which opens the reporting year ticked current)
+    databases_url = navigation.archive(state)["databases_url"]
     if state.in_use and state.serving is not None:
         pk = state.pks[state.serving]
         shown = Database.objects.filter(reporting_year_id=pk, display=True)
@@ -302,7 +305,7 @@ def _activityinfo_rows() -> list[dict[str, Any]]:
                 "year": state.serving,
                 "masters": masters,
                 "last": timezone.localtime(last).date() if last else None,
-                "url": _databases_url(state.names[state.serving]),
+                "url": databases_url,
             }
         ]
     if state.last is not None:
@@ -310,7 +313,7 @@ def _activityinfo_rows() -> list[dict[str, Any]]:
             {
                 "kind": "activityinfo_archive",
                 "span": state.span,
-                "url": _databases_url(state.names[state.last]),
+                "url": databases_url,
             }
         ]
     return []

@@ -41,7 +41,8 @@ def test_the_sidebar_follows_the_chosen_year(client_viewer, hierarchy, section):
     old_report = NeuroReport.objects.create(name="HPM 2025", is_hpm=True, ryear=older)
     current_db = reverse("reports:database_dashboard", args=[hierarchy["database"].id])
 
-    side = _sidebar(client_viewer.get(reverse("reports:overview") + "?year=2025").text)
+    # the Country overview of 2025 (Home's old address redirects a ?year= there)
+    side = _sidebar(client_viewer.get(reverse("reports:country_overview") + "?year=2025").text)
     assert "Databases 2025" in side and reverse("reports:database_dashboard", args=[old_db.id]) in side
     assert current_db not in side and reverse("reports:report_hpm", args=[old_report.id]) in side
 

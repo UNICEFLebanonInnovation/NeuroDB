@@ -66,10 +66,3 @@
 .home-programmes { margin-bottom: 0.5rem; }
 .home-list--sources li { display: block; }
 
-/* TEMPORARY copy (G2): .kpi__how and .kpi--wide-sm belong to app.css, where G3 adds them (SPEC_HOME §3.2); these
-   two rules only let Home be seen as it will be until then, and go away at integration. */
-.kpi__how { margin-top: 0.3rem; font-size: 0.78rem; color: var(--nd-muted); }
-.kpi__how > summary { cursor: pointer; width: fit-content; color: var(--nd-muted); }
-.kpi__how > summary:hover { color: var(--nd-text); }
-.kpi__how[open] > summary { margin-bottom: 0.2rem; }
-@media (max-width: 575.98px) { .kpi--wide-sm { grid-column: 1 / -1; } .kpi--wide-sm .legend { flex-wrap: wrap; } }

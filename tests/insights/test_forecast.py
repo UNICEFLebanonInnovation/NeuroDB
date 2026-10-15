@@ -207,3 +207,26 @@ def test_shown_forecasts_reach_the_pages_and_the_assistant(client_viewer, years_
     )
     assert answer["forecasts"][0]["range_pct_of_target"] == [50.0, 70.0]
     assert answer["forecasts"][0]["status"] == "Likely to fall short"
+
+
+def test_the_overview_card_reads_this_years_forecasts_only_while_in_use(years_of_data, activityinfo_in_use):
+    """``views._forecast_risk`` asks ``at_risk`` for this year's forecasts (SPEC_HOME §3.2): none for another
+    year, none for a forecast left from another year, none once ActivityInfo is archived."""
+    from neurodb.core.models import ActivityInfoSetting
+    from neurodb.indicators.services import activityinfo
+    from neurodb.reports import views
+
+    run("test", today=datetime.date(2026, 10, 2))
+    latest = services.latest_run()
+    latest.details["backtest"]["shown"] = True
+    latest.save()
+    IndicatorForecast.objects.update(status="likely_short", low=500, high=700)
+    forecast = IndicatorForecast.objects.get()
+    assert forecast.year == 2026 and views._forecast_risk([], 2026) == [forecast]
+    assert views._forecast_risk([], 2025) == []  # the card of another year
+    IndicatorForecast.objects.update(year=2025)  # a forecast left from last year
+    assert views._forecast_risk([], 2026) == []
+    IndicatorForecast.objects.update(year=2026)
+    ActivityInfoSetting.objects.filter(pk=1).update(mode=ActivityInfoSetting.Mode.ARCHIVED)
+    activityinfo.invalidate()
+    assert views._forecast_risk([], 2026) == []

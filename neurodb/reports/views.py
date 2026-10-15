@@ -307,9 +307,7 @@ def _forecast_risk(sections: list[str], year: int) -> list[Any]:
     ids, matched = home_service.section_ids(sections)
     if not matched:
         return []
-    # the forecasts of other years left in the table are not this year's (insights.services.at_risk(year=)
-    # narrows them itself once it takes a year)
-    return [f for f in at_risk(section_ids=ids, limit=None) if f.year == year][:FORECASTS_SHOWN]
+    return at_risk(section_ids=ids, limit=FORECASTS_SHOWN, year=year)
 
 
 FORECASTS_SHOWN = 6
