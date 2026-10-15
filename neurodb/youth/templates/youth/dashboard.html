@@ -6,7 +6,7 @@
   {% if configured %}
   {% include "components/empty_state.html" with icon="users" title=_("No youth figures yet") message=_("The youth figures are read from Compiler by the job “Read the youth figures from Compiler” (admin → Import and sync runs → Run a job).") %}
   {% else %}
-  {% include "components/empty_state.html" with icon="users" title=_("Compiler is not connected") message=_("An administrator sets COMPILER_API_URL and COMPILER_API_TOKEN (Key Vault secret compiler-api-token), then runs the job “Read the youth figures from Compiler”.") %}
+  {% include "components/empty_state.html" with icon="users" title=_("Compiler is not connected") message=_("The NeuroDB team connects it on the server; an administrator then runs the job “Read the youth figures from Compiler” (admin → Import and sync runs → Run a job).") %}
   {% endif %}
 </section>
 {% else %}

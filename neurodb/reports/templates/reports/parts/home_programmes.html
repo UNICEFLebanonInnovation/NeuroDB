@@ -16,7 +16,8 @@ selected.{% endcomment %}
     {% elif r.kind == "cpd_none" %}<li class="home-muted">{% url 'cpd:dashboard' as cpd_url %}{% blocktrans %}No country programme cycle yet: an administrator uploads it on the <a href="{{ cpd_url }}">Country programme page</a>.{% endblocktrans %}</li>
     {% elif r.kind == "compiler" %}<li><a href="{{ r.url }}">{% blocktrans with label=r.label n=r.counted|intcomma period=r.period %}{{ label }}: {{ n }} registrations, {{ period }}{% endblocktrans %} →</a></li>
     {% elif r.kind == "compiler_off" %}<li class="home-muted">{% trans "Compiler is not connected: Makani, Dirasa and youth figures are not shown here." %}</li>
-    {% elif r.kind == "activityinfo" %}<li><a href="{{ r.url }}">{% blocktrans with y=r.year n=r.masters|intcomma %}ActivityInfo {{ y }}: {{ n }} results tracked against targets{% endblocktrans %}{% if r.last %} · {% blocktrans with d=r.last|date:"j M Y" %}last import {{ d }}{% endblocktrans %}{% endif %} →</a></li>
+    {% elif r.kind == "activityinfo" %}<li><a href="{{ r.url }}">{% if r.masters %}{% blocktrans count counter=r.masters with y=r.year n=r.masters|intcomma %}ActivityInfo {{ y }}: {{ n }} result tracked against targets{% plural %}ActivityInfo {{ y }}: {{ n }} results tracked against targets{% endblocktrans %}{% else %}{% blocktrans with y=r.year %}ActivityInfo {{ y }}: records imported{% endblocktrans %}{% endif %}{% if r.last %} · {% blocktrans with d=r.last|date:"j M Y" %}last import {{ d }}{% endblocktrans %}{% endif %} →</a></li>
+    {% elif r.kind == "activityinfo_waiting" %}<li><a href="{{ r.url }}">{% blocktrans with y=r.year %}ActivityInfo {{ y }}: in use, waiting for its first records{% endblocktrans %} →</a></li>
     {% elif r.kind == "activityinfo_archive" %}<li><a href="{{ r.url }}">{% blocktrans with span=r.span %}ActivityInfo archive {{ span }}: every database and report, kept as it was{% endblocktrans %} →</a></li>
     {% endif %}
     {% endfor %}

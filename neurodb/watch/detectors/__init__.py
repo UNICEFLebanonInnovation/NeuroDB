@@ -11,6 +11,10 @@ Each check is registered once with :func:`register`, as a :class:`Detector`:
 - ``source_jobs``: the ``SyncRun`` jobs whose data it reads. It runs only when each had a success
   within ``SYNC_STALENESS_HOURS`` (or its own ``max_age_hours``); otherwise it is skipped, its items
   are left as they are, and one ``system:stale:<job>`` item tells the administrators;
+- ``active(ctx)`` (optional): false while the check has nothing to follow because its source is not in use
+  (the year-end forecasts once ActivityInfo is an archive). It then finds nothing and needs no fresh source
+  (no ``system:stale:<job>`` item about a source nobody runs: the one left open closes as changed, with its
+  ``inactive_reason``); only its ``resolved`` runs, to close what it followed, and nothing counts as missed;
 - ``run(ctx)``: the candidates (and :class:`Attach` hand-overs to the daily review);
 - ``resolved(ctx, open_items)``: evidence that some of its open items are over, as ``{key: Close}``
   (a report submitted, an FR spent). These close at once. A :class:`Close` says how: ``RESOLVED``
@@ -65,6 +69,7 @@ ALIVE = (WatchItem.State.OPEN, WatchItem.State.WRONG)  # items a check still fol
 
 STALE_DETECTOR = "stale_source"  # the check behind the "system:stale:<job>" items
 STALE_KEY = "system:stale:"
+NOT_READ = "no check reads it at the moment"  # a stale item's close when only inactive checks read its job
 
 # Why a check did not run in a pass (Result.skipped)
 SKIPPED_OFF, SKIPPED_STALE, SKIPPED_ERROR, SKIPPED_STOPPED = "off", "stale", "error", "stopped"
@@ -255,6 +260,8 @@ class Detector:
     default_mode: str = TRIAL
     milestones: tuple[int, ...] = ()
     max_age_hours: int | None = None  # a weekly source (the forecast) is fresh for longer
+    active: Callable[[Context], bool] | None = None  # false: nothing to follow now (its source is not in use)
+    inactive_reason: str = ""  # why, in plain words: closes its source's stale item
 
     def __post_init__(self):
         if not self.id or len(self.id) > 40:
@@ -349,7 +356,8 @@ def milestone(due_date: datetime.date | None, milestones: Iterable[int], today: 
 @dataclass
 class Result:
     """What one check gave in one pass. ``skipped`` says why it did not run: off, stale (the
-    jobs in ``stale_jobs``), error or stopped; a check that did not run changes nothing."""
+    jobs in ``stale_jobs``), error or stopped; a check that did not run changes nothing. ``inactive``: it
+    had nothing to follow (see ``Detector.active``), so it only closed what it followed."""
 
     detector: Detector
     mode: str = TRIAL  # its setting: trial, on or off
@@ -360,6 +368,7 @@ class Result:
     skipped: str = ""
     stale_jobs: list[str] = field(default_factory=list)
     error: str = ""
+    inactive: bool = False
 
     @property
     def ran(self) -> bool:
@@ -385,13 +394,20 @@ def _run_one(ctx: Context, detector: Detector) -> Result:
     if ctx.stop is not None and ctx.stop():
         result.skipped = SKIPPED_STOPPED
         return result
-    result.stale_jobs = [job for job in detector.source_jobs if not ctx.fresh(job, detector.max_age_hours)]
-    if result.stale_jobs:
-        result.skipped = SKIPPED_STALE
-        return result
     try:
-        result.mark = detector.mark(ctx)
-        for found in detector.run(ctx) or ():
+        result.inactive = detector.active is not None and not detector.active(ctx)
+    except Exception as exc:
+        return _failed(result, exc)
+    if not result.inactive:  # a check with nothing to follow needs no fresh source
+        result.stale_jobs = [
+            job for job in detector.source_jobs if not ctx.fresh(job, detector.max_age_hours)
+        ]
+        if result.stale_jobs:
+            result.skipped = SKIPPED_STALE
+            return result
+    try:
+        # inactive: no mark (nothing it follows counts as missed) and nothing found; it only closes
+        for found in () if result.inactive else _found(ctx, detector, result):
             if isinstance(found, Attach):
                 result.attach.append(found)
                 continue
@@ -409,16 +425,29 @@ def _run_one(ctx: Context, detector: Detector) -> Result:
             for key, why in (detector.resolved(ctx, alive) or {}).items():
                 result.closes[key] = why if isinstance(why, Close) else Close(str(why))
     except Exception as exc:
-        logger.exception("NeuroDB Watch: the check %s failed", detector.id)
-        result.candidates, result.attach, result.closes = [], [], {}
-        result.skipped = SKIPPED_ERROR
-        result.error = f"{type(exc).__name__}: {exc}"[:500]
+        return _failed(result, exc)
+    return result
+
+
+def _found(ctx: Context, detector: Detector, result: Result) -> Iterable[Candidate | Attach]:
+    """What an active check finds, once its mark (how fresh its data is) is taken."""
+    result.mark = detector.mark(ctx)
+    return detector.run(ctx) or ()
+
+
+def _failed(result: Result, exc: Exception) -> Result:
+    """A check that raised: recorded and skipped, nothing it gave is kept."""
+    logger.exception("NeuroDB Watch: the check %s failed", result.detector.id)
+    result.candidates, result.attach, result.closes = [], [], {}
+    result.skipped = SKIPPED_ERROR
+    result.error = f"{type(exc).__name__}: {exc}"[:500]
     return result
 
 
 def _stale_result(ctx: Context, detectors: list[Detector], results: list[Result]) -> Result:
     """The data sources that were too old for a check: one system candidate per job, and a close
-    for the earlier ones whose job has succeeded again within its limit."""
+    for the earlier ones whose job has succeeded again within its limit, or that only checks with nothing
+    to follow read (changed: no alarm about a source nobody runs)."""
     stale_check = Detector(
         id=STALE_DETECTOR, label="Data sources not refreshed", run=lambda ctx: (), default_mode=ON
     )
@@ -435,6 +464,13 @@ def _stale_result(ctx: Context, detectors: list[Detector], results: list[Result]
     for each in results:
         stale += [job for job in each.stale_jobs if job not in stale]
     result.candidates = [stale_candidate(ctx, job, limits.get(job)) for job in stale]
+    # the jobs only checks with nothing to follow read, with why (the first such check's reason)
+    needed = {job for each in results if not each.inactive for job in each.detector.source_jobs}
+    unread: dict[str, str] = {}
+    for each in results:
+        for job in each.detector.source_jobs if each.inactive else ():
+            if job not in needed:
+                unread.setdefault(job, each.detector.inactive_reason or NOT_READ)
     for item in WatchItem.objects.filter(detector=STALE_DETECTOR, state__in=ALIVE):
         job = (item.evidence or {}).get("source_job") or item.key.removeprefix(STALE_KEY)
         if job not in stale and ctx.fresh(job, limits.get(job)):
@@ -443,6 +479,8 @@ def _stale_result(ctx: Context, detectors: list[Detector], results: list[Result]
                 f"{_job_label(job)} ran again on {timezone.localtime(last.finished_at):%d %b %Y %H:%M}",
                 kind=RESOLVED,
             )
+        elif job in unread:
+            result.closes[item.key] = Close(unread[job], kind=CHANGED)
     return result
 
 

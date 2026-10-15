@@ -11,7 +11,24 @@ The daily review's tabs left the page with its card (SPEC_HOME §3.3): ``home.py
 
 Against a recording of the day-0 commit (whose ``/country-overview/`` is the old overview), the differences
 expected are SPEC_HOME §11.3's: the crumb "Home", the subtitle's calendar year, the For you and review parts gone
-from the page, the year's choices, and ActivityInfo's words only where ActivityInfo counts.
+from the page, the year's choices, and ActivityInfo's words only where ActivityInfo counts. In detail, each a
+deliberate change of SPEC_HOME (§3.2 unless said), so a clean run still reports them:
+
+- the key figures' hints: each source with its months ("eTools 1,266,027 (Jan–Sep) · ActivityInfo 4,469,997
+  (Jan–Aug): the larger of the two"), the long rules under "How it is counted" (``kpi__how``);
+- the build's new values ``impact.activityinfo_used``, ``etools_last_month``, ``activityinfo_first_month``,
+  ``activityinfo_last_month`` and ``not_yet``, and the context's ``year`` (a number, not the ReportingYear row);
+- the governorate block's caption in ActivityInfo years ("eTools Jan–{M} · ActivityInfo Jan–{M2}: each governorate
+  shows the larger of the two");
+- the ActivityInfo monthly series: None after its last month (September and October were 0), and no series at all
+  outside ActivityInfo years or where the scope's ActivityInfo children are 0;
+- ``impact.source`` without its ActivityInfo clause in a year without ActivityInfo records (2025);
+- the forecasts card only for this year while ActivityInfo is in use (``views._forecast_risk``);
+- Forecasts and What's new empty for a section NeuroDB does not know ("No such section": never the country's
+  items under its name, §3.1 ``home.since``);
+- the Year menu's "(this year)" and the purpose's link to the daily review;
+- the freshness strip without the ActivityInfo import while ActivityInfo is not followed (``freshness_jobs()``);
+- a Management member's first load: every section (§2), where the base showed their own section.
 
 **Context paths.** The old page (one response) and the page in parts (shell plus parts) keep the same values
 under these names; the right-hand side says where the page in parts has them:

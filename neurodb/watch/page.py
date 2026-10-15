@@ -259,14 +259,20 @@ def last_check(target: str = "") -> SyncRun | None:
     return SyncRun.last_success(SyncRun.Job.WATCH, target)
 
 
-def banner(now: datetime.datetime | None = None, admin: bool = False) -> str:
+def banner(now: datetime.datetime | None = None, admin: bool = False, card: bool = False) -> str:
     """The warning at the top of the page when the morning check has not succeeded for 26 hours
-    (or NeuroDB Watch is switched off); empty otherwise. An administrator is told what to press."""
+    (or NeuroDB Watch is switched off); empty otherwise. An administrator is told what to press: on Home's
+    card (``card``), where that button is not, to open For you and press it there."""
     now = now or timezone.now()
     if not settings.WATCH_ENABLED:
         return "NeuroDB is not checking at the moment: an administrator switched these checks off."
     last = last_check(DAILY)
     if last is None or last.finished_at is None:
+        if admin and card:
+            return (
+                "NeuroDB has not finished a morning check yet. Open For you and press Check now to run the "
+                "first one (it takes a few minutes); after that it runs every morning by itself."
+            )
         if admin:
             return (
                 "NeuroDB has not finished a morning check yet. Press Check now to run the first one "
@@ -345,7 +351,8 @@ def card(user, today: datetime.date | None = None) -> dict[str, Any]:
     NeuroDB Watch is switched off (``WATCH_ENABLED``); ``no_role``, an active account with no role (not a
     donor), which NeuroDB tells nothing until an administrator gives it one. ``no_section``: someone whose
     points follow a section (not an Administrator, not Management) has none, so only whole-country points
-    reach them. ``banner``: the morning check is late (:func:`banner`), or empty."""
+    reach them. ``banner``: the morning check is late (:func:`banner`, its words for the card), or empty;
+    ``banner_for_you``: it asks an administrator to press Check now, which is on the For you page."""
     today = today or timezone.localdate()
     if not settings.WATCH_ENABLED:
         return {"shown": False, "reason": "off"}
@@ -356,12 +363,15 @@ def card(user, today: datetime.date | None = None) -> dict[str, Any]:
         return {"shown": False}
     receipts = needs_you(user, today)
     unseen = sum(1 for receipt in receipts if receipt.seen_at is None)
+    warning = banner(admin=person.admin, card=True)
     return {
         "shown": True,
         "count": len(receipts),
         "unseen": unseen,
         "no_section": person.section_id is None and not person.country,
-        "banner": banner(admin=person.admin),
+        "banner": warning,
+        # the banner sends an administrator to For you's Check now: the card links to it
+        "banner_for_you": "Check now" in warning,
         "top": [
             {
                 "title": r.item.title,

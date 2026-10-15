@@ -341,10 +341,17 @@ class ActivityInfoSettingAdmin(ModelAdmin):
         activityinfo.invalidate()
         navigation.invalidate()
 
+    def _state(self):
+        """The state read from the database for this page (once per request), not the one this worker
+        keeps: another worker may have saved the mode a moment ago, and this page explains what is stored."""
+        from neurodb.indicators.services import activityinfo
+
+        return activityinfo.refreshed()
+
     def _explained(self) -> list[str]:
         from neurodb.indicators.services import activityinfo
 
-        return activityinfo.explain()  # read once per request; a save here has just dropped it
+        return activityinfo.explain(self._state())
 
     @admin.display(description=_("Now"))
     def now(self, obj):
@@ -352,7 +359,7 @@ class ActivityInfoSettingAdmin(ModelAdmin):
 
     @admin.display(description=_("Years with ActivityInfo records"))
     def years_with_records(self, obj):
-        return self._explained()[1]
+        return self._state().span or _("none")  # the label says the rest
 
     @admin.display(description=_("ActivityInfo import"))
     def import_state(self, obj):

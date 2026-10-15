@@ -63,7 +63,8 @@ pytestmark = pytest.mark.django_db
 DATAMART_JSON = "partner-datamart-data"
 JSON_SCRIPT = re.compile(r'<script id="([^"]+)" type="application/json">(.*?)</script>', re.S)
 LINK = re.compile(r'\s(?:href|action|hx-push-url)="([^"]*)"')
-TODAY = datetime.date.today()
+# the suite's day (tests/conftest.py SITE_NOW), not the real clock: this is read at import, before it travels
+TODAY = datetime.date(2026, 10, 15)
 # Query ceilings: what was measured on this world, plus 2 (SPEC7 §3.3 6, §3.4). The frame warm is 7: the request's
 # floor (session, user, donor check, user role, the navigation's current year), the partner and the knowledge base
 # documents that mention it; cold it also reads the rest of the navigation (4). The datamart part (37) reads the

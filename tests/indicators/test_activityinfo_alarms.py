@@ -240,7 +240,62 @@ def test_the_watch_items_of_the_import_close_once_it_is_no_longer_followed():
     job.save()  # switched off in Scheduled jobs: the state follows at once
     outcome = watch(system.SYSTEM_HEALTH)
     assert set(outcome.closed) >= opened
-    assert all(item(key).close_reason == system.FIXED for key in opened)
+    # no longer followed, not fixed (spec_state-4): the last import still failed, the database is still stale
+    assert {(item(key).close_reason, item(key).close_kind) for key in opened} == {
+        (system.NOT_FOLLOWED, WatchItem.CloseKind.CHANGED)
+    }
+
+
+def test_set_to_archived_a_failing_import_is_not_said_fixed():
+    """spec_state-4: the import's item opened while in use; an administrator sets Archived while its last run
+    still failed. The item closes as changed ("ActivityInfo is an archive: its import is no longer
+    followed"), as the forecast items do, never as resolved ("fixed")."""
+    world("in_use")
+    ran(AI_DATA, FAILED, timezone.now() - HOUR, error="credentials")
+    watch(system.SYSTEM_HEALTH)
+    assert state_of(system.ID)["system:job_failed:ai_data"] == "open"
+    _mode(ActivityInfoSetting.Mode.ARCHIVED)
+    watch(system.SYSTEM_HEALTH)
+    found = item("system:job_failed:ai_data")
+    assert SyncRun.objects.filter(job=AI_DATA).latest("finished_at").status == FAILED  # still failing
+    assert (found.state, found.close_kind) == (WatchItem.State.CLOSED, WatchItem.CloseKind.CHANGED)
+    assert found.close_reason == "ActivityInfo is an archive: its import is no longer followed"
+
+
+def test_while_followed_a_line_that_goes_is_still_fixed():
+    """The other side of spec_state-4: while the import is followed, a line that goes was fixed (a new
+    import succeeded), and a line not about ActivityInfo is fixed whatever ActivityInfo is."""
+    world("in_use")
+    ran(AI_DATA, FAILED, timezone.now() - 2 * HOUR)
+    ran(SyncRun.Job.ETOOLS_DATAMART, FAILED, timezone.now() - 2 * HOUR)
+    watch(system.SYSTEM_HEALTH)
+    ran(AI_DATA, SUCCEEDED, timezone.now() - HOUR)
+    watch(system.SYSTEM_HEALTH)
+    fixed = item("system:job_failed:ai_data")
+    assert (fixed.close_reason, fixed.close_kind) == (system.FIXED, WatchItem.CloseKind.RESOLVED)
+    _mode(ActivityInfoSetting.Mode.ARCHIVED)
+    ran(SyncRun.Job.ETOOLS_DATAMART, SUCCEEDED, timezone.now() - HOUR)
+    watch(system.SYSTEM_HEALTH)
+    etools = item("system:job_failed:etools_datamart")
+    assert (etools.close_reason, etools.close_kind) == (system.FIXED, WatchItem.CloseKind.RESOLVED)
+
+
+@pytest.mark.parametrize(
+    ("key", "about"),
+    [
+        ("no_current_year", True),
+        ("databases_never_imported", True),
+        ("databases_stale", True),
+        ("masters_without_target", True),
+        ("job_failed:ai_data", True),
+        ("job_partial:ai_structure", True),
+        ("job_failed:etools_datamart", False),
+        ("job_never_run:ai-data", False),  # the scheduler's line about a switched-on job, not the import's
+        ("users_without_role", False),
+    ],
+)
+def test_the_lines_about_the_activityinfo_import(key, about):
+    assert health.about_activityinfo(key) is about
 
 
 def test_a_returning_year_waiting_for_its_first_records_is_followed_while_archived():
@@ -343,6 +398,60 @@ def test_in_use_only_this_years_forecasts_open_items():
     IndicatorForecast.objects.update(year=2026)
     watch(concerns.FORECAST_SHORT)
     assert state_of(concerns.FORECAST_ID) == {concerns.forecast_item_key(2026, master.pk): "open"}
+
+
+STALE_FORECAST = "system:stale:forecast"
+
+
+def test_archived_with_the_forecast_job_switched_off_no_stale_forecast_alarm():
+    """spec_state-5: Archived, then the (now pointless) forecast job switched off; the last forecast ran 9 days
+    ago. The forecast check has nothing to follow, so no "Year-end indicator forecast: no successful run
+    since ..." item goes to the administrators, and its own items close as "no longer followed"."""
+    master = _forecasts(world("in_use"), at=timezone.now() - 7 * DAY)  # fresh: the forecast is weekly
+    key = concerns.forecast_item_key(2026, master.pk)
+    watch(concerns.FORECAST_SHORT)
+    assert state_of(concerns.FORECAST_ID) == {key: "open"}
+    _mode(ActivityInfoSetting.Mode.ARCHIVED)
+    ScheduledJob.objects.filter(command="forecast").update(enabled=False)
+    outcome = watch(concerns.FORECAST_SHORT, day=years.today() + 2 * DAY)  # the last forecast: 9 days old
+    assert outcome.stale_sources == []
+    assert not WatchItem.objects.filter(key=STALE_FORECAST).exists()
+    assert (item(key).close_reason, item(key).close_kind) == (concerns.ARCHIVED, WatchItem.CloseKind.CHANGED)
+
+
+def test_a_stale_forecast_alarm_raised_while_in_use_closes_once_activityinfo_is_archived():
+    """spec_state-5: the stale-source item raised while the forecasts were followed closes as changed, with
+    the check's reason, once nothing reads the forecasts; while in use it is raised as before."""
+    _forecasts(world("in_use"), at=timezone.now() - 9 * DAY)
+    outcome = watch(concerns.FORECAST_SHORT)
+    assert outcome.stale_sources == ["forecast"] and item(STALE_FORECAST).state == "open"  # in use: an alarm
+    _mode(ActivityInfoSetting.Mode.ARCHIVED)
+    outcome = watch(concerns.FORECAST_SHORT)
+    stale = item(STALE_FORECAST)
+    assert outcome.stale_sources == [] and stale.state == WatchItem.State.CLOSED
+    assert (stale.close_reason, stale.close_kind) == (concerns.ARCHIVED, WatchItem.CloseKind.CHANGED)
+
+
+def test_in_january_while_in_use_last_years_forecast_items_close_as_the_year_ended(site_today):
+    """spec_state-6: 2026 records up to December keep ActivityInfo in use in January (the December import);
+    the weekly job skips (no 2027 ActivityInfo year), the table still holds 2026. Last year's item closes at
+    once as changed, "2026 has ended", instead of lingering until it is counted gone."""
+    database = _database(_year("2026", current=True), ("2026-11", "2026-12"))
+    master = _forecasts(database)
+    key = concerns.forecast_item_key(2026, master.pk)
+    watch(concerns.FORECAST_SHORT)
+    assert state_of(concerns.FORECAST_ID) == {key: "open"}
+    site_today.set(datetime.date(2027, 1, 5))
+    activityinfo.invalidate()
+    assert activityinfo.state().reason == "auto_january"
+    assert forecast_run("test").details["skipped"] == "ActivityInfo is not in use in 2027"
+    outcome = watch(concerns.FORECAST_SHORT, day=datetime.date(2027, 1, 5))
+    assert outcome.closed == [key] and outcome.new == []
+    found = item(key)
+    assert (found.close_reason, found.close_kind) == (
+        "2026 has ended: its forecasts are no longer followed",
+        WatchItem.CloseKind.CHANGED,
+    )
 
 
 # ---------------------------------------------------------------------------- the yearly rollover (§6.1)

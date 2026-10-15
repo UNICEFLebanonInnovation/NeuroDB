@@ -36,8 +36,9 @@ FOR_YOU = re.compile(r'<div id="part-for-you"')
 CARD = re.compile(r'<section class="panel watch-overview"')  # the card put in place of its slot
 PART_ID = re.compile(r' id="part-[a-z][a-z0-9-]*"')  # a part's wrapper: drawn at once it keeps its id
 NO_SUCH_SECTION = "No such section"
-TIMED = ("first load", "every section", "one section")  # timing.py
-FIRST_FIGURE = "standing"  # the part whose arrival shows the first figure
+# timing.py times these rows of matrix() (its labels, exactly)
+TIMED = ("home first load", "home every section", "home one section", "review first load")
+FIRST_FIGURE = "standing"  # the part whose arrival shows Home's first figure
 CONTEXT_KEYS = (
     "data",  # standing: the overview build (the key figures and the "Also" line)
     "decisions",
@@ -47,6 +48,11 @@ CONTEXT_KEYS = (
     "rows",  # programmes
     "review",  # the daily review's card
 )
+
+
+def first_figure(url: str) -> str | None:
+    """The part whose arrival is ``url``'s first figure (timing.py): Home's key figures, the review's card."""
+    return "review" if url.startswith("/daily-review/") else FIRST_FIGURE
 
 
 def users() -> dict[str, Any]:

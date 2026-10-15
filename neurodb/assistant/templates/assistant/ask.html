@@ -6,7 +6,7 @@
   <div class="state state--empty" role="status">
     {% include "components/icon.html" with name="info" class="state__icon" %}
     <p class="state__title">{% trans "The AI assistant is not set up yet" %}</p>
-    <p class="state__message">{% trans "Until it is, Search finds any indicator, database or report by name, and the Management brief answers the common questions about results, money and partners." %}</p>
+    <p class="state__message">{% trans "Until it is, Search finds partners, programme documents, indicators and pages by name, and the Management brief answers the common questions about results, money and partners." %}</p>
     <div class="d-flex flex-wrap justify-content-center gap-2 mt-1">
       <a class="btn btn-outline-primary btn-sm" href="{% url 'reports:search' %}">{% include "components/icon.html" with name="search" %}<span>{% trans "Search" %}</span></a>
       <a class="btn btn-outline-primary btn-sm" href="{% url 'reports:brief' %}">{% include "components/icon.html" with name="target" %}<span>{% trans "Management brief" %}</span></a>

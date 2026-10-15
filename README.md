@@ -1,7 +1,7 @@
 # NeuroDB v3
 
 UNICEF Lebanon's programme analytics portal, rebuilt from scratch on Django 5.2 LTS and PostgreSQL 16.
-It mirrors eTools data, keeps the ActivityInfo results partners reported until 2026 (an archive once
+It mirrors eTools data, keeps the ActivityInfo results partners reported in past years (an archive once
 ActivityInfo is no longer used), and provides dashboards, pivots, maps, reports and exports.
 
 The **existing NeuroDB database is used as-is**: every v2 table keeps its name and columns

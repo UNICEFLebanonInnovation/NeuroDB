@@ -149,7 +149,8 @@ def test_neuro_report_has_csv_and_says_the_section_once(client_viewer, hierarchy
     assert "data-table-csv" in html and toolbar.count("Child Protection") == 1
 
 
-def test_databases_page_explains_stale_and_the_id(client_viewer, hierarchy):
+def test_databases_page_explains_stale_and_the_id(client_viewer, hierarchy, activityinfo_in_use):
+    # while ActivityInfo is followed; once it is an archive no database is "Stale" (test_databases_archive.py)
     db = hierarchy["database"]
     Database.objects.filter(pk=db.pk).update(
         last_monthly_update_date=timezone.now() - datetime.timedelta(days=60)

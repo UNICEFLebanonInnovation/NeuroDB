@@ -1,20 +1,22 @@
 {% load i18n %}
 {% comment %}Home's For you card, loaded after the page (the "for-you" part, from watch:card). Context: page.card(user):
-shown, count, unseen, top, no_section, banner; or shown false with a reason (off, no_role). It sits under Home's h2
-"Needs you today", beside its h3 blocks: its title is an h3.{% endcomment %}
+shown, count, unseen, top, no_section, banner (a warning box, as on the For you page; while it shows, the title never
+says "nothing needs you today"), banner_for_you (the banner asks to press Check now, a button of the For you page:
+link to it); or shown false with a reason (off, no_role). It sits under Home's h2 "Needs you today", beside its h3
+blocks: its title is an h3. Each point's severity is a worded pill, never a dot told apart by colour.{% endcomment %}
 {% if shown %}
 <section class="panel watch-overview" aria-labelledby="watch-overview-title">
   <div class="panel__header">
     <h3 class="panel__title" id="watch-overview-title">{% include "components/icon.html" with name="bell" %}
-      {% if count %}{% blocktrans count counter=count %}For you: {{ counter }} thing needs you today{% plural %}For you: {{ counter }} things need you today{% endblocktrans %}{% else %}{% trans "For you: nothing needs you today" %}{% endif %}
+      {% if count %}{% blocktrans count counter=count %}For you: {{ counter }} thing needs you today{% plural %}For you: {{ counter }} things need you today{% endblocktrans %}{% elif banner %}{% trans "For you" %}{% else %}{% trans "For you: nothing needs you today" %}{% endif %}
     </h3>
     <a class="small" href="{% url 'watch:for_you' %}">{% trans "See all" %} →</a>
   </div>
-  {% if banner %}<p class="small text-warning mb-1">{{ banner }}</p>{% endif %}
+  {% if banner %}<div class="alert alert-warning watch-banner home-alert" role="status">{% include "components/icon.html" with name="alert" %}<span>{{ banner }}{% if banner_for_you %} <a href="{% url 'watch:for_you' %}">{% trans "Open For you" %} →</a>{% endif %}</span></div>{% endif %}
   {% if top %}
   <ul class="watch-overview__list">
     {% for t in top %}
-    <li><span class="watch-card__sev watch-card__sev--{{ t.severity }}" role="img" aria-label="{{ t.severity_label }}"></span><a href="{% url 'watch:for_you' %}#{{ t.anchor }}" title="{{ t.title }}">{{ t.title }}</a>{% if t.reason %} <span class="watch-chip watch-chip--reason">{{ t.reason }}</span>{% endif %}</li>
+    <li><span class="pill pill--sm pill--{% if t.severity == 'critical' %}danger{% elif t.severity == 'warning' %}warning{% else %}info{% endif %}">{{ t.severity_label }}</span><a href="{% url 'watch:for_you' %}#{{ t.anchor }}" title="{{ t.title }}">{{ t.title }}</a>{% if t.reason %} <span class="watch-chip watch-chip--reason">{{ t.reason }}</span>{% endif %}</li>
     {% endfor %}
   </ul>
   {% elif no_section %}

@@ -3,6 +3,7 @@ their explanation, where the state is kept and what drops it."""
 
 import datetime
 import itertools
+import re
 import zoneinfo
 from io import StringIO
 
@@ -389,12 +390,65 @@ def test_the_setting_page_drops_the_state(admin_client, admin_user):
     url = reverse("admin:core_activityinfosetting_change", args=[setting.pk])
     html = admin_client.get(url).content.decode()
     assert "Automatic (recommended)" in html and "In use (automatic): 2026 has ActivityInfo records" in html
-    assert "Years with ActivityInfo records: 2026." in html and "The ActivityInfo import is on." in html
+    assert _readonly(html, "Years with ActivityInfo records") == "2026"  # the span alone (a11y_words N-1)
+    assert "The ActivityInfo import is on." in html
     assert admin_client.post(url, {"mode": ARCHIVED}).status_code == 302
     setting.refresh_from_db()
     assert setting.mode == ARCHIVED and setting.updated_by == admin_user
     assert activityinfo.state().reason == "set_archived"  # at once, on this worker
     assert "Archived (set by an administrator)." in admin_client.get(url).content.decode()
+
+
+def _readonly(html: str, label: str) -> str:
+    """The text of the read-only field labelled ``label`` on an admin change page."""
+    found = re.search(
+        rf">{re.escape(label)}</label>.*?<div class=\"readonly[^\"]*\">(.*?)</div>", html, flags=re.DOTALL
+    )
+    assert found, f"no read-only field {label!r}"
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", found[1])).strip()
+
+
+def test_the_setting_page_explains_what_is_stored_whatever_this_worker_keeps(admin_client, monkeypatch):
+    """Another worker saved the setting: its ``invalidate()`` never reaches this worker, which keeps the old
+    state for up to 30 seconds. The page where the mode is set still explains the mode just saved
+    (time_roles F6), reading the state once for its three lines; the rest of the site follows within 30
+    seconds, this worker's at once."""
+    _world("recent")
+    _mode(ARCHIVED)
+    assert activityinfo.state().reason == "set_archived"  # kept on this worker
+    ActivityInfoSetting.objects.filter(pk=1).update(mode=AUTO)  # saved on another worker
+    assert activityinfo.state().reason == "set_archived"  # still kept here
+    computed = []
+    compute_state = activityinfo.compute_state
+    monkeypatch.setattr(activityinfo, "compute_state", lambda: computed.append(1) or compute_state())
+    html = admin_client.get(reverse("admin:core_activityinfosetting_change", args=[1])).content.decode()
+    assert _readonly(html, "Now") == (
+        "In use (automatic): 2026 has ActivityInfo records up to Aug 2026 and the ActivityInfo import is "
+        "switched on."
+    )
+    assert "Archived (set by an administrator)" not in html
+    assert _readonly(html, "Years with ActivityInfo records") == "2026"
+    assert _readonly(html, "ActivityInfo import").startswith("The ActivityInfo import is on.")
+    assert len(computed) == 1  # once for the page's three lines
+    assert activityinfo.state().reason == "auto_in_use"  # this worker keeps what the page read
+
+
+def test_the_setting_page_names_its_mode_once_in_the_crumbs_and_the_title(admin_client):
+    """The crumbs read "… › ActivityInfo: in use or archive › Archived" and the title names the page once,
+    not "ActivityInfo: in use or archive" twice (a11y_words N-1); no year with records reads "none"."""
+    _mode(ARCHIVED)
+    html = admin_client.get(reverse("admin:core_activityinfosetting_change", args=[1])).content.decode()
+    crumbs = dict(
+        re.findall(r'<a href="(/manage/core/activityinfosetting/[^"]*)"[^>]*>\s*(.*?)\s*</a\s*>', html)
+    )
+    assert crumbs == {
+        "/manage/core/activityinfosetting/": "ActivityInfo: in use or archive",
+        "/manage/core/activityinfosetting/1/change/": "Archived",
+    }
+    title = re.search(r"<title>(.*?)</title>", html, flags=re.DOTALL)[1]
+    assert title.count("ActivityInfo: in use or archive") == 1, title
+    assert str(ActivityInfoSetting.objects.get(pk=1)) == "Archived"
+    assert _readonly(html, "Years with ActivityInfo records") == "none"
 
 
 def test_the_setting_page_has_one_row_and_is_for_administrators(admin_client, client, viewer):

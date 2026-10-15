@@ -291,3 +291,38 @@ def test_the_guide_lists_the_sidebar_as_it_is_drawn():
     assert places == sorted(places)
     for old in ("**Overview**", "**Partnerships**"):
         assert old not in sidebar, old
+
+
+def test_the_refresh_table_says_the_activityinfo_import_follows_its_scheduled_job():
+    """The import runs whenever its scheduled job is switched on, whatever the state (archived because its
+    records stopped, or set Archived with the job left on); the forecasts job skips by itself (R1
+    spec_shell-3). The Help assistant answers "when is X refreshed" from this table."""
+    rows = {
+        line.split("|")[1].strip(): line.split("|")[2].strip()
+        for line in GUIDE_TEXT["overview"].splitlines()
+        if line.startswith("| ") and line.count("|") == 3
+    }
+    assert rows["ActivityInfo data"] == (
+        "18:00 on days 1 to 22 of each month, while its import is switched on in Scheduled jobs (see "
+        "[ActivityInfo: in use or archive](/help/home/#activityinfo-in-use-or-archive))"
+    )
+    assert rows["Year-end forecasts"] == "Mondays at 07:15, while ActivityInfo is in use"
+
+
+def test_the_guide_says_who_sees_the_set_up_rows():
+    """Only superusers and staff Administrators (who can open the administration) see the greyed *Set up*
+    rows (``roles.can_set_up``), not every administrator (R1 spec_shell-5)."""
+    text = " ".join(guide.section("overview", "the-sidebar").text.split())
+    assert "administrators who can open the administration see it greyed, marked *Set up*" in text
+    assert "out of the sidebar; administrators see it greyed" not in text
+
+
+def test_home_never_dates_the_end_of_activityinfo():
+    """ActivityInfo may come back (the same section says how), and 2026 shows both sources: the guide names
+    no year it stopped (R1 a11y_words-N-2)."""
+    text = " ".join(GUIDE_TEXT["home"].split())
+    assert "until 2026" not in text
+    assert (
+        "Partners reported their monthly results in ActivityInfo in past years and now report progress in "
+        "eTools; the sidebar lists the years the archive holds."
+    ) in text

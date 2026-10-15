@@ -345,6 +345,8 @@ ALL_YEARS_PAGES = frozenset(
         "knowledge:index",
     }
 )
+# Their tabs that show one year all the same (this year by default): Field monitoring's HACT visit plan
+ONE_YEAR_TABS = {"reports:monitoring": frozenset({"plan"})}
 # The pages of one ActivityInfo database or report: a year there goes to that year's list of databases
 YEAR_LIST_PAGES = frozenset(
     {
@@ -365,6 +367,17 @@ AI_YEAR_PAGES = YEAR_LIST_PAGES | {"reports:databases"}
 def _view_name(context) -> str:
     match = getattr(context.get("request"), "resolver_match", None)
     return match.view_name if match else ""
+
+
+def _shows_every_year(context, name: str) -> bool:
+    """Whether the page shows every year while no ``?year=`` is given (its label then reads "All years", and
+    its menu has an "All years" entry): one of :data:`ALL_YEARS_PAGES`, unless the tab open shows one year
+    (:data:`ONE_YEAR_TABS`)."""
+    if name not in ALL_YEARS_PAGES:
+        return False
+    request = context.get("request")
+    tab = request.GET.get("tab", "") if request is not None else ""
+    return tab not in ONE_YEAR_TABS.get(name, ())
 
 
 @register.simple_tag(takes_context=True)
@@ -396,7 +409,8 @@ def _ai_page_year(context) -> str:
 def page_year_label(context: dict[str, Any]) -> str:
     """The year the page shows, as the header's year menu names it: "All years" (the page says so, or
     ``?year=all``); else the year asked for (four digits) or, on an ActivityInfo page, its reporting year;
-    else "All years" on a page that shows every year by default; else this year."""
+    else "All years" on a page that shows every year by default (not on a tab of it that shows one year,
+    such as Field monitoring's HACT visit plan); else this year."""
     from neurodb.core import years
 
     request = context.get("request")
@@ -409,7 +423,7 @@ def page_year_label(context: dict[str, Any]) -> str:
     asked = years.parse(raw)
     if asked is not None:
         return str(asked)
-    if not raw and name in ALL_YEARS_PAGES:
+    if not raw and _shows_every_year(context, name):
         return str(_("All years"))
     return str(years.this_year())
 
@@ -459,7 +473,7 @@ def year_menu(context: dict[str, Any]) -> dict[str, Any] | None:
         for number in years.available()
     ]
     all_url = context.get("year_all_url")
-    if not all_url and name in ALL_YEARS_PAGES:
+    if not all_url and _shows_every_year(context, name):
         params = request.GET.copy()
         params.pop("year", None)
         params.pop("page", None)

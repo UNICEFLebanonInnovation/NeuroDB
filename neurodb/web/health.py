@@ -44,6 +44,20 @@ WATCH_LATE_HOURS = 26  # NeuroDB Watch runs every morning: no successful run for
 NAMES_SHOWN = 3  # database names spelled out in a line, then "and N more"
 # Jobs that count only while a switched-on schedule runs them (off by default)
 SCHEDULED_ONLY = frozenset({"compiler_youth", "compiler_education", "compiler_wellbeing"})
+# The set-up lines listed only while the ActivityInfo import is followed (_activityinfo_setup)
+ACTIVITYINFO_SETUP = frozenset(
+    {"no_current_year", "databases_never_imported", "databases_stale", "masters_without_target"}
+)
+
+
+def about_activityinfo(key: str) -> bool:
+    """The line ``key`` is one of those listed only while the ActivityInfo import is followed (its set-up
+    lines, its imports' failed or partial runs): once it is not followed, such a line goes because nobody
+    follows it any more, not because the problem was fixed."""
+    from neurodb.indicators.services.activityinfo import AI_JOBS
+
+    kind, _sep, job = key.partition(":")
+    return key in ACTIVITYINFO_SETUP or (kind in ("job_failed", "job_partial") and job in AI_JOBS)
 
 
 @dataclass(frozen=True)

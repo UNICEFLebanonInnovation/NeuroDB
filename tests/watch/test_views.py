@@ -325,7 +325,8 @@ def test_the_overview_card_lists_the_first_three(team):
     html = response.content.decode()
     assert "For you: 4 things need you today" in html
     assert "Point number 3" in html  # critical first
-    assert html.count("watch-card__sev--") == 3
+    # each point's severity is a worded pill (R1 a11y A11Y-2: never a dot told apart by colour only)
+    assert html.count('<span class="pill pill--sm pill--') == 3
     assert "See all" in html
 
 
@@ -797,7 +798,8 @@ def test_the_overview_card_links_each_point_and_names_its_severity(team):
     tell(team.edu, point)
     html = htmx(login(team.edu), reverse("watch:card")).content.decode()
     assert f'href="{FOR_YOU}#watch-{point.pk}"' in html
-    assert 'role="img" aria-label="Critical"' in html
+    # the severity in a word anyone can read (R1 a11y A11Y-2)
+    assert '<span class="pill pill--sm pill--danger">Critical</span>' in html
 
 
 def test_an_answer_reads_the_point_anew_so_a_pass_writing_it_meanwhile_is_kept(team):

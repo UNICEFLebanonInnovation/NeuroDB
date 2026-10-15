@@ -2,7 +2,8 @@
 its two jobs read "Not in use (archive)" on a neutral pill, never stale or failing, and the databases part lists
 the archive's last year, each "Archive", under a note; while watched, the year the import serves (or the year
 ticked current while its new databases wait for their first records), fresh, stale or never imported as before.
-The page's own parts are checked, not only ``data_health()``."""
+Archived does not stop the import: the note says it is no longer imported only while its scheduled job is off
+(review R1 a11y_words-W-2). The page's own parts are checked, not only ``data_health()``."""
 
 from __future__ import annotations
 
@@ -22,7 +23,26 @@ from tests.web.parts import get_part, text
 pytestmark = pytest.mark.django_db
 
 PAGE = "/data/health/"
+# the note while the import's scheduled job is off, and while it is still on (archived does not stop it)
 NOTE = "ActivityInfo is an archive: these {} databases are kept as they were and are no longer imported."
+NOTE_IMPORT_ON = (
+    "ActivityInfo is an archive: these {} databases are kept as they were. Its import is still switched on in "
+    "Scheduled jobs, but NeuroDB no longer warns when it fails or falls behind; switch it off once its last "
+    "year is complete."
+)
+
+
+def _note(html: str) -> str:
+    """The databases part's note, its words on one line."""
+    found = re.search(r'<p class="[^"]*health-archive-note[^"]*">(.*?)</p>', html, re.S)
+    return " ".join(found.group(1).split()) if found else ""
+
+
+def _switch_import(on: bool) -> None:
+    from neurodb.core.models import ScheduledJob
+
+    ScheduledJob.objects.filter(key="activityinfo-data").update(enabled=on)
+    activityinfo.invalidate()
 
 
 def _job_card(html: str, label: str) -> str:
@@ -58,15 +78,17 @@ def ai_runs(database):
 
 def test_archived_the_jobs_and_databases_say_archive(client_viewer, hierarchy, ai_runs):
     """hierarchy's records stop in February 2026: on 15 October ActivityInfo is archived (not recent), and its
-    import's alarms are off."""
-    assert not activityinfo.watched()
+    import's alarms are off; its import is still switched on (the migrations seed it), so the note does not
+    say it is no longer imported (§8 row 2: the import runs)."""
+    assert not activityinfo.watched() and activityinfo.state().schedule_on
     jobs = text(get_part(client_viewer, PAGE, "jobs"))
     for label in ("ActivityInfo structure import", "ActivityInfo data import"):
         card = _job_card(jobs, label)
         assert 'class="pill pill--neutral pill--sm" data-status="archived"' in card, label
         assert "Not in use (archive)" in card and "Stale" not in card and "Never succeeded" not in card
     databases = text(get_part(client_viewer, PAGE, "databases"))
-    assert NOTE.format("2026") in databases
+    assert _note(databases) == NOTE_IMPORT_ON.format("2026")
+    assert "no longer imported" not in databases and "still switched on" in databases
     assert _rows(databases) == {"Child Protection": "archive"}
     assert ">Archive<" in databases and "Stale" not in databases and "Never imported" not in databases
     # the internal API and the daily review read the same (health_as_dict, ctx.health)
@@ -74,8 +96,30 @@ def test_archived_the_jobs_and_databases_say_archive(client_viewer, hierarchy, a
     assert health["activityinfo_archived"] and health["year"].name == "2026"
     as_dict = services.health_as_dict(health)
     assert as_dict["activityinfo_archived"] and as_dict["databases_year"] == "2026"
+    assert as_dict["activityinfo_import_on"] is True
     assert {j["job"]: j["state"] for j in as_dict["jobs"]}["ai_data"] == "archived"
     assert [d["state"] for d in as_dict["databases"]] == ["archive"]
+
+
+@pytest.mark.parametrize("mode", ["auto", "archived"])
+def test_the_note_says_no_longer_imported_only_while_the_import_is_off(client_viewer, hierarchy, mode):
+    """Archived on Automatic (records stopped in February) or set Archived by an administrator: while the
+    import's scheduled job is on, it still runs, so the note says so; once the job is off, "no longer
+    imported" is true."""
+    from neurodb.core.models import ActivityInfoSetting
+
+    ActivityInfoSetting.objects.update_or_create(pk=1, defaults={"mode": mode})
+    _switch_import(True)
+    assert not activityinfo.watched()
+    databases = text(get_part(client_viewer, PAGE, "databases"))
+    assert _note(databases) == NOTE_IMPORT_ON.format("2026")
+    assert "no longer imported" not in databases
+    assert services.health_as_dict(services.data_health())["activityinfo_import_on"] is True
+
+    _switch_import(False)
+    databases = text(get_part(client_viewer, PAGE, "databases"))
+    assert _note(databases) == NOTE.format("2026") and "still switched on" not in databases
+    assert services.health_as_dict(services.data_health())["activityinfo_import_on"] is False
 
 
 def test_while_followed_the_jobs_and_databases_are_checked(
@@ -114,7 +158,7 @@ def test_archived_the_databases_are_those_of_the_last_activityinfo_year(
     activityinfo.invalidate()
     assert services.health_year() == older
     databases = text(get_part(client_viewer, PAGE, "databases"))
-    assert NOTE.format("2025") in databases and _rows(databases) == {"CP 2025": "archive"}
+    assert _note(databases) == NOTE.format("2025") and _rows(databases) == {"CP 2025": "archive"}
 
 
 def test_new_databases_waiting_for_records_are_followed(client_viewer, section, reporting_year):

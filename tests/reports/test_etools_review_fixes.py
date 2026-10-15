@@ -13,7 +13,8 @@ from neurodb.partnerships.models import PCA, PartnerOrganization
 from neurodb.partnerships.services import past_end_date
 
 pytestmark = pytest.mark.django_db
-TODAY = datetime.date.today()
+# the suite's day (tests/conftest.py SITE_NOW), not the real clock: this is read at import, before it travels
+TODAY = datetime.date(2026, 10, 15)
 DAY = datetime.timedelta(days=1)
 
 

@@ -170,6 +170,7 @@ def test_an_account_without_a_role_is_told_why_for_you_is_empty(client, roles, r
 
 
 def test_a_viewer_without_a_section_is_told_what_for_you_shows(client, roles, reviewed):
+    _late_check(days=0)  # checked this morning: no "has not checked" banner (it changes the card's title)
     viewer = _user("no-section", role="Viewer")
     words = _words(_main(_home(client, viewer)))
     assert "For you: nothing needs you today" in words
@@ -478,3 +479,271 @@ def test_hpm_reports_to_comment_on_only_while_activityinfo_is_in_use(client, rol
     assert "HPM report" not in _words(_main(_home(client, editor)))  # archived: no line
     request.getfixturevalue("activityinfo_in_use")
     assert "1 HPM report of 2026 to comment on" in _words(_main(_home(client, editor)))
+
+
+# ------------------------------------------------------------------------------------- round 1 review (R1)
+def _contrast(foreground: str, background: str = "#ffffff") -> float:
+    """WCAG 2 contrast ratio of two #rrggbb colours."""
+
+    def luminance(colour: str) -> float:
+        channels = [int(colour.lstrip("#")[i : i + 2], 16) / 255 for i in (0, 2, 4)]
+        linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+    lighter, darker = sorted((luminance(foreground), luminance(background)), reverse=True)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def _home_css() -> str:
+    from pathlib import Path
+
+    from django.conf import settings
+
+    return (Path(settings.BASE_DIR) / "neurodb/web/static/css/home.css").read_text()
+
+
+def _late_check(days: int = 3):
+    from django.utils import timezone
+
+    from neurodb.core.models import SyncRun
+
+    finished = timezone.now() - datetime.timedelta(days=days)
+    return SyncRun.objects.create(
+        job=SyncRun.Job.WATCH, target="daily", status=SyncRun.Status.SUCCEEDED,
+        started_at=finished - datetime.timedelta(minutes=1), finished_at=finished,
+    )  # fmt: skip
+
+
+def test_a_late_check_is_a_readable_warning_and_never_says_nothing_needs_you(client, roles, reviewed):
+    """R1 browser-1: the morning check last ran on Monday. The card's banner is a warning box (the For you page's,
+    readable in the light theme), never the bare yellow text; its title does not say "nothing needs you today"
+    while nothing has been checked."""
+    _late_check()
+    viewer = _user("late-viewer", role="Viewer")
+    card = text(_home(client, viewer).parts["for-you"])
+    assert "NeuroDB has not checked since Monday." in card
+    assert "text-warning" not in card and 'class="alert alert-warning' in card
+    assert "nothing needs you today" not in card
+    assert re.search(r'id="watch-overview-title">.*?For you\s*</h3>', card, re.S)
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_the_warning_count_of_the_daily_review_is_readable_in_both_themes(theme):
+    """R1 browser-1 / a11y A11Y-3 (Home's part): "141 Warning" was #b76e00 on white (4.00:1). It is drawn in
+    app.css's warning text token, which each theme defines (#9a5b00 light, #f0b04a dark)."""
+    from tests.web.test_status_contrast import THEMES, _colour, _ratio
+
+    assert re.search(
+        r"^\.home-counts__item--warning \{ color: var\(--nd-warning-text\); \}", _home_css(), re.M
+    )
+    tokens = THEMES[theme]
+    colour = _colour("var(--nd-warning-text)", tokens)
+    for background in ("--nd-surface", "--nd-bg"):
+        assert _ratio(colour, _colour(f"var({background})", tokens)) >= 4.5, (theme, background)
+
+
+def test_the_review_rows_say_their_severity_in_words(client, admin_user, reviewed):
+    """R1 a11y A11Y-2: a row's severity is a worded pill, as the decisions', never a dot told apart by colour."""
+    tasks = text(_home(client, admin_user).parts["tasks"])
+    digest = tasks[tasks.index("Daily review ·") :]
+    rows = re.findall(r"<li>(.*?)</li>", digest, re.S)
+    assert rows
+    for row in rows:
+        assert re.search(
+            r'<span class="pill pill--sm pill--(danger|warning|info)">(Critical|Warning|To note)</span>', row
+        ), row
+        assert "review-finding__sev" not in row
+
+
+def test_the_for_you_points_say_their_severity_in_words():
+    from django.template.loader import render_to_string
+
+    top = [{"title": "Report due Friday", "reason": "", "severity": "critical", "severity_label": "Critical",
+            "anchor": "watch-1"}]  # fmt: skip
+    html = render_to_string("watch/partials/_card.html", {"shown": True, "count": 1, "top": top})
+    assert re.search(r'<span class="pill pill--sm pill--danger">Critical</span>', html)
+    assert 'role="img"' not in html
+
+
+@pytest.mark.parametrize("fmm", [True, False])
+def test_the_also_line_links_carry_homes_sections(client, admin_user, reviewed, settings, fmm):
+    """R1 browser-2: with a section chosen, the action points link carries it (the page then lists the same
+    open and overdue points); the field monitoring visits are said to be those to the scope's partners, the FMM
+    link carries the section, and the third-party pair, whose page has no section filter, is not a link."""
+    settings.FMM_ENABLED = fmm
+    standing = text(_home(client, admin_user, "?section=Child+Protection").parts["standing"])
+    also = standing[standing.index("Also in 2026") :]
+    points = reverse("reports:action_points")
+    assert f'href="{points}?section=Child+Protection&amp;overdue=1&amp;priority=1"' in also
+    assert (
+        "field monitoring visit to these partners" in also
+        or "field monitoring visits to these partners" in also
+    )
+    monitoring = reverse("reports:monitoring")
+    assert f'href="{monitoring}?' not in also  # the field monitoring page shows the whole country
+    if fmm:
+        assert f'href="{reverse("fmm:dashboard")}?section=Child+Protection&amp;year=2026"' in also
+    country = text(_home(client, admin_user, "?section=").parts["standing"])
+    also = country[country.index("Also in 2026") :]
+    assert f'href="{points}?overdue=1&amp;priority=1"' in also
+    assert f'href="{monitoring}?year=2026"' in also and "to these partners" not in also
+    if fmm:
+        assert f'href="{reverse("fmm:dashboard")}?section=&amp;year=2026"' in also
+
+
+@pytest.fixture
+def activityinfo_waiting(reporting_year, database, settings, activityinfo_in_use):
+    """ActivityInfo set "In use" while the year ticked current (2026) has a database and no record yet."""
+    settings.AI_ASSISTANT_ENABLED = False
+    return make_overview_data()
+
+
+def test_activityinfo_in_use_without_this_years_records_is_never_called_an_archive(
+    client, admin_user, activityinfo_waiting
+):
+    """R1 spec_state-2: set "In use", 2026 has databases but no record yet: Home draws an in-use line (the menu
+    says "Monthly results (ActivityInfo)" too), never "ActivityInfo archive"."""
+    programmes = text(_home(client, admin_user).parts["programmes"])
+    words = _words(programmes)
+    assert "ActivityInfo archive" not in words
+    assert "ActivityInfo 2026: in use, waiting for its first records" in words
+    assert f'href="{reverse("reports:databases")}?year=2026"' in programmes
+
+
+def test_activityinfo_in_use_with_records_and_no_result_has_no_zero(
+    client, admin_user, world, activityinfo_in_use
+):
+    """R1 time_roles-F5: no "0 results tracked against targets"."""
+    from neurodb.indicators.models import MasterIndicator
+
+    MasterIndicator.objects.update(is_active=False)
+    words = _words(text(_home(client, admin_user).parts["programmes"]))
+    assert "0 results" not in words
+    assert "ActivityInfo 2026: records imported" in words
+
+
+def test_one_result_tracked_is_singular(client, admin_user, world, activityinfo_in_use):
+    """R1 time_roles-F7."""
+    from neurodb.indicators.models import MasterIndicator
+
+    MasterIndicator.objects.filter(name="Share of girls").update(is_active=False)
+    words = _words(text(_home(client, admin_user).parts["programmes"]))
+    assert "ActivityInfo 2026: 1 result tracked against targets" in words
+
+
+def test_a_server_without_etools_data_says_so_instead_of_zero_tiles(client, admin_user, db):
+    """R1 time_roles-F3: a fresh install (the eTools Datamart sync never ran): one line, never "0 partners",
+    "$0" or "0 of 0 third-party visits"."""
+    standing = _words(text(_home(client, admin_user).parts["standing"]))
+    assert "No eTools data yet: the eTools Datamart sync has not run on this server." in standing
+    assert "All the figures: Country overview" in standing
+    for zero in ("0 partners", "$0", "0 of 0", "Children reached", "Also in 2026"):
+        assert zero not in standing, zero
+
+
+def test_no_third_party_visit_planned_draws_no_zero_pair(client, admin_user, db):
+    """R1 time_roles-F3 (second half): the sync ran, no visit is planned: no "0 of 0 third-party visits done"."""
+    from django.utils import timezone
+
+    from neurodb.core.models import SyncRun
+
+    now = timezone.now()
+    SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART, status=SyncRun.Status.SUCCEEDED, started_at=now, finished_at=now
+    )
+    standing = _words(text(_home(client, admin_user).parts["standing"]))
+    assert "Children reached" in standing and "No eTools data yet" not in standing  # true zeros: tiles
+    assert "third-party visits" not in standing
+
+
+@pytest.mark.parametrize(
+    ("day", "phrase"), [(datetime.date(2026, 10, 15), "yesterday"), (datetime.date(2026, 10, 19), "Friday")]
+)
+def test_since_says_one_phrase_in_its_heading_and_its_empty_line(
+    client, admin_user, world, site_today, day, phrase
+):
+    """R1 browser-4: "Since yesterday" over "Nothing notable changed since Wednesday." named one window twice."""
+    site_today.set(day)
+    since = _words(text(_home(client, admin_user).parts["since"]))
+    assert f"Since {phrase}" in since and f"Nothing notable changed since {phrase}." in since
+
+
+def test_before_any_morning_check_an_administrator_is_sent_to_for_you(client, admin_user, reviewed):
+    """R1 spec_pages-5: "Press Check now" is a button of the For you page, not of Home."""
+    card = text(_home(client, admin_user).parts["for-you"])
+    assert "has not finished a morning check yet" in card
+    assert "Press Check now" not in card
+    assert "Open For you and press Check now" in card
+    banner = card[card.index("alert-warning") :]
+    assert f'href="{reverse("watch:for_you")}"' in banner[: banner.index("</div>")]
+    page = client.get(reverse("watch:for_you"))
+    assert "Press Check now to run the first one" in text(page)  # the page itself keeps its words
+
+
+def test_decisions_show_dates_in_words(client, admin_user, world, monkeypatch):
+    """R1 spec_pages-6: "due 2026-11-02" and "(daily review of 2026-07-01)" were ISO dates."""
+    from neurodb.reports import brief
+
+    item = {"key": "k1", "severity": "critical", "title": "Extend 3 programme documents", "url": "/programmes/",
+            "section": "Health", "status_label": "Raised", "due_date": "2026-11-02"}  # fmt: skip
+    found = {"mode": "rules", "items": [item], "review_date": "2026-07-01", "decided_by": ""}
+    monkeypatch.setattr(brief, "decisions", lambda sections, year, review=None: found)
+    tasks = text(_home(client, admin_user).parts["tasks"])
+    assert "due Mon 2 Nov" in _words(tasks)
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", _words(tasks))
+    found["items"] = []
+    tasks = _words(text(_home(client, admin_user).parts["tasks"]))
+    assert "Nothing needs a decision (daily review of 1 July 2026)." in tasks
+
+
+def test_the_reviews_changes_are_a_sentence_without_zeros(reviewed):
+    """R1 a11y N-3: "New: 240 · Still open: 30" were bare labels; Home says it in a sentence, without the parts
+    that are 0 (the daily review's own page keeps its labels)."""
+    review = DailyReview.objects.get()
+    review.findings.update(state=ReviewFinding.State.NEW)
+    changed = review_services.digest([])["changed"]
+    n = review.findings.count()
+    assert changed == [f"Since the review before: {n} new finding{'' if n == 1 else 's'}."]
+    page = review_services.for_page("today", [])["changed"]
+    assert any(line.startswith("New: ") for line in page)
+
+
+def test_counts_on_home_have_thousands_separators():
+    """R1 browser-8: "1071 open action points" beside "4,469,997"."""
+    from django.template.loader import render_to_string
+
+    assurance = {"field_monitoring_visits": 1500, "tpm_visits_completed": 1200, "tpm_visits_planned": 2400,
+                 "open_action_points": 1071, "overdue_high_priority": 252}  # fmt: skip
+    data = {"delivery": {"assurance": assurance}, "impact": {"main_indicators": {"largest": 1300}}}
+    html = _words(
+        render_to_string(
+            "reports/partials/_home_also.html",
+            {"data": data, "year": 2026, "is_editor": True, "programmes_query": "", "fmm_enabled": True,
+             "selected": {"section": []}, "points_query": "overdue=1&priority=1", "fmm_query": "section=&year=2026"},
+        )
+    )  # fmt: skip
+    assert "1,071 open action points (252 high priority overdue)" in html
+    assert "1,500 field monitoring visits" in html and "1,200 of 2,400 third-party visits done" in html
+    assert "1,300 programme documents are still counted" in html
+    since = _words(
+        render_to_string(
+            "reports/parts/home_since.html",
+            {"since_label": "Since yesterday", "since_yesterday": True, "changes": [], "matched": True,
+             "selected": {"section": []},
+             "your_tasks": [{"kind": "documents", "count": 1234, "url": "/"}, {"kind": "wellbeing", "count": 2500,
+                            "url": "/"}, {"kind": "hpm", "count": 1001, "year": 2026, "url": "/"}]},
+        )
+    )  # fmt: skip
+    assert "1,234 document review findings" in since and "2,500 Makani wellbeing flags" in since
+    assert "1,001 HPM reports of 2026" in since
+
+
+def test_long_decision_titles_take_two_lines_rather_than_end_alike(client, admin_user, reviewed):
+    """R1 browser-3: two decisions cut to the same "… LEB/PCA202600…" at 1440: their titles may take two lines.
+    The review's rows (one per check, so different titles) keep one line: the key figures stay on the first screen
+    at 1440 x 900 (measured on x20, the Management member's Home)."""
+    rules = dict(re.findall(r"\.(home-list--\w+) \.home-list__title \{([^}]*)\}", _home_css()))
+    assert "-webkit-line-clamp: 2" in rules["home-list--decisions"]
+    assert "white-space: normal" in rules["home-list--decisions"]
+    tasks = text(_home(client, admin_user).parts["tasks"])
+    assert '<ul class="home-list home-list--rows home-list--decisions">' in tasks

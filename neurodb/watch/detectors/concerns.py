@@ -20,8 +20,9 @@ existing keys, so people hear of a concern once, with its history, next to what 
   estimate with its range; told to the forecast's section. A forecast back on course closes the item
   at once as "recovered", and any other status closes it too, naming the status, so its story keeps
   the forecast's history (likely short, recovered, back again). Once ActivityInfo is archived every item
-  closes, saying its forecasts are no longer followed. The forecast runs weekly, so its source is fresh
-  for 8 days. Starts in trial, like every new check.
+  closes, saying its forecasts are no longer followed, and the check needs no fresh forecast (the job may
+  be switched off: no stale-source alarm); once a year has ended its items close the same way. The
+  forecast runs weekly, so its source is fresh for 8 days. Starts in trial, like every new check.
 
 Looking ahead belongs to the watch and looking back to the review, and one thing is never two items.
 A ``pd_ending_soon`` finding is the PD ending that the ``pd_ending`` check follows
@@ -98,6 +99,7 @@ SHORT, ON_COURSE = IndicatorForecast.Status.SHORT, IndicatorForecast.Status.ON_C
 RECOVERED = "recovered: the year-end forecast is on course again"
 NOT_SHOWN = "forecasts are no longer shown: the latest test on past years did not find them reliable enough"
 ARCHIVED = "ActivityInfo is archived: its forecasts are no longer followed"
+YEAR_ENDED = "{year} has ended: its forecasts are no longer followed"
 NAME_CHARS = 150  # an indicator's name in a title
 # The only columns read (never the database's sign-in fields)
 FORECAST_FIELDS = (
@@ -429,8 +431,10 @@ def forecast_candidate(ctx: Context, f: IndicatorForecast) -> Candidate:
 
 def forecasts_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Close]:
     """Forecasts no longer likely to fall short: back on course ("recovered") or another status, both
-    closed at once; all of them once ActivityInfo is archived, or when the forecasts are no longer shown.
-    An indicator gone from the forecasts gets no reason: missed at each newer forecast, then gone."""
+    closed at once; all of them once ActivityInfo is archived, or when the forecasts are no longer shown;
+    and a past year's, once that year has ended (in January the table still holds last year's forecasts,
+    which nobody follows any more: only this year's are, :func:`forecasts_short`). An indicator gone from
+    the forecasts gets no reason: missed at each newer forecast, then gone."""
     if not _in_use(ctx):
         return {item.key: Close(ARCHIVED, kind=CHANGED) for item in items}
     if not _shown(ctx):
@@ -440,11 +444,13 @@ def forecasts_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Close]
     now = {master: (year, status) for master, year, status in rows.values_list("master_id", "year", "status")}
     closes: dict[str, Close] = {}
     for key, (year, master) in wanted.items():
-        if master not in now:
-            continue
-        current_year, status = now[master]
-        if current_year != year:
+        current_year, status = now.get(master, (None, None))
+        if current_year is not None and current_year != year:
             closes[key] = Close(f"the forecasts are now for {current_year}", kind=CHANGED)
+        elif year < ctx.today.year:
+            closes[key] = Close(YEAR_ENDED.format(year=year), kind=CHANGED)
+        elif current_year is None:
+            continue
         elif status == ON_COURSE:
             closes[key] = Close(RECOVERED)
         elif status != SHORT:
@@ -473,5 +479,9 @@ FORECAST_SHORT = register(
         resolved=forecasts_resolved,
         source_jobs=(FORECAST,),
         max_age_hours=FORECAST_FRESH_HOURS,
+        # once ActivityInfo is an archive there is nothing to follow, and the weekly forecast job (which then
+        # skips) may be switched off: no alarm about its freshness
+        active=_in_use,
+        inactive_reason=ARCHIVED,
     )
 )

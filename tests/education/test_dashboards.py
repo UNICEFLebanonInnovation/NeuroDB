@@ -577,6 +577,16 @@ def test_every_tab_renders(client_viewer, makani, dirasa, polygons):
     assert page(client_viewer, "makani", tab="nope").context["tab"] == "overview"
 
 
+def test_the_crumbs_name_the_menu_group_of_the_page(client_viewer):
+    """The menu lists Makani and Dirasa under "Education and youth" (SPEC_HOME §4), and so do the crumbs
+    (review R1 a11y_words-W-5)."""
+    for name, label in (("makani", "Makani (MSCC)"), ("dirasa", "Dirasa (Bridging)")):
+        html = page(client_viewer, name).content.decode()
+        crumbs = html.split('<ol class="breadcrumb">', 1)[1].split("</ol>")[0]
+        items = [" ".join(re.sub(r"<[^>]+>", " ", li).split()) for li in crumbs.split("</li>")[:-1]]
+        assert items == ["Education and youth", label], name
+
+
 def test_sidebar_links_both_dashboards(client_viewer, makani):
     html = page(client_viewer, "makani").content.decode()
     assert "Makani (MSCC)" in html and "Dirasa (Bridging)" in html and reverse("education:dirasa") in html

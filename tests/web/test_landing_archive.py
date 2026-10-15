@@ -151,6 +151,22 @@ def test_rows_marked_always_change_in_both_states(client, client_viewer, history
         assert f'href="{reverse("reports:overview")}"' in signed_in
 
 
+def test_the_act_step_names_home_and_the_country_overview(client, history, settings):
+    """The signed-in entry is Home and the overview is the Country overview: the "Act" step names both, in
+    both states and with Ask on or off (R1 a11y_words-W-5)."""
+    for enabled in (False, True):
+        settings.AI_ASSISTANT_ENABLED = enabled
+        settings.OPENAI_API_KEY = "test-not-a-key" if enabled else ""
+        for mode in (ActivityInfoSetting.Mode.ARCHIVED, ActivityInfoSetting.Mode.IN_USE):
+            _mode(mode)
+            html = _landing(client)
+            assert "Teams open Home, the country overview, the brief, dashboards and maps, " in html
+            assert ("ask questions in plain language" in html) is enabled
+            assert "open the overview" not in html
+            assert '<span class="chip">Country overview</span>' in html
+            assert '<span class="chip">Overview</span>' not in html
+
+
 def test_no_activityinfo_tiles_when_archived_even_with_records_this_year(client, history, etools):
     """2026 has ActivityInfo records (its figures stay on the Country overview), but an archive shows no
     "…reporting in ActivityInfo this year" tile next to copy saying it is no longer updated."""

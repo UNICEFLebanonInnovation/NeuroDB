@@ -15,13 +15,15 @@
    below it, so three points do not push the key figures off the first screen */
 @media (max-width: 575.98px) {
   .home-today .watch-overview__list li { display: block; }
-  .home-today .watch-overview__list li > .watch-card__sev { display: inline-block; vertical-align: middle; margin-right: 0.4rem; }
+  .home-today .watch-overview__list li > .pill { display: inline-block; vertical-align: middle; margin-right: 0.4rem; }
 }
 @media (min-width: 576px) {
-  .home-today .watch-overview__list li { flex-wrap: nowrap; }
+  .home-today .watch-overview__list li { flex-wrap: nowrap; align-items: baseline; }
   .home-today .watch-overview__list li > a { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .home-today .watch-overview__list li > .watch-card__sev, .home-today .watch-overview__list li > .watch-chip { flex: 0 0 auto; white-space: nowrap; }
+  .home-today .watch-overview__list li > .pill, .home-today .watch-overview__list li > .watch-chip { flex: 0 0 auto; white-space: nowrap; }
 }
+/* the card's warning (a late morning check): the For you page's box, made compact */
+.home-today .watch-overview .home-alert { display: flex; gap: 0.45rem; align-items: flex-start; margin: 0 0 0.3rem; padding: 0.3rem 0.6rem; font-size: 0.82rem; line-height: 1.35; }
 .home-heading { font-size: 1rem; font-weight: 700; margin: 0 0 0.6rem; }
 .home-note { margin: 0 0 0.75rem; padding: 0.6rem 0.85rem; border-radius: var(--nd-radius-sm); background: var(--nd-warning-soft); color: var(--nd-text); font-size: 0.86rem; }
 .home-scope a { white-space: nowrap; }
@@ -32,24 +34,29 @@
 .home-block__title--split { margin-top: 0.85rem; padding-top: 0.85rem; border-top: 1px solid var(--nd-border); }
 .home-list { list-style: none; margin: 0 0 0.4rem; padding: 0; font-size: 0.86rem; }
 .home-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.45rem; padding: 0.22rem 0; }
-.home-list li > .review-finding__sev { align-self: center; margin-top: 0; }
+.home-list li > .pill { align-self: baseline; }
 .home-list__meta { color: var(--nd-muted); font-size: 0.8rem; }
 /* Decisions and the review's rows: one line each from 576 px (the title gives way, in full on hover), so the key
    figures stay on the first screen (SPEC_HOME §3.1); on a phone they run on like a sentence */
 @media (max-width: 575.98px) {
   .home-list--rows li { display: block; }
-  .home-list--rows li > .pill, .home-list--rows li > .review-finding__sev { display: inline-block; vertical-align: middle; margin-right: 0.35rem; }
+  .home-list--rows li > .pill { display: inline-block; vertical-align: middle; margin-right: 0.35rem; }
   .home-list--rows .home-list__meta { margin-left: 0.35rem; }
 }
 @media (min-width: 576px) {
   .home-list--rows li { flex-wrap: nowrap; }
   .home-list--rows .home-list__title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .home-list--rows .home-list__meta, .home-list--rows .pill, .home-list--rows .review-finding__sev { flex: 0 0 auto; white-space: nowrap; }
+  /* decisions: at most two lines, so two that differ only at the end ("…-c1", "…-c10") stay told apart without
+     hover; the review's rows stand for different checks and keep one line (the key figures stay on the first
+     screen at 1440 x 900) */
+  .home-list--decisions .home-list__title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; overflow-wrap: anywhere; }
+  .home-list--rows .home-list__meta, .home-list--rows .pill { flex: 0 0 auto; white-space: nowrap; }
 }
 .home-list--changes li { display: block; }
 .home-counts { margin: 0 0 0.35rem; font-size: 0.84rem; font-weight: 600; }
 .home-counts__item--critical { color: var(--nd-danger); }
-.home-counts__item--warning { color: var(--nd-warning); }
+/* the warning token (#b76e00) is 4.0:1 on white: too light for text; app.css's text token when it has one */
+.home-counts__item--warning { color: var(--nd-warning-text); }
 .home-counts__item--info { color: var(--nd-info); }
 .home-counts__stale { color: var(--nd-muted); font-weight: 400; }
 .home-changed { display: flex; flex-wrap: wrap; gap: 0.15rem 1rem; margin: 0 0 0.35rem; color: var(--nd-muted); font-size: 0.8rem; }

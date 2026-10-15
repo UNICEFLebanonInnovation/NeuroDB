@@ -17,12 +17,14 @@ import re
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from django.contrib.auth.models import Group
 from django.core.cache import caches
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from neurodb.accounts.models import User
+from neurodb.accounts.roles import SECTION_EDITOR, VIEWER, role_of
 from neurodb.donors.models import DonorAccount
 from neurodb.graph import news
 from neurodb.reports import brief as brief_service
@@ -52,14 +54,15 @@ PARTS = ("for-you", "tasks", "since", "standing", "programmes")  # the frame's p
 OWN_PARTS = ("tasks", "since", "standing", "programmes")  # the parts Home itself answers
 LINK = re.compile(r'\s(?:href|action|hx-push-url)="([^"]*)"')
 # Query ceilings: what was measured on this world, plus 2 (the codebase rule; SPEC_HOME §3.1). The frame warm
-# (filter sections, freshness strip, ActivityInfo state and navigation stored) is 11: the request's floor (session,
-# user, donor check), the cache stamp (last sync run, flags), the person's role and Management membership, their
-# section, the reporting year whose ActivityInfo records count for this year (the stored build's key) and the
-# navigation's year and role check. Cold (23) it also reads the ActivityInfo state (4: SPEC_HOME §1.3), the filter
-# sections (1), the freshness strip (3) and the navigation (4). Each part is measured with nothing stored: tasks
-# 10, since 8, standing 42 (the whole overview build), programmes 16 (no country programme cycle in this world).
-SHELL_QUERIES_WARM = 13
-SHELL_QUERIES_COLD = 25
+# (filter sections, freshness strip, ActivityInfo state, menu sources and navigation stored) is 9: the request's
+# floor (session, user, donor check), the cache stamp (last sync run, flags), the person's role (read once per
+# request) and Management membership, their section, and the reporting year whose ActivityInfo records count for
+# this year (the stored build's key); a page without a year reads the kept navigation, with no query. Cold (19,
+# the ActivityInfo state already read by the daily review of the fixture) it also reads the filter sections (1),
+# the freshness strip (3), the menu sources (2) and the navigation (4). Each part is measured with nothing stored:
+# tasks 10, since 8, standing 42 (the whole overview build), programmes 16 (no country programme cycle here).
+SHELL_QUERIES_WARM = 11
+SHELL_QUERIES_COLD = 21
 PART_QUERIES = {"tasks": 12, "since": 10, "standing": 44, "programmes": 18}
 WATCH_CARD_QUERIES = 11  # the for-you part, at watch:card: measured 9 (SPEC_HOME §3.1 allows 12)
 
@@ -174,6 +177,20 @@ def test_the_frame_stays_within_its_query_ceiling(
     assert response.status_code == 200 and "standing" in placeholders(text(response))
 
 
+def test_the_frame_reads_the_role_once_and_a_new_role_shows_on_the_next_page(client_viewer, viewer, reviewed):
+    # R1 browser-9: the context processor and the page both ask for the role; it is read once per request
+    def role_queries() -> int:
+        with CaptureQueriesContext(connection) as queries:
+            assert raw_get(client_viewer, PAGE).status_code == 200
+        return sum(q["sql"].startswith('SELECT "auth_group"."name"') for q in queries.captured_queries)
+
+    assert role_queries() == 1
+    assert role_of(viewer) == VIEWER  # outside a request: read each time
+    viewer.groups.set([Group.objects.get(name=SECTION_EDITOR)])
+    assert role_of(viewer) == SECTION_EDITOR
+    assert role_queries() == 1
+
+
 def test_the_frame_reads_no_watch_table(client_viewer, reviewed):
     with CaptureQueriesContext(connection) as queries:
         response = raw_get(client_viewer, PAGE)
@@ -283,6 +300,9 @@ def test_home_and_the_country_overview_read_one_build(client_viewer, reviewed, m
         ("?governorate=Akkar&section=Child+Protection", "reports:country_overview"),
         ("?review=week&section=", "reports:daily_review"),
         ("?review_latest=2026-07-01&review_id=3", "reports:daily_review"),
+        # R1 spec_pages-4: an old print or no-JavaScript link keeps asking for the page drawn at once
+        ("?year=2025&_eager=1", "reports:country_overview"),
+        ("?review=week&_eager=1", "reports:daily_review"),
     ],
 )
 def test_old_links_of_the_site_root_go_to_their_page_with_their_query(client_viewer, world, query, target):

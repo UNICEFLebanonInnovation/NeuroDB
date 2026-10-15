@@ -122,6 +122,39 @@ def test_pages_that_show_every_year_by_default_say_all_years(client_viewer, db, 
                                 "note": ""}  # fmt: skip
 
 
+def test_the_hact_visit_plan_tab_shows_one_year(client_viewer, db):
+    """Field monitoring shows every year by default, but its HACT visit plan tab shows one year (this year by
+    default): the menu names that year and has no "All years" entry there (review R1 spec_shell-1)."""
+    PCA.objects.create(etl_id="1", partner_name="P", number="LEB/PCA2025001", start=datetime.date(2025, 3, 1))
+    url = reverse("reports:monitoring")
+    menu = _get(client_viewer, url, tab="plan")
+    assert menu["label"] == "2026" and menu["active"] == ["2026"]
+    assert "All years" not in [i["text"] for i in menu["items"]]
+    assert {i["text"]: i["href"] for i in menu["items"]}["2025"] == f"{url}?tab=plan&year=2025"
+    menu = _get(client_viewer, url, tab="plan", year="2025")
+    assert menu["label"] == "2025" and menu["active"] == ["2025"]
+    assert "All years" not in [i["text"] for i in menu["items"]]
+    # the findings tab still shows every year by default
+    assert _get(client_viewer, url, tab="findings")["label"] == "All years"
+
+
+def test_the_note_of_the_active_entry_is_readable(client_viewer, db):
+    """The note "(this year)" sits on the active entry by default, whose background is the dropdown's active
+    blue: the note takes the entry's own colour there, never the muted grey (1.27:1 in light, review R1
+    a11y_words-A11Y-4)."""
+    from django.conf import settings
+
+    html = client_viewer.get(reverse("reports:brief")).content.decode()
+    listing = html.split('aria-labelledby="year-menu"', 1)[1].split("</ul>", 1)[0]
+    active = re.search(r'<a class="dropdown-item active"[^>]*>(.*?)</a>', listing).group(1)
+    assert '<span class="year-menu__note small">(this year)</span>' in active and "text-muted" not in listing
+    css = (settings.BASE_DIR / "neurodb" / "web" / "static" / "css" / "app.css").read_text()
+    rule = re.search(r"\.dropdown-item\.active \.year-menu__note \{([^}]*)\}", css)
+    assert rule is not None and "color: inherit" in rule.group(1) and "opacity" not in rule.group(1)
+    note = re.search(r"\.year-menu__note \{([^}]*)\}", css)
+    assert note is not None and "var(--nd-muted)" in note.group(1)
+
+
 def test_all_years_from_the_page_itself(client_viewer, db):
     """Progress reports and partner monitoring tell the menu when they show every year (year_all_active), and
     give its "All years" entry."""

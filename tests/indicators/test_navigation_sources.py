@@ -73,13 +73,59 @@ def test_document_review_is_live_when_switched_on_or_it_found_anything():
 
 def test_kept_two_minutes_per_worker_and_dropped_with_the_menu():
     first = navigation.sources()
-    CountryProgramme.objects.create(name="Now", start_year=2026, end_year=2028)
+    # what a job stores (here Compiler figures, written by the sync's own process) is not dropped by a signal:
+    # the menu follows it within two minutes. Hand-edited inputs drop it at once (the test below).
+    EducationFigures.objects.create(programme="mscc", year="2026", fetched_at=timezone.now(), payload={})
     with CaptureQueriesContext(connection) as queries:
         assert navigation.sources() == first  # kept
     assert len(queries) == 0
     navigation.invalidate()
-    assert navigation.sources()["cpd_cycle"] == [2026, 2028]
+    assert navigation.sources()["compiler"]
     assert navigation.CACHE_SECONDS == 120
+
+
+def _menu_rows(client) -> str:
+    html = client.get("/help/").content.decode()
+    start = html.index('<nav id="sidebar"')
+    return html[start : html.index("</nav>", start)]
+
+
+def test_an_administrator_switching_the_document_review_on_or_off_shows_in_the_menu_at_once(client, roles):
+    """Fresh after edit (privacy_cache PC-1): the document review's settings are edited by hand in the admin,
+    so saving or deleting them drops the menu's sources on that worker at once, not two minutes later."""
+    editor = User.objects.create_user(username="editor", password="x-pass-123456")
+    editor.groups.add(Group.objects.get(name=SECTION_EDITOR))
+    client.force_login(editor)
+    assert not navigation.sources()["doc_review"] and "Document review" not in _menu_rows(client)  # kept
+    setting = DocumentReviewSettings.objects.create(pk=1, enabled=True)  # what the admin's form saves
+    assert navigation.sources()["doc_review"] and "Document review" in _menu_rows(client)
+    setting.enabled = False
+    setting.save()
+    assert not navigation.sources()["doc_review"] and "Document review" not in _menu_rows(client)
+    setting.enabled = True
+    setting.save()
+    assert navigation.sources()["doc_review"]
+    setting.delete()
+    assert not navigation.sources()["doc_review"]
+
+
+def test_a_country_programme_cycle_uploaded_ticked_or_deleted_shows_in_the_menu_at_once(site_today):
+    """Fresh after edit (privacy_cache PC-1): cycles are added, ticked current, changed and deleted by hand,
+    so each of these drops the menu's sources (and Home's programmes line, which reads them) at once."""
+    assert navigation.sources()["cpd_cycle"] is None  # kept from now on
+    now = CountryProgramme.objects.create(name="Now", start_year=2026, end_year=2028)
+    assert (navigation.sources()["cpd_cycle"], navigation.sources()["cpd_live"]) == ([2026, 2028], True)
+    old = CountryProgramme.objects.create(name="Old", start_year=2021, end_year=2025)
+    old.current = True
+    old.save()
+    assert (navigation.sources()["cpd_cycle"], navigation.sources()["cpd_live"]) == ([2021, 2025], False)
+    old.end_year = 2026
+    old.save()
+    assert (navigation.sources()["cpd_cycle"], navigation.sources()["cpd_live"]) == ([2021, 2026], True)
+    old.delete()
+    assert navigation.sources()["cpd_cycle"] == [2026, 2028]
+    now.delete()
+    assert navigation.sources()["cpd_cycle"] is None
 
 
 def test_plain_data():

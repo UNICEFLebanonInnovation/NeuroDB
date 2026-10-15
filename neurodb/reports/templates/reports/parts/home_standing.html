@@ -1,12 +1,17 @@
 {% load i18n %}{% comment %}Home's "standing" part (reports.home_views.home_page): the Country overview's own five key figures
 for this year (the same build, key and template: reports/partials/_overview_kpis.html), then the "Also" line. Drawn
-inline by the frame when the build is already stored. Context: data, who, year, overview_query, keep_query,
-programmes_query, previous_query, labels, month_names, is_editor.{% endcomment %}
+inline by the frame when the build is already stored; a server whose eTools Datamart sync never ran (no_etools) reads
+one line instead of tiles of 0. Context: data, no_etools, who, year, overview_query, keep_query, programmes_query,
+previous_query, points_query, fmm_query, labels, month_names, is_editor.{% endcomment %}
 <section class="home-standing" aria-labelledby="home-standing-title">
   <div class="home-standing__header">
     <h2 class="home-heading" id="home-standing-title">{% blocktrans with who=who y=year %}Where {{ who }} stands in {{ y }}{% endblocktrans %}</h2>
     <a class="home-more" href="{% url 'reports:country_overview' %}?{{ overview_query }}">{% trans "All the figures: Country overview" %} →</a>
   </div>
+  {% if no_etools %}
+  <p class="home-empty">{% trans "No eTools data yet: the eTools Datamart sync has not run on this server." %}</p>
+  {% else %}
   {% include "reports/partials/_overview_kpis.html" %}
   {% include "reports/partials/_home_also.html" %}
+  {% endif %}
 </section>

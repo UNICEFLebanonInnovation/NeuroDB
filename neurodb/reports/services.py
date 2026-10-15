@@ -306,7 +306,8 @@ def data_health() -> dict[str, Any]:
     from neurodb.indicators.services import activityinfo
 
     now = timezone.now()
-    archived = not activityinfo.watched()
+    state = activityinfo.state()
+    archived = not state.watched
     jobs = health_jobs(now, archived=archived)
     year = health_year()
     databases = health_databases(year, now, archived=archived)
@@ -321,6 +322,8 @@ def data_health() -> dict[str, Any]:
         "year": year,
         # ActivityInfo's import is no longer followed: its jobs and databases are an archive, never stale
         "activityinfo_archived": archived,
+        # its scheduled job is still switched on: an archive does not stop the import, it still runs
+        "activityinfo_import_on": state.schedule_on,
         "power_bi": power_bi.summary(),
     }
 
@@ -401,7 +404,7 @@ def health_databases(
     """Per displayed ActivityInfo database of ``year``: its last import, and whether it is fresh, stale
     (older than ``STALE_DATABASE_DAYS``) or never imported. While ActivityInfo's import is not followed
     (``archived``, default: :func:`neurodb.indicators.services.activityinfo.watched` is false) every database
-    is "Archive": kept as it was, no longer imported, so never stale."""
+    is "Archive": kept as it was, no longer followed (its import may still run), so never stale."""
     from neurodb.indicators.services import activityinfo
 
     now = now or timezone.now()
@@ -577,9 +580,11 @@ def health_as_dict(health: dict[str, Any]) -> dict[str, Any]:
             for d in health["databases"]
         ],
         # the reporting year whose databases are listed, and whether ActivityInfo is an archive (its jobs
-        # "archived", its databases "archive": no longer imported, never stale)
+        # "archived", its databases "archive": no longer followed, never stale) and whether its import's
+        # scheduled job is still switched on (an archive does not stop it: it still runs)
         "databases_year": health["year"].name if health.get("year") else None,
         "activityinfo_archived": bool(health.get("activityinfo_archived")),
+        "activityinfo_import_on": bool(health.get("activityinfo_import_on")),
         "staleness_hours": health["staleness_hours"],
         # per Compiler programme, its latest period compared with the view Power BI reads (counts only)
         "power_bi": [

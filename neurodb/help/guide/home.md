@@ -38,9 +38,11 @@ Under the title: today's date and the sections the page shows (see
 - **Where your section stands** (or the country): the country overview's own five key figures for this
   year (children reached, programme documents, funds disbursed, cost per child, delivery status),
   exactly the figures the overview shows for the same sections, then a line *Also in* the year: field
-  monitoring visits, third-party visits done of those planned, and open action points with the
-  high-priority ones overdue. *All the figures: Country overview* opens the overview on the same
-  sections. Early in the year (January to April), until the first partner reports of the year come in,
+  monitoring visits (with a section chosen, the visits to that section's partners), third-party visits
+  done of those planned (left out when none is planned), and open action points with the high-priority
+  ones overdue. Their links open the field monitoring and action points pages on the same sections; the
+  Monitoring insights page shows the whole country, so with a section chosen its figures are not links.
+  *All the figures: Country overview* opens the overview on the same sections. Early in the year (January to April), until the first partner reports of the year come in,
   the children reached tile says *Not yet* and links to last year.
 - **Programmes and sources**, for the whole country: the country programme cycle (which year of it, and
   how many of its indicators are on track), the Makani, Dirasa and youth figures from Compiler, and
@@ -63,9 +65,10 @@ Home, the country overview and the daily review open the same way:
 
 ## ActivityInfo: in use or archive
 
-Partners reported their monthly results in ActivityInfo until 2026 and report them in eTools from then
-on. NeuroDB keeps every ActivityInfo year: its databases, dashboards, maps, Neuro and HPM reports stay
-open, year by year. What changes is how prominent ActivityInfo is:
+Partners reported their monthly results in ActivityInfo in past years and now report progress in eTools;
+the sidebar lists the years the archive holds. NeuroDB keeps every ActivityInfo year: its databases,
+dashboards, maps, Neuro and HPM reports stay open, year by year. What changes is how prominent
+ActivityInfo is:
 
 | | In use | Archive |
 |---|---|---|

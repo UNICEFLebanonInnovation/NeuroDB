@@ -54,7 +54,7 @@
     {% else %}
     {% include "components/empty_state.html" with icon="map" title=_("No children reached by governorate yet") message=_("Partner reports with a location appear here once the imports have run for this scope.") %}
     {% endif %}
-    <p class="source-line">{% trans "The larger of the two sources per governorate, against the estimated children there (population figures)" %}</p>
+    <p class="source-line">{% if data.scope.activityinfo_used %}{% trans "The larger of the two sources per governorate, against the estimated children there (population figures)" %}{% else %}{% trans "Children reached per governorate (eTools), against the estimated children there (population figures)" %}{% endif %}</p>
   </section>
   <section class="panel" aria-labelledby="gap-title">
     <div class="panel__header">

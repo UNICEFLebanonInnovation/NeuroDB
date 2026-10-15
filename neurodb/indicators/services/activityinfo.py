@@ -1,6 +1,6 @@
 """ActivityInfo: in use, or an archive of the years partners reported there. One state for every page.
 
-Partners reported their monthly results in ActivityInfo until 2026 and report in eTools from then on. The
+Partners reported their monthly results in ActivityInfo in past years and now report progress in eTools. The
 ActivityInfo pages of every year stay open; what changes is how prominent ActivityInfo is and whether its
 import raises alarms. Three rules, read by the menu, Home, the alarms, the landing page and Ask:
 
@@ -121,6 +121,19 @@ def reporting_year_for(number: Any) -> ReportingYear | None:
 def invalidate() -> None:
     """Forget the state on this worker (the others follow within 30 seconds)."""
     cache.delete(_key())
+
+
+def refreshed() -> State:
+    """The state read from the database now (whatever this worker keeps), and kept on this worker from now
+    on: for the setting's admin page, which explains the mode stored even when another worker saved it a
+    moment ago (that worker's :func:`invalidate` never reaches this one). Read once per request."""
+
+    def read() -> State:
+        st = compute_state()
+        cache.set(_key(), dataclasses.asdict(st), CACHE_SECONDS)
+        return st
+
+    return compute.per_request("activityinfo-state-refreshed", read)
 
 
 def _key() -> str:

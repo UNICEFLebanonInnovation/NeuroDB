@@ -261,7 +261,7 @@ def _enabled() -> None:
 
 def _crumbs(*extra: dict[str, str | None]) -> list[dict[str, str | None]]:
     return [
-        {"label": _("Partnerships"), "url": reverse("reports:partners")},
+        {"label": _("Funds and assurance"), "url": None},  # the menu's group (no page of its own)
         {"label": _("Monitoring insights"), "url": reverse("fmm:dashboard") if extra else None},
         *extra,
     ]

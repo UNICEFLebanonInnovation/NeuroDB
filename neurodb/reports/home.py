@@ -90,12 +90,17 @@ def section_ids(names: list[str], *, own: int | None = None) -> tuple[list[int] 
 
 
 # ------------------------------------------------------------------------------------------- since
+def since_yesterday(start: datetime.datetime, today: datetime.date) -> bool:
+    """Whether the previous working day (``start``) is yesterday: Home then says "yesterday" in the heading
+    and in the empty line alike, else the weekday in both."""
+    return timezone.localtime(start).date() == today - datetime.timedelta(days=1)
+
+
 def since_label(start: datetime.datetime, today: datetime.date) -> str:
     """ "Since Wednesday", or "Since yesterday" when the previous working day is yesterday."""
-    day = timezone.localtime(start).date()
-    if day == today - datetime.timedelta(days=1):
+    if since_yesterday(start, today):
         return _("Since yesterday")
-    return _("Since %(weekday)s") % {"weekday": date_format(day, "l")}
+    return _("Since %(weekday)s") % {"weekday": date_format(timezone.localtime(start).date(), "l")}
 
 
 def since(ids: list[int] | None, start: datetime.datetime) -> list[tuple[Any, str]]:
@@ -133,7 +138,8 @@ def review_schedule() -> dict[str, Any]:
 def decisions(sections: list[str], year: int) -> dict[str, Any]:
     """ "Needs a decision": the management brief's decisions (:func:`neurodb.reports.brief.decisions`) for
     the sections, at most :data:`DECISIONS_SHOWN`, as plain rows without who owns them (never ``owner``,
-    ``who`` or the Assign link)."""
+    ``who`` or the Assign link). The due date and the review's date are dates (the brief stores them as ISO
+    text), so the page writes them in words as the rest of the panel does."""
     from neurodb.reports import brief
 
     found = brief.decisions(sections, year)
@@ -145,11 +151,25 @@ def decisions(sections: list[str], year: int) -> dict[str, Any]:
             "url": item["url"],
             "section": item["section"],
             "status_label": item["status_label"],
-            "due_date": item["due_date"],
+            "due_date": _date(item["due_date"]),
         }
         for item in found["items"][:DECISIONS_SHOWN]
     ]
-    return {"rows": rows, "more": max(len(found["items"]) - DECISIONS_SHOWN, 0), "date": found["review_date"]}
+    return {
+        "rows": rows,
+        "more": max(len(found["items"]) - DECISIONS_SHOWN, 0),
+        "date": _date(found["review_date"]),
+    }
+
+
+def _date(value: Any) -> datetime.date | None:
+    """A date from the brief's ISO text (or a date already); None when empty or not a date."""
+    if isinstance(value, datetime.date) or not value:
+        return value or None
+    try:
+        return datetime.date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
 
 
 def your_tasks(user, year: int) -> list[dict[str, Any]]:
@@ -301,11 +321,24 @@ def _activityinfo_rows() -> list[dict[str, Any]]:
         masters = MasterIndicator.objects.filter(database__in=shown, is_active=True).count()
         return [
             {
+                # no result tracked yet (no master indicator): the line says the records came in, never "0"
                 "kind": "activityinfo",
                 "year": state.serving,
                 "masters": masters,
                 "last": timezone.localtime(last).date() if last else None,
                 "url": databases_url,
+            }
+        ]
+    if state.in_use:
+        # set "In use" (or the import serving a year) while the year ticked current has no record yet: in use,
+        # as the menu says, never "archive"; nothing to link to without a reporting year ticked current
+        if not state.current_name:
+            return []
+        return [
+            {
+                "kind": "activityinfo_waiting",
+                "year": state.current_name,
+                "url": _databases_url(state.current_name),
             }
         ]
     if state.last is not None:
@@ -335,5 +368,6 @@ __all__ = [
     "section_ids",
     "since",
     "since_label",
+    "since_yesterday",
     "your_tasks",
 ]

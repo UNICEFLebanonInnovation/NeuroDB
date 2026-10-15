@@ -40,7 +40,7 @@ def _page(request: HttpRequest, page: services.Page) -> HttpResponse:
     context = {
         "page": page,
         "page_title": f"{page.title} {period}".strip(),
-        "breadcrumbs": [{"label": _("Education programmes"), "url": None}, {"label": page.name, "url": None}],
+        "breadcrumbs": [{"label": _("Education and youth"), "url": None}, {"label": page.name, "url": None}],
         "periods": periods,
         "period": period,
         "tab": tab,

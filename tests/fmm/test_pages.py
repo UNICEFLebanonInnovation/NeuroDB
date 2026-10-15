@@ -145,6 +145,17 @@ def test_the_menu_item_equals_the_page_title(built, client_viewer, settings):
     assert sidebar.index('href="/field-monitoring/"') < sidebar.index('href="/fmm/"')
 
 
+def test_the_crumbs_name_the_menu_group_of_the_page(built, client_viewer):
+    """The menu lists Monitoring insights under "Funds and assurance" (SPEC_HOME §4), and so do the guide and
+    the crumbs (review R1 a11y_words-W-5): no "Partnerships" crumb to the Partners page any more."""
+    for url in (PAGE, reverse("fmm:visit", args=["1722"])):
+        html = client_viewer.get(url).content.decode()
+        crumbs = html.split('<ol class="breadcrumb">', 1)[1].split("</ol>")[0]
+        items = [" ".join(re.sub(r"<[^>]+>", " ", li).split()) for li in crumbs.split("</li>")[:-1]]
+        assert items[:2] == ["Funds and assurance", "Monitoring insights"], url
+        assert "Partnerships" not in crumbs and reverse("reports:partners") not in crumbs
+
+
 def test_switched_off_every_view_is_404_and_the_menu_item_hidden(built, client_viewer, settings):
     settings.FMM_ENABLED = False
     for url in (

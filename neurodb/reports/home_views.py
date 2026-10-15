@@ -72,6 +72,14 @@ def home_page(request: HttpRequest) -> HttpResponse:
     previous = QueryDict(mutable=True)
     previous.setlist("section", sections)
     previous["year"] = str(year - 1)
+    # the "Also" line's pages: the action points with Home's sections (every section: none named, which the
+    # page reads as the whole country), field monitoring (FMM) with them written out, even empty
+    points = QueryDict(mutable=True)
+    points.setlist("section", sections)
+    points["overdue"], points["priority"] = "1", "1"
+    field = QueryDict(mutable=True)
+    field.setlist("section", sections or [""])
+    field["year"] = str(year)
     # "your section" whenever the sections shown are the person's own (a part request is never a first load)
     own = functools.cache(lambda: home.own_names(user, options))
     if not sections:
@@ -87,6 +95,8 @@ def home_page(request: HttpRequest) -> HttpResponse:
         "keep_query": keep.urlencode(),
         "programmes_query": ("?" + programmes.urlencode()) if sections else "",
         "previous_query": previous.urlencode(),
+        "points_query": points.urlencode(),
+        "fmm_query": field.urlencode(),
         "scope_query": scope_query,
         "month_names": _month_names(),
         "who": who,
@@ -158,6 +168,7 @@ def home_page(request: HttpRequest) -> HttpResponse:
         ids, matched = home.section_ids(sections, own=own_id)
         return {
             "since_label": home.since_label(start, today),
+            "since_yesterday": home.since_yesterday(start, today),
             "since_weekday": date_format(start, "l"),
             "changes": home.since(ids, start),
             "matched": matched,
@@ -165,7 +176,8 @@ def home_page(request: HttpRequest) -> HttpResponse:
         }
 
     def standing() -> dict[str, Any]:
-        return {"data": data(), "overview_query": scope_query}
+        built = data()
+        return {"data": built, "overview_query": scope_query, "no_etools": _no_etools(built)}
 
     parts = {
         "tasks": Part("reports/parts/home_tasks.html", tasks),
@@ -176,6 +188,19 @@ def home_page(request: HttpRequest) -> HttpResponse:
     return render_page(
         request, "reports/home.html", scope=scope, shell=shell, parts=parts, query=resolved.urlencode()
     )
+
+
+def _no_etools(data: dict[str, Any]) -> bool:
+    """Whether the server has no eTools data at all (no programme document of any year, and the eTools
+    Datamart sync never succeeded): Home then says so in one line instead of five tiles of 0. A scope with
+    true zeros (another section, a year whose documents have not started, a sync that ran) keeps its tiles.
+    Looked up only when this year's figures are all 0."""
+    if data["impact"].get("children_reached") or data["delivery"].get("programme_documents"):
+        return False
+    from neurodb.core.models import SyncRun
+    from neurodb.partnerships.models import PCA
+
+    return not PCA.objects.exists() and SyncRun.last_success(SyncRun.Job.ETOOLS_DATAMART) is None
 
 
 def _month_names() -> dict[int, str]:

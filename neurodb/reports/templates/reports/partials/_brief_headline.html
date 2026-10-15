@@ -7,7 +7,7 @@
   <div class="kpi">
     <div class="kpi__label">{{ t.label }}</div>
     <div class="kpi__value">
-      {% if t.url %}<a href="{{ t.url }}">{% endif %}{% if t.format == "money" %}{{ t.value|money }}{% elif t.format == "percent" %}{{ t.value|percent:0 }}{% else %}{{ t.value|intcomma }}{% endif %}{% if t.url %}</a>{% endif %}
+      {% if t.not_yet %}{% trans "Not yet" %}{% else %}{% if t.url %}<a href="{{ t.url }}">{% endif %}{% if t.format == "money" %}{{ t.value|money }}{% elif t.format == "percent" %}{{ t.value|percent:0 }}{% else %}{{ t.value|intcomma }}{% endif %}{% if t.url %}</a>{% endif %}{% endif %}
     </div>
     <div class="kpi__meta">
       {% if t.delta %}<span class="pill pill--sm {% if t.delta.plain %}pill--neutral{% elif t.delta.good %}pill--success{% else %}pill--danger{% endif %}">{% if not t.delta.plain and t.delta.value > 0 %}+{% endif %}{{ t.delta.value|floatformat:"0" }}{% if t.delta.unit == "pts" %} {% trans "pts" %}{% else %}%{% endif %}</span> <span class="kpi__hint">{{ t.delta.label }}</span>

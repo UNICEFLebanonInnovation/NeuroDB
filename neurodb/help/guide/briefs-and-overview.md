@@ -62,8 +62,11 @@ the selected year (calendar years) with the year before, in eight tabs:
 - Values that cannot be right (above the child population of Lebanon, or more than 20 times their
   target) are left out, and the section's confidence is Low.
 - **Children reached** is compared like with like: the larger of the two sources in both years only
-  when ActivityInfo covered the same months in both; otherwise eTools alone ("eTools only"), and no
-  comparison at all against a year with eTools partner reports for too few programme documents.
+  when ActivityInfo covered the same months in both (up to the last month its records of this year
+  reach); otherwise eTools alone ("eTools only"), and no comparison at all ("Not compared") against a
+  year with no eTools partner reports or with reports for too few programme documents, or for a year
+  that has not started. Early in the year, before the first partner reports come in, the tile reads
+  *Not yet*.
 - **The page opens at once**: the filters, the *Figures as of* line, the tabs and the *Reference*
   block come first, with a grey box where the figures will go. The *Brief* tab's tiles, decisions and
   sections at a glance fill in first, then the six other tabs together, with their charts; you can

@@ -37,7 +37,9 @@ class ActivityInfoSetting(models.Model):
         verbose_name_plural = _("ActivityInfo: in use or archive")
 
     def __str__(self):
-        return str(_("ActivityInfo: in use or archive"))
+        # the mode stored: the page's crumbs and title read "ActivityInfo: in use or archive › Archived",
+        # not the page's name twice
+        return str(self.get_mode_display())
 
     @classmethod
     def load(cls) -> "ActivityInfoSetting":

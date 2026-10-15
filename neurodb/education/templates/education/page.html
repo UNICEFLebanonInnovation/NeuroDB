@@ -34,7 +34,7 @@
   {% if configured %}
   {% include "components/empty_state.html" with icon="book" title=_("No education figures yet") message=_("They are read from Compiler by the job “Read the education figures from Compiler” (admin → Import and sync runs → Run a job). Compiler counts at night; a year it has not counted yet arrives at the next run.") %}
   {% else %}
-  {% include "components/empty_state.html" with icon="book" title=_("Compiler is not connected") message=_("An administrator sets COMPILER_API_URL and COMPILER_API_TOKEN (Key Vault secret compiler-api-token), then runs the job “Read the education figures from Compiler”.") %}
+  {% include "components/empty_state.html" with icon="book" title=_("Compiler is not connected") message=_("The NeuroDB team connects it on the server; an administrator then runs the job “Read the education figures from Compiler” (admin → Import and sync runs → Run a job).") %}
   {% endif %}
 </section>
 {% elif old_format %}

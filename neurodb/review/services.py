@@ -21,6 +21,7 @@ from django.conf import settings
 from django.db import connection, transaction
 from django.utils import timezone
 from django.utils.translation import gettext as _
+from django.utils.translation import ngettext
 
 from neurodb.core.models import SyncRun
 from neurodb.datamart.monitoring import norm
@@ -837,7 +838,8 @@ def digest(sections: list[str], limit: int = 3, exclude_keys: Any = ()) -> dict[
     the
       order of their best (lowest) ``rank``, each its best finding's title and link with how many more like
       it. Findings already shown on Home under "Needs a decision" (``exclude_keys``) are left out;
-    - ``changed``: the first two of the review's "changed" sentences (:func:`_changed`);
+    - ``changed``: what changed since the review before, as one sentence without the parts that are 0
+      (:func:`_changed_sentence`; the daily review's own page keeps :func:`_changed`'s labels);
     - ``review``: the review (its date and when it finished)."""
     review = (
         DailyReview.objects.filter(status=DailyReview.Status.SUCCEEDED)
@@ -878,5 +880,23 @@ def digest(sections: list[str], limit: int = 3, exclude_keys: Any = ()) -> dict[
         ],
         "open": len(shown),
         "rows": rows,
-        "changed": _changed(review, findings)[:2],
+        "changed": _changed_sentence(findings),
     }
+
+
+def _changed_sentence(findings: list[ReviewFinding]) -> list[str]:
+    """Home's line on what changed since the review before: "Since the review before: 240 new findings, 30
+    still open, 5 resolved." with the parts that are 0 left out; no line when every part is 0."""
+    states = Counter(f.state for f in findings)
+    parts = [
+        text % {"n": f"{states[state]:,}"}
+        for state, text in (
+            (NEW, ngettext("%(n)s new finding", "%(n)s new findings", states.get(NEW, 0))),
+            (STILL_OPEN, ngettext("%(n)s still open", "%(n)s still open", states.get(STILL_OPEN, 0))),
+            (RESOLVED, ngettext("%(n)s resolved", "%(n)s resolved", states.get(RESOLVED, 0))),
+        )
+        if states.get(state)
+    ]
+    if not parts:
+        return []
+    return [_("Since the review before: %(changes)s.") % {"changes": ", ".join(parts)}]

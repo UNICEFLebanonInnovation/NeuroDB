@@ -54,7 +54,7 @@ from neurodb.partnerships.models import PCA, PartnerOrganization
 from neurodb.reports import brief as brief_service
 from neurodb.reports import home as home_service
 from neurodb.reports import overview as overview_service
-from neurodb.web.parts import Part, first_load, render_page
+from neurodb.web.parts import EAGER_KEY, Part, first_load, render_page
 
 from . import exports, services
 from .forms import HPMCommentForm, SavedViewForm
@@ -155,7 +155,8 @@ def home(request: HttpRequest) -> HttpResponse:
     A part of the country overview (``kpis``, ``figures``, ``news``) or of the review (``review``,
     ``review-more``) is answered by that page; a page asked with the overview's filters (``year``,
     ``governorate``) or a review tab (``review``, ``review_latest``, ``review_id``) is sent there with the
-    same query. Donors never get here (``DonorScopeMiddleware``)."""
+    same query (``_eager=1`` included: an old print or no-JavaScript link lands on the page drawn at once).
+    Donors never get here (``DonorScopeMiddleware``)."""
     if not request.user.is_authenticated:
         from neurodb.web.views import landing
 
@@ -167,6 +168,8 @@ def home(request: HttpRequest) -> HttpResponse:
         return daily_review(request)
     if part is None:
         query = request.GET.urlencode()
+        if getattr(request, "parts_eager", False):  # web.parts took it out of GET: the page asked keeps it
+            query = f"{query}&{EAGER_KEY}=1" if query else f"{EAGER_KEY}=1"
         if "year" in request.GET or "governorate" in request.GET:
             return redirect(_with_query(reverse("reports:country_overview"), query))
         if any(key in request.GET for key in REVIEW_KEYS):
@@ -735,7 +738,13 @@ def brief(request: HttpRequest) -> HttpResponse:
 @require_GET
 def databases(request: HttpRequest) -> HttpResponse:
     """The ActivityInfo databases of a reporting year: one card each (indicators, status, records,
-    partners, last import), the year's totals and the import runs. Was the bottom of the overview."""
+    partners, last import), the year's totals and the import runs. Was the bottom of the overview.
+    ``activityinfo_archived``: the import is no longer followed (``activityinfo.watched()`` false, as Data
+    health's "Archive"): the page then says so rather than call a database stale, and, as Data health's note,
+    whether its scheduled job still runs (``activityinfo_import_on``)."""
+    from neurodb.indicators.services import activityinfo
+
+    state = activityinfo.state()
     year = services.resolve_year(request.GET.get("year"))
     data = facts.overview(year) if year else None
     context = {
@@ -746,6 +755,8 @@ def databases(request: HttpRequest) -> HttpResponse:
             _crumb(_("ActivityInfo databases")),
         ],
         "year": year,
+        "activityinfo_archived": not state.watched,
+        "activityinfo_import_on": state.schedule_on,
         "data": data,
         "labels": LABELS,
         "chart_data": {"status_counts": data["status_counts"], "labels": LABELS} if data else {},
@@ -3203,15 +3214,18 @@ def data_health(request: HttpRequest) -> HttpResponse:
 
     def databases() -> dict[str, Any]:
         """The ActivityInfo databases of the year the import serves, or, once ActivityInfo is an archive, of
-        its last year, each "Archive" (no longer imported, never stale), with the note that says so."""
+        its last year, each "Archive" (no longer followed, never stale), with the note that says so: no
+        longer imported once its scheduled job is off, still imported (but not followed) while it is on."""
         from neurodb.indicators.services import activityinfo
 
-        archived = not activityinfo.watched()
+        state = activityinfo.state()
+        archived = not state.watched
         year = services.health_year()
         return {
             "databases": services.health_databases(year, archived=archived),
             "year": year,
             "archived": archived,
+            "import_on": state.schedule_on,
         }
 
     parts = {

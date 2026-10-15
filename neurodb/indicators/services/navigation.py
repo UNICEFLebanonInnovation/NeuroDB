@@ -24,7 +24,9 @@ from django.utils.translation import gettext_lazy as _
 from neurodb.accounts.models import Section
 from neurodb.indicators.models import Database, NeuroReport, ReportingYear
 
+# a reporting year's id, or CURRENT: the year ticked current (the pages without a year)
 CACHE_KEY = "nav:v2:{}"
+CURRENT = "current"
 CACHE_SECONDS = 120
 SOURCES_KEY = "nav:v3:sources"  # what the menu shows of the sources that may be off (sources())
 
@@ -66,6 +68,11 @@ def current_year() -> ReportingYear | None:
     )
 
 
+def _current_of(years: list[ReportingYear]) -> ReportingYear | None:
+    """:func:`current_year` picked from every reporting year, newest name first (no query of its own)."""
+    return next((y for y in years if y.current), years[0] if years else None)
+
+
 def _with_fallback(qs_for, year: ReportingYear | None, years: list[ReportingYear]):
     """``qs_for(y)`` for the given year, else for the latest year (by name) where it is not empty."""
     for candidate in ([year] if year else []) + [y for y in years if not year or y.id != year.id]:
@@ -76,13 +83,15 @@ def _with_fallback(qs_for, year: ReportingYear | None, years: list[ReportingYear
 
 
 def build_navigation(year: ReportingYear | None = None) -> Navigation:
-    """The sidebar for ``year`` (default: the current reporting year)."""
-    year = year or current_year()
-    key = CACHE_KEY.format(year.id if year else "none")
+    """The sidebar for ``year`` (default: the current reporting year), kept two minutes per worker: a page
+    without a year reads it under :data:`CURRENT`, so a kept sidebar costs no query, and building one reads
+    the reporting years once (the current one is picked from them)."""
+    key = CACHE_KEY.format(year.id if year else CURRENT)
     cached = cache.get(key)
     if cached:
         return cached
     years = list(ReportingYear.objects.order_by("-name"))
+    year = year or _current_of(years)
     databases_year, databases = _with_fallback(
         lambda y: (
             Database.objects.filter(reporting_year=y, display=True)
@@ -177,7 +186,13 @@ def _any_rows(**querysets) -> dict[str, bool]:
 
 def invalidate() -> None:
     ids = list(ReportingYear.objects.values_list("id", flat=True))
-    cache.delete_many([CACHE_KEY.format(i) for i in ids] + [CACHE_KEY.format("none"), SOURCES_KEY])
+    cache.delete_many([CACHE_KEY.format(i) for i in [*ids, CURRENT, "none"]] + [SOURCES_KEY])
+
+
+def invalidate_sources() -> None:
+    """Drop only :func:`sources` on this worker (no query): for the inputs it reads that the rest of the menu
+    does not (the document review's settings, the country programme cycles)."""
+    cache.delete(SOURCES_KEY)
 
 
 # ------------------------------------------------------------------------------------------------- the menu

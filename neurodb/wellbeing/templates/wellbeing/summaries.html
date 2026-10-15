@@ -6,7 +6,7 @@
   {% if configured %}
   {% include "components/empty_state.html" with icon="pulse" title=_("No wellbeing figures yet") message=_("They are read from BMA by the job “Read the Makani wellbeing flags from Compiler” (admin → Import and sync runs → Run a job), once BMA has worked them out at night.") %}
   {% else %}
-  {% include "components/empty_state.html" with icon="pulse" title=_("Compiler is not connected") message=_("An administrator sets COMPILER_API_URL and COMPILER_API_TOKEN, then runs the job “Read the Makani wellbeing flags from Compiler”.") %}
+  {% include "components/empty_state.html" with icon="pulse" title=_("Compiler is not connected") message=_("The NeuroDB team connects it on the server; an administrator then runs the job “Read the Makani wellbeing flags from Compiler” (admin → Import and sync runs → Run a job).") %}
   {% endif %}
 </section>
 {% else %}

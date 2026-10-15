@@ -3,7 +3,11 @@
 Each line of :func:`neurodb.web.health.warnings` (the same list the admin home shows) becomes the item
 ``system:<its key>``: told to the administrators only, on from the start (no trial). The scheduler not
 checking in and a missing daily review are critical; the other lines are warnings. When a line is no
-longer listed the problem was fixed, and its item closes at once.
+longer listed the problem was fixed, and its item closes at once: resolved. The exception is a line
+about the ActivityInfo import (its set-up lines, its failed or partial runs:
+:func:`neurodb.web.health.about_activityinfo`) gone because the import is no longer followed (ActivityInfo
+is an archive): its item closes as changed, "no longer followed", never as fixed, since the problem may
+well still be there.
 
 "NeuroDB Watch has not run for 26 hours" is not raised by the morning pass: that pass is the run it
 asks for (a quick pass still raises it, as the morning run is still missing). Nor does the morning pass
@@ -23,6 +27,7 @@ from neurodb.web import health
 from . import (
     ADMINS,
     ALIVE,
+    CHANGED,
     CRITICAL,
     ON,
     RESOLVED,
@@ -44,6 +49,7 @@ DETAIL = (
     "line is gone."
 )
 FIXED = "fixed: no longer listed under Needs attention"
+NOT_FOLLOWED = "ActivityInfo is an archive: its import is no longer followed"
 FIXED_BY_THE_MORNING_PASS = frozenset({"watch_not_run"})
 
 
@@ -101,9 +107,21 @@ def run(ctx: Context) -> list[Candidate]:
 
 
 def resolved(ctx: Context, open_items) -> dict[str, Close]:
-    """The items whose line is gone: fixed, closed at once."""
+    """The items whose line is gone, closed at once: fixed; or, for a line about the ActivityInfo import
+    while it is no longer followed, no longer followed (it may still fail: nobody is told any more)."""
+    from neurodb.indicators.services import activityinfo
+
     current = lines(ctx)
-    return {item.key: Close(FIXED, kind=RESOLVED) for item in open_items if item.key not in current}
+    closes: dict[str, Close] = {}
+    for item in open_items:
+        if item.key in current:
+            continue
+        line_key = item.key.removeprefix(PREFIX)
+        if health.about_activityinfo(line_key) and not ctx.memo("activityinfo_watched", activityinfo.watched):
+            closes[item.key] = Close(NOT_FOLLOWED, kind=CHANGED)
+        else:
+            closes[item.key] = Close(FIXED, kind=RESOLVED)
+    return closes
 
 
 SYSTEM_HEALTH = register(

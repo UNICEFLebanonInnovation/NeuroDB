@@ -62,7 +62,8 @@ every section:
 - **Help**: this guide.
 
 A page that is not set up yet (the country programme, the Compiler pages, the document review) is left
-out of the sidebar; administrators see it greyed, marked *Set up*, and its page says how to set it up.
+out of the sidebar; administrators who can open the administration see it greyed, marked *Set up*,
+and its page says how to set it up.
 
 ## Pages that open at once
 
@@ -202,7 +203,7 @@ schedules as they are now.
 | Knowledge hub (and new library and country programme documents) | Every day at 07:00, and after every sync |
 | What's new note | Every day at 07:30 |
 | NeuroDB Watch (For you) | Every day at 07:45, and shortly after new data arrives |
-| ActivityInfo data | 18:00 on days 1 to 22 of each month, while ActivityInfo is in use |
+| ActivityInfo data | 18:00 on days 1 to 22 of each month, while its import is switched on in Scheduled jobs (see [ActivityInfo: in use or archive](/help/home/#activityinfo-in-use-or-archive)) |
 | Year-end forecasts | Mondays at 07:15, while ActivityInfo is in use |
 | Compiler figures (youth, education, Makani wellbeing) | Every night, once Compiler is set up |
 

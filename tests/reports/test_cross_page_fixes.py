@@ -21,7 +21,8 @@ from neurodb.partnerships.models import PCA, PartnerOrganization
 from neurodb.reports import overview
 
 pytestmark = pytest.mark.django_db
-TODAY = datetime.date.today()
+# the suite's day (tests/conftest.py SITE_NOW), not the real clock: this is read at import, before it travels
+TODAY = datetime.date(2026, 10, 15)
 D = datetime.date
 AK, BK = ("Akkar", "LB11"), ("Bekaa", "LB12")
 _ids = iter(range(50_000, 10**9))

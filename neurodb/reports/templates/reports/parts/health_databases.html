@@ -1,10 +1,11 @@
 {% load i18n ui humanize %}{% comment %}Data health's database imports (part "databases", reports.views.data_health): the displayed ActivityInfo
 databases of the year the import serves (services.health_year), their last import and state; once ActivityInfo is an
-archive (archived), those of its last year, each "Archive", with a note. Context: databases =
-services.health_databases(year), year, archived.{% endcomment %}
+archive (archived), those of its last year, each "Archive", with a note. Archived does not stop the import: the
+note says they are no longer imported only while its scheduled job is off (import_on false). Context: databases =
+services.health_databases(year), year, archived, import_on.{% endcomment %}
 <section class="panel p-0">
   {% include "components/table_toolbar.html" with title=_("Database imports") count=databases|length table_id="db-health" %}
-  {% if archived and year %}<p class="small text-muted px-3 mb-2 health-archive-note">{% blocktrans with year=year.name %}ActivityInfo is an archive: these {{ year }} databases are kept as they were and are no longer imported.{% endblocktrans %}</p>{% endif %}
+  {% if archived and year %}<p class="small text-muted px-3 mb-2 health-archive-note">{% if import_on %}{% blocktrans with year=year.name %}ActivityInfo is an archive: these {{ year }} databases are kept as they were. Its import is still switched on in Scheduled jobs, but NeuroDB no longer warns when it fails or falls behind; switch it off once its last year is complete.{% endblocktrans %}{% else %}{% blocktrans with year=year.name %}ActivityInfo is an archive: these {{ year }} databases are kept as they were and are no longer imported.{% endblocktrans %}{% endif %}</p>{% endif %}
   <div class="table-wrap" style="max-height: 560px"><table class="table table-hover" id="db-health" data-sortable>
     <thead><tr><th>{% trans "Database" %}</th><th>{% trans "Last import" %}</th><th>{% trans "State" %}</th></tr></thead>
     <tbody>{% for d in databases %}<tr data-href="{% url 'reports:database_dashboard' d.database.id %}"><td><a href="{% url 'reports:database_dashboard' d.database.id %}">{{ d.database.label|default:d.database.name }}</a><span class="cell-sub">{{ d.database.section.name|default:"" }} · AI {{ d.database.ai_id }}</span></td>

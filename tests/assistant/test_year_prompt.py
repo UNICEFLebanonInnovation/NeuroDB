@@ -15,7 +15,16 @@ from neurodb.assistant import agent, hub_tools, tools
 from neurodb.assistant import views as assistant_views
 from neurodb.core.models import ActivityInfoSetting
 from neurodb.facts.models import ActivityReportNew
-from neurodb.indicators.models import Database, ReportingYear
+from neurodb.indicators.models import (
+    Database,
+    IndicatorNew,
+    MasterIndicator,
+    MasterSubIndicator,
+    NeuroReport,
+    NeuroReportMasterIndicator,
+    ReportingYear,
+    SubIndicator,
+)
 from neurodb.indicators.services import activityinfo
 
 pytestmark = pytest.mark.django_db
@@ -28,21 +37,49 @@ def _mode(mode: str) -> None:
     activityinfo.invalidate()
 
 
-def _ai_year(number: int, last_month: int, current: bool = False, name: str | None = None) -> ReportingYear:
-    """A reporting year of ``number`` with one displayed database reported up to ``last_month``."""
+def _ai_year(
+    number: int,
+    last_month: int,
+    current: bool = False,
+    name: str | None = None,
+    children: bool = False,
+    funded_by: str = "",
+) -> ReportingYear:
+    """A reporting year of ``number`` with one displayed database reported up to ``last_month``. With
+    ``children``, the records are behind an additive HPM master indicator that counts children (the masters
+    the Country overview adds up into its ActivityInfo children reached); without, the year has records but
+    no ActivityInfo children figure. ``funded_by``: the database counts UNICEF-funded records only, and its
+    records are funded by ``funded_by``."""
     year = ReportingYear.objects.create(name=name or str(number), year=str(number), current=current)
     n = next(_ids)
     database = Database.objects.create(
         ai_id=n, db_id=f"db{n}", name=f"Education {number}", label="Education", username="", password="",
-        reporting_year=year, is_funded_by_unicef=False,
+        reporting_year=year, is_funded_by_unicef=bool(funded_by),
     )  # fmt: skip
     for month in range(1, last_month + 1):
         ActivityReportNew.objects.create(
             dbase=database, database_ai_id=str(n), indicator_id=f"i{n}", indicator_value=10,
-            month_name=f"{number}-{month:02d}-01", partner_label="Partner Z",
+            month_name=f"{number}-{month:02d}-01", partner_label="Partner Z", funded_by=funded_by or None,
         )  # fmt: skip
+    if children:
+        _children_master(year, database, ai_indicator=f"i{n}")
     activityinfo.invalidate()
     return year
+
+
+def _children_master(year: ReportingYear, database: Database, ai_indicator: str) -> MasterIndicator:
+    """An additive master indicator of ``database`` named for children, on the year's HPM report, whose
+    TOTAL sub-indicator adds up the records of the ActivityInfo indicator ``ai_indicator``."""
+    leaf = IndicatorNew.objects.create(database=database, ai_indicator=ai_indicator, name="Children reached")
+    sub = SubIndicator.objects.create(database=database, name="Children reached", aggregation_method="SUM")
+    sub.indicators.set([leaf])
+    master = MasterIndicator.objects.create(
+        database=database, name="Children reached (total)", aggregation_method="SUM", sequence=1
+    )
+    MasterSubIndicator.objects.create(master=master, sub=sub, effect="TOTAL", sequence=1)
+    report = NeuroReport.objects.get_or_create(name=f"HPM {year.name}", is_hpm=True, ryear=year)[0]
+    NeuroReportMasterIndicator.objects.create(report=report, master=master, label="Children reached")
+    return master
 
 
 ARCHIVED_WITH_RECORDS = (
@@ -70,14 +107,51 @@ def test_archived_with_records_this_year(db):
     """The import left on over a year whose records stop in April: an archive, but 2026 still has
     ActivityInfo figures, so Ask says they stop and still count, as the Home tile does."""
     _ai_year(2019, 12)
-    _ai_year(2026, 4, current=True)
+    _ai_year(2026, 4, current=True, children=True)
     assert activityinfo.state().reason == "auto_not_recent" and activityinfo.is_year(2026)
     assert agent.year_line() == ARCHIVED_WITH_RECORDS.format(month="Apr 2026", span="2019–2026")
 
 
 def test_set_archived_with_recent_records_still_counts_them(db):
+    _ai_year(2026, 8, current=True, children=True)
+    _mode(ActivityInfoSetting.Mode.ARCHIVED)
+    assert agent.year_line() == ARCHIVED_WITH_RECORDS.format(month="Aug 2026", span="2026")
+
+
+ARCHIVED_WITHOUT_CHILDREN = (
+    "This year is 2026. ActivityInfo is no longer updated: its 2026 records stop at Aug 2026, and they add "
+    "no children to NeuroDB's children reached for 2026, which comes from eTools alone. For progress since "
+    "then use the eTools tools; the ActivityInfo tools cover 2026."
+)
+
+
+def test_archived_with_records_but_no_children_indicator_never_says_they_count(db):
+    """Records, but no additive HPM master that counts children: the Country overview's ActivityInfo
+    children figure is 0 and Home shows none, so Ask must not say the records still count (R1 time_roles-F2)."""
     _ai_year(2026, 8, current=True)
     _mode(ActivityInfoSetting.Mode.ARCHIVED)
+    assert activityinfo.is_year(2026)
+    line = agent.year_line()
+    assert "still counts them" not in line
+    assert line == ARCHIVED_WITHOUT_CHILDREN
+
+
+def test_archived_with_a_children_indicator_but_no_record_behind_it_never_says_they_count(db):
+    """The HPM children master is set up, but the year's records are on other indicators: nothing adds up
+    to the ActivityInfo children figure."""
+    year = _ai_year(2026, 8, current=True)
+    _children_master(year, Database.objects.get(reporting_year=year), ai_indicator="not-reported")
+    _mode(ActivityInfoSetting.Mode.ARCHIVED)
+    assert agent.year_line() == ARCHIVED_WITHOUT_CHILDREN
+
+
+def test_archived_with_children_records_the_funded_by_rule_leaves_out_never_says_they_count(db):
+    """A database counted for UNICEF-funded records only (as the Country overview reads it), whose records
+    are all funded by another donor: no ActivityInfo children, until they are UNICEF's."""
+    year = _ai_year(2026, 8, current=True, children=True, funded_by="Another donor")
+    _mode(ActivityInfoSetting.Mode.ARCHIVED)
+    assert agent.year_line() == ARCHIVED_WITHOUT_CHILDREN
+    ActivityReportNew.objects.filter(dbase__reporting_year=year).update(funded_by="UNICEF")
     assert agent.year_line() == ARCHIVED_WITH_RECORDS.format(month="Aug 2026", span="2026")
 
 
@@ -150,6 +224,18 @@ def test_the_examples_ask_about_etools(client_viewer, settings):
     page = client_viewer.get(reverse("assistant:ask")).content.decode()
     assert "Which partners have progress reports overdue?" in page
     assert "Is the ActivityInfo data up to date?" not in page
+
+
+def test_switched_off_ask_describes_the_search_as_it_is(client_viewer, settings):
+    """The search finds pages, partners, programme documents and indicators (SPEC_HOME §5), no longer only
+    "any indicator, database or report" (R1 spec_shell-4)."""
+    settings.AI_ASSISTANT_ENABLED = False
+    page = client_viewer.get(reverse("assistant:ask")).content.decode()
+    assert (
+        "Until it is, Search finds partners, programme documents, indicators and pages by name, and the "
+        "Management brief answers the common questions about results, money and partners."
+    ) in page
+    assert "any indicator, database or report" not in page
 
 
 # ------------------------------------------------------------------------------------------ hub tools

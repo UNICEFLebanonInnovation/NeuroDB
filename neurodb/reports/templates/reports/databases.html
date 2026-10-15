@@ -26,7 +26,7 @@
       <dd>{% if r.run and r.run.finished_at %}{% blocktrans with when=r.run.finished_at|naturaltime rows=r.run.rows_written|intcomma %}Last succeeded {{ when }}, {{ rows }} rows.{% endblocktrans %}{% else %}{% trans "Never succeeded." %}{% endif %}</dd>
       {% endif %}{% endfor %}
     </dl>
-    <p class="source-line">{% trans "The structure import reads databases, activities and indicators; the data import reads the activity records (monthly, until the 22nd)." %}</p>
+    <p class="source-line">{% if activityinfo_archived %}{% if activityinfo_import_on %}{% trans "ActivityInfo is an archive: its import is no longer followed. It is still switched on in Scheduled jobs, but NeuroDB no longer warns when it fails or falls behind." %}{% else %}{% trans "ActivityInfo is an archive: its import is switched off and its databases are kept as they were." %}{% endif %}{% else %}{% trans "The structure import reads databases, activities and indicators; the data import reads the activity records (monthly, until the 22nd)." %}{% endif %}</p>
   </section>
 </div>
 
@@ -40,7 +40,7 @@
         <div class="db-card__meta mb-1"><span class="d-inline-flex align-items-center gap-1"><span class="section-dot" {% if card.database.section.color %}style="--section-color: {{ card.database.section.color }}"{% endif %} aria-hidden="true"></span>{{ card.database.section.name|default:_("Other") }}</span></div>
         <h3 class="db-card__title h6">{{ card.database.label|default:card.database.name }}</h3>
       </div>
-      {% if card.stale %}<span title="{% include "reports/partials/_stale_reason.html" %}">{% trans "Stale" as stale %}{% status_pill "stale" stale "sm" %}</span>{% endif %}
+      {% if card.stale and not activityinfo_archived %}<span title="{% include "reports/partials/_stale_reason.html" %}">{% trans "Stale" as stale %}{% status_pill "stale" stale "sm" %}</span>{% endif %}
     </div>
     <div class="status-bar" role="img" aria-label="{% blocktrans with on=card.status_counts.on_track off=card.status_counts.off_track %}{{ on }} on track, {{ off }} off track{% endblocktrans %}">
       {% for key in labels %}{% with n=card.status_counts|get_item:key %}{% if n %}<span class="{{ key }}" style="flex: {{ n }}"></span>{% endif %}{% endwith %}{% endfor %}
@@ -55,7 +55,7 @@
       <span>{% trans "ActivityInfo ID" %} {{ card.database.ai_id }}</span>
       <span>{% if card.last_import %}{% blocktrans with when=card.last_import|naturaltime %}Imported {{ when }}{% endblocktrans %}{% else %}{% trans "Never imported" %}{% endif %}</span>
     </div>
-    {% if card.stale %}<p class="db-card__note">{% include "reports/partials/_stale_reason.html" %}</p>{% endif %}
+    {% if card.stale and not activityinfo_archived %}<p class="db-card__note">{% include "reports/partials/_stale_reason.html" %}</p>{% endif %}
   </a>
   {% endfor %}
 </div>

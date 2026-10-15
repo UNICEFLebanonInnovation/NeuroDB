@@ -37,7 +37,8 @@ from neurodb.watch.models import SectionMatch
 pytestmark = pytest.mark.django_db
 
 PAGE = reverse("reports:monitoring")
-TODAY = timezone.localdate()
+# the suite's day (tests/conftest.py SITE_NOW), not the real clock: this is read at import, before it travels
+TODAY = datetime.date(2026, 10, 15)
 YEAR = TODAY.year
 D = datetime.date
 FOCAL = "Focal Person Test"

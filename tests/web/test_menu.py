@@ -398,6 +398,38 @@ def test_no_archive_without_any_reporting_year(client_viewer):
     assert "sidebar__archive" not in client_viewer.get(reverse("reports:library")).content.decode()
 
 
+def _year_queries(queries) -> int:
+    return sum('"pivoting_reportingyear"' in q["sql"] for q in queries)
+
+
+def test_the_sidebar_reads_the_reporting_years_once_and_not_at_all_when_kept(client_viewer, hierarchy):
+    """The sidebar's blocks read the reporting years once (the year ticked current is picked from them), and a
+    page whose sidebar is kept reads none (review R1 browser-9: two reads on every page)."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    ReportingYear.objects.create(name="2025", year="2025")
+    navigation.invalidate()
+    with CaptureQueriesContext(connection) as cold:
+        assert navigation.build_navigation().year.name == "2026"  # the year ticked current
+    assert _year_queries(cold.captured_queries) == 1
+    with CaptureQueriesContext(connection) as kept:
+        assert navigation.build_navigation().year.name == "2026"
+    assert len(kept.captured_queries) == 0
+    url = reverse("help:index")
+    client_viewer.get(url)
+    with CaptureQueriesContext(connection) as page:
+        html = client_viewer.get(url).content.decode()
+    assert _year_queries(page.captured_queries) == 0 and "sidebar__archive" in html
+    # none ticked current: the newest; another ticked current: that one (as navigation.current_year)
+    ReportingYear.objects.update(current=False)
+    navigation.invalidate()
+    assert navigation.build_navigation().year.name == "2026" == navigation.current_year().name
+    ReportingYear.objects.filter(name="2025").update(current=True)
+    navigation.invalidate()
+    assert navigation.build_navigation().year.name == "2025" == navigation.current_year().name
+
+
 def test_year_end_forecasts_only_while_some_exist(client_viewer, hierarchy):
     side = _sidebar(client_viewer.get(reverse("reports:library")).content.decode())
     assert "Year-end forecasts" not in side
@@ -514,12 +546,15 @@ new Function(script)();
 const settle = () => { while (queue.length) queue.shift()(); };
 settle();
 const out = { afterLoad: blocks.map((b) => b.open), writesOnLoad: writes.length };
-// what the reader (or a script) then does: [block index, "pointer" | "key" | "script", key]
+// what the reader (or a script) then does: [block index, "pointer" | "key" | "click" | "script", key];
+// "click": an activation that sends the summary a click and nothing else (a screen reader's or voice
+// control's default action)
 const act = JSON.parse(process.argv[4] || "[]");
 for (const [index, how, key] of act) {
   const block = blocks[index];
   if (how === "pointer") block.summary.fire("pointerdown");
   if (how === "key") block.summary.fire("keydown", { key });
+  if (how === "click") block.summary.fire("click");
   block.open = !block.open;  // "script": a toggle no reader asked for
   settle();
 }
@@ -578,6 +613,19 @@ def test_the_readers_choice_wins_over_the_default_and_is_remembered():
     assert _run_script([DATABASES], {}, [[0, "script", None]])["writes"] == []
     # the block of the current page opens whatever is stored
     assert _run_script([ARCHIVE_ON_ITS_PAGE], {"neurodb-nav:archive": "closed"})["afterLoad"] == [True]
+
+
+@needs_node
+def test_a_toggle_by_a_click_alone_is_remembered():
+    """Assistive technology (a screen reader's browse mode, voice control) activates a summary by its default
+    action: a click with no pointer or key event before it. That choice is the reader's too, so it is stored
+    (review R1 spec_shell-2); nothing is stored on load all the same."""
+    out = _run_script([ARCHIVE_IN_USE, DATABASES], {}, [[0, "click", None], [1, "click", None]])
+    assert out["writesOnLoad"] == 0 and out["after"] == [False, True]
+    assert out["writes"] == [["neurodb-nav:archive", "closed"], ["neurodb-nav:databases", "open"]]
+    # a toggle no reader asked for after it is still not stored
+    out = _run_script([DATABASES], {}, [[0, "click", None], [0, "script", None]])
+    assert out["writes"] == [["neurodb-nav:databases", "open"]]
 
 
 @needs_node

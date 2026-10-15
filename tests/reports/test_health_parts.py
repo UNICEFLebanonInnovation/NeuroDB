@@ -502,6 +502,7 @@ def test_the_datasets_table_reads_the_same_figures_as_before(world):
         "stale_database_days",
         "year",
         "activityinfo_archived",  # its jobs and databases an archive while its import is not followed
+        "activityinfo_import_on",  # its import's scheduled job still on (an archive does not stop it)
         "power_bi",  # per Compiler programme, its latest period compared with Power BI's view (counts only)
     }
     assert _figures(health["datasets"]) == before

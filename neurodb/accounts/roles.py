@@ -12,10 +12,18 @@ MANAGEMENT = "Management"
 
 
 def role_of(user):
+    """The person's role, read once per request (the context processor and the page both ask; outside a
+    request it is read each time)."""
     if not user.is_authenticated:
         return None
     if user.is_superuser:
         return ADMIN
+    from neurodb.core import compute
+
+    return compute.per_request(f"role:{user.pk}", lambda: _role_held(user))
+
+
+def _role_held(user):
     held = set(
         user.groups.filter(name__in=(ADMIN, SECTION_EDITOR)).values_list("name", flat=True)
     )  # one query
