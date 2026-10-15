@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib import admin, messages
 from django.contrib.admin.models import ADDITION, CHANGE, DELETION, LogEntry
 from django.contrib.humanize.templatetags.humanize import naturaltime
+from django.core.exceptions import PermissionDenied
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import NoReverseMatch, reverse
@@ -20,7 +21,7 @@ from unfold.widgets import UnfoldAdminCheckboxSelectMultipleWidget, UnfoldAdminR
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
 from .admin_jobs import JobActionsMixin
-from .models import PopulationFigure, SavedView, ScheduledJob, SyncRun
+from .models import ActivityInfoSetting, PopulationFigure, SavedView, ScheduledJob, SyncRun
 
 # The scheduler checks in every 30 seconds: silent for longer than this, it has stopped.
 SCHEDULER_STALLED_AFTER = datetime.timedelta(minutes=3)
@@ -310,6 +311,54 @@ class SyncRunAdmin(JobActionsMixin, ReadOnlyModelAdmin):
         return redirect(url)
 
 
+@admin.register(ActivityInfoSetting)
+class ActivityInfoSettingAdmin(ModelAdmin):
+    """Admin → Reporting setup → "ActivityInfo: in use or archive": one row, Automatic until an administrator
+    sets "In use" or "Archived". The page says what Automatic gives now and why
+    (:func:`neurodb.indicators.services.activityinfo.explain`)."""
+
+    fields = ("mode", "now", "years_with_records", "import_state", "updated_by", "updated_at")
+    readonly_fields = ("now", "years_with_records", "import_state", "updated_by", "updated_at")
+    radio_fields = {"mode": admin.VERTICAL}
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_or_change_permission(request):
+            raise PermissionDenied
+        setting = ActivityInfoSetting.load()  # the one row: open it
+        return redirect(reverse("admin:core_activityinfosetting_change", args=[setting.pk]))
+
+    def save_model(self, request, obj, form, change):
+        from neurodb.indicators.services import activityinfo, navigation
+
+        obj.updated_by = request.user
+        super().save_model(request, obj, form, change)
+        activityinfo.invalidate()
+        navigation.invalidate()
+
+    def _explained(self) -> list[str]:
+        from neurodb.indicators.services import activityinfo
+
+        return activityinfo.explain()  # read once per request; a save here has just dropped it
+
+    @admin.display(description=_("Now"))
+    def now(self, obj):
+        return self._explained()[0]
+
+    @admin.display(description=_("Years with ActivityInfo records"))
+    def years_with_records(self, obj):
+        return self._explained()[1]
+
+    @admin.display(description=_("ActivityInfo import"))
+    def import_state(self, obj):
+        return format_html_join(" ", "{}", ((line,) for line in self._explained()[2:]))
+
+
 @admin.register(SavedView)
 class SavedViewAdmin(ModelAdmin):
     list_display = ("name", "owner", "page", "object_id", "is_shared", "updated_at")
@@ -550,7 +599,10 @@ class ScheduledJobAdmin(ModelAdmin):
 
     @admin.action(description=_("Switch off the selected jobs"))
     def disable_jobs(self, request, queryset):
+        from neurodb.indicators.services import activityinfo
+
         queryset.update(enabled=False, next_run_at=None, updated_by=request.user.get_username())
+        activityinfo.invalidate()  # an update() sends no signal: the ActivityInfo import may be among them
         self.message_user(request, _("Switched off."), messages.SUCCESS)
 
     def has_run_now_permission(self, request):

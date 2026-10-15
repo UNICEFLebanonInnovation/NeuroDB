@@ -1,5 +1,6 @@
 """The shared cache behind pages that load in parts (neurodb.core.compute), its table and its button."""
 
+import datetime
 import hashlib
 import os
 import pickle
@@ -15,7 +16,7 @@ from django.core.management import call_command
 from django.db import connection, transaction
 from django.test import override_settings
 from django.urls import reverse
-from django.utils import translation
+from django.utils import timezone, translation
 
 from neurodb.core import compute
 from neurodb.core.models import SyncRun
@@ -283,6 +284,11 @@ def test_inside_atomic_a_missing_value_is_computed_without_the_lock_and_not_stor
 
 
 # ------------------------------------------------------------------------------- read-only transactions
+def _a_minute_ago():
+    """A minute before now on the clock the cache reads (Python's: the tests move it, not the database's)."""
+    return timezone.now() - datetime.timedelta(minutes=1)
+
+
 def _stored_here(key: str, value, *, expired: bool = False, raw: bytes | None = None) -> None:
     """A value stored in the test's own transaction (where :func:`compute.once` stores nothing), as another
     worker would have stored it; ``expired``: its time is up."""
@@ -291,8 +297,8 @@ def _stored_here(key: str, value, *, expired: bool = False, raw: bytes | None = 
     if expired:
         with connection.cursor() as cursor:
             cursor.execute(
-                "UPDATE neurodb_cache SET expires = now() - interval '1 minute' WHERE cache_key LIKE %s",
-                [f"%{compute._storage_key(full)}"],
+                "UPDATE neurodb_cache SET expires = %s WHERE cache_key LIKE %s",
+                [_a_minute_ago(), f"%{compute._storage_key(full)}"],
             )
 
 
@@ -633,7 +639,7 @@ def test_the_migrated_table_works_as_django_s_database_cache(database_cache):
     cache.set("a", {"x": 1}, 60)
     assert cache.get("a") == {"x": 1} and _rows() == 1
     with connection.cursor() as cursor:
-        cursor.execute("UPDATE neurodb_cache SET expires = now() - interval '1 minute'")
+        cursor.execute("UPDATE neurodb_cache SET expires = %s", [_a_minute_ago()])
     assert cache.get("a") is None and _rows() == 0  # expired: missing, and deleted when read
 
     culled = {**IN_THE_DATABASE, "shared": {**IN_THE_DATABASE["shared"], "OPTIONS": {"MAX_ENTRIES": 5}}}
@@ -650,8 +656,8 @@ def test_expired_rows_are_deleted_at_most_every_ten_minutes(database_cache, monk
         caches["shared"].set(name, 1, 60)
         with connection.cursor() as cursor:
             cursor.execute(
-                "UPDATE neurodb_cache SET expires = now() - interval '1 minute' WHERE cache_key LIKE %s",
-                [f"%:{name}"],
+                "UPDATE neurodb_cache SET expires = %s WHERE cache_key LIKE %s",
+                [_a_minute_ago(), f"%:{name}"],
             )
 
     def present(name):

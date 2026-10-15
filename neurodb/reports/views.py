@@ -33,6 +33,7 @@ from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from neurodb.accounts.roles import SECTION_EDITOR, can_edit_section, role_of
+from neurodb.core import years
 from neurodb.core.models import PopulationFigure, SavedView, SyncRun
 from neurodb.core.services import population as population_service
 from neurodb.datamart import hact_plan, headline
@@ -144,6 +145,12 @@ def home(request: HttpRequest) -> HttpResponse:
 
         return landing(request)
     return overview(request)
+
+
+@require_GET
+def daily_review(request: HttpRequest) -> HttpResponse:
+    """The daily review's own address. Until its page is built, the review card on the overview."""
+    return redirect(reverse("reports:overview") + "#daily-review")
 
 
 def _year_number(year: Any, default: int) -> int:
@@ -1209,7 +1216,7 @@ def _fmm_partner_seen(pk: int) -> bool:
 
 def _this_year() -> int:
     """This calendar year in Beirut, as the Monitoring insights page reads "this year"."""
-    return timezone.localdate().year
+    return years.this_year()
 
 
 DONOR_PAGE_PDS = 10  # the Donors page lists the largest ones and links to Programmes for the rest

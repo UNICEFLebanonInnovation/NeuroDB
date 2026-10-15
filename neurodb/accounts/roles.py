@@ -47,6 +47,15 @@ def in_management(user) -> bool:
     return bool(user.is_authenticated) and user.groups.filter(name=MANAGEMENT).exists()
 
 
+def can_set_up(user) -> bool:
+    """Whether the person sees the muted "Set up" lines and menu rows of a source that is not live yet: the
+    people who can act on them in the admin, a superuser or an Administrator with staff status (the admin
+    refuses an Administrator without it, and a Viewer with it has nothing to set up)."""
+    if not getattr(user, "is_authenticated", False):
+        return False
+    return bool(user.is_superuser or (user.is_staff and role_of(user) == ADMIN))
+
+
 def can_edit_section(user, section_id):
     role = role_of(user)
     if role == ADMIN:

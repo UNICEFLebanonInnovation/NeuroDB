@@ -1,8 +1,17 @@
-"""Shared fixtures. The test database is created from the migrations, v2 tables included."""
+"""Shared fixtures. The test database is created from the migrations, v2 tables included.
+
+One clock for the whole suite: every test runs on Thursday 15 October 2026, 09:00 in Beirut (``site_today``),
+with the clock ticking from there, so ``timezone.now()``, ``timezone.localdate()``, ``date.today()`` and
+``neurodb.core.years.today()`` always agree, and a test means the same on 1 January as in October. A test
+moves the clock with ``site_today.set(date)``; one that needs the real clock is marked ``real_clock``. The
+database's own clock (``now()``, ``current_date`` in SQL) is not moved.
+"""
 
 import datetime
+import zoneinfo
 
 import pytest
+import time_machine
 from django.contrib.auth.models import Group
 from django.test import Client
 
@@ -33,6 +42,48 @@ def pytest_configure(config):
         "parts_may_fail: a part of a page the test client assembles may answer something other than its "
         "figures (a 403, a 404, a 202); without this mark such a part fails the test (tests/web/parts.py)",
     )
+    config.addinivalue_line(
+        "markers",
+        "real_clock: the test runs on the real clock, not on the suite's fixed day (site_today does nothing)",
+    )
+
+
+BEIRUT = zoneinfo.ZoneInfo("Asia/Beirut")
+SITE_NOW = datetime.datetime(2026, 10, 15, 9, 0, tzinfo=BEIRUT)  # a Thursday
+
+
+class SiteClock:
+    """The suite's clock (``site_today``): ``now`` is where it started; ``set`` travels again."""
+
+    def __init__(self, traveller):
+        self._traveller = traveller
+        self.now = SITE_NOW
+
+    def set(self, when):
+        """Travel to ``when``: a date (09:00 in Beirut that day) or a datetime (naive: in Beirut). The clock
+        ticks on from there."""
+        if not isinstance(when, datetime.datetime):
+            when = datetime.datetime.combine(when, datetime.time(9, 0))
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=BEIRUT)
+        self._traveller.move_to(when)
+        self.now = when
+        return when
+
+
+@pytest.fixture(autouse=True)
+def site_today(request):
+    """Every test runs on 15 October 2026 at 09:00 in Beirut, the clock ticking (``tick=True``); yields the
+    :class:`SiteClock` (``site_today.set(date)``). A test marked ``real_clock`` keeps the real clock (None)."""
+    if request.node.get_closest_marker("real_clock") is not None:
+        yield None
+        return
+    travel = time_machine.travel(SITE_NOW, tick=True)
+    traveller = travel.start()
+    try:
+        yield SiteClock(traveller)
+    finally:
+        travel.stop()
 
 
 @pytest.fixture(autouse=True)
@@ -222,3 +273,25 @@ def hierarchy(db, database):
         "report": report,
         "leaves": [leaf_a, leaf_b],
     }
+
+
+def _set_activityinfo(mode):
+    from neurodb.core.models import ActivityInfoSetting
+    from neurodb.indicators.services import activityinfo
+
+    setting, _ = ActivityInfoSetting.objects.update_or_create(pk=1, defaults={"mode": mode})
+    activityinfo.invalidate()
+    return setting
+
+
+@pytest.fixture
+def activityinfo_in_use(db):
+    """ActivityInfo set to "In use" by an administrator (``hierarchy``'s records stop in February, so on
+    Automatic it is archived on the suite's day)."""
+    return _set_activityinfo("in_use")
+
+
+@pytest.fixture
+def activityinfo_archived(db):
+    """ActivityInfo set to "Archived" by an administrator."""
+    return _set_activityinfo("archived")

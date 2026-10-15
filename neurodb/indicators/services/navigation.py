@@ -11,6 +11,7 @@ from neurodb.indicators.models import Database, NeuroReport, ReportingYear
 
 CACHE_KEY = "nav:v2:{}"
 CACHE_SECONDS = 120
+SOURCES_KEY = "nav:v3:sources"  # what the menu shows of the sources that may be off (sources())
 
 
 @dataclass
@@ -94,6 +95,46 @@ def build_navigation(year: ReportingYear | None = None) -> Navigation:
     return nav
 
 
+def sources() -> dict:
+    """Whether the sources the menu shows only when live have anything to show, the same for every person
+    (plain data, kept two minutes per worker):
+
+    - ``cpd_cycle``: ``[start year, end year]`` of the country programme cycle the Country programme page
+      opens on (any cycle, an ended one too: it is history), or None;
+    - ``cpd_live``: today falls inside that cycle;
+    - ``compiler``: Compiler is connected, or Makani, Dirasa or youth figures are stored;
+    - ``doc_review``: the document review is switched on, or it has found anything;
+    - ``forecasts``: year-end forecasts exist.
+
+    Who sees a muted "Set up" row instead of a missing item is the caller's choice
+    (:func:`neurodb.accounts.roles.can_set_up`)."""
+    cached = cache.get(SOURCES_KEY)
+    if cached is not None:
+        return cached
+    from neurodb.core import years
+    from neurodb.cpd.services import current_cycle
+    from neurodb.education.models import EducationFigures
+    from neurodb.insights.models import IndicatorForecast
+    from neurodb.knowledge.models import DocumentFinding, DocumentReviewSettings
+    from neurodb.youth import compiler
+    from neurodb.youth.models import YouthFigures
+
+    cycle = current_cycle()
+    today = years.today()
+    review_on = DocumentReviewSettings.objects.filter(pk=1).values_list("enabled", flat=True).first()
+    value = {
+        "cpd_cycle": [cycle.start_year, cycle.end_year] if cycle else None,
+        "cpd_live": bool(cycle and cycle.start_year <= today.year <= cycle.end_year),
+        "compiler": bool(
+            compiler.configured() or EducationFigures.objects.exists() or YouthFigures.objects.exists()
+        ),
+        "doc_review": bool(review_on or DocumentFinding.objects.exists()),
+        "forecasts": IndicatorForecast.objects.exists(),
+    }
+    cache.set(SOURCES_KEY, value, CACHE_SECONDS)
+    return value
+
+
 def invalidate() -> None:
     ids = list(ReportingYear.objects.values_list("id", flat=True))
-    cache.delete_many([CACHE_KEY.format(i) for i in ids] + [CACHE_KEY.format("none")])
+    cache.delete_many([CACHE_KEY.format(i) for i in ids] + [CACHE_KEY.format("none"), SOURCES_KEY])

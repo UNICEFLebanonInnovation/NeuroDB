@@ -6,6 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from neurodb.core.models import SyncRun
 from neurodb.indicators.models import Database
+from neurodb.indicators.services import activityinfo
 from neurodb.integrations.activityinfo.data import import_data
 from neurodb.integrations.management.commands._base import add_triggered_by, exit_on_failure, write_summary
 from neurodb.integrations.runs import new_run
@@ -43,4 +44,5 @@ class Command(BaseCommand):
             runs.append(run)
         if any(run.status != SyncRun.Status.FAILED for run in runs):
             runs.append(link_activityinfo_partners(triggered_by=options["triggered_by"]))
+        activityinfo.invalidate()  # new records may turn ActivityInfo in use (the other workers within 30 s)
         exit_on_failure(write_summary(self, runs))

@@ -30,8 +30,12 @@ logger = logging.getLogger(__name__)
 GROUPS: list[tuple[Any, Any, list[str]]] = [
     (
         _("Reporting setup"),
-        _("Reporting years, ActivityInfo databases and the indicator hierarchy."),
+        _(
+            "Whether ActivityInfo is in use or an archive, reporting years, ActivityInfo databases and the "
+            "indicator hierarchy."
+        ),
         [
+            "core.ActivityInfoSetting",
             "pivoting.ReportingYear",
             "pivoting.Database",
             "pivoting.MasterIndicator",
@@ -507,9 +511,11 @@ def dashboard(request) -> dict[str, Any]:
 def _dashboard(request) -> dict[str, Any]:
     from django.contrib.auth import get_user_model
 
+    from neurodb.core import years
     from neurodb.core.models import SyncRun
     from neurodb.facts.models import ActivityReportNew
     from neurodb.indicators.models import Database, MasterIndicator
+    from neurodb.indicators.services import activityinfo
     from neurodb.indicators.services.navigation import current_year
     from neurodb.library.models import Resource
     from neurodb.web import health
@@ -534,9 +540,10 @@ def _dashboard(request) -> dict[str, Any]:
         "year": year,
         "tiles": [
             {
-                "label": _("Current year"),
-                "value": year.name if year else "—",
-                "url": _admin_url("pivoting_reportingyear"),
+                "label": _("This year"),
+                "value": years.this_year(),
+                "hint": activityinfo.explain()[0],  # whether ActivityInfo is in use, and why
+                "url": _admin_url("core_activityinfosetting"),
             },
             {
                 "label": _("Databases shown"),

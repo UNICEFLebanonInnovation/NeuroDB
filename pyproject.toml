@@ -30,6 +30,7 @@ dev = [
   "pytest-django~=4.11",
   "factory-boy~=3.3",
   "responses~=0.25",
+  "time-machine~=3.5",                   # the tests' one clock (tests/conftest.py, site_today)
   "ruff~=0.12",
   "pip-audit~=2.9",
   "django-debug-toolbar~=5.0",

@@ -64,6 +64,12 @@ CACHE_VERSION = 1
 EDUCATION_TOTAL_SECONDS = 600  # children enrolled in a stored payload, per worker (keyed on its fetch)
 
 
+def current_cycle() -> CountryProgramme | None:
+    """The cycle the Country programme page opens on without ``?cycle=``: the one ticked current, else the
+    newest (``cpd.views._cycle``). Home and the menu read it."""
+    return CountryProgramme.objects.order_by("-current", "-start_year", "name").first()
+
+
 def elapsed_share(programme: CountryProgramme, today: datetime.date) -> float:
     """Share of the cycle elapsed, 0-100 (1 January of the first year to 31 December of the last)."""
     start = datetime.date(programme.start_year, 1, 1)

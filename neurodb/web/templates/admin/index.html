@@ -19,6 +19,7 @@
           {% component "unfold/components/card.html" with href=tile.url size="md" %}
             <div class="font-semibold text-2xl text-font-important-light tracking-tight dark:text-font-important-dark">{{ tile.value }}</div>
             <p class="text-subtle mb-0">{{ tile.label }}</p>
+            {% if tile.hint %}<p class="text-subtle text-xs mt-1 mb-0">{{ tile.hint }}</p>{% endif %}
           {% endcomponent %}
         {% endfor %}
       </section>

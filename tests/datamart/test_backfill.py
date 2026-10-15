@@ -38,6 +38,9 @@ def test_the_two_migrations_do_no_work_before_the_site_starts():
         assert migration.Migration.operations == []
 
 
+# The migration stamped the job due at the real moment the test database was created, before any test moved
+# the clock: "due now" is a statement about the real clock.
+@pytest.mark.real_clock
 def test_the_schedule_is_due_at_once_and_the_scheduler_starts_the_job(monkeypatch):
     job = ScheduledJob.objects.get(key=backfill.SCHEDULE_KEY)
     assert (job.command, job.schedule, job.enabled) == ("datamart_backfill", "*/15 * * * *", True)
@@ -278,6 +281,9 @@ QUICK_MIGRATIONS = {
     # the sections' comments on the HACT visit plan: a new, empty table (CreateModel only, no code runs;
     # listed so that every migration of the HACT visit plan is accounted for here)
     ("datamart", "0014_visit_plan_comment", "CreateModel"),
+    # whether ActivityInfo is in use or an archive: a new, empty table of one row (CreateModel only, no code
+    # runs; listed so that the migration is accounted for here)
+    ("core", "0028_activityinfo_setting", "CreateModel"),
     # SET LOCAL lock_timeout before the knowledge search's rank column, added empty (no default: the table's
     # description only, whatever the number of passages); the knowledge hub job fills it after start-up
     ("knowledge", "0007_chunk_rank_vector", "RunSQL"),
