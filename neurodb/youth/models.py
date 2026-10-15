@@ -15,13 +15,17 @@ from django.utils.translation import gettext_lazy as _
 
 class YouthFiguresQuerySet(models.QuerySet):
     def yearly(self) -> YouthFiguresQuerySet:
-        """The reporting years, without the figures of all years together (``YouthFigures.ALL``): every reader
-        that takes "the latest year" reads these ("all" sorts after "2026" as text)."""
+        """The reporting years: every row of this table is one (the figures of all years together are kept in
+        :class:`YouthAllYears`); kept for the readers that take "the latest year"."""
         return self.exclude(year=YouthFigures.ALL)
 
 
 class YouthFigures(models.Model):
-    ALL = "all"  # Compiler's count over every year (registrations without a year included)
+    """Compiler's youth figures of one reporting year. Every row is a year: a NeuroDB release before the
+    Power BI alignment takes each row for one (its latest year is the first by name), so the figures of all
+    years together are never kept here but in :class:`YouthAllYears`."""
+
+    ALL = "all"  # Compiler's count over every year (registrations without a year included): YouthAllYears
 
     year = models.CharField(max_length=16, unique=True, help_text=_("Compiler's reporting year"))
     fetched_at = models.DateTimeField()
@@ -36,6 +40,31 @@ class YouthFigures(models.Model):
 
     def __str__(self):
         return f"Youth figures {self.year}"
+
+
+class YouthAllYears(models.Model):
+    """Compiler's youth figures of every year together (registrations without a year included): one row, its
+    ``year`` always "all", read like a year's :class:`YouthFigures` by the youth page. Apart from YouthFigures
+    so that going back to an earlier release (which reads every YouthFigures row as a year, and "all" sorts
+    after "2026") never makes it the default year, the assistant's answer or the knowledge hub's youth
+    figures."""
+
+    year = models.CharField(max_length=16, unique=True, default=YouthFigures.ALL, editable=False)
+    fetched_at = models.DateTimeField()
+    payload = models.JSONField(help_text=_("counts of young people per grouping, as Compiler sent them"))
+
+    class Meta:
+        verbose_name = _("youth figures of all years")
+        verbose_name_plural = _("youth figures of all years")
+
+    def __str__(self):
+        return "Youth figures of all years"
+
+
+def figures_model(year: str) -> type[YouthFigures] | type[YouthAllYears]:
+    """The table that keeps ``year``'s figures: :class:`YouthAllYears` for "all", else
+    :class:`YouthFigures`."""
+    return YouthAllYears if year == YouthFigures.ALL else YouthFigures
 
 
 class YouthIndicatorLink(models.Model):

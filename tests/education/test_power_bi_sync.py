@@ -16,8 +16,11 @@ from neurodb.education.sync import sync, targets, wanted_years
 from neurodb.youth.compiler import CompilerClient
 
 from .payloads import (
+    MAKANI_DIMS,
+    SCHOOLS,
     catalogue_entry,
     dirasa_payload,
+    format_one,
     format_three,
     makani_payload,
     power_bi_block,
@@ -302,15 +305,58 @@ def test_a_view_that_disappears_keeps_its_last_definition_and_counts_as_a_change
     run = sync(triggered_by="test", client=Compiler({("mscc", "2026"): gone}))
     view = PowerBiView.objects.get(name="vw_mscc_data")
     assert run.details["power_bi_changed"] == ["vw_mscc_data"]
-    assert (view.exists, view.can_select, view.sha256, view.previous_sha256) == (
+    # missing now; the hash of its last definition is kept, and no definition change is dated
+    assert (view.exists, view.can_select, view.sha256, view.previous_sha256, view.changed_at) == (
         False,
         False,
-        "",
         f"{1:064x}",
+        "",
+        None,
     )
     assert view.definition == view_definition("mscc") and view.kind == "view"
     check = power_bi.check("mscc", "2026")
     assert (check.mode, check.reason, check.key_check) == ("rule", "view missing", {})
+
+    # created again with the same definition (views are re-created by hand): no change
+    back = mscc3(checked_at="2026-10-18T02:31:10+00:00")
+    run = sync(triggered_by="test", client=Compiler({("mscc", "2026"): back}))
+    view.refresh_from_db()
+    assert "power_bi_changed" not in run.details
+    assert (view.exists, view.sha256, view.previous_sha256, view.changed_at) == (True, f"{1:064x}", "", None)
+    # then with another one: a change from the definition it had before the gap
+    other = mscc3(version=2, checked_at="2026-10-19T02:31:10+00:00")
+    run = sync(triggered_by="test", client=Compiler({("mscc", "2026"): other}))
+    view.refresh_from_db()
+    assert run.details["power_bi_changed"] == ["vw_mscc_data"]
+    assert (view.sha256, view.previous_sha256) == (f"{2:064x}", f"{1:064x}")
+    assert view.changed_at.isoformat() == "2026-10-19T02:31:10+00:00"
+
+
+def test_a_view_compiler_could_not_describe_is_neither_missing_nor_changed(settings):
+    """Compiler sends ``{"exists": null, "error": ...}`` when describing a view failed (a timeout): unknown.
+    Taking it for a dropped view would show "view missing", then "definition changed" the next night for a
+    definition that never changed, and lose the hash it had."""
+    settings.COMPILER_EDUCATION_YEARS = 1
+    sync(triggered_by="test", client=Compiler({("mscc", "2026"): mscc3()}))
+    first = PowerBiView.objects.get(name="vw_mscc_data")
+    failed = mscc3(
+        mode="rule",
+        reason="QueryCanceled: canceling statement due to statement timeout",
+        checked_at="2026-10-16T02:31:10+00:00",
+        errors=["catalogue: QueryCanceled: canceling statement due to statement timeout"],
+    )
+    failed["power_bi"]["catalogue"]["vw_mscc_data"] = {"exists": None, "error": "QueryCanceled"}
+    failed["power_bi"]["catalogue"]["vw_mscc_data_no_round"] = {"exists": False, "error": "QueryCanceled"}
+    run = sync(triggered_by="test", client=Compiler({("mscc", "2026"): failed}))
+    view = PowerBiView.objects.get(name="vw_mscc_data")
+    assert "power_bi_changed" not in run.details
+    assert (view.exists, view.sha256, view.previous_sha256, view.changed_at) == (True, first.sha256, "", None)
+    assert view.checked_at == first.checked_at  # not described this time: what was kept stays
+    assert not PowerBiView.objects.filter(name="vw_mscc_data_no_round").exists()
+    again = mscc3(checked_at="2026-10-17T02:31:10+00:00")
+    run = sync(triggered_by="test", client=Compiler({("mscc", "2026"): again}))
+    assert "power_bi_changed" not in run.details
+    assert PowerBiView.objects.get(name="vw_mscc_data").changed_at is None
 
 
 def test_a_payload_without_the_block_leaves_the_stored_check(settings):
@@ -399,3 +445,94 @@ def test_a_comparison_that_cannot_be_kept_changes_nothing(settings):
         power_bi.store("mscc", "2026", broken)
     view = PowerBiView.objects.get(name="vw_mscc_data")  # the database still answers: nothing was kept
     assert view.sha256 == f"{1:064x}" and power_bi.check("mscc", "2026").mode == "view"
+
+
+def test_an_older_comparison_never_replaces_a_newer_one(settings):
+    """A payload compared before the one kept (a past count read late) leaves the newer comparison."""
+    settings.COMPILER_EDUCATION_YEARS = 1
+    sync(
+        triggered_by="test",
+        client=Compiler({("mscc", "2026"): mscc3(checked_at="2026-10-17T02:31:10+00:00")}),
+    )
+    older = mscc3(mode="rule", reason="view missing", checked_at="2026-10-16T02:31:10+00:00")
+    power_bi.store("mscc", "2026", older)
+    check = power_bi.check("mscc", "2026")
+    assert (check.mode, check.reason, check.checked_at.isoformat()) == (
+        "view",
+        "",
+        "2026-10-17T02:31:10+00:00",
+    )
+
+
+def test_a_payload_of_the_oldest_format_is_kept_and_noted_on_the_run(settings):
+    settings.COMPILER_EDUCATION_YEARS = 2
+    old = format_one(mscc2("2025"))
+    run = sync(triggered_by="test", client=Compiler({("mscc", "2026"): mscc3(), ("mscc", "2025"): old}))
+    assert run.details["older_format"] == ["mscc 2025"]
+    assert EducationFigures.objects.get(programme="mscc", year="2025").payload["format"] == 1
+    assert (
+        "older_format" not in sync(triggered_by="test", client=Compiler({("mscc", "2026"): mscc3()})).details
+    )
+
+
+def _row(values):
+    """One enrolment cube row of format 3: the dimensions (one combination), then ``values`` in the order of
+    the measures below."""
+    dims = {"center": 100, "partner": 5, "governorate": 20, "sex": "Female"}
+    return [dims.get(d) for d in MAKANI_DIMS] + values
+
+
+def test_every_card_version_counts_its_own_definition():
+    """Data health shows each version's value so an administrator picks the one equal to Power BI's number:
+    payloads in which the versions differ, so that a version reading another one's numbers would show."""
+    from tests.youth.test_power_bi_sync import format_two
+
+    makani = mscc3()
+    measures = ["registrations", "married", "idp", "counselling", "immunized", "screened", "minimum_meals",
+                "vaccinated", "immunized_record", "immunized_child", "screened_muac", "view_rows"]  # fmt: skip
+    makani["cubes"]["enrolment"] = {
+        "dims": list(MAKANI_DIMS),
+        "measures": measures,
+        # immunized: either 3 = record 2 + child 1 (none both); screened: a result 4, of which MUAC 1
+        "rows": [_row([2, 0, 0, 0, 2, 3, 0, 0, 1, 1, 1, 2]), _row([1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1])],
+    }
+    makani["cubes"]["staff"] = {
+        "dims": ["center", "partner", "governorate", "sex", "active"],
+        "measures": ["staff"],
+        "rows": [[100, 5, 20, "Female", "Yes", 2], [100, 5, 20, "Male", "No", 1],
+                 [101, 6, 22, "Male", "Not specified", 1]],
+    }  # fmt: skip
+    values = power_bi.variant_totals("mscc", makani)
+    assert values["immunized"] == {"either": 3, "record_screened": 2, "child_screened": 1}
+    assert values["screened"] == {"either": 4, "muac_only": 1}
+    assert values["staff"] == {"all": 4, "active": 2, "at_centres_with_children": 3, "view_rows": 3}
+    assert values["children"] == {"registrations": 3, "view_rows": 3}
+
+    # a school no Dirasa partner lists reports numbers too: in Compiler's "all", never in "listed"
+    schools = [dict(s) for s in SCHOOLS]
+    schools[2] = {**schools[2], "counts": {**schools[2]["counts"], "children": 50, "cwd": 4, "dirasa_cwd": 3}}
+    teachers = [{"school": 300, "sex": "Male"}]
+    dirasa = format_three(
+        dirasa_payload(DIRASA, teachers, round_name=ROUND, schools=schools),
+        power_bi_block("bridging", ROUND),
+        schools=schools,
+    )
+    assert dirasa["school_totals"]["all"]["children"] != dirasa["school_totals"]["listed"]["children"]
+    dirasa["power_bi"]["related"] = {  # by round: 3 rows of this round (id 9), 5 of another
+        "vw_teacher_data": {"exists": True, "by": ["round_id"], "measures": ["rows", "ids"],
+                            "rows": [[8, 5, 5], [9, 3, 3]], "truncated": False},
+    }  # fmt: skip
+    values = power_bi.variant_totals("bridging", dirasa)
+    assert values["in_school"] == {"schools_round": 400, "schools_all_listed": 650}
+    assert values["in_school_cwd"] == {"schools_round": 12, "schools_all_listed": 12}
+    assert values["cwd"]["schools_all_listed"] == 2
+    assert values["teachers"] == {"round": 1, "round_at_schools_with_children": 1, "view_rows": 3}
+
+    youth = format_two("2026")
+    partner = next(g for g in youth["figures"] if g["by"] == ["partner"])
+    named = len(partner["rows"])
+    partner["rows"] = partner["rows"] + [[None, 1]]  # young people enrolled without a partner
+    assert power_bi.variant_totals("youth", youth)["partners"] == {
+        "with_blank": named + 1,
+        "without_blank": named,
+    }

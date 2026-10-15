@@ -30,7 +30,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
@@ -42,7 +42,7 @@ from django.utils.translation import gettext_lazy as _
 
 from neurodb.core import compute
 
-from .models import PowerBiCard, PowerBiCheck, PowerBiView
+from .models import EducationFigures, PowerBiCard, PowerBiCheck, PowerBiView
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,7 @@ VERSION = 1  # the version of the power_bi block this NeuroDB was written for (a
 DEFINITION_CHARS = 70_000  # Compiler caps the masked definition at 64 KB; anything longer is cut here too
 ERROR_CHARS, MAX_ERRORS = 500, 50  # the parts Compiler could not compare (an error class and a short message)
 ALL = "all"  # the youth period of every year together (YouthFigures.ALL)
+EDUCATION = ("mscc", "bridging")  # the programmes whose figures are EducationFigures (youth's: YouthFigures)
 PROGRAMMES = (  # in the order Data health lists them, with the page each one's figures are drawn on
     ("mscc", _("Makani (MSCC)"), "education:makani"),
     ("bridging", _("Dirasa (Bridging)"), "education:dirasa"),
@@ -476,7 +477,12 @@ def card_value(programme: str, name: str, figures: Any, filters: dict[str, Any])
             used = variant
             break
     name_of = {variant: str(card.names.get(variant, variant)) for variant in (picked, used)}
-    if used != picked:
+    if used != picked and picked == card.default:  # nobody chose: the default itself cannot answer
+        hint = _("%(default)s cannot be counted under these filters: %(shown)s shown.") % {
+            "default": name_of[picked],
+            "shown": name_of[used],
+        }
+    elif used != picked:
         hint = _("The version chosen (%(chosen)s) cannot be counted here: %(shown)s shown.") % {
             "chosen": name_of[picked],
             "shown": name_of[used],
@@ -583,10 +589,14 @@ def variant_totals(programme: str, payload: dict[str, Any]) -> dict[str, dict[st
 def store(programme: str, period: str, payload: dict[str, Any]) -> list[str]:
     """Keep the payload's comparison with Power BI's view: the ``PowerBiCheck`` of ``programme`` and
     ``period``, and a ``PowerBiView`` per view its catalogue describes. Returns the names of the views whose
-    definition changed (a view dropped or created again counts as a change). A payload without the block
-    (an older Compiler) leaves any stored check as it is."""
+    definition changed (a view dropped, created, or created again with another definition counts as a change;
+    one Compiler could not describe does not). A payload without the block (an older Compiler) leaves any
+    stored check as it is, noting that the figures kept are of a later count."""
     data = block(payload)
-    if data is None:
+    if data is None:  # the comparison kept is now of an older count than the figures: Data health says so
+        PowerBiCheck.objects.filter(programme=programme, period=str(period)[:64]).update(
+            figures_counted_at=counted_at(payload)
+        )
         return []
     checked_at = _when(data.get("checked_at")) or _when(payload.get("counted_at")) or timezone.now()
     with transaction.atomic():  # all or nothing: a failure leaves the rows as they were
@@ -608,6 +618,7 @@ def _store_check(
         defaults={
             "checked_at": checked_at,
             "counted_at": counted_at(payload),
+            "figures_counted_at": counted_at(payload),
             "view": str(data.get("view") or "")[:63],
             "mode": str(base.get("mode") or "")[:8],
             "reason": str(base.get("reason") or "")[:300],
@@ -624,22 +635,33 @@ def _store_check(
 
 def _store_views(catalogue: dict[str, Any], checked_at: datetime) -> list[str]:
     """Upsert each described view. A description older than the one kept (a past period's payload, counted
-    before the current one) is skipped, so it never turns a definition back."""
+    before the current one) is skipped, so it never turns a definition back. So is a view Compiler could not
+    describe (``exists`` not true or false, e.g. a timeout): unknown, never "dropped". A dropped view keeps
+    the hash of its last definition, so one created again with the same definition is no change."""
     changed = []
     for raw_name, entry in catalogue.items():
         if not raw_name or not isinstance(entry, dict):
             continue
+        exists = entry.get("exists")
+        if not isinstance(exists, bool) or entry.get("error"):
+            continue  # not described this time: what is kept stays
         name = str(raw_name)[:63]
         row = PowerBiView.objects.filter(name=name).first()
         if row is not None and row.checked_at > checked_at:
             continue
-        exists = bool(entry.get("exists"))
         sha256 = str(entry.get("definition_sha256") or "")[:64] if exists else ""
         if row is None:
-            row = PowerBiView(name=name, first_seen=checked_at)
-        elif row.sha256 != sha256:
-            row.previous_sha256, row.changed_at = row.sha256, checked_at
-            changed.append(name)
+            row = PowerBiView(name=name, first_seen=checked_at, sha256=sha256)
+        elif not exists:
+            if row.exists:  # dropped: named on the sync run; its last definition and hash are kept
+                changed.append(name)
+            sha256 = row.sha256
+        else:
+            # the definition before a gap: kept by a drop, or (stored by an earlier build) in previous_sha256
+            before = row.sha256 or ("" if row.exists else row.previous_sha256)
+            if sha256 != before:
+                row.previous_sha256, row.changed_at = before, checked_at
+                changed.append(name)
         row.exists, row.sha256, row.checked_at = exists, sha256, checked_at
         row.can_select = exists and bool(entry.get("can_select"))
         if exists:  # a view that disappears keeps its last description
@@ -706,6 +728,7 @@ FLAG_LABELS = {  # the reconciliation's reasons, in Data health's words
     "no_master": _("not enrolled under a youth indicator"),
 }
 SETS = ("in_view", "in_before", "counted")
+KEY_FACTS = ("rows", "ids", "deleted_rows", "null_keys", "max_rows_per_id", "conflicting", "verified")
 KEY_LABELS = (  # the key check's comparisons, each over the view's rows of the period (CONTRACT_PBI §3.3)
     ("found", _("are registrations")),
     ("same_round", _("have the registration's own round")),
@@ -719,13 +742,32 @@ KEY_LABELS = (  # the key check's comparisons, each over the view's rows of the 
 )
 
 
+def _view_read(reconciliation: dict[str, Any]) -> bool:
+    """Whether Compiler read the view's rows for this comparison: without them (the view missing, no
+    permission, the setting ``rule``, a failed key check or an error) the totals that need the view are null,
+    and no registration can be said to be in the view or not (CONTRACT_PBI §3.4)."""
+    return isinstance(((reconciliation or {}).get("totals") or {}).get("view_ids"), int)
+
+
+def _not_compared(the_check: PowerBiCheck) -> str:
+    """Why the registrations counted were not compared with the view's: "" when they were; "view" when
+    Compiler did not read the view's rows (it counted with its own rule); "failed" when it counted the view's
+    rows but the comparison itself failed (the reconciliation is ``{}`` and its error is in ``errors``,
+    CONTRACT_PBI §3.4): the counts are the view's, so "the view was not read" would be untrue."""
+    if _view_read(the_check.reconciliation or {}):
+        return ""
+    return "failed" if the_check.mode == "view" else "view"
+
+
 def _reconciled(reconciliation: dict[str, Any]) -> list[dict[str, Any]]:
     """The reconciliation's rows: in which of the three sets, why (the reasons set, in words; "not a
-    registration" when the view's id is none), and the counts."""
+    registration" when the view's id is none), and the counts. ``in_view`` is None when the view's rows were
+    not read: unknown, not "no"."""
     by = list(reconciliation.get("by") or [])
     measures = list(reconciliation.get("measures") or [])
     people = measures[2] if len(measures) > 2 else ""
     reasons_of = [name for name in by if name not in SETS]
+    read = _view_read(reconciliation)
     out = []
     for row in reconciliation.get("rows") or []:
         if not isinstance(row, list) or len(row) < len(by) + len(measures):
@@ -737,7 +779,7 @@ def _reconciled(reconciliation: dict[str, Any]) -> list[dict[str, Any]]:
             reasons = [str(_("not a registration"))]
         out.append(
             {
-                "in_view": bool(flags.get("in_view")),
+                "in_view": bool(flags.get("in_view")) if read else None,
                 "in_before": bool(flags.get("in_before")),
                 "counted": bool(flags.get("counted")),
                 "reasons": reasons,
@@ -777,29 +819,88 @@ def _related(related: dict[str, Any]) -> list[dict[str, Any]]:
         out.append(
             {
                 "name": name,
-                "exists": bool(profile.get("exists")),
+                # one Compiler could not describe or read ({"exists": null, "error": ...}) is not "missing"
+                "exists": bool(profile.get("exists")) or bool(profile.get("error")),
                 "error": str(profile.get("error") or ""),
                 "by": list(profile.get("by") or []),
                 "measures": list(profile.get("measures") or []),
                 "rows": [r for r in profile.get("rows") or [] if isinstance(r, list)][:50],
+                # Compiler keeps 50 groups at most: a cut list is not the view's total (its versions: unknown)
                 "truncated": bool(profile.get("truncated")),
+                # counted for the period's rounds only (Compiler from fixer R3: Dirasa's teachers)
+                "period_rounds": bool(profile.get("rounds")),
             }
         )
     return out
 
 
-def _cards(programme: str, the_check: PowerBiCheck, typed: dict[tuple[str, str], PowerBiCard]) -> list[dict]:
+def page_periods(programmes: Iterable[str]) -> dict[str, list[str]]:
+    """The stored periods of the education ``programmes`` (Makani's years, Dirasa's rounds), each programme's
+    latest first as its page lists them and opens on the first (``education.services.periods``): by the start
+    of the payload's first round, then by name. A Dirasa round's name is free text in Compiler, shared by
+    every CLM programme ("Round 10 2026-2027", "Bridging Round 2 2025-2026"), so its text order need not be
+    its date order. One query (the start date is read in the database, not the payload); none for youth,
+    whose page lists its years by name."""
+    wanted = [p for p in dict.fromkeys(programmes) if p in EDUCATION]
+    if not wanted:
+        return {}
+    rows = EducationFigures.objects.filter(programme__in=wanted).values_list(
+        "programme", "year", "payload__rounds__0__start_date"
+    )
+    out: dict[str, list[str]] = {p: [] for p in wanted}
+    for programme, year, _start in sorted(rows, key=lambda r: (str(r[2] or ""), r[1]), reverse=True):
+        out[programme].append(year)
+    return out
+
+
+def latest_first(
+    programme: str, periods: Iterable[str], page: dict[str, list[str]] | None = None
+) -> list[str]:
+    """``periods`` of ``programme`` (all years together left out), latest first in the order its page
+    lists them (:func:`page_periods`; youth's years by name, as its page), so that Data health, the card
+    admin and the summary call "latest" the period the page opens on. A period the page no longer lists
+    comes after, by name. ``page``: :func:`page_periods`' answer, when already read."""
+    periods = [p for p in dict.fromkeys(periods) if p != ALL]
+    if programme not in EDUCATION:
+        return sorted(periods, reverse=True)
+    order = (page_periods([programme]) if page is None else page).get(programme, [])
+    rank = {period: i for i, period in enumerate(order)}
+    listed = sorted((p for p in periods if p in rank), key=rank.__getitem__)
+    return listed + sorted((p for p in periods if p not in rank), reverse=True)
+
+
+def latest_period(
+    programme: str, checks: list[PowerBiCheck] | None = None, page: dict[str, list[str]] | None = None
+) -> str:
+    """The programme's latest compared period (not all years together), as its page orders them
+    (:func:`latest_first`): the one a Power BI number typed without a period is compared with. ``checks``: the
+    programme's, and ``page``: :func:`page_periods`' answer, when already read."""
+    if checks is None:
+        checks = list(PowerBiCheck.objects.filter(programme=programme).only("programme", "period"))
+    periods = latest_first(programme, (c.period for c in checks if c.programme == programme), page)
+    return periods[0] if periods else ""
+
+
+def typed_for(row: PowerBiCard | None, period: str, latest: str) -> bool:
+    """Whether the Power BI number typed in ``row`` is compared with ``period``: the period it was typed for
+    (one of the stored periods, chosen in the admin), else the programme's ``latest`` period only."""
+    if row is None or row.powerbi_value is None:
+        return False
+    return period == (row.powerbi_period or latest)
+
+
+def _cards(
+    programme: str, the_check: PowerBiCheck, typed: dict[tuple[str, str], PowerBiCard], latest: str = ""
+) -> list[dict]:
     """Each card of the programme: every version's value at the period total, the number Power BI shows when
-    an administrator typed it for this period (or for no period), which versions equal it, and the one in
-    use."""
+    an administrator typed it for this period (or, typed without a period, when this is the ``latest``
+    period), which versions equal it, and the one in use."""
     out = []
     for name, card in VARIANTS.get(programme, {}).items():
         values = (the_check.variants or {}).get(name) or {}
         row = typed.get((programme, name))
         in_use = row.variant if row is not None and row.variant in card.variants else card.default
-        shown = row is not None and row.powerbi_value is not None
-        if shown and row.powerbi_period and row.powerbi_period != the_check.period:
-            shown = False
+        shown = typed_for(row, the_check.period, latest)
         powerbi = row.powerbi_value if shown else None
         versions = [
             {
@@ -826,18 +927,32 @@ def _cards(programme: str, the_check: PowerBiCheck, typed: dict[tuple[str, str],
     return out
 
 
-def _latest(checks: list[PowerBiCheck]) -> list[PowerBiCheck]:
-    """All years together first (youth), then the periods, latest first."""
-    every = [c for c in checks if c.period == ALL]
-    others = sorted((c for c in checks if c.period != ALL), key=lambda c: c.period, reverse=True)
-    return every + others
+def _latest(programme: str, checks: list[PowerBiCheck], page: dict[str, list[str]]) -> list[PowerBiCheck]:
+    """The programme's checks: all years together first (youth), then the periods, latest first as its page
+    orders them (:func:`latest_first`; ``page``: :func:`page_periods`' answer)."""
+    mine = {c.period: c for c in checks if c.programme == programme}
+    every = [mine[ALL]] if ALL in mine else []
+    return every + [mine[period] for period in latest_first(programme, mine, page)]
 
 
-def _row(the_check: PowerBiCheck, view: PowerBiView | None, typed: dict) -> dict[str, Any]:
-    """One programme and period on Data health (counts only: no definition, no masked text)."""
+def _stale(the_check: PowerBiCheck) -> bool:
+    """Whether the figures kept for the check's period were counted later than the comparison: the payload
+    that came after it had none (a Compiler gone back to an earlier version), so the comparison is of an
+    older count (as :func:`note` says on the page)."""
+    later, compared = the_check.figures_counted_at, the_check.counted_at
+    return bool(later and compared and later - compared > STALE_AFTER)
+
+
+def _row(
+    the_check: PowerBiCheck, view: PowerBiView | None, typed: dict, latest: str = "", stale: bool = False
+) -> dict[str, Any]:
+    """One programme and period on Data health (counts only: no definition, no masked text). ``latest``: the
+    programme's latest period (a Power BI number typed without a period is compared with it only);
+    ``stale``: the page's figures were counted after this comparison (:func:`_stale`)."""
     reconciliation = the_check.reconciliation or {}
     totals = reconciliation.get("totals") or {}
     rows = _reconciled(reconciliation)
+    read = _view_read(reconciliation)
     view_ids, counted = totals.get("view_ids"), totals.get("counted")
     return {
         "programme": the_check.programme,
@@ -858,10 +973,13 @@ def _row(the_check: PowerBiCheck, view: PowerBiView | None, typed: dict) -> dict
         "base": {k: v for k, v in (the_check.base or {}).items() if isinstance(v, str | int | list | None)},
         "view_rows": totals.get("view_rows"),
         "view_ids": view_ids,
+        "view_read": read,  # False: "not compared", never "not in the view"
+        "not_compared": _not_compared(the_check),  # why not: the view was not read, or the comparison failed
+        "stale": stale,
         "counted": counted,
         "difference": counted - view_ids if isinstance(counted, int) and isinstance(view_ids, int) else None,
-        "left_out": _why(rows, lambda r: r["in_view"] and not r["counted"]),
-        "not_in_view": _why(rows, lambda r: r["counted"] and not r["in_view"]),
+        "left_out": _why(rows, lambda r: r["in_view"] and not r["counted"]) if read else [],
+        "not_in_view": _why(rows, lambda r: r["counted"] and not r["in_view"]) if read else [],
         "before": totals.get("before"),
         "before_difference": totals.get("before") - counted
         if isinstance(totals.get("before"), int) and isinstance(counted, int)
@@ -872,12 +990,9 @@ def _row(the_check: PowerBiCheck, view: PowerBiView | None, typed: dict) -> dict
         "people_measure": (list(reconciliation.get("measures") or []) + ["", "", ""])[2],
         "periods": [p for p in the_check.periods or [] if isinstance(p, dict)],
         "key_check": _key_check(the_check.key_check or {}),
-        "key_facts": {
-            k: (the_check.key_check or {}).get(k)
-            for k in ("rows", "ids", "deleted_rows", "max_rows_per_id", "conflicting", "verified")
-        },
+        "key_facts": {k: (the_check.key_check or {}).get(k) for k in KEY_FACTS},
         "related": _related(the_check.related or {}),
-        "cards": _cards(the_check.programme, the_check, typed),
+        "cards": _cards(the_check.programme, the_check, typed, latest),
         "checked_at": the_check.checked_at,
         "counted_at": the_check.counted_at,
         "errors": [str(e) for e in the_check.errors or []],
@@ -886,8 +1001,8 @@ def _row(the_check: PowerBiCheck, view: PowerBiView | None, typed: dict) -> dict
 
 def health() -> list[dict[str, Any]]:
     """Data health's *Compared with Power BI*: per programme, its latest periods (at most
-    :data:`HEALTH_PERIODS`), each compared with Power BI's view. Three queries, whatever the number of
-    periods; counts only."""
+    :data:`HEALTH_PERIODS`), each compared with Power BI's view. Four queries at most, whatever the number of
+    periods (the fourth orders Makani's and Dirasa's periods as their pages do); counts only."""
     from django.urls import reverse
 
     checks = list(PowerBiCheck.objects.all())
@@ -896,15 +1011,19 @@ def health() -> list[dict[str, Any]]:
         v.name: v for v in PowerBiView.objects.filter(name__in=names).defer("definition", "columns", "reads")
     }
     typed = {(c.programme, c.card): c for c in PowerBiCard.objects.all()}
+    page = page_periods({c.programme for c in checks})
     out = []
     for programme, label, url_name in PROGRAMMES:
-        mine = _latest([c for c in checks if c.programme == programme])[:HEALTH_PERIODS]
+        mine = _latest(programme, checks, page)
+        latest = latest_period(programme, mine, page)
         out.append(
             {
                 "programme": programme,
                 "label": str(label),
                 "url": reverse(url_name),
-                "checks": [_row(c, views.get(c.view), typed) for c in mine],
+                "checks": [
+                    _row(c, views.get(c.view), typed, latest, _stale(c)) for c in mine[:HEALTH_PERIODS]
+                ],
             }
         )
     return out
@@ -913,11 +1032,13 @@ def health() -> list[dict[str, Any]]:
 def summary() -> list[dict[str, Any]]:
     """Per programme, its latest reporting period (not all years together) compared with Power BI's view, in
     a few words (counts only): for the assistant, the daily review and the internal API
-    (``reports.services.data_health``)."""
-    checks = list(PowerBiCheck.objects.exclude(period=ALL).order_by("programme", "-period"))
+    (``reports.services.data_health``). Its latest period is the one its page opens on
+    (:func:`latest_first`)."""
+    checks = list(PowerBiCheck.objects.exclude(period=ALL))
+    page = page_periods({c.programme for c in checks})
     out = []
     for programme, label, _url in PROGRAMMES:
-        latest = next((c for c in checks if c.programme == programme), None)
+        latest = next(iter(_latest(programme, checks, page)), None)
         if latest is None:
             out.append({"programme": programme, "label": str(label), "compared": False})
             continue
@@ -938,6 +1059,8 @@ def summary() -> list[dict[str, Any]]:
                 if isinstance(counted, int) and isinstance(view_ids, int)
                 else None,
                 "checked_at": latest.checked_at,
+                # the figures were counted later, without a comparison: this one is of an older count
+                "stale": _stale(latest),
                 "errors": len(latest.errors or []),
             }
         )

@@ -161,11 +161,15 @@ with the number of registrations under it. The youth page has **All years**, whi
 registrations saved before September 2025 without a year.
 
 **Choosing a card's version** (administrators): open Administration → **Power BI cards**, open the card,
-type the number Power BI shows for it and its period (for example 2026), and save. Data health → *Compared
+type the number Power BI shows for it, choose its period in the list (the periods Data health compares: for
+Dirasa the round's name, such as "Bridging 2026-2027", whatever Power BI's page title says; left empty, the
+latest period, the one the page opens on), and save. Data health → *Compared
 with Power BI* then marks the version that gives that number ("equals Power BI"); choose that version in
 the same card and save. The pages, and the country programme's children enrolled, show it at once. A card
 whose versions all differ from Power BI's number says "No version equals Power BI's number": tell the
-NeuroDB team. Choosing the version marked "default" shows the card as before. **Power BI views** shows the
+NeuroDB team. The version marked "default" is the one shown until an administrator chooses another; it is
+the card's count before this change except for Dirasa's children (before: "Registrations") and in-school
+children and CWD (now the schools with registrations only). **Power BI views** shows the
 views' definitions, with names and lists of numbers hidden, to administrators only.
 
 ## When the data is refreshed

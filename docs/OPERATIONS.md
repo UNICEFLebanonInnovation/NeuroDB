@@ -4120,8 +4120,8 @@ the Compiler programme document's project code for links to be suggested.
    the run notes "Compiler was busy with another count", the youth API counts each year when read and all
    years together keep their last count. It then reads this year and `COMPILER_YOUTH_YEARS - 1` years
    before it (default 2 in all; a year Compiler does not have is skipped), and all years together
-   (`?year=all`, kept as the year "all"; it never counts as the latest year, and has no targets and no
-   eTools links). A run whose all-years figures could not be read ends *partial*; an older Compiler,
+   (`?year=all`, kept apart from the years in a table of its own, `YouthAllYears`, so that it never counts
+   as the latest year, even for an earlier NeuroDB after a rollback; it has no targets and no eTools links). A run whose all-years figures could not be read ends *partial*; an older Compiler,
    which has none, is not an error.
 4. **Power BI's view** `vw_youth_data_all`: the database grant, the deployment order (Compiler first), the
    two jobs to switch on and the way back are those of *Education programmes* → *Setting it up* (steps
@@ -4220,20 +4220,38 @@ raw text).
   Makani and Dirasa sources read the same version. A version a payload cannot count (a measure of a newer
   format, a filter the unique count does not hold) shows the default instead, and the card says so.
 - *Choosing a version* (Administrators only): Admin → Compiler (youth and education) → **Power BI cards**
-  lists every card. Type the number Power BI shows for a card (and the period, e.g. 2026), save: Data
-  health marks the version that gives it; choose that version in the same form. The pages show it at once
+  lists every card. Type the number Power BI shows for a card and choose its period in the list (the
+  periods Data health compares: Makani's year, e.g. 2026; Dirasa's round by its name, e.g. "Bridging
+  2026-2027", whatever Power BI's page title says; youth's year or *All years*; left empty, the latest
+  period), save: Data health marks the version that gives it; choose that version in the same form. A
+  number kept without a period is compared with the latest period only. "The latest period" is the one the
+  page opens on: Dirasa's round that starts last (by its first round's start date, as the page orders its
+  rounds), whatever its name, since round names are free text; Data health and its summary order the
+  periods the same way. The pages show it at once
   (the choice is in their caches' keys); nothing else changes. **Power BI views** (Administrators only,
   read-only) shows each view's masked definition, columns, the relations it reads, its hash and the date
   its definition last changed (a change is also named on the sync run, `power_bi_changed`).
 - *Data health → Compared with Power BI* (every member of staff; counts only, no definition): per programme
   its latest periods (at most three; youth: all years first): whether the figures were counted from the
   view or from the rule and why, the view's registrations and rows, what NeuroDB counted, the difference
-  and its reasons (deleted, not in the view), what NeuroDB counted before this change and why it differed
+  and its reasons (deleted, not in the view; when the view's rows were not read, e.g. in rule mode, "not
+  compared: the view was not read", never "not in the view"; when Compiler counted from the view but its
+  comparison failed, e.g. a timeout, "not compared: the comparison could not be made (see the errors)"),
+  what NeuroDB counted before this change and
+  why it differed
   (TLS, without a round, of another year, without a year...), Compiler's count time; and per period the
   reasons table, the view's rows per round (or year), the key check as percentages, the related views'
-  rows and the cards: every version's value at the period total, the number typed from Power BI, the
-  version(s) equal to it ("No version equals Power BI's number" otherwise) and the version in use. Ask
-  NeuroDB's data freshness look-up, the daily review and the internal API get a summary of it.
+  rows (`vw_teacher_data` counted for the period's rounds only, since it holds the teachers of every CLM
+  round; a list Compiler cut at 50 groups says so, and the version counted from it is then not available)
+  and the cards: every version's value at the period total, the number typed from Power BI, the
+  version(s) equal to it ("No version equals Power BI's number" otherwise) and the version in use. A
+  comparison of an older count than the figures kept (a later payload had none: Compiler gone back to an
+  earlier version) says "not compared in the latest count". A view Compiler could not describe (a timeout)
+  is left as it was, never taken for a dropped one; a view dropped and created again with the same
+  definition is no change. Ask NeuroDB's data freshness look-up and the internal API get a summary of it
+  (mode, difference, and `stale` for a comparison of an older count). The daily review receives it too but
+  does not yet raise a problem for a programme counted with Compiler's rule or a view whose definition
+  changed (not built yet).
 
 **The pages** (Partnerships → **Makani (MSCC)** and **Dirasa (Bridging)**; `/education/` opens
 Makani). They follow the programmes' Power BI dashboards: title "Makani Programme Dashboard <year>"
@@ -4301,7 +4319,8 @@ in-school children, teachers).
    Power BI's views (payload formats 3 and 2) is branch `neurodb-power-bi-views`, made from `local`, which
    adds no migration. On the Compiler server, for its developers only, `python manage.py
    refresh_neurodb_figures` counts at once. Optional settings: `FIGURES_DATABASE` (a read-replica alias),
-   `FIGURES_STATEMENT_TIMEOUT_MS` (600000), `FIGURES_WORK_MEM` (32MB), `FIGURES_API_RATE` (120/hour), and
+   `FIGURES_STATEMENT_TIMEOUT_MS` (600000), `FIGURES_WORK_MEM` (32MB), `FIGURES_JIT` (off: PostgreSQL's JIT
+   compilation took longer than the counts themselves), `FIGURES_API_RATE` (120/hour), and
    from `neurodb-power-bi-views` `FIGURES_POWER_BI` (see *Compared with Power BI*),
    `FIGURES_POWER_BI_MIN_MATCH` (0.99), `FIGURES_POWER_BI_RELATED` (on), `FIGURES_PAST_MAX_AGE_HOURS` (168)
    and `YOUTH_FIGURES_API_RATE` (120/hour).
@@ -4329,13 +4348,20 @@ in-school children, teachers).
       `GRANT SELECT ON vw_mscc_data, vw_bridging_data, vw_youth_data_all, vw_center_program_staff,
       vw_center_data, vw_teacher_data TO <role>;`. Without it Compiler counts with its own rule and Data
       health says "no SELECT permission on ..." (the views' definitions are read all the same: that needs
-      no grant).
+      no grant). A grant belongs to the view as it is: `CREATE OR REPLACE VIEW` keeps it, but a view
+      dropped and created again (these views are re-created by hand, and a Compiler migration has dropped
+      some before) loses it, and Compiler then counts that programme with its own rule again (each period
+      at its next count) until the grant is given again. So either count with the role that owns the views
+      (it needs no grant), or also give the default privileges of the role that creates them, once:
+      `ALTER DEFAULT PRIVILEGES FOR ROLE <creator> IN SCHEMA public GRANT SELECT ON TABLES TO <role>;`,
+      and after re-creating a view by hand, look at Data health the next morning.
    2. *Compiler first*: deploy `neurodb-power-bi-views` (production also runs the Makani wellbeing work,
       `makani-wellbeing-flags`; both are on `local`). Nothing else is needed: the next count is in the new
       formats. The NeuroDB already running keeps working: it reads only the keys it knows, youth is not in
       the education index, and the youth API still answers a year on the spot.
-   3. *NeuroDB second*: deploy (migration `education.0002_power_bi`: three new, empty tables, applied in
-      a moment). NeuroDB reads both payload formats, so the order matters only in that a NeuroDB deployed
+   3. *NeuroDB second*: deploy (migrations `education.0002_power_bi`: three new, empty tables;
+      `education.0003_power_bi_figures_counted_at`: one empty column; `youth.0002_youth_all_years`: the
+      youth figures of all years together in a new table of their own; each applied in a moment). NeuroDB reads both payload formats, so the order matters only in that a NeuroDB deployed
       first shows "Not yet compared with Power BI's view" until Compiler follows.
    4. *Jobs*: in Admin → *Scheduled jobs*, make sure `compiler-education` (02:30) and `compiler-youth`
       (21:00) are switched on (both are off when NeuroDB is first deployed), then press *Run now* on both,
@@ -4346,17 +4372,33 @@ in-school children, teachers).
    "Compiler's rule" says why (the reasons are listed under *Compared with Power BI* above, e.g. the
    grant of step 4.1 is missing). *Before this change* shows how much each old cause weighed (TLS, without
    a round...). Right after Power BI's refresh, an administrator opens Admin → **Power BI cards**, types
-   for each card the number Power BI shows and its period (e.g. 2026), and picks the version Data health
+   for each card the number Power BI shows, chooses its period in the list (a Dirasa round by its name),
+   and picks the version Data health
    marks as equal to it; the pages show it at once. A card no version equals stays on its default, and
    Data health says "No version equals Power BI's number": send the screenshot to the developers.
 6. **The way back.** Compiler's setting `FIGURES_POWER_BI = {"mscc": {"base": "rule"}, "bridging": {"base":
    "rule"}, "youth": {"base": "rule"}}` (Compiler's developers set it; no code change) makes Compiler count
-   with its own corrected rule again, and the pages say so; going back to the earlier Compiler branch sends
-   the older formats again, which NeuroDB still reads (its pages then say "Not yet compared"). In NeuroDB
-   nothing needs undoing: the three tables hold only the comparison, and a card version chosen only changes
-   which candidate a card shows. To show today's definitions again, choose each card's default in
-   Admin → **Power BI cards** (marked "default"). Switching off a job in *Scheduled jobs* stops its nightly
-   count; the figures already read stay.
+   with its own corrected rule again, and the pages say so; add `FIGURES_POWER_BI_RELATED = False` when the
+   related views (staff, centres, teachers) must not be read either (`base` covers the programme's own view
+   only). A change of `base` or `deleted` in `FIGURES_POWER_BI` makes every period's count stale, so the
+   next run counts the past periods again too (not a week later); a change of Makani's `period` makes only
+   the current year's stale (a past year always counts the rounds of its own year). Likewise a period counted in
+   rule mode because the view could not be read (missing, not a view, no SELECT permission) is stale once it
+   can be (a grant given after the deployment or again after the view was re-created, or a missing view
+   created again by hand; a view dropped and created again loses its grants, step 4.1), so the next run counts
+   it from the view, past periods included; one counted in rule mode for what the view's rows hold (key
+   check, no rows for the period) follows at its weekly count. Going back to the earlier Compiler branch sends the older formats again, which
+   NeuroDB still reads: its pages then say "Not compared with Power BI's view in this count; the last
+   comparison, of the count of <date>, is on Data health.", and Data health marks that comparison "not
+   compared in the latest count". In NeuroDB nothing needs undoing, even going back to an earlier NeuroDB
+   release: the new tables hold only the comparison and the youth figures of all years together, which an
+   earlier release never reads, and a card version chosen only changes which candidate a card shows. Each
+   card's "default" is the version NeuroDB shows unless an administrator chooses another; for three Dirasa
+   cards it is not the count before this change: the children card's count before it is the version
+   "Registrations", and in-school children and in-school CWD now sum only the schools with registrations
+   (the former set, every school chosen including those listed only for their teachers, is no longer
+   offered). Switching off a job in *Scheduled jobs* stops its nightly count; the figures already read
+   stay.
 
 **Speed.** Makani and Dirasa are drawn whole, in one request, as before: on a copy of the data with
 40,000 Makani registrations each tab answered in about 0.25-0.3 seconds cold (Dirasa about 0.1), under the

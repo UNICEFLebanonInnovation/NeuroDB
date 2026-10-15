@@ -2,7 +2,10 @@
 each with how Compiler counted (the rows of Power BI's view, or its own rule and why), the view's rows and registrations,
 what NeuroDB counted, the difference and its reasons, what NeuroDB counted before this change, and a disclosure with
 the reasons, the rounds or years of the view, the key check, the related views and the cards (every version's value,
-the number Power BI shows when an administrator typed it, which versions equal it, the one in use). Counts only: no
+the number Power BI shows when an administrator typed it, which versions equal it, the one in use). When the view's
+rows were not read (rule mode), nothing is said to be in the view or not: "not compared"; when they were read but the
+comparison failed (an error), it says so instead of "the view was not read". A comparison older than the
+figures kept (a later payload had none) says so. Counts only: no
 view definition and no masked text is ever on this page (they are in the admin, for administrators).
 Context: programmes = neurodb.education.power_bi.health().{% endcomment %}
 {% for p in programmes %}
@@ -16,9 +19,9 @@ Context: programmes = neurodb.education.power_bi.health().{% endcomment %}
       <td>{% if c.mode == "view" %}{% status_pill "succeeded" _("the view") "sm" %}{% else %}{% status_pill "failed" _("Compiler's rule") "sm" %}<span class="cell-sub">{{ c.reason }}</span>{% endif %}</td>
       <td class="num">{% if c.view_ids is None %}—{% else %}{{ c.view_ids|number }}<span class="cell-sub">{% blocktrans with n=c.view_rows|number %}{{ n }} rows{% endblocktrans %}</span>{% endif %}</td>
       <td class="num">{{ c.counted|number }}<span class="cell-sub">{% trans "registrations" %}</span></td>
-      <td class="num">{% if c.difference is None %}—{% else %}{% if c.difference > 0 %}+{% endif %}{{ c.difference|number }}{% endif %}{% for label, n in c.left_out %}<span class="cell-sub">{% blocktrans with n=n|number %}−{{ n }} {{ label }}{% endblocktrans %}</span>{% endfor %}{% for label, n in c.not_in_view %}<span class="cell-sub">{% blocktrans with n=n|number %}+{{ n }} not in the view ({{ label }}){% endblocktrans %}</span>{% endfor %}</td>
+      <td class="num">{% if c.difference is None %}—{% else %}{% if c.difference > 0 %}+{% endif %}{{ c.difference|number }}{% endif %}{% if c.not_compared == "view" %}<span class="cell-sub">{% trans "not compared: the view was not read" %}</span>{% elif c.not_compared %}<span class="cell-sub">{% trans "not compared: the comparison could not be made (see the errors)" %}</span>{% endif %}{% for label, n in c.left_out %}<span class="cell-sub">{% blocktrans with n=n|number %}−{{ n }} {{ label }}{% endblocktrans %}</span>{% endfor %}{% for label, n in c.not_in_view %}<span class="cell-sub">{% blocktrans with n=n|number %}+{{ n }} not in the view ({{ label }}){% endblocktrans %}</span>{% endfor %}</td>
       <td class="num">{{ c.before|number }}{% for label, n in c.before_more %}<span class="cell-sub">{% blocktrans with n=n|number %}+{{ n }} {{ label }}{% endblocktrans %}</span>{% endfor %}{% for label, n in c.before_fewer %}<span class="cell-sub">{% blocktrans with n=n|number %}−{{ n }} {{ label }}{% endblocktrans %}</span>{% endfor %}</td>
-      <td class="small text-nowrap">{{ c.counted_at|date:"j M Y H:i"|default:"—" }}{% if c.errors %}<span class="cell-sub text-danger">{% blocktrans count n=c.errors|length %}{{ n }} part not compared{% plural %}{{ n }} parts not compared{% endblocktrans %}</span>{% endif %}</td>
+      <td class="small text-nowrap">{{ c.counted_at|date:"j M Y H:i"|default:"—" }}{% if c.stale %}<span class="cell-sub text-danger">{% trans "not compared in the latest count" %}</span>{% endif %}{% if c.errors %}<span class="cell-sub text-danger">{% blocktrans count n=c.errors|length %}{{ n }} part not compared{% plural %}{{ n }} parts not compared{% endblocktrans %}</span>{% endif %}</td>
     </tr>{% endfor %}</tbody>
   </table></div>
   {% for c in p.checks %}
@@ -38,7 +41,7 @@ Context: programmes = neurodb.education.power_bi.health().{% endcomment %}
     <h4 class="small fw-semibold">{% trans "Why the counts differ" %}</h4>
     <div class="table-wrap"><table class="table table-sm">
       <thead><tr><th>{% trans "In Power BI's view" %}</th><th>{% trans "Counted before" %}</th><th>{% trans "Counted now" %}</th><th>{% trans "Reason" %}</th><th class="num">{% trans "Registrations" %}</th><th class="num">{% trans "View rows" %}</th><th class="num">{% if c.people_measure == "people" %}{% trans "Young people" %}{% else %}{% trans "Children" %}{% endif %}</th></tr></thead>
-      <tbody>{% for r in c.reasons %}<tr><td>{{ r.in_view|yesno:_("yes,no") }}</td><td>{{ r.in_before|yesno:_("yes,no") }}</td><td>{{ r.counted|yesno:_("yes,no") }}</td><td>{{ r.reasons|join:", "|default:"—" }}</td><td class="num">{{ r.registrations|number }}</td><td class="num">{{ r.view_rows|number }}</td><td class="num">{{ r.people|number }}</td></tr>{% endfor %}</tbody>
+      <tbody>{% for r in c.reasons %}<tr><td>{% if r.in_view is None %}<span title="{% trans 'The view was not read' %}">—</span>{% else %}{{ r.in_view|yesno:_("yes,no") }}{% endif %}</td><td>{{ r.in_before|yesno:_("yes,no") }}</td><td>{{ r.counted|yesno:_("yes,no") }}</td><td>{{ r.reasons|join:", "|default:"—" }}</td><td class="num">{{ r.registrations|number }}</td><td class="num">{{ r.view_rows|number }}</td><td class="num">{{ r.people|number }}</td></tr>{% endfor %}</tbody>
     </table></div>
     {% endif %}
     {% if c.periods %}
@@ -52,13 +55,14 @@ Context: programmes = neurodb.education.power_bi.health().{% endcomment %}
     <h4 class="small fw-semibold">{% trans "Key check" %}</h4>
     <ul class="small mb-2">{% for k in c.key_check %}<li>{% blocktrans with percent=k.percent label=k.label %}{{ percent }}% of the view's rows {{ label }}{% endblocktrans %}</li>{% endfor %}
       {% if c.key_facts.max_rows_per_id and c.key_facts.max_rows_per_id > 1 %}<li>{% blocktrans with n=c.key_facts.max_rows_per_id %}A registration is repeated up to {{ n }} times in the view.{% endblocktrans %}</li>{% endif %}
+      {% if c.key_facts.null_keys %}<li>{% blocktrans with n=c.key_facts.null_keys|number %}{{ n }} rows of the view have no key (no registration): left out.{% endblocktrans %}</li>{% endif %}
       {% if c.key_facts.conflicting %}<li>{% blocktrans with n=c.key_facts.conflicting|number %}{{ n }} registrations have rows with different partners or sites.{% endblocktrans %}</li>{% endif %}
       {% if c.key_facts.verified is False %}<li>{% trans "Key not verified: the view has no column to check it against." %}</li>{% endif %}
     </ul>
     {% endif %}
     {% if c.related %}
     <h4 class="small fw-semibold">{% trans "Related views (rows)" %}</h4>
-    {% for v in c.related %}<div class="small mb-2"><span class="mono">{{ v.name }}</span>: {% if not v.exists %}{% trans "missing" %}{% elif v.error %}{% trans "could not be read" %}{% else %}{% for row in v.rows %}{% if not forloop.first %} · {% endif %}{% for value in row %}{% if not forloop.first %} / {% endif %}{{ value|default_if_none:"—" }}{% endfor %}{% endfor %} <span class="text-muted">({{ v.by|join:", " }}{% if v.by %} / {% endif %}{{ v.measures|join:", " }})</span>{% endif %}</div>{% endfor %}
+    {% for v in c.related %}<div class="small mb-2"><span class="mono">{{ v.name }}</span>: {% if not v.exists %}{% trans "missing" %}{% elif v.error %}{% trans "could not be read" %}{% else %}{% for row in v.rows %}{% if not forloop.first %} · {% endif %}{% for value in row %}{% if not forloop.first %} / {% endif %}{{ value|default_if_none:"—" }}{% endfor %}{% endfor %} <span class="text-muted">({{ v.by|join:", " }}{% if v.by %} / {% endif %}{{ v.measures|join:", " }}{% if v.period_rounds %}; {% trans "this period's rounds only" %}{% endif %})</span>{% if v.truncated %} <span class="text-muted">{% trans "(cut at 50 groups: not the view's total, so its version is not counted)" %}</span>{% endif %}{% endif %}</div>{% endfor %}
     {% endif %}
     {% if c.errors %}<p class="small text-danger mb-1">{% trans "Not compared:" %} {{ c.errors|join:"; " }}</p>{% endif %}
   </details>

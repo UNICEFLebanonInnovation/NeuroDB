@@ -148,8 +148,32 @@ def _card_names() -> list[tuple[str, str]]:
     return sorted(names.items())
 
 
+def _period_label(period: str) -> str:
+    return str(_("All years")) if period == power_bi.ALL else period
+
+
+def compared_periods(programme: str | None) -> list[str]:
+    """The periods Data health compares for ``programme`` (every programme's when None), latest first and all
+    years together last: what a Power BI number can be typed for. Makani's are years ("2026"), Dirasa's are
+    round names ("Bridging 2026-2027"), youth's years and "all"; each programme's latest first as its page
+    orders them (:func:`neurodb.education.power_bi.latest_first`: a Dirasa round by its start, not its
+    name)."""
+    checks = PowerBiCheck.objects.all()
+    if programme:
+        checks = checks.filter(programme=programme)
+    rows = list(checks.values_list("programme", "period"))
+    page = power_bi.page_periods({p for p, _period in rows})
+    out: list[str] = []
+    for name in dict.fromkeys([p for p, _l, _u in power_bi.PROGRAMMES] + sorted({p for p, _period in rows})):
+        out += power_bi.latest_first(name, (period for p, period in rows if p == name), page)
+    every = [power_bi.ALL] if any(period == power_bi.ALL for _p, period in rows) else []
+    return list(dict.fromkeys(out)) + every
+
+
 class PowerBiCardForm(forms.ModelForm):
-    """The card's version (one of :data:`neurodb.education.power_bi.VARIANTS`) and Power BI's number."""
+    """The card's version (one of :data:`neurodb.education.power_bi.VARIANTS`), Power BI's number and the
+    period it was read for: one of the periods Data health compares (a Dirasa round by its name), chosen in a
+    list rather than typed, so that it always matches one; left empty, the latest period."""
 
     class Meta:
         model = PowerBiCard
@@ -177,6 +201,21 @@ class PowerBiCardForm(forms.ModelForm):
                 "The definition the pages use for this card; Data health shows what each one counts."
             ),
         )
+        periods = compared_periods(self.instance.programme if self.instance.pk else None)
+        period_choices = [("", _("The latest period"))] + [(p, _period_label(p)) for p in periods]
+        current = self.instance.powerbi_period
+        if current and current not in periods:  # typed before the list existed: shown, to be chosen again
+            label = _("%(period)s (not a period Data health compares)") % {"period": current}
+            period_choices.append((current, label))
+        self.fields["powerbi_period"] = forms.ChoiceField(
+            label=_("Period of Power BI's number"),
+            choices=period_choices,
+            required=False,
+            help_text=_(
+                "The period Power BI shows the number for, as Data health lists it (a Dirasa round by its "
+                "name). Left empty: the latest period."
+            ),
+        )
 
     def clean(self):
         data = super().clean()
@@ -190,6 +229,16 @@ class PowerBiCardForm(forms.ModelForm):
                 _("Choose one of this card's versions: %(versions)s.")
                 % {"versions": ", ".join(definition.variants)}
             )
+        periods = compared_periods(programme)
+        period = data.get("powerbi_period") or ""
+        if period and period not in periods:
+            self.add_error(
+                "powerbi_period",
+                _("Choose one of the periods Data health compares for this programme: %(periods)s.")
+                % {"periods": ", ".join(_period_label(p) for p in periods) or "—"},
+            )
+        elif not period and data.get("powerbi_value") is not None and periods:
+            data["powerbi_period"] = power_bi.latest_period(programme) or ""  # the latest period's number
         return data
 
 
@@ -256,20 +305,29 @@ class PowerBiCardAdmin(AdministratorsOnly, ModelAdmin):
         return name
 
     def _values(self, obj) -> tuple[str, dict]:
-        """The latest comparison of the card's programme (of the period typed, when there is one) and the
-        versions' values in it."""
-        checks = PowerBiCheck.objects.filter(programme=obj.programme)
-        if obj.powerbi_period:
-            checks = checks.filter(period=obj.powerbi_period)
-        found = checks.exclude(period=power_bi.ALL).order_by("-period").first() or checks.first()
+        """The comparison of the card's programme the number is compared with (the period chosen, else the
+        latest period, as Data health) and the versions' values in it."""
+        period = obj.powerbi_period or power_bi.latest_period(obj.programme)
+        found = None
+        if period:
+            found = PowerBiCheck.objects.filter(programme=obj.programme, period=period).first()
         if found is None:
             return "", {}
         return found.period, (found.variants or {}).get(obj.card) or {}
+
+    @staticmethod
+    def _unknown_period(obj) -> bool:
+        return (
+            bool(obj.powerbi_period)
+            and not PowerBiCheck.objects.filter(programme=obj.programme, period=obj.powerbi_period).exists()
+        )
 
     @admin.display(description=_("Versions equal to Power BI's number"))
     def equals(self, obj):
         if obj.powerbi_value is None:
             return "—"
+        if self._unknown_period(obj):
+            return badge(_("no such period: choose one"), "warn")
         period, values = self._values(obj)
         if not values:
             return _("Not compared yet")
@@ -283,6 +341,11 @@ class PowerBiCardAdmin(AdministratorsOnly, ModelAdmin):
     @admin.display(description=_("Every version, at the period total"))
     def versions(self, obj):
         definition = power_bi.VARIANTS.get(obj.programme, {}).get(obj.card)
+        if self._unknown_period(obj):
+            return _(
+                "Data health compares no period “%(period)s” for this programme: choose one of the periods "
+                "in the list (a Dirasa round by its name)."
+            ) % {"period": obj.powerbi_period}
         period, values = self._values(obj)
         if definition is None or not values:
             return _("Not compared yet: the next run of the Compiler job counts them.")

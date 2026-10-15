@@ -9,8 +9,10 @@ Compiler runs one count at a time and answers a request made during another one 
 that one: the sync waits for it, then asks again once. Payloads of format 1 and 2 are kept alike (format 2
 only adds keys, among them the comparison with Power BI's view, kept apart by ``education.power_bi.store``).
 
-The figures of all years together are kept as the year ``YouthFigures.ALL``; they have no targets and no
-links to eTools (both are per year), and readers of "the latest year" leave them out (``.yearly()``).
+The figures of all years together (the year ``YouthFigures.ALL``) are kept in a table of their own,
+``YouthAllYears``, never among the years: an earlier release reads every ``YouthFigures`` row as a year, so
+going back to it must not make "all" its latest year. They have no targets and no links to eTools (both are
+per year).
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ from neurodb.integrations.runs import fail, finish_by_counts, new_run, note_erro
 from . import linking
 from .compiler import BUSY, CompilerClient, calculate_own, calculation_problem, counted_for
 from .figures import Figures
-from .models import YouthFigures
+from .models import YouthFigures, figures_model
 
 PROGRAMME = "youth"  # Compiler's programme key for the youth count
 
@@ -94,7 +96,7 @@ def sync(
         try:
             if year == YouthFigures.ALL and str(payload.get("year")) != YouthFigures.ALL:
                 raise ValueError(f"Compiler answered the year {payload.get('year')!r} for all years")
-            YouthFigures.objects.update_or_create(
+            figures_model(year).objects.update_or_create(  # "all" apart from the years (YouthAllYears)
                 year=year, defaults={"fetched_at": timezone.now(), "payload": payload}
             )
             if year != YouthFigures.ALL:  # links are per year (programme documents and targets)

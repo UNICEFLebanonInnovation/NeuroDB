@@ -17,7 +17,7 @@ from neurodb.graph.store import Collector
 from neurodb.integrations.http import IntegrationError
 from neurodb.youth import services
 from neurodb.youth.compiler import CompilerClient
-from neurodb.youth.models import YouthFigures, YouthIndicatorLink
+from neurodb.youth.models import YouthAllYears, YouthFigures, YouthIndicatorLink
 from neurodb.youth.sync import sync, targets
 from tests.cpd.test_cpd import cycle, framework  # noqa: F401 - fixtures
 from tests.education.payloads import power_bi_block
@@ -116,7 +116,8 @@ def test_formats_one_and_two_are_kept_and_compared_with_the_view(settings):
 
     sync(triggered_by="test", client=Mixed())
     kept = dict(YouthFigures.objects.values_list("year", "payload__format"))
-    assert kept == {"2026": 2, "2025": 1, "all": 2}
+    assert kept == {"2026": 2, "2025": 1}
+    assert list(YouthAllYears.objects.values_list("year", "payload__format")) == [("all", 2)]
     assert set(PowerBiCheck.objects.values_list("programme", "period")) == {
         ("youth", "2026"),
         ("youth", "all"),
@@ -133,9 +134,14 @@ def test_formats_one_and_two_are_kept_and_compared_with_the_view(settings):
 def test_all_years_are_never_the_latest_year(settings, etools, framework):  # noqa: F811 - fixtures
     settings.COMPILER_YOUTH_YEARS = 2
     sync(triggered_by="test", client=Compiler())
-    assert YouthFigures.objects.order_by("-year").first().year == "all"  # "all" > "2026" as text
-    assert list(YouthFigures.objects.yearly().values_list("year", flat=True)) == ["2026", "2025"]
-    assert services.years() == ["2026", "2025"]
+    # every youth figures row is a year: the release before this one reads them all as years, and "all" sorts
+    # after "2026", so going back to it must find no "all" there (its years(), the youth page's default year
+    # years[0], the assistant's answer and the knowledge hub's youth record all read the rows this way)
+    assert list(YouthFigures.objects.order_by("-year").values_list("year", flat=True)) == ["2026", "2025"]
+    assert YouthFigures.objects.order_by("-year").first().year == "2026"
+    assert YouthAllYears.objects.get().payload["year"] == "all"  # kept apart, read by the youth page
+    assert services.years() == ["2026", "2025"] and services.stored_years() == (["2026", "2025"], True)
+    assert services.load("all").payload["year"] == "all" and services.stored_row("all").year == "all"
 
     collector = Collector()
     add_compiler(collector, Names())
@@ -256,3 +262,20 @@ def test_a_refused_count_for_another_reason_is_a_failure():
     responses.post(BASE + "/api/wellbeing/runs/", status=400, body="not json")
     with pytest.raises(IntegrationError):
         client.start_run("wellbeing")
+
+
+def test_the_migration_moves_an_all_years_row_out_of_the_years():
+    """youth 0002: the "all" figures a build of this release kept among the years move to their own table."""
+    import importlib
+
+    from django.apps import apps
+    from django.utils import timezone
+
+    migration = importlib.import_module("neurodb.youth.migrations.0002_youth_all_years")
+    YouthFigures.objects.create(year="2026", fetched_at=timezone.now(), payload=format_two("2026"))
+    YouthFigures.objects.create(year="all", fetched_at=timezone.now(), payload=format_two("all"))
+    migration.move_all_years(apps, None)
+    assert list(YouthFigures.objects.values_list("year", flat=True)) == ["2026"]
+    assert YouthAllYears.objects.get().payload["year"] == "all"
+    migration.move_all_years(apps, None)  # nothing left to move
+    assert YouthAllYears.objects.count() == 1

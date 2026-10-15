@@ -72,6 +72,14 @@ class PowerBiCheck(models.Model):
     period = models.CharField(max_length=64, help_text=_("the year or round, or 'all' (youth)"))
     checked_at = models.DateTimeField(null=True, blank=True, help_text=_("when Compiler compared"))
     counted_at = models.DateTimeField(null=True, blank=True, help_text=_("when Compiler counted"))
+    figures_counted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=_(
+            "when the figures kept for this period were counted: later than counted_at when a payload "
+            "without a comparison (an earlier Compiler) came after it"
+        ),
+    )
     view = models.CharField(max_length=63, blank=True)
     mode = models.CharField(max_length=8, blank=True, help_text=_("view: counted from the view; rule: not"))
     reason = models.CharField(max_length=300, blank=True, help_text=_("why the view could not be used"))

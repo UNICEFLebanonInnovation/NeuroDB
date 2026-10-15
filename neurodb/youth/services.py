@@ -19,7 +19,8 @@ under the key figures says so, :func:`neurodb.education.power_bi.note`), and sen
 (enrolled or not) and the enrolments beside the figures: the headline and the partners are counted with the
 version an administrator chose (today's meaning by default), the headline's second line gives the registered
 young people, and a breakdown gives them by the governorate of their address. "All years" (the year
-``YouthFigures.ALL``) is the count over every year, registrations without a year included; it has no targets.
+``YouthFigures.ALL``, kept in ``YouthAllYears``) is the count over every year, registrations without a year
+included; it has no targets.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ from neurodb.education import power_bi
 
 from . import linking
 from .figures import AGE_ORDER, Figures, indicator_label
-from .models import YouthFigures, YouthIndicatorLink
+from .models import YouthAllYears, YouthFigures, YouthIndicatorLink, figures_model
 
 CACHE_SECONDS = (
     600  # a build or the filter's choices in the shared cache; the key moves with every sync and edit
@@ -94,8 +95,9 @@ class YouthFilters:
 
 def stored_years() -> tuple[list[str], bool]:
     """The stored reporting years, latest first, and whether the figures of all years together
-    (``YouthFigures.ALL``) are stored too: one query."""
-    stored = list(YouthFigures.objects.order_by("-year").values_list("year", flat=True))
+    (``YouthFigures.ALL``, in ``YouthAllYears``) are stored too: one query."""
+    years = YouthFigures.objects.values_list("year", flat=True)
+    stored = sorted(years.union(YouthAllYears.objects.values_list("year", flat=True)), reverse=True)
     return [y for y in stored if y != YouthFigures.ALL], YouthFigures.ALL in stored
 
 
@@ -104,14 +106,15 @@ def years() -> list[str]:
     return list(YouthFigures.objects.yearly().order_by("-year").values_list("year", flat=True))
 
 
-def load(year: str) -> YouthFigures | None:
-    return YouthFigures.objects.filter(year=year).first()
+def load(year: str) -> YouthFigures | YouthAllYears | None:
+    """The year's stored figures ("all": those of every year together)."""
+    return figures_model(year).objects.filter(year=year).first()
 
 
-def stored_row(year: str) -> YouthFigures | None:
+def stored_row(year: str) -> YouthFigures | YouthAllYears | None:
     """The year's stored figures without their payload (3 MB a year): what the page's frame and the keys
     read."""
-    return YouthFigures.objects.defer("payload").filter(year=year).first()
+    return figures_model(year).objects.defer("payload").filter(year=year).first()
 
 
 # ------------------------------------------------------------------------------ plain rows
@@ -390,7 +393,7 @@ def _options_payload(record: YouthFigures) -> dict[str, Any]:
     """The part of the stored payload :func:`options` reads, cut out in the database: the year, the names of
     the partners, donors, places and indicators, and the three groupings of a partner, a donor or a
     governorate alone (a few KB of 3 MB, which Python then never decodes)."""
-    table = connection.ops.quote_name(YouthFigures._meta.db_table)
+    table = connection.ops.quote_name(record._meta.db_table)  # a year's, or all years' (YouthAllYears)
     lists = ", ".join(f"'{name}', payload->'{name}'" for name in _OPTION_LISTS)
     sql = (
         f"SELECT jsonb_build_object({lists}, 'figures', (SELECT coalesce(jsonb_agg(g), '[]'::jsonb) "  # noqa: S608
@@ -405,7 +408,7 @@ def _options_payload(record: YouthFigures) -> dict[str, Any]:
 
 def _options_key(record: YouthFigures) -> str:
     stamp = record.fetched_at.isoformat() if record.fetched_at else ""
-    return f"youth-options:v{CACHE_VERSION}:{record.pk}:{stamp}"
+    return f"youth-options:v{CACHE_VERSION}:{record._meta.model_name}:{record.pk}:{stamp}"
 
 
 def filter_options(record: YouthFigures) -> dict[str, list[tuple[int, str]]]:
@@ -461,7 +464,7 @@ def _cache_key(record: YouthFigures, filters: YouthFilters, today: datetime.date
         separators=(",", ":"),
     )
     return (
-        f"youth:v{CACHE_VERSION}:{record.pk}:{fetched}:{chosen}:{today.isoformat()}:"
+        f"youth:v{CACHE_VERSION}:{record._meta.model_name}:{record.pk}:{fetched}:{chosen}:{today.isoformat()}:"
         f"{stamp or fingerprint(record.year)}"
     )
 

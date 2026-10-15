@@ -78,11 +78,9 @@ class Page:
 
 def periods(programme: str) -> list[str]:
     """The stored years (Makani) or rounds (Bridging) of a programme, the latest first (by the start of
-    its first round, then by name)."""
-    rows = EducationFigures.objects.filter(programme=programme).values_list(
-        "year", "payload__rounds__0__start_date"
-    )
-    return [year for year, _start in sorted(rows, key=lambda r: (str(r[1] or ""), r[0]), reverse=True)]
+    its first round, then by name): :func:`neurodb.education.power_bi.page_periods`, which Data health, the
+    card admin and the summary also order by, so that "the latest period" is the one the page opens on."""
+    return power_bi.page_periods([programme]).get(programme, [])
 
 
 def record(programme: str, period: str) -> EducationFigures | None:

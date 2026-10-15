@@ -12,7 +12,7 @@ from unfold.decorators import action
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
 from .figures import Figures
-from .models import YouthFigures, YouthIndicatorLink
+from .models import YouthAllYears, YouthFigures, YouthIndicatorLink
 
 
 @admin.register(YouthFigures)
@@ -49,6 +49,11 @@ class YouthFiguresAdmin(ReadOnlyModelAdmin):
     @admin.display(description=_("Dashboard"))
     def dashboard(self, obj):
         return format_html('<a href="{}?year={}">{}</a>', reverse("youth:dashboard"), obj.year, _("Open"))
+
+
+@admin.register(YouthAllYears)
+class YouthAllYearsAdmin(YouthFiguresAdmin):
+    """The figures of every year together ("All years" on the youth page): a table apart from the years'."""
 
 
 @admin.register(YouthIndicatorLink)

@@ -179,6 +179,7 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
         [
             "youth.YouthIndicatorLink",
             "youth.YouthFigures",
+            "youth.YouthAllYears",
             "education.EducationFigures",
             "education.PowerBiCard",
             "education.PowerBiView",

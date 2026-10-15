@@ -21,7 +21,7 @@ from neurodb.education import power_bi
 from neurodb.education.admin import ensure_cards
 from neurodb.education.models import EducationFigures, PowerBiCard, PowerBiCheck, PowerBiView
 from neurodb.reports import services as report_services
-from neurodb.youth.models import YouthFigures
+from neurodb.youth.models import YouthFigures, figures_model
 from tests.youth.test_power_bi_sync import format_two
 
 from .payloads import (
@@ -235,8 +235,14 @@ def test_dirasa_children_shows_unique_children_and_registrations(client_viewer):
     html = response.content.decode()
     assert "6 registrations" in html
     # the school's governorate is not a grouping of the unique count: registrations, with a hint
-    by_place = page(client_viewer, "dirasa", governorate="20").context["data"]["cards"]["children"]
-    assert (by_place["value"], by_place["variant"], by_place["fallback"]) == (2, "registrations", True)
+    by_place = page(client_viewer, "dirasa", governorate="20")
+    card = by_place.context["data"]["cards"]["children"]
+    assert (card["value"], card["variant"], card["fallback"]) == (2, "registrations", True)
+    # nobody chose a version: the hint says the default cannot answer, never "the version chosen"
+    assert card["hint"] == "Unique children cannot be counted under these filters: Registrations shown."
+    assert "The version chosen" not in by_place.content.decode()
+    ensure_cards()  # the admin list's rows, each with its default: still nobody's choice
+    assert "The version chosen" not in page(client_viewer, "dirasa", governorate="20").content.decode()
     choose("bridging", "children", "registrations")
     response = page(client_viewer, "dirasa")
     assert response.context["data"]["kpis"]["children"] == 6
@@ -260,7 +266,7 @@ def test_the_country_programme_reads_the_same_childrens_version():
 def youth(db):
     for year in ("2026", "2025", YouthFigures.ALL):
         payload = format_two(year)
-        YouthFigures.objects.create(year=year, fetched_at=timezone.now(), payload=payload)
+        figures_model(year).objects.create(year=year, fetched_at=timezone.now(), payload=payload)
         power_bi.store("youth", year, payload)
 
 
@@ -327,6 +333,128 @@ def test_data_health_compares_each_programme_in_counts_only(client, admin_user):
     card = next(c for c in rows[0]["checks"][0]["cards"] if c["card"] == "cwd")
     assert [v["variant"] for v in card["versions"] if v["equal"]] == ["not_no_or_blank"]
     assert [v["variant"] for v in card["versions"] if v["in_use"]] == ["known_not_no"]
+
+
+def test_data_health_in_rule_mode_never_says_a_registration_is_not_in_the_view(client, admin_user):
+    """In rule mode Compiler never read the view's rows (CONTRACT_PBI §3.4: the totals that need them are
+    null): whether a registration is in the view is unknown, not "no"."""
+    store(makani3(mode="rule", reason="no SELECT permission on vw_mscc_data"))
+    client.force_login(admin_user)
+    html = _health(client)
+    row = power_bi.health()[0]["checks"][0]
+    assert (row["mode"], row["view_read"], row["view_ids"], row["not_in_view"], row["left_out"]) == (
+        "rule",
+        False,
+        None,
+        [],
+        [],
+    )
+    assert {r["in_view"] for r in row["reasons"]} == {None}
+    assert "not in the view" not in html and "not compared: the view was not read" in html
+    assert "Compiler&#x27;s rule" in html or "Compiler's rule" in html
+    assert "+1 TLS" in html  # what NeuroDB counted before this change is still explained
+    # once the view is read (view mode), the column says yes or no again
+    store(makani3() | {"year": "2025"})
+    row = next(c for c in power_bi.health()[0]["checks"] if c["period"] == "2025")
+    assert row["view_read"] and {r["in_view"] for r in row["reasons"]} == {True, False}
+    assert row["not_compared"] == ""
+
+
+def test_data_health_in_view_mode_with_a_failed_comparison_never_says_the_view_was_not_read(
+    client, admin_user
+):
+    """Compiler counted the view's rows (view mode) but its reconciliation failed, e.g. a timeout: the block's
+    reconciliation is ``{}`` and the error is listed (CONTRACT_PBI §3.4, §3.7). The counts are the view's, so
+    Data health says the comparison could not be made, never "the view was not read"."""
+    payload = makani3()
+    payload["power_bi"]["reconciliation"] = {}
+    payload["power_bi"]["errors"] = [
+        "reconciliation: QueryCanceled: canceling statement due to statement timeout"
+    ]
+    store(payload)
+    client.force_login(admin_user)
+    row = power_bi.health()[0]["checks"][0]
+    assert (row["mode"], row["view_read"], row["not_compared"], row["not_in_view"], row["left_out"]) == (
+        "view",
+        False,
+        "failed",
+        [],
+        [],
+    )
+    html = _health(client)
+    assert "the view was not read" not in html and "not in the view" not in html
+    assert "not compared: the comparison could not be made (see the errors)" in html
+    assert "1 part not compared" in html and "reconciliation: QueryCanceled" in html
+    # in rule mode with a failed comparison, the view was indeed not read: said so
+    store(makani3(mode="rule", reason="view missing") | {"year": "2025"})
+    PowerBiCheck.objects.filter(programme="mscc", period="2025").update(reconciliation={})
+    row = next(c for c in power_bi.health()[0]["checks"] if c["period"] == "2025")
+    assert (row["mode"], row["not_compared"]) == ("rule", "view")
+
+
+def test_data_health_shows_blank_keys_and_a_related_view_not_described(client, admin_user):
+    """CONTRACT_PBI §3.3, §3.6 [changed, fixer R1]: rows of the view without a key are counted apart
+    (``null_keys``), and a related view Compiler could not describe is "could not be read", not "missing"."""
+    payload = makani3()
+    payload["power_bi"]["key_check"]["null_keys"] = 2
+    payload["power_bi"]["related"]["vw_center_data"] = {"exists": None, "error": "QueryCanceled"}
+    store(payload)
+    client.force_login(admin_user)
+    row = power_bi.health()[0]["checks"][0]
+    assert row["key_facts"]["null_keys"] == 2
+    related = {r["name"]: r for r in row["related"]}
+    assert related["vw_center_data"]["exists"] and related["vw_center_data"]["error"] == "QueryCanceled"
+    html = _health(client)
+    assert "2 rows of the view have no key (no registration): left out." in html
+    assert "could not be read" in html
+
+
+def test_data_health_says_when_a_related_view_was_cut_or_counted_for_the_period_only(client, admin_user):
+    """CONTRACT_PBI §3.6 [changed, fixer R3]: Compiler keeps 50 groups of a related view at most. A cut list is
+    not the view's total, so the version counted from it is unavailable, and Data health says the list was cut
+    (it showed the 50 kept rows as if they were all). Dirasa's teachers are counted for the period's rounds
+    only (``rounds``), whatever the rounds of the other CLM programmes, so their version is available."""
+    payload = makani3()
+    payload["power_bi"]["related"]["vw_center_program_staff"]["truncated"] = True
+    store(payload)
+    dirasa = format_three(
+        dirasa_payload(BRIDGING, TEACHERS), power_bi_block("bridging", "Bridging 2025-2026")
+    )
+    round_id = dirasa["rounds"][0]["id"]
+    dirasa["power_bi"]["related"] = {
+        "vw_teacher_data": {"exists": True, "by": ["round_id", "is_active_current_round"],
+                            "measures": ["rows", "ids"], "rows": [[round_id, "yes", 4, 4], [round_id, "no", 1, 1]],
+                            "truncated": False, "rounds": [round_id]},
+    }  # fmt: skip
+    store(dirasa)
+    assert power_bi.variant_totals("mscc", payload)["staff"]["view_rows"] is None
+    assert power_bi.variant_totals("bridging", dirasa)["teachers"]["view_rows"] == 5
+    client.force_login(admin_user)
+    rows = {p["programme"]: p["checks"][0] for p in power_bi.health() if p["checks"]}
+    staff = next(r for r in rows["mscc"]["related"] if r["name"] == "vw_center_program_staff")
+    teachers = next(r for r in rows["bridging"]["related"] if r["name"] == "vw_teacher_data")
+    assert (staff["truncated"], staff["period_rounds"]) == (True, False)
+    assert (teachers["truncated"], teachers["period_rounds"]) == (False, True)
+    html = _health(client)
+    assert html.count("cut at 50 groups: not the view's total, so its version is not counted") == 1
+    assert html.count("this period's rounds only") == 1
+
+
+def test_data_health_says_when_the_comparison_is_of_an_older_count(client, admin_user):
+    """A later payload without a comparison (Compiler gone back to an earlier version) keeps the comparison,
+    which is then of an older count: Data health and the summary say so, as the page does."""
+    store(makani3())
+    later = makani_payload(REGISTRATIONS, STAFF, counted_at="2026-10-20T02:31:10+00:00")
+    EducationFigures.objects.filter(programme="mscc", year="2026").update(payload=later)
+    power_bi.store("mscc", "2026", later)  # as the sync does for every payload
+    client.force_login(admin_user)
+    row = power_bi.health()[0]["checks"][0]
+    assert row["stale"] and row["mode"] == "view"
+    assert "not compared in the latest count" in _health(client)
+    summary = {r["programme"]: r for r in report_services.data_health()["power_bi"]}
+    assert summary["mscc"]["stale"] is True
+    store(makani3() | {"year": "2025"})  # compared in the count kept: not stale
+    assert not next(c for c in power_bi.health()[0]["checks"] if c["period"] == "2025")["stale"]
 
 
 def test_data_health_shows_every_comparison_of_the_youth_key_check(client, admin_user, youth):
@@ -419,6 +547,94 @@ def test_an_administrator_types_power_bis_number_and_picks_a_version(client, adm
         url, {"variant": "unique", "powerbi_value": "", "powerbi_period": ""}
     )  # Dirasa's version
     assert bad.status_code == 200 and PowerBiCard.objects.get(pk=card.pk).variant == "not_no_or_blank"
+
+
+def test_power_bis_number_is_compared_with_the_period_it_was_read_for(client, admin_user):
+    """The period is chosen among those Data health compares (a Dirasa round by its name: typing "2026", as
+    Power BI's page title says, would match nothing); a number with no period is compared with the latest
+    period only, never with every one."""
+    later = "Bridging 2026-2027"
+    store(format_three(dirasa_payload(BRIDGING, TEACHERS)))  # Bridging 2025-2026
+    store(format_three(dirasa_payload(BRIDGING, TEACHERS, round_name=later)))
+    unique = str(power_bi.check("bridging", later).variants["children"]["unique"])
+    client.force_login(admin_user)
+    client.get(reverse("admin:education_powerbicard_changelist"))  # every card, with its default
+    card = PowerBiCard.objects.get(programme="bridging", card="children")
+    url = reverse("admin:education_powerbicard_change", args=[card.pk])
+    form = client.get(url).content.decode()
+    assert later in form and "Bridging 2025-2026" in form
+    typed = client.post(url, {"variant": "unique", "powerbi_value": unique, "powerbi_period": "2026"})
+    assert typed.status_code == 200 and "2026 is not one of the available choices" in typed.content.decode()
+    assert PowerBiCard.objects.get(pk=card.pk).powerbi_value is None
+    assert (
+        client.post(url, {"variant": "unique", "powerbi_value": unique, "powerbi_period": later}).status_code
+        == 302
+    )
+    rows = {c["period"]: c for c in power_bi.health()[1]["checks"]}
+    children = {p: next(x for x in c["cards"] if x["card"] == "children") for p, c in rows.items()}
+    assert children[later]["powerbi"] == int(unique) and children["Bridging 2025-2026"]["powerbi"] is None
+    assert "unique" in [v["variant"] for v in children[later]["versions"] if v["equal"]]
+    # left empty: the latest period, saved with the number
+    assert (
+        client.post(url, {"variant": "unique", "powerbi_value": unique, "powerbi_period": ""}).status_code
+        == 302
+    )
+    assert PowerBiCard.objects.get(pk=card.pk).powerbi_period == later
+    # a number kept without a period (typed before the list existed) is compared with the latest one only
+    PowerBiCard.objects.filter(pk=card.pk).update(powerbi_period="")
+    rows = {c["period"]: c for c in power_bi.health()[1]["checks"]}
+    shown = {p: next(x for x in c["cards"] if x["card"] == "children")["powerbi"] for p, c in rows.items()}
+    assert shown == {later: int(unique), "Bridging 2025-2026": None}
+    # and one typed with a period Data health does not compare says so, rather than "the next run counts it"
+    PowerBiCard.objects.filter(pk=card.pk).update(powerbi_period="2026")
+    listing = client.get(reverse("admin:education_powerbicard_changelist")).content.decode()
+    assert "no such period: choose one" in listing
+    page_ = client.get(url).content.decode()
+    assert "not a period Data health compares" in page_ and "the next run of the Compiler job" not in page_
+
+
+def test_the_latest_dirasa_round_is_the_one_the_page_opens_on_whatever_its_name(client, admin_user):
+    """A Dirasa round's name is free text in Compiler (CLMRound, shared by every CLM programme), so its text
+    order need not be its date order ("Round 9" sorts after "Round 10"). The page opens on the round that
+    starts last; Data health, the card admin, a number typed without a period and the summary take the same
+    round as the latest, and Data health's first rows are the latest rounds, not the last names."""
+    from neurodb.education import services
+    from neurodb.education.admin import compared_periods
+
+    rounds = [("Round 7 2023-2024", "2023-09-01"), ("Round 8 2024-2025", "2024-09-01"),
+              ("Round 9 2025-2026", "2025-09-01"), ("Round 10 2026-2027", "2026-09-01")]  # fmt: skip
+    for name, start in rounds:
+        store(format_three(dirasa_payload(BRIDGING, TEACHERS, round_name=name, start_date=start)))
+    latest_first = [name for name, _start in reversed(rounds)]
+    assert services.periods("bridging") == latest_first  # the page's order
+    assert power_bi.latest_period("bridging") == "Round 10 2026-2027"
+    assert [c["period"] for c in power_bi.health()[1]["checks"]] == latest_first[: power_bi.HEALTH_PERIODS]
+    assert compared_periods("bridging") == latest_first
+    summary = {r["programme"]: r for r in report_services.data_health()["power_bi"]}
+    assert summary["bridging"]["period"] == "Round 10 2026-2027"
+    # Power BI's number typed with the period left empty goes to the round the page opens on
+    unique = power_bi.check("bridging", "Round 10 2026-2027").variants["children"]["unique"]
+    client.force_login(admin_user)
+    changelist = reverse("admin:education_powerbicard_changelist")
+    client.get(changelist)  # every card, with its default
+    card = PowerBiCard.objects.get(programme="bridging", card="children")
+    url = reverse("admin:education_powerbicard_change", args=[card.pk])
+    # the card admin's versions, no number typed yet: those of the round the page opens on
+    html = client.get(url).content.decode()
+    assert [name for name, _start in rounds if f"In {name}:" in html] == ["Round 10 2026-2027"]
+    answer = client.post(url, {"variant": "unique", "powerbi_value": str(unique), "powerbi_period": ""})
+    assert answer.status_code == 302
+    assert PowerBiCard.objects.get(pk=card.pk).powerbi_period == "Round 10 2026-2027"
+    # and one kept without a period is compared with that round only: on Data health, in the card admin's
+    # versions and in its column of the versions equal to Power BI's number
+    PowerBiCard.objects.filter(pk=card.pk).update(powerbi_period="")
+    rows = {c["period"]: c for c in power_bi.health()[1]["checks"]}
+    shown = {p: next(x for x in c["cards"] if x["card"] == "children")["powerbi"] for p, c in rows.items()}
+    assert shown == {"Round 10 2026-2027": unique, "Round 9 2025-2026": None, "Round 8 2024-2025": None}
+    html = client.get(url).content.decode()
+    assert [name for name, _start in rounds if f"In {name}:" in html] == ["Round 10 2026-2027"]
+    html = client.get(changelist, {"programme": "bridging"}).content.decode()
+    assert [name for name, _start in rounds if f"({name})" in html] == ["Round 10 2026-2027"]
 
 
 def test_the_figures_lists_say_how_compiler_counted(client, admin_user):

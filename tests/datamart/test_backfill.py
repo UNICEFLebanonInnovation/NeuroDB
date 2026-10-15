@@ -284,6 +284,9 @@ QUICK_MIGRATIONS = {
     # the comparison with Power BI's views (PowerBiView, PowerBiCheck, PowerBiCard): three new, empty tables
     # of a few dozen rows each (CreateModel only, no code runs; listed so the migration is accounted for here)
     ("education", "0002_power_bi", "CreateModel"),
+    # the youth figures of all years together in a table of their own: a new table, and at most one row
+    # moved into it from the youth figures (the "all" row a build of this release may have kept there)
+    ("youth", "0002_youth_all_years", "move_all_years"),
 }
 
 
