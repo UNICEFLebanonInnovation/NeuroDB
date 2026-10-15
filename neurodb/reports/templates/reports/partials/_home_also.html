@@ -1,0 +1,13 @@
+{% load i18n humanize %}{% comment %}Home's "Also in {Y}" line under the key figures (delivery.assurance of the overview build), and, for
+Section editors and Administrators, the programme documents still counted by their largest indicator. Context:
+data, year, is_editor, programmes_query, fmm_enabled.{% endcomment %}
+{% with a=data.delivery.assurance impact=data.impact %}
+<p class="home-also">{% blocktrans with y=year %}Also in {{ y }}:{% endblocktrans %}
+  {% if fmm_enabled %}{% url 'fmm:dashboard' as fm_url %}{% else %}{% url 'reports:monitoring' as fm_url %}{% endif %}<a href="{{ fm_url }}?year={{ year }}">{% blocktrans count counter=a.field_monitoring_visits|default:0 %}{{ counter }} field monitoring visit{% plural %}{{ counter }} field monitoring visits{% endblocktrans %}</a>
+  · <a href="{% url 'reports:monitoring' %}?year={{ year }}">{% blocktrans with c=a.tpm_visits_completed|default:0|intcomma p=a.tpm_visits_planned|default:0|intcomma %}{{ c }} of {{ p }} third-party visits done{% endblocktrans %}</a>
+  · <a href="{% url 'reports:action_points' %}?overdue=1&amp;priority=1">{% blocktrans count counter=a.open_action_points|default:0 with h=a.overdue_high_priority|default:0|intcomma %}{{ counter }} open action point ({{ h }} high priority overdue){% plural %}{{ counter }} open action points ({{ h }} high priority overdue){% endblocktrans %}</a>
+</p>
+{% if is_editor and impact.main_indicators.largest %}
+<p class="home-also">{% url 'reports:programmes' as programmes_url %}<a href="{{ programmes_url }}{{ programmes_query }}">{% blocktrans count counter=impact.main_indicators.largest %}{{ counter }} programme document is still counted by its largest indicator. Choose its unique beneficiaries indicator{% plural %}{{ counter }} programme documents are still counted by their largest indicator. Choose their unique beneficiaries indicator{% endblocktrans %} →</a></p>
+{% endif %}
+{% endwith %}

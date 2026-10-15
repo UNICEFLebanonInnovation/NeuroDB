@@ -164,7 +164,15 @@ class DailyReviewAdmin(ReadOnlyModelAdmin):
             messages.warning(request, _("A daily review is already running."))
         else:
             background.start_command("daily_review", "--triggered-by", request.user.get_username())
-            messages.success(request, _("The daily review started. Refresh this page in a minute to see it."))
+            messages.success(
+                request,
+                format_html(
+                    '{} <a href="{}">{}</a>.',
+                    _("The daily review started. Refresh this page in a minute to see it here or on"),
+                    reverse("reports:daily_review"),
+                    _("the Daily review page"),
+                ),
+            )
         url = reverse("admin:review_dailyreview_changelist")
         if request.headers.get("HX-Request"):  # the dialog posts with HTMX: redirect the whole page
             response = HttpResponse(status=204)

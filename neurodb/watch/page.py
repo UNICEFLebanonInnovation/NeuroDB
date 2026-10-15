@@ -340,10 +340,19 @@ def badge_count(user, today: datetime.date | None = None) -> int:
 
 
 def card(user, today: datetime.date | None = None) -> dict[str, Any]:
-    """The Overview card: how many points need the person today, the first three, and whether NeuroDB
-    tells them anything at all (``shown`` false: no card)."""
+    """Home's card: how many points need the person today, the first three, and whether NeuroDB tells them
+    anything at all. ``shown`` false: no card, with why when the person should know (``reason``): ``off``,
+    NeuroDB Watch is switched off (``WATCH_ENABLED``); ``no_role``, an active account with no role (not a
+    donor), which NeuroDB tells nothing until an administrator gives it one. ``no_section``: someone whose
+    points follow a section (not an Administrator, not Management) has none, so only whole-country points
+    reach them. ``banner``: the morning check is late (:func:`banner`), or empty."""
     today = today or timezone.localdate()
-    if routing.Person.of(user) is None:
+    if not settings.WATCH_ENABLED:
+        return {"shown": False, "reason": "off"}
+    person = routing.Person.of(user)
+    if person is None:
+        if _without_role(user):
+            return {"shown": False, "reason": "no_role"}
         return {"shown": False}
     receipts = needs_you(user, today)
     unseen = sum(1 for receipt in receipts if receipt.seen_at is None)
@@ -351,6 +360,8 @@ def card(user, today: datetime.date | None = None) -> dict[str, Any]:
         "shown": True,
         "count": len(receipts),
         "unseen": unseen,
+        "no_section": person.section_id is None and not person.country,
+        "banner": banner(admin=person.admin),
         "top": [
             {
                 "title": r.item.title,
@@ -362,6 +373,18 @@ def card(user, today: datetime.date | None = None) -> dict[str, Any]:
             for r in receipts[:CARD_SHOWN]
         ],
     }
+
+
+def _without_role(user) -> bool:
+    """An active account that is no donor and no superuser and holds none of the three roles: NeuroDB Watch
+    tells it nothing (``routing.Person.of`` is None for it, as for donors and inactive accounts)."""
+    from neurodb.accounts.roles import ALL_ROLES
+
+    if user is None or not getattr(user, "pk", None) or not user.is_active or user.is_superuser:
+        return False
+    if hasattr(user, "donor_account"):
+        return False
+    return not user.groups.filter(name__in=ALL_ROLES).exists()
 
 
 # ---------------------------------------------------------------------------- what is set aside

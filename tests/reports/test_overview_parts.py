@@ -1,10 +1,10 @@
-"""The country overview in parts (SPEC7 §3.3-3.4 for the overview; STAGE0 D1, D2, D9).
+"""The Country overview in parts (SPEC7 §3.3-3.4 for the overview; STAGE0 D1, D2, D9; SPEC_HOME §3.2).
 
-The overview answers its frame at once (purpose, filter bar, subtitle, freshness strip) with a placeholder per
-data block: ``kpis`` and ``figures`` (one overview build), ``for-you`` (the NeuroDB Watch card, from its own
-address), ``review`` (the daily review card; its folded findings are ``review-more``, inside it) and ``news``
-(What's new and the forecast risk card). These tests check the frame without any figure work, each part, the
-part queries, and that the page put together from its parts is the page drawn at once (``_eager=1``).
+The Country overview (``/country-overview/``) answers its frame at once (purpose, filter bar, subtitle, freshness
+strip) with a placeholder per data block: ``kpis`` and ``figures`` (one overview build) and ``news`` (What's new and
+the forecast risk card). For you and the daily review card moved to Home and to the daily review's own page
+(``test_home_parts.py``, ``test_daily_review_page.py``). These tests check the frame without any figure work, each
+part, the part queries, and that the page put together from its parts is the page drawn at once (``_eager=1``).
 
 On ``overview_fixture``: one programme document (Amel, Child Protection) with 500 children reached in 2026, plus
 the ActivityInfo hierarchy; a daily review is run on it where a test needs the card.
@@ -12,8 +12,6 @@ the ActivityInfo hierarchy; a daily review is run on it where a test needs the c
 
 from __future__ import annotations
 
-import dataclasses
-import datetime
 import gettext
 import json
 import re
@@ -25,8 +23,7 @@ from django.core.cache import caches
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
-from django.utils import timezone, translation
-from django.utils.html import escape
+from django.utils import translation
 
 from neurodb.accounts.models import User
 from neurodb.core import compute
@@ -39,9 +36,7 @@ from neurodb.indicators.models import ReportingYear
 from neurodb.insights import services as insight_services
 from neurodb.reports import overview as overview_service
 from neurodb.reports import views
-from neurodb.review import checks
 from neurodb.review import services as review_services
-from neurodb.review.models import DailyReview, ReviewFinding
 from neurodb.watch import page as watch_page
 from tests.reports.overview_fixture import TODAY, make_overview_data
 from tests.reports.test_headline import _second
@@ -60,21 +55,23 @@ from tests.web.parts import (
 
 pytestmark = pytest.mark.django_db
 
-PAGE = "/"  # reports:overview, the site root once signed in
-PARTS = ("kpis", "for-you", "figures", "review", "news")  # the frame's placeholders, in page order
-OWN_PARTS = ("kpis", "figures", "review", "review-more", "news")  # the parts the view itself answers
+PAGE = "/country-overview/"  # reports:country_overview
+PARTS = ("kpis", "figures", "news")  # the frame's placeholders, in page order
+OWN_PARTS = PARTS  # the parts the view itself answers
 FIGURES_JSON = "overview-figures-data"
 JSON_SCRIPT = re.compile(r'<script id="([^"]+)" type="application/json">(.*?)</script>', re.S)
 LINK = re.compile(r'\s(?:href|action|hx-push-url)="([^"]*)"')
 # Query ceilings: what was measured on this world, plus 2 (SPEC7 §3.3 6, §3.4). The frame warm (its filter
-# sections, freshness strip and navigation stored, as after the first visit of a page) is 11: the request's floor
-# (session, user, donor check, user role) plus the year, the cache stamp (last sync run, flags), the own section,
-# the governorates (read at each visit: staff edit them in the admin) and whether a daily review exists. Cold it
-# also reads the filter sections (1), the freshness strip (4) and the navigation (4). Each part is measured with
-# nothing stored: kpis and figures compute the whole build.
-SHELL_QUERIES_WARM = 12
-SHELL_QUERIES_COLD = 22
-PART_QUERIES = {"kpis": 39, "figures": 39, "review": 9, "review-more": 9, "news": 8}
+# sections, freshness strip, year list, ActivityInfo state and navigation stored, as after the first visit of a
+# page) is 11: the request's floor (session, user, donor check, user role) plus the reporting year whose
+# ActivityInfo records count for the year, the cache stamp (last sync run, flags), the own section, the
+# governorates (read at each visit: staff edit them in the admin) and the navigation's year. Cold (24) it also
+# reads the ActivityInfo state (4: SPEC_HOME §1.3), the filter sections (1), the freshness strip (3), the years
+# the Year select offers (1) and the navigation (4). Each part is measured with nothing stored: kpis and figures
+# compute the whole build (39), plus the ActivityInfo state and the year's reporting year (5) of their request.
+SHELL_QUERIES_WARM = 13
+SHELL_QUERIES_COLD = 26
+PART_QUERIES = {"kpis": 43, "figures": 43, "news": 11}
 
 
 @pytest.fixture
@@ -128,13 +125,6 @@ def _json_blocks(html: str) -> dict[str, object]:
     return {name: json.loads(body) for name, body in found}
 
 
-def _without_for_you(assembled) -> str:
-    """The assembled page without the NeuroDB Watch card, which eager mode leaves to the browser (a ``url=``
-    part): the comparison with the eager page is about the overview's own parts."""
-    card = assembled.parts.get("for-you")
-    return assembled.html.replace(text(card), "", 1) if card is not None else assembled.html
-
-
 # ------------------------------------------------------------------------------------------------- the frame
 @pytest.mark.shell
 def test_the_frame_answers_with_every_figure_service_refusing(client_viewer, reviewed, monkeypatch):
@@ -147,10 +137,11 @@ def test_the_frame_answers_with_every_figure_service_refusing(client_viewer, rev
     html = text(response)
     assert "<title>Country overview" in html and 'class="page-purpose"' in html
     assert 'aria-label="Overview filters"' in html and 'name="governorate"' in html  # the filter bar
-    assert "Reporting year 2026 · every section · all governorates" in html  # the subtitle
+    assert "2026 · every section · all governorates" in html  # the subtitle: the calendar year
     assert "Data freshness" in html and "Daily AI review" in html  # the freshness strip
-    assert "ActivityInfo databases of the year" in html
-    assert 'id="daily-review"' in html  # the review card's anchor stays in the frame
+    assert "ActivityInfo databases of the year" in html  # 2026 has ActivityInfo records (hierarchy)
+    assert f'href="{reverse("reports:daily_review")}?' in html  # today's findings are on their own page
+    assert 'id="daily-review"' not in html and 'id="part-for-you"' not in html  # both moved off the page
     assert list(placeholders(html)) == list(PARTS)
     for data_id in (FIGURES_JSON, "overview-chart-data"):  # no figures, so no chart data
         assert f'id="{data_id}"' not in html
@@ -164,40 +155,34 @@ def test_the_placeholders_carry_the_resolved_filter(client_viewer, reviewed):
     found = placeholder_attributes(html)
     assert list(found) == list(PARTS)
     stamp = overview_service.fingerprint()  # the figures the frame was drawn with (test_the_figures_part_...)
-    for name in ("kpis", "figures", "review", "news"):
+    for name in PARTS:
         url = found[name]["hx-get"]
         assert urlsplit(url).path == PAGE
         # every section written out (never a first load again), the year always
         assert _query(url) == {"section": [""], "year": ["2026"], "as_of": [stamp], "_part": [name]}, url
-    assert found["for-you"]["hx-get"] == reverse("watch:card") and found["for-you"]["hx-swap"] == "outerHTML"
     assert (found["kpis"]["data-part-priority"], found["kpis"]["data-part-group"]) == ("high", "overview")
     assert (found["figures"]["data-part-priority"], found["figures"]["data-part-group"]) == (
         "normal",
         "overview",
     )
-    assert found["for-you"]["data-part-priority"] == "high" and found["news"]["data-part-priority"] == "low"
-    assert "data-part-group" not in found["review"] and "data-part-lazy" not in found["review"]
+    assert found["news"]["data-part-priority"] == "low"
     assert "gov-title" in found["figures"]["data-part-anchors"].split()  # its blocks' ids stay anchors
     # the room of the four blocks, on a desktop, a tablet or narrow window (stacked beside the sidebar) and a
     # phone, as measured on the x20 parity world
     assert found["figures"]["class"] == "part part--charts"
     assert found["figures"]["style"] == "--part-h: 4650px; --part-h-sm: 8100px; --part-h-md: 6200px"
     assert found["kpis"]["style"] == "--part-h: 18.5rem; --part-h-sm: 54rem; --part-h-md: 34rem"
-    assert found["review"]["style"] == "--part-h: 1850px; --part-h-sm: 4900px; --part-h-md: 2500px"
     assert found["news"]["style"] == "--part-h: 16rem; --part-h-sm: 32rem; --part-h-md: 23rem"
-    kpis = html[html.index('id="part-kpis"') : html.index('id="part-for-you"')]
+    kpis = html[html.index('id="part-kpis"') : html.index('id="part-figures"')]
     assert kpis.count("skeleton__block--tile") == 5  # the five key figure tiles
-    # the governorate and the review tab travel too
-    html = text(
-        client_viewer.get(PAGE, {"section": "Child Protection", "governorate": "Akkar", "review": "week"})
-    )
-    assert _query(placeholders(html)["review"]) == {
+    # the governorate travels too
+    html = text(client_viewer.get(PAGE, {"section": "Child Protection", "governorate": "Akkar"}))
+    assert _query(placeholders(html)["news"]) == {
         "section": ["Child Protection"],
         "year": ["2026"],
         "governorate": ["Akkar"],
-        "review": ["week"],
         "as_of": [stamp],
-        "_part": ["review"],
+        "_part": ["news"],
     }
 
 
@@ -229,21 +214,19 @@ def test_a_first_load_writes_the_own_section_and_every_section_writes_section(
 
 
 @pytest.mark.shell
-def test_without_a_reporting_year_there_is_no_part(client_viewer, world, reporting_year):
-    reporting_year.delete()
+def test_without_any_reporting_year_every_part_is_there(client_viewer, world, reporting_year):
+    """The page's year is the calendar year: without any ActivityInfo reporting year (none created, or all
+    removed) the frame draws its placeholders and the parts compute eTools' figures, never the old empty
+    state with no figures at all."""
+    ReportingYear.objects.all().delete()
     html = text(client_viewer.get(PAGE))
-    assert "No reporting year is configured" in html and placeholders(html) == {}
-    response = client_viewer.get(PAGE + "?_part=kpis", **HX)
-    assert response.status_code == 404  # no part to ask for
-
-
-@pytest.mark.shell
-def test_without_a_daily_review_the_frame_keeps_no_room_for_it(client_viewer, world):
-    """No daily review has ever succeeded: no ``#daily-review`` and no review placeholder, so no empty block
-    of the card's height waits for a part that brings nothing."""
-    html = text(client_viewer.get(PAGE))
-    assert list(placeholders(html)) == ["kpis", "for-you", "figures", "news"]
-    assert 'id="daily-review"' not in html
+    assert "No reporting year is configured" not in html
+    assert list(placeholders(html)) == list(PARTS)
+    assert _query(placeholders(html)["kpis"])["year"] == ["2026"]
+    kpis = get_part(client_viewer, PAGE, "kpis")
+    assert kpis.context["data"]["impact"]["children_reached"] == 500  # eTools: the PD's 500 children
+    assert kpis.context["data"]["impact"]["activityinfo_used"] is False
+    assert "ActivityInfo" not in text(kpis)
 
 
 def _governorate_choices(client) -> list[str]:
@@ -382,77 +365,6 @@ def test_no_link_inside_a_part_carries_part(client_viewer, own_section, reviewed
     assert "_part=" not in "".join(LINK.findall(assembled.html))
 
 
-def test_the_review_more_part_holds_only_the_folded_findings(client_viewer, reviewed):
-    page = review_services.for_page("today", [])
-    shown = escape(page["findings"][0].title)
-    folded = [escape(f.title) for f in page["more_findings"]]
-    assert len(page["findings"]) == 1 and folded and shown not in folded
-    item = '<li class="review-finding">'
-    card = text(get_part(client_viewer, PAGE, "review"))
-    # the card lists its first finding only (its summary may name the others) ...
-    assert card.count(item) == 1 and shown in card.split(item, 1)[1].split("</li>", 1)[0]
-    assert f"Show {len(folded)} more finding" in card
-    inner = placeholder_attributes(card)
-    assert list(inner) == ["review-more"] and inner["review-more"]["data-part-lazy"] == "strict"
-    assert _query(inner["review-more"]["hx-get"])["_part"] == ["review-more"]
-    more = text(get_part(client_viewer, PAGE, "review-more"))
-    # ... and the folded ones come in their own part, alone
-    assert more.count(item) == len(folded) and all(title in more for title in folded)
-    assert shown not in more and 'id="review-title"' not in more and "review-summary" not in more
-
-
-@pytest.mark.parametrize("tab", ["", "yesterday", "week"])
-def test_the_folded_findings_stay_those_of_their_card(client_viewer, reviewed, tab, monkeypatch):
-    """The card and its folded findings are two requests, maybe hours apart (``review-more`` loads when
-    *Show more* is opened, or for print): a review that succeeds in between never puts its findings under the
-    card drawn before it, whatever the card's tab. A newer day's review (the next morning's job) leaves the
-    card's findings as they were; a run of the card's own day (the admin's *Run the daily review now*, a
-    second run of the morning's job) replaces its review, and the part then asks the reader to reload."""
-    if tab == "yesterday":  # a review the day before, so that the tab has a card with folded findings
-        review_services.run(date=TODAY - datetime.timedelta(days=1), today=TODAY - datetime.timedelta(days=1))
-    page = review_services.for_page(tab or "today", [])
-    folded = [escape(f.title) for f in page["more_findings"]]
-    assert folded
-    card = text(get_part(client_viewer, PAGE + (f"?section=&review={tab}" if tab else ""), "review"))
-    assert f"Show {len(folded)} more finding" in card
-    address = placeholder_attributes(card)["review-more"]["hx-get"]
-    before = text(raw_get(client_viewer, address, **HX))
-    assert before.count('<li class="review-finding">') == len(folded) and all(t in before for t in folded)
-    # the next review succeeds while the card is open, with findings of its own
-    newer = DailyReview.objects.create(
-        date=TODAY + datetime.timedelta(days=1),
-        status=DailyReview.Status.SUCCEEDED,
-        finished_at=timezone.now(),
-        checks_run=1,
-    )
-    for n in range(3):
-        ReviewFinding.objects.create(
-            review=newer,
-            key=f"new_off_track:NEXT-{n}",
-            check_id="new_off_track",
-            severity=ReviewFinding.Severity.WARNING,
-            title=f"Found by the next review, number {n}",
-            rank=n,
-        )
-    assert review_services.for_page(tab or "today", [])["review"] != page["review"]  # the tab moved on
-    assert text(raw_get(client_viewer, address, **HX)) == before  # still the card's own findings
-
-    # the card's own day is run again (DailyReview.date is unique: the run replaces that day's review)
-    run_all = checks.run_all
-
-    def run_again(ctx):
-        drafts, errors = run_all(ctx)
-        return [dataclasses.replace(d, title=f"Run again: {d.title}") for d in drafts], errors
-
-    monkeypatch.setattr(checks, "run_all", run_again)
-    shown = page["review"]
-    again = review_services.run(date=shown.date, today=shown.date, narrate=False)
-    assert again.status == DailyReview.Status.SUCCEEDED and again.date == shown.date and again.pk != shown.pk
-    after = text(raw_get(client_viewer, address, **HX))
-    assert "Run again:" not in after and '<li class="review-finding">' not in after  # never the new run's
-    assert "This review has been run again since the page opened. Reload the page" in after
-
-
 def test_a_warm_overview_draws_kpis_and_figures_in_the_frame(client_viewer, reviewed, monkeypatch):
     get_part(client_viewer, PAGE, "kpis")  # the group leader computes and stores the build
 
@@ -461,7 +373,7 @@ def test_a_warm_overview_draws_kpis_and_figures_in_the_frame(client_viewer, revi
 
     monkeypatch.setattr(overview_service._Builder, "build", refuse)
     html = text(raw_get(client_viewer, PAGE))
-    assert list(placeholders(html)) == ["for-you", "review", "news"]  # kpis and figures are already in
+    assert list(placeholders(html)) == ["news"]  # kpis and figures are already in
     for name in ("kpis", "figures"):
         assert f'<div id="part-{name}" class="part is-loaded" data-part-loaded="{name}"' in html
     assert "Children reached" in html and "Impact on children" in html and f'id="{FIGURES_JSON}"' in html
@@ -674,11 +586,18 @@ def test_a_visit_in_another_language_reads_the_stored_build(client_viewer, world
         calls.append(1)
         return real(self)
 
+    def drawn(language: str) -> str:
+        """The part as drawn in ``language``, the months each source covers left out: the template names them
+        in the reader's language ("(Jan–Jun)"), from the build's month numbers (SPEC_HOME §3.2)."""
+        html = text(get_part(client_viewer, PAGE, "kpis", HTTP_ACCEPT_LANGUAGE=language))
+        return re.sub(r" \([^()<>]*–[^()<>]*\)", " (months)", html)
+
     monkeypatch.setattr(overview_service._Builder, "build", counted)
-    english = text(get_part(client_viewer, PAGE, "kpis", HTTP_ACCEPT_LANGUAGE="en"))
+    english = drawn("en")
+    assert english.count("(months)") == 2  # eTools' months and ActivityInfo's
     compute.reset_memo()
     for language in ("ar", "fr"):
-        assert text(get_part(client_viewer, PAGE, "kpis", HTTP_ACCEPT_LANGUAGE=language)) == english
+        assert drawn(language) == english
     assert len(calls) == 1, "the stored build was computed again for another language"
     frame = text(raw_get(client_viewer, PAGE, HTTP_ACCEPT_LANGUAGE="fr"))
     assert 'data-part-loaded="kpis"' in frame  # ... and the frame draws it inline in any language
@@ -692,8 +611,6 @@ MATRIX = [
     "?section=&governorate=Akkar",
     "?section=Education",  # a filter with no result
     "?year=2025",  # the previous year
-    "?section=&review=week",
-    "?section=&review=yesterday",
 ]
 
 
@@ -701,7 +618,7 @@ MATRIX = [
 def test_the_assembled_page_is_the_eager_page(client_viewer, own_section, reviewed, query):
     ReportingYear.objects.get_or_create(name="2025", defaults={"year": "2025", "current": False})
     assembled = assemble(client_viewer, PAGE + query)
-    assert {"kpis", "figures", "review", "news"} <= set(assembled.parts)  # review-more: when findings fold
+    assert set(PARTS) == set(assembled.parts)
     assert all(response.status_code == 200 for response in assembled.parts.values())
     drawn = eager(client_viewer, PAGE + query)
     assert drawn.status_code == 200
@@ -712,8 +629,8 @@ def test_the_assembled_page_is_the_eager_page(client_viewer, own_section, review
         assert all("_part" not in link for link in links), (name, links)
         assert executable(text(response)) == [], name
     assert all("_part" not in link for link in LINK.findall(text(drawn)))
-    assert placeholders(text(drawn)) == {"for-you": reverse("watch:card")}  # only the Watch card is left
-    assert normalise(_without_for_you(assembled)) == normalise(text(drawn), exclude=("part-for-you",))
+    assert placeholders(text(drawn)) == {}  # every part drawn
+    assert normalise(assembled.html) == normalise(text(drawn))
     # one chart JSON per part, unique in the page, the same as the eager page's
     together, alone = _json_blocks(assembled.html), _json_blocks(text(drawn))
     assert together == alone and FIGURES_JSON in together
@@ -722,40 +639,6 @@ def test_the_assembled_page_is_the_eager_page(client_viewer, own_section, review
     assert (
         figures[FIGURES_JSON]["labels"]["not_reported"] == "Not reported"
     )  # the labels travel with the charts
-
-
-@pytest.mark.shell
-def test_without_javascript_the_page_drawn_at_once_offers_for_you_its_own_page(client_viewer, reviewed):
-    """*Show the figures* (no JavaScript) leads to the page drawn at once. The For you card comes from another
-    view, so that page cannot draw it: a quiet slot (no grey shapes forever, not busy), whose link is the
-    card's own page, never the page already shown."""
-    frame = text(client_viewer.get(PAGE))
-    shown = re.search(r'<noscript><a href="([^"]+)">Show the figures</a></noscript>', frame)
-    assert shown, "the frame offers the figures without JavaScript"
-    address = PAGE + shown.group(1).replace("&amp;", "&")
-    assert "_eager=1" in address
-    page = text(client_viewer.get(address))
-    slot = placeholder_attributes(page)
-    assert list(slot) == ["for-you"]  # every other part is drawn
-    assert "aria-busy" not in slot["for-you"] and slot["for-you"]["hx-get"] == reverse("watch:card")
-    start = page.index('id="part-for-you"')
-    card = page[start : page.index('id="part-figures"', start)]
-    assert "part__skeleton" not in card and "Show the figures" not in card
-    assert f'<noscript><a href="{reverse("watch:for_you")}">' in card
-    assert "_eager=1" not in "".join(LINK.findall(card))
-    # where scripts run but parts.js never did, its error box offers the same page (review R3-critic-2)
-    assert (
-        f'href="{reverse("watch:for_you")}" data-part-fallback hidden>Open this block on its own page</a>'
-        in card
-    )
-    # base.html's script that shows those boxes comes with a page in parts (the frame, and the page drawn at once for
-    # its quiet slot), and with no other page
-    assert (
-        frame.count('classList.contains("parts-ready")')
-        == page.count('classList.contains("parts-ready")')
-        == 1
-    )
-    assert "parts-ready" not in text(client_viewer.get(reverse("help:index")))
 
 
 # ------------------------------------------------------------------------------------- templates left to load
@@ -776,5 +659,5 @@ def test_every_load_trigger_left_is_on_the_allow_list():
         if re.search(r'hx-trigger="load\b', path.read_text(encoding="utf-8"))
     }
     assert found <= LOAD_TRIGGERS_ALLOWED, found - LOAD_TRIGGERS_ALLOWED
-    overview = (root / "reports/templates/reports/overview.html").read_text(encoding="utf-8")
-    assert "watch-overview-slot" not in overview and '{% part "for-you"' in overview
+    home = (root / "reports/templates/reports/home.html").read_text(encoding="utf-8")
+    assert "watch-overview-slot" not in home and '{% part "for-you"' in home  # For you is on Home now

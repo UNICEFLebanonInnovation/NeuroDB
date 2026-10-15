@@ -52,6 +52,7 @@ from neurodb.library.services import completed_maps, published_resource, resourc
 from neurodb.partnerships import services as partnerships
 from neurodb.partnerships.models import PCA, PartnerOrganization
 from neurodb.reports import brief as brief_service
+from neurodb.reports import home as home_service
 from neurodb.reports import overview as overview_service
 from neurodb.web.parts import Part, first_load, render_page
 
@@ -87,7 +88,7 @@ def _section_label(database: Database) -> str:
 
 
 def _database_crumbs(database: Database, *extra: dict[str, str | None]) -> list[dict[str, str | None]]:
-    crumbs = [_crumb(_("Overview"), reverse("reports:overview"))]
+    crumbs = [_crumb(_("Home"), reverse("reports:overview"))]
     if _section_label(database):
         crumbs.append(_crumb(database.section.name))
     crumbs.append(
@@ -133,33 +134,46 @@ def _paginate(request: HttpRequest, queryset, per_page: int = PAGE_SIZE):
     return Paginator(queryset, per_page).get_page(request.GET.get("page"))
 
 
-# ------------------------------------------------------------------------- overview
+# ------------------------------------------------------------------------- Home, country overview, daily
+# review The parts the site root answered when it was the country overview: an open tab, or a link kept from
+# then, still asks for them at "/" and gets them from their page now.
+COUNTRY_PARTS = ("kpis", "figures", "news")
+REVIEW_PARTS = ("review", "review-more")
+REVIEW_KEYS = ("review", "review_latest", "review_id")  # the daily review's tabs and its folded findings
+
+
+def _with_query(url: str, query: str) -> str:
+    return f"{url}?{query}" if query else url
 
 
 @login_not_required
 @require_GET
 def home(request: HttpRequest) -> HttpResponse:
-    """Site root: the public landing page for visitors, the programme overview once signed in."""
+    """Site root: the public landing page for visitors, Home once signed in (``reports/home_views.py``).
+
+    The site root was the country overview and its daily review card: what was asked of it then still answers.
+    A part of the country overview (``kpis``, ``figures``, ``news``) or of the review (``review``,
+    ``review-more``) is answered by that page; a page asked with the overview's filters (``year``,
+    ``governorate``) or a review tab (``review``, ``review_latest``, ``review_id``) is sent there with the
+    same query. Donors never get here (``DonorScopeMiddleware``)."""
     if not request.user.is_authenticated:
         from neurodb.web.views import landing
 
         return landing(request)
-    return overview(request)
+    part = getattr(request, "part", None)
+    if part in COUNTRY_PARTS:
+        return country_overview(request)
+    if part in REVIEW_PARTS:
+        return daily_review(request)
+    if part is None:
+        query = request.GET.urlencode()
+        if "year" in request.GET or "governorate" in request.GET:
+            return redirect(_with_query(reverse("reports:country_overview"), query))
+        if any(key in request.GET for key in REVIEW_KEYS):
+            return redirect(_with_query(reverse("reports:daily_review"), query))
+    from .home_views import home_page
 
-
-@require_GET
-def daily_review(request: HttpRequest) -> HttpResponse:
-    """The daily review's own address. Until its page is built, the review card on the overview."""
-    return redirect(reverse("reports:overview") + "#daily-review")
-
-
-def _year_number(year: Any, default: int) -> int:
-    """The calendar year of a ReportingYear (``year`` or ``name`` starts with four digits)."""
-    for raw in (getattr(year, "year", None), getattr(year, "name", None)):
-        text = str(raw or "").strip()
-        if text[:4].isdigit():
-            return int(text[:4])
-    return default
+    return home_page(request)
 
 
 def _iso_date(text: str) -> datetime.date | None:
@@ -185,6 +199,9 @@ def _overview_chart_data(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
     Twelve-month blocks become ``{labels, series: {name: [...]}, colors}`` for the "lines" and
     "grouped" builders, and an empty dict when every value is zero so the chart shows its empty state.
+    Children reached by month has an ActivityInfo series only where ActivityInfo counts
+    (``activityinfo_used``), and it stops at the last month ActivityInfo reported: the months after it are
+    left empty, as the months to come, never drawn as zeros.
     """
     impact, money, delivery, progress = (
         data.get(key) or {} for key in ("impact", "money", "delivery", "progress")
@@ -196,13 +213,19 @@ def _overview_chart_data(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
     shown = int(today[5:7]) if today[:4] == str(scope.get("year")) and today[5:7].isdigit() else 12
 
     def series(
-        block: dict[str, Any], names: dict[str, str], colors: dict[str, str], planned: tuple[str, ...] = ()
+        block: dict[str, Any],
+        names: dict[str, str],
+        colors: dict[str, str],
+        planned: tuple[str, ...] = (),
+        last: dict[str, int] | None = None,
     ) -> dict[str, Any]:
         """``planned`` series (visits planned, points due) keep all twelve months; the others stop at
-        the current month, the months to come shown empty rather than as zeros."""
+        the current month, the months to come shown empty rather than as zeros; ``last`` stops a series
+        earlier, after the last month its source reported."""
+        last = last or {}
         values = {
             label: [
-                float(v or 0) if key in planned or i < shown else None
+                float(v or 0) if key in planned or (i < shown and i < last.get(key, 12)) else None
                 for i, v in enumerate(block.get(key) or [])
             ]
             for key, label in names.items()
@@ -215,14 +238,19 @@ def _overview_chart_data(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
         return {"labels": list(block.get("labels") or []), "series": values, "colors": colors}
 
     by_section_money = money.get("by_section") or []
+    if impact.get("activityinfo_used"):
+        monthly = series(
+            impact.get("monthly") or {},
+            {"etools": "eTools", "activityinfo": "ActivityInfo"},
+            {"eTools": "--nd-primary", "ActivityInfo": "--nd-series-2"},
+            last={"activityinfo": int(impact.get("activityinfo_last_month") or 0)},
+        )
+    else:  # no ActivityInfo children for this scope and year: no "ActivityInfo" series at all
+        monthly = series(impact.get("monthly") or {}, {"etools": "eTools"}, {"eTools": "--nd-primary"})
     figures = {
         "impact": {
             "by_section": [r for r in impact.get("by_section") or [] if r.get("target") or r.get("achieved")],
-            "monthly": series(
-                impact.get("monthly") or {},
-                {"etools": "eTools", "activityinfo": "ActivityInfo"},
-                {"eTools": "--nd-primary", "ActivityInfo": "--nd-series-2"},
-            ),
+            "monthly": monthly,
         },
         "money": {
             "by_section": [
@@ -266,25 +294,36 @@ def _overview_chart_data(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {"figures": figures}
 
 
-def _forecast_risk(sections: list[str]) -> list[Any]:
-    """The indicators of the chosen sections likely to fall short of their target (overview card, in the
-    ``news`` part only)."""
-    from neurodb.accounts.models import Section
+def _forecast_risk(sections: list[str], year: int) -> list[Any]:
+    """The indicators of the chosen sections likely to fall short of their target (the Country overview's
+    card, in the ``news`` part only): only while ActivityInfo is in use and for this year (the forecasts are
+    ActivityInfo's), sections matched to NeuroDB's as Home matches them (names that match no NeuroDB section:
+    nothing, never the whole country's under their label)."""
+    from neurodb.indicators.services import activityinfo
     from neurodb.insights.services import at_risk
 
-    ids = list(Section.objects.filter(name__in=sections).values_list("pk", flat=True)) if sections else None
-    return at_risk(section_ids=ids, limit=6)
+    if not activityinfo.in_use() or year != years.this_year():
+        return []
+    ids, matched = home_service.section_ids(sections)
+    if not matched:
+        return []
+    # the forecasts of other years left in the table are not this year's (insights.services.at_risk(year=)
+    # narrows them itself once it takes a year)
+    return [f for f in at_risk(section_ids=ids, limit=None) if f.year == year][:FORECASTS_SHOWN]
+
+
+FORECASTS_SHOWN = 6
 
 
 def _whats_new(sections: list[str]) -> list[tuple[Any, str]]:
-    """The notable changes of the last two days in the chosen sections, for the overview card (in the
-    ``news`` part only)."""
-    from django.utils import timezone
-
-    from neurodb.accounts.models import Section
+    """The notable changes of the last two days in the chosen sections, for the Country overview's card (in
+    the ``news`` part only), sections matched to NeuroDB's as Home matches them (names that match no NeuroDB
+    section: nothing, never the whole country's under their label)."""
     from neurodb.graph import news
 
-    ids = list(Section.objects.filter(name__in=sections).values_list("pk", flat=True)) if sections else None
+    ids, matched = home_service.section_ids(sections)
+    if not matched:
+        return []
     since = timezone.now() - datetime.timedelta(days=2)
     return [(c, news.sentence(c)) for c in news.recent(since, sections=ids)[:6]]
 
@@ -299,7 +338,7 @@ def _review_services():
 
 
 def _review_exists() -> bool:
-    """Whether a daily review has ever succeeded: the overview keeps its card's place only then (one
+    """Whether a daily review has ever succeeded: the review page keeps its card's place only then (one
     cheap query; the card itself is a part)."""
     try:
         from neurodb.review.models import DailyReview
@@ -308,98 +347,123 @@ def _review_exists() -> bool:
     return DailyReview.objects.filter(status=DailyReview.Status.SUCCEEDED).exists()
 
 
+def _month_names() -> dict[int, str]:
+    """``{1: "Jan", ... 12: "Dec"}`` in the active language: the months the key figures name ("Jan–Sep")."""
+    from django.utils.formats import date_format
+
+    return {month: date_format(datetime.date(2000, month, 1), "M") for month in range(1, 13)}
+
+
+def _year_choices(year: int) -> list[dict[str, Any]]:
+    """The Year select of a filter bar: the calendar years a page offers (``years.available()``), this year
+    marked, and the year shown even when it is older than the list."""
+    this_year = years.this_year()
+    numbers = years.available()
+    if year not in numbers:
+        numbers = sorted({*numbers, year}, reverse=True)
+    return [{"value": y, "this_year": y == this_year} for y in numbers]
+
+
+def _scope_query(sections: list[str], year: int | None = None) -> str:
+    """A filter written out for a link, so the page it opens never takes a first-load default: the sections
+    (repeated), or ``year`` alone for every section."""
+    query = QueryDict(mutable=True)
+    if sections:
+        query.setlist("section", sections)
+    elif year is not None:
+        query["year"] = str(year)
+    return query.urlencode()
+
+
 @require_GET
-def overview(request: HttpRequest) -> HttpResponse:
+def country_overview(request: HttpRequest) -> HttpResponse:
     """The country dashboard: impact on children, value for money, delivery and assurance, progress.
 
-    Filters: ``year`` (ReportingYear name), ``section`` (repeated) and ``governorate``. A first load with
-    no query string at all shows the user's own section, exactly as the partner monitoring page does.
+    Filters: ``year`` (a calendar year, :func:`neurodb.core.years.resolve`: this year by default), ``section``
+    (repeated) and ``governorate``. A first load with no query string at all shows the user's own section, as
+    Home does (:func:`neurodb.reports.home.default_sections`: every section for Management and for people
+    without a section). ActivityInfo counts only in a year with its records
+    (:func:`neurodb.indicators.services.activityinfo.reporting_year_for`); every other year shows eTools
+    alone.
 
-    The page loads in parts (:mod:`neurodb.web.parts`): this view answers the frame at once (purpose,
-    filter bar, subtitle, freshness strip) with a placeholder per data block, and each block is asked
-    for at this address plus ``_part``, with the resolved filter (the own section written out) and
-    ``as_of``, the fingerprint of the figures the frame was drawn with:
+    The page loads in parts (:mod:`neurodb.web.parts`): this view answers the frame at once (purpose, filter
+    bar, subtitle, freshness strip) with a placeholder per data block, and each block is asked for at this
+    address plus ``_part``, with the resolved filter (the own section written out) and ``as_of``, the
+    fingerprint of the figures the frame was drawn with:
 
     - ``kpis`` and ``figures`` (impact, money, delivery, TPM and action point progress) read one
       overview build (:func:`neurodb.reports.overview.build`, shared by every worker); when that build
-      is already stored, the frame draws both inline, so a warm overview asks only for the three parts
-      below that are never stored (``for-you``, ``review`` and ``news``); otherwise ``figures`` reads
-      the build ``kpis`` read for ``as_of``, even when a sync finished before or between them;
-    - ``review`` (the daily review card) and ``review-more`` (its folded findings, loaded when opened,
-      maybe hours later: its address carries ``review_latest``, the latest review the card read, and
-      ``review_id``, the review it shows, so the findings are always the card's, even after a newer
-      review has run, and never another run's when the card's review has been run again since);
-    - ``news`` (What's new and the forecast risk card);
-    - ``for-you``, the NeuroDB Watch card, from its own address (``watch:card``).
+      is already stored, the frame draws both inline, so a warm overview asks only for ``news``, which is
+      never stored; otherwise ``figures`` reads the build ``kpis`` read for ``as_of``, even when a sync
+      finished before or between them;
+    - ``news`` (What's new and the forecast risk card).
 
-    Without a reporting year: the empty state, and no part at all.
+    Home shows the key figures of this year (the same ``kpis`` build), and today's findings are on the daily
+    review's page (:func:`daily_review`).
     """
-    year = services.resolve_year(request.GET.get("year"))
-    today = datetime.date.today()
-    year_number = _year_number(year, today.year)
-    options = functools.cache(lambda: overview_service.options(year_number))  # the frame's filter bar only
+    from neurodb.indicators.services import activityinfo
+
+    year = years.resolve(request.GET.get("year"))
+    today = years.today()
+    reporting_year = activityinfo.reporting_year_for(year)
+    options = functools.cache(lambda: overview_service.options(year))  # the frame's filter bar only
     sections = [s for s in request.GET.getlist("section") if s]
     governorate = request.GET.get("governorate", "").strip()
-    review_day = request.GET.get("review", "")
-    review_latest = _iso_date(request.GET.get("review_latest", ""))  # the folded findings: their card's
-    review_id = _row_id(request.GET.get("review_id", ""))  # ... and the review it shows
     own_section: list[str] = []
-    if year and first_load(request):  # first load, no choice made yet: the user's own section
-        own_section = pd_monitoring_service.default_sections(request.user, options()["sections"])
+    if first_load(request):  # first load, no choice made yet: the user's own section (Home's rule)
+        own_section = home_service.default_sections(request.user, options()["sections"])
         if own_section:
             sections = own_section
     keep = QueryDict(mutable=True)  # the section, year and PD scope every drill-down link carries
     keep.setlist("section", sections)
-    if year:
-        keep["year"] = str(year_number)  # the eTools pages read a calendar year
-        keep["scope"] = "year"  # every PD running in the year, as the overview counts them
-    base = QueryDict(mutable=True)  # links back to this page: section and reporting year
+    keep["year"] = str(year)  # the eTools pages read a calendar year
+    keep["scope"] = "year"  # every PD running in the year, as the overview counts them
+    base = QueryDict(mutable=True)  # links back to this page: section and year
     base.setlist("section", sections)
-    if year:
-        base["year"] = year.name
+    base["year"] = str(year)
     programmes = QueryDict(mutable=True)  # the programmes page filters by section, not by year
     programmes.setlist("section", sections)
-    here = base.copy()  # ... and the governorate (review tabs and history)
+    here = base.copy()  # ... and the governorate
     if governorate:
         here["governorate"] = governorate
+    previous = QueryDict(mutable=True)  # January's "See {last year}": the same sections, last year
+    previous.setlist("section", sections)
+    previous["year"] = str(year - 1)
     scope = {  # what the parts read besides their own figures
-        "selected": {"section": sections, "governorate": governorate, "year": year.name if year else ""},
+        "selected": {"section": sections, "governorate": governorate, "year": str(year)},
         "labels": pd_monitoring_service.LABELS,
         "keep_query": keep.urlencode(),
         "programmes_query": ("?" + programmes.urlencode()) if sections else "",
         "base_query": base.urlencode(),
         "page_query": here.urlencode(),
+        "previous_query": previous.urlencode(),
+        "month_names": _month_names(),
     }
 
     def shell() -> dict[str, Any]:
-        context: dict[str, Any] = {
+        jobs = overview_service.freshness(overview_service.freshness_jobs())
+        state = activityinfo.state()
+        return {
             "page_title": _("Country overview"),
-            "page_subtitle": "",
-            "breadcrumbs": [_crumb(_("Overview"))],
-            "year": year,
-            "today": today,
-            "own_section": own_section,
-        }
-        if not year:
-            return context
-        jobs = overview_service.freshness()
-        context.update(
-            page_subtitle=" · ".join(
+            "page_subtitle": " · ".join(
                 [
-                    _("Reporting year %(year)s") % {"year": year.name},
+                    str(year),
                     ", ".join(sections) if sections else _("every section"),
                     governorate or _("all governorates"),
                 ]
             ),
-            options=options(),
-            freshness=jobs,
-            freshness_note=overview_service.freshness_note(jobs),
-            has_review=_review_exists(),
-        )
-        return context
-
-    if not year:  # nothing to compute: the empty state, no parts
-        return render_page(request, "reports/overview.html", scope=scope, shell=shell, parts={}, query="")
+            "breadcrumbs": [_crumb(_("Home"), reverse("reports:overview")), _crumb(_("Country overview"))],
+            "year": year,
+            "today": today,
+            "own_section": own_section,
+            "options": options(),
+            "year_choices": _year_choices(year),
+            "freshness": jobs,
+            "freshness_note": overview_service.freshness_note(jobs),
+            "review_query": _scope_query(sections, year),
+            # the ActivityInfo databases of the year: only in a year with ActivityInfo records
+            "activityinfo_year_name": state.names.get(year, "") if year in state.years else "",
+        }
 
     # The figures the frame is drawn with (their fingerprint: overview_service.fingerprint): a part request
     # reads them from its address, so ``figures`` reads the build ``kpis`` read even when a sync finished
@@ -410,22 +474,91 @@ def overview(request: HttpRequest) -> HttpResponse:
     # fingerprint.
     resolved = QueryDict(mutable=True)
     resolved.setlist("section", sections or [""])
-    resolved["year"] = year.name
+    resolved["year"] = str(year)
     if governorate:
         resolved["governorate"] = governorate
+    if as_of:
+        resolved["as_of"] = as_of
+    build_scope = overview_service.Scope(
+        year=year, reporting_year=reporting_year, sections=sections, governorate=governorate, today=today
+    )
+    data = functools.cache(lambda: overview_service.build(build_scope, as_of=as_of))
+    stored = functools.cache(lambda: overview_service.stored(build_scope))
+    parts = {
+        "kpis": Part("reports/parts/overview_kpis.html", lambda: {"data": data()}, ready=stored),
+        "figures": Part(
+            "reports/parts/overview_figures.html",
+            lambda: {"data": data(), "chart": _overview_chart_data(data())["figures"]},
+            ready=stored,
+        ),
+        "news": Part(
+            "reports/parts/overview_news.html",
+            lambda: {"whats_new": _whats_new(sections), "forecast_risk": _forecast_risk(sections, year)},
+        ),
+    }
+    return render_page(
+        request, "reports/overview.html", scope=scope, shell=shell, parts=parts, query=resolved.urlencode()
+    )
+
+
+overview = country_overview  # the view's name before Home took the site root
+
+
+@require_GET
+def daily_review(request: HttpRequest) -> HttpResponse:
+    """The daily review's page (``/daily-review/``): the latest review, the day before, the last seven days or
+    a date (``review``), its findings narrowed to the sections (``section``, repeated; a first load shows the
+    user's own section by Home's rule, :func:`neurodb.reports.home.default_sections`).
+
+    The page loads in parts: the frame (purpose, scope line) at once, then ``review`` (the card) and, when its
+    *Show more* opens, ``review-more`` (its folded findings, maybe hours later: its address carries
+    ``review_latest``, the latest review the card read, and ``review_id``, the review it shows, so the
+    findings are always the card's, even after a newer review has run, and never another run's when the card's
+    review has been run again since). Home shows its summary (:func:`neurodb.review.services.digest`)."""
+    today = years.today()
+    year = today.year
+    options = functools.cache(lambda: {"sections": overview_service.section_options(year)})
+    sections = [s for s in request.GET.getlist("section") if s]
+    review_day = request.GET.get("review", "")
+    review_latest = _iso_date(request.GET.get("review_latest", ""))  # the folded findings: their card's
+    review_id = _row_id(request.GET.get("review_id", ""))  # ... and the review it shows
+    own_section: list[str] = []
+    if first_load(request):
+        own_section = home_service.default_sections(request.user, options()["sections"])
+        if own_section:
+            sections = own_section
+    here = QueryDict(mutable=True)  # the card's tabs and history: the sections written out
+    here.setlist("section", sections or [""])
+    scope = {
+        "selected": {"section": sections, "governorate": ""},
+        "page_query": here.urlencode(),
+        "base_query": here.urlencode(),
+    }
+
+    def shell() -> dict[str, Any]:
+        own = home_service.own_names(request.user, options) if not sections else []
+        return {
+            "page_title": _("Daily review"),
+            "breadcrumbs": [_crumb(_("Home"), reverse("reports:overview")), _crumb(_("Daily review"))],
+            "today": today,
+            "own_section": own_section,
+            # the scope line (reports/partials/_home_scope.html)
+            "own_default": own_section,
+            "scope_sections": sections,
+            "own_names": own,
+            "own_query": _scope_query(own),
+            "schedule": home_service.review_schedule(),
+            "has_review": _review_exists(),
+        }
+
+    resolved = QueryDict(mutable=True)
+    resolved.setlist("section", sections or [""])
     if review_day:
         resolved["review"] = review_day
     if review_latest:
         resolved["review_latest"] = review_latest.isoformat()
     if review_id:
         resolved["review_id"] = str(review_id)
-    if as_of:
-        resolved["as_of"] = as_of
-    build_scope = overview_service.Scope(
-        year=year_number, reporting_year=year, sections=sections, governorate=governorate, today=today
-    )
-    data = functools.cache(lambda: overview_service.build(build_scope, as_of=as_of))
-    stored = functools.cache(lambda: overview_service.stored(build_scope))
     review_services = _review_services()
     review = functools.cache(
         lambda: (
@@ -449,21 +582,16 @@ def overview(request: HttpRequest) -> HttpResponse:
         return {"review": page}
 
     parts = {
-        "kpis": Part("reports/parts/overview_kpis.html", lambda: {"data": data()}, ready=stored),
-        "figures": Part(
-            "reports/parts/overview_figures.html",
-            lambda: {"data": data(), "chart": _overview_chart_data(data())["figures"]},
-            ready=stored,
-        ),
         "review": Part("reports/parts/overview_review.html", lambda: {"review": review()}),
         "review-more": Part("reports/parts/overview_review_more.html", folded),
-        "news": Part(
-            "reports/parts/overview_news.html",
-            lambda: {"whats_new": _whats_new(sections), "forecast_risk": _forecast_risk(sections)},
-        ),
     }
     return render_page(
-        request, "reports/overview.html", scope=scope, shell=shell, parts=parts, query=resolved.urlencode()
+        request,
+        "reports/daily_review.html",
+        scope=scope,
+        shell=shell,
+        parts=parts,
+        query=resolved.urlencode(),
     )
 
 
@@ -505,8 +633,9 @@ def _brief_chart_data(data: dict[str, Any]) -> dict[str, Any]:
 @require_GET
 def brief(request: HttpRequest) -> HttpResponse:
     """The management brief: the overview read for decisions (comparisons, confidence, equity,
-    partners, money, action). Filters: ``year`` (ReportingYear name) and ``section`` (repeated);
-    every section by default, as senior management reads the whole country.
+    partners, money, action). Filters: ``year`` (a calendar year, this year by default) and ``section``
+    (repeated); every section by default, as senior management reads the whole country. ActivityInfo counts
+    only in a year with its records (:func:`neurodb.indicators.services.activityinfo.reporting_year_for`).
 
     The page loads in parts (:mod:`neurodb.web.parts`): this view answers the frame at once (purpose,
     filter bar with the "Figures as of" line, the tab bar, the Reference block, from
@@ -521,26 +650,25 @@ def brief(request: HttpRequest) -> HttpResponse:
     Both read one brief build (:func:`neurodb.reports.brief.build`, shared by every worker): when it is
     already stored, the frame draws both inline, so a warm brief is one request; otherwise ``sections``
     reads the build ``brief`` read for ``as_of``, even when a sync finished before or between them.
-    Without a reporting year: the empty state, and no part at all.
     """
-    year = services.resolve_year(request.GET.get("year"))
-    today = datetime.date.today()
-    year_number = _year_number(year, today.year)
+    from neurodb.indicators.services import activityinfo
+
+    year = years.resolve(request.GET.get("year"))
+    today = years.today()
+    reporting_year = activityinfo.reporting_year_for(year)
     sections = [s for s in request.GET.getlist("section") if s]
     keep = QueryDict(mutable=True)
     keep.setlist("section", sections)
-    if year:
-        keep["year"] = str(year_number)
-        keep["scope"] = "year"
+    keep["year"] = str(year)
+    keep["scope"] = "year"
     base = QueryDict(mutable=True)
     base.setlist("section", sections)
-    if year:
-        base["year"] = year.name
+    base["year"] = str(year)
     scope = {  # what the parts read besides the build
-        "selected": {"section": sections, "year": year.name if year else ""},
+        "selected": {"section": sections, "year": str(year)},
         "keep_query": keep.urlencode(),
         "base_query": base.urlencode(),
-        "overview_query": ("?" + base.urlencode()) if base else "",
+        "overview_query": "?" + base.urlencode(),
     }
     tabs = [
         ("brief", _("Brief")),
@@ -554,33 +682,21 @@ def brief(request: HttpRequest) -> HttpResponse:
     ]
 
     def shell() -> dict[str, Any]:
-        context: dict[str, Any] = {
+        return {
             "page_title": _("Management brief"),
-            "page_subtitle": (
-                " · ".join(
-                    [
-                        _("Reporting year %(year)s") % {"year": year.name},
-                        ", ".join(sections) if sections else _("every section"),
-                    ]
-                )
-                if year
-                else ""
-            ),
+            "page_subtitle": " · ".join([str(year), ", ".join(sections) if sections else _("every section")]),
             "breadcrumbs": [
-                _crumb(_("Overview"), reverse("reports:overview")),
+                _crumb(_("Home"), reverse("reports:overview")),
                 _crumb(_("Management brief")),
             ],
             "year": year,
             "today": today,
-            "options": overview_service.options(year_number),
+            "options": overview_service.options(year),
+            "year_choices": _year_choices(year),
             "tabs": tabs,
+            "lineage": brief_service.lineage(year),
+            "dictionary": brief_service.DICTIONARY,
         }
-        if year:
-            context.update(lineage=brief_service.lineage(year_number), dictionary=brief_service.DICTIONARY)
-        return context
-
-    if not year:  # nothing to compute: the empty state, no parts
-        return render_page(request, "reports/brief.html", scope=scope, shell=shell, parts={}, query="")
 
     # The figures the frame is drawn with (their fingerprint: brief_service.fingerprint): a part request
     # reads them from its address, so the second part reads the build the first one read even when a
@@ -591,13 +707,15 @@ def brief(request: HttpRequest) -> HttpResponse:
     # section), the year always, and the figures' fingerprint.
     resolved = QueryDict(mutable=True)
     resolved.setlist("section", sections or [""])
-    resolved["year"] = year.name
+    resolved["year"] = str(year)
     if as_of:
         resolved["as_of"] = as_of
-    # the previous reporting year is looked up only when the build is computed (its key never reads it), and
-    # the key's own reads (the hand-entered tables, the latest review) are made once, for the frame's look and
-    # for the build it then draws
-    build_scope = brief_service.Scope(year=year_number, reporting_year=year, sections=sections, today=today)
+    # the previous year's reporting year is looked up only when the build is computed (its key never reads
+    # it), and the key's own reads (the hand-entered tables, the latest review) are made once, for the frame's
+    # look and for the build it then draws
+    build_scope = brief_service.Scope(
+        year=year, reporting_year=reporting_year, sections=sections, today=today
+    )
     data = functools.cache(lambda: brief_service.build(build_scope, as_of=as_of))
     stored = functools.cache(lambda: brief_service.stored(build_scope))
     parts = {
@@ -626,7 +744,7 @@ def databases(request: HttpRequest) -> HttpResponse:
         "page_title": _("ActivityInfo databases"),
         "page_subtitle": _("Reporting year %(year)s") % {"year": year.name} if year else "",
         "breadcrumbs": [
-            _crumb(_("Overview"), reverse("reports:overview")),
+            _crumb(_("Home"), reverse("reports:overview")),
             _crumb(_("ActivityInfo databases")),
         ],
         "year": year,
@@ -876,7 +994,7 @@ def _report_context(request: HttpRequest, report: NeuroReport, page: str) -> dic
             }
             for r in other_years
         ],
-        "breadcrumbs": [_crumb(_("Overview"), reverse("reports:overview")), _crumb(report.name)],
+        "breadcrumbs": [_crumb(_("Home"), reverse("reports:overview")), _crumb(report.name)],
     }
 
 
@@ -924,7 +1042,7 @@ def report_analytical(request: HttpRequest, pk: int) -> HttpResponse:
         "page_title": _("%(name)s · Analytical view") % {"name": report.name},
         "page_subtitle": _("Pivot table over the ActivityInfo records behind this report"),
         "breadcrumbs": [
-            _crumb(_("Overview"), reverse("reports:overview")),
+            _crumb(_("Home"), reverse("reports:overview")),
             _crumb(report.name, reverse("reports:report_dashboard", args=[report.id])),
             _crumb(_("Analytical view")),
         ],

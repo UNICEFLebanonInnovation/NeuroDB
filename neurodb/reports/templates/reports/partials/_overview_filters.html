@@ -17,7 +17,7 @@
   <div class="filter-bar__field">
     <label class="form-label" for="f-year">{% trans "Year" %}</label>
     <select class="form-select form-select-sm" id="f-year" name="year">
-      {% for y in nav.years %}<option value="{{ y.name }}" {% if y.id == year.id %}selected{% endif %}>{{ y.name }}</option>{% empty %}<option value="{{ year.name }}" selected>{{ year.name }}</option>{% endfor %}
+      {% for y in year_choices %}<option value="{{ y.value }}" {% if y.value == year %}selected{% endif %}>{{ y.value }}{% if y.this_year %} {% trans "(this year)" %}{% endif %}</option>{% endfor %}
     </select>
   </div>
   {% if request.GET.review %}<input type="hidden" name="review" value="{{ request.GET.review }}">{% endif %}

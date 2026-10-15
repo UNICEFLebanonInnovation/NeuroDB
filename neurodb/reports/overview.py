@@ -39,7 +39,7 @@ from django.conf import settings
 from django.db.models import Count, Max, Q, Sum
 from django.urls import reverse
 
-from neurodb.core import compute
+from neurodb.core import compute, years
 from neurodb.datamart import fm, headline, monitoring
 from neurodb.datamart import models as dm
 from neurodb.datamart import reached as rc
@@ -57,9 +57,12 @@ logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 120  # a build, and the freshness strip
 OPTIONS_SECONDS = 600  # the filter bar's choices (they only change with a sync)
-CACHE_VERSION = 13  # 12: the sections and the governorate written as JSON in the build's key; 13: the data
-# stamp as its fingerprint, which the parts' addresses carry (as_of)
+CACHE_VERSION = 14  # 12: the sections and the governorate written as JSON in the build's key; 13: the data
+# stamp as its fingerprint, which the parts' addresses carry (as_of); 14: the calendar year (the reporting
+# year of its ActivityInfo records, or none), the sources' months, January's "not yet", the freshness jobs in
+# its key
 FRESHNESS_JOBS = ("ai_data", "etools_datamart", "locations", "daily_review")
+NOT_YET_MONTHS = 4  # up to the end of April, a year with no eTools children yet says "Not yet", never 0
 MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 STATUSES = ("on_track", "off_track", "over_target", "no_target", NOT_REPORTED)
 LEVEL_GOVERNORATE = monitoring.LEVEL_GOVERNORATE
@@ -90,11 +93,13 @@ COST_CAVEAT = (
 
 @dataclass
 class Scope:
-    year: int
-    reporting_year: Any = None  # the ActivityInfo ReportingYear, None when none is configured
+    year: int  # the calendar year
+    # the reporting year whose ActivityInfo records count for the year (activityinfo.reporting_year_for), None
+    # when the year has none
+    reporting_year: Any = None
     sections: list[str] = field(default_factory=list)
     governorate: str = ""
-    today: datetime.date = field(default_factory=datetime.date.today)
+    today: datetime.date = field(default_factory=lambda: years.today())
 
 
 # --------------------------------------------------------------------------------- names
@@ -191,9 +196,17 @@ def options(year: int) -> dict[str, list[str]]:
     hand in Admin → Locations (a name, a governorate made inactive), which no key would see."""
     if settings.DEBUG:
         return _options()
+    return {"sections": section_options(year), "governorates": _governorates()}
+
+
+def section_options(year: int) -> list[str]:
+    """The filter bar's section names alone (:func:`options` without its governorates, read at each
+    request): what a first load's own section is matched against on Home and the daily review, which draw no
+    filter bar."""
+    if settings.DEBUG:
+        return _sections()
     key = f"overview-options:v{CACHE_VERSION}:{year}:{compute.data_stamp()}"
-    sections = compute.once(key, _sections, OPTIONS_SECONDS, wait=0, lang_neutral=True)  # never translated
-    return {"sections": sections, "governorates": _governorates()}
+    return compute.once(key, _sections, OPTIONS_SECONDS, wait=0, lang_neutral=True)  # never translated
 
 
 def _options() -> dict[str, list[str]]:
@@ -634,11 +647,27 @@ class _Builder:
             g["level"] = level
         etools_value = half_up(etools_total)
         ai_value = half_up(activityinfo["total"])
+        children = max(etools_value, ai_value)
+        # Rule 1 (indicators.services.activityinfo): ActivityInfo counts only in a year with its records, and
+        # is shown only where the scope's ActivityInfo children are above zero (never "ActivityInfo 0")
+        ai_used = self.scope.reporting_year is not None and ai_value > 0
+        ai_months = [m for m, v in enumerate(activityinfo["months"], start=1) if half_up(v)]
+        etools_months_reported = [m for m, v in enumerate(etools_months, start=1) if half_up(v)]
         return {
             # The same children are often reported in both sources: the headline is the larger one.
-            "children_reached": max(etools_value, ai_value),
+            "children_reached": children,
             "children_etools": etools_value,
             "children_activityinfo": ai_value,
+            "activityinfo_used": ai_used,
+            # the months each source covers (1-12; 0: none): "eTools (Jan–Sep) · ActivityInfo (Jan–Aug)"
+            "etools_last_month": max(etools_months_reported, default=0),
+            "activityinfo_first_month": min(ai_months, default=0) if ai_used else 0,
+            "activityinfo_last_month": max(ai_months, default=0) if ai_used else 0,
+            # January to April of this year with no children yet: "Not yet", never a 0 (the first partner
+            # reports come after the first quarter); the key holds today, so it ends by itself
+            "not_yet": (
+                self.year == self.today.year and self.today.month <= NOT_YET_MONTHS and children == 0
+            ),
             "children_rule": headline.TOTAL_RULE,
             # of children_etools, from Submitted reports not yet accepted (a send-back takes it off);
             # None with a governorate chosen (not split by place)
@@ -672,12 +701,17 @@ class _Builder:
             },
             "population_year": population_year,
             "implausible": self.implausible,
+            # plain English, never translated: the build is the same in every language (lang_neutral)
             "source": (
                 f"eTools PRP progress reports, {self.year}: each programme document's main indicator (its "
                 "unique beneficiaries indicator, else its largest children indicator), summed over the "
                 "programme documents, as partners may reach the same children; and the additive "
                 f"ActivityInfo HPM indicators that count children, {self.year}. The two sources are shown "
                 "apart, and a total is the larger of the two"
+                if ai_used
+                else f"eTools PRP progress reports, {self.year}: each programme document's main indicator "
+                "(its unique beneficiaries indicator, else its largest children indicator), summed over the "
+                "programme documents, as partners may reach the same children"
             ),
         }
 
@@ -1396,19 +1430,31 @@ class _Builder:
 
 
 # --------------------------------------------------------------------------------- freshness
-def freshness() -> list[dict[str, Any]]:
-    """When each source last changed: the same states as the data health page, without its per-dataset
-    counts. Plain values (``finished_at``, never the run itself), kept two minutes in the shared cache,
-    the same for every language (the job names are not translated); a finished sync changes the key, so
-    a new run shows at once. Like :func:`options`, never waited for: a frame computes it itself when
-    another request is at it."""
+def freshness_jobs() -> tuple[str, ...]:
+    """The sources the freshness strip follows: :data:`FRESHNESS_JOBS`, the ActivityInfo data import only
+    while its alarms are on (``activityinfo.watched()``): an archive is not "out of date"."""
+    from neurodb.indicators.services import activityinfo
+
+    if activityinfo.watched():
+        return FRESHNESS_JOBS
+    return tuple(job for job in FRESHNESS_JOBS if job != "ai_data")
+
+
+def freshness(jobs: tuple[str, ...] | list[str] | None = None) -> list[dict[str, Any]]:
+    """When each source of ``jobs`` (default :func:`freshness_jobs`) last changed: the same states as the data
+    health page, without its per-dataset counts. Plain values (``finished_at``, never the run itself), kept
+    two minutes in the shared cache under a key holding the jobs, the same for every language (the job names
+    are not translated); a finished sync changes the key, so a new run shows at once. Like :func:`options`,
+    never waited for: a frame computes it itself when another request is at it."""
+    jobs = tuple(freshness_jobs() if jobs is None else jobs)
     if settings.DEBUG:
-        return _freshness()
-    key = f"overview-freshness:v{CACHE_VERSION}:{compute.data_stamp()}"  # the last finished sync run
-    return compute.once(key, _freshness, CACHE_SECONDS, wait=0, lang_neutral=True)
+        return _freshness(jobs)
+    # the last finished sync run, and the jobs followed
+    key = f"overview-freshness:v{CACHE_VERSION}:{compute.data_stamp()}:{','.join(jobs)}"
+    return compute.once(key, lambda: _freshness(jobs), CACHE_SECONDS, wait=0, lang_neutral=True)
 
 
-def _freshness() -> list[dict[str, Any]]:
+def _freshness(jobs: tuple[str, ...] = FRESHNESS_JOBS) -> list[dict[str, Any]]:
     from django.utils import timezone
 
     from neurodb.core.models import SyncRun
@@ -1417,7 +1463,7 @@ def _freshness() -> list[dict[str, Any]]:
     now = timezone.now()
     labels = dict(SyncRun.Job.choices)
     out = []
-    for job in FRESHNESS_JOBS:
+    for job in jobs:
         last = SyncRun.last_success(job)
         finished = last.finished_at if last is not None else None
         if finished is None:
@@ -1474,6 +1520,8 @@ def _partner(pd: Any) -> str:
 __all__ = [
     "Scope",
     "build",
+    "freshness",
+    "freshness_jobs",
     "children_by_pd",
     "children_masters",
     "children_population",

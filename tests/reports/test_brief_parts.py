@@ -80,12 +80,14 @@ LINK = re.compile(r'\s(?:href|action|hx-push-url)="([^"]*)"')
 # review and its findings) and the navigation: 24. Drawn inline (the build stored) it is the same 12: both parts read
 # the build the frame found stored, under the key it read. Each part is measured with nothing stored: brief and
 # sections each compute the whole build (the year before's reporting year, two overview builds and the brief's own
-# reads): 91; the group's second part reading the stored build is 8. Cold the menu also reads the ActivityInfo state
-# and its sources, kept per worker (SPEC_HOME §4): 27.
+# reads): 91; the group's second part reading the stored build is 8. SPEC_HOME §3.4: the year is the calendar year,
+# its ActivityInfo reporting year read from the ActivityInfo state (4 queries cold, kept 30 s per worker) and the
+# Year select's years (1); cold the menu also reads its sources, kept per worker (SPEC_HOME §4), and shares the
+# ActivityInfo state: cold 27, each part 94.
 SHELL_QUERIES_WARM = 14
 SHELL_QUERIES_COLD = 29
 SHELL_QUERIES_INLINE = 14
-PART_QUERIES = {"brief": 93, "sections": 93}
+PART_QUERIES = {"brief": 96, "sections": 96}
 PART_QUERIES_STORED = 10
 
 
@@ -160,7 +162,7 @@ def test_the_frame_answers_with_every_figure_service_refusing(client_viewer, rev
     assert response.status_code == 200
     html = text(response)
     assert "<title>Management brief" in html and 'class="page-purpose"' in html
-    assert "Reporting year 2026 · every section" in html  # the subtitle
+    assert "2026 · every section" in html  # the subtitle: the calendar year (SPEC_HOME §3.4)
     assert 'aria-label="Brief filters"' in html and 'name="section"' in html  # the filter bar ...
     stamp = html.split('class="brief-stamp"')[1].split("</p>")[0]
     assert "Figures as of" in stamp and "eTools Datamart sync" in stamp  # ... its stamp, from the lineage
@@ -219,13 +221,18 @@ def test_the_placeholders_carry_the_resolved_filter(client_viewer, reviewed):
 
 
 @pytest.mark.shell
-def test_without_a_reporting_year_there_is_no_part(client_viewer, world, reporting_year):
+def test_without_any_reporting_year_both_parts_are_there(client_viewer, world, reporting_year):
+    """The brief's year is the calendar year (SPEC_HOME §3.4): without any ActivityInfo reporting year its frame
+    draws both placeholders and the "Figures as of" line, and its parts compute eTools' figures."""
     reporting_year.delete()
     html = text(client_viewer.get(PAGE))
-    assert "No reporting year is configured" in html and placeholders(html) == {}
-    assert "Figures as of" not in html
-    response = client_viewer.get(PAGE + "?_part=brief", **HX)
-    assert response.status_code == 404  # no part to ask for
+    assert "No reporting year is configured" not in html and list(placeholders(html)) == list(PARTS)
+    assert "Figures as of" in html
+    brief = get_part(client_viewer, PAGE, "brief")
+    tiles = {t["key"]: t for t in brief.context["data"]["headline"]["tiles"]}
+    assert (
+        tiles["children"]["value"] == 500 and "ActivityInfo was not used in 2026" in tiles["children"]["hint"]
+    )
 
 
 @pytest.mark.shell
@@ -532,9 +539,9 @@ def test_each_language_has_its_own_build_and_one_lineage(client_viewer, reviewed
         calls["build"] += 1
         return real_build(self)
 
-    def lineage(year):
+    def lineage(year, jobs=None):
         calls["lineage"] += 1
-        return real_lineage(year)
+        return real_lineage(year, jobs)
 
     monkeypatch.setattr(brief_service._Builder, "build", build)
     monkeypatch.setattr(brief_service, "_lineage", lineage)

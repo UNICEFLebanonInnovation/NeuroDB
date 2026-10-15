@@ -1,0 +1,28 @@
+{% load i18n %}{% comment %}Home's "since" part (reports.home_views.home_page): what changed since the previous working day
+(home.since: at most six notable changes, the sections matched to NeuroDB's; "every section" when the names match
+none), then "Your tasks" (Section editors and Administrators, counts only; left out when there is none). Context:
+since_label, since_weekday, changes, matched, your_tasks, selected.{% endcomment %}
+<section class="panel home-since" aria-labelledby="home-since-title">
+  <div class="panel__header">
+    <h2 class="panel__title" id="home-since-title">{{ since_label }}</h2>
+    <span class="panel__hint">{% if not matched %}{% trans "every section" %}{% elif selected.section %}{{ selected.section|join:", " }}{% endif %}</span>
+  </div>
+  {% if changes %}
+  <ul class="home-list home-list--changes">
+    {% for change, text in changes %}
+    <li>{% if change.url %}<a href="{{ change.url }}">{{ text }}</a>{% else %}{{ text }}{% endif %} <span class="home-list__meta">· {{ change.detected_at|date:"D H:i" }}</span></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="home-empty">{% blocktrans with day=since_weekday %}Nothing notable changed since {{ day }}.{% endblocktrans %}</p>
+  {% endif %}
+  <a class="home-more" href="{% url 'graph:whats_new' %}">{% trans "Everything new: What's new" %} →</a>
+  {% if your_tasks %}
+  <h3 class="home-block__title home-block__title--split">{% trans "Your tasks" %}</h3>
+  <ul class="home-list">
+    {% for t in your_tasks %}
+    <li><a href="{{ t.url }}">{% if t.kind == "documents" %}{% blocktrans count counter=t.count %}{{ counter }} document review finding not reviewed yet{% plural %}{{ counter }} document review findings not reviewed yet{% endblocktrans %}{% elif t.kind == "wellbeing" %}{% blocktrans count counter=t.count %}{{ counter }} Makani wellbeing flag to follow up{% plural %}{{ counter }} Makani wellbeing flags to follow up{% endblocktrans %}{% else %}{% blocktrans count counter=t.count with y=t.year %}{{ counter }} HPM report of {{ y }} to comment on{% plural %}{{ counter }} HPM reports of {{ y }} to comment on{% endblocktrans %}{% endif %} →</a></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>

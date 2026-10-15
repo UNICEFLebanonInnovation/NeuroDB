@@ -40,7 +40,9 @@ def test_the_frame_computes_its_cheap_values_rather_than_wait(value):
     with concurrent.futures.ThreadPoolExecutor(1) as pool:
         # waiting for the lock (30 s by default) would miss this bound by far
         result = pool.submit(call).result(timeout=10)
-    assert result == (overview._options() if value == "options" else overview._freshness())
+    assert result == (
+        overview._options() if value == "options" else overview._freshness(overview.freshness_jobs())
+    )
 
 
 @pytest.mark.django_db
@@ -59,7 +61,7 @@ def test_both_are_still_kept_in_the_shared_cache(monkeypatch):
     computed = []
     # the filter bar's sections are what options() stores (its governorates are read at each request)
     monkeypatch.setattr(overview, "_sections", lambda: computed.append("options") or [])
-    monkeypatch.setattr(overview, "_freshness", lambda: computed.append("freshness") or [])
+    monkeypatch.setattr(overview, "_freshness", lambda *jobs: computed.append("freshness") or [])
     overview.options(2026)
     overview.freshness()
     assert computed == []  # read back from the shared cache, not computed again
@@ -74,7 +76,7 @@ def test_one_stored_value_serves_every_language(monkeypatch, value):
     name = "_sections" if value == "options" else "_freshness"
     real = getattr(overview, name)
     computed = []
-    monkeypatch.setattr(overview, name, lambda: computed.append(value) or real())
+    monkeypatch.setattr(overview, name, lambda *args: computed.append(value) or real(*args))
     compute_it = (lambda: overview.options(2026)) if value == "options" else overview.freshness
     with translation.override("en"):
         english = compute_it()

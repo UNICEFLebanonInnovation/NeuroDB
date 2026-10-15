@@ -28,6 +28,12 @@ def fake_data(today: datetime.date = FAKE_TODAY) -> dict[str, Any]:
             "children_reached": 48_250,
             "children_etools": 31_400,
             "children_activityinfo": 16_850,
+            # an ActivityInfo year: the two sources apart, each with its months
+            "activityinfo_used": True,
+            "etools_last_month": 6,
+            "activityinfo_first_month": 1,
+            "activityinfo_last_month": 6,
+            "not_yet": False,
             "delta_previous_year": 12.4,
             "by_governorate": [
                 {
@@ -323,12 +329,17 @@ def empty_data(today: datetime.date = FAKE_TODAY) -> dict[str, Any]:
             "children_reached": 0,
             "children_etools": 0,
             "children_activityinfo": 0,
+            "activityinfo_used": False,
+            "etools_last_month": 0,
+            "activityinfo_first_month": 0,
+            "activityinfo_last_month": 0,
+            "not_yet": False,
             "delta_previous_year": None,
             "by_governorate": [],
             "by_section": [],
             "monthly": {"labels": list(MONTHS), "etools": list(zeros), "activityinfo": list(zeros)},
             "population_year": None,
-            "source": "eTools PRP progress reports and ActivityInfo HPM master indicators",
+            "source": "eTools PRP progress reports",
         },
         "money": {
             "reserved": 0.0,
@@ -394,8 +405,8 @@ def empty_data(today: datetime.date = FAKE_TODAY) -> dict[str, Any]:
     }
 
 
-def fake_freshness() -> list[dict[str, Any]]:
-    """What ``overview.freshness()`` returns: the freshness strip of the page's frame (no longer part of a
+def fake_freshness(jobs: Any = None) -> list[dict[str, Any]]:
+    """What ``overview.freshness(jobs)`` returns: the freshness strip of the page's frame (no longer part of a
     build)."""
     return [
         {

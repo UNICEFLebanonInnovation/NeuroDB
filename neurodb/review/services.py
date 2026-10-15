@@ -818,3 +818,65 @@ def for_page(
         check_errors=(review.stats or {}).get("check_errors") or {},
     )
     return page
+
+
+# ------------------------------------------------------------------------------------- Home's digest
+DIGEST_SEVERITIES = (
+    ReviewFinding.Severity.CRITICAL,
+    ReviewFinding.Severity.WARNING,
+    ReviewFinding.Severity.INFO,
+)  # what Home counts and lists: "Good news" is not something to act on
+
+
+def digest(sections: list[str], limit: int = 3, exclude_keys: Any = ()) -> dict[str, Any] | None:
+    """Home's summary of the latest succeeded review in ``sections`` (:func:`in_sections`; country-wide
+    findings always count), or None when no review has succeeded yet:
+
+    - ``counts``: the open findings by severity, as ``(severity, label, n)``, "Good news" left out;
+    - ``rows``: at most ``limit`` lines, one per check: open findings grouped by ``check_id``, the groups in
+    the
+      order of their best (lowest) ``rank``, each its best finding's title and link with how many more like
+      it. Findings already shown on Home under "Needs a decision" (``exclude_keys``) are left out;
+    - ``changed``: the first two of the review's "changed" sentences (:func:`_changed`);
+    - ``review``: the review (its date and when it finished)."""
+    review = (
+        DailyReview.objects.filter(status=DailyReview.Status.SUCCEEDED)
+        .order_by("-date")
+        .only("pk", "date", "finished_at", "created_at", "stats")
+        .first()
+    )
+    if review is None:
+        return None
+    findings = [f for f in review.findings.all() if in_sections(f.section, sections)]
+    shown = [f for f in findings if f.state != RESOLVED and f.severity in DIGEST_SEVERITIES]
+    counts = Counter(f.severity for f in shown)
+    excluded = set(exclude_keys or ())
+    groups: dict[str, list[ReviewFinding]] = {}
+    for finding in sorted((f for f in shown if f.key not in excluded), key=lambda f: (f.rank, f.pk)):
+        groups.setdefault(finding.check_id, []).append(finding)
+    rows = [
+        {
+            "key": group[0].key,
+            "check": check_id,
+            "section": group[0].section,
+            "title": group[0].title,
+            "url": group[0].url,
+            "severity": group[0].severity,
+            "severity_label": group[0].get_severity_display(),
+            "more": len(group) - 1,
+        }
+        for check_id, group in list(groups.items())[:limit]
+    ]
+    return {
+        "review": review,
+        "date": review.date,
+        "finished": timezone.localtime(review.finished_at or review.created_at),
+        "counts": [
+            (severity, ReviewFinding.Severity(severity).label, counts[severity])
+            for severity in DIGEST_SEVERITIES
+            if counts.get(severity)
+        ],
+        "open": len(shown),
+        "rows": rows,
+        "changed": _changed(review, findings)[:2],
+    }

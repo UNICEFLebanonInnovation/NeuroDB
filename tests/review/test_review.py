@@ -282,9 +282,10 @@ def test_the_summary_input_names_no_staff(data, settings, monkeypatch):
     assert "Jane Doe" not in seen["input"]
 
 
-def test_the_overview_shows_the_review_card(data, hierarchy, client_viewer):
+def test_the_daily_review_page_shows_the_review_card(data, hierarchy, client_viewer):
+    """The card moved from the overview to the daily review's own page (SPEC_HOME §3.3)."""
     run()
-    page = client_viewer.get(reverse("reports:overview") + "?review=today")
+    page = client_viewer.get(reverse("reports:daily_review") + "?review=today")
     assert page.status_code == 200
     text = page.content.decode()
     assert 'id="daily-review"' in text and "How the daily review works" in text and "TPM/2" in text
@@ -405,7 +406,7 @@ def test_the_card_sets_data_problems_apart_and_folds_the_rest(
     monkeypatch.setattr(services, "PAGE_FINDINGS", 1)
     page = services.for_page("today", [])
     assert len(page["findings"]) == 1 and page["more"] == len(page["more_findings"]) > 0
-    html = client_viewer.get(reverse("reports:overview") + "?section=").text
+    html = client_viewer.get(reverse("reports:daily_review") + "?section=").text  # the card's page now
     assert "Data problems" in html and "administration pages" not in html
     assert "Show " in html and " more finding" in html  # the rest open in place, for every viewer
 

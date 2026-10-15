@@ -1,0 +1,75 @@
+/* Home (reports/home.html, loaded through {% block head_extra %}): the rules only Home uses. app.css tokens only, so
+   dark mode follows ([data-bs-theme="dark"] redefines them). The key figures' shared classes (.kpi__how,
+   .kpi--wide-sm) belong to app.css, which the Country overview reads too. */
+
+/* Row 1: "Needs you today" (For you, decisions, the daily review) beside "Since {weekday}"; one column below 992 px */
+.home-row { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); align-items: start; margin-bottom: 1rem; }
+@media (min-width: 992px) { .home-row { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); } }
+.home-today { min-width: 0; }
+.home-today > .watch-overview, .home-today > .part { margin-bottom: 0.75rem; }
+.home-today > .part:last-child { margin-bottom: 0; }
+.home-today .panel { padding-top: 0.85rem; padding-bottom: 0.85rem; }
+.home-today .watch-overview .panel__header { margin-bottom: 0.4rem; }
+.home-today .watch-overview .panel__header > a { white-space: nowrap; }
+/* The For you card's points (watch/partials/_card.html, only on Home): one line each from 576 px, like the rows
+   below it, so three points do not push the key figures off the first screen */
+@media (max-width: 575.98px) {
+  .home-today .watch-overview__list li { display: block; }
+  .home-today .watch-overview__list li > .watch-card__sev { display: inline-block; vertical-align: middle; margin-right: 0.4rem; }
+}
+@media (min-width: 576px) {
+  .home-today .watch-overview__list li { flex-wrap: nowrap; }
+  .home-today .watch-overview__list li > a { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .home-today .watch-overview__list li > .watch-card__sev, .home-today .watch-overview__list li > .watch-chip { flex: 0 0 auto; white-space: nowrap; }
+}
+.home-heading { font-size: 1rem; font-weight: 700; margin: 0 0 0.6rem; }
+.home-note { margin: 0 0 0.75rem; padding: 0.6rem 0.85rem; border-radius: var(--nd-radius-sm); background: var(--nd-warning-soft); color: var(--nd-text); font-size: 0.86rem; }
+.home-scope a { white-space: nowrap; }
+
+/* Blocks inside a panel: "Needs a decision", "Daily review", "Your tasks" */
+.home-block + .home-block { margin-top: 0.7rem; padding-top: 0.7rem; border-top: 1px solid var(--nd-border); }
+.home-block__title { font-size: 0.9rem; font-weight: 650; margin: 0 0 0.4rem; }
+.home-block__title--split { margin-top: 0.85rem; padding-top: 0.85rem; border-top: 1px solid var(--nd-border); }
+.home-list { list-style: none; margin: 0 0 0.4rem; padding: 0; font-size: 0.86rem; }
+.home-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.45rem; padding: 0.22rem 0; }
+.home-list li > .review-finding__sev { align-self: center; margin-top: 0; }
+.home-list__meta { color: var(--nd-muted); font-size: 0.8rem; }
+/* Decisions and the review's rows: one line each from 576 px (the title gives way, in full on hover), so the key
+   figures stay on the first screen (SPEC_HOME §3.1); on a phone they run on like a sentence */
+@media (max-width: 575.98px) {
+  .home-list--rows li { display: block; }
+  .home-list--rows li > .pill, .home-list--rows li > .review-finding__sev { display: inline-block; vertical-align: middle; margin-right: 0.35rem; }
+  .home-list--rows .home-list__meta { margin-left: 0.35rem; }
+}
+@media (min-width: 576px) {
+  .home-list--rows li { flex-wrap: nowrap; }
+  .home-list--rows .home-list__title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .home-list--rows .home-list__meta, .home-list--rows .pill, .home-list--rows .review-finding__sev { flex: 0 0 auto; white-space: nowrap; }
+}
+.home-list--changes li { display: block; }
+.home-counts { margin: 0 0 0.35rem; font-size: 0.84rem; font-weight: 600; }
+.home-counts__item--critical { color: var(--nd-danger); }
+.home-counts__item--warning { color: var(--nd-warning); }
+.home-counts__item--info { color: var(--nd-info); }
+.home-counts__stale { color: var(--nd-muted); font-weight: 400; }
+.home-changed { display: flex; flex-wrap: wrap; gap: 0.15rem 1rem; margin: 0 0 0.35rem; color: var(--nd-muted); font-size: 0.8rem; }
+.home-empty { margin: 0 0 0.4rem; color: var(--nd-muted); font-size: 0.86rem; }
+.home-more { display: inline-block; font-size: 0.82rem; }
+.home-muted, .home-list li.home-muted { color: var(--nd-muted); }
+
+/* Where {who} stands: the overview's key figures, with the "Also" line under them */
+.home-standing { margin-bottom: 1.25rem; }
+.home-standing__header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 1rem; margin-bottom: 0.6rem; }
+.home-standing__header .home-heading { margin: 0; }
+.home-standing .kpi-grid { margin-bottom: 0.5rem; }
+.home-also { margin: 0 0 0.3rem; color: var(--nd-muted); font-size: 0.84rem; }
+.home-programmes { margin-bottom: 0.5rem; }
+.home-list--sources li { display: block; }
+
+/* TEMPORARY copy (G2): .kpi__how and .kpi--wide-sm belong to app.css, where G3 adds them (SPEC_HOME §3.2); these
+   two rules only let Home be seen as it will be until then, and go away at integration. */
+.kpi__how { margin-top: 0.3rem; font-size: 0.78rem; color: var(--nd-muted); }
+.kpi__how > summary { cursor: pointer; width: fit-content; color: var(--nd-muted); }
+.kpi__how > summary:hover { color: var(--nd-text); }
+.kpi__how[open] > summary { margin-bottom: 0.2rem; }
+@media (max-width: 575.98px) { .kpi--wide-sm { grid-column: 1 / -1; } .kpi--wide-sm .legend { flex-wrap: wrap; } }

@@ -1,0 +1,25 @@
+{% load i18n humanize %}{% comment %}Home's "programmes" part (reports.home_views.home_page): the country programme, the Compiler figures
+and ActivityInfo, one line each with its page (reports.home.programmes), for the whole country. A source that is not
+live is left out for viewers; a person who can set it up reads a muted line (roles.can_set_up). Context: rows,
+selected.{% endcomment %}
+{% if rows %}
+<section class="panel home-programmes" aria-labelledby="home-programmes-title">
+  <div class="panel__header">
+    <h2 class="panel__title" id="home-programmes-title">{% trans "Programmes and sources" %}</h2>
+    {% if selected.section %}<span class="panel__hint">{% trans "These lines are for the whole country." %}</span>{% endif %}
+  </div>
+  <ul class="home-list home-list--sources">
+    {% for r in rows %}
+    {% if r.kind == "cpd" %}<li><a href="{{ r.url }}">{% blocktrans with span=r.span k=r.year n=r.years on=r.on total=r.total off=r.off %}Country programme {{ span }} · year {{ k }} of {{ n }} · {{ on }} of {{ total }} indicators on track or ahead, {{ off }} off track{% endblocktrans %} →</a></li>
+    {% elif r.kind == "cpd_ended" %}<li><a href="{{ r.url }}">{% blocktrans with span=r.span end=r.end %}Country programme {{ span }}: ended in {{ end }}{% endblocktrans %} →</a>{% if r.setup %} <span class="home-muted">{% trans "An administrator uploads the next cycle on the Country programme page." %}</span>{% endif %}</li>
+    {% elif r.kind == "cpd_later" %}<li><a href="{{ r.url }}">{% blocktrans with span=r.span start=r.start %}Country programme {{ span }}: starts in {{ start }}{% endblocktrans %} →</a></li>
+    {% elif r.kind == "cpd_none" %}<li class="home-muted">{% url 'cpd:dashboard' as cpd_url %}{% blocktrans %}No country programme cycle yet: an administrator uploads it on the <a href="{{ cpd_url }}">Country programme page</a>.{% endblocktrans %}</li>
+    {% elif r.kind == "compiler" %}<li><a href="{{ r.url }}">{% blocktrans with label=r.label n=r.counted|intcomma period=r.period %}{{ label }}: {{ n }} registrations, {{ period }}{% endblocktrans %} →</a></li>
+    {% elif r.kind == "compiler_off" %}<li class="home-muted">{% trans "Compiler is not connected: Makani, Dirasa and youth figures are not shown here." %}</li>
+    {% elif r.kind == "activityinfo" %}<li><a href="{{ r.url }}">{% blocktrans with y=r.year n=r.masters|intcomma %}ActivityInfo {{ y }}: {{ n }} results tracked against targets{% endblocktrans %}{% if r.last %} · {% blocktrans with d=r.last|date:"j M Y" %}last import {{ d }}{% endblocktrans %}{% endif %} →</a></li>
+    {% elif r.kind == "activityinfo_archive" %}<li><a href="{{ r.url }}">{% blocktrans with span=r.span %}ActivityInfo archive {{ span }}: every database and report, kept as it was{% endblocktrans %} →</a></li>
+    {% endif %}
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}

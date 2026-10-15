@@ -191,7 +191,8 @@ def test_forecasts_show_only_once_the_back_test_passed(client_viewer, years_of_d
     assert "not shown yet" in answer["note"]
 
 
-def test_shown_forecasts_reach_the_pages_and_the_assistant(client_viewer, years_of_data):
+def test_shown_forecasts_reach_the_pages_and_the_assistant(client_viewer, years_of_data, activityinfo_in_use):
+    """The Country overview's card shows this year's forecasts while ActivityInfo is in use (SPEC_HOME §3.2)."""
     run("test", today=datetime.date(2026, 10, 2))
     latest = services.latest_run()
     latest.details["backtest"]["shown"] = True
@@ -199,7 +200,7 @@ def test_shown_forecasts_reach_the_pages_and_the_assistant(client_viewer, years_
     IndicatorForecast.objects.update(status="likely_short", low=500, high=700)
     page = client_viewer.get(reverse("reports:database_dashboard", args=[years_of_data.pk])).content.decode()
     assert "Likely to fall short by December" in page and "likely 50–70% of target" in page
-    overview = client_viewer.get(reverse("reports:overview")).content.decode()
+    overview = client_viewer.get(reverse("reports:country_overview")).content.decode()  # the card's page now
     assert "Likely to fall short by December" in overview
     answer = tools.run(
         "indicator_forecasts", tools.validate("indicator_forecasts", {"status": "likely_short"})

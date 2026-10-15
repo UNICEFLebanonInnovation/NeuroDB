@@ -329,14 +329,18 @@ def test_the_overview_card_lists_the_first_three(team):
     assert "See all" in html
 
 
-def test_the_overview_card_is_empty_for_someone_told_nothing(roles, education):
+def test_the_card_tells_someone_without_a_role_why_it_is_empty(roles, education):
+    """Home's card for an account without a role says why For you is empty (SPEC_HOME §3.1: it was an empty
+    answer, "For you" nowhere in it); a donor never gets that far (staff_only)."""
     norole = person("norole", None, education)
     response = htmx(login(norole), reverse("watch:card"))
-    assert response.status_code == 200 and "For you" not in response.content.decode()
+    html = response.content.decode()
+    assert response.status_code == 200 and "For you is for people with a role." in html
+    assert "thing needs you" not in html and "nothing needs you today" not in html
 
 
-@pytest.mark.shell  # the overview's frame itself: the card is one of its parts, loaded after it
-def test_the_overview_reads_no_watch_table_and_loads_the_card_later(team, hierarchy):
+@pytest.mark.shell  # Home's frame itself: the card is one of its parts, loaded after it
+def test_home_reads_no_watch_table_and_loads_the_card_later(team, hierarchy):
     from tests.web.parts import placeholder_attributes
 
     tell(team.edu, item())

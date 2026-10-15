@@ -1,5 +1,7 @@
 {% load i18n ui humanize %}
-{% with impact=data.impact %}
+{% comment %}ActivityInfo is named only where it counts (impact.activityinfo_used); January to April of this year with no
+children yet says so (impact.not_yet) in place of the governorate tiles and the coverage table.{% endcomment %}
+{% with impact=data.impact ai=data.impact.activityinfo_used %}
 <div class="overview-row">
 <h2 class="section-heading">{% trans "Impact on children" %}</h2>
 <section class="panel" aria-labelledby="gov-title">
@@ -7,10 +9,12 @@
     <h3 class="panel__title" id="gov-title">{% trans "Children reached by governorate" %}</h3>
     <a class="panel__hint" href="{% url 'reports:pd_monitoring_map' %}?{{ keep_query }}">{% trans "Map" %} →</a>
   </div>
-  {% if impact.by_governorate %}
+  {% if impact.not_yet %}
+  <p class="text-muted small mb-0">{% blocktrans with y=data.scope.year %}No partner report for {{ y }} yet: the first ones come after the first quarter.{% endblocktrans %} <a href="{% url 'reports:country_overview' %}?{{ previous_query }}">{% blocktrans with y=data.scope.year|add:"-1" %}See {{ y }}{% endblocktrans %} →</a></p>
+  {% elif impact.by_governorate %}
   <div class="gov-grid">
     {% for g in impact.by_governorate %}
-    <a class="gov-tile gov-tile--l{{ g.level|default:1 }}" href="?{% if base_query %}{{ base_query }}&amp;{% endif %}governorate={{ g.name|urlencode }}"{% if g.name == selected.governorate %} aria-current="true"{% endif %} title="{% blocktrans with e=g.etools|intcomma a=g.activityinfo|intcomma %}eTools {{ e }}, ActivityInfo {{ a }}{% endblocktrans %}">
+    <a class="gov-tile gov-tile--l{{ g.level|default:1 }}" href="?{% if base_query %}{{ base_query }}&amp;{% endif %}governorate={{ g.name|urlencode }}"{% if g.name == selected.governorate %} aria-current="true"{% endif %}{% if ai %} title="{% blocktrans with e=g.etools|intcomma a=g.activityinfo|intcomma %}eTools {{ e }}, ActivityInfo {{ a }}{% endblocktrans %}"{% endif %}>
       <span class="gov-tile__name">{{ g.name }}</span>
       <span class="gov-tile__value">{{ g.reached|intcomma }}</span>
       <span class="gov-tile__sub">{% if g.coverage is not None %}{% blocktrans with p=g.coverage|floatformat:"0" %}{{ p }}% of children{% endblocktrans %}{% else %}{% trans "children reached" %}{% endif %}</span>
@@ -21,11 +25,11 @@
     <span>{% trans "Fewer" %}</span>
     <span class="gov-legend__ramp" aria-hidden="true"><span class="gov-tile--l1"></span><span class="gov-tile--l2"></span><span class="gov-tile--l3"></span><span class="gov-tile--l4"></span><span class="gov-tile--l5"></span><span class="gov-tile--l6"></span></span>
     <span>{% trans "More" %}</span>
-    <span>· {% trans "the larger of the two sources per governorate, so the tiles add up to more than the national figure (which takes the larger source for the country as a whole)" %}</span>
+    {% if ai %}{% with jan=month_names|get_item:1 e_last=month_names|get_item:impact.etools_last_month a_first=month_names|get_item:impact.activityinfo_first_month a_last=month_names|get_item:impact.activityinfo_last_month %}<span>· {% if e_last and a_last %}{% blocktrans with e=jan|add:"–"|add:e_last a=a_first|add:"–"|add:a_last %}eTools {{ e }} · ActivityInfo {{ a }}: each governorate shows the larger of the two{% endblocktrans %}{% else %}{% trans "the larger of the two sources per governorate" %}{% endif %}, {% trans "so the tiles add up to more than the national figure (which takes the larger source for the country as a whole)" %}</span>{% endwith %}{% endif %}
     {% if selected.governorate %}<span>· <a href="?{{ base_query }}">{% trans "every governorate" %}</a></span>{% endif %}
   </div>
   {% else %}
-  {% include "components/empty_state.html" with icon="map" title=_("No children reached by governorate yet") message=_("Partner reports with a location appear here once the eTools Datamart and ActivityInfo imports have run for this scope.") %}
+  {% if ai %}{% include "components/empty_state.html" with icon="map" title=_("No children reached by governorate yet") message=_("Partner reports with a location appear here once the eTools Datamart and ActivityInfo imports have run for this scope.") %}{% else %}{% include "components/empty_state.html" with icon="map" title=_("No children reached by governorate yet") message=_("Partner reports with a location appear here once the eTools Datamart sync has run for this scope.") %}{% endif %}
   {% endif %}
 </section>
 
@@ -40,7 +44,7 @@
   <section class="panel" aria-labelledby="monthly-title">
     <div class="panel__header">
       <h3 class="panel__title" id="monthly-title">{% trans "Children reached by month" %}</h3>
-      <span class="panel__hint">{% trans "eTools: each programme document's main indicator, by the month its report period ends; ActivityInfo records; kept separate" %}</span>
+      <span class="panel__hint">{% if ai %}{% trans "eTools: each programme document's main indicator, by the month its report period ends; ActivityInfo records; kept separate" %}{% else %}{% trans "eTools: each programme document's main indicator, by the month its report period ends" %}{% endif %}</span>
     </div>
     <div class="chart chart--sm" data-module="charts" data-chart="grouped" data-source="overview-figures-data" data-key="impact.monthly" data-height="240" data-empty-title="{% trans 'No monthly values yet' %}" aria-label="{% trans 'Children reached per month by source' %}"></div>
   </section>
@@ -49,15 +53,17 @@
 <section class="panel" aria-labelledby="coverage-title">
   <div class="panel__header">
     <h3 class="panel__title" id="coverage-title">{% trans "Coverage of children in need" %}</h3>
-    <span class="panel__hint">{% trans "The larger of the two sources against the population of children; eTools adds each programme document's main indicator, and partners may reach the same children" %}</span>
+    <span class="panel__hint">{% if ai %}{% trans "The larger of the two sources against the population of children; eTools adds each programme document's main indicator, and partners may reach the same children" %}{% else %}{% trans "Children reached against the population of children; eTools adds each programme document's main indicator, and partners may reach the same children" %}{% endif %}</span>
   </div>
-  {% if impact.by_governorate %}
+  {% if impact.not_yet %}
+  <p class="text-muted small mb-0">{% blocktrans with y=data.scope.year %}No partner report for {{ y }} yet: the first ones come after the first quarter.{% endblocktrans %} <a href="{% url 'reports:country_overview' %}?{{ previous_query }}">{% blocktrans with y=data.scope.year|add:"-1" %}See {{ y }}{% endblocktrans %} →</a></p>
+  {% elif impact.by_governorate %}
   <div class="table-wrap"><table class="table table-sm table-hover" id="overview-coverage">
     <thead><tr>
       <th scope="col">{% trans "Governorate" %}</th>
       <th scope="col" class="num">eTools</th>
-      <th scope="col" class="num">ActivityInfo</th>
-      <th scope="col" class="num">{% trans "Reached (larger source)" %}</th>
+      {% if ai %}<th scope="col" class="num">ActivityInfo</th>
+      <th scope="col" class="num">{% trans "Reached (larger source)" %}</th>{% else %}<th scope="col" class="num">{% trans "Reached" %}</th>{% endif %}
       <th scope="col" class="num">{% trans "Children" %}</th>
       <th scope="col">{% trans "Coverage" %}</th>
     </tr></thead>
@@ -66,7 +72,7 @@
     <tr>
       <td><a href="?{% if base_query %}{{ base_query }}&amp;{% endif %}governorate={{ g.name|urlencode }}">{{ g.name }}</a></td>
       <td class="num">{{ g.etools|number:0 }}</td>
-      <td class="num">{{ g.activityinfo|number:0 }}</td>
+      {% if ai %}<td class="num">{{ g.activityinfo|number:0 }}</td>{% endif %}
       <td class="num"><strong>{{ g.reached|number:0 }}</strong></td>
       <td class="num">{{ g.population|number:0 }}</td>
       <td>{% if g.coverage is not None %}<div class="meter"><div class="meter__track"><span class="meter__fill" style="width: {% if g.coverage > 100 %}100{% else %}{{ g.coverage|floatformat:0 }}{% endif %}%"></span></div><span class="meter__value">{{ g.coverage|percent:0 }}</span></div>{% else %}<span class="text-muted small">{% trans "no population figure" %}</span>{% endif %}</td>

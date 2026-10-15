@@ -1,13 +1,17 @@
-"""Stage 0's group: the country overview (``/``), its filter matrix and where its figures live (SPEC7 §3.5).
+"""Stage 0's group: the Country overview (``/country-overview/``; the site root until Home took it, SPEC_HOME §2),
+its filter matrix and where its figures live (SPEC7 §3.5).
 
 **Users.** An administrator (the first active superuser, by username) and a viewer with a section (the
 first active, non-superuser account in the Viewer group with a section): on a first load the viewer sees
 its own section, the administrator every section.
 
 **Matrix.** First load (own section), every section, the viewer's section, another section, two sections, one
-governorate, a section and a governorate, the previous reporting year (alone, and with a section and a
-governorate), a section with no data at all, and the daily review's tabs (yesterday, the week, a date with a
-review, a date without one).
+governorate, a section and a governorate, the previous year (alone, and with a section and a governorate) and a section with no data at all.
+The daily review's tabs left the page with its card (SPEC_HOME §3.3): ``home.py`` checks them on their own page.
+
+Against a recording of the day-0 commit (whose ``/country-overview/`` is the old overview), the differences
+expected are SPEC_HOME §11.3's: the crumb "Home", the subtitle's calendar year, the For you and review parts gone
+from the page, the year's choices, and ActivityInfo's words only where ActivityInfo counts.
 
 **Context paths.** The old page (one response) and the page in parts (shell plus parts) keep the same values
 under these names; the right-hand side says where the page in parts has them:
@@ -19,10 +23,11 @@ freshness strip)                        agree), or of the shell when it drew the
                                         ``last_success`` run: compared as ``finished_at``)
 ``data.freshness_note``                 ``freshness_note`` of the shell
 ``chart_data``                          ``chart`` of the ``figures`` part
-``review``                              ``review`` of the ``review`` part (``review-more`` must agree)
 ``whats_new``, ``forecast_risk``        the ``news`` part
 everything else in ``SHELL_KEYS``       the shell
 =====================================  ==========================================================
+
+A recording of a page already in parts (the day-0 commit's) is read like the page checked: shell plus parts.
 
 JSON: ``overview-chart-data`` became ``overview-figures-data`` (the same dict, ``labels`` included). Ids that
 only the page in parts has (``part-<name>``, the wrappers of the loaded parts) are not compared.
@@ -54,6 +59,7 @@ SHELL_KEYS = (
 NO_SUCH_SECTION = "No such section"
 TIMED = ("first load", "every section", "one section", "one governorate", "previous year")  # timing.py
 FIRST_FIGURE = "kpis"  # the part whose arrival is the page's first figure (the group leader)
+PAGE = "/country-overview/"
 
 
 def users() -> dict[str, Any]:
@@ -78,7 +84,6 @@ def matrix(people: dict[str, Any]) -> list[tuple[str, str]]:
     from neurodb.indicators.models import ReportingYear
     from neurodb.reports import overview as service
     from neurodb.reports import services
-    from neurodb.review.models import DailyReview
 
     year = services.resolve_year(None)
     if year is None:
@@ -89,19 +94,12 @@ def matrix(people: dict[str, Any]) -> list[tuple[str, str]]:
     own = people["viewer"].section.name
     other = next(s for s in options["sections"] if s != own)
     place = "Beirut" if "Beirut" in options["governorates"] else options["governorates"][0]
-    reviews = list(
-        DailyReview.objects.filter(status=DailyReview.Status.SUCCEEDED)
-        .order_by("-date")
-        .values_list("date", flat=True)
-    )
-    no_review = f"{year_number}-01-01"
-    assert no_review not in {d.isoformat() for d in reviews}
 
     def url(*pairs: tuple[str, str]) -> str:
-        return "/?" + urlencode(pairs)
+        return f"{PAGE}?" + urlencode(pairs)
 
     rows = [
-        ("first load", "/"),
+        ("first load", PAGE),
         ("every section", url(("section", ""))),
         ("one section", url(("section", own))),
         ("another section", url(("section", other))),
@@ -117,14 +115,7 @@ def matrix(people: dict[str, Any]) -> list[tuple[str, str]]:
                 url(("section", own), ("year", previous.name), ("governorate", place)),
             ),
         ]
-    rows += [
-        ("no result", url(("section", NO_SUCH_SECTION))),
-        ("review yesterday", url(("review", "yesterday"))),
-        ("review week, one section", url(("section", own), ("review", "week"))),
-    ]
-    if len(reviews) > 1:
-        rows.append(("review on a date", url(("review", reviews[1].isoformat()))))
-    rows.append(("review on a date without one", url(("review", no_review))))
+    rows.append(("no result", url(("section", NO_SUCH_SECTION))))
     return rows
 
 
@@ -171,7 +162,7 @@ def figures(page: core.Page, mode: str) -> tuple[dict[str, Any], list[str]]:
     shell = _contexts(page.shell)
     out = {key: core.plain(_get(shell, key)) for key in SHELL_KEYS}
     problems: list[str] = []
-    if mode == "record":
+    if mode == "record" and not page.parts:  # the old page, in one response (a page in parts: as below)
         data = _get(shell, "data")
         if data is not None:
             data = dict(data)
@@ -181,7 +172,6 @@ def figures(page: core.Page, mode: str) -> tuple[dict[str, Any], list[str]]:
             out["freshness"] = out["freshness_note"] = None
         out["data"] = core.plain(data)
         out["chart"] = core.plain(_get(shell, "chart_data"))
-        out["review"] = core.plain(_get(shell, "review"))
         out["whats_new"] = core.plain(_get(shell, "whats_new"))
         out["forecast_risk"] = core.plain(_get(shell, "forecast_risk"))
         return out, problems
@@ -210,7 +200,6 @@ def figures(page: core.Page, mode: str) -> tuple[dict[str, Any], list[str]]:
     out["freshness_note"] = _get(shell, "freshness_note")
     out["data"] = one("data", "kpis", "figures")
     out["chart"] = one("chart", "figures")
-    out["review"] = one("review", "review", "review-more")
     out["whats_new"] = one("whats_new", "news")
     out["forecast_risk"] = one("forecast_risk", "news")
     return out, problems

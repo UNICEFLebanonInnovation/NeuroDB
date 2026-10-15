@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% load i18n static parts %}
+{% block head_extra %}<link rel="stylesheet" href="{% static 'css/home.css' %}">{% endblock %}
+{% block page_header %}{% include "reports/partials/_home_header.html" %}{% endblock %}
+{% block content %}
+{% comment %}Home (reports.home_views.home_page): the frame comes at once (title, date and scope line, purpose, freshness
+strip: no figure work, no watch_ table) and each block below is a part. Today's work first (For you, decisions, the
+daily review, what changed), then where the section or the country stands (the Country overview's own key figures,
+"standing", drawn inline when its build is already stored), then the sources.
+Each placeholder keeps the room of what it will hold, as measured on the x20 parity world (an administrator, a
+Management member and the Education viewer, at 1440, 768 and 390 px; the largest of the three, so that nothing
+below moves down when a part arrives): height where the part is at least 856 px wide (app.css), height_md where it
+is narrower (the "Needs you today" column at 1440 too), height_sm on a phone. For you keeps the room of a card with
+nothing to say (its points vary by person). Measured in px, tasks 321/321/504 (an Administrator; a viewer 188/188/
+290), since 114 (the x20 world has no change since yesterday), standing 260/545/685, programmes 154/154/236 (an
+Administrator's setup lines; others 99).{% endcomment %}
+{% url 'reports:country_overview' as overview_url %}{% url 'reports:brief' as brief_url %}
+<p class="page-purpose">{% blocktrans with who=who y=year q=scope_query %}What needs you today, what changed, and where {{ who }} stands in {{ y }}. Every figure of the year is on the <a href="{{ overview_url }}?{{ q }}">Country overview</a>; what to decide is in the <a href="{{ brief_url }}?{{ q }}">management brief</a>.{% endblocktrans %}</p>
+<div class="home-row">
+  <section class="home-today" aria-labelledby="home-today-title">
+    <h2 class="home-heading" id="home-today-title">{% trans "Needs you today" %}</h2>
+    {% if watch_enabled %}{% url 'watch:card' as watch_card_url %}{% url 'watch:for_you' as for_you_url %}{% part "for-you" kind="card" url=watch_card_url page=for_you_url priority="high" height="3.5rem" height_sm="5rem" %}{% else %}<p class="home-note" role="status">{{ watch_off }}</p>{% endif %}
+    {% part "tasks" kind="list" priority="high" height="20rem" height_md="20rem" height_sm="31.5rem" %}
+  </section>
+  {% part "since" kind="list" height="7.5rem" height_md="7.5rem" height_sm="7.5rem" %}
+</div>
+{% part "standing" kind="tiles" tiles=5 priority="high" height="16.5rem" height_md="34rem" height_sm="43rem" %}
+{% part "programmes" kind="list" priority="low" height="9.75rem" height_md="9.75rem" height_sm="15rem" %}
+{% include "reports/partials/_overview_freshness.html" %}
+{% endblock %}

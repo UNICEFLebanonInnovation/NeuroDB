@@ -37,7 +37,7 @@ from django.db.models import Count, Max, Q, Value
 from django.urls import reverse
 from django.utils import timezone
 
-from neurodb.core import compute
+from neurodb.core import compute, years
 from neurodb.core.models import PopulationFigure, SyncRun
 from neurodb.datamart import headline as main_indicators
 from neurodb.datamart import models as dm
@@ -55,7 +55,8 @@ from neurodb.web.templatetags.ui import money as money_text
 logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 120
-CACHE_VERSION = 7  # 7: the sections written as JSON in the key (6: in the shared cache, compute.once)
+CACHE_VERSION = 8  # 7: the sections written as JSON in the key (6: in the shared cache, compute.once); 8: the
+# calendar year, its ActivityInfo reporting year (or none), like with like, the lineage's jobs
 RULES_VERSION = "v2"
 MONTH_LABELS = overview.MONTH_LABELS
 PROJECTION_MONTHS = 3  # the pace is the average of the last three reported months
@@ -84,11 +85,13 @@ NATIONALITY_OF_TAG = {"Lebanese": "Lebanese", "Syrian": "Syrian", "Palestinian":
 
 @dataclass
 class Scope:
-    year: int
-    reporting_year: Any = None  # this year's ReportingYear (ActivityInfo), None when none exists
+    year: int  # the calendar year
+    # the reporting year whose ActivityInfo records count for the year (activityinfo.reporting_year_for), None
+    # when the year has none
+    reporting_year: Any = None
     previous_reporting_year: Any = None  # None: looked up when a build is computed (_build)
     sections: list[str] = field(default_factory=list)
-    today: datetime.date = field(default_factory=datetime.date.today)
+    today: datetime.date = field(default_factory=lambda: years.today())
 
 
 def _pct(part: float | None, whole: float | None) -> float | None:
@@ -194,10 +197,11 @@ def grant_balances(lines: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 
 # --------------------------------------------------------------------------------- build
 def previous_reporting_year(year: int) -> Any:
-    """The ReportingYear (ActivityInfo) of the year before ``year``, None when there is none."""
-    from neurodb.indicators.models import ReportingYear
+    """The reporting year whose ActivityInfo records count for the year before ``year``, None when that year
+    has none (:func:`neurodb.indicators.services.activityinfo.reporting_year_for`)."""
+    from neurodb.indicators.services import activityinfo
 
-    return ReportingYear.objects.filter(name__startswith=str(year - 1)).order_by("id").first()
+    return activityinfo.reporting_year_for(year - 1)
 
 
 def _latest_review() -> int | None:
@@ -300,28 +304,45 @@ def _build(scope: Scope, *, cache: bool = True) -> dict[str, Any]:
 LINEAGE_JOBS = (SyncRun.Job.ETOOLS_DATAMART, SyncRun.Job.ACTIVITYINFO_DATA, SyncRun.Job.POPULATION)
 
 
+def lineage_jobs(year: int) -> tuple[str, ...]:
+    """The sources the brief of ``year`` comes from: :data:`LINEAGE_JOBS`, the ActivityInfo data import only
+    in a year with ActivityInfo records (:func:`neurodb.indicators.services.activityinfo.is_year`)."""
+    from neurodb.indicators.services import activityinfo
+
+    if activityinfo.is_year(year):
+        return tuple(LINEAGE_JOBS)
+    return tuple(job for job in LINEAGE_JOBS if job != SyncRun.Job.ACTIVITYINFO_DATA)
+
+
 def lineage(year: int) -> dict[str, Any]:
     """Where the brief's figures come from (the "Figures as of" line and the Reference block of the page's
-    frame): the last successful run of each source, the year of the population figures, the rules and
-    the latest daily review. Plain values, kept two minutes in the shared cache, the same for every
-    language (nothing in it is translated), under a key that a finished sync or a new review changes. Never
-    waited for: a frame computes it itself (a few small queries) when another request is at it."""
+    frame): the last successful run of each source (:func:`lineage_jobs`), the year of the population figures,
+    the rules and the latest daily review. Plain values, kept two minutes in the shared cache, the same for
+    every language (nothing in it is translated), under a key that holds the sources and that a finished sync
+    or a new review changes. Never waited for: a frame computes it itself (a few small queries) when another
+    request is at it."""
+    jobs = lineage_jobs(year)
     if settings.DEBUG:
-        return _lineage(year)
-    key = f"brief-lineage:v{CACHE_VERSION}:{year}:{_latest_review()}:{compute.data_stamp()}"
-    return compute.once(key, lambda: _lineage(year), CACHE_SECONDS, wait=0, lang_neutral=True)
+        return _lineage(year, jobs)
+    key = f"brief-lineage:v{CACHE_VERSION}:{year}:{','.join(jobs)}:{_latest_review()}:{compute.data_stamp()}"
+    return compute.once(key, lambda: _lineage(year, jobs), CACHE_SECONDS, wait=0, lang_neutral=True)
 
 
-def _lineage(year: int) -> dict[str, Any]:
+def _lineage(year: int, jobs: tuple[str, ...] | None = None) -> dict[str, Any]:
     review = DailyReview.objects.filter(status=DailyReview.Status.SUCCEEDED).order_by("-date").first()
-    return lineage_of(overview.children_population(year)[1], review)
+    return lineage_of(
+        overview.children_population(year)[1], review, lineage_jobs(year) if jobs is None else jobs
+    )
 
 
-def lineage_of(population_year: int | None, review: DailyReview | None) -> dict[str, Any]:
-    """:func:`lineage` from the population figures' year (the overview's) and the latest succeeded review."""
+def lineage_of(
+    population_year: int | None, review: DailyReview | None, jobs: tuple[str, ...] | list[str] = LINEAGE_JOBS
+) -> dict[str, Any]:
+    """:func:`lineage` from the population figures' year (the overview's), the latest succeeded review and the
+    sources (:func:`lineage_jobs`)."""
     labels = dict(SyncRun.Job.choices)
     sources = []
-    for job in LINEAGE_JOBS:
+    for job in jobs:
         last = SyncRun.last_success(job)
         sources.append(
             {
@@ -354,6 +375,80 @@ def lineage_of(population_year: int | None, review: DailyReview | None) -> dict[
         }
         if review
         else None,
+    }
+
+
+def decisions(sections: list[str], year: int, review: DailyReview | None = None) -> dict[str, Any]:
+    """What management should decide in ``sections``: the AI daily review's decisions (each resting on
+    findings of the review), or, when no model chose them, the review's five most important open findings.
+    ``review``: the latest succeeded review, looked up when not given. The brief's "Things to decide" and
+    Home's "Needs a decision" (which shows neither the owner nor the Assign link)."""
+    if review is None:
+        review = DailyReview.objects.filter(status=DailyReview.Status.SUCCEEDED).order_by("-date").first()
+    if review is None:
+        return {"mode": "none", "items": [], "review_date": None, "decided_by": ""}
+    from neurodb.review.services import DECISION_SEVERITIES, RULES, in_sections
+
+    open_findings = [
+        f
+        for f in review.findings.all()
+        if f.state != ReviewFinding.State.RESOLVED and f.severity in DECISION_SEVERITIES
+    ]
+    by_key = {f.key: f for f in open_findings}
+    owners = {a.key: a for a in FindingAssignment.objects.filter(key__in=list(by_key))}
+    items = []
+    if review.decisions and review.decided_by not in ("", RULES):
+        whys = Counter((d.get("why") or "").strip() for d in review.decisions)
+        for d in review.decisions:
+            cited = [by_key[k] for k in d.get("finding_keys", []) if k in by_key]
+            if not cited or not any(in_sections(f.section, sections) for f in cited):
+                continue
+            why = (d.get("why") or "").strip()
+            if whys[why] > 1 or len(why) > MAX_REASON:  # a summary repeated on every card is no reason
+                why = cited[0].detail
+            items.append(_decision_item(d["decision"], why, cited, owners, d))
+        mode = "ai"
+    else:
+        mine = [f for f in open_findings if in_sections(f.section, sections)]
+        for f in mine[:MAX_DECISIONS]:
+            items.append(_decision_item(f.title, f.detail, [f], owners, None))
+        mode = "rules"
+    return {
+        "mode": mode,
+        "items": items,
+        "review_date": review.date.isoformat(),
+        "decided_by": review.decided_by if mode == "ai" else "",
+        "other_year": review.date.year != year,
+    }
+
+
+def _decision_item(title, detail, cited, owners, ai: dict[str, Any] | None) -> dict[str, Any]:
+    severity = (
+        ReviewFinding.Severity.CRITICAL
+        if any(f.severity == ReviewFinding.Severity.CRITICAL for f in cited)
+        else ReviewFinding.Severity.WARNING
+    )
+    lead = cited[0]
+    owner = owners.get(lead.key)
+    return {
+        "key": lead.key,
+        "severity": severity,
+        "state": lead.state,
+        "section": next((f.section for f in cited if f.section), ""),  # one section per card
+        "title": title,
+        "detail": detail,
+        "who": ai["who"] if ai else "",
+        "urgency": ai["urgency"] if ai else "",
+        "children": sum(f.children or 0 for f in cited),
+        "url": lead.url,
+        "findings": [{"title": f.title, "url": f.url} for f in cited] if ai else [],
+        "owner": owner.owner if owner else "",
+        "due_date": owner.due_date.isoformat() if owner and owner.due_date else "",
+        "status": owner.status if owner else FindingAssignment.Status.RAISED,
+        "status_label": (
+            str(owner.get_status_display()) if owner else str(FindingAssignment.Status.RAISED.label)
+        ),
+        "assign_url": _assign_url(lead, owner),
     }
 
 
@@ -459,30 +554,90 @@ class _Builder:
                 "today": self.today.isoformat(),
                 "months_shown": self.months_shown,
                 "all_sections": self.sections,
+                # ActivityInfo counts this year (Rule 1, and children of this scope): its words show only then
+                "activityinfo_used": bool(self.now["impact"].get("activityinfo_used")),
             },
         }
         data["text"] = brief_text(data)
         return data
 
     # ------------------------------------------------------------------ 1 headline
-    def _month_to_date(self, block: dict[str, Any]) -> int:
-        """Children reached from January to the current month, the larger of the two sources. eTools:
-        each programme document's main indicator from January to that month (its months combined by its
-        method: a sum adds them, a max or the latest does not), summed over the PDs."""
+    def _month_to_date(self, block: dict[str, Any], *, with_ai: bool = True) -> int:
+        """Children reached from January to the current month: the larger of the two sources, or eTools alone
+        (``with_ai=False``). eTools: each programme document's main indicator from January to that month (its
+        months combined by its method: a sum adds them, a max or the latest does not), summed over the PDs."""
         monthly = block.get("monthly") or {}
         to_date = monthly.get("etools_to_date") or []
         if len(to_date) >= self.months_shown:
             etools = to_date[self.months_shown - 1]
         else:  # an overview cached before the to-date series existed
             etools = sum((monthly.get("etools") or [])[: self.months_shown])
-        ai = sum((monthly.get("activityinfo") or [])[: self.months_shown])
+        ai = sum((monthly.get("activityinfo") or [])[: self.months_shown]) if with_ai else 0
         return half_up(max(etools, ai))
+
+    def _children_tile(self) -> dict[str, Any]:
+        """Children reached to date against the same months of last year, like with like: the larger of the
+        two sources only when ActivityInfo counted in both years over the same months (from the same first
+        month: ActivityInfo resumed in July is not compared with a full ActivityInfo year), else eTools
+        against eTools. An eTools-only comparison is made only when last year's programme documents adding a
+        value are at least half of this year's (no "+900 %" against a pilot year)."""
+        impact, before = self.now["impact"], self.previous["impact"]
+        ai_now = bool(impact.get("activityinfo_used"))
+        ai_before = bool(before.get("activityinfo_used"))
+        both = (
+            ai_now
+            and ai_before
+            and impact.get("activityinfo_first_month") == before.get("activityinfo_first_month")
+        )
+        value = self._month_to_date(impact, with_ai=ai_now)
+        compared_now = self._month_to_date(impact, with_ai=both)
+        compared_before = self._month_to_date(before, with_ai=both)
+        etools = (
+            f"eTools {impact['children_etools']:,} ({main_indicators.TOTAL_RULE}"
+            + (
+                f"; {impact['children_awaiting']:,} from reports awaiting acceptance"
+                if impact.get("children_awaiting")
+                else ""
+            )
+            + ")"
+        )
+        last_year = self.year - 1
+        if ai_now:
+            hint = (
+                f"{etools} · ActivityInfo {impact['children_activityinfo']:,} in the year; "
+                "the larger of the two, never added"
+            )
+            if not both:
+                hint += (
+                    f". Compared on eTools only: ActivityInfo did not cover the same months in {last_year}."
+                    if ai_before
+                    else f". Compared on eTools only: ActivityInfo was not used in {last_year}."
+                )
+        else:
+            hint = f"{etools} · ActivityInfo was not used in {self.year}."
+        if both:
+            delta = _delta(compared_now, compared_before, "vs same period last year")
+        else:
+            counted = impact.get("main_indicators") or {}
+            counted_before = before.get("main_indicators") or {}
+            pds = (counted.get("flagged") or 0) + (counted.get("largest") or 0)
+            pds_before = (counted_before.get("flagged") or 0) + (counted_before.get("largest") or 0)
+            if compared_before and pds_before * 2 < pds:  # a pilot year: too few documents to compare with
+                delta = None
+                hint += (
+                    f" Not compared: {last_year} has eTools partner reports for only {pds_before} programme "
+                    f"document{'' if pds_before == 1 else 's'}."
+                )
+            else:
+                delta = _delta(compared_now, compared_before, "vs same period last year, eTools only")
+        return {"value": value, "delta": delta, "hint": hint, "compared_before": compared_before}
 
     def _headline(self) -> dict[str, Any]:
         now, prev = self.now, self.previous
         impact, money, delivery = now["impact"], now["money"], now["delivery"]
-        children_now = self._month_to_date(impact)
-        children_prev = self._month_to_date(prev["impact"])
+        children = self._children_tile()
+        children_now = children["value"]
+        children_prev = children["compared_before"]
         achievement = impact.get("achievement") or {}
         percent, elapsed = achievement.get("percent"), achievement.get("elapsed")
         counts = delivery["status_counts"]
@@ -497,17 +652,8 @@ class _Builder:
                 "label": "Children reached",
                 "value": children_now,
                 "format": "number",
-                "delta": _delta(children_now, children_prev, "vs same period last year"),
-                "hint": (
-                    f"eTools {impact['children_etools']:,} ({main_indicators.TOTAL_RULE}"
-                    + (
-                        f"; {impact['children_awaiting']:,} from reports awaiting acceptance"
-                        if impact.get("children_awaiting")
-                        else ""
-                    )
-                    + f") · ActivityInfo {impact['children_activityinfo']:,} in the year; the larger of the "
-                    "two, never added"
-                ),
+                "delta": children["delta"],
+                "hint": children["hint"],
                 "url": _link(
                     "reports:pd_monitoring", section=self.scope.sections, year=self.year, scope="year"
                 ),
@@ -639,74 +785,11 @@ class _Builder:
         return self._review
 
     def _decide(self) -> dict[str, Any]:
-        """What management should decide: the AI daily review's decisions (each resting on findings of
-        the review), or, when no model chose them, the review's five most important open findings."""
+        """What management should decide (:func:`decisions`), from the review the build read."""
         review = self._latest_review()
         if review is None:
             return {"mode": "none", "items": [], "review_date": None, "decided_by": ""}
-        from neurodb.review.services import DECISION_SEVERITIES, RULES, in_sections
-
-        open_findings = [
-            f
-            for f in review.findings.all()
-            if f.state != ReviewFinding.State.RESOLVED and f.severity in DECISION_SEVERITIES
-        ]
-        by_key = {f.key: f for f in open_findings}
-        owners = {a.key: a for a in FindingAssignment.objects.filter(key__in=list(by_key))}
-        items = []
-        if review.decisions and review.decided_by not in ("", RULES):
-            whys = Counter((d.get("why") or "").strip() for d in review.decisions)
-            for d in review.decisions:
-                cited = [by_key[k] for k in d.get("finding_keys", []) if k in by_key]
-                if not cited or not any(in_sections(f.section, self.scope.sections) for f in cited):
-                    continue
-                why = (d.get("why") or "").strip()
-                if whys[why] > 1 or len(why) > MAX_REASON:  # a summary repeated on every card is no reason
-                    why = cited[0].detail
-                items.append(self._decision_item(d["decision"], why, cited, owners, d))
-            mode = "ai"
-        else:
-            mine = [f for f in open_findings if in_sections(f.section, self.scope.sections)]
-            for f in mine[:MAX_DECISIONS]:
-                items.append(self._decision_item(f.title, f.detail, [f], owners, None))
-            mode = "rules"
-        return {
-            "mode": mode,
-            "items": items,
-            "review_date": review.date.isoformat(),
-            "decided_by": review.decided_by if mode == "ai" else "",
-            "other_year": review.date.year != self.year,
-        }
-
-    @staticmethod
-    def _decision_item(title, detail, cited, owners, ai: dict[str, Any] | None) -> dict[str, Any]:
-        severity = (
-            ReviewFinding.Severity.CRITICAL
-            if any(f.severity == ReviewFinding.Severity.CRITICAL for f in cited)
-            else ReviewFinding.Severity.WARNING
-        )
-        lead = cited[0]
-        owner = owners.get(lead.key)
-        return {
-            "key": lead.key,
-            "severity": severity,
-            "state": lead.state,
-            "section": next((f.section for f in cited if f.section), ""),  # one section per card
-            "title": title,
-            "detail": detail,
-            "who": ai["who"] if ai else "",
-            "urgency": ai["urgency"] if ai else "",
-            "children": sum(f.children or 0 for f in cited),
-            "url": lead.url,
-            "findings": [{"title": f.title, "url": f.url} for f in cited] if ai else [],
-            "owner": owner.owner if owner else "",
-            "due_date": owner.due_date.isoformat() if owner and owner.due_date else "",
-            "status": owner.status if owner else FindingAssignment.Status.RAISED,
-            "status_label": (
-                str(owner.get_status_display()) if owner else str(FindingAssignment.Status.RAISED.label)
-            ),
-            "assign_url": _assign_url(lead, owner),
-        }
+        return decisions(self.scope.sections, self.year, review)
 
     # ------------------------------------------------------------------ 1b scorecard
     def _scorecard(self, confidence: dict[str, Any]) -> dict[str, Any]:
@@ -766,22 +849,26 @@ class _Builder:
                     "programme_documents": s["programme_documents"],
                 }
             )
-        monthly = self.now["impact"]["monthly"]
+        impact = self.now["impact"]
+        monthly = impact["monthly"]
         target = sum(s["target"] for s in mains)
+        series = {
+            "eTools": _project_to_date(monthly.get("etools_to_date"), monthly["etools"], self.months_shown)
+        }
+        colors = {"eTools": "--nd-primary"}
+        if impact.get("activityinfo_used"):  # ActivityInfo counts this year: projected from its last month
+            last = int(impact.get("activityinfo_last_month") or self.months_shown)
+            series["ActivityInfo"] = _project(monthly["activityinfo"], min(self.months_shown, last))
+            colors["ActivityInfo"] = "--nd-series-2"
         return {
             "bullets": bullets,
             "has_cp_targets": any(b["cp_target"] for b in bullets),
             "projection": {
                 "labels": list(MONTH_LABELS),
                 "actual_months": self.months_shown,
-                "series": {
-                    "eTools": _project_to_date(
-                        monthly.get("etools_to_date"), monthly["etools"], self.months_shown
-                    ),
-                    "ActivityInfo": _project(monthly["activityinfo"], self.months_shown),
-                },
+                "series": series,
                 "target": target,
-                "colors": {"eTools": "--nd-primary", "ActivityInfo": "--nd-series-2"},
+                "colors": colors,
             },
             "source": (
                 "Each programme document's main indicator (its unique beneficiaries indicator, else its "
@@ -815,6 +902,7 @@ class _Builder:
             )
         )
         sync_days = self._sync_age_days()
+        linked_used = self.scope.reporting_year is not None
         implausible = self.now["impact"].get("implausible") or []
         set_aside = Counter(x["section"] for x in implausible)
         by_section = {r["section"]: r for r in self.now["delivery"]["by_section"]}
@@ -842,7 +930,8 @@ class _Builder:
                         "few programme documents were verified by a visit",
                     ),
                     (
-                        linked_pct is None or linked_pct < CONFIDENCE["linked"],
+                        # only in a year with ActivityInfo records: an eTools-only year has nothing to link to
+                        linked_used and (linked_pct is None or linked_pct < CONFIDENCE["linked"]),
                         "partners are not linked to ActivityInfo",
                     ),
                     (sync_days is None, "eTools is not yet synced on this server"),
@@ -875,6 +964,7 @@ class _Builder:
         return {
             "rows": rows,
             "implausible": implausible,
+            "linked_used": linked_used,
             "thresholds": CONFIDENCE,
             "reconcile": self._reconcile(),
             "timeliness": self._timeliness(),
@@ -1398,7 +1488,9 @@ class _Builder:
 
     # ------------------------------------------------------------------ 8 lineage
     def _lineage(self) -> dict[str, Any]:
-        return lineage_of(self.now["impact"]["population_year"], self._latest_review())
+        return lineage_of(
+            self.now["impact"]["population_year"], self._latest_review(), lineage_jobs(self.year)
+        )
 
 
 # --------------------------------------------------------------------------------- helpers

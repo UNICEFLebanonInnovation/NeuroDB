@@ -342,15 +342,18 @@ def test_page_filters_and_staff_links(client, admin_user, data, reporting_year):
     client.force_login(admin_user)
     page = client.get(reverse("reports:brief") + "?section=Education&year=2026")
     assert page.status_code == 200 and page.context["selected"]["section"] == ["Education"]
-    assert "Reporting year 2026 · Education" in page.text
+    assert "2026 · Education" in page.context["page_subtitle"]  # the calendar year (SPEC_HOME §3.4)
     review_services.run(date=TODAY, today=TODAY)
     page = client.get(reverse("reports:brief"))
     assert reverse("admin:review_findingassignment_add") in page.text  # staff see the Assign links
 
 
 def test_page_without_a_reporting_year(client_viewer, db):
+    """The year is the calendar year: without any ActivityInfo reporting year the brief still draws (eTools'
+    figures, here none), never the old "No reporting year is configured" page (SPEC_HOME §3.4)."""
     page = client_viewer.get(reverse("reports:brief"))
-    assert page.status_code == 200 and "No reporting year is configured" in page.text
+    assert page.status_code == 200 and "No reporting year is configured" not in page.text
+    assert page.context["page_subtitle"] == "2026 · every section"
 
 
 def test_sidebar_and_landing_name_the_brief(client_viewer, reporting_year):

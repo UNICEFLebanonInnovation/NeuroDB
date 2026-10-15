@@ -1,4 +1,5 @@
-"""The country overview page: filters, own-section default, tiles, charts JSON and the money filter.
+"""The Country overview page (``/country-overview/``): filters, own-section default, tiles, charts JSON and the
+money filter.
 
 The overview service is replaced by the fakes of ``overview_fake.py`` so the page is tested on its own;
 one test renders against the real service and is skipped while the service is a stub.
@@ -11,16 +12,18 @@ a browser shows it once every part is in.
 import json
 
 import pytest
-from django.urls import reverse
+from django.urls import reverse, reverse_lazy
 
 from neurodb.reports import overview as overview_service
 from neurodb.web.templatetags.ui import money
-from tests.web.parts import get_part, placeholders
+from tests.web.parts import get_part
 
 from .overview_fake import GOVERNORATES, empty_data, fake_data, fake_freshness, fake_options
 from .overview_fixture import make_overview_data
 
 pytestmark = pytest.mark.django_db
+
+PAGE = reverse_lazy("reports:country_overview")
 
 
 @pytest.fixture
@@ -45,8 +48,9 @@ def _get(client, url):
     return response
 
 
-def test_renders_every_block_with_data(client_viewer, reporting_year, fake_service):
-    response = _get(client_viewer, reverse("reports:overview"))
+def test_renders_every_block_with_data(client_viewer, reporting_year, hierarchy, fake_service):
+    """In a year with ActivityInfo records (``hierarchy``: 2026) the page links that year's databases."""
+    response = _get(client_viewer, str(PAGE))
     html = response.text
     assert "Country overview" in html
     for text in (
@@ -64,7 +68,9 @@ def test_renders_every_block_with_data(client_viewer, reporting_year, fake_servi
     assert "$7.2M" in html and "$12.4M" in html  # disbursed of reserved
     assert 'id="overview-figures-data"' in html  # the figures part's chart JSON
     assert "Data freshness" in html and "Daily AI review" in html
-    assert "ActivityInfo databases of the year" in html  # the cards moved to their own page
+    assert "ActivityInfo databases of the year" in html  # the cards moved to their own page (an AI year)
+    # the year's own databases, never the bare page
+    assert f'{reverse("reports:databases")}?year=2026"' in html
     assert "LEB/PD2026001" in html and "Himaya" in html  # decisions and attention lists
     assert "19 <span" in html and "28 planned" in html  # completed of planned, as the TPM block counts them
     assert ">+3 more items</a>" in html  # what the attention list left out
@@ -75,7 +81,8 @@ def test_renders_every_block_with_data(client_viewer, reporting_year, fake_servi
 
 
 def test_chart_data_has_the_shapes_the_builders_read(client_viewer, reporting_year, fake_service):
-    html = get_part(client_viewer, reverse("reports:overview"), "figures").text  # every chart is in it
+    """The fake build is of an ActivityInfo year (``activityinfo_used``): both series."""
+    html = get_part(client_viewer, str(PAGE), "figures").text  # every chart is in it
     start = html.index('id="overview-figures-data"')
     payload = html[html.index(">", start) + 1 : html.index("</script>", start)]
     charts = json.loads(payload)
@@ -104,14 +111,14 @@ def test_own_section_is_the_default_on_first_load(client_viewer, viewer, reporti
 
     viewer.section = Section.objects.create(name="Child protection", code="CP")
     viewer.save()
-    page = _get(client_viewer, reverse("reports:overview"))
+    page = _get(client_viewer, str(PAGE))
     assert "Your section, Child Protection, by default" in page.text
     assert page.context["own_section"] == ["Child Protection"]
     assert page.context["selected"]["section"] == ["Child Protection"]
     assert fake_service[-1].sections == ["Child Protection"]
     assert "Child Protection" in page.context["page_subtitle"]
     # every section: one click clears the default
-    everything = _get(client_viewer, reverse("reports:overview") + "?section=")
+    everything = _get(client_viewer, str(PAGE) + "?section=")
     assert "by default" not in everything.text
     assert everything.context["own_section"] == [] and fake_service[-1].sections == []
     assert "every section" in everything.context["page_subtitle"]
@@ -122,7 +129,7 @@ def test_explicit_section_overrides_the_default(client_viewer, viewer, reporting
 
     viewer.section = Section.objects.create(name="Child protection", code="CP")
     viewer.save()
-    page = _get(client_viewer, reverse("reports:overview") + "?section=Education&section=WASH")
+    page = _get(client_viewer, str(PAGE) + "?section=Education&section=WASH")
     assert page.context["own_section"] == []
     assert page.context["selected"]["section"] == ["Education", "WASH"]
     assert fake_service[-1].sections == ["Education", "WASH"]
@@ -130,7 +137,7 @@ def test_explicit_section_overrides_the_default(client_viewer, viewer, reporting
 
 
 def test_governorate_filter_keeps_the_section_in_tile_links(client_viewer, reporting_year, fake_service):
-    url = reverse("reports:overview") + "?section=Education&governorate=Akkar"
+    url = str(PAGE) + "?section=Education&governorate=Akkar"
     page = _get(client_viewer, url)
     assert fake_service[-1].governorate == "Akkar" and fake_service[-1].sections == ["Education"]
     assert page.context["selected"]["governorate"] == "Akkar"
@@ -152,8 +159,8 @@ def test_governorate_filter_keeps_the_section_in_tile_links(client_viewer, repor
 def test_empty_data_renders_the_empty_states(client_viewer, reporting_year, monkeypatch):
     monkeypatch.setattr(overview_service, "build", lambda scope, **kw: empty_data())
     monkeypatch.setattr(overview_service, "options", lambda year: {"sections": [], "governorates": []})
-    monkeypatch.setattr(overview_service, "freshness", lambda: [])  # no sync has run
-    html = _get(client_viewer, reverse("reports:overview")).text
+    monkeypatch.setattr(overview_service, "freshness", lambda *jobs: [])  # no sync has run
+    html = _get(client_viewer, str(PAGE)).text
     for text in (
         "No children reached by governorate yet",
         "No coverage to show",
@@ -172,35 +179,41 @@ def test_empty_data_renders_the_empty_states(client_viewer, reporting_year, monk
     assert charts["money"]["by_section"] == [] and charts["money"]["scatter"] == []
 
 
-def test_no_reporting_year_keeps_the_empty_state(client_viewer, monkeypatch):
-    def build(scope, **kw):
-        raise AssertionError("build must not be called without a reporting year")
-
-    def nothing_to_compute(*args, **kwargs):
-        raise AssertionError("no What's new, forecast or freshness work without a reporting year")
-
-    from neurodb.reports import views
-
-    monkeypatch.setattr(overview_service, "build", build)
-    monkeypatch.setattr(overview_service, "options", lambda year: fake_options())
-    for name in ("_whats_new", "_forecast_risk"):
-        monkeypatch.setattr(views, name, nothing_to_compute)
-    monkeypatch.setattr(overview_service, "freshness", nothing_to_compute)
-    html = _get(client_viewer, reverse("reports:overview")).text
-    assert "No reporting year is configured" in html
-    # no figures to draw: no part, and no chart JSON (it used to be an empty one)
-    assert placeholders(html) == {}
-    assert 'id="overview-figures-data"' not in html and 'id="overview-chart-data"' not in html
-
-
-def test_year_parameter_selects_the_reporting_year(client_viewer, reporting_year, fake_service):
+def test_without_any_reporting_year_the_figures_are_shown(client_viewer, fake_service):
+    """The year is the calendar year: with no ActivityInfo reporting year at all (none was ever created, or
+    ActivityInfo is long gone), the page draws every figure of the year from eTools, never the old "No
+    reporting year is configured" page without figures."""
     from neurodb.indicators.models import ReportingYear
 
-    previous = ReportingYear.objects.create(name="2025", year="2025", current=False)
-    page = _get(client_viewer, reverse("reports:overview") + "?year=2025")
-    assert fake_service[-1].year == 2025 and fake_service[-1].reporting_year == previous
+    assert not ReportingYear.objects.exists()
+    page = _get(client_viewer, str(PAGE))
+    html = page.text
+    assert "No reporting year is configured" not in html
+    assert "Children reached" in html and 'id="overview-figures-data"' in html
+    scope = fake_service[-1]
+    assert scope.year == 2026 and scope.reporting_year is None
+    assert page.context["page_subtitle"].startswith("2026 · ")
+    assert "ActivityInfo databases of the year" not in html  # not an ActivityInfo year
+
+
+def test_year_parameter_is_a_calendar_year(client_viewer, reporting_year, hierarchy, fake_service):
+    """``?year=`` is four digits: the calendar year shown, and the reporting year whose ActivityInfo records
+    count for it (none for 2025 here: it has no records), the year's own choice in the filter bar."""
+    from neurodb.indicators.models import ReportingYear
+
+    ReportingYear.objects.create(name="2025", year="2025", current=False)  # a row without records
+    page = _get(client_viewer, str(PAGE) + "?year=2025")
+    assert fake_service[-1].year == 2025 and fake_service[-1].reporting_year is None
     assert page.context["selected"]["year"] == "2025"
-    assert 'value="2025" selected' in page.text
+    assert 'value="2025" selected' in page.text and "(this year)" in page.text
+    assert "ActivityInfo databases of the year" not in page.text
+    this_year = _get(client_viewer, str(PAGE) + "?year=2026")
+    assert fake_service[-1].year == 2026 and fake_service[-1].reporting_year == reporting_year
+    assert 'value="2026" selected' in this_year.text
+    # a year out of range or not a year: this year
+    for raw in ("1999", "all", "26"):
+        _get(client_viewer, str(PAGE) + f"?year={raw}")
+        assert fake_service[-1].year == 2026, raw
 
 
 def test_money_filter():
@@ -236,7 +249,7 @@ def test_number_and_percent_round_halves_up_like_floatformat():
 
 def test_renders_against_the_real_service(client_viewer, reporting_year, hierarchy):
     make_overview_data()
-    html = _get(client_viewer, reverse("reports:overview")).text
+    html = _get(client_viewer, str(PAGE)).text
     for text in (
         "Children reached",
         "Cost per child",
@@ -255,8 +268,8 @@ def test_the_page_says_what_it_is_for_and_whether_the_figures_can_be_used(
     for job in jobs:
         job["state"] = "unknown" if job["job"] == "etools_datamart" else "fresh"
     monkeypatch.setattr(overview_service, "build", lambda scope, **kw: data)
-    monkeypatch.setattr(overview_service, "freshness", lambda: jobs)
-    html = _get(client_viewer, reverse("reports:overview")).text
+    monkeypatch.setattr(overview_service, "freshness", lambda *args: jobs)
+    html = _get(client_viewer, str(PAGE)).text
     assert 'class="page-purpose"' in html and reverse("reports:brief") in html
     assert "so its figures may be incomplete" in html
     assert "data-filters-collapse" in html  # the filters fold behind a button on phones

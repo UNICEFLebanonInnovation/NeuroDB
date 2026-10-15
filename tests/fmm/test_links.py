@@ -244,8 +244,8 @@ def test_the_visit_page_shows_what_the_partner_reported_and_other_visits(built, 
 def test_the_overview_links_with_its_year_sections_and_governorate(built, client_viewer, reporting_year):
     from neurodb.reports import overview
 
-    response = client_viewer.get(
-        reverse("reports:overview"), {"year": "2026", "section": "Education", "governorate": "Beqaa"}
+    response = client_viewer.get(  # the Country overview's own address (SPEC_HOME §2: "/" is Home)
+        reverse("reports:country_overview"), {"year": "2026", "section": "Education", "governorate": "Beqaa"}
     )
     html = response.content.decode()
     links = _hrefs(html, "/fmm/")
@@ -262,7 +262,7 @@ def test_the_overview_links_with_its_year_sections_and_governorate(built, client
         "1728",
     }  # 1728 through its site
     # without a section the link still says so, so a user's own section does not come back
-    html = client_viewer.get(reverse("reports:overview"), {"year": "2026"}).content.decode()
+    html = client_viewer.get(reverse("reports:country_overview"), {"year": "2026"}).content.decode()
     assert _hrefs(html, "/fmm/") == ["/fmm/?year=2026&section="]
     # the overview's own figures do not move (its link to the field monitoring page included)
     data = overview.build(overview.Scope(year=2026, reporting_year=reporting_year, today=TODAY), cache=False)

@@ -39,12 +39,12 @@
   <section class="panel" aria-labelledby="cov-title">
     <div class="panel__header">
       <h3 class="panel__title" id="cov-title">{% trans "Coverage by governorate" %}</h3>
-      <a class="panel__hint" href="{% url 'reports:overview' %}{{ overview_query }}">{% trans "Overview" %} →</a>
+      <a class="panel__hint" href="{% url 'reports:country_overview' %}{{ overview_query }}">{% trans "Country overview" %} →</a>
     </div>
     {% if w.governorates %}
     <div class="gov-grid">
       {% for g in w.governorates %}
-      <a class="gov-tile gov-tile--l{{ g.level|default:1 }}" href="{% url 'reports:overview' %}?{% if base_query %}{{ base_query }}&amp;{% endif %}governorate={{ g.name|urlencode }}" title="{% blocktrans with e=g.etools|intcomma a=g.activityinfo|intcomma %}eTools {{ e }}, ActivityInfo {{ a }}{% endblocktrans %}">
+      <a class="gov-tile gov-tile--l{{ g.level|default:1 }}" href="{% url 'reports:country_overview' %}?{% if base_query %}{{ base_query }}&amp;{% endif %}governorate={{ g.name|urlencode }}"{% if data.scope.activityinfo_used %} title="{% blocktrans with e=g.etools|intcomma a=g.activityinfo|intcomma %}eTools {{ e }}, ActivityInfo {{ a }}{% endblocktrans %}"{% endif %}>
         <span class="gov-tile__name">{{ g.name }}</span>
         <span class="gov-tile__value">{% if g.coverage is not None %}{{ g.coverage|percent:0 }}{% else %}{{ g.reached|intcomma }}{% endif %}</span>
         <span class="gov-tile__sub">{% if g.coverage is not None %}{% blocktrans with n=g.reached|intcomma %}{{ n }} of the children{% endblocktrans %}{% else %}{% trans "children reached" %}{% endif %}</span>

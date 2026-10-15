@@ -1,0 +1,3 @@
+{% load i18n %}{% comment %}The scope line of Home and the daily review: the person's own section on a first load (own_default), the
+sections chosen (scope_sections), or every section, with a link to the other. Context: own_default, scope_sections,
+own_names, own_query.{% endcomment %}{% if own_default %}{% blocktrans with names=own_default|join:", " %}Your section, {{ names }}, by default{% endblocktrans %} · <a href="?section=">{% trans "every section" %}</a>{% elif scope_sections %}{{ scope_sections|join:", " }} · <a href="?section=">{% trans "every section" %}</a>{% else %}{% trans "Every section" %}{% if own_names %} · <a href="?{{ own_query }}">{% blocktrans with names=own_names|join:", " %}only {{ names }}{% endblocktrans %}</a>{% endif %}{% endif %}

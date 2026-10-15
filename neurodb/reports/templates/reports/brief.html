@@ -1,11 +1,8 @@
 {% extends "base.html" %}
 {% load i18n ui humanize parts %}
 {% block content %}
-{% if not year %}
-  <div class="panel">{% include "components/empty_state.html" with icon="calendar" title=_("No reporting year is configured") message=_("An administrator must mark one reporting year as current in the administration pages.") %}</div>
-{% else %}
-{% url 'reports:overview' as overview_url %}
-<p class="page-purpose">{% blocktrans %}To prepare decisions: what to decide and who owns it, how sure the figures are, and which partners and funds need attention. To follow the programme day to day, open the <a href="{{ overview_url }}">overview</a>.{% endblocktrans %}</p>
+{% url 'reports:country_overview' as overview_url %}
+<p class="page-purpose">{% blocktrans %}To prepare decisions: what to decide and who owns it, how sure the figures are, and which partners and funds need attention. To follow the programme day to day, open the <a href="{{ overview_url }}{{ overview_query }}">country overview</a>.{% endblocktrans %}</p>
 <div class="filters-collapse" data-filters-collapse>{% include "reports/partials/_brief_filters.html" %}</div>
 <nav class="brief-tabs" aria-label="{% trans 'Sections of the brief' %}">
   {% for key, label in tabs %}<a href="#brief-{{ key }}">{{ label }}</a>{% endfor %}
@@ -21,5 +18,4 @@ it holds.{% endcomment %}
 {% part "brief" kind="tiles" tiles=5 priority="high" group="brief" anchors="brief-brief" height="1565px" height_md="1595px" height_sm="3060px" %}
 {% part "sections" kind="charts" group="brief" anchors="brief-pace brief-confidence brief-who brief-partners brief-money brief-action" height="6555px" height_md="8235px" height_sm="11215px" %}
 {% include "reports/partials/_brief_reference.html" %}
-{% endif %}
 {% endblock %}

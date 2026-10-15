@@ -191,6 +191,8 @@ def test_sign_in_lands_on_the_donor_page_whatever_next_says(client, donor):
 
 STAFF_PAGES = [
     "reports:overview",
+    "reports:country_overview",
+    "reports:daily_review",
     "reports:programmes",
     "reports:donors",
     "reports:brief",

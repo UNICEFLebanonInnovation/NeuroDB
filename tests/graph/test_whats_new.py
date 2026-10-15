@@ -281,7 +281,7 @@ def test_the_page_shows_the_changes_of_the_users_section_first(client, changed, 
 
 def test_the_overview_card_lists_the_latest_notable_changes(client_viewer, changed):
     _build()
-    page = client_viewer.get(reverse("reports:overview")).content.decode()
+    page = client_viewer.get(reverse("reports:country_overview")).content.decode()  # the card's page now
     assert 'id="whats-new-title"' in page and "now funded by Japan" in page
 
 

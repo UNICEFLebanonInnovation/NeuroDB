@@ -1,0 +1,43 @@
+{% load i18n ui %}{% comment %}Home's "tasks" part (reports.home_views.home_page): "Needs a decision" for Administrators and
+Management members (the brief's decisions, at most home.DECISIONS_SHOWN, never who owns them), then the daily review's digest for
+everyone (review.services.digest). Context: deciding, decisions, digest, stale, schedule, staff, brief_query,
+review_query.{% endcomment %}
+<div class="panel home-tasks">
+  {% if deciding %}
+  <div class="home-block">
+    <h3 class="home-block__title">{% trans "Needs a decision" %}</h3>
+    {% if decisions.rows %}
+    <ul class="home-list home-list--rows">
+      {% for d in decisions.rows %}
+      <li><span class="pill pill--sm {% if d.severity == 'critical' %}pill--danger{% else %}pill--warning{% endif %}">{% if d.severity == 'critical' %}{% trans "Critical" %}{% else %}{% trans "Warning" %}{% endif %}</span> {% if d.url %}<a class="home-list__title" href="{{ d.url }}" title="{{ d.title }}">{{ d.title }}</a>{% else %}<span class="home-list__title" title="{{ d.title }}">{{ d.title }}</span>{% endif %}<span class="home-list__meta">{% if d.section %}{{ d.section }} · {% endif %}{{ d.status_label }}{% if d.due_date %} · {% blocktrans with d=d.due_date %}due {{ d }}{% endblocktrans %}{% endif %}</span></li>
+      {% endfor %}
+    </ul>
+    {% elif decisions.date %}
+    <p class="home-empty">{% blocktrans with d=decisions.date %}Nothing needs a decision (daily review of {{ d }}).{% endblocktrans %}</p>
+    {% else %}
+    <p class="home-empty">{% trans "Nothing needs a decision." %}</p>
+    {% endif %}
+    <a class="home-more" href="{% url 'reports:brief' %}?{{ brief_query }}">{% trans "All decisions: Management brief" %} →</a>
+  </div>
+  {% endif %}
+  <div class="home-block">
+    {% if digest %}
+    <h3 class="home-block__title">{% blocktrans with day=digest.date|date:"D j M" time=digest.finished|time:"H:i" %}Daily review · {{ day }}, {{ time }}{% endblocktrans %}</h3>
+    {% if stale or digest.counts %}<p class="home-counts">{% if stale %}<span class="home-counts__stale">{% blocktrans with d=digest.date|date:"j F Y" %}Latest daily review: {{ d }}.{% endblocktrans %}</span> {% endif %}{% for severity, label, n in digest.counts %}<span class="home-counts__item home-counts__item--{{ severity }}">{{ n }} {{ label }}</span>{% if not forloop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+    {% if digest.rows %}
+    <ul class="home-list home-list--rows">
+      {% for r in digest.rows %}
+      <li><span class="review-finding__sev review-finding__sev--{{ r.severity }}" role="img" aria-label="{{ r.severity_label }}"></span>{% if r.url %}<a class="home-list__title" href="{{ r.url }}" title="{{ r.title }}">{{ r.title }}</a>{% else %}<span class="home-list__title" title="{{ r.title }}">{{ r.title }}</span>{% endif %}{% if r.more %} <span class="home-list__meta">{% blocktrans count counter=r.more %}(and {{ counter }} more like it){% plural %}(and {{ counter }} more like it){% endblocktrans %}</span>{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% elif not digest.counts %}
+    <p class="home-empty">{% trans "Nothing to look at in this review." %}</p>
+    {% endif %}
+    {% if digest.changed %}<p class="home-changed">{% for line in digest.changed %}<span>{{ line }}</span>{% endfor %}</p>{% endif %}
+    <a class="home-more" href="{% url 'reports:daily_review' %}?{{ review_query }}">{% trans "Open the daily review" %} →</a>
+    {% else %}
+    <h3 class="home-block__title">{% trans "Daily review" %}</h3>
+    <p class="home-empty">{% trans "The daily review has not run yet." %}{% if staff %}{% if schedule.on %} {% blocktrans with t=schedule.time %}It runs every morning at {{ t }}.{% endblocktrans %}{% else %} {% trans "It is switched off in Scheduled jobs." %}{% endif %}{% endif %}</p>
+    {% endif %}
+  </div>
+</div>
