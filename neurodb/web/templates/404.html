@@ -6,7 +6,7 @@
 <div class="error-page">
   <div class="error-page__code">404</div>
   <h1 class="h4 mt-2">{% trans "This page does not exist" %}</h1>
-  <p class="text-muted">{% trans "The link may be outdated, or the database may belong to another reporting year. Try the search." %}</p>
-  <a class="btn btn-primary btn-sm" href="{% url 'reports:overview' %}">{% trans "Back to the overview" %}</a>
+  <p class="text-muted">{% if user.is_authenticated and not is_donor %}{% trans "The link may be outdated. Try the search, or go back to Home." %}{% else %}{% trans "The link may be outdated." %}{% endif %}</p>
+  <a class="btn btn-primary btn-sm" href="{% url 'reports:overview' %}">{% trans "Back to Home" %}</a>
 </div>
 {% endblock %}

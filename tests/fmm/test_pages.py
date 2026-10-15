@@ -130,7 +130,8 @@ def test_a_signed_out_visitor_is_sent_to_sign_in(db, client):
     assert response.status_code == 302 and "/accounts/login/" in response["Location"]
 
 
-def test_the_menu_item_equals_the_page_title(built, client_viewer):
+def test_the_menu_item_equals_the_page_title(built, client_viewer, settings):
+    settings.FMM_AI = True  # its "AI" badge shows only while its AI is on (SPEC_HOME §4)
     html = client_viewer.get(reverse("reports:overview")).content.decode()
     sidebar = html.split('id="sidebar"', 1)[1]
     item = re.search(r'<a class="nav-item-link[^"]*" href="/fmm/"[^>]*>(.*?)</a>', sidebar, re.S)
@@ -160,10 +161,11 @@ def test_switched_off_every_view_is_404_and_the_menu_item_hidden(built, client_v
     assert 'href="/fmm/"' not in client_viewer.get(reverse("reports:overview")).content.decode()
 
 
-def test_the_year_menu_keeps_the_page_and_its_filters(built, client_viewer, reporting_year):
+def test_the_page_keeps_its_own_period_and_no_header_year_menu(built, client_viewer, reporting_year):
+    """The header's year menu would contradict the page's own period (SPEC_HOME §5): it is not drawn here."""
     html = client_viewer.get(PAGE, {"rating": "off_track", "preset": "last_90"}).content.decode()
-    assert "/fmm/?rating=off_track&amp;preset=last_90&amp;year=2026" in html
-    # ... and the year wins over a preset
+    assert 'id="year-menu"' not in html
+    # ... and a year in the address still wins over a preset
     assert _keys({"preset": "last_90", "year": "2026"}) == ALL
 
 
@@ -465,7 +467,8 @@ def test_each_tab_and_the_page_stay_within_their_query_budget(
             client_viewer.get(PAGE, {"tab": tab}, HTTP_HX_REQUEST="true")
         cache.clear()
         caches["shared"].clear()
-        with django_assert_max_num_queries(34):
+        # +6: the menu's inputs read once per worker (the ActivityInfo state, up to 4; the sources, 2)
+        with django_assert_max_num_queries(40):
             client_viewer.get(PAGE, {"tab": tab})
     # the parts a tab loads when they are reached or opened (the entity table, a place list's "Show
     # all") are tab partials too, within the same budget

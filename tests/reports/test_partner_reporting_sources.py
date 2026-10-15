@@ -108,7 +108,8 @@ def test_partner_list_shows_the_reporting_sources(client_viewer, linked):
     assert ">eTools<" in text
 
 
-def test_sidebar_separates_the_two_reporting_systems(client_viewer, linked):
+def test_sidebar_separates_the_two_reporting_systems(client_viewer, linked, activityinfo_in_use):
+    # "Monthly results (ActivityInfo)" while ActivityInfo is in use; its archive otherwise (tests/web/test_menu.py)
     text = client_viewer.get(reverse("reports:partners")).text
     assert "Monthly results (ActivityInfo)" in text and "Partner progress (eTools)" in text
     assert "Partner monitoring" in text and "Progress reports" in text

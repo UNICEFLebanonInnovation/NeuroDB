@@ -91,8 +91,9 @@ LOADED_MAP = [
 # data notes, the chips, the filter bar's options and the Export menu): 21; again, its blocks kept: 13. The part
 # with nothing stored (the floor, the reference counts and stamp it reads to key the map, and the map's own reads:
 # the visits, their programme documents and planned places, the gazetteer, the records of the popups): 11, 12 for
-# every active programme document; stored: 6.
-FRAME_QUERIES_COLD = 23
+# every active programme document; stored: 6. The frame cold is 27 since the menu also reads the ActivityInfo
+# state and the sources (kept per worker, SPEC_HOME §4).
+FRAME_QUERIES_COLD = 29
 FRAME_QUERIES_WARM = 15
 PART_QUERIES_COLD = 14
 PART_QUERIES_STORED = 8

@@ -92,7 +92,7 @@ def test_healthz_is_public(client):
 
 
 def test_overview_page(client_viewer, hierarchy):
-    html = _get(client_viewer, reverse("reports:overview")).content.decode()
+    html = _get(client_viewer, reverse("reports:country_overview")).content.decode()
     assert "Child Protection" in html
 
 
@@ -255,7 +255,7 @@ def test_api_requires_authentication(client, hierarchy):
 
 
 def test_csp_header_and_nonce(client_viewer, hierarchy):
-    response = _get(client_viewer, reverse("reports:overview"))
+    response = _get(client_viewer, reverse("reports:country_overview"))
     policy = response["Content-Security-Policy"]
     assert "script-src 'self' 'nonce-" in policy
     nonce = policy.split("'nonce-")[1].split("'")[0]
@@ -306,7 +306,7 @@ def test_sidebar_blocks_collapse_and_open_on_the_current_page(
     def block(html, key):
         return re.search(rf'<details class="sidebar__block" data-nav-key="{key}"([^>]*)>', html).group(1)
 
-    overview = _get(client_viewer, reverse("reports:overview")).content.decode()
+    overview = _get(client_viewer, reverse("reports:country_overview")).content.decode()
     assert "open" not in block(overview, "databases")  # collapsed away from database pages
     assert "sidebar__group" in overview  # two databases in the section: a nested group
     assert not re.search(r'<details class="sidebar__block"[^>]*data-nav-active', overview)
@@ -322,7 +322,7 @@ def test_sidebar_blocks_collapse_and_open_on_the_current_page(
 
 
 def test_single_database_sections_link_directly(client_viewer, hierarchy):
-    html = _get(client_viewer, reverse("reports:overview")).content.decode()
+    html = _get(client_viewer, reverse("reports:country_overview")).content.decode()
     url = reverse("reports:database_dashboard", args=[hierarchy["database"].id])
     assert f'href="{url}" title="Child Protection"' in html
     assert "sidebar__group" not in html  # one database per section: no nested group

@@ -80,9 +80,10 @@ LINK = re.compile(r'\s(?:href|action|hx-push-url)="([^"]*)"')
 # review and its findings) and the navigation: 24. Drawn inline (the build stored) it is the same 12: both parts read
 # the build the frame found stored, under the key it read. Each part is measured with nothing stored: brief and
 # sections each compute the whole build (the year before's reporting year, two overview builds and the brief's own
-# reads): 91; the group's second part reading the stored build is 8.
+# reads): 91; the group's second part reading the stored build is 8. Cold the menu also reads the ActivityInfo state
+# and its sources, kept per worker (SPEC_HOME §4): 27.
 SHELL_QUERIES_WARM = 14
-SHELL_QUERIES_COLD = 26
+SHELL_QUERIES_COLD = 29
 SHELL_QUERIES_INLINE = 14
 PART_QUERIES = {"brief": 93, "sections": 93}
 PART_QUERIES_STORED = 10

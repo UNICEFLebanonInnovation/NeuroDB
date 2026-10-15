@@ -70,7 +70,8 @@ TODAY = datetime.date.today()
 # partner's figures: its programme documents, the Datamart blocks, its ActivityInfo records and whether a visit
 # monitored it; the Monitoring insights panel (12) its own.
 SHELL_QUERIES_WARM = 9
-SHELL_QUERIES_COLD = 13
+# Cold the menu also reads the ActivityInfo state and its sources, kept per worker (SPEC_HOME §4): 17.
+SHELL_QUERIES_COLD = 19
 PART_QUERIES = {"datamart": 39, "fmm": 14}
 
 

@@ -1,11 +1,14 @@
 {% load i18n ui humanize %}{% comment %}Data health's database imports (part "databases", reports.views.data_health): the displayed ActivityInfo
-databases of the current year, their last import and state. Context: databases = services.health_databases(year).{% endcomment %}
+databases of the year the import serves (services.health_year), their last import and state; once ActivityInfo is an
+archive (archived), those of its last year, each "Archive", with a note. Context: databases =
+services.health_databases(year), year, archived.{% endcomment %}
 <section class="panel p-0">
   {% include "components/table_toolbar.html" with title=_("Database imports") count=databases|length table_id="db-health" %}
+  {% if archived and year %}<p class="small text-muted px-3 mb-2 health-archive-note">{% blocktrans with year=year.name %}ActivityInfo is an archive: these {{ year }} databases are kept as they were and are no longer imported.{% endblocktrans %}</p>{% endif %}
   <div class="table-wrap" style="max-height: 560px"><table class="table table-hover" id="db-health" data-sortable>
     <thead><tr><th>{% trans "Database" %}</th><th>{% trans "Last import" %}</th><th>{% trans "State" %}</th></tr></thead>
     <tbody>{% for d in databases %}<tr data-href="{% url 'reports:database_dashboard' d.database.id %}"><td><a href="{% url 'reports:database_dashboard' d.database.id %}">{{ d.database.label|default:d.database.name }}</a><span class="cell-sub">{{ d.database.section.name|default:"" }} · AI {{ d.database.ai_id }}</span></td>
     <td class="small" data-value="{{ d.last_import|date:'c' }}">{{ d.last_import|naturaltime|default:"—" }}</td><td>{% status_pill d.state d.state_label "sm" %}</td></tr>
-    {% empty %}<tr><td colspan="3" class="text-muted">{% trans "No databases in the current year." %}</td></tr>{% endfor %}</tbody>
+    {% empty %}<tr><td colspan="3" class="text-muted">{% if year %}{% blocktrans with year=year.name %}No databases in {{ year }}.{% endblocktrans %}{% else %}{% trans "No ActivityInfo databases." %}{% endif %}</td></tr>{% endfor %}</tbody>
   </table></div>
 </section>

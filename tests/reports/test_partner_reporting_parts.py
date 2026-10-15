@@ -64,7 +64,8 @@ LINK = re.compile(r'\s(?:href|action|hx-push-url)="([^"]*)"')
 # and the moment of the eTools figures (two queries); cold it also computes the filter options: 17. Drawn inline (the
 # table stored): 8. The part with nothing stored computes the page's progress reports, as the old page did, and the
 # tab's rows: 20, 22 with the disaggregation labels; another page of the same table reads it stored: 5.
-FRAME_QUERIES_COLD = 19
+# Cold the menu also reads the ActivityInfo state and its sources, kept per worker (SPEC_HOME §4): 23.
+FRAME_QUERIES_COLD = 25
 FRAME_QUERIES_WARM = 11
 FRAME_QUERIES_INLINE = 10
 PART_QUERIES = {"locations": 22, "disaggregations": 24}

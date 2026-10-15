@@ -70,7 +70,7 @@ LINK = re.compile(r'\s(?:href|action|hx-push-url)="([^"]*)"')
 # jobs; datasets the latest run of every dataset (one query), the key of the stored row counts, the counts of the
 # datasets that have a table, and the gazetteer's; power-bi the comparisons with Power BI's views, the views they
 # name and the card versions (three queries, whatever the number of periods; two in this world, which has none).
-SHELL_QUERIES_COLD = 11
+SHELL_QUERIES_COLD = 16  # 14 measured: the menu also reads the ActivityInfo state (3) and the sources (2)
 SHELL_QUERIES_WARM = 7
 PART_QUERIES = {"jobs": 31, "databases": 7, "runs": 6, "datasets": 60, "power-bi": 7, "readiness": 6}
 
@@ -501,6 +501,7 @@ def test_the_datasets_table_reads_the_same_figures_as_before(world):
         "staleness_hours",
         "stale_database_days",
         "year",
+        "activityinfo_archived",  # its jobs and databases an archive while its import is not followed
         "power_bi",  # per Compiler programme, its latest period compared with Power BI's view (counts only)
     }
     assert _figures(health["datasets"]) == before

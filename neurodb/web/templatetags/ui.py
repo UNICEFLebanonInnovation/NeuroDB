@@ -317,25 +317,35 @@ def module_map(context) -> str:
     return format_html('<script type="importmap" nonce="{}">{}</script>', nonce, mark_safe(data))
 
 
-# The pages that show a chosen year (``?year=``): the year menu keeps the user on them. The pages of
-# one year's database or report go to that year's list of databases; any other page to the overview.
+# The header's year menu (base.html), drawn only on the pages that show one year. Calendar years
+# (``years.available()``) on the pages that read ``?year=`` as a calendar year; ActivityInfo years (the
+# reporting years) on the ActivityInfo pages. Not drawn elsewhere: Home, the daily review and the search show
+# no year, and Population and Monitoring insights have a year or period control of their own, which the
+# header would contradict.
 YEAR_PAGES = frozenset(
     {
-        "reports:overview",
+        "reports:country_overview",
         "reports:brief",
-        "reports:databases",
         "reports:assurance",
         "reports:funds",
         "reports:partner_reporting",
         "reports:monitoring",
         "reports:pd_monitoring",
         "reports:pd_monitoring_map",
-        "reports:population",
-        "reports:search",
         "knowledge:index",
-        "fmm:dashboard",
     }
 )
+# The pages that show every year while no ``?year=`` is given: their label then reads "All years"
+ALL_YEARS_PAGES = frozenset(
+    {
+        "reports:assurance",
+        "reports:funds",
+        "reports:monitoring",
+        "reports:partner_reporting",
+        "knowledge:index",
+    }
+)
+# The pages of one ActivityInfo database or report: a year there goes to that year's list of databases
 YEAR_LIST_PAGES = frozenset(
     {
         "reports:database_dashboard",
@@ -349,19 +359,110 @@ YEAR_LIST_PAGES = frozenset(
         "reports:report_hpm",
     }
 )
+AI_YEAR_PAGES = YEAR_LIST_PAGES | {"reports:databases"}
+
+
+def _view_name(context) -> str:
+    match = getattr(context.get("request"), "resolver_match", None)
+    return match.view_name if match else ""
 
 
 @register.simple_tag(takes_context=True)
-def year_url(context: dict[str, Any], year: str) -> str:
-    """Where the year menu goes for ``year``: the same page in that year when the page has one (its
-    other filters kept, back to the first page), else the year's databases or the overview."""
+def year_url(context: dict[str, Any], year: Any) -> str:
+    """Where the year menu goes for ``year``: the same page in that year (its other filters kept, back to the
+    first page), or, from one ActivityInfo database or report, that year's list of databases."""
     request = context.get("request")
-    match = getattr(request, "resolver_match", None)
-    name = match.view_name if match else ""
-    if request is not None and name in YEAR_PAGES:
+    name = _view_name(context)
+    if name in YEAR_LIST_PAGES or request is None:
+        return f"{reverse('reports:databases')}?{urlencode({'year': year})}"
+    params = request.GET.copy()
+    params["year"] = str(year)
+    params.pop("page", None)
+    return f"{request.path}?{params.urlencode()}"
+
+
+def _ai_page_year(context) -> str:
+    """The reporting year an ActivityInfo page shows: the view's own, else the menu's (the ``?year=``, or the
+    year of the database or report open, else the year ticked current)."""
+    year = context.get("year")
+    if getattr(year, "name", None):
+        return str(year.name)
+    nav = context.get("nav")
+    shown = getattr(nav, "year", None) if nav is not None else None
+    return str(shown.name) if shown is not None else ""
+
+
+@register.simple_tag(takes_context=True)
+def page_year_label(context: dict[str, Any]) -> str:
+    """The year the page shows, as the header's year menu names it: "All years" (the page says so, or
+    ``?year=all``); else the year asked for (four digits) or, on an ActivityInfo page, its reporting year;
+    else "All years" on a page that shows every year by default; else this year."""
+    from neurodb.core import years
+
+    request = context.get("request")
+    raw = request.GET.get("year", "").strip() if request is not None else ""
+    if context.get("year_all_active") or raw.lower() == "all":
+        return str(_("All years"))
+    name = _view_name(context)
+    if name in AI_YEAR_PAGES:
+        return _ai_page_year(context) or str(years.this_year())
+    asked = years.parse(raw)
+    if asked is not None:
+        return str(asked)
+    if not raw and name in ALL_YEARS_PAGES:
+        return str(_("All years"))
+    return str(years.this_year())
+
+
+@register.simple_tag(takes_context=True)
+def year_menu(context: dict[str, Any]) -> dict[str, Any] | None:
+    """The header's year menu for this page, or None where it is not drawn: ``{"header", "label", "all",
+    "items"}``; ``all`` is the "All years" entry (None where the page has none), each item ``{"label",
+    "url", "note", "active"}``. The active entry is the one whose value is the label (none when the label's
+    year is not listed)."""
+    from neurodb.core import years
+
+    request = context.get("request")
+    user = getattr(request, "user", None)
+    if request is None or not getattr(user, "is_authenticated", False) or context.get("is_donor"):
+        return None
+    name = _view_name(context)
+    label = page_year_label(context)
+    all_years = str(_("All years"))
+    if name in AI_YEAR_PAGES:
+        nav = context.get("nav")
+        rows = list(getattr(nav, "years", None) or []) if nav is not None else []
+        if not rows:
+            return None
+        ai = context.get("ai")
+        in_use = bool(getattr(ai, "in_use", False)) if ai is not None else False
+        items = [
+            {
+                "label": row.name,
+                "url": year_url(context, row.name),
+                "note": _("current") if row.current and in_use else "",
+                "active": str(row.name) == label,
+            }
+            for row in rows
+        ]
+        return {"header": _("ActivityInfo year"), "label": label, "all": None, "items": items}
+    if name not in YEAR_PAGES:
+        return None
+    this_year = years.this_year()
+    items = [
+        {
+            "label": str(number),
+            "url": year_url(context, number),
+            "note": _("this year") if number == this_year else "",
+            "active": str(number) == label,
+        }
+        for number in years.available()
+    ]
+    all_url = context.get("year_all_url")
+    if not all_url and name in ALL_YEARS_PAGES:
         params = request.GET.copy()
-        params["year"] = year
+        params.pop("year", None)
         params.pop("page", None)
-        return f"{request.path}?{params.urlencode()}"
-    target = "reports:databases" if name in YEAR_LIST_PAGES else "reports:overview"
-    return f"{reverse(target)}?{urlencode({'year': year})}"
+        all_url = f"{request.path}?{params.urlencode()}" if params else request.path
+    entry = {"url": all_url, "active": label == all_years} if all_url else None
+    return {"header": _("Year"), "label": label, "all": entry, "items": items}

@@ -383,7 +383,8 @@ def test_the_visit_page_links_to_the_map_centred_on_it(planned, client_viewer):
 def test_the_map_tab_keeps_to_the_query_budget(planned, client_viewer, django_assert_max_num_queries):
     """The HTMX swap of the tab (the map drawn in it) as before; the page, which loads in parts, as its frame
     and its map part, each measured plus 2 and each within the old page's 30 (step 3: frame 21, part 11-12,
-    with nothing stored)."""
+    with nothing stored; the frame 26 since the menu reads the ActivityInfo state and the sources once per
+    worker, SPEC_HOME §4)."""
     from django.core.cache import cache, caches
 
     from tests.web.parts import HX, placeholders, raw_get
@@ -395,7 +396,7 @@ def test_the_map_tab_keeps_to_the_query_budget(planned, client_viewer, django_as
             client_viewer.get(PAGE, params, HTTP_HX_REQUEST="true")
         cache.clear()
         caches["shared"].clear()
-        with django_assert_max_num_queries(23):
+        with django_assert_max_num_queries(28):
             frame = raw_get(client_viewer, PAGE, params)
         with django_assert_max_num_queries(14):
             part = raw_get(client_viewer, placeholders(frame.content.decode())["map"], **HX)

@@ -97,8 +97,11 @@ def test_other_years_menu_and_search_by_year(client_viewer, hierarchy, reporting
     assert "Other years" in html and f'href="{reverse("reports:report_hpm", args=[old.id])}"' in html
     found = client_viewer.get(reverse("reports:search") + "?q=HPM&year=2025").text
     assert reverse("reports:report_hpm", args=[old.id]) in found
-    current = client_viewer.get(reverse("reports:search") + "?q=HPM").text
-    assert reverse("reports:report_hpm", args=[old.id]) not in current
+    assert reverse("reports:report_hpm", args=[hierarchy["report"].id]) not in found  # that year only
+    # without a year the search covers the ActivityInfo archive of every year (SPEC_HOME §5)
+    every = client_viewer.get(reverse("reports:search") + "?q=HPM").text
+    assert reverse("reports:report_hpm", args=[old.id]) in every
+    assert reverse("reports:report_hpm", args=[hierarchy["report"].id]) in every
 
 
 def test_hpm_api_comment_master_id_is_the_item_id(client_viewer, hierarchy):
@@ -140,10 +143,12 @@ def test_sidebar_badge_counts_databases_and_topbar_marks_the_page_year(client_vi
     )  # fmt: skip
     html = client_viewer.get(reverse("reports:databases")).text
     block = html.split('data-nav-key="databases"', 1)[1].split("</summary>", 1)[0]
-    assert '<span class="count">2</span>' in block  # two databases in one section
+    # two databases in one section (the pill says what it counts: SPEC_HOME §4)
+    assert '<span class="count">2<span class="visually-hidden"> databases</span></span>' in block
     html = client_viewer.get(reverse("reports:database_dashboard", args=[old_db.id])).text
     menu = html.split('id="year-menu"', 1)[1].split("</ul>", 1)[0]
-    assert "<span>2025</span>" in menu and 'class="dropdown-item active" href="/databases/?year=2025"' in menu
+    assert '<span class="year-menu__label"><span class="visually-hidden">Year: </span>2025</span>' in menu
+    assert 'class="dropdown-item active" href="/databases/?year=2025" aria-current="true"' in menu
 
 
 def test_pivot_and_map_scripts():

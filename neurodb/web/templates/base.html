@@ -46,7 +46,7 @@
     {% include "components/logo.html" with height=30 compact=True %}
   </a>
   {% if user.is_authenticated and not is_donor %}
-  {% if AI_ASSISTANT_ENABLED %}{% trans "Search or ask a question" as search_label %}{% else %}{% trans "Search indicators, databases, reports" as search_label %}{% endif %}
+  {% if AI_ASSISTANT_ENABLED %}{% trans "Search or ask a question" as search_label %}{% else %}{% trans "Search partners, programme documents, indicators" as search_label %}{% endif %}
   <button type="button" class="search-trigger" id="search-trigger" aria-haspopup="dialog" aria-controls="search-modal" aria-label="{{ search_label }}" title="{{ search_label }}">
     {% include "components/icon.html" with name="search" %}
     <span class="search-trigger__label">{{ search_label }}</span>
@@ -54,17 +54,19 @@
   </button>
   {% endif %}
   <div class="topbar__spacer"></div>
-  {% if user.is_authenticated and nav.years %}
+  {% comment %}The year menu, only on the pages that show one year (ui.year_menu): calendar years, or ActivityInfo years
+  on the ActivityInfo pages. The button keeps its name on a phone, where the label is visually hidden.{% endcomment %}
+  {% year_menu as ym %}{% if ym %}
   <div class="dropdown">
     <button class="btn btn-ghost dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="year-menu">
       {% include "components/icon.html" with name="calendar" %}
-      <span>{% if year_all_active %}{% trans "All years" %}{% elif year.name %}{{ year.name }}{% elif nav.year %}{{ nav.year.name }}{% endif %}</span>
+      <span class="year-menu__label"><span class="visually-hidden">{% trans "Year:" %} </span>{{ ym.label }}</span>
     </button>
     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="year-menu">
-      <li><h6 class="dropdown-header">{% trans "Reporting year" %}</h6></li>
-      {% if year_all_url %}<li><a class="dropdown-item {% if year_all_active %}active{% endif %}" href="{{ year_all_url }}">{% trans "All years" %}</a></li>{% endif %}
-      {% for y in nav.years %}
-      <li><a class="dropdown-item {% if not year_all_active %}{% if year.id and y.id == year.id or not year.id and y.id == nav.year.id %}active{% endif %}{% endif %}" href="{% year_url y.name %}">{{ y.name }}{% if y.current %} <span class="text-muted small">({% trans "current" %})</span>{% endif %}</a></li>
+      <li><h6 class="dropdown-header">{{ ym.header }}</h6></li>
+      {% if ym.all %}<li><a class="dropdown-item{% if ym.all.active %} active{% endif %}" href="{{ ym.all.url }}"{% if ym.all.active %} aria-current="true"{% endif %}>{% trans "All years" %}</a></li>{% endif %}
+      {% for item in ym.items %}
+      <li><a class="dropdown-item{% if item.active %} active{% endif %}" href="{{ item.url }}"{% if item.active %} aria-current="true"{% endif %}>{{ item.label }}{% if item.note %} <span class="text-muted small">({{ item.note }})</span>{% endif %}</a></li>
       {% endfor %}
     </ul>
   </div>
@@ -82,6 +84,7 @@
   <div class="dropdown">
     <button class="btn btn-ghost dropdown-toggle user-menu" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="user-menu">
       <span class="avatar" aria-hidden="true">{{ user.get_username|first|upper }}</span>
+      <span class="visually-hidden d-md-none">{% trans "Your account" %}</span>
       <span class="d-none d-md-inline">{{ user.get_full_name|default:user.get_username }}</span>
     </button>
     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="user-menu">
@@ -111,124 +114,133 @@
     <div class="sidebar__body">
       {% if not user.is_authenticated %}
       <a class="nav-item-link" href="{% url 'landing' %}">{% include "components/icon.html" with name="home" %}<span>{% trans "About NeuroDB" %}</span></a>
-      <div class="sidebar__section-title">{% trans "Open resources" %}</div>
-      {% if "reports:population" in PUBLIC_PAGES %}<a class="nav-item-link {% active_if 'reports:population' %}" href="{% url 'reports:population' %}">{% include "components/icon.html" with name="chart" %}<span>{% trans "Population" %}</span></a>{% endif %}
-      {% if "reports:library" in PUBLIC_PAGES %}<a class="nav-item-link {% active_if 'reports:library' %}" href="{% url 'reports:library' %}">{% include "components/icon.html" with name="book" %}<span>{% trans "Library" %}</span></a>{% endif %}
-      {% if "reports:maps" in PUBLIC_PAGES %}<a class="nav-item-link {% active_if 'reports:maps' %}" href="{% url 'reports:maps' %}">{% include "components/icon.html" with name="map" %}<span>{% trans "Maps" %}</span></a>{% endif %}
-      <div class="sidebar__section-title">{% trans "Staff" %}</div>
-      <a class="nav-item-link" href="{% url 'account_login' %}">{% include "components/icon.html" with name="lock" %}<span>{% trans "Sign in for dashboards" %}</span></a>
+      {% if "reports:population" in PUBLIC_PAGES or "reports:library" in PUBLIC_PAGES or "reports:maps" in PUBLIC_PAGES %}
+      <div class="nav-group" role="group" aria-labelledby="nav-title-open">
+        <div class="sidebar__section-title" id="nav-title-open">{% trans "Open resources" %}</div>
+        {% if "reports:population" in PUBLIC_PAGES %}<a class="nav-item-link {% active_if 'reports:population' %}" href="{% url 'reports:population' %}" {% aria_current 'reports:population' %}>{% include "components/icon.html" with name="chart" %}<span>{% trans "Population" %}</span></a>{% endif %}
+        {% if "reports:library" in PUBLIC_PAGES %}<a class="nav-item-link {% active_if 'reports:library' 'reports:library_item' %}" href="{% url 'reports:library' %}" {% aria_current 'reports:library' 'reports:library_item' %}>{% include "components/icon.html" with name="book" %}<span>{% trans "Library" %}</span></a>{% endif %}
+        {% if "reports:maps" in PUBLIC_PAGES %}<a class="nav-item-link {% active_if 'reports:maps' 'reports:map_item' %}" href="{% url 'reports:maps' %}" {% aria_current 'reports:maps' 'reports:map_item' %}>{% include "components/icon.html" with name="map" %}<span>{% trans "Maps" %}</span></a>{% endif %}
+      </div>
+      {% endif %}
+      <div class="nav-group" role="group" aria-labelledby="nav-title-staff">
+        <div class="sidebar__section-title" id="nav-title-staff">{% trans "Staff" %}</div>
+        <a class="nav-item-link" href="{% url 'account_login' %}">{% include "components/icon.html" with name="lock" %}<span>{% trans "Sign in for dashboards" %}</span></a>
+      </div>
       {% elif is_donor %}
       <a class="nav-item-link" href="{% url 'donors:page' %}">{% include "components/icon.html" with name="home" %}<span>{% trans "Your dashboard" %}</span></a>
       {% else %}
-      <a class="nav-item-link {% active_if 'reports:overview' %}" href="{% url 'reports:overview' %}" {% aria_current 'reports:overview' %}>
-        {% include "components/icon.html" with name="home" %}<span>{% trans "Overview" %}</span>
-      </a>
-      <a class="nav-item-link {% active_if 'reports:brief' %}" href="{% url 'reports:brief' %}" {% aria_current 'reports:brief' %}>
-        {% include "components/icon.html" with name="target" %}<span>{% trans "Management brief" %}</span>
-      </a>
-      <a class="nav-item-link {% active_if 'cpd:dashboard' 'cpd:indicator' %}" href="{% url 'cpd:dashboard' %}" {% aria_current 'cpd:dashboard' %}>
-        {% include "components/icon.html" with name="route" %}<span>{% trans "Country programme" %}</span>
-      </a>
-      {% if AI_ASSISTANT_ENABLED or user.is_staff %}
-      <a class="nav-item-link {% active_if 'assistant:ask' %}" href="{% url 'assistant:ask' %}" {% aria_current 'assistant:ask' %}>
-        {% include "components/icon.html" with name="sparkle" %}<span>{% trans "Ask NeuroDB" %}</span><span class="nav-badge">{% trans "AI" %}</span>
-      </a>
-      {% endif %}
-      <a class="nav-item-link {% active_if 'watch:for_you' %}" href="{% url 'watch:for_you' %}" {% aria_current 'watch:for_you' %}>{% include "components/icon.html" with name="bell" %}<span>{% trans "For you" %}</span><span class="nav-count-slot" hx-get="{% url 'watch:badge' %}" hx-trigger="load" hx-swap="outerHTML"></span></a>
-      <a class="nav-item-link {% active_if 'graph:whats_new' %}" href="{% url 'graph:whats_new' %}" {% aria_current 'graph:whats_new' %}>{% include "components/icon.html" with name="inbox" %}<span>{% trans "What's new" %}</span></a>
-      <div class="sidebar__section-title">{% trans "Monthly results (ActivityInfo)" %}</div>
-      <a class="nav-item-link {% active_if 'reports:databases' %}" href="{% url 'reports:databases' %}" {% aria_current 'reports:databases' %}>
-        {% include "components/icon.html" with name="database" %}<span>{% trans "ActivityInfo databases" %}</span>
-      </a>
-      <a class="nav-item-link {% active_if 'insights:forecasts' %}" href="{% url 'insights:forecasts' %}" {% aria_current 'insights:forecasts' %}>{% include "components/icon.html" with name="trend" %}<span>{% trans "Year-end forecasts" %}</span></a>
-      {% if nav.sections %}
-      <details class="sidebar__block" data-nav-key="databases" {% if nav_active.block == "databases" %}open data-nav-active{% endif %}>
-        <summary class="sidebar__block-title">
-          <span>{% trans "Databases" %}{% if nav.databases_year %} {{ nav.databases_year.name }}{% endif %}</span>
-          <span class="count">{{ nav.database_count }}</span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg>
-        </summary>
-        {% for s in nav.sections %}
-        {% if s.databases|length == 1 %}
-        {% with db=s.databases.0 %}
-        <a class="nav-item-link {% active_if 'reports:database_dashboard' 'reports:database_analytical' 'reports:database_map' 'reports:database_snapshot' 'reports:indicator_detail' pk=db.id %}" href="{% url 'reports:database_dashboard' db.id %}" title="{{ db.label|default:db.name }}" {% aria_current 'reports:database_dashboard' pk=db.id %}>
-          <span class="section-dot" {% if s.section.color %}style="--section-color: {{ s.section.color }}"{% endif %} aria-hidden="true"></span>
-          <span>{% if s.section %}{{ s.section.name }}{% else %}{{ db.label|default:db.name }}{% endif %}</span>
-        </a>
-        {% endwith %}
-        {% else %}
-        <details class="sidebar__group" {% if s.databases|has_id:nav_active.db %}open{% endif %}>
-          <summary>
-            <span class="section-dot" {% if s.section.color %}style="--section-color: {{ s.section.color }}"{% endif %} aria-hidden="true"></span>
-            <span>{% if s.section %}{{ s.section.name }}{% else %}{% trans "Other" %}{% endif %}</span>
-            <span class="count">{{ s.databases|length }}</span>
+      {% comment %}The menu (indicators.services.navigation.MENU, the same tree for everyone): its rows, the conditions of
+      the few that show only while their source is live (a muted "Set up" row for the people who can set it up), the
+      current page (aria-current on the most specific link only), then the ActivityInfo archive and Help.{% endcomment %}
+      {% for group in nav_menu.groups %}
+      {% if group.title %}<div class="nav-group" role="group" aria-labelledby="nav-title-{{ group.key }}">
+        <div class="sidebar__section-title" id="nav-title-{{ group.key }}">{{ group.title }}</div>{% endif %}
+        {% for item in group.items %}
+        <a class="nav-item-link{% if item.muted %} nav-item-link--muted{% endif %}{% if item.active %} active{% endif %}" href="{{ item.url }}"{% if item.current %} aria-current="page"{% endif %}>{% include "components/icon.html" with name=item.icon %}<span>{{ item.label }}</span>{% if item.muted %}<span class="nav-badge nav-badge--muted">{% trans "Set up" %}</span>{% elif item.badge %}<span class="nav-badge">{% trans "AI" %}</span>{% endif %}{% if item.count %}<span class="nav-count-slot" hx-get="{% url 'watch:badge' %}" hx-trigger="load" hx-swap="outerHTML"></span>{% endif %}</a>
+        {% endfor %}
+      {% if group.title %}</div>{% endif %}
+      {% endfor %}
+      {% if ai.years or nav.years %}{% with archive=nav_menu.archive %}
+      {% comment %}ActivityInfo: "Monthly results" while in use, an archive otherwise, at the bottom either way. Open on an
+      ActivityInfo page; while in use it opens unless the reader closed it (data-nav-default, the script below);
+      else closed.{% endcomment %}
+      <details class="sidebar__archive" data-nav-key="archive"{% if nav_active.archive %} open data-nav-active{% elif ai.in_use %} data-nav-default="open"{% endif %}>
+        <summary class="sidebar__archive-title">{% include "components/icon.html" with name="clock" %}<span>{% if ai.in_use %}{% trans "Monthly results (ActivityInfo)" %}{% else %}{% trans "ActivityInfo archive" %}{% endif %}</span>{% if ai.span and not ai.in_use %}<span class="sidebar__archive-span">{{ ai.span }}</span>{% endif %}<svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg></summary>
+        <div class="sidebar__archive-body">
+        <a class="nav-item-link nav-item-link--sub{% if archive.databases.active %} active{% endif %}" href="{{ archive.databases.url }}"{% if archive.databases.current %} aria-current="page"{% endif %}><span>{% trans "ActivityInfo databases" %}</span></a>
+        {% if archive.forecasts %}<a class="nav-item-link nav-item-link--sub{% if archive.forecasts.active %} active{% endif %}" href="{{ archive.forecasts.url }}"{% if archive.forecasts.active %} aria-current="page"{% endif %}><span>{% trans "Year-end forecasts" %}</span></a>{% endif %}
+        {% if archive.years %}
+        <div class="nav-group" role="group" aria-labelledby="nav-title-ai-years">
+          <div class="sidebar__subtitle" id="nav-title-ai-years">{% trans "Years" %}</div>
+          {% for row in archive.years %}<a class="nav-item-link nav-item-link--sub{% if row.current %} active{% endif %}" href="{{ row.url }}"{% if row.current %} aria-current="page"{% endif %}>{{ row.year }}</a>{% endfor %}
+        </div>
+        {% endif %}
+        {% if nav.sections %}
+        <details class="sidebar__block" data-nav-key="databases" {% if nav_active.block == "databases" %}open data-nav-active{% endif %}>
+          <summary class="sidebar__block-title">
+            <span>{% trans "Databases" %}{% if nav.databases_year %} {{ nav.databases_year.name }}{% endif %}</span>
+            <span class="count">{{ nav.database_count }}<span class="visually-hidden"> {% blocktrans count counter=nav.database_count %}database{% plural %}databases{% endblocktrans %}</span></span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg>
           </summary>
+          {% for s in nav.sections %}
+          {% if s.databases|length == 1 %}
+          {% with db=s.databases.0 %}
+          <a class="nav-item-link {% active_if 'reports:database_dashboard' 'reports:database_analytical' 'reports:database_map' 'reports:database_snapshot' 'reports:indicator_detail' pk=db.id %}" href="{% url 'reports:database_dashboard' db.id %}" title="{{ db.label|default:db.name }}" {% aria_current 'reports:database_dashboard' 'reports:database_analytical' 'reports:database_map' 'reports:database_snapshot' 'reports:indicator_detail' pk=db.id %}>
+            <span class="section-dot" {% if s.section.color %}style="--section-color: {{ s.section.color }}"{% endif %} aria-hidden="true"></span>
+            <span>{% if s.section %}{{ s.section.name }}{% else %}{{ db.label|default:db.name }}{% endif %}</span>
+          </a>
+          {% endwith %}
+          {% else %}
+          <details class="sidebar__group" {% if s.databases|has_id:nav_active.db %}open{% endif %}>
+            <summary>
+              <span class="section-dot" {% if s.section.color %}style="--section-color: {{ s.section.color }}"{% endif %} aria-hidden="true"></span>
+              <span>{% if s.section %}{{ s.section.name }}{% else %}{% trans "Other" %}{% endif %}</span>
+              <span class="count">{{ s.databases|length }}<span class="visually-hidden"> {% blocktrans count counter=s.databases|length %}database{% plural %}databases{% endblocktrans %}</span></span>
+            </summary>
+            <ul class="list-unstyled">
+              {% for db in s.databases %}
+              <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:database_dashboard' 'reports:database_analytical' 'reports:database_map' 'reports:database_snapshot' 'reports:indicator_detail' pk=db.id %}" href="{% url 'reports:database_dashboard' db.id %}" {% aria_current 'reports:database_dashboard' 'reports:database_analytical' 'reports:database_map' 'reports:database_snapshot' 'reports:indicator_detail' pk=db.id %}>{{ db.label|default:db.name }}</a></li>
+              {% endfor %}
+            </ul>
+          </details>
+          {% endif %}
+          {% endfor %}
+        </details>
+        {% endif %}
+        {% if nav.neuro_reports %}
+        <details class="sidebar__block" data-nav-key="reports" {% if nav_active.block == "reports" %}open data-nav-active{% endif %}>
+          <summary class="sidebar__block-title"><span>{% trans "Reports" %}{% if nav.neuro_year %} {{ nav.neuro_year.name }}{% endif %}</span><span class="count">{{ nav.neuro_reports|length }}<span class="visually-hidden"> {% blocktrans count counter=nav.neuro_reports|length %}report{% plural %}reports{% endblocktrans %}</span></span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg></summary>
           <ul class="list-unstyled">
-            {% for db in s.databases %}
-            <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:database_dashboard' 'reports:database_analytical' 'reports:database_map' 'reports:database_snapshot' 'reports:indicator_detail' pk=db.id %}" href="{% url 'reports:database_dashboard' db.id %}" {% aria_current 'reports:database_dashboard' pk=db.id %}>{{ db.label|default:db.name }}</a></li>
+            {% for r in nav.neuro_reports %}
+            <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:report_dashboard' 'reports:report_analytical' pk=r.id %}" href="{% url 'reports:report_dashboard' r.id %}" {% aria_current 'reports:report_dashboard' 'reports:report_analytical' pk=r.id %}>{{ r.name }}</a></li>
             {% endfor %}
           </ul>
         </details>
         {% endif %}
-        {% endfor %}
+        {% if nav.hpm_reports %}
+        <details class="sidebar__block" data-nav-key="hpm" {% if nav_active.block == "hpm" %}open data-nav-active{% endif %}>
+          <summary class="sidebar__block-title"><span>{% trans "HPM reports" %}{% if nav.hpm_year %} {{ nav.hpm_year.name }}{% endif %}</span><span class="count">{{ nav.hpm_reports|length }}<span class="visually-hidden"> {% blocktrans count counter=nav.hpm_reports|length %}report{% plural %}reports{% endblocktrans %}</span></span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg></summary>
+          <ul class="list-unstyled">
+            {% for r in nav.hpm_reports %}
+            <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:report_hpm' pk=r.id %}" href="{% url 'reports:report_hpm' r.id %}" {% aria_current 'reports:report_hpm' pk=r.id %}>{{ r.name }}</a></li>
+            {% endfor %}
+          </ul>
+        </details>
+        {% endif %}
+        </div>
       </details>
-      {% endif %}
-      {% if nav.neuro_reports %}
-      <details class="sidebar__block" data-nav-key="reports" {% if nav_active.block == "reports" %}open data-nav-active{% endif %}>
-        <summary class="sidebar__block-title"><span>{% trans "Reports" %}{% if nav.neuro_year %} {{ nav.neuro_year.name }}{% endif %}</span><span class="count">{{ nav.neuro_reports|length }}</span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg></summary>
-        <ul class="list-unstyled">
-          {% for r in nav.neuro_reports %}
-          <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:report_dashboard' 'reports:report_analytical' pk=r.id %}" href="{% url 'reports:report_dashboard' r.id %}" {% aria_current 'reports:report_dashboard' pk=r.id %}>{{ r.name }}</a></li>
-          {% endfor %}
-        </ul>
-      </details>
-      {% endif %}
-      {% if nav.hpm_reports %}
-      <details class="sidebar__block" data-nav-key="hpm" {% if nav_active.block == "hpm" %}open data-nav-active{% endif %}>
-        <summary class="sidebar__block-title"><span>{% trans "HPM reports" %}{% if nav.hpm_year %} {{ nav.hpm_year.name }}{% endif %}</span><span class="count">{{ nav.hpm_reports|length }}</span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg></summary>
-        <ul class="list-unstyled">
-          {% for r in nav.hpm_reports %}
-          <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:report_hpm' pk=r.id %}" href="{% url 'reports:report_hpm' r.id %}" {% aria_current 'reports:report_hpm' pk=r.id %}>{{ r.name }}</a></li>
-          {% endfor %}
-        </ul>
-      </details>
-      {% endif %}
-      <div class="sidebar__section-title">{% trans "Partnerships" %}</div>
-      <a class="nav-item-link {% active_if 'reports:programmes' 'reports:programme_summary' 'reports:programme_detail' %}" href="{% url 'reports:programmes' %}" {% aria_current 'reports:programmes' %}>{% include "components/icon.html" with name="file" %}<span>{% trans "Programme documents" %}</span></a>
-      <a class="nav-item-link {% active_if 'reports:donors' %}" href="{% url 'reports:donors' %}" {% aria_current 'reports:donors' %}>{% include "components/icon.html" with name="gift" %}<span>{% trans "Donors" %}</span></a>
-      <a class="nav-item-link {% active_if 'reports:partners' 'reports:partner_profile' %}" href="{% url 'reports:partners' %}" {% aria_current 'reports:partners' %}>{% include "components/icon.html" with name="users" %}<span>{% trans "Partners" %}</span></a>
-      <a class="nav-item-link {% active_if 'education:makani' %}" href="{% url 'education:makani' %}" {% aria_current 'education:makani' %}>{% include "components/icon.html" with name="book" %}<span>{% trans "Makani (MSCC)" %}</span></a>
-      <a class="nav-item-link {% active_if 'wellbeing:summaries' 'wellbeing:flags' 'wellbeing:follow_up' %}" href="{% url 'wellbeing:summaries' %}" {% aria_current 'wellbeing:summaries' %}>{% include "components/icon.html" with name="pulse" %}<span>{% trans "Makani wellbeing" %}</span></a>
-      <a class="nav-item-link {% active_if 'education:dirasa' %}" href="{% url 'education:dirasa' %}" {% aria_current 'education:dirasa' %}>{% include "components/icon.html" with name="school" %}<span>{% trans "Dirasa (Bridging)" %}</span></a>
-      <a class="nav-item-link {% active_if 'youth:dashboard' %}" href="{% url 'youth:dashboard' %}" {% aria_current 'youth:dashboard' %}>{% include "components/icon.html" with name="users" %}<span>{% trans "Youth programmes" %}</span></a>
-      <a class="nav-item-link {% active_if 'reports:funds' %}" href="{% url 'reports:funds' %}" {% aria_current 'reports:funds' %}>{% include "components/icon.html" with name="database" %}<span>{% trans "Funds" %}</span></a>
-      <a class="nav-item-link {% active_if 'reports:assurance' 'reports:engagement_detail' %}" href="{% url 'reports:assurance' %}" {% aria_current 'reports:assurance' %}>{% include "components/icon.html" with name="shield" %}<span>{% trans "Assurance" %}</span></a>
-      <a class="nav-item-link {% active_if 'reports:monitoring' %}" href="{% url 'reports:monitoring' %}" {% aria_current 'reports:monitoring' %}>{% include "components/icon.html" with name="eye" %}<span>{% trans "Field monitoring" %}</span></a>
-      {% if fmm_enabled %}<a class="nav-item-link {% active_if 'fmm:dashboard' 'fmm:visit' %}" href="{% url 'fmm:dashboard' %}" {% aria_current 'fmm:dashboard' %}>{% include "components/icon.html" with name="ruler" %}<span>{% trans "Monitoring insights" %}</span><span class="nav-badge">{% trans "AI" %}</span></a>{% endif %}
-      <a class="nav-item-link {% active_if 'reports:action_points' %}" href="{% url 'reports:action_points' %}" {% aria_current 'reports:action_points' %}>{% include "components/icon.html" with name="check" %}<span>{% trans "Action points" %}</span></a>
-      <div class="sidebar__section-title">{% trans "Partner progress (eTools)" %}</div>
-      <a class="nav-item-link {% active_if 'reports:pd_monitoring' 'reports:pd_indicator' %}" href="{% url 'reports:pd_monitoring' %}" {% aria_current 'reports:pd_monitoring' %}>{% include "components/icon.html" with name="target" %}<span>{% trans "Partner monitoring" %}</span></a>
-      <a class="nav-item-link {% active_if 'reports:partner_reporting' 'reports:progress_report' %}" href="{% url 'reports:partner_reporting' %}" {% aria_current 'reports:partner_reporting' %}>{% include "components/icon.html" with name="file" %}<span>{% trans "Progress reports" %}</span></a>
-      <div class="sidebar__section-title">{% trans "Resources" %}</div>
-      <a class="nav-item-link {% active_if 'reports:population' %}" href="{% url 'reports:population' %}" {% aria_current 'reports:population' %}>{% include "components/icon.html" with name="chart" %}<span>{% trans "Population" %}</span></a>
-      <a class="nav-item-link {% active_if 'reports:library' %}" href="{% url 'reports:library' %}" {% aria_current 'reports:library' %}>{% include "components/icon.html" with name="book" %}<span>{% trans "Library" %}</span></a>
-      <a class="nav-item-link {% active_if 'knowledge:index' 'knowledge:detail' 'knowledge:add' %}" href="{% url 'knowledge:index' %}" {% aria_current 'knowledge:index' %}>{% include "components/icon.html" with name="layers" %}<span>{% trans "Knowledge base" %}</span></a>
-      <a class="nav-item-link {% active_if 'knowledge:review' 'knowledge:review_finding_new' 'knowledge:review_finding_edit' %}" href="{% url 'knowledge:review' %}" {% aria_current 'knowledge:review' %}>{% include "components/icon.html" with name="check" %}<span>{% trans "Document review" %}</span><span class="nav-badge">{% trans "AI" %}</span></a>
-      <a class="nav-item-link {% active_if 'reports:maps' %}" href="{% url 'reports:maps' %}" {% aria_current 'reports:maps' %}>{% include "components/icon.html" with name="map" %}<span>{% trans "Maps" %}</span></a>
-      <a class="nav-item-link {% active_if 'reports:data_health' %}" href="{% url 'reports:data_health' %}" {% aria_current 'reports:data_health' %}>{% include "components/icon.html" with name="pulse" %}<span>{% trans "Data health" %}</span></a>
-      <a class="nav-item-link nav-item-link--help {% active_if 'help:index' 'help:page' %}" href="{% url 'help:index' %}" {% aria_current 'help:index' %}>{% include "components/icon.html" with name="info" %}<span>{% trans "Help" %}</span></a>
+      {% endwith %}{% endif %}
+      {% with item=nav_menu.help %}<a class="nav-item-link {{ item.css }}{% if item.active %} active{% endif %}" href="{{ item.url }}"{% if item.current %} aria-current="page"{% endif %}>{% include "components/icon.html" with name=item.icon %}<span>{{ item.label }}</span></a>{% endwith %}
       {% endif %}
     </div>
   </nav>
   <script nonce="{{ request.csp_nonce }}">
-    /* Sidebar blocks remember whether the user opened or closed them; the block of the current page always opens. */
+    /* The sidebar's blocks remember whether the reader opened or closed them. A block of the current page
+       (data-nav-active) always opens; one marked data-nav-default="open" opens while the reader has chosen
+       nothing. Only the reader's own toggles are stored: one that follows a press on the block's summary
+       (or Enter or Space from the keyboard). A block drawn open fires "toggle" once as the page loads, and
+       the script's own opening fires it too: neither is stored, so once a block is no longer marked to open
+       it stays closed for every reader who did not open it on purpose. */
     (function () {
       var blocks = document.querySelectorAll("#sidebar details[data-nav-key]");
       blocks.forEach(function (el) {
         var key = "neurodb-nav:" + el.getAttribute("data-nav-key");
-        try {
-          if (!el.hasAttribute("data-nav-active") && localStorage.getItem(key) === "open") el.open = true;
-        } catch (e) {}
+        var stored = null;
+        try { stored = localStorage.getItem(key); } catch (e) {}
+        if (!el.hasAttribute("data-nav-active")) {
+          if (stored === "open") el.open = true;
+          else if (stored === null && el.getAttribute("data-nav-default") === "open") el.open = true;
+        }
+        var byReader = false;
+        var summary = el.querySelector("summary");
+        if (summary) {
+          summary.addEventListener("pointerdown", function () { byReader = true; });
+          summary.addEventListener("keydown", function (e) {
+            if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") byReader = true;
+          });
+        }
         el.addEventListener("toggle", function () {
+          if (!byReader) return;
+          byReader = false;
           try { localStorage.setItem(key, el.open ? "open" : "closed"); } catch (e) {}
         });
       });
@@ -259,7 +271,7 @@ part; the words parts.js shows in a part or on the Print button, translated.{% e
      data-text-loading="{{ t_loading }}" data-text-done="{{ t_done }}" data-text-failed-one="{{ t_failed_one }}" data-text-failed-many="{{ t_failed_many }}"
      data-text-forbidden="{{ t_forbidden }}" data-text-gone="{{ t_gone }}" data-text-timeout="{{ t_timeout }}" data-text-generic="{{ t_generic }}" data-text-preparing="{{ t_preparing }}"></div>
 {% include "components/modal.html" %}
-{% include "components/search_modal.html" %}
+{% if user.is_authenticated and not is_donor %}{% include "components/search_modal.html" %}{% endif %}
 {% if user.is_authenticated and not is_donor %}{% include "help/_panel.html" %}{% endif %}
 {% if parts_eager is not None %}{% comment %}A page in parts (web.parts.render_page sets parts_eager). Its placeholders
 (components/part.html) are filled by parts.js alone, which marks the page "parts-ready" once it has started (never

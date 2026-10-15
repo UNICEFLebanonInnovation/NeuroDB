@@ -77,7 +77,8 @@ LINK = re.compile(r'\s(?:href|action|hx-push-url)="([^"]*)"')
 # indicator rows, their identities, the report rows, PRP's totals, the first period held): 11, the summary 12 with
 # its overdue reports, the section tiles 12 (the filter without its sections); a part of the group reading what the
 # first one stored: 5, the summary 6.
-FRAME_QUERIES_COLD = 25
+# Cold the menu also reads the ActivityInfo state and its sources, kept per worker (SPEC_HOME §4): 29.
+FRAME_QUERIES_COLD = 31
 FRAME_QUERIES_WARM = 11
 FRAME_QUERIES_INLINE = 12
 RESULTS_QUERIES = 7

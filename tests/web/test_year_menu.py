@@ -27,7 +27,9 @@ def test_a_database_of_one_year_goes_to_that_years_databases(client_viewer, data
     assert _links(page)["2025"] == f"{reverse('reports:databases')}?year=2025"
 
 
-def test_a_page_without_a_year_goes_to_the_overview(client_viewer, database):
+def test_a_page_without_a_year_has_no_year_menu(client_viewer, database):
+    """The menu is drawn only on the pages that show one year (SPEC_HOME §5): picking a year on the partners
+    page used to jump to the overview."""
     ReportingYear.objects.create(name="2025", year="2025")
     page = client_viewer.get(reverse("reports:partners")).content.decode()
-    assert _links(page)["2025"] == f"{reverse('reports:overview')}?year=2025"
+    assert 'id="year-menu"' not in page

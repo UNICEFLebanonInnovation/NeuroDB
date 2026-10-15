@@ -14,9 +14,9 @@
   {% include "reports/partials/_search_ask_item.html" %}
 {% endif %}
 </div>
-{% if not groups %}<p class="text-muted small px-3 pb-3 mb-0">{% blocktrans %}Nothing matches “{{ q }}” by name in the current reporting year.{% endblocktrans %}</p>{% endif %}
+{% if not groups %}<p class="text-muted small px-3 pb-3 mb-0">{% blocktrans %}Nothing matches “{{ q }}”.{% endblocktrans %}</p>{% endif %}
 {% elif q|length >= 2 %}
-{% blocktrans asvar msg %}Nothing matches “{{ q }}” in the current reporting year.{% endblocktrans %}
+{% blocktrans asvar msg %}Nothing matches “{{ q }}”.{% endblocktrans %}
 {% include "components/empty_state.html" with icon="search" title=_("No results") message=msg %}
 {% else %}
 <p class="text-muted small p-3 mb-0">{% if ai_enabled %}{% trans "Type a name to jump to it, or ask a question in plain language. Use ↑ ↓ to move and Enter to open." %}{% else %}{% trans "Type at least two characters. Use ↑ ↓ to move and Enter to open." %}{% endif %}</p>

@@ -11,7 +11,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import connection
-from django.db.models import Q, QuerySet
+from django.db.models import Count, F, Q, QuerySet, Window
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -88,97 +88,206 @@ def _highlight(label: str, q: str) -> dict[str, str]:
     return {"before": label[:at], "match": label[at : at + len(q)], "after": label[at + len(q) :]}
 
 
+def _join(*parts: Any) -> str:
+    return " · ".join(str(part) for part in parts if part not in (None, ""))
+
+
 def search(
-    q: str, year: ReportingYear | None, limit: int = 8, group: str | None = None
+    q: str,
+    year: ReportingYear | None = None,
+    limit: int = 8,
+    group: str | None = None,
+    user: Any = None,
 ) -> list[dict[str, Any]]:
-    """Indicators, databases and reports of ``year`` whose name or code contains ``q``.
+    """What ``q`` names, by group: the pages of the menu ``user`` sees (*Pages*, the menu's own conditions),
+    partners (name or short name), programme documents (number or title), country programme indicators (code
+    or title), knowledge base documents (title), then the ActivityInfo databases, reports and indicators of
+    every year, each with its year in the hint (``year``: of that reporting year alone). While ActivityInfo
+    is an archive its groups say so ("ActivityInfo archive: Databases"). Partner staff are never searched, nor
+    who added a document.
 
     Each group lists up to ``limit`` items with its ``total``; ``group`` lists that group alone, up to
-    ``SEARCH_GROUP_LIMIT`` items (the "See all" link of a capped group).
+    ``SEARCH_GROUP_LIMIT`` items (the "See all" link of a capped group). One query per group: its first
+    ``limit`` rows with the number of all its matches.
     """
+    from neurodb.cpd.models import Indicator as ProgrammeIndicator
+    from neurodb.indicators.services import activityinfo, navigation
+    from neurodb.knowledge.models import Document
+    from neurodb.partnerships.models import PartnerOrganization
+    from neurodb.web.templatetags.ui import day
+
     q = (q or "").strip()
     if len(q) < 2:
         return []
-    dbs = Database.objects.filter(reporting_year=year, display=True) if year else Database.objects.none()
-    db_ids = list(dbs.values_list("id", flat=True))
+    state = activityinfo.state()
+    every_year = year is None
+    dbs = Database.objects.filter(display=True)
+    if year is not None:
+        dbs = dbs.filter(reporting_year=year)
     name_or_code = Q(name__icontains=q) | Q(awp_code__icontains=q)
-    reports = NeuroReport.objects.filter(ryear=year, is_active=True, name__icontains=q) if year else None
+    reports = NeuroReport.objects.filter(is_active=True, name__icontains=q)
+    if year is not None:
+        reports = reports.filter(ryear=year)
 
-    # key, label, queryset, item builder
-    sources = [
+    def ai(label):
+        """An ActivityInfo group's title: "ActivityInfo archive: …" while ActivityInfo is no longer in use."""
+        return label if state.in_use else _("ActivityInfo archive: %(group)s") % {"group": label}
+
+    def year_of(reporting_year) -> str:
+        return reporting_year.name if every_year and reporting_year is not None else ""
+
+    def pages() -> list[dict[str, Any]]:
+        wanted = q.casefold()
+        return [
+            {"label": str(page["label"]), "hint": str(page["hint"]), "url": page["url"]}
+            for page in navigation.pages(user, state)
+            if wanted in str(page["label"]).casefold()
+        ]
+
+    # key, label, rows (a queryset, or a list already made), item builder
+    sources: list[tuple[str, Any, Any, Any]] = [
+        ("pages", _("Pages"), pages, None),
+        (
+            "partners",
+            _("Partners"),
+            PartnerOrganization.objects.filter(deleted_flag=False, hidden=False)
+            .filter(Q(name__icontains=q) | Q(short_name__icontains=q))
+            .only("id", "name", "short_name")
+            .order_by("name", "id"),
+            lambda p: {
+                "label": p.name,
+                "hint": p.short_name if p.short_name and p.short_name != p.name else "",
+                "url": reverse("reports:partner_profile", args=[p.id]),
+            },
+        ),
+        (
+            "programmes",
+            _("Programme documents"),
+            PCA.objects.filter(Q(number__icontains=q) | Q(title__icontains=q))
+            .only("id", "number", "title", "partner_name", "start")
+            .order_by(F("start").desc(nulls_last=True), "number", "id"),
+            lambda pd: {
+                "label": _join(pd.number, pd.title),
+                "hint": pd.partner_name or "",
+                "url": reverse("reports:programme_detail", args=[pd.id]),
+            },
+        ),
+        (
+            "cpd",
+            _("Country programme indicators"),
+            ProgrammeIndicator.objects.filter(Q(code__icontains=q) | Q(title__icontains=q))
+            .select_related("programme")
+            .only("id", "code", "title", "programme__name", "programme__start_year")
+            .order_by("-programme__start_year", "code", "id"),
+            lambda i: {
+                "label": _join(i.code, i.title),
+                "hint": i.programme.name,
+                "url": reverse("cpd:indicator", args=[i.id]),
+            },
+        ),
+        (
+            "documents",
+            _("Knowledge base"),
+            Document.objects.filter(title__icontains=q)
+            .only("id", "title", "document_date", "created_at", "origin")
+            .order_by(F("document_date").desc(nulls_last=True), "-created_at", "-id"),
+            lambda d: {
+                "label": d.title,
+                # the date and the kind of document, never who added it
+                "hint": _join(
+                    day(d.document_date or timezone.localtime(d.created_at)), d.get_origin_display()
+                ),
+                "url": reverse("knowledge:detail", args=[d.id]),
+            },
+        ),
         (
             "databases",
-            _("Databases"),
+            ai(_("Databases")),
             dbs.filter(Q(name__icontains=q) | Q(label__icontains=q))
-            .select_related("section")
-            .order_by("name"),
+            .select_related("section", "reporting_year")
+            .order_by("-reporting_year__name", "name", "id"),
             lambda d: {
                 "label": d.label or d.name,
-                "hint": d.section.name if d.section and d.section.name != (d.label or d.name) else "",
+                "hint": _join(
+                    d.section.name if d.section and d.section.name != (d.label or d.name) else "",
+                    year_of(d.reporting_year),
+                ),
                 "url": reverse("reports:database_dashboard", args=[d.id]),
             },
         ),
         (
             "reports",
-            _("Reports"),
-            reports.order_by("name") if reports is not None else NeuroReport.objects.none(),
+            ai(_("Reports")),
+            reports.select_related("ryear").order_by("-ryear__name", "name", "id"),
             lambda r: {
                 "label": r.name,
-                "hint": _("HPM report") if r.is_hpm else _("Neuro report"),
+                "hint": _join(_("HPM report") if r.is_hpm else _("Neuro report"), year_of(r.ryear)),
                 "url": reverse("reports:report_hpm" if r.is_hpm else "reports:report_dashboard", args=[r.id]),
             },
         ),
         (
             "masters",
-            _("Master indicators"),
-            MasterIndicator.objects.filter(database_id__in=db_ids, is_active=True)
+            ai(_("Master indicators")),
+            MasterIndicator.objects.filter(database__in=dbs, is_active=True)
             .filter(name_or_code)
-            .select_related("database")
-            .order_by("database__name", "sequence", "id"),
+            .select_related("database", "database__reporting_year")
+            .order_by("-database__reporting_year__name", "database__name", "sequence", "id"),
             lambda m: {
                 "label": m.name,
-                "hint": f"{m.awp_code} · {m.database.label or m.database.name}",
+                "hint": _join(
+                    m.awp_code, m.database.label or m.database.name, year_of(m.database.reporting_year)
+                ),
                 "url": reverse("reports:database_dashboard", args=[m.database_id]) + f"#indicator-{m.id}",
             },
         ),
         (
             "subs",
-            _("Sub-indicators"),
-            SubIndicator.objects.filter(database_id__in=db_ids)
+            ai(_("Sub-indicators")),
+            SubIndicator.objects.filter(database__in=dbs)
             .filter(name_or_code)
-            .select_related("database")
-            .order_by("database__name", "awp_code", "id"),
+            .select_related("database", "database__reporting_year")
+            .order_by("-database__reporting_year__name", "database__name", "awp_code", "id"),
             lambda s: {
                 "label": humanize_ai_name(s.name),
-                "hint": f"{s.awp_code} · {s.database.label or s.database.name}",
+                "hint": _join(
+                    s.awp_code, s.database.label or s.database.name, year_of(s.database.reporting_year)
+                ),
                 "url": reverse("reports:database_analytical", args=[s.database_id]),
             },
         ),
         (
             "indicators",
             _("ActivityInfo indicators"),
-            IndicatorNew.objects.filter(database_id__in=db_ids)
+            IndicatorNew.objects.filter(database__in=dbs)
             .filter(name_or_code)
-            .select_related("database")
-            .order_by("database__name", "awp_code", "id"),
+            .select_related("database", "database__reporting_year")
+            .order_by("-database__reporting_year__name", "database__name", "awp_code", "id"),
             lambda i: {
                 "label": humanize_ai_name(i.name),
-                "hint": f"{i.awp_code or ''} · {i.database.label or i.database.name}",
+                "hint": _join(
+                    i.awp_code, i.database.label or i.database.name, year_of(i.database.reporting_year)
+                ),
                 "url": reverse("reports:database_analytical", args=[i.database_id]),
             },
         ),
     ]
     groups: list[dict[str, Any]] = []
-    for key, label, queryset, build in sources:
+    for key, label, rows, build in sources:
         if group and key != group:
             continue
         cap = SEARCH_GROUP_LIMIT if group else limit
-        items = [build(obj) for obj in queryset[:cap]]
+        if callable(rows) and build is None:  # made in Python (the menu's pages)
+            found = rows()
+            items, total = found[:cap], len(found)
+        else:
+            # the group's first rows and how many match in all, in one query (COUNT(*) OVER ())
+            fetched = list(rows.annotate(found_in_all=Window(Count("pk")))[:cap])
+            items = [build(obj) for obj in fetched]
+            total = fetched[0].found_in_all if fetched else 0
         if not items:
             continue
         for item in items:
-            item.update(_highlight(item["label"], q))
-        total = len(items) if len(items) < cap else queryset.count()
+            item.update(_highlight(str(item["label"]), q))
         groups.append({"key": key, "label": label, "items": items, "total": total})
     return groups
 
@@ -187,18 +296,20 @@ def search(
 
 
 def data_health() -> dict[str, Any]:
-    """Freshness of every job and of every displayed database of the current year, the latest runs, the
-    eTools Datamart datasets and, per Compiler programme, how its latest period compares with the view Power
-    BI reads (``power_bi``: counts only). The Data health page asks for each block in a part of its own
-    (:func:`health_jobs`, :func:`health_databases`, :func:`recent_runs`, :func:`datamart_quality`,
+    """Freshness of every job and of every displayed ActivityInfo database of :func:`health_year`, the latest
+    runs, the eTools Datamart datasets and, per Compiler programme, how its latest period compares with the
+    view Power BI reads (``power_bi``: counts only). The Data health page asks for each block in a part of its
+    own (:func:`health_jobs`, :func:`health_databases`, :func:`recent_runs`, :func:`datamart_quality`,
     ``education.power_bi.health``); the assistant, the daily review and the internal API read them all at
     once here."""
     from neurodb.education import power_bi
+    from neurodb.indicators.services import activityinfo
 
     now = timezone.now()
-    jobs = health_jobs(now)
-    year = current_year()
-    databases = health_databases(year, now)
+    archived = not activityinfo.watched()
+    jobs = health_jobs(now, archived=archived)
+    year = health_year()
+    databases = health_databases(year, now, archived=archived)
     datasets = datamart_quality()
     return {
         "datasets": datasets,
@@ -208,6 +319,8 @@ def data_health() -> dict[str, Any]:
         "staleness_hours": settings.SYNC_STALENESS_HOURS,
         "stale_database_days": STALE_DATABASE_DAYS,
         "year": year,
+        # ActivityInfo's import is no longer followed: its jobs and databases are an archive, never stale
+        "activityinfo_archived": archived,
         "power_bi": power_bi.summary(),
     }
 
@@ -227,10 +340,16 @@ HEALTH_SKIPPED_JOBS = (
 )
 
 
-def health_jobs(now: datetime.datetime | None = None) -> list[dict[str, Any]]:
+def health_jobs(now: datetime.datetime | None = None, archived: bool | None = None) -> list[dict[str, Any]]:
     """Per sync job: its last success, its latest run, and whether it is fresh, stale or never
-    succeeded (stale after ``SYNC_STALENESS_HOURS``)."""
+    succeeded (stale after ``SYNC_STALENESS_HOURS``). While ActivityInfo's import is not followed
+    (``archived``, default: :func:`neurodb.indicators.services.activityinfo.watched` is false), its jobs are
+    "Not in use (archive)", never stale nor failing: nobody runs them for a year partners report in."""
+    from neurodb.indicators.services import activityinfo
+
     now = now or timezone.now()
+    if archived is None:
+        archived = not activityinfo.watched()
     staleness = datetime.timedelta(hours=settings.SYNC_STALENESS_HOURS)
     jobs = []
     for job, label in SyncRun.Job.choices:
@@ -239,7 +358,9 @@ def health_jobs(now: datetime.datetime | None = None) -> list[dict[str, Any]]:
         last_ok = SyncRun.last_success(job)
         last_run = SyncRun.objects.filter(job=job).order_by("-started_at").first()
         age = (now - last_ok.finished_at) if last_ok and last_ok.finished_at else None
-        if last_ok is None:
+        if archived and job in activityinfo.AI_JOBS:
+            state, state_label = "archived", _("Not in use (archive)")
+        elif last_ok is None:
             state, state_label = "unknown", _("Never succeeded")
         elif age is not None and age > staleness:
             state, state_label = "stale", _("Stale")
@@ -259,12 +380,33 @@ def health_jobs(now: datetime.datetime | None = None) -> list[dict[str, Any]]:
     return jobs
 
 
+def health_year() -> ReportingYear | None:
+    """The reporting year whose ActivityInfo databases Data health lists: while the import's alarms are on
+    (:func:`neurodb.indicators.services.activityinfo.watched`), the year the import serves, or the year ticked
+    current while its new databases wait for their first records (the import reads that one); otherwise the
+    last ActivityInfo year, the archive's newest. The year ticked current when neither has one."""
+    from neurodb.indicators.services import activityinfo
+
+    state = activityinfo.state()
+    if state.watched:
+        if state.setup_pending:
+            return current_year()
+        return activityinfo.reporting_year_for(state.serving) or current_year()
+    return activityinfo.reporting_year_for(state.last) or current_year()
+
+
 def health_databases(
-    year: ReportingYear | None, now: datetime.datetime | None = None
+    year: ReportingYear | None, now: datetime.datetime | None = None, archived: bool | None = None
 ) -> list[dict[str, Any]]:
     """Per displayed ActivityInfo database of ``year``: its last import, and whether it is fresh, stale
-    (older than ``STALE_DATABASE_DAYS``) or never imported."""
+    (older than ``STALE_DATABASE_DAYS``) or never imported. While ActivityInfo's import is not followed
+    (``archived``, default: :func:`neurodb.indicators.services.activityinfo.watched` is false) every database
+    is "Archive": kept as it was, no longer imported, so never stale."""
+    from neurodb.indicators.services import activityinfo
+
     now = now or timezone.now()
+    if archived is None:
+        archived = not activityinfo.watched()
     databases = []
     for db in (
         Database.objects.filter(reporting_year=year, display=True)
@@ -273,14 +415,13 @@ def health_databases(
     ):
         last = db.last_monthly_update_date
         stale = bool(last and (now - last).days > STALE_DATABASE_DAYS)
-        databases.append(
-            {
-                "database": db,
-                "last_import": last,
-                "state": "unknown" if last is None else ("stale" if stale else "fresh"),
-                "state_label": _("Never imported") if last is None else (_("Stale") if stale else _("Fresh")),
-            }
-        )
+        if archived:
+            state, state_label = "archive", _("Archive")
+        elif last is None:
+            state, state_label = "unknown", _("Never imported")
+        else:
+            state, state_label = ("stale", _("Stale")) if stale else ("fresh", _("Fresh"))
+        databases.append({"database": db, "last_import": last, "state": state, "state_label": state_label})
     return databases
 
 
@@ -435,6 +576,10 @@ def health_as_dict(health: dict[str, Any]) -> dict[str, Any]:
             }
             for d in health["databases"]
         ],
+        # the reporting year whose databases are listed, and whether ActivityInfo is an archive (its jobs
+        # "archived", its databases "archive": no longer imported, never stale)
+        "databases_year": health["year"].name if health.get("year") else None,
+        "activityinfo_archived": bool(health.get("activityinfo_archived")),
         "staleness_hours": health["staleness_hours"],
         # per Compiler programme, its latest period compared with the view Power BI reads (counts only)
         "power_bi": [

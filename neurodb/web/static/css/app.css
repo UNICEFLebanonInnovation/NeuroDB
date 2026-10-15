@@ -122,6 +122,11 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 @media (min-width: 992px) {
   .sidebar { position: sticky; top: var(--nd-topbar-h); height: calc(100vh - var(--nd-topbar-h)); overflow-y: auto; }
 }
+/* On a phone the menu is an off-canvas panel the height of the screen: its rows scroll inside it (the menu is taller
+   than a phone's screen, and the page behind does not scroll while the panel is open) */
+@media (max-width: 991.98px) {
+  .sidebar .sidebar__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+}
 .sidebar__body { padding: 0.75rem 0.5rem 2rem; display: flex; flex-direction: column; gap: 1px; }
 .sidebar__section-title { margin: 1rem 0.75rem 0.35rem; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--nd-muted); }
 .nav-item-link {
@@ -151,6 +156,28 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .sidebar__group > summary:hover { background: var(--nd-surface-2); }
 .sidebar__group > summary .count { margin-left: auto; font-size: 0.72rem; color: var(--nd-muted); background: var(--nd-surface-2); border-radius: 999px; padding: 0 0.45rem; }
 .section-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--section-color, var(--nd-primary)); flex: none; }
+/* The menu's titled groups (role="group", labelled by their title): their rows keep the sidebar's rhythm */
+.nav-group { display: flex; flex-direction: column; gap: 1px; }
+/* A source that is not live yet, shown only to the people who can set it up: a quieter row marked "Set up" */
+.nav-item-link--muted { color: var(--nd-muted); }
+.nav-item-link--muted .icon { opacity: 0.8; }
+.nav-item-link--muted.active { color: var(--nd-primary); }
+.nav-badge.nav-badge--muted { background: var(--nd-surface-2); color: var(--nd-muted); box-shadow: inset 0 0 0 1px var(--nd-border); }
+/* The ActivityInfo archive, the last block before Help: one row (its name, its years, a chevron) over its links */
+.sidebar__archive { margin-top: 0.6rem; padding-top: 0.45rem; border-top: 1px solid var(--nd-border); }
+.sidebar__archive > summary {
+  display: flex; align-items: center; gap: 0.6rem; padding: 0.42rem 0.75rem; border-radius: var(--nd-radius-sm);
+  list-style: none; cursor: pointer; font-size: 0.875rem; line-height: 1.3; color: var(--nd-text);
+}
+.sidebar__archive > summary::-webkit-details-marker { display: none; }
+.sidebar__archive > summary:hover { background: var(--nd-surface-2); }
+.sidebar__archive > summary .sidebar__chevron { margin-left: auto; }
+.sidebar__archive-span { margin-left: auto; font-size: 0.75rem; color: var(--nd-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sidebar__archive-span + .sidebar__chevron { margin-left: 0 !important; }
+.sidebar__archive[open] > summary .sidebar__chevron { transform: rotate(90deg); }
+.sidebar__archive-body { display: flex; flex-direction: column; gap: 1px; padding-bottom: 0.25rem; }
+.sidebar__subtitle { margin: 0.45rem 0.75rem 0.15rem 2.1rem; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--nd-muted); }
+.nav-item-link--help { margin-top: 0.6rem; }
 
 .main { flex: 1; min-width: 0; padding: 1.25rem clamp(1rem, 2.5vw, 2rem) 3rem; }
 .main:focus { outline: none; }
@@ -163,7 +190,11 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
   .brand-logo--mark { display: block; }
   .search-trigger { width: auto; flex: 1; }
   .search-trigger kbd { display: none; }
-  #year-menu span { display: none; }
+  /* the year's label is hidden but still read: the button keeps its name ("Year: 2026") */
+  #year-menu .year-menu__label {
+    position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important;
+    overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important;
+  }
   .page-actions { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; padding-bottom: 2px; }
   .page-actions .btn { white-space: nowrap; }
 }
@@ -211,6 +242,17 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .kpi__hint { font-size: 0.78rem; color: var(--nd-muted); }
 .kpi__rule { display: block; margin-top: 0.3rem; line-height: 1.35; }
 .kpi__more { display: inline-block; margin-top: 0.3rem; }
+/* "How it is counted" under a tile's one-line hint (Home and the Country overview): the long rule, folded */
+.kpi__how { margin-top: 0.3rem; font-size: 0.75rem; color: var(--nd-muted); line-height: 1.35; }
+.kpi__how > summary { width: fit-content; cursor: pointer; color: var(--nd-primary); font-weight: 600; }
+.kpi__how > summary:hover { text-decoration: underline; text-underline-offset: 2px; }
+.kpi__how[open] > summary { margin-bottom: 0.2rem; }
+.kpi__how .kpi__rule { margin-top: 0.2rem; }
+/* A tile whose legend needs the whole row on a phone (the Delivery status tile): it spans the grid there */
+@media (max-width: 575.98px) {
+  .kpi--wide-sm { grid-column: 1 / -1; }
+  .kpi--wide-sm .legend { flex-wrap: wrap; }
+}
 
 /* ------------------------------------------------------------------ status pills & progress */
 .pill { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.12rem 0.55rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; white-space: nowrap; background: var(--pill-bg); color: var(--pill-fg); }

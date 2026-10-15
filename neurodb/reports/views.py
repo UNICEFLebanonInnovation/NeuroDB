@@ -3056,7 +3056,8 @@ def data_health(request: HttpRequest) -> HttpResponse:
     with a placeholder per block, each asked for at this address plus ``_part``, each its own computation:
 
     - ``jobs``: one card per sync job, fresh, stale or never succeeded (:func:`services.health_jobs`);
-    - ``databases``: the displayed ActivityInfo databases of the current year and their last import;
+    - ``databases``: the displayed ActivityInfo databases of the year the import serves (the archive's last
+      year once ActivityInfo is no longer followed, each "Archive") and their last import;
     - ``runs``: the latest 50 runs of every job;
     - ``datasets``: the table of the eTools Datamart datasets (:func:`services.datamart_quality`), whose row
       counts are stored for every worker (an hour at most, keyed on the jobs that write those tables); its
@@ -3084,12 +3085,22 @@ def data_health(request: HttpRequest) -> HttpResponse:
             "dataset_count": len(ENTITY_SYNCS),
         }
 
+    def databases() -> dict[str, Any]:
+        """The ActivityInfo databases of the year the import serves, or, once ActivityInfo is an archive, of
+        its last year, each "Archive" (no longer imported, never stale), with the note that says so."""
+        from neurodb.indicators.services import activityinfo
+
+        archived = not activityinfo.watched()
+        year = services.health_year()
+        return {
+            "databases": services.health_databases(year, archived=archived),
+            "year": year,
+            "archived": archived,
+        }
+
     parts = {
         "jobs": Part("reports/parts/health_jobs.html", lambda: {"jobs": services.health_jobs()}),
-        "databases": Part(
-            "reports/parts/health_databases.html",
-            lambda: {"databases": services.health_databases(services.current_year())},
-        ),
+        "databases": Part("reports/parts/health_databases.html", databases),
         "runs": Part("reports/parts/health_runs.html", lambda: {"runs": services.recent_runs()}),
         "datasets": Part(
             "reports/parts/health_datasets.html", lambda: {"datasets": services.datamart_quality()}
@@ -3123,17 +3134,20 @@ def _looks_like_question(q: str) -> bool:
 
 @require_GET
 def search(request: HttpRequest) -> HttpResponse:
+    """Pages, partners, programme documents, country programme indicators, knowledge base documents and the
+    ActivityInfo archive of every year (:func:`services.search`); ``?year=`` (a reporting year's name) narrows
+    the ActivityInfo groups to that year."""
+    from neurodb.indicators.models import ReportingYear
+
     q = request.GET.get("q", "").strip()
-    # The year of the page the search starts from (the search box sends it), else the current year.
-    year = services.resolve_year(request.GET.get("year"))
+    raw_year = request.GET.get("year", "").strip()
+    year = ReportingYear.objects.filter(name=raw_year).first() if raw_year else None
     # ?group= lists one group in full (the "See all" link of a group cut at its first items).
     group = request.GET.get("group") or None
-    groups = services.search(q, year, group=group) if q else []
+    groups = services.search(q, year, group=group, user=request.user) if q else []
     context = {
         "page_title": _("Search"),
-        "page_subtitle": _("Indicators, databases and reports of %(year)s") % {"year": year.name}
-        if year
-        else "",
+        "page_subtitle": _("Partners, programme documents, indicators, pages and the ActivityInfo archive"),
         "breadcrumbs": [_crumb(_("Search"))],
         "q": q,
         "group": group,
