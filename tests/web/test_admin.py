@@ -27,7 +27,7 @@ def client_super(client, superuser):
     return client
 
 
-def test_dashboard_shows_groups_tiles_and_warnings(client_super, hierarchy):
+def test_dashboard_shows_groups_tiles_and_warnings(client_super, hierarchy, activityinfo_in_use):
     database = hierarchy["database"]
     database.display = True
     database.save()

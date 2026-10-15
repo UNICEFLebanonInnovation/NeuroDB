@@ -37,12 +37,14 @@ from django.conf import settings
 from django.db.models import Q, Sum
 
 from neurodb.core import compute
+from neurodb.core import years as site_years  # years() below is the donor's years
 from neurodb.datamart import models as dm
 from neurodb.partnerships.models.legacy import PCA
 from neurodb.reports import overview
 
 CACHE_SECONDS = 300
-CACHE_VERSION = 5  # 5: in the shared cache (compute.once), keyed on compute.data_stamp()
+CACHE_VERSION = 6  # 5: in the shared cache (compute.once), keyed on compute.data_stamp(); 6: the ActivityInfo
+# reporting year of the year (activityinfo.reporting_year_for) in the key
 SECTION_SLOTS = 5  # the categorical colours of the page (--s1 .. --s5), then "other"
 GOVERNORATES = {  # overview.governorate_key -> the name and place on the page's schematic map
     "akkar": ("Akkar", 1, 0),
@@ -80,9 +82,11 @@ def _norm(text: str | None) -> str:
 
 
 def reporting_year(year: int):
-    from neurodb.indicators.models import ReportingYear
+    """The reporting year whose ActivityInfo children count for ``year`` (a year with ActivityInfo records),
+    else None: the page then counts eTools alone."""
+    from neurodb.indicators.services import activityinfo
 
-    return ReportingYear.objects.filter(name__startswith=str(year)).order_by("name").first()
+    return activityinfo.reporting_year_for(year)
 
 
 def donor_names() -> list[str]:
@@ -250,13 +254,18 @@ def contribution(account, year: int, today: datetime.date) -> dict[str, Any]:
     return {"pds": out_pds, "grants": grants}
 
 
-def data_as_of() -> datetime.datetime | None:
+def data_as_of(year: int | None = None) -> datetime.datetime | None:
     """When the page's data last came in: the last successful eTools Datamart sync (the funds and the
-    indicators); without one, the latest successful sync of the other sources (eTools, ActivityInfo)."""
+    indicators); without one, the latest successful sync of the other sources (eTools, and ActivityInfo
+    only when ``year``, by default this year, is an ActivityInfo year)."""
     from neurodb.core.models import SyncRun
+    from neurodb.indicators.services import activityinfo
 
+    jobs = SOURCE_JOBS
+    if not activityinfo.is_year(site_years.this_year() if year is None else year):
+        jobs = tuple(job for job in SOURCE_JOBS if job != SyncRun.Job.ACTIVITYINFO_DATA)
     runs = SyncRun.objects.filter(
-        job__in=SOURCE_JOBS, status__in=[SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL]
+        job__in=jobs, status__in=[SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL]
     ).exclude(finished_at=None)
     datamart = runs.filter(job=SyncRun.Job.ETOOLS_DATAMART).order_by("-finished_at").first()
     last = datamart or runs.order_by("-finished_at").first()
@@ -367,17 +376,21 @@ def country(data: dict[str, Any]) -> dict[str, Any]:
 # ------------------------------------------------------------------------------ page
 def _cache_key(account, year: int, today: datetime.date) -> str:
     """The account (its id, and what changes its figures: whether partners are named, its donors and grants),
-    the year, the day and :func:`neurodb.core.compute.data_stamp` (the last finished sync, and the indicator
-    flags: a PD's main indicator changes its children at once). Nothing about the person asking."""
+    the year, the reporting year whose ActivityInfo children count for it (none: eTools alone), the day and
+    :func:`neurodb.core.compute.data_stamp` (the last finished sync, and the indicator flags: a PD's main
+    indicator changes its children at once). Nothing about the person asking."""
     settings_seen = f"{account.show_partner_names}:{sorted(account.donors)}:{sorted(account.grants)}"
     digest = hashlib.sha256(settings_seen.encode()).hexdigest()[:16]  # memcached-safe
-    return f"donor:v{CACHE_VERSION}:{account.pk}:{year}:{today}:{compute.data_stamp()}:{digest}"
+    from neurodb.indicators.services import activityinfo
+
+    ryear = activityinfo.state().pks.get(year, "")  # the pk of reporting_year(year), without reading it
+    return f"donor:v{CACHE_VERSION}:{account.pk}:{year}:{ryear}:{today}:{compute.data_stamp()}:{digest}"
 
 
 def build(account, year: int, today: datetime.date | None = None, *, cache: bool = True) -> dict[str, Any]:
     """The page's figures for the account and the year (see the module docstring): computed once across every
     worker and kept five minutes. ``cache=False`` (and DEBUG) computes them afresh."""
-    today = today or datetime.date.today()
+    today = today or site_years.today()  # the site's date (Beirut)
     if not cache or settings.DEBUG:
         return _build(account, year, today)
     return compute.once(

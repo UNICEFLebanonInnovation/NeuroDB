@@ -408,8 +408,8 @@ def run_reload_population(self, request, form):
     dialog={
         "title": _("Check data freshness"),
         "description": _(
-            "Checks that the scheduled syncs (ActivityInfo data, eTools Datamart, locations) succeeded "
-            "within SYNC_STALENESS_HOURS, as the hourly check does. It changes nothing."
+            "Checks that the scheduled syncs (eTools Datamart, locations, and ActivityInfo data while it is "
+            "followed) succeeded within SYNC_STALENESS_HOURS, as the hourly check does. It changes nothing."
         ),
         "form_class": ConfirmJobForm,
         "form_submit_text": _("Check"),

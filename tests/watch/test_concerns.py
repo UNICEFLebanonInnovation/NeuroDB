@@ -409,7 +409,8 @@ def test_a_reports_overdue_finding_has_no_twin_and_is_imported(ending_pd):
 
 # ---------------------------------------------------------------------------- year-end forecasts
 @pytest.fixture
-def masters(database):
+def masters(database, activityinfo_in_use):
+    """Two master indicators, while ActivityInfo is in use (its forecasts are followed only then)."""
     return [
         MasterIndicator.objects.create(
             database=database, name=f"Children reached {n}", awp_code=f"1.{n}", aggregation_method="SUM"
@@ -560,8 +561,9 @@ def test_a_forecast_without_a_section_goes_to_the_whole_country(masters):
 def test_a_forecast_of_last_year_closes_when_the_forecasts_move_to_the_new_year(masters, section):
     forecast_week(0, rows=[(masters[0], SHORT, 760, 900, section.pk)])
     run(checks=(FORECASTS,))
-    forecast_week(1, rows=[(masters[0], SHORT, 100, 200, section.pk)])
+    new_year = (datetime.date(2027, 1, 4) - TODAY).days  # only this year's forecasts are followed
+    forecast_week(0, rows=[(masters[0], SHORT, 100, 200, section.pk)], day=new_year)
     IndicatorForecast.objects.update(year=2027)
-    run(day=7, checks=(FORECASTS,))
+    run(day=new_year, checks=(FORECASTS,))
     assert item(forecast_key(masters[0])).close_reason == "the forecasts are now for 2027"
     assert item(f"forecast:2027:{masters[0].pk}").state == WatchItem.State.OPEN

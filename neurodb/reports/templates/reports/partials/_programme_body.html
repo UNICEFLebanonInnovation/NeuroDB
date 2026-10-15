@@ -10,7 +10,7 @@
   {% if datamart.fr_count %}<dt class="col-sm-4 text-muted">{% trans "Reserved (USD)" %}</dt><dd class="col-sm-8">{{ datamart.fr_total|number:0 }} <span class="text-muted">· {% trans "set aside in funds reservations" %} · {% trans "disbursed" %} {{ datamart.fr_actual|number:0 }}</span></dd>{% endif %}
   <dt class="col-sm-4 text-muted">{% trans "Sections" %}</dt><dd class="col-sm-8"><div class="chips">{% for s in detail.sections %}<span class="chip">{{ s }}</span>{% empty %}—{% endfor %}</div></dd>
   <dt class="col-sm-4 text-muted">{% trans "Offices" %}</dt><dd class="col-sm-8"><div class="chips">{% for o in detail.offices %}<span class="chip">{{ o }}</span>{% empty %}—{% endfor %}</div></dd>
-  <dt class="col-sm-4 text-muted">{% trans "ActivityInfo records" %}</dt><dd class="col-sm-8">{{ detail.interventions|number }}</dd>
+  {% if detail.has_records %}<dt class="col-sm-4 text-muted">{% trans "ActivityInfo records" %}</dt><dd class="col-sm-8">{{ detail.interventions|number }}</dd>{% endif %}
 </dl>
 {% if datamart.fr_headers %}
 <h3 class="h6 mt-3">{% trans "Funds reservations" %} <span class="text-muted small">{% trans "reserved" %} {{ datamart.fr_total|number:0 }} · {% trans "disbursed" %} {{ datamart.fr_actual|number:0 }} · {% trans "outstanding" %} {{ datamart.fr_outstanding|number:0 }} USD</span></h3>

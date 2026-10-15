@@ -434,15 +434,23 @@ def load(years: Iterable[int] | None = None) -> list[Instance]:
 
 
 def run(today: datetime.date | None = None) -> dict[str, Any]:
-    """Back-test on the past years, then forecast the current reporting year."""
-    from neurodb.indicators.services.navigation import current_year
+    """Back-test on the past years, then forecast this year: the master indicators of this year's
+    ActivityInfo reporting year (:func:`neurodb.indicators.services.activityinfo.reporting_year_for`)."""
+    from neurodb.core import years
+    from neurodb.indicators.models import Database
+    from neurodb.indicators.services import activityinfo
 
-    today = today or datetime.date.today()
-    reporting_year = current_year()
-    year = int(str(reporting_year.year or reporting_year.name)[:4]) if reporting_year else today.year
+    today = today or years.today()
+    year = today.year
+    reporting_year = activityinfo.reporting_year_for(year)
+    databases = (
+        set(Database.objects.filter(reporting_year=reporting_year).values_list("pk", flat=True))
+        if reporting_year
+        else set()
+    )
     instances = load()
     past = [i for i in instances if i.year < year]
-    current = [i for i in instances if i.year == year]
+    current = [i for i in instances if i.year == year and i.database_id in databases]
     history = History(past)
     all_cases = cases(past, history)
     result = backtest(all_cases)

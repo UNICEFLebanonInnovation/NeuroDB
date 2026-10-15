@@ -1,6 +1,7 @@
 """NeuroDB Watch's money, assurance and calendar checks: grants and funds reservations ending with money
 left, HACT assurance still to do in the last quarter, agreed dates on daily review findings, donor
-accounts ending and the yearly rollover of the reporting year."""
+accounts ending and the yearly rollover (ActivityInfo to set up or archive, or the new year's population
+figures: tests/indicators/test_activityinfo_alarms.py has the rest)."""
 
 import datetime
 import itertools
@@ -14,7 +15,9 @@ from neurodb.accounts.models import Section, User
 from neurodb.core.models import SyncRun
 from neurodb.datamart import models as dm
 from neurodb.donors.models import DonorAccount
-from neurodb.indicators.models import ReportingYear
+from neurodb.facts.models import ActivityReportNew
+from neurodb.indicators.models import Database, ReportingYear
+from neurodb.indicators.services import activityinfo
 from neurodb.partnerships.models import PCA, PartnerOrganization
 from neurodb.reports.brief import fr_lines, grant_balances
 from neurodb.review.models import DailyReview, FindingAssignment, ReviewFinding
@@ -699,32 +702,55 @@ def test_a_donor_account_extended_closes_and_three_days_before_is_a_warning(db):
 
 
 # ---------------------------------------------------------------------------- the yearly rollover
+def activityinfo_year(name: str, months=("2026-11",), current: bool = True) -> ReportingYear:
+    """A reporting year with a displayed database holding records of ``months`` (none: waiting for its
+    first records)."""
+    year, _ = ReportingYear.objects.get_or_create(name=name, defaults={"year": name, "current": current})
+    database = Database.objects.create(
+        ai_id=next(_ids), name=f"Database {name}", username="", password="", reporting_year=year
+    )
+    for month in months:
+        ActivityReportNew.objects.create(
+            dbase=database, month_name=f"{month}-01", month=month, indicator_value=1
+        )
+    activityinfo.invalidate()  # records reach the state at the end of an import, which drops it
+    return year
+
+
 def test_the_rollover_is_raised_from_15_december_to_15_january_for_administrators(db):
-    ReportingYear.objects.create(name="2026", year="2026", current=True)
+    activityinfo_year("2026")  # ActivityInfo used in 2026, its import switched on (as seeded)
     run(datetime.date(2026, 12, 14), CALENDAR)
     assert keys("reporting_year_rollover") == set()
     run(datetime.date(2026, 12, 15), CALENDAR)
+    assert keys("reporting_year_rollover") == {"rollover:2027"}  # the population item gives way to it
     found = item("rollover:2027")
-    assert found.title == "Yearly rollover: make 2027 the current reporting year from 1 Jan 2027"
+    assert found.title == "ActivityInfo in 2027: set it up, or set it to Archived"
     assert (found.severity, found.scope, found.due_date) == ("info", "admins", datetime.date(2027, 1, 1))
-    assert found.evidence["records"][1]["value"] == "not created yet"
+    assert [r["value"] for r in found.evidence["records"]] == ["Automatic", "switched on", "none yet"]
     assert redact.refused(found) == redact.ADMINS_ONLY
     run(datetime.date(2027, 1, 2), CALENDAR)
     assert item("rollover:2027").severity == WatchItem.Severity.WARNING
     ReportingYear.objects.update(current=False)
-    ReportingYear.objects.create(name="2027", year="2027", current=True)
+    activityinfo_year("2027", months=())  # its databases, waiting for their first records
     run(datetime.date(2027, 1, 3), CALENDAR, mode=QUICK)
     found = item("rollover:2027")
-    assert (found.state, found.close_reason) == ("closed", "2027 is now the current reporting year")
+    assert (found.state, found.close_reason) == ("closed", "ActivityInfo databases for 2027 were added")
 
 
-def test_the_rollover_closes_after_15_january_saying_the_year_is_still_not_current(db):
-    ReportingYear.objects.create(name="2026", year="2026", current=True)
-    ReportingYear.objects.create(name="2027", year="2027", current=False)
+def test_the_rollover_closes_after_15_january_saying_activityinfo_stays_archived(db):
+    activityinfo_year("2026")
+    ReportingYear.objects.create(name="2027", year="2027", current=False)  # created, with no database
     run(datetime.date(2027, 1, 15), CALENDAR)
-    assert item("rollover:2027").evidence["records"][1]["value"] == "created, not marked current"
+    assert item("rollover:2027").evidence["records"][2] == {
+        "label": "Databases for 2027",
+        "date": "",
+        "value": "none yet",
+        "url": reverse("admin:pivoting_database_changelist"),
+    }
     run(datetime.date(2027, 1, 16), CALENDAR)
-    assert item("rollover:2027").close_reason == (
-        "the rollover period ended on 15 Jan 2027 with 2027 still not marked current"
+    found = item("rollover:2027")
+    assert found.close_reason == (
+        "the rollover period ended; ActivityInfo stays archived for 2027 until its databases have records"
     )
+    assert found.close_kind == WatchItem.CloseKind.MISSED
     assert calendar.rollover_year(datetime.date(2026, 6, 1)) is None

@@ -8,10 +8,13 @@
 {% if tab == "indicators" %}{% include "reports/partials/_programme_indicators.html" %}{% else %}
 {% include "components/table_toolbar.html" with title=_("Programme documents") count=page_obj.paginator.count table_id="pds" filename="programme-documents" %}
 {% if rows %}
+{% comment %}"Records" (ActivityInfo records reported against the programme document) only when one of the rows has some
+(partnerships.services.has_records): programme documents after ActivityInfo would show a column of zeros.{% endcomment %}
+{% with most_records=rows|dictsortreversed:"interventions"|first %}
 <div class="table-wrap"><table class="table table-hover" id="pds" data-sortable>
   <thead><tr>
     <th>{% trans "Document" %}</th><th>{% trans "Partner" %}</th><th>{% trans "Status" %}</th><th>{% trans "Period" %}</th>
-    <th>{% trans "Sections" %}</th><th>{% trans "Donors" %}</th><th class="num"><span class="has-tip" title="{% trans 'Total budget of the programme document (UNICEF and partner contributions). The money set aside is on the Funds page.' %}">{% trans "Budget (USD)" %}</span></th><th class="num"><span class="has-tip" title="{% trans 'ActivityInfo records reported against this programme document' %}">{% trans "Records" %}</span></th>
+    <th>{% trans "Sections" %}</th><th>{% trans "Donors" %}</th><th class="num"><span class="has-tip" title="{% trans 'Total budget of the programme document (UNICEF and partner contributions). The money set aside is on the Funds page.' %}">{% trans "Budget (USD)" %}</span></th>{% if most_records.interventions %}<th class="num"><span class="has-tip" title="{% trans 'ActivityInfo records reported against this programme document' %}">{% trans "Records" %}</span></th>{% endif %}
   </tr></thead>
   <tbody>{% for pd in rows %}
     <tr data-href="{% url 'reports:programme_detail' pd.id %}">
@@ -22,10 +25,11 @@
       <td><div class="chips">{% for s in pd.sections|slice:":3" %}<span class="chip">{{ s }}</span>{% endfor %}{% if pd.sections|length > 3 %}<span class="chip">+{{ pd.sections|length|add:"-3" }}</span>{% endif %}</div></td>
       <td><div class="chips">{% for d in pd.donors|slice:":2" %}<span class="chip">{{ d|truncatechars:24 }}</span>{% endfor %}{% if pd.donors|length > 2 %}<span class="chip">+{{ pd.donors|length|add:"-2" }}</span>{% endif %}</div></td>
       <td class="num" data-value="{{ pd.total_budget|default:0 }}">{{ pd.total_budget|number }}{% if pd.budget_currency and pd.budget_currency != "USD" %} {{ pd.budget_currency }}{% endif %}</td>
-      <td class="num">{{ pd.interventions|number }}</td>
+      {% if most_records.interventions %}<td class="num">{{ pd.interventions|number }}</td>{% endif %}
     </tr>
   {% endfor %}</tbody>
 </table></div>
+{% endwith %}
 {% include "components/pagination.html" with hx_target="#pd-table" %}
 {% else %}
 {% include "components/empty_state.html" with icon="filter" title=_("No programme documents match") message=_("Remove some filters. If the list stays empty, the eTools data has not been synced yet.") action_url=request.path %}

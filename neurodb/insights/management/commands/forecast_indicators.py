@@ -1,5 +1,10 @@
 """``forecast_indicators``: back-test the year-end forecast on the past years, then forecast every
-additive master indicator of the current reporting year."""
+additive master indicator of this year's ActivityInfo reporting year.
+
+Only while ActivityInfo is in use and this year has ActivityInfo records
+(:mod:`neurodb.indicators.services.activityinfo`): otherwise the run succeeds at once with the note
+``details["skipped"]``, and the forecasts of the last run that made them are kept as they were (the pages
+say they are no longer updated)."""
 
 from __future__ import annotations
 
@@ -7,15 +12,29 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
+from neurodb.core import years
 from neurodb.core.models import SyncRun
+from neurodb.indicators.services import activityinfo
 from neurodb.insights import forecast
 from neurodb.insights.models import IndicatorForecast
 from neurodb.integrations.management.commands._base import add_triggered_by, exit_on_failure, write_summary
 from neurodb.integrations.runs import fail, new_run
 
 
+def skip_reason(year: int) -> str:
+    """Why the forecast does not run for ``year`` ('' when it does): ActivityInfo not in use, or no
+    ActivityInfo reporting year with records for it."""
+    if not activityinfo.in_use() or activityinfo.reporting_year_for(year) is None:
+        return f"ActivityInfo is not in use in {year}"
+    return ""
+
+
 def run(triggered_by: str = "schedule", today=None) -> SyncRun:
     sync_run = new_run(SyncRun.Job.FORECAST, "", triggered_by)
+    year = (today or years.today()).year
+    if reason := skip_reason(year):  # the table is kept: the pages say it is no longer updated
+        sync_run.finish(SyncRun.Status.SUCCEEDED, skipped=reason, year=year)
+        return sync_run
     try:
         result = forecast.run(today)
         now = timezone.now()
@@ -67,6 +86,10 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         result = run(options["triggered_by"])
+        if result.details.get("skipped"):
+            self.stdout.write(f"skipped: {result.details['skipped']}; the last forecasts are kept")
+            exit_on_failure(write_summary(self, [result]))
+            return
         bt = result.details.get("backtest", {})
         for month, m in sorted(bt.get("by_month", {}).items()):
             self.stdout.write(

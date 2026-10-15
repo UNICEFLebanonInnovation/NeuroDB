@@ -19,12 +19,12 @@ def finished_run(job, hours_ago: float, status=SyncRun.Status.SUCCEEDED) -> Sync
     return run
 
 
-def test_check_sync_freshness_fails_when_nothing_ran():
+def test_check_sync_freshness_fails_when_nothing_ran(activityinfo_in_use):
     with pytest.raises(CommandError, match="3 stale job"):
         call_command("check_sync_freshness", stdout=StringIO())
 
 
-def test_check_sync_freshness_passes_with_recent_runs(settings, caplog):
+def test_check_sync_freshness_passes_with_recent_runs(settings, caplog, activityinfo_in_use):
     settings.SYNC_STALENESS_HOURS = 30
     finished_run(SyncRun.Job.ACTIVITYINFO_DATA, 1)
     finished_run(SyncRun.Job.ETOOLS_DATAMART, 2, SyncRun.Status.PARTIAL)
@@ -34,7 +34,7 @@ def test_check_sync_freshness_passes_with_recent_runs(settings, caplog):
     assert "all 3 job(s) fresh" in out.getvalue()
 
 
-def test_check_sync_freshness_flags_old_and_failed_runs(settings, caplog):
+def test_check_sync_freshness_flags_old_and_failed_runs(settings, caplog, activityinfo_in_use):
     settings.SYNC_STALENESS_HOURS = 30
     finished_run(SyncRun.Job.ACTIVITYINFO_DATA, 40)
     finished_run(SyncRun.Job.ETOOLS_DATAMART, 1, SyncRun.Status.FAILED)

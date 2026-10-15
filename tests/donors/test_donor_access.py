@@ -118,7 +118,9 @@ def test_a_programme_past_its_end_is_closed_not_behind(data, reporting_year, don
     assert page["statuses"]["closed"]["label"] == "Closed"
 
 
-def test_data_date_is_the_datamart_sync_else_the_latest_source(db):
+def test_data_date_is_the_datamart_sync_else_the_latest_source(hierarchy):
+    """In a year with ActivityInfo records (``hierarchy``: 2026), the ActivityInfo import is one of the
+    page's sources."""
     from django.utils import timezone
 
     from neurodb.core.models import SyncRun
@@ -133,6 +135,21 @@ def test_data_date_is_the_datamart_sync_else_the_latest_source(db):
     SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, status=ok, finished_at=earlier)
     SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, status=failed, finished_at=now)
     assert services.data_as_of() == earlier  # the funds and indicators come from the Datamart
+
+
+def test_the_activityinfo_import_dates_the_page_only_in_a_year_with_its_records(hierarchy):
+    from django.utils import timezone
+
+    from neurodb.core.models import SyncRun
+
+    now = timezone.now()
+    SyncRun.objects.create(
+        job=SyncRun.Job.ACTIVITYINFO_DATA, status=SyncRun.Status.SUCCEEDED, finished_at=now
+    )
+    assert services.data_as_of() == now == services.data_as_of(2026)
+    assert services.data_as_of(2025) is None  # 2025 has no ActivityInfo records: eTools alone
+    assert services.reporting_year(2026) == hierarchy["database"].reporting_year
+    assert services.reporting_year(2025) is None
 
 
 def test_grant_restriction_and_other_donor(data, reporting_year):

@@ -262,7 +262,7 @@ def test_lines_without_a_watch_state_create_none(healthy):
     assert not WatchState.objects.exists()  # reading the admin home writes nothing
 
 
-def test_the_keys_are_stable_and_unique(db, settings):
+def test_the_keys_are_stable_and_unique(db, settings, activityinfo_in_use):
     settings.SCHEDULER_ENABLED = True
     ran(DATAMART, FAILED, NOW - HOUR)
     ran(SyncRun.Job.ETOOLS, SyncRun.Status.PARTIAL, NOW - HOUR, rows_failed=3)

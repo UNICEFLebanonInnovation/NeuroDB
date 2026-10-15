@@ -14,12 +14,14 @@ existing keys, so people hear of a concern once, with its history, next to what 
   review, so re-running a day's review closes nothing, and the item is gone after two newer reviews
   without it. A finding the review now lists as "to note" only closes at once. On from the start.
 - ``forecast_short``: the ActivityInfo master indicators the year-end forecast says are likely to fall
-  short of their target, each as ``forecast:<year>:<master id>``, only while the forecasts are shown
+  short of their target this year, each as ``forecast:<year>:<master id>``, only while ActivityInfo is in
+  use (:func:`neurodb.indicators.services.activityinfo.in_use`) and the forecasts are shown
   (:func:`neurodb.insights.services.shown`: their test on past years passed). Always worded as an
   estimate with its range; told to the forecast's section. A forecast back on course closes the item
   at once as "recovered", and any other status closes it too, naming the status, so its story keeps
-  the forecast's history (likely short, recovered, back again). The forecast runs weekly, so its source
-  is fresh for 8 days. Starts in trial, like every new check.
+  the forecast's history (likely short, recovered, back again). Once ActivityInfo is archived every item
+  closes, saying its forecasts are no longer followed. The forecast runs weekly, so its source is fresh
+  for 8 days. Starts in trial, like every new check.
 
 Looking ahead belongs to the watch and looking back to the review, and one thing is never two items.
 A ``pd_ending_soon`` finding is the PD ending that the ``pd_ending`` check follows
@@ -95,6 +97,7 @@ MASTER = Entity.Kind.MASTER_INDICATOR
 SHORT, ON_COURSE = IndicatorForecast.Status.SHORT, IndicatorForecast.Status.ON_COURSE
 RECOVERED = "recovered: the year-end forecast is on course again"
 NOT_SHOWN = "forecasts are no longer shown: the latest test on past years did not find them reliable enough"
+ARCHIVED = "ActivityInfo is archived: its forecasts are no longer followed"
 NAME_CHARS = 150  # an indicator's name in a title
 # The only columns read (never the database's sign-in fields)
 FORECAST_FIELDS = (
@@ -328,7 +331,15 @@ def review_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Close]:
 
 # ---------------------------------------------------------------------------- year-end forecasts
 def _shown(ctx: Context) -> bool:
-    return ctx.memo("concerns:forecasts_shown", lambda: forecasts.shown(ctx.last_success(FORECAST)))
+    """The latest forecast (a run that skipped because ActivityInfo is not in use is not one) passed its
+    test on past years."""
+    return ctx.memo("concerns:forecasts_shown", lambda: forecasts.shown(forecasts.latest_run()))
+
+
+def _in_use(ctx: Context) -> bool:
+    from neurodb.indicators.services import activityinfo
+
+    return ctx.memo("concerns:activityinfo_in_use", activityinfo.in_use)
 
 
 def _whole(value: float | None) -> int | None:
@@ -345,11 +356,12 @@ def _url(name: str, *args: Any, **params: Any) -> str:
 
 
 def forecasts_short(ctx: Context) -> Iterator[Candidate]:
-    """The master indicators likely to fall short by December, while the forecasts are shown."""
-    if not _shown(ctx):
+    """The master indicators likely to fall short by December of this year, while ActivityInfo is in use
+    and the forecasts are shown."""
+    if not _in_use(ctx) or not _shown(ctx):
         return
     rows = (
-        IndicatorForecast.objects.filter(status=SHORT)
+        IndicatorForecast.objects.filter(status=SHORT, year=ctx.today.year)
         .select_related("master", "database")
         .only(*FORECAST_FIELDS)
         .order_by("database_id", "master_id")
@@ -417,8 +429,10 @@ def forecast_candidate(ctx: Context, f: IndicatorForecast) -> Candidate:
 
 def forecasts_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Close]:
     """Forecasts no longer likely to fall short: back on course ("recovered") or another status, both
-    closed at once; all of them when the forecasts are no longer shown. An indicator gone from the
-    forecasts gets no reason: missed at each newer forecast, then gone."""
+    closed at once; all of them once ActivityInfo is archived, or when the forecasts are no longer shown.
+    An indicator gone from the forecasts gets no reason: missed at each newer forecast, then gone."""
+    if not _in_use(ctx):
+        return {item.key: Close(ARCHIVED, kind=CHANGED) for item in items}
     if not _shown(ctx):
         return {item.key: Close(NOT_SHOWN, kind=CHANGED) for item in items}
     wanted = {item.key: ids for item in items if (ids := _forecast_ids(item.key))}

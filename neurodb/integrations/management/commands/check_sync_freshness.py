@@ -2,7 +2,9 @@
 
 Used by the scheduler alert. The structure import, the population load and the
 eTools REST sync (``sync_etools``, replaced on the schedule by the eTools Datamart sync) are on
-demand and are not checked unless named with ``--jobs``.
+demand and are not checked unless named with ``--jobs``. The ActivityInfo data import is checked only
+while its import is followed (:func:`neurodb.indicators.services.activityinfo.watched`): once
+ActivityInfo is an archive, a stopped import is expected, not stale.
 """
 
 from __future__ import annotations
@@ -18,6 +20,16 @@ from neurodb.core.models import SyncRun
 logger = logging.getLogger(__name__)
 
 SCHEDULED_JOBS = (SyncRun.Job.ACTIVITYINFO_DATA, SyncRun.Job.ETOOLS_DATAMART, SyncRun.Job.LOCATIONS)
+
+
+def scheduled_jobs() -> tuple[str, ...]:
+    """The jobs checked by default: :data:`SCHEDULED_JOBS`, the ActivityInfo data import only while its
+    import is followed (ActivityInfo in use, or new databases waiting for their first records)."""
+    from neurodb.indicators.services import activityinfo
+
+    if activityinfo.watched():
+        return SCHEDULED_JOBS
+    return tuple(job for job in SCHEDULED_JOBS if job != SyncRun.Job.ACTIVITYINFO_DATA)
 
 
 def stale_jobs(jobs, max_age_hours: int) -> list[tuple[str, str]]:
@@ -38,7 +50,9 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--jobs", help="comma-separated job codes to check (default: ai_data,etools_datamart,locations)"
+            "--jobs",
+            help="comma-separated job codes to check (default: the scheduled jobs (ActivityInfo only while "
+            "its import is followed))",
         )
         parser.add_argument("--max-age-hours", type=int, default=None, help="override SYNC_STALENESS_HOURS")
 
@@ -46,7 +60,7 @@ class Command(BaseCommand):
         jobs = (
             [j.strip() for j in options["jobs"].split(",") if j.strip()]
             if options["jobs"]
-            else SCHEDULED_JOBS
+            else scheduled_jobs()
         )
         unknown = [j for j in jobs if j not in SyncRun.Job.values]
         if unknown:

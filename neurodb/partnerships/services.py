@@ -139,6 +139,20 @@ def pd_filter_options() -> dict[str, list[str]]:
     }
 
 
+def has_records(counts: Any) -> bool:
+    """Whether any of these ActivityInfo record counts is above 0: a dict of counts
+    (:func:`pd_intervention_counts`), a list of rows carrying ``interventions`` (the Programmes table) or one
+    count. The "Records" columns and figures are left out when every count is 0 (programme documents after
+    ActivityInfo), rather than showing a column of zeros."""
+    if isinstance(counts, dict):
+        values = counts.values()
+    elif isinstance(counts, int | float) or counts is None:
+        values = [counts]
+    else:
+        values = (row.get("interventions") if isinstance(row, dict) else row for row in counts)
+    return any((value or 0) > 0 for value in values)
+
+
 def pd_intervention_counts(numbers: list[str]) -> dict[str, int]:
     """ActivityInfo records per PD number prefix (v2 matched project_label to the number before '-')."""
     prefixes = {n.split("-")[0] for n in numbers}
@@ -172,12 +186,14 @@ def _donor_rows(donors_set: Any) -> list[dict[str, Any]]:
 def pd_detail(pd: PCA) -> dict[str, Any]:
     donors = _donor_rows(pd.donors_set)
     prefix = (pd.number or "").split("-")[0]
+    # a PD without a number has no ActivityInfo records (a blank label matches unrelated ones)
+    interventions = ActivityReportNew.objects.filter(project_label=prefix).count() if prefix else 0
     return {
         "pd": pd,
         "donations": sum(d["value"] for d in donors),
         "donors": donors,
-        # a PD without a number has no ActivityInfo records (a blank label matches unrelated ones)
-        "interventions": ActivityReportNew.objects.filter(project_label=prefix).count() if prefix else 0,
+        "interventions": interventions,
+        "has_records": has_records(interventions),  # no "ActivityInfo records 0" line
         "sections": pd.section_names or [],
         "offices": pd.offices_set or [],
     }
@@ -261,13 +277,15 @@ def donor_mapping(filters: PDFilters) -> dict[str, Any]:
         .annotate(n=Count("id"))
         .order_by("-n")
     )
+    interventions_total = interventions.count()
     return {
         "programmes": programmes,
         "count": len(pds),
         "donations_total": sum(p["donations"] for p in programmes),
         "funds_by_donor": funds_by_donor.most_common(25),
         "funds_by_year": sorted(funds_by_year.items()),
-        "interventions_total": interventions.count(),
+        "interventions_total": interventions_total,
+        "has_records": has_records(interventions_total),  # no "ActivityInfo records 0" tile
         "interventions_by_governorate": interventions_by_gov,
         "unique_actual_locations": interventions.exclude(location_name__isnull=True)
         .values("location_name")

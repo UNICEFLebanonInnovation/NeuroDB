@@ -2,7 +2,7 @@
 <div class="kpi-grid">
   {% trans "Programme documents" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=data.count|number %}
   {% trans "Donor contributions (USD)" as l2 %}{% trans "As listed on the programme documents. The money actually set aside is the Reserved column of Grants by donor below, and a programme's budget is on Programmes." as h2 %}{% include "components/kpi_tile.html" with label=l2 value=data.donations_total|number:0 hint=h2 %}
-  {% trans "ActivityInfo records" as l3 %}{% trans "reported against these programme documents" as h3 %}{% include "components/kpi_tile.html" with label=l3 value=data.interventions_total|number hint=h3 %}
+  {% if data.has_records %}{% trans "ActivityInfo records" as l3 %}{% trans "reported against these programme documents" as h3 %}{% include "components/kpi_tile.html" with label=l3 value=data.interventions_total|number hint=h3 %}{% endif %}
   {% trans "Actual locations" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.unique_actual_locations|number %}
   {% blocktrans asvar hint with n=data.planned_locations_unique %}{{ n }} unique{% endblocktrans %}
   {% trans "Planned locations" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=data.planned_locations|number hint=hint %}

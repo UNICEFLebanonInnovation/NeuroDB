@@ -7,11 +7,12 @@ while the problem lasts (``no_current_year``, ``job_failed:etools_datamart``, ``
 the watch follows it as the item ``system:<key>`` and closes it once the line goes. The lines:
 
 - **set-up**: no reporting year marked as current; displayed ActivityInfo databases never imported or
-  not imported for more than 40 days; active master indicators without a target; active users
-  without a role;
+  not imported for more than 40 days; active master indicators without a target (these four only while
+  the ActivityInfo import is followed: once ActivityInfo is an archive they are nobody's task); active
+  users without a role;
 - **jobs**: the last run of a job failed or lost rows. A Compiler job counts only while a switched-on
   schedule runs it: the Compiler reads are off by default, and a trial run that failed should not
-  stay listed;
+  stay listed. The ActivityInfo imports count only while their import is followed;
 - **the schedule**: the scheduler not checking in, a switched-on job overdue or never run, no daily
   review since yesterday;
 - **NeuroDB Watch**: no successful morning run for 26 hours, its AI paused, eTools section names
@@ -78,17 +79,30 @@ def warnings(now: datetime.datetime | None = None) -> list[Warning]:
 
 # ---------------------------------------------------------------------------- set-up
 def _setup(now: datetime.datetime) -> list[Warning]:
-    """The reporting year, the ActivityInfo imports, master indicator targets and users' roles."""
-    from django.contrib.auth import get_user_model
+    """The reporting year, the ActivityInfo imports and master indicator targets (while the ActivityInfo
+    import is followed), and users' roles."""
+    return [*_activityinfo_setup(now), *_users_without_role()]
+
+
+def _activityinfo_setup(now: datetime.datetime) -> list[Warning]:
+    """The four ActivityInfo set-up lines, only while its import is followed
+    (:func:`neurodb.indicators.services.activityinfo.watched`: in use, or new databases waiting for their
+    first records): no reporting year ticked current; the displayed databases of this year's ActivityInfo
+    reporting year (else the one ticked current, which the import reads) never imported or not imported for
+    40 days; their active master indicators without a target. Once ActivityInfo is an archive they are
+    nobody's task, and their Watch items close."""
     from django.db.models import Q
 
-    from neurodb.accounts.roles import ALL_ROLES
+    from neurodb.core import years
     from neurodb.indicators.models import Database, MasterIndicator
+    from neurodb.indicators.services import activityinfo
     from neurodb.indicators.services.navigation import current_year
 
+    if not activityinfo.watched():
+        return []
     lines = []
-    year = current_year()
-    if not year:
+    ticked = current_year()
+    if not ticked:
         lines.append(
             Warning(
                 key="no_current_year",
@@ -98,6 +112,7 @@ def _setup(now: datetime.datetime) -> list[Warning]:
                 value=_("none"),
             )
         )
+    year = activityinfo.reporting_year_for(years.this_year()) or ticked  # what the import serves or reads
     shown = Database.objects.filter(reporting_year=year, display=True) if year else Database.objects.none()
     never = shown.filter(last_monthly_update_date__isnull=True).count()
     if never:
@@ -157,6 +172,16 @@ def _setup(now: datetime.datetime) -> list[Warning]:
                 value=no_target,
             )
         )
+    return lines
+
+
+def _users_without_role() -> list[Warning]:
+    """Active users without a role (donor accounts have none on purpose)."""
+    from django.contrib.auth import get_user_model
+
+    from neurodb.accounts.roles import ALL_ROLES
+
+    lines = []
     no_role = (
         get_user_model()
         .objects.filter(is_active=True, is_superuser=False, donor_account__isnull=True)
@@ -185,15 +210,18 @@ def _setup(now: datetime.datetime) -> list[Warning]:
 # ---------------------------------------------------------------------------- jobs
 def _jobs() -> list[Warning]:
     """A job whose last run failed or lost rows. A Compiler job counts only while a switched-on
-    schedule runs it."""
+    schedule runs it; the ActivityInfo imports only while their import is followed (an archive's
+    import is nobody's alarm: their ``system:`` items close)."""
     from neurodb.core.jobs import COMMANDS
     from neurodb.core.models import ScheduledJob, SyncRun
+    from neurodb.indicators.services import activityinfo
 
     commands = ScheduledJob.objects.filter(enabled=True).values_list("command", flat=True)
     scheduled = {COMMANDS[command].sync_job for command in commands if command in COMMANDS}
+    skipped = set() if activityinfo.watched() else set(activityinfo.AI_JOBS)
     lines = []
     for job, label in SyncRun.Job.choices:
-        if job in SCHEDULED_ONLY and job not in scheduled:
+        if (job in SCHEDULED_ONLY and job not in scheduled) or job in skipped:
             continue
         # the latest finished run: a run still going (NeuroDB Watch's own, while it checks this) says
         # nothing yet

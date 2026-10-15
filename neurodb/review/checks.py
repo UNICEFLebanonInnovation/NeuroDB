@@ -664,7 +664,11 @@ def check_findings_off_track(ctx: Context) -> list[Draft]:
 
 
 def check_sync_failures(ctx: Context) -> list[Draft]:
-    """Sync runs that failed or wrote with errors in the last 24 hours, per job."""
+    """Sync runs that failed or wrote with errors in the last 24 hours, per job. The ActivityInfo imports
+    count only while their import is followed (:func:`neurodb.indicators.services.activityinfo.watched`):
+    an archive's import is nobody's alarm."""
+    from neurodb.indicators.services import activityinfo
+
     since = timezone.now() - datetime.timedelta(hours=SYNC_WINDOW_HOURS)
     runs = (
         SyncRun.objects.filter(
@@ -673,6 +677,8 @@ def check_sync_failures(ctx: Context) -> list[Draft]:
         .exclude(job=SyncRun.Job.DAILY_REVIEW)
         .order_by("-started_at")
     )
+    if not activityinfo.watched():
+        runs = runs.exclude(job__in=activityinfo.AI_JOBS)
     groups: dict[str, list[SyncRun]] = defaultdict(list)
     for run in runs:
         groups[run.job].append(run)
@@ -708,7 +714,10 @@ def check_sync_failures(ctx: Context) -> list[Draft]:
 
 
 def check_data_quality(ctx: Context) -> list[Draft]:
-    """Datasets whose last sync failed to write rows, and ActivityInfo partner names still unlinked."""
+    """Datasets whose last sync failed to write rows, and ActivityInfo partner names still unlinked (only
+    while ActivityInfo is in use: the names of an archive are history, not a task)."""
+    from neurodb.indicators.services import activityinfo
+
     drafts = []
     failing = [
         row
@@ -737,7 +746,7 @@ def check_data_quality(ctx: Context) -> list[Draft]:
                 url=link("reports:data_health"),
             )
         )
-    unlinked = PartnerLink.objects.filter(partner=None, records__gt=0).count()
+    unlinked = PartnerLink.objects.filter(partner=None, records__gt=0).count() if activityinfo.in_use() else 0
     if unlinked:
         drafts.append(
             Draft(
@@ -796,12 +805,14 @@ def check_locations_unplaced(ctx: Context) -> list[Draft]:
 
 
 def check_stale_sources(ctx: Context) -> list[Draft]:
-    """Scheduled jobs whose last success is older than SYNC_STALENESS_HOURS."""
-    from neurodb.integrations.management.commands.check_sync_freshness import SCHEDULED_JOBS
+    """Scheduled jobs whose last success is older than SYNC_STALENESS_HOURS: the hourly freshness check's
+    jobs (the ActivityInfo data import only while its import is followed)."""
+    from neurodb.integrations.management.commands.check_sync_freshness import scheduled_jobs
 
+    jobs = scheduled_jobs()
     drafts = []
     for job in ctx.health.get("jobs", []):
-        if job["job"] not in SCHEDULED_JOBS or job["state"] != "stale":
+        if job["job"] not in jobs or job["state"] != "stale":
             continue
         if job["job"] == SyncRun.Job.ACTIVITYINFO_DATA and ctx.today.day > AI_DATA_LAST_DAY:
             continue  # the ActivityInfo import only runs on days 1 to 22: expected, not stale

@@ -1,4 +1,5 @@
-"""The year-end forecasts page: how good the method proved on past years, then every indicator."""
+"""The year-end forecasts page: how good the method proved on past years, then every indicator. Once
+ActivityInfo is archived the page keeps the last forecasts, saying they are no longer updated."""
 
 from __future__ import annotations
 
@@ -8,6 +9,7 @@ from django.utils.translation import gettext as _
 from django.views.decorators.http import require_GET
 
 from neurodb.accounts.models import Section
+from neurodb.indicators.services import activityinfo
 
 from . import services
 from .models import IndicatorForecast
@@ -54,5 +56,6 @@ def forecasts(request: HttpRequest) -> HttpResponse:
         "sections": Section.objects.order_by("name"),
         "section_id": section_id,
         "pills": services.STATUS_PILLS,
+        "archived": not activityinfo.in_use(),  # the forecasts are kept, no longer updated
     }
     return render(request, "insights/forecasts.html", context)
