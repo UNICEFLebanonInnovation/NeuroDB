@@ -8,7 +8,8 @@ which only answer a few filters. A payload of format 1 (no cubes) shows an empty
 
 From format 3 the rows counted are those of the view Power BI reads (``power_bi.py``): each page says so in a
 line under its key figures, and the cards whose Power BI measure is unknown are counted with the version an
-administrator chose (in the cache key, so a new choice shows at once).
+administrator chose (in the cache key, so a new choice shows at once). From format 4 Dirasa is counted per
+year (the rounds of the year) like Makani: its page selects a year, not a round (:func:`period_field`).
 """
 
 from __future__ import annotations
@@ -49,6 +50,9 @@ class Slicer:
     search: bool = False  # a long list: the select gets a search box
     required: bool = False  # no "All": the first option is the default (the outreach year)
     own_data: bool = False  # filters data of its own (the outreach): not "not applied" on the other tabs
+    # a slicer only some payloads can answer (Dirasa's round, from format 4): left out of the page altogether
+    # when it has no option
+    only_with_options: bool = False
 
 
 @dataclass(frozen=True)
@@ -58,7 +62,7 @@ class Page:
     title: str
     subtitle: str
     url_name: str
-    period_param: str  # "year" (Makani) or "round" (Dirasa)
+    period_param: str  # "year" (Makani) or "round" (Dirasa of payloads before format 4: see period_field)
     period_label: str
     tabs: tuple[tuple[str, str], ...]
     slicers: tuple[Slicer, ...]
@@ -67,6 +71,8 @@ class Page:
     own_tabs: tuple[
         str, ...
     ] = ()  # tabs with data of their own, not from Power BI's view (Dirasa's outreach)
+    # the line under the title (Dirasa: the rounds of the year, payload format 4) from the payload; None: none
+    rounds: Callable[[Figures], dict[str, Any] | None] | None = None
 
     def tab(self, raw: str | None) -> str:
         keys = [key for key, _label in self.tabs]
@@ -77,10 +83,43 @@ class Page:
 
 
 def periods(programme: str) -> list[str]:
-    """The stored years (Makani) or rounds (Bridging) of a programme, the latest first (by the start of
-    its first round, then by name): :func:`neurodb.education.power_bi.page_periods`, which Data health, the
-    card admin and the summary also order by, so that "the latest period" is the one the page opens on."""
+    """The stored years (Makani; Bridging from payload format 4) or rounds (Bridging of older payloads) of a
+    programme, the latest first: :func:`neurodb.education.power_bi.page_periods`, which Data health, the card
+    admin and the summary also order by, so that "the latest period" is the one the page opens on."""
     return power_bi.page_periods([programme]).get(programme, [])
+
+
+def period_kind(programme: str) -> str:
+    """The kind of period the programme's page lists: "year" (Makani; Dirasa from payload format 4) or "round"
+    (Dirasa of older payloads): :func:`neurodb.education.power_bi.stored_periods`."""
+    return power_bi.stored_periods([programme]).kinds.get(programme, "year")
+
+
+def period_field(page: Page, kind: str) -> tuple[str, Any]:
+    """The query parameter and label of the page's period select: Dirasa showing years selects a ``year``
+    ("Year"); otherwise the page's own (Makani's year, Dirasa's round of older payloads)."""
+    if page.programme == "bridging" and kind == "year":
+        return "year", _("Year")
+    return page.period_param, page.period_label
+
+
+def year_of_round(programme: str, periods: Sequence[str], name: str) -> tuple[str, int] | None:
+    """The stored period among ``periods`` (latest first) whose payload lists a round named ``name`` (an old
+    link or question naming a Dirasa round, once Dirasa is shown by year), and that round's id; None when
+    none does. Reads the payloads' rounds only, in the database."""
+    name = str(name or "").strip()
+    if not name or not periods:
+        return None
+    rows = dict(
+        EducationFigures.objects.filter(
+            programme=programme, year__in=list(periods), payload__rounds__contains=[{"name": name}]
+        ).values_list("year", "payload__rounds")
+    )
+    for period in periods:
+        for entry in rows.get(period) or []:
+            if isinstance(entry, dict) and entry.get("name") == name and isinstance(entry.get("id"), int):
+                return period, entry["id"]
+    return None
 
 
 def record(programme: str, period: str) -> EducationFigures | None:
@@ -125,10 +164,13 @@ def page_data(stored: EducationFigures, page: Page, tab: str, params: QueryDict)
     options = cached(stored, "options", {}, lambda: page.options(load()) if load().has_cubes else None)
     if options is None:
         return {"old_format": True}
-    shown = page.slicers_for(tab)
+    # a slicer the payload cannot answer (Dirasa's round before format 4) is not on the page at all: neither
+    # shown nor kept from another tab (its name may be the period's own parameter)
+    slicers = [s for s in page.slicers if not (s.only_with_options and not options.get(s.name))]
+    shown = [s for s in slicers if not s.tabs or tab in s.tabs]
     filters, selected = parse_filters(params, shown, options)
     names = {s.name for s in shown}
-    hidden = [s for s in page.slicers if s.name not in names and params.get(s.name)]
+    hidden = [s for s in slicers if s.name not in names and params.get(s.name)]
     # a filter chosen on another tab stays in the links, and the page says it does not count here
     elsewhere, _selected = parse_filters(params, hidden, options)
     data = cached(stored, tab, filters, lambda: page.build(load(), tab, filters))
@@ -140,8 +182,10 @@ def page_data(stored: EducationFigures, page: Page, tab: str, params: QueryDict)
     if data.get("choropleth"):  # the polygons are cached apart (geo.services), once for every filter
         config = {k: v for k, v in data["choropleth"].items() if k != "values"}
         data = {**data, "choropleth": {**config, "geojson": areas_geojson(data["choropleth"])}}
+    rounds = cached(stored, "rounds", {}, lambda: page.rounds(load())) if page.rounds else None
     return {
         "old_format": False,
+        "rounds_line": rounds,
         "slicers": [
             {"slicer": s, "options": options.get(s.name, []), "selected": selected.get(s.name, "")}
             for s in shown

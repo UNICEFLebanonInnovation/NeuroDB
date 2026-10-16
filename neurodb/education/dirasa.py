@@ -1,17 +1,22 @@
 """The Dirasa (Bridging) dashboard (/education/dirasa/), after the programme's Power BI pages: Overview,
 Outreach, Attendance barriers, Schools map.
 
-The rows counted are those of Power BI's view ``vw_bridging_data`` for the round (from payload format 3, when
-Compiler could use the view; otherwise Compiler's own rule): the line under the key figures says which
-(:func:`neurodb.education.power_bi.note`). School filters (partner, governorate, school, school type, active
-during emergency) choose the schools; the registrations counted are those of the chosen schools (and of the
-partner chosen), and the child filters (CWD type, nationality, gender) apply to them only. The school-level
-figures (in-school children and CWD, type of schools, in-school nationality, teacher trainings, the map) are
-those of the schools that have registrations under the filters, as "Dirasa schools" counts them: a school
-listed only for its teachers is not one of them. The in-school figures are the numbers each school reports
-about its own children. Governorate is the school's for schools and the child's in the "Enrolment by
-governorate" chart. Outreach is Compiler's Kobo outreach, shared by every programme, with its own filters
-(year of the interview, partner and governorate as typed in the form), not from the view.
+The page shows a year (payload format 4: the CLM rounds whose Bridging start date is in the year, a round
+without one by the year in its name, or those Compiler marks current) or a round (older payloads). The line
+under the title lists the year's rounds (:func:`rounds_line`) and the Round slicer shows one of them (from
+format 4; never on Outreach). A child registered in two rounds of the year counts once in the children card
+and twice in the registrations. The rows counted are those of Power BI's view ``vw_bridging_data`` for the
+period (from payload format 3, when Compiler could use the view; otherwise Compiler's own rule): the line
+under the key figures says which (:func:`neurodb.education.power_bi.note`). School filters (partner,
+governorate, school, school type, active during emergency) choose the schools; the registrations counted are
+those of the chosen schools (and of the partner chosen), and the child filters (CWD type, nationality, gender)
+apply to them only. The school-level figures (in-school children and CWD, type of schools, in-school
+nationality, teacher trainings, the map) are those of the schools that have registrations under the filters,
+as "Dirasa schools" counts them: a school listed only for its teachers is not one of them. The in-school
+figures are the numbers each school reports about its own children. Governorate is the school's for schools
+and the child's in the "Enrolment by governorate" chart. Outreach is Compiler's Kobo outreach, shared by every
+programme, with its own filters (year of the interview, partner and governorate as typed in the form), not
+from the view.
 
 The children card counts unique children by default (Power BI's card is below its nationality donut's total,
 which counts registrations: SPEC_PBI E19) and shows the registrations as a second line; the unique count
@@ -22,6 +27,7 @@ whose Power BI measure is unknown are counted with the version an administrator 
 
 from __future__ import annotations
 
+import datetime
 from dataclasses import dataclass
 from typing import Any
 
@@ -56,6 +62,8 @@ CHILD_TABS = ("overview", "barriers")
 SCHOOL_TABS = ("overview", "barriers", "map")
 OUTREACH_SLICER = {"tabs": ("outreach",), "kind": "text", "own_data": True}  # the Kobo form's own values
 SLICERS = (
+    # the rounds of the year (payload format 4); a payload counted per round has no round to choose: no slicer
+    Slicer("round", gettext_lazy("Round"), tabs=SCHOOL_TABS, only_with_options=True),
     Slicer("disability", gettext_lazy("CWD type"), tabs=CHILD_TABS),
     Slicer("nationality", gettext_lazy("Nationality"), tabs=CHILD_TABS),
     Slicer("gender", gettext_lazy("Gender"), tabs=CHILD_TABS, kind="text"),
@@ -104,12 +112,28 @@ def _school_options(figures: Figures) -> list[tuple[str, str]]:
     return sorted(options, key=lambda option: option[1].casefold())
 
 
+def _round_options(figures: Figures) -> list[tuple[str, str]]:
+    """The payload's rounds that have registrations or teachers, in the payload's order (by Bridging start),
+    when the enrolment cube is by round (payload format 4); none otherwise."""
+    enrolment = figures.cube("enrolment")
+    if "round" not in enrolment.dims:
+        return []
+    teachers = figures.cube("teachers")
+    used = enrolment.distinct("round", "registrations") | teachers.distinct("round", "teachers")
+    return [
+        (str(r["id"]), str(r.get("name") or f"#{r['id']}"))
+        for r in figures.payload.get("rounds") or []
+        if isinstance(r, dict) and r.get("id") in used
+    ]
+
+
 def options(figures: Figures) -> dict[str, list[tuple[str, str]]]:
     enrolment = figures.cube("enrolment")
     schools = _schools(figures)
     partners = enrolment.values("partner") | {p for s in schools for p in s.get("partners") or []}
     years = sorted((y for y in _outreach_values(figures, "year") if y), reverse=True)
     return {
+        "round": _round_options(figures),
         "disability": id_options(figures, "disability", enrolment.values("disability")),
         "nationality": id_options(figures, "nationality", enrolment.values("nationality")),
         "gender": text_options(enrolment.values("sex"), SEXES, category),
@@ -126,7 +150,7 @@ def options(figures: Figures) -> dict[str, list[tuple[str, str]]]:
 
 def chosen_schools(figures: Figures, filters: dict[str, Any]) -> list[dict[str, Any]]:
     """The schools under the school filters (a school's partners: those that registered children there
-    in the round, else the Dirasa partners listing it; "Not specified": a school without any)."""
+    in the period, else the Dirasa partners listing it; "Not specified": a school without any)."""
     out = []
     for school in _schools(figures):
         if "school" in filters and school["id"] != filters["school"]:
@@ -147,21 +171,30 @@ def _by_school(filters: dict[str, Any]) -> bool:
     return any(name in filters for name in SCHOOL_FILTERS)
 
 
+def in_round(cube: Cube, filters: dict[str, Any]) -> Cube:
+    """The cube's rows of the round chosen (payload format 4), when the cube is by round; the cube itself
+    otherwise (a cube without the dimension would match no row)."""
+    if "round" in filters and "round" in cube.dims:
+        return cube.filter(round=filters["round"])
+    return cube
+
+
 def registrations(figures: Figures, filters: dict[str, Any], schools: list[dict[str, Any]]) -> Cube:
-    """The enrolment rows of the chosen schools and partner, under the child filters."""
+    """The enrolment rows of the chosen schools and partner (and round), under the child filters."""
     where = {dim: filters[name] for name, dim in CHILD if name in filters}
     if "partner" in filters:
         where["partner"] = filters["partner"]
     if _by_school(filters):
         where["school"] = {s["id"] for s in schools}
-    return figures.cube("enrolment").filter(**where)
+    return in_round(figures.cube("enrolment").filter(**where), filters)
 
 
 def of_schools(cube: Cube, filters: dict[str, Any], schools: list[dict[str, Any]]) -> Cube:
-    """Teachers of the chosen schools (every teacher when no school or partner filter is set)."""
+    """Teachers of the chosen schools (every teacher when no school or partner filter is set), of the round
+    chosen."""
     if _by_school(filters) or "partner" in filters:
-        return cube.filter(school={s["id"] for s in schools})
-    return cube
+        cube = cube.filter(school={s["id"] for s in schools})
+    return in_round(cube, filters)
 
 
 def school_count(schools: list[dict[str, Any]], key: str) -> int | None:
@@ -193,13 +226,15 @@ def selection(figures: Figures, filters: dict[str, Any]) -> Selection:
     return power_bi.memo(figures, "dirasa:selection", filters, choose)
 
 
-BLOCK_FILTERS = {"partner": "partner", "school": "school", "gender": "sex"}  # slicer -> the block's grouping
+# slicer -> the block's grouping
+BLOCK_FILTERS = {"partner": "partner", "school": "school", "gender": "sex", "round": "round"}
 
 
 def unique_children(figures: Figures, filters: dict[str, Any]) -> int | None:
     """Unique children from the registrations block; None when it has no grouping for the filters (it answers
-    the partner, the school and the gender, alone or the partner with one of the two) or a filter is "Not
-    specified"."""
+    the partner, the school and the gender, alone or the partner with one of the two; from payload format 4
+    the round alone, with the partner or with the gender) or a filter is "Not specified". Without the round, a
+    child registered in two rounds of the year counts once."""
     if set(filters) - set(BLOCK_FILTERS) or any(v is None for v in filters.values()):
         return None
     block = figures.block("registrations")
@@ -239,7 +274,9 @@ def build(figures: Figures, tab: str, filters: dict[str, Any]) -> dict[str, Any]
             types[school.get("type")] = types.get(school.get("type"), 0) + 1
         lebanese = school_count(chosen.with_children, "children_lebanese")
         others = school_count(chosen.with_children, "children_non_lebanese")
-        trainings = figures.cube("trainings").filter(school={s["id"] for s in chosen.with_children})
+        trainings = in_round(
+            figures.cube("trainings").filter(school={s["id"] for s in chosen.with_children}), filters
+        )
         data["cards"] = cards
         data["kpis"] = {
             "schools": len(chosen.chosen.distinct("school", "registrations")),
@@ -369,6 +406,36 @@ def _map(figures: Figures, chosen: Cube, schools: list[dict[str, Any]]) -> dict[
     }
 
 
+def _date(text: Any) -> datetime.date | None:
+    try:
+        return datetime.date.fromisoformat(str(text)[:10]) if text else None
+    except ValueError:
+        return None
+
+
+def rounds_line(figures: Figures) -> dict[str, Any] | None:
+    """The rounds of the year, for the line under the title (payload format 4; None before): whether they are
+    the rounds Compiler marks current (setting ``current_rounds``) and, per round in the payload's order, its
+    name, Bridging start date, whether its year comes from its name, and its registrations."""
+    if (figures.payload.get("format") or 0) < power_bi.YEARLY_FORMAT:
+        return None
+    base = ((figures.payload.get("power_bi") or {}).get("base")) or {}
+    counts = figures.cube("enrolment").by("round", "registrations")
+    rounds = []
+    for entry in figures.payload.get("rounds") or []:
+        if not isinstance(entry, dict):
+            continue
+        rounds.append(
+            {
+                "name": str(entry.get("name") or f"#{entry.get('id')}"),
+                "start": _date(entry.get("start_date")),
+                "from_name": entry.get("year_from") == "name",
+                "registrations": counts.get(entry.get("id"), 0),
+            }
+        )
+    return {"current": base.get("period_rule") == "current_rounds", "rounds": rounds}
+
+
 PAGE = Page(
     programme="bridging",
     name=gettext_lazy("Dirasa (Bridging)"),
@@ -378,6 +445,8 @@ PAGE = Page(
         "programme, counted in Compiler (counts only)"
     ),
     url_name="education:dirasa",
+    # the period of payloads before format 4 (one round); from format 4 the page selects a year
+    # (services.period_field)
     period_param="round",
     period_label=gettext_lazy("Round"),
     tabs=TABS,
@@ -385,4 +454,5 @@ PAGE = Page(
     options=options,
     build=build,
     own_tabs=("outreach",),
+    rounds=rounds_line,
 )

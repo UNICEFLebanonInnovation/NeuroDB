@@ -269,24 +269,61 @@ def youth_figures(
     )
 
 
-def education_figures(programme: str, period: str | None = None, tab: str | None = None) -> dict[str, Any]:
-    from neurodb.education import dirasa, makani, services
+def education_figures(
+    programme: str, period: str | None = None, tab: str | None = None, round: str | None = None
+) -> dict[str, Any]:
+    """The page's figures for a period: a year (Makani; Dirasa from Compiler's payload format 4) or a Dirasa
+    round (older counts). With Dirasa shown by year, a ``period`` naming a round opens the year holding it
+    with that round chosen, and ``round`` (a round's name or id) chooses one round of the year; with Dirasa
+    shown by round, ``round`` is the period when ``period`` is not given."""
+    from neurodb.education import dirasa, makani, power_bi, services
+    from neurodb.education.models import EducationFigures
 
     page = {"makani": makani.PAGE, "dirasa": dirasa.PAGE}.get(programme)
     if page is None:
         raise ToolInputError("programme must be 'makani' or 'dirasa'.")
-    periods = services.periods(page.programme)
+    stored_periods = power_bi.stored_periods([page.programme])
+    periods = stored_periods.listed.get(page.programme, [])
     if not periods:
         return {"note": f"No {programme} figures have been read from Compiler yet."}
-    stored = services.record(page.programme, period if period in periods else periods[0])
+    by_year = page.programme == "bridging" and stored_periods.kinds.get(page.programme) == "year"
+    wanted_round = str(round).strip() if round is not None and page.programme == "bridging" else ""
+    if page.programme == "bridging" and not by_year:
+        if wanted_round and not period:
+            period = wanted_round  # Dirasa shown by round (older counts): the round is the period
+        wanted_round = ""
+    chosen = period if period in periods else None
+    if by_year and period and chosen is None:  # a round's name: the year holding it, that round chosen
+        found = services.year_of_round(page.programme, periods, period)
+        if found is not None:
+            chosen, wanted_round = found[0], wanted_round or str(found[1])
+    stored = services.record(page.programme, chosen or periods[0])
+    rounds = []
+    if by_year:
+        listed = (
+            EducationFigures.objects.filter(pk=stored.pk).values_list("payload__rounds", flat=True).first()
+        )
+        rounds = [r for r in listed or [] if isinstance(r, dict) and "id" in r]
+    params = QueryDict(mutable=True)
+    if wanted_round:
+        match = [r for r in rounds if str(r["id"]) == wanted_round or str(r.get("name")) == wanted_round]
+        if not match:
+            names = ", ".join(str(r.get("name")) for r in rounds) or "none"
+            raise ToolInputError(
+                f"No round '{wanted_round}' in Dirasa {stored.year}: its rounds are {names}."
+            )
+        params["round"] = str(match[0]["id"])
     tab = page.tab(tab)
-    result = services.page_data(stored, page, tab, QueryDict())
+    result = services.page_data(stored, page, tab, params)
+    applied = (result.get("filters") or {}).get("round")
     return _clean(
         _trim(
             {
                 "programme": str(page.name),
                 "period": stored.year,
                 "periods": periods,
+                "rounds": [str(r.get("name")) for r in rounds] if by_year else None,
+                "round": next((str(r.get("name")) for r in rounds if r["id"] == applied), None),
                 "tab": tab,
                 "tabs": [key for key, _label in page.tabs],
                 "figures": result.get("data", {}),
@@ -611,8 +648,16 @@ HUB_TOOLS: dict[str, tuple] = {
         _schema(
             {
                 "programme": {"type": "string", "enum": ["makani", "dirasa"]},
-                "period": {"type": "string", "description": "Year (Makani) or round (Dirasa)."},
+                "period": {
+                    "type": "string",
+                    "description": "Year (Makani; Dirasa when Compiler counts it by year, e.g. 2026) or a "
+                    "Dirasa round's name (older counts).",
+                },
                 "tab": {"type": "string"},
+                "round": {
+                    "type": "string",
+                    "description": "Dirasa only: one round of the year, by its name.",
+                },
             },
             ["programme"],
         ),

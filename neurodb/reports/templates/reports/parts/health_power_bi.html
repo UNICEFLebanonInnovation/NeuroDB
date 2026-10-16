@@ -1,7 +1,9 @@
 {% load i18n ui %}{% comment %}Data health's "Compared with Power BI" (part "power-bi", reports.views.data_health): per programme, its latest periods,
 each with how Compiler counted (the rows of Power BI's view, or its own rule and why), the view's rows and registrations,
 what NeuroDB counted, the difference and its reasons, what NeuroDB counted before this change, and a disclosure with
-the reasons, the rounds or years of the view, the key check, the related views and the cards (every version's value,
+the reasons, the rounds or years of the view (Dirasa counted per year, payload format 4: how the year's rounds were
+chosen, and each round's year, "in no year" for a round with neither a Bridging start date nor a year in its name),
+the key check, the related views and the cards (every version's value,
 the number Power BI shows when an administrator typed it, which versions equal it, the one in use). When the view's
 rows were not read (rule mode), nothing is said to be in the view or not: "not compared"; when they were read but the
 comparison failed (an error), it says so instead of "the view was not read". A comparison older than the
@@ -37,6 +39,7 @@ Context: programmes = neurodb.education.power_bi.health().{% endcomment %}
         {% if forloop.first %}<td class="num" rowspan="{{ card.versions|length }}">{% if card.powerbi is None %}—{% else %}{{ card.powerbi|number }}{% if card.noted_at %}<span class="cell-sub">{% blocktrans with day=card.noted_at|date:"j M Y" %}typed on {{ day }}{% endblocktrans %}</span>{% endif %}{% endif %}</td>{% endif %}
       </tr>{% endfor %}{% empty %}<tr><td colspan="4" class="text-muted">{% trans "None." %}</td></tr>{% endfor %}</tbody>
     </table></div>
+    {% if c.year_rule == "start_year" %}<p class="small mb-2" data-year-rule>{% blocktrans with period=c.period %}Rounds of {{ period }}: those whose Bridging start date is in {{ period }}; a round without one, the year in its name.{% endblocktrans %}</p>{% elif c.year_rule == "current_rounds" %}<p class="small mb-2" data-year-rule>{% blocktrans with period=c.period %}Rounds of {{ period }}: those marked current in Compiler (setting current_rounds).{% endblocktrans %}</p>{% endif %}
     {% if c.reasons %}
     <h4 class="small fw-semibold">{% trans "Why the counts differ" %}</h4>
     <div class="table-wrap"><table class="table table-sm">
@@ -48,7 +51,7 @@ Context: programmes = neurodb.education.power_bi.health().{% endcomment %}
     <h4 class="small fw-semibold">{% if p.programme == "youth" %}{% trans "The view's rows per year" %}{% else %}{% trans "The view's rows per round" %}{% endif %}</h4>
     <div class="table-wrap"><table class="table table-sm">
       <thead><tr><th>{% if p.programme == "youth" %}{% trans "Year" %}{% else %}{% trans "Round" %}{% endif %}</th><th>{% trans "Current" %}</th><th class="num">{% trans "Rows" %}</th><th class="num">{% trans "Registrations" %}</th><th class="num">{% trans "Deleted rows" %}</th></tr></thead>
-      <tbody>{% for r in c.periods %}<tr><td>{{ r.name|default:_("No round or year") }}{% if r.year %}<span class="cell-sub">{{ r.year }}</span>{% endif %}{% if r.start_date %}<span class="cell-sub">{{ r.start_date }}{% if r.end_date %} – {{ r.end_date }}{% endif %}</span>{% endif %}</td><td>{{ r.current|yesno:_("yes,no,—") }}{% if r.current_year is not None %}<span class="cell-sub">{% blocktrans with flag=r.current_year|yesno:_("yes,no,—") %}current year: {{ flag }}{% endblocktrans %}</span>{% endif %}</td><td class="num">{{ r.view_rows|number }}</td><td class="num">{{ r.view_ids|number }}</td><td class="num">{{ r.deleted_rows|number }}</td></tr>{% endfor %}</tbody>
+      <tbody>{% for r in c.periods %}<tr><td>{{ r.name|default:_("No round or year") }}{% if r.year %}<span class="cell-sub">{{ r.year }}{% if r.year_from == "name" %} {% trans "(from its name)" %}{% endif %}</span>{% elif c.year_rule and r.name %}<span class="cell-sub">{% trans "in no year" %}</span>{% endif %}{% if r.start_date %}<span class="cell-sub">{{ r.start_date }}{% if r.end_date %} – {{ r.end_date }}{% endif %}</span>{% endif %}</td><td>{{ r.current|yesno:_("yes,no,—") }}{% if r.current_year is not None %}<span class="cell-sub">{% blocktrans with flag=r.current_year|yesno:_("yes,no,—") %}current year: {{ flag }}{% endblocktrans %}</span>{% endif %}</td><td class="num">{{ r.view_rows|number }}</td><td class="num">{{ r.view_ids|number }}</td><td class="num">{{ r.deleted_rows|number }}</td></tr>{% endfor %}</tbody>
     </table></div>
     {% endif %}
     {% if c.key_check %}

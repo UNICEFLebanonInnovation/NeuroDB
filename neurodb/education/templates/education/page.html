@@ -12,14 +12,15 @@
     <div class="page-header__titles">
       <h1 class="page-title">{{ page_title }}</h1>
       <p class="page-subtitle">{{ page.subtitle }}</p>
+      {% if rounds_line %}{% include "education/_rounds_line.html" with line=rounds_line %}{% endif %}
     </div>
     {% if periods %}
     <div class="page-actions align-items-center gap-3">
       {% if record %}{% with when=record.counted_at|default:record.fetched_at %}<span class="small text-muted">{% trans "Last data update" %} <time datetime="{{ when|date:'c' }}">{{ when|date:"d/m/Y H:i" }}</time></span>{% endwith %}{% endif %}
       <form method="get" action="{{ request.path }}" class="d-flex align-items-center gap-2" hx-get="{{ request.path }}" hx-trigger="change" hx-target="#edu-page" hx-select="#edu-page" hx-swap="outerHTML" hx-push-url="true" hx-include="#edu-filters [data-keep]">
         <input type="hidden" name="tab" value="{{ tab }}">
-        <label class="form-label small fw-semibold mb-0" for="edu-period">{{ page.period_label }}</label>
-        <select class="form-select form-select-sm w-auto" id="edu-period" name="{{ page.period_param }}">
+        <label class="form-label small fw-semibold mb-0" for="edu-period">{{ period_label }}</label>
+        <select class="form-select form-select-sm w-auto" id="edu-period" name="{{ period_param }}">
           {% for p in periods %}<option value="{{ p }}"{% if p == period %} selected{% endif %}>{{ p }}</option>{% endfor %}
         </select>
         <noscript><button type="submit" class="btn btn-outline-secondary btn-sm">{% trans "Show" %}</button></noscript>

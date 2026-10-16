@@ -57,6 +57,7 @@ PROGRAMMES = (  # in the order Data health lists them, with the page each one's 
     ("youth", _("Youth programmes"), "youth:dashboard"),
 )
 HEALTH_PERIODS = 3  # the latest periods per programme on Data health
+YEAR_RULES = ("start_year", "current_rounds")  # Dirasa's period rules from format 4 (format 3: "round")
 STALE_AFTER = timedelta(minutes=5)  # a check older than the figures' count by this much is of an older count
 
 
@@ -96,8 +97,8 @@ def _related_total(
 ) -> int | None:
     """The rows of a related view Compiler profiled (``power_bi.related``), at the period total only (the
     profile is not by partner or place): None under a filter, in a past period's payload (no profile), or when
-    the profile was cut or failed. ``this_round``: only the rows of the payload's rounds, when the profile is
-    by round."""
+    the profile was cut or failed. ``this_round``: only the rows of the payload's rounds (the round's, or from
+    payload format 4 the rounds of the year), when the profile is by round."""
     if filters:
         return None
     related = ((figures.payload.get("power_bi") or {}).get("related")) or {}
@@ -205,11 +206,14 @@ def _bridging_schools(figures: Any, filters: dict[str, Any], key: str, scope: st
 
 @_cubes
 def _bridging_teachers(figures: Any, filters: dict[str, Any], which: str) -> int | None:
+    """The teachers of the period's rounds (of the round chosen, from payload format 4) at the schools chosen
+    or at the schools with registrations under the filters."""
     dirasa = _dirasa()
     chosen = dirasa.selection(figures, filters)
     teachers = figures.cube("teachers")
     if which == "with_children":
-        return teachers.filter(school={s["id"] for s in chosen.with_children}).sum("teachers")
+        at = teachers.filter(school={s["id"] for s in chosen.with_children})
+        return dirasa.in_round(at, filters).sum("teachers")
     return dirasa.of_schools(teachers, filters, chosen.schools).sum("teachers")
 
 
@@ -383,9 +387,11 @@ VARIANTS: dict[str, dict[str, Card]] = {
             },
             _("Dirasa teachers"),
             {
-                "round": _("The round's teachers of the schools chosen"),
-                "round_at_schools_with_children": _("The round's teachers of the schools with registrations"),
-                "view_rows": _("Rows of vw_teacher_data for the round (no filter)"),
+                "round": _("Teachers of the period's rounds, at the schools chosen"),
+                "round_at_schools_with_children": _(
+                    "Teachers of the period's rounds, at the schools with registrations"
+                ),
+                "view_rows": _("Rows of vw_teacher_data for the period's rounds (no filter)"),
             },
         ),
     },
@@ -834,50 +840,127 @@ def _related(related: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
-def page_periods(programmes: Iterable[str]) -> dict[str, list[str]]:
-    """The stored periods of the education ``programmes`` (Makani's years, Dirasa's rounds), each programme's
-    latest first as its page lists them and opens on the first (``education.services.periods``): by the start
-    of the payload's first round, then by name. A Dirasa round's name is free text in Compiler, shared by
-    every CLM programme ("Round 10 2026-2027", "Bridging Round 2 2025-2026"), so its text order need not be
-    its date order. One query (the start date is read in the database, not the payload); none for youth,
-    whose page lists its years by name."""
+YEARLY_FORMAT = 4  # Compiler counts Dirasa per year from this payload format (CONTRACT_PBI §9)
+
+
+def period_kind(programme: str, payload_format: Any) -> str:
+    """The kind of period of a payload: "year" (Makani; Dirasa from format 4) or "round" (Dirasa of an older
+    payload)."""
+    if programme != "bridging":
+        return "year"
+    try:
+        return "year" if int(payload_format or 0) >= YEARLY_FORMAT else "round"
+    except (TypeError, ValueError):
+        return "round"
+
+
+@dataclass(frozen=True)
+class StoredPeriods:
+    """The stored periods of the education programmes as their pages list them (``listed``, latest first), the
+    stored periods of the other kind that the pages no longer list (``hidden``: Dirasa's rounds once Compiler
+    counts it by year, or its years after a rollback to format 3), and the kind listed per programme
+    (``kinds``: "year" or "round")."""
+
+    listed: dict[str, list[str]]
+    hidden: dict[str, set[str]]
+    kinds: dict[str, str]
+
+
+def _year_number(name: str) -> int:
+    text = str(name).strip()
+    return int(text) if text.isdigit() else -1
+
+
+def stored_periods(programmes: Iterable[str]) -> StoredPeriods:
+    """:class:`StoredPeriods` of the education ``programmes``, in one query (the payload's format, the start
+    of its first round and the fetch time are read in the database, not the payload). Makani lists its years.
+    Dirasa lists the periods of the kind of the row fetched last (ties: "year"): its years from payload format
+    4 (Compiler counts the rounds of a year), its rounds before; the other kind stays stored, hidden, so a
+    rollback of Compiler to format 3 lists rounds again once its first rounds are fetched. Years are ordered
+    newest first by their number; rounds (and Makani's years) by the start of the payload's first round, then
+    by name, latest first: a Dirasa round's name is free text in Compiler, shared by every CLM programme
+    ("Round 10 2026-2027", "Bridging Round 2 2025-2026"), so its text order need not be its date order. Youth
+    (whose page lists its years by name) is never read here."""
     wanted = [p for p in dict.fromkeys(programmes) if p in EDUCATION]
+    listed: dict[str, list[str]] = {p: [] for p in wanted}
+    hidden: dict[str, set[str]] = {p: set() for p in wanted}
+    kinds: dict[str, str] = {p: "year" if p != "bridging" else "round" for p in wanted}
     if not wanted:
-        return {}
-    rows = EducationFigures.objects.filter(programme__in=wanted).values_list(
-        "programme", "year", "payload__rounds__0__start_date"
+        return StoredPeriods(listed, hidden, kinds)
+    rows = list(
+        EducationFigures.objects.filter(programme__in=wanted).values_list(
+            "programme", "year", "payload__rounds__0__start_date", "payload__format", "fetched_at"
+        )
     )
-    out: dict[str, list[str]] = {p: [] for p in wanted}
-    for programme, year, _start in sorted(rows, key=lambda r: (str(r[2] or ""), r[1]), reverse=True):
-        out[programme].append(year)
-    return out
+    kind_of = {(programme, year): period_kind(programme, fmt) for programme, year, _s, fmt, _f in rows}
+    for programme in wanted:
+        mine = [r for r in rows if r[0] == programme]
+        if programme == "bridging" and mine:
+            last = max(mine, key=lambda r: (r[4], kind_of[(r[0], r[1])] == "year"))
+            kinds[programme] = kind_of[(last[0], last[1])]
+        kind = kinds[programme]
+        shown = [r for r in mine if kind_of[(r[0], r[1])] == kind]
+        hidden[programme] = {r[1] for r in mine if kind_of[(r[0], r[1])] != kind}
+        if programme == "bridging" and kind == "year":
+            ordered = sorted(shown, key=lambda r: (_year_number(r[1]), r[1]), reverse=True)
+        else:
+            ordered = sorted(shown, key=lambda r: (str(r[2] or ""), r[1]), reverse=True)
+        listed[programme] = [r[1] for r in ordered]
+    return StoredPeriods(listed, hidden, kinds)
+
+
+def page_periods(programmes: Iterable[str]) -> dict[str, list[str]]:
+    """The stored periods of the education ``programmes`` each page lists (Makani's years; Dirasa's years from
+    payload format 4, its rounds before), each programme's latest first as its page lists them and opens on
+    the first (``education.services.periods``): :func:`stored_periods`."""
+    return stored_periods(programmes).listed
+
+
+def hidden_periods(programmes: Iterable[str]) -> dict[str, set[str]]:
+    """The stored periods of the other kind than the one each page lists (:func:`stored_periods`): kept, never
+    shown, compared nor offered."""
+    return stored_periods(programmes).hidden
 
 
 def latest_first(
-    programme: str, periods: Iterable[str], page: dict[str, list[str]] | None = None
+    programme: str,
+    periods: Iterable[str],
+    page: dict[str, list[str]] | None = None,
+    hidden: dict[str, set[str]] | None = None,
 ) -> list[str]:
-    """``periods`` of ``programme`` (all years together left out), latest first in the order its page
-    lists them (:func:`page_periods`; youth's years by name, as its page), so that Data health, the card
-    admin and the summary call "latest" the period the page opens on. A period the page no longer lists
-    comes after, by name. ``page``: :func:`page_periods`' answer, when already read."""
+    """``periods`` of ``programme`` (all years together and the hidden periods left out), latest first in the
+    order its page lists them (:func:`page_periods`; youth's years by name, as its page), so that Data health,
+    the card admin and the summary call "latest" the period the page opens on, and never name an old Dirasa
+    round once its years are shown. A period the page does not list (no figures stored) comes after, by name.
+    ``page`` and ``hidden``: :func:`stored_periods`' answer, when already read (both are read, in one query,
+    when neither is given)."""
     periods = [p for p in dict.fromkeys(periods) if p != ALL]
     if programme not in EDUCATION:
         return sorted(periods, reverse=True)
-    order = (page_periods([programme]) if page is None else page).get(programme, [])
+    if page is None and hidden is None:
+        read = stored_periods([programme])
+        page, hidden = read.listed, read.hidden
+    order = (page or {}).get(programme, [])
+    dropped = (hidden or {}).get(programme, set())
+    periods = [p for p in periods if p not in dropped]
     rank = {period: i for i, period in enumerate(order)}
     listed = sorted((p for p in periods if p in rank), key=rank.__getitem__)
     return listed + sorted((p for p in periods if p not in rank), reverse=True)
 
 
 def latest_period(
-    programme: str, checks: list[PowerBiCheck] | None = None, page: dict[str, list[str]] | None = None
+    programme: str,
+    checks: list[PowerBiCheck] | None = None,
+    page: dict[str, list[str]] | None = None,
+    hidden: dict[str, set[str]] | None = None,
 ) -> str:
-    """The programme's latest compared period (not all years together), as its page orders them
-    (:func:`latest_first`): the one a Power BI number typed without a period is compared with. ``checks``: the
-    programme's, and ``page``: :func:`page_periods`' answer, when already read."""
+    """The programme's latest compared period (not all years together, not a hidden one), as its page orders
+    them (:func:`latest_first`): the one a Power BI number typed without a period is compared with.
+    ``checks``: the programme's, and ``page`` and ``hidden``: :func:`stored_periods`' answer, when already
+    read."""
     if checks is None:
         checks = list(PowerBiCheck.objects.filter(programme=programme).only("programme", "period"))
-    periods = latest_first(programme, (c.period for c in checks if c.programme == programme), page)
+    periods = latest_first(programme, (c.period for c in checks if c.programme == programme), page, hidden)
     return periods[0] if periods else ""
 
 
@@ -927,12 +1010,14 @@ def _cards(
     return out
 
 
-def _latest(programme: str, checks: list[PowerBiCheck], page: dict[str, list[str]]) -> list[PowerBiCheck]:
+def _latest(programme: str, checks: list[PowerBiCheck], periods: StoredPeriods) -> list[PowerBiCheck]:
     """The programme's checks: all years together first (youth), then the periods, latest first as its page
-    orders them (:func:`latest_first`; ``page``: :func:`page_periods`' answer)."""
+    orders them, the hidden ones left out (:func:`latest_first`; ``periods``: :func:`stored_periods`'
+    answer)."""
     mine = {c.period: c for c in checks if c.programme == programme}
     every = [mine[ALL]] if ALL in mine else []
-    return every + [mine[period] for period in latest_first(programme, mine, page)]
+    ordered = latest_first(programme, mine, periods.listed, periods.hidden)
+    return every + [mine[period] for period in ordered]
 
 
 def _stale(the_check: PowerBiCheck) -> bool:
@@ -954,10 +1039,13 @@ def _row(
     rows = _reconciled(reconciliation)
     read = _view_read(reconciliation)
     view_ids, counted = totals.get("view_ids"), totals.get("counted")
+    rule = (the_check.base or {}).get("period_rule")
     return {
         "programme": the_check.programme,
         "period": the_check.period,
         "every_year": the_check.period == ALL,
+        # Dirasa counted per year (payload format 4): how the rounds of the year were chosen ("" otherwise)
+        "year_rule": rule if the_check.programme == "bridging" and rule in YEAR_RULES else "",
         "view": the_check.view,
         "view_state": None
         if view is None
@@ -1011,11 +1099,11 @@ def health() -> list[dict[str, Any]]:
         v.name: v for v in PowerBiView.objects.filter(name__in=names).defer("definition", "columns", "reads")
     }
     typed = {(c.programme, c.card): c for c in PowerBiCard.objects.all()}
-    page = page_periods({c.programme for c in checks})
+    stored = stored_periods({c.programme for c in checks})
     out = []
     for programme, label, url_name in PROGRAMMES:
-        mine = _latest(programme, checks, page)
-        latest = latest_period(programme, mine, page)
+        mine = _latest(programme, checks, stored)
+        latest = latest_period(programme, mine, stored.listed, stored.hidden)
         out.append(
             {
                 "programme": programme,
@@ -1035,10 +1123,10 @@ def summary() -> list[dict[str, Any]]:
     (``reports.services.data_health``). Its latest period is the one its page opens on
     (:func:`latest_first`)."""
     checks = list(PowerBiCheck.objects.exclude(period=ALL))
-    page = page_periods({c.programme for c in checks})
+    stored = stored_periods({c.programme for c in checks})
     out = []
     for programme, label, _url in PROGRAMMES:
-        latest = next(iter(_latest(programme, checks, page)), None)
+        latest = next(iter(_latest(programme, checks, stored)), None)
         if latest is None:
             out.append({"programme": programme, "label": str(label), "compared": False})
             continue

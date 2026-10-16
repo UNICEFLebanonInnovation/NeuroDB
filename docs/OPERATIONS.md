@@ -4413,7 +4413,8 @@ is listed as *pending*. The API is limited to the "NeuroDB API" group and rate-l
 
 **What is counted.**
 - *Which registrations* (Compiler's payload format 3): those of the view Power BI reads,
-  `vw_mscc_data` (Makani) and `vw_bridging_data` (Dirasa), for the year or round, deleted ones left out,
+  `vw_mscc_data` (Makani) and `vw_bridging_data` (Dirasa), for the year (Makani: the rounds of the year;
+  Dirasa: *Dirasa by year* below), deleted ones left out,
   with the partner and the centre or school the view gives (see *Compared with Power BI* below). When the
   view cannot be used, Compiler's own rule, corrected for what is certain: Makani counts no TLS
   registration and no registration without a round any more (before format 3 it counted both, and the
@@ -4423,8 +4424,12 @@ is listed as *pending*. The API is limited to the "NeuroDB API" group and rate-l
   was the current year.
 - *Makani*: registrations not deleted in the rounds of a year; partner = the view's, else the
   registration's partner, else the center's; place = the center's governorate, district and cadaster.
-- *Bridging*: registrations not deleted in the round; place = the registration's governorate,
-  district and cadaster. A child who dropped out still counts; the learning result shows dropouts.
+- *Bridging*: registrations not deleted in the rounds of the year (payload format 4: the CLM
+  rounds whose Bridging start date is in the year, a round without one by the year in its name; Compiler
+  setting `FIGURES_POWER_BI['bridging']['period'] = 'current_rounds'` counts the rounds flagged current
+  instead, current year only); place = the registration's governorate, district and cadaster. A child
+  counts once per year however many rounds; registrations add up over the rounds. A child who dropped out
+  still counts; the learning result shows dropouts.
 - A child counts once per figure however many registrations, services or partners, so rows do not
   add up to the total. Age groups (under 6, 6-9, 10-14, 15-17, 18 and over) come from the birth year.
 - Parts: children (by partner, governorate, district, cadaster, center or school, round, registration
@@ -4457,7 +4462,8 @@ own rule ("rule mode"), and the payload says why: "view missing", "no SELECT per
 "key check: 62% of the view's ids are registrations", "the view has no rows for 2026 while 41,210
 registrations do", "setting FIGURES_POWER_BI base = rule", or a query that took too long ("QueryCanceled:
 ..."). Compiler's setting `FIGURES_POWER_BI` (per programme:
-`base` `auto`/`view`/`rule`, `deleted` `exclude`/`include`, Makani's `period` `round_year`/`current_rounds`)
+`base` `auto`/`view`/`rule`, `deleted` `exclude`/`include`, Makani's `period` `round_year`/`current_rounds`,
+Bridging's `period` `start_year`/`current_rounds`)
 changes this without a code change. Ids never leave Compiler: the payload holds counts, the views' column
 names and their definitions with every string literal and long list of numbers masked (and the hash of the
 raw text).
@@ -4487,12 +4493,12 @@ raw text).
   format, a filter the unique count does not hold) shows the default instead, and the card says so.
 - *Choosing a version* (Administrators only): Admin → Compiler (youth and education) → **Power BI cards**
   lists every card. Type the number Power BI shows for a card and choose its period in the list (the
-  periods Data health compares: Makani's year, e.g. 2026; Dirasa's round by its name, e.g. "Bridging
-  2026-2027", whatever Power BI's page title says; youth's year or *All years*; left empty, the latest
-  period), save: Data health marks the version that gives it; choose that version in the same form. A
-  number kept without a period is compared with the latest period only. "The latest period" is the one the
-  page opens on: Dirasa's round that starts last (by its first round's start date, as the page orders its
-  rounds), whatever its name, since round names are free text; Data health and its summary order the
+  periods Data health compares: Makani's year, e.g. 2026; Dirasa's year, e.g. 2026 (a round by its name in
+  counts before format 4); youth's year or *All years*; left empty, the latest period), save: Data health
+  marks the version that gives it; choose that version in the same form. A number kept without a period is
+  compared with the latest period only. "The latest period" is the one the page opens on: the newest year
+  (before format 4: Dirasa's round that starts last, by its first round's start date, as the page ordered its
+  rounds, whatever its name, since round names are free text); Data health and its summary order the
   periods the same way. The pages show it at once
   (the choice is in their caches' keys); nothing else changes. **Power BI views** (Administrators only,
   read-only) shows each view's masked definition, columns, the relations it reads, its hash and the date
@@ -4521,8 +4527,8 @@ raw text).
 
 **The pages** (Education and youth → **Makani (MSCC)** and **Dirasa (Bridging)**; `/education/` opens
 Makani). They follow the programmes' Power BI dashboards: title "Makani Programme Dashboard <year>"
-or "Dirasa Programme Dashboard <round>", the last data update (Compiler's count) and a year or round
-select; one tab per Power BI page (`?tab=`); a slicer bar of single-select dropdowns ("All" by
+or "Dirasa Programme Dashboard <year>" (older counts: `<round>`), the last data update (Compiler's count)
+and a year select (Dirasa, older counts: a round select); one tab per Power BI page (`?tab=`); a slicer bar of single-select dropdowns ("All" by
 default, options = the values found in the counts, "Not specified" for unknown values). A slicer
 change replaces the results only (HTMX); the tabs keep the filters. A filter chosen on a tab that does
 not have it (e.g. gender on the Dirasa map) stays in the links for the other tabs and the page lists it
@@ -4550,11 +4556,15 @@ in-school children, teachers).
     matched to NeuroDB's polygons by name, English or Arabic, with aliases (Baalbek-Hermel /
     Baalbeck-Hermel / بعلبك-الهرمل, Nabatieh / El Nabatieh / النبطية...); an unmatched one is marked
     "not on the map" in the table. Centers without a GPS point are in the table only.
-- *Dirasa* slicers: CWD type, nationality, gender, school, partner, governorate, school type, school
-  active during emergency. School filters (school, partner, governorate = the school's, type,
-  emergency) choose the schools and the registrations counted are those of these schools (and of the
-  partner chosen; partner "Not specified": registrations without a partner, schools without any);
-  child filters (CWD type, nationality, gender) apply to registrations only.
+- *Dirasa* slicers: round (payload format 4: the rounds of the year), CWD type, nationality, gender, school,
+  partner, governorate, school type, school active during emergency. Dirasa (format 4) lists the year's
+  rounds under the title and has a Round slicer (not on Outreach). School filters (school, partner,
+  governorate = the school's, type, emergency) choose the schools and the registrations counted are those of
+  these schools (and of the partner chosen; partner "Not specified": registrations without a partner,
+  schools without any); child filters (CWD type, nationality, gender) apply to registrations only. The
+  round chooses the registrations, teachers and trainings of that round, so the schools with registrations
+  are that round's; the unique children answer the round alone, with the partner or with the gender (the
+  card shows the registrations with the school).
   - *Overview*: Dirasa schools (with children under the filters), children enrolled in Dirasa (unique
     children, with the registrations as a second line; the unique count answers the partner, school and
     gender filters, the card shows registrations under the others), in-school children and in-school
@@ -4579,6 +4589,22 @@ in-school children, teachers).
 - If Compiler could not count a part (e.g. its query hit the timeout), the page says which and the
   other parts still show.
 
+**Dirasa by year (payload format 4).** Power BI's Dirasa page titled "2026" shows the rounds of 2026, not
+one round, so from payload format 4 Compiler counts Dirasa per year, as Makani: the CLM rounds whose Bridging
+start date is in the year (a round without one, the first four-digit year in its name; a round with neither
+is in no year, and Data health lists it "in no year"); with its setting `FIGURES_POWER_BI['bridging']['period']
+= 'current_rounds'`, the current year counts instead the Bridging rounds flagged current, as Compiler's own
+Bridging list. A child counts once per year however many rounds of the year it is registered in; the
+registrations add up over the rounds; a Round slicer still shows one round. *Deployment*: Compiler first
+(branch `neurodb-power-bi-views`, which now holds `Neuro`), then NeuroDB; until NeuroDB is updated its
+Dirasa select mixes the old rounds and the years, labelled "Round" (each year's figures are right). No
+migration on either side. The first run counts again every year NeuroDB reads (`COMPILER_EDUCATION_YEARS`).
+The older per-round figures are kept and hidden as soon as a per-year count is the latest read (they come
+back if Compiler goes back to format 3); an old link naming a round (`?round=Bridging 2025-2026`) opens the
+year holding it with that round chosen. Power BI numbers typed for a round must be typed again for the year
+(the card admin says "no such period: choose one"). Country-programme links to a round keep their value;
+new links name a year ("Dirasa 2026 — children enrolled").
+
 **Setting it up.**
 1. Compiler: deploy branch `neurodb-education-figures` (migrations `figures.0001` and `0002`) with its
    Celery worker running (no Celery beat or periodic task is needed: NeuroDB asks); the comparison with
@@ -4601,10 +4627,10 @@ in-school children, teachers).
    the run, which ends *partial*, and what Compiler has is read all the same. Compiler counts one thing at
    a time: if it is busy with the youth count, the sync waits for that one, then asks once more (the run
    notes `calculation_other`, and "Compiler was busy with another count" if it still is).
-   (`sync_compiler_education --no-calculate`, for developers, only reads.) It reads the current year or
-   round of each programme and the ones before it
+   (`sync_compiler_education --no-calculate`, for developers, only reads.) It reads the current year of
+   each programme (Dirasa: a round in counts before format 4) and the ones before it
    (`COMPILER_EDUCATION_YEARS`, default 3 in all; from an older Compiler, only the counted ones), Makani
-   and Bridging only. Payloads of format 2 and 3 are read alike; format 3's comparison with Power BI's
+   and Bridging only. Payloads of formats 2, 3 and 4 are read alike; format 3's comparison with Power BI's
    view is kept apart for Data health, and a change of a view's definition is named on the run
    (`power_bi_changed`). A year Compiler has not counted yet is listed as *pending* in the run and
    arrives at the next run.
@@ -4638,7 +4664,7 @@ in-school children, teachers).
    "Compiler's rule" says why (the reasons are listed under *Compared with Power BI* above, e.g. the
    grant of step 4.1 is missing). *Before this change* shows how much each old cause weighed (TLS, without
    a round...). Right after Power BI's refresh, an administrator opens Admin → **Power BI cards**, types
-   for each card the number Power BI shows, chooses its period in the list (a Dirasa round by its name),
+   for each card the number Power BI shows, chooses its period in the list (Dirasa: a year such as 2026),
    and picks the version Data health
    marks as equal to it; the pages show it at once. A card no version equals stays on its default, and
    Data health says "No version equals Power BI's number": send the screenshot to the developers.
@@ -4647,8 +4673,8 @@ in-school children, teachers).
    with its own corrected rule again, and the pages say so; add `FIGURES_POWER_BI_RELATED = False` when the
    related views (staff, centres, teachers) must not be read either (`base` covers the programme's own view
    only). A change of `base` or `deleted` in `FIGURES_POWER_BI` makes every period's count stale, so the
-   next run counts the past periods again too (not a week later); a change of Makani's `period` makes only
-   the current year's stale (a past year always counts the rounds of its own year). Likewise a period counted in
+   next run counts the past periods again too (not a week later); a change of Makani's or Bridging's `period`
+   makes only the current year's stale (a past year always counts the rounds of its own year). Likewise a period counted in
    rule mode because the view could not be read (missing, not a view, no SELECT permission) is stale once it
    can be (a grant given after the deployment or again after the view was re-created, or a missing view
    created again by hand; a view dropped and created again loses its grants, step 4.1), so the next run counts

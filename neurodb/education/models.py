@@ -1,7 +1,8 @@
 """The education programmes' counts read from Compiler: Makani (MSCC) and Bridging (Dirasa).
 
 Compiler counts the children itself, at night, and NeuroDB keeps what it sends: one document per
-programme and year (Makani: the rounds of a year; Bridging: one round), never a row about a child.
+programme and year (Makani: the rounds of a year; Bridging: one year from payload format 4, or one round in
+older payloads), never a row about a child.
 """
 
 from __future__ import annotations

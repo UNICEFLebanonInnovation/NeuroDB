@@ -9,8 +9,10 @@ Compiler ignores the targets and counts every current year, as before. Compiler 
 answers a request made during another one (the youth count) with that one: the sync waits for it, then asks
 again once.
 
-Payloads of format 2 and 3 are read alike (format 3 only adds keys, among them the comparison with Power BI's
-view, kept apart by :func:`neurodb.education.power_bi.store`).
+Payloads of formats 2, 3 and 4 are read alike (format 3 only adds keys, among them the comparison with Power
+BI's view, kept apart by :func:`neurodb.education.power_bi.store`; format 4: Dirasa per year, CONTRACT_PBI §9,
+its periods are years like Makani's, and the per-round rows stored before stay, hidden from the pages by
+:func:`neurodb.education.power_bi.stored_periods`).
 """
 
 from __future__ import annotations

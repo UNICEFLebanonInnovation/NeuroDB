@@ -371,7 +371,7 @@ def review(s: Section, today: datetime.date) -> None:
 
 def context(s: Section, today: datetime.date) -> None:
     from neurodb.core.models import PopulationFigure
-    from neurodb.education.models import EducationFigures
+    from neurodb.education.power_bi import EDUCATION, page_periods
     from neurodb.graph.models import Change
     from neurodb.wellbeing.models import CenterSummary
     from neurodb.youth.models import YouthFigures
@@ -388,7 +388,9 @@ def context(s: Section, today: datetime.date) -> None:
             ),
         )
     s.add("youth_years", "Compiler youth years", YouthFigures.objects.yearly().count())
-    s.add("education_periods", "Compiler education periods", EducationFigures.objects.count())
+    # the periods the pages list (Dirasa's rounds stored before it was counted by year are kept, not listed)
+    listed = page_periods(EDUCATION)
+    s.add("education_periods", "Compiler education periods", sum(len(v) for v in listed.values()))
     s.add(
         "wellbeing_months",
         "Makani wellbeing months",

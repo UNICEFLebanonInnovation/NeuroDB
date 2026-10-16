@@ -174,10 +174,16 @@ Dirasa's *Children enrolled* card counts each child once, which is what Power BI
 with the number of registrations under it. The youth page has **All years**, which also counts the
 registrations saved before September 2025 without a year.
 
+**Dirasa by year.** Like Power BI's page "Dirasa Programme Dashboard 2026", the Dirasa page shows a year:
+the Compiler rounds whose Bridging start date is in that year (a round without one counts in the year
+its name gives). The line under the title lists those rounds and their registrations; the **Round**
+filter shows one of them. A child registered in two rounds of the year counts once in *Children
+enrolled* and twice in the registrations.
+
 **Choosing a card's version** (administrators): open Administration → **Power BI cards**, open the card,
 type the number Power BI shows for it, choose its period in the list (the periods Data health compares: for
-Dirasa the round's name, such as "Bridging 2026-2027", whatever Power BI's page title says; left empty, the
-latest period, the one the page opens on), and save. Data health → *Compared
+Dirasa the year, such as 2026 (in counts made before Compiler counted Dirasa by year, the round's name); left
+empty, the latest period, the one the page opens on), and save. Data health → *Compared
 with Power BI* then marks the version that gives that number ("equals Power BI"); choose that version in
 the same card and save. The pages, and the country programme's children enrolled, show it at once. A card
 whose versions all differ from Power BI's number says "No version equals Power BI's number": tell the

@@ -22,7 +22,7 @@ def _year_of(text: str | None) -> int | None:
 
 def choices(indicator: Indicator) -> list[tuple[str, list[tuple[str, str]]]]:
     from neurodb.datamart import monitoring
-    from neurodb.education.models import EducationFigures
+    from neurodb.education.power_bi import page_periods
     from neurodb.indicators.models import MasterIndicator
     from neurodb.youth.figures import Figures, indicator_label
     from neurodb.youth.models import YouthFigures
@@ -81,11 +81,15 @@ def choices(indicator: Indicator) -> list[tuple[str, list[tuple[str, str]]]]:
     if options:
         groups.append(("Compiler youth indicators (young people reached)", options))
 
+    # the periods the pages list (Makani's years; Dirasa's years from Compiler's payload format 4): an old
+    # Dirasa round the page no longer shows is not offered, a link already made to it keeps its value
     names = {"mscc": "Makani", "bridging": "Dirasa"}
+    listed = page_periods(sorted(names))
     options = [
-        (f"edu:{r.programme}:{r.year}", f"{names.get(r.programme, r.programme)} {r.year} — children enrolled")
-        for r in EducationFigures.objects.order_by("programme", "-year")
-        if _year_of(r.year) in years
+        (f"edu:{programme}:{period}", f"{names[programme]} {period} — children enrolled")
+        for programme in sorted(listed)
+        for period in listed[programme]
+        if _year_of(period) in years
     ]
     if options:
         groups.append(("Compiler education (children enrolled)", options))

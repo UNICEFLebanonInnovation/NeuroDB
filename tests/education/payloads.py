@@ -1,6 +1,7 @@
-"""Synthetic education payloads (format 2), built from fake registrations the way Compiler builds them:
-a cube counts the records per combination of its dimensions, a block counts unique children per
-grouping, and the lists name every id used. Tests and the local demo use them; nothing here is real.
+"""Synthetic education payloads (format 2; format 3 with :func:`format_three`; Dirasa per year, format 4, with
+:func:`dirasa_year_payload`), built from fake registrations the way Compiler builds them: a cube counts the
+records per combination of its dimensions, a block counts unique children per grouping, and the lists name every
+id used. Tests and the local demo use them; nothing here is real.
 """
 
 from __future__ import annotations
@@ -405,6 +406,20 @@ KEY_CHECKS = {  # CONTRACT_PBI §3.3 (youth: the year, the partner and the delet
 }
 
 
+YEAR_FLAGS = ("deleted", "no_student", "no_round", "other_year")  # Dirasa's reasons from format 4
+
+
+def _year_periods(rounds: list[dict[str, Any]], rows: int, deleted: int) -> list[dict[str, Any]]:
+    """Dirasa's ``periods`` from format 4: one entry per round of the view, with its year (CONTRACT_PBI §9.3)."""
+    out = []
+    for i, r in enumerate(rounds):
+        mine = r.get("view_rows", rows if i == 0 else 0)
+        keys = ("id", "name", "current", "current_year", "start_date", "end_date", "year", "year_from")
+        out.append({**{k: r.get(k) for k in keys}, "view_rows": mine, "view_ids": mine,
+                    "deleted_rows": r.get("deleted_rows", deleted if i == 0 else 0)})  # fmt: skip
+    return out
+
+
 def _period(programme: str, period: str, rows: int, deleted: int) -> dict[str, Any]:
     """One entry of ``periods``: the view's rows of a round (Makani, Bridging) or a year (youth)."""
     counts = {"view_rows": rows, "view_ids": rows, "deleted_rows": deleted}
@@ -432,13 +447,22 @@ def power_bi_block(
     current: bool = True,
     related: dict[str, dict] | None = None,
     errors: list[str] = (),
+    year_rounds: list[dict[str, Any]] | None = None,
+    period_rule: str = "start_year",
 ) -> dict[str, Any]:
     """The ``power_bi`` block of one programme and period: view mode (``counted`` of the view's registrations
     kept, ``deleted`` left out) or rule mode (``reason``), against what NeuroDB counted ``before``; the rest of
     ``before`` is left out for the programme's second reason (TLS, no student, no year). ``periods`` and
-    ``related`` are only in the payload of the programme's current period (``current``)."""
+    ``related`` are only in the payload of the programme's current period (``current``).
+
+    ``year_rounds`` (Dirasa per year, format 4, CONTRACT_PBI §9.3): the rounds of the view, each an entry of
+    ``periods`` (with its ``year`` and ``year_from``; the view's rows all in the first one unless it says its own
+    ``view_rows``), the year's ``period_rule``, the reasons ``no_round`` and ``other_year``, and ``same_year``
+    (null: the view has no year column)."""
     view = VIEWS[programme]
-    flags, people, period_column, period_rule, overrides = RECONCILED[programme]
+    flags, people, period_column, rule, overrides = RECONCILED[programme]
+    if year_rounds is not None:
+        flags, rule = YEAR_FLAGS, period_rule
     viewed = mode == "view"
     in_view = counted + deleted
     catalogue = {view: catalogue_entry(programme, version=version, exists=viewed or reason != "view missing")}
@@ -460,6 +484,8 @@ def power_bi_block(
 
     key_check = {"rows": in_view, "ids": in_view, "found": in_view, **dict.fromkeys(KEY_CHECKS[programme], in_view),
                  "deleted_rows": deleted, "max_rows_per_id": 1, "conflicting": 0, "verified": True}  # fmt: skip
+    if year_rounds is not None:
+        key_check["same_year"] = None  # the view has no year column: chosen by round_id
     seen = in_view if viewed else None  # the view totals are null when the view was not read
     profiled = {
         "vw_center_program_staff": {
@@ -480,7 +506,7 @@ def power_bi_block(
             "setting": "auto",
             "key": "id" if viewed else None,
             "period_column": period_column if viewed else None,
-            "period_rule": "all" if period == "all" else period_rule,
+            "period_rule": "all" if period == "all" else rule,
             "deleted": "exclude",
             "overrides": overrides if viewed else [],
         },
@@ -500,7 +526,13 @@ def power_bi_block(
                        "in_view_not_counted": deleted if viewed else None, "counted_not_in_view": 0 if viewed else None,
                        "deleted_in_view": deleted if viewed else None},
         },
-        "periods": [_period(programme, period, in_view, deleted)] if current and viewed else [],
+        "periods": (
+            [_period(programme, period, in_view, deleted)]
+            if year_rounds is None
+            else _year_periods(year_rounds, in_view, deleted)
+        )
+        if current and viewed
+        else [],
         "related": profiled if current and programme == "mscc" else {},
         "errors": list(errors),
     }  # fmt: skip
@@ -535,3 +567,66 @@ def format_three(
             for scope, chosen in (("listed", listed), ("all", schools))
         }  # fmt: skip
     return out
+
+
+# --------------------------------------------------------------------------- format 4: Dirasa counted per year
+# Compiler counts the Bridging rounds of a year (CONTRACT_PBI §9): the rounds whose Bridging start date is in the
+# year (a round without one, by the first year in its name), a child once per year, the registrations summed over
+# the rounds; the cubes and the registrations block gain a ``round`` dimension so one round can still be shown.
+ROUNDS_2026 = [
+    {"id": 31, "name": "Bridging Round 1 2026", "start_date": "2026-01-12", "end_date": "2026-06-30",
+     "current": False, "current_year": True, "year": 2026, "year_from": "start_date"},
+    {"id": 32, "name": "Bridging Round 2 2026", "start_date": "2026-09-01", "end_date": None,
+     "current": True, "current_year": True, "year": 2026, "year_from": "start_date"},
+]  # fmt: skip
+
+
+def dirasa_year_payload(
+    registrations: list[dict[str, Any]],
+    teachers: list[dict[str, Any]] = (),
+    outreach: list[dict[str, Any]] = (),
+    *,
+    year: str = "2026",
+    rounds: list[dict[str, Any]] = ROUNDS_2026,
+    counted_at: str = "2026-09-29T09:07:25+03:00",
+    schools: list[dict[str, Any]] = SCHOOLS,
+    lists: dict[str, list[dict[str, Any]]] | None = None,
+    block: dict[str, Any] | None = None,
+    period_rule: str = "start_year",
+) -> dict[str, Any]:
+    """Dirasa figures of a year (format 4): :func:`dirasa_payload`'s, with each registration's and teacher's
+    ``round`` (an id of ``rounds``) a dimension of the enrolment (last), teachers and trainings cubes and a
+    detail of the registrations block (with the extra grouping round and sex), the year's ``rounds`` and a
+    ``power_bi`` block of the year (``period_rule`` "start_year" by default; ``block`` replaces it), as
+    :func:`format_three` adds it, then ``"format": 4``."""
+    payload = dirasa_payload(
+        registrations,
+        teachers,
+        outreach,
+        round_name=year,
+        counted_at=counted_at,
+        schools=schools,
+        lists=lists,
+    )
+    records = [{"learning_result": "in_progress", **r} for r in registrations]
+    trained = [
+        {"school": t.get("school"), "sex": t.get("sex"), "training": k, "round": t.get("round")}
+        for t in teachers
+        for k in t.get("trainings", ())
+    ]
+    payload["cubes"] = {
+        "enrolment": cube(records, (*DIRASA_DIMS, "round"), DIRASA_MEASURES),
+        "teachers": cube(list(teachers), ("school", "sex", "round"), ("teachers",)),
+        "trainings": cube(trained, ("school", "sex", "training", "round"), ("teachers",)),
+    }
+    payload["blocks"]["registrations"] = people_block(
+        records,
+        ("partner", "governorate"),
+        ("school", "sex", "round"),
+        (("round", "sex"),),
+        flags=("pre_tested", "post_tested"),
+    )
+    payload["rounds"] = [dict(r) for r in rounds]
+    if block is None:
+        block = power_bi_block("bridging", year, year_rounds=rounds, period_rule=period_rule)
+    return {**format_three(payload, block, schools=schools), "format": 4}

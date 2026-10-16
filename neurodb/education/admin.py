@@ -8,10 +8,12 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import format_html, format_html_join
+from django.utils.http import urlencode
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
 
 from neurodb.accounts.roles import ADMIN, role_of
+from neurodb.core import compute
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
 from . import power_bi
@@ -76,11 +78,14 @@ class EducationFiguresAdmin(ReadOnlyModelAdmin):
 
     @admin.display(description=_("Page"))
     def page(self, obj):
-        if obj.programme == "bridging":
-            url, param = reverse("education:dirasa"), "round"
-        else:
-            url, param = reverse("education:makani"), "year"
-        return format_html('<a href="{}?{}={}">{}</a>', url, param, obj.year, _("Open"))
+        hidden = compute.per_request(  # read once per request (a dozen rows)
+            "education:hidden-periods", lambda: power_bi.hidden_periods(power_bi.EDUCATION)
+        )
+        if obj.year in hidden.get(obj.programme, set()):
+            return _("Not on the page: replaced by the figures Compiler sends now")
+        url = reverse("education:dirasa" if obj.programme == "bridging" else "education:makani")
+        kind = power_bi.period_kind(obj.programme, (obj.payload or {}).get("format"))
+        return format_html('<a href="{}?{}">{}</a>', url, urlencode({kind: obj.year}), _("Open"))
 
 
 class AdministratorsOnly:
@@ -155,25 +160,27 @@ def _period_label(period: str) -> str:
 def compared_periods(programme: str | None) -> list[str]:
     """The periods Data health compares for ``programme`` (every programme's when None), latest first and all
     years together last: what a Power BI number can be typed for. Makani's are years ("2026"), Dirasa's are
-    round names ("Bridging 2026-2027"), youth's years and "all"; each programme's latest first as its page
-    orders them (:func:`neurodb.education.power_bi.latest_first`: a Dirasa round by its start, not its
-    name)."""
+    years (payload format 4, "2026") or round names (older payloads, "Bridging 2026-2027"), youth's years and
+    "all"; each programme's latest first as its page orders them, the periods its page no longer lists left
+    out (:func:`neurodb.education.power_bi.latest_first`: a Dirasa round by its start, not its name)."""
     checks = PowerBiCheck.objects.all()
     if programme:
         checks = checks.filter(programme=programme)
     rows = list(checks.values_list("programme", "period"))
-    page = power_bi.page_periods({p for p, _period in rows})
+    stored = power_bi.stored_periods({p for p, _period in rows})
     out: list[str] = []
     for name in dict.fromkeys([p for p, _l, _u in power_bi.PROGRAMMES] + sorted({p for p, _period in rows})):
-        out += power_bi.latest_first(name, (period for p, period in rows if p == name), page)
+        periods = (period for p, period in rows if p == name)
+        out += power_bi.latest_first(name, periods, stored.listed, stored.hidden)
     every = [power_bi.ALL] if any(period == power_bi.ALL for _p, period in rows) else []
     return list(dict.fromkeys(out)) + every
 
 
 class PowerBiCardForm(forms.ModelForm):
     """The card's version (one of :data:`neurodb.education.power_bi.VARIANTS`), Power BI's number and the
-    period it was read for: one of the periods Data health compares (a Dirasa round by its name), chosen in a
-    list rather than typed, so that it always matches one; left empty, the latest period."""
+    period it was read for: one of the periods Data health compares (Dirasa: a year such as 2026; a round by
+    its name in counts made before Compiler counted Dirasa by year), chosen in a list rather than typed, so
+    that it always matches one; left empty, the latest period."""
 
     class Meta:
         model = PowerBiCard
@@ -212,8 +219,9 @@ class PowerBiCardForm(forms.ModelForm):
             choices=period_choices,
             required=False,
             help_text=_(
-                "The period Power BI shows the number for, as Data health lists it (a Dirasa round by its "
-                "name). Left empty: the latest period."
+                "The period Power BI shows the number for, as Data health lists it (Dirasa: a year such as "
+                "2026; a round by its name in counts made before Compiler counted Dirasa by year). Left "
+                "empty: the latest period."
             ),
         )
 
@@ -317,10 +325,13 @@ class PowerBiCardAdmin(AdministratorsOnly, ModelAdmin):
 
     @staticmethod
     def _unknown_period(obj) -> bool:
-        return (
-            bool(obj.powerbi_period)
-            and not PowerBiCheck.objects.filter(programme=obj.programme, period=obj.powerbi_period).exists()
-        )
+        """A period typed that Data health does not compare: no comparison of it, or one of a period the page
+        no longer lists (an old Dirasa round once Compiler counts Dirasa by year: its comparison is kept)."""
+        if not obj.powerbi_period:
+            return False
+        if obj.powerbi_period in power_bi.hidden_periods([obj.programme]).get(obj.programme, set()):
+            return True
+        return not PowerBiCheck.objects.filter(programme=obj.programme, period=obj.powerbi_period).exists()
 
     @admin.display(description=_("Versions equal to Power BI's number"))
     def equals(self, obj):
@@ -344,7 +355,7 @@ class PowerBiCardAdmin(AdministratorsOnly, ModelAdmin):
         if self._unknown_period(obj):
             return _(
                 "Data health compares no period “%(period)s” for this programme: choose one of the periods "
-                "in the list (a Dirasa round by its name)."
+                "in the list (Dirasa: a year such as 2026)."
             ) % {"period": obj.powerbi_period}
         period, values = self._values(obj)
         if definition is None or not values:
