@@ -4,19 +4,20 @@ Outreach, Attendance barriers, Schools map.
 The page shows a year (payload format 4: the CLM rounds whose Bridging start date is in the year, a round
 without one by the year in its name, or those Compiler marks current) or a round (older payloads). The line
 under the title lists the year's rounds (:func:`rounds_line`) and the Round slicer shows one of them (from
-format 4; never on Outreach). A child registered in two rounds of the year counts once in the children card
-and twice in the registrations. The rows counted are those of Power BI's view ``vw_bridging_data`` for the
-period (from payload format 3, when Compiler could use the view; otherwise Compiler's own rule): the line
-under the key figures says which (:func:`neurodb.education.power_bi.note`). School filters (partner,
-governorate, school, school type, active during emergency) choose the schools; the registrations counted are
-those of the chosen schools (and of the partner chosen), and the child filters (CWD type, nationality, gender)
-apply to them only. The school-level figures (in-school children and CWD, type of schools, in-school
-nationality, teacher trainings, the map) are those of the schools that have registrations under the filters,
-as "Dirasa schools" counts them: a school listed only for its teachers is not one of them. The in-school
-figures are the numbers each school reports about its own children. Governorate is the school's for schools
-and the child's in the "Enrolment by governorate" chart. Outreach is Compiler's Kobo outreach, shared by every
-programme, with its own filters (year of the interview, partner and governorate as typed in the form), not
-from the view.
+format 4; never on Outreach); a round of another year whose registrations Power BI's view counts in the year
+is said apart in both, with its own year (:func:`in_year`). A child registered in two rounds of the year
+counts once in the children card and twice in the registrations. The rows counted are those of Power BI's view
+``vw_bridging_data`` for the period (from payload format 3, when Compiler could use the view; otherwise
+Compiler's own rule): the line under the key figures says which (:func:`neurodb.education.power_bi.note`).
+School filters (partner, governorate, school, school type, active during emergency) choose the schools; the
+registrations counted are those of the chosen schools (and of the partner chosen), and the child filters (CWD
+type, nationality, gender) apply to them only. The school-level figures (in-school children and CWD, type of
+schools, in-school nationality, teacher trainings, the map) are those of the schools that have registrations
+under the filters, as "Dirasa schools" counts them: a school listed only for its teachers is not one of them.
+The in-school figures are the numbers each school reports about its own children. Governorate is the school's
+for schools and the child's in the "Enrolment by governorate" chart. Outreach is Compiler's Kobo outreach,
+shared by every programme, with its own filters (year of the interview, partner and governorate as typed in
+the form), not from the view.
 
 The children card counts unique children by default (Power BI's card is below its nationality donut's total,
 which counts registrations: SPEC_PBI E19) and shows the registrations as a second line; the unique count
@@ -112,19 +113,46 @@ def _school_options(figures: Figures) -> list[tuple[str, str]]:
     return sorted(options, key=lambda option: option[1].casefold())
 
 
+def in_year(entry: dict[str, Any]) -> bool:
+    """Whether a round of the payload is a round of the year. In view mode Power BI's view decides which
+    registrations are in the year, so it may count some of a round of another year (or of no year): Compiler
+    then lists that round too, with its own ``year`` and ``"in_year": false`` (CONTRACT_PBI §9.5). A payload
+    without the key (format 4 before it) lists the rounds of the year only."""
+    return entry.get("in_year") is not False
+
+
+def _round_name(entry: dict[str, Any]) -> str:
+    return str(entry.get("name") or f"#{entry.get('id')}")
+
+
+def _round_year(entry: dict[str, Any]) -> str | None:
+    """A round's own Dirasa year as text (None: the round is in no year)."""
+    year = entry.get("year")
+    return str(year) if isinstance(year, int) and not isinstance(year, bool) else None
+
+
 def _round_options(figures: Figures) -> list[tuple[str, str]]:
-    """The payload's rounds that have registrations or teachers, in the payload's order (by Bridging start),
-    when the enrolment cube is by round (payload format 4); none otherwise."""
+    """The payload's rounds that have registrations or teachers, when the enrolment cube is by round (payload
+    format 4; none otherwise): the rounds of the year in the payload's order (by Bridging start), then the
+    rounds of another year whose registrations the view counted in this one, each named with its own year
+    ("Bridging 2025-2026 (round of 2025)"), never as a round of the year."""
     enrolment = figures.cube("enrolment")
     if "round" not in enrolment.dims:
         return []
     teachers = figures.cube("teachers")
     used = enrolment.distinct("round", "registrations") | teachers.distinct("round", "teachers")
-    return [
-        (str(r["id"]), str(r.get("name") or f"#{r['id']}"))
-        for r in figures.payload.get("rounds") or []
-        if isinstance(r, dict) and r.get("id") in used
-    ]
+    entries = [r for r in figures.payload.get("rounds") or [] if isinstance(r, dict) and r.get("id") in used]
+    others = []
+    for entry in entries:
+        if in_year(entry):
+            continue
+        year = _round_year(entry)
+        if year:
+            label = _("%(name)s (round of %(year)s)") % {"name": _round_name(entry), "year": year}
+        else:
+            label = _("%(name)s (round in no year)") % {"name": _round_name(entry)}
+        others.append((str(entry["id"]), label))
+    return [(str(r["id"]), _round_name(r)) for r in entries if in_year(r)] + others
 
 
 def options(figures: Figures) -> dict[str, list[tuple[str, str]]]:
@@ -415,10 +443,13 @@ def _date(text: Any) -> datetime.date | None:
 
 def rounds_line(figures: Figures) -> dict[str, Any] | None:
     """The rounds of the year, for the line under the title (payload format 4; None before): whether they are
-    the rounds Compiler marks current (setting ``current_rounds``) and, per round in the payload's order, its
-    name, Bridging start date, whether its year comes from its name, and its registrations (None when Compiler
-    could not count the enrolment cube: the line then gives no count). ``other``: the registrations counted
-    whose own round is not one of the year's, or that have none (view mode: the view's rows of the year may
+    the rounds Compiler marks current (setting ``current_rounds``) and, per round of the year in the
+    payload's order, its name, Bridging start date, whether its year comes from its name, and its
+    registrations (None when Compiler could not count the enrolment cube: the line then gives no count).
+    ``other_year``: the rounds of another year (or of no year) whose registrations Power BI's view counted in
+    this one (``"in_year": false``, :func:`in_year`), each with its id, name, own year (None: in no year) and
+    registrations, said apart on the line, never as rounds of the year. ``other``: the registrations counted
+    whose own round the payload does not list, or that have none (view mode: the view's rows of the year may
     hold them, CONTRACT_PBI §9.3), so that the line adds up to the registrations shown."""
     if (figures.payload.get("format") or 0) < power_bi.YEARLY_FORMAT:
         return None
@@ -429,16 +460,33 @@ def rounds_line(figures: Figures) -> dict[str, Any] | None:
     entries = [entry for entry in figures.payload.get("rounds") or [] if isinstance(entry, dict)]
     rounds = [
         {
-            "name": str(entry.get("name") or f"#{entry.get('id')}"),
+            "name": _round_name(entry),
             "start": _date(entry.get("start_date")),
             "from_name": entry.get("year_from") == "name",
             "registrations": counts.get(entry.get("id"), 0) if counted else None,
         }
         for entry in entries
+        if in_year(entry)
+    ]
+    other_year = [
+        {
+            "id": entry.get("id"),
+            "name": _round_name(entry),
+            "year": _round_year(entry),
+            "registrations": counts.get(entry.get("id"), 0) if counted else None,
+        }
+        for entry in entries
+        if not in_year(entry)
     ]
     listed = {entry.get("id") for entry in entries}
     other = sum(n for round_id, n in counts.items() if round_id not in listed) if counted else 0
-    return {"current": base.get("period_rule") == "current_rounds", "rounds": rounds, "other": other}
+    return {
+        "current": base.get("period_rule") == "current_rounds",
+        "rounds": rounds,
+        "other_year": other_year,
+        "other_in_no_year": any(r["year"] is None for r in other_year),  # the line says "or of no year"
+        "other": other,
+    }
 
 
 PAGE = Page(

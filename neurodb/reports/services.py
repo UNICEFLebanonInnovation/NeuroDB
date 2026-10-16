@@ -324,7 +324,8 @@ def data_health() -> dict[str, Any]:
         "activityinfo_archived": archived,
         # its scheduled job is still switched on: an archive does not stop the import, it still runs
         "activityinfo_import_on": state.schedule_on,
-        "power_bi": power_bi.summary(),
+        # with the registrations in rounds that belong to no year (Makani, Dirasa): why a figure may differ
+        "power_bi": power_bi.summary(with_no_year=True),
     }
 
 

@@ -106,7 +106,10 @@ def period_field(page: Page, kind: str) -> tuple[str, Any]:
 def year_of_round(programme: str, periods: Sequence[str], name: str) -> tuple[str, int] | None:
     """The stored period among ``periods`` (latest first) whose payload lists a round named ``name`` (an old
     link or question naming a Dirasa round, once Dirasa is shown by year), and that round's id; None when
-    none does. Reads the payloads' rounds only, in the database."""
+    none does. The year the round belongs to comes first: a later year may list it too, as a round of another
+    year whose registrations Power BI's view counts in that one (``"in_year": false``, CONTRACT_PBI §9.5),
+    which is chosen only when no stored year holds it as its own. Reads the payloads' rounds only, in the
+    database."""
     name = str(name or "").strip()
     if not name or not periods:
         return None
@@ -115,11 +118,17 @@ def year_of_round(programme: str, periods: Sequence[str], name: str) -> tuple[st
             programme=programme, year__in=list(periods), payload__rounds__contains=[{"name": name}]
         ).values_list("year", "payload__rounds")
     )
-    for period in periods:
-        for entry in rows.get(period) or []:
-            if isinstance(entry, dict) and entry.get("name") == name and isinstance(entry.get("id"), int):
-                return period, entry["id"]
-    return None
+    found = [
+        (period, entry)
+        for period in periods
+        for entry in rows.get(period) or []
+        if isinstance(entry, dict) and entry.get("name") == name and isinstance(entry.get("id"), int)
+    ]
+    if not found:
+        return None
+    own = [item for item in found if item[1].get("in_year") is not False]  # the year holding it as its own
+    period, entry = (own or found)[0]
+    return period, entry["id"]
 
 
 def record(programme: str, period: str) -> EducationFigures | None:

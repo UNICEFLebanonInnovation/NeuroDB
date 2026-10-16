@@ -177,11 +177,21 @@ registrations saved before September 2025 without a year.
 **Dirasa by year.** Like Power BI's page "Dirasa Programme Dashboard 2026", the Dirasa page shows a year:
 the Compiler rounds whose Bridging start date is in that year (a round without one counts in the year
 its name gives), or, if Compiler is set to count the rounds marked current, those rounds (the line under
-the title says which). That line lists the rounds and their registrations (when Compiler counted Power
-BI's view, it may add "other rounds or no round": registrations the view gives the year whose own round is
-another, or none); the **Round** filter shows one of the rounds that have registrations or teachers (a
-link to any other round shows the whole year and says so). A child registered in two rounds of the year
-counts once in *Children enrolled* and twice in the registrations.
+the title says which). That line lists the rounds and their registrations. When Compiler counted Power
+BI's view, the view may give the year some registrations of a round of another year: the line names such a
+round apart, after the year's own ("also counted, from rounds of another year: Bridging 2025-2026 (2025, 12
+registrations)"), never as a round of the year, and may add "other rounds or no round" for registrations
+whose round it does not list, or without one. The **Round** filter shows one of the rounds that have
+registrations or teachers, a round of another year after the year's own and with its year ("Bridging
+2025-2026 (round of 2025)": only its registrations counted in the year); a link to any other round shows
+the whole year and says so. A child registered in two rounds of the year counts once in *Children
+enrolled* and twice in the registrations.
+
+**Rounds in no year.** A Compiler round with neither a start date nor a year in its name (Makani: nor a
+year) belongs to no year, so its registrations are counted in none of the years shown, while Power BI's
+view may count them: **Data health → Compared with Power BI** says how many and in which rounds, under
+Makani's or Dirasa's table. Giving the round a start date in Compiler places it in a year at the next
+count.
 
 **Choosing a card's version** (administrators): open Administration → **Power BI cards**, open the card,
 type the number Power BI shows for it, choose its period in the list (the periods Data health compares: for

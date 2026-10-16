@@ -70,7 +70,8 @@ def _page(request: HttpRequest, page: services.Page) -> HttpResponse:
         context.update(services.page_data(stored, page, tab, params))
         if page.programme == "bridging" and param != "round" and not context.get("old_format"):
             shown = (context.get("filters") or {}, (context.get("data") or {}).get("errors") or [])
-            context["round_note"] = _round_note(stored, page, tab, params, shown, unlisted)
+            line = context.get("rounds_line")
+            context["round_note"] = _round_note(stored, page, tab, params, shown, unlisted, line)
     partial = request.htmx and request.htmx.target == RESULTS
     return render(request, "education/partials/results.html" if partial else "education/page.html", context)
 
@@ -82,13 +83,17 @@ def _round_note(
     params: QueryDict,
     shown: tuple[dict, list[str]],
     unlisted: str,
+    line: dict | None = None,
 ) -> str:
     """Why the Dirasa page (shown by year) shows every round of the year when a round was asked for: an old
     link names a round no year shown lists (``unlisted``), Compiler could not count the registrations (no
     round can be chosen), the round has no registration nor teacher in the year (it is no option of the
-    Round filter), or it is not a round of the year (kept from the year chosen before). "" when the round
-    asked for is shown, none was asked for, or the tab has no Round filter (Outreach: Compiler's Kobo
-    outreach has no round). ``shown``: the filters applied and the parts Compiler could not count."""
+    Round filter), or it is not a round of the year (kept from the year chosen before). When the round shown
+    is a round of another year (or of no year) whose registrations Power BI's view counts in this one
+    (``line``: :func:`neurodb.education.dirasa.rounds_line`, its ``other_year``), it says so: those are only
+    the registrations counted in this year. "" when a round of the year is shown, none was asked for, or the
+    tab has no Round filter (Outreach: Compiler's Kobo outreach has no round). ``shown``: the filters applied
+    and the parts Compiler could not count."""
     year = stored.year
     filters, errors = shown
     if unlisted:
@@ -96,8 +101,24 @@ def _round_note(
             "No year shown here lists the round “%(name)s”: the figures are those of every round of %(year)s."
         )
         return text % {"name": unlisted, "year": year}
+    if "round" in filters:
+        others = (line or {}).get("other_year") or []
+        other = next((r for r in others if r.get("id") == filters["round"]), None)
+        if other is None:
+            return ""
+        if other["year"]:
+            text = _(
+                "%(name)s is a round of %(round_year)s: shown here are only its registrations that Power "
+                "BI's view counts in %(year)s."
+            )
+            return text % {"name": other["name"], "round_year": other["year"], "year": year}
+        text = _(
+            "%(name)s is a round in no year: shown here are only its registrations that Power BI's view "
+            "counts in %(year)s."
+        )
+        return text % {"name": other["name"], "year": year}
     raw = params.get("round", "").strip()
-    if not raw or "round" in filters or not any(s.name == "round" for s in page.slicers_for(tab)):
+    if not raw or not any(s.name == "round" for s in page.slicers_for(tab)):
         return ""
     if "enrolment" in errors:
         text = _(

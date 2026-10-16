@@ -36,6 +36,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.translation import gettext_lazy as _
@@ -1113,10 +1114,40 @@ def _row(
     }
 
 
+def no_year(latest: dict[str, str]) -> dict[str, dict[str, Any]]:
+    """The rounds in no year that an education programme's current year leaves out (payload format 4,
+    CONTRACT_PBI §9.5: Makani's rounds without a year, a start date or a year in their name; Dirasa's
+    without a Bridging start date or a year in their name), from the payload of each programme's ``latest``
+    period (the one its page opens on: Compiler sends them in the current year's payload only): programme ->
+    ``{"period", "registrations", "rounds"}`` (the rounds' names), only where registrations are counted in
+    no year. Counts and round names only. One query, reading that key of one payload per programme in the
+    database (never a payload itself)."""
+    wanted = {
+        programme: str(period) for programme, period in latest.items() if programme in EDUCATION and period
+    }
+    if not wanted:
+        return {}
+    where = Q()
+    for programme, period in wanted.items():
+        where |= Q(programme=programme, year=period)
+    out: dict[str, dict[str, Any]] = {}
+    rows = EducationFigures.objects.filter(where).values_list("programme", "year", "payload__no_year")
+    for programme, period, value in rows:
+        registrations = _dict(value).get("registrations")
+        if wanted.get(programme) != period or _number(registrations) <= 0:
+            continue
+        rounds = [r for r in _list(_dict(value).get("rounds")) if isinstance(r, dict)]
+        names = [str(r.get("name") or f"#{r.get('id')}") for r in rounds]
+        out[programme] = {"period": period, "registrations": registrations, "rounds": names}
+    return out
+
+
 def health() -> list[dict[str, Any]]:
     """Data health's *Compared with Power BI*: per programme, its latest periods (at most
-    :data:`HEALTH_PERIODS`), each compared with Power BI's view. Four queries at most, whatever the number of
-    periods (the fourth orders Makani's and Dirasa's periods as their pages do); counts only."""
+    :data:`HEALTH_PERIODS`), each compared with Power BI's view, and the registrations of its rounds in no
+    year (``no_year``: :func:`no_year`, Makani and Dirasa). Five queries at most, whatever the number of
+    periods (the fourth orders Makani's and Dirasa's periods as their pages do, the fifth reads the rounds in
+    no year of their latest); counts only."""
     from django.urls import reverse
 
     checks = list(PowerBiCheck.objects.all())
@@ -1126,6 +1157,7 @@ def health() -> list[dict[str, Any]]:
     }
     typed = {(c.programme, c.card): c for c in PowerBiCard.objects.all()}
     stored = stored_periods({c.programme for c in checks})
+    unplaced = no_year({programme: listed[0] for programme, listed in stored.listed.items() if listed})
     out = []
     for programme, label, url_name in PROGRAMMES:
         mine = _latest(programme, checks, stored)
@@ -1138,18 +1170,26 @@ def health() -> list[dict[str, Any]]:
                 "checks": [
                     _row(c, views.get(c.view), typed, latest, _stale(c)) for c in mine[:HEALTH_PERIODS]
                 ],
+                "no_year": unplaced.get(programme),
             }
         )
     return out
 
 
-def summary() -> list[dict[str, Any]]:
+def summary(*, with_no_year: bool = False) -> list[dict[str, Any]]:
     """Per programme, its latest reporting period (not all years together) compared with Power BI's view, in
     a few words (counts only): for the assistant, the daily review and the internal API
     (``reports.services.data_health``). Its latest period is the one its page opens on
-    (:func:`latest_first`)."""
+    (:func:`latest_first`). ``with_no_year``: also say how many registrations are in rounds that belong to no
+    year, and which (``no_year``, :func:`no_year`; one more query), a reason a figure may differ from Power
+    BI's (Home's programmes line, which does not show it, leaves it out)."""
     checks = list(PowerBiCheck.objects.exclude(period=ALL))
     stored = stored_periods({c.programme for c in checks})
+    unplaced = (
+        no_year({programme: listed[0] for programme, listed in stored.listed.items() if listed})
+        if with_no_year
+        else {}
+    )
     out = []
     for programme, label, _url in PROGRAMMES:
         latest = next(iter(_latest(programme, checks, stored)), None)
@@ -1158,24 +1198,26 @@ def summary() -> list[dict[str, Any]]:
             continue
         totals = (latest.reconciliation or {}).get("totals") or {}
         view_ids, counted = totals.get("view_ids"), totals.get("counted")
-        out.append(
-            {
-                "programme": programme,
-                "label": str(label),
-                "compared": True,
-                "period": latest.period,
-                "view": latest.view,
-                "mode": latest.mode,
-                "reason": latest.reason,
-                "view_registrations": view_ids,
-                "counted": counted,
-                "difference": counted - view_ids
-                if isinstance(counted, int) and isinstance(view_ids, int)
-                else None,
-                "checked_at": latest.checked_at,
-                # the figures were counted later, without a comparison: this one is of an older count
-                "stale": _stale(latest),
-                "errors": len(latest.errors or []),
-            }
-        )
+        row = {
+            "programme": programme,
+            "label": str(label),
+            "compared": True,
+            "period": latest.period,
+            "view": latest.view,
+            "mode": latest.mode,
+            "reason": latest.reason,
+            "view_registrations": view_ids,
+            "counted": counted,
+            "difference": counted - view_ids
+            if isinstance(counted, int) and isinstance(view_ids, int)
+            else None,
+            "checked_at": latest.checked_at,
+            # the figures were counted later, without a comparison: this one is of an older count
+            "stale": _stale(latest),
+            "errors": len(latest.errors or []),
+        }
+        if with_no_year:
+            # registrations in rounds that belong to no year (Makani, Dirasa): counted in no year at all
+            row["no_year"] = unplaced.get(programme)
+        out.append(row)
     return out

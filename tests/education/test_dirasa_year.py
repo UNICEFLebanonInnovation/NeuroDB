@@ -288,7 +288,7 @@ def test_data_health_compares_dirasa_years(client, admin_user, django_assert_max
     store(year_payload("2025", block=power_bi_block("bridging", "2025", year_rounds=ROUNDS_2025, current=False)),
           fetched_at=LATER)  # fmt: skip
     assert PowerBiCheck.objects.filter(programme="bridging").count() == 3
-    with django_assert_max_num_queries(4):
+    with django_assert_max_num_queries(5):  # the fifth: the rounds in no year of the latest periods
         rows = power_bi.health()
     dirasa = next(p for p in rows if p["programme"] == "bridging")["checks"]
     assert [c["period"] for c in dirasa] == ["2026", "2025"]  # no old round
@@ -662,3 +662,174 @@ def test_data_health_names_the_rounds_of_a_related_view(client, admin_user):
         "vw_teacher_data</span>: 32 (Bridging Round 2 2026) / 1 / 1 · 31 (Bridging Round 1 2026) / 4 / 4 · 77 / 2 / 2 "
         '<span class="text-muted">(round_id / rows, ids; this period\'s rounds only)' in html
     )
+
+
+# ------------------------------------- Compiler's review fixes: rounds of another year (in_year), rounds in no year
+# In view mode the view decides which registrations are in the year: Compiler lists the round of another year (or of
+# no year) some of whose registrations it counted in the year, with its own year and "in_year": false; and the current
+# year's payload says how many registrations are in rounds that belong to no year (no_year, CONTRACT_PBI §9.5).
+# Bridging 2025-2026 (id 9), listed in 2026 for two of its registrations
+OF_2025 = dict(ROUNDS_2025[0], in_year=False)
+NO_YEAR_ROUND = {"id": 35, "name": "Summer catch-up", "start_date": None, "end_date": None, "current": False,
+                 "current_year": False, "year": None, "year_from": None}  # fmt: skip
+OTHER = {"child": 17, "school": 300, "partner": 7, "governorate": 20, "sex": "Male", "nationality": 1,
+         "disability": 1}  # fmt: skip
+
+
+def other_year_payload(*, in_year=True):
+    """2026 counted from the view: its two rounds (in_year true), two registrations of 2025's round, one of a
+    round in no year and one without a round. ``in_year=False``: the same payload without the key (format 4
+    before Compiler's review), every round listed as a round of the year."""
+    regs = [*YEAR_REGISTRATIONS, dict(OTHER, round=9), dict(OTHER, child=18, round=9),
+            dict(OTHER, child=19, round=35), dict(OTHER, child=20, round=None)]  # fmt: skip
+    rounds = [OF_2025, *[dict(r, in_year=True) for r in ROUNDS_2026], dict(NO_YEAR_ROUND, in_year=False)]
+    if not in_year:
+        rounds = [{k: v for k, v in r.items() if k != "in_year"} for r in rounds]
+    return dirasa_year_payload(regs, YEAR_TEACHERS, OUTREACH, rounds=rounds)
+
+
+def test_the_rounds_of_another_year_are_said_apart_on_the_line_and_in_the_round_slicer(client_viewer):
+    store(other_year_payload())
+    response = page(client_viewer)
+    assert response.context["data"]["cards"]["children"]["registrations"] == 11
+    # the year's rounds, then those of another year (or of none) with their own year, then no round: 5+2+2+1+1
+    assert rounds_text(response) == (
+        "Rounds: Bridging Round 1 2026 (from 12 Jan 2026, 5 registrations), "
+        "Bridging Round 2 2026 (from 1 Sep 2026, 2 registrations); also counted, from rounds of another year or "
+        "of no year: Bridging 2025-2026 (2025, 2 registrations), Summer catch-up (in no year, 1 registration); "
+        "other rounds or no round (1 registration)."
+    )
+    assert slicers(response)["round"]["options"] == [
+        (str(R1), "Bridging Round 1 2026"),
+        (str(R2), "Bridging Round 2 2026"),
+        ("9", "Bridging 2025-2026 (round of 2025)"),
+        ("35", "Summer catch-up (round in no year)"),
+    ]
+    # chosen: only its registrations counted in 2026, and the page says what they are
+    chosen = page(client_viewer, round="9")
+    assert chosen.context["filters"] == {"round": 9}
+    assert chosen.context["data"]["cards"]["children"]["registrations"] == 2
+    assert _caveats(chosen) == [
+        "Bridging 2025-2026 is a round of 2025: shown here are only its registrations that Power BI's view counts "
+        "in 2026."
+    ]
+    assert _caveats(page(client_viewer, round="35")) == [
+        "Summer catch-up is a round in no year: shown here are only its registrations that Power BI's view counts "
+        "in 2026."
+    ]
+    assert _caveats(page(client_viewer, round=str(R2))) == []  # a round of the year: nothing to say
+    # a round of another year alone: "another year" only, without "or of no year"
+    from neurodb.education import dirasa
+
+    payload = dirasa_year_payload([*YEAR_REGISTRATIONS, dict(OTHER, round=9)], rounds=[OF_2025, *ROUNDS_2026])
+    text = " ".join(render_to_string("education/_rounds_line.html",
+                                     {"line": dirasa.rounds_line(Figures(payload))}).split())  # fmt: skip
+    assert html_lib.unescape(text).endswith(
+        "(from 1 Sep 2026, 2 registrations); also counted, from rounds of another year: Bridging 2025-2026 "
+        "(2025, 1 registration).</p>"
+    )
+    payload["cubes"]["enrolment"] = {"error": "QueryCanceled"}  # not counted: names and years only
+    text = " ".join(render_to_string("education/_rounds_line.html",
+                                     {"line": dirasa.rounds_line(Figures(payload))}).split())  # fmt: skip
+    assert html_lib.unescape(text).endswith(
+        "also counted, from rounds of another year: Bridging 2025-2026 (2025).</p>"
+    )
+
+
+def test_a_payload_without_in_year_lists_every_round_as_before(client_viewer):
+    store(other_year_payload(in_year=False))
+    response = page(client_viewer)
+    assert rounds_text(response) == (
+        "Rounds: Bridging 2025-2026 (from 1 Oct 2025, 2 registrations), Bridging Round 1 2026 (from 12 Jan 2026, 5 "
+        "registrations), Bridging Round 2 2026 (from 1 Sep 2026, 2 registrations), Summer catch-up (no Bridging "
+        "start date, 1 registration), other rounds or no round (1 registration)."
+    )
+    assert slicers(response)["round"]["options"] == [
+        ("9", "Bridging 2025-2026"),
+        (str(R1), "Bridging Round 1 2026"),
+        (str(R2), "Bridging Round 2 2026"),
+        ("35", "Summer catch-up"),
+    ]
+    assert _caveats(page(client_viewer, round="9")) == []
+
+
+def test_an_old_link_and_ask_open_the_year_a_round_belongs_to_not_one_counting_some_of_it(client_viewer):
+    from neurodb.assistant.hub_tools import education_figures
+
+    store(year_payload("2025"), fetched_at=EARLY)
+    store(other_year_payload(), fetched_at=LATER)
+    linked = page(client_viewer, round=OLD_ROUND)  # 2026 lists it too, as a round of 2025
+    assert linked.context["period"] == "2025" and slicers(linked)["round"]["selected"] == "9"
+    assert services.year_of_round("bridging", ["2026", "2025"], OLD_ROUND) == ("2025", 9)
+    # only listed as a round of another year (its own year not stored): the year counting some of it
+    assert services.year_of_round("bridging", ["2026"], OLD_ROUND) == ("2026", 9)
+    answer = education_figures("dirasa")
+    assert answer["rounds"] == ["Bridging Round 1 2026", "Bridging Round 2 2026"]
+    assert answer["rounds_of_other_years"] == [
+        {"name": OLD_ROUND, "year": "2025"},
+        {"name": "Summer catch-up", "year": None},
+    ]
+    assert answer["round_note"] is None
+    assert education_figures("dirasa", period=OLD_ROUND)["period"] == "2025"
+    # in 2026, the year shown: only what 2026 counts of it
+    chosen = education_figures("dirasa", round=OLD_ROUND)
+    assert (chosen["period"], chosen["round"]) == ("2026", OLD_ROUND)
+    assert chosen["round_note"] == (
+        "Bridging 2025-2026 is a round of 2025: the figures are only its registrations that Power BI's view counts "
+        "in 2026."
+    )
+    with pytest.raises(ToolInputError, match="also counted, from rounds of another year: Bridging 2025-2026 "
+                                             r"\(2025\), Summer catch-up \(no year\)"):  # fmt: skip
+        education_figures("dirasa", round="Round 7")
+
+
+def with_no_year(payload, registrations, *names):
+    rounds = [dict(NO_YEAR_ROUND, id=35 + i, name=name, in_year=False) for i, name in enumerate(names)]
+    return {**payload, "no_year": {"registrations": registrations, "rounds": rounds}}
+
+
+def test_data_health_and_the_summary_say_how_many_registrations_are_in_rounds_of_no_year(
+    client, admin_user, django_assert_max_num_queries
+):
+    from .payloads import makani_payload
+    from .test_dashboards import REGISTRATIONS, STAFF
+
+    store(with_no_year(year_payload(), 3, "Summer catch-up", "Autumn catch-up"), fetched_at=LATER)
+    # a past year's payload, counted when it was the current year: not the current year's any more, never shown
+    store(with_no_year(year_payload("2025"), 4, "Winter catch-up"), fetched_at=LATER)
+    makani = format_three(makani_payload(REGISTRATIONS, STAFF, year="2026"))
+    store({**with_no_year(makani, 1, "Round without a year"), "format": 4})
+    with django_assert_max_num_queries(5):
+        rows = {p["programme"]: p for p in power_bi.health()}
+    assert rows["bridging"]["no_year"] == {
+        "period": "2026",
+        "registrations": 3,
+        "rounds": ["Summer catch-up", "Autumn catch-up"],
+    }
+    assert rows["youth"]["no_year"] is None
+    client.force_login(admin_user)
+    html = " ".join(html_lib.unescape(_health(client)).split())
+    assert (
+        "3 registrations are in rounds that belong to no year (no Bridging start date and no year in the name): "
+        "Summer catch-up, Autumn catch-up. They are counted in no year." in html
+    )
+    assert (
+        "1 registration is in a round that belongs to no year (no year set in Compiler, no start date and no year "
+        "in the name): Round without a year. It is counted in no year." in html
+    )
+    assert "Winter catch-up" not in html
+    # the summary Ask reads (data_health): the same counts and names; Home's line does not read them
+    from neurodb.assistant.tools import data_freshness
+
+    compared = {r["label"]: r for r in data_freshness()["compared_with_power_bi"]}
+    assert compared["Dirasa (Bridging)"]["no_year"]["registrations"] == 3
+    assert compared["Makani (MSCC)"]["no_year"]["rounds"] == ["Round without a year"]
+    assert "no_year" not in power_bi.summary()[1]
+    # none in no year (or a payload without the key): nothing said
+    EducationFigures.objects.filter(programme="bridging", year="2026").update(
+        payload=with_no_year(year_payload(), 0)
+    )
+    assert power_bi.health()[1]["no_year"] is None
+    EducationFigures.objects.filter(programme="mscc").update(payload=makani)
+    assert power_bi.no_year({"mscc": "2026", "bridging": "2026"}) == {}
+    assert "belongs to no year" not in _health(client) and "belong to no year" not in _health(client)

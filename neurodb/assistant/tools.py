@@ -1623,7 +1623,10 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
     "data_freshness": (
         data_freshness,
         "When each data source (ActivityInfo, eTools, locations, population) last synced and how fresh "
-        "each database's import is. Use when asked how up to date the data is.",
+        "each database's import is; per Compiler programme, whether its figures were counted from Power "
+        "BI's view and, for Makani and Dirasa, the registrations in rounds that belong to no year (no_year: "
+        "counted in no year, a reason a figure may differ from Power BI's). Use when asked how up to date "
+        "the data is.",
         _schema({}),
         "Checking data freshness",
     ),

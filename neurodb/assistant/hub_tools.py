@@ -304,11 +304,25 @@ def education_figures(
             EducationFigures.objects.filter(pk=stored.pk).values_list("payload__rounds", flat=True).first()
         )
         rounds = [r for r in listed or [] if isinstance(r, dict) and "id" in r]
+    # a round of another year (or of no year) whose registrations Power BI's view counts in this one is listed
+    # apart, never as a round of the year (CONTRACT_PBI §9.5)
+    own = [str(r.get("name")) for r in rounds if dirasa.in_year(r)]
+    others = {  # id -> the round's name and own year (None: in no year)
+        r["id"]: {
+            "name": str(r.get("name")),
+            "year": str(r["year"]) if isinstance(r.get("year"), int) else None,
+        }
+        for r in rounds
+        if not dirasa.in_year(r)
+    }
     params = QueryDict(mutable=True)
     if wanted_round:
         match = [r for r in rounds if str(r["id"]) == wanted_round or str(r.get("name")) == wanted_round]
         if not match:
-            names = ", ".join(str(r.get("name")) for r in rounds) or "none"
+            names = ", ".join(own) or "none"
+            if others:
+                also = ", ".join(f"{o['name']} ({o['year'] or 'no year'})" for o in others.values())
+                names += f"; also counted, from rounds of another year: {also}"
             raise ToolInputError(
                 f"No round '{wanted_round}' in Dirasa {stored.year}: its rounds are {names}."
             )
@@ -335,8 +349,11 @@ def education_figures(
                 "programme": str(page.name),
                 "period": stored.year,
                 "periods": periods,
-                "rounds": [str(r.get("name")) for r in rounds] if by_year else None,
+                "rounds": own if by_year else None,
+                # counted in this year by Power BI's view although of another year (year None: of no year)
+                "rounds_of_other_years": list(others.values()) if by_year else None,
                 "round": next((str(r.get("name")) for r in rounds if r["id"] == applied), None),
+                "round_note": _other_year_round(others.get(applied), stored.year),
                 "tab": tab,
                 "tabs": [key for key, _label in page.tabs],
                 "figures": result.get("data", {}),
@@ -344,6 +361,18 @@ def education_figures(
                 "url": reverse(page.url_name),
             }
         )
+    )
+
+
+def _other_year_round(entry: dict[str, Any] | None, year: str) -> str | None:
+    """What the figures of a Dirasa round of another year (or of no year) are, when one is chosen: only its
+    registrations Power BI's view counts in ``year``; None for a round of the year, or no round."""
+    if entry is None:
+        return None
+    of = f"a round of {entry['year']}" if entry["year"] else "a round in no year"
+    return (
+        f"{entry['name']} is {of}: the figures are only its registrations that Power BI's view counts in "
+        f"{year}."
     )
 
 

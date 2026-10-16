@@ -4,7 +4,9 @@ what NeuroDB counted, the difference and its reasons, what NeuroDB counted befor
 the reasons, the rounds or years of the view (Dirasa counted per year, payload format 4: how the year's rounds were
 chosen, and each round's year, "in no year" for a round with neither a Bridging start date nor a year in its name),
 the key check, the related views and the cards (every version's value,
-the number Power BI shows when an administrator typed it, which versions equal it, the one in use). When the view's
+the number Power BI shows when an administrator typed it, which versions equal it, the one in use). Under the table,
+Makani's and Dirasa's registrations in rounds that belong to no year (Compiler's payload format 4, current year only:
+counts and round names), counted in no year, a reason a figure may differ from Power BI's. When the view's
 rows were not read (rule mode), nothing is said to be in the view or not: "not compared"; when they were read but the
 comparison failed (an error), it says so instead of "the view was not read". A comparison older than the
 figures kept (a later payload had none) says so. Counts only: no
@@ -26,6 +28,7 @@ Context: programmes = neurodb.education.power_bi.health().{% endcomment %}
       <td class="small text-nowrap">{{ c.counted_at|date:"j M Y H:i"|default:"—" }}{% if c.stale %}<span class="cell-sub text-danger">{% trans "not compared in the latest count" %}</span>{% endif %}{% if c.errors %}<span class="cell-sub text-danger">{% blocktrans count n=c.errors|length %}{{ n }} part not compared{% plural %}{{ n }} parts not compared{% endblocktrans %}</span>{% endif %}</td>
     </tr>{% endfor %}</tbody>
   </table></div>
+  {% if p.no_year %}{% with n=p.no_year.registrations shown=p.no_year.registrations|number names=p.no_year.rounds|join:", " %}<p class="small mt-2 mb-1" data-no-year>{% if p.programme == "bridging" %}{% blocktrans count n=n %}{{ shown }} registration is in a round that belongs to no year (no Bridging start date and no year in the name): {{ names }}. It is counted in no year.{% plural %}{{ shown }} registrations are in rounds that belong to no year (no Bridging start date and no year in the name): {{ names }}. They are counted in no year.{% endblocktrans %}{% else %}{% blocktrans count n=n %}{{ shown }} registration is in a round that belongs to no year (no year set in Compiler, no start date and no year in the name): {{ names }}. It is counted in no year.{% plural %}{{ shown }} registrations are in rounds that belong to no year (no year set in Compiler, no start date and no year in the name): {{ names }}. They are counted in no year.{% endblocktrans %}{% endif %}</p>{% endwith %}{% endif %}
   {% for c in p.checks %}
   <details class="py-2 power-bi-details" id="power-bi-{{ p.programme }}-{{ forloop.counter }}">
     <summary class="small">{% if c.every_year %}{% blocktrans %}Details: all years{% endblocktrans %}{% else %}{% blocktrans with period=c.period %}Details: {{ period }}{% endblocktrans %}{% endif %}{% for card in c.cards %}{% if card.none_equal %} · <span class="text-danger">{% blocktrans with card=card.label %}no version of “{{ card }}” gives Power BI's number{% endblocktrans %}</span>{% endif %}{% endfor %}</summary>

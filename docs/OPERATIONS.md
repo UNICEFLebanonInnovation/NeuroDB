@@ -4389,9 +4389,9 @@ the Compiler programme document's project code for links to be suggested.
    (`?year=all`, kept apart from the years in a table of its own, `YouthAllYears`, so that it never counts
    as the latest year, even for an earlier NeuroDB after a rollback; it has no targets and no eTools links). A run whose all-years figures could not be read ends *partial*; an older Compiler,
    which has none, is not an error.
-4. **Power BI's view** `vw_youth_data_all`: the database grant, the deployment order (Compiler first), the
-   two jobs to switch on and the way back are those of *Education programmes* → *Setting it up* (steps
-   4-6), and so is Data health's *Compared with Power BI*.
+4. **Power BI's view** `vw_youth_data_all`: the database grant, the deployment order (NeuroDB first, or
+   together, then Compiler), the two jobs to switch on and the way back are those of *Education programmes*
+   → *Setting it up* (steps 4-6), and so is Data health's *Compared with Power BI*.
 
 ## Education programmes (`/education/makani/`, `/education/dirasa/`, Makani and Bridging from Compiler)
 
@@ -4513,7 +4513,9 @@ raw text).
   comparison failed, e.g. a timeout, "not compared: the comparison could not be made (see the errors)"),
   what NeuroDB counted before this change and
   why it differed
-  (TLS, without a round, of another year, without a year...), Compiler's count time; and per period the
+  (TLS, without a round, of another year, without a year...), Compiler's count time; under Makani's and
+  Dirasa's table, the registrations of the current year's payload in rounds that belong to no year (*Rounds
+  in no year*, *Dirasa by year* below); and per period the
   reasons table, the view's rows per round (or year), the key check as percentages, the related views'
   rows (`vw_teacher_data` counted for the period's rounds only, since it holds the teachers of every CLM
   round, each round's id followed by its name; a list Compiler cut at 50 groups says so, and the version counted from it is then not available)
@@ -4597,20 +4599,37 @@ start date is in the year (a round without one, the first four-digit year in its
 is in no year, and Data health lists it "in no year"); with its setting `FIGURES_POWER_BI['bridging']['period']
 = 'current_rounds'`, the current year counts instead the Bridging rounds flagged current, as Compiler's own
 Bridging list. A child counts once per year however many rounds of the year it is registered in; the
-registrations add up over the rounds; a Round slicer still shows one round. *Deployment*: Compiler first
-(branch `neurodb-power-bi-views`, which now holds `Neuro`), then NeuroDB; until NeuroDB is updated its
-Dirasa select mixes the old rounds and the years, labelled "Round" (each year's figures are right). No
-migration on either side. The first run counts again every year NeuroDB reads (`COMPILER_EDUCATION_YEARS`).
+registrations add up over the rounds; a Round slicer still shows one round. *Deployment*: NeuroDB first (or
+together), then Compiler (branch `neurodb-power-bi-views`, which now holds `Neuro`): a NeuroDB deployed first
+reads Compiler's per-round counts as before until Compiler follows, whereas an older NeuroDB keeps showing the
+last per-round Dirasa row it read, never counted again, once Compiler counts by year (its Dirasa select mixes
+that round and the years, labelled "Round", and the page, Home, the summary and Ask may open on that round
+until NeuroDB is updated). No migration on either side. The first run counts again every year NeuroDB reads (`COMPILER_EDUCATION_YEARS`).
 The older per-round figures are kept and hidden as soon as a per-year count is the latest read (they come
 back if Compiler goes back to format 3); an old link naming a round (`?round=Bridging 2025-2026`) opens the
 year holding it with that round chosen. A round the page cannot show (no stored year lists it, it has no
 registration nor teacher in the year, or it is a round of another year kept from the year chosen before)
 opens the whole year and the page says so; Ask answers such a round with an error, never with the year's
-figures. The line under the title adds "other rounds or no round (N registrations)" when Compiler counted
-Power BI's view and the view gives the year registrations whose own round is of another year or missing
-(CONTRACT_PBI §9.3), and gives no count when Compiler could not count the registrations. Makani's and
-Dirasa's years are listed newest first by their number, whatever their rounds' start dates (a round's start
-date may be empty). Power BI numbers typed for a round must be typed again for the year
+figures. When Compiler counted Power BI's view, the view decides which registrations are in the year, so it
+may count some registrations of a round of another year (or of no year): Compiler then lists that round too,
+with its own year and `"in_year": false` (CONTRACT_PBI §9.5), and NeuroDB says it apart, never as a round of
+the year. The line under the title ends with "also counted, from rounds of another year: Bridging 2025-2026
+(2025, N registrations)" ("in no year" for a round with neither a Bridging start date nor a year in its
+name), the Round slicer lists it after the year's rounds as "Bridging 2025-2026 (round of 2025)" (chosen, the
+page says that only its registrations the view counts in the year are shown), and an old link naming it
+opens its own year when NeuroDB holds it. The line then adds "other rounds or no round (N registrations)"
+for registrations whose round the payload does not list, or that have none, so that it adds up to the
+registrations shown, and gives no count when Compiler could not count the registrations. A payload without
+`in_year` (format 4 before Compiler's review) lists every round as a round of the year, as before.
+*Rounds in no year*: a round with neither a Bridging start date nor a year in its name (Makani: neither a year
+nor a start date nor a year in its name) belongs to no year, so its registrations are counted in no year,
+while Power BI's view may count them. Compiler says how many in the current year's payload (`no_year`), and
+Data health → *Compared with Power BI* says so under Makani's or Dirasa's table: "N registrations are in
+rounds that belong to no year (no Bridging start date and no year in the name): <round names>. They are
+counted in no year." (counts and round names only; Ask's data freshness answer carries the same, `no_year`).
+Giving such a round a Bridging start date (Makani: a year) in Compiler places it in a year at the next
+count. Makani's and Dirasa's years are listed newest first by their number, whatever their rounds' start
+dates (a round's start date may be empty). Power BI numbers typed for a round must be typed again for the year
 (the card admin says "no such period: choose one"). Country-programme links to a round keep their value;
 new links name a year ("Dirasa 2026 — children enrolled").
 
@@ -4656,14 +4675,19 @@ new links name a year ("Dirasa 2026 — children enrolled").
       (it needs no grant), or also give the default privileges of the role that creates them, once:
       `ALTER DEFAULT PRIVILEGES FOR ROLE <creator> IN SCHEMA public GRANT SELECT ON TABLES TO <role>;`,
       and after re-creating a view by hand, look at Data health the next morning.
-   2. *Compiler first*: deploy `neurodb-power-bi-views` (production also runs the Makani wellbeing work,
-      `makani-wellbeing-flags`; both are on `local`). Nothing else is needed: the next count is in the new
-      formats. The NeuroDB already running keeps working: it reads only the keys it knows, youth is not in
-      the education index, and the youth API still answers a year on the spot.
-   3. *NeuroDB second*: deploy (migrations `education.0002_power_bi`: three new, empty tables;
-      `education.0003_power_bi_figures_counted_at`: one empty column; `youth.0002_youth_all_years`: the
-      youth figures of all years together in a new table of their own; each applied in a moment). NeuroDB reads both payload formats, so the order matters only in that a NeuroDB deployed
-      first shows "Not yet compared with Power BI's view" until Compiler follows.
+   2. *NeuroDB first* (or together with Compiler): deploy (migrations `education.0002_power_bi`: three new,
+      empty tables; `education.0003_power_bi_figures_counted_at`: one empty column;
+      `youth.0002_youth_all_years`: the youth figures of all years together in a new table of their own;
+      each applied in a moment). NeuroDB reads payload formats 2, 3 and 4, so until Compiler follows it
+      shows the figures as before (from a Compiler without the comparison: "Not yet compared with Power
+      BI's view").
+   3. *Then Compiler*: deploy `neurodb-power-bi-views` (which now holds `Neuro`; production also runs the
+      Makani wellbeing work, `makani-wellbeing-flags`; both are on `local`). Nothing else is needed: the
+      next count is in the new formats. Not the other way round: from payload format 4 Compiler counts
+      Dirasa by year, and a NeuroDB that reads only formats 2 and 3 keeps showing the last per-round Dirasa
+      row it read, never counted again, until it is updated (*Dirasa by year* above). Makani and youth would
+      not mind the order: an older NeuroDB reads only the keys it knows, youth is not in the education
+      index, and the youth API still answers a year on the spot.
    4. *Jobs*: in Admin → *Scheduled jobs*, make sure `compiler-education` (02:30) and `compiler-youth`
       (21:00) are switched on (both are off when NeuroDB is first deployed), then press *Run now* on both,
       or wait for the night. Pressing both at once is fine: the second waits for the first count, then
